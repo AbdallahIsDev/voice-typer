@@ -124,50 +124,11 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return {
-		// Icons used by About.tsx + Settings.tsx (and transitive children).
-		// NOTE: AlertCircleIcon + Settings03Icon are used by
-		// KeyboardPermissionBanner (mounted on Settings); the banner
-		// renders whenever the onboarding_check_permissions probe returns
-		// a non-granted result, so these must stay in the mock or the
-		// Settings page crashes on mount.
-		Alert02Icon: make("Alert02Icon"),
-		AlertCircleIcon: make("AlertCircleIcon"),
-		ArrowDown01Icon: make("ArrowDown01Icon"),
-		ArrowTurnBackwardIcon: make("ArrowTurnBackwardIcon"),
-		ArrowUp01Icon: make("ArrowUp01Icon"),
-		Book02Icon: make("Book02Icon"),
-		Bug02Icon: make("Bug02Icon"),
-		Cancel01Icon: make("Cancel01Icon"),
-		CheckmarkCircle01Icon: make("CheckmarkCircle01Icon"),
-		Delete01Icon: make("Delete01Icon"),
-		Delete02Icon: make("Delete02Icon"),
-		Download01Icon: make("Download01Icon"),
-		File02Icon: make("File02Icon"),
-		Folder02Icon: make("Folder02Icon"),
-		InformationCircleIcon: make("InformationCircleIcon"),
-		KeyboardIcon: make("KeyboardIcon"),
-		ModernTvIcon: make("ModernTvIcon"),
-		Moon02Icon: make("Moon02Icon"),
-		PauseIcon: make("PauseIcon"),
-		PlayIcon: make("PlayIcon"),
-		RefreshIcon: make("RefreshIcon"),
-		Search01Icon: make("Search01Icon"),
-		Settings03Icon: make("Settings03Icon"),
-		Shield01Icon: make("Shield01Icon"),
-		// Used by TroubleshootingSettingsSection (Settings → Privacy
-		// tab) for the macOS/Linux reset buttons — the mock must export
-		// it or vitest's named-import validation crashes the Settings
-		// page mount.
-		ShieldBanIcon: make("ShieldBanIcon"),
-		SparklesIcon: make("SparklesIcon"),
-		Sun01Icon: make("Sun01Icon"),
-		Tick02Icon: make("Tick02Icon"),
-		UnfoldMoreIcon: make("UnfoldMoreIcon"),
-		ZapIcon: make("ZapIcon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 vi.mock("sonner", () => ({

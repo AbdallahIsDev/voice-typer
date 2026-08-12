@@ -32,9 +32,11 @@ vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: () => <span data-testid="hugeicon" />,
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return { InformationCircleIcon: make("InformationCircleIcon") };
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 vi.mock("sonner", () => ({

@@ -268,68 +268,11 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-// Stub every icon used by the new page render graphs (Home, Settings,
-// Models, Microphone, Dashboard + their transitive Settings sections).
-// Each icon is a tagged `{ name }` object so the HugeiconsIcon mock can
-// surface which icon was rendered via data-name.  Vitest's vi.mock
-// requires named exports to be declared explicitly, so we enumerate the
-// full set consumed by the page render graphs.
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return {
-		Activity03Icon: make("Activity03Icon"),
-		Add01Icon: make("Add01Icon"),
-		AiBrain03Icon: make("AiBrain03Icon"),
-		Alert02Icon: make("Alert02Icon"),
-		AlertCircleIcon: make("AlertCircleIcon"),
-		ArrowDown01Icon: make("ArrowDown01Icon"),
-		ArrowRight01Icon: make("ArrowRight01Icon"),
-		ArrowUp01Icon: make("ArrowUp01Icon"),
-		Book02Icon: make("Book02Icon"),
-		BookOpen02Icon: make("BookOpen02Icon"),
-		Bug02Icon: make("Bug02Icon"),
-		Calendar01Icon: make("Calendar01Icon"),
-		Cancel01Icon: make("Cancel01Icon"),
-		CheckmarkCircle01Icon: make("CheckmarkCircle01Icon"),
-		CheckmarkCircle02Icon: make("CheckmarkCircle02Icon"),
-		ClipboardPasteIcon: make("ClipboardPasteIcon"),
-		Copy01Icon: make("Copy01Icon"),
-		CustomActionIcon: make("CustomActionIcon"),
-		Delete01Icon: make("Delete01Icon"),
-		Download01Icon: make("Download01Icon"),
-		File02Icon: make("File02Icon"),
-		FilterIcon: make("FilterIcon"),
-		Folder02Icon: make("Folder02Icon"),
-		HistoryIcon: make("HistoryIcon"),
-		InformationCircleIcon: make("InformationCircleIcon"),
-		KeyboardIcon: make("KeyboardIcon"),
-		LayoutGridIcon: make("LayoutGridIcon"),
-		Loading03Icon: make("Loading03Icon"),
-		LockKeyIcon: make("LockKeyIcon"),
-		Mic02Icon: make("Mic02Icon"),
-		MicOff01Icon: make("MicOff01Icon"),
-		ModernTvIcon: make("ModernTvIcon"),
-		Moon02Icon: make("Moon02Icon"),
-		MultiplicationSignCircleIcon: make("MultiplicationSignCircleIcon"),
-		PauseIcon: make("PauseIcon"),
-		PencilEdit02Icon: make("PencilEdit02Icon"),
-		PlayIcon: make("PlayIcon"),
-		RefreshIcon: make("RefreshIcon"),
-		Search01Icon: make("Search01Icon"),
-		Settings03Icon: make("Settings03Icon"),
-		Share08Icon: make("Share08Icon"),
-		Shield01Icon: make("Shield01Icon"),
-		SparklesIcon: make("SparklesIcon"),
-		SpeechToTextIcon: make("SpeechToTextIcon"),
-		StarIcon: make("StarIcon"),
-		StopIcon: make("StopIcon"),
-		Sun01Icon: make("Sun01Icon"),
-		TextIcon: make("TextIcon"),
-		Tick02Icon: make("Tick02Icon"),
-		Time02Icon: make("Time02Icon"),
-		Undo02Icon: make("Undo02Icon"),
-		UnfoldMoreIcon: make("UnfoldMoreIcon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 vi.mock("sonner", () => ({

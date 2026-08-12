@@ -79,30 +79,11 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return {
-		// History.tsx + transitive components (SearchField, ExportFormatMenu,
-		// EmptyState, Spinner, Select, ActivityList, LastUpdatedIndicator).
-		Add01Icon: make("Add01Icon"),
-		Alert02Icon: make("Alert02Icon"),
-		AlertCircleIcon: make("AlertCircleIcon"),
-		ArrowDown01Icon: make("ArrowDown01Icon"),
-		ArrowUp01Icon: make("ArrowUp01Icon"),
-		Cancel01Icon: make("Cancel01Icon"),
-		Copy01Icon: make("Copy01Icon"),
-		Delete01Icon: make("Delete01Icon"),
-		Download01Icon: make("Download01Icon"),
-		HistoryIcon: make("HistoryIcon"),
-		Mic02Icon: make("Mic02Icon"),
-		RefreshIcon: make("RefreshIcon"),
-		Search01Icon: make("Search01Icon"),
-		StarIcon: make("StarIcon"),
-		TextIcon: make("TextIcon"),
-		Tick02Icon: make("Tick02Icon"),
-		Time02Icon: make("Time02Icon"),
-		UnfoldMoreIcon: make("UnfoldMoreIcon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 vi.mock("sonner", () => ({

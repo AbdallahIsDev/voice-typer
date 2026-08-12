@@ -64,24 +64,11 @@ vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: () => <span data-testid="hugeicon" />,
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return new Proxy(
-		{
-			ArrowDown01Icon: make("ArrowDown01Icon"),
-			ArrowUp01Icon: make("ArrowUp01Icon"),
-			UnfoldMoreIcon: make("UnfoldMoreIcon"),
-			Tick02Icon: make("Tick02Icon"),
-		},
-		{
-			get(target, prop: string) {
-				if (prop in target) {
-					return (target as Record<string, unknown>)[prop];
-				}
-				return make(prop);
-			},
-		},
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
 	);
+	return createHugeiconsMock();
 });
 
 // Stub sound-manager so RecordingSettingsSection's toggle handler

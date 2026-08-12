@@ -70,55 +70,11 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-// Stub every icon used by Settings + its transitive children (SearchField,
-// HotkeyPicker, ui/select, PrivacySettingsSection, etc.) with `{ name }`
-// tagged objects so the HugeiconsIcon mock can surface which icon was
-// rendered via data-name.  Vitest's vi.mock requires named exports to be
-// declared explicitly, so we enumerate the full set consumed by the
-// Settings render graph.  (sonner / next-themes are mocked separately, so
-// ui/sonner.tsx's icons aren't needed here.)
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return {
-		AlertCircleIcon: make("AlertCircleIcon"),
-		ArrowDown01Icon: make("ArrowDown01Icon"),
-		ArrowTurnBackwardIcon: make("ArrowTurnBackwardIcon"),
-		ArrowUp01Icon: make("ArrowUp01Icon"),
-		Book02Icon: make("Book02Icon"),
-		Bug02Icon: make("Bug02Icon"),
-		Cancel01Icon: make("Cancel01Icon"),
-		CheckmarkCircle01Icon: make("CheckmarkCircle01Icon"),
-		Delete01Icon: make("Delete01Icon"),
-		//TroubleshootingSettingsSection renders the destructive
-		// "Reset to Defaults" button with `Delete02Icon` (a distinct trash
-		// glyph) instead of the previous RefreshIcon that was visually
-		// indistinguishable from "Re-run Wizard"'s ArrowTurnBackwardIcon.
-		//The mock MUST export Delete02Icon or the  regression
-		// test (and the existing Re-run wizard test) crash with
-		// "No 'Delete02Icon' export is defined on the mock".
-		Delete02Icon: make("Delete02Icon"),
-		File02Icon: make("File02Icon"),
-		InformationCircleIcon: make("InformationCircleIcon"),
-		KeyboardIcon: make("KeyboardIcon"),
-		ModernTvIcon: make("ModernTvIcon"),
-		Moon02Icon: make("Moon02Icon"),
-		RefreshIcon: make("RefreshIcon"),
-		Search01Icon: make("Search01Icon"),
-		// TroubleshootingSettingsSection's macOS-only "Reset
-		// Accessibility Permission" button (finding #127 part b)
-		// renders ShieldBanIcon — the mock must export it or the
-		// macOS-UA render test crashes with "No 'ShieldBanIcon'
-		// export is defined on the mock".
-		ShieldBanIcon: make("ShieldBanIcon"),
-		// KeyboardPermissionBanner (now mounted on Settings via
-		// the page-level import) renders AlertCircleIcon + Settings03Icon
-		// for the amber "click to fix" banner. Adding both to the mock
-		// keeps the existing render-graph coverage complete.
-		Settings03Icon: make("Settings03Icon"),
-		Sun01Icon: make("Sun01Icon"),
-		Tick02Icon: make("Tick02Icon"),
-		UnfoldMoreIcon: make("UnfoldMoreIcon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 // sonner is imported transitively via useSnackbar → toast.  Stub it so

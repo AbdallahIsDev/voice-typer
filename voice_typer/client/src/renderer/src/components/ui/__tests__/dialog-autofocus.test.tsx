@@ -24,9 +24,12 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => ({
-	Cancel01Icon: { name: "Cancel01Icon" },
-}));
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
+});
 
 import {
 	Dialog,

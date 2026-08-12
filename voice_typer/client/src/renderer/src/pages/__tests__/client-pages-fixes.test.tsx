@@ -70,63 +70,11 @@ vi.mock("@/hugeicons/react", () => ({
 	),
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return {
-		Activity03Icon: make("Activity03Icon"),
-		AlertCircleIcon: make("AlertCircleIcon"),
-		ArrowDown01Icon: make("ArrowDown01Icon"),
-		BookOpen02Icon: make("BookOpen02Icon"),
-		Calendar01Icon: make("Calendar01Icon"),
-		Cancel01Icon: make("Cancel01Icon"),
-		ClipboardPasteIcon: make("ClipboardPasteIcon"),
-		Delete01Icon: make("Delete01Icon"),
-		File02Icon: make("File02Icon"),
-		Folder02Icon: make("Folder02Icon"),
-		HistoryIcon: make("HistoryIcon"),
-		LayoutGridIcon: make("LayoutGridIcon"),
-		Mic02Icon: make("Mic02Icon"),
-		RefreshIcon: make("RefreshIcon"),
-		Share08Icon: make("Share08Icon"),
-		SpeechToTextIcon: make("SpeechToTextIcon"),
-		StarIcon: make("StarIcon"),
-		StopIcon: make("StopIcon"),
-		Time02Icon: make("Time02Icon"),
-		Alert02Icon: make("Alert02Icon"),
-		Analytics01Icon: make("Analytics01Icon"),
-		ArrowRight01Icon: make("ArrowRight01Icon"),
-		ArrowUp01Icon: make("ArrowUp01Icon"),
-		Book02Icon: make("Book02Icon"),
-		Bug02Icon: make("Bug02Icon"),
-		CheckmarkCircle01Icon: make("CheckmarkCircle01Icon"),
-		CheckmarkCircle02Icon: make("CheckmarkCircle02Icon"),
-		Copy01Icon: make("Copy01Icon"),
-		Download01Icon: make("Download01Icon"),
-		FilterIcon: make("FilterIcon"),
-		Home04Icon: make("Home04Icon"),
-		InformationCircleIcon: make("InformationCircleIcon"),
-		KeyboardIcon: make("KeyboardIcon"),
-		Loading03Icon: make("Loading03Icon"),
-		LockKeyIcon: make("LockKeyIcon"),
-		MicOff01Icon: make("MicOff01Icon"),
-		ModernTvIcon: make("ModernTvIcon"),
-		Moon02Icon: make("Moon02Icon"),
-		MultiplicationSignCircleIcon: make("MultiplicationSignCircleIcon"),
-		PanelLeftIcon: make("PanelLeftIcon"),
-		PauseIcon: make("PauseIcon"),
-		PencilEdit02Icon: make("PencilEdit02Icon"),
-		PlayIcon: make("PlayIcon"),
-		Search01Icon: make("Search01Icon"),
-		Settings03Icon: make("Settings03Icon"),
-		Shield01Icon: make("Shield01Icon"),
-		SparklesIcon: make("SparklesIcon"),
-		Sun01Icon: make("Sun01Icon"),
-		TextIcon: make("TextIcon"),
-		Tick02Icon: make("Tick02Icon"),
-		Undo02Icon: make("Undo02Icon"),
-		UnfoldMoreIcon: make("UnfoldMoreIcon"),
-		ZapIcon: make("ZapIcon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 vi.mock("sonner", () => ({

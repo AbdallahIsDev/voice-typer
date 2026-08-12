@@ -64,32 +64,11 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	// Enumerate every icon imported by the page's render graph
-	// (Vocabulary + Modal + Dialog + AlertDialog + Select +
-	// SearchField + ExportFormatMenu + EmptyState +
-	// LastUpdatedIndicator + VocabToolbar + VocabClearAllButton +
-	// VocabListRow + VocabDialog + VocabSearchFilterBar). Missing one
-	// crashes vitest's strict mock module.
-	return {
-		Add01Icon: make("Add01Icon"),
-		Alert01Icon: make("Alert01Icon"),
-		Alert02Icon: make("Alert02Icon"),
-		AlertCircleIcon: make("AlertCircleIcon"),
-		ArrowDown01Icon: make("ArrowDown01Icon"),
-		ArrowRight01Icon: make("ArrowRight01Icon"),
-		ArrowUp01Icon: make("ArrowUp01Icon"),
-		BookOpen02Icon: make("BookOpen02Icon"),
-		Cancel01Icon: make("Cancel01Icon"),
-		Delete01Icon: make("Delete01Icon"),
-		Download01Icon: make("Download01Icon"),
-		PencilEdit02Icon: make("PencilEdit02Icon"),
-		RefreshIcon: make("RefreshIcon"),
-		Search01Icon: make("Search01Icon"),
-		Tick02Icon: make("Tick02Icon"),
-		UnfoldMoreIcon: make("UnfoldMoreIcon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 const toastSuccess = vi.fn();

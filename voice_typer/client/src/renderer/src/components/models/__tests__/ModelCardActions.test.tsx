@@ -46,13 +46,11 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return {
-		Delete01Icon: make("Delete01Icon"),
-		Download01Icon: make("Download01Icon"),
-		Tick02Icon: make("Tick02Icon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 const baseModel: ModelInfo = {

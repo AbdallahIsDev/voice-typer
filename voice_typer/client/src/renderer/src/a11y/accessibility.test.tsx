@@ -69,36 +69,11 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-// Stub every icon used by Settings sections + their transitive children
-// (HotkeyPicker, SegmentedControl, Select, SearchField, etc.).  Each
-// icon is a tagged `{ name }` object so the HugeiconsIcon mock can
-// surface which icon was rendered via data-name.  Vitest's vi.mock
-// requires named exports to be declared explicitly, so we enumerate
-// the full set consumed by the Section render graph.
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return {
-		Alert02Icon: make("Alert02Icon"),
-		ArrowDown01Icon: make("ArrowDown01Icon"),
-		ArrowUp01Icon: make("ArrowUp01Icon"),
-		Book02Icon: make("Book02Icon"),
-		Bug02Icon: make("Bug02Icon"),
-		Cancel01Icon: make("Cancel01Icon"),
-		CheckmarkCircle01Icon: make("CheckmarkCircle01Icon"),
-		Download01Icon: make("Download01Icon"),
-		File02Icon: make("File02Icon"),
-		FilterIcon: make("FilterIcon"),
-		InformationCircleIcon: make("InformationCircleIcon"),
-		KeyboardIcon: make("KeyboardIcon"),
-		LockKeyIcon: make("LockKeyIcon"),
-		ModernTvIcon: make("ModernTvIcon"),
-		Moon02Icon: make("Moon02Icon"),
-		RefreshIcon: make("RefreshIcon"),
-		Search01Icon: make("Search01Icon"),
-		Sun01Icon: make("Sun01Icon"),
-		Tick02Icon: make("Tick02Icon"),
-		UnfoldMoreIcon: make("UnfoldMoreIcon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 vi.mock("sonner", () => ({
@@ -646,16 +621,16 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 	// a screen-reader user relies on: when a transcription completes,
 	// the new text is announced.
 	//
-	//NOTE: `it.fails` because F2 ( / ) hasn't yet added an
-	// `aria-live` region around the `lastText` element in Home.tsx.
-	// When F2's fix lands, this test will START PASSING and vitest will
-	// report "test unexpectedly passed" — at which point the
-	// `it.fails` should be flipped back to `it`.
-	//
-	//The `it.fails`  test below (source-pattern variant)
-	// covers the same regression from a source-inspection angle; this
-	// test covers it behaviorally.  Both should be flipped together
-	// when F2's fix lands.
+	//Flipped from `it.fails` to `it` during the shared icon-mock
+	// migration (helpers/hugeicons-mock.ts): the test was marked
+	// expected-to-fail because this file's per-file icon stub subset
+	// was missing icons Home's render graph imports (Share08Icon,
+	// Mic02Icon, ClipboardPasteIcon, ...), so loading the REAL Home via
+	// `vi.importActual` crashed at module load and the test failed for
+	// the wrong reason.  With the canonical mock providing every icon,
+	// Home renders and this behavioral assertion passes on its own
+	// merits — Home wraps `lastText` in an aria-live region (see the
+	// PVT-047 source-pattern test below, which is a regular `it`).
 	describe("BG-R19 #7: behavioral Home aria-live region for transcription_final", () => {
 		let capturedTranscriptionFinalHandler:
 			| ((data?: Record<string, unknown>) => unknown)
@@ -689,7 +664,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			mockUsePythonEvent.mockReset();
 		});
 
-		it.fails("Home renders a live region containing the transcribed text after transcription_final", async () => {
+		it("Home renders a live region containing the transcribed text after transcription_final", async () => {
 			// vi.importActual bypasses the @/pages/Home stub
 			// registered for the App test above, loading the
 			// REAL Home component.  Home's transitive imports
@@ -933,12 +908,10 @@ describe("NEW-UX-012: Dialog accessibility", () => {
 // Home requires the full Python bridge + connection store wiring (out
 // of scope for the a11y test file — see Home.test.tsx for that).
 //
-// NOTE: `it.fails()` marks the test as expected-to-fail.  When the
-// production fix lands (Home.tsx wraps the `{lastText}` `<p>` in an
-// `aria-live="polite"` container, or moves it inside the existing
-// `<output aria-live="polite">` pill), this test will START passing
-// and vitest will report "test unexpectedly passed" — at which point
-// the `it.fails` should be flipped back to `it`.
+// NOTE: this is a regular `it` regression spec — Home.tsx wraps the
+// `{lastText}` `<p>` inside an `aria-live="polite"` container (the
+// production fix landed), so any refactor that drops the live region
+// around `{lastText}` fails the suite.
 describe("PVT-047: Home transcription result is in a live region", () => {
 	it("Home.tsx wraps the `{lastText}` element in an aria-live region", () => {
 		const homePath = path.resolve(__dirname, "..", "pages", "Home.tsx");
@@ -995,30 +968,36 @@ describe("Item 8: index.css declares user-preference @media blocks", () => {
 // must have an accessible name so AT users hear "Dictations today: 5"
 // rather than just "5".
 //
-//As with , the production fix (adding `role="img"` +
-// `aria-label` to the chart container) is owned by agent 8
-// (Dashboard.tsx is in agent 8's file scope).  `it.fails()` is used so
-// the test exists as a regression spec and won't break validation
-// until the fix lands.
+// The chart was extracted from pages/Dashboard.tsx into
+// pages/dashboard/components/SevenDayActivityChart.tsx, where the
+// production fix landed: the container carries role="img" + an
+// aria-label built from the analytics.sevenDayActivityChartAria i18n
+// key, and the bars are non-interactive <div>s (no dead-end tab stops).
+// This test was `it.fails` while the fix was pending; it is now a
+// regular `it` regression spec — a future refactor that drops the
+// role/label on the container fails the suite.
 describe("Item 9: Dashboard a11y — heatmap role + stat card names", () => {
-	it.fails('Dashboard 7-day activity chart container has role="img" + aria-label', () => {
-		const dashboardPath = path.resolve(
+	it('Dashboard 7-day activity chart container has role="img" + aria-label', () => {
+		// The 7-day activity chart lives in the extracted
+		// SevenDayActivityChart.tsx component (split out of
+		// Dashboard.tsx).  The container is the `flex items-end
+		// justify-between gap-2 h-20` block; role="img" + aria-label
+		// appear AFTER className in the JSX opening tag, so inspect
+		// the 400-char window FOLLOWING the className marker.
+		const chartPath = path.resolve(
 			__dirname,
 			"..",
 			"pages",
-			"Dashboard.tsx",
+			"dashboard",
+			"components",
+			"SevenDayActivityChart.tsx",
 		);
-		const src = fs.readFileSync(dashboardPath, "utf-8");
+		const src = fs.readFileSync(chartPath, "utf-8");
 
-		// The 7-day activity chart is the only `flex items-end
-		// justify-between gap-2 h-20` block in the file (see
-		// Dashboard.tsx:579).  Locate it and assert the wrapping
-		// container carries `role="img"` and `aria-label=`.
 		const chartIdx = src.indexOf("flex items-end justify-between gap-2 h-20");
 		expect(chartIdx).toBeGreaterThan(-1);
 
-		const start = Math.max(0, chartIdx - 400);
-		const window = src.slice(start, chartIdx);
+		const window = src.slice(chartIdx, chartIdx + 400);
 		expect(window).toMatch(/role="img"/);
 		expect(window).toMatch(/aria-label=/);
 	});

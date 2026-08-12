@@ -56,9 +56,12 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => ({
-	PanelLeftIcon: { name: "PanelLeftIcon" },
-}));
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
+});
 
 import { TitleBar } from "@/components/layout/TitleBar";
 import type { WindowBridge } from "@/types/ipc";

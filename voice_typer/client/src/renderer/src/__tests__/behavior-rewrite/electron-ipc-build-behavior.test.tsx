@@ -242,31 +242,11 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return {
-		Add01Icon: make("Add01Icon"),
-		ArrowDown01Icon: make("ArrowDown01Icon"),
-		ArrowUp01Icon: make("ArrowUp01Icon"),
-		BookOpen02Icon: make("BookOpen02Icon"),
-		Cancel01Icon: make("Cancel01Icon"),
-		CheckmarkCircle01Icon: make("CheckmarkCircle01Icon"),
-		Copy01Icon: make("Copy01Icon"),
-		Delete01Icon: make("Delete01Icon"),
-		Download01Icon: make("Download01Icon"),
-		InformationCircleIcon: make("InformationCircleIcon"),
-		Mic02Icon: make("Mic02Icon"),
-		PencilEdit02Icon: make("PencilEdit02Icon"),
-		RefreshIcon: make("RefreshIcon"),
-		Search01Icon: make("Search01Icon"),
-		Share08Icon: make("Share08Icon"),
-		StarIcon: make("StarIcon"),
-		StopIcon: make("StopIcon"),
-		TextIcon: make("TextIcon"),
-		Tick02Icon: make("Tick02Icon"),
-		Time02Icon: make("Time02Icon"),
-		UnfoldMoreIcon: make("UnfoldMoreIcon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 vi.mock("@/hooks/usePython", () => ({

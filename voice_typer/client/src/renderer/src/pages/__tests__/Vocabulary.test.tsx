@@ -76,29 +76,11 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-// Stub every icon used by Vocabulary + its transitive children
-// (SearchField, ExportFormatMenu, EmptyState, ui/select, etc.) with
-// `{ name }` tagged objects so the HugeiconsIcon mock can surface which
-// icon was rendered via data-name.  The set of icons is determined by
-// grepping the render graph (Vocabulary.tsx, SearchField.tsx,
-// ExportFormatMenu.tsx, EmptyState.tsx, ui/select.tsx) — see existing
-// Settings.test.tsx for the same enumeration pattern.
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return {
-		Add01Icon: make("Add01Icon"),
-		RefreshIcon: make("RefreshIcon"),
-		ArrowDown01Icon: make("ArrowDown01Icon"),
-		ArrowUp01Icon: make("ArrowUp01Icon"),
-		BookOpen02Icon: make("BookOpen02Icon"),
-		Cancel01Icon: make("Cancel01Icon"),
-		Delete01Icon: make("Delete01Icon"),
-		Download01Icon: make("Download01Icon"),
-		PencilEdit02Icon: make("PencilEdit02Icon"),
-		Search01Icon: make("Search01Icon"),
-		Tick02Icon: make("Tick02Icon"),
-		UnfoldMoreIcon: make("UnfoldMoreIcon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 // sonner: capture toast.warning / toast.success calls so the test can

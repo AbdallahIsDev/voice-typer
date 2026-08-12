@@ -50,20 +50,11 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-// Stub every icon consumed by the GeneralSettingsSection render graph
-// (SegmentedControl uses ArrowDown01Icon / ArrowUp01Icon for the
-// sliding indicator; the Select component uses UnfoldMoreIcon for its
-// trigger chevron and Tick02Icon for its item indicator). Each named
-// export is a plain tagged object so the HugeiconsIcon mock can
-// surface which icon was rendered.
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return {
-		ArrowDown01Icon: make("ArrowDown01Icon"),
-		ArrowUp01Icon: make("ArrowUp01Icon"),
-		Tick02Icon: make("Tick02Icon"),
-		UnfoldMoreIcon: make("UnfoldMoreIcon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 import { GeneralSettingsSection } from "@/components/settings/GeneralSettingsSection";

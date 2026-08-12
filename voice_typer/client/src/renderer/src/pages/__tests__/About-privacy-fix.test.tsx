@@ -29,9 +29,12 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => ({
-	RefreshIcon: { name: "RefreshIcon" },
-}));
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
+});
 
 vi.mock("sonner", () => ({
 	toast: {

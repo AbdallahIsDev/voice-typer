@@ -67,20 +67,11 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return {
-		ArrowDown01Icon: make("ArrowDown01Icon"),
-		ArrowUp01Icon: make("ArrowUp01Icon"),
-		FilterIcon: make("FilterIcon"),
-		Mic02Icon: make("Mic02Icon"),
-		MicOff01Icon: make("MicOff01Icon"),
-		PlayIcon: make("PlayIcon"),
-		RefreshIcon: make("RefreshIcon"),
-		StopIcon: make("StopIcon"),
-		Tick02Icon: make("Tick02Icon"),
-		UnfoldMoreIcon: make("UnfoldMoreIcon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 vi.mock("@/components/audio/AudioFilterChain", () => ({

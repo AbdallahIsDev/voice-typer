@@ -24,16 +24,11 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-// Mock the icon definitions as plain tagged objects. Each named export
-// used by ThemeSwitch is stubbed with `{ name }` so the HugeiconsIcon
-// mock can surface which icon was rendered via data-name.
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return {
-		ModernTvIcon: make("ModernTvIcon"),
-		Moon02Icon: make("Moon02Icon"),
-		Sun01Icon: make("Sun01Icon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 import { ThemeSwitch } from "@/components/layout/ThemeSwitch";

@@ -41,17 +41,11 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return {
-		Shield01Icon: make("Shield01Icon"),
-		SparklesIcon: make("SparklesIcon"),
-		//CloudProvidersPanel swaps the Test Connection button's
-		// icon to Loading03Icon (with animate-spin) while a test is
-		// in flight. The mock must include it or vitest 4.x throws
-		// "No export is defined on the mock".
-		Loading03Icon: make("Loading03Icon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 // Stub KeyringStatusBadge so we don't have to construct the keyring state.

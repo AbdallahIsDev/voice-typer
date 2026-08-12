@@ -125,14 +125,24 @@ if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
 }
 
 // ── Mock state hoisted before vi.mock factories run ─────────────────
-const { mockCall, mockPythonEvent, mockNavigate, mockNavState } = vi.hoisted(
-	() => ({
-		mockCall: vi.fn(),
-		mockPythonEvent: vi.fn(),
-		mockNavigate: vi.fn(),
-		mockNavState: { page: "home" as Page },
-	}),
-);
+const {
+	mockCall,
+	mockPythonEvent,
+	mockNavigate,
+	mockNavState,
+	mockUseConnection,
+} = vi.hoisted(() => ({
+	mockCall: vi.fn(),
+	mockPythonEvent: vi.fn(),
+	mockNavigate: vi.fn(),
+	mockNavState: { page: "home" as Page },
+	// Hoisted so the useConnection vi.mock factory below can delegate to
+	// a MUTABLE fn — the loading-screen test swaps its return value
+	// per-test without the vi.doMock / vi.resetModules dance (which
+	// dropped overrides under load).  Default = connected, restored by
+	// the top-level beforeEach.
+	mockUseConnection: vi.fn(),
+}));
 
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({ call: mockCall }),
@@ -165,68 +175,11 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-// Stub every icon used by the render graph of Settings / Vocabulary /
-// Templates / About / Sidebar / TitleBar / App.  Each is a `{ name }`
-// tagged object so the HugeiconsIcon mock can surface which icon was
-// rendered via data-name.  The set is the union of all icons imported
-// across the renderer (enumerated by grepping every
-// `import { ... } from "@hugeicons/core-free-icons"` site).
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return {
-		Add01Icon: make("Add01Icon"),
-		AiBrain03Icon: make("AiBrain03Icon"),
-		Alert02Icon: make("Alert02Icon"),
-		Analytics01Icon: make("Analytics01Icon"),
-		ArrowDown01Icon: make("ArrowDown01Icon"),
-		ArrowRight01Icon: make("ArrowRight01Icon"),
-		ArrowTurnBackwardIcon: make("ArrowTurnBackwardIcon"),
-		ArrowUp01Icon: make("ArrowUp01Icon"),
-		AlertCircleIcon: make("AlertCircleIcon"),
-		Book02Icon: make("Book02Icon"),
-		BookOpen02Icon: make("BookOpen02Icon"),
-		Bug02Icon: make("Bug02Icon"),
-		Cancel01Icon: make("Cancel01Icon"),
-		CheckmarkCircle01Icon: make("CheckmarkCircle01Icon"),
-		Copy01Icon: make("Copy01Icon"),
-		Delete01Icon: make("Delete01Icon"),
-		Delete02Icon: make("Delete02Icon"),
-		Download01Icon: make("Download01Icon"),
-		File02Icon: make("File02Icon"),
-		FilterIcon: make("FilterIcon"),
-		Folder02Icon: make("Folder02Icon"),
-		HistoryIcon: make("HistoryIcon"),
-		Home04Icon: make("Home04Icon"),
-		InformationCircleIcon: make("InformationCircleIcon"),
-		KeyboardIcon: make("KeyboardIcon"),
-		LockKeyIcon: make("LockKeyIcon"),
-		Mic02Icon: make("Mic02Icon"),
-		ModernTvIcon: make("ModernTvIcon"),
-		Moon02Icon: make("Moon02Icon"),
-		PanelLeftIcon: make("PanelLeftIcon"),
-		PauseIcon: make("PauseIcon"),
-		PencilEdit02Icon: make("PencilEdit02Icon"),
-		PlayIcon: make("PlayIcon"),
-		RefreshIcon: make("RefreshIcon"),
-		Search01Icon: make("Search01Icon"),
-		Settings03Icon: make("Settings03Icon"),
-		Share08Icon: make("Share08Icon"),
-		Shield01Icon: make("Shield01Icon"),
-		// Used by TroubleshootingSettingsSection (Settings → Privacy
-		// tab) for the macOS/Linux reset buttons — the mock must export
-		// it or vitest's named-import validation crashes the Settings
-		// page mount.
-		ShieldBanIcon: make("ShieldBanIcon"),
-		SparklesIcon: make("SparklesIcon"),
-		StarIcon: make("StarIcon"),
-		StopIcon: make("StopIcon"),
-		Sun01Icon: make("Sun01Icon"),
-		TextIcon: make("TextIcon"),
-		Tick02Icon: make("Tick02Icon"),
-		Time02Icon: make("Time02Icon"),
-		UnfoldMoreIcon: make("UnfoldMoreIcon"),
-		ZapIcon: make("ZapIcon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 // Stub the layout chrome + ErrorBoundary for the App tests below so
@@ -260,12 +213,7 @@ vi.mock("next-themes", () => ({
 // (Settings / Vocabulary / Templates / About / Sidebar / TitleBar)
 // don't import these hooks, so the mocks are inert for them.
 vi.mock("@/hooks/useConnection", () => ({
-	useConnection: () => ({
-		recordingState: "idle" as const,
-		connectionStatus: "connected" as const,
-		lastError: null,
-		handleRetryConnection: vi.fn(),
-	}),
+	useConnection: mockUseConnection,
 }));
 
 vi.mock("@/hooks/useTheme", () => ({
@@ -293,6 +241,18 @@ const originalWindowOpen = window.open;
 beforeEach(() => {
 	window.open = vi.fn(() => null);
 	mockNavState.page = "home";
+	// Restore the default "connected" useConnection state for every
+	// test.  The loading-screen test overrides it in its own body via
+	// mockUseConnection.mockReturnValue() — because the mock factory
+	// delegates to this single hoisted fn, no module-registry ordering
+	// (vi.doMock + vi.resetModules) can drop the override under load.
+	mockUseConnection.mockReset();
+	mockUseConnection.mockReturnValue({
+		recordingState: "idle" as const,
+		connectionStatus: "connected" as const,
+		lastError: null,
+		handleRetryConnection: vi.fn(),
+	});
 });
 afterEach(() => {
 	window.open = originalWindowOpen;
@@ -1521,19 +1481,8 @@ describe("App routing + chrome — rewrite of routing + ErrorBoundary tests", ()
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		localStorage.clear();
-		// Re-register the default "connected" useConnection mock in
-		// case a prior test (e.g. the model-download test below)
-		// overrode it with vi.doMock to return "connecting".
-		// vi.doMock registrations persist across tests, so we must
-		// explicitly restore the default here.
-		vi.doMock("@/hooks/useConnection", () => ({
-			useConnection: () => ({
-				recordingState: "idle" as const,
-				connectionStatus: "connected" as const,
-				lastError: null,
-				handleRetryConnection: vi.fn(),
-			}),
-		}));
+		// useConnection defaults to "connected" via the top-level
+		// beforeEach; only the loading-screen test overrides it.
 		useAppStore.setState({
 			connectionStatus: "connected",
 			recordingState: "idle",
@@ -1614,17 +1563,17 @@ describe("App routing + chrome — rewrite of routing + ErrorBoundary tests", ()
 		// contract: the title, the "a few seconds" hint, and — when
 		// progress is supplied — an accessible progressbar.
 		await registerAppPageStubs();
-		// Override the module-level useConnection mock to return
-		// "connecting" for this test only, with a progress value so the
-		// progressbar branch renders.
-		vi.doMock("@/hooks/useConnection", () => ({
-			useConnection: () => ({
-				recordingState: "idle" as const,
-				connectionStatus: "connecting" as const,
-				lastError: null,
-				handleRetryConnection: vi.fn(),
-			}),
-		}));
+		// Switch the hoisted useConnection mock to "connecting" for this
+		// test only (with a progress value so the progressbar branch
+		// renders).  The top-level beforeEach restores "connected" for
+		// every other test — no vi.doMock / vi.resetModules ordering can
+		// drop this override.
+		mockUseConnection.mockReturnValue({
+			recordingState: "idle" as const,
+			connectionStatus: "connecting" as const,
+			lastError: null,
+			handleRetryConnection: vi.fn(),
+		});
 		vi.resetModules();
 
 		const { default: App } = await import("@/App");
@@ -1644,18 +1593,8 @@ describe("App help overlay content — rewrite of shortcut-list + input-gate tes
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		localStorage.clear();
-		// Restore the default "connected" useConnection mock — the
-		// model-download test in the previous describe block may have
-		// overridden it with vi.doMock to return "connecting", and
-		// vi.doMock registrations persist across tests.
-		vi.doMock("@/hooks/useConnection", () => ({
-			useConnection: () => ({
-				recordingState: "idle" as const,
-				connectionStatus: "connected" as const,
-				lastError: null,
-				handleRetryConnection: vi.fn(),
-			}),
-		}));
+		// useConnection already defaults to "connected" (top-level
+		// beforeEach) — no restore needed here.
 		useAppStore.setState({
 			connectionStatus: "connected",
 			recordingState: "idle",

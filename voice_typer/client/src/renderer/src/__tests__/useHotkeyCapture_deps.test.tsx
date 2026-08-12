@@ -30,22 +30,11 @@ vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: () => <span data-testid="hugeicon" />,
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return new Proxy(
-		{
-			Cancel01Icon: make("Cancel01Icon"),
-			KeyboardIcon: make("KeyboardIcon"),
-		},
-		{
-			get(target, prop: string) {
-				if (prop in target) {
-					return (target as Record<string, unknown>)[prop];
-				}
-				return make(prop);
-			},
-		},
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
 	);
+	return createHugeiconsMock();
 });
 
 // Spy on useEffect to count ref-sync runs. We can't directly observe

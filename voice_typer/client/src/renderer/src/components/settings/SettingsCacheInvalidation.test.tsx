@@ -47,36 +47,11 @@ vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: () => <span data-testid="hugeicon" />,
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return {
-		// AlertCircleIcon + Settings03Icon are used by
-		// KeyboardPermissionBanner (mounted on Settings); the banner
-		// renders when the onboarding_check_permissions probe returns a
-		// non-granted result, so they must be in the mock or the page
-		// throws an unhandled render error.
-		AlertCircleIcon: make("AlertCircleIcon"),
-		ArrowDown01Icon: make("ArrowDown01Icon"),
-		ArrowTurnBackwardIcon: make("ArrowTurnBackwardIcon"),
-		ArrowUp01Icon: make("ArrowUp01Icon"),
-		Book02Icon: make("Book02Icon"),
-		Bug02Icon: make("Bug02Icon"),
-		Cancel01Icon: make("Cancel01Icon"),
-		CheckmarkCircle01Icon: make("CheckmarkCircle01Icon"),
-		Delete01Icon: make("Delete01Icon"),
-		Delete02Icon: make("Delete02Icon"),
-		File02Icon: make("File02Icon"),
-		InformationCircleIcon: make("InformationCircleIcon"),
-		KeyboardIcon: make("KeyboardIcon"),
-		ModernTvIcon: make("ModernTvIcon"),
-		Moon02Icon: make("Moon02Icon"),
-		RefreshIcon: make("RefreshIcon"),
-		Search01Icon: make("Search01Icon"),
-		Settings03Icon: make("Settings03Icon"),
-		Sun01Icon: make("Sun01Icon"),
-		Tick02Icon: make("Tick02Icon"),
-		UnfoldMoreIcon: make("UnfoldMoreIcon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 vi.mock("sonner", () => ({

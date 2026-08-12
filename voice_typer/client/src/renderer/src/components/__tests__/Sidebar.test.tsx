@@ -23,24 +23,11 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-// Stub every icon used by Sidebar + ThemeSwitch with `{ name }` so the
-// HugeiconsIcon mock can surface which icon was rendered via data-name.
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return {
-		AiBrain03Icon: make("AiBrain03Icon"),
-		Analytics01Icon: make("Analytics01Icon"),
-		BookOpen02Icon: make("BookOpen02Icon"),
-		File02Icon: make("File02Icon"),
-		HistoryIcon: make("HistoryIcon"),
-		Home04Icon: make("Home04Icon"),
-		InformationCircleIcon: make("InformationCircleIcon"),
-		Mic02Icon: make("Mic02Icon"),
-		ModernTvIcon: make("ModernTvIcon"),
-		Moon02Icon: make("Moon02Icon"),
-		Settings03Icon: make("Settings03Icon"),
-		Sun01Icon: make("Sun01Icon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 import { Sidebar } from "@/components/layout/Sidebar";

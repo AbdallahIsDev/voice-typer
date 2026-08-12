@@ -112,11 +112,11 @@ vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: () => <span data-testid="hugeicon" />,
 }));
 
-// Pull in the real icons so every import resolves to a stub object.
-vi.mock("@hugeicons/core-free-icons", async (importOriginal) => {
-	const actual =
-		await importOriginal<typeof import("@hugeicons/core-free-icons")>();
-	return actual;
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 vi.mock("@/components/help/HelpOverlay", () => ({

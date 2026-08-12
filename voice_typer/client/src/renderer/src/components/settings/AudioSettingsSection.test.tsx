@@ -37,19 +37,11 @@ vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: () => <span data-testid="hugeicon" />,
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	// Explicit object (not a Proxy) so vitest recognises every
-	// export. The AudioSettingsSection render graph pulls in a
-	// handful of icons via the Select + RangeSlider primitives;
-	// enumerate them all so the test doesn't break when the source
-	// adds a new icon.
-	return {
-		ArrowDown01Icon: make("ArrowDown01Icon"),
-		ArrowUp01Icon: make("ArrowUp01Icon"),
-		UnfoldMoreIcon: make("UnfoldMoreIcon"),
-		Tick02Icon: make("Tick02Icon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 // Stub InfoTooltip to avoid the Radix Tooltip provider requirement

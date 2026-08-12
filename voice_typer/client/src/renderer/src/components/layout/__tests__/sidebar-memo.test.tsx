@@ -29,19 +29,11 @@ vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: () => <span data-testid="hugeicon" />,
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => {
-	const make = (name: string) => ({ name });
-	return {
-		AiBrain03Icon: make("AiBrain03Icon"),
-		Analytics01Icon: make("Analytics01Icon"),
-		BookOpen02Icon: make("BookOpen02Icon"),
-		File02Icon: make("File02Icon"),
-		HistoryIcon: make("HistoryIcon"),
-		Home04Icon: make("Home04Icon"),
-		InformationCircleIcon: make("InformationCircleIcon"),
-		Mic02Icon: make("Mic02Icon"),
-		Settings03Icon: make("Settings03Icon"),
-	};
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 //ThemeSwitch mock with a render counter. Sidebar renders exactly

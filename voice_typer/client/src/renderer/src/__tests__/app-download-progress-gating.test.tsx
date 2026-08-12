@@ -101,15 +101,11 @@ vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: () => <span data-testid="hugeicon" />,
 }));
 
-//Use importOriginal so every icon name resolves to a stub object —
-// App's transitive deps (HelpOverlay → Dialog → Cancel01Icon, etc.)
-// pull in many icons. Stubbing each by hand is brittle; pulling in
-// the real module and overriding `HugeiconsIcon` (above) keeps the
-// test resilient to new icon imports.
-vi.mock("@hugeicons/core-free-icons", async (importOriginal) => {
-	const actual =
-		await importOriginal<typeof import("@hugeicons/core-free-icons")>();
-	return actual;
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
 });
 
 //HelpOverlay pulls in Dialog + many icons + i18n keys. Stub it to a
