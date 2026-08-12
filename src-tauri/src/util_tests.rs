@@ -1,4 +1,13 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unreachable, clippy::todo, clippy::unimplemented, clippy::cast_possible_truncation, clippy::assertions_on_constants)] // const invariant pins with descriptive runtime messages
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::cast_possible_truncation,
+    clippy::assertions_on_constants
+)] // const invariant pins with descriptive runtime messages
 
 //! Unit tests for `util` (moved verbatim from the inline
 //! `#[cfg(test)] mod tests` block to satisfy C-TEST-5 — tests must
@@ -59,7 +68,8 @@ fn test_session_id_is_8_char_lowercase_hex() {
         sid
     );
     assert!(
-        sid.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
+        sid.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
         "session id must be lowercase hex: {}",
         sid
     );

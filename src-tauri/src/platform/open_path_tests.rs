@@ -1,4 +1,12 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unreachable, clippy::todo, clippy::unimplemented, clippy::cast_possible_truncation)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::cast_possible_truncation
+)]
 
 //! Unit tests for `open_path` (moved verbatim from the inline
 //! `#[cfg(test)] mod tests` block to satisfy C-TEST-5 — tests must

@@ -1,4 +1,12 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unreachable, clippy::todo, clippy::unimplemented, clippy::cast_possible_truncation)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::cast_possible_truncation
+)]
 
 //! Sibling tests for `platform::paths` (per C-TEST-5 — sibling test
 //! file, no inline tests in production source).

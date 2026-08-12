@@ -1029,10 +1029,9 @@ fn try_match_us_phone(rest: &str, input: &str, pos: usize) -> Option<usize> {
     let group_sizes = [3usize, 3, 4];
     for (g, &expected) in group_sizes.iter().enumerate() {
         // Optional separator before groups 1 and 2 (not group 0).
-        if g > 0
-            && idx < bytes.len() && (bytes[idx] == b'-' || bytes[idx] == b'.') {
-                idx += 1;
-            }
+        if g > 0 && idx < bytes.len() && (bytes[idx] == b'-' || bytes[idx] == b'.') {
+            idx += 1;
+        }
         let mut digits = 0usize;
         while idx < bytes.len() && bytes[idx].is_ascii_digit() && digits < expected {
             idx += 1;
@@ -1171,10 +1170,9 @@ fn try_match_credit_card(rest: &str, input: &str, pos: usize) -> Option<usize> {
     let mut idx = 0usize;
     for group in 0..4usize {
         // Optional separator before groups 1, 2, 3.
-        if group > 0
-            && idx < bytes.len() && (bytes[idx] == b'-' || bytes[idx] == b' ') {
-                idx += 1;
-            }
+        if group > 0 && idx < bytes.len() && (bytes[idx] == b'-' || bytes[idx] == b' ') {
+            idx += 1;
+        }
         // 4 digits.
         if idx + 4 > bytes.len() {
             return None;

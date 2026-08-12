@@ -1,4 +1,13 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unreachable, clippy::todo, clippy::unimplemented, clippy::cast_possible_truncation, clippy::approx_constant)] // 3.14 etc. are deliberate test literals
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::cast_possible_truncation,
+    clippy::approx_constant
+)] // 3.14 etc. are deliberate test literals
 
 //! Unit tests for `export` (extracted per C-TEST-5).
 //!

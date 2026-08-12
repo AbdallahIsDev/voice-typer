@@ -144,9 +144,7 @@ impl SidecarHandle {
                     // message and the source's Display, so log lines stay
                     // readable while still being inspectable via
                     // `err.source()` / `err.get_ref()`.
-                    std::io::Error::other(
-                        format!("shell-plugin kill: {e}"),
-                    )
+                    std::io::Error::other(format!("shell-plugin kill: {e}"))
                 }),
                 None => Ok(()),
             },
@@ -650,9 +648,9 @@ pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Even
 
     log::info!(
         "[RESTART] relaunch_app event received — sending relaunch_ack + calling app.restart()"
-    );    // Best-effort relaunch_ack: extracted to `send_fire_and_forget_frame`
-    // so this function doesn't reference raw WS protocol / frame
-    // serialization.
+    ); // Best-effort relaunch_ack: extracted to `send_fire_and_forget_frame`
+       // so this function doesn't reference raw WS protocol / frame
+       // serialization.
     let state: tauri::State<'_, Arc<SidecarState>> = app_handle.state();
     let state_inner = state.inner().clone();
     let ack_sent = send_fire_and_forget_frame(&state_inner, "relaunch_ack");
@@ -704,9 +702,7 @@ pub(crate) fn on_quit_app(app_handle: &tauri::AppHandle) {
 
     let sidecar_state = app_handle.state::<Arc<SidecarState>>().inner().clone();
     if sidecar_state.shutting_down.swap(true, Ordering::SeqCst) {
-        log::info!(
-            "[QUIT] quit_app event received — shutdown already in progress; exiting host"
-        );
+        log::info!("[QUIT] quit_app event received — shutdown already in progress; exiting host");
     } else {
         log::info!(
             "[QUIT] quit_app event received — setting shutting_down + exiting host (tray Quit → app.exit)"

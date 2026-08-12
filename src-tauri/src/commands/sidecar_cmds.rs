@@ -41,9 +41,7 @@ pub(crate) use window_close::on_main_window_close;
 // the Rust unit tests) access these via `use super::{...}`. Production
 // callers reach them through the submodules directly.
 #[cfg(test)]
-pub(crate) use allowlist::{
-    allowed_commands, is_command_allowed, PENDING_FULL_CODE, PENDING_MAX,
-};
+pub(crate) use allowlist::{allowed_commands, is_command_allowed, PENDING_FULL_CODE, PENDING_MAX};
 
 // Unit tests for ALLOWED_COMMANDS + pending-map constants live in the
 // sibling `sidecar_cmds_tests.rs` file (C-TEST-5 — keeps production
