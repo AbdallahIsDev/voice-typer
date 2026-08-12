@@ -174,6 +174,26 @@ pub(crate) fn generate_token() -> String {
     hex::encode(&bytes)
 }
 
+/// GT-68: per-process, non-secret session ID (8 lowercase hex chars)
+/// shared between the Rust host and the Python sidecar for log
+/// correlation (crash-report matching, cross-process log joins).
+/// Generated once per process, cached in a `OnceLock`, and passed to
+/// the sidecar via the `VOICE_TYPER_SESSION_ID` env var so both log
+/// streams carry the same join key. Unlike `generate_token` (which is
+/// regenerated per respawn), the session ID is stable for the whole
+/// host lifetime so a respawned sidecar still correlates to the same
+/// host session.
+static SESSION_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Return the process-wide session ID, generating it on first call.
+pub(crate) fn session_id() -> &'static str {
+    SESSION_ID.get_or_init(|| {
+        let mut bytes = [0u8; 4];
+        rand::rng().fill_bytes(&mut bytes);
+        hex::encode(&bytes)
+    })
+}
+
 pub(crate) mod hex {
     //write each byte directly into the pre-allocated String
     /// buffer via `core::fmt::Write`. The `expect` is safe (the
@@ -191,6 +211,7 @@ pub(crate) mod hex {
             // switched to `.expect` with a `Rationale:` prefix since
             // this is not an `unsafe` block and `SAFETY:` is reserved
             // for `unsafe` rationale.)
+            #[allow(clippy::expect_used)] // fmt::Write for String is infallible (rationale above)
             write!(s, "{:02x}", b).expect("fmt::Write for String is infallible");
         }
         s

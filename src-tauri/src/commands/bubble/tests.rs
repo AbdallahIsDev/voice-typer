@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unreachable, clippy::todo, clippy::unimplemented, clippy::cast_possible_truncation)]
+
 //! Bubble command unit tests ( + ADR-0020 §9).
 //!
 //! Originally inline in the single-file `bubble.rs`; moved here when
@@ -509,12 +511,14 @@ fn test_resize_bounds_match_electron_constants() {
     assert_eq!(MIN_BUBBLE_H, 24);
     assert_eq!(MAX_BUBBLE_W, 400);
     assert_eq!(MAX_BUBBLE_H, 200);
-    assert!(MIN_BUBBLE_W < MAX_BUBBLE_W);
-    assert!(MIN_BUBBLE_H < MAX_BUBBLE_H);
-    assert!(MAX_BUBBLE_W <= 400);
-    assert!(MAX_BUBBLE_H <= 200);
-    assert!(MIN_BUBBLE_W >= 20);
-    assert!(MIN_BUBBLE_H >= 16);
+    // Compile-time parity pins (clippy::assertions_on_constants-safe):
+    // each relation is verified at compile time and cannot regress.
+    const _: () = assert!(MIN_BUBBLE_W < MAX_BUBBLE_W);
+    const _: () = assert!(MIN_BUBBLE_H < MAX_BUBBLE_H);
+    const _: () = assert!(MAX_BUBBLE_W <= 400);
+    const _: () = assert!(MAX_BUBBLE_H <= 200);
+    const _: () = assert!(MIN_BUBBLE_W >= 20);
+    const _: () = assert!(MIN_BUBBLE_H >= 16);
 }
 
 //round_f64_to_u32_saturating (NaN/inf/range) ──────

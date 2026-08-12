@@ -77,6 +77,7 @@ pub(crate) type WsWriterTx = mpsc::Sender<Message>;
 /// `VOICE_TYPER_SIDECAR_DEV=1` running `python -m voice_typer.server.ipc_server`).
 /// Both variants support `kill()`; `shutdown_sidecar` matches on the
 /// variant to call the right kill method.
+#[allow(clippy::large_enum_variant)] // both variants embed full child-process handles by design
 pub(crate) enum SidecarHandle {
     // Wraps `Option<CommandChild>` (not a bare `CommandChild`)
     // so the `Drop` impl can `take()` the child out of `&mut self`
@@ -143,8 +144,7 @@ impl SidecarHandle {
                     // message and the source's Display, so log lines stay
                     // readable while still being inspectable via
                     // `err.source()` / `err.get_ref()`.
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
+                    std::io::Error::other(
                         format!("shell-plugin kill: {e}"),
                     )
                 }),
@@ -294,6 +294,17 @@ pub(crate) struct SidecarState {
     /// Shutdown signal — set when the app is quitting so the supervisor doesn't
     /// respawn the sidecar during shutdown.
     pub(crate) shutting_down: AtomicBool,
+    /// Whether the host system tray was successfully created
+    /// (`tray::create_tray` in `main.rs`'s setup). The main-window
+    /// close handler only hides-to-tray when this is `true` — on a
+    /// desktop where the tray could not be created (e.g. Linux Wayland
+    /// without StatusNotifierItem support), hiding the last window
+    /// would strand the user with no tray icon, no Dock entry, and no
+    /// second-instance path to bring the window back (Electron's
+    /// close handler guards the same case with
+    /// `isLinuxWaylandWithoutSni()`). When `false`, the close flows
+    /// through to a real close → last-window-close → app exit.
+    pub(crate) tray_available: AtomicBool,
     /// Respawn serialization flag. Set when a respawn is in flight
     /// so concurrent WS-reader exits (e.g., a flapping sidecar that dies
     /// immediately after reconnect) don't launch multiple parallel
@@ -369,6 +380,7 @@ impl SidecarState {
             next_id: AtomicU64::new(1),
             shutting_down: AtomicBool::new(false),
             respawn_in_progress: AtomicBool::new(false),
+            tray_available: AtomicBool::new(false),
             child_exit_rx: AsyncMutex::new(None),
             heartbeat_handle: AsyncMutex::new(None),
             // ws_generation starts at 0; first reconnect bumps to 1.
@@ -638,8 +650,7 @@ pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Even
 
     log::info!(
         "[RESTART] relaunch_app event received — sending relaunch_ack + calling app.restart()"
-    );
-    // Best-effort relaunch_ack: extracted to `send_fire_and_forget_frame`
+    );    // Best-effort relaunch_ack: extracted to `send_fire_and_forget_frame`
     // so this function doesn't reference raw WS protocol / frame
     // serialization.
     let state: tauri::State<'_, Arc<SidecarState>> = app_handle.state();
@@ -662,6 +673,51 @@ pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Even
         log::info!("[RESTART] calling app.restart()");
         restart_for_async.restart();
     });
+}
+
+/// `quit_app` Tauri event listener body (mirror of `on_relaunch_app`),
+/// wired in `main.rs`'s `.setup` next to the `relaunch_app` listener.
+///
+/// The Python sidecar publishes `quit_app` when the user picks the tray
+/// "Quit" item (see `voice_typer/server/app_lifecycle.py::quit_app` —
+/// it pushes the event, then runs its own cleanup and exits).
+/// Electron's main process handles the same event by calling
+/// `app.quit()` (`client/src/main/python/handle-message.ts`); the Tauri
+/// host has no main process, so this listener is the equivalent:
+///
+/// 1. Set `shutting_down` IMMEDIATELY so the WS-reader cleanup (which
+///    fires when the sidecar exits moments later) does NOT trigger a
+///    supervisor respawn. Without this flag, tray Quit would just
+///    restart the backend instead of quitting the app.
+/// 2. Call `app.exit(0)` so the host process terminates. The
+///    `RunEvent::Exit` / `ExitRequested` callback (`on_host_exit` →
+///    `shutdown_sidecar_for_exit`) then runs the sidecar teardown. That
+///    teardown is idempotent — it short-circuits on the already-set
+///    `shutting_down` flag; the sidecar exits itself as part of its own
+///    quit path, and `SidecarHandle::Drop` is the best-effort kill
+///    backstop for the (rare) hung-cleanup case.
+///
+/// The listener registration lives in `main.rs`'s `.setup`
+/// (wiring-only, C-ARCH-1); this function is the body.
+pub(crate) fn on_quit_app(app_handle: &tauri::AppHandle) {
+    use std::sync::atomic::Ordering;
+
+    let sidecar_state = app_handle.state::<Arc<SidecarState>>().inner().clone();
+    if sidecar_state.shutting_down.swap(true, Ordering::SeqCst) {
+        log::info!(
+            "[QUIT] quit_app event received — shutdown already in progress; exiting host"
+        );
+    } else {
+        log::info!(
+            "[QUIT] quit_app event received — setting shutting_down + exiting host (tray Quit → app.exit)"
+        );
+    }
+    // Best-effort: wake a supervisor that may be mid-backoff-sleep so it
+    // observes `shutting_down` immediately instead of after its next
+    // 100ms poll. `shutdown_sidecar_for_exit` also fires this notify on
+    // the `RunEvent::Exit` path — redundant but harmless.
+    sidecar_state.shutdown_notify.notify_one();
+    app_handle.exit(0);
 }
 
 /// `RunEvent::Exit` / `ExitRequested` callback body, extracted from

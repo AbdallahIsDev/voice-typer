@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unreachable, clippy::todo, clippy::unimplemented, clippy::cast_possible_truncation)]
+
 //! Unit tests for `sidecar/supervisor.rs` (ADR-0020 §10).
 //!
 //! Moved verbatim from the inline `#[cfg(test)] mod tests` block in
@@ -499,6 +501,7 @@ async fn test_cr14_retry_loop_first_iteration_kills_crashed_sidecar() {
 // We simulate the panic by wrapping a panicking future in the same
 // pattern and verifying the flag is clearable from the Err arm.
 #[tokio::test]
+#[allow(clippy::await_holding_lock)] // PANIC_HOOK_TEST_LOCK must stay held across the panicking-future await
 async fn test_gt9_catch_unwind_clears_respawn_in_progress_on_panic() {
     // This test fires a REAL panic through the process-global hook
     // (if `install_panic_hook` has run), which toggles the global
@@ -873,7 +876,7 @@ fn test_ue3_f5_install_arm_handles_some_child() {
 fn test_write_read_restart_counter_round_trip_json_contract() {
     // Mirror `write_restart_counter`'s payload shape exactly:
     // `json!({"count": count, "ts": now_unix_secs()})`.
-    for count in [0u32, 1, 2, MAX_RESTART_ATTEMPTS, u32::MAX].iter().copied() {
+    for count in [0u32, 1, 2, MAX_RESTART_ATTEMPTS, u32::MAX] {
         let payload = json!({"count": count, "ts": now_unix_secs()});
         // `read_restart_counter`'s freshness check: ts != 0 AND
         // (now - ts) <= COUNTER_STALE_SECS. With ts = now, both

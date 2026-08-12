@@ -33,7 +33,7 @@
     "targets": ["nsis", "msi"],
     "resources": [
       "resources/native/windows-key-listener.exe",
-      "resources/prewarm-x86_64-pc-windows-msvc.exe",
+      "resources/prewarm-aarch64-pc-windows-msvc.exe",
       "icons/tray/"
     ]
   }

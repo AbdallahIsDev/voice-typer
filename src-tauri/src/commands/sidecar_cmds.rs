@@ -7,8 +7,8 @@
 //!   `dispatch_fire_and_forget`, `shutdown_sidecar`,
 //!   `on_main_window_close`, `DISALLOWED_WINDOW_CODE`).
 //! - [`allowlist`] — the `ALLOWED_COMMANDS` defense-in-depth allowlist
-//!   (`allowed_commands` / `is_command_allowed`) + the shared error-code
-//!   + pending-map constants (`DISALLOWED_COMMAND_CODE`,
+//!   (`allowed_commands` / `is_command_allowed`), the shared error-code
+//!   and the pending-map constants (`DISALLOWED_COMMAND_CODE`,
 //!   `DISALLOWED_WINDOW_CODE`, `PENDING_MAX`, `PENDING_FULL_CODE`).
 //! - [`dispatch`] — the generic `dispatch` Tauri command + the
 //!   dispatch helpers (`dispatch_inner`, `dispatch_frame`,
@@ -42,7 +42,7 @@ pub(crate) use window_close::on_main_window_close;
 // callers reach them through the submodules directly.
 #[cfg(test)]
 pub(crate) use allowlist::{
-    allowed_commands, is_command_allowed, DISALLOWED_COMMAND_CODE, PENDING_FULL_CODE, PENDING_MAX,
+    allowed_commands, is_command_allowed, PENDING_FULL_CODE, PENDING_MAX,
 };
 
 // Unit tests for ALLOWED_COMMANDS + pending-map constants live in the

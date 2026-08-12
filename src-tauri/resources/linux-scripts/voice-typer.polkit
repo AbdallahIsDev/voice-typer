@@ -1,1 +1,66 @@
-dummy
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Voice Typer — polkit policy for pkexec-based permission installation.
+
+  This policy allows the install_permissions.py script to run as root via
+  pkexec, with a GUI password prompt (polkit). Used by the AppImage
+  first-run permission helper.
+
+  Placement: /usr/share/polkit-1/actions/com.voicetyper.policy
+
+  The action ID ``com.voicetyper.install-permissions`` and the policy
+  filename both use the project's ``com.voicetyper.*`` RDNN reverse-DNS
+  root (matching the ``com.voicetyper.desktop`` Tauri bundle identifier
+  — see review finding #54). Historically the action was
+  ``org.voice-typer.install-permissions``; the ID was renamed in this
+  file first, and the destination filename now matches too. Polkit
+  identifies actions by the ``<action id>`` attribute, not by the
+  filename, so a legacy ``org.voice-typer.policy`` left on an upgraded
+  system is inert (pkexec matches by the ``exec.path`` annotation,
+  which still points at the same script); new installs write
+  ``com.voicetyper.policy``. The uninstaller (``install_permissions.py
+  --uninstall``) removes BOTH policy files so an uninstalled system
+  fully converges on the ``com.voicetyper.*`` namespace.
+
+  ``<message>`` and ``<description>`` entries are provided for
+  ar, de, es, fr, hi, ru, zh (genuine translations per C-I18N-2 — never
+  English verbatim under a non-English locale).
+
+  The `auth_admin_keep` default allows the user to authenticate once and
+  not be re-prompted for ~5 minutes (default polkit timeout). See
+  install_permissions.py for the user-facing explanation.
+-->
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+
+<policyconfig>
+  <vendor>Voice Typer</vendor>
+  <vendor_url>https://github.com/AbdallahIsDev/voice-typer</vendor_url>
+
+  <action id="com.voicetyper.install-permissions">
+    <description>Install Voice Typer keyboard permissions</description>
+    <description xml:lang="ar">تثبيت أذونات لوحة مفاتيح Voice Typer</description>
+    <description xml:lang="de">Voice-Typer-Tastaturberechtigungen installieren</description>
+    <description xml:lang="es">Instalar los permisos de teclado de Voice Typer</description>
+    <description xml:lang="fr">Installer les autorisations clavier de Voice Typer</description>
+    <description xml:lang="hi">Voice Typer कीबोर्ड अनुमतियाँ स्थापित करें</description>
+    <description xml:lang="ru">Установить разрешения клавиатуры Voice Typer</description>
+    <description xml:lang="zh">安装 Voice Typer 键盘权限</description>
+    <message>Authentication is required to grant Voice Typer access to keyboard events</message>
+    <message xml:lang="ar">المصادقة مطلوبة لمنح Voice Typer الوصول إلى أحداث لوحة المفاتيح</message>
+    <message xml:lang="de">Authentifizierung ist erforderlich, um Voice Typer Zugriff auf Tastaturereignisse zu gewähren</message>
+    <message xml:lang="es">Se requiere autenticación para conceder a Voice Typer acceso a los eventos del teclado</message>
+    <message xml:lang="fr">Authentification requise pour accorder à Voice Typer l'accès aux événements du clavier</message>
+    <message xml:lang="hi">Voice Typer को कीबोर्ड ईवेंट तक पहुँच प्रदान करने के लिए प्रमाणीकरण आवश्यक है</message>
+    <message xml:lang="ru">Для предоставления Voice Typer доступа к событиям клавиатуры требуется аутентификация</message>
+    <message xml:lang="zh">需要身份验证才能授予 Voice Typer 访问键盘事件的权限</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/share/voice-typer/scripts/install_permissions.py</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+</policyconfig>

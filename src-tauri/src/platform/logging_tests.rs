@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unreachable, clippy::todo, clippy::unimplemented, clippy::cast_possible_truncation)]
+
 //! Unit tests for `platform::logging`.
 //!
 //! Extracted from the inline `#[cfg(test)] mod tests { ... }` block that
@@ -83,7 +85,7 @@ fn test_rotating_file_writer_truncates_in_place() {
         .map(|m| m.len())
         .unwrap_or(0);
     assert!(
-        size <= u64::from(LOG_MAX_BYTES),
+        size <= LOG_MAX_BYTES,
         "truncated log must stay under the rotation cap ({} bytes); got {} bytes",
         LOG_MAX_BYTES,
         size

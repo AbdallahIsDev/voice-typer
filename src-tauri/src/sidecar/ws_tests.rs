@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unreachable, clippy::todo, clippy::unimplemented, clippy::cast_possible_truncation)]
+
 //! Unit tests for `sidecar/ws.rs` (ADR-0020 §7, §9, §14).
 //!
 //! Moved verbatim from the inline `#[cfg(test)] mod tests` block in

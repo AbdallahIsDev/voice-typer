@@ -329,7 +329,19 @@ impl log::Log for CombinedLogger {
         // and terminal lines for one record can never straddle a second
         // boundary; the level + message body are identical.
         let (file_ts, term_ts) = now_timestamps();
-        let file_line = format!("{} {:5} {}", file_ts, record.level(), msg);
+        // GT-68: carry the per-process session ID (same value passed to
+        // the Python sidecar via `VOICE_TYPER_SESSION_ID`) in the FILE
+        // line so the Rust + Python log streams share a join key for
+        // cross-process correlation (crash-report matching). The
+        // terminal line stays session-free — it's a dev convenience
+        // view and the extra 10 chars/line would add noise.
+        let file_line = format!(
+            "{} {:5} [sid {}] {}",
+            file_ts,
+            record.level(),
+            crate::util::session_id(),
+            msg
+        );
         let term_line = format!("{} {:5} {}", term_ts, record.level(), msg);
         // gate the per-line `eprintln!` on the cached
         // `stderr_verbose` flag (computed once at logger init from
@@ -858,7 +870,7 @@ fn try_match_flag_or_bare_key(rest: &str, input: &str, pos: usize) -> Option<(us
         // The redaction engine runs inside the panic hook, so a
         // str-slice panic here would be self-reinforcing
         // (panic → log::error! → redact_pii → panic → abort).
-        if rest.len() >= kw.len() + 1
+        if rest.len() > kw.len()
             && rest.as_bytes()[..kw.len()].eq_ignore_ascii_case(kw.as_bytes())
             && rest.as_bytes()[kw.len()] == b'='
         {
@@ -988,8 +1000,8 @@ fn try_match_iban(rest: &str, input: &str, pos: usize) -> Option<usize> {
     }
     let mut bban_len = 0usize;
     let max_bban = (bytes.len() - 4).min(30);
-    for i in 4..4 + max_bban {
-        if bytes[i].is_ascii_uppercase() || bytes[i].is_ascii_digit() {
+    for &b in &bytes[4..4 + max_bban] {
+        if b.is_ascii_uppercase() || b.is_ascii_digit() {
             bban_len += 1;
         } else {
             break;
@@ -1017,11 +1029,10 @@ fn try_match_us_phone(rest: &str, input: &str, pos: usize) -> Option<usize> {
     let group_sizes = [3usize, 3, 4];
     for (g, &expected) in group_sizes.iter().enumerate() {
         // Optional separator before groups 1 and 2 (not group 0).
-        if g > 0 {
-            if idx < bytes.len() && (bytes[idx] == b'-' || bytes[idx] == b'.') {
+        if g > 0
+            && idx < bytes.len() && (bytes[idx] == b'-' || bytes[idx] == b'.') {
                 idx += 1;
             }
-        }
         let mut digits = 0usize;
         while idx < bytes.len() && bytes[idx].is_ascii_digit() && digits < expected {
             idx += 1;
@@ -1160,11 +1171,10 @@ fn try_match_credit_card(rest: &str, input: &str, pos: usize) -> Option<usize> {
     let mut idx = 0usize;
     for group in 0..4usize {
         // Optional separator before groups 1, 2, 3.
-        if group > 0 {
-            if idx < bytes.len() && (bytes[idx] == b'-' || bytes[idx] == b' ') {
+        if group > 0
+            && idx < bytes.len() && (bytes[idx] == b'-' || bytes[idx] == b' ') {
                 idx += 1;
             }
-        }
         // 4 digits.
         if idx + 4 > bytes.len() {
             return None;
@@ -1663,8 +1673,7 @@ impl RotatingFileWriter {
         let file = match guard.as_mut() {
             Some(f) => f,
             None => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                return Err(std::io::Error::other(
                     "logging file slot is None despite just-in-time init",
                 ));
             }
@@ -1698,7 +1707,7 @@ impl RotatingFileWriter {
         // fd is closed).
         // Check size; truncate in place if we've crossed the threshold.
         let len = self.current_size.load(std::sync::atomic::Ordering::Relaxed);
-        if len > u64::from(LOG_MAX_BYTES) {
+        if len > LOG_MAX_BYTES {
             // Single-file policy: truncate the log file IN PLACE. A
             // numbered backup (`.log.1`, `.log.2`, ...) is NEVER
             // created — the file on disk is always exactly one file.

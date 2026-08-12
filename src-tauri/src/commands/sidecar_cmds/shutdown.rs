@@ -1,3 +1,5 @@
+#![allow(clippy::unreachable)] // tauri command macro expansion emits `unreachable!()` fallbacks
+
 //! `shutdown_sidecar` cooperative-shutdown Tauri command (ADR-0020
 //! §10) — extracted from the former single-file
 //! `commands/sidecar_cmds.rs` (EO-35 split).

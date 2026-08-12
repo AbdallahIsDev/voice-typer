@@ -107,7 +107,7 @@
 pub(crate) fn register_kill_on_parent_exit(pid: u32) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        return register_kill_on_parent_exit_windows(pid);
+        register_kill_on_parent_exit_windows(pid)
     }
     #[cfg(unix)]
     {

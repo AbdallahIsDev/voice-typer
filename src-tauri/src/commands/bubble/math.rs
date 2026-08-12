@@ -62,6 +62,7 @@ pub(super) fn clamp_resize_height(d: u32) -> u32 {
 ///   clamp will reduce to `MAX_BUBBLE_W`/`MAX_BUBBLE_H` anyway).
 /// - **In-range finite → `f.round() as u32`**: standard round-to-nearest
 ///   (half away from zero).
+#[allow(clippy::cast_possible_truncation)] // saturating cast: guarded + documented above
 pub(super) fn round_f64_to_u32_saturating(f: f64) -> u32 {
     if f.is_nan() || f < 0.0 {
         return 0;
@@ -92,6 +93,7 @@ pub(super) fn round_f64_to_u32_saturating(f: f64) -> u32 {
 ///   the `as i32` cast. (The downstream `compute_move_by_new_pos`
 ///   `checked_add` will then surface a descriptive error if the
 ///   saturated delta overflows `pos.x + dx` / `pos.y + dy`.)
+#[allow(clippy::cast_possible_truncation)] // saturating cast: clamped + documented above
 pub(super) fn round_f64_to_i32_saturating(f: f64) -> i32 {
     if f.is_nan() {
         return 0;
@@ -159,6 +161,7 @@ pub(super) fn compute_move_by_new_pos(
 /// This helper is `#[cfg(test)]`-only (see `parse::parse_position` for
 /// the rationale).
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)] // saturating test helper: clamped + documented above
 pub(super) fn clamp_f64_to_i32(f: f64) -> i32 {
     if f.is_nan() {
         return 0;

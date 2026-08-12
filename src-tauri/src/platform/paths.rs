@@ -72,7 +72,7 @@ pub(crate) const APP_SLUG: &str = "voice-typer";
 ///
 /// Env vars are invariant for the process lifetime, but every call to
 /// this function re-resolved 4 `std::env::var()` lookups. Under
-/// flapping (supervisor respawn loops), `read/write_ft1_restart_counter`
+/// flapping (supervisor respawn loops), `read/write_restart_counter`
 /// in `supervisor.rs` each call this 4 times, summing to ~microseconds
 /// per call but adding up. The public `config_dir()` now routes
 /// through `config_dir_cached()` (below), which uses a `OnceLock` to
@@ -176,10 +176,10 @@ pub(crate) fn config_dir_from_env(
     // `~/.voice-typer` check would probe `.voice-typer` (relative to
     // CWD) instead of `<home>/.voice-typer` — a likely-nonexistent
     // path that quietly no-ops.
-    let home = home.and_then(|h| if h.is_empty() { None } else { Some(h) });
-    let appdata = appdata.and_then(|a| if a.is_empty() { None } else { Some(a) });
-    let xdg_data_home = xdg_data_home.and_then(|x| if x.is_empty() { None } else { Some(x) });
-    let config_dir_env = config_dir_env.and_then(|c| if c.is_empty() { None } else { Some(c) });
+    let home = home.filter(|&h| !h.is_empty());
+    let appdata = appdata.filter(|&a| !a.is_empty());
+    let xdg_data_home = xdg_data_home.filter(|&x| !x.is_empty());
+    let config_dir_env = config_dir_env.filter(|&c| !c.is_empty());
 
     // VOICE_TYPER_CONFIG_DIR env-var override. Mirrors the
     // Python side's _config_dir() resolution order: env var wins,

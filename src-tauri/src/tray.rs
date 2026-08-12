@@ -523,6 +523,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         // work without per-event thread allocation. The returned
         // `JoinHandle` is intentionally dropped (fire-and-forget) — the
         // body logs its own errors and returns `()`.
+        #[allow(clippy::let_underscore_future)] // intentional fire-and-forget (comment above)
         let _ = tauri::async_runtime::spawn_blocking(move || {
             if let Err(e) = rebuild_tray_menu(&app_inner, &payload.items) {
                 log::error!("[TRAY] failed to rebuild menu: {}", e);
@@ -571,6 +572,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         // returned `JoinHandle` is intentionally dropped
         // (fire-and-forget) — the body logs its own errors and
         // returns `()`.
+        #[allow(clippy::let_underscore_future)] // intentional fire-and-forget (comment above)
         let _ = tauri::async_runtime::spawn_blocking(move || {
             if let Some(tray) = app_inner.tray_by_id(TRAY_ID) {
                 if let Some(icon_name) = &payload.icon {

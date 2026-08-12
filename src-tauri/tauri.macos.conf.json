@@ -1,5 +1,37 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "title": "Voice Typer",
+        "width": 900,
+        "height": 700,
+        "minWidth": 720,
+        "minHeight": 540,
+        "resizable": true,
+        "fullscreen": false,
+        "transparent": false,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "visible": true,
+        "label": "main"
+      },
+      {
+        "title": "Voice Typer Bubble",
+        "width": 240,
+        "height": 80,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "label": "bubble"
+      }
+    ]
+  },
   "bundle": {
     "targets": ["dmg", "app"],
     "resources": [

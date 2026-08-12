@@ -221,7 +221,7 @@ fn migrate_inner(new_dir: &Path) {
         new_dir.display()
     );
 
-    if let Err(e) = std::fs::create_dir_all(&new_dir) {
+    if let Err(e) = std::fs::create_dir_all(new_dir) {
         log::error!(
             "[MIGRATE] cannot create target dir {}: {}",
             new_dir.display(),
@@ -398,5 +398,5 @@ fn migrate_inner(new_dir: &Path) {
     // The logic is extracted into `write_sentinel_if_clean` so it is
     // unit-testable without a Tauri AppHandle (the entry-point function
     // requires one and is hard to construct in `#[cfg(test)]`).
-    let _ = write_sentinel_if_clean(&new_dir, migration_failed);
+    let _ = write_sentinel_if_clean(new_dir, migration_failed);
 }

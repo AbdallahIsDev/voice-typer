@@ -14,7 +14,7 @@
 //!     `SystemTime::now()` rate-limiter bypass vector where a
 //!     malicious or misconfigured NTP step could disable the limiter
 //!     by jumping the wall clock backwards.
-//! 0 = "never toggled" (sentinel) — the first toggle always passes.
+//!     0 = "never toggled" (sentinel) — the first toggle always passes.
 
 use std::sync::atomic::AtomicU64;
 use std::sync::OnceLock;

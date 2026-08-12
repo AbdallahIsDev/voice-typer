@@ -129,12 +129,14 @@ fn create_job_object() -> Result<JobHandle, String> {
     // Job Object handle and a properly-initialized info struct.
     // The `JobObjectExtendedLimitInformation` class expects a
     // `JOBOBJECT_EXTENDED_LIMIT_INFORMATION` struct.
+    #[allow(clippy::cast_possible_truncation)] // struct size is a small compile-time constant
+    let info_size = std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32;
     unsafe {
         SetInformationJobObject(
             handle,
             JobObjectExtendedLimitInformation,
             &info as *const _ as *const _,
-            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            info_size,
         )
         .map_err(|e| format!("SetInformationJobObject failed: {}", e))?;
     }
@@ -173,6 +175,7 @@ pub(crate) fn register_kill_on_parent_exit_windows(pid: u32) -> Result<(), Strin
     // SAFETY: `guard.is_none()` was just checked and `*guard`
     // was set to `Some(jh)` on the None path. The `expect` is
     // unreachable but documents the invariant.
+    #[allow(clippy::expect_used)] // unreachable but pins the invariant (SAFETY note above)
     let job_handle: &HANDLE = &guard
         .as_ref()
         .expect("JOB_OBJECT must be Some after the create-or-reuse path above")

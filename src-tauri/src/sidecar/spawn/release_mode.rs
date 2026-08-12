@@ -31,6 +31,7 @@ use super::prewarm::prewarm_resource_path;
 ///     post-spawn syscall on the child's pid.
 ///   - Windows: assign the sidecar to a Job Object with
 ///     `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
+///
 /// Best-effort: errors are logged but do NOT abort the spawn (the
 /// sidecar is already running — killing the host's spawn path wouldn't
 /// help). The dev-mode path is already covered by `kill_on_drop(true)`
@@ -72,6 +73,12 @@ pub(crate) async fn spawn_sidecar_release(
         .envs(passthrough_env_allowlist())
         .env("TAURI_SIDECAR", "1")
         .env("VOICE_TYPER_IPC_TOKEN", token)
+        // GT-68: share the host's per-process session ID so the
+        // Python sidecar's log lines carry the same join key as the
+        // Rust host's (cross-process log correlation). The Python
+        // `log/__init__.py` prefers this env var when set, falling
+        // back to generating its own.
+        .env("VOICE_TYPER_SESSION_ID", crate::util::session_id())
         .env(
             "VOICE_TYPER_NATIVE_DIR",
             native_dir.to_string_lossy().to_string(),

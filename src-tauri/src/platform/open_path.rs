@@ -75,7 +75,7 @@ pub(crate) fn open_path_in_file_manager(path: &Path) -> Result<(), String> {
         std::thread::spawn(move || {
             let _ = child.wait();
         });
-        return Ok(());
+        Ok(())
     }
     #[cfg(target_os = "macos")]
     {

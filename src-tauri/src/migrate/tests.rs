@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unreachable, clippy::todo, clippy::unimplemented, clippy::cast_possible_truncation)]
+
 //! Unit tests for the Electron → Tauri migration module.
 //!
 //! Moved verbatim from the original `migrate.rs` monolith as part of

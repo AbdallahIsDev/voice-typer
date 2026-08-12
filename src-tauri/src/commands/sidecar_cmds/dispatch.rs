@@ -1,3 +1,5 @@
+#![allow(clippy::unreachable)] // tauri command macro expansion emits `unreachable!()` fallbacks
+
 //! Generic `dispatch` Tauri command + dispatch helpers (ADR-0020 §7) —
 //! extracted from the former single-file `commands/sidecar_cmds.rs`
 //! (EO-35 split).

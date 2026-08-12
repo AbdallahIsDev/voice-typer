@@ -211,7 +211,7 @@ fn spawn_oneshot_respawn_thread(app: tauri::AppHandle, state: Arc<SidecarState>)
     if let Err(e) = std::thread::Builder::new()
         .name("respawn-oneshot".into())
         .spawn(move || {
-            let _ = tauri::async_runtime::block_on(async move {
+            tauri::async_runtime::block_on(async move {
                 if let Err(e) = respawn(&app, &state).await {
                     log::error!(
                         "[WS] supervisor respawn failed: {} — app may be in a degraded state",
@@ -266,7 +266,7 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
         .name("respawn-supervisor".into())
         .spawn(move || {
             for (app, state) in rx {
-                let _ = tauri::async_runtime::block_on(async move {
+                tauri::async_runtime::block_on(async move {
                     if let Err(e) = respawn(&app, &state).await {
                         log::error!(
                             "[WS] supervisor respawn failed: {} — app may be in a degraded state",

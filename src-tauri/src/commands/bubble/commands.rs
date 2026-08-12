@@ -1,3 +1,5 @@
+#![allow(clippy::unreachable)] // tauri command macro expansion emits `unreachable!()` fallbacks
+
 //! Bubble window Tauri commands ( + ADR-0020 §9).
 //!
 //! The 9 `#[tauri::command]` functions exposed to the renderer live

@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unreachable, clippy::todo, clippy::unimplemented, clippy::cast_possible_truncation)]
+
 //! Unit tests for `sidecar_cmds` (extracted per C-TEST-5).
 //!
 //! Originally inline in `sidecar_cmds.rs` as `#[cfg(test)] mod tests { ... }`;

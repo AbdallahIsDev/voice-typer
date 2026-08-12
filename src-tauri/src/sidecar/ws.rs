@@ -509,20 +509,20 @@ async fn wait_for_auth_ok(
                     WS_AUTH_OK_TIMEOUT_SECS
                 );
                 cleanup_and_trigger_respawn(app, state).await;
-                return Err(format!(
+                Err(format!(
                     "WS auth timed out after {}s",
                     WS_AUTH_OK_TIMEOUT_SECS
-                ));
+                ))
             }
             Ok(None) => {
                 log::error!("[WS-AUTH] stream closed before auth_ok/ready");
                 cleanup_and_trigger_respawn(app, state).await;
-                return Err("WS stream closed during auth".to_string());
+                Err("WS stream closed during auth".to_string())
             }
             Ok(Some(Err(e))) => {
                 log::error!("[WS-AUTH] error reading auth_ok/ready: {}", e);
                 cleanup_and_trigger_respawn(app, state).await;
-                return Err(format!("WS auth read error: {}", e));
+                Err(format!("WS auth read error: {}", e))
             }
             Ok(Some(Ok(msg))) => {
                 let text = match msg {

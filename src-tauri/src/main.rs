@@ -178,12 +178,35 @@ fn main() {
             app.listen("relaunch_app", move |event| {
                 crate::state::on_relaunch_app(&restart_handle, event);
             });
+            // The `quit_app` listener mirrors Electron's
+            // `handle-message.ts` quit_app → app.quit() handling: on tray
+            // "Quit" the Python sidecar publishes `quit_app` and exits;
+            // this listener sets `shutting_down` (so the supervisor
+            // doesn't respawn the sidecar) and calls `app.exit(0)` (host
+            // teardown via RunEvent::Exit → on_host_exit). The body lives
+            // in `state::on_quit_app` so this file stays wiring-only.
+            let quit_handle = app.handle().clone();
+            app.listen("quit_app", move |_event| {
+                crate::state::on_quit_app(&quit_handle);
+            });
             // ADR-0020 §6.5: create the system tray. Failure is
             // non-fatal — the app still runs without a tray. The tray
             // is built from the sidecar's `tray_menu` event (tray.rs
             // listens for it and rebuilds the native menu on demand).
+            //
+            // Record whether the tray exists so the main-window close
+            // handler can decide between hide-to-tray (only safe when
+            // there IS a tray to bring the window back) and letting the
+            // close flow through to app exit (no tray → hiding would
+            // strand the user — Electron's `isLinuxWaylandWithoutSni()`
+            // guard covers the same case).
             if let Err(e) = crate::tray::create_tray(app.handle()) {
                 log::error!("[TRAY] init failed: {}", e);
+            } else {
+                let state: tauri::State<'_, Arc<SidecarState>> = app.state();
+                state
+                    .tray_available
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
             }
             //(Critical): the unconditional `write_restart_counter(0)`
             // that used to live here DEFEATED the circuit breaker — see
@@ -224,12 +247,13 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // ADR-0020 §10: on main window close, shutdown the sidecar.
-            // The branch logic (macOS skip, bubble logging, spawned
-            // shutdown_sidecar task) lives in
+            // Close-to-tray (ADR-0020 §10 + Electron parity): the main
+            // window's X button hides the window (prevent_close + hide)
+            // unless a deliberate shutdown is in flight; the bubble
+            // window closes normally. The branch logic lives in
             // `commands::sidecar_cmds::on_main_window_close`.
-            if let WindowEvent::CloseRequested { .. } = event {
-                on_main_window_close(window.app_handle(), window);
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                on_main_window_close(window.app_handle(), window, api);
             }
         })
         //split `.run(ctx)` into `.build(ctx)?.run(callback)`
