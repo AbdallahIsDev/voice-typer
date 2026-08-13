@@ -9,7 +9,6 @@ use tokio::io::AsyncBufReadExt;
 
 use super::env_allowlist::passthrough_env_allowlist;
 use super::handshake::{is_shutting_down, parse_server_started};
-use super::prewarm::dev_prewarm_exe;
 
 /// ADR-0020 §14: returns true when `VOICE_TYPER_SIDECAR_DEV=1` is set.
 /// Exposed as a separate function so unit tests can verify the env-var
@@ -75,18 +74,17 @@ pub(crate) async fn spawn_sidecar_dev_mode(
         // mirror the release-path env-var set so dev mode
         // doesn't silently diverge. Previously dev mode was missing
         // `VOICE_TYPER_PREWARM_EXE` (so the prewarm scheduled-task
-        // integration couldn't be exercised under `cargo tauri dev`)
-        // and hardcoded `RUST_LOG=debug` (which overrode any user-set
-        // `RUST_LOG` value, breaking the developer's ability to
-        // silence noisy crates via `RUST_LOG=warn`). We resolve the
-        // prewarm exe via `dev_prewarm_exe()` (the dev-mode
-        // counterpart of `prewarm_resource_path`) so the dev
-        // sidecar's prewarm integration sees a real path; if the
-        // path can't be resolved (rare — only fails when `cwd()`
-        // errors), `dev_prewarm_exe()` returns an empty string and
-        // logs a warning so the developer knows prewarm is disabled
-        // in this dev session.
-        .env("VOICE_TYPER_PREWARM_EXE", dev_prewarm_exe())
+        // integration couldn't be exercised under `cargo tauri dev`).
+        //
+        // Prewarm binary removal (Phase 2a, plan-runtime-pack-split
+        // §6.2): the `VOICE_TYPER_PREWARM_EXE` env var is no longer
+        // set in either release or dev mode — the prewarm binary is
+        // deleted (Sub-agent 6), the Rust-side `dev_prewarm_exe` /
+        // `prewarm_resource_path` helpers are deleted, and the
+        // prewarm phase moved INTO the worker exe (Option P-1).
+        // `VOICE_TYPER_CONFIG_DIR` still propagates so the dev-mode
+        // Python sidecar reads the same config dir as the release
+        // sidecar.
         .env(
             "VOICE_TYPER_CONFIG_DIR",
             crate::platform::paths::config_dir()

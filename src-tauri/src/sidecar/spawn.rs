@@ -15,8 +15,6 @@
 //!   (`is_shutting_down`).
 //! - [`env_allowlist`] — the OS-required env-var passthrough allowlist
 //!   (`passthrough_env_allowlist`).
-//! - [`prewarm`] — prewarm binary path resolution (`prewarm_resource_path`
-//!   + the dev-mode `dev_prewarm_exe`).
 //! - [`target_triple`] — the pure `target_triple_for` table +
 //!   `current_target_triple` runtime wrapper.
 //!
@@ -25,13 +23,25 @@
 //! allowlist via `passthrough_env_allowlist()`. This prevents the
 //! sidecar from inheriting arbitrary host env vars (e.g. `HF_TOKEN`,
 //! `OPENAI_API_KEY`, `http_proxy`) exported from the user's shell.
+//!
+//! Prewarm binary removal (Phase 2a, plan-runtime-pack-split §6.2):
+//! the former `prewarm` submodule (which resolved the prewarm exe path
+//! passed to Python via the `VOICE_TYPER_PREWARM_EXE` env var) was
+//! deleted when prewarm became a startup phase of the worker exe.
+//! See `platform::worker_path` for the worker exe path resolution
+//! that supersedes the prewarm exe path.
 
 mod dev_mode;
 mod env_allowlist;
 mod handshake;
-mod prewarm;
 mod release_mode;
-mod target_triple;
+// `pub(crate)` (not `mod`) so the worker-path resolver in
+// `platform::worker_path` can reach `current_target_triple()` to build
+// the per-platform worker exe name (`voice-typer-worker-<triple>[.exe]`).
+// The pre-existing `#[cfg(test)] pub(crate) use target_triple::*`
+// re-export below stays for backwards-compat with the spawn tests
+// that import via `use super::*`.
+pub(crate) mod target_triple;
 
 // The unit-tested helpers live in the submodules above; the sibling
 // test file (`spawn_tests.rs`) resolves them via `use super::*`, so
@@ -219,3 +229,139 @@ pub(crate) async fn initialize_sidecar(
 #[cfg(test)]
 #[path = "spawn_tests.rs"]
 mod spawn_tests;
+
+// ─── Worker spawn scaffolding (Phase 2a — runtime-pack split, §7) ────
+//
+// The worker spawn entry points below are STUBS. Phase 2a delivers the
+// infrastructure (path resolution, state struct, conf-file wiring,
+// externalBin + shell.scope entries) but the actual spawn logic that
+// connects Tauri's `app.shell().sidecar("voice-typer-worker")` to a
+// running worker exe depends on:
+//   - The worker exe itself (built by Sub-agent 7 — `voice_typer/worker/__main__.py`
+//     + `scripts/build/build_worker_*.sh`).
+//   - The pack downloader + `verify_pack_or_skip()` (Sub-agent 7 —
+//     the worker only spawns AFTER the pack is downloaded + verified).
+//   - The worker's WS server handshake (the worker emits its own
+//     `server_started` JSON on stdout, parallel to the sidecar's).
+//   - The slim-core sidecar's WS CLIENT connection to the worker
+//     (the new 1-host↔2-processes pattern, §7.1 — NOT the same as the
+//     Tauri→sidecar WS bridge).
+//
+// The stubs document the contract the future implementation must
+// satisfy + return `Err("worker spawn not yet implemented — Phase 2a
+// skeleton")` so a premature caller fails loudly rather than silently
+// no-op'ing. The WorkerState struct + worker_path::worker_exe_path()
+// + the conf-file externalBin entry ARE delivered in Phase 2a —
+// `cargo tauri build` will resolve the `voice-typer-worker-<triple>`
+// binary name via Tauri's `externalBin` mechanism (and fail at build
+// time if the binary is missing, which is the correct fail-closed
+// behavior for a release build).
+
+/// Spawn the ML worker exe via Tauri's `externalBin` mechanism.
+///
+/// Phase 2a stub — the actual spawn logic is deferred to Phase 2b
+/// (after the worker exe exists + the pack downloader is wired up).
+/// The stub returns an error so a premature caller fails loudly.
+///
+/// # Contract (for the future implementer)
+///
+/// 1. Resolve the worker exe path via
+///    `crate::platform::worker_path::worker_exe_path()` (per-platform,
+///    cached). For dev mode, fall back to a source-tree-relative path
+///    (parallel to `dev_prewarm_exe`'s pattern — deleted with the
+///    prewarm binary in this Phase 2a slice).
+/// 2. Generate the per-launch bearer token via `util::generate_token()`
+///    ONCE (store in `state.auth_token: OnceLock<String>` — the worker
+///    inherits the host's token across respawns so the slim-core
+///    sidecar can re-authenticate without re-negotiating).
+/// 3. Spawn via `app.shell().sidecar("voice-typer-worker")` (release)
+///    or `tokio::process::Command::new(python_bin)` (dev mode, parallel
+///    to `spawn_sidecar_dev_mode`). Pass `VOICE_TYPER_WORKER_TOKEN`
+///    + `VOICE_TYPER_CONFIG_DIR` + `VOICE_TYPER_PACK_DIR` env vars
+///    (the worker reads the pack dir to find its bundled engines).
+/// 4. Read `server_started` JSON from stdout (parallel to
+///    `parse_server_started` — the worker emits the same handshake).
+/// 5. Install the child handle + exit receiver into `WorkerState`.
+/// 6. The slim-core sidecar (NOT the Tauri host) connects to the
+///    worker's WS port as a CLIENT. The host proxies frames through
+///    `WorkerState::ws_tx` so the worker lifecycle stays under host
+///    control (§7.2: respawn scheduler, shutdown).
+///
+/// # Worker lifecycle (§7.3)
+///
+/// - Worker starts ONCE after pack download + verification, stays
+///   running for app lifetime. Holds ~450 MB RAM (unpacked pack +
+///   loaded models).
+/// - If RAM pressure is high, the slim-core sidecar sends a
+///   `worker_unload` RPC (the worker exits; restart on next
+///   transcription).
+/// - Worker's prewarm phase runs once at startup (Option P-1).
+/// - Worker shutdown: graceful via WS close, or forceful via
+///   SIGTERM/taskkill (parallel to `shutdown_sidecar_for_exit`).
+/// - Single-instance: worker takes `state.lock_file_path` lock file
+///   (parallel to `VoiceTyperSingleInstance`).
+/// - Respawn scheduler (§7.2): if the worker crashes, the slim-core
+///   sidecar restarts it. Must NOT trip the sidecar's circuit breaker
+///   (separate `respawn_in_progress` flag in `WorkerState`).
+///
+/// # Returns
+///
+/// `Ok((port, child, exit_rx))` on success — same shape as
+/// `spawn_sidecar_and_get_port_with_shutdown` so the caller
+/// (`initialize_worker` — TBD, parallel to `initialize_sidecar`)
+/// can install them into `WorkerState` via the same pattern.
+pub(crate) async fn spawn_worker_and_get_port_with_shutdown(
+    _app: &tauri::AppHandle,
+    _state: Arc<crate::state::WorkerState>,
+    _shutting_down: &AtomicBool,
+) -> Result<(u16, SidecarHandle, Option<mpsc::Receiver<CommandEvent>>), String> {
+    // Phase 2a skeleton — the worker exe does not exist yet. The path
+    // resolution + state struct + conf-file wiring ARE delivered; the
+    // spawn logic is deferred to Phase 2b. See the contract above.
+    Err(
+        "worker spawn not yet implemented — Phase 2a skeleton (see spawn_worker_and_get_port_with_shutdown contract)"
+            .to_string(),
+    )
+}
+
+/// Cold-start worker initialization: spawn the worker, install the
+/// child handle + exit receiver into shared state, and kick off the
+/// initial WS reconnect.
+///
+/// Phase 2a stub — defers to `spawn_worker_and_get_port_with_shutdown`
+/// (also a stub). The future implementation mirrors
+/// `initialize_sidecar`'s sequence (§7.3 lifecycle: starts once after
+/// pack download + verification, stays running for app lifetime).
+///
+/// # Sequence (for the future implementer)
+///
+/// 1. Generate the per-launch bearer token via `util::generate_token`
+///    and store in `state.auth_token` (`OnceLock::set` — fails
+///    gracefully if already set, e.g. by a prior call).
+/// 2. Resolve the worker lock file path via
+///    `worker_path::worker_exe_path().with_file_name("worker.lock")`
+///    and store in `state.lock_file_path`.
+/// 3. Call `spawn_worker_and_get_port_with_shutdown`.
+/// 4. Re-check `state.shutting_down` AFTER spawn returns — if the user
+///    quit the app while we were waiting for `server_started`, kill
+///    the freshly-spawned worker (parallel to `initialize_sidecar`).
+/// 5. Install the child handle + exit receiver into `WorkerState`.
+/// 6. Kick off `reconnect_worker_ws` (TBD, parallel to
+///    `sidecar::ws::reconnect_ws`). On failure, fall back to the
+///    worker supervisor's `respawn` (TBD, parallel to
+///    `sidecar::supervisor::respawn`).
+pub(crate) async fn initialize_worker(
+    _app_handle: &tauri::AppHandle,
+    _state: Arc<crate::state::WorkerState>,
+) {
+    // Phase 2a skeleton — see the contract above. The future
+    // implementation mirrors `initialize_sidecar`'s shape but with
+    // `WorkerState` instead of `SidecarState` + the worker's separate
+    // `shutting_down` flag (§7.2: worker lifecycle is independent of
+    // the sidecar's — worker crash must NOT trip the sidecar's circuit
+    // breaker).
+    log::info!(
+        "[WORKER-INIT] initialize_worker called — Phase 2a skeleton, \
+         no-op (worker spawn deferred to Phase 2b)"
+    );
+}

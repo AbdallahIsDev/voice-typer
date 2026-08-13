@@ -213,14 +213,13 @@ class TestBundleBinariesVsStubRegistry:
             for base in bundle.get("externalBin", [])
             for triple in stub.SIDECAR_TRIPLES
         }
-        # bundle.resources binary entries: native hotkey + per-arch prewarm
-        # (the non-binary resources — linux-scripts, polkit, rules — are
-        # committed real files outside the stub registry).
-        binaries = {
-            r
-            for r in bundle.get("resources", [])
-            if r.startswith("resources/native/") or r.startswith("resources/prewarm-")
-        }
+        # bundle.resources binary entries: native hotkey only.
+        # (Prewarm resources were DELETED 2026-08-13 — prewarm became a
+        # worker startup phase, Option P-1, plan-runtime-pack-split §6.2.
+        # The worker exe is now externalBin, NOT a bundle.resources entry.)
+        # The non-binary resources — linux-scripts, polkit, rules — are
+        # committed real files outside the stub registry.
+        binaries = {r for r in bundle.get("resources", []) if r.startswith("resources/native/")}
         declared = sidecars | binaries
 
         missing = declared - registry
@@ -1024,11 +1023,11 @@ class TestReverseDnsIdentifierNamespace:
                 'name.startswith(("VoiceTyper", "com.voicetyper"))',
                 "\"Get-ScheduledTask -TaskName 'VoiceTyper*','com.voicetyper*' \"",
             ],
-            "voice_typer/server/prewarm/completion_events.py": [
-                # The source literal carries TWO backslashes (escaped \\ in
-                # the f-string); the test string must mirror both.
-                'return f"Local\\\\com.voicetyper.prewarm_completion_{pid}"',
-            ],
+            # NOTE: voice_typer/server/prewarm/completion_events.py was DELETED
+            # 2026-08-13 — prewarm became a worker startup phase (Option P-1,
+            # plan-runtime-pack-split §6.2). The prewarm_completion event
+            # namespace is no longer used. The reverse-DNS pin for the Windows
+            # autostart + task_scheduler identifiers above remains in force.
         }
         for rel, expected in pins.items():
             text = (PROJECT_ROOT / rel).read_text(encoding="utf-8")
@@ -1043,9 +1042,14 @@ class TestReverseDnsIdentifierNamespace:
                 )
 
     def test_posix_labels_and_keyring_service_name_are_reverse_dns(self) -> None:
-        """macOS LaunchAgent labels + keyring service name stay reverse-DNS."""
+        """macOS LaunchAgent labels + keyring service name stay reverse-DNS.
+
+        NOTE: voice_typer/server/prewarm_scheduler_posix.py was DELETED
+        2026-08-13 — prewarm became a worker startup phase (Option P-1,
+        plan-runtime-pack-split §6.2). The macOS LaunchAgent for prewarm
+        is gone; the autostart_macos + keyring pins below remain in force.
+        """
         pins = {
-            "voice_typer/server/prewarm_scheduler_posix.py": 'PREWARM_LABEL = "com.voicetyper.prewarm"',
             "voice_typer/server/server_platform/autostart_macos.py": "<string>com.voicetyper</string>",
             "voice_typer/server/credential_store.py": 'KEYRING_SERVICE_NAME = "com.voicetyper.keyring"',
         }

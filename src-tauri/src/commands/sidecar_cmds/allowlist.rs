@@ -275,10 +275,22 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             // `add_trusted_endpoint` — URL-allowlist extension
             // (self-hosted LLM/ASR endpoints); mirrors the TS allowlist.
             "add_trusted_endpoint",
+            // Master plan §7.4 — new IPC request `transcribe_offline`
+            // (slim core → worker). Mirrors the TS allowlist and the
+            // Python `_COMMAND_REGISTRY`. The renderer invokes this to
+            // run an offline transcription through the runtime-pack
+            // worker (the slim core forwards the request to the worker
+            // over the worker's dedicated WS hop). The push counterpart
+            // `transcribe_offline_result` is published via
+            // `event_bus.publish(...)` (NOT a command — see
+            // `ALLOWED_EVENT_TYPES` in
+            // `src-tauri/src/sidecar/ws/event_protocol.rs`). Pinned by
+            // `tests/test_event_types_parity.py`.
+            "transcribe_offline",
         ];
         // Build the set in one pass. Duplicate detection is enforced
         // by the `test_allowed_commands_set_contains_no_duplicates`
-        // unit test (which asserts `set.len() == 62`), so we don't
+        // unit test (which asserts `set.len() == 66`), so we don't
         // need a runtime `log::error!` per duplicate here — that path
         // was ~14 lines of defensive logging on a static `&[&str]`
         // literal and was redundant with the test. If a future

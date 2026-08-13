@@ -3,7 +3,7 @@
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use tauri::Manager;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex, Notify};
@@ -389,6 +389,130 @@ impl SidecarState {
 }
 
 impl Default for SidecarState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ─── WorkerState (Phase 2a — runtime-pack split, §7) ───────────────────
+//
+// The runtime-pack split adds a SECOND spawned child to the host: the
+// ML worker exe (`voice-typer-worker-<triple>[.exe]`). The slim-core
+// sidecar talks to the worker over a SECOND websocket connection as a
+// CLIENT (a new 1-host↔2-processes pattern, NOT "the same bridge" —
+// see plan-runtime-pack-split §7.1). WorkerState is the parallel of
+// SidecarState for the worker child — a separate struct (NOT an
+// extension of SidecarState) so the two children's lifecycles stay
+// independent: the worker's respawn scheduler must NOT trip the
+// sidecar's circuit breaker (§7.2), and the sidecar's WS disconnect
+// must NOT tear down the worker.
+//
+// WorkerState mirrors the SidecarState field set (child, ws_tx,
+// pending, next_id, shutting_down, respawn_in_progress,
+// child_exit_rx, heartbeat_handle, ws_generation, shutdown_notify)
+// plus worker-specific additions:
+//   - `auth_token: OnceLock<String>` — the per-launch bearer token
+//     passed to the worker via the `VOICE_TYPER_WORKER_TOKEN` env var
+//     (parallel to the sidecar's `VOICE_TYPER_IPC_TOKEN`; same
+//     hmac.compare_digest pattern on the Python side — see
+//     `voice_typer/server/ipc/auth.py:61-70`). Stored in a `OnceLock`
+//     because the token is generated ONCE per host launch (NOT
+//     regenerated per worker respawn — the worker inherits the
+//     host's token so the slim-core sidecar can authenticate to a
+//     respawned worker without re-negotiating).
+//   - `lock_file_path: OnceLock<PathBuf>` — single-instance lock
+//     file (parallel to `VoiceTyperSingleInstance`) preventing
+//     parallel worker spawns across host instances.
+//
+// The `tray_available` field from SidecarState is NOT mirrored: the
+// worker has no UI / tray concern.
+
+/// Worker spawn state — parallel to [`SidecarState`] for the ML worker
+/// exe (Phase 2a, plan-runtime-pack-split §7). See the module-level
+/// comment above for the architectural rationale.
+pub(crate) struct WorkerState {
+    /// Child handle for kill_children backstop. Same enum as
+    /// `SidecarState::child` (the worker is also spawned via Tauri's
+    /// `externalBin` mechanism in release builds, or via
+    /// `tokio::process::Command` in dev mode).
+    pub(crate) child: Mutex<Option<SidecarHandle>>,
+    /// WS writer channel to the worker — `None` when the WS is
+    /// disconnected. The slim-core sidecar (NOT the Tauri host) is the
+    /// WS client of the worker; this channel is the writer half of
+    /// that connection.
+    pub(crate) ws_tx: Mutex<Option<WsWriterTx>>,
+    /// Pending RPC requests to the worker (id → response sender).
+    /// Separate from `SidecarState::pending` so a slow worker response
+    /// never blocks a sidecar response (and vice versa).
+    pub(crate) pending: PendingMap,
+    /// Next worker RPC request id. Independent counter from
+    /// `SidecarState::next_id` so worker + sidecar request ids don't
+    /// collide on the host's log correlation.
+    pub(crate) next_id: AtomicU64,
+    /// Worker shutdown signal — set when the host is quitting so the
+    /// worker respawn scheduler doesn't restart the worker during
+    /// host teardown. SEPARATE from `SidecarState::shutting_down` so
+    /// the worker's lifecycle is independent (§7.2).
+    pub(crate) shutting_down: AtomicBool,
+    /// Worker respawn serialization flag — same contract as
+    /// `SidecarState::respawn_in_progress` but for the worker
+    /// supervisor. Acquired with `compare_exchange(false → true)` on
+    /// entry; cleared on exit (both Ok and restart paths).
+    pub(crate) respawn_in_progress: AtomicBool,
+    /// Event receiver from the worker's `Command::spawn()`. Used by
+    /// `shutdown_worker_for_exit` (TBD, parallel to
+    /// `shutdown_sidecar_for_exit`) to poll for `CommandEvent::Terminated`.
+    pub(crate) child_exit_rx: AsyncMutex<Option<mpsc::Receiver<CommandEvent>>>,
+    /// Most recently spawned worker heartbeat task's `JoinHandle`.
+    /// Mirrors `SidecarState::heartbeat_handle` — without storing +
+    /// aborting the previous handle, each reconnect LEAKS the prior
+    /// task.
+    pub(crate) heartbeat_handle: AsyncMutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    /// Monotonic generation counter bumped on every successful worker
+    /// WS reconnect. Mirrors `SidecarState::ws_generation`.
+    pub(crate) ws_generation: AtomicU64,
+    /// Cancellation signal for the worker supervisor's backoff sleep.
+    /// Mirrors `SidecarState::shutdown_notify`.
+    pub(crate) shutdown_notify: Notify,
+    /// Per-launch bearer token passed to the worker via the
+    /// `VOICE_TYPER_WORKER_TOKEN` env var. Generated ONCE per host
+    /// launch (NOT regenerated per worker respawn — the worker
+    /// inherits the host's token so the slim-core sidecar can
+    /// authenticate to a respawned worker without re-negotiating).
+    /// Auth pattern: the worker validates incoming WS frames by
+    /// comparing the bearer token via `hmac.compare_digest` on the
+    /// Python side (see `voice_typer/server/ipc/auth.py:61-70`).
+    pub(crate) auth_token: OnceLock<String>,
+    /// Single-instance lock file path (parallel to
+    /// `VoiceTyperSingleInstance`). The worker takes this lock at
+    /// spawn time + releases it on exit; a stale lock is detected
+    /// via PID check.
+    pub(crate) lock_file_path: OnceLock<std::path::PathBuf>,
+}
+
+impl WorkerState {
+    /// Convenience constructor mirroring `SidecarState::new()`. The
+    /// `auth_token` and `lock_file_path` `OnceLock`s start empty —
+    /// they're populated lazily on first worker spawn.
+    pub(crate) fn new() -> Self {
+        Self {
+            child: Mutex::new(None),
+            ws_tx: Mutex::new(None),
+            pending: AsyncMutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+            shutting_down: AtomicBool::new(false),
+            respawn_in_progress: AtomicBool::new(false),
+            child_exit_rx: AsyncMutex::new(None),
+            heartbeat_handle: AsyncMutex::new(None),
+            ws_generation: AtomicU64::new(0),
+            shutdown_notify: Notify::new(),
+            auth_token: OnceLock::new(),
+            lock_file_path: OnceLock::new(),
+        }
+    }
+}
+
+impl Default for WorkerState {
     fn default() -> Self {
         Self::new()
     }

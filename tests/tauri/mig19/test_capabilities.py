@@ -232,6 +232,12 @@ EXPECTED_CAPABILITY_IDENTIFIER = EXPECTED_MAIN_CAPABILITY_IDENTIFIER
 #: must restrict spawn to this binary only.
 EXPECTED_SIDECAR_BINARY = "bin/python-sidecar"
 
+#: plan-runtime-pack-split.md §4.4/§7: the worker exe is the second
+#: externalBin binary (offline transcription). It belongs in the same
+#: least-privilege spawn scope as the sidecar — no foreign binaries
+#: (cmd, sh, bash, powershell, etc.) may be added.
+EXPECTED_WORKER_BINARY = "bin/voice-typer-worker"
+
 #: ADR-0020 §7: overly-broad permission identifiers that MUST NOT
 #: appear in the capabilities file (privilege-escape vectors).
 FORBIDDEN_BROAD_PERMISSIONS = (
@@ -401,17 +407,20 @@ def test_grants_shell_allow_spawn_scoped_to_python_sidecar(
     scope = shell_plugin["scope"]
     assert isinstance(scope, list) and scope, "plugins.shell.scope must be a non-empty list of allowed binaries"
 
-    # Every scope entry must name the sidecar binary — no foreign
-    # binaries (cmd, sh, bash, powershell, etc.) may be in scope.
+    # Every scope entry must name one of the first-party binaries
+    # (python-sidecar or voice-typer-worker) — no foreign binaries
+    # (cmd, sh, bash, powershell, etc.) may be in scope.
     sidecar_in_scope = False
     for entry in scope:
         assert isinstance(entry, dict), f"shell.scope entry must be an object — got {type(entry).__name__}"
         name = entry.get("name", "")
         cmd = entry.get("cmd", "")
-        # The scope entry must point at the python-sidecar binary.
-        assert EXPECTED_SIDECAR_BINARY in (name, cmd), (
-            f"shell.scope entry names a non-sidecar binary: name={name!r} "
-            f"cmd={cmd!r} — only {EXPECTED_SIDECAR_BINARY!r} is permitted "
+        # The scope entry must point at the python-sidecar or the
+        # voice-typer-worker binary.
+        assert EXPECTED_SIDECAR_BINARY in (name, cmd) or EXPECTED_WORKER_BINARY in (name, cmd), (
+            f"shell.scope entry names a non-first-party binary: name={name!r} "
+            f"cmd={cmd!r} — only {EXPECTED_SIDECAR_BINARY!r} / "
+            f"{EXPECTED_WORKER_BINARY!r} are permitted "
             f"(ADR-0020 §7 least-privilege)"
         )
         # The sidecar flag must be true (Tauri v2 requires this for

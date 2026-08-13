@@ -58,18 +58,13 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "bin/python-sidecar"
+      "bin/python-sidecar",
+      "bin/voice-typer-worker"
     ],
     "resources": [
       "resources/native/windows-key-listener.exe",
       "resources/native/macos-key-listener",
       "resources/native/linux-key-listener",
-      "resources/prewarm-x86_64-pc-windows-msvc.exe",
-      "resources/prewarm-aarch64-pc-windows-msvc.exe",
-      "resources/prewarm-x86_64-apple-darwin",
-      "resources/prewarm-aarch64-apple-darwin",
-      "resources/prewarm-x86_64-unknown-linux-gnu",
-      "resources/prewarm-aarch64-unknown-linux-gnu",
       "resources/linux-scripts/install_permissions.py",
       "resources/linux-scripts/uninstall_permissions.py",
       "resources/linux-scripts/99-voice-typer.rules",
@@ -110,7 +105,7 @@
       },
       "nsis": {
         "installMode": "currentUser",
-        "installerHooks": "../scripts/windows/uninstaller.nsh"
+        "installerHooks": "../scripts/windows/tauri-installer-hooks.nsh"
       },
       "signCommand": "..\\scripts\\tauri-sign.cmd %1"
     },
@@ -130,6 +125,14 @@
         {
           "name": "bin/python-sidecar",
           "cmd": "bin/python-sidecar",
+          "sidecar": true,
+          "args": [
+            "--ws"
+          ]
+        },
+        {
+          "name": "bin/voice-typer-worker",
+          "cmd": "bin/voice-typer-worker",
           "sidecar": true,
           "args": [
             "--ws"

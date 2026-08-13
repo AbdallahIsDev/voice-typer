@@ -3,7 +3,6 @@
   "bundle": {
     "targets": ["deb", "rpm", "appimage"],
     "resources": [
-      "resources/prewarm-x86_64-unknown-linux-gnu",
       "resources/native/linux-key-listener",
       "resources/linux-scripts/install_permissions.py",
       "resources/linux-scripts/uninstall_permissions.py",

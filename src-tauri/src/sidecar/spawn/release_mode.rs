@@ -13,7 +13,6 @@ use tokio::sync::mpsc;
 
 use super::env_allowlist::passthrough_env_allowlist;
 use super::handshake::{is_shutting_down, parse_server_started};
-use super::prewarm::prewarm_resource_path;
 
 /// ADR-0020 §1 + §4.1: release-build spawn via `externalBin`. Wraps
 /// the resulting `CommandChild` in `SidecarHandle::ShellPlugin`.
@@ -50,15 +49,22 @@ pub(crate) async fn spawn_sidecar_release(
         .map_err(|e| format!("failed to resolve sidecar binary: {e}"))?;
 
     // ADR-0020 §2 + §3: pass TAURI_SIDECAR=1 + VOICE_TYPER_IPC_TOKEN
-    // + VOICE_TYPER_NATIVE_DIR + VOICE_TYPER_PREWARM_EXE env vars.
+    // + VOICE_TYPER_NATIVE_DIR env vars.
     // The sidecar's `ipc_server.py main()` checks TAURI_SIDECAR=1 to
     // skip the Python-side single-instance mutex + heartbeat watchdog.
+    //
+    // Prewarm binary removal (Phase 2a, plan-runtime-pack-split §6.2):
+    // the `VOICE_TYPER_PREWARM_EXE` env var is no longer set — the
+    // prewarm binary is deleted (Sub-agent 6) and the prewarm phase
+    // moved INTO the worker exe (Option P-1). The Rust-side
+    // `prewarm_resource_path` helper that resolved the prewarm exe
+    // path is also deleted. The slim-core sidecar no longer needs to
+    // know the prewarm exe path.
     let native_dir = app
         .path()
         .resource_dir()
         .map(|p| p.join("native"))
         .map_err(|e| format!("resource_dir failed: {e}"))?;
-    let prewarm_exe = prewarm_resource_path(app)?;
 
     // Clear inherited host env BEFORE adding the
     // voice-typer-specific vars. Without this, the sidecar inherits
@@ -83,7 +89,6 @@ pub(crate) async fn spawn_sidecar_release(
             "VOICE_TYPER_NATIVE_DIR",
             native_dir.to_string_lossy().to_string(),
         )
-        .env("VOICE_TYPER_PREWARM_EXE", prewarm_exe)
         .env(
             "VOICE_TYPER_CONFIG_DIR",
             crate::platform::paths::config_dir()

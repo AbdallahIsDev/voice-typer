@@ -1,4 +1,5 @@
-//! Target-triple table for `externalBin` + prewarm binary naming
+//! Target-triple table for `externalBin` + worker exe naming
+//! (Phase 2a — runtime-pack split, plan-runtime-pack-split §4.4)
 //! (ADR-0020 §4.1) — extracted from the former single-file
 //! `sidecar/spawn.rs` (EO-33 split).
 

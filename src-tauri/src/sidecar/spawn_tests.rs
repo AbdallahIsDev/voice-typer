@@ -442,3 +442,147 @@ fn test_is_shutting_down_observes_concurrent_flip() {
     // would short-circuit.
     assert!(is_shutting_down(Some(&flag)));
 }
+
+// ── Worker spawn stubs (Phase 2a — runtime-pack split, §7) ──────────
+//
+// These tests cover the Phase 2a worker scaffolding delivered in this
+// slice: the `WorkerState` struct (parallel to `SidecarState`) + the
+// `spawn_worker_and_get_port_with_shutdown` / `initialize_worker`
+// stubs. The stubs themselves are async + require a Tauri `AppHandle`
+// (not constructible in a plain unit test without a full Tauri test
+// harness), so we test the PURE parts: `WorkerState::new()` field
+// initialization + the stub function pointers (compile-time contract
+// that the symbols exist with the documented signature).
+
+/// `WorkerState::new()` must initialize `child` to `None` — the worker
+/// child handle is installed lazily by `initialize_worker` after the
+/// pack is downloaded + verified (Phase 2b). A non-`None` default would
+/// cause `shutdown_worker_for_exit` (TBD) to attempt killing a
+/// non-existent process on the first app-exit path.
+#[test]
+fn test_worker_state_new_child_is_none() {
+    let state = crate::state::WorkerState::new();
+    let child = crate::state::lock(&state.child);
+    assert!(
+        child.is_none(),
+        "WorkerState::new() must initialize child to None"
+    );
+}
+
+/// `WorkerState::new()` must initialize `ws_tx` to `None` — the WS
+/// writer channel is installed by `reconnect_worker_ws` (TBD, parallel
+/// to `sidecar::ws::reconnect_ws`) after the worker's `server_started`
+/// handshake completes.
+#[test]
+fn test_worker_state_new_ws_tx_is_none() {
+    let state = crate::state::WorkerState::new();
+    let ws_tx = state.ws_tx.lock().unwrap_or_else(|e| e.into_inner());
+    assert!(
+        ws_tx.is_none(),
+        "WorkerState::new() must initialize ws_tx to None"
+    );
+}
+
+/// `WorkerState::new()` must initialize the worker's `shutting_down`
+/// flag to `false` + `respawn_in_progress` to `false`. The flag only
+/// flips to `true` on `shutdown_worker_for_exit` (TBD) / on entry to
+/// the worker supervisor's respawn path (TBD). A `true` default would
+/// cause the spawn loop to short-circuit immediately (parallel to
+/// `is_shutting_down` in the sidecar path).
+#[test]
+fn test_worker_state_new_shutdown_and_respawn_flags_false() {
+    let state = crate::state::WorkerState::new();
+    assert!(
+        !state.shutting_down.load(Ordering::SeqCst),
+        "WorkerState::new() must initialize shutting_down to false"
+    );
+    assert!(
+        !state.respawn_in_progress.load(Ordering::SeqCst),
+        "WorkerState::new() must initialize respawn_in_progress to false"
+    );
+}
+
+/// `WorkerState::new()` must initialize `next_id` to 1 + `ws_generation`
+/// to 0. `next_id` starts at 1 (not 0) to match `SidecarState::next_id`'s
+/// convention (id 0 is reserved as the "no response expected" sentinel
+/// for fire-and-forget events). `ws_generation` starts at 0 and is
+/// bumped to 1 on the first successful reconnect.
+#[test]
+fn test_worker_state_new_next_id_and_ws_generation() {
+    let state = crate::state::WorkerState::new();
+    assert_eq!(
+        state.next_id.load(Ordering::SeqCst),
+        1,
+        "WorkerState::new() must initialize next_id to 1"
+    );
+    assert_eq!(
+        state.ws_generation.load(Ordering::SeqCst),
+        0,
+        "WorkerState::new() must initialize ws_generation to 0"
+    );
+}
+
+/// `WorkerState::new()` must initialize `auth_token` + `lock_file_path`
+/// `OnceLock`s to the empty state — they're populated lazily on first
+/// worker spawn (`initialize_worker` calls `OnceLock::set`).
+/// `OnceLock::get` returns `None` until `set` is called.
+#[test]
+fn test_worker_state_new_auth_token_and_lock_file_empty() {
+    let state = crate::state::WorkerState::new();
+    assert!(
+        state.auth_token.get().is_none(),
+        "WorkerState::new() must leave auth_token OnceLock empty"
+    );
+    assert!(
+        state.lock_file_path.get().is_none(),
+        "WorkerState::new() must leave lock_file_path OnceLock empty"
+    );
+}
+
+/// `WorkerState::default()` must produce the same field values as
+/// `WorkerState::new()` — the `Default` impl delegates to `new()`.
+/// Callers that construct `WorkerState` via `default()` (e.g. a future
+/// `app.manage(WorkerState::default())` in `main.rs`) must get the
+/// same initial state as explicit `new()` callers.
+#[test]
+fn test_worker_state_default_matches_new() {
+    let new_state = crate::state::WorkerState::new();
+    let default_state = crate::state::WorkerState::default();
+    assert!(
+        crate::state::lock(&new_state.child).is_none()
+            && crate::state::lock(&default_state.child).is_none(),
+        "both new() and default() must initialize child to None"
+    );
+    assert_eq!(
+        new_state.next_id.load(Ordering::SeqCst),
+        default_state.next_id.load(Ordering::SeqCst),
+        "new() and default() must agree on next_id"
+    );
+    assert_eq!(
+        new_state.ws_generation.load(Ordering::SeqCst),
+        default_state.ws_generation.load(Ordering::SeqCst),
+        "new() and default() must agree on ws_generation"
+    );
+}
+
+/// Compile-time contract: the worker spawn stubs exist with the
+/// documented names. We bind the function symbols to `_` (inferred as
+/// their zero-sized fn-pointer type) so a rename or deletion fails to
+/// COMPILE, surfacing the API drift before a caller silently breaks.
+///
+/// We can't pin the EXACT signature via a `fn(...) -> Pin<Box<dyn
+/// Future...>>` type annotation because async fns return an anonymous
+/// `impl Future` type that isn't nameable. The name-binding check is
+/// weaker than a full signature pin but still catches the common
+/// regression (rename / delete / move to a different module).
+#[test]
+fn test_worker_spawn_stubs_exist() {
+    // Binding the fn symbol forces the compiler to resolve the name.
+    // If `spawn_worker_and_get_port_with_shutdown` or `initialize_worker`
+    // is renamed / deleted / moved out of `super::`, this fails to
+    // compile (E0425: cannot find function).
+    let _spawn_fn = spawn_worker_and_get_port_with_shutdown;
+    let _init_fn = initialize_worker;
+    // Reaching this line means both stub symbols resolved — the
+    // Phase 2a scaffolding is in place.
+}

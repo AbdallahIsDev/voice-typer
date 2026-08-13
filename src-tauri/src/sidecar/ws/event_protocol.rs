@@ -151,6 +151,49 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     "audio_clip",
     "dictation_lost",
     "tray_fallback_notification",
+    // ── Pack + worker IPC events (master plan §7.4 — 13 new event
+    // types introduced by the slim-core / runtime-pack split). These
+    // cover the pack download lifecycle, the pack integrity state, the
+    // worker process lifecycle, and the offline-transcription request
+    // + result that flow through the new worker IPC hop. Each is
+    // published by `event_bus.publish(...)` in the Python sidecar
+    // (eventually — the worker IPC architecture is being added in
+    // parallel; these names are pre-registered here so the WS reader
+    // does not silently drop the frames once the worker comes online).
+    // The 13 events are mirrored in the Python `event_bus.EVENT_TYPES`
+    // catalogue docstring + the TS `PythonPushEvent` union + the TS
+    // `KNOWN_EVENT_TYPES` runtime set + the new
+    // `tests/test_event_types_parity.py` regression guard. See master
+    // plan §7.4 for the per-event rationale + payload shapes.
+    //
+    // Pack download lifecycle (push):
+    "pack_download_started",        // user-visible download started
+    "pack_download_progress",       // silent — no UI; logged for diagnostics
+    "pack_download_completed",      // download finished, verification pending
+    "pack_download_failed",         // download failed (network / disk / etc.)
+    // Pack integrity (push):
+    "pack_verified",                // SHA256 + signature verified OK
+    "pack_missing",                 // pack file absent at expected path
+    "pack_corrupt",                 // SHA256 mismatch / signature failure
+    "pack_ready",                   // worker started AND prewarmed — ready to transcribe
+    // Worker process lifecycle (push):
+    "worker_started",               // worker process spawned + WS handshake done
+    "worker_crashed",               // worker process crashed (exit code in payload)
+    "worker_unloaded",              // worker process unloaded (idle timeout / explicit)
+    // Offline transcription (request + result push):
+    // `transcribe_offline` is a REQUEST the slim core forwards to the
+    // worker over its dedicated WS hop; it is also registered in the
+    // Python `_COMMAND_REGISTRY` + the TS `ALLOWED_COMMANDS` Set + the
+    // Rust `allowed_commands()` literal (the three command allowlists)
+    // so the renderer can invoke it via `python.call('transcribe_offline',
+    // ...)`. `transcribe_offline_result` is the push event the worker
+    // emits back to the slim core (which the slim core forwards to the
+    // renderer via the standard event bus). Both names are listed here
+    // so the WS reader doesn't drop the result frame (and so a future
+    // server-initiated variant of the request name, if any, also
+    // passes through).
+    "transcribe_offline",           // request: slim core → worker (also in command allowlists)
+    "transcribe_offline_result",    // push: worker → slim core → renderer
     // legacy aliases `relaunch_electron` and
     // `electron_notification` REMOVED. The Python sidecar has published
     // the canonical `relaunch_app` and `notification` event names for

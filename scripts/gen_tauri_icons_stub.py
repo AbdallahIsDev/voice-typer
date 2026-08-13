@@ -196,6 +196,10 @@ WINDOWS_TRIPLES: set[str] = {
 # externalBin base name — Tauri appends -<triple>[.exe]
 SIDECAR_BASENAME = "python-sidecar"
 
+# externalBin base name for the ML worker exe (Phase 2a — runtime-pack split,
+# plan-runtime-pack-split §4.4). Same triple set as the sidecar.
+WORKER_BASENAME = "voice-typer-worker"
+
 # bundle.resources — native hotkey binaries
 NATIVE_RESOURCES: list[tuple[str, str]] = [
     ("resources/native/windows-key-listener.exe", "windows"),
@@ -203,14 +207,12 @@ NATIVE_RESOURCES: list[tuple[str, str]] = [
     ("resources/native/linux-key-listener", "linux"),
 ]
 
-# bundle.resources — prewarm binaries (one per triple)
-PREWARM_RESOURCES: list[tuple[str, str]] = [
-    (
-        f"resources/prewarm-{triple}.exe" if triple in WINDOWS_TRIPLES else f"resources/prewarm-{triple}",
-        "windows" if triple in WINDOWS_TRIPLES else "unix",
-    )
-    for triple in SIDECAR_TRIPLES
-]
+# NOTE: prewarm resources DELETED 2026-08-13 — prewarm became a startup phase
+# of the worker exe (plan-runtime-pack-split §6.2 Option P-1). The separate
+# prewarm-<triple>[.exe] binary + its OS-level schedulers (Windows
+# LogonTrigger / macOS LaunchAgent / Linux systemd) are gone. The worker
+# exe is now externalBin (see WORKER_BASENAME above), NOT a bundle.resources
+# entry.
 
 # Marker string embedded in every binary stub so --clean can identify
 # them safely (won't delete a real Nuitka/compiled binary).
@@ -620,10 +622,10 @@ def _all_stub_specs() -> list[tuple[Path, str, str]]:
         ext = ".exe" if triple in WINDOWS_TRIPLES else ""
         platform = "windows" if triple in WINDOWS_TRIPLES else "unix"
         specs.append((SRC_TAURI / "bin" / f"{SIDECAR_BASENAME}-{triple}{ext}", platform, "sidecar"))
+        # Worker exe stubs (externalBin, parallel to the sidecar).
+        specs.append((SRC_TAURI / "bin" / f"{WORKER_BASENAME}-{triple}{ext}", platform, "worker"))
     for rel, platform in NATIVE_RESOURCES:
         specs.append((SRC_TAURI / rel, platform, "native"))
-    for rel, platform in PREWARM_RESOURCES:
-        specs.append((SRC_TAURI / rel, platform, "prewarm"))
     return specs
 
 
@@ -649,12 +651,14 @@ def generate() -> list[Path]:
     bin_dir.mkdir(parents=True, exist_ok=True)
     for triple in SIDECAR_TRIPLES:
         ext = ".exe" if triple in WINDOWS_TRIPLES else ""
-        path = bin_dir / f"{SIDECAR_BASENAME}-{triple}{ext}"
         platform = "windows" if triple in WINDOWS_TRIPLES else "unix"
         # Preserve a REAL sidecar a CI step / developer already built at
         # this path — never clobber it with a placeholder stub.
-        _write_stub_file_if_needed(path, platform, "sidecar")
-        created.append(path)
+        _write_stub_file_if_needed(bin_dir / f"{SIDECAR_BASENAME}-{triple}{ext}", platform, "sidecar")
+        created.append(bin_dir / f"{SIDECAR_BASENAME}-{triple}{ext}")
+        # Worker exe stubs (externalBin, parallel to the sidecar).
+        _write_stub_file_if_needed(bin_dir / f"{WORKER_BASENAME}-{triple}{ext}", platform, "worker")
+        created.append(bin_dir / f"{WORKER_BASENAME}-{triple}{ext}")
 
     # 2. Native hotkey resources.
     native_dir = SRC_TAURI / "resources" / "native"
@@ -662,14 +666,6 @@ def generate() -> list[Path]:
     for rel, platform in NATIVE_RESOURCES:
         path = SRC_TAURI / rel
         _write_stub_file_if_needed(path, platform, "native")
-        created.append(path)
-
-    # 3. Prewarm resources.
-    res_dir = SRC_TAURI / "resources"
-    res_dir.mkdir(parents=True, exist_ok=True)
-    for rel, platform in PREWARM_RESOURCES:
-        path = SRC_TAURI / rel
-        _write_stub_file_if_needed(path, platform, "prewarm")
         created.append(path)
 
     return created
@@ -865,7 +861,6 @@ def _print_summary(created: list[Path]) -> None:
     print("[gen_tauri_icons_stub] Summary:")
     print(f"  Sidecar binaries:  {len(SIDECAR_TRIPLES)}")
     print(f"  Native resources:  {len(NATIVE_RESOURCES)}")
-    print(f"  Prewarm resources: {len(PREWARM_RESOURCES)}")
     print(f"  Total:             {len(created)}")
     print()
     print("[gen_tauri_icons_stub] WARNING: stubs are NOT real binaries — they print")
