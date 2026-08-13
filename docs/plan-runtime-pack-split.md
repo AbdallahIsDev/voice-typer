@@ -294,8 +294,8 @@ for the worker. This rewrite specifies them:
   `tauri.linux-x86_64.conf.json`, `tauri.linux-aarch64.conf.json`,
   `tauri.macos.conf.json`). Also add to `plugins.shell.scope` in
   `tauri.conf.json:60-62,127-138`.
-- **macOS bundle id:** `com.voice-typer.worker` (parallel to the host's
-  `com.voice-typer`).
+- **macOS bundle id:** `com.voicetyper.worker` (parallel to the host's
+  `com.voicetyper`).
 - **PyInstaller fallback:** add a `voice-typer-worker.spec` (parallel to
   `voice-typer.spec`) for environments where Nuitka fails.
 

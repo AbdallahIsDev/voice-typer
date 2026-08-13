@@ -50,8 +50,11 @@ the scipy preloader thread, the device-health checker, etc.
 
 - **State machine** (silence → speech → silence with hysteresis):
   `update_frame(chunk_rms_db, vad_prob=None) -> VadState`.
-- **Silero VAD availability detection**: lazy `torch` import +
-  `_check_vad_available` lookup, with warning log on fallback to RMS.
+- **Silero VAD availability detection**: lazy `onnxruntime` import +
+  `_check_vad_available` lookup (bundled `silero_vad.onnx` existence
+  check), with warning log on fallback to RMS. Post-2026-08-13 the
+  torch import path was retired in favor of the ONNX runtime
+  (ADR-0005 / `PLAN_ONNX_INTEGRATION.md` §2).
 - **Auto-calibration**:
   `auto_calibrate(chunk_rms, elapsed_seconds, chunk_duration=0.0)`.
   Caller passes `elapsed_seconds = time.perf_counter() -

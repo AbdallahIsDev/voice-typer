@@ -969,6 +969,16 @@ Scheduler task with `LogonTrigger` (via `task_scheduler.py`). On
 login, the task runs `prewarm-x86_64-pc-windows-msvc.exe` which warms
 the OS file cache (~7 GB of torch + transformers + model weights).
 
+**STATUS NOTE (2026-08-13)**: The prewarm binary + Windows Task
+Scheduler integration is being retired per master plan §6.2 (Option
+P-1 — prewarm becomes a worker-startup phase). The historical text
+above is retained for traceability against the pre-migration build.
+Post-migration, the worker exe (`voice_typer/worker/__main__.py`)
+runs the warm-imports phase internally before accepting its first
+transcription request, and the warm list is `onnxruntime +
+ctranslate2 + numpy/scipy` (no torch/transformers — see ADR-0011
+Superseded and ADR-0005 ONNX migration).
+
 The prewarm exe path is resolved by `resolve_prewarm_exe()` (in
 `prewarm_resolver.py`), which checks `VOICE_TYPER_PREWARM_EXE` env var
 (set by Rust at startup) → Tauri resource dir → install dir → dev

@@ -172,22 +172,58 @@ def export_diagnostics() -> str:
             "python_implementation": platform.python_implementation(),
         }
 
-        # GPU / CUDA info
+        # GPU / CUDA info — Phase 1c (PLAN_ONNX_INTEGRATION.md §3.7):
+        # replaced the ``torch.cuda.*`` block with
+        # ``onnxruntime.__version__`` / ``get_available_providers()``
+        # / ``get_device()`` so the CLI diagnostic producer no longer
+        # imports torch. ``nvidia-smi`` subprocess provides the GPU name
+        # + total VRAM (ORT's ``get_device()`` returns only "cuda" or
+        # "cpu"). ctranslate2 info is preserved (faster-whisper still
+        # uses ctranslate2 in Phase 1c).
         try:
-            import torch
+            import onnxruntime as ort
 
-            sys_info["cuda_available"] = torch.cuda.is_available()
-            if torch.cuda.is_available():
-                sys_info["cuda_version"] = torch.version.cuda
-                sys_info["cudnn_version"] = str(torch.backends.cudnn.version())
-                sys_info["gpu_name"] = torch.cuda.get_device_name(0)
-                sys_info["gpu_memory_total_mb"] = torch.cuda.get_device_properties(0).total_mem // (1024 * 1024)
+            sys_info["onnxruntime_version"] = ort.__version__
+            sys_info["onnxruntime_providers"] = ort.get_available_providers()
+            sys_info["onnxruntime_device"] = ort.get_device()
         except ImportError:
-            sys_info["cuda_available"] = "torch not installed"
+            sys_info["onnxruntime_version"] = "not installed"
         except Exception as exc:
-            sys_info["cuda_error"] = str(exc)
+            sys_info["onnxruntime_error"] = str(exc)
 
-        # ctranslate2 info
+        # GPU name + total VRAM via ``nvidia-smi`` (best-effort).
+        try:
+            import subprocess as _sp
+
+            _smi = _sp.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=name,memory.total",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            if _smi.returncode == 0 and _smi.stdout.strip():
+                _line = _smi.stdout.strip().splitlines()[0]
+                _parts = [p.strip() for p in _line.split(",")]
+                if len(_parts) >= 1:
+                    sys_info["gpu_name"] = _parts[0]
+                if len(_parts) >= 2:
+                    try:
+                        sys_info["gpu_memory_total_mb"] = int(float(_parts[1]))
+                    except ValueError:
+                        pass
+            else:
+                sys_info["gpu_name"] = "nvidia-smi unavailable"
+        except Exception as exc:
+            sys_info["gpu_error"] = str(exc)
+
+        # ctranslate2 info (preserved — faster-whisper still uses
+        # ctranslate2 in Phase 1c; the Qwen engine also uses it
+        # transitively).
         try:
             import ctranslate2
 

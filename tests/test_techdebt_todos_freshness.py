@@ -19,8 +19,20 @@ link).  This test file pins the post-fix contract:
 4. The TODOs must NOT contain literal ``CR-`` task-ID prefixes
    (C-STYLE-1: no task IDs / session prefixes in source code).
 
-Only the two files owned by WAVE2-A10 are asserted here:
-- ``voice_typer/server/prewarm/__init__.py``
+**Update 2026-08-13 (Phase 2 / master plan §6.2):** the prewarm
+package is being re-architected — the standalone binary + OS schedulers
+are being deleted and prewarm becomes a worker-startup phase. When
+Sub-agent 6's slice completes, the TECH-DEBT TODO block in
+``voice_typer/server/prewarm/__init__.py`` will disappear (the
+patch-compatibility boilerplate it documented is no longer needed).
+The ``TestPrewarmInitTODO`` class was rewritten to gracefully handle
+BOTH states (TODO present → must satisfy the freshness contract;
+TODO absent → soft-skip) so the parallel sub-agent coordination doesn't
+deadlock. ``TestRecordingInitTODO`` is unchanged (the recording package
+is owned by a different agent lane and still carries its TODO blocks).
+
+Only the file owned by WAVE2-A10 (and not since rewritten by the
+torch-removal migration) is asserted here:
 - ``voice_typer/server/recording/__init__.py``
 
 The sibling ``server_platform/__init__.py`` TODO is the responsibility
@@ -50,11 +62,6 @@ STRIPPED_PREFIX_ARTIFACT_RE = re.compile(r"TODO\s*\(\s*\d{4}-\d{2}-\d{2}\s*,\s+/
 # Reject literal ``CR-`` task-ID prefixes anywhere in the TODO block
 # (C-STYLE-1).
 SESSION_PREFIX_RE = re.compile(r"\bCR-[A-Z0-9-]+\b")
-
-
-@pytest.fixture(scope="module")
-def prewarm_source() -> str:
-    return PREWARM_INIT.read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -97,33 +104,59 @@ def _todo_blocks(source: str) -> list[str]:
 
 
 class TestPrewarmInitTODO:
-    """XZ-CC-13 — prewarm/__init__.py TODO block freshness."""
+    """XZ-CC-13 — prewarm/__init__.py TODO block freshness.
+
+    **Phase 2 / master plan §6.2 transition:** Sub-agent 6 is deleting
+    the standalone prewarm binary + OS schedulers and absorbing the
+    cache-probe logic into the worker exe's startup phase. When that
+    slice completes, ``prewarm/__init__.py`` is rewritten as a thin
+    re-export shim around ``cache_probe`` and the TECH-DEBT TODO block
+    disappears (the patch-compat boilerplate it documented is no
+    longer needed).
+
+    This test gracefully handles BOTH the pre-deletion state (TODO
+    block present — must satisfy the freshness contract) and the
+    post-deletion state (no TODO block — the test passes vacuously
+    with a soft-skip marker so the parallel sub-agent coordination
+    doesn't deadlock).
+    """
 
     def test_file_exists(self) -> None:
         assert PREWARM_INIT.is_file(), f"missing: {PREWARM_INIT}"
 
-    def test_has_at_least_one_todo_block(self, prewarm_source: str) -> None:
-        blocks = _todo_blocks(prewarm_source)
-        assert blocks, "prewarm/__init__.py must have at least one TECH-DEBT TODO block"
-
-    def test_todo_references_tracking_doc(self, prewarm_source: str) -> None:
-        assert TRACKING_DOC in prewarm_source, f"prewarm/__init__.py TODO must reference {TRACKING_DOC}"
-
-    def test_todo_has_fresh_date(self, prewarm_source: str) -> None:
-        matches = TODO_DATE_RE.findall(prewarm_source)
-        assert matches, "prewarm/__init__.py TODO must have a 'TODO (YYYY-MM-DD, TECH-DEBT' header"
-        for date_str in matches:
-            assert date_str >= MIN_TODO_DATE, f"prewarm/__init__.py TODO date {date_str} is older than {MIN_TODO_DATE}"
-
-    def test_no_stripped_prefix_artifact(self, prewarm_source: str) -> None:
-        assert not STRIPPED_PREFIX_ARTIFACT_RE.search(prewarm_source), (
-            "prewarm/__init__.py TODO has the '  / TECH-DEBT' stripped-prefix artifact "
-            "(leftover from a CR-XX session prefix); clean it to 'TECH-DEBT'"
+    def test_todo_block_freshness_if_present(self) -> None:
+        source = PREWARM_INIT.read_text(encoding="utf-8")
+        blocks = _todo_blocks(source)
+        if not blocks:
+            # Post-deletion state (Sub-agent 6 has finished). Nothing
+            # to assert — the TODO freshness contract no longer applies.
+            pytest.skip(
+                "prewarm/__init__.py no longer carries a TECH-DEBT TODO "
+                "block — the package was re-architected as a worker-startup "
+                "phase (master plan §6.2). Skipping freshness assertions."
+            )
+        # Pre-deletion state — the TODO block must satisfy the freshness contract.
+        assert TRACKING_DOC in source, (
+            f"prewarm/__init__.py TODO must reference {TRACKING_DOC}"
         )
-
-    def test_no_session_prefix_in_source(self, prewarm_source: str) -> None:
-        assert not SESSION_PREFIX_RE.search(prewarm_source), (
-            "prewarm/__init__.py contains a 'CR-XX' session prefix; violates C-STYLE-1 (no task IDs in source code)"
+        matches = TODO_DATE_RE.findall(source)
+        assert matches, (
+            "prewarm/__init__.py TODO must have a "
+            "'TODO (YYYY-MM-DD, TECH-DEBT' header"
+        )
+        for date_str in matches:
+            assert date_str >= MIN_TODO_DATE, (
+                f"prewarm/__init__.py TODO date {date_str} is older than "
+                f"{MIN_TODO_DATE}"
+            )
+        assert not STRIPPED_PREFIX_ARTIFACT_RE.search(source), (
+            "prewarm/__init__.py TODO has the '  / TECH-DEBT' "
+            "stripped-prefix artifact (leftover from a CR-XX session "
+            "prefix); clean it to 'TECH-DEBT'"
+        )
+        assert not SESSION_PREFIX_RE.search(source), (
+            "prewarm/__init__.py contains a 'CR-XX' session prefix; "
+            "violates C-STYLE-1 (no task IDs in source code)"
         )
 
 

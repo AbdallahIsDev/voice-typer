@@ -1,1 +1,26 @@
-No deletions in this run.
+Get-Content archive/deleted_files.txt | Where-Object { $_ -match '^\s*DELETE\s*\|\s*(.+)$' } | ForEach-Object { $f = $Matches[1].Trim(); if (Test-Path $f) { Remove-Item -Force $f; Write-Host "Deleted: $f" } else { Write-Host "Already gone: $f" } }
+DELETE  |  src-tauri/src/sidecar/spawn/prewarm.rs
+DELETE  |  tests/tauri/mig15/test_prewarm_logontrigger_windows.py
+DELETE  |  tests/tauri/mig16/test_prewarm_launchagent_macos.py
+DELETE  |  tests/tauri/mig17/test_prewarm_systemd_linux.py
+DELETE  |  tests/test_prewarm.py
+DELETE  |  tests/test_prewarm_cache_probe_eviction.py
+DELETE  |  tests/test_prewarm_cache_ratio_skip.py
+DELETE  |  tests/test_prewarm_log_rotation_perms.py
+DELETE  |  tests/test_prewarm_logging_dedup.py
+DELETE  |  tests/test_prewarm_logging_filter.py
+DELETE  |  tests/test_prewarm_macos_io_priority.py
+DELETE  |  tests/test_prewarm_perf_fixes.py
+DELETE  |  tests/test_prewarm_pipeline_fixes.py
+DELETE  |  tests/test_prewarm_process_tracker.py
+DELETE  |  tests/test_prewarm_process_tracker_memoize.py
+DELETE  |  tests/test_prewarm_spawn_resolver.py
+DELETE  |  tests/test_uninstall_prewarm_cleanup.py
+DELETE  |  tests/test_vad_dtype_optimization.py
+DELETE  |  voice_typer/server/prewarm/__main__.py
+DELETE  |  voice_typer/server/prewarm/cli.py
+DELETE  |  voice_typer/server/prewarm/completion_events.py
+DELETE  |  voice_typer/server/prewarm/logging_setup.py
+DELETE  |  voice_typer/server/prewarm/paths.py
+DELETE  |  voice_typer/server/prewarm/pipeline.py
+DELETE  |  voice_typer/server/prewarm/process_tracker.py

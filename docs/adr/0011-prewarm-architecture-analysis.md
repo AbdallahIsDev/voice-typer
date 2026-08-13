@@ -2,7 +2,24 @@
 
 ## Status
 
-Accepted
+**Superseded (2026-08-13)** by the worker-startup-phase architecture
+described in `plan-runtime-pack-split.md` §6.2 (Option P-1) and
+ADR-0020 §6. The standalone `prewarm-<triple>[.exe]` binary, the
+three OS-level schedulers (Windows `LogonTrigger` / macOS LaunchAgent /
+Linux systemd user timer), and the PID-file + sentinel + completion-event
+machinery have been deleted. The cache-probe logic (`_warm_imports`,
+`_warm_package_files`) was retained as a **startup phase of the worker
+exe** (`voice_typer/worker/__main__.py`) and the warm-import list was
+updated to `onnxruntime + ctranslate2 + numpy/scipy` (torch +
+transformers are no longer warmed — they are not imported by the
+runtime pack after the ONNX migration, see `PLAN_ONNX_INTEGRATION.md`
+§2 and §3).
+
+The historical architecture analysis below is preserved for traceability
+against the original implementation; readers should consult the master
+plan §6 for the current design.
+
+Accepted (historical)
 
 **Repository:** `https://github.com/AbdallahIsDev/voice-typer`
 **Document Type:** Architecture Specification for Implementation

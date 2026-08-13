@@ -951,8 +951,8 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 - `app.py`, `service.py` — the `VoiceTyperApp` and `VoiceTyperService` domain layer. Unchanged.
 - `recording/` package, `recording_controller.py`, `streaming.py`, `dictation_pipeline.py`, `transcription.py` — audio capture + ASR pipeline. Unchanged.
 - `audio_processor.py`, `audio_filters/*`, `audio_chain_builder.py`, `audio_presets.py` — audio filter chain (ADR-0009, the real one). Unchanged.
-- `vad.py`, `silero_vad.jit` — voice activity detection. Unchanged.
-- `model_manager.py`, `model_registry.py`, `asr_registry.py`, `asr_setup.py`, `parakeet_engine.py`, `qwen_engine.py`, `cloud_engines.py` — ASR engine management. Unchanged.
+- `vad.py`, `silero_vad.onnx` — voice activity detection. **Changed by the ONNX migration (ADR-0005, `PLAN_ONNX_INTEGRATION.md` §2):** `vad.py` now uses an `onnxruntime.InferenceSession` against the bundled `silero_vad.onnx` (replacing the legacy `torch.jit.load` + `silero_vad.jit` path). The hidden-state buffer is threaded across calls (`_state` numpy array, not torch tensors) so streaming chunk detection preserves context. The legacy `silero_vad.jit` artifact and the `--module-parameter=torch-disable-jit=no` Nuitka flag are retired at Phase 1c (see `plan-runtime-pack-split.md` §3.3).
+- `model_manager.py`, `model_registry.py`, `asr_registry.py`, `asr_setup.py`, `parakeet_engine.py`, `qwen_engine.py`, `cloud_engines.py` — ASR engine management. Unchanged by the Electron→Tauri migration. **Subsequent ONNX migration:** `parakeet_engine.py` is rewritten (Phase 1b, `PLAN_ONNX_INTEGRATION.md` §3) from `transformers + torch` to `onnx_asr.Model(...)` (ORT backend). `qwen_engine.py` still uses `transformers + torch` until Phase 1d (deferred — see `PLAN_ONNX_INTEGRATION.md` §4). `cloud_engines.py` and `llm_polish.py` are unaffected (zero torch/transformers/onnxruntime imports — verified).
 - `config.py`, `config_validators.py`, `_paths.py` — config + path resolution. Unchanged.
 - `history_db.py` — SQLite WAL history. Unchanged.
 - `crash_recovery.py`, `crash_handler.py`, `duck_crash_recovery.py` — crash recovery. Unchanged.

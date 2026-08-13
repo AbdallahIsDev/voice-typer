@@ -76,9 +76,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   The Python-side `_handle_*` methods are retained (tests still call them
   directly via `ipc_server._handle_*`), but they are no longer reachable
   via IPC dispatch. The current reconciliation counts (re-verified
-  2026-08-10 after the `check_accessibility` re-add, finding #919 part b:
-  Settings → Troubleshooting surfaces the stale-grant `tccutil` reset):
-  TS allowlist = 67, Rust allowlist = 65, Python registry = 69 (the +2
+  2026-08-13 after the `transcribe_offline` addition by the runtime-pack
+  split, master plan §7.4 — slim core → worker offline-transcription
+  request):
+  TS allowlist = 68, Rust allowlist = 66, Python registry = 70 (the +2
   are `tray_click` and `shutdown`, which are host-only commands the
   renderer never sends — see the `_HOST_ONLY_COMMANDS` frozenset in
   `tests/test_security_doc_command_count.py`). The 4-way parity

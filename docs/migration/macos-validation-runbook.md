@@ -176,8 +176,10 @@ file src-tauri/resources/prewarm-x86_64-apple-darwin
 # Expect: Mach-O 64-bit executable x86_64
 
 # Smoke-test the prewarm binary (it should write a [PREWARM] log line
-# to stdout and exit 0 within ~30s — long enough to warm torch +
-# transformers + ctranslate2 weights).
+# to stdout and exit 0 within ~30s — long enough to warm onnxruntime +
+# ctranslate2 + numpy/scipy weights — the post-2026-08-13 ONNX-migration
+# warm list, replacing the earlier torch + transformers list per
+# ADR-0011 Superseded and ADR-0005).
 VOICE_TYPER_PREWARM_SMOKE=1 \
   ./src-tauri/resources/prewarm-aarch64-apple-darwin
 # Expected: [PREWARM] starting ...
@@ -553,13 +555,17 @@ launchctl list | grep voicetyper
 
 # Verify the prewarm log
 cat "$HOME/Library/Application Support/voice-typer/logs/prewarm.log" | tail -10
-# Expected:
+# Expected (post-2026-08-13 ONNX migration — torch + transformers
+#           warm-imports are retired; the worker now warms
+#           onnxruntime + ctranslate2 + numpy/scipy only):
 #   [PREWARM] starting (trigger=RunAtLoad)
 #   [PREWARM] free RAM: 12.3 GB (budget: 6 GB) — OK
-#   [PREWARM] warming torch (4.2 GB) ... done in 8.2s
-#   [PREWARM] warming transformers (1.1 GB) ... done in 2.1s
+#   [PREWARM] warming onnxruntime (CPU EP) ... done in Ns
+#   [PREWARM] warming ctranslate2 ... done in Ns
 #   [PREWARM] warming Parakeet weights (2.4 GB) ... done in 4.5s
-#   [PREWARM] complete in 14.8s
+#   [PREWARM] complete in Ns
+# (Historical — pre-ONNX-migration logs referenced "warming torch"
+#  and "warming transformers" lines; those are no longer emitted.)
 ```
 
 **Pass criteria**: `~/Library/LaunchAgents/com.voicetyper.prewarm.plist` exists with `RunAtLoad=true` and `ProgramArguments` pointing at `<resourceDir>/prewarm-<triple>` (the frozen Nuitka binary). The prewarm log shows a successful run on login. The `resolve_prewarm_exe()` resolver in `voice_typer/server/prewarm_resolver.py` returns the frozen binary path (not the dev fallback).

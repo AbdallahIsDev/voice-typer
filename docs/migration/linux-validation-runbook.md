@@ -300,7 +300,7 @@ tail -f ~/.local/share/voice-typer/logs/sidecar.log | grep -E "model_loaded|whis
 **Pass criteria**: The transcription text appears in the focused text field within 5 seconds of releasing the hotkey. The History page shows the new entry with the correct model name + device name. The log shows `model_loaded` and `whisper` (or `faster_whisper`) entries.
 
 **Common failures**:
-- `CUDA error: no kernel image` → The Nuitka bundle didn't include the CUDA runtime. Most Linux installs are CPU-only; if CUDA is required, add `--include-package=torch` + the CUDA libs to `scripts/build/build_sidecar_linux.sh`.
+- `CUDA error: no kernel image` → The Nuitka bundle didn't include the CUDA runtime. Most Linux installs are CPU-only; if CUDA is required for ctranslate2, add `--include-package=ctranslate2` + the CUDA libs to `scripts/build/build_sidecar_linux.sh`. (Historical note: pre-2026-08-13 the sidecar imported `torch` for Silero VAD + Parakeet and the build script carried `--include-package=torch`; torch is no longer a sidecar dep post-ONNX-migration — VAD uses `onnxruntime` (ADR-0005) and Parakeet uses `onnx-asr` (`PLAN_ONNX_INTEGRATION.md` §3). The runtime pack worker exe is the only place that may still carry GPU-related libs.)
 - `Model not found` → The model download path resolves to the wrong directory. Check `~/.local/share/voice-typer/models/` (per ADR-0020 §8 — `$XDG_DATA_HOME/voice-typer/models/`).
 - `ctranslate2 ImportError` → The build env was missing `libiomp5.so` / `libgomp.so`. The build script's `--include-data-dir=$SITE/ctranslate2/lib=...` should pick these up; verify with `ldd src-tauri/bin/python-sidecar-<triple> | grep -E 'libiomp|libgomp'`.
 

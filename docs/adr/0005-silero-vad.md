@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted
+Accepted (revised 2026-08-13 — ONNX migration)
 
 ## Date
 
-2024-02-10
+2024-02-10 (initial adoption); 2026-08-13 (ONNX backend migration per `PLAN_ONNX_INTEGRATION.md` §2)
 
 ## Context
 
@@ -47,3 +47,17 @@ prevent hallucinated text.
   if available (we pin to CPU).
 - Fallback complexity: the energy-based fallback must be maintained for systems
   where ONNX fails to load.
+
+## Hidden-state threading (2026-08-13 ONNX migration addendum)
+
+The Silero v4 model is a recurrent LSTM — its `state` buffer (shape
+`(2, 1, 128)`, `float32`) must be threaded across every `compute_vad_prob`
+call so the stateless ORT `InferenceSession` produces correct probabilities
+past the first 512-sample window. `voice_typer/server/vad.py` hoists `_state`
+at module level (numpy `np.zeros((2, 1, 128), dtype=np.float32)`), feeds it
+into every `InferenceSession.run` call as an input, and stores the returned
+`stateN` back into `_state` for the next call. `reset_states()` re-zeros the
+buffer; `unload()` clears both the session and the state; `preload()` runs a
+zero-tensor warmup then calls `reset_states()` so the first real audio chunk
+starts from a clean LSTM state. See `PLAN_ONNX_INTEGRATION.md` §2.2 for the
+threading rationale.

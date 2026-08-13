@@ -113,7 +113,7 @@ All filters operate on `float32` numpy arrays, mono, sample-rate-agnostic (passe
 
 - **Backends** (runtime-switchable via `noise_suppression_method`):
   - `"rnnoise"` — `pyrnnoise` package, 480-sample frames, default model. **Default dependency** (not optional).
-  - `"deepfilternet"` — `deepfilternet` package (requires torch, already installed). Higher quality, 2-3× CPU. Offered as premium option.
+  - `"deepfilternet"` — `deepfilternet` package (pulls `torch` as its own backend dependency when the `[deepfilternet]` extra is installed; torch is NOT a project dep post-2026-08-13 ONNX migration — see ADR-0005). Higher quality, 2-3× CPU. Offered as premium option.
   - `"speex"` — `speexdsp` preprocessor. Lightest CPU. Fallback for low-end devices.
   - `"none"` — passthrough.
 - **Resampling**: RNNoise requires 48kHz; DeepFilterNet requires 48kHz; Speex is rate-agnostic. If source rate ≠ 48kHz, round-trip resample via `scipy.signal.resample_poly`.
@@ -182,9 +182,8 @@ VAD is NOT part of the filter chain (it's decision-only, doesn't modify audio). 
 
 ### 4.1 Enable Silero VAD by default
 
-- **Current**: `use_silero_vad=False` because "torch not installed." But torch IS installed (project depends on it).
-- **New default**: `use_silero_vad=True`. Silero model loaded via `torch.hub.load('snakers4/silero-vad', 'silero_vad')` with local cache fallback.
-- **Graceful degradation**: if torch import fails or model download fails, fall back to RMS-dB VAD with a WARNING log.
+- **Current (post-2026-08-13 ONNX migration)**: `use_silero_vad=True`. Silero model is the bundled `silero_vad.onnx` loaded via `onnxruntime.InferenceSession` (CPUExecutionProvider-pinned) — see ADR-0005. The pre-migration `torch.hub.load('snakers4/silero-vad', 'silero_vad')` path is retired; no network fetch is ever attempted (C-DATA-1).
+- **Graceful degradation**: if `onnxruntime` import fails or the bundled `.onnx` file is missing, fall back to RMS-dB VAD with a WARNING log.
 
 ### 4.2 Feed recording VAD timestamps to Whisper
 
@@ -260,7 +259,7 @@ noise_filter_notch_frequency_hz: float = 0.0  # 0 = auto-detect
 
 ### 5.3 Modified defaults
 
-- `use_silero_vad`: `False` → `True` (torch is installed).
+- `use_silero_vad`: `False` → `True` (post-2026-08-13 ONNX migration: VAD runs on `onnxruntime` against the bundled `silero_vad.onnx`; torch is no longer required).
 - `noise_filter_rnnoise`: `False` → `True` (RNNoise is now a default dep).
 - `noise_filter_highpass_cutoff_hz`: stays `80.0` (but filter order goes from 2 to 4).
 - `noise_filter_gate_hold_ms`: stays `200.0` (was inconsistent — dataclass said 300, config said 150; now unified to 200 to match OBS).
@@ -361,7 +360,7 @@ The `audio_preset="auto"` preset (the new default) exactly matches the new confi
 
 Move `pyrnnoise` from the `[noise-filter]` optional extra to the main `[dependencies]` list. Remove the `[noise-filter]` extra entirely (noisereduce is deleted, RNNoise is now required).
 
-Add `deepfilternet` to a new `[deepfilternet]` optional extra (requires torch, which is already a dep):
+Add `deepfilternet` to a new `[deepfilternet]` optional extra (deepfilternet itself pulls `torch` as its own backend dep when installed — torch is NOT a project dep post-2026-08-13 ONNX migration):
 ```toml
 [project.optional-dependencies]
 deepfilternet = ["deepfilternet>=0.5"]
@@ -477,7 +476,7 @@ Notch Filter (hum):       [OFF] ▼
 | `voice_typer/server/service.py` | Fix `apply_config_side_effects` to call `app._rebuild_audio_processor()` on noise_filter_* changes (§6.1). Move preset mapping to `audio_presets.py`. |
 | `voice_typer/server/app.py` | Add `_rebuild_audio_processor()` method. Delete `_audio_processor` construction in `__init__` (deferred to `_rebuild_audio_processor` called from `__init__`). |
 | `voice_typer/server/ipc_server.py` | Add `get_audio_status` IPC handler. |
-| `voice_typer/server/vad.py` | Change `use_silero_vad` default to True. Add graceful fallback if torch/model unavailable. |
+| `voice_typer/server/vad.py` | Change `use_silero_vad` default to True. Add graceful fallback if `onnxruntime`/bundled `silero_vad.onnx` unavailable (post-2026-08-13 ONNX migration — see ADR-0005). |
 | `voice_typer/server/transcription.py` | Pass recording VAD timestamps to Whisper to skip duplicate VAD pass (§4.2). |
 | `voice_typer/server/level_monitor.py` | Unify gate threshold fallback to `-26dB` (was `0.015` linear — different from recorder). |
 | `voice_typer/client/src/renderer/src/pages/Settings.tsx` | Replace 7 noise filter controls with preset dropdown + progressive-disclosure Custom panel (§7). |
@@ -526,8 +525,7 @@ Notch Filter (hum):       [OFF] ▼
 - **RNNoise missing** (shouldn't happen — it's a default dep now, but defensive): `NoiseSuppressor` falls back to `"none"`, sets `degraded=True`, `degraded_reasons=["rnnoise library not found"]`. UI shows warning banner.
 - **DeepFilterNet missing** (user didn't install the extra): if `noise_suppression_method="deepfilternet"` and library missing, fall back to `"rnnoise"` with a WARNING log. `degraded=True`, `degraded_reasons=["deepfilternet not installed, using rnnoise"]`.
 - **Speex missing**: same pattern — fall back to `"rnnoise"`, then `"none"`.
-- **Silero VAD model download fails** (no network): fall back to RMS-dB VAD. Log WARNING. `degraded=True`, `degraded_reasons=["silero vad model unavailable, using rms"]`.
-- **torch import fails** (shouldn't happen — it's a dep): Silero VAD disabled, RMS-dB used. DeepFilterNet unavailable.
+- **Silero VAD model fails to load** (bundled `silero_vad.onnx` missing or `onnxruntime` ImportError): fall back to RMS-dB VAD. Log WARNING. `degraded=True`, `degraded_reasons=["silero vad model unavailable, using rms"]`. (Post-2026-08-13 ONNX migration — no network fetch is ever attempted; the model is bundled locally per ADR-0005.) DeepFilterNet, which still depends on `torch` for its own backend, is tracked separately (it remains an optional extra and is unaffected by the VAD ONNX migration).
 
 ### 9.4 Live config rebuild
 
@@ -553,7 +551,7 @@ Notch Filter (hum):       [OFF] ▼
 
 - **All filters are pure Python + numpy/scipy**: no platform-specific code. Same behavior on Windows, macOS, Linux.
 - **RNNoise**: `pyrnnoise` ships pre-built wheels for Windows/macOS/Linux x64. On Linux ARM64 (Raspberry Pi), may need compilation — documented in README. If unavailable, falls back to `"none"`.
-- **DeepFilterNet**: requires torch (already a dep). Works on all platforms torch supports. On ARM64, may be slow — documented.
+- **DeepFilterNet**: pulls `torch` as its own backend dep (only when the `[deepfilternet]` extra is installed; torch is NOT a project dep post-2026-08-13 ONNX migration). Works on all platforms torch supports. On ARM64, may be slow — documented.
 - **Speex**: `speexdsp` Python package ships wheels for major platforms. If unavailable, falls back.
 - **No native C code**: all filters are Python. No compilation step needed. No platform-specific binaries.
 

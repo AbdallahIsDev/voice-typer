@@ -158,30 +158,33 @@ fn test_allowed_commands_count_matches_ts_parity() {
     // the COUNT so a local `cargo test` catches a drift before the
     // Python test even runs.
     //
-    // 65 shared commands (TS has 67 = 65 shared + heartbeat +
+    // 66 shared commands (TS has 68 = 66 shared + heartbeat +
     // relaunch_ack). `heartbeat` and `relaunch_ack` are
     // intentionally ABSENT from this Rust literal — see the
     // doc comment on the cmds literal below. `check_accessibility`
     // was re-added on 2026-08-10 (finding #919 part b) alongside
     // `reset_macos_accessibility` and `reset_linux_permissions`;
     // `tray_click` is also intentionally absent — see `dispatch_inner`.
+    // `transcribe_offline` was added on 2026-08-13 by the runtime-pack
+    // split (master plan §7.4 — slim core → worker offline-transcription
+    // request), bumping the count from 65 to 66.
     assert_eq!(
         allowed_commands().len(),
-        65,
-        "must match TS allowlist (67 entries) minus heartbeat/relaunch_ack (65 entries)"
+        66,
+        "must match TS allowlist (68 entries) minus heartbeat/relaunch_ack (66 entries)"
     );
 }
 
 #[test]
 fn test_allowed_commands_set_contains_no_duplicates() {
     let set = allowed_commands();
-    // 65 entries — must match the cmds literal below (single
+    // 66 entries — must match the cmds literal below (single
     // source of truth). A duplicate in the literal would make
-    // set.len() < 65.
+    // set.len() < 66.
     assert_eq!(
         set.len(),
-        65,
-        "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (65). \
+        66,
+        "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (66). \
          Check the constructor log for the duplicate name.",
         set.len()
     );
@@ -189,7 +192,7 @@ fn test_allowed_commands_set_contains_no_duplicates() {
 
 #[test]
 fn test_allowed_commands_exact_snapshot() {
-    //Stricter parity test: pin the EXACT 65-entry set (sorted)
+    //Stricter parity test: pin the EXACT 66-entry set (sorted)
     // so any drift between the Rust literal and the TS allowlist is
     // caught at `cargo test` time, BEFORE the cross-layer Python
     // parity test in
@@ -202,7 +205,7 @@ fn test_allowed_commands_exact_snapshot() {
     //
     // The expected list is the alphabetically-sorted union of:
     //   - the TS `ALLOWED_COMMANDS` literal in
-    //     `voice_typer/client/src/main/allowed-commands.ts` (67 entries)
+    //     `voice_typer/client/src/main/allowed-commands.ts` (68 entries)
     //   - minus the two Rust-only-excluded commands:
     //     `heartbeat` (sent by the Rust WS-reader task) and
     //     `relaunch_ack` (sent by the Rust `relaunch_app` event
@@ -282,6 +285,7 @@ fn test_allowed_commands_exact_snapshot() {
         "test_cloud_connection",
         "toggle_dictation",
         "toggle_favorite",
+        "transcribe_offline",
         "undo_last",
     ];
     assert_eq!(
@@ -296,7 +300,7 @@ fn test_allowed_commands_exact_snapshot() {
     assert_eq!(
         actual, expected,
         "ALLOWED_COMMANDS snapshot drift — the Rust literal no longer matches the pinned \
-         65-entry snapshot. Diff the actual vs expected Vec above. If the change is \
+         66-entry snapshot. Diff the actual vs expected Vec above. If the change is \
          intentional, update this snapshot in lockstep with the cmds literal AND the TS \
          allowlist (see MAINTENANCE note above)."
     );

@@ -142,7 +142,8 @@ HuggingFace cache directory. Set via `os.environ["HF_HOME"]` in `logging_setup.p
 ### `venv/`
 Python virtual environment created by the installer or first-run setup. Contains:
 - Python interpreter
-- All pip dependencies (faster-whisper, ctranslate2, torch, sounddevice, pynput, pystray, Pillow, etc.)
+- All pip dependencies (faster-whisper, ctranslate2, onnxruntime, sounddevice, pynput, pystray, Pillow, etc.)
+  - **Torch migration note (2026-08-13)**: `torch` is being removed from the slim core's dependency list as part of the ONNX migration (`PLAN_ONNX_INTEGRATION.md` §2/§3). VAD now uses `onnxruntime` (ADR-0005) and Parakeet uses `onnx-asr`. Torch may remain installed transiently for the Qwen engine until Phase 1d; see `pyproject.toml` for the canonical dep list.
 - CLI entry point (`voice-typer`)
 
 ### `electron-profile/`
@@ -188,7 +189,7 @@ The old code created a junction from `<DATA_DIR>/huggingface/` → `~/.cache/hug
 - Python CUDA packages: installed by pip into `venv/Lib/site-packages/`
   - `ctranslate2` (with CUDA extensions)
   - `nvidia-*` wheels (CUDA runtime DLLs, cuBLAS, cuDNN)
-  - `torch` (if PyTorch-based models are used)
+  - `torch` — **transient**: retained only while the Qwen ASR engine still depends on it (Phase 1d of the ONNX migration, `PLAN_ONNX_INTEGRATION.md` §4). VAD and Parakeet no longer import torch post-Phase-1a/1b. Check `pyproject.toml` for the current canonical dep list.
 
 ### What does NOT live in `<DATA_DIR>`
 - **NVIDIA system driver** (`C:\Program Files\NVIDIA GPU Computing Toolkit\`) — this is a system-level component installed by the user or driver update. The Python process merely **loads** these DLLs at runtime. Cannot be bundled.

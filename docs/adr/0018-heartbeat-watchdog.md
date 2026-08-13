@@ -59,7 +59,7 @@ The timeout was increased from 15 seconds (3 missed heartbeats) to 120 seconds (
 
 ### First-Heartbeat Guard
 
-The watchdog only fires **after** the first heartbeat has been received. While `_last_heartbeat_at` is `None`, the watchdog is silent. This prevents a false-positive exit during a slow Electron cold start (10+ seconds for the torch import and window creation).
+The watchdog only fires **after** the first heartbeat has been received. While `_last_heartbeat_at` is `None`, the watchdog is silent. This prevents a false-positive exit during a slow Electron cold start (10+ seconds for the heavy ML import chain and window creation). (Historical note: pre-2026-08-13 the heavy import was `torch`; post-ONNX-migration the heavy import is `onnxruntime` + `ctranslate2` — the cold-start budget rationale is unchanged.)
 
 ### Cleanup Path
 
