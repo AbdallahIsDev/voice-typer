@@ -474,6 +474,186 @@ export interface MicLevelEvent {
 	data: { level: number; peak: number; active: boolean };
 }
 
+// ── Pack + worker IPC events (master plan §7.4 — 12 new push event
+// types introduced by the slim-core / runtime-pack split).
+//
+// These cover the pack download lifecycle, the pack integrity state,
+// the worker process lifecycle, and the offline-transcription result
+// that flows back from the worker. The 13th event in §7.4 —
+// `transcribe_offline` — is a REQUEST (renderer → slim core → worker),
+// so it lives in `types/ipc/requests.ts` as a member of `PythonRequest`
+// (NOT in this push-event union).
+//
+// Each push event below is published by `event_bus.publish(...)` in
+// the Python sidecar (the worker→slim-core hop forwards each as a
+// standard event-bus publish). The payloads mirror the Python-side
+// `PACK_EVENT_TYPES` frozenset in `voice_typer/server/service/pack.py`
+// (canonical schema). The Rust WS reader allowlist
+// `ALLOWED_EVENT_TYPES` in
+// `src-tauri/src/sidecar/ws/event_protocol.rs` includes every name
+// here so the host does not silently drop the frames. Pinned by
+// `tests/test_event_types_parity.py`.
+
+/** Pack download lifecycle — emitted by `voice_typer/server/service/pack.py`
+ *  when a runtime-pack download begins. Payload mirrors the model-download
+ *  `download_progress` event shape so the existing `useModelDownload` UI
+ *  pattern can be reused by a separate `usePackDownload` hook.
+ *
+ *  Wire shape: `{ "type": "pack_download_started", "data": {
+ *      "version": "<semver>", "url": "<github-releases-url>",
+ *      "total_bytes": <int> } }`. */
+export interface PackDownloadStartedEvent {
+	type: "pack_download_started";
+	data: { version: string; url: string; total_bytes: number };
+}
+
+/** Pack download progress (silent — no UI surface today). Emitted at
+ *  ~1 Hz while the pack is downloading. The renderer may log this for
+ *  diagnostics; no user-visible component subscribes (the
+ *  `usePackDownload` hook surfaces a coarser progress bar via
+ *  `pack_download_completed` + the `progress` field on
+ *  `pack_download_started`'s sibling events).
+ *
+ *  Wire shape: `{ "type": "pack_download_progress", "data": {
+ *      "version": "<semver>", "progress": <0-100>,
+ *      "downloaded_bytes": <int>, "total_bytes": <int>,
+ *      "speed_bytes_per_sec": <int>, "eta_seconds": <int> } }`. */
+export interface PackDownloadProgressEvent {
+	type: "pack_download_progress";
+	data: {
+		version: string;
+		progress: number;
+		downloaded_bytes: number;
+		total_bytes: number;
+		speed_bytes_per_sec: number;
+		eta_seconds: number;
+	};
+}
+
+/** Pack download completed — emitted when the download finishes
+ *  (verification is the NEXT step; see `pack_verified` /
+ *  `pack_corrupt`). Payload carries the computed SHA256 so the
+ *  renderer can display it in the About page's "Pack integrity" card.
+ *
+ *  Wire shape: `{ "type": "pack_download_completed", "data": {
+ *      "version": "<semver>", "sha256": "<hex>" } }`. */
+export interface PackDownloadCompletedEvent {
+	type: "pack_download_completed";
+	data: { version: string; sha256: string };
+}
+
+/** Pack download failed — emitted when the download gives up after
+ *  exhausting the §8.2 / §8.7 retry budgets (corruption recovery + GitHub
+ *  rate-limit backoff). The renderer surfaces a tray notification +
+ *  retry button.
+ *
+ *  Wire shape: `{ "type": "pack_download_failed", "data": {
+ *      "version": "<semver>", "reason": "<short-code>",
+ *      "attempts": <int> } }`. */
+export interface PackDownloadFailedEvent {
+	type: "pack_download_failed";
+	data: { version: string; reason: string; attempts: number };
+}
+
+/** Pack verified — SHA256 + signature (Windows Authenticode / macOS
+ *  notarization ticket) both pass. The renderer's "Pack status" badge
+ *  flips green.
+ *
+ *  Wire shape: `{ "type": "pack_verified", "data": {
+ *      "version": "<semver>", "sha256": "<hex>" } }`. */
+export interface PackVerifiedEvent {
+	type: "pack_verified";
+	data: { version: string; sha256: string };
+}
+
+/** Pack missing — the cheap existence probe (`os.path.exists` on the
+ *  expected pack path) found no pack file. Emitted on startup if the
+ *  pack is configured-but-absent (e.g. the user deleted it, or a
+ *  cleaner / AV quarantined it — §8.10). The renderer prompts the user
+ *  to download.
+ *
+ *  Wire shape: `{ "type": "pack_missing", "data": {
+ *      "version": "<semver>", "path": "<pack-path>" } }`. */
+export interface PackMissingEvent {
+	type: "pack_missing";
+	data: { version: string; path: string };
+}
+
+/** Pack corrupt — SHA256 mismatch or signature verification failed.
+ *  Emitted by the background checksum (§8.16) when the post-download
+ *  integrity check fails. The renderer surfaces a "Pack corrupt —
+ *  re-download?" prompt.
+ *
+ *  Wire shape: `{ "type": "pack_corrupt", "data": {
+ *      "version": "<semver>", "path": "<pack-path>",
+ *      "reason": "<sha256_mismatch|signature_failed|...>" } }`. */
+export interface PackCorruptEvent {
+	type: "pack_corrupt";
+	data: { version: string; path: string; reason: string };
+}
+
+/** Pack ready — the worker process has started AND prewarmed the ASR
+ *  engine (Phase 2 of the worker lifecycle per §6.2). The renderer's
+ *  "Offline engine" status flips to "Ready"; queued `transcribe_offline`
+ *  requests are now dispatched.
+ *
+ *  Wire shape: `{ "type": "pack_ready", "data": {
+ *      "version": "<semver>", "worker_pid": <int> } }`. */
+export interface PackReadyEvent {
+	type: "pack_ready";
+	data: { version: string; worker_pid: number };
+}
+
+/** Worker started — the worker process has spawned and completed its
+ *  WS handshake with the slim core. Prewarm is NOT done yet (see
+ *  `pack_ready` for that signal).
+ *
+ *  Wire shape: `{ "type": "worker_started", "data": {
+ *      "pid": <int>, "version": "<semver>" } }`. */
+export interface WorkerStartedEvent {
+	type: "worker_started";
+	data: { pid: number; version: string };
+}
+
+/** Worker crashed — the worker process exited with a non-zero code
+ *  (or was killed by a signal). The slim core's supervisor restarts
+ *  it (with exponential backoff); the renderer surfaces a degraded-mode
+ *  banner.
+ *
+ *  Wire shape: `{ "type": "worker_crashed", "data": {
+ *      "pid": <int>, "exit_code": <int> } }`. */
+export interface WorkerCrashedEvent {
+	type: "worker_crashed";
+	data: { pid: number; exit_code: number };
+}
+
+/** Worker unloaded — the worker process was unloaded (either by the
+ *  idle-timeout path or by an explicit user action like the "Keep
+ *  offline engine running" checkbox being toggled off). The renderer's
+ *  "Offline engine" status flips to "Not running".
+ *
+ *  Wire shape: `{ "type": "worker_unloaded", "data": {
+ *      "reason": "<idle_timeout|manual|shutdown|...>" } }`. */
+export interface WorkerUnloadedEvent {
+	type: "worker_unloaded";
+	data: { reason: string };
+}
+
+/** Offline transcription result — pushed by the worker via the slim
+ *  core when a `transcribe_offline` request completes. The slim core
+ *  forwards this to the renderer via the standard event bus (the
+ *  request was made via `python.call('transcribe_offline', ...)`, but
+ *  the RESULT comes back as a push event — the worker may take
+ *  seconds to minutes to transcribe, so the call would time out
+ *  if it were a synchronous request/response).
+ *
+ *  Wire shape: `{ "type": "transcribe_offline_result", "data": {
+ *      "text": "<transcription>", "latency_ms": <int> } }`. */
+export interface TranscribeOfflineResultEvent {
+	type: "transcribe_offline_result";
+	data: { text: string; latency_ms: number };
+}
+
 // NOTE: `usePythonEvent`'s `type` param IS narrowed to
 // `PythonPushEvent["type"]` via a two-overload signature in
 // `hooks/usePython.ts`. The first overload
@@ -537,7 +717,25 @@ export type PythonPushEvent =
 	| ReconnectedEvent
 	//coalesced mic-level push event (≤30 Hz).
 	// See `MicLevelEvent` above for the wire shape + emitter.
-	| MicLevelEvent;
+	| MicLevelEvent
+	// ── Pack + worker IPC events (master plan §7.4 — 12 push
+	// events from the runtime-pack split). See the per-interface
+	// docstrings above for the wire shapes + emitters. The 13th
+	// §7.4 event — `transcribe_offline` — is a REQUEST, so it
+	// lives in `PythonRequest` (requests.ts), NOT in this union.
+	// Pinned by `tests/test_event_types_parity.py`.
+	| PackDownloadStartedEvent
+	| PackDownloadProgressEvent
+	| PackDownloadCompletedEvent
+	| PackDownloadFailedEvent
+	| PackVerifiedEvent
+	| PackMissingEvent
+	| PackCorruptEvent
+	| PackReadyEvent
+	| WorkerStartedEvent
+	| WorkerCrashedEvent
+	| WorkerUnloadedEvent
+	| TranscribeOfflineResultEvent;
 
 //Auth frame () ────────────────────────────────────────
 //

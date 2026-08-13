@@ -31,10 +31,12 @@ import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import ActivityList from "@/components/dashboard/ActivityList";
 import StatCards from "@/components/dashboard/StatCards";
 import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
+import { PackPreparingBanner } from "@/components/feedback/PackPreparingBanner";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { useNavigation } from "@/hooks/useNavigation";
+import { usePackDownload } from "@/hooks/usePackDownload";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import {
 	canShareStats,
@@ -122,6 +124,20 @@ export default function Home() {
 	const [cfg, setCfg] = useState<VoiceTyperConfig | null>(null);
 	const { agoLabel, markUpdated } = useLastUpdated();
 	const [refreshing, setRefreshing] = useState(false);
+
+	// Runtime-pack readiness — drives the "Preparing offline engine…"
+	// banner. Local whisper / Parakeet transcription degrades silently
+	// to "silent download starts, 'Preparing…' line, then works" when
+	// the pack isn't ready (§4.9). Cloud transcription (Groq/OpenAI/
+	// Deepgram) never needs the pack, so we suppress the banner when
+	// the active ASR backend is a cloud one (§4.9: "works — cloud
+	// never needs the pack").
+	const { status: packStatus, isReady: packReady } = usePackDownload();
+	// Tracks whether the user has pressed the dictation toggle at least
+	// once. The banner is gated on this so a fresh page load with a
+	// missing pack doesn't surface the "Preparing…" line until the
+	// user actually attempts dictation.
+	const [hasAttemptedDictation, setHasAttemptedDictation] = useState(false);
 	const { imageRef, shareAsImage } = useStatsShare();
 
 	// Track mount state so async callbacks that
@@ -429,6 +445,14 @@ export default function Home() {
 	}, [stats, cfg, shareAsImage]);
 
 	const handleToggle = useCallback(async () => {
+		// Mark that the user has attempted dictation so the
+		// "Preparing offline engine…" banner (gated on
+		// `!packReady && hasAttemptedDictation`) can surface if the
+		// runtime pack isn't ready yet. Set BEFORE the consent gate
+		// so the banner appears even if consent is missing — the
+		// user has still pressed the mic button, which counts as an
+		// "attempted offline transcription" per §4.9.
+		setHasAttemptedDictation(true);
 		// GDPR Art. 9 gate: the backend refuses to start recording without
 		// ``voice_biometric_consent`` — but the refusal is silent over
 		// IPC (``toggle_dictation`` returns ``ack`` and only the tray
@@ -640,6 +664,18 @@ export default function Home() {
 					{inlineStatus}
 				</output>
 			)}
+
+			{/* Runtime-pack readiness banner — §4.8 / §4.9. Local
+					whisper / Parakeet transcription degrades silently to
+					"silent download starts, 'Preparing…' line, then works"
+					when the pack isn't ready. Visible only when the pack
+					isn't ready AND the user has pressed the dictation
+					toggle at least once (so a fresh page load with a
+					missing pack doesn't flash the line at idle users). */}
+			<PackPreparingBanner
+				visible={!packReady && hasAttemptedDictation}
+				status={packStatus}
+			/>
 
 			<p className="flex items-center gap-2 text-[13px] text-(--text-muted)">
 				<span>{t("home.press")}</span>

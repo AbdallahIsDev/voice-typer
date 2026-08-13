@@ -94,6 +94,82 @@ Events emitted via ``event_bus.publish`` (the modern path):
   falls back to CPU. The tray shows a "(CPU fallback)" status suffix.
   Payload: ``{device:str (="cpu"), reason:str}``.
 
+Master plan §7.4 — runtime-pack / worker IPC events (13 new event
+types introduced by the slim-core / runtime-pack split). The
+canonical schema is the ``PACK_EVENT_TYPES`` frozenset in
+``voice_typer/server/service/pack.py``; the per-event payloads
+mirrored here are duplicated for documentation parity (a contributor
+reading the docstring should NOT have to flip to ``pack.py`` to
+understand the wire shape). All 13 are also listed in the Rust
+``ALLOWED_EVENT_TYPES`` slice in
+``src-tauri/src/sidecar/ws/event_protocol.rs`` so the Tauri WS reader
+does not silently drop the frames. The 12 push events are members of
+the TS ``PythonPushEvent`` union
+(``voice_typer/client/src/renderer/src/types/ipc/push_events.ts``);
+the 1 request event is a member of the TS ``PythonRequest`` union
+(``voice_typer/client/src/renderer/src/types/ipc/requests.ts``).
+Pinned by ``tests/test_event_types_parity.py`` (the new parity test
+that closes the "4th allowlist has no parity test" gap from §9.4).
+
+Pack download lifecycle (push, published by
+``voice_typer/server/service/pack.py``):
+
+* ``pack_download_started`` — payload ``{version:str, url:str,
+  total_bytes:int}``. User-visible download started.
+* ``pack_download_progress`` — payload ``{version:str, progress:int
+  (0-100), downloaded_bytes:int, total_bytes:int,
+  speed_bytes_per_sec:int, eta_seconds:int}``. Silent — no UI surface
+  today (the ``usePackDownload`` hook surfaces a coarser progress bar
+  via the started/completed siblings).
+* ``pack_download_completed`` — payload ``{version:str, sha256:str}``.
+  Download finished, verification pending (see ``pack_verified`` /
+  ``pack_corrupt``).
+* ``pack_download_failed`` — payload ``{version:str, reason:str,
+  attempts:int}``. Exhausted the §8.2 / §8.7 retry budgets.
+
+Pack integrity (push, published by ``service/pack.py``):
+
+* ``pack_verified`` — payload ``{version:str, sha256:str}``. SHA256 +
+  signature both pass.
+* ``pack_missing`` — payload ``{version:str, path:str}``. Cheap
+  existence probe found no pack file (deleted by user / quarantined
+  by AV — §8.10).
+* ``pack_corrupt`` — payload ``{version:str, path:str, reason:str}``.
+  SHA256 mismatch / signature failure.
+* ``pack_ready`` — payload ``{version:str, worker_pid:int}``. Worker
+  started AND prewarmed — ready to transcribe (queued
+  ``transcribe_offline`` requests now dispatch).
+
+Worker process lifecycle (push, published by the slim-core supervisor
+once the worker process spawns / crashes / unloads):
+
+* ``worker_started`` — payload ``{pid:int, version:str}``. Worker
+  spawned + WS handshake done (prewarm NOT done yet — see
+  ``pack_ready``).
+* ``worker_crashed`` — payload ``{pid:int, exit_code:int}``. Worker
+  process exited non-zero (or killed by a signal); supervisor
+  restarts with exponential backoff.
+* ``worker_unloaded`` — payload ``{reason:str}``. Worker unloaded
+  (idle timeout / explicit user action via the "Keep offline engine
+  running" checkbox / shutdown).
+
+Offline transcription (request + result push):
+
+* ``transcribe_offline`` — REQUEST (renderer → slim core → worker),
+  NOT a push event. Registered in ``_COMMAND_REGISTRY``
+  (``voice_typer/server/ipc/registry.py``) so the dispatcher routes
+  it; also in the TS ``ALLOWED_COMMANDS`` Set + the Rust
+  ``allowed_commands()`` literal (the three command allowlists).
+  Payload: ``{audio_path:str, sample_rate:int,
+  language:str|null}``. Resolves to ``{type:"ack", data:{queued:True}}``
+  (the worker takes seconds to minutes — the actual transcription
+  comes back via the ``transcribe_offline_result`` push event, not as
+  a synchronous response).
+* ``transcribe_offline_result`` — PUSH (worker → slim core →
+  renderer). Payload: ``{text:str, latency_ms:int}``. The worker
+  emits this once the offline transcription completes; the slim core
+  forwards it via ``event_bus.publish``.
+
 Events emitted via ``IPCServer.push`` (NOT through ``event_bus.publish``
 — they bypass the bus because they are wired into the IPC accept loop
 or the tray-state hook, both of which already hold a reference to the

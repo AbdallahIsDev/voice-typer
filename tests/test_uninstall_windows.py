@@ -646,7 +646,20 @@ class TestWiring:
     def test_tauri_conf_has_nsis_installer_hooks_v2_key(self):
         """tauri.conf.json bundle.windows.nsis.installerHooks must be
         set (the Tauri v2 NSIS hooks key). The v1 short form 'preRemove'
-        (no suffix) is FORBIDDEN — see constraint #7."""
+        (no suffix) is FORBIDDEN — see constraint #7.
+
+        Tauri v2 accepts ``installerHooks`` as EITHER a single string
+        path OR a list of paths (the schema is ``string | string[]`` —
+        see https://schema.tauri.app/config/2). The list form is used by
+        the slim-core / runtime-pack split (plan-runtime-pack-split.md
+        §4.8) to register BOTH the existing uninstall-time hooks
+        (``uninstaller.nsh`` — defines ``customUnInstall`` for CR-69 /
+        CR-70 cleanup) AND the new install-time hooks
+        (``installer-hooks.nsh`` — defines the "Include offline engine
+        pack" Components-page Section + ``customInstall`` macro that
+        writes ``installer-state.json`` for the first-launch consent
+        gate). The string form remains valid for single-hook installs.
+        """
         # Verify the file does NOT contain the v1 short form.
         text = TAURI_CONF_JSON.read_text(encoding="utf-8")
         # Match `"preRemove":` or `"postInstall":` (v1 short form).
@@ -665,17 +678,33 @@ class TestWiring:
         nsis = windows.get("nsis", {})
         assert "installerHooks" in nsis, (
             "tauri.conf.json bundle.windows.nsis.installerHooks is missing — "
-            "the Tauri NSIS bundler won't run the uninstall .bat. See S2-CR-69."
+            "the Tauri NSIS bundler won't run the uninstall .nsh. See S2-CR-69."
         )
         pre_remove = nsis["installerHooks"]
-        assert isinstance(pre_remove, str), f"installerHooks must be a string, got {type(pre_remove)}"
-        # tauri.conf.json is at src-tauri/tauri.conf.json; installerHooks
-        # resolves relative to src-tauri/.
-        resolved = (TAURI_CONF_JSON.parent / pre_remove).resolve()
-        assert resolved.is_file(), (
-            f"bundle.windows.nsis.installerHooks points at {pre_remove} "
-            f"(resolved: {resolved}) but the .bat file does NOT exist."
-        )
+        # Tauri v2 accepts string OR list of strings (schema: string | string[]).
+        if isinstance(pre_remove, str):
+            hook_paths = [pre_remove]
+        elif isinstance(pre_remove, list) and all(isinstance(h, str) for h in pre_remove):
+            hook_paths = pre_remove
+        else:
+            raise AssertionError(
+                f"installerHooks must be a string or list of strings, got {type(pre_remove).__name__}: {pre_remove!r}"
+            )
+        assert hook_paths, "installerHooks must not be empty."
+        # tauri.conf.json is at src-tauri/tauri.conf.json; each installerHooks
+        # entry resolves relative to src-tauri/.
+        for hook in hook_paths:
+            resolved = (TAURI_CONF_JSON.parent / hook).resolve()
+            assert resolved.is_file(), (
+                f"bundle.windows.nsis.installerHooks entry {hook!r} "
+                f"(resolved: {resolved}) does NOT exist — Tauri !includes "
+                "each entry into installer.nsi; a missing file aborts makensis."
+            )
+            assert hook.endswith(".nsh"), (
+                f"installerHooks entry {hook!r} must be an NSIS script (.nsh) — "
+                "Tauri !includes it into installer.nsi; a non-NSIS file (e.g. a "
+                ".bat) aborts makensis with 'Invalid command: @echo'."
+            )
 
     def test_uninstall_permissions_py_exists(self):
         """scripts/windows/uninstall_permissions.py must exist (the

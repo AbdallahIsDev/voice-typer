@@ -352,9 +352,7 @@ class LifecycleMixin:
         # Unregister the transport-liveness probe registered by
         # ``start_tcp`` (no-op when the TCP transport never started,
         # e.g. the Tauri WS sidecar path).
-        event_bus.unregister_transport_probe(
-            getattr(self, "_transport_live_probe", None)
-        )
+        event_bus.unregister_transport_probe(getattr(self, "_transport_live_probe", None))
         self._transport_live_probe = None
         if self._tcp_client is not None:
             self._tcp_client.close()
@@ -380,7 +378,7 @@ class LifecycleMixin:
         if dispatch_pool is not None:
             dispatch_pool.shutdown(wait=False, cancel_futures=True)
             self._tcp_dispatch_pool = None
-# PERF-SHUTDOWN-001: skip the drain wait when ``stop()`` is
+            # PERF-SHUTDOWN-001: skip the drain wait when ``stop()`` is
             # called from inside the dispatch pool itself.  ``quit_app``
             # runs on a ``tcp-dispatch`` worker, so draining the pool
             # here would wait on a worker that is blocked inside this
@@ -692,3 +690,33 @@ class LifecycleMixin:
 
         wrapped._vt_wrapped = True
         self.app.tray.set_state = wrapped
+
+    def _handle_transcribe_offline(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope:
+        """Master plan §7.4 — handle the transcribe_offline IPC command.
+
+        STUB handler. The renderer invokes this to run an offline
+        transcription through the runtime-pack worker (slim core →
+        worker over the worker's dedicated WS hop). The actual
+        implementation lives in the worker-IPC sub-agent's
+        WorkerHandlersMixin (added in parallel); this stub is the
+        bare-minimum placeholder so the IPCServer.__init__-time
+        registry-validation loop (which asserts every
+        _COMMAND_REGISTRY entry resolves to a callable bound
+        method) does not fail with a RuntimeError.
+
+        Once the worker-IPC architecture lands, this stub will be
+        DELETED and the real handler will live in
+        voice_typer/server/handlers/worker_handlers.py (or
+        equivalent) — registered in _COMMAND_REGISTRY under the
+        same key.
+
+        Pinned by tests/test_event_types_parity.py.
+        """
+        # Minimal ack so the renderer's call() resolves instead of
+        # timing out. The actual transcription comes back via the
+        # transcribe_offline_result push event (see
+        # ALLOWED_EVENT_TYPES in
+        # src-tauri/src/sidecar/ws/event_protocol.rs).
+        resp["type"] = "ack"
+        resp.setdefault("data", {})["queued"] = True
+        return resp

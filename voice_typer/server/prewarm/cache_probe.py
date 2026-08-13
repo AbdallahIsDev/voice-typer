@@ -278,90 +278,100 @@ def _cached_active_config():
         return None
 
 
+# Phase 2 / Plan §6.2 P-1: the warm list after the torch removal
+# + runtime-pack split. The OS-level schedulers (Windows LogonTrigger,
+# macOS LaunchAgent, Linux systemd) are GONE; prewarm is now a startup
+# phase of the worker exe (``voice_typer/worker/__main__.py``). The
+# worker calls :func:`warm_imports_for_worker` once before accepting
+# the first transcription request.
+#
+# The package list is FIXED — it no longer varies by active backend.
+# Per the master plan §6.2 P-1: ``onnxruntime + ctranslate2 +
+# numpy/scipy`` (≈200 MB total, far fewer files than the old
+# torch+transformers stack — see plan §3.4). torch + transformers are
+# DROPPED because:
+#   - VAD is now Silero VAD ONNX (no torch) — see PLAN_ONNX_INTEGRATION §2.
+#   - Parakeet is now ``onnx-asr`` (no transformers) — see
+#     PLAN_ONNX_INTEGRATION §3.
+#   - Qwen migration (Phase 1d) is deferred; if/when Qwen ships torch,
+#     it warms in its own process (the worker exe is the runtime pack
+#     and never contains torch).
+#
+# ``faster_whisper`` is kept in the list because it is still the
+# Whisper backend (``ctranslate2`` is its underlying runtime, but
+# ``faster_whisper``'s own ``.py`` / ``.pyc`` files are paged in here
+# too — they are tiny relative to ``ctranslate2`` but skipping them
+# would regress the Whisper cold-start path).
+_WORKER_WARM_PACKAGES: tuple[str, ...] = (
+    "onnxruntime",
+    "ctranslate2",
+    "numpy",
+    "scipy",
+    "faster_whisper",
+)
+
+
 def _warm_imports() -> None:
-    """Page torch + transformers files into the OS cache (no import).
+    """Page the runtime-pack libraries' files into the OS cache (no import).
 
-    STARTUP-3: filter by active backend. Previously this unconditionally
-    imported torch + transformers (which takes ~30-60 s cold, ~400 s when
-    contended, and executes code we then throw away). Whisper users don't
-    need transformers — they only need faster_whisper (ctranslate2, ~3 s
-    cold). Parakeet/Qwen users still need the full torch + transformers
-    stack, but we warm its *files* rather than importing it, so prewarm
-    finishes in seconds and the app executes torch exactly once, later.
+    Per master plan §6.2 P-1 (worker-startup prewarm phase), the warm
+    list is ``onnxruntime + ctranslate2 + numpy/scipy`` (plus
+    ``faster_whisper`` for the Whisper backend's own Python files).
+    ``torch`` and ``transformers`` are DROPPED — VAD is now ONNX, Parakeet
+    is now ``onnx-asr``, and neither ships in the worker exe.
+
+    This function pages the libraries' installed files into the OS
+    standby cache **without importing them** (see
+    :func:`_warm_package_files`). The worker still has to execute each
+    library's code once, in its own process — that is unavoidable and
+    unchanged — but the cold-disk read is paid once here, in the
+    background, before the user clicks "transcribe".
+
+    BACKEND-INDEPENDENT: the list is fixed. The pre-Phase-2 code varied
+    the list by ``asr_backend`` (whisper vs parakeet/qwen) because
+    parakeet/qwen pulled in the torch + transformers stack; with torch
+    gone that variation is gone too.
     """
-    # share a single cached Config.load() result with
-    # ``_active_model_cache_dirs`` so a prewarm run parses the config
-    # file at most once instead of twice.
-    cfg = _cached_active_config()
-    active_backend = getattr(cfg, "asr_backend", "whisper") if cfg is not None else "whisper"
-
-    needs_full_stack = active_backend in ("parakeet", "qwen")
-
-    if needs_full_stack:
-        # Parakeet / Qwen both use the HuggingFace transformers stack, so we
-        # need torch + transformers resident in the OS cache.  Read their
-        # installed files WITHOUT importing (see _warm_package_files): this
-        # pages in the same ~4.5 GB of .pyc/.dll/.pyd bytes the old
-        # ``import torch`` did, but skips executing torch (~5 s CPU) and the
-        # live modules we'd discard on exit.  The app still executes torch
-        # once, in its own process — unavoidable.
-        _warm_package_files("torch")
-        _warm_package_files("transformers")
-    else:
-        # STARTUP-3: whisper backend — skip torch/transformers (~400 s saved).
-        # Whisper uses faster_whisper (ctranslate2) which has no torch
-        # dependency. We still import faster_whisper below to warm the
-        # CPU-fallback path; the whisper fallback (tiny.en) is what
-        # AsrBackendRegistry.load_with_fallback() falls back to.
-        log.info(
-            "[PREWARM] active backend=%s — skipping torch/transformers import (whisper only needs faster_whisper)",
-            active_backend,
-        )
-
-    # Page in faster_whisper + ctranslate2 bytes WITHOUT executing
-    # them. Previously this did `import faster_whisper` which executes the
-    # module (and its ctranslate2 C++ dependency) — 1-3s of CPU for C++
-    # static init that the prewarm process pays and then throws away
-    # (the app re-executes faster_whisper in its own process anyway).
-    # `_warm_package_files` pages in the file bytes via sequential reads,
-    # matching the torch/transformers approach used above.
-    #
-    # gate the warming on either (a) the active backend being
-    # ``whisper`` (the only backend that uses faster_whisper /
-    # ctranslate2 at runtime), OR (b) the Whisper tiny.en fallback
-    # cache dir being present on disk. The fallback path is checked
-    # via ``_active_model_cache_dirs()`` which already includes the
-    # tiny.en repo when it exists; if neither condition holds
-    # (e.g. a pure-parakeet install that has never downloaded the
-    # Whisper fallback), warming faster_whisper / ctranslate2 wastes
-    # ~50-100 MB of I/O on packages that will never be imported.
-    warm_whisper_files = active_backend == "whisper"
-    if not warm_whisper_files:
-        # Check whether the tiny.en fallback is actually present on disk
-        # before warming the Whisper runtime packages. ``_active_model_cache_dirs``
-        # already does the heavy lifting of resolving the HF cache dir +
-        # checking for ``models--Systran--faster-whisper-tiny.en``.
-        for cache_dir in _active_model_cache_dirs():
-            if "faster-whisper-tiny.en" in cache_dir.name:
-                warm_whisper_files = True
-                break
-    if warm_whisper_files:
+    t0 = time.perf_counter()
+    warmed: list[str] = []
+    for pkg in _WORKER_WARM_PACKAGES:
         try:
-            t0 = time.perf_counter()
-            _warm_package_files("faster_whisper")
-            _warm_package_files("ctranslate2")
-            log.info(
-                "[PREWARM] warmed faster_whisper + ctranslate2 bytes: %.2fs",
-                time.perf_counter() - t0,
-            )
+            bytes_read = _warm_package_files(pkg)
         except Exception as exc:
-            log.debug("[PREWARM] faster_whisper/ctranslate2 not warmable (skipping): %s", exc)
-    else:
-        log.info(
-            "[PREWARM] active backend=%s and no Whisper tiny.en fallback cached"
-            " — skipping faster_whisper/ctranslate2 file warming (ER-52)",
-            active_backend,
-        )
+            # Best-effort: a missing package (e.g. ``scipy`` not
+            # installed in a minimal dev env) is logged at DEBUG and
+            # skipped. The worker still starts; only the cold-start
+            # benefit is lost.
+            log.debug("[PREWARM] %s not warmable (skipping): %s", pkg, exc)
+            continue
+        if bytes_read > 0:
+            warmed.append(pkg)
+    elapsed = time.perf_counter() - t0
+    log.info(
+        "[PREWARM] worker warm-imports complete: %d packages (%s) — %.2fs",
+        len(warmed),
+        ", ".join(warmed) if warmed else "none",
+        elapsed,
+    )
+
+
+def warm_imports_for_worker() -> None:
+    """Public entry point the worker exe calls once at startup.
+
+    Thin wrapper around :func:`_warm_imports` so the worker entry point
+    (``voice_typer/worker/__main__.py``) does not depend on a
+    underscore-prefixed name. Per master plan §6.2 P-1, this is the
+    single call site for the prewarm-as-startup-phase logic.
+
+    The function is idempotent and best-effort: any failure inside
+    ``_warm_imports`` is logged at DEBUG and swallowed so the worker
+    can still start (a cold cache only costs latency, never
+    correctness).
+    """
+    try:
+        _warm_imports()
+    except Exception:
+        log.debug("[PREWARM] warm_imports_for_worker failed — continuing with cold cache", exc_info=True)
 
 
 @lru_cache(maxsize=1)

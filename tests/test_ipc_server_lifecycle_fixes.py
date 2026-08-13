@@ -521,14 +521,16 @@ class TestRegistryExtraction:
         # check_accessibility re-added (finding #919 part b — Settings
         # → Troubleshooting surfaces the stale-grant reset) brought it
         # to 69.
+        # transcribe_offline (Phase 2b pack downloader — plan-runtime-
+        # pack-split.md §7.4) brought it to 70.
         # The count is deliberately pinned here and in SECURITY.md —
         # update all sources of truth together.
-        assert len(registry._COMMAND_REGISTRY) == 69, (
-            f"registry._COMMAND_REGISTRY must contain 69 entries "
+        assert len(registry._COMMAND_REGISTRY) == 70, (
+            f"registry._COMMAND_REGISTRY must contain 70 entries "
             f"(64 baseline + test_cloud_connection + "
             f"add_trusted_endpoint + onboarding_set_backend + "
             f"reset_macos_accessibility + reset_linux_permissions + "
-            f"check_accessibility); got "
+            f"check_accessibility + transcribe_offline); got "
             f"{len(registry._COMMAND_REGISTRY)}. "
             f"If the count drifted, update this test together with the "
             f"registry + the TS/Rust allowlists."

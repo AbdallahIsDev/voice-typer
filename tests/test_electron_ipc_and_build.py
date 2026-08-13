@@ -490,18 +490,25 @@ class TestVadStderrRedirect:
         src = inspect.getsource(vad)
         # ERR-LINT-001 history: the ``redirect_stderr`` guard existed to
         # suppress torch.hub.load's "Using cache found in..." message.
-        # 5816bd75 removed the hub fallback entirely (offline-only
-        # ``silero_vad.jit`` via ``torch.jit.load``), so the redirect is
-        # gone by design. The offline contract is now pinned instead:
-        # the bundled model must be loaded with torch.jit.load and the
-        # network hub path must NOT exist.
-        assert "torch.jit.load" in src, (
-            "vad.py must load the bundled silero_vad.jit via torch.jit.load "
-            "(offline-only, C-DATA-1) — no network fetch at first use"
+        # The hub fallback was removed entirely (offline-only model
+        # file via ``InferenceSession``), so the redirect is gone by
+        # design. The offline contract is now pinned instead: the
+        # bundled model must be loaded via ``onnxruntime.InferenceSession``
+        # and the network hub path must NOT exist.
+        #
+        # Phase 1a (companion §2.4): the assertion was retargeted from
+        # ``torch.jit.load`` to ``InferenceSession`` because vad.py was
+        # rewritten to the ORT backend (silero_vad.onnx replaces
+        # silero_vad.jit as the active model file at runtime; the .jit
+        # is RETAINED until Phase 1c per companion §2.5).
+        assert "InferenceSession" in src, (
+            "vad.py must load the bundled silero_vad.onnx via "
+            "onnxruntime.InferenceSession (offline-only, C-DATA-1) — "
+            "no network fetch at first use"
         )
         assert "torch.hub.load" not in src, (
             "vad.py must NOT call torch.hub.load — the network fallback was "
-            "removed (5816bd75); a future re-add must also restore the "
+            "removed; a future re-add must also restore the "
             "stdout/stderr redirect guard (ERR-LINT-001)"
         )
 

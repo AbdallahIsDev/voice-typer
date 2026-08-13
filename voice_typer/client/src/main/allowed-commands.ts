@@ -238,4 +238,18 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// (no renderer caller at the time); re-wired through the TS,
 	// Rust, and Python registries in lockstep.
 	"check_accessibility",
+	// Master plan §7.4 — new IPC request `transcribe_offline`
+	// (slim core → worker). The renderer invokes this to run an
+	// offline transcription through the runtime-pack worker (the
+	// slim core forwards the request to the worker over the
+	// worker's dedicated WS hop). Registered in the Python
+	// `_COMMAND_REGISTRY` and the Rust `allowed_commands()` literal
+	// in lockstep. The push counterpart `transcribe_offline_result`
+	// is published via `event_bus.publish(...)` (NOT a command —
+	// see `PythonPushEvent` in
+	// `voice_typer/client/src/renderer/src/types/ipc/push_events.ts`
+	// and `ALLOWED_EVENT_TYPES` in
+	// `src-tauri/src/sidecar/ws/event_protocol.rs`). Pinned by
+	// `tests/test_event_types_parity.py`.
+	"transcribe_offline",
 ]);

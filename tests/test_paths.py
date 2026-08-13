@@ -230,10 +230,17 @@ class TestNoHardcodedVoiceTyperPaths:
         # pre-refactor ``prewarm.py`` and ``server_platform.py`` were
         # split into these packages; if rglob missed them the test
         # would silently skip every file inside them).
+        #
+        # NOTE (Sub-agent 6, master plan §6.2 P-1): the prewarm package
+        # was SLIMMED in Phase 2 — only ``cache_probe.py`` (the
+        # worker-startup prewarm logic) and ``__init__.py`` remain.
+        # The pre-Phase-2 files (``paths.py``, ``logging_setup.py``,
+        # ``pipeline.py``, ``process_tracker.py``, ``completion_events.py``,
+        # ``cli.py``, ``__main__.py``) were deleted because prewarm is
+        # now a startup phase of the worker exe, not a separate frozen
+        # binary launched by OS-level schedulers.
         for required_pkg_file in (
-            "prewarm/paths.py",
             "prewarm/cache_probe.py",
-            "prewarm/logging_setup.py",
             "server_platform/autostart.py",
             "server_platform/autostart_macos.py",
             "server_platform/desktop_shortcut.py",

@@ -176,6 +176,34 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	// `pages/microphone/hooks/useMicrophoneTest.ts` instead of
 	// the legacy 10 Hz `microphone_test_get_level` IPC poll.
 	"mic_level",
+	// ── Pack + worker IPC events (master plan §7.4 — 12 push
+	// events from the slim-core / runtime-pack split). Each is
+	// published by `event_bus.publish(...)` in the Python sidecar
+	// (the worker→slim-core hop forwards each as a standard event-
+	// bus publish). The 13th §7.4 event — `transcribe_offline` —
+	// is a REQUEST (renderer → slim core → worker), so it lives
+	// in `PythonRequest` (`types/ipc/requests.ts`), NOT here.
+	// Pinned by `tests/test_event_types_parity.py`.
+	//
+	// Pack download lifecycle (silent progress + visible started/
+	// completed/failed):
+	"pack_download_started",
+	"pack_download_progress",
+	"pack_download_completed",
+	"pack_download_failed",
+	// Pack integrity state:
+	"pack_verified",
+	"pack_missing",
+	"pack_corrupt",
+	"pack_ready",
+	// Worker process lifecycle:
+	"worker_started",
+	"worker_crashed",
+	"worker_unloaded",
+	// Offline transcription result (worker → slim core → renderer).
+	// The request counterpart `transcribe_offline` is a command,
+	// NOT a push event — see `PythonRequest`.
+	"transcribe_offline_result",
 ]);
 
 /**

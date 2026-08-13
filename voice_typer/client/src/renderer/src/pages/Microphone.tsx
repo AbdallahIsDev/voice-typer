@@ -12,11 +12,13 @@
 // unaffected.
 
 import { AlertCircleIcon } from "@hugeicons/core-free-icons";
-import { useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
+import { PackPreparingBanner } from "@/components/feedback/PackPreparingBanner";
 import { Spinner } from "@/components/feedback/Spinner";
+import { usePackDownload } from "@/hooks/usePackDownload";
 import { t } from "@/i18n/i18n";
 import { ActiveMicrophoneCard } from "./microphone/components/ActiveMicrophoneCard";
 import { AvailableMicrophonesList } from "./microphone/components/AvailableMicrophonesList";
@@ -59,6 +61,19 @@ export default function MicrophonePage() {
 
 	const { micPermission } = useMicrophonePermission();
 
+	// Runtime-pack readiness — drives the "Preparing offline engine…"
+	// banner below. The mic test itself uses RMS only and works without
+	// the pack (§4.9: "RMS meter works; VAD 'smartness' degrades
+	// silently"), so the banner is purely informational — it does NOT
+	// block the test.
+	const { status: packStatus, isReady: packReady } = usePackDownload();
+	// Tracks whether the user has attempted an action that would
+	// normally require the pack (startTest or selectMicrophone). The
+	// banner is gated on this so a fresh page load with a missing pack
+	// doesn't surface the "Preparing…" line until the user actually
+	// interacts with the mic-test surface.
+	const [hasAttempted, setHasAttempted] = useState(false);
+
 	const {
 		testRunning,
 		testCountdown,
@@ -75,9 +90,9 @@ export default function MicrophonePage() {
 		filtersSinceLastTest,
 		playingEnhanced,
 		playingOriginal,
-		startTest,
+		startTest: rawStartTest,
 		stopTest,
-		selectMicrophone,
+		selectMicrophone: rawSelectMicrophone,
 		playAudio,
 		stopPlayback,
 		handlePresetChange,
@@ -92,6 +107,28 @@ export default function MicrophonePage() {
 		selectMicrophoneRef,
 		meterRef,
 	});
+
+	// Wrap startTest + selectMicrophone so the first invocation flips
+	// `hasAttempted` to true. Subsequent invocations are no-ops on the
+	// flag (we only care about the first attempt). `rawStartTest` /
+	// `rawSelectMicrophone` are `useCallback`-stable per the
+	// `useMicrophoneTest` contract (see the comment at the top of that
+	// hook), so the wrappers preserve stable identity too — no extra
+	// re-renders of `ActiveMicrophoneCard` / `AvailableMicrophonesList`.
+	const startTest = useCallback(
+		(...args: Parameters<typeof rawStartTest>) => {
+			setHasAttempted(true);
+			return rawStartTest(...args);
+		},
+		[rawStartTest],
+	);
+	const selectMicrophone = useCallback(
+		(...args: Parameters<typeof rawSelectMicrophone>) => {
+			setHasAttempted(true);
+			return rawSelectMicrophone(...args);
+		},
+		[rawSelectMicrophone],
+	);
 
 	// ── Derived state ─────────────────────────────────────────────
 
@@ -172,6 +209,17 @@ export default function MicrophonePage() {
 
 			<div className="space-y-6">
 				<MicrophonePermissionBanner micPermission={micPermission} />
+
+				{/* Runtime-pack readiness banner — §4.8 / §4.9. Visible only
+					when the pack isn't ready AND the user has actually
+					started a test or picked a microphone. The mic test
+					itself works without the pack (RMS only — §4.9), so
+					this banner is purely informational; it does NOT block
+					the Start Test button. */}
+				<PackPreparingBanner
+					visible={!packReady && hasAttempted}
+					status={packStatus}
+				/>
 
 				{/* ``meterRef`` wrapper. The level monitor's rAF
 					loop queries inside this div for the ``LevelBar``'s fill

@@ -230,6 +230,7 @@ const _SERVER_REGISTRY_MINUS_PYTHON_ONLY = {
 	add_trusted_endpoint: true,
 	set_esc_cancel_paused: true,
 	force_cancel_transcription: true,
+	transcribe_offline: true,
 	heartbeat: true,
 	relaunch_ack: true,
 	// NOTE: ``tray_click`` and ``shutdown`` are intentionally

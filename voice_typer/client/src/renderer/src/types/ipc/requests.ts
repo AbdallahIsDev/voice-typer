@@ -292,6 +292,39 @@ export interface AddTrustedEndpointRequest {
 	data?: Record<string, unknown>;
 }
 
+// Master plan §7.4 — new IPC request `transcribe_offline`
+// (slim core → worker). The renderer invokes this to run an offline
+// transcription through the runtime-pack worker. The slim core
+// forwards the request to the worker over its dedicated WS hop; the
+// worker returns the result via the `transcribe_offline_result` PUSH
+// event (see `TranscribeOfflineResultEvent` in
+// `types/ipc/push_events.ts`) rather than as a synchronous
+// request/response (the worker may take seconds to minutes to
+// transcribe, so a synchronous call would time out).
+//
+// Registered in the Python `_COMMAND_REGISTRY` (`server/ipc/registry.py`)
+// + the TS `ALLOWED_COMMANDS` Set (`src/main/allowed-commands.ts`) +
+// the Rust `allowed_commands()` literal
+// (`src-tauri/src/commands/sidecar_cmds/allowlist.rs`) in lockstep.
+// Pinned by `tests/test_event_types_parity.py`.
+//
+// Wire shape (mirrors `PACK_EVENT_TYPES` in
+// `voice_typer/server/service/pack.py`):
+//   `{ "type": "transcribe_offline",
+//      "data": { "audio_path": "<wav-path>",
+//                "sample_rate": <int>,
+//                "language": "<lang-code>|null" } }`.
+// Resolves to `{ "type": "ack", "data": { "queued": true } }` (the
+// actual transcription comes back via `transcribe_offline_result`).
+export interface TranscribeOfflineRequest {
+	type: "transcribe_offline";
+	data: {
+		audio_path: string;
+		sample_rate: number;
+		language: string | null;
+	};
+}
+
 // ``GetDiskInfoRequest`` (phantom): the ``get_disk_info``
 // command was a member of this union AND the renderer's
 // ``useModelFolder`` hook probed it on mount, BUT it was never
@@ -530,7 +563,11 @@ export type PythonRequest =
 	| OpenPrewarmLogRequest
 	| OnboardingGetModelOptionsRequest
 	| OnboardingGetHotkeyPresetsRequest
-	| AddTrustedEndpointRequest;
+	| AddTrustedEndpointRequest
+	// Master plan §7.4 — `transcribe_offline` request (slim core →
+	// worker). See `TranscribeOfflineRequest` above for the wire
+	// shape + rationale. Pinned by `tests/test_event_types_parity.py`.
+	| TranscribeOfflineRequest;
 
 // ── Response data shapes ────────────────────────────────────────────────────────────────
 //

@@ -336,6 +336,24 @@ _COMMAND_REGISTRY: dict[str, str] = {
     # to erasure) and Art. 20 (right to data portability) handlers.
     # Registered via dedicated Rust commands; service methods live on
     # VoiceTyperService (delete_all_personal_data / export_gdpr_bundle).
+    # ── Master plan §7.4 — new IPC event `transcribe_offline` (request,
+    # slim core → worker). The renderer invokes this to run an offline
+    # transcription through the runtime-pack worker (the slim core
+    # forwards the request to the worker over the worker's dedicated
+    # WS hop). The handler stub lives on the worker-handlers mixin
+    # (added in parallel by the worker-IPC sub-agent); the registry
+    # entry + the matching entries in the TS ``ALLOWED_COMMANDS`` Set +
+    # the Rust ``allowed_commands()`` literal are added here in
+    # lockstep so the renderer's ``call('transcribe_offline', ...)``
+    # dispatches cleanly through all three command allowlists. The
+    # push counterpart ``transcribe_offline_result`` is published via
+    # ``event_bus.publish(...)`` (NOT a command — see the
+    # ``ALLOWED_EVENT_TYPES`` slice in
+    # ``src-tauri/src/sidecar/ws/event_protocol.rs`` and the
+    # ``PythonPushEvent`` TS union in
+    # ``voice_typer/client/src/renderer/src/types/ipc/push_events.ts``).
+    # Pinned by ``tests/test_event_types_parity.py``.
+    "transcribe_offline": "_handle_transcribe_offline",
 }
 
 

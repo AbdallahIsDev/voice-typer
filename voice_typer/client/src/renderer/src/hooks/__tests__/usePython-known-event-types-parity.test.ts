@@ -83,6 +83,25 @@ const _PARITY = {
 	reconnecting: true,
 	reconnected: true,
 	mic_level: true,
+	// Master plan §7.4 — 12 new push events from the
+	// slim-core / runtime-pack split. Pinned by
+	// `tests/test_event_types_parity.py` (Python-side cross-layer
+	// parity test that also covers the Rust `ALLOWED_EVENT_TYPES`
+	// slice + the Python `event_bus` catalogue docstring). The 13th
+	// §7.4 event — `transcribe_offline` — is a REQUEST (member of
+	// `PythonRequest`), NOT a push event, so it is absent here.
+	pack_download_started: true,
+	pack_download_progress: true,
+	pack_download_completed: true,
+	pack_download_failed: true,
+	pack_verified: true,
+	pack_missing: true,
+	pack_corrupt: true,
+	pack_ready: true,
+	worker_started: true,
+	worker_crashed: true,
+	worker_unloaded: true,
+	transcribe_offline_result: true,
 } satisfies Record<PythonPushEvent["type"], true>;
 
 describe("UE-39: KNOWN_EVENT_TYPES parity with PythonPushEvent type union", () => {
