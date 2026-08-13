@@ -180,6 +180,74 @@ jobs:
           scripts/build/build_sidecar_macos.sh aarch64
           file src-tauri/bin/python-sidecar-aarch64-apple-darwin
 
+      # plan-runtime-pack-split.md §11.4 — Sidecar size gate (HARD-FAIL).
+      # Phase 1c target: ≤185 MB. Until Phase 1c ships (torch removed
+      # from vad.py + parakeet_engine.py), the sidecar carries torch +
+      # will exceed this gate — correct signal. Mirrors the Windows gate.
+      - name: Assert sidecar size <= 185 MB (plan §11.4, Phase 1c target, aarch64 leg)
+        run: |
+          set -euo pipefail
+          BIN="src-tauri/bin/python-sidecar-aarch64-apple-darwin"
+          test -f "$BIN" || { echo "ERROR: sidecar binary missing at $BIN"; exit 1; }
+          SIZE_MB=$(du -m "$BIN" | cut -f1)
+          echo "Sidecar size: ${SIZE_MB} MB (limit: 185 MB)"
+          if [ "$SIZE_MB" -gt 185 ]; then
+            echo "::error::Sidecar exceeds 185 MB limit (got ${SIZE_MB} MB). Phase 1c gate — torch must be removed from the bundle before this passes."
+            exit 1
+          fi
+          echo "Sidecar size within 185 MB limit (size gate passed)."
+
+      # plan-runtime-pack-split.md §11.3 — Torch-free check (HARD-FAIL when
+      # the script is present). Owned by Sub-agent 5 (Phase 1c). Until the
+      # script ships this step SKIPS (hashFiles guard).
+      - name: Verify sidecar is torch-free (Phase 1c gate, plan §11.3, aarch64 leg)
+        if: ${{ hashFiles('scripts/build/check_bundle_torch_free.sh') != '' }}
+        run: |
+          set -euo pipefail
+          BIN="src-tauri/bin/python-sidecar-aarch64-apple-darwin"
+          test -f "$BIN" || { echo "ERROR: sidecar binary missing at $BIN"; exit 1; }
+          bash scripts/build/check_bundle_torch_free.sh "$BIN"
+
+      # plan-runtime-pack-split.md §4.4 / §11.5 — Worker exe build (Phase 2a).
+      # The worker is the slim-core + runtime-pack split's heavy-ML process:
+      # onnxruntime (VAD + Parakeet) + ctranslate2/faster_whisper (Whisper
+      # fallback) + numpy/scipy/av/pyrnnoise + bundled silero_vad.onnx.
+      # Build script (scripts/build/build_worker_macos.sh) is owned by
+      # Sub-agent 11; until it ships this step SKIPS (hashFiles guard).
+      # Output: src-tauri/bin/voice-typer-worker-aarch64-apple-darwin
+      # (parallel to python-sidecar-aarch64-apple-darwin — both are
+      # externalBin children of Tauri).
+      - name: Build worker (aarch64, Phase 2a, plan §4.4)
+        if: ${{ hashFiles('scripts/build/build_worker_macos.sh') != '' }}
+        run: |
+          set -euo pipefail
+          bash scripts/build/build_worker_macos.sh aarch64
+          test -f "src-tauri/bin/voice-typer-worker-aarch64-apple-darwin" \
+            || { echo "ERROR: worker binary not built"; exit 1; }
+          file src-tauri/bin/voice-typer-worker-aarch64-apple-darwin
+          ls -lh src-tauri/bin/voice-typer-worker-aarch64-apple-darwin
+
+      # plan-runtime-pack-split.md §11.4 — Runtime pack size gate. The pack
+      # IS the worker onefile (single-file compressed payload, per §4.2/§5.3).
+      # Target: ≤200 MB compressed. Only enforced when the worker binary
+      # exists (Phase 2a pending — skip cleanly today).
+      - name: Assert runtime pack (worker onefile) size <= 200 MB (plan §11.4, Phase 2c target, aarch64 leg)
+        if: ${{ hashFiles('scripts/build/build_worker_macos.sh') != '' }}
+        run: |
+          set -euo pipefail
+          WORKER="src-tauri/bin/voice-typer-worker-aarch64-apple-darwin"
+          if [ ! -f "$WORKER" ]; then
+            echo "Worker binary not present (Phase 2a pending) — skipping pack size gate."
+            exit 0
+          fi
+          SIZE_MB=$(du -m "$WORKER" | cut -f1)
+          echo "Runtime pack (worker onefile) size: ${SIZE_MB} MB (limit: 200 MB)"
+          if [ "$SIZE_MB" -gt 200 ]; then
+            echo "::error::Runtime pack exceeds 200 MB limit (got ${SIZE_MB} MB). Phase 2c gate — review the worker's bundled ML deps."
+            exit 1
+          fi
+          echo "Runtime pack size within 200 MB limit (size gate passed)."
+
       - name: Build prewarm (aarch64)
         run: |
           scripts/build/build_prewarm_macos.sh aarch64
@@ -220,10 +288,16 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: macos-aarch64-binaries
+          # plan-runtime-pack-split.md §11.9 (C-CI-13): the worker exe is a
+          # NEW artifact path (adding, not renaming existing). Conditional
+          # upload — if Phase 2a hasn't shipped build_worker_macos.sh, the
+          # worker path glob matches nothing and upload-artifact@v6 silently
+          # omits it (no error).
           path: |
             src-tauri/bin/python-sidecar-aarch64-apple-darwin
             src-tauri/resources/prewarm-aarch64-apple-darwin
             src-tauri/resources/native/macos-key-listener-arm64
+            src-tauri/bin/voice-typer-worker-aarch64-apple-darwin
           if-no-files-found: error
           retention-days: 14
 
@@ -312,6 +386,65 @@ jobs:
           scripts/build/build_sidecar_macos.sh x86_64
           file src-tauri/bin/python-sidecar-x86_64-apple-darwin
 
+      # plan-runtime-pack-split.md §11.4 — Sidecar size gate (HARD-FAIL).
+      # Phase 1c target: ≤185 MB. Mirrors the aarch64 leg + the Windows gate.
+      - name: Assert sidecar size <= 185 MB (plan §11.4, Phase 1c target, x86_64 leg)
+        run: |
+          set -euo pipefail
+          BIN="src-tauri/bin/python-sidecar-x86_64-apple-darwin"
+          test -f "$BIN" || { echo "ERROR: sidecar binary missing at $BIN"; exit 1; }
+          SIZE_MB=$(du -m "$BIN" | cut -f1)
+          echo "Sidecar size: ${SIZE_MB} MB (limit: 185 MB)"
+          if [ "$SIZE_MB" -gt 185 ]; then
+            echo "::error::Sidecar exceeds 185 MB limit (got ${SIZE_MB} MB). Phase 1c gate — torch must be removed from the bundle before this passes."
+            exit 1
+          fi
+          echo "Sidecar size within 185 MB limit (size gate passed)."
+
+      # plan-runtime-pack-split.md §11.3 — Torch-free check (HARD-FAIL when
+      # the script is present). Owned by Sub-agent 5 (Phase 1c). Mirrors
+      # the aarch64 leg.
+      - name: Verify sidecar is torch-free (Phase 1c gate, plan §11.3, x86_64 leg)
+        if: ${{ hashFiles('scripts/build/check_bundle_torch_free.sh') != '' }}
+        run: |
+          set -euo pipefail
+          BIN="src-tauri/bin/python-sidecar-x86_64-apple-darwin"
+          test -f "$BIN" || { echo "ERROR: sidecar binary missing at $BIN"; exit 1; }
+          bash scripts/build/check_bundle_torch_free.sh "$BIN"
+
+      # plan-runtime-pack-split.md §4.4 / §11.5 — Worker exe build (Phase 2a).
+      # Build script (scripts/build/build_worker_macos.sh) owned by Sub-agent 11;
+      # until it ships this step SKIPS (hashFiles guard). Mirrors the aarch64 leg.
+      # Output: src-tauri/bin/voice-typer-worker-x86_64-apple-darwin
+      - name: Build worker (x86_64 via Rosetta 2, Phase 2a, plan §4.4)
+        if: ${{ hashFiles('scripts/build/build_worker_macos.sh') != '' }}
+        run: |
+          set -euo pipefail
+          bash scripts/build/build_worker_macos.sh x86_64
+          test -f "src-tauri/bin/voice-typer-worker-x86_64-apple-darwin" \
+            || { echo "ERROR: worker binary not built"; exit 1; }
+          file src-tauri/bin/voice-typer-worker-x86_64-apple-darwin
+          ls -lh src-tauri/bin/voice-typer-worker-x86_64-apple-darwin
+
+      # plan-runtime-pack-split.md §11.4 — Runtime pack size gate (x86_64 leg).
+      # Mirrors the aarch64 leg.
+      - name: Assert runtime pack (worker onefile) size <= 200 MB (plan §11.4, Phase 2c target, x86_64 leg)
+        if: ${{ hashFiles('scripts/build/build_worker_macos.sh') != '' }}
+        run: |
+          set -euo pipefail
+          WORKER="src-tauri/bin/voice-typer-worker-x86_64-apple-darwin"
+          if [ ! -f "$WORKER" ]; then
+            echo "Worker binary not present (Phase 2a pending) — skipping pack size gate."
+            exit 0
+          fi
+          SIZE_MB=$(du -m "$WORKER" | cut -f1)
+          echo "Runtime pack (worker onefile) size: ${SIZE_MB} MB (limit: 200 MB)"
+          if [ "$SIZE_MB" -gt 200 ]; then
+            echo "::error::Runtime pack exceeds 200 MB limit (got ${SIZE_MB} MB). Phase 2c gate — review the worker's bundled ML deps."
+            exit 1
+          fi
+          echo "Runtime pack size within 200 MB limit (size gate passed)."
+
       - name: Build prewarm (x86_64 via Rosetta 2)
         run: |
           scripts/build/build_prewarm_macos.sh x86_64
@@ -343,10 +476,15 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: macos-x86_64-binaries
+          # plan-runtime-pack-split.md §11.9 (C-CI-13): the worker exe is a
+          # NEW artifact path (adding, not renaming existing). Conditional
+          # upload — Phase 2a pending → worker path glob matches nothing →
+          # upload-artifact@v6 silently omits it (no error).
           path: |
             src-tauri/bin/python-sidecar-x86_64-apple-darwin
             src-tauri/resources/prewarm-x86_64-apple-darwin
             src-tauri/resources/native/macos-key-listener-x86_64
+            src-tauri/bin/voice-typer-worker-x86_64-apple-darwin
           if-no-files-found: error
           retention-days: 14
 
@@ -495,6 +633,31 @@ jobs:
             exit 1
           }
           echo "OK: universal listener contains both x86_64 + arm64 slices."
+          # plan-runtime-pack-split.md §4.4 / §11.5 — Place the worker exe
+          # per-arch slices (Phase 2a). Both arches are built real by the
+          # arch jobs above; lipo-create them into a universal binary the
+          # .app bundle ships under Contents/Resources/. Conditional on
+          # both slices being present (Phase 2a pending — skip cleanly
+          # today; once the worker ships, a missing slice fails the build).
+          ARM_WORKER=/tmp/macos-aarch64/voice-typer-worker-aarch64-apple-darwin
+          X86_WORKER=/tmp/macos-x86_64/voice-typer-worker-x86_64-apple-darwin
+          if [ -f "$ARM_WORKER" ] && [ -f "$X86_WORKER" ]; then
+            echo "[worker] lipo-creating universal worker from per-arch slices"
+            lipo -create "$ARM_WORKER" "$X86_WORKER" \
+              -output src-tauri/bin/voice-typer-worker-universal
+            chmod +x src-tauri/bin/voice-typer-worker-universal
+            # Also keep the per-arch slices in src-tauri/bin/ — Tauri's
+            # externalBin mechanism appends the target triple at runtime
+            # (aarch64-apple-darwin + x86_64-apple-darwin), so the per-arch
+            # files must be present for the .app bundle to spawn the worker
+            # on either arch. The universal binary is for direct distribution.
+            cp "$ARM_WORKER" src-tauri/bin/voice-typer-worker-aarch64-apple-darwin
+            cp "$X86_WORKER" src-tauri/bin/voice-typer-worker-x86_64-apple-darwin
+            file src-tauri/bin/voice-typer-worker-universal
+            lipo -info src-tauri/bin/voice-typer-worker-universal
+          else
+            echo "[worker] Phase 2a pending — per-arch worker slices not present ($ARM_WORKER, $X86_WORKER). Skipping worker lipo-create."
+          fi
           ls -la src-tauri/bin src-tauri/resources src-tauri/resources/native
 
       # TK-48: run the macOS-gated #[cfg(target_os = "macos")] Rust unit
@@ -590,6 +753,32 @@ jobs:
           cargo tauri build --target universal-apple-darwin --config tauri.macos.conf.json
           cd ..
 
+      # plan-runtime-pack-split.md §11.4 — Slim core .dmg size gate
+      # (Phase 2c target, ≤45 MB). Today the .dmg is the FULL bundle
+      # (~253-259 MB) — this gate WILL fail today (correct signal).
+      # continue-on-error: true keeps CI green during the Phase 1c →
+      # Phase 2c transition; flip to a hard gate (remove continue-on-error)
+      # once Phase 2c is verified on a real macOS host. Mirrors the Windows
+      # slim-core gate.
+      - name: Assert slim-core .dmg size <= 45 MB (plan §11.4, Phase 2c target — informational)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          BUNDLE_DMG="src-tauri/target/universal-apple-darwin/release/bundle/dmg"
+          # Find the first .dmg produced by cargo tauri build.
+          DMG=$(find "$BUNDLE_DMG" -name '*.dmg' -type f 2>/dev/null | head -1 || true)
+          if [ -z "$DMG" ]; then
+            echo "No .dmg found under $BUNDLE_DMG — skipping slim-core size gate."
+            exit 0
+          fi
+          SIZE_MB=$(du -m "$DMG" | cut -f1)
+          echo "DMG size: ${SIZE_MB} MB (Phase 2c slim-core target: 45 MB)"
+          if [ "$SIZE_MB" -gt 45 ]; then
+            echo "::warning::DMG exceeds 45 MB slim-core limit (got ${SIZE_MB} MB). Phase 2c target — gate is informational (continue-on-error: true) until the slim-core build strips ML libs out of the .dmg payload."
+            exit 1
+          fi
+          echo "Slim core .dmg size within 45 MB limit (size gate passed)."
+
       # smoke test the bundled sidecar binary AFTER cargo tauri build.
       # Pre-fix the macOS Tauri workflow never executed the sidecar — a Nuitka
       # flag change that broke `--version` (argparse exits 0 without acquiring
@@ -676,6 +865,26 @@ jobs:
               exit 1
             fi
           done
+          # plan-runtime-pack-split.md §11.5 — Worker exe notarization (5th
+          # binary). C-CI-11 enumerates 4 signing steps; the worker is a NEW
+          # 5th binary that must also be codesigned + notarized or Apple's
+          # notarization service rejects the .app bundle (same S1-CR-37
+          # rationale as the sidecar/prewarm/native binaries). USER must
+          # update C-CI-11 to enumerate 5 binaries. Conditional on the
+          # worker being bundled into the .app (Phase 2a pending — skip
+          # cleanly today; once Phase 2a ships, the worker MUST be present
+          # + signed, else notarization fails).
+          for worker_bin in \
+            "$APP_PATH/Contents/Resources/voice-typer-worker-aarch64-apple-darwin" \
+            "$APP_PATH/Contents/Resources/voice-typer-worker-x86_64-apple-darwin"; do
+            if [ -f "$worker_bin" ]; then
+              echo "[codesign] signing worker binary: $worker_bin"
+              codesign --force --options runtime --timestamp --sign "$MAC_SIGNING_IDENTITY" \
+                --entitlements src-tauri/entitlements.plist "$worker_bin"
+            else
+              echo "[codesign] worker binary not present (Phase 2a pending) — skipping: $worker_bin"
+            fi
+          done
           # CI-4: Sign top-level .app bundle leaf-to-root with entitlements after signing nested binaries,
           # BEFORE zipping and submitting to notarytool.
           echo "[codesign] signing top-level app bundle (CI-4)"
@@ -694,7 +903,10 @@ jobs:
         run: |
           APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/Voice Typer.app"
           DMG_PATH="src-tauri/target/universal-apple-darwin/release/bundle/dmg/Voice Typer_1.0.0_universal.dmg"
-          # Notarize .app
+          # Notarize .app — this covers ALL nested binaries including the
+          # worker (plan-runtime-pack-split.md §11.5: worker is bundled
+          # inside the .app, so notarizing the .app + stapling it covers
+          # the worker too — no separate notarization step needed).
           ditto -c -k --keepParent "$APP_PATH" /tmp/VoiceTyper.zip
           xcrun notarytool submit /tmp/VoiceTyper.zip \
             --apple-id "$APPLE_ID" \
@@ -752,6 +964,20 @@ jobs:
             echo "$hash  ${name}.zip (canonical ditto archive of ${name})" >> SHA256SUMS.txt
             rm -f "/tmp/${name}.zip"
           done
+          # plan-runtime-pack-split.md §11.9 (C-CI-13): the worker exe is
+          # added to the macOS checksum list (new entry, no rename). The
+          # universal worker binary (lipo-created from per-arch slices in
+          # the Place artifacts step) is hashed when present (Phase 2a
+          # pending — skip cleanly today).
+          for worker in \
+            src-tauri/bin/voice-typer-worker-universal \
+            src-tauri/bin/voice-typer-worker-aarch64-apple-darwin \
+            src-tauri/bin/voice-typer-worker-x86_64-apple-darwin; do
+            [ -f "$worker" ] || continue
+            hash=$(shasum -a 256 "$worker" | awk '{print $1}')
+            name=$(basename "$worker")
+            echo "$hash  $name" >> SHA256SUMS.txt
+          done
           echo "Generated SHA256SUMS.txt:"
           cat SHA256SUMS.txt
 
@@ -805,6 +1031,13 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.sign == 'true' }}
         uses: actions/attest-build-provenance@v4
         with:
+          # plan-runtime-pack-split.md §11.9 (C-CI-13): worker exe added to
+          # the SLSA subject-path (new entry, no rename). The path glob is
+          # inert today (Phase 2a pending); once the worker ships, SLSA
+          # attestation covers it alongside the .dmg + .app.
           subject-path: |
             src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
             src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
+            src-tauri/bin/voice-typer-worker-universal
+            src-tauri/bin/voice-typer-worker-aarch64-apple-darwin
+            src-tauri/bin/voice-typer-worker-x86_64-apple-darwin

@@ -559,6 +559,74 @@ jobs:
         env:
           VOICE_TYPER_PYBS_DIR: ${{ github.workspace }}/.python-build-standalone
 
+      # plan-runtime-pack-split.md §11.4 — Sidecar size gate (HARD-FAIL).
+      # Phase 1c target: ≤185 MB. Until Phase 1c ships (torch removed
+      # from vad.py + parakeet_engine.py), the sidecar carries torch +
+      # will exceed this gate — correct signal. Mirrors the Windows/macOS gates.
+      - name: Assert sidecar size <= 185 MB (plan §11.4, Phase 1c target, ${{ env.BUILD_ARCH }} leg)
+        run: |
+          set -euo pipefail
+          TRIPLE="${BUILD_ARCH}-unknown-linux-gnu"
+          BIN="src-tauri/bin/python-sidecar-${TRIPLE}"
+          test -x "$BIN" || { echo "ERROR: sidecar binary missing at $BIN"; exit 1; }
+          SIZE_MB=$(du -m "$BIN" | cut -f1)
+          echo "Sidecar size: ${SIZE_MB} MB (limit: 185 MB)"
+          if [ "$SIZE_MB" -gt 185 ]; then
+            echo "::error::Sidecar exceeds 185 MB limit (got ${SIZE_MB} MB). Phase 1c gate — torch must be removed from the bundle before this passes."
+            exit 1
+          fi
+          echo "Sidecar size within 185 MB limit (size gate passed)."
+
+      # plan-runtime-pack-split.md §11.3 — Torch-free check (HARD-FAIL when
+      # the script is present). Owned by Sub-agent 5 (Phase 1c). Until the
+      # script ships this step SKIPS (hashFiles guard).
+      - name: Verify sidecar is torch-free (Phase 1c gate, plan §11.3, ${{ env.BUILD_ARCH }} leg)
+        if: ${{ hashFiles('scripts/build/check_bundle_torch_free.sh') != '' }}
+        run: |
+          set -euo pipefail
+          TRIPLE="${BUILD_ARCH}-unknown-linux-gnu"
+          BIN="src-tauri/bin/python-sidecar-${TRIPLE}"
+          test -x "$BIN" || { echo "ERROR: sidecar binary missing at $BIN"; exit 1; }
+          bash scripts/build/check_bundle_torch_free.sh "$BIN"
+
+      # plan-runtime-pack-split.md §4.4 / §11.5 — Worker exe build (Phase 2a).
+      # The worker is the slim-core + runtime-pack split's heavy-ML process:
+      # onnxruntime (VAD + Parakeet) + ctranslate2/faster_whisper (Whisper
+      # fallback) + numpy/scipy/av/pyrnnoise + bundled silero_vad.onnx.
+      # Build script (scripts/build/build_worker_linux.sh) is owned by
+      # Sub-agent 11; until it ships this step SKIPS (hashFiles guard).
+      # Output: src-tauri/bin/voice-typer-worker-<triple> (parallel to
+      # python-sidecar-<triple> — both are externalBin children of Tauri).
+      # Linux worker is UNSIGNED by design (ADR-0020 §13.3 — no Linux
+      # signing secrets exist; sign=true fails fast at lines 393-397).
+      - name: Build worker (${{ env.BUILD_ARCH }}, Phase 2a, plan §4.4)
+        if: ${{ hashFiles('scripts/build/build_worker_linux.sh') != '' }}
+        run: bash scripts/build/build_worker_linux.sh "$BUILD_ARCH"
+        env:
+          VOICE_TYPER_PYBS_DIR: ${{ github.workspace }}/.python-build-standalone
+
+      # plan-runtime-pack-split.md §11.4 — Runtime pack size gate. The pack
+      # IS the worker onefile (single-file compressed payload, per §4.2/§5.3).
+      # Target: ≤200 MB compressed. Only enforced when the worker binary
+      # exists (Phase 2a pending — skip cleanly today).
+      - name: Assert runtime pack (worker onefile) size <= 200 MB (plan §11.4, Phase 2c target, ${{ env.BUILD_ARCH }} leg)
+        if: ${{ hashFiles('scripts/build/build_worker_linux.sh') != '' }}
+        run: |
+          set -euo pipefail
+          TRIPLE="${BUILD_ARCH}-unknown-linux-gnu"
+          WORKER="src-tauri/bin/voice-typer-worker-${TRIPLE}"
+          if [ ! -x "$WORKER" ]; then
+            echo "Worker binary not present (Phase 2a pending) — skipping pack size gate."
+            exit 0
+          fi
+          SIZE_MB=$(du -m "$WORKER" | cut -f1)
+          echo "Runtime pack (worker onefile) size: ${SIZE_MB} MB (limit: 200 MB)"
+          if [ "$SIZE_MB" -gt 200 ]; then
+            echo "::error::Runtime pack exceeds 200 MB limit (got ${SIZE_MB} MB). Phase 2c gate — review the worker's bundled ML deps."
+            exit 1
+          fi
+          echo "Runtime pack size within 200 MB limit (size gate passed)."
+
       - name: Build Nuitka prewarm (${{ env.BUILD_ARCH }})
         run: bash scripts/build/build_prewarm_linux.sh "$BUILD_ARCH"
         env:
@@ -792,6 +860,53 @@ jobs:
             src-tauri/target/release/bundle/rpm/*.rpm
           if-no-files-found: warn
 
+      # plan-runtime-pack-split.md §11.6 — Worker (runtime pack) is a
+      # SEPARATE DOWNLOAD on Linux, NOT bundled in the .deb/.rpm/AppImage.
+      # The slim-core .deb ships without the heavy ML deps; the worker
+      # onefile (the runtime pack) is uploaded as its own artifact so the
+      # silent background downloader (§4.8) can fetch it post-install.
+      # Linux worker is UNSIGNED by design (ADR-0020 §13.3 — no Linux
+      # signing secrets exist; sign=true fails fast at lines 393-397).
+      # C-CI-13: NEW artifact name (adding, not renaming existing). The
+      # worker binary path glob is inert today (Phase 2a pending); once
+      # the worker ships, upload-artifact@v6 picks it up automatically.
+      - name: Upload worker (runtime pack) artifact — Linux separate download
+        uses: actions/upload-artifact@v6
+        with:
+          name: voice-typer-worker-${{ env.BUILD_ARCH }}
+          path: |
+            src-tauri/bin/voice-typer-worker-x86_64-unknown-linux-gnu
+            src-tauri/bin/voice-typer-worker-aarch64-unknown-linux-gnu
+          if-no-files-found: warn
+          retention-days: 30
+
+      # plan-runtime-pack-split.md §11.4 — Slim core .deb size gate
+      # (Phase 2c target, ≤45 MB). Today the .deb is the FULL bundle
+      # (~250+ MB) — this gate WILL fail today (correct signal).
+      # continue-on-error: true keeps CI green during the Phase 1c →
+      # Phase 2c transition; flip to a hard gate (remove continue-on-error)
+      # once Phase 2c is verified on a real Linux host. Mirrors the
+      # Windows slim-core gate.
+      - name: Assert slim-core .deb size <= 45 MB (plan §11.4, Phase 2c target — informational)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # Find the first .deb produced by cargo tauri build (per-target
+          # dir first, then host target as fallback).
+          DEB=$(find src-tauri/target/*/release/bundle/deb src-tauri/target/release/bundle/deb \
+            -name '*.deb' -type f 2>/dev/null | head -1 || true)
+          if [ -z "$DEB" ]; then
+            echo "No .deb found — skipping slim-core size gate."
+            exit 0
+          fi
+          SIZE_MB=$(du -m "$DEB" | cut -f1)
+          echo ".deb size: ${SIZE_MB} MB (Phase 2c slim-core target: 45 MB)"
+          if [ "$SIZE_MB" -gt 45 ]; then
+            echo "::warning::.deb exceeds 45 MB slim-core limit (got ${SIZE_MB} MB). Phase 2c target — gate is informational (continue-on-error: true) until the slim-core build strips ML libs out of the .deb payload (the pack is a separate download per §11.6)."
+            exit 1
+          fi
+          echo "Slim core .deb size within 45 MB limit (size gate passed)."
+
       - name: Upload build logs (Nuitka + cargo)
         if: always()
         uses: actions/upload-artifact@v6
@@ -821,6 +936,19 @@ jobs:
               src-tauri/target/release/bundle/appimage/*.AppImage \
               src-tauri/target/*/release/bundle/rpm/*.rpm \
               src-tauri/target/release/bundle/rpm/*.rpm; do
+            [ -f "$f" ] || continue
+            hash=$(sha256sum "$f" | awk '{print $1}')
+            name=$(basename "$f")
+            echo "$hash  $name" >> SHA256SUMS.txt
+          done
+          # plan-runtime-pack-split.md §11.9 (C-CI-13): the worker exe is
+          # added to the Linux checksum list (new entry, no rename). The
+          # worker is a separate download on Linux (§11.6) so its checksum
+          # is critical for the silent background downloader's verify-
+          # before-use gate. Conditional — Phase 2a pending today.
+          for f in \
+              src-tauri/bin/voice-typer-worker-x86_64-unknown-linux-gnu \
+              src-tauri/bin/voice-typer-worker-aarch64-unknown-linux-gnu; do
             [ -f "$f" ] || continue
             hash=$(sha256sum "$f" | awk '{print $1}')
             name=$(basename "$f")
@@ -883,6 +1011,14 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.sign == 'true' }}
         uses: actions/attest-build-provenance@v4
         with:
+          # plan-runtime-pack-split.md §11.9 (C-CI-13): worker exe added to
+          # the SLSA subject-path (new entry, no rename). The path glob is
+          # inert today (Phase 2a pending); once the worker ships, SLSA
+          # attestation covers it alongside the installers. NOTE: the SLSA
+          # attestation step is gated on sign=true, which fails fast on
+          # Linux (ADR-0020 §13.3 — Linux is unsigned by design). The step
+          # is therefore unreachable today but the subject-path is kept in
+          # lockstep with Windows/macOS for the day Linux signing is added.
           subject-path: |
             src-tauri/target/*/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/deb/*.deb
@@ -890,3 +1026,5 @@ jobs:
             src-tauri/target/release/bundle/appimage/*.AppImage
             src-tauri/target/*/release/bundle/rpm/*.rpm
             src-tauri/target/release/bundle/rpm/*.rpm
+            src-tauri/bin/voice-typer-worker-x86_64-unknown-linux-gnu
+            src-tauri/bin/voice-typer-worker-aarch64-unknown-linux-gnu

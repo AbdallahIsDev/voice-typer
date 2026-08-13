@@ -509,6 +509,89 @@ jobs:
           $size = (Get-Item "src-tauri\bin\python-sidecar-${{ matrix.target }}.exe").Length / 1MB
           Write-Host "Sidecar binary size: $([math]::Round($size,1)) MB"
 
+      # plan-runtime-pack-split.md §11.4 — Sidecar size gate (HARD-FAIL).
+      # Pre-fix (lines 509-510) only Write-Host-ed the size; a regression
+      # that bloated the sidecar past 185 MB would ship silently. The 185 MB
+      # ceiling is the Phase 1c target: torch removal (Phase 1c) drops the
+      # sidecar from ~200+ MB to ~100 MB; until Phase 1c ships, this gate
+      # FAILS the build (correct signal — torch is still in the bundle).
+      # C-CI-8 retirement is a USER action; until C-CI-8 is retired AND
+      # Phase 1c is verified, expect this gate to fail on the torch-bearing
+      # sidecar. Do NOT weaken the threshold to make today's bundle pass —
+      # the gate's value IS its strictness.
+      - name: Assert sidecar size <= 185 MB (plan §11.4, Phase 1c target)
+        shell: pwsh
+        run: |
+          $bin = "src-tauri\bin\python-sidecar-${{ matrix.target }}.exe"
+          if (-not (Test-Path $bin)) {
+            Write-Error "Sidecar binary not found at $bin — cannot enforce size gate."; exit 1
+          }
+          $size = (Get-Item $bin).Length / 1MB
+          Write-Host "Sidecar size: $([math]::Round($size,2)) MB (limit: 185 MB)"
+          if ($size -gt 185) {
+            Write-Error "Sidecar exceeds 185 MB limit (got $([math]::Round($size,2)) MB). Phase 1c gate — torch must be removed from the bundle before this passes."
+            exit 1
+          }
+          Write-Host "Sidecar size within 185 MB limit (size gate passed)."
+
+      # plan-runtime-pack-split.md §11.3 — Torch-free check (HARD-FAIL when
+      # the script is present). The check is owned by Sub-agent 5 (Phase 1c)
+      # and lives at scripts/build/check_bundle_torch_free.sh. Until Sub-agent
+      # 5 ships the script, this step SKIPS (hashFiles guard) so the gate is
+      # inert; once the script lands the step starts enforcing torch-free on
+      # the freshly built sidecar. The grep pattern (silero_vad.jit + torch.)
+      # catches both the JIT model and the torch package itself.
+      - name: Verify sidecar is torch-free (Phase 1c gate, plan §11.3)
+        if: ${{ hashFiles('scripts/build/check_bundle_torch_free.sh') != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="src-tauri/bin/python-sidecar-${{ matrix.target }}.exe"
+          test -f "$BIN" || { echo "ERROR: sidecar binary missing at $BIN"; exit 1; }
+          bash scripts/build/check_bundle_torch_free.sh "$BIN"
+
+      # plan-runtime-pack-split.md §4.4 / §11.5 — Worker exe build (Phase 2a).
+      # The worker is the slim-core + runtime-pack split's heavy-ML process:
+      # onnxruntime (VAD + Parakeet) + ctranslate2/faster_whisper (Whisper
+      # fallback) + numpy/scipy/av/pyrnnoise + bundled silero_vad.onnx.
+      # Modeled on the existing prewarm build (a separate Nuitka onefile).
+      # The build script (scripts/build/build_worker_windows.sh) is owned by
+      # Sub-agent 11; until it ships this step SKIPS (hashFiles guard).
+      # Output: src-tauri/bin/voice-typer-worker-<triple>.exe (parallel to
+      # python-sidecar-<triple>.exe — both are externalBin children of Tauri).
+      - name: Build the worker binary with Nuitka (Phase 2a, plan §4.4)
+        if: ${{ hashFiles('scripts/build/build_worker_windows.sh') != '' }}
+        shell: bash
+        env:
+          VOICE_TYPER_PYBS_DIR: ${{ github.workspace }}/.python-build-standalone
+        run: |
+          set -euo pipefail
+          bash scripts/build/build_worker_windows.sh
+          test -f "src-tauri/bin/voice-typer-worker-${{ matrix.target }}.exe" \
+            || { echo "ERROR: worker binary not built"; exit 1; }
+          ls -lh "src-tauri/bin/voice-typer-worker-${{ matrix.target }}.exe"
+
+      # plan-runtime-pack-split.md §11.4 — Runtime pack size gate. The pack
+      # IS the worker onefile (single-file compressed payload, per §4.2/§5.3).
+      # Target: ≤200 MB compressed. Only enforced when the worker binary
+      # exists (Phase 2a pending — skip cleanly today).
+      - name: Assert runtime pack (worker onefile) size <= 200 MB (plan §11.4, Phase 2c target)
+        if: ${{ hashFiles('scripts/build/build_worker_windows.sh') != '' }}
+        shell: pwsh
+        run: |
+          $worker = "src-tauri\bin\voice-typer-worker-${{ matrix.target }}.exe"
+          if (-not (Test-Path $worker)) {
+            Write-Host "Worker binary not present (Phase 2a pending) — skipping pack size gate."
+            exit 0
+          }
+          $size = (Get-Item $worker).Length / 1MB
+          Write-Host "Runtime pack (worker onefile) size: $([math]::Round($size,2)) MB (limit: 200 MB)"
+          if ($size -gt 200) {
+            Write-Error "Runtime pack exceeds 200 MB limit (got $([math]::Round($size,2)) MB). Phase 2c gate — review the worker's bundled ML deps."
+            exit 1
+          }
+          Write-Host "Runtime pack size within 200 MB limit (size gate passed)."
+
       - name: Build the prewarm binary with Nuitka (ADR-0020 §5)
         shell: pwsh
         run: |
@@ -629,6 +712,26 @@ jobs:
                 /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "$sigDescription" /du "https://voicetyper.app" $exe
             if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for $exe"; exit 1 }
             & $signtool verify /pa /v $exe
+          }
+          # plan-runtime-pack-split.md §11.5 — Worker exe signing (5th binary).
+          # C-CI-11 enumerates 4 signing steps (sidecar+prewarm+native;
+          # NSIS; MSI; standalone exe); the worker is a NEW 5th binary that
+          # must also be Authenticode-signed or SmartScreen will pop on first
+          # launch (same S1-CR-99 rationale as the native listener). USER
+          # must update C-CI-11 to enumerate 5 binaries. Conditional on the
+          # worker binary existing (Phase 2a pending — skip with warning
+          # today so existing 4 signing steps stay unaffected; once the
+          # worker build is wired, this hard-fails if the worker is missing
+          # when sign=true).
+          $workerExe = "src-tauri\bin\voice-typer-worker-${{ matrix.target }}.exe"
+          if (Test-Path $workerExe) {
+            Write-Host "Signing worker exe (5th binary): $workerExe"
+            & $signtool sign /f $pfxPath /p $env:WIN_CSC_KEY_PASSWORD `
+                /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "$sigDescription" /du "https://voicetyper.app" $workerExe
+            if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for $workerExe"; exit 1 }
+            & $signtool verify /pa /v $workerExe
+          } else {
+            Write-Host "Worker exe not present (Phase 2a pending) — skipping worker signing (5th binary gate is inert until Sub-agent 11 ships build_worker_windows.sh)."
           }
           Remove-Item $pfxPath -Force
 
@@ -830,6 +933,32 @@ jobs:
           }
           Write-Host "Bundle contains only Windows binaries (assertion passed)"
 
+      # plan-runtime-pack-split.md §11.4 — Slim core installer size gate
+      # (Phase 2c target, ≤45 MB). The slim core is the NSIS installer
+      # AFTER Phase 2c strips ML libs out of the bundle (the ML runtime
+      # pack is a separate download per §4.1/§11.6). Today the NSIS
+      # installer is the FULL bundle (~253-259 MB) — this gate WILL fail
+      # today (correct signal). continue-on-error: true keeps CI green
+      # during the Phase 1c → Phase 2c transition; flip to a hard gate
+      # (remove continue-on-error) once Phase 2c is verified on a real
+      # Windows host. The threshold matches plan §2.1 / §5.3 (~35-45 MB).
+      - name: Assert slim-core installer size <= 45 MB (plan §11.4, Phase 2c target — informational)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $nsis = "${{ steps.artifacts.outputs.nsis_path }}"
+          if (-not (Test-Path $nsis)) {
+            Write-Host "NSIS installer not found at $nsis — skipping slim-core size gate."
+            exit 0
+          }
+          $size = (Get-Item $nsis).Length / 1MB
+          Write-Host "NSIS installer size: $([math]::Round($size,2)) MB (Phase 2c slim-core target: 45 MB)"
+          if ($size -gt 45) {
+            Write-Warning "NSIS installer exceeds 45 MB slim-core limit (got $([math]::Round($size,2)) MB). Phase 2c target — gate is informational (continue-on-error: true) until the slim-core build strips ML libs out of the NSIS payload."
+            exit 1
+          }
+          Write-Host "Slim core size within 45 MB limit (size gate passed)."
+
       - name: Sign the final NSIS installer (optional — ADR-0020 §13.1)
         if: ${{ inputs.sign == 'true' && env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
         shell: pwsh
@@ -998,10 +1127,18 @@ jobs:
           # aarch64 leg is enabled, suffix this name with `-${{ matrix.arch }}`
           # and update tauri-build.yml accordingly (see TX-40 GATE STATUS
           # block at the top of this file).
+          # plan-runtime-pack-split.md §11.9 (C-CI-13): the worker exe is a
+          # NEW artifact path (adding, not renaming existing). Conditional
+          # upload — if Phase 2a hasn't shipped build_worker_windows.sh, the
+          # worker path glob matches nothing and upload-artifact@v6 silently
+          # omits it (no error). Once Phase 2a lands, the worker is included
+          # in the same Sidecar-Binaries artifact so tauri-build.yml's
+          # existing download picks it up with no orchestrator change.
           path: |
             src-tauri/bin/python-sidecar-${{ matrix.target }}.exe
             src-tauri/resources/prewarm-${{ matrix.target }}.exe
             src-tauri/resources/native/windows-key-listener.exe
+            src-tauri/bin/voice-typer-worker-${{ matrix.target }}.exe
           if-no-files-found: error
 
       - name: Generate SHA-256 checksums
@@ -1010,12 +1147,16 @@ jobs:
           $checksums = @()
           # TX-40: checksum paths use matrix.target so both legs emit
           # distinct SHA256SUMS lines for their respective sidecar + prewarm.
+          # plan-runtime-pack-split.md §11.9 (C-CI-13): the worker exe is
+          # added to the checksum list (new entry, no rename). Test-Path
+          # guard skips cleanly when the worker is absent (Phase 2a pending).
           foreach ($p in @(
                 "${{ steps.artifacts.outputs.nsis_path }}",
                 "${{ steps.artifacts.outputs.msi_path }}",
                 "src-tauri/bin/python-sidecar-${{ matrix.target }}.exe",
                 "src-tauri/resources/prewarm-${{ matrix.target }}.exe",
                 "src-tauri/resources/native/windows-key-listener.exe",
+                "src-tauri/bin/voice-typer-worker-${{ matrix.target }}.exe",
                 "src-tauri/target/${{ matrix.target }}/release/voice-typer-tauri.exe"
           )) {
             if (Test-Path $p) {
@@ -1071,7 +1212,12 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.sign == 'true' }}
         uses: actions/attest-build-provenance@v4
         with:
+          # plan-runtime-pack-split.md §11.9 (C-CI-13): worker exe added to
+          # the SLSA subject-path (new entry, no rename). The path glob is
+          # inert today (Phase 2a pending); once the worker ships, SLSA
+          # attestation covers it alongside the installers + standalone exe.
           subject-path: |
             ${{ steps.artifacts.outputs.nsis_path }}
             ${{ steps.artifacts.outputs.msi_path }}
             src-tauri/target/${{ matrix.target }}/release/voice-typer-tauri.exe
+            src-tauri/bin/voice-typer-worker-${{ matrix.target }}.exe
