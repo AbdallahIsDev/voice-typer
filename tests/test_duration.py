@@ -3,7 +3,7 @@
 Pins the canonical ``_<duration>`` suffix used on lifecycle-completion
 log lines: ``_2.3s`` for sub-minute durations and ``_1m 2.3s`` for
 anything longer. Any future change to the format must update this file
-(and the C-LOG-2 rule in CONSTRAINTS.md) together.
+(and the C-LOG-2 rule in AGENTS.md) together.
 """
 
 from __future__ import annotations

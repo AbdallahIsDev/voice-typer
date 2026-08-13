@@ -18,7 +18,7 @@ preserved as a 1-line delegator for test compatibility (tests call
 ``pipeline._check_resources()`` directly) — see
 ``dictation_pipeline.py``.
 
-CONSTRAINTS.md C-DATA-1: this module performs NO network calls. It only
+AGENTS.md C-DATA-1: this module performs NO network calls. It only
 reads local system state via ``psutil.virtual_memory`` /
 ``shutil.disk_usage`` / ``os.statvfs`` / ``ctypes.windll.kernel32.GlobalMemoryStatusEx``
 / ``onnxruntime.get_device()`` / ``nvidia-smi`` subprocess / ``pynvml`` — all
@@ -37,6 +37,7 @@ in ``try/except Exception`` with DEBUG fallback so the probe remains
 best-effort.
 """
 
+import contextlib
 import logging
 import os
 import pathlib
@@ -96,10 +97,8 @@ def _probe_gpu_memory_via_pynvml() -> tuple[float | None, float | None]:
     except Exception:
         return (None, None)
     finally:
-        try:
+        with contextlib.suppress(Exception):
             pynvml.nvmlShutdown()
-        except Exception:
-            pass
 
 
 def _probe_gpu_memory_via_nvidia_smi() -> tuple[float | None, float | None]:
@@ -343,9 +342,7 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
                     ort_device,
                 )
             else:
-                _log.debug(
-                    "[RESOURCE] GPU memory probe skipped (nvidia-smi + onnxruntime both unavailable)"
-                )
+                _log.debug("[RESOURCE] GPU memory probe skipped (nvidia-smi + onnxruntime both unavailable)")
     except Exception:
         _log.debug(
             "[RESOURCE] GPU check failed (non-fatal)",

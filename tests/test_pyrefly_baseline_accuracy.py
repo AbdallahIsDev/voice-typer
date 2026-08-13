@@ -1,4 +1,4 @@
-""" regression test: pyrefly-baseline.json must not contain stale entries.
+"""regression test: pyrefly-baseline.json must not contain stale entries.
 
 A baseline entry is "stale" iff EITHER:
   - its `path` field points to a file that no longer exists on disk
@@ -13,7 +13,7 @@ silently hides new regressions. This test fails on any stale entry so a
 future refactor that leaves dangling references in the baseline is
 caught before merge.
 
-CONSTRAINTS.md forbids artificially shrinking the baseline to hide real
+AGENTS.md forbids artificially shrinking the baseline to hide real
 errors. This test does NOT validate that the baseline is "complete" -
 it only validates that every entry it DOES contain points at real,
 in-range code. Adding new entries for real errors is always allowed;
@@ -23,6 +23,7 @@ The test runs on LINUX but the baseline is platform-agnostic (paths are
 relative to the repo root, line numbers are file-anchored). It does
 NOT invoke pyrefly (the CI step does that with pyrefly==1.11.1).
 """
+
 from __future__ import annotations
 
 import json
@@ -67,9 +68,7 @@ def _classify_entry(entry: dict, repo_root: Path) -> str:
 @pytest.fixture(scope="module")
 def baseline() -> dict:
     """Load pyrefly-baseline.json once for the module."""
-    assert BASELINE_PATH.exists(), (
-        f"pyrefly-baseline.json not found at {BASELINE_PATH}"
-    )
+    assert BASELINE_PATH.exists(), f"pyrefly-baseline.json not found at {BASELINE_PATH}"
     with BASELINE_PATH.open(encoding="utf-8") as f:
         return json.load(f)
 
@@ -80,8 +79,7 @@ def baseline() -> dict:
 # ---------------------------------------------------------------------
 
 
-def _collect_stale(entries: list[dict], repo_root: Path,
-                   array_name: str) -> list[tuple[int, str, dict]]:
+def _collect_stale(entries: list[dict], repo_root: Path, array_name: str) -> list[tuple[int, str, dict]]:
     """Return ``[(index, reason, entry), ...]`` for every stale entry."""
     stale: list[tuple[int, str, dict]] = []
     for i, entry in enumerate(entries):
@@ -97,19 +95,12 @@ def test_errors_array_has_no_stale_entries(baseline: dict) -> None:
     assert isinstance(errors, list), "baseline['errors'] must be a list"
     stale = _collect_stale(errors, REPO_ROOT, "errors")
     if stale:
-        lines = [
-            f"  [{i}] {e.get('path')}:{e.get('line')} -- {reason}"
-            for i, reason, e in stale[:20]
-        ]
-        tail = (
-            f"\n  ... and {len(stale) - 20} more" if len(stale) > 20 else ""
-        )
+        lines = [f"  [{i}] {e.get('path')}:{e.get('line')} -- {reason}" for i, reason, e in stale[:20]]
+        tail = f"\n  ... and {len(stale) - 20} more" if len(stale) > 20 else ""
         pytest.fail(
             f"pyrefly-baseline.json: {len(stale)} stale entries in "
             f"`errors` array (of {len(errors)} total). Each stale entry "
-            f"must be either remapped to its live location or dropped.\n"
-            + "\n".join(lines)
-            + tail
+            f"must be either remapped to its live location or dropped.\n" + "\n".join(lines) + tail
         )
 
 
@@ -125,19 +116,12 @@ def test_triage_array_has_no_stale_entries(baseline: dict) -> None:
         pytest.fail("baseline['_triage'] must be a list")
     stale = _collect_stale(triage, REPO_ROOT, "_triage")
     if stale:
-        lines = [
-            f"  [{i}] {e.get('path')}:{e.get('line')} -- {reason}"
-            for i, reason, e in stale[:20]
-        ]
-        tail = (
-            f"\n  ... and {len(stale) - 20} more" if len(stale) > 20 else ""
-        )
+        lines = [f"  [{i}] {e.get('path')}:{e.get('line')} -- {reason}" for i, reason, e in stale[:20]]
+        tail = f"\n  ... and {len(stale) - 20} more" if len(stale) > 20 else ""
         pytest.fail(
             f"pyrefly-baseline.json: {len(stale)} stale entries in "
             f"`_triage` array (of {len(triage)} total). Each stale entry "
-            f"must be either remapped to its live location or dropped.\n"
-            + "\n".join(lines)
-            + tail
+            f"must be either remapped to its live location or dropped.\n" + "\n".join(lines) + tail
         )
 
 
@@ -191,13 +175,12 @@ def test_comment_documents_current_errors_count(baseline: dict) -> None:
     """
     errors = baseline.get("errors", [])
     comment = baseline.get("_comment", "")
-    assert isinstance(comment, str) and comment, (
-        "baseline['_comment'] must be a non-empty string"
-    )
+    assert isinstance(comment, str) and comment, "baseline['_comment'] must be a non-empty string"
     current_count = len(errors)
     # The count must appear as a standalone decimal token (not as a
     # substring of a larger number like "2160" matching "216").
     import re
+
     pattern = re.compile(rf"(?<!\d){current_count}(?!\d)")
     assert pattern.search(comment), (
         f"pyrefly-baseline.json: _comment does not mention the current "
@@ -216,8 +199,7 @@ def test_current_state_tk_fix_7_key_exists(baseline: dict) -> None:
     """
     key = "_current_state_2026_08_05_tk_fix_7"
     assert key in baseline, (
-        f"pyrefly-baseline.json: missing {key} metadata key. "
-        f"This key documents the  stale-entry cleanup."
+        f"pyrefly-baseline.json: missing {key} metadata key. This key documents the  stale-entry cleanup."
     )
     value = baseline[key]
     assert isinstance(value, str) and len(value) > 100, (
@@ -237,7 +219,7 @@ def test_current_state_tk_fix_7_key_exists(baseline: dict) -> None:
 def test_errors_array_is_non_empty(baseline: dict) -> None:
     """The baseline must not be silently emptied to bypass the CI audit.
 
-    Per CONSTRAINTS.md: "Never delete, regenerate, or modify baseline
+    Per AGENTS.md: "Never delete, regenerate, or modify baseline
     files to artificially reduce error counts." An empty `errors`
     array would make the CI audit step compare live_count > 0, which
     would fail on the first real error - but it would also be a

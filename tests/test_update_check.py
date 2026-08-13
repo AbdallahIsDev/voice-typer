@@ -26,13 +26,14 @@ Covers the auto-update mechanism from plan-runtime-pack-split.md §10.1:
     consent flow in ``ModelMixin._require_huggingface_consent``).
   * C-DATA-1 — the pack download from GitHub Releases is NOT covered by
     the existing 3 network-call categories; the test suite documents
-    this in the worklog (the user must extend CONSTRAINTS.md).
+    this in the worklog (the user must extend AGENTS.md).
 
 All network calls are mocked — no real HTTP requests are made.
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import time
@@ -70,10 +71,7 @@ def _make_manifest(version: str = "1.2.3", *, sha256: str | None = None) -> dict
 @pytest.fixture
 def fake_manifest_url() -> str:
     """A fake manifest URL on the GitHub Releases host (SSRF-allowed)."""
-    return (
-        "https://github.com/AbdallahIsDev/voice-typer/"
-        "releases/latest/download/pack-manifest.json"
-    )
+    return "https://github.com/AbdallahIsDev/voice-typer/releases/latest/download/pack-manifest.json"
 
 
 @pytest.fixture
@@ -162,6 +160,7 @@ class TestFetchRemoteManifest:
 
     def test_returns_none_on_ssrf_block(self):
         """A private-IP URL is rejected by ``assert_pack_url_allowed``."""
+
         # ``assert_pack_url_allowed`` extends the allowlist with GitHub
         # hosts but STILL rejects private IP literals. ``http://10.0.0.5``
         # is not in the allowlist AND is a private IP — double-rejected.
@@ -170,23 +169,21 @@ class TestFetchRemoteManifest:
         def fake_http_get(url, *, max_bytes=MAX_MANIFEST_BYTES):
             raise AssertionError("HTTP transport should NOT be called for SSRF-blocked URL")
 
-        result = fetch_remote_manifest(
-            "https://10.0.0.5/pack-manifest.json", http_get=fake_http_get
-        )
+        result = fetch_remote_manifest("https://10.0.0.5/pack-manifest.json", http_get=fake_http_get)
         assert result is None
 
     def test_returns_none_on_non_allowlisted_host(self):
         """A non-allowlisted host (not GitHub + not in the allowlist) is rejected."""
+
         def fake_http_get(url, *, max_bytes=MAX_MANIFEST_BYTES):
             raise AssertionError("HTTP transport should NOT be called for non-allowlisted host")
 
-        result = fetch_remote_manifest(
-            "https://evil.example.com/pack-manifest.json", http_get=fake_http_get
-        )
+        result = fetch_remote_manifest("https://evil.example.com/pack-manifest.json", http_get=fake_http_get)
         assert result is None
 
     def test_returns_none_on_network_error(self, fake_manifest_url: str):
         """An OSError during fetch → None (no exception propagates)."""
+
         def fake_http_get(url, *, max_bytes=MAX_MANIFEST_BYTES):
             raise OSError("simulated DNS failure")
 
@@ -195,6 +192,7 @@ class TestFetchRemoteManifest:
 
     def test_returns_none_on_invalid_json(self, fake_manifest_url: str):
         """A non-JSON response → None."""
+
         def fake_http_get(url, *, max_bytes=MAX_MANIFEST_BYTES):
             return "not json {{{"
 
@@ -227,9 +225,7 @@ class TestFetchRemoteManifest:
             # The transport itself enforces the cap (defense-in-depth
             # layer 1). Simulate the cap firing.
             if len(big_body) > max_bytes:
-                raise RuntimeError(
-                    f"manifest exceeds max_bytes={max_bytes} (read {len(big_body)} bytes so far)"
-                )
+                raise RuntimeError(f"manifest exceeds max_bytes={max_bytes} (read {len(big_body)} bytes so far)")
             return big_body
 
         result = fetch_remote_manifest(fake_manifest_url, http_get=fake_http_get)
@@ -498,10 +494,7 @@ class TestCheckPackUpdate:
         monkeypatch,
     ):
         """``VT_PACK_MANIFEST_URL`` env var overrides the default URL."""
-        custom_url = (
-            "https://github.com/my-org/my-fork/"
-            "releases/latest/download/pack-manifest.json"
-        )
+        custom_url = "https://github.com/my-org/my-fork/releases/latest/download/pack-manifest.json"
         monkeypatch.setenv("VT_PACK_MANIFEST_URL", custom_url)
         monkeypatch.setattr(update_check, "_local_pack_version", lambda root=None: None)
 
@@ -525,9 +518,7 @@ class TestCheckPackUpdate:
             # NOTE: manifest_url NOT passed — should fall back to env var.
         )
 
-        assert fetched_urls == [custom_url], (
-            f"expected fetch from env-var URL {custom_url!r}, got {fetched_urls}"
-        )
+        assert fetched_urls == [custom_url], f"expected fetch from env-var URL {custom_url!r}, got {fetched_urls}"
 
     def test_default_manifest_url_is_github_releases_latest(self):
         """The default manifest URL points at GitHub Releases ``/latest/download/``.
@@ -538,8 +529,7 @@ class TestCheckPackUpdate:
         shape.
         """
         assert DEFAULT_PACK_MANIFEST_URL == (
-            "https://github.com/AbdallahIsDev/voice-typer/"
-            "releases/latest/download/pack-manifest.json"
+            "https://github.com/AbdallahIsDev/voice-typer/releases/latest/download/pack-manifest.json"
         ), (
             "DEFAULT_PACK_MANIFEST_URL changed — update docs/auto-update-feature.md "
             "(Sub-agent 15) and the publisher (publish_pack_release.py) to match."
@@ -570,9 +560,7 @@ class TestCheckPackUpdate:
         after = int(time.time() * 1000)
 
         assert "checked_at" in result
-        assert before <= result["checked_at"] <= after, (
-            f"checked_at {result['checked_at']} not in [{before}, {after}]"
-        )
+        assert before <= result["checked_at"] <= after, f"checked_at {result['checked_at']} not in [{before}, {after}]"
 
 
 # ── _trigger_background_download ──────────────────────────────────────
@@ -634,12 +622,8 @@ class TestTriggerBackgroundDownload:
 
         assert "url" in captured, "download was not called within 2s"
         assert captured["url"] == (
-            "https://github.com/AbdallahIsDev/voice-typer/"
-            "releases/latest/download/pack-1.2.3.zip"
-        ), (
-            f"download URL should be constructed from manifest URL + version, "
-            f"got {captured['url']!r}"
-        )
+            "https://github.com/AbdallahIsDev/voice-typer/releases/latest/download/pack-1.2.3.zip"
+        ), f"download URL should be constructed from manifest URL + version, got {captured['url']!r}"
         assert captured["expected_sha256"] == manifest["sha256"]
         assert captured["version"] == "1.2.3"
 
@@ -790,13 +774,11 @@ class TestSSRFInherited:
 
         # The first call to ``assert_pack_url_allowed`` extends the
         # allowlist with GitHub hosts.
-        try:
+        with contextlib.suppress(Exception):
             fetch_remote_manifest(
                 fake_manifest_url,
                 http_get=lambda url, **kw: json.dumps(_make_manifest()).decode("utf-8"),
             )
-        except Exception:
-            pass  # we don't care about the result — just the allowlist side effect
 
         allowlist = get_url_allowlist()
         assert "github.com" in allowlist

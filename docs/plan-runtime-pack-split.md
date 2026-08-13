@@ -49,7 +49,7 @@
 > If an agent believes an environment change (e.g. uninstalling torch to
 > reclaim disk, or a `pip` failure because torch is still installed) is
 > necessary, that is a **skip**: record it in `worklog.md` per the
-> CONSTRAINTS.md audit-trail format and leave the environment alone.
+> AGENTS.md audit-trail format and leave the environment alone.
 
 ---
 
@@ -72,7 +72,7 @@ This rewrite corrects them:
 | 8 | "Three allowlists in lockstep." | There are **four** allowlists. The fourth (`ALLOWED_EVENT_TYPES` at `event_protocol.rs:49`) has no parity test. | §9.4: add the fourth allowlist + parity test. |
 | 9 | "Pack auto-downloads on first launch by default... no progress bar, no dialog, no toast." | Conflicts with the GDPR-driven `huggingface_consent` gate (`service/model.py:854-912`, CR-11). Pack download phones home to GitHub Releases, revealing user IP to Microsoft. | §8.4: pack download is consent-gated, same as model downloads. |
 | 10 | "Installer drops to ~180 MB; disk drops from ~850 MB to ~430 MB." | Split adds a SECOND Python runtime (~50 MB) inside the worker onefile. Post-split disk is ~530 MB, not ~430 MB. | §5.5: corrected disk footprint. |
-| 11 | "C-CI-8/NU-106 retire." | NU-106 is NOT a CONSTRAINTS.md rule — it's an inline evidence tag in the workflow YAML, cited in C-CI-8's rationale. Only C-CI-8 is the rule. | §11.2: correct the rule reference. |
+| 11 | "C-CI-8/NU-106 retire." | NU-106 is NOT a AGENTS.md rule — it's an inline evidence tag in the workflow YAML, cited in C-CI-8's rationale. Only C-CI-8 is the rule. | §11.2: correct the rule reference. |
 | 12 | "Size gate asserts the sidecar stays ≤ ~185 MB." | No such size gate exists in CI today. `tauri-windows-build.yml:509-510` only `Write-Host`s the size. | §11.5: add the size gate. |
 | 13 | "`--nofollow-import-to=torch` is added." | The bare top-level flag is already in `build_prewarm_windows.sh:157`. The sidecar scripts use granular `torch._dynamo`/`_inductor` exclusions, NOT the bare flag. | `PLAN_ONNX_INTEGRATION.md` §8.1. |
 | 14 | "Your own Parakeet engine currently CANNOT run... the transformers library is excluded from the frozen build." | True. Verified: `pyproject.toml` excludes `transformers` from the Nuitka follow set. | Unchanged — this is the motivation for the ONNX migration. |
@@ -629,9 +629,9 @@ section re-specifies each against the real codebase.
   offline-transcription attempt) via the existing consent UI. After
   consent, the pack downloads silently (no progress bar in the main UI, but
   a "Preparing…" line in the relevant areas).
-- **CONSTRAINTS.md:** C-DATA-1 (rule on allowed network calls) must be
+- **AGENTS.md:** C-DATA-1 (rule on allowed network calls) must be
   updated by the USER to extend category (3) "model downloads" → "runtime
-  asset downloads" or add category (4). Agents cannot edit CONSTRAINTS.md.
+  asset downloads" or add category (4). Agents cannot edit AGENTS.md.
 
 ### 8.5 Metered connection
 
@@ -863,7 +863,7 @@ C-DATA-1 (rule on allowed network calls) currently allows 3 categories:
 (1) update checks, (2) cloud transcription, (3) model downloads. The pack
 download from GitHub Releases is NOT covered. The USER must extend category
 (3) → "runtime asset downloads" or add category (4). Agents cannot edit
-CONSTRAINTS.md.
+AGENTS.md.
 
 ---
 
@@ -876,14 +876,14 @@ part." This section specifies the CI changes.
 
 The 2026-08-12 version cited "C-CI-8/NU-106." This is imprecise:
 
-- **C-CI-8** is a CONSTRAINTS.md rule that mandates `--module-parameter=torch-disable-jit=no`
+- **C-CI-8** is a AGENTS.md rule that mandates `--module-parameter=torch-disable-jit=no`
   to protect the Nuitka bundle while torch is shipped.
-- **NU-106** is NOT a standalone CONSTRAINTS.md rule — it's an inline
+- **NU-106** is NOT a standalone AGENTS.md rule — it's an inline
   evidence tag in `tauri-windows-build.yml:422-448` and
   `build_sidecar_windows.sh:155-166`, cited in C-CI-8's rationale.
 
 Only C-CI-8 is the rule. The user retires C-CI-8 after Phase 1c
-verification (agents cannot edit CONSTRAINTS.md).
+verification (agents cannot edit AGENTS.md).
 
 ### 11.2 `tests/tauri/test_config_script_drift.py` HARD-FAILS
 
@@ -1013,7 +1013,7 @@ Update `tauri-build.yml` download steps in lockstep.
    - Add size gate to `tauri-windows-build.yml` (≤ 185 MB).
    - **Gate:** `grep -ri "import torch" voice_typer/` → zero hits except
      `qwen_engine.py`. Full workflow run, confirmed with user (C-CI-2).
-   - **USER action:** retire C-CI-8 in CONSTRAINTS.md.
+   - **USER action:** retire C-CI-8 in AGENTS.md.
 4. **Phase 2a — worker exe skeleton.** See §4.4, §7.
    - New `voice_typer/worker/__main__.py` entry point.
    - New `scripts/build/build_worker_*.sh` (3 platforms).
@@ -1030,7 +1030,7 @@ Update `tauri-build.yml` download steps in lockstep.
    - Auto-update mechanism (§10): GitHub Releases publishing, pack-version
      check, network-is-back trigger.
    - All 8 locale files updated with new strings (§9.3).
-   - **USER action:** update C-DATA-1 in CONSTRAINTS.md (extend network
+   - **USER action:** update C-DATA-1 in AGENTS.md (extend network
      call categories).
 6. **Phase 2c — slim core build.** See §4, §11.
    - Sidecar build without ML libraries.
@@ -1038,7 +1038,7 @@ Update `tauri-build.yml` download steps in lockstep.
    - Full-offline artifact (slim core + pack bundled).
    - Worker exe signing added to CI (Windows + macOS).
    - New artifact names (C-CI-13).
-   - **USER action:** update C-CI-11 in CONSTRAINTS.md (5th binary).
+   - **USER action:** update C-CI-11 in AGENTS.md (5th binary).
 7. **Phase 2d — launch-time existence check + degradation matrix.** See §8.10.
    - Cheap existence check on launch.
    - Background checksum check.
@@ -1126,4 +1126,4 @@ Update `tauri-build.yml` download steps in lockstep.
 | **DELETE** | `tests/tauri/mig17/test_prewarm_systemd_linux.py` | 2a |
 | **DELETE** | `tests/test_prewarm_spawn_resolver.py` | 2a |
 | **DELETE** | `tests/test_uninstall_prewarm_cleanup.py` | 2a |
-| **USER-ONLY** | `CONSTRAINTS.md` (retire C-CI-8; update C-CI-11, C-DATA-1) | 1c/2c |
+| **USER-ONLY** | `AGENTS.md` (retire C-CI-8; update C-CI-11, C-DATA-1) | 1c/2c |

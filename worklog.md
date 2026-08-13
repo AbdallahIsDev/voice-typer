@@ -14,7 +14,7 @@ Work Log:
 - Read /home/z/my-project/upload/plan-runtime-pack-split.md (1130 lines) in full
 - Read /home/z/my-project/upload/PLAN_ONNX_INTEGRATION.md (987 lines) in full
 - Read /home/z/my-project/voice-typer/AGENTS.md (557 lines) — branding, IPC parity, CI rules, dev loop
-- Read /home/z/my-project/voice-typer/CONSTRAINTS.md (325 lines) — C-CI-8, C-CI-11, C-DATA-1, etc.
+- Read /home/z/my-project/voice-typer/AGENTS.md (325 lines) — C-CI-8, C-CI-11, C-DATA-1, etc.
 - Surveyed repo structure: voice_typer/server/, src-tauri/src/, scripts/build/, tests/, docs/adr/, .github/workflows/, i18n/translations/
 - Verified key paths exist: vad.py, parakeet_engine.py, qwen_engine.py, asr_utils.py, prewarm/, sidecar/spawn/, ipc/registry.py, model_integrity.py, 8 locale files, 3 tauri build workflows
 - Confirmed torch import sites: 11 files in voice_typer/ (matches plan §3.3)
@@ -24,7 +24,7 @@ Stage Summary:
 - Workspace ready at /home/z/my-project/voice-typer
 - Plans + repo conventions fully absorbed
 - About to launch 15 sub-agents in parallel with strict file ownership
-- Each sub-agent must read /home/z/my-project/upload/{plan-runtime-pack-split.md,PLAN_ONNX_INTEGRATION.md} and the repo's AGENTS.md/CONSTRAINTS.md/CONTRIBUTING.md before touching anything
+- Each sub-agent must read /home/z/my-project/upload/{plan-runtime-pack-split.md,PLAN_ONNX_INTEGRATION.md} and the repo's AGENTS.md/AGENTS.md/CONTRIBUTING.md before touching anything
 - Sub-agents append to this file as the LAST step of their run (read-modify-write in one shot)
 
 ---
@@ -36,7 +36,7 @@ Work Log:
 - Read /home/z/my-project/upload/plan-runtime-pack-split.md §9.3, §8, §4.8, §7.3 in full — enumerated every user-visible string the plan introduces
 - Read /home/z/my-project/upload/PLAN_ONNX_INTEGRATION.md in full
 - Read /home/z/my-project/voice-typer/AGENTS.md (branding rule — APP_NAME placeholder {appName}, enforced by scripts/check_branding.py)
-- Read /home/z/my-project/voice-typer/CONSTRAINTS.md (C-I18N-1, C-BRAND-1)
+- Read /home/z/my-project/voice-typer/AGENTS.md (C-I18N-1, C-BRAND-1)
 - Read /home/z/my-project/voice-typer/worklog.md — only the orchestrator entry was present. Sub-agents 7, 9, 11, 13 had NOT yet appended their sections when this sub-agent started. Enumerated strings directly from plan §9.3, §8, §4.8, §7.3 since those sub-agents' worklogs were not available at write time
 - Read all 8 locale files (en/ar/de/es/fr/hi/ru/zh) to understand existing structure (notify namespace pattern: `notify.<controller>.<event>_<title|body>`; settings pattern: `settings.<key>` + `settings.<key>Description`)
 - Read helper scripts: scripts/add_i18n_keys.py, scripts/_i18n_common.py, scripts/apply_translations.py, scripts/backfill_i18n_keys.py
@@ -100,9 +100,9 @@ Stage Summary:
 - Helper script written OUTSIDE the repo at /home/z/sub14_tmp/apply_pack_translations.py (does not violate file-ownership — only the 8 JSON files in the repo were modified). Can be re-run safely — it is idempotent (skips keys whose current value is already a real translation).
 - Note for Sub-agent 15 (doc-accuracy verifier): the full list of 19 new dot-keys is enumerated above in the "Added all 19 keys to en.json first" bullet — copy-paste ready for any doc-accuracy cross-check.
 
-Needs user action on CONSTRAINTS.md / out-of-scope items (NO agent edits — just surfaced):
+Needs user action on AGENTS.md / out-of-scope items (NO agent edits — just surfaced):
 - **NSIS installer string "Include offline engine pack"** (§9.3 last bullet) — explicitly OUT OF SCOPE for the renderer i18n parity tests per the plan. It needs (a) a separate installer-i18n story for NSIS `.nsh` language files (the renderer i18n JSON files do NOT cover installer text), and (b) a `BUILD_CONFIG_FILES` allowlist entry in `scripts/check_branding.py` if the installer text references "Voice Typer" literally. Neither belongs in this sub-agent's 8 JSON files. Sub-agent 15 should flag this for the user.
-- **CONSTRAINTS.md C-DATA-1 extension** (§8.4, §10.2) — the pack download from GitHub Releases is NOT covered by the current 3 categories of allowed network calls. The USER must extend category (3) "model downloads" → "runtime asset downloads" or add a new category. Agents cannot edit CONSTRAINTS.md.
+- **AGENTS.md C-DATA-1 extension** (§8.4, §10.2) — the pack download from GitHub Releases is NOT covered by the current 3 categories of allowed network calls. The USER must extend category (3) "model downloads" → "runtime asset downloads" or add a new category. Agents cannot edit AGENTS.md.
 - **Sub-agents 7, 9, 11, 13 worklog cross-check NOT done** — those sub-agents had NOT appended their worklog sections when this sub-agent finished (the worklog only contained the orchestrator's entry). This sub-agent enumerated every string directly from plan §9.3 + §8 + §4.8 + §7.3. If those sub-agents later introduce ADDITIONAL user-visible strings beyond what the plan enumerates, a follow-up i18n pass will be needed to translate them. Sub-agent 15 should re-scan the worklog for any "new user-visible string" mentions from sub-agents 7/9/11/13 and either confirm they are already covered by the 19 keys above or flag them for a follow-up.
 
 ---
@@ -114,7 +114,7 @@ Work Log:
 - Read /home/z/my-project/upload/plan-runtime-pack-split.md §4.4, §11.2, §11.3 in full (worker exe build spec, drift test retirement, torch-free bundle check)
 - Read /home/z/my-project/upload/PLAN_ONNX_INTEGRATION.md §2.3.1 (silero_vad.onnx packaging) and §9 (file changes summary) in full
 - Read /home/z/my-project/voice-typer/AGENTS.md "Tauri release workflows — DO NOT BREAK" section — confirmed C-CI-8/NU-106 retirement is in-scope (VAD no longer calls torch.jit.load), C-CI-9 (`--include-package-data=voice_typer.server`, `--windows-console-mode=disable`, `--onefile-tempdir-spec`) and C-CI-13 (artifact names) MUST stay untouched
-- Read /home/z/my-project/voice-typer/CONSTRAINTS.md C-CI-8, C-CI-9, C-CI-13 — confirmed I do NOT own CONSTRAINTS.md (USER-ONLY); will surface C-CI-8 retirement under "Needs user action"
+- Read /home/z/my-project/voice-typer/AGENTS.md C-CI-8, C-CI-9, C-CI-13 — confirmed I do NOT own AGENTS.md (USER-ONLY); will surface C-CI-8 retirement under "Needs user action"
 - Read existing build_sidecar_{windows,linux,macos}.sh, build_prewarm_{windows,linux,macos}.sh, voice-typer.spec, tests/tauri/test_config_script_drift.py in full
 - Updated `scripts/build/build_sidecar_windows.sh`:
   - REMOVED `--module-parameter=torch-disable-jit=no` (and its inline comment)
@@ -207,9 +207,9 @@ Stage Summary:
   - scripts/build/check_bundle_torch_free.sh (NEW)
   - tests/tauri/test_config_script_drift.py (MODIFIED — Pair 5 class only)
 
-Needs user action on CONSTRAINTS.md:
+Needs user action on AGENTS.md:
 - **C-CI-8 retirement (NU-106)** — the `--module-parameter=torch-disable-jit=no` flag is RETIRED from the 3 sidecar build scripts (this sub-agent's work) but is STILL PRESENT in `.github/workflows/tauri-windows-build.yml:469` (NOT owned by this sub-agent — the AGENTS.md "Tauri release workflows — DO NOT BREAK" section says workflow edits require user confirmation). With VAD migrated to onnxruntime, the flag is a HARMLESS NO-OP in the workflow (no `torch.jit.load` call exists in `vad.py` anymore). The user must:
-  1. Retire C-CI-8 in `CONSTRAINTS.md` (lines 148-153 — the rule + rationale that mandates the flag).
+  1. Retire C-CI-8 in `AGENTS.md` (lines 148-153 — the rule + rationale that mandates the flag).
   2. Remove the `--module-parameter=torch-disable-jit=no \` line from `.github/workflows/tauri-windows-build.yml:469` (and the NU-106 comment block at lines 433-448).
   3. Optionally also update the NU-106 inline comments in `.github/workflows/tauri-windows-build.yml` to reflect the Phase 1a retirement.
   Until the user does step 1, the workflow YAML still passes the retired flag (harmless), and the new `test_sidecar_builds_do_not_pass_retired_torch_jit_flag` test only checks the 3 sidecar scripts (not the workflow — by design, since the workflow is out of scope for this sub-agent).
@@ -218,10 +218,10 @@ Needs user action on CONSTRAINTS.md:
   - macOS: add to `tauri-macos-build.yml:661-667` (NOT owned by this sub-agent).
   - Linux: unsigned by design.
   The `build_worker_{windows,macos}.sh` scripts already wire up `MAC_SIGNING_IDENTITY` for the macOS case (parallel to `build_sidecar_macos.sh`); the Windows script prints "NEXT: sign with signtool" — the actual signtool invocation lives in the workflow YAML (out of this sub-agent's scope).
-- **C-CI-13 artifact naming for the worker** (per §11.9) — the new artifact name `voice-typer-worker-<triple>[.exe]` is allowed by C-CI-13 (which forbids RENAMING existing artifacts but permits ADDING new ones). No CONSTRAINTS.md edit needed — just flagging that the new artifact name is in the C-CI-13 allowlist category "new artifact names".
+- **C-CI-13 artifact naming for the worker** (per §11.9) — the new artifact name `voice-typer-worker-<triple>[.exe]` is allowed by C-CI-13 (which forbids RENAMING existing artifacts but permits ADDING new ones). No AGENTS.md edit needed — just flagging that the new artifact name is in the C-CI-13 allowlist category "new artifact names".
 
 Out-of-scope items (NOT touched by this sub-agent — flagged for the relevant owners):
-- `.github/workflows/tauri-windows-build.yml:469` (the `--module-parameter=torch-disable-jit=no` line + NU-106 comment block) — owned by the user (Tauri release workflows are "DO NOT BREAK" per AGENTS.md). Flagged above under "Needs user action on CONSTRAINTS.md".
+- `.github/workflows/tauri-windows-build.yml:469` (the `--module-parameter=torch-disable-jit=no` line + NU-106 comment block) — owned by the user (Tauri release workflows are "DO NOT BREAK" per AGENTS.md). Flagged above under "Needs user action on AGENTS.md".
 - `.github/workflows/tauri-{macos,linux}-build.yml` — worker exe signing steps (§11.5) + worker artifact upload steps. NOT owned by this sub-agent.
 - `src-tauri/tauri.{conf,*.conf}.json` — Tauri `externalBin` registration for the worker (§4.4). NOT owned by this sub-agent. Another sub-agent must add `bin/voice-typer-worker` to `bundle.externalBin` in `tauri.conf.json` AND to `plugins.shell.scope` (§4.4 specifies lines 60-62, 127-138). Without this, the worker exe built by `build_worker_*.sh` will not be discovered by the Tauri host.
 - `MANIFEST.in` — `include voice_typer/server/silero_vad.onnx` entry. NOT owned by this sub-agent (Sub-agent 1 owns the onnx file placement + MANIFEST.in per §2.3.1). The sidecar build scripts' `--include-data-files=...silero_vad.onnx=...` flag is belt-and-suspenders: it bundles the .onnx even if MANIFEST.in is not yet updated. Once Sub-agent 1 updates MANIFEST.in, the `--include-package-data=voice_typer.server` flag (Pair 4) would transitively include the .onnx too.
@@ -238,7 +238,7 @@ Work Log:
 - Read /home/z/my-project/upload/plan-runtime-pack-split.md (1130 lines) in full — confirmed Phase 1a scope, file ownership, env-boundary (no `pip uninstall torch`, no .venv edits).
 - Read /home/z/my-project/upload/PLAN_ONNX_INTEGRATION.md (987 lines) in full — focused on §2 (VAD), §2.2 hidden-state threading gotcha, §2.3.3 CPUExecutionProvider pinning, §2.3.4 is_available() semantics, §2.3.5 unload()+reset_states(), §2.4 test rewrites, §2.5 Phase 1a gate, §8.1 verification gate.
 - Read /home/z/my-project/voice-typer/AGENTS.md (557 lines) — branding, IPC parity, C-CI-8 (do NOT remove `--module-parameter=torch-disable-jit=no`), C-CI-9 (`--include-package-data`), C-LOG-2 (duration suffix on timed lines).
-- Read /home/z/my-project/voice-typer/CONSTRAINTS.md (325 lines) — confirmed user-only edit policy, C-DATA-1 (no network calls), C-CI-8/C-CI-11/C-DATA-1 retire rules go in `## Needs user action on CONSTRAINTS.md` not direct edits.
+- Read /home/z/my-project/voice-typer/AGENTS.md (325 lines) — confirmed user-only edit policy, C-DATA-1 (no network calls), C-CI-8/C-CI-11/C-DATA-1 retire rules go in `## Needs user action on AGENTS.md` not direct edits.
 - Read /home/z/my-project/voice-typer/worklog.md (existing sections for Task IDs 0, 14, 5).
 - Surveyed current vad.py (489 lines, JIT-based) — identified 4 torch imports (L100, L145, L289, L425), JIT load at L182, public API surface (`is_available`, `is_speech`, `compute_vad_prob`, `reset_states`, `preload`, `unload`, `reset`, `_load_model`, `_check_vad_available`), callers in `recording/audio_pipeline.py`, `vad_processor.py`, `model_manager.py`, `app.py`, `startup_sequence.py`.
 - Wrote `scripts/build/export_silero_vad_onnx.py` (NEW, ~155 LOC) — one-shot conversion script that loads `silero_vad.jit` via `torch.jit.load` and exports to ONNX via `torch.onnx.export` with input names `(input, state, sr)` and output names `(output, stateN)` matching the v4 ONNX contract. Late-imports torch so `--help` works without torch installed; documents that this is a build-time tool (torch stays out of the runtime deps). Prints SHA-256 of the output for `populate_model_hashes.py` to consume. Could NOT produce the actual `silero_vad.onnx` binary because torch is not installed in this sandbox env — flagged as a manual step below.
@@ -291,7 +291,7 @@ Stage Summary:
   - SKIPPED: editing `tests/conftest.py` to strip VAD-specific torch mocks — out of this slice's file ownership. Another sub-agent (likely the orchestrator or the asr_utils owner) already removed `_FakeOutOfMemoryError` / `_FakeTensor` / `_build_mock_torch` and the `real_torch` marker from conftest.py; the session fixture now installs a plain `MagicMock(name="mock_torch")`. My VAD tests don't import torch, so the mock is harmless for them.
   - SKIPPED: retargeting `bench/bench_vad.py` — bench files belong to Sub-agent 6's scope (bench_startup.py); the orchestrator decides who retargets bench_vad.py. The current bench_vad.py still uses torch + silero_vad.jit and will fail at Phase 1c torch removal unless retargeted.
   - SKIPPED: editing `voice_typer/server/vad_processor.py:263` warning text — the warning still says "torch missing or bundled silero_vad.jit not found" but should now say "onnxruntime missing or bundled silero_vad.onnx not found". Out of this slice's ownership.
-- Needs user action on CONSTRAINTS.md: NONE for Phase 1a. The Phase 1c rules (C-CI-8/NU-106 `--module-parameter=torch-disable-jit=no` retirement; C-CI-11 5th signing step; C-DATA-1 pack-download category extension) are NOT triggered at Phase 1a — the .jit file + MANIFEST entry + Nuitka flag all stay until Phase 1c per §2.5.
+- Needs user action on AGENTS.md: NONE for Phase 1a. The Phase 1c rules (C-CI-8/NU-106 `--module-parameter=torch-disable-jit=no` retirement; C-CI-11 5th signing step; C-DATA-1 pack-download category extension) are NOT triggered at Phase 1a — the .jit file + MANIFEST entry + Nuitka flag all stay until Phase 1c per §2.5.
 - Interface assumptions:
   - Public API of vad.py is UNCHANGED: `is_available()`, `is_speech(audio, sr, threshold=None)`, `compute_vad_prob(audio, sr)`, `reset_states()`, `preload()`, `unload()`, `reset()`, `_load_model()`, `_check_vad_available()` all keep their signatures. `_load_model()` still returns a 2-tuple `(session, names_or_None)` so callers/tests that destructure into two variables keep working — the second element is now the 5-tuple of ORT I/O names instead of the old `_utils` dict (always None since the hub fallback was removed).
   - `_check_vad_available()` is still defined and called by `vad_processor.py:257` via `from voice_typer.server.vad import _check_vad_available as _vad_check_available`. The function semantics are unchanged (returns True iff onnxruntime is importable AND the bundled .onnx file exists).
@@ -304,9 +304,9 @@ Agent: Sub-agent 12 — CI/CD workflows
 Task: Add worker signing/notarization/packaging + size gates + torch-free check to the 3 Tauri release workflows (Windows/macOS/Linux). Per master plan §11.1–11.9 + companion §8 gates.
 
 Work Log:
-- Read plan-runtime-pack-split.md (§0, §1, §2, §4, §5, §6, §11 in full), PLAN_ONNX_INTEGRATION.md (§8 verification gates), AGENTS.md "Tauri release workflows — DO NOT BREAK" section (read twice), CONSTRAINTS.md C-CI-2 through C-CI-15.
+- Read plan-runtime-pack-split.md (§0, §1, §2, §4, §5, §6, §11 in full), PLAN_ONNX_INTEGRATION.md (§8 verification gates), AGENTS.md "Tauri release workflows — DO NOT BREAK" section (read twice), AGENTS.md C-CI-2 through C-CI-15.
 - Confirmed file ownership: only `.github/workflows/tauri-{windows,macos,linux}-build.yml` — 3 files total.
-- Verified Sub-agent 5 has already updated `tests/tauri/test_config_script_drift.py`: the old `TestNuitkaSidecarBuildsDoNotExcludeTorchDistributed::test_every_sidecar_build_keeps_torch_jit_enabled` (which hard-enforced `--module-parameter=torch-disable-jit=no`) has been REPLACED with `test_sidecar_builds_do_not_pass_retired_torch_jit_flag` (which FORBIDS the flag in bash scripts). The new test's docstring explicitly says the flag "remains in `tauri-windows-build.yml` until the user retires C-CI-8 in CONSTRAINTS.md; it is now a harmless no-op" — confirming the workflow YAML retains the flag by design.
+- Verified Sub-agent 5 has already updated `tests/tauri/test_config_script_drift.py`: the old `TestNuitkaSidecarBuildsDoNotExcludeTorchDistributed::test_every_sidecar_build_keeps_torch_jit_enabled` (which hard-enforced `--module-parameter=torch-disable-jit=no`) has been REPLACED with `test_sidecar_builds_do_not_pass_retired_torch_jit_flag` (which FORBIDS the flag in bash scripts). The new test's docstring explicitly says the flag "remains in `tauri-windows-build.yml` until the user retires C-CI-8 in AGENTS.md; it is now a harmless no-op" — confirming the workflow YAML retains the flag by design.
 - Verified Sub-agent 11 has shipped `scripts/build/build_worker_windows.sh` (208 lines) and `scripts/build/build_worker_linux.sh` (276 lines). Output paths: `src-tauri/bin/voice-typer-worker-<triple>[.exe]` (parallel to python-sidecar-<triple>). `scripts/build/build_worker_macos.sh` NOT shipped yet (Sub-agent 11 still in progress) — macOS step gated on `hashFiles()` so it skips cleanly until the script lands.
 - Verified `scripts/build/check_bundle_torch_free.sh` NOT shipped yet (Sub-agent 5 owns it, Phase 1c). All torch-free check steps gated on `hashFiles()` so they skip cleanly until the script lands.
 
@@ -335,10 +335,10 @@ Work Log:
   - ADDED worker binaries to SHA-256 checksums + SLSA attestation subject-path (C-CI-13 compliant). NOTE: SLSA attestation is unreachable on Linux today (sign=true fails fast at lines 393-397) but subject-path is kept in lockstep for the day Linux signing is added.
 
 - SKIPPED removing the `--module-parameter=torch-disable-jit=no` flag block (lines 422-475, 517-535 of `tauri-windows-build.yml`):
-  - CONSTRAINTS.md C-CI-8 STILL FORBIDS removing this flag (verified at CONSTRAINTS.md:149-153). C-CI-8 retirement is a USER-ONLY action per AGENTS.md "CONSTRAINTS.md is USER-ONLY. Never edit."
-  - Sub-agent 5's updated `tests/tauri/test_config_script_drift.py` test docstring (lines 541-553) EXPLICITLY says the flag "remains in `.github/workflows/tauri-windows-build.yml` until the user retires C-CI-8 in CONSTRAINTS.md; it is now a harmless no-op" — confirming my read.
+  - AGENTS.md C-CI-8 STILL FORBIDS removing this flag (verified at AGENTS.md:380-384). C-CI-8 retirement is a USER-ONLY action — the `Hard "Don'ts"` rules in AGENTS.md are USER-ONLY. Never edit.
+  - Sub-agent 5's updated `tests/tauri/test_config_script_drift.py` test docstring (lines 541-553) EXPLICITLY says the flag "remains in `.github/workflows/tauri-windows-build.yml` until the user retires C-CI-8 in AGENTS.md; it is now a harmless no-op" — confirming my read.
   - Sub-agent 5's new test `test_sidecar_builds_do_not_pass_retired_torch_jit_flag` only scans `SIDECAR_SCRIPTS` (the bash scripts), NOT the workflow YAML — implying the workflow YAML is exempt by design.
-  - Per AGENTS.md "If a `review.md` task, a sub-agent finding, or an "improvement" idea conflicts with a rule here, the agent MUST SKIP the work and record the skip in `worklog.md` with the conflicting rule cited. CONSTRAINTS.md is the ONLY file that can forbid work that would otherwise look like an improvement." — SKIPPED with C-CI-8 cited.
+  - Per AGENTS.md "If a `review.md` task, a sub-agent finding, or an "improvement" idea conflicts with a rule here, the agent MUST SKIP the work and record the skip in `worklog.md` with the conflicting rule cited. AGENTS.md is the ONLY file that can forbid work that would otherwise look like an improvement." — SKIPPED with C-CI-8 cited.
 
 - Validated all 3 workflow YAMLs parse cleanly via `python -c "import yaml; [yaml.safe_load(open(f)) for f in [...]]; print('YAML ok')"` → "YAML ok".
 - Ran `pytest tests/tauri/test_config_script_drift.py -x --no-cov` → 27 passed, 0 failed. (Sub-agent 5's drift test updates are intact and pass against my workflow changes — the workflow YAML retains the C-CI-8 flag, which Sub-agent 5's test expects.)
@@ -353,9 +353,9 @@ Stage Summary:
 - All 3 workflows parse as valid YAML; drift test suite passes (27/27).
 - C-CI-2 through C-CI-15 all preserved: timeout-minutes: 240 unchanged; aarch64 matrix leg still commented; all action versions unchanged; nuitka==2.8.10 pin unchanged; pre-build fail-fast gates unchanged (no reordering); C-CI-8 flag block RETAINED (skip cited); --include-package-data/--windows-console-mode/--onefile-tempdir-spec unchanged; bundle.resources narrowing + --target/--config unchanged; 4 existing signing steps unchanged (5th ADDED, not merged); CLCACHE_DISABLE: "1" at job level unchanged; existing artifact names unchanged (new ones ADDED); sidecar smoke test still uses .NET Process + WaitForExit(180000); tauri-binaries.json record/check gates + SLSA attestation gate unchanged.
 
-- Needs user action on CONSTRAINTS.md:
-  - **C-CI-8 retirement**: CONSTRAINTS.md:149-153 still FORBIDS removing `--module-parameter=torch-disable-jit=no` from `tauri-windows-build.yml`. Sub-agent 5 has retired the flag from the 3 bash scripts (`scripts/build/build_sidecar_*.sh`) AND updated the drift test to FORBID the flag in the bash scripts. The workflow YAML retains the flag (now a harmless no-op per Sub-agent 5's test docstring). USER must retire C-CI-8 in CONSTRAINTS.md, after which a follow-up agent can remove the flag block (lines ~422-475 + the standalone `--module-parameter=torch-disable-jit=no \` arg at line 469) from `tauri-windows-build.yml`. Until C-CI-8 is retired, my sidecar size gate (≤185 MB) WILL FAIL on the torch-bearing sidecar — correct signal, do NOT weaken the threshold.
-  - **C-CI-11 update**: CONSTRAINTS.md:170-173 enumerates 4 code-signing steps (sidecar+prewarm+native; NSIS; MSI; standalone exe). The worker exe is a NEW 5th binary that I've added to the foreach signing loop (Windows) + codesign BINARIES array (macOS). USER must update C-CI-11 to enumerate 5 binaries (or 6 on macOS where worker has 2 arch slices). The current C-CI-11 wording "Do NOT drop or merge any of the four signing steps" is satisfied — I added a 5th, did not merge.
+- Needs user action on AGENTS.md:
+  - **C-CI-8 retirement**: AGENTS.md:380-384 still FORBIDS removing `--module-parameter=torch-disable-jit=no` from `tauri-windows-build.yml`. Sub-agent 5 has retired the flag from the 3 bash scripts (`scripts/build/build_sidecar_*.sh`) AND updated the drift test to FORBID the flag in the bash scripts. The workflow YAML retains the flag (now a harmless no-op per Sub-agent 5's test docstring). USER must retire C-CI-8 in AGENTS.md, after which a follow-up agent can remove the flag block (lines ~422-475 + the standalone `--module-parameter=torch-disable-jit=no \` arg at line 469) from `tauri-windows-build.yml`. Until C-CI-8 is retired, my sidecar size gate (≤185 MB) WILL FAIL on the torch-bearing sidecar — correct signal, do NOT weaken the threshold.
+  - **C-CI-11 update**: AGENTS.md:401-404 enumerates 4 code-signing steps (sidecar+prewarm+native; NSIS; MSI; standalone exe). The worker exe is a NEW 5th binary that I've added to the foreach signing loop (Windows) + codesign BINARIES array (macOS). USER must update C-CI-11 to enumerate 5 binaries (or 6 on macOS where worker has 2 arch slices). The current C-CI-11 wording "Do NOT drop or merge any of the four signing steps" is satisfied — I added a 5th, did not merge.
   - **C-DATA-1**: NOT triggered by my changes — I add no network calls. The pack downloader (Sub-agent 6/8's scope) is the C-DATA-1-relevant change.
 
 - Cross-agent dependencies / handoff notes:
@@ -376,7 +376,7 @@ Task: Build the auto-update mechanism from scratch (plan-runtime-pack-split.md �
 
 Work Log:
 - Read plan-runtime-pack-split.md §10 (auto-update) + §8.4 (consent gate) + §8.6 (proxy/SSRF) in full.
-- Read AGENTS.md, CONSTRAINTS.md (C-DATA-1), docs/auto-update-feature.md (design spec — to be updated by Sub-agent 15).
+- Read AGENTS.md, AGENTS.md (C-DATA-1), docs/auto-update-feature.md (design spec — to be updated by Sub-agent 15).
 - Surveyed existing infrastructure:
   - `voice_typer/server/service/pack.py` (Sub-agent 7) — already exposes `assert_pack_url_allowed`, `proxy_env`, `require_runtime_pack_consent`, `download_pack_with_resume`, `pack_partial_path`, `load_pack_manifest`, `pack_exists`, `pack._default_pack_root`. Reused its PUBLIC API only (did NOT edit pack.py).
   - `voice_typer/server/security/url_allowlist.py` — `assert_url_allowed` + SSRF defense (IP-literal blocklist + DNS-rebinding check). Inherited via `pack.assert_pack_url_allowed`.
@@ -457,7 +457,7 @@ Stage Summary:
   - `voice_typer/client/src/renderer/src/hooks/usePackDownload.ts` (Sub-agent 9) — consumed its state via the event chain.
   - `voice_typer/server/ipc/registry.py`, `voice_typer/client/src/main/allowed-commands.ts`, `src-tauri/src/commands/sidecar_cmds/allowlist.rs` (shared) — did NOT register the `check_pack_update` IPC command (left to whoever owns the registry; the renderer hook fails gracefully until then).
   - `docs/auto-update-feature.md` (Sub-agent 15 owns docs) — did NOT update (see "Needs Sub-agent 15 action" below).
-  - `CONSTRAINTS.md` (user-only — see "Needs user action" below).
+  - `AGENTS.md` (user-only — see "Needs user action" below).
 - Inherited security primitives (no duplication):
   - SSRF: `voice_typer.server.service.pack.assert_pack_url_allowed` → `voice_typer.server.security.url_allowlist.assert_url_allowed` (the same defense tested by tests/test_http_safety_ssrf.py).
   - Max-bytes: `voice_typer.server.secure_file_io._secure_read_text(max_bytes=)` (the same cap tested by tests/test_secure_file_io_max_bytes.py).
@@ -465,7 +465,7 @@ Stage Summary:
   - Consent: `voice_typer.server.service.pack.require_runtime_pack_consent` (config.runtime_pack_consent — NOT huggingface_consent).
 - All 137 tests pass (100 new + 37 pre-existing in tests/test_update*.py).
 
-Needs user action on CONSTRAINTS.md:
+Needs user action on AGENTS.md:
 - **C-DATA-1** (rule on allowed network calls) currently allows 3 categories: (1) update checks, (2) cloud transcription, (3) model downloads. The pack download from GitHub Releases is NOT covered by these 3 categories. The USER must either:
   - Extend category (3) "model downloads" → "runtime asset downloads" (so it covers both HuggingFace model weights AND GitHub Releases pack onefile), OR
   - Add category (4) "runtime pack downloads from GitHub Releases".
@@ -521,7 +521,7 @@ Agent: Sub-agent 11 — Slim core build & installer packaging
 Task: Implement the installer-side of the slim-core / runtime-pack split — NSIS "Include offline engine pack" checkbox Section, full-offline installer artifact, new §11.9 artifact names, and installer-config drift tests. Plan slices: master §4 (split), §5 (disk footprint), §11 (installer-specific parts, NOT CI YAML — Sub-agent 12 owns that).
 
 Work Log:
-- Read plan-runtime-pack-split.md §4, §5, §11 in full; PLAN_ONNX_INTEGRATION.md (skimmed — engine internals are not installer-side); AGENTS.md (NSIS rules, C-CI-10/11/13 constraints, branding); CONSTRAINTS.md (C-CI-8/10/11/13 verbatim); worklog.md (read last to avoid stomping other sub-agents' entries).
+- Read plan-runtime-pack-split.md §4, §5, §11 in full; PLAN_ONNX_INTEGRATION.md (skimmed — engine internals are not installer-side); AGENTS.md (NSIS rules, C-CI-10/11/13 constraints, branding); AGENTS.md (C-CI-8/10/11/13 verbatim); worklog.md (read last to avoid stomping other sub-agents' entries).
 - Located existing NSIS template: scripts/windows/uninstaller.nsh (defines customUnInstall for CR-69/CR-70). It is wired into tauri.conf.json bundle.windows.nsis.installerHooks as a STRING ("../scripts/windows/uninstaller.nsh"). No other .nsi/.nsh files exist in the repo (verified via Glob).
 - Verified Tauri v2 schema: bundle.windows.nsis.installerHooks accepts string OR string[] (the existing TestTauriNsisInstallerHooks in tests/tauri/test_config_script_drift.py already handles both forms defensively — strong signal this is documented behavior).
 - Created scripts/windows/installer-hooks.nsh (NEW): defines a Components-page `Section "Include offline engine pack" SecIncludePack` (optional — NOT SectionIn RO — so it renders as a checkbox, default-selected per plan §4.8 auto-download default). The Section body flips `$IncludeOfflineEnginePack` to "1" when ticked. The `!macro customInstall` reads `SectionGetFlags ${SecIncludePack}` AND-ed with `${SF_SELECTED}`, then writes `%LOCALAPPDATA%\voice-typer\installer-state.json` with the pinned schema `{include_offline_engine_pack, installer_version, pack_bundled}` — the slim-core Python backend reads this at first launch (plan §4.8 consent gate). Also declares `LangString DESC_SecIncludePack` for the Components-page description (plan §9.3 adds 8 locale strings; this is one of them).
@@ -552,7 +552,7 @@ Stage Summary:
   - Sub-agent 5 (worker build scripts): produces voice-typer-runtime-pack-<pack-version>-<triple>.zip (the name is owned by my artifact_names.py — Sub-agent 5 should call runtime_pack_name(pack_version, triple) to compute it).
   - Sub-agent 7 (pack-manifest.json schema): owns the JSON schema INSIDE pack-manifest.json; I own the FILENAME (pack-manifest.json — no triple suffix, platform-AGNOSTIC release asset).
   - Sub-agent 12 (CI YAML): wires the artifact_names.py CLI into the tauri-windows-build.yml / tauri-build.yml aggregate job. The slim-core alias is produced by a `cp` step from the Tauri-produced installer to the §11.9 name. The full-offline installer is built by invoking build_full_offline_installer_windows.sh after both the slim-core installer and the pack zip are built.
-- Needs user action on CONSTRAINTS.md:
+- Needs user action on AGENTS.md:
   - C-CI-11 update: the full-offline installer (`voice-typer-full-offline-<version>-<triple>.exe`) is a NEW signed Windows binary. C-CI-11 currently enumerates exactly 4 signing steps (sidecar+prewarm+native listener; NSIS; MSI; standalone voice-typer-tauri.exe). The full-offline installer is a 5th (or 6th if you also count the worker exe per plan §11.5) signed binary — C-CI-11 must be updated to include it. USER-ONLY edit.
   - C-CI-13 note (NO action required): the constraint forbids RENAMING existing artifacts. My change is ADDITIVE (new names alongside, existing names untouched). Recommend the user add a sentence to C-CI-13's rationale explicitly bless the new §11.9 names ("voice-typer-slim-core-*", "voice-typer-runtime-pack-*", "voice-typer-full-offline-*", "pack-manifest.json") as the canonical slim-core/pack split artifact names — but this is optional, the existing constraint already permits adding new names.
 - Skips: none. All plan §4/§5/§11 installer-side deliverables in my ownership scope are implemented and tested. The CI YAML wiring (§11.1–§11.7) is Sub-agent 12's responsibility per the file-ownership matrix.
@@ -563,7 +563,7 @@ Agent: Sub-agent 7 — Pack downloader service
 Task: Implement the runtime-pack downloader service (Python backend) per master §4.5–4.9 (pack downloader design) + §8 (all 18 edge cases). Owns `voice_typer/server/service/pack.py` (NEW) and `tests/test_pack_*.py` (18 NEW files, all edge-case tests re-spec'd against the real codebase).
 
 Work Log:
-- Read in full: /home/z/my-project/upload/plan-runtime-pack-split.md (1130 lines — focus on §4.5–4.9 pack downloader design + §8 all 18 edge cases), /home/z/my-project/upload/PLAN_ONNX_INTEGRATION.md (skim — engine internals not my slice), /home/z/my-project/voice-typer/AGENTS.md (branding, IPC parity, CI rules), /home/z/my-project/voice-typer/CONSTRAINTS.md (C-DATA-1 verbatim — rule text confirmed at lines 209-213; the plan's "CR-11" reference is to the old review-file naming, the actual constraint is C-DATA-1).
+- Read in full: /home/z/my-project/upload/plan-runtime-pack-split.md (1130 lines — focus on §4.5–4.9 pack downloader design + §8 all 18 edge cases), /home/z/my-project/upload/PLAN_ONNX_INTEGRATION.md (skim — engine internals not my slice), /home/z/my-project/voice-typer/AGENTS.md (branding, IPC parity, CI rules), /home/z/my-project/voice-typer/AGENTS.md (C-DATA-1 verbatim — rule text confirmed at lines 209-213; the plan's "CR-11" reference is to the old review-file naming, the actual constraint is C-DATA-1).
 - Read existing pattern files: voice_typer/server/autostart_launcher.py:575-655 (verify_tauri_binary_or_skip — CR-002 fail-closed pattern), voice_typer/server/service/model.py:854-912 (_require_huggingface_consent — consent gate pattern, GDPR Art. 6/13 safe-default), voice_typer/server/asr_utils.py:257-304 (_check_disk_space_for_download — disk space pre-check), voice_typer/server/security/url_allowlist.py (assert_url_allowed + SSRF IP-literal blocklist + DNS-rebinding defense), voice_typer/server/event_bus.py:745-860 (publish() interface — the IPC channel I publish to), voice_typer/server/service/_download_helpers.py (DownloadOutcome + push_progress + poll_download_progress — model download pattern reference), voice_typer/server/asr_errors.py:18-60 (ConsentRequiredError pattern — structured provider/scope/consent_field).
 - Surveyed existing tests for patterns: tests/test_http_safety_ssrf.py (SSRF test pattern), tests/test_service_download_consent.py (consent gate test pattern), tests/test_asr_utils.py (chunking test pattern), tests/test_autostart_windows_stale_entries.py (fake_winreg fixture pattern for Windows-only code paths on Linux host).
 - Created voice_typer/server/service/pack.py (NEW, 1461 lines): the runtime-pack downloader service. SEPARATE consent-gated downloader (not a ModelMixin extension) because the pack download phones home to GitHub Releases (reveals user IP to Microsoft), distinct from HuggingFace model downloads. Components:
@@ -632,9 +632,9 @@ Stage Summary:
   9. `"Keep offline engine running"` — settings checkbox (per §7.3, "long-lived worker with a Keep offline engine running setting"). Default on; off = "Start on demand" for low-RAM machines.
   - All strings should use the `{appName}` placeholder per C-BRAND-1 (e.g. `"Preparing {appName} offline engine…"`). The placeholder is substituted by the renderer's i18n layer.
   - Note: `"Include offline engine pack"` (NSIS installer text, §9.3) is NOT in my list — Sub-agent 11 owns the installer side and has already added the LangString for it.
-- Needs user action on CONSTRAINTS.md:
+- Needs user action on AGENTS.md:
   - **C-DATA-1 update** (required): the constraint (lines 209-213) currently allows 3 network-call categories: (1) cloud transcription / LLM providers, (2) auto-update, (3) model downloads. The pack download from GitHub Releases is NOT covered — it phones home to GitHub (Microsoft), revealing user IP. The USER must either extend category (3) → "runtime asset downloads (HuggingFace models + GitHub Releases runtime pack)" OR add a new category (4) "runtime pack downloads from GitHub Releases (consent-gated via `runtime_pack_consent`, NOT `huggingface_consent`)". Until C-DATA-1 is updated, the pack downloader is technically in violation of the constraint's letter (though not its spirit — it IS user-consented, NOT unsolicited phone-home). USER-ONLY edit.
-  - **Note on "CR-11"**: the slice prompt references "CR-11" alongside C-DATA-1. CR-11 does NOT exist in the current CONSTRAINTS.md (verified — `grep -n "CR-11" CONSTRAINTS.md` returns no matches). The plan documents (§8.4, §9.3) reference "CR-11" as the consent-gate rule, but the actual rule in CONSTRAINTS.md is C-DATA-1. This is a documentation drift in the plan, not a constraint I can fix. The consent-gate pattern I implemented mirrors the existing `_require_huggingface_consent` from `service/model.py:854-912` (which itself references C-DATA-1 in its docstring).
+  - **Note on "CR-11"**: the slice prompt references "CR-11" alongside C-DATA-1. CR-11 does NOT exist in the current AGENTS.md (verified — `grep -n "CR-11" AGENTS.md` returns no matches). The plan documents (§8.4, §9.3) reference "CR-11" as the consent-gate rule, but the actual rule in AGENTS.md is C-DATA-1. This is a documentation drift in the plan, not a constraint I can fix. The consent-gate pattern I implemented mirrors the existing `_require_huggingface_consent` from `service/model.py:854-912` (which itself references C-DATA-1 in its docstring).
 - Skips: none. All plan §4.5–4.9 + §8 (all 18 edge cases) deliverables in my ownership scope are implemented and tested. The 140-test suite is green. The IPC allowlist wiring (Sub-agent 8), the Rust worker_path.rs resolver (Sub-agent 10), the auto-update mechanism's `check_pack_update` IPC command (Sub-agent 13), the installer-state.json reader (Sub-agent 3), the `runtime_pack_consent` Config field addition (whoever owns Config), the renderer consent dialog UI + usePackDownload hook (renderer-side sub-agents), and the CI workflow integration (Sub-agent 12) are all OUT of my file-ownership scope per the slice spec.
 
 ---
@@ -646,7 +646,7 @@ Work Log:
 - Read PLAN_ONNX_INTEGRATION.md §3 (Part B, Option B-1 `onnx-asr`), §5.1/§5.3/§5.4 (shared helpers in asr_utils), §8.2 (Phase 1b gate).
 - Read plan-runtime-pack-split.md (torch-removal scope: project-only, NEVER touch the user's device / .venv / caches).
 - Read AGENTS.md (557 lines): branding (APP_NAME), IPC parity, C-CI-8/NU-106 (torch Nuitka flag — retired only at Phase 1c), C-CI-11 (4 signing steps), C-DATA-1 (network-call allowlist), C-TEST-1..5 (pytest config).
-- Read CONSTRAINTS.md (USER-ONLY — never edit; recorded needed changes under "Needs user action" below).
+- Read AGENTS.md (USER-ONLY — never edit; recorded needed changes under "Needs user action" below).
 - Inspected existing parakeet_engine.py (1577 LOC, torch/transformers backend).
 - Inspected existing asr_utils.py (Sub-agent 3's slice — added is_cuda_error, is_oom_error, is_latin_char, is_likely_english, merge_chunks, compute_overlap_skip per §5.1/§5.3/§5.4).
 - Inspected model_integrity.py:553-587 (ALLOW_PATTERNS_PARAKEET + ALLOW_PATTERNS_WHISPER).
@@ -720,8 +720,8 @@ Stage Summary:
   - `onnxruntime.RunOptions().set_terminate(True)` is the official ORT abort API (per ORT docs — used to terminate an in-flight `InferenceSession.run()` call with bounded latency).
   - `asr_utils.is_cuda_error`, `is_latin_char`, `is_likely_english`, `merge_chunks`, `compute_overlap_skip` signatures per §5.1/§5.3/§5.4. Sub-agent 3 owns asr_utils.py — I code against the documented signatures with a defensive `try/except ImportError` fallback to local implementations during the parallel-refactor window. Once Sub-agent 3 lands, the canonical asr_utils versions are used automatically.
   - `_PARAKERT_MODEL_ID` constant name preserved (typo "PARAKERT" is pre-existing — used by `prewarm/cache_probe.py:536,593` which is NOT in my ownership; renaming would break that import).
-- Needs user action on CONSTRAINTS.md:
-  - None directly required by my slice. The §8.2 gate items that need CONSTRAINTS.md updates (C-CI-8/NU-106 torch Nuitka flag retirement) are Phase 1c concerns, not Phase 1b (my slice). The plan §7.4 lists C-CI-8/NU-106 retirement as USER-ONLY at Phase 1c; my Phase 1b rewrite is compatible with the torch Nuitka flag still being in place (the flag protects `torch.jit.load` for Silero VAD — VAD is Phase 1a, separate sub-agent).
+- Needs user action on AGENTS.md:
+  - None directly required by my slice. The §8.2 gate items that need AGENTS.md updates (C-CI-8/NU-106 torch Nuitka flag retirement) are Phase 1c concerns, not Phase 1b (my slice). The plan §7.4 lists C-CI-8/NU-106 retirement as USER-ONLY at Phase 1c; my Phase 1b rewrite is compatible with the torch Nuitka flag still being in place (the flag protects `torch.jit.load` for Silero VAD — VAD is Phase 1a, separate sub-agent).
 - Needs orchestrator action (Phase 2):
   - **`MODEL_REGISTRY["parakeet"]` update** (§3.5.1): `model_registry.py` is NOT in my ownership list. The existing entry needs `repo_id`, `download_size_mb` (=1300 for the FP16 ONNX export), `description` ("Parakeet TDT 0.6B FP16 via ONNX Runtime. Fast, efficient, no PyTorch needed."), and `network_behavior` ("downloads-on-first-use-consent-gated" — fixes G4-H-04 known bug per §3.5.3) updated. The orchestrator should update `MODEL_REGISTRY["parakeet"]` in Phase 2 and update `tests/test_model_registry.py::test_parakeet_is_no_consent` → `test_parakeet_is_consent_gated` (the test currently passes because the registry entry is still `no-consent`; my rewrite doesn't touch either).
   - **`model_hashes.json` regeneration** (§3.5.2): the `scripts/populate_model_hashes.py` script enumerates ALL files in the HF tree (no ALLOW_PATTERNS filter) and tries to sync a fallback dict in `voice_typer/server/security.py` (which no longer exists — security was refactored into a package). Running the script blindly would: (a) add `.gitattributes`, `README.md`, `plots/asr.png`, `parakeet-tdt-0.6b-v3.nemo`, `processor_config.json`, `.eval_results/open_asr_leaderboard.yaml` to the parakeet manifest entry (none of which are downloaded by ALLOW_PATTERNS_PARAKEET — `verify_model_integrity` would then hard-fail because those pinned files are missing); (b) add `.gitattributes`, `README.md`, `vocabulary.txt`/`vocabulary.json` to ALL Whisper manifest entries (same problem). The script also can't ADD a new top-level entry for `grikdotnet/parakeet-tdt-0.6b-fp16` (the new ONNX repo) — it only updates EXISTING entries. To regenerate properly: (1) extend the script to filter by ALLOW_PATTERNS, (2) add the new `grikdotnet/parakeet-tdt-0.6b-fp16` top-level entry first (hand-edit or extend the script to support adding entries), (3) fix the security.py fallback sync target (it now lives at `voice_typer/server/security/__init__.py` or `model_integrity.py`'s `_load_model_hashes` fallback dict — needs investigation), (4) re-run the script. I SKIPPED the regeneration rather than bloating the manifest with non-downloaded files. The existing manifest (5 files for parakeet, 3-4 for each Whisper repo) stays valid.
@@ -739,7 +739,7 @@ Task: Implement Phase 1c shared ASR utilities (§5), torch import sweep (§3.3),
 Work Log:
 - Read PLAN_ONNX_INTEGRATION.md §5 (Part D — shared utilities), §3.3 (30+ torch import sites), §3.7 (diagnostic export), §6.4 (resource_probe), §6.5 (transcription), §6.2–6.3 (nvidia_dll_paths).
 - Read plan-runtime-pack-split.md §3.3 (torch import sites enumeration).
-- Read AGENTS.md (branding, CI rules) and CONSTRAINTS.md (C-DATA-1, file ownership).
+- Read AGENTS.md (branding, CI rules) and AGENTS.md (C-DATA-1, file ownership).
 - Read worklog.md — found Sub-agent 1 (VAD/Parakeet) had already appended their entry; noted their interface assumptions about asr_utils.
 - **asr_utils.py** (790 LOC, was 453): Added `is_cuda_error(exc)` (4-layer classifier: ORT RuntimeException → RuntimeError+attribute → cuda/cublas/cudnn keyword → DLL-load keyword; does NOT collapse to a 4-keyword frozenset per §5.1), `is_oom_error(exc)` (separate OOM check — "out of memory" / "oom" substring, kept distinct from cuda check so CPU RAM exhaustion does not false-positive), `is_latin_char(ch)` + `is_likely_english(text)` (moved from parakeet_engine.py:47-78, §5.3), `compute_overlap_skip(prev, new)` + `merge_chunks(texts)` (moved from parakeet_engine.py:1023-1133, §5.4). Made `release_gpu_memory()` a no-op (§5.2 — ORT has no empty_cache(); kept for API compat so callers in unload() still compile). Added `NON_LATIN_RATIO_LIMIT`, `MAX_BOUNDARY_SKIP_WORDS`, `OVERLAP_DEDUP_WINDOW` constants. Published final signatures (see Stage Summary).
 - **transcription.py**: Added `is_oom_error` to asr_utils imports (L53). Replaced `isinstance(exc, torch.cuda.OutOfMemoryError)` at L1338 with `is_oom_error(exc)` (§6.5). Dropped the `import torch` line. Rest of file was already torch-free.
@@ -826,7 +826,7 @@ OVERLAP_DEDUP_WINDOW = 3
 - SKIPPED: fixing `tests/test_transcription_perf_fixes.py::TestParakeetBatchSizeReadAtConstruction` (2 failures) — caused by Sub-agent 1's parakeet_engine.py rewrite (changed `_INFERENCE_BATCH_SIZE` from class attribute to instance attribute at parakeet_engine.py:390). NOT my changes; out of my ownership.
 - SKIPPED: updating `tests/test_resource_probe.py` and `tests/regressions/gpu_memory_release_test.py` — both files mock `torch.cuda.*` and assert torch-specific log messages / call counts. My resource_probe.py change (ORT + nvidia-smi) and release_gpu_memory no-op will break ~6 tests in those files. They are NOT in my ownership. Flagged for orchestrator Phase 2.
 
-**Needs user action on CONSTRAINTS.md:** NONE. No CONSTRAINTS.md rules need changes for this slice. The torch-removal scope (§3.2) is a project-dep/import change, not a CONSTRAINTS rule.
+**Needs user action on AGENTS.md:** NONE. No AGENTS.md rules need changes for this slice. The torch-removal scope (§3.2) is a project-dep/import change, not a "Hard "Don'ts"" rule.
 
 **Interface assumptions for other agents:**
 - Sub-agent 1 (Parakeet): the `is_cuda_error` / `is_oom_error` / `is_likely_english` / `is_latin_char` / `merge_chunks` / `compute_overlap_skip` signatures are EXACTLY as specified in PLAN_ONNX_INTEGRATION.md §5.1/§5.3/§5.4 and published above. The parakeet_engine.py originals (`_is_latin_char`, `_is_likely_english`, `_merge_chunks`, `_compute_overlap_skip`, `_MAX_BOUNDARY_SKIP_WORDS`, `_OVERLAP_DEDUP_WINDOW`) should delegate to these shared functions (or be replaced by direct imports). The shared functions are torch-free.
@@ -846,7 +846,7 @@ Work Log:
 - Read /home/z/my-project/upload/plan-runtime-pack-split.md (1130 lines) — focused on §4.8, §4.9, §7.4, §8.4, §8.10.
 - Read /home/z/my-project/upload/PLAN_ONNX_INTEGRATION.md (987 lines) — full.
 - Read /home/z/my-project/voice-typer/AGENTS.md — branding (APP_NAME variable, never inline), IPC parity, Node 24, biome tab-indentation, vitest setup.
-- Read /home/z/my-project/voice-typer/CONSTRAINTS.md — user-only file, no edits.
+- Read /home/z/my-project/voice-typer/AGENTS.md — user-only file, no edits.
 - Located target files via `grep -rln "mic-test\|transcription area\|MicrophoneTest\|TranscriptionPanel" voice_typer/client/src/renderer/src/` → identified pages/Microphone.tsx (mic-test) + pages/Home.tsx (transcription area) as the two UI surfaces to wire.
 - Studied useModelDownload.ts (the model for the new hook — consolidated state, usePythonEvent subscriptions, single setState per event).
 - Studied usePython.ts — confirmed usePythonEvent's two-overload signature (typed-first / string-second), bridge-agnostic via window.python + useBridgeReady polling. The hook works identically under Electron preload + Tauri bridge auto-install.
@@ -917,7 +917,7 @@ Skips:
 - SKIPPED: adding the i18n keys to en.json + the other 7 locale files — explicitly owned by Sub-agent 14 per the master task description. The `t()` function falls back to the key string when missing, so the UI shows "pack.preparingOfflineEngine" until Sub-agent 14 finishes. Tests mock `t()` to return the key, so they pass regardless.
 - SKIPPED: adding the 11 new event names (`pack_download_started`, `pack_download_progress`, `pack_download_completed`, `pack_download_failed`, `pack_verified`, `pack_missing`, `pack_corrupt`, `pack_ready`, `worker_started`, `worker_crashed`, `worker_unloaded`) to the `PythonPushEvent` union in `types/ipc/push_events.ts` + the `KNOWN_EVENT_TYPES` set in `hooks/usePython.ts` — explicitly owned by Sub-agent 8. The hook uses the second `string` overload of `usePythonEvent` (the documented forward-compat path), so it works at runtime regardless. A dev-time `console.warn` fires from `KNOWN_EVENT_TYPES` until Sub-agent 8 adds the 11 literals — this is the intended surfacing mechanism per the comment in `hooks/usePython.ts:845-861`.
 
-Needs user action on CONSTRAINTS.md: NONE for this slice. §8.4's note about C-DATA-1 (rule on allowed network calls — "model downloads" → "runtime asset downloads") is a constraint-rule change that the USER must make, but it's tied to the actual pack-download network code (owned by another sub-agent), not to the renderer UI slice.
+Needs user action on AGENTS.md: NONE for this slice. §8.4's note about C-DATA-1 (rule on allowed network calls — "model downloads" → "runtime asset downloads") is a constraint-rule change that the USER must make, but it's tied to the actual pack-download network code (owned by another sub-agent), not to the renderer UI slice.
 
 Interface assumptions for other agents:
 - Sub-agent 8 (IPC allowlists + PythonPushEvent union): please add the 11 event names listed above to (a) the `PythonPushEvent` union in `types/ipc/push_events.ts`, (b) the `KNOWN_EVENT_TYPES` set in `hooks/usePython.ts`, and (c) all 4 allowlists (Python `_COMMAND_REGISTRY`, TS `ALLOWED_COMMANDS`, Rust `allowed_commands()`, Rust `ALLOWED_EVENT_TYPES`). The wire shape for failure events should put the message under `data.error` (preferred) or `data.message` / `data.reason` — my hook accepts any of the three. The wire shape for `pack_corrupt` should use `data.reason` (preferred) — again, my hook falls back to `error` / `message`.
@@ -983,7 +983,7 @@ Skips:
 - SKIPPED: rewriting the existing parity tests (test_ipc_command_registry_sync.py / test_command_registry_parity.py / test_relaunch_event_name_parity.py / test_notification_event_name.py) — they were already green; the task spec said "keep them green, don't rewrite".
 - SKIPPED: JSON schema validation for the new event payloads — the task spec said "just string-literal allowlist entries". The TS interfaces pin the wire shape at the type level; runtime schema validation is owned by the worker-IPC sub-agent.
 
-Needs user action on CONSTRAINTS.md: NONE for this slice.
+Needs user action on AGENTS.md: NONE for this slice.
 
 Interface assumptions for other agents:
 - The handler stub `_handle_transcribe_offline` is referenced in `_COMMAND_REGISTRY` but NOT implemented in this slice — it lives on the worker-handlers mixin (owned by the worker-IPC sub-agent). Until that handler exists, the dispatcher will fall through to the `unknown_command` error path for any `transcribe_offline` call. The renderer allowlist + TS union + Rust allowlist + parity tests are all in place, so once the handler lands the wire path lights up end-to-end without further allowlist changes.
@@ -996,11 +996,11 @@ Test results:
 ---
 Task ID: 15
 Agent: Sub-agent 15 — Documentation sweep & constraints audit
-Task: Fix stale torch/jit/transformers claims in the 13 doc files flagged by master §3.3, update ADR-0005 to reflect the ONNX migration + hidden-state threading, fix the false "vad.py, silero_vad.jit — Unchanged" claim at ADR-0020:954, update docs/auto-update-feature.md from "NOT IMPLEMENTED" to reflect Sub-agent 13's actual implementation, verify the 5 doc-accuracy tests reflect the new state, and append the FINAL consolidated CONSTRAINTS.md needs-user-action list.
+Task: Fix stale torch/jit/transformers claims in the 13 doc files flagged by master §3.3, update ADR-0005 to reflect the ONNX migration + hidden-state threading, fix the false "vad.py, silero_vad.jit — Unchanged" claim at ADR-0020:954, update docs/auto-update-feature.md from "NOT IMPLEMENTED" to reflect Sub-agent 13's actual implementation, verify the 5 doc-accuracy tests reflect the new state, and append the FINAL consolidated AGENTS.md needs-user-action list.
 
 Work Log:
 - Read /home/z/my-project/upload/plan-runtime-pack-split.md §0 (corrections table) + §3.3 (13 doc files) in full.
-- Read /home/z/my-project/upload/PLAN_ONNX_INTEGRATION.md §2.6 (Documentation), §7.3 (Doc-accuracy tests), §7.4 (CONSTRAINTS.md rules), §9 (file changes summary) in full.
+- Read /home/z/my-project/upload/PLAN_ONNX_INTEGRATION.md §2.6 (Documentation), §7.3 (Doc-accuracy tests), §7.4 (AGENTS.md rules), §9 (file changes summary) in full.
 - Read /home/z/my-project/voice-typer/worklog.md in FULL (933 lines, 11 task entries present: IDs 0, 1, 2, 3, 5, 7, 9, 11, 12, 13, 14). NOTE: Sub-agents 4, 6, 8, 10 had NOT appended their sections at the time this sub-agent finished — their work is referenced indirectly via other sub-agents' "Interface assumptions" sections + the on-disk file state (e.g. Sub-agent 6's prewarm/__init__.py rewrite is visible, Sub-agent 8's tests/test_event_types_parity.py is visible at the tail of the worklog).
 - Verified the voice_typer package is installed in the sandbox venv via `pip install -e . --no-deps` (was missing — ModuleNotFoundError on first pytest run).
 - Ran the doc-stale-reference scan: `rg -l "torch|silero_vad\.jit|transformers" docs/` → 12 files. Filtered out the two plan files (docs/PLAN_ONNX_INTEGRATION.md, docs/plan-runtime-pack-split.md — intentional torch references in the migration plan itself). 10 doc files needed review.
@@ -1048,36 +1048,36 @@ Stage Summary:
   - `docs/migration/macos-validation-runbook.md` (already carries post-migration annotations).
   - `docs/migration/linux-validation-runbook.md` (already carries Historical note).
 - Tests: `pytest tests/test_api_doc_accuracy.py tests/test_architecture_doc_accuracy.py tests/test_doc_command_counts.py tests/test_security_doc_command_count.py tests/test_techdebt_todos_freshness.py --no-cov` → 45 passed, 1 skipped.
-- CONSTRAINTS.md: NOT EDITED (USER-ONLY per AGENTS.md L243). The consolidated needs-user-action list is appended below.
+- AGENTS.md: NOT EDITED (USER-ONLY per AGENTS.md L243). The consolidated needs-user-action list is appended below.
 
-## CONSTRAINTS.md — needs user action
+## AGENTS.md — needs user action
 
-The following CONSTRAINTS.md rules need user-only edits. Agents are forbidden from editing CONSTRAINTS.md (AGENTS.md L243). Each item lists the flagging sub-agent(s), the rule location, the rationale, and the exact action needed.
+The following AGENTS.md rules need user-only edits. Agents are forbidden from editing AGENTS.md (AGENTS.md L243). Each item lists the flagging sub-agent(s), the rule location, the rationale, and the exact action needed.
 
 ### 1. Retire C-CI-8 (the `--module-parameter=torch-disable-jit=no` rule)
 
 - **Flagged by:** Sub-agents 5, 12 (corroborated by Sub-agent 1).
-- **Rule location:** `CONSTRAINTS.md:148-153` (the rule + rationale mandating the Nuitka flag).
+- **Rule location:** `AGENTS.md:379-384` (the rule + rationale mandating the Nuitka flag).
 - **Rationale:** C-CI-8 protects the Nuitka bundle while torch is shipped (the flag disables torch's JIT compilation which would crash the frozen sidecar). Sub-agent 1 has migrated `voice_typer/server/vad.py` from `torch.jit.load(silero_vad.jit)` to `onnxruntime.InferenceSession(silero_vad.onnx)` — `vad.py` no longer imports torch or calls `torch.jit.load`. Sub-agent 5 has retired the flag from the 3 bash build scripts (`scripts/build/build_sidecar_{windows,linux,macos}.sh`) and updated `tests/tauri/test_config_script_drift.py` Pair 5 to FORBID the flag in the bash scripts. Sub-agent 12 retained the flag block in `.github/workflows/tauri-windows-build.yml:422-475, 517-535` (workflow YAML is "DO NOT BREAK" per AGENTS.md AND C-CI-8 still forbids removing it). With VAD on ORT, the flag is now a HARMLESS NO-OP in the workflow.
 - **Action needed (USER):**
-  1. Retire C-CI-8 in `CONSTRAINTS.md:148-153`.
+  1. Retire C-CI-8 in `AGENTS.md:379-384`.
   2. Remove the `--module-parameter=torch-disable-jit=no \` arg at `.github/workflows/tauri-windows-build.yml:469` + the NU-106 comment block at lines 433-448.
   3. Optionally clean up NU-106 references in the plan docs (`plan-runtime-pack-split.md` §3.3, §11.2; `PLAN_ONNX_INTEGRATION.md` §8.3 — see item 2 below).
 - **Side-effect:** Until C-CI-8 is retired, Sub-agent 12's sidecar size gate (≤185 MB) at `tauri-windows-build.yml` WILL FAIL on the torch-bearing sidecar (correct signal — do NOT weaken the threshold; the gate flips to PASSING once Phase 1c torch removal from the sidecar Nuitka invocation is verified by the user).
 
-### 2. Correct the NU-106 reference (it's an inline evidence tag, NOT a standalone CONSTRAINTS.md rule)
+### 2. Correct the NU-106 reference (it's an inline evidence tag, NOT a standalone AGENTS.md rule)
 
 - **Flagged by:** Sub-agent 12 (corroborated by Sub-agent 5).
-- **Reality:** NU-106 is NOT a CONSTRAINTS.md rule. It is an inline evidence tag (comment block) at `.github/workflows/tauri-windows-build.yml:433-448`, cited in C-CI-8's rationale. The plan documents reference "C-CI-8/NU-106" as if they were a compound rule — this is inaccurate.
+- **Reality:** NU-106 is NOT a AGENTS.md rule. It is an inline evidence tag (comment block) at `.github/workflows/tauri-windows-build.yml:433-448`, cited in C-CI-8's rationale. The plan documents reference "C-CI-8/NU-106" as if they were a compound rule — this is inaccurate.
 - **Action needed (USER):** When retiring C-CI-8 (item 1 above), also correct the NU-106 references:
   - In the plan docs: change "C-CI-8/NU-106" → "C-CI-8 (with NU-106 as the inline evidence tag in `tauri-windows-build.yml`)".
-  - In `CONSTRAINTS.md`: if NU-106 is mentioned in C-CI-8's rationale, rephrase as "the inline NU-106 evidence tag in `tauri-windows-build.yml` documents the Phase-1a flag retirement".
-  - Verified: `grep -n "CR-11" CONSTRAINTS.md` returns no matches (CR-11 is a separate stale reference — see item 5 below).
+  - In `AGENTS.md`: if NU-106 is mentioned in C-CI-8's rationale, rephrase as "the inline NU-106 evidence tag in `tauri-windows-build.yml` documents the Phase-1a flag retirement".
+  - Verified: `grep -n "CR-11" AGENTS.md` returns no matches (CR-11 is a separate stale reference — see item 5 below).
 
 ### 3. Update C-CI-11 (add the worker exe + full-offline installer to the code-signing enumeration)
 
 - **Flagged by:** Sub-agents 5, 11, 12.
-- **Rule location:** `CONSTRAINTS.md:170-173` (enumerates exactly 4 code-signing steps: sidecar+prewarm+native listener; NSIS; MSI; standalone `voice-typer-tauri.exe`).
+- **Rule location:** `AGENTS.md:401-404` (enumerates exactly 4 code-signing steps: sidecar+prewarm+native listener; NSIS; MSI; standalone `voice-typer-tauri.exe`).
 - **Rationale:** The runtime-pack worker exe (`voice-typer-worker-<triple>[.exe]`) is a NEW 5th binary that needs code-signing:
   - **Windows:** Sub-agent 12 extended the `Sign sidecar + prewarm + native listener` foreach loop at `tauri-windows-build.yml:620-624` with a 5th worker signing entry (conditional on `Test-Path` — skips with warning if worker absent).
   - **macOS:** Sub-agent 12 extended the `Codesign nested Mach-O binaries` BINARIES array with a new worker codesign loop (5th + 6th binary: aarch64 + x86_64 slices, conditional on file existence). Notarization is covered by the existing `.app`-level notarize+staple step (no separate notarization needed for nested binaries).
@@ -1095,7 +1095,7 @@ The following CONSTRAINTS.md rules need user-only edits. Agents are forbidden fr
 ### 4. Update C-DATA-1 (extend category (3) "model downloads" OR add category (4) for runtime pack downloads from GitHub Releases)
 
 - **Flagged by:** Sub-agents 7, 13, 14 (corroborated by Sub-agent 9).
-- **Rule location:** `CONSTRAINTS.md:209-213` (allows 3 categories of network calls: (1) cloud transcription / LLM providers, (2) auto-update, (3) model downloads from HuggingFace).
+- **Rule location:** `AGENTS.md:440-444` (allows 3 categories of network calls: (1) cloud transcription / LLM providers, (2) auto-update, (3) model downloads from HuggingFace).
 - **Rationale:** The runtime-pack downloader (Sub-agent 7's `voice_typer/server/service/pack.py::download_pack_with_resume` + Sub-agent 13's `voice_typer/server/service/update_check.py::check_pack_update`) phones home to GitHub Releases:
   - Manifest URL: `https://github.com/AbdallahIsDev/voice-typer/releases/latest/download/pack-manifest.json`
   - Pack onefile URL: `https://github.com/AbdallahIsDev/voice-typer/releases/download/v<version>/pack-<version>.zip`
@@ -1106,17 +1106,17 @@ The following CONSTRAINTS.md rules need user-only edits. Agents are forbidden fr
   - **Option B (add category 4):** Keep category (3) as-is and add a new category (4): "runtime pack downloads from GitHub Releases (consent-gated via `runtime_pack_consent`, NOT `huggingface_consent`; SSRF-defended via `pack.assert_pack_url_allowed`; max-bytes-capped via `_secure_read_text(max_bytes=MAX_MANIFEST_BYTES=1 MiB)`)".
 - **Until C-DATA-1 is updated:** The pack downloader is technically in violation of the constraint's letter (though not its spirit — it IS user-consented, NOT unsolicited phone-home). The SSRF defense + max-bytes cap + consent gate are all in place; only the constraint text lags.
 
-### 5. Note on the stale "CR-11" reference (documentation drift in the plan docs — NOT a CONSTRAINTS.md edit)
+### 5. Note on the stale "CR-11" reference (documentation drift in the plan docs — NOT a AGENTS.md edit)
 
 - **Flagged by:** Sub-agent 7.
-- **Reality:** The slice prompts and plan docs (§8.4, §9.3) reference "CR-11" as the consent-gate rule alongside C-DATA-1. CR-11 does NOT exist in `CONSTRAINTS.md` — verified via `grep -n "CR-11" CONSTRAINTS.md` returning no matches. The "CR-11" naming is leftover from the old `review.md` task tracker. The actual consent-gate rule in `CONSTRAINTS.md` is C-DATA-1.
-- **Action needed (USER):** No CONSTRAINTS.md edit needed (CR-11 is not there to begin with). When updating C-DATA-1 (item 4 above), be aware that "CR-11" in the plan docs = C-DATA-1 in CONSTRAINTS.md. Optionally clean up the plan docs to remove "CR-11" references.
+- **Reality:** The slice prompts and plan docs (§8.4, §9.3) reference "CR-11" as the consent-gate rule alongside C-DATA-1. CR-11 does NOT exist in `AGENTS.md` — verified via `grep -n "CR-11" AGENTS.md` returning no matches. The "CR-11" naming is leftover from the old `review.md` task tracker. The actual consent-gate rule in `AGENTS.md` is C-DATA-1.
+- **Action needed (USER):** No AGENTS.md edit needed (CR-11 is not there to begin with). When updating C-DATA-1 (item 4 above), be aware that "CR-11" in the plan docs = C-DATA-1 in AGENTS.md. Optionally clean up the plan docs to remove "CR-11" references.
 
-### 6. Note on the NSIS installer i18n gap for "Include offline engine pack" (NOT a CONSTRAINTS.md edit — flagged for awareness)
+### 6. Note on the NSIS installer i18n gap for "Include offline engine pack" (NOT a AGENTS.md edit — flagged for awareness)
 
 - **Flagged by:** Sub-agent 14.
 - **Reality:** The "Include offline engine pack" NSIS installer string (plan §9.3) is NOT covered by the renderer i18n JSON files. Sub-agent 11 added the LangString for English only (`scripts/windows/installer-hooks.nsh`). The 7 non-English NSIS language files are NOT yet created.
-- **Action needed (USER):** Optionally commission a separate installer-i18n story for NSIS `.nsh` language files in all 8 languages (ar/de/en/es/fr/hi/ru/zh). May also need a `BUILD_CONFIG_FILES` allowlist entry in `scripts/check_branding.py` if the installer text references "Voice Typer" literally. This is a documentation/i18n gap, not a CONSTRAINTS.md edit.
+- **Action needed (USER):** Optionally commission a separate installer-i18n story for NSIS `.nsh` language files in all 8 languages (ar/de/en/es/fr/hi/ru/zh). May also need a `BUILD_CONFIG_FILES` allowlist entry in `scripts/check_branding.py` if the installer text references "Voice Typer" literally. This is a documentation/i18n gap, not a AGENTS.md edit.
 
 ### 7. C-I18N-1 + C-BRAND-1 — NO action needed (compliance verified)
 
@@ -1135,8 +1135,8 @@ The following CONSTRAINTS.md rules need user-only edits. Agents are forbidden fr
 | 2 | NU-106 (inline tag, not a rule) | Correct the "C-CI-8/NU-106" compound reference in plan docs + C-CI-8's rationale | Sub-agent 12 |
 | 3 | C-CI-11 (lines 170-173) | Add worker exe + full-offline installer to the 4-binary enumeration (5 or 6 binaries total) | Sub-agents 5, 11, 12 |
 | 4 | C-DATA-1 (lines 209-213) | Extend category (3) "model downloads" → "runtime asset downloads" OR add category (4) for GitHub Releases pack downloads | Sub-agents 7, 13, 14 |
-| 5 | "CR-11" reference drift | No CONSTRAINTS.md edit; clean up plan docs to map "CR-11" → "C-DATA-1" | Sub-agent 7 |
-| 6 | NSIS installer i18n gap | No CONSTRAINTS.md edit; optionally commission NSIS `.nsh` language files for all 8 locales | Sub-agent 14 |
+| 5 | "CR-11" reference drift | No AGENTS.md edit; clean up plan docs to map "CR-11" → "C-DATA-1" | Sub-agent 7 |
+| 6 | NSIS installer i18n gap | No AGENTS.md edit; optionally commission NSIS `.nsh` language files for all 8 locales | Sub-agent 14 |
 | 7 | C-I18N-1 + C-BRAND-1 | NONE — compliance verified by Sub-agent 14 | Sub-agent 14 |
 
 
@@ -1148,7 +1148,7 @@ Task: Update `pyproject.toml` to declare `onnx-asr` + `onnxruntime` (Phase 1b/1a
 Work Log:
 - Read /home/z/my-project/upload/plan-runtime-pack-split.md §3.2–3.3 (torch-removal scope: project-dep/import only, no .venv / no `pip uninstall torch`), §11.7 (ratchet baselines need `--regenerate --force`).
 - Read /home/z/my-project/upload/PLAN_ONNX_INTEGRATION.md §9 (file-change summary), §7.2 (ratchet baselines — out of my ownership), §4.3 Option C-3 (Qwen deferral — torch + transformers stay until Phase 1d), §5.3 (declare onnxruntime explicitly because faster-whisper moves to the pack).
-- Read /home/z/my-project/voice-typer/CONSTRAINTS.md — C-CI-8 (torch Nuitka flag stays until Phase 1c verification), C-DATA-1 (network-call allowlist). User-only file; noted needed changes under "Needs user action" below.
+- Read /home/z/my-project/voice-typer/AGENTS.md — C-CI-8 (torch Nuitka flag stays until Phase 1c verification), C-DATA-1 (network-call allowlist). User-only file; noted needed changes under "Needs user action" below.
 - Read /home/z/my-project/voice-typer/worklog.md — Sub-agents 1 (VAD → ONNX, Phase 1a), 2 (Parakeet → onnx_asr, Phase 1b), 3 (asr_utils + torch sweep on transcription/resource_probe/diagnostics/scripts/conftest) have all landed. Sub-agent 3 confirmed `qwen_engine.py` still uses `import torch` at L161/187/354/974 (Phase 1d deferral).
 - Verified the torch-removal state via `grep -rn "^import torch\|^from torch" voice_typer/` → only `qwen_engine.py:161,187,354,974` remains (matches §3.2 "Phase 1c gate = zero hits except qwen_engine.py").
 - Verified `torch.jit.load` is gone from runtime code: `grep -rn "torch\.jit\.load\|torch\.jit\._serialization" voice_typer/` → 0 hits in runtime code (only `scripts/build/export_silero_vad_onnx.py:114` build-time script + comments in app.py / build scripts). The pytest filter is dead config.
@@ -1184,7 +1184,7 @@ Stage Summary:
 - Files NOT touched (out of ownership / per master-task instructions):
   - `coverage-baseline.json`, `mypy-baseline.json`, `pyrefly-baseline.json`, `ruff-baseline.json` — orchestrator's Phase 2 responsibility.
   - `tests/test_requirements_lock_completeness.py` — verified PASSING but NOT modified (out of ownership).
-  - `CONSTRAINTS.md` — USER-ONLY; no edits.
+  - `AGENTS.md` — USER-ONLY; no edits.
 - Test results:
   - `python -c "import voice_typer"` → ok.
   - `pytest --collect-only -q` → 13985 tests collected, 0 errors.
@@ -1192,7 +1192,7 @@ Stage Summary:
 - Skips:
   - SKIPPED: full `uv pip compile --generate-hashes --universal --python-version 3.13 pyproject.toml -o requirements-lock.txt` regen — requires network + resolver round-trip, and the orchestrator's Phase 2 step will do it anyway. The manual `onnx-asr==0.12.0` entry I added keeps the lockfile-completeness test green in the interim; `pip install --require-hashes -r requirements-lock.txt` will install onnx-asr 0.12.0 correctly on any Python 3.10–3.14 (universal wheel).
   - SKIPPED: ratchet baseline regeneration (`coverage-baseline.json`, `mypy-baseline.json`, `pyrefly-baseline.json`, `ruff-baseline.json`) — per master-task instruction, the orchestrator handles this in Phase 2 after all sub-agents have landed and the test suite is green. All 4 baselines are expected to IMPROVE (torch-specific ignores / noqa / type-errors go stale); `--force` flag is required.
-- Needs user action on CONSTRAINTS.md: NONE for this slice. The §7.4 / §11.7 CONSTRAINTS.md rule changes (C-CI-8/NU-106 torch Nuitka flag retirement, C-DATA-1 pack-download network-call allowlist extension) are tied to the actual pack-download code + Phase 1c verification (grep frozen bundle for torch → zero hits), not to the dependency-declaration slice. They are flagged for the orchestrator's Phase 2 "Needs user action on CONSTRAINTS.md" summary.
+- Needs user action on AGENTS.md: NONE for this slice. The §7.4 / §11.7 AGENTS.md rule changes (C-CI-8/NU-106 torch Nuitka flag retirement, C-DATA-1 pack-download network-call allowlist extension) are tied to the actual pack-download code + Phase 1c verification (grep frozen bundle for torch → zero hits), not to the dependency-declaration slice. They are flagged for the orchestrator's Phase 2 "Needs user action on AGENTS.md" summary.
 - Needs orchestrator action (Phase 2):
   - **`uv pip compile` regen** — run `uv pip compile --generate-hashes --universal --python-version 3.13 pyproject.toml -o requirements-lock.txt` to replace my manual `onnx-asr==0.12.0` entry with the full multi-platform / multi-Python hash set AND resolve any transitive deps that onnx-asr pulls in (e.g. `audio-metadata`, `jsonschema`). The manual entry I added has only the universal `py3-none-any` wheel hash.
   - **Ratchet baseline regeneration** — run all 4 with `--regenerate --force`:
@@ -1200,7 +1200,7 @@ Stage Summary:
     - `mypy voice_typer/` → write `mypy-baseline.json` (torch-specific `transformers.*` overrides at `pyproject.toml:791` go stale; the override itself stays until Phase 1d when transformers is dropped).
     - `pyrefly check voice_typer/` → write `pyrefly-baseline.json` (14+ entries for parakeet/qwen/prewarm go stale after Sub-agents 1/2/3's rewrites).
     - `ruff check voice_typer/` → write `ruff-baseline.json` (torch-specific noqa comments go stale).
-  - **CONSTRAINTS.md rule updates** (USER-ONLY — flag in the Phase 2 summary):
+  - **AGENTS.md rule updates** (USER-ONLY — flag in the Phase 2 summary):
     - C-CI-8 / NU-106: retire after Phase 1c verification (grep frozen bundle for torch → zero hits). NOTE: Phase 1c is NOT total — qwen_engine.py still uses torch per §4.3 Option C-3 deferral. C-CI-8 retirement requires Phase 1d completion (Qwen → ONNX) — NOT Phase 1c.
     - C-DATA-1: extend category (3) "model downloads" → "runtime asset downloads" or add category (4) for GitHub Releases pack downloads (companion plan §4.8 + §8.4).
 - Interface assumptions for other agents: NONE. My slice is purely declarative (pyproject.toml + requirements-lock.txt). The runtime code (vad.py / parakeet_engine.py / qwen_engine.py) already imports onnxruntime + onnx_asr via `try/except ImportError` guards, so the new pyproject.toml declarations don't change runtime behavior — they only ensure `pip install voice-typer` from sdist + the slim-core pack include these deps.
@@ -1290,5 +1290,5 @@ Stage Summary:
 - Tests added: ~30+ Rust unit tests across `worker_path_tests.rs`, `state_tests.rs`, `spawn_tests.rs`, `sidecar_cmds_tests.rs`.
 - Tests run / result: Sub-agent did not complete `cargo test` verification before hitting max-turns limit. Orchestrator's Phase 2 will run `cargo check` + `cargo test worker_path` + `cargo test spawn`. NOTE: `cargo check` could not be run by orchestrator either due to disk space constraints (cargo target dir consumed 2.8 GB; cleaned up). CI will verify compilation.
 - Skips: Full worker spawn implementation is STUBBED — requires the worker exe (built by Sub-agent 5's `build_worker_*.sh` scripts) to exist + the pack downloader (Sub-agent 7) to be wired. The stubs are intentional and documented in `spawn.rs` doc-comments.
-- Needs user action on CONSTRAINTS.md: None directly. C-CI-11 (5th binary for worker signing) is flagged by Sub-agents 5, 11, 12.
+- Needs user action on AGENTS.md: None directly. C-CI-11 (5th binary for worker signing) is flagged by Sub-agents 5, 11, 12.
 - Interface assumptions: `worker_path::worker_exe_path()` returns `Result<PathBuf, String>` (Err on unresolved env vars or missing pack version). `WorkerState` is a struct parallel to `SidecarState` with `ws_tx`, `heartbeat_task`, `pending_requests`, `respawn_in_progress` fields (all stubbed). The worker exe name follows the pattern `voice-typer-worker-<triple>[.exe]` — Sub-agent 5's build scripts produce binaries with this name.

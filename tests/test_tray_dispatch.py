@@ -14,7 +14,7 @@ Covers the compound tray fix that unblocks the Tauri tray runtime:
     ``server.unknown_tray_item`` error envelope).
 
 (c) The Tauri-side ``build_tray_menu_model`` does NOT emit a
-    ``repaste_last`` item — CONSTRAINTS.md C-TRAY-1 forbids that entry
+    ``repaste_last`` item — AGENTS.md C-TRAY-1 forbids that entry
     on both runtimes. The pystray-side ``build_menu_for_tray`` already
     omitted it; this test pins the parity so a future re-introduction
     on the Tauri path is caught at CI time.
@@ -210,7 +210,7 @@ class TestDispatchTrayActionRouting:
 
 
 class TestNoRepasteLastInTauriMenuModel:
-    """C-TRAY-1 in CONSTRAINTS.md forbids a 'Repaste Last' tray item.
+    """C-TRAY-1 in AGENTS.md forbids a 'Repaste Last' tray item.
 
     The pystray-side builder (``build_menu_for_tray``) already omits it.
     This test pins the Tauri-side builder (``build_tray_menu_model``) so
@@ -230,7 +230,7 @@ class TestNoRepasteLastInTauriMenuModel:
         ids = {item["id"] for item in model if not item["separator"]}
         assert "repaste_last" not in ids, (
             "C-TRAY-1 violation: 'repaste_last' must NOT appear in the "
-            "Tauri tray menu model — CONSTRAINTS.md forbids a 'Repaste "
+            "Tauri tray menu model — AGENTS.md forbids a 'Repaste "
             "Last transcription' button on both runtimes."
         )
 

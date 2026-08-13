@@ -48,7 +48,7 @@ S10-CC-1, CRIT-7, TX-23, TX-24, TX-40, WR-17, XS-28, MIG-1.5).
 **Do NOT edit these workflows as a first-line fix for a failing build.**
 Diagnose the root cause; any genuinely required workflow change must be
 validated by a full re-run and confirmed with the user. The rules below are
-binding — full rationale for each is in `CONSTRAINTS.md` `C-CI-2`–`C-CI-15`:
+binding — full rationale for each is in the `Hard "Don'ts"` section of this file (`C-CI-2`–`C-CI-15`):
 
 - **Never cut `timeout-minutes: 240`** (C-CI-3) — real build takes 90-110
   min; it was raised twice after a 120-min ceiling canceled a build mid-way.
@@ -229,18 +229,18 @@ relevant `CONTRIBUTING.md` section (or, for tags not covered by
 CONTRIBUTING.md, to a brief rationale comment at the tag's first
 occurrence).
 
-# CONSTRAINTS.md — Hard "Don'ts" (HIGHEST PRIORITY)
+# Hard "Don'ts" (HIGHEST PRIORITY)
 
-> This file is the **single source of truth for things the agents must NOT do**, even when those things would "improve" the project. Every rule here is a HARD CONSTRAINT that overrides:
+> This section is the **single source of truth for things the agents must NOT do**, even when those things would "improve" the project. Every rule here is a HARD CONSTRAINT that overrides:
 > - `PROMPT.md` (cloud agent) — including `## Current Tasks`, `## Execution TODOs`, `review.md` entries, and any "would-improve" idea.
 > - `MERGE-SESSIONS.md` (cloud merge agent) — including "the better-implemented version wins".
 > - `VERIFY.md` (local verifier) — the verifier flags any change that violates a rule here.
 > - `TRIVIAL-FIXES.md`, `SERIOUS-FIXES.md`, `PUSH.md` (local fixer / documenter / committer) — all respect these rules.
 > - Every sub-agent launched by the orchestrator — the orchestrator MUST embed the relevant rules into each sub-agent's prompt.
 >
-> If a `review.md` task, a sub-agent finding, or an "improvement" idea conflicts with a rule here, the agent MUST SKIP the work and record the skip in `worklog.md` with the conflicting rule cited. CONSTRAINTS.md is the ONLY file that can forbid work that would otherwise look like an improvement.
+> If a `review.md` task, a sub-agent finding, or an "improvement" idea conflicts with a rule here, the agent MUST SKIP the work and record the skip in `worklog.md` with the conflicting rule cited. This section of `AGENTS.md` is the ONLY authority that can forbid work that would otherwise look like an improvement.
 >
-> **The user is the only one who can edit this file.** Agents must NOT add, modify, or delete rules here. If an agent believes a rule should be added or removed, it should RECOMMEND the change in `worklog.md` (or in the chat report) and let the user decide.
+> **The user is the only one who can edit these rules.** Agents must NOT add, modify, or delete rules here. If an agent believes a rule should be added or removed, it should RECOMMEND the change in `worklog.md` (or in the chat report) and let the user decide.
 
 ---
 
@@ -544,7 +544,7 @@ Applies to: <all agents / specific agents / specific modes>
 When an agent skips work due to a constraint, the skip is recorded in `worklog.md` (cloud agent) or in the chat report (local agent) with the format:
 
 ```
-SKIPPED: <task ID or finding ID> — conflicts with CONSTRAINTS.md: <C-ID> (<one-line rule summary>)
+SKIPPED: <task ID or finding ID> — conflicts with AGENTS.md `Hard "Don'ts"`: <C-ID> (<one-line rule summary>)
 ```
 
 The user can `grep` `worklog.md` for `SKIPPED:` to see every constraint-driven skip across sessions. This audit trail is essential for understanding why work was deferred — and for deciding whether a constraint should be relaxed in the future.
@@ -553,4 +553,4 @@ The user can `grep` `worklog.md` for `SKIPPED:` to see every constraint-driven s
 
 ## Final note
 
-This file is intentionally spare — the user fills it in over time as they discover areas where the cloud agent's "improvements" would damage the project's intent. Every rule here was added because a cloud agent (or a session in a merge) previously did the prohibited thing and the user had to revert it. Adding a rule here prevents the next agent from repeating the mistake.
+This section is intentionally spare — the user fills it in over time as they discover areas where the cloud agent's "improvements" would damage the project's intent. Every rule here was added because a cloud agent (or a session in a merge) previously did the prohibited thing and the user had to revert it. Adding a rule here prevents the next agent from repeating the mistake.

@@ -254,7 +254,7 @@ def build_tray_menu_model(
 
     Mirrors the structure of :func:`build_menu_for_tray` (the pystray
     builder) so both runtimes render the same item set — single source
-    of truth for the menu structure. Per C-TRAY-1 in CONSTRAINTS.md,
+    of truth for the menu structure. Per C-TRAY-1 in AGENTS.md,
     no "re-paste last transcription" item is emitted on either
     runtime; the controller's re-paste method remains available to
     the renderer's Undo button but is NOT surfaced in the tray menu.

@@ -12,7 +12,7 @@ AND produce a verified green matrix.
 1. In your FIRST message, dispatch **20 sub-agents in parallel** (round 1 used 15;
    more parallelism = more progress). Partition the work per the workstreams below.
 2. Every sub-agent prompt MUST include:
-   - Read `AGENTS.md` + `CONSTRAINTS.md` first; CONSTRAINTS.md rules are binding
+   - Read `AGENTS.md` first — its `Hard "Don'ts"` section (L232-556) is binding
      (C-CI-1..15: NEVER edit the `tauri-*.yml` workflows as a first-line fix;
      keep Node-24 action pins, `nuitka==2.8.10`, `timeout-minutes: 240`,
      `CLCACHE_DISABLE: "1"`, signing gates, artifact names, smoke-test pattern).

@@ -157,7 +157,7 @@ function useNetworkOnline(): UseNetworkOnlineResult
 ────────────────────────────────────────────────────────────────────────────────
 ## C-DATA-1 constraint (Needs user action)
 
-`CONSTRAINTS.md` rule **C-DATA-1** currently allows 3 categories of
+`AGENTS.md` rule **C-DATA-1** currently allows 3 categories of
 network calls: (1) cloud transcription / LLM providers, (2) auto-update
 — "Check for Updates" / silent update check against the GitHub API, (3)
 model downloads. The pack download from GitHub Releases is NOT covered
@@ -169,9 +169,9 @@ The USER must either:
   pack onefile), OR
 - Add category (4) "runtime pack downloads from GitHub Releases".
 
-Agents cannot edit `CONSTRAINTS.md` (CONSTRAINTS.md L12 + AGENTS.md
-L243). This rule change is recorded in `worklog.md` under the
-consolidated "CONSTRAINTS.md — needs user action" section.
+Agents cannot edit the `Hard "Don'ts"` rules in `AGENTS.md` (AGENTS.md L243).
+This rule change is recorded in `worklog.md` under the
+consolidated "AGENTS.md — needs user action" section.
 
 ────────────────────────────────────────────────────────────────────────────────
 ## Wiring NOT yet done (Integration debt)

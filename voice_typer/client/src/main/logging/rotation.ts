@@ -138,7 +138,7 @@ export function recordLoggingFailure(
  * NOT wired to an IPC handler yet — kept as a plain exported function
  * so the orchestrator can wire it later (e.g. a `logging:get-health`
  * IPC handler in `ipc/window-handlers.ts`). Offline-app compliant
- * (CONSTRAINTS.md C-DATA-1) — never phones home, never writes to disk.
+ * (AGENTS.md C-DATA-1) — never phones home, never writes to disk.
  */
 export function getLoggingHealth(): LoggingFailureEntry[] {
 	return [...LOGGING_FAILURE_RING];

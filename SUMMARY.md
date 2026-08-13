@@ -130,17 +130,17 @@
 
 ## Remaining Work
 
-### Needs USER action on CONSTRAINTS.md (consolidated)
+### Needs USER action on AGENTS.md (consolidated)
 
-1. **Retire C-CI-8** — the rule mandating `--module-parameter=torch-disable-jit=no` to protect the Nuitka bundle while torch is shipped. VAD no longer uses torch; the flag is retired in the build scripts (Sub-agent 5) but still present in `.github/workflows/tauri-windows-build.yml:469` because the workflow is "DO NOT BREAK" (AGENTS.md). User must retire C-CI-8 in CONSTRAINTS.md, then a follow-up agent can remove the workflow line.
+1. **Retire C-CI-8** — the rule mandating `--module-parameter=torch-disable-jit=no` to protect the Nuitka bundle while torch is shipped. VAD no longer uses torch; the flag is retired in the build scripts (Sub-agent 5) but still present in `.github/workflows/tauri-windows-build.yml:469` because the workflow is "DO NOT BREAK" (AGENTS.md). User must retire C-CI-8 in AGENTS.md, then a follow-up agent can remove the workflow line.
 
-2. **Correct NU-106 reference** — NU-106 is an inline evidence tag in the workflow YAML + build scripts, NOT a standalone CONSTRAINTS.md rule. It's cited in C-CI-8's rationale. The plan docs (§11.1) clarify this; the CONSTRAINTS.md C-CI-8 rationale should be updated to reflect that NU-106 is the evidence tag, not a separate rule.
+2. **Correct NU-106 reference** — NU-106 is an inline evidence tag in the workflow YAML + build scripts, NOT a standalone AGENTS.md rule. It's cited in C-CI-8's rationale. The plan docs (§11.1) clarify this; the AGENTS.md C-CI-8 rationale should be updated to reflect that NU-106 is the evidence tag, not a separate rule.
 
 3. **Update C-CI-11** — currently enumerates 4 code-signing steps (sidecar+prewarm+native listener; NSIS; MSI; standalone exe). The worker exe (Sub-agent 5) is a 5th binary. The full-offline installer (Sub-agent 11) is a 6th. User must update C-CI-11 to enumerate the new binaries.
 
 4. **Update C-DATA-1** — currently allows 3 categories of network calls (update checks, cloud transcription, model downloads). The pack download from GitHub Releases (Sub-agent 7) + the auto-update check (Sub-agent 13) are NOT covered. User must extend category (3) → "runtime asset downloads" OR add category (4) for pack downloads from GitHub Releases (consent-gated via `runtime_pack_consent`, NOT `huggingface_consent`).
 
-5. **CR-11 reference drift** — the slice prompt's "CR-11" reference is documentation drift. CR-11 does NOT exist in CONSTRAINTS.md; the actual consent-gate rule is C-DATA-1. No CONSTRAINTS.md edit needed; clean up plan docs to map "CR-11" → "C-DATA-1".
+5. **CR-11 reference drift** — the slice prompt's "CR-11" reference is documentation drift. CR-11 does NOT exist in AGENTS.md; the actual consent-gate rule is C-DATA-1. No AGENTS.md edit needed; clean up plan docs to map "CR-11" → "C-DATA-1".
 
 6. **NSIS installer i18n gap** — the "Include offline engine pack" NSIS string (Sub-agent 11) is NOT covered by renderer i18n parity. Optional: commission NSIS `.nsh` language files for 8 locales.
 
@@ -178,8 +178,8 @@
 
 ⭐ **Run `python scripts/build/export_silero_vad_onnx.py` on a torch-equipped machine and commit `voice_typer/server/silero_vad.onnx`** — this is the single biggest blocker. Without the .onnx file, VAD cannot run in the shipped app.
 
-1. **Retire C-CI-8 in CONSTRAINTS.md** and remove the `--module-parameter=torch-disable-jit=no` flag block from `.github/workflows/tauri-windows-build.yml:469`.
-2. **Update C-CI-11, C-DATA-1 in CONSTRAINTS.md** per the consolidated list above.
+1. **Retire C-CI-8 in AGENTS.md** and remove the `--module-parameter=torch-disable-jit=no` flag block from `.github/workflows/tauri-windows-build.yml:469`.
+2. **Update C-CI-11, C-DATA-1 in AGENTS.md** per the consolidated list above.
 3. **Regenerate `requirements-lock.txt`** via `uv pip compile pyproject.toml -o requirements-lock.txt`.
 4. **Regenerate ratchet baselines** via `scripts/coverage_ratchet_check.py --regenerate --force` (and equivalent for mypy/pyrefly/ruff).
 5. **Rewrite the existing torch-based parakeet tests** (`test_parakeet_engine.py` etc.) to use the new ORT backend.
@@ -210,9 +210,9 @@
 - No sub-agent touched `.venv`/virtualenvs/conda envs.
 - No sub-agent deleted torch caches (`~/.cache/torch`, `~/.cache/huggingface`).
 - No sub-agent modified anything outside the repository tree.
-- No sub-agent edited `CONSTRAINTS.md`.
+- No sub-agent edited `AGENTS.md`.
 - The user's installed torch (CPU + GPU) is fully intact.
 
 ## Worklog
 
-The full 15-section worklog + orchestrator Phase 2 summary is at `/home/z/my-project/voice-typer/worklog.md` (1294 lines). The final consolidated `## CONSTRAINTS.md — needs user action` section is at the bottom.
+The full 15-section worklog + orchestrator Phase 2 summary is at `/home/z/my-project/voice-typer/worklog.md` (1294 lines). The final consolidated `## AGENTS.md — needs user action` section is at the bottom.

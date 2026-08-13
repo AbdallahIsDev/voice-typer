@@ -15,7 +15,7 @@ All externals are mocked:
 - ``torch.cuda.*`` — GPU memory probe
 - ``ctypes.windll`` — Windows RAM fallback (when ``psutil`` is unavailable)
 
-CONSTRAINTS.md C-DATA-1: the probe performs NO network calls — all
+AGENTS.md C-DATA-1: the probe performs NO network calls — all
 mocks here are for in-process local-system probes.
 """
 

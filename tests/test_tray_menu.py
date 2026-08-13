@@ -476,12 +476,8 @@ class TestQwenTrayAvailabilityAlignsWithModelsPage:
         import sys
 
         with patch.dict(sys.modules, {"qwen_asr": MagicMock()}):
-            downloaded = self._qwen_downloaded_flag(
-                tmp_path, self._make_config(qwen_model_path=None)
-            )
-        assert downloaded is False, (
-            "qwen_asr importable must NOT make Qwen selectable without weights on disk"
-        )
+            downloaded = self._qwen_downloaded_flag(tmp_path, self._make_config(qwen_model_path=None))
+        assert downloaded is False, "qwen_asr importable must NOT make Qwen selectable without weights on disk"
 
     def test_visible_when_model_path_points_at_existing_dir(self, tmp_path):
         """``qwen_model_path`` pointing at an existing directory → Qwen
@@ -491,9 +487,7 @@ class TestQwenTrayAvailabilityAlignsWithModelsPage:
         model_dir = tmp_path / "qwen-weights"
         model_dir.mkdir()
         with patch.dict(sys.modules, {"qwen_asr": MagicMock()}):
-            downloaded = self._qwen_downloaded_flag(
-                tmp_path, self._make_config(qwen_model_path=str(model_dir))
-            )
+            downloaded = self._qwen_downloaded_flag(tmp_path, self._make_config(qwen_model_path=str(model_dir)))
         assert downloaded is True
 
     def test_visible_when_hf_cache_holds_repo(self, tmp_path):
@@ -501,20 +495,11 @@ class TestQwenTrayAvailabilityAlignsWithModelsPage:
         (matches ``_compute_model_status``'s ``qwen_in_cache``)."""
         import sys
 
-        ref_file = (
-            tmp_path
-            / "huggingface"
-            / "hub"
-            / "models--Qwen--Qwen-Audio"
-            / "refs"
-            / "main"
-        )
+        ref_file = tmp_path / "huggingface" / "hub" / "models--Qwen--Qwen-Audio" / "refs" / "main"
         ref_file.parent.mkdir(parents=True)
         ref_file.write_text("main", encoding="utf-8")
         with patch.dict(sys.modules, {"qwen_asr": MagicMock()}):
-            downloaded = self._qwen_downloaded_flag(
-                tmp_path, self._make_config(qwen_model_path=None)
-            )
+            downloaded = self._qwen_downloaded_flag(tmp_path, self._make_config(qwen_model_path=None))
         assert downloaded is True
 
     def test_hidden_when_weights_present_but_qwen_asr_missing(self, tmp_path):
@@ -528,9 +513,7 @@ class TestQwenTrayAvailabilityAlignsWithModelsPage:
         sys.modules.pop("qwen_asr", None)
         try:
             with patch.dict(sys.modules, {"qwen_asr": None}):
-                downloaded = self._qwen_downloaded_flag(
-                    tmp_path, self._make_config(qwen_model_path=str(model_dir))
-                )
+                downloaded = self._qwen_downloaded_flag(tmp_path, self._make_config(qwen_model_path=str(model_dir)))
         finally:
             if original is not None:
                 sys.modules["qwen_asr"] = original
@@ -558,6 +541,4 @@ class TestQwenTrayAvailabilityAlignsWithModelsPage:
                 config_provider=None,
             )
         qwen_row = next(row for row in data if row[0] == "qwen")
-        assert qwen_row[1] is True, (
-            "qwen_model_path from config.json must count as downloaded for the tray"
-        )
+        assert qwen_row[1] is True, "qwen_model_path from config.json must count as downloaded for the tray"

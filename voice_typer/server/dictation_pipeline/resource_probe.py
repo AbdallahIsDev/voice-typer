@@ -17,7 +17,7 @@ the package's surface is self-contained (the split plan lists
 ``dictation_pipeline/resource_probe.py`` as a sibling helper even
 though the body lives one directory up).
 
-CONSTRAINTS.md C-DATA-1: the probe performs NO network calls — it only
+AGENTS.md C-DATA-1: the probe performs NO network calls — it only
 reads local system state via ``psutil.virtual_memory`` /
 ``shutil.disk_usage`` / ``os.statvfs`` / ``ctypes.windll.kernel32.GlobalMemoryStatusEx``
 / ``torch.cuda.memory_*``.

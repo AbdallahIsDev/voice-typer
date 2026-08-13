@@ -342,7 +342,7 @@ describe("QV-25: owned files contain no task-ID / session-prefix comments", () =
 	];
 
 	// Known task-ID / session-prefix tokens that MUST NOT appear in source
-	// comments (per CONSTRAINTS.md C-STYLE-1). The list is intentionally
+	// comments (per AGENTS.md C-STYLE-1). The list is intentionally
 	// non-exhaustive — it covers the prefixes that were previously
 	// scattered across these files.
 	const FORBIDDEN_TOKENS = [

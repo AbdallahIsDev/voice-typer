@@ -80,7 +80,7 @@ def test_build_tray_menu_model_returns_well_formed_items():
 def test_build_tray_menu_model_top_level_ids_present():
     """Stable top-level ids the host relies on are present.
 
-    Per C-TRAY-1 in CONSTRAINTS.md, ``repaste_last`` MUST NOT appear
+    Per C-TRAY-1 in AGENTS.md, ``repaste_last`` MUST NOT appear
     in the tray menu model — the constraint forbids that item on both
     runtimes. This test now asserts its absence (regression guard).
     """

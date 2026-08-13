@@ -995,7 +995,7 @@ class TestReverseDnsIdentifierNamespace:
       (credential_store.py) — keyring migration sources (migrated once,
       then deleted).
     - ``Local\\VoiceTyperSingleInstance`` mutex (single_instance.py) —
-      internal OS/API identifier; CONSTRAINTS.md explicitly permits
+      internal OS/API identifier; AGENTS.md explicitly permits
       internal identifiers to keep their names. Same for the
       ``VoiceTyper.exe`` installer binary name.
     - Sweep/cleanup strings that MUST match both forms: the
@@ -1085,13 +1085,13 @@ class TestReverseDnsIdentifierNamespace:
         )
 
     def test_single_instance_mutex_keeps_its_bare_name(self) -> None:
-        """CONSTRAINTS.md boundary: the mutex is an internal OS/API
+        """AGENTS.md boundary: the mutex is an internal OS/API
         identifier, explicitly permitted to keep the bare name — flagging
         a rename in EITHER direction (to or from bare) is intentional."""
         text = (PROJECT_ROOT / "voice_typer/server/single_instance.py").read_text(encoding="utf-8")
         assert "VoiceTyperSingleInstance" in text, (
             "single_instance.py must keep the 'VoiceTyperSingleInstance' "
-            "mutex name (internal OS/API identifier — CONSTRAINTS.md "
+            "mutex name (internal OS/API identifier — AGENTS.md "
             "explicitly permits bare internal identifiers)."
         )
         assert "com.voicetyper" not in text, (

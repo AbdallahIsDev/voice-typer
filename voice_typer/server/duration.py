@@ -1,6 +1,6 @@
 """Duration formatting for log lines.
 
-Project-wide log convention (``CONSTRAINTS.md`` C-LOG-2): every
+Project-wide log convention (``AGENTS.md`` C-LOG-2): every
 lifecycle-completion log line ends with a ``_<duration>`` suffix so
 performance is measurable at a glance — ``_2.3s`` for sub-minute
 durations, ``_1m 2.3s`` for anything longer.

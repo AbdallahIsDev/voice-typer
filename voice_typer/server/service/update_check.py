@@ -41,10 +41,10 @@ Security inheritance (per §10.1):
     be consent-gated (§8.4 / C-DATA-1).
 
 C-DATA-1 NOTE: Pack download from GitHub Releases is NOT covered by the
-existing 3 network-call categories in CONSTRAINTS.md (update checks,
+existing 3 network-call categories in AGENTS.md (update checks,
 cloud transcription, model downloads). The USER must extend category (3)
 → "runtime asset downloads" or add category (4). Agents cannot edit
-CONSTRAINTS.md.
+AGENTS.md.
 
 Public API:
   * :data:`UpdateCheckResult` — TypedDict returned by
@@ -73,6 +73,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os as _os
 import threading
 import urllib.request
 from pathlib import Path
@@ -108,13 +109,10 @@ log = logging.getLogger(__name__)
 # users can override via the ``VT_PACK_MANIFEST_URL`` env var (mirrors
 # the ``VT_PACK_ROOT`` override in ``pack._default_pack_root``). Tests
 # inject ``manifest_url=`` directly.
-import os as _os
-
 _DEFAULT_REPO_OWNER = "AbdallahIsDev"
 _DEFAULT_REPO_NAME = "voice-typer"
 DEFAULT_PACK_MANIFEST_URL = (
-    f"https://github.com/{_DEFAULT_REPO_OWNER}/{_DEFAULT_REPO_NAME}"
-    "/releases/latest/download/pack-manifest.json"
+    f"https://github.com/{_DEFAULT_REPO_OWNER}/{_DEFAULT_REPO_NAME}/releases/latest/download/pack-manifest.json"
 )
 
 
@@ -367,9 +365,7 @@ def fetch_remote_manifest(
     # vocabulary / templates reads (defense-in-depth).
     import tempfile
 
-    with tempfile.NamedTemporaryFile(
-        mode="wb", suffix=".json", delete=False
-    ) as tmp:
+    with tempfile.NamedTemporaryFile(mode="wb", suffix=".json", delete=False) as tmp:
         tmp.write(body.encode("utf-8", errors="replace"))
         tmp_path = Path(tmp.name)
     try:
@@ -414,9 +410,8 @@ def _local_pack_version(root: Path | None = None) -> str | None:
                 continue
             version = entry.name
             try:
-                if pack.pack_exists(version, root=root):
-                    if best is None or is_newer_version(version, best):
-                        best = version
+                if pack.pack_exists(version, root=root) and (best is None or is_newer_version(version, best)):
+                    best = version
             except Exception:  # noqa: BLE001 — defensive: a single corrupt dir must not abort the scan
                 log.debug("[UPDATE] pack_exists check failed for %s", version, exc_info=True)
     except OSError:
@@ -591,9 +586,7 @@ def check_pack_update(
         }
 
     remote_version = remote_manifest["version"]
-    update_available = (
-        local_version is None or is_newer_version(remote_version, local_version)
-    )
+    update_available = local_version is None or is_newer_version(remote_version, local_version)
 
     result: UpdateCheckResult = {
         "success": True,

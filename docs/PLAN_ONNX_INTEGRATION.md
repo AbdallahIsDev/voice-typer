@@ -47,7 +47,7 @@
 >
 > If an agent believes an environment change (e.g. uninstalling torch to
 > reclaim disk, or `pip`-failing because torch is still present) is necessary,
-> that is a **skip**: record it in `worklog.md` per the CONSTRAINTS.md
+> that is a **skip**: record it in `worklog.md` per the AGENTS.md
 > audit-trail format and leave the environment alone.
 
 ---
@@ -854,10 +854,10 @@ updated in lockstep with the code:
 
 Update the corresponding docs in the same PR as the code changes.
 
-### 7.4 CONSTRAINTS.md rules that need USER action
+### 7.4 AGENTS.md rules that need USER action
 
-The following CONSTRAINTS.md rules are touched by this plan. **Agents may not
-edit CONSTRAINTS.md** (CONSTRAINTS.md L12 + AGENTS.md L243). The user must
+The following AGENTS.md rules are touched by this plan. **Agents may not
+edit the `Hard "Don'ts"` section of AGENTS.md** (AGENTS.md L243). The user must
 make these changes after the migration is verified:
 
 | Rule | What it says | Action needed |
@@ -870,10 +870,10 @@ make these changes after the migration is verified:
 
 ### 7.5 AGENTS.md rules
 
-`AGENTS.md` (557 lines) embeds CONSTRAINTS.md verbatim. No AGENTS.md rule
+`AGENTS.md` (557 lines) embeds AGENTS.md verbatim. No AGENTS.md rule
 blocks this plan, but the plan must respect:
 
-- "Agents may never edit CONSTRAINTS.md" (L243).
+- "Agents may never edit AGENTS.md" (L243).
 - The full dev-loop guidance (plan → execute → verify → commit).
 
 ### 7.6 The hidden 4th allowlist
@@ -930,7 +930,7 @@ If Option C-3 (defer Qwen) is chosen, the gate is:
 - `scripts/diagnostics.py:175-199` updated.
 - All 4 ratchet baselines regenerated.
 - Doc-accuracy tests updated.
-- CONSTRAINTS.md rule C-CI-8/NU-106 retired by the user.
+- AGENTS.md rule C-CI-8/NU-106 retired by the user.
 
 ### 8.4 Phase 1d (Qwen → ONNX) gate — new
 
@@ -967,7 +967,7 @@ claim is honestly scoped to "total except Qwen."
 | **NEW** | `tests/test_parakeet_onnx_*.py` (5 files) | 1b |
 | **MODIFY** | `tests/conftest.py` (strip VAD torch mocks; keep for Qwen) | 1a/1c |
 | **MODIFY** | `docs/adr/0005-silero-vad.md`, `docs/adr/0020-desktop-runtime-migration-analysis.md` | 1a |
-| **USER-ONLY** | `CONSTRAINTS.md` (retire C-CI-8/NU-106; update C-CI-11, C-DATA-1) | 1c |
+| **USER-ONLY** | `AGENTS.md` (retire C-CI-8/NU-106; update C-CI-11, C-DATA-1) | 1c |
 
 ---
 
