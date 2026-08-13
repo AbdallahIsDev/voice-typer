@@ -147,17 +147,50 @@ dependencies = [
     # DEP-CLEAN: accelerate removed — nothing under voice_typer/ imports it
     # (verified by grep). It previously only pulled torch in transitively;
     # torch is now declared directly below.
-    # torch is imported directly by 8 server modules
-    # (vad.py, transcription.py, dictation_pipeline.py, crash_recovery.py,
-    # parakeet_engine.py, audio_filters/noise_suppressor.py, prewarm/).
-    # Previously torch was pulled in transitively via ``accelerate`` and
-    # not declared as a direct dep — meaning a future accelerate release
-    # that drops the hard torch dep would silently break the default
-    # Silero VAD path.  Also, the Nuitka build scripts now pass
-    # ``--include-package=torch`` (HIGH-34) so the frozen sidecar
-    # bundles torch's native runtime; declaring it here ensures
-    # ``pip install voice-typer`` from sdist also pulls it in.
+    # Phase 1c (2026-XX-XX): VAD + Parakeet + 7 supporting modules have
+    # been migrated to ONNX Runtime (vad.py, parakeet_engine.py,
+    # transcription.py, asr_utils.py, resource_probe.py,
+    # diagnostics_export.py, scripts/diagnostics.py, prewarm/*). torch is
+    # now imported ONLY by qwen_engine.py (verified via
+    # `grep -rn "^import torch\|^from torch" voice_typer/`). Per the
+    # PLAN_ONNX_INTEGRATION.md §4.3 Option C-3 deferral, qwen_engine.py
+    # stays on torch + transformers until Phase 1d. The lockfile
+    # (requirements-lock.txt:1700) shows torch is pulled ONLY by
+    # `voice-typer (pyproject.toml)` directly — there is NO transitive
+    # source, so this direct declaration is REQUIRED to keep
+    # qwen_engine.py working. Drop this dep (and the `transformers` pin
+    # below) at Phase 1d when qwen_engine.py is migrated to ONNX.
+    # Qwen ASR still needs torch (Phase 1d deferral).
     "torch>=2.0,<3.0",
+    # Phase 1b (§3.3 Option B-1): onnx-asr provides the class-based
+    # `onnx_asr.Model(name, quantization="fp16", providers=...)` API used
+    # by the rewritten parakeet_engine.py. The `>=0.12.0` floor matches
+    # the first release with the `quantization` kwarg + the
+    # `recognize(audio, *, sample_rate=...)` signature (older 0.11.x had
+    # a positional-only `recognize(audio, sr)` and no quantization
+    # support — breaks parakeet_engine.py:_load_impl). No upper cap yet
+    # (the API is stable; a future 1.0 redesign would need re-validation
+    # of the `_select_providers` mapping and `RunOptions.set_terminate`
+    # abort path).
+    "onnx-asr>=0.12.0",
+    # Phase 1a + §5.3 (companion plan): onnxruntime is declared
+    # explicitly because after the slim-core / runtime-pack split
+    # (plan-runtime-pack-split.md §3.3 + §5.3), faster-whisper moves to
+    # the runtime-pack and the slim core loses the transitive
+    # onnxruntime dep. The slim core's VAD (silero_vad.onnx via ORT
+    # InferenceSession) and Parakeet (via onnx-asr which wraps ORT) both
+    # need ORT directly, so the slim core MUST declare it explicitly.
+    # The `>=1.20` floor matches the first release with the
+    # `RunOptions.set_terminate()` API used by parakeet_engine.py's
+    # `request_abort()` path (added in 1.20 — verified against ORT
+    # changelog). The lockfile currently resolves to 1.28.0 (pulled
+    # transitively by faster-whisper per requirements-lock.txt:1048);
+    # declaring it explicitly here keeps the slim core working after
+    # faster-whisper is moved to the pack. NOTE: this is the CPU wheel
+    # only — GPU users install `onnxruntime-gpu` separately (see §6.1
+    # for why onnxruntime-gpu does NOT bundle NVIDIA DLLs and
+    # nvidia_dll_paths.py is still required).
+    "onnxruntime>=1.20",
     # psutil is used by _another_voice_typer_alive
     # (ARCH-012) and is required for process scanning on all platforms.
     "psutil>=5.9,<8.0",
@@ -619,17 +652,19 @@ filterwarnings = [
     # filter was dead config. RULE: when you delete a module, remove its
     # warning filter in the same PR so pyproject.toml never references
     # code that no longer exists.
-    # torch.jit.load emits a DeprecationWarning from
-    # torch/jit/_serialization.py that is outside our control
-    # (third-party library), and its message text has changed across
-    # torch versions ("is not supported" → "is deprecated. Please
-    # switch to torch.export."). The old message-scoped filter stopped
-    # matching after that wording change; a module-scoped filter
-    # matches regardless of wording. Listed BEFORE the voice_typer
-    # ratchet below so the ratchet (checked first) still errors on
-    # first-party deprecations while this ignores only torch.jit
-    # internals.
-    "ignore::DeprecationWarning:torch.jit._serialization",
+    # Phase 1c (2026-XX-XX): the `ignore::DeprecationWarning:torch.jit._serialization`
+    # filter was REMOVED. The filter was added when `vad.py` loaded
+    # Silero VAD via `torch.jit.load(silero_vad.jit)`, which triggered a
+    # DeprecationWarning from `torch/jit/_serialization.py`. After the
+    # Phase 1a migration, `vad.py` uses `onnxruntime.InferenceSession`
+    # (verified via `grep -rn "torch.jit.load" voice_typer/` → 0 hits in
+    # the runtime code; the only remaining `torch.jit.load` call is in
+    # `scripts/build/export_silero_vad_onnx.py:114`, a build-time script
+    # that is NOT imported by pytest). The filter is now dead config —
+    # keeping it would violate the same RULE that retired the settings
+    # filter above. RULE: when a code path that triggers a warning is
+    # deleted, remove the warning filter in the same PR so pyproject.toml
+    # never references code that no longer triggers it.
     # pytest-benchmark emits a PytestBenchmarkWarning on every xdist
     # worker startup ("Benchmarks are automatically disabled because
     # xdist plugin is active"). The warning is informational —

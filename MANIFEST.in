@@ -23,7 +23,23 @@ recursive-include voice_typer/server/native *
 # from sdist leaves VAD raising RuntimeError at first dictation.
 # (Frozen builds via voice-typer.spec:107 already include this file
 # explicitly; this entry closes the sdist gap.)
+#
+# Phase 1a (companion §2.5): the .jit is RETAINED until Phase 1c
+# (total torch removal) — Parakeet + Qwen still use torch between 1a
+# and 1c, and the Nuitka flag --module-parameter=torch-disable-jit=no
+# (C-CI-8 / NU-106) protects the bundle while torch is shipped. Do NOT
+# delete the .jit or this MANIFEST entry at Phase 1a.
 include voice_typer/server/silero_vad.jit
+
+# Phase 1a (companion §2.3.1): include the bundled Silero VAD ONNX
+# model — the new ORT backend's primary model file, loaded by
+# voice_typer/server/vad.py via onnxruntime.InferenceSession. Without
+# this, `pip install voice-typer` from sdist leaves VAD raising
+# FileNotFoundError at first dictation. (Frozen builds via
+# voice-typer.spec and the build_sidecar_*.sh Nuitka invocations
+# must also include this file — see companion §2.3.1 for the full
+# packaging checklist; those edits are out of this slice's scope.)
+include voice_typer/server/silero_vad.onnx
 
 # Corrections data + reserved-hotkey table + model integrity hashes.
 # All three JSON files are read by voice_typer/server/ modules at

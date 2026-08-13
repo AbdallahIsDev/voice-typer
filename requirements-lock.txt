@@ -1020,6 +1020,24 @@ nvidia-nvtx==13.0.85 ; (python_full_version < '3.15' and platform_machine == 'aa
     --hash=sha256:cb7780edb6b14107373c835bf8b72e7a178bac7367e23da7acb108f973f157a6 \
     --hash=sha256:d66ea44254dd3c6eacc300047af6e1288d2269dd072b417e0adffbf479e18519
     # via cuda-toolkit
+# ── MANUAL EDIT (Task ID 4 / Sub-agent 4 — 2026-XX-XX) ────────────────
+# onnx-asr is newly declared in pyproject.toml (Phase 1b / §3.3 Option
+# B-1). This entry is a MANUAL pin: the wheel was downloaded via
+# `pip download onnx-asr --no-deps -d /tmp/onnx_asr_dl` and the SHA-256
+# was computed via `pip hash`. The version (0.12.0) matches the floor
+# declared in pyproject.toml. The orchestrator's Phase 2 lockfile
+# regen via `uv pip compile --generate-hashes --universal
+# --python-version 3.13 pyproject.toml -o requirements-lock.txt`
+# will replace this manual entry with the full multi-platform /
+# multi-Python hash set (this manual entry has only the universal
+# py3-none-any wheel hash) AND resolve any transitive deps that
+# `onnx-asr` pulls in (e.g. `audio-metadata`, `jsonschema`). Until
+# the regen lands, `pip install --require-hashes -r requirements-lock.txt`
+# will install onnx-asr 0.12.0 correctly on any Python 3.10-3.14.
+onnx-asr==0.12.0 ; python_full_version < '3.15' \
+    --hash=sha256:5e7ceca454609819ea7833f61e2302e0c8f6ece4f8a78b66c5daba53cb51de4a
+    # via voice-typer (pyproject.toml)
+# ── END MANUAL EDIT ──────────────────────────────────────────────────
 onnxruntime==1.28.0 ; python_full_version < '3.15' \
     --hash=sha256:07fb3cbe990d6bf0ab3c22bfbbfb0e314151266046ea6edb4a07f556b4258c5f \
     --hash=sha256:0a83bdb70d143cede762b677789bf2a7acca54b3fb82565601d5c30695aa933c \
