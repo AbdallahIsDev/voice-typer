@@ -112,35 +112,42 @@ class TestRuntimeErrorNotMisclassified:
         )
 
     def test_torch_cuda_oom_classified_as_gpu(self, monkeypatch):
-        """(c) a ``torch.cuda.OutOfMemoryError`` instance must
-        return True via the strategy #1 isinstance check (class
-        hierarchy). The conftest autouse torch mock installs a real
-        ``_FakeOutOfMemoryError`` class at ``torch.cuda.OutOfMemoryError``
-        so the production ``isinstance(exc, torch.cuda.OutOfMemoryError)``
-        check returns True for instances of that class."""
+        """(c) a CUDA OOM error must return True via the
+        ``is_oom_error(exc)`` check (Phase 1c — replaces the old
+        ``isinstance(exc, torch.cuda.OutOfMemoryError)`` class-hierarchy
+        check that died with torch removal).
+
+        Phase 1c (PLAN_ONNX_INTEGRATION.md §5.1, §6.5): the production
+        ``_is_gpu_runtime_error`` body in ``transcription.py`` was
+        rewritten to call :func:`voice_typer.server.asr_utils.is_oom_error`
+        instead of ``isinstance(exc, torch.cuda.OutOfMemoryError)``.
+        The shared OOM classifier inspects the exception *message*
+        (``"out of memory"`` / ``"oom"`` substrings) rather than its
+        class hierarchy, so a plain ``RuntimeError("CUDA out of
+        memory")`` is sufficient to exercise the path. No torch import
+        is needed — the literal ``import torch`` was removed from this
+        test in lockstep with the production change.
+
+        Setup:
+          * Raise ``RuntimeError("CUDA out of memory")`` — the message
+            contains ``"out of memory"`` so :func:`is_oom_error` returns
+            True.
+          * Assert the classifier returns True.
+        """
         engine = self._make_engine(device="cuda")
 
-        # Use the (mocked) torch.cuda.OutOfMemoryError installed by
-        # the autouse conftest fixture. We import torch lazily so the
-        # autouse mock has already been installed before we resolve the
-        # class.
-        import torch
-
-        oom_cls = torch.cuda.OutOfMemoryError
-        # Sanity: the mock installs a real class (not a MagicMock) so
-        # ``isinstance`` works. If this assertion fails, the conftest
-        # torch mock has changed and this test needs updating.
-        assert isinstance(oom_cls, type), (
-            "Test setup: torch.cuda.OutOfMemoryError must be a real class "
-            "(not a MagicMock) so isinstance works. Check the autouse mock "
-            "in tests/conftest.py."
-        )
-
-        oom_exc = oom_cls("CUDA out of memory")
+        # Phase 1c: no longer imports torch. The shared
+        # ``is_oom_error`` classifier in ``asr_utils`` inspects the
+        # exception message (``"out of memory"`` / ``"oom"``) rather
+        # than the class hierarchy. A plain RuntimeError with the
+        # right message is sufficient.
+        oom_exc = RuntimeError("CUDA out of memory")
         result = engine._is_gpu_runtime_error(oom_exc)
         assert result is True, (
-            "torch.cuda.OutOfMemoryError must be classified as a GPU "
-            "error via the strategy #1 isinstance check (class hierarchy)."
+            "A RuntimeError whose message contains 'out of memory' must "
+            "be classified as a GPU error via the shared is_oom_error "
+            "classifier (Phase 1c — replaces the old "
+            "isinstance(exc, torch.cuda.OutOfMemoryError) check)."
         )
 
     def test_cpu_device_never_classified_as_gpu(self, monkeypatch):

@@ -212,6 +212,18 @@ class _NvidiaDllPathManager:
             # GPU torch wheel but NOT the standalone nvidia-* pip packages
             # would have all 3 primary candidate paths miss, even though
             # the DLLs physically exist on disk.
+            #
+            # Phase 1c (PLAN_ONNX_INTEGRATION.md §6.2–6.3): this branch
+            # is slated for removal once torch is fully dropped from the
+            # project (Phase 1d) AND ``tests/test_transcription.py::
+            # TestCudaDll001TorchLib::test_torch_lib_path_is_searched``
+            # is updated/removed (out of this slice's ownership). The
+            # ``os.path.isdir`` check below already makes this a no-op
+            # when torch is not installed (the path simply won't exist),
+            # so keeping the entry is harmless — it just adds one extra
+            # ``isdir`` call per ``configure()`` invocation. The plan's
+            # intent ("the torch/lib scan path dies") is satisfied at
+            # runtime: with no torch installed, the path is never found.
             ("torch", "lib"),
         ]
         existing_paths = os.environ.get("PATH", "").split(os.pathsep)

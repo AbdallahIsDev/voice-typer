@@ -12,8 +12,8 @@ inference). It belongs in this dedicated module rather than in
 
 It has NO dependencies on ``DictationPipeline`` instance state — only
 stdlib imports (``os``, ``pathlib``, ``shutil``, ``ctypes``), optional
-third-party probes (``psutil``, ``torch``), and the module-level
-``log`` logger. The ``DictationPipeline._check_resources`` method is
+third-party probes (``psutil``, ``onnxruntime``, ``pynvml``), and the
+module-level ``log`` logger. The ``DictationPipeline._check_resources`` method is
 preserved as a 1-line delegator for test compatibility (tests call
 ``pipeline._check_resources()`` directly) — see
 ``dictation_pipeline.py``.
@@ -21,18 +21,26 @@ preserved as a 1-line delegator for test compatibility (tests call
 CONSTRAINTS.md C-DATA-1: this module performs NO network calls. It only
 reads local system state via ``psutil.virtual_memory`` /
 ``shutil.disk_usage`` / ``os.statvfs`` / ``ctypes.windll.kernel32.GlobalMemoryStatusEx``
-/ ``torch.cuda.memory_*`` — all in-process local probes (no sockets,
-no HTTP, no DNS).
+/ ``onnxruntime.get_device()`` / ``nvidia-smi`` subprocess / ``pynvml`` — all
+in-process local probes (no sockets, no HTTP, no DNS).
 
 Exit code 0xC0000374 (STATUS_HEAP_CORRUPTION) during transcription is
 often caused by low memory (RAM) or insufficient disk space (affecting
 pagefile/swap). The logs emitted here help diagnose the root cause when
 paired with a crash dump.
+
+Phase 1c (PLAN_ONNX_INTEGRATION.md §6.4): the GPU-memory block was
+rewritten to drop the ``torch.cuda.*`` dependency. ``onnxruntime.get_device()``
+is used for the CUDA-availability check and ``nvidia-smi`` (or ``pynvml``
+if installed) is used for the memory query. The block is still wrapped
+in ``try/except Exception`` with DEBUG fallback so the probe remains
+best-effort.
 """
 
 import logging
 import os
 import pathlib
+import subprocess
 import time
 
 # default throttle interval — once per 60s. The values change slowly
@@ -41,6 +49,108 @@ import time
 DEFAULT_CHECK_INTERVAL: float = 60.0
 
 log = logging.getLogger(__name__)
+
+
+def _probe_ort_device() -> str | None:
+    """Return ``onnxruntime.get_device()`` if ORT is importable.
+
+    Returns ``"cuda"``, ``"cpu"``, or another ORT device string when
+    ``onnxruntime`` is installed and ``get_device()`` succeeds. Returns
+    ``None`` when ORT is not installed OR the call raises (so the caller
+    can fall through to the ``nvidia-smi`` subprocess path or skip the
+    GPU log line entirely).
+
+    Wrapped in ``try/except Exception`` (not just ``ImportError``)
+    because ORT can fail at import time on a broken CUDA install
+    (e.g. ``onnxruntime-gpu`` wheel installed but cuDNN DLLs missing
+    on Windows raises ``RuntimeError`` during ``import onnxruntime``).
+    """
+    try:
+        import onnxruntime as ort
+
+        return str(ort.get_device())
+    except Exception:
+        return None
+
+
+def _probe_gpu_memory_via_pynvml() -> tuple[float | None, float | None]:
+    """Query GPU total/free memory (MB) via ``pynvml`` if installed.
+
+    Returns ``(total_mb, free_mb)``. Returns ``(None, None)`` when
+    ``pynvml`` is not installed, no NVIDIA driver is present, or any
+    error occurs (the caller falls through to the ``nvidia-smi``
+    subprocess path). All errors are caught — this helper is a
+    best-effort probe, not a hard dependency.
+    """
+    try:
+        import pynvml  # type: ignore[import-untyped]
+    except ImportError:
+        return (None, None)
+    try:
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        total_mb = info.total / (1024 * 1024)
+        free_mb = info.free / (1024 * 1024)
+        return (total_mb, free_mb)
+    except Exception:
+        return (None, None)
+    finally:
+        try:
+            pynvml.nvmlShutdown()
+        except Exception:
+            pass
+
+
+def _probe_gpu_memory_via_nvidia_smi() -> tuple[float | None, float | None]:
+    """Query GPU total/free memory (MB) via ``pynvml`` or ``nvidia-smi``.
+
+    Tries ``pynvml`` first (in-process, more efficient). Falls back to
+    spawning ``nvidia-smi`` subprocess (no Python deps, but ~10-30ms
+    overhead per call). Returns ``(None, None)`` when neither path
+    succeeds — the caller (``check_resources``) then queries ORT's
+    device string so the log line at least records whether ORT sees a
+    CUDA device.
+
+    The ``nvidia-smi`` query uses
+    ``--query-gpu=memory.total,memory.free --format=csv,noheader,nounits``
+    which returns a single line like ``8192, 5120``. Output is split on
+    the comma and parsed as floats (MB).
+
+    Wrapped in ``try/except Exception`` because the subprocess can fail
+    in many ways: ``nvidia-smi`` not on PATH (most headless CI), exit
+    code nonzero (no NVIDIA driver), malformed output (older
+    ``nvidia-smi`` builds), or ``TimeoutExpired`` (driver hang).
+    """
+    total_mb, free_mb = _probe_gpu_memory_via_pynvml()
+    if total_mb is not None and free_mb is not None:
+        return (total_mb, free_mb)
+
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=memory.total,memory.free",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode != 0:
+            return (None, None)
+        first_line = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
+        if not first_line:
+            return (None, None)
+        parts = [p.strip() for p in first_line.split(",")]
+        if len(parts) < 2:
+            return (None, None)
+        total_mb = float(parts[0])
+        free_mb = float(parts[1])
+        return (total_mb, free_mb)
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return (None, None)
 
 
 def check_resources(*, logger: logging.Logger | None = None) -> None:
@@ -198,36 +308,45 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
                 )
 
     # ── GPU memory check (if CUDA) ──────────────────────────────
+    # Phase 1c (PLAN_ONNX_INTEGRATION.md §6.4): replaced the 13-line
+    # ``torch.cuda.memory_*`` block with ``onnxruntime.get_device()``
+    # (CUDA-availability check) + ``nvidia-smi`` subprocess (memory
+    # query). ``pynvml`` is used if available — it is more efficient
+    # than spawning ``nvidia-smi`` per check, but the wheel is not in
+    # the project's hard deps so the subprocess is the safe fallback.
+    # The block is wrapped in the same ``try/except Exception`` pattern
+    # with DEBUG fallback as the original torch block.
     try:
-        import torch
-
-        if torch.cuda.is_available():
-            allocated = torch.cuda.memory_allocated() / (1024**2)
-            reserved = torch.cuda.memory_reserved() / (1024**2)
-            total = torch.cuda.get_device_properties(0).total_memory / (1024**2)
-            free_gpu = total - allocated
+        gpu_total_mb, gpu_free_mb = _probe_gpu_memory_via_nvidia_smi()
+        if gpu_total_mb is not None and gpu_free_mb is not None:
+            gpu_used_mb = gpu_total_mb - gpu_free_mb
             _log.info(
-                "[RESOURCE] GPU memory: %.0f MB allocated, %.0f MB reserved, %.0f MB free (total %.0f MB)",
-                allocated,
-                reserved,
-                free_gpu,
-                total,
+                "[RESOURCE] GPU memory: %.0f MB used, %.0f MB free (total %.0f MB)",
+                gpu_used_mb,
+                gpu_free_mb,
+                gpu_total_mb,
             )
-            if free_gpu < 512:
+            if gpu_free_mb < 512:
                 _log.warning(
                     "[RESOURCE] Low GPU memory (%.0f MB free) — CUDA out-of-memory errors are likely.",
-                    free_gpu,
+                    gpu_free_mb,
+                )
+        else:
+            # nvidia-smi unavailable (no NVIDIA GPU, headless CI, macOS,
+            # or the binary is not on PATH). Check ORT's device report so
+            # the log line at least records whether ORT sees a CUDA
+            # device. ``onnxruntime.get_device()`` returns "cuda" or "cpu".
+            ort_device = _probe_ort_device()
+            if ort_device is not None:
+                _log.info(
+                    "[RESOURCE] GPU: onnxruntime reports device='%s' (nvidia-smi unavailable)",
+                    ort_device,
+                )
+            else:
+                _log.debug(
+                    "[RESOURCE] GPU memory probe skipped (nvidia-smi + onnxruntime both unavailable)"
                 )
     except Exception:
-        #  previously ``except (ImportError,
-        # Exception): pass``. ``ImportError`` was redundant (Exception
-        # already covers it) and the bare ``pass`` contradicted the
-        # docstring's promise that "failures are logged at DEBUG
-        # level". Emit a DEBUG line with the traceback so an
-        # operator looking at voice-typer.log sees why the GPU
-        # INFO line is absent (e.g. torch installed but CUDA
-        # driver mismatch, ``torch.cuda.get_device_properties``
-        # raising on a headless CI runner).
         _log.debug(
             "[RESOURCE] GPU check failed (non-fatal)",
             exc_info=True,

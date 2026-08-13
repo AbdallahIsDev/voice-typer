@@ -376,27 +376,56 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                     # without leaking the user's home directory path.
                     path_parts = [os.path.basename(p) for p in path_value.split(os.pathsep) if p]
                     sys_info.append(f"env[PATH] (basenames)={os.pathsep.join(path_parts)}")
-                # GPU info
+                # GPU info — Phase 1c (PLAN_ONNX_INTEGRATION.md §3.7):
+                # replaced the ``torch.cuda.*`` block with
+                # ``onnxruntime.__version__`` / ``get_available_providers()``
+                # / ``get_device()`` so the diagnostic bundle no longer
+                # imports torch. A ``nvidia-smi`` subprocess probe (when
+                # available) provides the GPU name + total VRAM, since
+                # ORT's ``get_device()`` returns only "cuda" or "cpu".
                 try:
-                    import torch
+                    import onnxruntime as ort
 
-                    sys_info.append(f"CUDA available: {torch.cuda.is_available()}")
-                    if torch.cuda.is_available():
-                        sys_info.append(f"CUDA version: {torch.version.cuda}")
-                        sys_info.append(f"GPU: {torch.cuda.get_device_name(0)}")
-                        _gpu_props = torch.cuda.get_device_properties(0)
-                        # ``_CudaDeviceProperties`` is
-                        # created dynamically by torch
-                        # (``_dummy_type`` when CUDA is not compiled
-                        # in), so its attribute surface is invisible
-                        # to pyrefly. Use ``getattr`` to read
-                        # ``total_mem`` (bytes) without a static
-                        # ``missing-attribute`` error.
-                        _total_mem = getattr(_gpu_props, "total_mem", 0)
-                        _gpu_mem = _total_mem // 1048576
-                        sys_info.append(f"GPU memory: {_gpu_mem} MB")
+                    sys_info.append(f"onnxruntime version: {ort.__version__}")
+                    sys_info.append(
+                        f"onnxruntime providers: {ort.get_available_providers()}"
+                    )
+                    sys_info.append(f"onnxruntime device: {ort.get_device()}")
                 except ImportError:
-                    sys_info.append("PyTorch not installed")
+                    sys_info.append("onnxruntime not installed")
+                except Exception as exc:
+                    sys_info.append(f"onnxruntime info error: {exc}")
+                # GPU name + total VRAM via ``nvidia-smi`` (best-effort).
+                # ``nvidia-smi`` is queried as a subprocess (NOT via
+                # ``pynvml``) so the diagnostic bundle works on hosts
+                # that have the NVIDIA driver but not the Python wheel.
+                try:
+                    import subprocess as _sp
+
+                    _smi = _sp.run(
+                        [
+                            "nvidia-smi",
+                            "--query-gpu=name,memory.total",
+                            "--format=csv,noheader,nounits",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                        check=False,
+                    )
+                    if _smi.returncode == 0 and _smi.stdout.strip():
+                        _line = _smi.stdout.strip().splitlines()[0]
+                        _parts = [p.strip() for p in _line.split(",")]
+                        if len(_parts) >= 1:
+                            sys_info.append(f"GPU: {_parts[0]}")
+                        if len(_parts) >= 2:
+                            try:
+                                _mem_mb = int(float(_parts[1]))
+                                sys_info.append(f"GPU memory: {_mem_mb} MB")
+                            except ValueError:
+                                pass
+                    else:
+                        sys_info.append("GPU: <nvidia-smi unavailable>")
                 except Exception as exc:
                     sys_info.append(f"GPU info error: {exc}")
                 zf.writestr("system_info.txt", "\n".join(sys_info))
@@ -423,6 +452,84 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 except Exception:
                     pass
 
+                # ─── 4b. ONNX model file SHA-256 hashes ───────────────
+                # Phase 1c (PLAN_ONNX_INTEGRATION.md §3.7): include the
+                # SHA-256 of ``silero_vad.onnx`` and any Parakeet ONNX
+                # files so support engineers can verify the on-disk model
+                # matches the expected pinned hash in
+                # ``model_hashes.json``. Files are read in 1 MiB chunks
+                # to avoid loading the full ~1.3 GB Parakeet FP16 model
+                # into memory. Missing files are reported as
+                # ``<not present>`` rather than raising — the bundle is
+                # best-effort and a missing ONNX file is itself useful
+                # diagnostic information (e.g. a failed/interrupted
+                # download).
+                try:
+                    import hashlib as _hashlib
+                    import json as _json
+
+                    onnx_hashes: dict[str, str] = {}
+
+                    def _sha256_of(path: Path) -> str:
+                        h = _hashlib.sha256()
+                        with path.open("rb") as fh:
+                            for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                                h.update(chunk)
+                        return h.hexdigest()
+
+                    # Silero VAD ONNX — lives next to vad.py.
+                    try:
+                        silero_path = Path(__file__).resolve().parent / "silero_vad.onnx"
+                        if silero_path.is_file():
+                            onnx_hashes["silero_vad.onnx"] = _sha256_of(silero_path)
+                        else:
+                            onnx_hashes["silero_vad.onnx"] = "<not present>"
+                    except Exception as exc:
+                        onnx_hashes["silero_vad.onnx"] = f"<error: {exc}>"
+
+                    # Parakeet ONNX files — live in the HF cache under
+                    # ``models--grikdotnet--parakeet-tdt-0.6b-fp16/``.
+                    # We glob for ``*.onnx`` under the snapshot dir so
+                    # the hash list auto-includes any future ONNX
+                    # variants the user may have downloaded.
+                    try:
+                        from voice_typer.server.config import _config_dir
+
+                        _parakeet_cache = (
+                            _config_dir()
+                            / "huggingface"
+                            / "hub"
+                            / "models--grikdotnet--parakeet-tdt-0.6b-fp16"
+                            / "snapshots"
+                        )
+                        if _parakeet_cache.is_dir():
+                            for onnx_file in sorted(_parakeet_cache.rglob("*.onnx")):
+                                try:
+                                    rel = onnx_file.relative_to(_parakeet_cache)
+                                    onnx_hashes[f"parakeet/{rel}"] = _sha256_of(onnx_file)
+                                except Exception as exc:
+                                    onnx_hashes[f"parakeet/{onnx_file.name}"] = f"<error: {exc}>"
+                        else:
+                            onnx_hashes["parakeet/"] = "<not downloaded>"
+                    except Exception as exc:
+                        onnx_hashes["parakeet/"] = f"<error: {exc}>"
+
+                    zf.writestr(
+                        "onnx_model_hashes.json",
+                        _json.dumps(onnx_hashes, indent=2, sort_keys=True),
+                    )
+                except Exception as exc:
+                    # Best-effort: never abort the bundle over a hash
+                    # computation failure. Write the error so the
+                    # support engineer knows why the file is missing.
+                    try:
+                        zf.writestr(
+                            "onnx_model_hashes.json",
+                            _json.dumps({"error": str(exc)}),
+                        )
+                    except Exception:
+                        pass
+
                 # ─── 5. Crash recovery entries (METADATA ONLY) ───────
                 # fix: previously this dumped the full
                 # self._entries list (which contains the user's
@@ -434,8 +541,6 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 # path (scripts/diagnostics.py:74) explicitly
                 # documents "Excludes: Transcription text (PIII)" —
                 # the IPC handler path now honors the same policy.
-                import json as _json
-
                 with recovery._lock:
                     redacted_entries = [
                         {

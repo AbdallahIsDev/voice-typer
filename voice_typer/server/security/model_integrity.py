@@ -563,6 +563,36 @@ ALLOW_PATTERNS_PARAKEET: list[str] = [
     "*.model",
 ]
 
+# ONNX Runtime migration (PLAN_ONNX_INTEGRATION.md §3.5.4): allowlist
+# for the ONNX Parakeet weights (``grikdotnet/parakeet-tdt-0.6b-fp16``
+# via the ``onnx-asr`` library). The pre-migration ``ALLOW_PATTERNS_PARAKEET``
+# above stays — it covers the torch/safetensors cache layout (still
+# downloaded by users who haven't migrated to ONNX). This new constant
+# covers the ONNX-specific files the ``onnx-asr`` library fetches:
+# ``*.onnx`` for the encoder/decoder/joint ONNX graphs, plus the
+# tokenizer + config JSONs required for decoding (TDT decoding needs
+# the tokenizer + generation_config to map token IDs to text).
+#
+# Typed as ``frozenset`` (not ``list``) per §3.5.4 — the ONNX allowlist
+# is consumed by the ``onnx-asr`` library's HF download path, which
+# accepts any iterable of patterns; ``frozenset`` documents
+# immutability + dedup intent and matches the convention used by
+# ``onnx_asr.Model(...)``'s ``allow_patterns`` parameter.
+#
+# SECURITY: ``verify_model_integrity()`` hard-fails if a pinned file
+# is missing, so every pattern here must also have a corresponding
+# entry in the ``files`` dict of ``model_hashes.json`` for the
+# ``grikdotnet/parakeet-tdt-0.6b-fp16`` repo (or the structural check
+# passes but the pinned-files check fails).
+ALLOW_PATTERNS_PARAKEET_ONNX: frozenset[str] = frozenset({
+    "*.onnx",
+    "config.json",
+    "tokenizer.json",
+    "vocab.txt",
+    "special_tokens_map.json",
+    "generation_config.json",
+})
+
 # SEC-audit-005: Allowlist for HuggingFace Whisper-family
 # downloads (``Systran/faster-whisper-*``).  CTranslate2 loads model
 # weights from ``model.bin`` — this is the native on-disk format for

@@ -23,6 +23,12 @@ Design notes
   ``voice_typer.server.config._config_dir`` inside the function body
   to avoid an import cycle (``config.py`` imports
   ``voice_typer.server._paths`` which imports other server modules).
+
+Phase 1c (PLAN_ONNX_INTEGRATION.md §5): this module is now also the
+canonical home for the shared CUDA/OOM error classifiers
+(:func:`is_cuda_error`, :func:`is_oom_error`) and the Parakeet
+language-filter / chunk-merge helpers (:func:`is_likely_english`,
+:func:`is_latin_char`, :func:`merge_chunks`, :func:`compute_overlap_skip`).
 """
 
 from __future__ import annotations
@@ -81,44 +87,145 @@ _DISK_SPACE_MARGIN_MB = 500
 
 
 def release_gpu_memory() -> None:
-    """Release GPU memory held by PyTorch's caching allocator.
+    """No-op for ONNX Runtime — kept for API compatibility.
 
-    ``del model; gc.collect()`` releases the Python
-        references to the model but PyTorch's CUDA caching allocator
-        retains the freed blocks for reuse by the same process.  After a
-        backend switch (e.g. Whisper → Parakeet → Whisper), the cached
-        blocks from the previous model are never reused (different model
-        architecture), so they accumulate.  On RTX 3060/4060 (8–12 GB
-        VRAM), 2 backend switches can OOM.
+    Historically this helper called ``torch.cuda.empty_cache()`` to
+    release PyTorch's CUDA caching-allocator blocks after an engine
+    ``unload()`` (NEW-MEM-001). After the ONNX Runtime migration
+    (PLAN_ONNX_INTEGRATION.md §5.2), torch is no longer a project
+    dependency and ONNX Runtime has **no** ``empty_cache()`` API —
+    the CUDA arena is freed automatically when the
+    ``ort.InferenceSession`` is destroyed (i.e. when the engine drops
+    its session reference and ``gc.collect()`` runs).
 
-        This helper calls ``torch.cuda.empty_cache()`` to release the
-        cached blocks back to the OS, making VRAM available for the next
-        backend.  Safe to call when:
+    The function is preserved as a no-op so existing callers in
+    ``TranscriptionEngine.unload()``, ``ParakeetEngine.unload()``,
+    ``QwenEngine.unload()``, and the deferred-GC path
+    (``TranscriptionEngine._run_deferred_gc``) continue to compile and
+    call it without modification. Tests that ``patch(...)`` the
+    function still see the call — the patched mock replaces the no-op.
 
-        - torch is not installed (no-op, debug-logged)
-        - CUDA is not initialized (no-op, returns silently)
-        - the current device is CPU (no-op)
-
-        Designed to be called from every ASR engine's ``unload()`` and
-        from every GPU→CPU fallback path in ``TranscriptionEngine``.
+    After total torch removal (Phase 1d), this function can be deleted
+    and callers updated to drop the call entirely.
     """
+    # Intentionally a no-op. ORT's CUDA arena is released on session
+    # destroy; the caller's ``del self._session; gc.collect()`` is the
+    # equivalent of ``del model; gc.collect(); torch.cuda.empty_cache()``.
+    log.debug(
+        "[GPU] release_gpu_memory() is a no-op for ONNX Runtime "
+        "(ORT frees the CUDA arena on session destroy)"
+    )
+
+
+# ─── CUDA / OOM error classifiers (PLAN_ONNX_INTEGRATION.md §5.1) ───────
+
+
+def is_cuda_error(exc: Exception) -> bool:
+    """Return ``True`` if *exc* looks like a GPU/CUDA runtime failure.
+
+    A 4-layer classifier preserved from the original
+    ``TranscriptionEngine._is_gpu_runtime_error`` body (pre-torch-removal).
+    The plan (PLAN_ONNX_INTEGRATION.md §5.1) explicitly forbids collapsing
+    this to a 4-keyword frozenset — the layered structure is what
+    distinguishes a true CUDA OOM from a CPU RAM exhaustion, a ROCm
+    driver mismatch, or a Windows DLL-load failure.
+
+    Layers (in evaluation order — first match wins):
+
+    1. **ORT CUDA exceptions** (replaces the old
+       ``isinstance(exc, torch.cuda.OutOfMemoryError)`` check that died
+       with torch). ``onnxruntime.RuntimeException`` whose message
+       contains ``"cuda"`` or ``"gpu"`` is a CUDA-side failure.
+    2. **RuntimeError + attribute check.** Some libraries
+       (``ctranslate2``, newer ``torch`` if installed) attach a
+       structured ``.cuda_error`` attribute to a generic
+       ``RuntimeError`` rather than raising a typed subclass.
+    3. **Keyword match on the exception message** — 3 keywords
+       (``"cuda"``, ``"cublas"``, ``"cudnn"``). OOM is handled
+       separately by :func:`is_oom_error` so a CPU RAM exhaustion
+       (``"out of memory"``) does not false-positive as a CUDA error.
+    4. **DLL-load failures** (Windows) — 4 keywords
+       (``"dll"``, ``"not found"``, ``"cannot be loaded"``,
+       ``"load library"``). Critical for detecting missing CUDA
+       Toolkit / cuDNN DLLs on Windows where ``onnxruntime-gpu`` is
+       installed but the system CUDA Toolkit is not.
+
+    Parameters
+    ----------
+    exc : Exception
+        The exception to classify. Accepts any ``BaseException`` but
+        the type hint is ``Exception`` for call-site ergonomics.
+
+    Returns
+    -------
+    bool
+        ``True`` if *exc* matches any of the 4 CUDA/GPU layers.
+        ``False`` otherwise.
+    """
+    # Layer 1: ORT CUDA exceptions (replaces torch.cuda.OutOfMemoryError).
     try:
-        import torch
-    except ImportError:
-        # torch not installed — nothing to release.
-        return
-    try:
-        if not torch.cuda.is_available():
-            return
-        # Synchronize before empty_cache so pending async kernels
-        # finish and release their allocations.
-        torch.cuda.synchronize()
-        torch.cuda.empty_cache()
-        log.debug("[GPU] torch.cuda.empty_cache() called after model unload")
-    except Exception as exc:
-        # CUDA not initialized, or some other runtime issue — log
-        # at debug so we don't spam the log on every unload.
-        log.debug("[GPU] torch.cuda.empty_cache() failed: %s", exc)
+        import onnxruntime as ort
+
+        # ``onnxruntime.RuntimeException`` no longer exists on the public
+        # API (1.28+ only re-exports ``import_capi_exception``) — the
+        # pybind11 exception classes live under
+        # ``onnxruntime.capi.onnxruntime_pybind11_state``. Accept either
+        # location (type-guarded so a mock that auto-magics the public
+        # attribute falls through to the real path).
+        _ort_exc = getattr(ort, "RuntimeException", None)
+        if not isinstance(_ort_exc, type):
+            _ort_exc = ort.capi.onnxruntime_pybind11_state.RuntimeException
+        if isinstance(exc, _ort_exc):
+            msg = str(exc).lower()
+            if "cuda" in msg or "gpu" in msg:
+                return True
+    except (ImportError, AttributeError, TypeError):
+        # ORT missing, its internal exception module unavailable on this
+        # build, or a mock exposing no real exception class — fall
+        # through to the attribute/keyword layers below.
+        pass
+
+    # Layer 2: RuntimeError + attribute check.
+    if isinstance(exc, RuntimeError) and (
+        getattr(exc, "cuda_error", None) or getattr(exc, "is_cuda_error", False)
+    ):
+        return True
+
+    # Layer 3: keyword match on the message (3 keywords — no "out of memory").
+    err_str = str(exc).lower()
+    if any(kw in err_str for kw in ("cuda", "cublas", "cudnn")):
+        return True
+
+    # Layer 4: DLL-load failures (Windows).
+    return any(kw in err_str for kw in ("dll", "not found", "cannot be loaded", "load library"))
+
+
+def is_oom_error(exc: Exception) -> bool:
+    """Return ``True`` if *exc* is an out-of-memory error.
+
+    Separate from :func:`is_cuda_error` (PLAN_ONNX_INTEGRATION.md §5.1)
+    because ``"out of memory"`` alone is too broad — it matches CPU RAM
+    exhaustion (e.g. ``MemoryError`` from a huge numpy allocation) which
+    is NOT a CUDA error and should NOT trigger the GPU→CPU fallback
+    path. The Parakeet engine's separate OOM check
+    (``parakeet_engine.py:955``) relies on this distinction.
+
+    Matches:
+      - ``"out of memory"`` (case-insensitive substring)
+      - ``"oom"`` (case-insensitive substring)
+
+    Parameters
+    ----------
+    exc : Exception
+        The exception to classify.
+
+    Returns
+    -------
+    bool
+        ``True`` if the exception message contains an OOM marker.
+    """
+    err_str = str(exc).lower()
+    return "out of memory" in err_str or "oom" in err_str
 
 
 def _download_with_retry(
@@ -451,3 +558,243 @@ def split_audio(
             break
         start += step
     return chunks
+
+
+# ─── Language filter + chunk merge (moved from parakeet_engine.py) ──────
+#
+# PLAN_ONNX_INTEGRATION.md §5.3 (``is_likely_english`` / ``is_latin_char``)
+# and §5.4 (``merge_chunks`` / ``compute_overlap_skip``). Moved here so the
+# rewritten ONNX Parakeet engine and any future ONNX variant can import
+# them directly from the shared ASR utilities module. The originals at
+# ``parakeet_engine.py:47-78`` (language filter) and
+# ``parakeet_engine.py:1023-1133`` (chunk merge) are kept as thin
+# delegators for backward compatibility with tests that import them from
+# ``parakeet_engine`` — see ``tests/test_parakeet_engine.py``.
+
+# Maximum allowed ratio of non-Latin-script characters before we reject
+# a transcription segment as a language-hallucination.
+# The Parakeet model is English-only; output with >30% non-Latin characters
+# is almost certainly a decoding error, not valid speech.
+NON_LATIN_RATIO_LIMIT = 0.30
+
+
+def is_latin_char(ch: str) -> bool:
+    """Return ``True`` if *ch* belongs to the Latin script (or is whitespace/digit/punct).
+
+    Moved verbatim from ``parakeet_engine._is_latin_char`` (PLAN_ONNX_INTEGRATION.md §5.3)
+    so the rewritten ONNX Parakeet engine can import it from this shared
+    module. The leading underscore was dropped because the function is
+    now part of the public ASR utility surface (the old private name
+    remains as a backward-compat alias in ``parakeet_engine``).
+
+    The check is Unicode-category based: punctuation (``P*``), separators
+    (``Z*``), symbols (``S*``), and digits are all treated as "Latin" so
+    that legitimate English transcriptions containing punctuation, digits,
+    or whitespace are not false-positive rejected by :func:`is_likely_english`.
+
+    Parameters
+    ----------
+    ch : str
+        A single character. If empty, returns ``False``.
+
+    Returns
+    -------
+    bool
+        ``True`` if *ch* is in the Latin script or a non-letter category
+        (punctuation, separator, symbol, digit).
+    """
+    import unicodedata
+
+    cat = unicodedata.category(ch)
+    if cat.startswith("P") or cat.startswith("Z") or cat.startswith("S"):
+        return True
+    if ch.isdigit():
+        return True
+    script = unicodedata.name(ch, "").split(" ")[0] if ch else ""
+    return script == "LATIN"
+
+
+def is_likely_english(text: str) -> bool:
+    """Return ``False`` if *text* contains too many non-Latin-script characters.
+
+    Moved verbatim from ``parakeet_engine._is_likely_english``
+    (PLAN_ONNX_INTEGRATION.md §5.3). The Parakeet model is English-only
+    but sometimes hallucinates text in unrelated scripts (CJK, Arabic,
+    Devanagari, etc.). This filter rejects those segments rather than
+    pasting garbled text into the user's field.
+
+    The hallucination is logged via :func:`log_hallucination_rejection`
+    (PII-safe) when the ratio exceeds :data:`NON_LATIN_RATIO_LIMIT`.
+
+    Parameters
+    ----------
+    text : str
+        The transcription text to filter. Empty / whitespace-only text
+        is treated as "likely English" (returns ``True``) so the caller's
+        ``if not is_likely_english(text): return ""`` branch does not
+        false-positive on silence.
+
+    Returns
+    -------
+    bool
+        ``True`` if the non-Latin ratio is at or below
+        :data:`NON_LATIN_RATIO_LIMIT`. ``False`` if it exceeds the limit.
+    """
+    if not text or not text.strip():
+        return True
+    non_latin = sum(1 for ch in text if not is_latin_char(ch))
+    ratio = non_latin / len(text)
+    if ratio > NON_LATIN_RATIO_LIMIT:
+        # Lazy import to avoid a circular dependency at module load time
+        # (hallucination.py imports from asr_utils's neighbors).
+        from voice_typer.server.hallucination import log_hallucination_rejection
+
+        # Use PII-safe logging helper for hallucination text.
+        log_hallucination_rejection(
+            "[PARAKEET]",
+            text,
+            reason=f"non-English output ({ratio * 100:.0f}% non-Latin chars)",
+            log_transcriptions=False,
+        )
+        return False
+    return True
+
+
+# Maximum number of leading words of the new chunk that the merge
+# algorithm will skip when a true overlap duplicate is detected. Caps the
+# skip so a long spurious match does not drop legitimate words.
+# Original: ``parakeet_engine._MAX_BOUNDARY_SKIP_WORDS``.
+MAX_BOUNDARY_SKIP_WORDS = 2
+# Number of trailing words of the previous chunk to compare against the
+# leading words of the new chunk when detecting true overlap duplicates.
+# Original: ``parakeet_engine._OVERLAP_DEDUP_WINDOW``.
+OVERLAP_DEDUP_WINDOW = 3
+
+
+def compute_overlap_skip(prev_words: list[str], new_words: list[str]) -> int:
+    """Return how many leading words of *new_words* to skip.
+
+    Moved verbatim from ``parakeet_engine.ParakeetEngine._compute_overlap_skip``
+    (PLAN_ONNX_INTEGRATION.md §5.4). The function is a ``@staticmethod``
+    in the original; here it is a module-level function with the same
+    signature and body.
+
+    We detect a true overlap duplicate by searching (case-insensitively,
+    ignoring punctuation) for the leading run of ``new_words`` as a
+    *contiguous subsequence* within the trailing window of
+    ``prev_words``. We pick the longest match that fits within
+    :data:`OVERLAP_DEDUP_WINDOW` words on the new side, is at most
+    :data:`MAX_BOUNDARY_SKIP_WORDS` long, and ends within the trailing
+    ``OVERLAP_DEDUP_WINDOW + MAX_BOUNDARY_SKIP_WORDS`` words of the
+    previous chunk. If no match is found, return 0 (do not drop
+    legitimate words).
+
+    Parameters
+    ----------
+    prev_words : list[str]
+        The accumulated word list from the previous chunk(s). ``[]`` is
+        valid (returns 0 — first chunk has no overlap).
+    new_words : list[str]
+        The word list of the new chunk to merge. ``[]`` is valid
+        (returns 0).
+
+    Returns
+    -------
+    int
+        The number of leading words of *new_words* to skip before
+        appending to *prev_words*. Always ``<= MAX_BOUNDARY_SKIP_WORDS``
+        and ``<= len(new_words)``.
+    """
+    if not prev_words or not new_words:
+        return 0
+
+    def _norm(w: str) -> str:
+        return w.strip(".,;:!?\"'()[]{}").lower()
+
+    prev_window_size = OVERLAP_DEDUP_WINDOW + MAX_BOUNDARY_SKIP_WORDS
+    prev_tail = [_norm(w) for w in prev_words[-prev_window_size:]]
+    max_check = min(
+        MAX_BOUNDARY_SKIP_WORDS,
+        len(new_words),
+    )
+    new_head = [_norm(w) for w in new_words[:max_check]]
+
+    best = 0
+    for length in range(max_check, 0, -1):
+        candidate = new_head[:length]
+        for start in range(len(prev_tail) - length + 1):
+            end_idx = start + length
+            last_word_idx = len(prev_tail) - end_idx
+            if last_word_idx >= OVERLAP_DEDUP_WINDOW:
+                continue
+            if prev_tail[start : start + length] == candidate:
+                best = length
+                break
+        if best > 0:
+            break
+
+    if best > 0:
+        return best
+
+    return 0
+
+
+def merge_chunks(texts: list[str]) -> str:
+    """Concatenate chunk transcriptions, skipping overlap text.
+
+    Moved verbatim from ``parakeet_engine.ParakeetEngine._merge_chunks``
+    (PLAN_ONNX_INTEGRATION.md §5.4). The function is an instance method
+    in the original (but ``self`` is unused in the body); here it is a
+    module-level function with the same body.
+
+    Chunks have ``_CHUNK_OVERLAP_SECONDS`` of overlapping audio at each
+    boundary. When the model re-transcribes the overlap region in the
+    new chunk, those leading words duplicate the previous chunk's tail
+    and must be skipped.
+
+    Parameters
+    ----------
+    texts : list[str]
+        The per-chunk transcription texts, in chunk order. ``[]``
+        returns ``""``. A single-element list returns ``texts[0]``.
+
+    Returns
+    -------
+    str
+        The merged transcription with overlap duplicates skipped.
+        Whitespace is normalized to single spaces and stripped at the
+        ends.
+    """
+    if len(texts) <= 1:
+        return texts[0] if texts else ""
+
+    result_words: list[str] = texts[0].split()
+    for text in texts[1:]:
+        words = text.split()
+        if not words:
+            continue
+
+        skip = compute_overlap_skip(result_words, words)
+        tail = words[skip:] if skip > 0 else words
+        if tail:
+            result_words.extend(tail)
+    return " ".join(result_words).strip()
+
+
+__all__ = [
+    "MAX_BOUNDARY_SKIP_WORDS",
+    "NON_LATIN_RATIO_LIMIT",
+    "OVERLAP_DEDUP_WINDOW",
+    "_check_disk_space_for_download",
+    "_download_with_retry",
+    "_require_huggingface_consent",
+    "cleanup_hf_cache_dir",
+    "compute_overlap_skip",
+    "is_cuda_error",
+    "is_latin_char",
+    "is_likely_english",
+    "is_oom_error",
+    "merge_chunks",
+    "release_gpu_memory",
+    "split_audio",
+]

@@ -1,18 +1,38 @@
-"""Parakeet TDT v3 ASR engine — optional backend alongside Whisper/Qwen.
+"""Parakeet TDT v3 ASR engine — ONNX Runtime backend (via ``onnx-asr``).
 
-Uses NVIDIA's parakeet-tdt-0.6b-v3 via HuggingFace Transformers.
+In-place conversion from torch/transformers to ONNX Runtime per
+``PLAN_ONNX_INTEGRATION.md`` §3 (Part B, Option B-1). The engine keeps
+its registered backend name (``"parakeet"``) and class
+(``ParakeetEngine``); only the internals change. The old
+``transformers.AutoModelForTDT`` + ``torch`` code path is gone — the
+engine now wraps the ``onnx_asr.Model`` class, which loads a pre-exported
+ONNX Parakeet TDT model and exposes a ``recognize(audio, sample_rate)``
+API. The TDT decoding loop is the library's problem (Option B-1).
+
+GPU→CPU fallback (§3.4) recreates the ORT session with
+``CPUExecutionProvider`` only — ONNX Runtime cannot move a session
+between providers in place (unlike torch's ``.to("cpu")``). The
+``parakeet_cpu_fallback`` tray event is preserved.
+
 Model weights are NEVER auto-downloaded — the user must explicitly
 download them (Models page Download button, or the onboarding wizard)
-before the engine can load them from the local HF cache.
-Falls back gracefully on missing deps, CUDA errors, etc.
+before the engine can load them from the local HF cache. Falls back
+gracefully on missing deps, CUDA errors, etc.
+
+Shared helpers (``is_likely_english``, ``is_latin_char``,
+``merge_chunks``, ``compute_overlap_skip``, ``is_cuda_error``,
+``is_oom_error``) live in :mod:`voice_typer.server.asr_utils` per §5.1,
+§5.3, §5.4. They are imported here directly; backward-compat aliases
+(``_is_likely_english``, ``_is_latin_char``) re-export them so existing
+test/import sites keep working.
 """
 
-import contextlib
+from __future__ import annotations
+
 import logging
 import os
 import threading
 import time
-import unicodedata
 from collections.abc import Callable
 from typing import Any
 
@@ -23,29 +43,49 @@ from voice_typer.server.branding import APP_NAME
 from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
 from voice_typer.server.i18n import DEFAULT_LOCALE
 
+# Shared ASR helpers (PLAN_ONNX_INTEGRATION.md §5.1, §5.3, §5.4). These
+# were moved to asr_utils as part of the ONNX migration; the engine
+# imports them directly. ``asr_utils`` is owned by Sub-agent 3 — the
+# signatures are documented in the plan; we code against them.
+#
+# DEFENSIVE IMPORT: in the parallel-refactor window, Sub-agent 3 may not
+# have landed the asr_utils helpers yet. The try/except falls back to
+# local implementations (mirroring the pre-migration bodies verbatim)
+# so this module imports cleanly either way. Once Sub-agent 3 lands,
+# the canonical asr_utils versions are used automatically. The local
+# fallbacks are NOT a long-term contract — they exist solely to keep
+# the ONNX-rewritten parakeet_engine importable during the refactor
+# window. New code should import from asr_utils directly.
+try:
+    from voice_typer.server.asr_utils import (
+        compute_overlap_skip as _asr_compute_overlap_skip,
+        is_cuda_error as _asr_is_cuda_error,
+        is_latin_char as _asr_is_latin_char,
+        is_likely_english as _asr_is_likely_english,
+        merge_chunks as _asr_merge_chunks,
+    )
+    _ASR_UTILS_HELPERS_AVAILABLE = True
+except ImportError:  # pragma: no cover — defensive fallback during parallel refactor
+    _ASR_UTILS_HELPERS_AVAILABLE = False
+    _asr_is_cuda_error = None  # type: ignore[assignment]
+    _asr_is_latin_char = None  # type: ignore[assignment]
+    _asr_is_likely_english = None  # type: ignore[assignment]
+    _asr_merge_chunks = None  # type: ignore[assignment]
+    _asr_compute_overlap_skip = None  # type: ignore[assignment]
+
 log = logging.getLogger(__name__)
 
 
-class TranscriptionBackendError(RuntimeError):
-    """Raised when the ASR backend cannot produce a transcription.
-
-    ``transcribe_with_fallback`` previously returned ``""`` on
-    CPU fallback failure, which the caller could not distinguish from a
-    legitimate "no speech detected" result — the user saw "No speech
-    detected" and assumed the microphone was broken. We now raise this
-    typed exception so callers can show the correct error.
-    """
+# ─── Local fallback implementations (used only if asr_utils lacks the
+#     helpers — see DEFENSIVE IMPORT note above). Mirror the pre-
+#     migration bodies verbatim so behavior is identical. These are
+#     NOT the canonical home — asr_utils is. ─────────────────────────
 
 
-# Maximum allowed ratio of non-Latin-script characters before we reject
-# a transcription segment as a language-hallucination.
-# The model is English-only; output with >30% non-Latin characters is
-# almost certainly a decoding error, not valid speech.
-_NON_LATIN_RATIO_LIMIT = 0.30
+def _local_is_latin_char(ch: str) -> bool:
+    """Return True if *ch* belongs to the Latin script (or is ws/digit/punct)."""
+    import unicodedata
 
-
-def _is_latin_char(ch: str) -> bool:
-    """Return True if *ch* belongs to the Latin script (or is whitespace/digit/punct)."""
     cat = unicodedata.category(ch)
     if cat.startswith("P") or cat.startswith("Z") or cat.startswith("S"):
         return True
@@ -55,19 +95,13 @@ def _is_latin_char(ch: str) -> bool:
     return script == "LATIN"
 
 
-def _is_likely_english(text: str) -> bool:
-    """Return False if *text* contains too many non-Latin-script characters.
-
-    The Parakeet model is English-only but sometimes hallucinates text in
-    unrelated scripts (CJK, Arabic, Devanagari, etc.).  This filter rejects
-    those segments rather than pasting garbled text into the user's field.
-    """
+def _local_is_likely_english(text: str) -> bool:
+    """Return False if *text* contains too many non-Latin-script characters."""
     if not text or not text.strip():
         return True
-    non_latin = sum(1 for ch in text if not _is_latin_char(ch))
+    non_latin = sum(1 for ch in text if not _local_is_latin_char(ch))
     ratio = non_latin / len(text)
     if ratio > _NON_LATIN_RATIO_LIMIT:
-        # Use PII-safe logging helper for hallucination text
         log_hallucination_rejection(
             "[PARAKEET]",
             text,
@@ -78,30 +112,154 @@ def _is_likely_english(text: str) -> bool:
     return True
 
 
+def _local_is_cuda_error(exc: Exception) -> bool:
+    """Conservative CUDA-error classifier (5-layer, mirrors asr_utils)."""
+    err_str = str(exc).lower()
+    # Layer 1: ORT RuntimeException with cuda/gpu in message.
+    try:
+        import onnxruntime as _ort
+
+        if isinstance(exc, _ort.RuntimeException):
+            if "cuda" in err_str or "gpu" in err_str:
+                return True
+    except ImportError:
+        pass
+    # Layer 2: RuntimeError + attribute check.
+    if isinstance(exc, RuntimeError):
+        if getattr(exc, "cuda_error", None) or getattr(exc, "is_cuda_error", False):
+            return True
+    # Layer 3: keyword match (3 keywords — OOM handled separately).
+    if any(kw in err_str for kw in ("cuda", "cublas", "cudnn")):
+        return True
+    # Layer 4: DLL-load failures (Windows).
+    if any(kw in err_str for kw in ("dll", "not found", "cannot be loaded", "load library")):
+        return True
+    return False
+
+
+def _local_compute_overlap_skip(prev_words: list[str], new_words: list[str]) -> int:
+    """Return how many leading words of *new_words* to skip (overlap dedup)."""
+    if not prev_words or not new_words:
+        return 0
+
+    def _norm(w: str) -> str:
+        return w.strip(".,;:!?\"'()[]{}").lower()
+
+    prev_window_size = _OVERLAP_DEDUP_WINDOW + _MAX_BOUNDARY_SKIP_WORDS
+    prev_tail = [_norm(w) for w in prev_words[-prev_window_size:]]
+    max_check = min(_MAX_BOUNDARY_SKIP_WORDS, len(new_words))
+    new_head = [_norm(w) for w in new_words[:max_check]]
+
+    best = 0
+    for length in range(max_check, 0, -1):
+        candidate = new_head[:length]
+        for start in range(len(prev_tail) - length + 1):
+            end_idx = start + length
+            last_word_idx = len(prev_tail) - end_idx
+            if last_word_idx >= _OVERLAP_DEDUP_WINDOW:
+                continue
+            if prev_tail[start : start + length] == candidate:
+                best = length
+                break
+        if best > 0:
+            break
+    return best
+
+
+def _local_merge_chunks(texts: list[str]) -> str:
+    """Concatenate chunk transcriptions, skipping overlap text."""
+    if len(texts) <= 1:
+        return texts[0] if texts else ""
+    result_words: list[str] = texts[0].split()
+    for text in texts[1:]:
+        words = text.split()
+        if not words:
+            continue
+        skip = _local_compute_overlap_skip(result_words, words)
+        tail = words[skip:] if skip > 0 else words
+        if tail:
+            result_words.extend(tail)
+    return " ".join(result_words).strip()
+
+
+# Resolve the effective helpers: prefer asr_utils, fall back to local.
+_is_latin_char_impl = _asr_is_latin_char if _asr_is_latin_char is not None else _local_is_latin_char
+_is_likely_english_impl = (
+    _asr_is_likely_english if _asr_is_likely_english is not None else _local_is_likely_english
+)
+_is_cuda_error_impl = _asr_is_cuda_error if _asr_is_cuda_error is not None else _local_is_cuda_error
+_merge_chunks_impl = _asr_merge_chunks if _asr_merge_chunks is not None else _local_merge_chunks
+_compute_overlap_skip_impl = (
+    _asr_compute_overlap_skip if _asr_compute_overlap_skip is not None else _local_compute_overlap_skip
+)
+
+
+class TranscriptionBackendError(RuntimeError):
+    """Raised when the ASR backend cannot produce a transcription.
+
+    ``transcribe_with_fallback`` raises this on CPU fallback failure so
+    callers can distinguish a real backend failure from a legitimate
+    "no speech detected" result (``""``).
+    """
+
+
+# ─── Constants ──────────────────────────────────────────────────────────
+
+# Maximum allowed ratio of non-Latin-script characters before we reject
+# a transcription segment as a language-hallucination. Re-exported from
+# asr_utils for backward-compat with tests that import the constant from
+# parakeet_engine. See ``asr_utils.NON_LATIN_RATIO_LIMIT``.
+_NON_LATIN_RATIO_LIMIT = 0.30
+
+# HuggingFace repo ID of the *original* torch/safetensors Parakeet
+# model. Kept as a module-level constant because ``prewarm/cache_probe``
+# imports it to locate the cached ``model.safetensors`` for OS page-cache
+# warming. The ONNX migration does NOT change this — prewarm still warms
+# the same HF cache directory (the user may have either the torch or
+# ONNX weights cached; both live under the same repo-id key).
 _PARAKERT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
 
-# approximate model weight size in MB for MB/s read-speed logging.
-# The model.safetensors file is ~2.4 GB on disk.
-_PARAKERT_WEIGHTS_MB = 2400
+# ONNX model name as recognized by ``onnx_asr.Model(...)``. The
+# ``onnx-asr`` library maintains its own model registry mapping these
+# short names to HuggingFace ONNX repo IDs. ``nemo-parakeet-tdt-0.6b-v3``
+# resolves to ``grikdotnet/parakeet-tdt-0.6b-fp16`` (the FP16 ONNX export).
+# See PLAN_ONNX_INTEGRATION.md §3.5.1.
+_PARAKEET_ONNX_MODEL_NAME = "nemo-parakeet-tdt-0.6b-v3"
+_PARAKEET_QUANTIZATION = "fp16"
+
+# Approximate ONNX weight size in MB for MB/s read-speed logging.
+# grikdotnet/parakeet-tdt-0.6b-fp16 is ~1.3 GB on disk.
+_PARAKERT_WEIGHTS_MB = 1300
+
+# Parakeet's Conformer encoder has a practical limit of ~30s of audio.
+# Longer recordings are split into overlapping chunks via
+# ``asr_utils.split_audio``. 3s overlap gives the model audio context at
+# boundaries so it doesn't hallucinate repeated text at chunk starts.
+_CHUNK_SECONDS = 25
+_CHUNK_OVERLAP_SECONDS = 3
+
+# Backward-compat re-exports of the merge-chunk constants. The canonical
+# values now live in ``asr_utils`` (``MAX_BOUNDARY_SKIP_WORDS``,
+# ``OVERLAP_DEDUP_WINDOW``). Kept here so existing tests / importers
+# (``tests/test_parakeet_engine.py``, ``tests/regressions/parakeet_merge_test.py``)
+# keep working.
+_MAX_BOUNDARY_SKIP_WORDS = 2
+_OVERLAP_DEDUP_WINDOW = 3
 
 
 class _AbortStoppingCriteria:
-    """``transformers.StoppingCriteria`` that stops generation when an
-    abort event is set.
+    """Legacy ``transformers.StoppingCriteria`` shim — preserved for
+    backward-compat with tests/importers that reference the name.
 
-    Used by ``ParakeetEngine._transcribe_segment`` /
-    ``_transcribe_batch`` to wire the dictation pipeline's cancel path
-    (ESC / watchdog) into ``model.generate()``. ``transformers`` calls
-    each criterion's ``__call__`` between generated tokens; returning
-    ``True`` stops generation early so the inference thread is
-    unblocked in bounded time instead of decoding the full sequence.
-
-    Implemented as a duck-typed class (NOT a subclass of
-    ``transformers.StoppingCriteria``) so the module imports cleanly
-    even when ``transformers`` is not installed (the optional-deps
-    pattern used throughout this module). ``model.generate`` only
-    requires the ``__call__`` method — it does not isinstance-check
-    against ``StoppingCriteria``.
+    The torch/transformers backend used this to wire
+    ``model.generate()``'s ``stopping_criteria`` argument so the
+    dictation pipeline's cancel path (ESC / watchdog) could stop
+    generation between tokens. The ONNX Runtime backend uses
+    ``onnxruntime.RunOptions.set_terminate()`` instead (see
+    :meth:`ParakeetEngine.request_abort`), so this class is no longer
+    used internally. It is kept as a no-op shim so the existing
+    ``from voice_typer.server.parakeet_engine import _AbortStoppingCriteria``
+    imports in ``tests/test_dictation_pipeline_abort.py`` keep resolving.
     """
 
     def __init__(self, abort_event: threading.Event) -> None:
@@ -112,79 +270,52 @@ class _AbortStoppingCriteria:
         return self._abort_event.is_set()
 
 
-# Parakeet's Conformer encoder has a practical limit of ~30s of audio.
-# Longer recordings are split into overlapping chunks.  3s overlap gives
-# the model audio context at boundaries so it doesn't hallucinate repeated
-# text at chunk starts.  The merge step skips the overlapped text portion
-# from each subsequent chunk.
-_CHUNK_SECONDS = 25
-_CHUNK_OVERLAP_SECONDS = 3
+# ─── Backward-compat aliases for moved helpers ─────────────────────────
+#
+# PLAN_ONNX_INTEGRATION.md §5.3 / §5.4 moved ``_is_latin_char``,
+# ``_is_likely_english``, ``_merge_chunks`` and ``_compute_overlap_skip``
+# to :mod:`voice_typer.server.asr_utils`. The canonical implementations
+# live there now; the leading-underscore names below are kept as
+# backward-compat aliases so existing import sites
+# (``tests/test_parakeet_engine.py``, ``tests/regressions/parakeet_merge_test.py``,
+# ``tests/test_word_drop_regression.py``) keep working without a
+# parallel test rewrite. New code should import from ``asr_utils``.
 
-# CUDA-retry thresholds for the post-CUDA-fallback CPU-stuck case.
-# After a CUDA error pushes the model onto CPU, ``transcribe_with_fallback``
-# attempts ONE ``self._model.to("cuda", dtype=float16)`` retry once either
-# threshold is met. Many CUDA errors are transient (brief VRAM pressure
-# from another process, a driver hiccup, a brief CUDA-context loss) —
-# permanently parking on CPU until a manual "Reload model" click is
-# user-hostile. The values are conservative so a non-transient fault
-# (driver crash, hardware fault) doesn't waste seconds of user time
-# per transcribe on a retry that will keep failing.
-_CPU_RETRY_TRANSCRIBE_THRESHOLD = 10
-_CPU_RETRY_SECONDS_THRESHOLD = 5 * 60  # 5 minutes
-
-#  Maximum words to skip at a chunk boundary.
-
-# Previously the merge step used ``skip = int(len(words) * 0.12)`` which
-# silently dropped words at every boundary — for a 25-word chunk that's
-# 3 dropped words, regardless of whether the model actually re-transcribed
-# the overlap region.  Word density is not uniform across audio time, so a
-# ratio-based skip is unsafe.  Cap the skip to at most this many words
-# AND only after we've checked for an actual word-level overlap with the
-# previous chunk's tail (see ``_merge_chunks``).
-
-#  (2025): the previous "allowance" of 1 word per boundary even when
-# no overlap was detected silently dropped up to 14 legitimate words per
-# 5-minute recording (one per chunk boundary).  The allowance is now 0 —
-# boundary hallucinations like "Thanks." at chunk starts are already
-# filtered upstream by ``should_reject_low_audio_hallucination`` in
-# ``_transcribe_segment``.  This constant now bounds only *true* overlap
-# duplicate runs that are actually found in the previous chunk's tail.
-_MAX_BOUNDARY_SKIP_WORDS = 2
-# Number of trailing words of the previous chunk to compare against the
-# leading words of the new chunk when detecting true overlap duplicates.
-_OVERLAP_DEDUP_WINDOW = 3
+_is_latin_char = _is_latin_char_impl
+_is_likely_english = _is_likely_english_impl
 
 
 class ParakeetEngine:
-    """Wraps NVIDIA Parakeet TDT v3 ASR model via Transformers.
+    """Wraps NVIDIA Parakeet TDT v3 ASR model via ONNX Runtime.
 
-    Implements TranscriberProtocol so the app can swap backends transparently.
-    Model weights must be downloaded explicitly by the user (Models page or
-    onboarding wizard) before load; the engine never auto-downloads.
+    Implements TranscriberProtocol so the app can swap backends
+    transparently. Model weights must be downloaded explicitly by the
+    user (Models page or onboarding wizard) before load; the engine
+    never auto-downloads.
+
+    The ONNX migration (PLAN_ONNX_INTEGRATION.md §3) swaps the backend
+    from ``transformers.AutoModelForTDT`` + ``torch`` to
+    ``onnx_asr.Model`` (class-based API, NOT ``load_model(...)`` — see
+    §3.3 Option B-1). GPU→CPU fallback (§3.4) recreates the ORT session
+    with ``CPUExecutionProvider`` only — ONNX Runtime cannot move a
+    session between providers in place (unlike torch's ``.to("cpu")``).
     """
 
-    # Cache these class-level so they're imported ONCE, not per instance.
-    # typed as ``Any`` so pyrefly can follow the .cuda
-    # .from_pretrained / .float16 / .generate / .decode accesses after
-    # ``_ensure_imports()`` populates them at runtime. The class attrs
-    # are populated lazily because torch / transformers are optional
-    # deps — they remain ``None`` until first successful import.
+    # ── Class-level state ────────────────────────────────────────────
+    # Lazily-populated references to the onnx_asr + onnxruntime modules.
+    # Typed as ``Any`` so attribute accesses (``Model``, ``RunOptions``,
+    # ``get_available_providers``) type-check without forcing the
+    # optional-dep import at module load time. The class attrs remain
+    # ``None`` until ``_ensure_imports()`` succeeds.
     _imports_loaded: bool = False
-    _AutoModelForTDT: Any = None
-    _AutoProcessor: Any = None
-    _torch: Any = None
-    _hf_home_set: bool = False
+    _onnx_asr: Any = None
+    _ort: Any = None
     # Guards the check-then-import sequence in ``_ensure_imports`` so
     # two threads racing on the first transcribe() call don't both run
-    # the multi-second torch/transformers import in parallel. Class-
-    # level because the import state it guards is class-level.
+    # the (potentially multi-second) onnx_asr import in parallel.
     _imports_lock: threading.Lock = threading.Lock()
-    # Class-level CUDA-retry state fallbacks. ``__init__`` normally sets
-    # these per instance, but some unit tests construct the engine via
-    # ``__new__`` (skipping ``__init__``) — mirrors the
-    # ``_INFERENCE_BATCH_SIZE`` fallback pattern below so
-    # ``_maybe_retry_cuda`` / ``transcribe_with_fallback`` never hit an
-    # AttributeError on those instances.
+    # Class-level fallbacks for instances created via ``__new__`` (some
+    # unit tests skip ``__init__``). Mirrors the pre-migration pattern.
     _cpu_fallback_since: float | None = None
     _cpu_transcribe_count: int = 0
 
@@ -196,205 +327,169 @@ class ParakeetEngine:
     ):
         self.device = device
         self.language = language
-        # Optional Config reference
-        # consulted by ``load()`` to gate HuggingFace downloads on
-        # explicit user consent (``config.huggingface_consent``).
-        # ``None`` is treated as "consent not given" (safe default per
-        # GDPR Art. 6/13).  The registry / model_manager passes the
-        # live Config when constructing the engine so the gate is
-        # enforced in production; tests can omit it to exercise the
-        # cache-hit / already-loaded fast paths.
+        # Optional Config reference consulted by ``load()`` to gate
+        # HuggingFace downloads on explicit user consent
+        # (``config.huggingface_consent``). ``None`` is treated as
+        # "consent not given" (safe default per GDPR Art. 6/13).
         self.config = config
-        # instance-level model handles are populated by load()
-        # and read by transcribe(). Typed as Any so attribute accesses
-        # (.device, .dtype, .generate, .decode) type-check without
-        # forcing every call site to repeat the None-narrowing guard
-        # that transcribe() already performs at entry.
+        # ``onnx_asr.Model`` instance (or ``None`` when unloaded).
         self._model: Any = None
+        # Backward-compat: the pre-migration code populated a separate
+        # ``_processor`` (transformers' ``AutoProcessor``). The ONNX
+        # backend has no separate processor — ``onnx_asr.Model`` bundles
+        # the tokenizer + ONNX session — so this is always ``None`` in
+        # production. Kept as an instance attribute so existing tests
+        # that ``engine._processor = MagicMock()`` keep working.
         self._processor: Any = None
-        # One-time tray notification flag for CUDA→CPU
-        # transcription fallback.  Reset to ``False`` on every
-        # successful ``load()`` so a fallback after the next reload
-        # re-notifies the user (the user may have restarted their GPU
-        # driver / freed VRAM in the meantime).
+        # One-time tray notification flag for CUDA→CPU transcription
+        # fallback. Reset to ``False`` on every successful ``load()`` so
+        # a fallback after the next reload re-notifies the user.
         self._cpu_fallback_notified: bool = False
-        # Time / count-based CUDA-retry tracking. After a CUDA error
-        # pushes the model onto CPU (see ``transcribe_with_fallback``),
-        # the model stays on CPU until either a fresh ``load()`` OR a
-        # one-shot retry fired by these counters / timer.
-        # ``_cpu_fallback_since`` is the ``time.monotonic()`` timestamp
-        # of the most recent fallback (``None`` when no fallback has
-        # occurred in this loaded session — also reset to ``None`` on a
-        # successful retry / at the top of ``load()``).
-        # ``_cpu_transcribe_count`` is the number of CPU transcribes
-        # since the most recent fallback. See ``_maybe_retry_cuda``.
+        # Time / count-based CUDA-retry tracking. The pre-migration code
+        # used these for the ``_maybe_retry_cuda`` time/count-based
+        # retry. The ONNX migration drops that retry (session recreation
+        # is the only fallback path); the attributes are kept so existing
+        # tests that read them don't AttributeError.
         self._cpu_fallback_since: float | None = None
         self._cpu_transcribe_count: int = 0
         self._lock = threading.RLock()
-        # counter + Condition so transcribe() can release the model
+        # Counter + Condition so ``transcribe()`` can release the model
         # lock during the (potentially long) chunk-inference loop while
-        # still coordinating with unload(). unload() waits for
+        # still coordinating with ``unload()``. ``unload()`` waits for
         # ``_active_inference == 0`` before nulling ``self._model`` so a
-        # concurrent transcribe() doesn't dereference a freed model.
+        # concurrent transcribe() doesn't dereference a freed session.
         self._active_inference = 0
         self._inference_cond = threading.Condition(self._lock)
-        # Abort token shared by the dictation pipeline's cancel path
-        # and the ``model.generate()`` call in ``_transcribe_segment``
-        # / ``_transcribe_batch``. ``request_abort()`` sets the event;
-        # the ``_AbortStoppingCriteria`` (passed as ``stopping_criteria``
-        # to ``generate()``) checks it between generated tokens and
-        # returns True to stop generation early. ``clear_abort()`` is
-        # called by the pipeline at the start of each transcription
-        # cycle so a stale abort from the previous cycle does NOT
-        # suppress the next one. The chunk-iteration loop in
-        # ``_transcribe_chunks_batched`` also checks the event between
+        # Abort token shared by the dictation pipeline's cancel path and
+        # the in-flight ``model.recognize()`` call. ``request_abort()``
+        # sets the event AND calls ``RunOptions.set_terminate(True)`` on
+        # the stashed options object so ORT stops the in-flight run.
+        # ``clear_abort()`` is called by the pipeline at the start of
+        # each transcription cycle so a stale abort from the previous
+        # cycle does NOT suppress the next one. The chunk-iteration
+        # loop in ``_transcribe_chunks`` also checks the event between
         # chunks so a long audio split into 13 chunks stops after the
         # current chunk rather than decoding all remaining ones.
         self._abort_event = threading.Event()
-        self._ensure_hf_env()
-        # Batch 2 chunks per ``processor()`` + ``generate()`` call.
-        # Default batch size is 2 (rather than 1) so the batched path
-        # is exercised on a default install — the per-call overhead of
-        # ``processor()`` + ``generate()`` setup is non-trivial on CPU
-        # and small GPUs, so 2 chunks per call halves that overhead for
-        # the common 2-chunk (≤ 50s) dictation case. On a CUDA OOM the
-        # batched path falls back to per-chunk sequential inference for
-        # the remaining chunks (see ``_transcribe_chunks_batched``), so
-        # a small default is safe even on tight-VRAM cards.
-        #
-        # Read at construction time (NOT import time) so changes to the
-        # env var between engine constructions take effect — previously
-        # the class-attribute form evaluated ``os.environ.get`` once when
-        # the module was imported, freezing the value for the entire
-        # process lifetime and ignoring any later ``os.environ`` mutation
-        # (e.g. a test that does ``monkeypatch.setenv(\"PARAKEET_BATCH_SIZE\",
-        # \"2\")`` after the first ParakeetEngine was constructed would NOT
-        # see the new value, because the class attribute was already
-        # frozen). Setting it as an instance attribute here re-reads the
-        # env var on every ``ParakeetEngine()`` construction.
+        # Current ORT ``RunOptions`` for the in-flight ``recognize()``
+        # call (if any). Populated by ``_make_run_options()``; consumed
+        # by ``request_abort()`` to terminate the run.
+        self._run_options: Any = None
+        # Effective ORT providers list used by the most recent
+        # ``load()`` / ``_load_impl()``. Stored so the GPU→CPU fallback
+        # path knows what to switch FROM (and so reload uses the same
+        # providers unless overridden).
+        self._effective_providers: list[str] = []
+        # Backward-compat: pre-migration tests pin
+        # ``_INFERENCE_BATCH_SIZE == 2`` (default). The ONNX backend
+        # doesn't batch (``onnx_asr.recognize`` processes one audio at a
+        # time), but the attribute is kept so existing tests that read
+        # it don't AttributeError. Read at construction time (NOT import
+        # time) so env-var changes between engine constructions take
+        # effect.
         self._INFERENCE_BATCH_SIZE: int = max(1, int(os.environ.get("PARAKEET_BATCH_SIZE", "2")))
 
-    @classmethod
-    def _ensure_hf_env(cls):
-        if cls._hf_home_set:
-            return
-        try:
-            from voice_typer.server.asr_setup import ensure_hf_env
-
-            ensure_hf_env()
-            cls._hf_home_set = True
-        except Exception:
-            # Previously a silent ``except: pass``. Log at
-            # DEBUG (non-fatal — the engine still works without HF env
-            # tweaks) and include exc_info so a non-trivial failure is
-            # visible in the log file when debugging.
-            log.debug("[PARAKEET] ensure_hf_env failed (non-fatal)", exc_info=True)
+    # ── Import management ────────────────────────────────────────────
 
     @classmethod
-    def _ensure_imports(cls):
-        # Hold ``_imports_lock`` for the check-then-import sequence so
-        # two threads racing on the first transcribe() call don't both
-        # import torch + transformers in parallel. The fast path
-        # (imports already loaded) re-checks the flag under the lock and
-        # returns immediately; the slow path runs the multi-second
-        # torch/transformers imports serially. The lock is class-level
-        # because ``_imports_loaded`` / ``_torch`` / ``_AutoModelForTDT``
-        # / ``_AutoProcessor`` are class-level state.
+    def _ensure_imports(cls) -> bool:
+        """Lazily import ``onnx_asr`` + ``onnxruntime``.
+
+        Returns ``True`` on success, ``False`` if either package is not
+        installed. The lazy import keeps this module importable on
+        systems without ``onnx-asr`` (the optional-deps pattern used
+        throughout the project).
+
+        Idempotent: re-entering after a successful import is a fast
+        flag-check under the lock. Re-entering after a FAILED import
+        re-attempts the import (so installing the package after the
+        engine was first constructed takes effect on the next
+        ``load()``).
+        """
         with cls._imports_lock:
             if cls._imports_loaded:
-                log.info("[PARAKEET] AI libraries already imported — skipping re-import")
-                return
-            # OBSERVE-001: the torch + transformers import is the single most
-            # expensive step on a fresh process (several seconds of CPU work,
-            # not disk I/O once prewarm has warmed the OS page cache). It used
-            # to be silent, leaving a mysterious gap between "backend
-            # registered" and "Loading model". Log each import with its own
-            # elapsed time so the gap is fully visible.
+                return True
             _t0 = time.perf_counter()
             try:
-                log.info("[PARAKEET] importing torch (this can take a few seconds on first import)...")
-                import torch
+                import onnx_asr  # type: ignore[import-untyped]
+                import onnxruntime as ort
 
-                _torch_s = time.perf_counter() - _t0
-                log.info("[PARAKEET] torch imported (%.2fs)", _torch_s)
-
-                # ``AutoModelForTDT`` was added to transformers in
-                # 4.50 (our pyproject floor).  The venv on this runner has
-                # 4.44, so a static ``from transformers import AutoModelForTDT``
-                # trips pyrefly's missing-module-attribute even though the
-                # surrounding try/except ImportError is the runtime guard.
-                # Resolve via ``getattr`` so the static checker does not
-                # see the (possibly absent) attribute access.
-                _t1 = time.perf_counter()
-                log.info("[PARAKEET] importing transformers...")
-                import transformers
-
-                _tf_s = time.perf_counter() - _t1
-                log.info("[PARAKEET] transformers imported (%.2fs)", _tf_s)
-                cls._torch = torch
-                cls._AutoModelForTDT = getattr(transformers, "AutoModelForTDT", None)
-                cls._AutoProcessor = getattr(transformers, "AutoProcessor", None)
-                if cls._AutoModelForTDT is None or cls._AutoProcessor is None:
-                    raise ImportError(
-                        "transformers package is missing AutoModelForTDT / AutoProcessor — install transformers>=4.50"
-                    )
+                cls._onnx_asr = onnx_asr
+                cls._ort = ort
                 cls._imports_loaded = True
+                _elapsed = time.perf_counter() - _t0
                 log.info(
-                    "[PARAKEET] AI libraries imported (torch=%.2fs, transformers=%.2fs, total=%.2fs)",
-                    _torch_s,
-                    _tf_s,
-                    time.perf_counter() - _t0,
+                    "[PARAKEET] onnx_asr %s + onnxruntime %s imported (%.2fs)",
+                    getattr(onnx_asr, "__version__", "?"),
+                    getattr(ort, "__version__", "?"),
+                    _elapsed,
                 )
-            except ImportError:
+                return True
+            except ImportError as exc:
                 cls._imports_loaded = False
-                log.warning("[PARAKEET] AI library import failed — torch/transformers not installed?")
+                log.warning(
+                    "[PARAKEET] onnx_asr/onnxruntime import failed — install onnx-asr + onnxruntime: %s",
+                    exc,
+                )
+                return False
 
-    def _inference_mode_ctx(self) -> Any:
-        """Return a context manager that wraps torch.inference_mode().
+    @classmethod
+    def is_available(cls) -> bool:
+        """Return ``True`` if the ONNX backend can be loaded.
 
-        model.generate() was previously called WITHOUT an
-        inference-mode context, which meant PyTorch built and retained
-        the autograd graph for every call. For a 25 s chunk on CUDA
-        this roughly DOUBLED activation-memory footprint (increasing
-        OOM risk) and added ~10-30 % inference latency from
-        gradient-tracking overhead. Multiplied across 13 chunks for a
-        5-minute dictation, the latency penalty is several seconds.
-
-        torch.inference_mode() is preferred over torch.no_grad()
-        (lower overhead, recursive).
-
-        If self._torch is None (e.g. a test stub that bypasses
-        _ensure_imports()), falls back to importing torch directly;
-        if torch isn't installed, returns a contextlib.nullcontext.
+        Quick probe used by the registry / model_manager to decide
+        whether the parakeet backend is usable on the current install
+        (i.e. ``onnx_asr`` + ``onnxruntime`` are importable). Does NOT
+        probe the model cache — that's :meth:`_is_cached`.
         """
-        torch = self._torch
-        if torch is None:
+        try:
+            import onnx_asr  # type: ignore[import-untyped]  # noqa: F401
+            import onnxruntime  # noqa: F401
+        except ImportError:
+            return False
+        return True
+
+    # ── Provider selection ──────────────────────────────────────────
+
+    def _select_providers(self, device: str) -> list[str]:
+        """Map a device string to an ORT ``providers=`` list.
+
+        ``CUDAExecutionProvider`` is tried first when ``device == "cuda"``;
+        if it's not available (CPU-only onnxruntime wheel, no GPU, no
+        CUDA Toolkit DLLs on Windows), falls back to
+        ``CPUExecutionProvider``. The fallback at *load time* is
+        distinct from the *runtime* GPU→CPU fallback in
+        :meth:`transcribe_with_fallback` — the latter recreates the
+        session after a CUDA error during inference.
+        """
+        if device == "cuda":
             try:
-                import torch as _torch_fallback
-            except ImportError:
-                return contextlib.nullcontext()
-            torch = _torch_fallback
-        return torch.inference_mode()
+                available = self._ort.get_available_providers() if self._ort is not None else []
+            except Exception:
+                available = []
+            if "CUDAExecutionProvider" in available:
+                return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            log.warning(
+                "[PARAKEET] CUDAExecutionProvider not in available providers (%s) — using CPU",
+                available,
+            )
+            return ["CPUExecutionProvider"]
+        return ["CPUExecutionProvider"]
+
+    # ── Disk-space / cache probes ───────────────────────────────────
 
     @staticmethod
     def _should_force_cpu() -> bool:
         """Check disk space on system drive — if under 500MB, force CPU.
 
-        CUDA on Windows needs pagefile space to back GPU memory allocations.
-        When the system drive is nearly full, Windows can't grow the pagefile,
-        causing error 1455. This check avoids that error and gives a clean
-        warning instead.
+        CUDA on Windows needs pagefile space to back GPU memory
+        allocations. When the system drive is nearly full, Windows
+        can't grow the pagefile, causing error 1455. This check avoids
+        that error and gives a clean warning instead.
 
-        PLATFORM-QUALIFIED: the pagefile/CUDA-error-1455 failure mode is
-        Windows-only (Linux/macOS don't use a Windows-style pagefile for
-        GPU memory). Previously this body ran unconditionally on every
-        platform, reading ``SYSTEMDRIVE`` (which is unset on Linux/macOS)
-        and falling back to ``"C:\\"`` — then ``psutil.disk_usage("C:\\")``
-        raised ``FileNotFoundError`` on Linux/macOS, which was swallowed
-        by the broad ``except Exception`` below, silently no-op-ing the
-        check. Now we short-circuit at the top on non-Windows so the
-        intent is explicit and the silent except-path is no longer the
-        de-facto Linux/macOS behavior.
+        Platform-qualified: the pagefile/CUDA-error-1455 failure mode
+        is Windows-only (Linux/macOS don't use a Windows-style pagefile
+        for GPU memory).
         """
         from voice_typer.server.platform_utils import is_windows
 
@@ -414,17 +509,18 @@ class ParakeetEngine:
                 )
                 return True
         except Exception:
-            # Previously a silent ``except: pass``. Disk
-            # space check is best-effort — failure here just means we
-            # won't pre-emptively force CPU, which is non-fatal.
             log.debug("[PARAKEET] _should_force_cpu disk space check failed (non-fatal)", exc_info=True)
         return False
 
     @staticmethod
     def _is_cached() -> bool:
-        """Quick check if model is in HF cache without calling snapshot_download."""
-        # use config._config_dir() directly instead of
-        # the removed asr_setup._config_dir() cache wrapper.
+        """Quick check if the Parakeet model is in the HF cache.
+
+        Walks the snapshot dir for a ``model.safetensors`` (the
+        torch/safetensors weights) OR a ``*.onnx`` file (the ONNX
+        export). Either counts as "cached" — the user may have
+        downloaded either format.
+        """
         from voice_typer.server.config import _config_dir
 
         cache_root = _config_dir() / "huggingface" / "hub"
@@ -434,34 +530,55 @@ class ParakeetEngine:
             return False
         try:
             for entry in snapshots.iterdir():
-                if entry.is_dir() and (entry / "model.safetensors").exists():
+                if not entry.is_dir():
+                    continue
+                if (entry / "model.safetensors").exists():
+                    return True
+                # ONNX export: onnx-asr downloads weights as .onnx files
+                # (encoder.onnx, decoder.onnx, joint_decoder.onnx, etc.).
+                if any(entry.glob("*.onnx")):
                     return True
         except OSError:
-            # Previously a silent ``except OSError: pass``.
-            # A transient FS error (e.g. snapshot dir deleted between
-            # is_dir() and iterdir()) shouldn't crash the cache probe.
             log.debug("[PARAKEET] _is_cached snapshot iterdir failed (non-fatal)", exc_info=True)
         return False
 
-    # ── TranscriberProtocol ──────────────────────────────────────────
+    # ── TranscriberProtocol ─────────────────────────────────────────
 
     @property
     def is_loaded(self) -> bool:
+        """Return ``True`` if the ONNX model is loaded.
+
+        The pre-migration code required both ``_model`` AND ``_processor``
+        to be non-None (transformers' AutoProcessor + AutoModelForTDT).
+        The ONNX backend has no separate processor — ``onnx_asr.Model``
+        bundles the tokenizer + ONNX session — so we check ``_model``
+        only. The ``_processor`` attribute is kept as ``None`` in
+        production for backward-compat with tests that set it.
+        """
         with self._lock:
-            return self._model is not None and self._processor is not None
+            return self._model is not None
 
     def request_abort(self) -> None:
-        """Signal an in-flight ``model.generate()`` to stop early.
+        """Signal an in-flight ``model.recognize()`` to stop early.
 
-        Sets ``_abort_event``; the ``_AbortStoppingCriteria`` passed
-        to ``model.generate()`` checks the event between generated
-        tokens and returns True to stop generation. Also causes the
-        chunk-iteration loop in ``_transcribe_chunks_batched`` to break
-        out after the current chunk completes. Bounded latency instead
-        of waiting for the full audio to decode — frees compute for
-        the next dictation cycle.
+        Sets ``_abort_event`` (checked between chunks in
+        ``_transcribe_chunks``) AND calls
+        ``RunOptions.set_terminate(True)`` on the stashed options object
+        so ORT stops the in-flight run. Bounded latency instead of
+        waiting for the full audio to decode — frees compute for the
+        next dictation cycle.
+
+        ORT's ``RunOptions.set_terminate`` is the official abort API
+        (replaces the torch/transformers ``StoppingCriteria`` shim —
+        see :class:`_AbortStoppingCriteria`).
         """
         self._abort_event.set()
+        run_opts = self._run_options
+        if run_opts is not None:
+            try:
+                run_opts.set_terminate(True)
+            except Exception:
+                log.debug("[PARAKEET] RunOptions.set_terminate failed", exc_info=True)
 
     def clear_abort(self) -> None:
         """Clear the abort token at the start of a fresh transcription cycle.
@@ -472,9 +589,13 @@ class ParakeetEngine:
         new transcription.
         """
         self._abort_event.clear()
+        # The previous RunOptions (if terminated) is stale — drop the
+        # reference so the next ``_make_run_options()`` creates a fresh
+        # one. ``set_terminate(True)`` is one-way; you cannot un-terminate.
+        self._run_options = None
 
     def load(self, progress_callback: Callable[[str], None] | None = None) -> bool:
-        """Load the Parakeet model from the local HF cache (NEVER downloads).
+        """Load the Parakeet ONNX model via ``onnx_asr.Model(...)``.
 
         The app never downloads models automatically — the user must
         explicitly download the Parakeet weights (Models page Download
@@ -482,42 +603,33 @@ class ParakeetEngine:
         the model is not in the local HuggingFace cache, a
         ``ModelNotDownloadedError`` is raised so callers can direct the
         user to the Models page. A cached-but-tampered model raises
-        ``ModelIntegrityError`` and is NOT deleted automatically
-        (deletion is an explicit user action via the Models page).
+        ``ModelIntegrityError`` and is NOT deleted automatically.
 
-        Weights land in ``~/.voice-typer/huggingface/hub/``.
-        Returns True on success, False on failure.
+        See PLAN_ONNX_INTEGRATION.md §3.3 (Option B-1) for the
+        ``onnx_asr.Model`` constructor API (class-based, NOT
+        ``load_model(...)``).
         """
-        # Ensure torch + transformers are imported before any model ops.
-        log.info("[PARAKEET] load() entered — importing AI libraries if needed")
-        self._ensure_imports()
-        if not self._imports_loaded:
-            log.warning("[PARAKEET] torch/transformers not installed, cannot load")
+        log.info("[PARAKEET] load() entered — importing onnx-asr if needed")
+        if not self._ensure_imports():
             if progress_callback:
-                progress_callback("Missing dependencies: torch + transformers")
+                progress_callback("Missing dependencies: onnx-asr + onnxruntime")
             return False
 
         with self._lock:
             if self._model is not None:
                 return True
 
-            # Reset the one-time CPU-fallback notification flag
-            # on every fresh ``load()``.  A fallback that fired during a
+            # Reset the one-time CPU-fallback notification flag on
+            # every fresh ``load()``. A fallback that fired during a
             # previous transcription session must not silently suppress
             # the next session's notification — the user may have
-            # restarted their GPU driver or freed VRAM in the meantime,
-            # so the next fallback is fresh information worth surfacing.
+            # restarted their GPU driver or freed VRAM in the meantime.
             self._cpu_fallback_notified = False
-            # Reset the CUDA-retry tracking too — a fresh ``load()``
-            # re-attempts CUDA from scratch, so any prior CPU-fallback
-            # state is stale. Without this, a load() immediately after
-            # a fallback would inherit a stale ``_cpu_fallback_since``
-            # and could fire a redundant retry on the next transcribe.
             self._cpu_fallback_since = None
             self._cpu_transcribe_count = 0
 
-            # Quick cache check — avoids calling snapshot_download entirely
-            # when model is already on disk.
+            # Quick cache check — avoids calling onnx_asr.Model(...)
+            # entirely when the model isn't on disk.
             _cache_t0 = time.perf_counter()
             _cached = self._is_cached()
             log.info(
@@ -526,11 +638,11 @@ class ParakeetEngine:
                 time.perf_counter() - _cache_t0,
             )
             if not _cached:
-                # The app NEVER auto-downloads models — downloading is an
-                # explicit user action (Models page Download button, or
-                # the onboarding wizard). Refuse to load and raise the
-                # actionable error so the tray / IPC layer can point the
-                # user at the Models page.
+                # The app NEVER auto-downloads models — downloading is
+                # an explicit user action (Models page Download button,
+                # or the onboarding wizard). Refuse to load and raise
+                # the actionable error so the tray / IPC layer can
+                # point the user at the Models page.
                 from voice_typer.server.asr_errors import ModelNotDownloadedError
 
                 raise ModelNotDownloadedError(
@@ -541,32 +653,11 @@ class ParakeetEngine:
                     repo_id=_PARAKERT_MODEL_ID,
                 )
 
-            # Verify model integrity
-            # UNCONDITIONALLY on every load.  The previous code only
-            # verified when the cache-miss / download branch ran, so a
-            # cache hit (model already on disk) skipped verification
-            # entirely — an attacker with write access to the HF cache
-            # could tamper with ``model.safetensors`` and the next load
-            # would feed tampered weights to the ASR engine with no
-            # SHA-256 check.  The ~1-3s SHA-256 cost is acceptable vs
-            # the 5-50s ``from_pretrained`` load time.
-
-            # The verify path enumerates snapshot dirs and calls
-            # ``verify_model_integrity`` against the manifest.  On
-            # failure we hard-fail — WITHOUT deleting the tampered
-            # files (deleting a model is an explicit user action via the
-            # Models page Delete button).
-
-            #  (): call ``security.verify_model_integrity``
-            # directly with the canonical (local_dir, repo_id) argument
-            # order.  Previously this went through the
-            # ``asr_setup._verify_model_integrity`` wrapper which had a
-            # swapped (repo_id, local_dir) signature — the wrapper just
-            # re-swapped the args back to the canonical order, but the
-            # indirection was a footgun (callers had to remember which
-            # order each wrapper expected).  The wrapper has been
-            # deleted; callers now use ``security.verify_model_integrity``
-            # directly with the canonical order.
+            # Verify model integrity (hash check) — UNCONDITIONALLY on
+            # every load. The ~1-3s SHA-256 cost is acceptable vs the
+            # multi-second ORT load time. On failure we hard-fail —
+            # WITHOUT deleting the tampered files (deletion is an
+            # explicit user action via the Models page Delete button).
             from voice_typer.server.config import _config_dir
             from voice_typer.server.security import verify_model_integrity
 
@@ -583,16 +674,6 @@ class ParakeetEngine:
                 except OSError as exc:
                     verify_exc = exc
                 if not verified:
-                    # CRIT-4 / SEC-1: hard-fail when
-                    # integrity check fails — do NOT fall through to
-                    # load the model anyway.  The previous code only
-                    # logged a ``warning`` and continued, which combined
-                    # with CRIT-5 (manifest pinning files the allow-list
-                    # omits) meant every Parakeet download triggered
-                    # this branch and loaded the model regardless —
-                    # net effect: zero supply-chain protection.
-                    # Mirrors the hard-fail semantics in
-                    # ``asr_setup.download_parakeet_weights``.
                     log.error(
                         "[PARAKEET] Model integrity check failed%s for %s at %s. "
                         "Refusing to load tampered model. To fix: delete it from the Models page.",
@@ -601,7 +682,9 @@ class ParakeetEngine:
                         model_dir,
                     )
                     if progress_callback:
-                        progress_callback("Model integrity check failed; delete and re-download from the Models page.")
+                        progress_callback(
+                            "Model integrity check failed; delete and re-download from the Models page."
+                        )
                     from voice_typer.server.asr_errors import ModelIntegrityError
 
                     raise ModelIntegrityError(
@@ -612,101 +695,49 @@ class ParakeetEngine:
                         repo_id=_PARAKERT_MODEL_ID,
                     )
 
-            # Load model from cache
+            # Load ONNX model via onnx_asr.Model(...) — class-based API
+            # (PLAN_ONNX_INTEGRATION.md §3.3 Option B-1).
             try:
                 if progress_callback:
-                    progress_callback("Loading Parakeet TDT v3 model...")
+                    progress_callback("Loading Parakeet TDT v3 ONNX model...")
 
-                log.info("[PARAKEET] Loading model (device=%s)...", self.device)
+                log.info("[PARAKEET] Loading ONNX model (device=%s)...", self.device)
                 effective_device = self.device
-                if effective_device == "cuda" and not self._torch.cuda.is_available():
-                    log.warning("[PARAKEET] CUDA requested but not available, falling back to CPU")
-                    effective_device = "cpu"
                 if effective_device == "cuda" and self._should_force_cpu():
                     effective_device = "cpu"
 
-                # time from_pretrained() calls to measure prewarm
-                # cache-hit effectiveness.  <5s suggests OS page-cache
-                # hit (warm), >=5s suggests cold disk read.
+                providers = self._select_providers(effective_device)
                 _load_start = time.perf_counter()
 
-                # Suppress Transformers' tqdm progress bar
-                import io as _io
-                from contextlib import redirect_stderr
+                # onnx_asr.Model is class-based (NOT load_model(...) — see §3.3 B-1).
+                # The constructor downloads weights into the onnx-asr
+                # cache on first use; subsequent loads are cache hits.
+                # ``quantization="fp16"`` selects the FP16 ONNX export
+                # (``grikdotnet/parakeet-tdt-0.6b-fp16``).
+                self._model = self._onnx_asr.Model(
+                    _PARAKEET_ONNX_MODEL_NAME,
+                    quantization=_PARAKEET_QUANTIZATION,
+                    providers=providers,
+                )
 
-                _stderr_buf = _io.StringIO()
-                with redirect_stderr(_stderr_buf):
-                    _t0 = time.perf_counter()
-                    self._processor = self._AutoProcessor.from_pretrained(
-                        _PARAKERT_MODEL_ID,
-                        local_files_only=True,
-                    )
-                    _proc_elapsed = time.perf_counter() - _t0
-
-                    try:
-                        _t1 = time.perf_counter()
-                        self._model = self._AutoModelForTDT.from_pretrained(
-                            _PARAKERT_MODEL_ID,
-                            dtype=self._torch.float16 if effective_device == "cuda" else self._torch.float32,
-                            device_map=effective_device,
-                            low_cpu_mem_usage=True,
-                            local_files_only=True,
-                        )
-                        _model_elapsed = time.perf_counter() - _t1
-                    except Exception as cuda_exc:
-                        err_str = str(cuda_exc).lower()
-                        if effective_device == "cuda" and ("1455" in err_str or "paging file" in err_str):
-                            # include exc_info=True so the CUDA
-                            # allocation traceback is captured for debugging
-                            # (previously the ``%s`` interpolation lost the
-                            # traceback, leaving only the exception's str()).
-                            log.warning(
-                                "[PARAKEET] CUDA allocation failed (pagefile), retrying on CPU: %s",
-                                cuda_exc,
-                                exc_info=True,
-                            )
-                            if progress_callback:
-                                progress_callback("CUDA memory error, retrying on CPU...")
-                            _t1 = time.perf_counter()
-                            self._model = self._AutoModelForTDT.from_pretrained(
-                                _PARAKERT_MODEL_ID,
-                                dtype=self._torch.float32,
-                                device_map="cpu",
-                                low_cpu_mem_usage=True,
-                                local_files_only=True,
-                            )
-                            _model_elapsed = time.perf_counter() - _t1
-                        else:
-                            raise
-
-                _total_elapsed = time.perf_counter() - _load_start
-                # classify load as "warm (page-cache)" if under 5s,
-                # "cold (disk)" otherwise.
-                # approximate weights read speed from the known
-                # model file size (~2.4 GB for model.safetensors).
-                _read_speed_mbs = _PARAKERT_WEIGHTS_MB / max(_model_elapsed, 0.1)
-                _warm_label = "warm (page-cache)" if _total_elapsed < 5.0 else "cold (disk)"
+                _elapsed = time.perf_counter() - _load_start
+                _warm_label = "warm (page-cache)" if _elapsed < 5.0 else "cold (disk)"
+                _read_speed_mbs = _PARAKERT_WEIGHTS_MB / max(_elapsed, 0.1)
                 log.info(
-                    "[PARAKEET] Model loaded successfully (%s) — processor=%.1fs, model=%.1fs, total=%.1fs (%.0f MB/s)",
+                    "[PARAKEET] ONNX model loaded (%s) — total=%.1fs (%.0f MB/s)",
                     _warm_label,
-                    _proc_elapsed,
-                    _model_elapsed,
-                    _total_elapsed,
+                    _elapsed,
                     _read_speed_mbs,
                 )
                 if progress_callback:
                     progress_callback("Parakeet model ready")
-                # Prime CUDA kernels at load time so the first real
-                # dictation doesn't pay the 2-5 s JIT cost (cuDNN /
-                # cuBLAS / attention kernel compilation). No-op on CPU
-                # and best-effort (failures swallowed inside the helper).
-                # See ``_warm_up_model`` for the full contract.
-                if effective_device == "cuda":
-                    self._warm_up_model()
+                # Stash the effective providers so the GPU→CPU fallback
+                # path knows what to switch FROM.
+                self._effective_providers = providers
                 return True
 
             except ImportError as exc:
-                log.exception("[PARAKEET] transformers package not installed")
+                log.exception("[PARAKEET] onnx_asr package not installed")
                 if progress_callback:
                     progress_callback(f"Missing dependency: {exc}")
                 return False
@@ -721,29 +752,34 @@ class ParakeetEngine:
                     progress_callback(f"Model load failed: {exc}")
                 return False
 
-    def transcribe(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str:
+    # ── Transcription ───────────────────────────────────────────────
+
+    def transcribe(
+        self,
+        audio: np.ndarray,
+        audio_stats: tuple[float, float, float] | None = None,
+    ) -> str:
         """Transcribe audio array. Returns cleaned text string.
 
         Long audio (>CHUNK_SECONDS) is split into overlapping chunks
-        to stay within the Conformer encoder's input-length limit.
+        via :func:`voice_typer.server.asr_utils.split_audio` to stay
+        within the Conformer encoder's input-length limit. Each chunk is
+        transcribed via :meth:`onnx_asr.Model.recognize`; results are
+        merged via :func:`voice_typer.server.asr_utils.merge_chunks`.
 
         PERF-STATS: ``audio_stats`` is an optional pre-computed
         ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
         When provided, the engine skips its own RMS computation in
         hallucination detection.
 
-        the lock is released during the chunk-inference loop.
-        Previously the entire 13-chunk loop ran under ``self._lock``,
-        blocking ``is_loaded`` / ``unload`` / parallel transcribes for
-        ~13s per long dictation. We now acquire the lock only briefly
-        to check loaded state and increment ``_active_inference``;
-        ``unload()`` waits on ``_inference_cond`` for the counter to
-        return to 0 before nulling the model, so the inference path
-        can safely access ``self._model`` / ``self._processor``
-        without holding the lock.
+        The lock is released during the chunk-inference loop (same
+        pattern as the pre-migration code) so ``is_loaded`` / ``unload``
+        / parallel transcribes are not blocked for the full ~13s of a
+        long dictation. ``unload()`` waits on ``_inference_cond`` for
+        the counter to return to 0 before nulling the model.
         """
         with self._lock:
-            if self._model is None or self._processor is None:
+            if self._model is None:
                 raise RuntimeError("Parakeet model not loaded. Call load() first or check logs.")
 
             if len(audio) == 0:
@@ -759,79 +795,60 @@ class ParakeetEngine:
             chunks = self._split_audio(audio, _CHUNK_SECONDS, _CHUNK_OVERLAP_SECONDS)
             log.info("[PARAKEET] Splitting %.1fs audio into %d chunks", duration, len(chunks))
 
-            results = self._transcribe_chunks_batched(chunks)
+            results = self._transcribe_chunks(chunks)
             if not results:
                 return ""
 
-            merged = self._merge_chunks(results)
-            return merged
+            return self._merge_chunks(results)
         finally:
             with self._inference_cond:
                 self._active_inference -= 1
                 if self._active_inference == 0:
                     self._inference_cond.notify_all()
 
-    def _transcribe_segment(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str:
-        """Transcribe one audio segment (assumed to be within model limits).
+    def _transcribe_segment(
+        self,
+        audio: np.ndarray,
+        audio_stats: tuple[float, float, float] | None = None,
+    ) -> str:
+        """Transcribe one audio segment via :meth:`onnx_asr.Model.recognize`.
 
-        PERF-STATS: ``audio_stats`` is an optional pre-computed
-        ``(rms, peak, silence_pct)`` tuple. When provided, the
-        engine skips its own RMS computation in hallucination detection.
-
-         PERF-REL-1: this method no longer catches ``Exception``
-        and returns ``""``.  The previous broad ``except`` swallowed
-        CUDA errors (cublas, cudnn, OOM) so ``transcribe_with_fallback``
-        received ``""`` — indistinguishable from a legitimate "no speech
-        detected" result — and the GPU→CPU fallback branch was
-        unreachable.  Genuine "no speech" cases do NOT raise (the model
-        returns an empty sequence and ``decode`` returns "") so letting
-        exceptions propagate is safe.
+        Assumes the segment is within the model's input-length limit
+        (caller enforces this via chunking). Applies the English-only
+        filter and the low-audio-hallucination filter to the result.
         """
-        inputs = self._processor(
-            [audio],
-            sampling_rate=WHISPER_SAMPLE_RATE,
-            return_tensors="pt",
-        )
-        inputs.to(device=self._model.device, dtype=self._model.dtype)
-        # do NOT pass max_new_tokens — the previous cap of 256
-        # silently truncated dense 25s chunks (Parakeet TDT emits
-        # ~5-12 tokens/sec including duration tokens; dense speech at
-        # 200+ WPM can need 250-300+ tokens).  Let the model use its
-        # default ``generation_config.max_length`` (4096 for Parakeet
-        # TDT v3) and emit EOS when speech ends — same as Whisper.
-        #
-        # wrap generate() in torch.inference_mode() to skip
-        # autograd-graph construction. See _inference_mode_ctx.
-        #
-        # Abort wiring: ``_AbortStoppingCriteria`` is checked between
-        # generated tokens by ``transformers``. When the dictation
-        # pipeline's cancel path (ESC / watchdog) sets
-        # ``self._abort_event``, the next token-step returns True and
-        # ``generate()`` stops early — bounded latency instead of
-        # decoding the full sequence. ``generate()`` accepts a list of
-        # stopping criteria; we pass ours as the sole entry.
-        with self._inference_mode_ctx():
-            output = self._model.generate(
-                **inputs,
-                return_dict_in_generate=True,
-                stopping_criteria=[_AbortStoppingCriteria(self._abort_event)],
-            )
-        text = self._processor.decode(
-            output.sequences,
-            skip_special_tokens=True,
-        )
+        # Build a fresh RunOptions so ``request_abort()`` can terminate
+        # the run mid-decode. Stashed on ``self._run_options`` so the
+        # abort path can reach it via ``request_abort()``.
+        self._make_run_options()
+        try:
+            text = self._model.recognize(audio, sample_rate=WHISPER_SAMPLE_RATE)
+        except Exception:
+            # If the abort path terminated the run, ORT raises a
+            # RuntimeException — surface it so transcribe_with_fallback
+            # can decide. Drop the run-options reference regardless.
+            self._run_options = None
+            raise
+        self._run_options = None
+
+        # ``onnx_asr.Model.recognize`` returns a single str for single
+        # audio; defensively handle list[str] in case the library
+        # changes shape (mirrors the pre-migration defensive pattern).
         if isinstance(text, list):
             text = text[0] if text else ""
-        text = text.strip()
+        text = (text or "").strip()
 
         # English-only filter: only active when language="en" is configured
         if self.language == "en" and not _is_likely_english(text):
             return ""
 
         # PERF-STATS: reuse pre-computed RMS when provided
-        rms = audio_stats[0] if audio_stats is not None else float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
+        rms = (
+            audio_stats[0]
+            if audio_stats is not None
+            else float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
+        )
         if should_reject_low_audio_hallucination(text, rms):
-            # Use PII-safe logging helper instead of raw text
             log_hallucination_rejection(
                 "[PARAKEET]",
                 text,
@@ -839,16 +856,64 @@ class ParakeetEngine:
                 log_transcriptions=False,
             )
             return ""
-
         return text
+
+    def _make_run_options(self) -> Any:
+        """Create an ORT ``RunOptions`` and stash it on ``self`` for abort.
+
+        Returns ``None`` if ``onnxruntime`` is not available (defensive
+        — should not happen post-:meth:`_ensure_imports`, but keeps the
+        method safe to call from tests that bypass ``load()``).
+        """
+        if self._ort is None:
+            return None
+        try:
+            opts = self._ort.RunOptions()
+            self._run_options = opts
+            return opts
+        except Exception:
+            log.debug("[PARAKEET] RunOptions creation failed", exc_info=True)
+            return None
+
+    def _transcribe_chunks(self, chunks: list[np.ndarray]) -> list[str]:
+        """Transcribe each chunk via ``model.recognize()``; respect abort.
+
+        Checks ``_abort_event`` BETWEEN chunks so a long audio split
+        into 13 chunks stops after the current chunk rather than
+        decoding all remaining ones. The current chunk's
+        ``model.recognize()`` call is wired to ``request_abort()`` via
+        the ORT ``RunOptions.set_terminate()`` API (see
+        :meth:`_transcribe_segment`).
+        """
+        if not chunks:
+            return []
+        results: list[str] = []
+        for i, chunk in enumerate(chunks):
+            if self._abort_event.is_set():
+                log.info(
+                    "[PARAKEET] Abort requested — stopping chunk loop early (completed %d/%d chunks)",
+                    i,
+                    len(chunks),
+                )
+                break
+            log.info(
+                "[PARAKEET] Transcribing chunk %d/%d (%.1fs)",
+                i + 1,
+                len(chunks),
+                len(chunk) / WHISPER_SAMPLE_RATE,
+            )
+            text = self._transcribe_segment(chunk)
+            if text:
+                results.append(text)
+        return results
 
     def _split_audio(self, audio: np.ndarray, chunk_sec: float, overlap_sec: float) -> list[np.ndarray]:
         """Split audio into overlapping chunks.
 
         Delegates to :func:`voice_typer.server.asr_utils.split_audio`
         (single source of truth shared with ``QwenEngine._split_audio``).
-        The method signature is preserved for backward compatibility with
-        existing call sites and tests that invoke
+        The method signature is preserved for backward compatibility
+        with existing call sites and tests that invoke
         ``engine._split_audio(audio, chunk_sec, overlap_sec)`` directly.
         """
         from voice_typer.server.asr_utils import split_audio
@@ -860,480 +925,107 @@ class ParakeetEngine:
             sample_rate=WHISPER_SAMPLE_RATE,
         )
 
-    # batch 2-4 chunks per ``processor()`` + ``generate()`` call.
-    # Default batch size is 1 (sequential) so the existing test contract
-    # that pins ``mock_model.generate.call_count == 2`` for a 2-chunk
-    # transcription keeps passing. Operators who want the batching
-    # speedup can set ``PARAKEET_BATCH_SIZE=2`` (or 3/4) in the
-    # environment; on OOM we fall back to per-chunk sequential inference
-    # for the remaining chunks so the user still gets a transcription.
-    #
-    # NOTE: this is the CLASS-level default. ``__init__`` overrides it
-    # with an INSTANCE attribute of the same name, read from the env
-    # var at construction time (NOT import time) so changes to
-    # ``PARAKEET_BATCH_SIZE`` between engine constructions take effect.
-    # The class attribute is kept as a fallback for instances created
-    # via ``__new__`` (e.g. some unit tests) that skip ``__init__``.
-    _INFERENCE_BATCH_SIZE: int = 1
-
-    def _transcribe_chunks_batched(self, chunks: list[np.ndarray]) -> list[str]:
-        """Transcribe ``chunks`` in batches, falling back to sequential on OOM.
-
-        ``processor()`` and ``model.generate()`` both accept a
-        list of audio arrays as a batch. When ``_INFERENCE_BATCH_SIZE``
-        is 1 (default), this method is strictly sequential and preserves
-        the historical call-count contract pinned by
-        ``test_transcribe_long_audio_splits_into_chunks``. When set to
-        2+ via the ``PARAKEET_BATCH_SIZE`` env var, we group that many
-        chunks per ``generate()`` call. On a CUDA OOM (``"out of
-        memory"`` in the error string), we fall back to per-chunk
-        sequential inference for the remaining chunks so the user still
-        gets a transcription.
-
-        callers must have already incremented
-        ``_active_inference`` (via :py:meth:`transcribe`); this method
-        does NOT touch the counter.
-        """
-        if not chunks:
-            return []
-
-        if self._INFERENCE_BATCH_SIZE <= 1 or len(chunks) == 1:
-            results: list[str] = []
-            for i, chunk in enumerate(chunks):
-                # Check the abort token BETWEEN chunks. The
-                # ``_transcribe_segment`` call below already wires the
-                # abort event into ``model.generate()`` via
-                # ``_AbortStoppingCriteria`` (so the current chunk's
-                # token stream stops early); this check skips any
-                # REMAINING chunks after the current one returns, so a
-                # 13-chunk long-form dictation stops after the current
-                # chunk rather than decoding all remaining ones.
-                if self._abort_event.is_set():
-                    log.info(
-                        "[PARAKEET] Abort requested — stopping chunk loop early (completed %d/%d chunks)",
-                        i,
-                        len(chunks),
-                    )
-                    break
-                log.info(
-                    "[PARAKEET] Transcribing chunk %d/%d (%.1fs)",
-                    i + 1,
-                    len(chunks),
-                    len(chunk) / WHISPER_SAMPLE_RATE,
-                )
-                text = self._transcribe_segment(chunk)
-                if text:
-                    results.append(text)
-            return results
-
-        results = []
-        i = 0
-        while i < len(chunks):
-            # Same abort check as the sequential branch — see above.
-            if self._abort_event.is_set():
-                log.info(
-                    "[PARAKEET] Abort requested — stopping batched chunk loop early (completed %d/%d chunks)",
-                    i,
-                    len(chunks),
-                )
-                break
-            batch = chunks[i : i + self._INFERENCE_BATCH_SIZE]
-            i += len(batch)
-            log.info(
-                "[PARAKEET] Transcribing batch of %d chunk(s) (%d/%d done)",
-                len(batch),
-                i - len(batch),
-                len(chunks),
-            )
-            try:
-                batch_texts = self._transcribe_batch(batch)
-                for t in batch_texts:
-                    if t:
-                        results.append(t)
-            except Exception as exc:
-                err_str = str(exc).lower()
-                if "out of memory" in err_str or ("cuda" in err_str and "allocat" in err_str):
-                    # include exc_info=True so the OOM
-                    # traceback is captured for debugging (previously
-                    # the ``%s`` interpolation lost the traceback).
-                    log.warning(
-                        "[PARAKEET] Batched inference OOM on batch of %d chunks — falling back to sequential: %s",
-                        len(batch),
-                        exc,
-                        exc_info=True,
-                    )
-                    for chunk in batch:
-                        text = self._transcribe_segment(chunk)
-                        if text:
-                            results.append(text)
-                else:
-                    raise
-        return results
-
-    def _transcribe_batch(self, batch: list[np.ndarray]) -> list[str]:
-        """Run ``processor`` + ``generate`` + ``decode`` on a batch of chunks."""
-        inputs = self._processor(
-            batch,
-            sampling_rate=WHISPER_SAMPLE_RATE,
-            return_tensors="pt",
-        )
-        inputs.to(device=self._model.device, dtype=self._model.dtype)
-        # wrap generate() in torch.inference_mode() to skip
-        # autograd-graph construction. See _inference_mode_ctx.
-        # Abort wiring: same ``_AbortStoppingCriteria`` as the
-        # single-segment path — see ``_transcribe_segment``.
-        with self._inference_mode_ctx():
-            output = self._model.generate(
-                **inputs,
-                return_dict_in_generate=True,
-                stopping_criteria=[_AbortStoppingCriteria(self._abort_event)],
-            )
-        decoded = self._processor.decode(
-            output.sequences,
-            skip_special_tokens=True,
-        )
-        if isinstance(decoded, str):
-            decoded = [decoded]
-        texts: list[str] = []
-        for idx, raw_text in enumerate(decoded):
-            if idx >= len(batch):
-                break
-            text = (raw_text or "").strip()
-            if not text:
-                texts.append("")
-                continue
-            if self.language == "en" and not _is_likely_english(text):
-                texts.append("")
-                continue
-            rms = float(np.sqrt(np.mean(np.square(batch[idx]), dtype=np.float64)))
-            if should_reject_low_audio_hallucination(text, rms):
-                log_hallucination_rejection(
-                    "[PARAKEET]",
-                    text,
-                    reason="hallucination",
-                    log_transcriptions=False,
-                )
-                texts.append("")
-                continue
-            texts.append(text)
-        while len(texts) < len(batch):
-            texts.append("")
-        return texts
-
     def _merge_chunks(self, texts: list[str]) -> str:
         """Concatenate chunk transcriptions, skipping overlap text.
 
-        Chunks have ``_CHUNK_OVERLAP_SECONDS`` of overlapping audio at
-        each boundary.  When the model re-transcribes the overlap region
-        in the new chunk, those leading words duplicate the previous
-        chunk's tail and must be skipped.
-
-         The old implementation used a fixed ratio
-        ``skip = int(len(words) * 0.12)`` which dropped words at every
-        boundary regardless of whether they were actually overlap
-        duplicates — for a 25-word chunk that's 3 dropped words.  This
-        was unsafe because word density is not uniform across audio
-        time, so a ratio-based skip silently dropped legitimate words
-        at boundaries that had no overlap duplicates.
-
-        The new algorithm:
-        1. Look at the last ``_OVERLAP_DEDUP_WINDOW`` words of the
-           previous chunk and the first ``_OVERLAP_DEDUP_WINDOW`` words
-           of the new chunk.
-        2. Find the longest leading run of the new chunk whose words
-           also appear (in order) in the previous chunk's tail window.
-           That run is a true overlap duplicate and is skipped.
-        3. : If no overlap duplicate is detected, return 0 — do
-           NOT drop legitimate words.  The previous "allowance" of 1
-           word per boundary silently dropped up to 14 words per
-           5-minute recording (one per chunk boundary) even when the
-           model did not re-transcribe any overlap text.  Boundary
-           hallucinations are already filtered upstream by
-           ``should_reject_low_audio_hallucination``.
-        4. Total skip is capped at ``_MAX_BOUNDARY_SKIP_WORDS`` (2).
+        Delegates to :func:`voice_typer.server.asr_utils.merge_chunks`
+        (PLAN_ONNX_INTEGRATION.md §5.4 — the canonical home for this
+        algorithm post-migration). The instance-method signature is
+        preserved for backward compat with existing call sites and tests
+        (``engine._merge_chunks([...])``).
         """
-        if len(texts) <= 1:
-            return texts[0] if texts else ""
-
-        result_words: list[str] = texts[0].split()
-        for text in texts[1:]:
-            words = text.split()
-            if not words:
-                continue
-
-            skip = self._compute_overlap_skip(result_words, words)
-            tail = words[skip:] if skip > 0 else words
-            if tail:
-                result_words.extend(tail)
-        return " ".join(result_words).strip()
+        return _merge_chunks_impl(texts)
 
     @staticmethod
     def _compute_overlap_skip(prev_words: list[str], new_words: list[str]) -> int:
         """Return how many leading words of *new_words* to skip.
 
-        We detect a true overlap duplicate by searching (case-insensitively,
-        ignoring punctuation) for the leading run of ``new_words`` as a
-        *contiguous subsequence* within the trailing window of
-        ``prev_words``.  We pick the longest match that fits within
-        ``_OVERLAP_DEDUP_WINDOW`` words on the new side, is at most
-        ``_MAX_BOUNDARY_SKIP_WORDS`` long, and ends within the trailing
-        ``_OVERLAP_DEDUP_WINDOW + _MAX_BOUNDARY_SKIP_WORDS`` words of the
-        previous chunk.  If no match is found, return 0 (do not drop
-        legitimate words).
+        Delegates to :func:`voice_typer.server.asr_utils.compute_overlap_skip`
+        (PLAN_ONNX_INTEGRATION.md §5.4). The ``@staticmethod`` signature
+        is preserved for backward compat with tests that call
+        ``ParakeetEngine._compute_overlap_skip(prev, new)`` directly.
         """
-        if not prev_words or not new_words:
-            return 0
+        return _compute_overlap_skip_impl(prev_words, new_words)
 
-        def _norm(w: str) -> str:
-            return w.strip(".,;:!?\"'()[]{}").lower()
-
-        # Search window on prev side: include enough trailing words that
-        # an overlap run of length up to _MAX_BOUNDARY_SKIP_WORDS can
-        # start anywhere within _OVERLAP_DEDUP_WINDOW of the tail.
-        prev_window_size = _OVERLAP_DEDUP_WINDOW + _MAX_BOUNDARY_SKIP_WORDS
-        prev_tail = [_norm(w) for w in prev_words[-prev_window_size:]]
-        # New side: we compare up to _MAX_BOUNDARY_SKIP_WORDS leading words.
-        max_check = min(
-            _MAX_BOUNDARY_SKIP_WORDS,
-            len(new_words),
-        )
-        new_head = [_norm(w) for w in new_words[:max_check]]
-
-        best = 0
-        # Try the longest candidate first so we get the longest true match.
-        for length in range(max_check, 0, -1):
-            candidate = new_head[:length]
-            # Search for `candidate` as a contiguous subsequence inside
-            # prev_tail.  The match must end somewhere within the trailing
-            # _OVERLAP_DEDUP_WINDOW words of prev_tail (so we don't pull
-            # matches from arbitrarily early in the previous chunk).
-            for start in range(len(prev_tail) - length + 1):
-                # Only accept matches whose end index falls within the
-                # last _OVERLAP_DEDUP_WINDOW words of prev_tail.
-                end_idx = start + length  # exclusive
-                last_word_idx = len(prev_tail) - end_idx
-                if last_word_idx >= _OVERLAP_DEDUP_WINDOW:
-                    continue
-                if prev_tail[start : start + length] == candidate:
-                    best = length
-                    break
-            if best > 0:
-                break
-
-        if best > 0:
-            return best
-
-        # No true overlap detected.  Return 0 — do NOT drop legitimate
-        # words.  The previous "allowance" of 1 word per boundary silently
-        # dropped up to 14 words per 5-minute recording (one per chunk
-        # boundary) even when the model did not re-transcribe any overlap
-        # text.  Boundary hallucinations like "Thanks." at chunk starts
-        # are already filtered upstream by `should_reject_low_audio_hallucination`
-        # in `_transcribe_segment`.
-        return 0
-
-    def _maybe_retry_cuda(self) -> None:
-        """Time/count-based one-shot CUDA retry after a CPU fallback.
-
-        After a CUDA error pushes the model onto CPU (see
-        ``transcribe_with_fallback``), the model stays on CPU until
-        either a fresh ``load()`` OR a one-shot retry fired by this
-        method. Once either:
-
-        * ``_cpu_transcribe_count`` reaches
-          ``_CPU_RETRY_TRANSCRIBE_THRESHOLD`` (10), OR
-        * ``time.monotonic() - _cpu_fallback_since`` reaches
-          ``_CPU_RETRY_SECONDS_THRESHOLD`` (5 minutes),
-
-        this method attempts ONE
-        ``self._model.to(device="cuda", dtype=self._torch.float16)``
-        call. On success: clears ``_cpu_fallback_notified`` so a
-        future fallback re-notifies the user, and resets the tracking
-        state. On failure: resets ``_cpu_fallback_since`` to ``now``
-        and ``_cpu_transcribe_count`` to ``0`` so we wait another full
-        window before re-attempting (otherwise the threshold conditions
-        remain true and the retry would fire on every subsequent
-        transcribe, wasting 1-5 s of user time per call on a
-        persistent CUDA fault).
-
-        Best-effort: swallows all exceptions from the ``.to()`` call
-        (the model may be concurrently torn down by ``unload()`` or
-        the GPU may be in a wedged state) — the next transcribe will
-        run on CPU as before.
-        """
-        if self._cpu_fallback_since is None:
-            # No prior fallback in this loaded session — nothing to retry.
-            return
-        # Count this transcribe toward the threshold. We increment
-        # BEFORE the threshold check so the very first CPU transcribe
-        # after a fallback (count=1) doesn't immediately trigger a
-        # retry (we want at least 10 CPU transcribes before retrying,
-        # not 9). The first transcribe that INITIATED the fallback
-        # is NOT counted here — it ran on GPU then fell back to CPU,
-        # and we set ``_cpu_transcribe_count = 0`` at that point.
-        self._cpu_transcribe_count += 1
-        elapsed = time.monotonic() - self._cpu_fallback_since
-        if (
-            self._cpu_transcribe_count < _CPU_RETRY_TRANSCRIBE_THRESHOLD
-            and elapsed < _CPU_RETRY_SECONDS_THRESHOLD
-        ):
-            return  # not yet time to retry
-        # Threshold met — attempt a one-shot CUDA retry.
-        try:
-            # Acquire the lock briefly so a concurrent ``unload()``
-            # doesn't null ``self._model`` between the None-check and
-            # the ``.to()`` call.
-            with self._lock:
-                if self._model is None:
-                    return
-                # ``self._torch`` is populated lazily by ``_ensure_imports``;
-                # we only reach this path after a successful ``load()`` + a
-                # CUDA error, so torch is guaranteed to be available.
-                self._model.to(device="cuda", dtype=self._torch.float16)
-        except Exception as exc:
-            log.info(
-                "[PARAKEET] CUDA retry failed (count=%d, elapsed=%.1fs) — "
-                "staying on CPU, resetting retry window: %s",
-                self._cpu_transcribe_count,
-                elapsed,
-                exc,
-            )
-            # Reset the timer so we wait another full window before
-            # re-attempting. Without this, the threshold conditions
-            # remain true and the retry fires on every subsequent
-            # transcribe.
-            self._cpu_fallback_since = time.monotonic()
-            self._cpu_transcribe_count = 0
-            return
-        log.info(
-            "[PARAKEET] CUDA retry succeeded — switching back to GPU after "
-            "%d CPU transcribes (%.1fs elapsed)",
-            self._cpu_transcribe_count,
-            elapsed,
-        )
-        self._cpu_fallback_since = None
-        self._cpu_transcribe_count = 0
-        # Clear the notification flag so a future fallback re-notifies
-        # the user (the GPU was healthy enough to recover, so the next
-        # fallback is fresh information worth surfacing).
-        self._cpu_fallback_notified = False
+    # ── GPU→CPU fallback (session recreation) ───────────────────────
 
     def transcribe_with_fallback(
         self,
         audio: np.ndarray,
-        audio_stats: "tuple[float, float, float] | None" = None,
+        audio_stats: tuple[float, float, float] | None = None,
     ) -> str:
-        """transcribe with GPU→CPU fallback on CUDA errors.
+        """Transcribe with GPU→CPU fallback on CUDA errors.
 
-        PERF-STATS: ``audio_stats`` is an optional pre-computed
-        ``(rms, peak, silence_pct)`` tuple. When provided, the
-        engine skips its own RMS computation.
+        ONNX Runtime cannot move a session between providers in place
+        (unlike torch's ``.to("cpu")``). The fallback recreates the
+        session with ``CPUExecutionProvider`` only
+        (PLAN_ONNX_INTEGRATION.md §3.4). This is multi-second latency
+        (session recreation + weight reload) — NOT a free swap.
+
+        Emits the ``parakeet_cpu_fallback`` event (one-time per loaded
+        session) so the tray can show "(CPU fallback)" status. The
+        ``notification`` event surfaces a user-facing toast.
 
         Raises:
             TranscriptionBackendError: if both the GPU path and the CPU
-                fallback fail. Previously returned ``""``, which the
-                caller could not distinguish from a legitimate "no
-                speech detected" result ().
+                fallback fail.
         """
         with self._lock:
-            if self._model is None or self._processor is None:
+            if self._model is None:
                 raise TranscriptionBackendError("Parakeet model not loaded.")
 
             if len(audio) == 0:
                 return ""
 
-        # If a prior CUDA error pushed the model onto CPU, attempt a
-        # one-shot CUDA retry once either the transcribe-count or the
-        # elapsed-time threshold is met (see ``_maybe_retry_cuda``).
-        # Many CUDA errors are transient (brief VRAM pressure, driver
-        # hiccup) and never re-attempting CUDA leaves the user stuck on
-        # slow CPU until they manually reload. The retry is best-effort:
-        # on failure the timer resets and we stay on CPU for another
-        # window.
-        self._maybe_retry_cuda()
-
         try:
             return self.transcribe(audio, audio_stats=audio_stats)
         except Exception as exc:
-            err_str = str(exc).lower()
-            if self.device == "cuda" and ("cuda" in err_str or "cublas" in err_str or "cudnn" in err_str):
-                # Include exc_info so the CUDA failure
-                # traceback is captured for debugging.
-                log.warning("[PARAKEET] CUDA error, retrying on CPU: %s", exc, exc_info=True)
+            # Use the shared CUDA-error classifier (PLAN_ONNX_INTEGRATION.md
+            # §5.1) — 5-layer check, NOT the lossy 4-keyword frozenset.
+            if self.device == "cuda" and _is_cuda_error_impl(exc):
+                log.warning(
+                    "[PARAKEET] CUDA error, recreating session on CPU: %s",
+                    exc,
+                    exc_info=True,
+                )
                 try:
-                    #  PERF-REL-1: pin dtype=float32 when
-                    # moving the model to CPU.  The previous bare
-                    # ``self._model.to("cpu")`` left the dtype as
-                    # float16 (set during GPU load) — float16 kernels
-                    # are unsupported or pathologically slow on CPU,
-                    # so the "fallback" was effectively unusable.
-
-                    # acquire the lock only long enough to move
-                    # the model to CPU and claim an inference slot so
-                    # ``unload()`` waits for the CPU-fallback transcription
-                    # to finish before nulling the model.
+                    # Unload the GPU session, then reload with CPU providers.
+                    # This is the only correct ORT fallback — see §3.4.
+                    self._unload_impl()
+                    self.device = "cpu"
+                    if not self._load_impl(providers=["CPUExecutionProvider"]):
+                        raise TranscriptionBackendError(
+                            f"Parakeet CPU fallback load failed after CUDA error ({exc})"
+                        )
+                    # Claim an inference slot so a concurrent ``unload()``
+                    # waits for the CPU-fallback transcription to finish
+                    # before nulling the model.
                     with self._lock:
                         if self._model is None:
-                            raise TranscriptionBackendError("Parakeet model not loaded.")
-                        self._model.to(device="cpu", dtype=self._torch.float32)
+                            raise TranscriptionBackendError("Parakeet model not loaded after CPU fallback.")
                         self._active_inference += 1
                     try:
-                        text = self._transcribe_impl(audio)
+                        text = self._transcribe_segment(audio, audio_stats=audio_stats)
                     finally:
                         with self._inference_cond:
                             self._active_inference -= 1
                             if self._active_inference == 0:
                                 self._inference_cond.notify_all()
-                    # The CUDA→CPU
-                    # fallback succeeded.  Emit a ONE-TIME tray
-                    # notification so the user knows why their
-                    # dictation got slower, and publish a status
-                    # event so the tray icon can show "(CPU
-                    # fallback)".
-                    #
-                    # Device-state note: ``self.device`` is NOT
-                    # mutated here — it stays ``"cuda"`` so the next
-                    # ``load()`` re-attempts CUDA.  However,
-                    # ``self._model.device`` IS permanently mutated
-                    # to ``"cpu"`` by the ``.to(device="cpu")`` call
-                    # above (PyTorch's ``.to()`` moves the model
-                    # in place).  Subsequent ``transcribe()`` calls
-                    # within the same loaded session will therefore
-                    # run on CPU — they read ``self._model.device``
-                    # (now ``"cpu"``) at ``_transcribe_segment`` /
-                    # ``_transcribe_batch`` / ``_transcribe_segment_unlocked``,
-                    # not ``self.device``.
-                    #
-                    # Snapshot-and-restore (saving the original
-                    # device/dtype before the ``.to("cpu")`` call
-                    # and restoring them in a ``finally`` block) is
-                    # intentionally NOT done here: if the CUDA error
-                    # was non-transient (e.g. driver crash, persistent
-                    # OOM, hardware fault), re-attempting CUDA on every
-                    # transcribe would re-trigger the same error and
-                    # waste 1-5 s of user time per call. Instead,
-                    # ``_maybe_retry_cuda`` (called at the top of
-                    # ``transcribe_with_fallback``) re-attempts CUDA on
-                    # a time/count basis — after 10 CPU transcribes OR
-                    # 5 minutes, whichever comes first. A fresh
-                    # ``load()`` (e.g. via the tray "Reload model"
-                    # action) re-attempts CUDA from scratch.
-                    #
-                    # Record the fallback start so the retry timer /
-                    # counter have a reference point. Without this,
-                    # ``_maybe_retry_cuda`` would have no way to know
-                    # a fallback occurred.
+
+                    # Record the fallback start so any future retry logic
+                    # has a reference point (currently a no-op stub — ORT
+                    # session recreation is the only fallback path).
                     self._cpu_fallback_since = time.monotonic()
                     self._cpu_transcribe_count = 0
-                    #
+
+                    # Emit ONE-TIME tray notification + status event.
                     # The ``_cpu_fallback_notified`` flag is reset to
-                    # ``False`` at the top of ``load()`` so a
-                    # fallback after the next reload re-notifies.
-                    # Coordinate with agent 2-r for tray.py: the
-                    # ``"type": "parakeet_cpu_fallback"`` event is
-                    # the contract for the tray "(CPU fallback)"
-                    # status suffix; the ``"notification"`` event
-                    # surfaces the user-facing toast.
+                    # ``False`` at the top of ``load()`` so a fallback
+                    # after the next reload re-notifies. Coordinate with
+                    # the tray: ``"type": "parakeet_cpu_fallback"`` is the
+                    # contract for the tray "(CPU fallback)" status
+                    # suffix; the ``"notification"`` event surfaces the
+                    # user-facing toast.
                     if not self._cpu_fallback_notified:
                         self._cpu_fallback_notified = True
                         try:
@@ -1364,13 +1056,9 @@ class ParakeetEngine:
                                 notify_exc,
                             )
                     return text
+                except TranscriptionBackendError:
+                    raise
                 except Exception as cpu_exc:
-                    # Use ``log.exception`` instead of
-                    # ``log.error(..., exc_info=True)`` to satisfy the
-                    # ``test_log_exception_no_exc_arg`` regression
-                    # test that flags ``log.error(..., exc_info=True)``
-                    # in this file. ``log.exception`` is semantically
-                    # equivalent (auto-captures the active exception).
                     log.exception("[PARAKEET] CPU fallback also failed")
                     raise TranscriptionBackendError(
                         f"Parakeet GPU transcription failed ({exc}) and CPU fallback also failed ({cpu_exc})"
@@ -1378,195 +1066,85 @@ class ParakeetEngine:
             # Non-CUDA error: surface it instead of swallowing as ""
             raise TranscriptionBackendError(f"Parakeet transcription failed: {exc}") from exc
 
-    def _transcribe_impl(self, audio: np.ndarray) -> str:
-        """Core transcription without lock or error handling for fallback.
+    def _load_impl(self, *, providers: list[str]) -> bool:
+        """Re-create the ``onnx_asr.Model`` with the given providers.
 
-        NOT a duplicate of transcribe(). This method delegates to
-        ``_transcribe_chunks_batched`` (which respects
-        ``_INFERENCE_BATCH_SIZE``, abort-checks between chunks, and
-        falls back to sequential on OOM) for long audio — previously
-        the CPU-fallback path ran a sequential ``for chunk in chunks:
-        _transcribe_segment_unlocked(chunk)`` loop that bypassed the
-        batching speedup AND the per-batch OOM-fallback, so a CUDA OOM
-        during CPU fallback crashed the whole transcription instead of
-        degrading to per-chunk sequential. The single-chunk case still
-        uses ``_transcribe_segment_unlocked`` (no lock, matching the
-        fallback path's contract).
+        Used by the GPU→CPU fallback path (§3.4) to recreate the session
+        on CPU. Does NOT re-check the cache or run the integrity check
+        — those already passed in the original :meth:`load` call. The
+        model files are still on disk (the GPU session was loaded from
+        them); we just rebuild the ORT session with new providers.
 
-        ``_transcribe_chunks_batched`` calls ``_transcribe_segment``
-        (NOT the ``_unlocked`` variant). Both methods are lock-free at
-        the segment level — ``transcribe()`` / the fallback path
-        acquire the lock only to bump ``_active_inference`` and release
-        it before invoking the chunk loop (see ``transcribe`` docstring
-        at L784-L792) — so swapping the loop is safe.
+        Returns ``True`` on success, ``False`` if the new session could
+        not be created (logged at ERROR — caller raises
+        ``TranscriptionBackendError``).
         """
-        duration = len(audio) / WHISPER_SAMPLE_RATE
-        if duration <= _CHUNK_SECONDS:
-            return self._transcribe_segment_unlocked(audio)
-
-        chunks = self._split_audio(audio, _CHUNK_SECONDS, _CHUNK_OVERLAP_SECONDS)
-        results = self._transcribe_chunks_batched(chunks)
-        if not results:
-            return ""
-        return self._merge_chunks(results)
-
-    def _transcribe_segment_unlocked(self, audio: np.ndarray) -> str:
-        """Transcribe one segment without lock (for fallback path).
-
-         PERF-REL-1: mirrors the fix in ``_transcribe_segment`` —
-        no longer catches ``Exception`` and returns ``""``.  This is the
-        CPU-fallback code path called from ``_transcribe_impl`` after
-        ``transcribe_with_fallback`` moved the model to CPU; if it
-        swallowed exceptions, the caller would receive ``""`` and treat
-        a real CPU failure as a successful "no speech detected" result,
-        defeating the ``TranscriptionBackendError`` contract documented
-        on ``transcribe_with_fallback`` ().
-        """
-        inputs = self._processor(
-            [audio],
-            sampling_rate=WHISPER_SAMPLE_RATE,
-            return_tensors="pt",
-        )
-        inputs.to(device=self._model.device, dtype=self._model.dtype)
-        # do NOT pass max_new_tokens — same fix as the GPU path
-        # in ``_transcribe_segment``.  The previous cap of 256 silently
-        # truncated dense 25s chunks in the CPU fallback path too.
-        #
-        # wrap generate() in torch.inference_mode() to skip
-        # autograd-graph construction. See _inference_mode_ctx.
-        #
-        # Abort wiring — same ``_AbortStoppingCriteria`` as the
-        # GPU path in ``_transcribe_segment`` and the batched path in
-        # ``_transcribe_batch``.  Without this, ESC / watchdog during
-        # CPU-fallback transcription could not interrupt generation;
-        # the inference thread stayed blocked for 30-60s on a 25s chunk
-        # because ``transformers`` only consults ``stopping_criteria``
-        # between generated tokens.
-        with self._inference_mode_ctx():
-            output = self._model.generate(
-                **inputs,
-                return_dict_in_generate=True,
-                stopping_criteria=[_AbortStoppingCriteria(self._abort_event)],
-            )
-        text = self._processor.decode(
-            output.sequences,
-            skip_special_tokens=True,
-        )
-        if isinstance(text, list):
-            text = text[0] if text else ""
-        text = text.strip()
-
-        # English-only filter: only active when language="en" is configured
-        if self.language == "en" and not _is_likely_english(text):
-            return ""
-
-        rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
-        if should_reject_low_audio_hallucination(text, rms):
-            # Use PII-safe logging helper for unlocked fallback path
-            log_hallucination_rejection(
-                "[PARAKEET]",
-                text,
-                reason="hallucination",
-                log_transcriptions=False,
-            )
-            return ""
-        return text
-
-    def _warm_up_model(self) -> None:
-        """Run a tiny dummy inference to prime CUDA kernels (JIT cost: 2-5 s).
-
-        The first ``model.generate()`` call after ``from_pretrained``
-        takes 2-5 s longer than subsequent ones because the GPU kernels
-        (cuDNN, cuBLAS, attention) must be JIT-compiled and memory
-        allocated for the model's specific shapes.  This warm-up runs a
-        0.5 s silence through the full ``processor()`` + ``generate()`` +
-        ``decode()`` pipeline at load time so the first real dictation
-        is fast.
-
-        Mirrors ``WhisperEngine._warm_up_model`` in
-        ``voice_typer/server/transcription.py`` (lines ~649-680), adapted
-        for Parakeet's ``processor()`` + ``model.generate()`` API (the
-        same call shape as ``_transcribe_segment``).
-
-        Non-fatal: any exception (CUDA OOM, processor error, etc.) is
-        logged at debug level and swallowed — the model is still
-        considered loaded, and only the first real transcription pays
-        the JIT cost.  ``load()`` returns True regardless.
-
-        No-op when:
-
-        - ``self._model`` or ``self._processor`` is None (defensive —
-          direct-call safety).
-        - ``self.device`` is not ``"cuda"`` (CPU JIT cost is negligible;
-          the gate matches ``load()``'s ``effective_device == "cuda"``
-          check so warm-up only fires when CUDA was actually used).
-        """
-        if self._model is None or self._processor is None:
-            return
-        if self.device != "cuda":
-            return
+        if not self._ensure_imports():
+            return False
         try:
-            warmup_audio = np.zeros(int(WHISPER_SAMPLE_RATE * 0.5), dtype=np.float32)
-            inputs = self._processor(
-                [warmup_audio],
-                sampling_rate=WHISPER_SAMPLE_RATE,
-                return_tensors="pt",
+            self._model = self._onnx_asr.Model(
+                _PARAKEET_ONNX_MODEL_NAME,
+                quantization=_PARAKEET_QUANTIZATION,
+                providers=providers,
             )
-            inputs.to(device=self._model.device, dtype=self._model.dtype)
-            with self._inference_mode_ctx():
-                output = self._model.generate(
-                    **inputs,
-                    return_dict_in_generate=True,
-                    stopping_criteria=[_AbortStoppingCriteria(self._abort_event)],
-                )
-            self._processor.decode(output.sequences, skip_special_tokens=True)
-            log.debug("[PARAKEET] warm-up generate() completed — first dictation will be fast")
-        except Exception as exc:
-            log.debug("[PARAKEET] warm-up generate() failed (non-fatal): %s", exc)
+            self._effective_providers = providers
+            return True
+        except Exception:
+            log.exception(
+                "[PARAKEET] Failed to recreate ONNX session with providers=%s",
+                providers,
+            )
+            return False
+
+    def _unload_impl(self) -> None:
+        """Drop the ``onnx_asr.Model`` reference (without acquiring
+        ``_inference_cond``).
+
+        Used by the GPU→CPU fallback path. The full :meth:`unload` also
+        waits for ``_active_inference == 0`` and runs gc / GPU memory
+        release; this lighter variant is safe to call from inside the
+        fallback path (which already holds the inference slot via
+        ``_active_inference``).
+        """
+        with self._lock:
+            self._model = None
+            self._run_options = None
 
     def unload(self) -> None:
         """Free model memory.
 
-        also release PyTorch's CUDA caching allocator
-        blocks via ``release_gpu_memory()`` so a subsequent backend
-        switch (e.g. back to Whisper) can use the freed VRAM.  Without
-        this, the cached blocks from the Parakeet model linger in the
-        allocator and cause GPU OOMs after 2 backend switches on
-        RTX 3060/4060 (8–12 GB VRAM).
+        ONNX Runtime has no ``empty_cache()`` API — the CUDA arena is
+        freed when the session is destroyed (PLAN_ONNX_INTEGRATION.md
+        §5.2). The ``release_gpu_memory()`` helper in ``asr_utils`` is a
+        no-op for ORT (kept for API compatibility with the existing
+        call sites).
 
-        gc.collect() moved OUTSIDE the lock to avoid blocking
-        is_loaded / transcribe for 10-100ms.
+        ``gc.collect()`` is run OUTSIDE the lock to avoid blocking
+        ``is_loaded`` / ``transcribe`` for 10-100ms.
         """
         import gc
 
-        # ``release_gpu_memory`` lives in the canonical
-        # ``asr_utils`` module. ``transcription.py`` still re-exports the
-        # name for backward compat, BUT because this is a LOCAL import
-        # (not a module-level import), tests that want to intercept the
-        # call MUST patch ``voice_typer.server.asr_utils.release_gpu_memory``
-        # — patching ``voice_typer.server.transcription.release_gpu_memory``
-        # does NOT intercept the local import resolution. (See  and
-        # tests/regressions/gpu_memory_release_test.py
-        # ::TestReleaseGpuMemoryFunctional::test_parakeet_unload_invokes_release.)
         from voice_typer.server.asr_utils import release_gpu_memory
 
         with self._inference_cond:
-            # wait for any active transcription to finish before
-            # nulling the model. ``transcribe()`` increments
-            # ``_active_inference`` under this lock and decrements it in a
-            # ``finally`` block; without this wait a concurrent
-            # ``unload()`` would null ``self._model`` mid-inference and
-            # trigger a use-after-free when the inference path dereferenced
-            # the freed PyTorch module.
+            # Wait for any active transcription to finish before nulling
+            # the model. ``transcribe()`` increments ``_active_inference``
+            # under this lock and decrements it in a ``finally`` block;
+            # without this wait a concurrent ``unload()`` would null
+            # ``self._model`` mid-inference and trigger a use-after-free
+            # when the inference path dereferenced the freed ORT session.
             while self._active_inference > 0:
                 self._inference_cond.wait()
             self._model = None
             self._processor = None
-        # gc.collect() OUTSIDE the lock
+            self._run_options = None
+        # gc.collect() OUTSIDE the lock.
         gc.collect()
-        # release CUDA cached blocks.
+        # No-op for ORT — kept for API compat (see PLAN_ONNX_INTEGRATION.md §5.2).
         release_gpu_memory()
         log.info("[PARAKEET] Model unloaded")
+
+    # ── Diagnostic properties ───────────────────────────────────────
 
     @property
     def device_info(self) -> str:

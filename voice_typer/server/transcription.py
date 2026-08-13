@@ -50,6 +50,7 @@ from voice_typer.server.asr_utils import (  # noqa: F401
     _check_disk_space_for_download,
     _download_with_retry,
     _require_huggingface_consent,
+    is_oom_error,
     release_gpu_memory,
 )
 from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
@@ -1327,18 +1328,24 @@ class TranscriptionEngine:
         only for wrapped/re-raised errors. Previously the substring
         list was the primary check, misclassifying new error classes
         (e.g. ROCm) and triggering wrong fallbacks.
+
+        Phase 1c (PLAN_ONNX_INTEGRATION.md §6.5): the
+        ``isinstance(exc, torch.cuda.OutOfMemoryError)`` check was
+        replaced with :func:`is_oom_error` (shared ASR utility) so
+        ``transcription.py`` no longer imports ``torch``. The OOM
+        classifier is kept separate from the CUDA classifier
+        (:func:`voice_typer.server.asr_utils.is_cuda_error`) because
+        ``"out of memory"`` alone is too broad — it matches CPU RAM
+        exhaustion which should NOT trigger the GPU→CPU fallback.
         """
         if self._device == "cpu":
             return False
-        # 1. Class-hierarchy check: torch.cuda.OutOfMemoryError,
-        #    ctranslate2.CUDAError, etc.
-        try:
-            import torch
-
-            if isinstance(exc, torch.cuda.OutOfMemoryError):
-                return True
-        except (ImportError, AttributeError):
-            pass
+        # 1. OOM check (replaces torch.cuda.OutOfMemoryError isinstance).
+        #    ``is_oom_error`` is the shared classifier in
+        #    ``voice_typer.server.asr_utils`` — kept separate from the
+        #    CUDA classifier so CPU RAM exhaustion does not false-positive.
+        if is_oom_error(exc):
+            return True
         # ctranslate2 errors (faster-whisper wraps these)
         try:
             import ctranslate2

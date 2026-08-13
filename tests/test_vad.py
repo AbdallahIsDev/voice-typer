@@ -1,3 +1,14 @@
+"""Tests for the Silero VAD wrapper (ONNX Runtime backend).
+
+Companion §2.4 — the JIT-era tests mocked ``torch.from_numpy`` /
+``torch.zeros`` / ``torch.cat`` / ``torch.no_grad``. The ORT rewrite
+mocks ``onnxruntime.InferenceSession`` with a fake that returns fixed
+``(output, stateN)`` tuples and records every call so the hidden-state
+threading (companion §2.2) is verifiable end-to-end.
+"""
+
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -5,59 +16,110 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-
-class _MockTensor:
-    """Minimal torch.Tensor mock for VAD-001 tests."""
-
-    def __init__(self, data):
-        self.data = np.asarray(data, dtype=np.float32)
-        self._shape = [len(self.data)]
-
-    @property
-    def shape(self):
-        return self._shape
-
-    def dim(self):
-        return 1
-
-    def squeeze(self):
-        return self
-
-    def float(self):
-        return self
-
-    def to(self, dtype, copy=True):
-        # ``.to(torch.float32)`` is a no-op (returns the same
-        # tensor) when the dtype already matches — mirroring real
-        # torch's behaviour. The mock tensor is always float32, so
-        # ``.to(<any dtype>)`` returns ``self``.
-        # ``copy=False`` kwarg accepted (real torch's ``.to()``
-        # supports it; the no-op-same-dtype semantics are preserved).
-        return self
-
-    def item(self):
-        return float(self.data[0]) if len(self.data) > 0 else 0.0
-
-    def __getitem__(self, key):
-        return _MockTensor(self.data[key])
+# ─── Fake onnxruntime.InferenceSession ────────────────────────────────
 
 
-class _MockNoGrad:
-    def __enter__(self):
-        return self
+class _FakeNode:
+    """Minimal stand-in for ``onnxruntime.NodeArg`` — only ``name`` is read."""
 
-    def __exit__(self, *args):
-        pass
+    def __init__(self, name: str) -> None:
+        self.name = name
 
 
-def _setup_torch_mock(monkeypatch):
-    """Install a minimal torch mock in sys.modules."""
-    mock_torch = MagicMock()
-    mock_torch.from_numpy = lambda x: _MockTensor(x)
-    mock_torch.zeros = lambda n: _MockTensor(np.zeros(n, dtype=np.float32))
-    mock_torch.cat = lambda tensors: _MockTensor(np.concatenate([t.data for t in tensors]))
-    mock_torch.no_grad = _MockNoGrad
-    monkeypatch.setitem(sys.modules, "torch", mock_torch)
+class FakeOrtSession:
+    """Fake ``onnxruntime.InferenceSession`` for VAD tests.
+
+    Returns fixed ``(output, stateN)`` tuples and records every
+    ``run()`` call so tests can assert:
+
+    1. The audio input was padded/truncated/sliced to 512-sample windows.
+    2. The LSTM hidden state (shape ``(2, 1, 128)`` float32) is threaded
+       forward — each call receives the previous call's ``stateN`` return
+       value as its ``state`` input.
+    3. The sample-rate feed entry is passed when the session declares an
+       ``sr`` input.
+
+    The fake is intentionally minimal — it does NOT validate shapes or
+    dtypes (real ORT does). The test fixtures pin the shapes via the
+    ``compute_vad_prob`` contract: 1-D float32 audio in, float prob out.
+    """
+
+    def __init__(
+        self,
+        prob_sequence: list[float] | None = None,
+        state_delta: float = 1.0,
+    ) -> None:
+        # ``prob_sequence`` lets a test script a series of probabilities
+        # across multiple sub-chunk calls. The last value is reused if
+        # the session is called more times than the sequence has entries
+        # (so a 5120-sample chunk with 10 sub-chunks doesn't need 10
+        # entries when the test only cares about call_count).
+        self._prob_seq = list(prob_sequence) if prob_sequence else [0.5]
+        self._prob_idx = 0
+        # ``state_delta`` makes state threading observable: each call
+        # returns ``state + delta`` so a test can verify the next call's
+        # input state equals the previous call's output state.
+        self._state_delta = float(state_delta)
+        self.calls: list[dict[str, object]] = []
+
+    def get_inputs(self) -> list[_FakeNode]:
+        return [
+            _FakeNode("input"),
+            _FakeNode("state"),
+            _FakeNode("sr"),
+        ]
+
+    def get_outputs(self) -> list[_FakeNode]:
+        return [
+            _FakeNode("output"),
+            _FakeNode("stateN"),
+        ]
+
+    def run(self, output_names, feed):
+        # Capture the call for assertions. Copy the input + state arrays
+        # so a later mutation by the caller doesn't retroactively edit
+        # the recorded history (numpy slices share memory).
+        input_arr = np.array(feed["input"], copy=True)
+        state_arr = np.array(feed["state"], copy=True)
+        sr_value = int(feed["sr"]) if "sr" in feed else None
+        self.calls.append(
+            {
+                "input": input_arr,
+                "state": state_arr,
+                "sr": sr_value,
+            }
+        )
+        # Pull the next probability from the script. Reuse the last
+        # value if the script is exhausted.
+        if self._prob_idx < len(self._prob_seq):
+            prob = float(self._prob_seq[self._prob_idx])
+        else:
+            prob = float(self._prob_seq[-1])
+        self._prob_idx += 1
+        # Silero v4 ONNX ``output`` shape is ``(1, 1)`` for a single
+        # batched window. Use that exact shape so the production code's
+        # ``np.asarray(out[0]).reshape(-1)[0]`` indexing works.
+        out_prob = np.array([[prob]], dtype=np.float32)
+        # Return the input state + delta so the next call's input state
+        # is observably different from a fresh zero buffer.
+        new_state = state_arr + self._state_delta
+        return [out_prob, new_state]
+
+
+def _install_fake_ort(monkeypatch, session: FakeOrtSession) -> MagicMock:
+    """Install a fake ``onnxruntime`` module whose ``InferenceSession``
+    returns ``session``. Mirrors the JIT-era ``_setup_torch_mock`` helper.
+
+    Returns the underlying MagicMock so a test can additionally assert
+    on ``mock.InferenceSession.call_args`` if needed.
+    """
+    mock_ort = MagicMock(name="fake_onnxruntime")
+    mock_ort.InferenceSession = MagicMock(return_value=session)
+    monkeypatch.setitem(sys.modules, "onnxruntime", mock_ort)
+    return mock_ort
+
+
+# ─── VAD-001: non-512-sample chunk handling ───────────────────────────
 
 
 class TestSileroVadHandlesNon512SampleChunks:
@@ -73,69 +135,63 @@ class TestSileroVadHandlesNon512SampleChunks:
         """compute_vad_prob must not crash on a 1136-sample chunk."""
         import voice_typer.server.vad as vad
 
-        class MockModel:
-            def __call__(self, tensor, sr):
-                # Verify the tensor was padded/truncated to 512
-                assert tensor.shape[0] == 512, f"Expected 512 samples, got {tensor.shape[0]}"
-
-                class MockResult:
-                    def item(self):
-                        return 0.75
-
-                return MockResult()
-
-        monkeypatch.setattr(vad, "_model", MockModel())
-        monkeypatch.setattr(vad, "_utils", None)
-        _setup_torch_mock(monkeypatch)
+        session = FakeOrtSession(prob_sequence=[0.75])
+        _install_fake_ort(monkeypatch, session)
+        # Point _VAD_MODEL_PATH at an existing file so _load_model
+        # proceeds past the missing-file short-circuit.
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path(__file__))
+        vad.reset()
 
         # 1136-sample chunk (typical WASAPI block)
         audio = np.ones(1136, dtype=np.float32) * 0.1
         prob = vad.compute_vad_prob(audio, sample_rate=16000)
-        assert prob == 0.75
+        # Use approx because the fake ORT session returns float32;
+        # the production code casts via ``float(...)`` which preserves
+        # the float32 representation but loses exactness for values
+        # like 0.3 / 0.85 / 0.9 / 0.4.
+        assert prob == pytest.approx(0.75)
+        # 1136 // 512 = 2 sub-chunks; trailing 112 samples dropped.
+        assert len(session.calls) == 2
+        for call in session.calls:
+            assert call["input"].shape == (1, 512), (
+                f"Each sub-chunk must be reshaped to (1, 512); got {call['input'].shape}"
+            )
+        vad.reset()
 
     def test_compute_vad_prob_handles_small_chunk(self, monkeypatch):
         """compute_vad_prob must pad a 100-sample chunk to 512."""
         import voice_typer.server.vad as vad
 
-        class MockModel:
-            def __call__(self, tensor, sr):
-                assert tensor.shape[0] == 512
-
-                class MockResult:
-                    def item(self):
-                        return 0.3
-
-                return MockResult()
-
-        monkeypatch.setattr(vad, "_model", MockModel())
-        monkeypatch.setattr(vad, "_utils", None)
-        _setup_torch_mock(monkeypatch)
+        session = FakeOrtSession(prob_sequence=[0.3])
+        _install_fake_ort(monkeypatch, session)
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path(__file__))
+        vad.reset()
 
         audio = np.ones(100, dtype=np.float32) * 0.1
         prob = vad.compute_vad_prob(audio, sample_rate=16000)
-        assert prob == 0.3
+        assert prob == pytest.approx(0.3)
+        assert len(session.calls) == 1
+        assert session.calls[0]["input"].shape == (1, 512)
+        vad.reset()
 
     def test_compute_vad_prob_handles_exact_512_chunk(self, monkeypatch):
         """compute_vad_prob must work with exactly 512 samples."""
         import voice_typer.server.vad as vad
 
-        class MockModel:
-            def __call__(self, tensor, sr):
-                assert tensor.shape[0] == 512
-
-                class MockResult:
-                    def item(self):
-                        return 0.9
-
-                return MockResult()
-
-        monkeypatch.setattr(vad, "_model", MockModel())
-        monkeypatch.setattr(vad, "_utils", None)
-        _setup_torch_mock(monkeypatch)
+        session = FakeOrtSession(prob_sequence=[0.9])
+        _install_fake_ort(monkeypatch, session)
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path(__file__))
+        vad.reset()
 
         audio = np.ones(512, dtype=np.float32) * 0.1
         prob = vad.compute_vad_prob(audio, sample_rate=16000)
-        assert prob == 0.9
+        assert prob == pytest.approx(0.9)
+        assert len(session.calls) == 1
+        assert session.calls[0]["input"].shape == (1, 512)
+        vad.reset()
+
+
+# ─── AUDIO-10: long-chunk slicing ─────────────────────────────────────
 
 
 class TestSileroVadSlicesLongChunksIntoSubchunks:
@@ -150,29 +206,21 @@ class TestSileroVadSlicesLongChunksIntoSubchunks:
         (sub-chunks [0:512] and [512:1024]), each exactly 512 samples."""
         import voice_typer.server.vad as vad
 
-        state = {"count": 0, "sizes": []}
-
-        class MockModel:
-            def __call__(self, tensor, sr):
-                state["count"] += 1
-                state["sizes"].append(tensor.shape[0])
-
-                class MockResult:
-                    def item(self):
-                        return 0.5
-
-                return MockResult()
-
-        monkeypatch.setattr(vad, "_model", MockModel())
-        monkeypatch.setattr(vad, "_utils", None)
-        _setup_torch_mock(monkeypatch)
+        session = FakeOrtSession(prob_sequence=[0.5, 0.5])
+        _install_fake_ort(monkeypatch, session)
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path(__file__))
+        vad.reset()
 
         audio = np.ones(1136, dtype=np.float32) * 0.1
         prob = vad.compute_vad_prob(audio, sample_rate=16000)
 
-        assert state["count"] == 2, f"Expected 2 sub-chunk calls for 1136 samples, got {state['count']}"
-        assert state["sizes"] == [512, 512], f"Sub-chunk sizes must be [512, 512], got {state['sizes']}"
-        assert prob == 0.5
+        assert len(session.calls) == 2, (
+            f"Expected 2 sub-chunk calls for 1136 samples, got {len(session.calls)}"
+        )
+        for call in session.calls:
+            assert call["input"].shape == (1, 512)
+        assert prob == pytest.approx(0.5)
+        vad.reset()
 
     def test_long_chunk_takes_max_probability(self, monkeypatch):
         """AUDIO-10: when sub-chunks return different probabilities,
@@ -180,106 +228,201 @@ class TestSileroVadSlicesLongChunksIntoSubchunks:
         decision — max is more sensitive than mean for short bursts)."""
         import voice_typer.server.vad as vad
 
-        state = {"count": 0}
-
-        class MockModel:
-            def __call__(self, tensor, sr):
-                state["count"] += 1
-
-                class MockResult:
-                    def item(self):
-                        # First sub-chunk low, second high — verifies max.
-                        return 0.2 if state["count"] == 1 else 0.85
-
-                return MockResult()
-
-        monkeypatch.setattr(vad, "_model", MockModel())
-        monkeypatch.setattr(vad, "_utils", None)
-        _setup_torch_mock(monkeypatch)
+        session = FakeOrtSession(prob_sequence=[0.2, 0.85])
+        _install_fake_ort(monkeypatch, session)
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path(__file__))
+        vad.reset()
 
         # 1024 samples → exactly 2 sub-chunks of 512.
         audio = np.ones(1024, dtype=np.float32) * 0.1
         prob = vad.compute_vad_prob(audio, sample_rate=16000)
         # Max of [0.2, 0.85] = 0.85 — speech in the second sub-chunk
         # is detected. Under OLD truncation, prob would be 0.2 (missed).
-        assert prob == 0.85, f"Expected max prob 0.85 (speech in 2nd sub-chunk), got {prob}"
+        assert prob == pytest.approx(0.85), (
+            f"Expected max prob 0.85 (speech in 2nd sub-chunk), got {prob}"
+        )
+        vad.reset()
 
     def test_very_long_chunk_processes_all_subchunks(self, monkeypatch):
         """AUDIO-10: a 5120-sample chunk (10× the Silero block size)
         produces exactly 10 model calls — verifies the slicing loop."""
         import voice_typer.server.vad as vad
 
-        state = {"count": 0, "sizes": []}
-
-        class MockModel:
-            def __call__(self, tensor, sr):
-                state["count"] += 1
-                state["sizes"].append(tensor.shape[0])
-
-                class MockResult:
-                    def item(self):
-                        return 0.6
-
-                return MockResult()
-
-        monkeypatch.setattr(vad, "_model", MockModel())
-        monkeypatch.setattr(vad, "_utils", None)
-        _setup_torch_mock(monkeypatch)
+        session = FakeOrtSession(prob_sequence=[0.6] * 10)
+        _install_fake_ort(monkeypatch, session)
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path(__file__))
+        vad.reset()
 
         audio = np.ones(5120, dtype=np.float32) * 0.1
         prob = vad.compute_vad_prob(audio, sample_rate=16000)
 
-        assert state["count"] == 10, f"Expected 10 sub-chunk calls for 5120 samples, got {state['count']}"
-        assert all(s == 512 for s in state["sizes"]), f"All sub-chunks must be 512 samples, got {state['sizes']}"
-        assert prob == 0.6
+        assert len(session.calls) == 10, (
+            f"Expected 10 sub-chunk calls for 5120 samples, got {len(session.calls)}"
+        )
+        for call in session.calls:
+            assert call["input"].shape == (1, 512)
+        assert prob == pytest.approx(0.6)
+        vad.reset()
 
     def test_long_chunk_with_odd_remainder_drops_remainder(self, monkeypatch):
         """AUDIO-10: a 1500-sample chunk yields 2 sub-chunks of 512
         (1024 samples) + 476-sample remainder dropped (not padded)."""
         import voice_typer.server.vad as vad
 
-        state = {"count": 0, "sizes": []}
-
-        class MockModel:
-            def __call__(self, tensor, sr):
-                state["count"] += 1
-                state["sizes"].append(tensor.shape[0])
-
-                class MockResult:
-                    def item(self):
-                        return 0.4
-
-                return MockResult()
-
-        monkeypatch.setattr(vad, "_model", MockModel())
-        monkeypatch.setattr(vad, "_utils", None)
-        _setup_torch_mock(monkeypatch)
+        session = FakeOrtSession(prob_sequence=[0.4, 0.4])
+        _install_fake_ort(monkeypatch, session)
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path(__file__))
+        vad.reset()
 
         audio = np.ones(1500, dtype=np.float32) * 0.1
         prob = vad.compute_vad_prob(audio, sample_rate=16000)
 
-        assert state["count"] == 2, f"Expected 2 sub-chunk calls for 1500 samples, got {state['count']}"
-        assert state["sizes"] == [512, 512]
-        assert prob == 0.4
+        assert len(session.calls) == 2, (
+            f"Expected 2 sub-chunk calls for 1500 samples, got {len(session.calls)}"
+        )
+        for call in session.calls:
+            assert call["input"].shape == (1, 512)
+        assert prob == pytest.approx(0.4)
+        vad.reset()
 
 
-# classes moved from tests/test_waveform_bubble.py ──────────
-#
-# These three classes were originally defined in
-# ``tests/test_waveform_bubble.py`` (lines 526-701). They were moved
-# here because they test the VAD wrapper module
-# (``voice_typer.server.vad``) and the audio-chunk wiring through
-# ``RecordingController.on_recorder_rms`` / ``WaveformBubble.update_level``
-# — VAD concerns, not waveform-bubble concerns. Keeping them in
-# ``test_waveform_bubble.py`` conflated two SUTs in one file. The class
-# bodies below are unchanged from their original implementations; only
-# their home file has changed.
-#
-# Note: ``TestWaveformVADGate`` uses a local ``bubble`` fixture (also
-# moved from ``test_waveform_bubble.py``) — it is identical to the
-# ``bubble`` fixture still defined in that file. A future cleanup
-# should hoist both copies into ``tests/conftest.py`` so the fixture
-# is shared.
+# ─── Companion §2.2: hidden-state threading ───────────────────────────
+
+
+class TestHiddenStateThreading:
+    """Companion §2.2 — the LSTM hidden state (shape ``(2, 1, 128)``
+    float32) MUST be threaded through every ``compute_vad_prob`` call.
+    The JIT module held it internally; ORT's stateless InferenceSession
+    forces the caller to manage it. If the state is not threaded, VAD
+    probabilities are garbage after the first 512-sample window.
+    """
+
+    def test_state_buffer_has_correct_shape(self, monkeypatch):
+        """``_state`` must be ``(2, 1, 128)`` float32 after load."""
+        import voice_typer.server.vad as vad
+
+        session = FakeOrtSession(prob_sequence=[0.5])
+        _install_fake_ort(monkeypatch, session)
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path(__file__))
+        vad.reset()
+
+        vad._load_model()
+        assert vad._state is not None
+        assert vad._state.shape == (2, 1, 128), (
+            f"Silero v4 LSTM state shape must be (2, 1, 128); got {vad._state.shape}"
+        )
+        assert vad._state.dtype == np.float32
+        vad.reset()
+
+    def test_state_threads_forward_across_calls(self, monkeypatch):
+        """Each ``session.run`` call must receive the previous call's
+        returned ``stateN`` as its ``state`` input. The fake session
+        returns ``state + 1.0`` so the threading is observable: the
+        second call's input state should be ``1.0``, the third ``2.0``,
+        etc. (starting from a zero buffer)."""
+        import voice_typer.server.vad as vad
+
+        session = FakeOrtSession(prob_sequence=[0.5, 0.5, 0.5])
+        _install_fake_ort(monkeypatch, session)
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path(__file__))
+        vad.reset()
+
+        # 1536 samples → 3 sub-chunks of 512.
+        audio = np.ones(1536, dtype=np.float32) * 0.1
+        vad.compute_vad_prob(audio, sample_rate=16000)
+
+        assert len(session.calls) == 3
+        # First call: state = zeros (initial load).
+        assert np.array_equal(session.calls[0]["state"], np.zeros((2, 1, 128), dtype=np.float32))
+        # Second call: state = first call's return = 0.0 + 1.0 = 1.0
+        assert np.allclose(session.calls[1]["state"], 1.0)
+        # Third call: state = second call's return = 1.0 + 1.0 = 2.0
+        assert np.allclose(session.calls[2]["state"], 2.0)
+        vad.reset()
+
+    def test_reset_states_zeros_buffer_when_loaded(self, monkeypatch):
+        """``reset_states()`` must re-zero ``_state`` when the session
+        is loaded — the load-bearing reset for session boundaries."""
+        import voice_typer.server.vad as vad
+
+        session = FakeOrtSession(prob_sequence=[0.5])
+        _install_fake_ort(monkeypatch, session)
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path(__file__))
+        vad.reset()
+
+        # Load + run inference to populate _state with non-zero values.
+        vad._load_model()
+        audio = np.ones(512, dtype=np.float32) * 0.1
+        vad.compute_vad_prob(audio, sample_rate=16000)
+        assert not np.array_equal(vad._state, np.zeros((2, 1, 128), dtype=np.float32)), (
+            "Test setup: _state should be non-zero after an inference call"
+        )
+
+        vad.reset_states()
+        assert np.array_equal(vad._state, np.zeros((2, 1, 128), dtype=np.float32)), (
+            "reset_states() must zero the LSTM hidden buffer"
+        )
+        vad.reset()
+
+    def test_unload_clears_session_and_state(self, monkeypatch):
+        """``unload()`` must drop the ORT session AND reset the hidden
+        state — companion §2.3.5. A subsequent ``preload()`` / first
+        chunk load must start from a clean state."""
+        import voice_typer.server.vad as vad
+
+        session = FakeOrtSession(prob_sequence=[0.5])
+        _install_fake_ort(monkeypatch, session)
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path(__file__))
+        vad.reset()
+
+        vad._load_model()
+        assert vad._model is not None
+        assert vad._state is not None
+
+        vad.unload()
+        assert vad._model is None
+        # _state is None when no session is loaded (matches the
+        # ``reset_states()`` no-session branch).
+        assert vad._state is None
+        vad.reset()
+
+    def test_reset_states_noop_when_unloaded(self, monkeypatch):
+        """``reset_states()`` must NOT trigger a model load when called
+        on an unloaded session — the JIT-era contract."""
+        import voice_typer.server.vad as vad
+
+        vad.reset()
+        # No fake ORT installed → if reset_states triggered a load,
+        # _load_model would try ``import onnxruntime`` (real, missing
+        # in this env) and return (None, None). The state stays None.
+        vad.reset_states()
+        assert vad._model is None
+        assert vad._state is None
+        vad.reset()
+
+    def test_state_zeroed_on_first_load(self, monkeypatch):
+        """The first ``_load_model()`` call must initialize ``_state``
+        to zeros — companion §2.2 says this is the first-load path."""
+        import voice_typer.server.vad as vad
+
+        session = FakeOrtSession(prob_sequence=[0.5])
+        _install_fake_ort(monkeypatch, session)
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path(__file__))
+        vad.reset()
+
+        # Pre-condition: _state is None before the first load.
+        assert vad._state is None
+
+        vad._load_model()
+        assert vad._state is not None
+        assert vad._state.shape == (2, 1, 128)
+        assert np.array_equal(vad._state, np.zeros((2, 1, 128), dtype=np.float32)), (
+            "First load must initialize _state to zeros"
+        )
+        vad.reset()
+
+
+# ─── Test fixtures: WaveformBubble (kept from the prior file) ─────────
 
 
 @pytest.fixture
@@ -292,7 +435,7 @@ def bubble():
     return WaveformBubble()
 
 
-# ── T021: Silero VAD integration tests ──────────────────────────────
+# ─── T021: Silero VAD integration tests ───────────────────────────────
 
 
 class TestVADModule:
@@ -305,25 +448,31 @@ class TestVADModule:
         result = is_available()
         assert isinstance(result, bool)
 
-    def test_compute_vad_prob_without_torch(self, monkeypatch):
-        """When torch is not available, compute_vad_prob returns None."""
+    def test_compute_vad_prob_without_ort(self, monkeypatch):
+        """When onnxruntime is not available, compute_vad_prob returns None.
+
+        Companion §2.3.4 — ``is_available()`` now probes onnxruntime
+        instead of torch. The ``_load_model`` failure path returns
+        ``(None, None)`` and ``compute_vad_prob`` falls through to None
+        so the RMS fallback fires.
+        """
         from voice_typer.server import vad
 
-        monkeypatch.setitem(__import__("sys").modules, "torch", None)
+        # Force onnxruntime to be unimportable.
+        monkeypatch.setitem(sys.modules, "onnxruntime", None)
         vad.reset()
         result = vad.compute_vad_prob(np.zeros(16000, dtype=np.float32))
         assert result is None
+        vad.reset()
 
     def test_is_speech_fallback_rms(self, monkeypatch):
         """Without VAD, is_speech falls back to RMS energy check.
 
         VAD-001: Previously this test relied on vad.reset() + a 16000-sample
         chunk erroring through Silero VAD (which requires exactly 512 samples)
-        to exercise the RMS fallback. On machines with a cached Silero model,
-        VAD-001's pad/truncate fix made the model succeed instead of erroring,
-        causing the test to fail. We now properly mock _load_model to return
-        (None, None) so the RMS fallback is deterministically exercised
-        regardless of whether torch/Silero is installed.
+        to exercise the RMS fallback. We now properly mock _load_model to
+        return ``(None, None)`` so the RMS fallback is deterministically
+        exercised regardless of whether onnxruntime/Silero is installed.
         """
         from voice_typer.server import vad
 
@@ -334,6 +483,7 @@ class TestVADModule:
         assert vad.is_speech(np.zeros(16000, dtype=np.float32)) is False
         # Loud audio
         assert vad.is_speech(np.full(16000, 0.1, dtype=np.float32)) is True
+        vad.reset()
 
     def test_is_speech_empty_audio(self):
         """Empty audio chunk should return False."""
@@ -342,21 +492,21 @@ class TestVADModule:
         assert is_speech(np.array([], dtype=np.float32)) is False
 
     def test_reset_clears_model(self):
-        """reset() should clear the cached model."""
+        """reset() should clear the cached model + state."""
         from voice_typer.server import vad
 
         vad.reset()
         assert vad._model is None
-        assert vad._utils is None
+        assert vad._state is None
 
-    def test_torch_missing_warning_rate_limited(self, caplog, monkeypatch):
-        """When torch is unavailable, repeated ``_load_model`` calls
-        (every 16 Hz audio chunk) must NOT re-log the identical WARNING
-        — only the 1st occurrence logs at WARNING; repeats drop to
-        DEBUG (log_rate_limited, first-only).
+    def test_ort_missing_warning_rate_limited(self, caplog, monkeypatch):
+        """When onnxruntime is unavailable, repeated ``_load_model``
+        calls (every 16 Hz audio chunk) must NOT re-log the identical
+        WARNING — only the 1st occurrence logs at WARNING; repeats
+        drop to DEBUG (log_rate_limited, first-only).
 
         Regression: ``_load_model`` does not cache a failure (model
-        stays None), so a permanently torch-less environment would
+        stays None), so a permanently ORT-less environment would
         otherwise emit ~960 identical WARNINGs/minute.
         """
         import logging
@@ -364,7 +514,7 @@ class TestVADModule:
         from voice_typer.server import vad
 
         vad.reset()
-        monkeypatch.setitem(sys.modules, "torch", None)
+        monkeypatch.setitem(sys.modules, "onnxruntime", None)
 
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.vad"):
             for _ in range(5):
@@ -372,12 +522,13 @@ class TestVADModule:
 
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert len(warnings) == 1, (
-            "torch-missing WARNING must be rate-limited to 1 occurrence "
+            "onnxruntime-missing WARNING must be rate-limited to 1 occurrence "
             f"across 5 calls; got {len(warnings)}"
         )
+        vad.reset()
 
     def test_bundled_model_missing_error_rate_limited(self, caplog, monkeypatch):
-        """When the bundled ``silero_vad.jit`` is missing, repeated
+        """When the bundled ``silero_vad.onnx`` is missing, repeated
         ``_load_model`` calls must log the ERROR once, not per call."""
         import logging
         from pathlib import Path
@@ -385,8 +536,12 @@ class TestVADModule:
         from voice_typer.server import vad
 
         vad.reset()
-        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path("C:/definitely/not/here/silero_vad.jit"))
-        monkeypatch.setitem(sys.modules, "torch", MagicMock())
+        monkeypatch.setattr(
+            vad, "_VAD_MODEL_PATH", Path("/nonexistent/silero_vad.onnx")
+        )
+        # ORT is importable (mock) so we exercise the missing-file branch,
+        # not the ImportError short-circuit.
+        _install_fake_ort(monkeypatch, FakeOrtSession(prob_sequence=[0.5]))
 
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.vad"):
             for _ in range(5):
@@ -397,24 +552,28 @@ class TestVADModule:
             "missing-model ERROR must be rate-limited to 1 occurrence "
             f"across 5 calls; got {len(errors)}"
         )
+        vad.reset()
 
     def test_local_load_failure_error_rate_limited(self, caplog, monkeypatch):
-        """When ``torch.jit.load`` raises (corrupt/undownloadable model),
-        repeated ``_load_model`` calls must NOT spam the ERROR — the
-        1st + every Nth occurrence logs at ERROR, repeats at DEBUG.
+        """When ``InferenceSession(...)`` raises (corrupt/undownloadable
+        model), repeated ``_load_model`` calls must NOT spam the ERROR
+        — the 1st + every Nth occurrence logs at ERROR, repeats at DEBUG.
 
-        Regression: the failure is not cached, so a permanently
-        corrupt model would otherwise log ~960 ERRORs/minute on the
-        16 Hz audio path.
+        Regression: the failure is not cached, so a permanently corrupt
+        model would otherwise log ~960 ERRORs/minute on the 16 Hz audio
+        path.
         """
         import logging
 
         from voice_typer.server import vad
 
         vad.reset()
-        mock_torch = MagicMock()
-        mock_torch.jit.load.side_effect = RuntimeError("corrupt model")
-        monkeypatch.setitem(sys.modules, "torch", mock_torch)
+        mock_ort = MagicMock(name="fake_onnxruntime")
+        mock_ort.InferenceSession = MagicMock(
+            side_effect=RuntimeError("corrupt onnx model")
+        )
+        monkeypatch.setitem(sys.modules, "onnxruntime", mock_ort)
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path(__file__))
 
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.vad"):
             for _ in range(5):
@@ -426,6 +585,51 @@ class TestVADModule:
             f"only); got {len(errors)} across 5 calls"
         )
         assert vad._model is None, "failure must not cache a model"
+        vad.reset()
+
+    def test_providers_pinned_to_cpu(self, monkeypatch):
+        """Companion §2.3.3 — the ORT session MUST be created with
+        ``providers=["CPUExecutionProvider"]`` only. VAD is CPU-only by
+        design; routing to GPU adds upload latency per 512-sample
+        window and breaks the latency budget. Source-level guard so a
+        future reader doesn't 'fix' this by adding CUDAExecutionProvider."""
+        import inspect
+
+        from voice_typer.server import vad
+
+        src = inspect.getsource(vad._load_model)
+        assert 'providers=["CPUExecutionProvider"]' in src, (
+            "VAD must pin providers=['CPUExecutionProvider'] — see "
+            "companion §2.3.3 for the rationale (CPU-only by design, "
+            "GPU upload latency dwarfs the ~0.5ms inference for a "
+            "512-sample window)."
+        )
+
+    def test_no_torch_import_in_vad_source(self):
+        """Companion §1 — ``vad.py`` must NOT import torch anywhere.
+        Source-level guard so a future refactor doesn't silently
+        re-add the torch dependency."""
+        import inspect
+
+        from voice_typer.server import vad
+
+        src = inspect.getsource(vad)
+        # ``torch`` may appear in comments / docstrings as a historical
+        # reference (the JIT-era code is gone); what's banned is an
+        # actual ``import torch`` / ``from torch`` statement. Match the
+        # import-statement pattern, not bare substrings.
+        for line in src.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            assert not stripped.startswith("import torch"), (
+                "vad.py must not 'import torch' — torch is removed as a "
+                "project dependency under the ONNX migration (companion §1)."
+            )
+            assert not stripped.startswith("from torch"), (
+                "vad.py must not 'from torch import ...' — torch is removed "
+                "as a project dependency under the ONNX migration (companion §1)."
+            )
 
 
 class TestWaveformVADGate:
@@ -551,12 +755,12 @@ class TestProductionWiring:
 class TestVadLocalOnlyNoNetwork:
     """C-DATA-1 regression: the VAD module must NEVER make a network call.
 
-    Previously ``_load_model`` had a ``torch.hub.load`` fallback that
-    fired when the bundled ``silero_vad.jit`` was missing — a hard HTTPS
-    call to github.com that violated the offline guarantee. The fallback
-    (and the ``ThreadPoolExecutor`` deadline wrapper + negative-cache
-    flag that supported it) has been removed. These tests pin the
-    removal so a future refactor doesn't reintroduce the network call.
+    The JIT-era ``_load_model`` previously had a ``torch.hub.load``
+    fallback that fired when the bundled ``silero_vad.jit`` was missing
+    — a hard HTTPS call to github.com that violated the offline
+    guarantee. The fallback was removed long ago and the ORT rewrite
+    carries the same contract: missing ``silero_vad.onnx`` → ERROR +
+    ``(None, None)``, NEVER a network fetch.
     """
 
     _VAD_SRC_PATH = Path(__file__).resolve().parent.parent / "voice_typer" / "server" / "vad.py"
@@ -576,10 +780,10 @@ class TestVadLocalOnlyNoNetwork:
         # Point the path at a nonexistent file so the local-load
         # branch is skipped — exercising the missing-model path that
         # previously fell through to the network call.
-        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path("/nonexistent/silero_vad.jit"))
-        # Install a torch mock so we exercise the missing-file branch
-        # (not the torch-missing short-circuit).
-        monkeypatch.setitem(sys.modules, "torch", MagicMock())
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path("/nonexistent/silero_vad.onnx"))
+        # Install a fake ORT so we exercise the missing-file branch
+        # (not the ORT-missing short-circuit).
+        _install_fake_ort(monkeypatch, FakeOrtSession(prob_sequence=[0.5]))
 
         start = time.monotonic()
         result = vad._load_model()
@@ -597,7 +801,9 @@ class TestVadLocalOnlyNoNetwork:
         """``vad.py`` must not import or call ``torch.hub.load``.
 
         Source-level grep assertion so the network fallback cannot be
-        silently reintroduced by a future refactor.
+        silently reintroduced by a future refactor. (Also catches
+        ``requests.get`` / ``urllib`` etc. — defensive pin against any
+        network egress helper, not just torch.hub.)
         """
         src = self._VAD_SRC_PATH.read_text(encoding="utf-8")
         assert "torch.hub.load" not in src, (
@@ -622,15 +828,56 @@ class TestVadLocalOnlyNoNetwork:
         from voice_typer.server import vad
 
         vad.reset()
-        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path("/nonexistent/silero_vad.jit"))
-        # Torch is importable so we don't short-circuit on the
-        # ImportError branch — we exercise the missing-file path.
-        monkeypatch.setitem(sys.modules, "torch", MagicMock())
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path("/nonexistent/silero_vad.onnx"))
+        # ORT is importable (mock) so we exercise the missing-file path
+        # rather than the ORT-missing short-circuit.
+        _install_fake_ort(monkeypatch, FakeOrtSession(prob_sequence=[0.5]))
 
         # Must not raise.
         result = vad._load_model()
         assert result == (None, None)
         # And the cached _model must remain None so subsequent
         # compute_vad_prob calls degrade to the RMS fallback.
+        assert vad._model is None
+        vad.reset()
+
+
+class TestPreloadWarmup:
+    """``preload()`` must load the session, run a warmup inference, and
+    reset the LSTM state so the first real audio chunk starts clean.
+    """
+
+    def test_preload_runs_warmup_and_resets_state(self, monkeypatch):
+        """preload() should call the session once for warmup (with a
+        512-sample zero tensor), then reset_states() so the production
+        path starts from a zero state."""
+        import voice_typer.server.vad as vad
+
+        session = FakeOrtSession(prob_sequence=[0.5])
+        _install_fake_ort(monkeypatch, session)
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path(__file__))
+        vad.reset()
+
+        assert vad.preload() is True
+        # Exactly one warmup call.
+        assert len(session.calls) == 1
+        assert session.calls[0]["input"].shape == (1, 512)
+        # State was reset after warmup — _state is zeros, NOT the
+        # post-warmup ``state + 1.0`` value the fake would otherwise
+        # have left behind.
+        assert np.array_equal(vad._state, np.zeros((2, 1, 128), dtype=np.float32)), (
+            "preload() must reset_states() after warmup so the first "
+            "real audio chunk starts from a clean LSTM state"
+        )
+        vad.reset()
+
+    def test_preload_returns_false_when_ort_missing(self, monkeypatch):
+        """preload() must return False (not raise) when onnxruntime is
+        unavailable — the RMS fallback path fires downstream."""
+        from voice_typer.server import vad
+
+        vad.reset()
+        monkeypatch.setitem(sys.modules, "onnxruntime", None)
+        assert vad.preload() is False
         assert vad._model is None
         vad.reset()
