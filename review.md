@@ -8,6 +8,10 @@ These items are the highest-priority remaining work for the project — they blo
 
 plus the base repo's pre-existing comprehensive review.
 
+- **R2-1 Execute cloud-agent round 2 handoff** (XL, P1): Dispatch the next cloud session per `CLOUD-AGENT-ROUND2-PROMPT.md` — 20 parallel sub-agents in the first message (workstreams at §"Suggested 20 parallel workstreams"), finishing the runtime-pack-split + ONNX migration work at ~65% from the prior session, then run the mandatory verification gate (§"Verification gate") and report a per-row green matrix. Every sub-agent prompt must embed the `AGENTS.md` `Hard "Don'ts"` constraints (C-CI-1..15: never edit tauri-*.yml workflows as a first-line fix), branding (`APP_NAME`), i18n (all 8 locales), and no-task-ID-in-code rules.
+  - **Status:** ✅ OPEN — prompt updated 2026-08-14 (references now point at `AGENTS.md` after the CONSTRAINTS.md merge; `CONSTRAINTS.md` deleted).
+  - **Related Files:** `CLOUD-AGENT-ROUND2-PROMPT.md` (executor), `AGENTS.md` (binding rules), `review.md` / `worklog.md` (state), `docs/plan-runtime-pack-split.md`, `docs/PLAN_ONNX_INTEGRATION.md` (plans at ~65%).
+
 ## Status Legend
 
 - ✅ Fixed — the issue was resolved in this session.
@@ -56,14 +60,6 @@ plus the base repo's pre-existing comprehensive review.
 - **Effort**: 🔴 **EXTRA HIGH** — 478 calls across 150 test files. Not a discrete task — it's a project-wide migration. Chip away individually when touching pinned code. Cannot be done in one shot.
 - **Confidence for one-shot fix**: 20% — cannot complete in one shot.
 
-### XPLAT-12 — Windows-on-ARM scaffolded but unvalidated
-- **Severity**: Low
-- **Status**: ❌ Not Fixed — VALIDATE-ON-WINDOWS-HOST: Windows-on-ARM host validation required — Nuitka cross-compile + aarch64 freeze must be tested on real Windows ARM hardware
-- **Description**: Code path is complete but `windows-11-arm` runner not yet GHA-available.
-- **Note**: Per ADR §4.1, explicit deferral.
-- **Effort**: 🔴 **HIGH** — Requires Windows-on-ARM runner access not available in this sandbox. Cannot complete.
-- **Confidence for one-shot fix**: 10% — blocked by runner availability.
-
 ### TEST-2 — 495 `time.sleep(` calls across 239 test files (flakiness-prone)
 - **Severity**: Medium
 - **Status**: ⚠️ Partial (re-measured 2026-08-12: 495 `time.sleep(` calls across 239 test files via `rg 'time\.sleep\(' tests/` — up from 99/28; the earlier "524/164" claim and a later "400/144" claim are both stale, as the count is grep-methodology-sensitive to comment/docstring mentions of `time.sleep`). The earlier "55/99 replaced" progress claim is now negligible.
@@ -78,12 +74,6 @@ plus the base repo's pre-existing comprehensive review.
 - Location: `voice_typer/server/recording/__init__.py:260-349`, `voice_typer/server/prewarm/__init__.py` (289 LOC), `voice_typer/server/server_platform/__init__.py:84-277`
 - Evidence: Three packages install custom module subclasses that override `__getattr__` and `__setattr__` so test patches like `monkeypatch.setattr("voice_typer.server.recording._resample_poly_error", ...)` propagate to submodules. ~500 LOC of `__init__.py` boilerplate exists for test-patch compatibility.
 - Fix: Migrate tests to patch submodules directly; remove custom module classes and `_pkg.X` indirection. · **Found by**: R1
-
-### S1-CR-146 — `StartupWMClass=Voice Typer` may not match Tauri window class
-**Status:** ❌ Not Fixed — out of file scope + host-validation required (target file voice-typer.desktop.template not in scope; fix requires running Tauri app + xprop WM_CLASS on real Linux desktop)
-- Location: `src-tauri/voice-typer.desktop.template:9`
-- Evidence: Binary is `voice-typer-tauri` (per `Cargo.toml:15`). Tauri v2 sets WM_CLASS based on binary name. If actual WM_CLASS is `voice-typer-tauri` but `StartupWMClass=Voice Typer`, WM may show duplicate icon.
-- Fix: Verify actual WM_CLASS via `xprop WM_CLASS` on a running Tauri window; set `StartupWMClass` to match. `VALIDATE ON LINUX HOST`. · **Found by**: R15
 
 ---
 
@@ -998,7 +988,6 @@ The following findings were implemented by sub-agents (test files exist, agents 
 - **ZU-18 Rust namespacing** (S, P1): `sidecar_cmds.rs` still emits non-namespaced `pending_full`/`data_too_large`. TS union accepts both forms, so no runtime break, but full cross-language parity requires Rust update + cargo check.
 - **ZU-22 remaining ~145 untranslated zh/ru strings** (M, P2): mostly `.models.*` and `.settings.appearance.*`. Not first-launch user-facing.
 - **ZU-19 helper migration** (M, P3): 17 test files still have local `makeConfig()` (per audit 2026-08-12, up from 9; spot-check: 16 local defs outside helpers/) — lint test added to track. Full migration deferred (too many files for one session).
-- **Dialog-autofocus test jsdom flake** (S, P3): ZU-46 fix is correct (`onOpenAutoFocus` + `tabIndex={-1}`) but 2 tests fail in jsdom due to timing. Real browser validation needed.
 
 ---
 
@@ -1080,10 +1069,7 @@ The following FR findings remain open — status `❌ Not Fixed`:
 - **FR-26** (Medium) — Linux native key-listener no USB hotplug. Requires C code changes + inotify.
 - **FR-34** (Medium) — `tray_notifications` no rate limiting. Requires per-title rate limiter design.
 - **FR-40** (Medium) — `SUPERVISOR_MAX_RETRIES` dead in production. Requires coordinated test rewrites.
-- **FR-42** (Low) — Asymmetric Rust allowlist undocumented in TS allowlist. Doc-only.
-- **FR-43** (Low) — Behavioral divergence `None` vs `{}` between Electron and Tauri IPC. Requires contract test.
 - **FR-44** (High) — `RotatingFileWriter` holds `std::sync::Mutex` across blocking I/O. Requires background writer thread refactor.
-- **FR-45** (Medium) — `dispatch_frame` orphaned pending-entry race. Requires Drop guard design.
 - **FR-49** (Low) — `toggle_rate_limiter_allows` uses `SystemTime` not `Instant`. Requires `Mutex<Option<Instant>>` migration.
 - **FR-50** (Low) — Blocking file I/O in async Tauri command handlers. Requires `spawn_blocking` migration.
 - **FR-52** (High) — Bare `dict`/`list` annotations on `ConfigApplier` + `ServiceProtocol`. Requires TypedDict refactor.
@@ -1236,8 +1222,6 @@ The following findings are documented in `review.md` as `❌ Not Fixed` — defe
 
 ## Remaining Work
 - **GG-67-70 (monolith splits):** Home.tsx (633→~250), Onboarding.tsx (571→~200), History.tsx (529→~220) — only partial splits were done (About.tsx fully split). These are Medium-severity maintainability improvements that require more time than a single fix wave allows.
-- **Windows/macOS host validation:** Bubble fullscreen detection (GG-72) implemented for all platforms but only Linux-verified. `VALIDATE ON WINDOWS HOST` + `VALIDATE ON MACOS HOST`.
-- **E-section note (2026-08-12):** Of the 19 cannot-verify-until-real-host findings, 15 exist in this file with host-validation notes (XPLAT-12, S1-CR-146, ZU-46, FR-42/43/45, GG-72, WM-6/7/8, WM-12/13). The remaining 4 — **WM-14 (Windows taskkill), GP-7 (macOS notarization), GP-135 (cross-platform native binaries), VT-1 (Windows host validation)** — are NOT present in this review.md; they are tracked elsewhere (worklog / GP-FIX sessions) and cannot be re-verified on this sandbox. No edit possible here for those 4.
 - **Tray test updates:** 2 pre-existing tests assert the old "• " prefix behavior (GG-40 removed it). These tests need updating to assert `checked=is_active` instead. Test files are outside the fix agents' owned sets.
 
 ---
@@ -2715,3 +2699,39 @@ Source: independent re-verification of review.md against the current codebase (1
 - **GQ-41** — recorder `start()` hotkey critical-path timing claims (200-600ms typical, 2-4s first-start).
 - **GQ-54** — `check_branding.py` 314ms wall timing.
 - **GP-66 / GP-70** — macOS CI hard-fail + codesign --verify workflow steps.
+
+---
+
+## 🚫 E. Cannot Verify (needs real host)
+
+**19 findings require Windows / macOS / Linux desktop runtime** — they cannot be
+verified or fixed on this Linux CI sandbox and must be validated on real hosts
+(see `docs/migration/windows-validation-runbook.md`,
+`docs/migration/macos-validation-runbook.md`,
+`docs/migration/linux-validation-runbook.md`). These items are unverifiable, not
+unfixable: re-check them on real hardware before marking anything done.
+
+### XPLAT-12 — Windows-on-ARM scaffolded but unvalidated
+- **Severity**: Low
+- **Status**: ❌ Not Fixed — VALIDATE-ON-WINDOWS-HOST: Windows-on-ARM host validation required — Nuitka cross-compile + aarch64 freeze must be tested on real Windows ARM hardware
+- **Description**: Code path is complete but `windows-11-arm` runner not yet GHA-available.
+- **Note**: Per ADR §4.1, explicit deferral.
+- **Effort**: 🔴 **HIGH** — Requires Windows-on-ARM runner access not available in this sandbox. Cannot complete.
+- **Confidence for one-shot fix**: 10% — blocked by runner availability.
+
+### S1-CR-146 — `StartupWMClass=Voice Typer` may not match Tauri window class
+**Status:** ❌ Not Fixed — out of file scope + host-validation required (target file voice-typer.desktop.template not in scope; fix requires running Tauri app + xprop WM_CLASS on real Linux desktop)
+- Location: `src-tauri/voice-typer.desktop.template:9`
+- Evidence: Binary is `voice-typer-tauri` (per `Cargo.toml:15`). Tauri v2 sets WM_CLASS based on binary name. If actual WM_CLASS is `voice-typer-tauri` but `StartupWMClass=Voice Typer`, WM may show duplicate icon.
+- Fix: Verify actual WM_CLASS via `xprop WM_CLASS` on a running Tauri window; set `StartupWMClass` to match. `VALIDATE ON LINUX HOST`. · **Found by**: R15
+
+- **WM-6 / WM-7 / WM-8 / WM-11 / WM-12 / WM-13** — test-suite runs on real Windows/macOS/Linux desktop runtimes (only Linux-sandbox results exist so far).
+- **WM-14** — Windows `taskkill` behavior. Tracked in worklog / GP-FIX sessions (no entry in this file); requires a real Windows host.
+- **GP-7** — macOS notarization. Tracked in worklog / GP-FIX sessions (no entry in this file); requires a real macOS host with Developer ID + notary credentials.
+- **GP-135** — cross-platform native binaries. Tracked in worklog / GP-FIX sessions (no entry in this file); requires building + running the native key-listener binaries on each real OS.
+- **VT-1** — Windows host validation (config warnings, timeout utils, tray event-loop degradation from the `voice-typer` terminal run). Tracked in worklog / GP-FIX sessions (no entry in this file); requires a real Windows host.
+- **ZU-46** — Dialog-autofocus test jsdom flake (S, P3): fix is correct (`onOpenAutoFocus` + `tabIndex={-1}`) but 2 tests fail in jsdom due to timing. Real browser validation needed.
+- **FR-42** (Low) — Asymmetric Rust allowlist undocumented in TS allowlist. Doc-only; requires contract test execution on real Electron/Tauri runtimes.
+- **FR-43** (Low) — Behavioral divergence `None` vs `{}` between Electron and Tauri IPC. Requires contract test execution on real runtimes.
+- **FR-45** (Medium) — `dispatch_frame` orphaned pending-entry race. Requires Drop guard design + contract test execution.
+- **GG-72** — Bubble fullscreen detection implemented for all platforms but only Linux-verified. `VALIDATE ON WINDOWS HOST` + `VALIDATE ON MACOS HOST`.
