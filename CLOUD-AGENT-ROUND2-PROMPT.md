@@ -2,7 +2,7 @@
 
 You are continuing work on `AbdallahIsDev/voice-typer` (branch `main`). A previous
 session executed two plans (runtime-pack-split + ONNX migration, see
-`docs/plan-runtime-pack-split.md`, `docs/rw04-recording-decomposition.md`,
+`docs/plan-runtime-pack-split.md`, `docs/PLAN_ONNX_INTEGRATION.md`, `docs/rw04-recording-decomposition.md`,
 `review.md`, `worklog.md`) at ~65% completion using 15 parallel sub-agents in one
 message. That session DID NOT run verification. Your round must finish the rest
 AND produce a verified green matrix.

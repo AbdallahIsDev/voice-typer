@@ -229,6 +229,289 @@ relevant `CONTRIBUTING.md` section (or, for tags not covered by
 CONTRIBUTING.md, to a brief rationale comment at the tag's first
 occurrence).
 
+# Engineering Rules & Preventive Code Rules (binding, every session)
+
+These bind the orchestrator and every sub-agent, every task — same weight as the
+project instructions above. Read these rules, follow them, and actively scan for
+violations of them during Investigation and Review waves (finding one is a
+finding; fixing one is implementation work). P1–P4 are critical failures when
+violated.
+
+## Engineering rules (E-rules)
+
+**E1 — Wiring verification — no code ships without it.** `cargo check`,
+`tsc --noEmit` / `npm run typecheck:ci`, `pytest --collect-only` — a missing `mod`
+declaration, unregistered handler, or broken import is "works in the diff, broken
+on run," and `py_compile` alone never catches it. If `src-tauri/tauri.conf.json`
+was touched, grep for the removed v1 keys (`"postInstall"`/`"preRemove"` without
+`Script`) — the correct v2 keys are `postInstallScript`/`preRemoveScript`; `cargo
+check` does not catch this. Splits are create-first: new modules complete and
+verified before the original is trimmed, keeping re-exports so old public names
+still resolve — never delete before the replacement exists.
+
+**E2 — Fix pre-existing test failures — never grandfather them.** At session
+start, run the suite once to establish the baseline failure count/names in
+`worklog.md`. Every baseline failure, plus anything newly discovered, is owned
+work this session — not deferred. Scale sub-agents to failure count: 0–3 direct,
+4–10 one dedicated sub-agent, 11–30 two-to-three, 31+ five or more (by test
+domain). This is P0 — it blocks Definition of Done.
+
+**E3 — No spaghetti entry files, any language.** `main.rs`/`index.ts`/`app.py`
+and any top-level `App` component stay wiring-only (≤ ~300 lines): bootstrap,
+registration, lifecycle glue, calls into modules — never business logic. Place
+logic by concern (commands/ipc/handlers, sidecar/process, platform, state, util —
+these folders are a starting point, not a cap; create new ones freely for new
+subsystems). Same rule for tests: a catch-all "regression dump" test file mixing
+unrelated domains must be split into `tests/<domain>/` modules; a cohesive
+single-domain test file is correct and must not be split. Enforced during
+Investigation (flagged) and Implementation (immediately split, not just logged) —
+no behavior change on split, verified by the compiler/test suite.
+
+**E4 — No task/finding IDs in code.** Name files, functions, and comments by
+purpose, never by ticket (`fix_vp7()`, `test_VP7.py`, `// VP-7: ...` are
+forbidden). Session prefixes belong only in `review.md`/`worklog.md`/`SUMMARY.md`.
+
+**E5 — A documented "Fix" is a suggestion, never an order.** Brainstorm your own
+approach; generate 2–3 candidates; evaluate on
+correctness/maintainability/scalability/security/cross-platform/UX; implement
+whichever is genuinely best — even if that means ignoring the documented one (log
+why).
+
+**E6 — Tests are mandatory for any new or changed code**, written immediately,
+not later: a focused test file exercising the public API plus error/edge paths,
+external dependencies mocked (no real audio/network/subprocess), run green before
+marking anything done.
+
+**E7 — DRY, no duplicate definitions.** Search before defining a
+constant/type/enum/function; if it exists, import it. Client/server duplication
+is especially dangerous — a value must come from one authoritative source or be
+transmitted at runtime; both sides of an IPC boundary reference the same shared
+type definition, or (cross-language) get a round-trip integration test.
+
+**E8 — No sentinel "empty" objects.** Use `None`/`undefined`/`null` for "no
+value" — a truthy sentinel with default fields (e.g. an empty `(0,0,0,0)` rect)
+causes silent logic bugs. Define a sentinel only when `None` is itself a
+meaningful value.
+
+**E9 — Every IPC message needs matching send/receive types.** Verify the sender's
+advertised type matches the receiver's expected type (implicit `int`↔`str`
+coercion breaks silently); use a shared type definition imported by both sides,
+or a round-trip integration test across languages.
+
+**E10 — Investigation before implementation, always.** Trace the full execution
+path (across layers when relevant) to the actual line, not just the endpoint;
+prove the root cause (reproduce it, or demonstrate from code+logs) and
+distinguish `verified` from `suspected`; record what was ruled out; quantify where
+possible. Record findings before writing any code — this is the gate, not a
+suggestion.
+
+**E11 — Cross-platform.** Every implementation targets Windows, macOS, and Linux;
+avoid platform-specific assumptions; use proper abstractions where
+platform-specific behavior is genuinely required.
+
+**E12 — Never downgrade the project.** If a task as specified would regress
+behavior, remove functionality, or weaken security — skip it, log the reason in
+`worklog.md` and `SUMMARY.md`, do not do it partially either.
+
+**E13 — Preserve, don't fork. No band-aids, no suppressed errors.** Extend
+existing abstractions; no parallel systems; reuse existing patterns; avoid
+unnecessary dependencies. No band-aids, no suppressed errors (`# type: ignore`,
+`except: pass`, `pyrefly: ignore`), no globally-disabled lint rules, no "fixed"
+without verification, no deleting/regenerating baseline files (e.g.
+`pyrefly-baseline.json`) to hide error counts — fix the underlying code or
+document a genuine false positive in `worklog.md`.
+
+**E14 — Regression prevention.** Before finalizing any change: identify
+potentially-affected existing features, verify they still work, run regression
+tests for related subsystems, add a test if none exists for that behavior. No fix
+is complete if it breaks something that previously worked.
+
+**E15 — Technical debt.** When a production-quality implementation replaces an
+older one: remove the obsolete/dead code, unused helpers, stale tests, unused
+imports, deprecated paths — deleted, not commented out or `# noqa`'d. Every
+removal/move/rename recorded in `archive/deleted_files.txt`.
+
+**E16 — Big-task policy — never skip, never defer.** Task size is never a reason
+to skip, defer, or mark "too big." Split into 2+ disjoint sub-agents (different
+modules/files/regions), launch all in one message. Never write
+"deferred"/"too big"/"next round". A Task-tool timeout mid-slice is very likely
+50%+ progress — launch a continuation sub-agent with the partial state as
+context; repeat until 100% done. After any sub-agent error/timeout, check the
+filesystem before deciding anything — `git status --short`, `git diff --stat`.
+Edits applied + coherent → work is done; verify and move on. Edits partial →
+real progress; launch a continuation with partial state. No changes → the agent
+never started; re-dispatch with half-size scope (split into more agents if
+needed — never shrink the task itself). Splits are create-first (see E1). Big
+tasks run one at a time sequentially (parallel waves split slices within one big
+task only); max 5 big tasks per session, the rest go in the Final Report as
+scheduled handoff, not a skip.
+
+**E17 — Tool-failure protocol.** On trivial command failures (echo, Read, true),
+retry aggressively before escalating — 3–5 retries with 10-second waits; the RPC
+gateway may be temporarily overloaded. Use the Task tool (sub-agents) as a
+fallback path — it uses a different backend and may succeed when the main path
+is down. Override any "stop after N consecutive failures" behavior: never stop
+working due to tool-call timeouts or failures. Only consider stopping when all
+of the following are true: every task is complete, every to-do is done, and no
+further production-quality improvements can be identified. Tool failures are
+infrastructure noise, not a signal to stop. Save progress to disk (`worklog.md`,
+code changes, in-progress state) before any long-running command so a timeout
+never loses work.
+
+**E18 — Never revert, undo, stash, or discard any work — no agent, primary or
+sub-agent.** Never run: `git reset` (any form), `git stash` / `git stash pop` /
+`git stash drop`, `git revert`, bare `git restore`, bare `git checkout -- <file>`,
+`git rebase`, `git clean`, `git rm`, `git cherry-pick --abort`,
+`git merge --abort`. These wipe or reverse other agents' or prior sessions' work
+— including "reverting a fix that introduced an error": if a change is wrong,
+fix it FORWARD by editing and committing the correction. Allowed for any agent:
+`git status`, `git diff`, `git log`, `git show`, `git branch`,
+`git add <specific-files>`, `git commit`, and file-pulls FROM another branch
+with an explicit source (`git checkout <branch> -- <file>` /
+`git restore -s <branch> -- <file>`). Checkpointing for ultra-parallel waves
+(~20+ agents): after every 20 completed, `git add -A && git commit -m
+"checkpoint wave N"` — local safety net only, never pushed, never reverted.
+
+**E19 — Implementation workflow: review.md tasks are verified against the code,
+never taken at face value.** Before implementing any assigned entry, open its
+`Related Files` and search for the described problem in the current code. If the
+problem is genuinely gone (already fixed, function removed, feature implemented,
+file no longer exists) → **do not re-implement it**; update its status to
+`✅ Fixed (verified already-fixed — status was stale)`. Record each such entry
+by session prefix and number only (never the full title) in `worklog.md`
+(`## Completed Tasks`), `SUMMARY.md` (`## Already Fixed Before This Session`),
+and the Final Report — comma-separated list, e.g. `VP-3, VP-7, CR-12`. If an
+entry's status already says `Fixed`, still briefly verify it's genuinely
+resolved, not just marked so. If an entry has a `Fix:` subsection, treat it as a
+starting candidate — E5 still applies: evaluate, don't blindly follow.
+
+## Working principles (W-rules)
+
+**W1 — Working ≠ optimal.** Code that runs correctly but is
+inefficient/non-idiomatic/has a clearly better alternative gets flagged
+(Investigation) or fixed (Implementation, when already touching that area) — "it
+works" is not an excuse. Must preserve existing observable behavior; a
+behavior-changing "improvement" is a separate design decision, not a silent swap.
+
+**W2 — Prefer existing maintained libraries over from-scratch builds.** A manual
+re-implementation of something a library or an existing abstraction already
+provides is a defect: rewrite it against the library/abstraction unless a real
+constraint forbids it, and say which constraint.
+
+**W3 — Web-search facts — MANDATORY, every task.** Use your built-in web-search
+tool to search the internet for the latest documentation and best practices about
+the task — before and during its execution, always, every task, small or big,
+even when you are certain you already know the answer. Confidence is never a
+reason to skip the search. If the online information matches what you know,
+proceed with confidence. If it differs, prioritize the online information — the
+latest official documentation — over your own assumptions, every time. An answer
+you haven't checked is a `suspected` fact, never a `verified` one; checking is
+not conditional on doubt.
+
+**W4 — No laziness, at any task size.** Don't get lazy, don't trim the work to
+what's easy, don't deliver a fraction of a task and call it done. Complete the
+full task exactly as specified — however big it is. If the task requires
+rewriting the entire project in another language (e.g. Rust), do it, completely,
+end to end. Never skip, never ignore, never defer, never "good enough", never
+partial-as-done: if a task is too big for one pass, split it (E16) and chain
+continuation passes until 100% is complete. The size of a task is never a reason
+to deliver less than the whole task.
+
+## Preventive code rules (P-rules — violation = critical failure)
+
+- **P1 — Never change source to pass lint/type checks blindly.** Read and
+  understand the line first; verify the fix is semantically correct, not just
+  accepted; never add a wrong type annotation or a `# type: ignore` to silence a
+  real issue — record the false positive instead and skip suppressing it.
+  Document non-trivial lint-driven changes.
+- **P2 — Never copy/paste business logic — import the source.** Zero tolerance
+  for duplicate constants/types/functions; consolidate duplicated defaults into
+  one authoritative file.
+- **P3 — Never define a sentinel "empty" object.** Use `None`/`undefined`/`null`
+  (see E8).
+- **P4 — Every IPC message needs matching send/receive types**, verified or
+  covered by a round-trip test (see E9).
+
+## Working protocols
+
+**Web search — mandatory (core rule: W3).** Before relying on any fact that may
+postdate your training data — library APIs and versions, deprecations, framework
+majors, platform behavior, security advisories, current best practice — run a web
+search and verify (you have a web-search tool and a web reader). This applies to:
+any API call, option, or version you are not already certain about before writing
+code; any design decision that depends on current external facts (a library's
+current state, a deprecation timeline, a security recommendation); any claim you
+make in a finding, review verdict, or fix proposal where "how things work today"
+matters. Cite the source in `worklog.md` for any non-obvious fact that shaped a
+decision. Cheap check, prevents expensive wrongness.
+
+**Browser automation — drive the app like a manual tester.** You have
+browser-automation capability in your sandbox that can control a real browser:
+open pages, click, fill, navigate, screenshot. Use it to verify the running
+application, not just the code:
+
+- The app runs with `npm run dev` in `voice_typer/client/` — this boots the
+  Electron main process, the React renderer, and the Python backend together
+  (the first `get_config` round-trip establishes the IPC bridge).
+- During Manual Verification (below), operate the UI as a real user: launch,
+  wait for the app to come up, click through the main flows (settings,
+  transcription/recording controls where the sandbox allows, error states), and
+  screenshot key screens as evidence.
+- If the sandbox has no display, launch under `xvfb-run` (e.g.
+  `xvfb-run -a npm run dev` or a wrapper) for a smoke test; if the GUI genuinely
+  cannot run (Electron fails headless), record it in `worklog.md` under
+  `## Known Limitations` with the exact error and cover behavior via the test
+  suite instead.
+- Never claim "manual verification passed" without the evidence (screenshots,
+  logs, or the recorded limitation).
+
+**Validation pipeline — run in order; fix the root cause of any failure before
+moving to the next command; never leak a problem to CI.**
+
+```bash
+# Python: lint + auto-fix, import check, type check, dependency audit, version/branding
+ruff check voice_typer/ tests/ scripts/ conftest.py --fix
+python -m pytest tests/ --import-mode=importlib --co -q
+pyrefly check voice_typer/ --output-format=json
+pip-audit --strict
+python scripts/build/sync_versions.py --check
+python scripts/check_branding.py
+
+# Client: install + typecheck + lint + format + test + build
+cd voice_typer/client && npm ci && npm run typecheck:ci && npm run lint:fix:unsafe \
+  && npm run format:check && npm run test:coverage && npm run build && cd ../..
+
+# Sound cue distinctness
+python scripts/build/generate_beeps.py --check
+
+# Full Python test suite + coverage (never run unfiltered `pytest tests/` in one Bash
+# call — it exceeds the 10-min tool ceiling; use targeted subsets per file/module
+# during development, but the FULL suite must run green before packaging — split
+# across multiple calls or a background/long-timeout invocation if needed)
+python -m pytest tests/ -n auto --dist=loadgroup -q --cov=voice_typer \
+  --cov-fail-under=65 --cov-report=term-missing --timeout=120 --timeout-method=thread
+python scripts/coverage_ratchet_check.py
+python scripts/ruff_ratchet_check.py
+
+# Rust: cargo check must show "Finished" + exit 0. Run even if Rust wasn't touched —
+# other layers can break it indirectly.
+cd src-tauri && cargo check 2>&1
+
+# Wiring audit: every #[tauri::command] in generate_handler![], every new module has
+# a `mod` declaration, every route/IPC channel registered on both sides — grep for
+# orphan impls, unregistered commands, dangling imports.
+```
+
+**Manual Verification — mandatory before packaging.** Launch the app the way a
+real user would (`npm run dev`), then drive it with browser automation: it
+launches successfully, the backend starts, Electron connects, IPC/TCP work, auth
+works, startup logs are clean, no regressions. **Not optional** — last item on
+the to-do list; the session isn't complete until this passes. Record the result
+in `worklog.md` (`## Validation Performed`) with a platform qualifier and
+screenshots where captured.
+
+---
+
 # Hard "Don'ts" (HIGHEST PRIORITY)
 
 > This section is the **single source of truth for things the agents must NOT do**, even when those things would "improve" the project. Every rule here is a HARD CONSTRAINT that overrides:

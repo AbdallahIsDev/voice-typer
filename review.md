@@ -2,15 +2,15 @@
 
 These items are the highest-priority remaining work for the project — they block the Tauri migration, fix core functionality, or address critical infrastructure gaps. Items in this section are ordered by priority (top = most urgent).
 
+- **R2-1 Execute cloud-agent round 2 handoff** (XL, P1): Dispatch the next cloud session per `CLOUD-AGENT-ROUND2-PROMPT.md` — 20 parallel sub-agents in the first message (workstreams at §"Suggested 20 parallel workstreams"), finishing the runtime-pack-split + ONNX migration work at ~65% from the prior session, then run the mandatory verification gate (§"Verification gate") and report a per-row green matrix. Every sub-agent prompt must embed the `AGENTS.md` `Hard "Don'ts"` constraints (C-CI-1..15: never edit tauri-*.yml workflows as a first-line fix), branding (`APP_NAME`), i18n (all 8 locales), and no-task-ID-in-code rules.
+  - **Status:** ✅ OPEN — prompt updated 2026-08-14 (references now point at `AGENTS.md` after the CONSTRAINTS.md merge; `CONSTRAINTS.md` deleted).
+  - **Related Files:** `CLOUD-AGENT-ROUND2-PROMPT.md` (executor), `AGENTS.md` (binding rules), `review.md` / `worklog.md` (state), `docs/plan-runtime-pack-split.md`, `docs/PLAN_ONNX_INTEGRATION.md` (plans at ~65%).
+
 ---
 
 **Bottom line for the next agent:** Do NOT trust "all green on Linux" as proof of cross-platform cutover.
 
 plus the base repo's pre-existing comprehensive review.
-
-- **R2-1 Execute cloud-agent round 2 handoff** (XL, P1): Dispatch the next cloud session per `CLOUD-AGENT-ROUND2-PROMPT.md` — 20 parallel sub-agents in the first message (workstreams at §"Suggested 20 parallel workstreams"), finishing the runtime-pack-split + ONNX migration work at ~65% from the prior session, then run the mandatory verification gate (§"Verification gate") and report a per-row green matrix. Every sub-agent prompt must embed the `AGENTS.md` `Hard "Don'ts"` constraints (C-CI-1..15: never edit tauri-*.yml workflows as a first-line fix), branding (`APP_NAME`), i18n (all 8 locales), and no-task-ID-in-code rules.
-  - **Status:** ✅ OPEN — prompt updated 2026-08-14 (references now point at `AGENTS.md` after the CONSTRAINTS.md merge; `CONSTRAINTS.md` deleted).
-  - **Related Files:** `CLOUD-AGENT-ROUND2-PROMPT.md` (executor), `AGENTS.md` (binding rules), `review.md` / `worklog.md` (state), `docs/plan-runtime-pack-split.md`, `docs/PLAN_ONNX_INTEGRATION.md` (plans at ~65%).
 
 ## Status Legend
 
