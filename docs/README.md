@@ -20,13 +20,13 @@ audiences: [`README.md`](../README.md), [`CONTRIBUTING.md`](../CONTRIBUTING.md),
 |------|---------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | High-level architecture: renderer ↔ Electron main ↔ Python backend ↔ Rust host. Start here. |
 | [python-api.md](python-api.md) | Python class API reference (`VoiceTyperApp`, `Recorder`, `TranscriptionEngine`, `Config`, etc.). Kept in sync with the code by `tests/test_api_doc_accuracy.py`. |
-| [ipc-reference.md](ipc-reference.md) | IPC message reference — 67 commands (65 renderer-reachable + 2 host-only) + 36 push events grouped by namespace, with the four-allowlist contract (server registry + Electron allowlist + renderer types + Rust host) and per-command notes. |
+| [ipc-reference.md](ipc-reference.md) | IPC message reference — 69 commands (67 renderer-reachable + 2 host-only) + 36 push events grouped by namespace, with the four-allowlist contract (server registry + Electron allowlist + renderer types + Rust host) and per-command notes. |
 | [API.md](API.md) | **Deprecated.** Retained only for inbound-link compat — see `python-api.md` + `ipc-reference.md` instead. |
 | [debugging.md](debugging.md) | How to read the logs, attach a debugger, and reproduce common failure modes. |
 | [ruff-ratchet.md](ruff-ratchet.md) | How the ruff lint ratchet works (`ruff-baseline.json` + `scripts/ruff_ratchet_check.py`). |
 | [native-hotkey-architecture-plan.md](native-hotkey-architecture-plan.md) | **Historical plan** for the cross-platform native-hotkey rewrite. See ADR-0007 for what shipped. |
 | [auto-update-feature.md](auto-update-feature.md) | Design spec for auto-update (NOT IMPLEMENTED — design-only). |
-| [modules/](modules/) | Per-module deep dives: [_index.md](modules/_index.md), [audio_quality_controller.md](modules/audio_quality_controller.md), [prewarm_resolver.md](modules/prewarm_resolver.md), [sidecar_ws.md](modules/sidecar_ws.md), [shutdown_controller.md](modules/shutdown_controller.md). |
+| [modules/](modules/) | Per-module deep dives: [_index.md](modules/_index.md), [audio_quality_controller.md](modules/audio_quality_controller.md), [sidecar_ws.md](modules/sidecar_ws.md), [shutdown_controller.md](modules/shutdown_controller.md). |
 | [architecture/](architecture/) | Cross-cutting architecture contracts: [error-envelope-contract.md](architecture/error-envelope-contract.md). |
 | [ux/](ux/) | UX rationale notes: [model-delete-rationale.md](ux/model-delete-rationale.md). |
 

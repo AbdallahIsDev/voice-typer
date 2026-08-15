@@ -25,8 +25,8 @@ The implementation consists of three components:
    — fetches the remote `pack-manifest.json` from GitHub Releases,
    compares its `version` field against the locally installed pack,
    and (if newer + consent given) triggers a background download via
-   `voice_typer/server/service/pack.py::download_pack_with_resume`.
-   Consent-gated via `config.runtime_pack_consent` (NOT
+   `voice_typer/server/service/offline_pack.py::download_offline_pack_with_resume`.
+   Consent-gated via `config.offline_pack_consent` (NOT
    `huggingface_consent` — the pack phones home to GitHub/Microsoft,
    not HuggingFace).
 2. **GitHub Releases publisher** (`scripts/release/publish_pack_release.py`)
@@ -37,14 +37,14 @@ The implementation consists of three components:
    replace existing assets).
 3. **Network-online trigger** (renderer, `voice_typer/client/src/renderer/src/hooks/useNetworkOnline.ts`)
    — React hook that subscribes to the browser's `online` event and
-   triggers a `check_pack_update` IPC call on the false → true
+   triggers a `check_offline_pack_update` IPC call on the false → true
    transition. No `fetch()` / `XMLHttpRequest` / `axios` in the
    renderer — every network call goes through the Python IPC bridge so
    the SSRF defense runs server-side.
 
-The renderer also has a sibling hook `usePackDownload.ts` (Sub-agent 9)
-that consumes the `pack_download_started` / `pack_download_progress` /
-`pack_download_completed` push events published by the pack downloader
+The renderer also has a sibling hook `useOfflinePackDownload.ts` (Sub-agent 9)
+that consumes the `offline_pack_download_started` / `offline_pack_download_progress` /
+`offline_pack_download_completed` push events published by the pack downloader
 and exposes `{ status, error, isReady }` for UI components.
 
 ────────────────────────────────────────────────────────────────────────────────
@@ -68,7 +68,7 @@ https://github.com/AbdallahIsDev/voice-typer/releases/download/v<version>/pack-<
 ```
 
 The manifest schema is defined by
-`voice_typer/server/service/pack.py::load_pack_manifest` and includes
+`voice_typer/server/service/offline_pack.py::load_offline_pack_manifest` and includes
 `version`, `sha256`, `files` (list of `{name, sha256, size}`), and
 `min_proto_version`. Manifests larger than `MAX_MANIFEST_BYTES = 1 MiB`
 are rejected (defense-in-depth — chunked read in transport +
@@ -79,18 +79,18 @@ are rejected (defense-in-depth — chunked read in transport +
 
 ### Python (`voice_typer/server/service/update_check.py`)
 
-- `check_pack_update(config, event_bus, *, http_get=None, manifest_url=None, local_version=None, root=None, trigger_download=True) -> UpdateCheckResult`
+- `check_offline_pack_update(config, event_bus, *, http_get=None, manifest_url=None, local_version=None, root=None, trigger_download=True) -> UpdateCheckResult`
   — main entry point. Consent-gated (raises / publishes
-  `consent_required` event when `config.runtime_pack_consent` is
-  False). Triggers `pack.download_pack_with_resume` on a daemon thread
+  `consent_required` event when `config.offline_pack_consent` is
+  False). Triggers `pack.download_offline_pack_with_resume` on a daemon thread
   when a newer version is found.
-- `handle_check_pack_update_ipc(app, data, *, http_get=None, ...) -> dict`
+- `handle_check_offline_pack_update_ipc(app, data, *, http_get=None, ...) -> dict`
   — thin IPC handler wrapper. **NOT auto-registered in
   `ipc/registry.py`** — wiring is owned by whoever owns the shared
   registry file. The renderer hook fails gracefully (caught + logged
   at debug) until the command is registered.
 - `fetch_remote_manifest(url, *, http_get=None) -> PackManifest | None`
-  — pure helper. SSRF-gated (`pack.assert_pack_url_allowed`), max-bytes-capped.
+  — pure helper. SSRF-gated (`pack.assert_offline_pack_url_allowed`), max-bytes-capped.
 - `is_newer_version(remote, local) -> bool` — semver-ish comparison
   (handles `v1.2.3`, `1.2.3-rc1`, shorter tuples).
 
@@ -124,7 +124,7 @@ function useNetworkOnline(): UseNetworkOnlineResult
 
 - Subscribes to `window.addEventListener("online", ...)` + `"offline"`.
 - On the false → true `navigator.onLine` transition, calls
-  `call("check_pack_update", {})` via `usePython()`.
+  `call("check_offline_pack_update", {})` via `usePython()`.
 - Transition dedup via `useRef` (browsers fire duplicate `online`
   events during connection flapping — without dedup, IPC would be
   spammed).
@@ -135,7 +135,7 @@ function useNetworkOnline(): UseNetworkOnlineResult
 ────────────────────────────────────────────────────────────────────────────────
 ## Security inheritance (Implemented)
 
-- **SSRF:** `voice_typer.server.service.pack.assert_pack_url_allowed`
+- **SSRF:** `voice_typer.server.service.offline_pack.assert_offline_pack_url_allowed`
   extends the URL allowlist with `github.com` /
   `objects.githubusercontent.com` / `codeload.github.com` AND inherits
   the IP-literal blocklist + DNS-rebinding defense from
@@ -145,66 +145,72 @@ function useNetworkOnline(): UseNetworkOnlineResult
   where `MAX_MANIFEST_BYTES = 1 MiB` (defense-in-depth: chunked read
   in transport + `_secure_read_text` on temp file). Tested by
   `tests/test_secure_file_io_max_bytes.py`.
-- **Proxy:** `voice_typer.server.service.pack.proxy_env()` returns
+- **Proxy:** `voice_typer.server.service.offline_pack.proxy_env()` returns
   the system proxy env vars (`HTTP_PROXY` / `HTTPS_PROXY` + lowercase
   variants) for the urllib request.
-- **Consent:** `voice_typer.server.service.pack.require_runtime_pack_consent(config, version=...)`
-  raises `PackConsentRequiredError` when
-  `config.runtime_pack_consent` is False. `check_pack_update` catches
+- **Consent:** `voice_typer.server.service.offline_pack.require_offline_pack_consent(config, version=...)`
+  raises `OfflinePackConsentRequiredError` when
+  `config.offline_pack_consent` is False. `check_offline_pack_update` catches
   it + publishes a `consent_required` event (mirrors
   `ModelMixin._require_huggingface_consent`).
 
 ────────────────────────────────────────────────────────────────────────────────
-## C-DATA-1 constraint (Needs user action)
+## C-DATA-1 constraint (Resolved 2026-08-15 by the user)
 
-`AGENTS.md` rule **C-DATA-1** currently allows 3 categories of
-network calls: (1) cloud transcription / LLM providers, (2) auto-update
-— "Check for Updates" / silent update check against the GitHub API, (3)
-model downloads. The pack download from GitHub Releases is NOT covered
-by these 3 categories — the rule pre-dates the runtime-pack split.
-
-The USER must either:
-- Extend category (3) "model downloads" → "runtime asset downloads"
-  (so it covers both HuggingFace model weights AND GitHub Releases
-  pack onefile), OR
-- Add category (4) "runtime pack downloads from GitHub Releases".
-
-Agents cannot edit the `Hard "Don'ts"` rules in `AGENTS.md` (AGENTS.md L243).
-This rule change is recorded in `worklog.md` under the
-consolidated "AGENTS.md — needs user action" section.
+`AGENTS.md` rule **C-DATA-1** now allows 4 categories of network
+calls: (1) cloud transcription / LLM providers, (2) auto-update —
+"Check for Updates" / silent update check against the GitHub API, (3)
+model downloads, (4) the offline-pack (runtime pack) download from
+GitHub Releases. Category (4) was added by the USER on 2026-08-15 so
+that the pack download is explicitly permitted — the code keeps the
+`offline_pack_consent` toggle (currently default OFF) as a
+product/UX choice, and the user may flip that default without needing
+another rule change.
 
 ────────────────────────────────────────────────────────────────────────────────
-## Wiring NOT yet done (Integration debt)
+## Wiring status (2026-08-14 — wired)
 
-The auto-update mechanism is implemented end-to-end at the file
-level, but several integration steps remain (owned by other agents or
-by the integration phase):
+The auto-update mechanism is now wired end-to-end:
 
-- **IPC command registration.** The `check_pack_update` IPC command
-  is exposed by `handle_check_pack_update_ipc` but NOT registered in
-  `voice_typer/server/ipc/registry.py:_COMMAND_REGISTRY` /
-  `voice_typer/client/src/main/allowed-commands.ts:ALLOWED_COMMANDS` /
-  `src-tauri/src/commands/sidecar_cmds/allowlist.rs:ALLOWED_COMMANDS`.
-  Until registered, the renderer's `call("check_pack_update", {})`
-  fails gracefully (caught + logged at debug).
-- **`runtime_pack_consent` config field.** Referenced by
-  `pack.require_runtime_pack_consent` and `update_check.check_pack_update`
-  via `getattr(config, "runtime_pack_consent", False)`. The field
-  needs to be added to `voice_typer/server/config/__init__.py`
-  (dataclass field `runtime_pack_consent: bool = False`) if not
-  already present. Until then, `getattr` returns `False` (safe
-  default — consent required).
-- **Renderer consent dialog UI.** Awaits whoever owns the renderer
-  consent dialog. Gated on the `consent_required` event published by
-  `check_pack_update` when consent is missing.
-- **Mount `useNetworkOnline` in the App component.** The hook is
-  defined but not mounted at the renderer top level.
+- **IPC command registration.** `check_offline_pack_update` is registered in
+  `voice_typer/server/ipc/registry.py:_COMMAND_REGISTRY` (handler
+  `_handle_check_offline_pack_update` in `server/ipc/lifecycle.py`, which
+  delegates to `update_check.handle_check_offline_pack_update_ipc`),
+  `voice_typer/client/src/main/allowed-commands.ts:ALLOWED_COMMANDS`,
+  the Rust `allowed_commands()` literal
+  (`src-tauri/src/commands/sidecar_cmds/allowlist.rs`), the
+  `PythonRequest` TS union, and the rate-limiter cost table — all in
+  lockstep (Python 70 / TS 68 / Rust 66).
+- **`offline_pack_consent` config field.** Added to
+  `voice_typer/server/config/__init__.py` (dataclass field
+  `offline_pack_consent: bool = False`, renamed from
+  `runtime_pack_consent` on 2026-08-14 with a schema v3→v4 migration)
+  + the SEC-002 `IPC_CONFIG_ALLOWLIST` + the renderer
+  `VoiceTyperConfig` type. Defaults `False` — consent required.
+- **Settings consent toggle.** `GeneralSettingsSection.tsx` renders a
+  Switch bound to `offline_pack_consent` (i18n keys
+  `settings.offlinePackConsent` / `settings.offlinePackConsentDescription`
+  in all 8 locales).
+- **Mount `useNetworkOnline` in the App component.** The hook is now
+  mounted at the renderer top level (`App.tsx`); on the false → true
+  `online` transition it calls `check_offline_pack_update`.
 - **Vitest test for `useNetworkOnline.ts`.** A Python structural test
   (`tests/test_update_network_online.py`) pins the contract; a
   vitest test would verify the runtime behavior (event listener
-  registration, IPC call, transition dedup).
-- **CI workflow integration.** A `.github/workflows/release.yml` step
-  that calls `publish_pack_release.py` on tag push.
+  registration, IPC call, transition dedup) — still open.
+- **CI workflow integration.** The release pipeline is the manual-dispatch
+  orchestrator `.github/workflows/tauri-build.yml` (per C-CI-2 / ADR-0020
+  §15 — releases are manual-only, NOT triggered on push or tag). A
+  maintainer kicks off a release by dispatching `tauri-build.yml` with
+  `sign=true`; the orchestrator fans out to the per-platform workflows
+  (`tauri-windows-build.yml` / `tauri-macos-build.yml` /
+  `tauri-linux-build.yml`), which sign the bundle (C-CI-11), generate
+  the SLSA build-provenance attestation (C-CI-15), and upload the
+  signed artifacts to GitHub Releases. `publish_pack_release.py` is
+  then invoked (manually or as a follow-up dispatch step) to publish
+  the pack onefile + `pack-manifest.json` as additional release assets
+  on the same release tag. There is no `release.yml` workflow in the
+  repo — the file does not exist.
 
 ────────────────────────────────────────────────────────────────────────────────
 ## Tests (Implemented)
@@ -352,12 +358,12 @@ The Rust-side update runner proposed the following state machine:
 - **ERROR** → **IDLE** (next check cycle)
 
 > **Implemented equivalent:** the pack update path uses
-> `usePackDownload`'s `{ status, error, isReady }` state object
-> (Sub-agent 9). The `check_pack_update` Python entry point
+> `useOfflinePackDownload`'s `{ status, error, isReady }` state object
+> (Sub-agent 9). The `check_offline_pack_update` Python entry point
 > transitions the pack through `idle → checking → update_available →
 > downloading → downloaded → verified → installed` (with `error` and
 > `consent_required` as terminal branches). See
-> `voice_typer/server/service/pack.py` + `update_check.py` for the
+> `voice_typer/server/service/offline_pack.py` + `update_check.py` for the
 > canonical state machine.
 
 ────────────────────────────────────────────────────────────────────────────────
@@ -381,12 +387,12 @@ The historical design proposed these Tauri commands and events:
 | `updater://status-changed` | `UpdateStatus` | Any state transition |
 
 > **Implemented equivalent:** the pack update path uses the existing
-> `call("check_pack_update", {})` IPC dispatch (no new Tauri command
+> `call("check_offline_pack_update", {})` IPC dispatch (no new Tauri command
 > needed — the Python side handles it via the standard
 > `_COMMAND_REGISTRY` → `_handle_*` flow). State changes flow as
-> standard push events (`pack_download_started` /
-> `pack_download_progress` / `pack_download_completed` /
-> `pack_download_failed`) consumed by `usePackDownload`.
+> standard push events (`offline_pack_download_started` /
+> `offline_pack_download_progress` / `offline_pack_download_completed` /
+> `offline_pack_download_failed`) consumed by `useOfflinePackDownload`.
 
 ────────────────────────────────────────────────────────────────────────────────
 ## Historical design — Pre-Download Strategy, Install & Relaunch, Persistence, UI, Scheduling, Edge Cases, File Impact, Architecture Rationale
@@ -400,7 +406,7 @@ traceability — they describe the Tauri-v2 `tauri-plugin-updater`
 design that was NOT implemented as-is. The implemented pack
 auto-update (above) covers the equivalent concerns via the
 Python-side `update_check.py` + `pack.py` + `useNetworkOnline.ts` +
-`usePackDownload.ts` stack.
+`useOfflinePackDownload.ts` stack.
 
 ### Pre-Download Strategy (Key Design Decision)
 
@@ -418,9 +424,9 @@ When a background check finds a new version:
 Total time from clicking "Update Now" to app relaunch: ~3-5 seconds.
 
 > **Implemented equivalent:** the pack update path triggers
-> `pack.download_pack_with_resume` on a daemon thread as soon as
-> `check_pack_update` finds a newer version + consent is given.
-> Progress flows as `pack_download_progress` events at 1 Hz. The
+> `pack.download_offline_pack_with_resume` on a daemon thread as soon as
+> `check_offline_pack_update` finds a newer version + consent is given.
+> Progress flows as `offline_pack_download_progress` events at 1 Hz. The
 > atomic swap happens at the file level (POSIX rename-over is atomic;
 > Windows requires stopping the worker first per master plan §8.3).
 
@@ -455,7 +461,7 @@ Since checks happen every 6 hours, the runner needs to remember:
 
 > **Implemented equivalent:** the pack update path stores
 > `lastCheckedAt` (epoch ms) on the `UpdateCheckResult` returned by
-> `check_pack_update`. Persistence across app restarts is a future
+> `check_offline_pack_update`. Persistence across app restarts is a future
 > enhancement (currently in-memory only).
 
 ### UI Components (proposed)
@@ -510,7 +516,7 @@ An "Updates & Version" section in Settings showing:
 | Auto-check disabled | Only check on manual button click |
 
 > **Implemented equivalent:** the pack update path handles partial
-> download resume (`pack.download_pack_with_resume`), corruption
+> download resume (`pack.download_offline_pack_with_resume`), corruption
 > recovery (`verify_pack_or_skip` retries up to 3 times with
 > exponential backoff), disk space check (`asr_utils._check_disk_space_for_download`
 > reused), and metered-connection detection (Windows NLM API via
@@ -547,12 +553,12 @@ An "Updates & Version" section in Settings showing:
 7. **User in control** — Auto-check can be disabled; manual check always available
 
 > **Implemented equivalent (rationale for the Python-side approach):**
-> 1. **Simpler SSRF defense** — `pack.assert_pack_url_allowed` extends
+> 1. **Simpler SSRF defense** — `pack.assert_offline_pack_url_allowed` extends
 >    the existing URL allowlist (no Rust-side reimplementation).
-> 2. **Reuses pack downloader** — `download_pack_with_resume` is the
+> 2. **Reuses pack downloader** — `download_offline_pack_with_resume` is the
 >    same path the first-launch pack download uses (no second
 >    downloader to maintain).
-> 3. **Reuses consent UI** — `runtime_pack_consent` mirrors the
+> 3. **Reuses consent UI** — `offline_pack_consent` mirrors the
 >    existing `huggingface_consent` flow.
 > 4. **Renderer hook is minimal** — `useNetworkOnline.ts` only fires
 >    the IPC call on the false → true online transition (no

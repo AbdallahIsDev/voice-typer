@@ -298,8 +298,21 @@ protects the bundle while torch is still shipped.
   shipped app today** — only in dev. This is the primary motivation for the
   ONNX migration: it makes Parakeet actually shippable.
 - **Model:** NVIDIA Parakeet TDT 0.6B (Token-and-Duration Transducer).
-- **HF repo (current):** pinned in `parakeet_engine.py` (verify before
-  migration — the FP16 ONNX variant lives at `grikdotnet/parakeet-tdt-0.6b-fp16`).
+- **HF repo (current, verified 2026-08-15):** the engine loads
+  `onnx_asr.load_model("nemo-conformer-tdt", path=<verified snapshot>, ...)`
+  — onnx-asr 0.12.0 exports ONLY `load_model`/`load_vad` (there is NO
+  `onnx_asr.Model` class in any release). The weights come from the
+  **fp16 ONNX export `visuall/parakeet-tdt-0.6b-v3-onnx-fp16`**
+  (USER-selected 2026-08-15; converted from istupakov's fp32 export —
+  identical WER at ~1.28 GB vs 2.5 GB). NOTE: the earlier claims that
+  the ONNX variant lives at `istupakov/parakeet-tdt-0.6b-v3-onnx` (fp32
+  base, 2.5 GB, no fp16 variant) or `grikdotnet/parakeet-tdt-0.6b-fp16`
+  are superseded. The visuall repo ships NO `config.json` — that is why
+  the engine loads by TYPE name + local path, and `asr_setup`
+  synthesizes `config.json` (pinned hash in `model_hashes.json`)
+  after download so `verify_model_integrity` passes.
+  `_PARAKERT_QUANTIZATION = None` (the fp16 weights are the base files;
+  the repo has no `.fp16.` glob targets).
 - **torch imports:** `parakeet_engine.py:316`, `:373` (plus `transformers`).
 - **Chunking:** 25 s chunks, 3 s overlap. `asr_utils.split_audio()` already
   used (`parakeet_engine.py:845` delegates).
@@ -331,11 +344,12 @@ are two viable approaches; the plan must pick one:
 #### Option B-1 (recommended): use `onnx-asr` end-to-end
 
 The `onnx-asr` library (`pip install onnx-asr`) wraps the ONNX Parakeet model
-and exposes a `Model.recognize(audio, sample_rate)` API. This is the
-lowest-effort path — the decoding loop is the library's problem.
+and exposes a `load_model(name, path=..., quantization=..., providers=...)`
+function returning an adapter with a `recognize(audio, sample_rate)` API.
+This is the lowest-effort path — the decoding loop is the library's problem.
 
 ```python
-# voice_typer/server/parakeet_engine.py (rewritten)
+# voice_typer/server/parakeet_engine.py (current implementation)
 
 import onnx_asr  # type: ignore[import-untyped]
 
@@ -344,17 +358,21 @@ class ParakeetEngine:
         self.device = device
         self.language = language
         self.config = config
-        self._model: onnx_asr.Model | None = None
+        self._model: Any | None = None  # onnx-asr adapter instance
         self._lock = threading.RLock()
         self._cpu_fallback_notified = False
 
     def load(self, progress_callback=None) -> bool:
-        # onnx_asr.Model is class-based, NOT onnx_asr.load_model(...)
-        # The old plan's pseudocode (load_model) is wrong.
+        # onnx-asr 0.12.0 exports ONLY load_model/load_vad — there is NO
+        # onnx_asr.Model class in any release. Load by TYPE name
+        # ("nemo-conformer-tdt") + the verified local snapshot dir
+        # because the visuall fp16 repo ships no config.json (onnx-asr
+        # needs config.json to resolve a repo BY NAME).
         providers = self._select_providers(self.device)
-        self._model = onnx_asr.Model(
-            "nemo-parakeet-tdt-0.6b-v3",
-            quantization="fp16",
+        self._model = self._onnx_asr.load_model(
+            "nemo-conformer-tdt",
+            path=verified_snapshot,
+            quantization=None,  # fp16 weights ARE the base files
             providers=providers,
         )
         return True
@@ -373,11 +391,12 @@ class ParakeetEngine:
         return text
 ```
 
-**Verify before committing:** the `onnx_asr` API is class-based (`Model(...)`),
-not a `load_model(...)` function as the old plan's pseudocode showed. Confirm
-the exact constructor signature against the installed `onnx-asr` version
-(`pyproject.toml` should pin `onnx-asr>=0.12.0`). Add a
-`voice_typer/stubs/onnx_asr.pyi` stub for pyrefly/mypy.
+**Verified 2026-08-15:** the `onnx_asr` API is `load_model(...)`/`load_vad(...)`
+ONLY — verified against the pinned `onnx-asr==0.12.0` wheel's `__init__.py`
+AND `main`. An earlier plan revision wrongly claimed a class-based
+`Model(...)` API existed; it does not, and `onnx_asr.Model(...)` raises
+AttributeError at runtime. The stub lives at `voice_typer/stubs/onnx_asr.pyi`
+for pyrefly/mypy.
 
 #### Option B-2 (not recommended): custom decoder via raw `onnxruntime`
 
@@ -423,14 +442,14 @@ Update the existing `"parakeet"` entry in `voice_typer/server/model_registry.py`
 ```python
 "parakeet": ModelMetadata(
     name="parakeet",
-    download_size_mb=1300,  # verified: grikdotnet/parakeet-tdt-0.6b-fp16 is 1,275,466,609 bytes
+    download_size_mb=1275,  # verified 2026-08-15: visuall fp16 ONNX export ≈ 1,275 MB (encoder-model.fp16.onnx 1,239 MB + decoder_joint 26 MB + nemo128 + vocab)
     required_vram_mb=3072,  # estimate — verify with real ORT GPU run
     backend="parakeet",
     multilingual=True,
     supported_languages=None,
     description="Parakeet TDT 0.6B FP16 via ONNX Runtime. Fast, efficient, no PyTorch needed.",
     network_behavior="downloads-on-first-use-consent-gated",  # see §3.5.3
-    repo_id="grikdotnet/parakeet-tdt-0.6b-fp16",
+    repo_id="visuall/parakeet-tdt-0.6b-v3-onnx-fp16",
     speed_rating="fast",
     accuracy_rating="high",
 ),
@@ -443,14 +462,16 @@ but the CUDA execution provider allocates arena memory. Verify with a real
 
 #### 3.5.2 `model_hashes.json` repopulation
 
-Run `scripts/populate_model_hashes.py` after the new model files are
-downloaded. The script auto-populates the `files` dict via the HF Tree API +
-LFS pointer parsing. **Do not hand-edit `model_hashes.json`.** The old plan
-implied manual SHA pinning — the script is the canonical path.
+`model_hashes.json` now carries a `visuall/parakeet-tdt-0.6b-v3-onnx-fp16`
+entry (revision `125d44237abd9a53d291a3104a563fc0ba104ecb`) pinning the 4
+LFS files + the synthesized `config.json`. `scripts/populate_model_hashes.py`
+can regenerate the hashes after upstream changes, but the manifest was
+hand-edited 2026-08-15 with hashes pulled from the HF API (the script's
+ALLOW_PATTERNS filter is not wired for this repo yet — see worklog.md).
 
-Also update `_MODEL_SIZE_MB` in `asr_utils.py:44-78` to include
-`"parakeet": 1300` (parallel to the registry entry) — otherwise the
-disk-space pre-check (`_check_disk_space_for_download`) false-passes.
+`_MODEL_SIZE_MB` in `asr_utils.py` includes `"parakeet": 1275` (parallel to
+the registry entry) so the disk-space pre-check
+(`_check_disk_space_for_download`) uses the real fp16 size.
 
 #### 3.5.3 Consent gating — CONFLICT with the companion plan
 
@@ -516,6 +537,20 @@ it has its own torch + ctranslate2 block.
 
 ## 4. Part C — Qwen → ONNX (scope correction)
 
+> **Status: COMPLETED 2026-08-15 (Phase 1d).** Option C-2 was
+> implemented (2026-08-14) and the torch path was REMOVED (2026-08-15):
+> `qwen_engine.py` is now ONNX-only via
+> `voice_typer/server/qwen_onnx_model.py` (pre-exported
+> `andrewleech/qwen3-asr-1.7b-onnx` / `qwen3-asr-0.6b-onnx`). The
+> `torch>=2.0`, `transformers`, and `qwen-asr` dependencies were dropped
+> from `pyproject.toml` and the lockfile — the installer is now
+> torch-free. The ONNX pipeline constants were verified 2026-08-15
+> against the real export (decoder I/O names from the .onnx protobufs,
+> mel params + special-token ids from config.json, prompt word ids from
+> the real tokenizer.json — the export tool's hardcoded system/user ids
+> were found WRONG and corrected). Remaining validation: a real-weights
+> inference smoke test on a host with the downloaded model (§4.3 C-2).
+
 ### 4.1 The misidentification
 
 The companion plan (`plan-runtime-pack-split.md` Section 3, Phase 1b) says:
@@ -563,6 +598,22 @@ option. If yes, switch the backend flag. If no, this option is blocked.
 **Action:** open an issue on the `qwen_asr` repo to ask about ONNX Runtime
 support. Do NOT proceed with this option until the maintainer confirms.
 
+> **VERIFIED 2026-08-14 (wheel inspection):** `qwen_asr==0.0.6` (the version
+> in use) ships exactly TWO backends — `core/transformers_backend/`
+> (torch + transformers 4.57.6 + accelerate) and `core/vllm_backend/`
+> (vLLM 0.14.0, optional extra). There is **no ONNX Runtime backend** and no
+> ONNX export hook anywhere in the wheel. C-1 is therefore **blocked** as
+> documented: switching a backend flag is not possible, and an ONNX path
+> requires either upstream work (issue + maintainer confirmation) or the
+> manual export route (C-2). The engine's real-inference contract
+> (`qwen_asr.Qwen3ASRModel.from_pretrained(path)` → `transcribe(
+> (audio, sr), language=...)`) is also coupled to torch tensors inside the
+> wrapper, so a C-2 rewrite must replace that call site entirely.
+> Also verified: `Qwen3ASRModel` is an ~1365-line MoE decoder model
+> (`modeling_qwen3_asr.py`) with a Sinusoids-position-embedded audio encoder —
+> NOT a plain Whisper-style decoder, so a manual export + custom decode loop
+> is a multi-week project, not a quick script (see C-2 estimate).
+
 #### Option C-2: export Qwen3-ASR to ONNX manually
 
 Use `torch.onnx.export()` (still requires torch in the **dev** environment,
@@ -578,6 +629,52 @@ This is significant work:
 - Verify parity against the torch baseline.
 
 **Rough effort estimate:** 2-4 weeks of focused work, plus parity testing.
+
+> **IMPLEMENTED 2026-08-14 (chose C-2, but the export already exists
+> upstream — no manual `torch.onnx.export` needed):** pre-exported ONNX
+> models are published by a third party for BOTH model sizes:
+> `andrewleech/qwen3-asr-1.7b-onnx` and `andrewleech/qwen3-asr-0.6b-onnx`
+> (HuggingFace; int4 RTN-quantized variants included, CPU-fast per the
+> author's writeup). The export tool + reference inference pipeline is
+> `andrewleech/qwen3-asr-onnx` (`src/inference.py`, `src/mel.py`,
+> `src/prompt.py`, `src/encoder_wrapper.py`, `src/decoder_wrapper.py`).
+> The project now ships a real ONNX Runtime engine that loads those
+> exports with NO torch / transformers / `qwen_asr`:
+>
+> - `voice_typer/server/qwen_onnx_model.py` — `QwenOnnxModel`, a drop-in
+>   replacement for `qwen_asr.Qwen3ASRModel` at the `from_pretrained` +
+>   `transcribe((audio, sr), language=...)` surface: Whisper-compatible
+>   log-mel (128 bins via `faster_whisper`'s pure-numpy feature
+>   extractor — verified torch-free), `encoder.onnx` → prompt
+>   (``<|audio_pad|>`` count via the same
+>   `_get_feat_extract_output_lengths` formula) → `decoder_init.onnx`
+>   prefill → greedy `decoder_step.onnx` loop until EOS (256 cap),
+>   `embed_tokens.bin` + `tokenizer.json` for the decode. Supports both
+>   the v3 (`input_ids`) and v1 (`input_embeds`) decoder export
+>   generations and prefers the `.int4.onnx` variants when present.
+> - `QwenEngine.load()` auto-detects the ONNX layout (`is_onnx_model_dir`:
+>   encoder.onnx/int4 + embed_tokens.bin + tokenizer.json) and pins
+>   `device = "cpu"` so the torch-only paths (`_warm_up_model` CUDA
+>   priming, `transcribe_with_fallback`'s `.to()` fallback, `device_info`)
+>   are correctly skipped; `unload()` closes the ORT sessions.
+> - Tests: `tests/test_qwen_onnx_model.py` (32 tests — prompt/mel/decode
+>   pipeline with mocked ORT sessions, both decoder formats, EOS handling,
+>   ONNX auto-detect, torch-guard integration).
+>
+> **Known validation scope (honest):** the ONNX I/O names / special-token
+> ids / mel parameters are pinned to the model card + export tool's
+> verified reference implementation; the multi-GB weights are NOT bundled
+> (user-downloaded per the existing Qwen local-path workflow). A
+> real-inference parity pass against the torch baseline must run on a host
+> with the downloaded model + real audio (VALIDATE ON HOST). Runtime
+> dependencies added: `tokenizers>=0.21,<1` (declared in pyproject — was
+> already transitively present via `transformers`).
+>
+> **Remaining plan delta:** `qwen_engine.py` still imports torch
+> transitively via `transformers`/`qwen_asr` for the legacy torch path.
+> The final torch sweep of `qwen_engine.py` (Phase 1d) can now be
+> completed by making ONNX the DEFAULT backend (or the only backend) once
+> the host parity pass confirms quality — keep the torch path until then.
 
 #### Option C-3 (recommended for Phase 1): defer Qwen migration
 
@@ -603,10 +700,9 @@ while honestly acknowledging that Qwen needs its own investigation.
   Parakeet's `_merge_chunks` (case-sensitive, no punctuation stripping).
 - `_split_audio` (`qwen_engine.py:860`) — already delegates to
   `asr_utils.split_audio()`. No change.
-- CUDA error detection — Qwen uses `{"cuda", "cublas", "cudnn"}` at
-  `qwen_engine.py:943`. See §5.1 for the shared helper.
-- GPU→CPU fallback (`qwen_engine.py:921-989`) — uses torch's `.to("cpu")` +
-  `.to(torch.float32)`. ONNX migration requires session recreation (see §3.4).
+- CUDA error detection — REMOVED 2026-08-15: the ONNX path is CPU-pinned
+  (no CUDA branch, no GPU→CPU fallback); `transcribe_with_fallback` is a
+  thin delegate to `transcribe`.
 - Existing tests mock the model — there is no real-inference baseline for
   "parity tests." Any parity work must first establish a baseline.
 
@@ -975,6 +1071,11 @@ claim is honestly scoped to "total except Qwen."
 
 1. **Qwen migration option (§4.3).** Pick C-1, C-2, or C-3. Recommendation:
    C-3 (defer) until the `qwen_asr` maintainer confirms ONNX support.
+   **DECIDED 2026-08-14: C-2 — implemented** (see the IMPLEMENTED block in
+   §4.3). The pre-exported `andrewleech/qwen3-asr-*-onnx` models + the new
+   `voice_typer/server/qwen_onnx_model.py` engine deliver the ONNX path with
+   no torch in the runtime. Remaining work is a host-side real-inference
+   parity pass, then optionally making ONNX the default/only Qwen backend.
 2. **Parakeet decoding approach (§3.3).** Pick B-1 (`onnx-asr` end-to-end)
    or B-2 (custom decoder). Recommendation: B-1.
 3. **`required_vram_mb` for Parakeet ONNX (§3.5.1).** Measure with real

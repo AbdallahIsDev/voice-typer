@@ -79,13 +79,41 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   2026-08-13 after the `transcribe_offline` addition by the runtime-pack
   split, master plan §7.4 — slim core → worker offline-transcription
   request):
-  TS allowlist = 68, Rust allowlist = 66, Python registry = 70 (the +2
+  TS allowlist = 69, Rust allowlist = 67, Python registry = 71 (the +2
   are `tray_click` and `shutdown`, which are host-only commands the
   renderer never sends — see the `_HOST_ONLY_COMMANDS` frozenset in
-  `tests/test_security_doc_command_count.py`). The 4-way parity
+  `tests/test_security_doc_command_count.py`; 2026-08-14: −3 from the
+  prewarm IPC retirements, `get_prewarm_status` / `run_prewarm` /
+  `open_prewarm_log`, as prewarm became a worker startup phase, master
+  plan §6.2 P-1; +2 back the same day — `get_prewarm_status` /
+  `open_prewarm_log` restored for the Cache Status card, plan §6.3
+  addendum; +1 later the same day — `run_prewarm` restored (plan §6.3
+  addendum 2nd half, re-implemented to re-run the worker's warm phase
+  in-process via `prewarm.status.run_prewarm_now` instead of spawning
+  the deleted standalone-prewarm subprocess); +1 `check_pack_update`
+  added by the auto-update feature). The 4-way parity
   test (`tests/test_security_doc_command_count.py` +
   `tests/test_electron_ipc_and_build.py::TestAllowlistCorrectness`) now
   passes; previously it failed.
+
+- **Prewarm Cache Status + Run Prewarm Now restored (2026-08-14)** — the Settings → About
+  "Cache Status" card + its IPC surface (`get_prewarm_status`,
+  `open_prewarm_log`, `run_prewarm`) were restored from commit 5a319872
+  (user-facing feature re-opened by user; plan §6.3 addendum — restore,
+  don't reimplement). `run_prewarm` is RE-IMPLEMENTED: it no longer
+  spawns the deleted standalone-prewarm subprocess — the handler
+  re-runs the worker's warm phase in-process via
+  `prewarm.status.run_prewarm_now()` (warm_imports_for_worker on a
+  daemon thread + status-file refresh). Adaptations: status now probes the worker's status
+  file `prewarm_status.json` (written by the worker warm phase) instead
+  of the deleted standalone-prewarm sentinel; the `prewarm_running`
+  field is gone (no process-tracker machinery); "View prewarm log" opens
+  `worker.log` (the retired `prewarm.log` no longer exists). `run_prewarm`
+  STAYS retired — start/stop is the `fast_startup` toggle gating the
+  worker warm phase, so the "Run Prewarm Now" button was not restored.
+  Reconciliation counts now: TS allowlist = 68, Rust allowlist = 66,
+  Python registry = 70 (`run_prewarm` still removed; `check_pack_update`
+  added by the auto-update feature, docs/auto-update-feature.md).
 
 - **SidecarState struct literal fix** — the Rust host's
   `SidecarState` struct literal was missing a field initializer, breaking

@@ -10,7 +10,7 @@ Key responsibilities:
 - Bind a WebSocket server on `127.0.0.1:0` (random port)
 - Emit `{"event":"server_started","port":N}` to stdout for the Rust host to discover
 - Perform one-shot bearer-token auth (constant-time `hmac.compare_digest` comparison; NOT an HMAC scheme — no per-message MAC, no nonce, no key derivation, no replay protection). Compensating controls are loopback-only bind + ephemeral port + per-respawn token rotation.
-- Dispatch incoming WS frames through `IPCServer._dispatch` (reusing the 63-command registry unchanged)
+- Dispatch incoming WS frames through `IPCServer._dispatch` (reusing the 69-command registry unchanged)
 - Reuse the ADR-0019 per-connection rate limiter
 - Cap frames at 1 MiB
 - Handle `{"type":"shutdown"}` cooperative shutdown
@@ -23,7 +23,7 @@ Key responsibilities:
 
 ## IPC Surface
 
-The `sidecar_ws` module **reuses** the existing 63-command IPC registry from `IPCServer._COMMAND_REGISTRY`. It does NOT add any new commands. The WS transport replaces the TCP transport end-to-end:
+The `sidecar_ws` module **reuses** the existing 69-command IPC registry from `IPCServer._COMMAND_REGISTRY`. It does NOT add any new commands. The WS transport replaces the TCP transport end-to-end:
 - Inbound dispatch frames → `IPCServer._dispatch()` (same as TCP)
 - Outbound push events → `IPCServer._publish_push_event()` (same as TCP)
 - Rate limiting → same `_RateLimiter` from `ipc_server.py`

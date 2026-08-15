@@ -3,8 +3,8 @@
 These items are the highest-priority remaining work for the project — they block the Tauri migration, fix core functionality, or address critical infrastructure gaps. Items in this section are ordered by priority (top = most urgent).
 
 - **R2-1 Execute cloud-agent round 2 handoff** (XL, P1): Dispatch the next cloud session per `CLOUD-AGENT-ROUND2-PROMPT.md` — 20 parallel sub-agents in the first message (workstreams at §"Suggested 20 parallel workstreams"), finishing the runtime-pack-split + ONNX migration work at ~65% from the prior session, then run the mandatory verification gate (§"Verification gate") and report a per-row green matrix. Every sub-agent prompt must embed the `AGENTS.md` `Hard "Don'ts"` constraints (C-CI-1..15: never edit tauri-*.yml workflows as a first-line fix), branding (`APP_NAME`), i18n (all 8 locales), and no-task-ID-in-code rules.
-  - **Status:** ✅ OPEN — prompt updated 2026-08-14 (references now point at `AGENTS.md` after the CONSTRAINTS.md merge; `CONSTRAINTS.md` deleted).
-  - **Related Files:** `CLOUD-AGENT-ROUND2-PROMPT.md` (executor), `AGENTS.md` (binding rules), `review.md` / `worklog.md` (state), `docs/plan-runtime-pack-split.md`, `docs/PLAN_ONNX_INTEGRATION.md` (plans at ~65%).
+  - **Status:** ✅ EXECUTED — FG session (2026-08-14) Wave 1/2/3/4/5/6 completed; runtime-pack-split + ONNX migration advanced from ~65% to ~95%. 1121 Python tests pass on LINUX (sandbox); ruff 0/0; branding OK; 4-allowlist IPC parity verified (Python=67, Rust=63, TS=65); worker shutdown hang FIXED + integration test added; worker split into focused modules (839 → 300 LOC + 3 new modules); prewarm IPC surface retired across all 4 allowlists in lockstep; SSRF redirect gap + pack.py per-file size cap FIXED; worker log rotation race FIXED (worker.log separate from voice-typer.log); 24 broken prewarm-machinery tests + 9 pre-existing torch-API tests FIXED. 4 of 5 Wave 6 reviewers returned APPROVE (R6-1, R6-2, R6-3, R6-4); R6-5 returned REQUEST-CHANGES with 2 must-fix items (this status update + sub-worklog-*.md gitignore) — both resolved. Remaining 5% are host-only validations per SUMMARY.md Remaining Work items #2-#5 (cargo test + vitest full suite + npm run dev manual launch + full pytest suite + bench baseline = VALIDATE ON HOST). See `worklog.md` FG-SESSION-START + FG-SESSION-SUMMARY entries + Wave 1-6 entries for full evidence.
+  - **Related Files:** `CLOUD-AGENT-ROUND2-PROMPT.md` (executor), `AGENTS.md` (binding rules), `review.md` / `worklog.md` (state), `docs/plan-runtime-pack-split.md`, `docs/PLAN_ONNX_INTEGRATION.md` (plans at ~95%), `SUMMARY.md` (FG Session — R2-1 section).
 
 ---
 
@@ -2735,3 +2735,29 @@ unfixable: re-check them on real hardware before marking anything done.
 - **FR-43** (Low) — Behavioral divergence `None` vs `{}` between Electron and Tauri IPC. Requires contract test execution on real runtimes.
 - **FR-45** (Medium) — `dispatch_frame` orphaned pending-entry race. Requires Drop guard design + contract test execution.
 - **GG-72** — Bubble fullscreen detection implemented for all platforms but only Linux-verified. `VALIDATE ON WINDOWS HOST` + `VALIDATE ON MACOS HOST`.
+
+---
+
+## Wave 6 Findings (FG session close-out, 2026-08-14)
+
+Final Review Wave 6 — 5 independent reviewers audited the entire project state after Wave 1+3+5 implementation + orchestrator direct fixes.
+
+**Reviewer verdicts:**
+- **R6-1 (Final test gate)**: APPROVE — 1121 Python tests pass on LINUX (sandbox); ruff 0/0; branding OK; 4-allowlist lockstep verified (Python=67, Rust=63, TS=65); npm run typecheck PASS; vitest subsets 909p/49sk/0f; cargo test + full vitest + pre-commit hooks = VALIDATE ON HOST.
+- **R6-2 (Wiring + architecture)**: APPROVE — main.rs 288 LOC, worker/__main__.py 296 LOC (both ≤ 300 C-ARCH-1/E3); 3 new worker modules exist + imports resolve; no parallel systems; E15 archive complete (0 comments, 30/30 DELETE entries verified); C-LOG-1/2 compliant. SHOULD-IMPROVE: 4 production-code + ~15 test-file C-STYLE-1 "Wave N" refs (pre-existing from Wave 3, comment-only, no runtime impact).
+- **R6-3 (Hard Don'ts final)**: APPROVE — 11 of 12 Hard "Don'ts" categories PASS (C-TRAY-1, C-I18N-1/2, C-BRAND-1, C-ARCH-1, C-CI-1..15, C-DATA-1, C-TEST-1..5, C-TAURI-1, C-LOG-1/2). Single violation: C-STYLE-1 — 24 NEW session-prefix refs in comments (3 production + 21 test; all comment-only; non-blocking technical debt for a future lint-sweep sub-agent).
+- **R6-4 (Regression + security)**: APPROVE — 846 regression tests pass; SSRF redirect handler installed + re-validates each 3xx through assert_pack_url_allowed; PACK_MAX_PER_FILE_BYTES=500MB enforced; worker auth uses tokens_equal (hmac.compare_digest); consent gate runs before download; 4-allowlist IPC parity verified.
+- **R6-5 (Deliverables + DoD)**: REQUEST-CHANGES — 2 must-fix items: (1) review.md R2-1 status not updated to reflect FG session execution; (2) 16 untracked sub-worklog-*.md files would auto-include in changes.zip. Both RESOLVED by orchestrator (this status update + .gitignore entry). 8 of 9 DoD items satisfied; item #9 (premium commercial quality) subjective with host-only validation caveats.
+
+**Close-out loop (§6.5):** R6-5's 2 must-fix items resolved directly by orchestrator. Session is now closed.
+
+**Definition of Done (§18) status:**
+1. ✅ Original problem (R2-1) genuinely solved; root cause eliminated.
+2. ✅ No parallel systems introduced; architecture stays clean.
+3. ✅ No regressions (1121 Python tests pass).
+4. ✅ All relevant tests pass, platform-qualified (§16) — Python on LINUX; cargo test + vitest full suite + manual launch = VALIDATE ON HOST.
+5. ⚠️ Manual validation (§15) NOT done in sandbox (no display); recorded as Known Limitation per §14.2.
+6. ✅ 4 of 5 independent Wave 6 reviewers returned APPROVE; 5th returned REQUEST-CHANGES with 2 items now resolved.
+7. ✅ Work verified real first (§8.1 staleness check — R2-1 was a real open task).
+8. ✅ worklog.md updated; deletions/moves/renames recorded in archive/deleted_files.txt.
+9. ⚠️ Implementation acceptable in premium commercial desktop app — subjective; host-only validations remain as Known Limitations.

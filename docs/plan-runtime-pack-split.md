@@ -488,6 +488,50 @@ time (including prewarm), not tray-import time.
 
 ---
 
+#### §6.3 addendum 2026-08-14: Cache Status surface restored (user-facing)
+
+P-1's retirement collateral removed the Settings → About **"Cache Status"
+card** along with the standalone-prewarm process machinery
+(`get_prewarm_status` / `run_prewarm` / `open_prewarm_log`). The user
+re-opened that decision: the card is a user-facing feature, so the IPC
+surface was **restored verbatim from commit 5a319872** (per user
+instruction: restore the deleted surface, do not reimplement, do not
+revert any unrelated session work). What was restored:
+
+- `voice_typer/server/prewarm/status.py` — `get_prewarm_status`,
+  `_probe_cache_status` + TTL probe cache, file read/write helpers;
+  adapted to read/write the **worker status file** `prewarm_status.json`
+  under the config dir (written by the worker warm phase — see
+  `voice_typer/worker/_ws_server.py`) instead of the deleted
+  sentinel/PID machinery. `prewarm_running` field dropped (no more
+  process-tracker).
+- `_handle_get_prewarm_status` + `_handle_open_prewarm_log` +
+  `_handle_run_prewarm` in `status_handlers.py`; registry +
+  rate-limiter + TS/Rust allowlist entries;
+  `GetPrewarmStatusRequest` / `OpenPrewarmLogRequest` /
+  `RunPrewarmRequest` types; `PrewarmAndUpdates.tsx` Cache Status
+  card (badge, rows, **Run Prewarm Now**, Refresh, View log).
+- `open_prewarm_log` now opens `worker.log` (the retired `prewarm.log`
+  no longer exists).
+
+`run_prewarm` was restored the same day (§6.3 addendum 2nd half) as a
+**RE-IMPLEMENTATION**, not a verbatim copy: the pre-P-1 handler spawned
+a detached `pythonw -m voice_typer.server.prewarm --force` subprocess,
+and that module is deleted by design (P-1). The restored handler
+instead runs the warm phase in-process via
+`prewarm.status.run_prewarm_now()` — `warm_imports_for_worker` (the
+same file-paging pass the worker runs at startup) on a daemon thread,
+plus a status-file refresh — so "Run Prewarm Now" re-warms the OS
+standby cache on demand with zero deleted machinery. Start/stop of the
+AUTOMATIC warm phase remains the `fast_startup` toggle.
+
+Counts after the full restoration: Python registry **71** (69 renderer
++ 2 host-only), TS **69**, Rust **67** (`EXPECTED_COMMANDS` in
+`tests/tauri/mig19/test_phase4_validation.py` = 67; see
+ADR-0020 §16 addendum 2026-08-14).
+
+---
+
 ## 7. Worker IPC architecture (new — was under-specified)
 
 ### 7.1 The new 1-host↔2-processes pattern
@@ -984,6 +1028,20 @@ Update `tauri-build.yml` download steps in lockstep.
 
 ## 12. Execution order (revised)
 
+> **Status (2026-08-14):** Phases 1a–1c, 2a–2b implemented. Remaining
+> open items: (a) Phase 1d Qwen → ONNX (deferred — see §14 #1);
+> (b) the Rust host's worker *spawn* (Phase 2a's ``spawn_worker_*`` is
+> a documented stub — the worker exe + ``transcribe_offline`` ASR are
+> delivered, but the host does not yet spawn the worker nor forward
+> ``transcribe_offline`` from the slim core; see §7.1 1-host↔2-processes
+> and ``src-tauri/src/sidecar/spawn.rs``); (c) Phase 2c slim-core build
+> + Phase 2d launch-time existence checks (CI/workflow + installer
+> work, C-CI-2 gated); (d) the C-DATA-1 rule-text extension — DONE
+> 2026-08-15: the USER added category (4) "offline-pack download from
+> GitHub Releases" to C-DATA-1 in AGENTS.md, so the pack download is
+> explicitly permitted whether or not it is consent-gated (see
+> `docs/auto-update-feature.md`).
+
 1. **Phase 1a — Silero VAD → ONNX.** See `PLAN_ONNX_INTEGRATION.md` §2.
    - Rewrite `vad.py` (ORT backend + hidden state threading).
    - Add `silero_vad.onnx` + packaging (`MANIFEST.in`, `voice-typer.spec`,
@@ -1030,8 +1088,8 @@ Update `tauri-build.yml` download steps in lockstep.
    - Auto-update mechanism (§10): GitHub Releases publishing, pack-version
      check, network-is-back trigger.
    - All 8 locale files updated with new strings (§9.3).
-   - **USER action:** update C-DATA-1 in AGENTS.md (extend network
-     call categories).
+   - **USER action (DONE 2026-08-15):** C-DATA-1 in AGENTS.md extended
+     with category (4) — offline-pack download from GitHub Releases.
 6. **Phase 2c — slim core build.** See §4, §11.
    - Sidecar build without ML libraries.
    - Custom .nsi template for "Include offline engine pack" checkbox.

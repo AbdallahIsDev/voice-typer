@@ -34,7 +34,7 @@ process can connect to the IPC port without this token.
 ### Command Allowlist (SEC-019)
 
 The Electron main process enforces an allowlist of IPC commands. The renderer
-cannot invoke arbitrary commands — only the **68** commands listed in
+cannot invoke arbitrary commands — only the **69** commands listed in
 `ALLOWED_COMMANDS` (a `Set` defined at
 `voice_typer/client/src/main/allowed-commands.ts`) are forwarded to the Python backend.
 The authoritative count is enforced by CI (see
@@ -44,12 +44,12 @@ are added or removed. The Tauri Rust host enforces a mirror allowlist
 entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 
 > The Python-side `_COMMAND_REGISTRY` in
-> `voice_typer/server/ipc_server.py` registers **70** handlers. Two of
+> `voice_typer/server/ipc_server.py` registers **71** handlers. Two of
 > those are intentionally absent from the renderer allowlist:
 > `tray_click` (a Rust-only command routed via `dispatch_inner` — the
 > tray handler invokes it directly, bypassing the allowlist gate) and
 > `shutdown` (cooperative shutdown is sent via `shutdown_sidecar`
-> directly, NOT via the generic dispatch path). The remaining **68**
+> directly, NOT via the generic dispatch path). The remaining **69**
 > handlers are renderer-callable. The +2 host-only delta is asserted by
 > the `_HOST_ONLY_COMMANDS` frozenset in
 > `tests/test_security_doc_command_count.py`. (reconciliation
@@ -59,16 +59,32 @@ entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 > stale entries were deleted from all three sources of truth — the
 > Python `_COMMAND_REGISTRY`, the TS `ALLOWED_COMMANDS` set, and the
 > Rust `allowed_commands()` literal — in lockstep during, so
-> they no longer exist in any layer. The current counts are 70 Python
-> ↔ 68 TS ↔ 66 Rust, with the +2 host-only delta as the only
+> they no longer exist in any layer. The current counts are 71 Python
+> ↔ 69 TS ↔ 67 Rust, with the +2 host-only delta as the only
 > intentional divergence. `check_accessibility` was re-added on
 > 2026-08-10 (finding #919 part b) — the Settings → Troubleshooting
 > UI now invokes it on macOS to surface the stale-grant `tccutil`
 > reset command — bumping the counts from 68/66/64; it was part of
 > the 17 removed in the cleanup pass. `transcribe_offline` was added
 > on 2026-08-13 by the runtime-pack split (master plan §7.4 —
-> slim core → worker offline-transcription request), bumping the
-> counts from 69/67/65 to 70/68/66.)
+> slim core → worker offline-transcription request). On 2026-08-14,
+> the prewarm IPC surface (`get_prewarm_status`, `run_prewarm`,
+> `open_prewarm_log`) was retired across all 4 allowlists in lockstep
+> when prewarm became a worker startup phase (plan §6.2 P-1),
+> bringing the counts from 70/68/66 to 67/65/63; later the same day,
+> `get_prewarm_status` + `open_prewarm_log` were RESTORED in lockstep
+> (the About-page Cache Status card is a user-facing product feature —
+> plan §6.3 addendum) while `run_prewarm` stayed removed (its
+> standalone-prewarm subprocess machinery is gone), bringing the
+> counts to 69/67/65. `check_pack_update` was added the same day by
+> the auto-update feature (docs/auto-update-feature.md) — the
+> runtime-pack manifest check + consent-gated background download —
+> bringing the counts to 70/68/66. Later the same day, `run_prewarm`
+> was ALSO restored (plan §6.3 addendum 2nd half) — re-implemented to
+> re-run the worker's warm phase in-process via
+> `prewarm.status.run_prewarm_now()` (warm_imports_for_worker on a
+> daemon thread + status-file refresh) instead of spawning the deleted
+> standalone-prewarm subprocess — bringing the counts to 71/69/67.)
 
 > **TS-only exceptions (`_TS_ONLY_EXCEPTIONS`):** Two commands are present
 > in the renderer TS `ALLOWED_COMMANDS` but intentionally absent from the

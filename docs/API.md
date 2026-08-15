@@ -8,7 +8,7 @@
 >   Kept in sync with the actual class signatures by
 >   `tests/test_api_doc_accuracy.py`.
 > - **[`docs/ipc-reference.md`](ipc-reference.md)** — IPC message reference
->   (the 65-command / 36-event surface — 63 renderer-reachable + 2 host-only
+>   (the 69-command / 36-event surface — 67 renderer-reachable + 2 host-only
 >   commands; 36 typed push events — grouped by namespace, with the
 >   four-allowlist contract + per-command notes).
 >

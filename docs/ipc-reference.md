@@ -50,7 +50,7 @@ renderer ALLOWED_COMMANDS gate but still routes through
 `_COMMAND_REGISTRY`** — i.e. the handler must be registered or the
 dispatch fails with `unknown_command`).
 
-## Commands (69 total — 67 renderer-reachable + 2 host-only: shutdown, tray_click)
+## Commands (71 total — 69 renderer-reachable + 2 host-only: shutdown, tray_click)
 
 Grouped by namespace. "✓" in the Allowlist column means the command is
 in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
@@ -117,15 +117,22 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | `download_model` | `_handle_download_model` | ✓ |  |
 | `get_model_catalog` | `_handle_get_model_catalog` | ✓ | Models page: VRAM, languages, speed/accuracy ratings. |
 | `get_model_status` | `_handle_get_model_status` | ✓ |  |
-| `get_prewarm_status` | `_handle_get_prewarm_status` | ✓ | Backs the Models page's "Cache Status" card. |
 | `get_volume_backend_status` | `_handle_get_volume_backend_status` | ✓ |  |
+| `get_prewarm_status` | `_handle_get_prewarm_status` | ✓ | RESTORED 2026-08-14 (plan §6.3 addendum): Cache Status card probe — reads the worker's cache stats (status file `prewarm_status.json` under the config dir). Response: `{ enabled, cache_ratio, cache_label, cached_bytes, total_bytes, last_run, elapsed_s }`. |
+| `open_prewarm_log` | `_handle_open_prewarm_log` | ✓ | RESTORED 2026-08-14 (plan §6.3 addendum): opens the worker log (`worker.log` — the retired `prewarm.log` no longer exists). |
+| `run_prewarm` | `_handle_run_prewarm` | ✓ | RESTORED 2026-08-14 (plan §6.3 addendum 2nd half): re-implemented — the handler re-runs the worker's warm phase in-process via `prewarm.status.run_prewarm_now()` (warm_imports_for_worker on a daemon thread + status-file refresh) instead of spawning the retired standalone-prewarm subprocess. Response: `{ started: bool }`. |
 | `import_model` | `_handle_import_model` | ✓ | MODEL-IMPORT: allows import_model so the Models page can scan and import pre-downloaded model directories. |
-| `open_prewarm_log` | `_handle_open_prewarm_log` | ✓ | Opens the prewarm log file — invoked from the About page's "View prewarm log" button. |
 | `pause_model_download` | `_handle_pause_model_download` | ✓ | NEW-PAUSE-001: pause/resume in-progress model downloads. |
 | `resume_model_download` | `_handle_resume_model_download` | ✓ |  |
-| `run_prewarm` | `_handle_run_prewarm` | ✓ | Spawns the prewarm subprocess; the frontend polls get_prewarm_status to track it. |
 | `test_cloud_connection` | `_handle_test_cloud_connection` | ✓ | Cloud ASR/LLM endpoint reachability probe — invoked from Settings → Models → Cloud "Test connection" button. Handler: `cloud_test_handlers.py`. |
 | `add_trusted_endpoint` | `_handle_add_trusted_endpoint` | ✓ | ADR-0017 §"Runtime Extensions": extends the per-process URL allowlist at runtime so users can configure self-hosted ASR/LLM endpoints. Handler: `config_handlers.py`. |
+
+### Offline transcription (runtime-pack worker)
+
+| Command | Handler | Allowlist | Notes |
+|---------|---------|-----------|-------|
+| `transcribe_offline` | `_handle_transcribe_offline` | ✓ | Master plan §7.4 — slim core forwards this request to the runtime-pack worker over the worker's dedicated WS hop. The worker may take seconds to minutes to transcribe, so the result is returned asynchronously via the `transcribe_offline_result` push event rather than a synchronous response. |
+| `check_offline_pack_update` | `_handle_check_offline_pack_update` | ✓ | Auto-update feature (docs/auto-update-feature.md) — runtime-pack manifest check against GitHub Releases (C-DATA-1 category-2 allowed update check) + consent-gated background download (`config.offline_pack_consent` must be true). |
 
 ### History (CRUD, favorites, search, today stats, count, transcription text)
 
@@ -194,25 +201,42 @@ this page find the canonical "this command does not exist" answer:
 `apply_vocabulary_suggestion`,
 `delete_all_personal_data`, `dismiss_vocabulary_suggestion`,
 `export_diagnostics`, `export_gdpr_bundle`, `get_audio_status`,
-`get_rms_level`, `get_vocabulary_suggestions`, `level_monitor_status`,
-`microphone_test_status`, `onboarding_get_model_catalog`,
-`onboarding_get_step`, `onboarding_request_keyboard_permission`,
+`get_rms_level`, `get_vocabulary_suggestions`,
+`level_monitor_status`, `microphone_test_status`,
+`onboarding_get_model_catalog`, `onboarding_get_step`,
+`onboarding_request_keyboard_permission`,
 `refresh_microphones`, `show_electron_notification`,
 `test_llm_connection`.
 
 > Note: `check_accessibility` was previously listed here (removed in the
 > GT-32 cleanup) but was RE-ADDED on 2026-08-10 (finding #919 part b) —
 > it now has a live row in the macOS permissions table above.
+>
+> Note: `get_prewarm_status` / `open_prewarm_log` / `run_prewarm`
+> were listed here (retired with the standalone-prewarm pipeline —
+> master plan §6.2 P-1) but were RESTORED on 2026-08-14 (plan §6.3
+> addendum — Settings → About Cache Status card, verbatim from
+> 5a319872): they now have live rows in the Models table above and
+> probe the worker's cache via `prewarm_status.json`. `run_prewarm`
+> was restored the same day (addendum 2nd half) as a RE-IMPLEMENTATION
+> — it re-runs the worker's warm phase in-process via
+> `prewarm.status.run_prewarm_now()` (no deleted-subprocess spawn).
 
 The corresponding host-side workflows (vocabulary automation pipeline,
 GDPR export/delete, diagnostics export, LLM
 connection test, onboarding step / model-catalog reads, microphone
 refresh, Electron notification, RMS / audio-status reads, microphone
-test status, level monitor status) are all handled by dedicated service
-modules invoked directly by the host (not via the IPC `dispatch` path)
-or by renderer-reachable substitutes listed in the tables above.
+test status, level monitor status) are all handled
+by dedicated service modules invoked directly by the host (not via
+the IPC `dispatch` path) or by renderer-reachable substitutes listed
+in the tables above — the worker-based prewarm path is reached via
+the `transcribe_offline` command and observed via the `pack_*` /
+`worker_*` push events; the cache-state read + manual re-warm are the
+restored `get_prewarm_status` / `run_prewarm` (worker status file +
+in-process warm pass), not the old
+`sentinel` / `PID`-file probe.
 
-## Push events (36 typed)
+## Push events (48 typed)
 
 Push events flow server to renderer via `window.python.onEvent(callback)`.
 The `PythonPushEvent` union in `types/ipc/push_events.ts` is the canonical
@@ -257,6 +281,18 @@ list — events not in the union fall through to the `string` overload of
 | `reconnecting` | `ReconnectingEvent` | `{ reason: string }` |
 | `reconnected` | `ReconnectedEvent` | `{ reason: string }` |
 | `mic_level` | `MicLevelEvent` | `{ rms: number, peak: number, active: boolean }` — continuous level monitor stream for the Settings microphone level meter. |
+| `offline_pack_download_started` | `OfflinePackDownloadStartedEvent` | `{ version: string, url: string, total_bytes: number }` — runtime-pack download began; payload mirrors the model-download `download_progress` shape so a `useOfflinePackDownload` hook can reuse the `useModelDownload` UI pattern. |
+| `offline_pack_download_progress` | `OfflinePackDownloadProgressEvent` | `{ version: string, progress: number, downloaded_bytes: number, total_bytes: number, speed_bytes_per_sec: number, eta_seconds: number }` — emitted ~1 Hz while the pack is downloading (currently silent — no UI surface, surfaced for diagnostics). |
+| `offline_pack_download_completed` | `OfflinePackDownloadCompletedEvent` | `{ version: string, sha256: string }` — download finished; verification is the next step (`offline_pack_verified` / `offline_pack_corrupt`). |
+| `offline_pack_download_failed` | `OfflinePackDownloadFailedEvent` | `{ version: string, reason: string, attempts: number }` — download gave up after exhausting the §8.2 / §8.7 retry budgets (corruption recovery + GitHub rate-limit backoff). |
+| `offline_pack_verified` | `OfflinePackVerifiedEvent` | `{ version: string, sha256: string }` — SHA256 + signature (Windows Authenticode / macOS notarization) both pass; the renderer's "Pack status" badge flips green. |
+| `offline_pack_missing` | `OfflinePackMissingEvent` | `{ version: string, path: string }` — expected pack file not found at startup (user deleted it, or a cleaner / AV quarantined it). |
+| `offline_pack_corrupt` | `OfflinePackCorruptEvent` | `{ version: string, path: string, reason: string }` — SHA256 mismatch or signature verification failed (background checksum §8.16). |
+| `offline_pack_ready` | `OfflinePackReadyEvent` | `{ version: string, worker_pid: number }` — worker process started AND prewarmed the ASR engine (Phase 2 of the worker lifecycle per §6.2); queued `transcribe_offline` requests can now be dispatched. |
+| `worker_started` | `WorkerStartedEvent` | `{ pid: number, version: string }` — worker process spawned and completed its WS handshake with the slim core; prewarm NOT yet done (see `offline_pack_ready` for that signal). |
+| `worker_crashed` | `WorkerCrashedEvent` | `{ pid: number, exit_code: number }` — worker process exited non-zero (or was killed by a signal); the slim core's supervisor restarts it with exponential backoff. |
+| `worker_unloaded` | `WorkerUnloadedEvent` | `{ reason: string }` — worker unloaded via idle-timeout path or explicit user action ("Keep offline engine running" toggle off). |
+| `transcribe_offline_result` | `TranscribeOfflineResultEvent` | `{ text: string, latency_ms: number }` — pushed by the worker via the slim core when a `transcribe_offline` request completes; delivered as a push event because the worker may take seconds to minutes (a synchronous request/response would time out). |
 
 ## WebSocket transport (Tauri sidecar)
 
