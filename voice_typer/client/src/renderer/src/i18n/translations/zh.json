@@ -1044,6 +1044,8 @@
 		},
 		"fastStartup": "快速启动（预热）",
 		"fastStartupDescription": "在启动时预热操作系统文件缓存，使语音模型在几秒内加载完成，而不是 30 多秒。如果其他应用需要磁盘/内存资源，可禁用。您仍可从「设置 → 疑难解答 → 缓存状态」按需预热。",
+		"offlinePackConsent": "下载离线引擎包",
+		"offlinePackConsentDescription": "允许从 GitHub Releases 后台下载离线引擎（语音识别模型）。仅在新安装后需要离线听写时启用；只有启用后才会开始下载。",
 		"keyring": {
 			"secure": "安全",
 			"plaintext": "明文",
@@ -1098,8 +1100,8 @@
 		"errors": {
 			"unknown": "未知错误"
 		},
-		"lastResortUnloaded": "{backend} 模型未加载。",
-		"lastResortUnloadedHint": "使用前请打开模型页面并点击下载。",
+		"lastResortUnloaded": "模型未加载。",
+		"lastResortUnloadedHint": "打开模型页面以下载模型。",
 		"snack": {
 			"parakeetDepsRequired": "Parakeet 需要依赖项。请先下载。",
 			"depsRequiredName": "{name} 需要依赖项。请先下载。",
@@ -1449,6 +1451,8 @@
 		"step1Item": "选择您的麦克风",
 		"step2Item": "授予键盘监听权限",
 		"step3Item": "选择快捷键",
+		"consentTitle": "隐私与同意",
+		"consentDescription": "选择您同意的事项。默认全部关闭 — 您可以随时在 设置 → 隐私 中更改。",
 		"micTitle": "选择您的麦克风",
 		"micDescription": "选择您想用于听写的麦克风。您可以稍后在设置中更改。",
 		"micSelectAria": "选择麦克风",
@@ -1504,8 +1508,9 @@
 		"permissionsInstructionsLinuxStep3": "注销后重新登录（或重启），使组更改生效",
 		"modelOption": "{description} — {size}（{speed}）",
 		"permissionsCheckFailed": "无法检查权限 — 请点击“刷新”重试。",
-		"step4Item": "选择转录模型",
-		"step5Item": "完成设置",
+		"step4Item": "选择您的隐私同意项",
+		"step5Item": "选择转录模型",
+		"step6Item": "完成设置",
 		"refreshMics": "刷新麦克风",
 		"noMicsHint": "连接麦克风或检查操作系统的麦克风权限，然后点击刷新。",
 		"modelDownloadingHint": "模型将在后台开始下载 — 您可以在加载时使用应用程序。",
@@ -1913,6 +1918,27 @@
 	"state": {
 		"app": {
 			"starting": "正在启动..."
+		}
+	},
+	"pack": {
+		"preparingOfflineEngine": "正在准备离线引擎…",
+		"preparingOfflineEngineAria": "正在准备离线引擎。状态：{status}"
+	},
+	"consentDialog": {
+		"title": "需要同意",
+		"allow": "允许",
+		"cancel": "取消",
+		"openSettings": "打开设置",
+		"persistFailed": "无法保存您的同意。请重试。",
+		"retryFailed": "同意已保存，但无法自动重试该操作。请重试。",
+		"field": {
+			"voice_biometric_consent": "开始录音需要语音生物识别同意。您的语音将作为生物识别数据处理（GDPR 第 9 条）。允许录音吗？",
+			"huggingface_consent": "从 Hugging Face 下载模型会向美国第三方公司（Hugging Face, Inc.）暴露您的 IP 地址。音频绝不会被发送 — 仅下载模型权重。允许下载模型吗？",
+			"cloud_openai_consent": "云端转录会将您的音频发送到 OpenAI 进行转录。OpenAI 的隐私政策适用于所发送的音频。允许吗？",
+			"cloud_groq_consent": "云端转录会将您的音频发送到 Groq 进行转录。Groq 的隐私政策适用于所发送的音频。允许吗？",
+			"cloud_deepgram_consent": "云端转录会将您的音频发送到 Deepgram 进行转录。Deepgram 的隐私政策适用于所发送的音频。允许吗？",
+			"llm_polish_consent": "LLM 润色会将您的转录文本发送到所配置的 LLM 提供商，用于语法和标点修正。允许吗？",
+			"offline_pack_consent": "离线引擎包（约 180 MB）将从发布服务器下载一次，支持完全本地转录。允许下载吗？"
 		}
 	}
 }

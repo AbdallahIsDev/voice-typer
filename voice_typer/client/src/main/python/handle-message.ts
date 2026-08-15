@@ -133,6 +133,19 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 		const body = typeof data.message === "string" ? data.message : "";
 		const clickPath =
 			typeof data.click_path === "string" ? data.click_path : undefined;
+		// ``click_consent_field`` — a consent-gate notification (e.g.
+		// the voice-biometric dictation gate) deep-links to the EXACT
+		// Settings consent row instead of a plain page: clicking the
+		// toast broadcasts navigate {path:"/settings",
+		// consent_field}, and App.tsx's navigate handler forwards the
+		// field to Settings' ``pendingConsentField`` deep-link
+		// (scroll-to + highlight). Takes precedence over ``click_path``
+		// when both are present (a consent refusal is always about the
+		// specific toggle).
+		const clickConsentField =
+			typeof data.click_consent_field === "string"
+				? data.click_consent_field
+				: undefined;
 		const durationMs =
 			typeof data.duration_ms === "number" ? data.duration_ms : 0;
 		if (!title && !body) {
@@ -153,14 +166,19 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 			return;
 		}
 		const notif = new Notification({ title, body });
-		if (clickPath) {
+		if (clickPath || clickConsentField) {
 			// Clicking the toast opens the main window and routes to the
-			// target page. SEC-029: the synthetic ``navigate`` event must
-			// carry the session nonce or the renderer drops it as a
-			// replayed frame.
+			// target (a plain page via ``click_path``, or the exact
+			// Settings consent row via ``click_consent_field``).
+			// SEC-029: the synthetic ``navigate`` event must carry the
+			// session nonce or the renderer drops it as a replayed frame.
 			notif.on("click", () => {
 				log.info(
-					`${ts()}  [NOTIFY] notification clicked — opening ${clickPath}`,
+					`${ts()}  [NOTIFY] notification clicked — opening ${
+						clickConsentField
+							? `settings consent field ${clickConsentField}`
+							: (clickPath ?? "")
+					}`,
 				);
 				// ``showMainWindow`` runs BEFORE the broadcast so the
 				// window exists (``broadcastToMainWindow``'s guard drops
@@ -173,7 +191,10 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 				showMainWindow();
 				broadcastToMainWindow(PythonChannels.event, {
 					type: "navigate",
-					data: { path: clickPath },
+					data:
+						clickConsentField !== undefined
+							? { path: "/settings", consent_field: clickConsentField }
+							: { path: clickPath },
 					_session_nonce: state.sessionNonce ?? undefined,
 				});
 			});

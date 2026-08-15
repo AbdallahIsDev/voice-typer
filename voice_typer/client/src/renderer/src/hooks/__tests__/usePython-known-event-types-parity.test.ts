@@ -90,14 +90,14 @@ const _PARITY = {
 	// slice + the Python `event_bus` catalogue docstring). The 13th
 	// §7.4 event — `transcribe_offline` — is a REQUEST (member of
 	// `PythonRequest`), NOT a push event, so it is absent here.
-	pack_download_started: true,
-	pack_download_progress: true,
-	pack_download_completed: true,
-	pack_download_failed: true,
-	pack_verified: true,
-	pack_missing: true,
-	pack_corrupt: true,
-	pack_ready: true,
+	offline_pack_download_started: true,
+	offline_pack_download_progress: true,
+	offline_pack_download_completed: true,
+	offline_pack_download_failed: true,
+	offline_pack_verified: true,
+	offline_pack_missing: true,
+	offline_pack_corrupt: true,
+	offline_pack_ready: true,
 	worker_started: true,
 	worker_crashed: true,
 	worker_unloaded: true,

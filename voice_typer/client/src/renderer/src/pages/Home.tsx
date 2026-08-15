@@ -31,12 +31,12 @@ import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import ActivityList from "@/components/dashboard/ActivityList";
 import StatCards from "@/components/dashboard/StatCards";
 import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
-import { PackPreparingBanner } from "@/components/feedback/PackPreparingBanner";
+import { OfflinePackPreparingBanner } from "@/components/feedback/OfflinePackPreparingBanner";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { useNavigation } from "@/hooks/useNavigation";
-import { usePackDownload } from "@/hooks/usePackDownload";
+import { useOfflinePackDownload } from "@/hooks/useOfflinePackDownload";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import {
 	canShareStats,
@@ -45,6 +45,7 @@ import {
 } from "@/hooks/useStatsShare";
 import { t } from "@/i18n/i18n";
 import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
+import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import { HOTKEY_DEFAULT } from "@/pages/onboarding/lib/constants";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
@@ -132,7 +133,7 @@ export default function Home() {
 	// Deepgram) never needs the pack, so we suppress the banner when
 	// the active ASR backend is a cloud one (§4.9: "works — cloud
 	// never needs the pack").
-	const { status: packStatus, isReady: packReady } = usePackDownload();
+	const { status: packStatus, isReady: packReady } = useOfflinePackDownload();
 	// Tracks whether the user has pressed the dictation toggle at least
 	// once. The banner is gated on this so a fresh page load with a
 	// missing pack doesn't surface the "Preparing…" line until the
@@ -457,23 +458,17 @@ export default function Home() {
 		// ``voice_biometric_consent`` — but the refusal is silent over
 		// IPC (``toggle_dictation`` returns ``ack`` and only the tray
 		// notification fires). Gate client-side so the user gets the
-		// in-app consent prompt + Settings → Privacy deep-link instead
-		// of a dead button. The backend gate (recording_lifecycle.py)
-		// remains the enforcement backstop for hotkey/tray-triggered
-		// dictation.
+		// unified point-of-use consent dialog (Allow → persists the
+		// consent → starts recording) instead of a dead button. The
+		// backend gate (recording_lifecycle.py) remains the enforcement
+		// backstop for hotkey/tray-triggered dictation.
 		if (cfg && !cfg.voice_biometric_consent) {
-			toast.warning(t("notify.recording_controller.consent_required_body"), {
-				duration: 6000,
-				action: {
-					label: t("microphone.consentRequiredAction"),
-					// Deep-link to the EXACT consent toggle — Settings
-					// consumes the ``consentField`` navigate option and
-					// scrolls to / highlights the Voice Biometric row.
-					onClick: () =>
-						navigate("settings", {
-							consentField: VOICE_BIOMETRIC_CONSENT_FIELD,
-						}),
-				},
+			openConsentGate({
+				consentField: VOICE_BIOMETRIC_CONSENT_FIELD,
+				bodyKey: consentBodyKey(VOICE_BIOMETRIC_CONSENT_FIELD),
+				// Retry after granting: start dictation (the button press
+				// that was blocked).
+				onAllow: () => call("toggle_dictation"),
 			});
 			return;
 		}
@@ -489,7 +484,11 @@ export default function Home() {
 		// ``t`` is a stable module-level import — not a render-scoped
 		// value, so it must NOT be listed as a dep (biome
 		// useExhaustiveDependencies flags it as unnecessary).
-	}, [call, cfg, navigate]);
+		// ``navigate`` was removed from the deps when the consent
+		// gate became the unified ConsentGateDialog (its "Open
+		// Settings" action navigates via the store, not this
+		// callback) — the only prior consumer of ``navigate`` here.
+	}, [call, cfg]);
 
 	const handleUndo = useCallback(async () => {
 		try {
@@ -672,7 +671,7 @@ export default function Home() {
 					isn't ready AND the user has pressed the dictation
 					toggle at least once (so a fresh page load with a
 					missing pack doesn't flash the line at idle users). */}
-			<PackPreparingBanner
+			<OfflinePackPreparingBanner
 				visible={!packReady && hasAttemptedDictation}
 				status={packStatus}
 			/>

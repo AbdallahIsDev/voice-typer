@@ -1,5 +1,5 @@
 /**
- * Tests for `PackPreparingBanner`.
+ * Tests for `OfflinePackPreparingBanner`.
  *
  * Coverage:
  *   - renders nothing when `visible === false` (parent layout doesn't
@@ -10,7 +10,7 @@
  *     announce the message once when it appears (NOT assertive — the
  *     message is informational, not an error)
  *   - exposes `data-pack-status` so integration tests can assert on
- *     the underlying PackStatus without parsing visible text
+ *     the underlying OfflinePackStatus without parsing visible text
  *   - aria-label is wired through `t("pack.preparingOfflineEngineAria", { status })`
  *     so AT users get the diagnostic context
  *   - the `className` prop merges with the base classes (tailwind-merge)
@@ -21,8 +21,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { PackPreparingBanner } from "@/components/feedback/PackPreparingBanner";
-import type { PackStatus } from "@/hooks/usePackDownload";
+import { OfflinePackPreparingBanner } from "@/components/feedback/OfflinePackPreparingBanner";
+import type { OfflinePackStatus } from "@/hooks/useOfflinePackDownload";
 
 // Mock i18n so we don't load the real locale chunks in unit tests.
 // The mock returns the key as the translated string (with `: key=value`
@@ -53,35 +53,35 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("PackPreparingBanner — visibility", () => {
+describe("OfflinePackPreparingBanner — visibility", () => {
 	it("renders nothing when visible is false", () => {
 		const { container } = render(
-			<PackPreparingBanner visible={false} status="downloading" />,
+			<OfflinePackPreparingBanner visible={false} status="downloading" />,
 		);
 		expect(container.firstElementChild).toBeNull();
 	});
 
 	it("renders the banner when visible is true", () => {
-		render(<PackPreparingBanner visible={true} status="downloading" />);
+		render(<OfflinePackPreparingBanner visible={true} status="downloading" />);
 		expect(screen.getByText("pack.preparingOfflineEngine")).toBeInTheDocument();
 	});
 });
 
-describe("PackPreparingBanner — a11y", () => {
+describe("OfflinePackPreparingBanner — a11y", () => {
 	it("uses role=status so screen readers treat it as a live region", () => {
-		render(<PackPreparingBanner visible={true} status="downloading" />);
+		render(<OfflinePackPreparingBanner visible={true} status="downloading" />);
 		const region = screen.getByRole("status");
 		expect(region).toBeInTheDocument();
 	});
 
 	it("carries aria-live=polite (NOT assertive — informational, not an error)", () => {
-		render(<PackPreparingBanner visible={true} status="verifying" />);
+		render(<OfflinePackPreparingBanner visible={true} status="verifying" />);
 		const region = screen.getByRole("status");
 		expect(region.getAttribute("aria-live")).toBe("polite");
 	});
 
 	it("aria-label includes the status via the i18n placeholder", () => {
-		render(<PackPreparingBanner visible={true} status="corrupt" />);
+		render(<OfflinePackPreparingBanner visible={true} status="corrupt" />);
 		const region = screen.getByRole("status");
 		// The mock t() returns the key with `{status}` substituted, so
 		// the label is the i18n key with `corrupt` interpolated.
@@ -92,8 +92,8 @@ describe("PackPreparingBanner — a11y", () => {
 	});
 });
 
-describe("PackPreparingBanner — data-pack-status", () => {
-	const statuses: PackStatus[] = [
+describe("OfflinePackPreparingBanner — data-pack-status", () => {
+	const statuses: OfflinePackStatus[] = [
 		"idle",
 		"downloading",
 		"verifying",
@@ -108,22 +108,22 @@ describe("PackPreparingBanner — data-pack-status", () => {
 
 	for (const status of statuses) {
 		it(`exposes data-pack-status="${status}"`, () => {
-			render(<PackPreparingBanner visible={true} status={status} />);
+			render(<OfflinePackPreparingBanner visible={true} status={status} />);
 			const region = screen.getByRole("status");
 			expect(region.getAttribute("data-pack-status")).toBe(status);
 		});
 	}
 
 	it("does NOT render the data-pack-status attribute when invisible", () => {
-		render(<PackPreparingBanner visible={false} status="downloading" />);
+		render(<OfflinePackPreparingBanner visible={false} status="downloading" />);
 		expect(document.querySelector("[data-pack-status]")).toBeNull();
 	});
 });
 
-describe("PackPreparingBanner — className merge", () => {
+describe("OfflinePackPreparingBanner — className merge", () => {
 	it("merges consumer className with the base classes (tailwind-merge)", () => {
 		render(
-			<PackPreparingBanner
+			<OfflinePackPreparingBanner
 				visible={true}
 				status="downloading"
 				// `mt-2` is additive (no conflict with base) — preserved.
@@ -147,7 +147,7 @@ describe("PackPreparingBanner — className merge", () => {
 	});
 
 	it("preserves all base classes when no consumer className is supplied", () => {
-		render(<PackPreparingBanner visible={true} status="downloading" />);
+		render(<OfflinePackPreparingBanner visible={true} status="downloading" />);
 		const region = screen.getByRole("status");
 		expect(region.className).toContain("text-(--text-muted)");
 		expect(region.className).toContain("animate-fade-in");

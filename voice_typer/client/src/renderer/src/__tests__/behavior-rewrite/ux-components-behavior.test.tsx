@@ -287,6 +287,7 @@ import type { Page } from "@/types/ipc";
 const baseConfig: VoiceTyperConfig = {
 	schema_version: 1,
 	fast_startup: true,
+	offline_pack_consent: false,
 	hotkey: "F2",
 	sample_rate: 16000,
 	microphone: null,
@@ -979,17 +980,6 @@ describe("About — rewrite of loaded_via tests", () => {
 					microphone: null,
 				});
 			}
-			if (type === "get_prewarm_status") {
-				return Promise.resolve({
-					last_run: null,
-					elapsed_s: null,
-					cache_ratio: 0,
-					cache_label: "unknown",
-					cached_bytes: 0,
-					total_bytes: 0,
-					prewarm_running: false,
-				});
-			}
 			return Promise.resolve({});
 		});
 
@@ -1024,17 +1014,6 @@ describe("About — rewrite of loaded_via tests", () => {
 					device: "cpu",
 					hotkey: "F2",
 					microphone: null,
-				});
-			}
-			if (type === "get_prewarm_status") {
-				return Promise.resolve({
-					last_run: null,
-					elapsed_s: null,
-					cache_ratio: 0,
-					cache_label: "unknown",
-					cached_bytes: 0,
-					total_bytes: 0,
-					prewarm_running: false,
 				});
 			}
 			return Promise.resolve({});

@@ -116,7 +116,9 @@ export function useLastResortUnloadedToast(
 			state.setLastToastedAt(backend, now);
 			state.setLastToastShownAt(now);
 
-			toast.warning(t("models.lastResortUnloaded", { backend }), {
+			// 2026-08-15: the toast title is GENERIC (no backend name) —
+			// the per-backend id below still dedupes per backend.
+			toast.warning(t("models.lastResortUnloaded"), {
 				// Per-backend stable id: a cooldown-boundary re-fire for the
 				// SAME backend REPLACES its in-flight toast instead of stacking;
 				// a DIFFERENT backend gets its own toast (two broken backends

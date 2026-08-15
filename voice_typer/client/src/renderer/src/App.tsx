@@ -6,8 +6,8 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { toast } from "sonner";
 import { APP_NAME } from "@/branding";
+import ConsentGateDialog from "@/components/consent/ConsentGateDialog";
 import { HelpOverlay } from "@/components/help/HelpOverlay";
 import { formatHotkey } from "@/components/hotkey/hotkey-utils";
 import { ConnectionStatusScreen } from "@/components/layout/ConnectionStatusScreen";
@@ -23,6 +23,7 @@ import { useHelpOverlayShortcut } from "@/hooks/useHelpOverlayShortcut";
 import { useLastResortUnloadedToast } from "@/hooks/useLastResortUnloadedToast";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useNavigation } from "@/hooks/useNavigation";
+import { useNetworkOnline } from "@/hooks/useNetworkOnline";
 import { useOnboardingComplete } from "@/hooks/useOnboardingComplete";
 import { usePasteFailedToast } from "@/hooks/usePasteFailedToast";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
@@ -30,7 +31,11 @@ import { useSoundFeedback } from "@/hooks/useSoundFeedback";
 import { useTheme } from "@/hooks/useTheme";
 import { useWindowMaximized } from "@/hooks/useWindowMaximized";
 import { getLocale, setLocale, useT } from "@/i18n/i18n";
-import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
+import {
+	consentBodyKey,
+	isConsentField,
+	openConsentGate,
+} from "@/lib/consentGate";
 import { cn } from "@/lib/utils";
 // Route-level code splitting. Home is the default landing page
 // and stays eagerly imported so first paint is fast. The other 9 pages
@@ -85,6 +90,15 @@ function RouteSuspenseFallback() {
 
 export default function App() {
 	const t = useT();
+
+	// Auto-update feature (docs/auto-update-feature.md §10.1):
+	// network-is-back trigger — calls the `check_offline_pack_update` IPC
+	// command on the false → true `online` transition so the slim
+	// core re-fetches the pack manifest (and, consent-gated,
+	// restarts a background download). C-DATA-1 category-2 allowed
+	// (silent update check against the GitHub API); the download is
+	// gated on `config.offline_pack_consent`.
+	useNetworkOnline();
 
 	// ── Routing (extracted to useNavigation) ──────────────────────
 	// `replace` mirrors `history.replaceState` — it swaps
@@ -263,11 +277,22 @@ export default function App() {
 	// any page in the `Page` union that has a `ROUTES` entry is
 	// reachable here automatically.
 	usePythonEvent("navigate", (data): (() => void) | undefined => {
-		const path = (data as Record<string, string>)?.path;
+		const navData = (data ?? {}) as Record<string, unknown>;
+		const path = typeof navData.path === "string" ? navData.path : undefined;
 		if (path) {
 			const page = path.replace(/^\//, "");
 			if (isKnownPage(page)) {
-				navigate(page);
+				// consent_field — deep-link to a specific Settings consent
+				// row (used by CLICKABLE OS notifications: the main
+				// process broadcasts navigate {path: "/settings",
+				// consent_field} when the user clicks the toast; Settings
+				// consumes the ``consentField`` option and scrolls to /
+				// highlights the exact toggle).
+				const consentField =
+					typeof navData.consent_field === "string"
+						? navData.consent_field
+						: undefined;
+				navigate(page, consentField ? { consentField } : undefined);
 			} else {
 				console.warn(`[renderer:App] ignoring unknown page path: "${page}"`);
 			}
@@ -285,35 +310,42 @@ export default function App() {
 	// mirrors the host notification's ``click_path: "/models"``.
 	useLastResortUnloadedToast(t, () => navigate("models"));
 
-	// consent_required toast — GDPR Art. 9 dictation gate. The backend
-	// publishes this event (recording_lifecycle.py) when dictation
-	// start is refused for missing ``voice_biometric_consent`` — the
-	// path for entry points the renderer can't gate client-side (F2
-	// hotkey, tray click action, sandboxed bubble window). Surface an
-	// in-app prompt with a Settings → Privacy deep-link instead of the
-	// silent tray-only refusal (the ``toggle_dictation`` IPC resolves
-	// ``ack`` with no feedback). Only the voice-biometric field is
-	// handled here — the HuggingFace ``{provider, model}`` shape is
-	// handled by the model-download flow.
+	// consent_required — unified point-of-use consent gate (GDPR
+	// Art. 9 etc.). The backend publishes this event when a consent-
+	// gated action is refused: dictation start without
+	// ``voice_biometric_consent`` (recording_lifecycle.py — the path
+	// for entry points the renderer can't gate client-side: F2 hotkey,
+	// tray click action, sandboxed bubble window), cloud-provider
+	// consents, the LLM-polish consent (enhancement_steps.py), the
+	// offline-pack consent (update_check.py), etc. Every consent field
+	// opens the SAME in-app dialog — "Allow? [Allow / Cancel]" — with
+	// the exact toggle deep-link as the secondary action. Dictation
+	// refusals are retried after granting (Allow → toggle_dictation),
+	// so the user never leaves the flow to dig through Settings.
+	// The HuggingFace ``{provider, model}`` shape (no consent_field)
+	// is handled by the model-download flow, not here.
 	usePythonEvent("consent_required", (data): (() => void) | undefined => {
 		const payload = (data ?? {}) as {
 			consent_field?: string;
 		};
-		if (payload.consent_field !== VOICE_BIOMETRIC_CONSENT_FIELD) {
+		const field = payload.consent_field;
+		if (!field || !isConsentField(field)) {
 			return undefined;
 		}
-		toast.warning(t("notify.recording_controller.consent_required_body"), {
-			duration: 6000,
-			action: {
-				label: t("microphone.consentRequiredAction"),
-				// Deep-link to the EXACT consent toggle — Settings
-				// consumes the ``consentField`` navigate option and
-				// scrolls to / highlights the Voice Biometric row.
-				onClick: () =>
-					navigate("settings", {
-						consentField: payload.consent_field,
-					}),
-			},
+		// Dictation-start refusals can be retried after granting: the
+		// dialog's Allow handler re-invokes toggle_dictation (start is
+		// the only consent-gated direction). Other consent gates have
+		// no re-runnable action from here — granting the consent is
+		// enough; the user retries the action themselves.
+		const dictationField =
+			field === "voice_biometric_consent" ||
+			field === "cloud_openai_consent" ||
+			field === "cloud_groq_consent" ||
+			field === "cloud_deepgram_consent";
+		openConsentGate({
+			consentField: field,
+			bodyKey: consentBodyKey(field),
+			onAllow: dictationField ? () => call("toggle_dictation") : undefined,
 		});
 		return undefined;
 	});
@@ -517,6 +549,10 @@ export default function App() {
 					</div>
 				</div>
 				<Toaster />
+
+				{/* Unified point-of-use consent dialog — mounted once;
+				    opened by any consent-gated flow via openConsentGate() */}
+				<ConsentGateDialog />
 
 				{/* Help overlay extracted to <HelpOverlay /> */}
 				<HelpOverlay

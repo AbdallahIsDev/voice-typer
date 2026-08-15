@@ -77,13 +77,23 @@ export function tcpConnect(port: number): void {
 	if (_tcpStartupTimeoutTimer === null) {
 		_tcpStartupTimeoutTimer = setTimeout(() => {
 			_tcpStartupTimeoutTimer = null;
-			// Safety checks: if Python already connected,
-			// the app is quitting, or there's no Python
-			// process, skip the error dialog.
+			// Safety checks: if Python already connected, the app is
+			// quitting, or a stop was explicitly initiated, skip the
+			// error dialog. NOTE: ``state.pythonProcess === null`` is
+			// deliberately NOT a short-circuit here — a null process
+			// with no stop in flight means the spawn failed (or the
+			// adopted backend never appeared) and the TCP retry loop
+			// would otherwise run FOREVER, leaving a hidden zombie
+			// holding the single-instance lock that swallows every
+			// later launch (incl. OS autostart at login). The 60s
+			// timeout must fire + quit in that case (autostart-zombie
+			// fix, diagnosed on-device 2026-08-15: a zombie Electron
+			// from Aug 14 23:36 held the lock and killed every launch
+			// attempt since).
 			if (
 				state.tcpSocket !== null ||
 				app.isQuitting ||
-				state.pythonProcess === null
+				state._stopPythonCalled
 			) {
 				return;
 			}

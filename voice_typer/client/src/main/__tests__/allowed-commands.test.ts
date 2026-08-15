@@ -88,6 +88,30 @@ describe("R6-F10: allowed-commands.ts", () => {
 		}
 	});
 
+	it("contains the restored prewarm status commands + run_prewarm", () => {
+		// RESTORED 2026-08-14: `get_prewarm_status` +
+		// `open_prewarm_log` came back in lockstep with the Python
+		// `_COMMAND_REGISTRY` and the Rust `allowed_commands()`
+		// literal — the About-page Cache Status card is a user-facing
+		// product feature (plan §6.3 addendum), not prewarm machinery.
+		// `run_prewarm` was ALSO restored the same day (§6.3 addendum
+		// 2nd half) — the Python handler was re-implemented to re-run
+		// the worker's warm phase in-process (warm_imports_for_worker
+		// on a daemon thread) instead of spawning the deleted
+		// standalone-prewarm subprocess, so the renderer→backend call
+		// is no longer a phantom: the backend accepts it.
+		for (const cmd of [
+			"get_prewarm_status",
+			"open_prewarm_log",
+			"run_prewarm",
+		]) {
+			expect(
+				ALLOWED_COMMANDS.has(cmd),
+				`expected ${cmd} IN allowlist (prewarm status/control surface restored)`,
+			).toBe(true);
+		}
+	});
+
 	it("contains a non-trivial number of commands (sanity)", () => {
 		//As of the R6-F10 move there were ~76 commands;  (session-6)
 		// removed 17 stale entries, bringing the count to ~59. This guard

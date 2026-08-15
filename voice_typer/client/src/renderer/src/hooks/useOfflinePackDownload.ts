@@ -1,7 +1,7 @@
-// usePackDownload — silent-mode runtime-pack readiness hook.
+// useOfflinePackDownload — silent-mode offline-pack readiness hook.
 //
-// Models the runtime-pack lifecycle introduced by the installer split
-// (see `upload/plan-runtime-pack-split.md` §7.4 + §8.4 + §8.10 + §4.9).
+// Models the offline-pack lifecycle introduced by the installer split
+// (see `upload/plan-offline-pack-split.md` §7.4 + §8.4 + §8.10 + §4.9).
 // The slim-core sidecar downloads + verifies + launches the pack worker
 // in the background after the user grants the existing HuggingFace-style
 // consent (§8.4 — the pack download phones home to GitHub Releases, so
@@ -19,14 +19,14 @@
 // `transcribe_offline_result` push) are per-transcription events, not
 // pack-lifecycle events, so they don't belong here.
 //
-//   1.  `pack_download_started`   — download kicked off (after consent)
-//   2.  `pack_download_progress`  — byte counter (silent — no UI surface)
-//   3.  `pack_download_completed` — bytes landed; verify step begins
-//   4.  `pack_download_failed`    — network/disk/proxy failure
-//   5.  `pack_verified`           — checksum verified; worker can start
-//   6.  `pack_missing`            — existence check found nothing (§8.10)
-//   7.  `pack_corrupt`            — checksum mismatch (§8.2)
-//   8.  `pack_ready`              — worker started + prewarmed (terminal)
+//   1.  `offline_pack_download_started`   — download kicked off (after consent)
+//   2.  `offline_pack_download_progress`  — byte counter (silent — no UI surface)
+//   3.  `offline_pack_download_completed` — bytes landed; verify step begins
+//   4.  `offline_pack_download_failed`    — network/disk/proxy failure
+//   5.  `offline_pack_verified`           — checksum verified; worker can start
+//   6.  `offline_pack_missing`            — existence check found nothing (§8.10)
+//   7.  `offline_pack_corrupt`            — checksum mismatch (§8.2)
+//   8.  `offline_pack_ready`              — worker started + prewarmed (terminal)
 //   9.  `worker_started`          — worker process up (not yet prewarmed)
 //   10. `worker_crashed`          — worker exited unexpectedly
 //   11. `worker_unloaded`         — slim-core asked worker to unload (RAM)
@@ -60,18 +60,18 @@
 //
 // `status` is the lifecycle stage of the pack+worker. `isReady` is
 // `true` ONLY when `status === "ready"` (pack verified + worker
-// started + prewarmed — the `pack_ready` event). Every other state
+// started + prewarmed — the `offline_pack_ready` event). Every other state
 // means offline transcription will either queue, fail, or degrade.
 //
 // Transitions (event → new status):
-//   pack_download_started  → "downloading"
-//   pack_download_progress → "downloading" (no-op if already)
-//   pack_download_completed → "verifying"
-//   pack_download_failed   → "failed"   (records `error`)
-//   pack_verified          → "worker-starting" (if not already "ready")
-//   pack_missing           → "missing"
-//   pack_corrupt           → "corrupt"  (records `error`)
-//   pack_ready             → "ready"    (clears `error`)
+//   offline_pack_download_started  → "downloading"
+//   offline_pack_download_progress → "downloading" (no-op if already)
+//   offline_pack_download_completed → "verifying"
+//   offline_pack_download_failed   → "failed"   (records `error`)
+//   offline_pack_verified          → "worker-starting" (if not already "ready")
+//   offline_pack_missing           → "missing"
+//   offline_pack_corrupt           → "corrupt"  (records `error`)
+//   offline_pack_ready             → "ready"    (clears `error`)
 //   worker_started         → "worker-starting" (if not already "ready")
 //   worker_crashed         → "worker-crashed" (records `error`)
 //   worker_unloaded        → "worker-unloaded" (only from "ready";
@@ -79,9 +79,9 @@
 //                            `worker_unloaded` only fires when the
 //                            slim core actively asks a RUNNING worker
 //                            to unload, which can only happen after
-//                            `pack_ready`.)
+//                            `offline_pack_ready`.)
 //
-// `error` is cleared on every successful transition (`pack_ready`).
+// `error` is cleared on every successful transition (`offline_pack_ready`).
 // Failure events overwrite `error` with the message from the event
 // payload (`data.error` / `data.reason`) if present, otherwise leave
 // the existing error in place (a transient progress event shouldn't
@@ -92,23 +92,23 @@ import { usePythonEvent } from "@/hooks/usePython";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
-export type PackStatus =
+export type OfflinePackStatus =
 	| "idle" // initial — no events received yet
-	| "downloading" // pack_download_started / pack_download_progress
-	| "verifying" // pack_download_completed → about to verify
-	| "ready" // pack_ready (worker started + prewarmed)
-	| "failed" // pack_download_failed
-	| "missing" // pack_missing (deleted by AV/cleaner — §8.10)
-	| "corrupt" // pack_corrupt (checksum mismatch — §8.2)
-	| "worker-starting" // worker_started but pack_ready hasn't fired
+	| "downloading" // offline_pack_download_started / offline_pack_download_progress
+	| "verifying" // offline_pack_download_completed → about to verify
+	| "ready" // offline_pack_ready (worker started + prewarmed)
+	| "failed" // offline_pack_download_failed
+	| "missing" // offline_pack_missing (deleted by AV/cleaner — §8.10)
+	| "corrupt" // offline_pack_corrupt (checksum mismatch — §8.2)
+	| "worker-starting" // worker_started but offline_pack_ready hasn't fired
 	| "worker-crashed" // worker_crashed
 	| "worker-unloaded"; // worker_unloaded (slim-core low-RAM unload)
 
-export interface UsePackDownloadResult {
+export interface UseOfflinePackDownloadResult {
 	/** Current lifecycle stage. See the state-machine comment above. */
-	status: PackStatus;
+	status: OfflinePackStatus;
 	/** Latest error message from a failure / crash / corruption event.
-	 *  Cleared on `pack_ready`. `null` when no error has been recorded
+	 *  Cleared on `offline_pack_ready`. `null` when no error has been recorded
 	 *  (or when the latest event was a success). */
 	error: string | null;
 	/** `true` ONLY when `status === "ready"`. Consumers gate the
@@ -138,13 +138,13 @@ function pickString(
 
 // ── Hook ──────────────────────────────────────────────────────────────
 
-export function usePackDownload(): UsePackDownloadResult {
-	const [status, setStatus] = useState<PackStatus>("idle");
+export function useOfflinePackDownload(): UseOfflinePackDownloadResult {
+	const [status, setStatus] = useState<OfflinePackStatus>("idle");
 	const [error, setError] = useState<string | null>(null);
 
-	// ── pack_download_started → "downloading" ─────────────────────────
+	// ── offline_pack_download_started → "downloading" ─────────────────────────
 	usePythonEvent(
-		"pack_download_started",
+		"offline_pack_download_started",
 		useCallback((): (() => void) | undefined => {
 			setStatus("downloading");
 			setError(null);
@@ -152,33 +152,33 @@ export function usePackDownload(): UsePackDownloadResult {
 		}, []),
 	);
 
-	// ── pack_download_progress → "downloading" (silent, no UI surface)
+	// ── offline_pack_download_progress → "downloading" (silent, no UI surface)
 	//
 	// §7.4 calls this event "silent — no UI". We still subscribe so the
 	// status machine reflects "actively downloading" even if
-	// `pack_download_started` was missed (e.g. the renderer mounted
+	// `offline_pack_download_started` was missed (e.g. the renderer mounted
 	// after the download already began). The handler is a no-op when
 	// the status is already "downloading".
 	usePythonEvent(
-		"pack_download_progress",
+		"offline_pack_download_progress",
 		useCallback((): (() => void) | undefined => {
 			setStatus((prev) => (prev === "downloading" ? prev : "downloading"));
 			return undefined;
 		}, []),
 	);
 
-	// ── pack_download_completed → "verifying" ────────────────────────
+	// ── offline_pack_download_completed → "verifying" ────────────────────────
 	usePythonEvent(
-		"pack_download_completed",
+		"offline_pack_download_completed",
 		useCallback((): (() => void) | undefined => {
 			setStatus("verifying");
 			return undefined;
 		}, []),
 	);
 
-	// ── pack_download_failed → "failed" (record error) ───────────────
+	// ── offline_pack_download_failed → "failed" (record error) ───────────────
 	usePythonEvent(
-		"pack_download_failed",
+		"offline_pack_download_failed",
 		useCallback((data?: Record<string, unknown>): (() => void) | undefined => {
 			setStatus("failed");
 			const msg = pickString(data, ["error", "message", "reason"]);
@@ -187,37 +187,37 @@ export function usePackDownload(): UsePackDownloadResult {
 		}, []),
 	);
 
-	// ── pack_verified → "worker-starting" (pack OK, worker not yet up)
+	// ── offline_pack_verified → "worker-starting" (pack OK, worker not yet up)
 	//
-	// `pack_ready` is the terminal event; `pack_verified` is an
+	// `offline_pack_ready` is the terminal event; `offline_pack_verified` is an
 	// intermediate "checksum OK, worker about to start" signal. We
 	// transition to "worker-starting" unless we're already at "ready"
-	// (a late `pack_verified` after `pack_ready` shouldn't downgrade).
+	// (a late `offline_pack_verified` after `offline_pack_ready` shouldn't downgrade).
 	usePythonEvent(
-		"pack_verified",
+		"offline_pack_verified",
 		useCallback((): (() => void) | undefined => {
 			setStatus((prev) => (prev === "ready" ? prev : "worker-starting"));
 			return undefined;
 		}, []),
 	);
 
-	// ── pack_missing → "missing" (§8.10 — deleted by cleaner/AV) ─────
+	// ── offline_pack_missing → "missing" (§8.10 — deleted by cleaner/AV) ─────
 	//
 	// The slim-core launch-time existence check found no pack dir.
 	// A silent re-download is queued; we surface the status so the
 	// "Preparing…" banner can show the right copy if the user attempts
 	// offline transcription in the meantime.
 	usePythonEvent(
-		"pack_missing",
+		"offline_pack_missing",
 		useCallback((): (() => void) | undefined => {
 			setStatus("missing");
 			return undefined;
 		}, []),
 	);
 
-	// ── pack_corrupt → "corrupt" (§8.2 — checksum mismatch) ──────────
+	// ── offline_pack_corrupt → "corrupt" (§8.2 — checksum mismatch) ──────────
 	usePythonEvent(
-		"pack_corrupt",
+		"offline_pack_corrupt",
 		useCallback((data?: Record<string, unknown>): (() => void) | undefined => {
 			setStatus("corrupt");
 			const msg = pickString(data, ["reason", "error", "message"]);
@@ -226,9 +226,9 @@ export function usePackDownload(): UsePackDownloadResult {
 		}, []),
 	);
 
-	// ── pack_ready → "ready" (terminal — clears error) ───────────────
+	// ── offline_pack_ready → "ready" (terminal — clears error) ───────────────
 	usePythonEvent(
-		"pack_ready",
+		"offline_pack_ready",
 		useCallback((): (() => void) | undefined => {
 			setStatus("ready");
 			setError(null);
@@ -261,7 +261,7 @@ export function usePackDownload(): UsePackDownloadResult {
 	// §7.3 says the slim core can unload the worker under RAM pressure
 	// and restart it on next transcription. `worker_unloaded` only
 	// fires when the worker was actually running (i.e. after
-	// `pack_ready`), so we only transition from "ready" →
+	// `offline_pack_ready`), so we only transition from "ready" →
 	// "worker-unloaded". From any other state the event is unexpected
 	// and we leave the existing status alone (defensive — avoids
 	// wiping a "failed" / "missing" / "corrupt" status on a stray

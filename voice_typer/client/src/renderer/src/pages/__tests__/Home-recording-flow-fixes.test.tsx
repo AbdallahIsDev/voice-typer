@@ -31,6 +31,7 @@ import {
 } from "@testing-library/react";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useConsentGateStore } from "@/lib/consentGate";
 
 const { mockCall, mockPythonEvent, mockNavigate } = vi.hoisted(() => ({
 	mockCall: vi.fn(),
@@ -600,13 +601,13 @@ async function renderHomeWithDeferredConfig() {
 	await renderHome();
 	return { resolveConfig };
 }
-
 describe("Home gates dictation on voice_biometric_consent (GDPR Art. 9)", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		mockNavigate.mockReset();
 		vi.mocked(toast.warning).mockClear();
+		useConsentGateStore.setState({ request: null });
 		localStorage.clear();
 		vi.resetModules();
 	});
@@ -615,7 +616,7 @@ describe("Home gates dictation on voice_biometric_consent (GDPR Art. 9)", () => 
 		cleanup();
 	});
 
-	it("shows the consent prompt + Settings deep-link instead of calling toggle_dictation when consent is off", async () => {
+	it("opens the point-of-use consent gate (Allow → starts dictation) instead of calling toggle_dictation when consent is off", async () => {
 		const { resolveConfig } = await renderHomeWithDeferredConfig();
 
 		await act(async () => {
@@ -628,28 +629,38 @@ describe("Home gates dictation on voice_biometric_consent (GDPR Art. 9)", () => 
 		});
 		fireEvent.click(micButton);
 
-		// The IPC must NOT be called — the client-side gate short-circuits.
+		// The IPC must NOT be called — the client-side gate short-circuits
+		// into the unified consent dialog.
 		const toggleCalls = mockCall.mock.calls.filter(
 			(c) => c[0] === "toggle_dictation",
 		);
 		expect(toggleCalls.length).toBe(0);
 
-		// The consent prompt surfaces with the Settings deep-link action.
-		expect(toast.warning).toHaveBeenCalledWith(
-			"Voice biometric consent is required to start recording.\nEnable it in Settings > Privacy > Voice Biometric Consent.",
+		// The consent gate opened with the exact field + a retry that
+		// starts dictation (Allow in the dialog). NOTE: the store must
+		// be imported dynamically — the beforeEach calls
+		// ``vi.resetModules()`` so Home (imported after the reset) holds
+		// a FRESH module instance of lib/consentGate; the top-level
+		// import would be a different singleton.
+		const { useConsentGateStore: gateStore } = await import(
+			"@/lib/consentGate"
+		);
+		const req = gateStore.getState().request;
+		expect(req).toEqual(
 			expect.objectContaining({
-				action: expect.objectContaining({ onClick: expect.any(Function) }),
+				consentField: "voice_biometric_consent",
+				bodyKey: "consentDialog.field.voice_biometric_consent",
+				onAllow: expect.any(Function),
 			}),
 		);
-		const options = vi.mocked(toast.warning).mock.calls[0]?.[1] as {
-			action?: { onClick: () => void };
-		};
-		options.action?.onClick();
-		// The deep-link carries the consent field so Settings scrolls
-		// to the EXACT Voice Biometric toggle.
-		expect(mockNavigate).toHaveBeenCalledWith("settings", {
-			consentField: "voice_biometric_consent",
+		// Fire the retry WITHOUT awaiting it — the deferred-config mock
+		// leaves ``toggle_dictation`` pending forever, so awaiting would
+		// hang the test. The assertion is on the IPC call itself.
+		await act(async () => {
+			void req?.onAllow?.();
+			await new Promise((r) => setTimeout(r, 0));
 		});
+		expect(mockCall).toHaveBeenCalledWith("toggle_dictation");
 	});
 
 	it("calls toggle_dictation normally when consent IS granted", async () => {

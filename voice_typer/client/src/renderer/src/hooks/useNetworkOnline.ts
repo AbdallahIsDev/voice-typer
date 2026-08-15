@@ -3,7 +3,7 @@
 // Implements the renderer-side half of plan-runtime-pack-split.md §10.1
 // "Network-is-back trigger": when the browser fires the `online` event
 // (navigator.onLine transitions false → true), the hook calls the Python
-// IPC command `check_pack_update` so the slim core re-fetches the
+// IPC command `check_offline_pack_update` so the slim core re-fetches the
 // latest `pack-manifest.json` from GitHub Releases and (if a newer pack
 // is available) restarts the background download.
 //
@@ -23,37 +23,37 @@
 //   - The renderer already has the `call` IPC bridge (via
 //     `usePython()`); re-using it avoids a second transport.
 //
-// ── Subscribes to browser events, calls into usePackDownload's API ────
+// ── Subscribes to browser events, calls into useOfflinePackDownload's API ────
 //
-// The hook does NOT directly call `usePackDownload` (Sub-agent 9 owns
+// The hook does NOT directly call `useOfflinePackDownload` (Sub-agent 9 owns
 // that hook and it exposes only read state — `{ status, error, isReady }`).
-// Instead, the hook consumes `usePackDownload`'s STATE indirectly:
-//   - When `online` fires, the hook calls `call("check_pack_update", {})`.
+// Instead, the hook consumes `useOfflinePackDownload`'s STATE indirectly:
+//   - When `online` fires, the hook calls `call("check_offline_pack_update", {})`.
 //   - The Python side (`update_check.py`) re-fetches the manifest + may
 //     trigger `pack.download_pack_with_resume`, which publishes
-//     `pack_download_started` / `pack_download_progress` /
-//     `pack_download_completed` events.
-//   - `usePackDownload` (Sub-agent 9's hook) is ALREADY subscribed to
+//     `offline_pack_download_started` / `offline_pack_download_progress` /
+//     `offline_pack_download_completed` events.
+//   - `useOfflinePackDownload` (Sub-agent 9's hook) is ALREADY subscribed to
 //     those events and updates its `status` accordingly.
 //
 // So the chain is:
-//   `online` event → `useNetworkOnline` → IPC `check_pack_update` →
-//   Python `update_check.check_pack_update()` → `pack.download_pack_with_resume()`
-//   → event_bus publishes `pack_download_started` → `usePackDownload`
+//   `online` event → `useNetworkOnline` → IPC `check_offline_pack_update` →
+//   Python `update_check.check_offline_pack_update()` → `pack.download_pack_with_resume()`
+//   → event_bus publishes `offline_pack_download_started` → `useOfflinePackDownload`
 //   updates `status` → UI re-renders.
 //
 // This keeps the network-online trigger in its OWN file (Sub-agent 13's
 // ownership) while delegating the pack-lifecycle state machine to
-// `usePackDownload` (Sub-agent 9's ownership). No file collision.
+// `useOfflinePackDownload` (Sub-agent 9's ownership). No file collision.
 //
 // ── Forward-compat: the IPC command may not be registered yet ────────
 //
-// `check_pack_update` is exposed by `voice_typer/server/service/update_check.py`
-// (`handle_check_pack_update_ipc`) but NOT auto-registered in
+// `check_offline_pack_update` is exposed by `voice_typer/server/service/update_check.py`
+// (`handle_check_offline_pack_update_ipc`) but NOT auto-registered in
 // `voice_typer/server/ipc/registry.py` (registry is a shared file —
 // Sub-agent 7 owns the pack-related additions). Until the command is
 // wired into the registry + the TS allowlist (`allowed-commands.ts`) +
-// the Rust allowlist (`allowlist.rs`), the `call("check_pack_update")`
+// the Rust allowlist (`allowlist.rs`), the `call("check_offline_pack_update")`
 // will reject. The hook catches the rejection and logs at debug — the
 // `isOnline` state still updates correctly, so UI consumers can react
 // to network changes regardless of whether the Python side is wired.
@@ -63,7 +63,7 @@
 //
 // ── Transport-agnostic ───────────────────────────────────────────────
 //
-// Like `usePackDownload`, this hook depends only on `usePython` (which
+// Like `useOfflinePackDownload`, this hook depends only on `usePython` (which
 // goes through the module-level dispatcher that subscribes to
 // `window.python.onEvent`). The `window.python` namespace is installed
 // by EITHER the Electron preload script OR the Tauri bridge auto-
@@ -83,9 +83,9 @@ export interface UseNetworkOnlineResult {
 	/** Epoch ms (Date.now()) of the most recent `online` event, or
 	 *  `null` if the network has never come online during this hook's
 	 *  lifetime. Consumers can use this to dedupe re-checks (e.g. only
-	 *  call `check_pack_update` once per transition). */
+	 *  call `check_offline_pack_update` once per transition). */
 	lastOnlineAt: number | null;
-	/** Manually trigger a re-check (calls the `check_pack_update` IPC
+	/** Manually trigger a re-check (calls the `check_offline_pack_update` IPC
 	 *  command). Exposed for Settings → "Check for updates now" buttons
 	 *  and for tests. Returns the IPC result dict (or undefined on
 	 *  error / bridge-not-ready). */
@@ -135,9 +135,9 @@ export function useNetworkOnline(): UseNetworkOnlineResult {
 
 	// ── triggerRecheck ───────────────────────────────────────────────
 	//
-	// Calls the `check_pack_update` IPC command. The command is exposed
+	// Calls the `check_offline_pack_update` IPC command. The command is exposed
 	// by `voice_typer/server/service/update_check.py` (function
-	// `handle_check_pack_update_ipc`). If the command is not yet
+	// `handle_check_offline_pack_update_ipc`). If the command is not yet
 	// registered in `ipc/registry.py`, the call rejects — we catch and
 	// log at debug (the `isOnline` state still updates correctly).
 	const triggerRecheck = useCallback(async (): Promise<
@@ -151,7 +151,7 @@ export function useNetworkOnline(): UseNetworkOnlineResult {
 		setIsChecking(true);
 		setError(null);
 		try {
-			const result = (await call("check_pack_update", {})) as Record<
+			const result = (await call("check_offline_pack_update", {})) as Record<
 				string,
 				unknown
 			>;
@@ -163,7 +163,7 @@ export function useNetworkOnline(): UseNetworkOnlineResult {
 			// consumers can show "Update check unavailable" if they want.
 			const msg = err instanceof Error ? err.message : String(err);
 			console.debug(
-				"[useNetworkOnline] check_pack_update IPC call failed — is the command registered in ipc/registry.py?",
+				"[renderer:hooks/useNetworkOnline] check_offline_pack_update IPC call failed — is the command registered in ipc/registry.py?",
 				err,
 			);
 			setError(msg);
@@ -193,7 +193,7 @@ export function useNetworkOnline(): UseNetworkOnlineResult {
 			// (browsers fire these during connection flapping).
 			if (!wasOnline) {
 				// Fire-and-forget — the IPC result is handled by the
-				// `usePackDownload` hook (via the `pack_download_started`
+				// `useOfflinePackDownload` hook (via the `offline_pack_download_started`
 				// event the Python side publishes). We don't need to
 				// await it here.
 				void triggerRecheck();

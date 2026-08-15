@@ -76,6 +76,7 @@ export const DEFAULT_CONFIG: VoiceTyperConfig = {
 	paste_on_stop: true,
 	show_notifications: true,
 	fast_startup: false,
+	offline_pack_consent: false,
 
 	clipboard_save_restore: true,
 	clipboard_restore_delay_ms: 150,

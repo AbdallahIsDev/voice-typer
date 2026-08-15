@@ -89,15 +89,17 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	"save_templates",
 	"get_volume_backend_status",
 	"get_model_status",
-	// ADR-0009 Issue 3: prewarm cache status (Hot/Partial/Cold,
-	// cache ratio, last-run timestamp) for the About page.
+	// Prewarm status commands — RESTORED 2026-08-14 verbatim from
+	// commit 5a319872: the About-page Cache Status card is a user-facing
+	// product feature (plan §6.3 addendum), not prewarm machinery.
+	// `run_prewarm` is ALSO restored (§6.3 addendum second half) but
+	// re-implemented: the Python handler no longer spawns the deleted
+	// standalone-prewarm subprocess — it re-runs the warm phase
+	// in-process (warm_imports_for_worker on a daemon thread, see
+	// prewarm/status.run_prewarm_now).
 	"get_prewarm_status",
-	// Task 3: manually trigger a prewarm run (force=True) from the
-	// About page's "Run Prewarm Now" button.
-	"run_prewarm",
-	// Task 2: open the prewarm log file in the OS default text
-	// editor from the About page's "View prewarm log" button.
 	"open_prewarm_log",
+	"run_prewarm",
 	"get_vocabulary",
 	"save_vocabulary",
 	"onboarding_is_first_run",
@@ -209,7 +211,7 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// backend (handlers/cloud_test_handlers.py) so the API key never leaves
 	// the Python process and the renderer stays network-free (C-DATA-1).
 	"test_cloud_connection",
-	// XZ-SEC-05: add a trusted hostname to the URL allowlist (self-hosted
+	// Add a trusted hostname to the URL allowlist (self-hosted
 	// LLM/ASR endpoints). Python handler: ConfigHandlersMixin._handle_add_trusted_endpoint.
 	"add_trusted_endpoint",
 	// macOS troubleshooting (finding #127 part b): reset the stale
@@ -252,4 +254,16 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// `src-tauri/src/sidecar/ws/event_protocol.rs`). Pinned by
 	// `tests/test_event_types_parity.py`.
 	"transcribe_offline",
+	// Auto-update feature (docs/auto-update-feature.md): runtime-pack
+	// update check. The renderer's `useNetworkOnline` hook fires it on
+	// the false → true `online` transition; Settings "Check now"
+	// buttons invoke it via `triggerRecheck`. Python handler:
+	// `_handle_check_offline_pack_update` in `server/ipc/lifecycle.py`
+	// (delegates to `update_check.handle_check_offline_pack_update_ipc` —
+	// fetches the remote `pack-manifest.json` from GitHub Releases;
+	// the background download is gated on
+	// `config.offline_pack_consent`). Registered in the Python
+	// `_COMMAND_REGISTRY` + the Rust `allowed_commands()` literal in
+	// lockstep.
+	"check_offline_pack_update",
 ]);

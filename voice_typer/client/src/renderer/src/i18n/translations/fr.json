@@ -600,6 +600,8 @@
 		},
 		"fastStartup": "Démarrage rapide (préchauffage)",
 		"fastStartupDescription": "Réchauffe le cache de fichiers du système au démarrage pour que le modèle vocal se charge en quelques secondes au lieu de 30+ secondes. Désactivez si vous avez besoin de l'espace disque/RAM pour d'autres applications. Vous pouvez toujours réchauffer à la demande depuis Paramètres → Dépannage → État du cache.",
+		"offlinePackConsent": "Télécharger le pack du moteur hors ligne",
+		"offlinePackConsentDescription": "Autorise le téléchargement en arrière-plan du moteur hors ligne (modèles de reconnaissance vocale) depuis GitHub Releases. À activer uniquement si vous voulez dicter hors ligne après une nouvelle installation ; le téléchargement ne démarre qu'après activation.",
 		"keyring": {
 			"secure": "Sécurisé",
 			"plaintext": "Texte brut",
@@ -671,8 +673,8 @@
 		"errors": {
 			"unknown": "Erreur inconnue"
 		},
-		"lastResortUnloaded": "Le modèle {backend} n'est pas chargé.",
-		"lastResortUnloadedHint": "Ouvrez la page Modèles et cliquez sur Télécharger avant de l'utiliser.",
+		"lastResortUnloaded": "Le modèle n'est pas chargé.",
+		"lastResortUnloadedHint": "Ouvrez la page Modèles pour télécharger un modèle.",
 		"snack": {
 			"parakeetDepsRequired": "Dépendances requises pour Parakeet. Téléchargez d'abord.",
 			"depsRequiredName": "Dépendances requises pour {name}. Téléchargez d'abord.",
@@ -1587,6 +1589,8 @@
 		"step1Item": "Choisissez votre microphone",
 		"step2Item": "Accorder l'autorisation de surveillance du clavier",
 		"step3Item": "Sélectionner un raccourci clavier",
+		"consentTitle": "Confidentialité et consentement",
+		"consentDescription": "Choisissez ce à quoi vous consentez. Tout est désactivé par défaut — vous pouvez modifier ces choix à tout moment dans Paramètres → Confidentialité.",
 		"micTitle": "Choisissez votre microphone",
 		"micDescription": "Sélectionnez le microphone que vous souhaitez utiliser pour la dictée. Vous pourrez le changer ultérieurement dans les Paramètres.",
 		"micSelectAria": "Sélectionner le microphone",
@@ -1642,8 +1646,9 @@
 		"permissionsInstructionsLinuxStep3": "Déconnectez-vous et reconnectez-vous (ou redémarrez) pour que le changement de groupe prenne effet",
 		"modelOption": "{description} — {size} ({speed})",
 		"permissionsCheckFailed": "Impossible de vérifier l'autorisation — cliquez sur Actualiser pour réessayer.",
-		"step4Item": "Choisir un modèle de transcription",
-		"step5Item": "Terminer la configuration",
+		"step4Item": "Choisir vos consentements de confidentialité",
+		"step5Item": "Choisir un modèle de transcription",
+		"step6Item": "Terminer la configuration",
 		"refreshMics": "Actualiser les microphones",
 		"noMicsHint": "Branchez un microphone ou vérifiez l'autorisation de microphone de votre système d'exploitation, puis cliquez sur Actualiser.",
 		"modelDownloadingHint": "Le modèle commencera à télécharger en arrière-plan — vous pouvez utiliser l'application pendant le chargement.",
@@ -1913,6 +1918,27 @@
 	"state": {
 		"app": {
 			"starting": "Démarrage..."
+		}
+	},
+	"pack": {
+		"preparingOfflineEngine": "Préparation du moteur hors ligne…",
+		"preparingOfflineEngineAria": "Préparation du moteur hors ligne. Statut : {status}"
+	},
+	"consentDialog": {
+		"title": "Consentement requis",
+		"allow": "Autoriser",
+		"cancel": "Annuler",
+		"openSettings": "Ouvrir les paramètres",
+		"persistFailed": "Impossible d'enregistrer votre consentement. Veuillez réessayer.",
+		"retryFailed": "Consentement enregistré, mais l'action n'a pas pu être relancée automatiquement. Veuillez réessayer.",
+		"field": {
+			"voice_biometric_consent": "Le consentement à la biométrie vocale est requis pour démarrer l'enregistrement. Votre voix est traitée comme donnée biométrique (RGPD art. 9). Autoriser l'enregistrement ?",
+			"huggingface_consent": "Les téléchargements de modèles depuis Hugging Face révèlent votre adresse IP à une entreprise américaine (Hugging Face, Inc.). L'audio n'est jamais envoyé — seuls les poids du modèle. Autoriser les téléchargements ?",
+			"cloud_openai_consent": "La transcription cloud envoie votre audio à OpenAI pour transcription. La politique de confidentialité d'OpenAI s'applique à l'audio envoyé. Autoriser ?",
+			"cloud_groq_consent": "La transcription cloud envoie votre audio à Groq pour transcription. La politique de confidentialité de Groq s'applique à l'audio envoyé. Autoriser ?",
+			"cloud_deepgram_consent": "La transcription cloud envoie votre audio à Deepgram pour transcription. La politique de confidentialité de Deepgram s'applique à l'audio envoyé. Autoriser ?",
+			"llm_polish_consent": "La correction par LLM envoie votre texte transcrit au fournisseur LLM configuré pour corriger la grammaire et la ponctuation. Autoriser ?",
+			"offline_pack_consent": "Le pack moteur hors ligne (~180 Mo) est téléchargé une fois depuis le serveur de publication et permet une transcription entièrement locale. Autoriser le téléchargement ?"
 		}
 	}
 }

@@ -331,6 +331,73 @@ describe("XS-78: handle-message.ts", () => {
 				);
 			});
 
+			it("click with click_consent_field broadcasts navigate /settings + consent_field (a consent-gate toast)", () => {
+				handleMessage({
+					type: "notification",
+					data: {
+						title: APP_NAME,
+						message: "Voice biometric consent is required to start recording.",
+						click_consent_field: "voice_biometric_consent",
+					},
+				});
+
+				const notif = mockNotifications[0];
+				if (!notif) throw new Error("expected a created Notification");
+				expect(notif.clickHandlers).toHaveLength(1);
+
+				notif.clickHandlers[0]?.();
+
+				// Clicking a consent-gate toast opens the main window and
+				// deep-links to the EXACT Settings consent row — App.tsx's
+				// navigate handler forwards ``consent_field`` to Settings'
+				// pendingConsentField deep-link (scroll-to + highlight).
+				expect(mocks.showMainWindow).toHaveBeenCalledTimes(1);
+				expect(mocks.broadcastToMainWindow).toHaveBeenCalledWith(
+					"python-event",
+					expect.objectContaining({
+						type: "navigate",
+						data: {
+							path: "/settings",
+							consent_field: "voice_biometric_consent",
+						},
+					}),
+				);
+			});
+
+			it("click_consent_field takes precedence over click_path when both are present", () => {
+				handleMessage({
+					type: "notification",
+					data: {
+						title: APP_NAME,
+						message: "consent gate",
+						click_path: "/models",
+						click_consent_field: "cloud_groq_consent",
+					},
+				});
+
+				const notif = mockNotifications[0];
+				if (!notif) throw new Error("expected a created Notification");
+				notif.clickHandlers[0]?.();
+
+				// The click must broadcast navigate to the CONSENT row
+				// (path:/settings + consent_field), not the click_path
+				// target (/models). ``toHaveBeenCalledWith`` matches ANY
+				// broadcast (the raw notification event is also
+				// broadcast), and the objectContaining data constraint
+				// proves only the consent-row navigate exists — a
+				// navigate to /models would NOT match this assertion.
+				expect(mocks.broadcastToMainWindow).toHaveBeenCalledWith(
+					"python-event",
+					expect.objectContaining({
+						type: "navigate",
+						data: {
+							path: "/settings",
+							consent_field: "cloud_groq_consent",
+						},
+					}),
+				);
+			});
+
 			it("attaches the SEC-029 session nonce to the synthetic navigate event", () => {
 				handleMessage({
 					type: "notification",

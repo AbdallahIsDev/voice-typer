@@ -1045,6 +1045,8 @@
 		},
 		"fastStartup": "Inicio rápido (precalentamiento)",
 		"fastStartupDescription": "Calienta el caché de archivos del sistema al inicio para que el modelo de voz se cargue en segundos en lugar de 30+ segundos. Desactívelo si necesita espacio en disco/RAM para otras aplicaciones. Puede calentar bajo demanda desde Configuración → Solución de problemas → Estado del caché.",
+		"offlinePackConsent": "Descargar paquete del motor sin conexión",
+		"offlinePackConsentDescription": "Permite descargar en segundo plano el motor sin conexión (modelos de reconocimiento de voz) desde GitHub Releases. Actívelo solo si desea dictado sin conexión tras una instalación nueva; la descarga solo comienza tras activarlo.",
 		"keyring": {
 			"secure": "Seguro",
 			"plaintext": "Texto plano",
@@ -1098,8 +1100,8 @@
 		"errors": {
 			"unknown": "Error desconocido"
 		},
-		"lastResortUnloaded": "El modelo {backend} no está cargado.",
-		"lastResortUnloadedHint": "Abre la página de Modelos y haz clic en Descargar antes de usarlo.",
+		"lastResortUnloaded": "El modelo no está cargado.",
+		"lastResortUnloadedHint": "Abre la página de Modelos para descargar un modelo.",
 		"snack": {
 			"parakeetDepsRequired": "Se requieren dependencias para Parakeet. Descarga primero.",
 			"depsRequiredName": "Se requieren dependencias para {name}. Descarga primero.",
@@ -1449,6 +1451,8 @@
 		"step1Item": "Elige tu micrófono",
 		"step2Item": "Conceder permiso de monitorización del teclado",
 		"step3Item": "Selecciona un atajo",
+		"consentTitle": "Privacidad y consentimiento",
+		"consentDescription": "Elija a qué da su consentimiento. Todo está desactivado por defecto — puede cambiarlo en cualquier momento en Configuración → Privacidad.",
 		"micTitle": "Elige tu micrófono",
 		"micDescription": "Selecciona el micrófono que deseas usar para el dictado. Puedes cambiarlo más tarde en Configuración.",
 		"micSelectAria": "Seleccionar micrófono",
@@ -1504,8 +1508,9 @@
 		"permissionsInstructionsLinuxStep3": "Cierra sesión y vuelve a iniciarla (o reinicia) para que el cambio de grupo surta efecto",
 		"modelOption": "{description} — {size} ({speed})",
 		"permissionsCheckFailed": "No se pudo comprobar el permiso — haz clic en Actualizar para reintentar.",
-		"step4Item": "Elegir un modelo de transcripción",
-		"step5Item": "Completar configuración",
+		"step4Item": "Elegir tus consentimientos de privacidad",
+		"step5Item": "Elegir un modelo de transcripción",
+		"step6Item": "Completar configuración",
 		"refreshMics": "Actualizar micrófonos",
 		"noMicsHint": "Conecta un micrófono o verifica el permiso de micrófono de tu sistema operativo, luego haz clic en Actualizar.",
 		"modelDownloadingHint": "El modelo comenzará a descargarse en segundo plano — puedes usar la aplicación mientras se carga.",
@@ -1913,6 +1918,27 @@
 	"state": {
 		"app": {
 			"starting": "Iniciando..."
+		}
+	},
+	"pack": {
+		"preparingOfflineEngine": "Preparando motor sin conexión…",
+		"preparingOfflineEngineAria": "Preparando motor sin conexión. Estado: {status}"
+	},
+	"consentDialog": {
+		"title": "Se requiere consentimiento",
+		"allow": "Permitir",
+		"cancel": "Cancelar",
+		"openSettings": "Abrir configuración",
+		"persistFailed": "No se pudo guardar su consentimiento. Inténtelo de nuevo.",
+		"retryFailed": "Consentimiento guardado, pero no se pudo reintentar la acción automáticamente. Inténtelo de nuevo.",
+		"field": {
+			"voice_biometric_consent": "Se requiere consentimiento de biometría de voz para iniciar la grabación. Su voz se procesa como dato biométrico (RGPD art. 9). ¿Permitir la grabación?",
+			"huggingface_consent": "Las descargas de modelos de Hugging Face revelan su dirección IP a una empresa estadounidense (Hugging Face, Inc.). El audio nunca se envía — solo los pesos del modelo. ¿Permitir descargas?",
+			"cloud_openai_consent": "La transcripción en la nube envía su audio a OpenAI para transcribirlo. La política de privacidad de OpenAI se aplica al audio enviado. ¿Permitir?",
+			"cloud_groq_consent": "La transcripción en la nube envía su audio a Groq para transcribirlo. La política de privacidad de Groq se aplica al audio enviado. ¿Permitir?",
+			"cloud_deepgram_consent": "La transcripción en la nube envía su audio a Deepgram para transcribirlo. La política de privacidad de Deepgram se aplica al audio enviado. ¿Permitir?",
+			"llm_polish_consent": "El pulido con LLM envía su texto transcrito al proveedor LLM configurado para corregir gramática y puntuación. ¿Permitir?",
+			"offline_pack_consent": "El paquete del motor sin conexión (~180 MB) se descarga una vez desde el servidor de lanzamiento y permite la transcripción totalmente local. ¿Permitir la descarga?"
 		}
 	}
 }

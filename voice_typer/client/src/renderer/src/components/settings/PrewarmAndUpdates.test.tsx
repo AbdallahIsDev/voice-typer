@@ -9,7 +9,14 @@
  * section now shows the installed version + a static offline message
  * + a user-clicked external link to the GitHub releases page.
  *
- * These tests verify the post-removal contract:
+ * (RESTORED 2026-08-14): the Cache Status card was restored verbatim
+ * from commit 5a319872 (plan §6.3 addendum — user-facing feature).
+ * The "Run Prewarm Now" button was NOT restored (its IPC command
+ * `run_prewarm` stayed removed with the deleted standalone-prewarm
+ * subprocess machinery), so the action-buttons test below asserts it
+ * is absent while "View prewarm log" is present.
+ *
+ * These tests verify the contract:
  *   - Cache Status + Updates sections render (headings + action buttons)
  *   - prewarm cache status is fetched on mount and the badge renders
  *   - NO `fetch()` is ever called from this component (mount, click,
@@ -57,14 +64,16 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 
 import PrewarmAndUpdates from "@/components/settings/PrewarmAndUpdates";
 
+// RESTORED 2026-08-14: matches the restored get_prewarm_status shape
+// (`enabled` replaced the removed `prewarm_running` field).
 const PREWARM_HOT = {
+	enabled: true,
 	last_run: "2024-01-01T00:00:00Z",
 	elapsed_s: 12.3,
 	cache_ratio: 1.0,
 	cache_label: "hot",
 	cached_bytes: 4_000_000_000,
 	total_bytes: 4_000_000_000,
-	prewarm_running: false,
 };
 
 beforeEach(() => {
@@ -123,7 +132,8 @@ describe("PrewarmAndUpdates", () => {
 
 	it("renders the prewarm action buttons + the offline Updates notice", () => {
 		render(<PrewarmAndUpdates />);
-		// Prewarm action buttons — still present.
+		// Prewarm action buttons — "Run Prewarm Now" + "View prewarm
+		// log" are both present (RESTORED 2026-08-14 §6.3 addendum).
 		expect(screen.getByText("Run Prewarm Now")).toBeTruthy();
 		expect(screen.getByText("View prewarm log")).toBeTruthy();
 		// "View Changelog" link button — still present (anchor, no fetch).
@@ -195,6 +205,23 @@ describe("PrewarmAndUpdates", () => {
 		screen.getByText("View prewarm log").click();
 		await waitFor(() => {
 			expect(mockCall).toHaveBeenCalledWith("open_prewarm_log");
+		});
+		expect(mockShowSnack).toHaveBeenCalled();
+	});
+
+	it("re-runs prewarm via the run_prewarm IPC + refreshes status", async () => {
+		mockCall.mockImplementation(async (type: string) => {
+			if (type === "run_prewarm") return { started: true };
+			return PREWARM_HOT;
+		});
+		render(<PrewarmAndUpdates />);
+		screen.getByText("Run Prewarm Now").click();
+		await waitFor(() => {
+			expect(mockCall).toHaveBeenCalledWith("run_prewarm");
+		});
+		// The handler refreshes get_prewarm_status after the warm pass.
+		await waitFor(() => {
+			expect(mockCall).toHaveBeenCalledWith("get_prewarm_status");
 		});
 		expect(mockShowSnack).toHaveBeenCalled();
 	});

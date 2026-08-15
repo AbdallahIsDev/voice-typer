@@ -44,9 +44,9 @@ import { usePythonEvent } from "@/hooks/usePython";
 import type { ShowSnackOptions, SnackbarType } from "@/hooks/useSnackbar";
 import {
 	CONSENT_REQUIRED_CODE,
-	showConsentRequiredSnack,
 	VOICE_BIOMETRIC_CONSENT_FIELD,
 } from "@/lib/consent";
+import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 import { buildTestFilters } from "../lib/buildTestFilters";
 import { computeAudioKey } from "../lib/computeAudioKey";
@@ -105,18 +105,12 @@ interface UseMicrophoneTestSessionOptions {
 	selectMicrophoneRef?: MutableRefObject<
 		(micId: string | null) => Promise<void>
 	>;
-	/**
-	 * Optional callback that navigates the user to the exact Settings
-	 * consent toggle (deep-link for the ``client.consent_required``
-	 * error path). Receives the ``consent_field`` carried by the
-	 * backend envelope (e.g. ``"voice_biometric_consent"`` — the
-	 * level-monitor / mic-test handlers raise
-	 * ``ConsentRequiredError`` with that field) so the caller can
-	 * ``navigate("settings", { consentField })`` and Settings will
-	 * scroll to + highlight the matching toggle. When omitted, the
-	 * consent-required snackbar shows without an action button.
-	 */
-	onOpenPrivacySettings?: (consentField?: string) => void;
+	// NOTE: the former ``onOpenPrivacySettings`` prop was REMOVED when
+	// the consent-required snackbar was replaced by the unified
+	// point-of-use consent dialog (ConsentGateDialog) — the dialog's
+	// "Open Settings" action navigates itself via the consentGate
+	// store, so the per-hook callback was dead code. See
+	// consentGate.ts.
 }
 
 export interface UseMicrophoneTestSessionResult {
@@ -148,7 +142,6 @@ export function useMicrophoneTestSession({
 	stopPlayback,
 	testRunningRef,
 	selectMicrophoneRef,
-	onOpenPrivacySettings,
 }: UseMicrophoneTestSessionOptions): UseMicrophoneTestSessionResult {
 	// ``updateConfig`` is part of the public session-hook signature
 	// for parity with the prior ``useMicrophoneTest`` API but is not
@@ -172,6 +165,11 @@ export function useMicrophoneTestSession({
 	const testTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const stoppingRef = useRef(false);
+	// Latest ``startTest`` closure, so the consent dialog's retry
+	// (shown INSIDE startTest) can re-run the FULL start after the
+	// user grants consent — the closure identity isn't available to
+	// itself while it's being defined.
+	const startTestRef = useRef<() => Promise<void>>(async () => {});
 	//``testRunningRef`` is owned by the composition hook so the
 	// level monitor (declared alongside this hook in the composition)
 	// can read it without an ordering dependency. This hook syncs it
@@ -254,26 +252,28 @@ export function useMicrophoneTestSession({
 		// Record the current filter state for invalidation tracking.
 		setFiltersSinceLastTest(computeAudioKey(config));
 
-		// Shared consent-required snackbar (deduped across the
+		// Shared point-of-use consent dialog (deduped across the
 		// resolved-envelope + thrown-error paths below, and shared with
-		// the level-monitor path via lib/consent.ts). Surfaces the
-		// ``microphone.consentRequired`` message with a deep-link
-		// action to the EXACT Settings toggle when
-		// ``onOpenPrivacySettings`` is wired (omitted in tests / older
-		// consumers → no action). The ``consentField`` from the
-		// backend envelope is forwarded so Settings scrolls to +
-		// highlights the matching toggle (defaults to
-		// ``voice_biometric_consent`` — the only field the
-		// level-monitor / mic-test gates enforce — for older backends
-		// whose plain ``success:false`` envelope omits it).
+		// the level-monitor path). Opens the UNIFIED consent gate
+		// (Allow → persists the consent → retries the full test start
+		// via ``startTestRef``; "Open Settings" deep-links to the
+		// exact toggle). The ``consentField`` from the backend
+		// envelope is forwarded so the dialog + Settings target the
+		// right row (defaults to ``voice_biometric_consent`` — the
+		// only field the level-monitor / mic-test gates enforce — for
+		// older backends whose plain ``success:false`` envelope omits
+		// it).
 		const showConsentSnack = (consentField: string) => {
-			showConsentRequiredSnack(
-				showSnack,
-				t,
-				onOpenPrivacySettings
-					? () => onOpenPrivacySettings?.(consentField)
-					: undefined,
-			);
+			openConsentGate({
+				consentField,
+				bodyKey: consentBodyKey(consentField),
+				// Retry after granting: re-run the FULL test start — the
+				// first attempt was aborted at the gate before the
+				// session state (countdown / timers / running flag) was
+				// set up, so a raw IPC retry would leave the UI in a
+				// half-started state.
+				onAllow: () => startTestRef.current(),
+			});
 		};
 
 		try {
@@ -400,8 +400,9 @@ export function useMicrophoneTestSession({
 		stopTest,
 		setLevel,
 		setPeak,
-		onOpenPrivacySettings,
 	]);
+	// Keep the consent-retry ref pointed at the latest closure.
+	startTestRef.current = startTest;
 
 	const selectMicrophone = useCallback(
 		async (micId: string | null) => {

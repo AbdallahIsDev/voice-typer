@@ -12,6 +12,19 @@ import type { VoiceTyperConfig } from "@/types/config";
 import { HOTKEY_DEFAULT } from "../lib/constants";
 import type { MicrophoneOption, ModelOption, StepInfo } from "../lib/types";
 
+// The six consent flags surfaced on the consolidated Consent step
+// (voice biometric, HuggingFace, OpenAI / Groq / Deepgram cloud ASR,
+// LLM polish). Module-level so useCallbacks/effects can list it as a
+// stable dep without re-creating the array every render.
+const CONSENT_FIELDS = [
+	"voice_biometric_consent",
+	"huggingface_consent",
+	"cloud_openai_consent",
+	"cloud_groq_consent",
+	"cloud_deepgram_consent",
+	"llm_polish_consent",
+] as const;
+
 export type BackendChoice = "local" | "cloud";
 
 // Map a cloud provider to its allowlisted config fields (mirrors
@@ -55,6 +68,10 @@ export interface UseOnboardingWizardResult {
 	handlePrev: () => Promise<void>;
 	handleSkip: () => Promise<void>;
 	skipOnInitError: () => Promise<void>;
+	// Consent step: consolidated grant of every consent flag.
+	consents: Record<string, boolean>;
+	setConsentField: (field: string, value: boolean) => void;
+	handleAgreeToAll: () => void;
 	// Model step: local-vs-cloud choice + explicit download.
 	selectedBackend: BackendChoice;
 	setSelectedBackend: (v: BackendChoice) => void;
@@ -111,6 +128,49 @@ export function useOnboardingWizard(
 	const [cloudApiKey, setCloudApiKey] = useState("");
 	const [cloudConsent, setCloudConsent] = useState(false);
 
+	// Consent step: the six consent flags shown on the consolidated
+	// Consent step (see module-level CONSENT_FIELDS). Keyed by config
+	// field; initial state loaded from get_config (so a re-run or a
+	// user who already granted via Settings → Privacy sees the real
+	// state).
+	const [consents, setConsents] = useState<Record<string, boolean>>({});
+
+	// Persist a single consent toggle immediately (mirrors the
+	// Done-step consent checkbox contract: optimistic set + revert on
+	// persistence failure so the UI never claims a grant that wasn't
+	// saved).
+	const setConsentField = useCallback(
+		(field: string, value: boolean) => {
+			setConsents((prev) => ({ ...prev, [field]: value }));
+			call("set_config", { [field]: value }).catch((e) => {
+				console.error(
+					"[renderer:useOnboardingWizard] set_config consent failed:",
+					e,
+				);
+				// Revert on failure so the UI doesn't claim a grant
+				// that wasn't persisted.
+				setConsents((prev) => ({ ...prev, [field]: !value }));
+			});
+		},
+		[call],
+	);
+
+	// Grant every consent at once (single batched set_config, same
+	// six fields as the Settings Privacy page's "Agree to All").
+	// CONSENT_FIELDS is a module-level const — a stable dep.
+	const handleAgreeToAll = useCallback(() => {
+		const all = Object.fromEntries(CONSENT_FIELDS.map((f) => [f, true]));
+		setConsents((prev) => ({ ...prev, ...all }));
+		call("set_config", all).catch((e) => {
+			console.error(
+				"[renderer:useOnboardingWizard] set_config agree-to-all failed:",
+				e,
+			);
+		});
+		// CONSENT_FIELDS is a module-level const — biome treats it
+		// as stable and flags listing it as a dep as unnecessary.
+	}, [call]);
+
 	const headingRef = useRef<HTMLHeadingElement | null>(null);
 
 	const retryInit = useCallback(() => {
@@ -157,6 +217,16 @@ export function useOnboardingWizard(
 						setHfConsent(cfg.huggingface_consent === true);
 						const cfgConsent = cfg.cloud_openai_consent === true;
 						setCloudConsent(cfgConsent);
+						// Pre-fill the consolidated consent step from the
+						// saved config (re-run / already-granted users).
+						const savedConsents: Record<string, boolean> = {};
+						for (const f of CONSENT_FIELDS) {
+							// `CONSENT_FIELDS` is `as const` — every literal is a
+							// real VoiceTyperConfig boolean field, so index it
+							// directly (no unsafe Record cast).
+							savedConsents[f] = cfg[f] === true;
+						}
+						setConsents(savedConsents);
 					}
 				} catch (e) {
 					console.warn(
@@ -269,6 +339,17 @@ export function useOnboardingWizard(
 				});
 			} else if (step?.step_name === "Hotkey") {
 				await call("onboarding_set_hotkey", { hotkey: selectedHotkey });
+			} else if (step?.step_name === "Consent") {
+				// The consent toggles persist IMMEDIATELY on toggle
+				// (setConsentField), so Continue has nothing new to save
+				// — re-persist anyway so a mid-wizard quit after toggling
+				// but before Continue still leaves the grants durable
+				// (idempotent; mirrors the Model-step pattern).
+				const toPersist: Record<string, unknown> = {};
+				for (const f of CONSENT_FIELDS) {
+					toPersist[f] = consents[f] ?? false;
+				}
+				await call("set_config", toPersist);
 			} else if (step?.step_name === "Model") {
 				await call("onboarding_set_model", { model: selectedModel });
 				// Persist the local-vs-cloud choice (Model step).
@@ -323,6 +404,7 @@ export function useOnboardingWizard(
 		cloudApiKey,
 		cloudConsent,
 		hfConsent,
+		consents,
 		showSnack,
 	]);
 
@@ -464,5 +546,8 @@ export function useOnboardingWizard(
 		setCloudApiKey,
 		cloudConsent,
 		setCloudConsent,
+		consents,
+		setConsentField,
+		handleAgreeToAll,
 	};
 }

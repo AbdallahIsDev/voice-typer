@@ -41,7 +41,7 @@ export function WelcomeStep({ headingRef }: WelcomeStepProps) {
 				{t("onboarding.welcomeDescription")}
 			</p>
 			<ul className="mb-6 space-y-2 text-sm text-(--text-secondary)">
-				{[1, 2, 3, 4, 5].map((n) => (
+				{[1, 2, 3, 4, 5, 6].map((n) => (
 					<li key={n} className="flex items-center gap-2">
 						<span className="text-accent">{n}.</span>{" "}
 						{t(`onboarding.step${n}Item`)}

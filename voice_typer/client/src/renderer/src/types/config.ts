@@ -68,6 +68,8 @@ export interface VoiceTyperConfig {
 	show_notifications: boolean;
 	//prewarm scheduled-task master toggle.
 	fast_startup: boolean;
+	//auto-update feature — runtime-pack download consent (docs/auto-update-feature.md §8.4).
+	offline_pack_consent: boolean;
 
 	// Clipboard borrow/restore (ADR-0010)
 	clipboard_save_restore: boolean;

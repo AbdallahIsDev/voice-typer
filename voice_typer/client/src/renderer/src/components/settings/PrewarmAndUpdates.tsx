@@ -13,10 +13,30 @@
 //
 // The prewarm cache status surface is unaffected: it queries the
 // Python sidecar over the local IPC bridge (in-process, no network).
+//
+// (RESTORED 2026-08-14): the Cache Status card + `get_prewarm_status`
+// / `open_prewarm_log` IPC calls were restored verbatim from commit
+// 5a319872 — the card is a user-facing product feature, not prewarm
+// machinery (plan §6.3 addendum). The "Run Prewarm Now" button was
+// ALSO restored the same day (§6.3 addendum second half), wired to the
+// re-implemented `run_prewarm` IPC: the Python handler no longer
+// spawns the deleted standalone-prewarm subprocess — it re-runs the
+// worker's warm phase in-process (warm_imports_for_worker on a daemon
+// thread) and refreshes the status file, so the button re-warms the OS
+// standby cache on demand. Two things were NOT restored, in lockstep
+// with the Python side:
+//   * the `prewarm_running` field — it tracked that subprocess via
+//     the deleted process-tracker machinery; the restored status
+//     response carries `enabled` instead. The button's "running"
+//     state is tracked locally (`runPrewarmLoading`) + via a short
+//     poll of `last_run` after starting.
+//   * the 2-minute poll loop — the restored in-process warm pass is
+//     fast (seconds, not the 20-50 s subprocess), so the button
+//     re-fetches status once after starting instead of long-polling.
 
 import { RefreshIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ReadonlyRow } from "@/components/common/ReadonlyRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
@@ -41,15 +61,19 @@ const APP_VERSION = pkg.version as string;
 const RELEASES_URL = "https://github.com/AbdallahIsDev/voice-typer/releases";
 
 // ADR-0009 Issue 3: shape of the ``get_prewarm_status`` IPC response.
-// Mirrors the dict returned by voice_typer.server.prewarm.get_prewarm_status().
+// Mirrors the dict returned by
+// voice_typer.server.prewarm.status.get_prewarm_status(). RESTORED
+// 2026-08-14: matches the restored response — `enabled` (fast_startup
+// config toggle) + worker warm-run timing; `prewarm_running` was
+// dropped with the process-tracker machinery (see header comment).
 interface PrewarmStatus {
+	enabled: boolean;
 	last_run: string | null;
 	elapsed_s: number | null;
 	cache_ratio: number;
 	cache_label: "hot" | "partial" | "cold" | "unknown";
 	cached_bytes: number;
 	total_bytes: number;
-	prewarm_running: boolean;
 }
 
 // ADR-0009 Issue 3: badge for the prewarm cache status
@@ -111,8 +135,8 @@ export function getPrewarmAndUpdatesLabels(): string[] {
 		t("about.lastRun"),
 		t("about.cacheHealth"),
 		t("about.prewarmElapsed"),
-		t("about.refreshCacheStatus"),
 		t("about.runPrewarmNow"),
+		t("about.refreshCacheStatus"),
 		t("about.viewPrewarmLog"),
 		t("about.updatesTitle"),
 		t("about.updatesDescription"),
@@ -133,9 +157,9 @@ export default function PrewarmAndUpdates({
 		null,
 	);
 	const [prewarmLoading, setPrewarmLoading] = useState(false);
-	// "Run Prewarm Now" button state. runPrewarmLoading is true while the
-	// run_prewarm IPC is in flight; once spawned, prewarmRunning (from
-	// get_prewarm_status) takes over as the progress indicator.
+	// "Run Prewarm Now" button state. runPrewarmLoading is true while
+	// the run_prewarm IPC is in flight (RESTORED 2026-08-14 §6.3
+	// addendum 2nd half).
 	const [runPrewarmLoading, setRunPrewarmLoading] = useState(false);
 
 	const fetchPrewarmStatus = async () => {
@@ -155,77 +179,11 @@ export default function PrewarmAndUpdates({
 		}
 	};
 
-	// Trigger a manual prewarm run. Spawns a detached subprocess
-	// (pythonw -m voice_typer.server.prewarm --force). After spawning,
-	// polls get_prewarm_status every 2s until prewarm_running flips to
-	// False, then refreshes the card and shows a completion toast.
-	// The poll is cancellable via prewarmPollCancelledRef so the
-	// loop stops calling setPrewarmStatus / showSnack / IPC after the
-	// component unmounts.
-	const prewarmPollCancelledRef = useRef(false);
-	useEffect(() => {
-		// Initialize ref on mount; flip to true on unmount.
-		prewarmPollCancelledRef.current = false;
-		return () => {
-			prewarmPollCancelledRef.current = true;
-		};
-	}, []);
-	const handleRunPrewarm = async () => {
-		// Guard: don't re-warm if already hot (button should be disabled,
-		// but defend in depth).
-		if (prewarmStatus?.cache_label === "hot") {
-			showSnack(t("about.prewarmAlreadyHot"), "info");
-			return;
-		}
-		setRunPrewarmLoading(true);
-		try {
-			const result = await call<{ started: boolean }>("run_prewarm");
-			if (result?.started) {
-				showSnack(t("about.prewarmStarting"), "info");
-				// Poll get_prewarm_status every 2s until prewarm_running
-				// flips to False. The subprocess takes ~20-50s on a warm
-				// disk, ~50s+ on a cold one.
-				const pollDeadline = Date.now() + 120_000; // 2 min cap
-				const poll = async () => {
-					while (Date.now() < pollDeadline) {
-						if (prewarmPollCancelledRef.current) return;
-						await new Promise((r) => setTimeout(r, 2000));
-						if (prewarmPollCancelledRef.current) return;
-						try {
-							const status = await call<PrewarmStatus>("get_prewarm_status");
-							if (prewarmPollCancelledRef.current) return;
-							setPrewarmStatus(status);
-							if (!status.prewarm_running) {
-								// Prewarm finished — show completion toast
-								// based on the new cache label.
-								showSnack(t("about.prewarmComplete"), "success");
-								return;
-							}
-						} catch {
-							// Backend went away — stop polling.
-							return;
-						}
-					}
-					// Timed out — silent (the subprocess may still be
-					// running; the user can Refresh manually).
-				};
-				poll(); // fire-and-forget; don't block the UI
-			}
-		} catch (err) {
-			showSnack(
-				t("about.prewarmFailed") +
-					(err instanceof Error ? `: ${err.message}` : ""),
-				"error",
-			);
-		} finally {
-			setRunPrewarmLoading(false);
-		}
-	};
-
 	// Open the prewarm log file in the OS default text editor. Calls the
 	// open_prewarm_log IPC handler which uses os.startfile (Windows), open
 	// (macOS), or xdg-open (Linux). Shows a toast if the log file doesn't
-	// exist or can't be opened.
+	// exist or can't be opened. (RESTORED 2026-08-14 — the handler now
+	// opens the worker log, which carries the [PREWARM] lines.)
 	const handleViewPrewarmLog = async () => {
 		try {
 			const result = await call<{
@@ -249,13 +207,34 @@ export default function PrewarmAndUpdates({
 		}
 	};
 
-	// The "Check for Updates" button was removed because the
-	// offline-by-default UX was preferred; if a future iteration
-	// wants to add it back (user-initiated GitHub API check),
-	// C-DATA-1 permits it under the auto-update category — see
-	// docs/auto-update-feature.md. The Updates section now shows
-	// the installed version plus a static message directing the
-	// user to open the GitHub releases page in their browser.
+	// "Run Prewarm Now": call the re-implemented run_prewarm IPC
+	// (RESTORED 2026-08-14 §6.3 addendum 2nd half). The handler
+	// re-runs the worker's warm phase in-process on a daemon thread
+	// (no subprocess spawn), so this returns quickly; the status file
+	// is refreshed by the handler's background warm pass, and we
+	// re-fetch once after a short delay so the card shows the new
+	// last_run/elapsed_s.
+	const handleRunPrewarm = async () => {
+		setRunPrewarmLoading(true);
+		try {
+			const result = await call<{ started: boolean }>("run_prewarm");
+			if (result?.started) {
+				showSnack(t("about.prewarmStarting"), "info");
+				// The in-process warm pass is fast (seconds); wait once
+				// then refresh so the card reflects the fresh run.
+				await new Promise((r) => setTimeout(r, 1500));
+				await fetchPrewarmStatus();
+			}
+		} catch (err) {
+			showSnack(
+				t("about.prewarmLogOpenFailed") +
+					(err instanceof Error ? `: ${err.message}` : ""),
+				"error",
+			);
+		} finally {
+			setRunPrewarmLoading(false);
+		}
+	};
 
 	// On mount: fetch prewarm status only. No network call is ever
 	// fired from this component (the prewarm status call is a local
@@ -305,12 +284,7 @@ export default function PrewarmAndUpdates({
 						<ReadonlyRow
 							label={t("about.prewarmStatus")}
 							value={
-								prewarmStatus?.prewarm_running ? (
-									<span className="inline-flex items-center gap-1.5 text-(--text-primary)">
-										<span className="size-1.5 animate-pulse rounded-full bg-info" />
-										{t("about.cacheRunning")}
-									</span>
-								) : prewarmStatus ? (
+								prewarmStatus ? (
 									<CacheStatusBadge label={prewarmStatus.cache_label} />
 								) : (
 									<span className="text-(--text-muted)">
@@ -368,6 +342,20 @@ export default function PrewarmAndUpdates({
 						/>
 					)}
 					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">
+						{/* "Run Prewarm Now" button (RESTORED 2026-08-14 §6.3
+						addendum 2nd half). Disabled while the run_prewarm IPC
+						is in flight; the in-process warm pass is fast, so no
+						long-running state. */}
+						<Button
+							variant="default"
+							size="sm"
+							onClick={handleRunPrewarm}
+							disabled={runPrewarmLoading}
+						>
+							{runPrewarmLoading
+								? t("about.cacheRunning")
+								: t("about.runPrewarmNow")}
+						</Button>
 						<Button
 							variant="outline"
 							size="sm"
@@ -378,25 +366,8 @@ export default function PrewarmAndUpdates({
 								? t("about.checking")
 								: t("about.refreshCacheStatus")}
 						</Button>
-						{/* "Run Prewarm Now" button. Disabled when cache is Hot
-						(no point re-warming), when prewarm is already
-						running, or while the run_prewarm IPC is in flight. */}
-						<Button
-							variant="default"
-							size="sm"
-							onClick={handleRunPrewarm}
-							disabled={
-								prewarmStatus?.cache_label === "hot" ||
-								prewarmStatus?.prewarm_running === true ||
-								runPrewarmLoading
-							}
-						>
-							{prewarmStatus?.prewarm_running === true || runPrewarmLoading
-								? t("about.cacheRunning")
-								: t("about.runPrewarmNow")}
-						</Button>
-						{/* "View prewarm log" button. Opens the prewarm log
-						file in the OS default text editor. */}
+						{/* "View prewarm log" button. Opens the worker log
+						(the prewarm record) in the OS default text editor. */}
 						<Button variant="ghost" size="sm" onClick={handleViewPrewarmLog}>
 							{t("about.viewPrewarmLog")}
 						</Button>

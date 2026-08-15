@@ -120,7 +120,14 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 		const dlBtn = screen.getByRole("button", {
 			name: /Download small\.en/i,
 		});
-		expect(dlBtn).toHaveTextContent("Download");
+		// The Download button is icon-only (2026-08-15 user request):
+		// the download icon + the downloadAria label carry the
+		// affordance, no visible "Download" text.
+		expect(dlBtn.querySelector('[data-testid="hugeicon"]')).toHaveAttribute(
+			"data-name",
+			"Download01Icon",
+		);
+		expect(dlBtn).not.toHaveTextContent("Download");
 		// No disabled "Active" tick anymore.
 		expect(
 			screen.queryByRole("button", { name: /Active: small\.en/i }),
@@ -191,7 +198,13 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 		const dlBtn = screen.getByRole("button", {
 			name: /Download small\.en/i,
 		});
-		expect(dlBtn).toHaveTextContent("Download");
+		// Icon-only: the download icon is present, no visible "Download"
+		// text (2026-08-15 user request).
+		expect(dlBtn.querySelector('[data-testid="hugeicon"]')).toHaveAttribute(
+			"data-name",
+			"Download01Icon",
+		);
+		expect(dlBtn).not.toHaveTextContent("Download");
 		expect(dlBtn).not.toHaveAttribute("aria-busy", "true");
 	});
 
@@ -244,7 +257,13 @@ describe("ModelCardActions — BG-76 (aria-busy + aria-label swap on async butto
 		);
 		const dlBtn = screen.getByRole("button", { name: /Downloading…/i });
 		expect(dlBtn).toHaveAttribute("aria-busy", "true");
-		expect(dlBtn).toHaveTextContent("Downloading…");
+		// Icon-only: the in-flight state is the SPINNING download icon,
+		// not visible text (2026-08-15 user request).
+		expect(dlBtn.querySelector('[data-testid="hugeicon"]')).toHaveAttribute(
+			"data-name",
+			"Download01Icon",
+		);
+		expect(dlBtn).not.toHaveTextContent("Downloading…");
 		// The stale per-model aria-label is NOT used while in-flight.
 		expect(dlBtn.getAttribute("aria-label")).not.toMatch(/Download small\.en/);
 	});

@@ -46,6 +46,7 @@ import type { VoiceTyperConfig } from "@/types/config";
 const baseConfig: VoiceTyperConfig = {
 	schema_version: 1,
 	fast_startup: true,
+	offline_pack_consent: false,
 	hotkey: "F2",
 	sample_rate: 16000,
 	microphone: null,

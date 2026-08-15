@@ -191,9 +191,34 @@ describe("tcp-connect.ts: 60s TCP startup timeout (TC-41)", () => {
 		expect(mocks.app.quit).not.toHaveBeenCalled();
 	});
 
-	it("safety short-circuit: no pythonProcess suppresses the dialog + quit", () => {
+	it("no pythonProcess but no stop in flight STILL fires the dialog + quit (autostart-zombie fix)", () => {
+		// A null pythonProcess alone must NOT suppress the timeout: it
+		// means the spawn failed (or the adopted backend never
+		// appeared). Suppressing here left a hidden zombie retrying
+		// TCP forever while holding the single-instance lock,
+		// swallowing every later launch (incl. OS autostart at login).
 		mocks.state.pythonProcess = null;
 		mocks.state.tcpSocket = null;
+		mocks.state._stopPythonCalled = false;
+
+		tcpConnect(9876);
+		vi.advanceTimersByTime(TCP_STARTUP_TIMEOUT_MS);
+
+		expect(mocks.dialog.showErrorBox).toHaveBeenCalledWith(
+			"Python backend failed to start",
+			expect.stringContaining("60 seconds"),
+		);
+		expect(mocks.app.quit).toHaveBeenCalledTimes(1);
+	});
+
+	it("safety short-circuit: an explicit stopPython suppresses the dialog + quit", () => {
+		// The ONLY legitimate reason a null pythonProcess coexists
+		// with a retrying TCP loop is an in-flight teardown — the
+		// stop flag (set by stopPython) suppresses the dialog so the
+		// app can exit quietly without a spurious error box.
+		mocks.state.pythonProcess = null;
+		mocks.state.tcpSocket = null;
+		mocks.state._stopPythonCalled = true;
 
 		tcpConnect(9876);
 		vi.advanceTimersByTime(TCP_STARTUP_TIMEOUT_MS);

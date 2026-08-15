@@ -247,9 +247,10 @@ export function ModelCardActions({
 						strokeWidth={2}
 						className={cn("h-4 w-4", isDownloadingThis && "animate-spin")}
 					/>
-					{isDownloadingThis
-						? t("models.downloading")
-						: t("models.downloadModel")}
+					{/* icon-only Download button — the "Download" text was
+					    removed (user request 2026-08-15); the icon + the
+					    downloadAria aria-label carry the affordance, and the
+					    label swaps to "Downloading…" while in-flight. */}
 				</Button>
 			</div>
 		);

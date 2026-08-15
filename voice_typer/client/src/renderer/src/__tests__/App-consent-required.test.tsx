@@ -1,13 +1,15 @@
 /**
  * vitest suite — App.tsx `consent_required` push subscription.
  *
- * The backend (recording_lifecycle.py) publishes a `consent_required`
- * push event when dictation start is refused for missing
- * ``voice_biometric_consent`` — the path for entry points the renderer
- * can't gate client-side (F2 hotkey, tray click action, sandboxed
- * bubble window). App.tsx subscribes and surfaces an in-app consent
- * prompt + Settings → Privacy deep-link instead of the silent
- * tray-only refusal.
+ * The backend publishes a `consent_required` push event when a
+ * consent-gated action is refused: dictation start without
+ * ``voice_biometric_consent`` (recording_lifecycle.py — the path for
+ * entry points the renderer can't gate client-side: F2 hotkey, tray
+ * click action, sandboxed bubble window), cloud-provider consents,
+ * the LLM-polish consent, the offline-pack consent. App.tsx
+ * subscribes and opens the UNIFIED point-of-use consent dialog
+ * (Allow → persists the consent → retries the refused action) instead
+ * of the old toast + Settings navigation.
  *
  * This test mocks:
  *   - `usePythonEvent` — captures the registered `consent_required`
@@ -21,15 +23,15 @@
  *
  * Assertions:
  *   1. Invoking the captured handler with
- *      `{ consent_field: "voice_biometric_consent" }` surfaces the
- *      consent toast (warning) with an action whose label is the
- *      "Open Privacy settings" translation.
- *   2. Invoking the handler with the HuggingFace shape
- *      (`{ provider, model }` — no `consent_field`) does NOT fire the
- *      toast: that shape is handled by the model-download flow.
+ *      `{ consent_field: "voice_biometric_consent" }` opens the
+ *      consent gate (store request carries the field + body key) with
+ *      a dictation retry (Allow → toggle_dictation).
+ *   2. Same for a cloud-provider consent field (cloud_groq_consent).
+ *   3. Invoking the handler with the HuggingFace shape
+ *      (`{ provider, model }` — no `consent_field`) does NOT open the
+ *      gate: that shape is handled by the model-download flow.
  */
-import { cleanup, render, waitFor } from "@testing-library/react";
-import { toast } from "sonner";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Hoisted mock state ────────────────────────────────────────────────
@@ -155,17 +157,12 @@ vi.mock("@/pages/Home", () => ({
 	default: () => <div data-testid="home-page">Home</div>,
 }));
 
+import { useConsentGateStore } from "@/lib/consentGate";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import { makeConfig } from "./helpers/fixtures";
 
-// The exact English values from en.json — the test asserts the toast
-// text the user actually sees (the real i18n resolver is NOT mocked).
-const CONSENT_BODY =
-	"Voice biometric consent is required to start recording.\nEnable it in Settings > Privacy > Voice Biometric Consent.";
-const CONSENT_ACTION_LABEL = "Open Privacy settings";
-
-describe("App — consent_required push handler (GDPR Art. 9 dictation gate)", () => {
+describe("App — consent_required push handler (unified point-of-use consent gate)", () => {
 	beforeEach(() => {
 		cleanup();
 		mockCall.mockReset();
@@ -175,9 +172,9 @@ describe("App — consent_required push handler (GDPR Art. 9 dictation gate)", (
 		});
 		mockPythonEvent.mockClear();
 		mockNavigate.mockClear();
-		vi.mocked(toast.warning).mockClear();
 		capturedHandlerRef.current = null;
 		localStorage.clear();
+		useConsentGateStore.setState({ request: null });
 		useAppStore.setState({
 			connectionStatus: "connected",
 			recordingState: "idle",
@@ -190,7 +187,7 @@ describe("App — consent_required push handler (GDPR Art. 9 dictation gate)", (
 		cleanup();
 	});
 
-	it("surfaces the biometric consent toast with a Settings deep-link when consent_field is voice_biometric_consent", async () => {
+	it("opens the consent gate with a dictation retry for voice_biometric_consent", async () => {
 		const { default: App } = await import("@/App");
 		render(<App />);
 
@@ -205,28 +202,47 @@ describe("App — consent_required push handler (GDPR Art. 9 dictation gate)", (
 			consent_field: "voice_biometric_consent",
 		});
 
-		expect(toast.warning).toHaveBeenCalledWith(
-			CONSENT_BODY,
+		const req = useConsentGateStore.getState().request;
+		expect(req).toEqual(
 			expect.objectContaining({
-				action: expect.objectContaining({
-					label: CONSENT_ACTION_LABEL,
-					onClick: expect.any(Function),
-				}),
+				consentField: "voice_biometric_consent",
+				bodyKey: "consentDialog.field.voice_biometric_consent",
+				onAllow: expect.any(Function),
 			}),
 		);
 
-		// Clicking the action deep-links with the consent field so
-		// Settings jumps to the EXACT Voice Biometric toggle.
-		const toastOptions = vi.mocked(toast.warning).mock.calls[0]?.[1] as {
-			action?: { onClick: () => void };
-		};
-		toastOptions.action?.onClick();
-		expect(mockNavigate).toHaveBeenCalledWith("settings", {
-			consentField: "voice_biometric_consent",
+		// The retry (Allow in the dialog) re-invokes dictation start —
+		// the user never leaves the flow to dig through Settings.
+		await act(async () => {
+			await req?.onAllow?.();
 		});
+		expect(mockCall).toHaveBeenCalledWith("toggle_dictation");
 	});
 
-	it("does NOT fire the consent toast for the HuggingFace shape (provider/model, no consent_field)", async () => {
+	it("opens the consent gate for a cloud-provider consent field (cloud_groq_consent)", async () => {
+		const { default: App } = await import("@/App");
+		render(<App />);
+
+		await waitFor(() => {
+			expect(document.querySelector("[data-testid='home-page']")).toBeTruthy();
+		});
+		expect(capturedHandlerRef.current).not.toBeNull();
+
+		capturedHandlerRef.current?.({
+			consent_field: "cloud_groq_consent",
+		});
+
+		const req = useConsentGateStore.getState().request;
+		expect(req).toEqual(
+			expect.objectContaining({
+				consentField: "cloud_groq_consent",
+				bodyKey: "consentDialog.field.cloud_groq_consent",
+				onAllow: expect.any(Function),
+			}),
+		);
+	});
+
+	it("does NOT open the consent gate for the HuggingFace shape (provider/model, no consent_field)", async () => {
 		const { default: App } = await import("@/App");
 		render(<App />);
 
@@ -237,13 +253,13 @@ describe("App — consent_required push handler (GDPR Art. 9 dictation gate)", (
 
 		// The HuggingFace consent event (service/model.py) carries
 		// provider/model — the model-download flow handles it, so the
-		// app-level biometric handler must ignore it.
+		// app-level handler must ignore it (no consent_field).
 		capturedHandlerRef.current?.({
 			provider: "huggingface",
 			model: "some-model",
 			message: "HuggingFace consent required before downloading model.",
 		});
 
-		expect(toast.warning).not.toHaveBeenCalled();
+		expect(useConsentGateStore.getState().request).toBeNull();
 	});
 });

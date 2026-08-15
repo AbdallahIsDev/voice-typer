@@ -63,7 +63,8 @@ describe("useLastResortUnloadedToast", () => {
 		handler?.({ backend: "whisper", timestamp: "2026-08-11T00:00:00Z" });
 
 		expect(toast.warning).toHaveBeenCalledWith(
-			"models.lastResortUnloaded(whisper)",
+			// 2026-08-15: generic title — no backend interpolation.
+			"models.lastResortUnloaded",
 			{
 				id: "asr-last-resort-unloaded:whisper",
 				description: "models.lastResortUnloadedHint",
@@ -82,7 +83,7 @@ describe("useLastResortUnloadedToast", () => {
 		expect(handler).toBeDefined();
 		handler?.({});
 		expect(toast.warning).toHaveBeenCalledWith(
-			"models.lastResortUnloaded(unknown)",
+			"models.lastResortUnloaded",
 			expect.objectContaining({ action: expect.any(Object) }),
 		);
 	});
@@ -119,9 +120,10 @@ describe("useLastResortUnloadedToast", () => {
 		handler?.({ backend: "parakeet" });
 		expect(toast.warning).toHaveBeenCalledTimes(1);
 
-		// The single toast still carries the first backend's label.
+		// The single toast still carries the first backend's dedupe id
+		// (the title itself is generic — 2026-08-15).
 		expect(toast.warning).toHaveBeenCalledWith(
-			"models.lastResortUnloaded(whisper)",
+			"models.lastResortUnloaded",
 			expect.objectContaining({ id: "asr-last-resort-unloaded:whisper" }),
 		);
 	});

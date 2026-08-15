@@ -1,16 +1,16 @@
 /**
- * Unit tests for `usePackDownload`.
+ * Unit tests for `useOfflinePackDownload`.
  *
  * Coverage:
  *   - initial state is `{ status: "idle", error: null, isReady: false }`
  *   - each of the 11 subscribed push events drives the correct state
- *     transition (see the state-machine comment in `usePackDownload.ts`)
+ *     transition (see the state-machine comment in `useOfflinePackDownload.ts`)
  *   - `error` is recorded on failure / crash / corruption events and
- *     cleared on `pack_ready`
+ *     cleared on `offline_pack_ready`
  *   - `isReady` is `true` ONLY when `status === "ready"`
  *   - `worker_unloaded` only transitions from "ready" → "worker-unloaded"
  *     (a stray late-arriving event from any other state is a no-op)
- *   - `pack_verified` / `worker_started` don't downgrade "ready"
+ *   - `offline_pack_verified` / `worker_started` don't downgrade "ready"
  *
  * Strategy: renderHook with `usePythonEvent` mocked to capture the 11
  * per-event handlers. Tests invoke the captured handler with a fake
@@ -28,7 +28,7 @@ vi.mock("@/hooks/usePython", () => ({
 	usePythonEvent: usePythonEventMock,
 }));
 
-import { usePackDownload } from "@/hooks/usePackDownload";
+import { useOfflinePackDownload } from "@/hooks/useOfflinePackDownload";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -62,19 +62,19 @@ afterEach(() => {
 
 // ── Tests ────────────────────────────────────────────────────────────
 
-describe("usePackDownload — initial state", () => {
+describe("useOfflinePackDownload — initial state", () => {
 	it("subscribes to all 11 pack/worker lifecycle push events", () => {
-		renderHook(() => usePackDownload());
+		renderHook(() => useOfflinePackDownload());
 
 		const expectedEvents = [
-			"pack_download_started",
-			"pack_download_progress",
-			"pack_download_completed",
-			"pack_download_failed",
-			"pack_verified",
-			"pack_missing",
-			"pack_corrupt",
-			"pack_ready",
+			"offline_pack_download_started",
+			"offline_pack_download_progress",
+			"offline_pack_download_completed",
+			"offline_pack_download_failed",
+			"offline_pack_verified",
+			"offline_pack_missing",
+			"offline_pack_corrupt",
+			"offline_pack_ready",
 			"worker_started",
 			"worker_crashed",
 			"worker_unloaded",
@@ -87,151 +87,163 @@ describe("usePackDownload — initial state", () => {
 	});
 
 	it("initial state is idle + no error + not ready", () => {
-		const { result } = renderHook(() => usePackDownload());
+		const { result } = renderHook(() => useOfflinePackDownload());
 		expect(result.current.status).toBe("idle");
 		expect(result.current.error).toBeNull();
 		expect(result.current.isReady).toBe(false);
 	});
 });
 
-describe("usePackDownload — download lifecycle transitions", () => {
-	it("pack_download_started → downloading + clears error", () => {
-		const { result } = renderHook(() => usePackDownload());
+describe("useOfflinePackDownload — download lifecycle transitions", () => {
+	it("offline_pack_download_started → downloading + clears error", () => {
+		const { result } = renderHook(() => useOfflinePackDownload());
 
 		// Seed an error first so we can verify it's cleared.
-		act(() => getHandler("pack_download_failed")({ error: "first fail" }));
+		act(() =>
+			getHandler("offline_pack_download_failed")({ error: "first fail" }),
+		);
 		expect(result.current.error).toBe("first fail");
 
-		act(() => getHandler("pack_download_started")());
+		act(() => getHandler("offline_pack_download_started")());
 
 		expect(result.current.status).toBe("downloading");
 		expect(result.current.error).toBeNull();
 		expect(result.current.isReady).toBe(false);
 	});
 
-	it("pack_download_progress is silent (no status change unless from idle)", () => {
-		const { result } = renderHook(() => usePackDownload());
+	it("offline_pack_download_progress is silent (no status change unless from idle)", () => {
+		const { result } = renderHook(() => useOfflinePackDownload());
 
 		// From idle, progress flips to downloading (catches up if
-		// `pack_download_started` was missed — e.g. renderer mounted
+		// `offline_pack_download_started` was missed — e.g. renderer mounted
 		// after the download already began).
-		act(() => getHandler("pack_download_progress")({ percent: 12 }));
+		act(() => getHandler("offline_pack_download_progress")({ percent: 12 }));
 		expect(result.current.status).toBe("downloading");
 
 		// From downloading, progress is a no-op (status stays).
-		act(() => getHandler("pack_download_progress")({ percent: 50 }));
+		act(() => getHandler("offline_pack_download_progress")({ percent: 50 }));
 		expect(result.current.status).toBe("downloading");
 	});
 
-	it("pack_download_completed → verifying", () => {
-		const { result } = renderHook(() => usePackDownload());
-		act(() => getHandler("pack_download_completed")());
+	it("offline_pack_download_completed → verifying", () => {
+		const { result } = renderHook(() => useOfflinePackDownload());
+		act(() => getHandler("offline_pack_download_completed")());
 		expect(result.current.status).toBe("verifying");
 		expect(result.current.isReady).toBe(false);
 	});
 
-	it("pack_download_failed records error from data.error", () => {
-		const { result } = renderHook(() => usePackDownload());
-		act(() => getHandler("pack_download_failed")({ error: "disk full" }));
+	it("offline_pack_download_failed records error from data.error", () => {
+		const { result } = renderHook(() => useOfflinePackDownload());
+		act(() =>
+			getHandler("offline_pack_download_failed")({ error: "disk full" }),
+		);
 		expect(result.current.status).toBe("failed");
 		expect(result.current.error).toBe("disk full");
 		expect(result.current.isReady).toBe(false);
 	});
 
-	it("pack_download_failed falls back to data.message / data.reason", () => {
-		const { result } = renderHook(() => usePackDownload());
-		act(() => getHandler("pack_download_failed")({ message: "timeout" }));
+	it("offline_pack_download_failed falls back to data.message / data.reason", () => {
+		const { result } = renderHook(() => useOfflinePackDownload());
+		act(() =>
+			getHandler("offline_pack_download_failed")({ message: "timeout" }),
+		);
 		expect(result.current.error).toBe("timeout");
 
 		// A different failure event with `reason` should overwrite.
-		act(() => getHandler("pack_download_failed")({ reason: "proxy 502" }));
+		act(() =>
+			getHandler("offline_pack_download_failed")({ reason: "proxy 502" }),
+		);
 		expect(result.current.error).toBe("proxy 502");
 	});
 
-	it("pack_download_failed leaves existing error in place when payload has no string field", () => {
-		const { result } = renderHook(() => usePackDownload());
+	it("offline_pack_download_failed leaves existing error in place when payload has no string field", () => {
+		const { result } = renderHook(() => useOfflinePackDownload());
 		// Seed an error first.
-		act(() => getHandler("pack_download_failed")({ error: "first" }));
+		act(() => getHandler("offline_pack_download_failed")({ error: "first" }));
 		// A second failure with no message field preserves the prior error
 		// (a transient progress event shouldn't wipe a recorded failure
-		// message — see the comment in `usePackDownload.ts`).
-		act(() => getHandler("pack_download_failed")({ code: 42 }));
+		// message — see the comment in `useOfflinePackDownload.ts`).
+		act(() => getHandler("offline_pack_download_failed")({ code: 42 }));
 		expect(result.current.error).toBe("first");
 	});
 });
 
-describe("usePackDownload — pack verification + worker readiness", () => {
-	it("pack_verified transitions idle → worker-starting (pack OK, worker pending)", () => {
-		const { result } = renderHook(() => usePackDownload());
-		act(() => getHandler("pack_verified")());
+describe("useOfflinePackDownload — pack verification + worker readiness", () => {
+	it("offline_pack_verified transitions idle → worker-starting (pack OK, worker pending)", () => {
+		const { result } = renderHook(() => useOfflinePackDownload());
+		act(() => getHandler("offline_pack_verified")());
 		expect(result.current.status).toBe("worker-starting");
 		expect(result.current.isReady).toBe(false);
 	});
 
-	it("pack_verified does NOT downgrade ready (late event is a no-op)", () => {
-		const { result } = renderHook(() => usePackDownload());
-		act(() => getHandler("pack_ready")());
+	it("offline_pack_verified does NOT downgrade ready (late event is a no-op)", () => {
+		const { result } = renderHook(() => useOfflinePackDownload());
+		act(() => getHandler("offline_pack_ready")());
 		expect(result.current.status).toBe("ready");
-		// A stray late-arriving pack_verified must not regress the status.
-		act(() => getHandler("pack_verified")());
+		// A stray late-arriving offline_pack_verified must not regress the status.
+		act(() => getHandler("offline_pack_verified")());
 		expect(result.current.status).toBe("ready");
 		expect(result.current.isReady).toBe(true);
 	});
 
 	it("worker_started transitions idle → worker-starting", () => {
-		const { result } = renderHook(() => usePackDownload());
+		const { result } = renderHook(() => useOfflinePackDownload());
 		act(() => getHandler("worker_started")());
 		expect(result.current.status).toBe("worker-starting");
 		expect(result.current.isReady).toBe(false);
 	});
 
 	it("worker_started does NOT downgrade ready", () => {
-		const { result } = renderHook(() => usePackDownload());
-		act(() => getHandler("pack_ready")());
+		const { result } = renderHook(() => useOfflinePackDownload());
+		act(() => getHandler("offline_pack_ready")());
 		act(() => getHandler("worker_started")());
 		expect(result.current.status).toBe("ready");
 	});
 
-	it("pack_ready is terminal — clears error and sets isReady", () => {
-		const { result } = renderHook(() => usePackDownload());
+	it("offline_pack_ready is terminal — clears error and sets isReady", () => {
+		const { result } = renderHook(() => useOfflinePackDownload());
 		// Seed a failure first.
-		act(() => getHandler("pack_download_failed")({ error: "transient" }));
+		act(() =>
+			getHandler("offline_pack_download_failed")({ error: "transient" }),
+		);
 		expect(result.current.error).toBe("transient");
 
-		// pack_ready clears the error and flips isReady.
-		act(() => getHandler("pack_ready")());
+		// offline_pack_ready clears the error and flips isReady.
+		act(() => getHandler("offline_pack_ready")());
 		expect(result.current.status).toBe("ready");
 		expect(result.current.error).toBeNull();
 		expect(result.current.isReady).toBe(true);
 	});
 });
 
-describe("usePackDownload — pack missing / corrupt (§8.2 / §8.10)", () => {
-	it("pack_missing → missing status", () => {
-		const { result } = renderHook(() => usePackDownload());
-		act(() => getHandler("pack_missing")());
+describe("useOfflinePackDownload — pack missing / corrupt (§8.2 / §8.10)", () => {
+	it("offline_pack_missing → missing status", () => {
+		const { result } = renderHook(() => useOfflinePackDownload());
+		act(() => getHandler("offline_pack_missing")());
 		expect(result.current.status).toBe("missing");
 		expect(result.current.isReady).toBe(false);
 	});
 
-	it("pack_corrupt → corrupt status + records reason", () => {
-		const { result } = renderHook(() => usePackDownload());
-		act(() => getHandler("pack_corrupt")({ reason: "sha256 mismatch" }));
+	it("offline_pack_corrupt → corrupt status + records reason", () => {
+		const { result } = renderHook(() => useOfflinePackDownload());
+		act(() =>
+			getHandler("offline_pack_corrupt")({ reason: "sha256 mismatch" }),
+		);
 		expect(result.current.status).toBe("corrupt");
 		expect(result.current.error).toBe("sha256 mismatch");
 		expect(result.current.isReady).toBe(false);
 	});
 
-	it("pack_corrupt falls back to error / message when reason is absent", () => {
-		const { result } = renderHook(() => usePackDownload());
-		act(() => getHandler("pack_corrupt")({ error: "size mismatch" }));
+	it("offline_pack_corrupt falls back to error / message when reason is absent", () => {
+		const { result } = renderHook(() => useOfflinePackDownload());
+		act(() => getHandler("offline_pack_corrupt")({ error: "size mismatch" }));
 		expect(result.current.error).toBe("size mismatch");
 	});
 });
 
-describe("usePackDownload — worker crash + unload", () => {
+describe("useOfflinePackDownload — worker crash + unload", () => {
 	it("worker_crashed → worker-crashed + records reason", () => {
-		const { result } = renderHook(() => usePackDownload());
+		const { result } = renderHook(() => useOfflinePackDownload());
 		act(() => getHandler("worker_crashed")({ reason: "SIGSEGV" }));
 		expect(result.current.status).toBe("worker-crashed");
 		expect(result.current.error).toBe("SIGSEGV");
@@ -239,16 +251,16 @@ describe("usePackDownload — worker crash + unload", () => {
 	});
 
 	it("worker_unloaded only transitions from ready → worker-unloaded", () => {
-		const { result } = renderHook(() => usePackDownload());
+		const { result } = renderHook(() => useOfflinePackDownload());
 
 		// From idle: stray event is a no-op (defensive — see comment
-		// in usePackDownload.ts about avoiding wiping failed/missing/
+		// in useOfflinePackDownload.ts about avoiding wiping failed/missing/
 		// corrupt status on a late-arriving worker_unloaded).
 		act(() => getHandler("worker_unloaded")());
 		expect(result.current.status).toBe("idle");
 
 		// Go to ready, then unload.
-		act(() => getHandler("pack_ready")());
+		act(() => getHandler("offline_pack_ready")());
 		expect(result.current.status).toBe("ready");
 		act(() => getHandler("worker_unloaded")());
 		expect(result.current.status).toBe("worker-unloaded");
@@ -256,8 +268,8 @@ describe("usePackDownload — worker crash + unload", () => {
 	});
 
 	it("worker_unloaded does not clobber a failed status", () => {
-		const { result } = renderHook(() => usePackDownload());
-		act(() => getHandler("pack_download_failed")({ error: "network" }));
+		const { result } = renderHook(() => useOfflinePackDownload());
+		act(() => getHandler("offline_pack_download_failed")({ error: "network" }));
 		expect(result.current.status).toBe("failed");
 		// A stray worker_unloaded must not wipe the failed status.
 		act(() => getHandler("worker_unloaded")());
@@ -265,26 +277,26 @@ describe("usePackDownload — worker crash + unload", () => {
 	});
 });
 
-describe("usePackDownload — full happy-path sequence", () => {
-	it("download → completed → verified → worker_started → pack_ready", () => {
-		const { result } = renderHook(() => usePackDownload());
+describe("useOfflinePackDownload — full happy-path sequence", () => {
+	it("download → completed → verified → worker_started → offline_pack_ready", () => {
+		const { result } = renderHook(() => useOfflinePackDownload());
 
-		act(() => getHandler("pack_download_started")());
+		act(() => getHandler("offline_pack_download_started")());
 		expect(result.current.status).toBe("downloading");
 
-		act(() => getHandler("pack_download_progress")({ percent: 50 }));
+		act(() => getHandler("offline_pack_download_progress")({ percent: 50 }));
 		expect(result.current.status).toBe("downloading");
 
-		act(() => getHandler("pack_download_completed")());
+		act(() => getHandler("offline_pack_download_completed")());
 		expect(result.current.status).toBe("verifying");
 
-		act(() => getHandler("pack_verified")());
+		act(() => getHandler("offline_pack_verified")());
 		expect(result.current.status).toBe("worker-starting");
 
 		act(() => getHandler("worker_started")());
 		expect(result.current.status).toBe("worker-starting");
 
-		act(() => getHandler("pack_ready")());
+		act(() => getHandler("offline_pack_ready")());
 		expect(result.current.status).toBe("ready");
 		expect(result.current.error).toBeNull();
 		expect(result.current.isReady).toBe(true);

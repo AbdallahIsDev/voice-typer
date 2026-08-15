@@ -85,7 +85,6 @@ const _RENDERER_CALLED_COMMANDS = {
 	// ``_RENDERER_CALLED_COMMANDS`` entry simultaneously.
 	get_model_catalog: true,
 	get_model_status: true,
-	get_prewarm_status: true,
 	get_templates: true,
 	microphone_test_cancel: true,
 	microphone_test_stop: true,
@@ -107,7 +106,6 @@ const _RENDERER_CALLED_COMMANDS = {
 	repaste_last: true,
 	restore_history: true,
 	resume_model_download: true,
-	run_prewarm: true,
 	save_templates: true,
 	undo_last: true,
 	// 12 missing commands added — these ARE in the
@@ -122,7 +120,6 @@ const _RENDERER_CALLED_COMMANDS = {
 	set_esc_cancel_paused: true,
 	microphone_test_start: true,
 	get_volume_backend_status: true,
-	open_prewarm_log: true,
 	onboarding_get_model_options: true,
 	onboarding_get_hotkey_presets: true,
 	// NOTE: ``add_trusted_endpoint`` is intentionally NOT in
@@ -182,9 +179,6 @@ const _SERVER_REGISTRY_MINUS_PYTHON_ONLY = {
 	get_microphones: true,
 	get_volume_backend_status: true,
 	get_model_status: true,
-	get_prewarm_status: true,
-	run_prewarm: true,
-	open_prewarm_log: true,
 	get_vocabulary: true,
 	save_vocabulary: true,
 	get_templates: true,
@@ -231,6 +225,10 @@ const _SERVER_REGISTRY_MINUS_PYTHON_ONLY = {
 	set_esc_cancel_paused: true,
 	force_cancel_transcription: true,
 	transcribe_offline: true,
+	check_offline_pack_update: true, // auto-update feature (docs/auto-update-feature.md)
+	get_prewarm_status: true, // RESTORED 2026-08-14 (About-page Cache Status card — plan §6.3)
+	open_prewarm_log: true, // RESTORED 2026-08-14 (About-page Cache Status card — plan §6.3)
+	run_prewarm: true, // RESTORED 2026-08-14 (§6.3 addendum 2nd half — in-process warm pass)
 	heartbeat: true,
 	relaunch_ack: true,
 	// NOTE: ``tray_click`` and ``shutdown`` are intentionally

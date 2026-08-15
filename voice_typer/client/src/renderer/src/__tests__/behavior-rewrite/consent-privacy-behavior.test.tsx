@@ -310,7 +310,7 @@ function lastSetConfigPayload(): Record<string, unknown> | null {
 describe("About page — updates / help / feedback sections", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
-		// Minimal IPC mock: get_config, get_status, get_prewarm_status
+		// Minimal IPC mock: get_config, get_status
 		// so About doesn't blow up on its initial data fetches.
 		mockCall.mockImplementation((cmd: string) => {
 			switch (cmd) {
@@ -323,16 +323,6 @@ describe("About page — updates / help / feedback sections", () => {
 						device: "cpu",
 						hotkey: "F2",
 						microphone: null,
-					});
-				case "get_prewarm_status":
-					return Promise.resolve({
-						last_run: null,
-						elapsed_s: null,
-						cache_ratio: 0,
-						cache_label: "unknown",
-						cached_bytes: 0,
-						total_bytes: 0,
-						prewarm_running: false,
 					});
 				case "get_status":
 					return Promise.resolve({
@@ -386,12 +376,9 @@ describe("About page — updates / help / feedback sections", () => {
 		);
 		renderWithProviders(<PrewarmAndUpdates />);
 
-		// Wait for the mount-time IPC call (get_prewarm_status) to
-		// settle so the test isn't racing the effect cleanup.
-		await waitFor(() => {
-			expect(mockCall).toHaveBeenCalledWith("get_prewarm_status");
-		});
-		// Flush any pending microtasks.
+		// Prewarm mount-time IPC call was removed when prewarm became a
+		// worker startup phase (plan §6.2 P-1). Flush any pending microtasks
+		// so the effect cleanup settles.
 		await new Promise((r) => setTimeout(r, 0));
 
 		// The "Check for Updates" button must NOT be in the DOM.
@@ -597,16 +584,6 @@ describe("About & Settings — voice biometric consent disclosure", () => {
 						device: "cpu",
 						hotkey: "F2",
 						microphone: null,
-					});
-				case "get_prewarm_status":
-					return Promise.resolve({
-						last_run: null,
-						elapsed_s: null,
-						cache_ratio: 0,
-						cache_label: "unknown",
-						cached_bytes: 0,
-						total_bytes: 0,
-						prewarm_running: false,
 					});
 				case "get_status":
 					return Promise.resolve({

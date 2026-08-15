@@ -1,4 +1,4 @@
-// PackPreparingBanner — small "Preparing offline engine…" line shown in
+// OfflinePackPreparingBanner — small "Preparing offline engine…" line shown in
 // the mic-test / transcription areas when the runtime pack isn't ready
 // yet AND the user has attempted offline transcription.
 //
@@ -30,7 +30,7 @@
 // ── Visibility contract ──────────────────────────────────────────────
 //
 // The banner is shown ONLY when BOTH:
-//   1. `usePackDownload().isReady === false` (pack/worker not ready), AND
+//   1. `useOfflinePackDownload().isReady === false` (pack/worker not ready), AND
 //   2. The user has attempted offline transcription in the current
 //      page (the parent page owns this flag — e.g. Home.tsx sets it
 //      when `handleToggle` is invoked, Microphone.tsx sets it when
@@ -51,7 +51,7 @@
 // that interrupts the user.
 //
 // The `data-pack-status` attribute exposes the underlying
-// `PackStatus` for integration tests + diagnostic scraping (the test
+// `OfflinePackStatus` for integration tests + diagnostic scraping (the test
 // suite can assert on the attribute instead of parsing visible text).
 //
 // ── i18n ─────────────────────────────────────────────────────────────
@@ -63,20 +63,20 @@
 // context as the `data-pack-status` attribute. Sub-agent 14 will add
 // these keys to all 8 locale files.
 
-import type { PackStatus } from "@/hooks/usePackDownload";
+import type { OfflinePackStatus } from "@/hooks/useOfflinePackDownload";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 
-export interface PackPreparingBannerProps {
+export interface OfflinePackPreparingBannerProps {
 	/** When `false`, the banner renders nothing. The parent page is
 	 *  responsible for computing visibility (typically
 	 *  `!isReady && hasAttemptedOfflineTranscription` and optionally
 	 *  `&& !isCloudBackend`). */
 	visible: boolean;
-	/** The current pack/worker status from `usePackDownload().status`.
+	/** The current pack/worker status from `useOfflinePackDownload().status`.
 	 *  Exposed via `data-pack-status` for integration tests + the
 	 *  aria-label so AT users get the diagnostic context. */
-	status: PackStatus;
+	status: OfflinePackStatus;
 	/** Optional extra classes (merged via cn() / tailwind-merge). */
 	className?: string;
 }
@@ -86,11 +86,11 @@ export interface PackPreparingBannerProps {
  * when `visible === false` so the parent's layout doesn't reserve
  * space for a hidden element.
  */
-export function PackPreparingBanner({
+export function OfflinePackPreparingBanner({
 	visible,
 	status,
 	className,
-}: PackPreparingBannerProps) {
+}: OfflinePackPreparingBannerProps) {
 	if (!visible) return null;
 
 	return (

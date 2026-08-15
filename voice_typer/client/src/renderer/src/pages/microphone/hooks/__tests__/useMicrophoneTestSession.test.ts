@@ -51,6 +51,7 @@ vi.mock("@/i18n/i18n", () => ({
 	},
 }));
 
+import { useConsentGateStore } from "@/lib/consentGate";
 import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 // ── Helpers ──────────────────────────────────────────────────────────
 import { useMicrophoneTestSession } from "../useMicrophoneTestSession";
@@ -174,10 +175,12 @@ beforeEach(() => {
 	usePythonEventMock.mockReset();
 	// Default: every IPC returns a success envelope.
 	callMock.mockImplementation(() => Promise.resolve({ success: true }));
+	useConsentGateStore.setState({ request: null });
 });
 
 afterEach(() => {
 	vi.clearAllMocks();
+	useConsentGateStore.setState({ request: null });
 });
 
 describe("useMicrophoneTestSession — initial state", () => {
@@ -301,30 +304,41 @@ describe("useMicrophoneTestSession — startTest lifecycle", () => {
 	});
 });
 describe("useMicrophoneTestSession — biometric consent required (GDPR Art. 9)", () => {
-	it("surfaces the consent snackbar with a Settings deep-link when the backend resolves success=false with 'consent required'", async () => {
+	it("opens the consent gate with a retry when the backend resolves success=false with 'consent required'", async () => {
 		// The backend's ``client.consent_required`` envelope (from
 		// ``_respond_with_error``'s ConsentRequiredError mapping) resolves
 		// as a ``success:false`` result whose message contains
-		// "consent required" — the renderer must surface the consent
-		// prompt + Settings → Privacy deep-link instead of a generic
-		// failure toast.
+		// "consent required" — the renderer must open the unified
+		// point-of-use consent dialog (Allow → persist → retry the full
+		// test start) instead of a generic failure toast.
+		let startCalls = 0;
 		callMock.mockImplementation((cmd: string) => {
-			if (cmd === "microphone_test_start")
+			if (cmd === "microphone_test_start") {
+				startCalls += 1;
+				if (startCalls === 1)
+					return Promise.resolve({
+						success: false,
+						message:
+							"voice biometric consent required to start microphone test",
+						duration: 0,
+						sample_rate: 0,
+						// Structured field the level-monitor / mic-test
+						// handlers attach — names the EXACT Settings toggle.
+						code: "client.consent_required",
+						consent_field: "voice_biometric_consent",
+					});
+				// Retry (Allow in the dialog): the test now starts.
 				return Promise.resolve({
-					success: false,
-					message: "voice biometric consent required to start microphone test",
-					duration: 0,
-					sample_rate: 0,
-					// Structured field the level-monitor / mic-test
-					// handlers attach — names the EXACT Settings toggle.
-					code: "client.consent_required",
-					consent_field: "voice_biometric_consent",
+					success: true,
+					message: "ok",
+					duration: 10,
+					sample_rate: 16000,
 				});
+			}
 			return Promise.resolve({ success: true });
 		});
 
-		const onOpenPrivacySettings = vi.fn();
-		const args = { ...makeHookArgs(), onOpenPrivacySettings };
+		const args = makeHookArgs();
 		const { result } = renderHook(() => useMicrophoneTestSession(args));
 
 		await act(async () => {
@@ -333,31 +347,27 @@ describe("useMicrophoneTestSession — biometric consent required (GDPR Art. 9)"
 
 		// testRunning stays false — the test did not start.
 		expect(result.current.testRunning).toBe(false);
-		// Consent snackbar surfaced with the deep-link action.
-		expect(args.showSnack).toHaveBeenCalledWith(
-			"microphone.consentRequired",
-			"warning",
+		// The unified consent gate opened with the exact field + a
+		// retry closure.
+		const req = useConsentGateStore.getState().request;
+		expect(req).toEqual(
 			expect.objectContaining({
-				action: expect.objectContaining({
-					label: "microphone.consentRequiredAction",
-				}),
+				consentField: "voice_biometric_consent",
+				bodyKey: "consentDialog.field.voice_biometric_consent",
+				onAllow: expect.any(Function),
 			}),
 		);
-		// Clicking the action deep-links with the consent_field so
-		// Settings can scroll to the EXACT toggle.
-		const action = args.showSnack.mock.calls[0]?.[2]?.action;
-		expect(action).toBeDefined();
-		action?.onClick();
-		expect(onOpenPrivacySettings).toHaveBeenCalledTimes(1);
-		expect(onOpenPrivacySettings).toHaveBeenCalledWith(
-			"voice_biometric_consent",
-		);
+		// The retry re-runs the FULL start — the test actually starts.
+		await act(async () => {
+			await req?.onAllow?.();
+		});
+		expect(result.current.testRunning).toBe(true);
 	});
 
-	it("defaults the deep-link consent field to voice_biometric_consent when the resolved envelope omits it", async () => {
+	it("defaults the consent field to voice_biometric_consent when the resolved envelope omits it", async () => {
 		// Older backends / WS-path envelopes may resolve a plain
 		// ``success:false`` + message without the structured
-		// ``consent_field`` — the deep-link must still name the
+		// ``consent_field`` — the gate must still name the
 		// voice-biometric toggle (the only field these gates enforce).
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "microphone_test_start")
@@ -370,8 +380,7 @@ describe("useMicrophoneTestSession — biometric consent required (GDPR Art. 9)"
 			return Promise.resolve({ success: true });
 		});
 
-		const onOpenPrivacySettings = vi.fn();
-		const args = { ...makeHookArgs(), onOpenPrivacySettings };
+		const args = makeHookArgs();
 		const { result } = renderHook(() => useMicrophoneTestSession(args));
 
 		await act(async () => {
@@ -379,19 +388,16 @@ describe("useMicrophoneTestSession — biometric consent required (GDPR Art. 9)"
 		});
 
 		expect(result.current.testRunning).toBe(false);
-		const action = args.showSnack.mock.calls[0]?.[2]?.action;
-		expect(action).toBeDefined();
-		action?.onClick();
-		expect(onOpenPrivacySettings).toHaveBeenCalledWith(
-			"voice_biometric_consent",
+		expect(useConsentGateStore.getState().request).toEqual(
+			expect.objectContaining({ consentField: "voice_biometric_consent" }),
 		);
 	});
 
-	it("surfaces the consent snackbar (without action) when the IPC throws an Error with code client.consent_required", async () => {
+	it("opens the consent gate when the IPC throws an Error with code client.consent_required", async () => {
 		// Electron path: the ``type:"error"`` envelope is thrown as an
 		// Error with ``code`` preserved by ``usePython.call``. The hook
-		// must detect ``code === "client.consent_required"`` and show the
-		// consent prompt instead of the generic failure toast.
+		// must detect ``code === "client.consent_required"`` and open
+		// the consent gate instead of the generic failure toast.
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "microphone_test_start") {
 				const err = new Error(
@@ -413,20 +419,18 @@ describe("useMicrophoneTestSession — biometric consent required (GDPR Art. 9)"
 		});
 
 		expect(result.current.testRunning).toBe(false);
-		expect(args.showSnack).toHaveBeenCalledWith(
-			"microphone.consentRequired",
-			"warning",
-			// No ``onOpenPrivacySettings`` prop → no action button, but
-			// the consent message still surfaces.
-			expect.objectContaining({ action: undefined }),
+		expect(useConsentGateStore.getState().request).toEqual(
+			expect.objectContaining({
+				consentField: "voice_biometric_consent",
+				onAllow: expect.any(Function),
+			}),
 		);
 	});
 
-	it("forwards the consent_field from a thrown client.consent_required Error to the deep-link callback", async () => {
-		// Same as above, but with ``onOpenPrivacySettings`` wired — the
-		// structured ``consent_field`` (preserved by usePython.call)
-		// must reach the deep-link so Settings scrolls to the exact
-		// toggle.
+	it("forwards the consent_field from a thrown client.consent_required Error to the consent gate", async () => {
+		// Same as above — the structured ``consent_field`` (preserved
+		// by usePython.call) must reach the gate so the dialog + the
+		// Settings deep-link target the exact toggle.
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "microphone_test_start") {
 				const err = new Error(
@@ -440,19 +444,15 @@ describe("useMicrophoneTestSession — biometric consent required (GDPR Art. 9)"
 			return Promise.resolve({ success: true });
 		});
 
-		const onOpenPrivacySettings = vi.fn();
-		const args = { ...makeHookArgs(), onOpenPrivacySettings };
+		const args = makeHookArgs();
 		const { result } = renderHook(() => useMicrophoneTestSession(args));
 
 		await act(async () => {
 			await result.current.startTest();
 		});
 
-		const action = args.showSnack.mock.calls[0]?.[2]?.action;
-		expect(action).toBeDefined();
-		action?.onClick();
-		expect(onOpenPrivacySettings).toHaveBeenCalledWith(
-			"voice_biometric_consent",
+		expect(useConsentGateStore.getState().request).toEqual(
+			expect.objectContaining({ consentField: "voice_biometric_consent" }),
 		);
 	});
 

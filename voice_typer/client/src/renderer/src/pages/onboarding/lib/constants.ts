@@ -8,6 +8,7 @@ export const STEP_TITLE_KEY: Record<string, string> = {
 	Microphone: "onboarding.micTitle",
 	Permissions: "onboarding.permissionsTitle",
 	Hotkey: "onboarding.hotkeyTitle",
+	Consent: "onboarding.consentTitle",
 	Model: "onboarding.modelTitle",
 	Done: "onboarding.completeTitle",
 };

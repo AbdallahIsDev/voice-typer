@@ -16,9 +16,9 @@ import { useCallback, useRef, useState } from "react";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
-import { PackPreparingBanner } from "@/components/feedback/PackPreparingBanner";
+import { OfflinePackPreparingBanner } from "@/components/feedback/OfflinePackPreparingBanner";
 import { Spinner } from "@/components/feedback/Spinner";
-import { usePackDownload } from "@/hooks/usePackDownload";
+import { useOfflinePackDownload } from "@/hooks/useOfflinePackDownload";
 import { t } from "@/i18n/i18n";
 import { ActiveMicrophoneCard } from "./microphone/components/ActiveMicrophoneCard";
 import { AvailableMicrophonesList } from "./microphone/components/AvailableMicrophonesList";
@@ -66,7 +66,7 @@ export default function MicrophonePage() {
 	// the pack (§4.9: "RMS meter works; VAD 'smartness' degrades
 	// silently"), so the banner is purely informational — it does NOT
 	// block the test.
-	const { status: packStatus, isReady: packReady } = usePackDownload();
+	const { status: packStatus, isReady: packReady } = useOfflinePackDownload();
 	// Tracks whether the user has attempted an action that would
 	// normally require the pack (startTest or selectMicrophone). The
 	// banner is gated on this so a fresh page load with a missing pack
@@ -216,7 +216,7 @@ export default function MicrophonePage() {
 					itself works without the pack (RMS only — §4.9), so
 					this banner is purely informational; it does NOT block
 					the Start Test button. */}
-				<PackPreparingBanner
+				<OfflinePackPreparingBanner
 					visible={!packReady && hasAttempted}
 					status={packStatus}
 				/>

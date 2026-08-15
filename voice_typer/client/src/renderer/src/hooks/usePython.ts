@@ -187,15 +187,15 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	//
 	// Pack download lifecycle (silent progress + visible started/
 	// completed/failed):
-	"pack_download_started",
-	"pack_download_progress",
-	"pack_download_completed",
-	"pack_download_failed",
+	"offline_pack_download_started",
+	"offline_pack_download_progress",
+	"offline_pack_download_completed",
+	"offline_pack_download_failed",
 	// Pack integrity state:
-	"pack_verified",
-	"pack_missing",
-	"pack_corrupt",
-	"pack_ready",
+	"offline_pack_verified",
+	"offline_pack_missing",
+	"offline_pack_corrupt",
+	"offline_pack_ready",
 	// Worker process lifecycle:
 	"worker_started",
 	"worker_crashed",

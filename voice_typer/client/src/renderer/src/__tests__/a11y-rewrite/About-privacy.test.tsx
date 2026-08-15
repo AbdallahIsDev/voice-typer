@@ -64,16 +64,6 @@ describe("About privacy disclosure — rewrite of test_about_page_has_privacy_se
 						theme_mode: "system",
 						onboarding_completed: true,
 					});
-				case "get_prewarm_status":
-					return Promise.resolve({
-						last_run: null,
-						elapsed_s: null,
-						cache_ratio: 0,
-						cache_label: "unknown",
-						cached_bytes: 0,
-						total_bytes: 0,
-						prewarm_running: false,
-					});
 				case "get_status":
 					return Promise.resolve({
 						status: "idle",

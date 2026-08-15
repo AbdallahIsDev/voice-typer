@@ -25,6 +25,7 @@ import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
+import ConsentStep from "./onboarding/components/ConsentStep";
 import DoneStep from "./onboarding/components/DoneStep";
 import HotkeyStep from "./onboarding/components/HotkeyStep";
 import MicrophoneStep from "./onboarding/components/MicrophoneStep";
@@ -85,6 +86,10 @@ export default function OnboardingPage({
 		setCloudApiKey,
 		cloudConsent,
 		setCloudConsent,
+		// Consent step: consolidated grant of every consent flag.
+		consents,
+		setConsentField,
+		handleAgreeToAll,
 	} = useOnboardingWizard(onComplete);
 
 	const {
@@ -367,6 +372,14 @@ export default function OnboardingPage({
 						setSelectedHotkey={setSelectedHotkey}
 						onTestHotkey={handleTestHotkey}
 						permissionsTest={permissionsTest}
+					/>
+				)}
+				{step.step_name === "Consent" && (
+					<ConsentStep
+						headingRef={headingRef}
+						consents={consents}
+						onToggleConsent={setConsentField}
+						onAgreeToAll={handleAgreeToAll}
 					/>
 				)}
 				{step.step_name === "Model" && (

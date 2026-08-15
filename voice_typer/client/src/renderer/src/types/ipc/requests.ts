@@ -272,6 +272,22 @@ export interface GetVolumeBackendStatusRequest {
 	data?: Record<string, unknown>;
 }
 
+// RESTORED 2026-08-14 verbatim from 5a319872 (REQUEST types never
+// actually changed): the About-page Cache Status card is a user-facing
+// product feature (plan §6.3 addendum) — `get_prewarm_status` +
+// `open_prewarm_log` are back in the Python registry, the TS
+// `ALLOWED_COMMANDS` Set, and the Rust `allowed_commands()` literal.
+// `run_prewarm` was ALSO restored the same day (§6.3 addendum second
+// half) but re-implemented server-side: the Python handler no longer
+// spawns the removed standalone-prewarm subprocess — it re-runs the
+// worker's warm phase in-process (warm_imports_for_worker on a daemon
+// thread, see prewarm/status.run_prewarm_now). The wire shape is
+// unchanged from 5a319872: `{ type: "run_prewarm" }`.
+export interface RunPrewarmRequest {
+	type: "run_prewarm";
+	data?: Record<string, unknown>;
+}
+
 export interface OpenPrewarmLogRequest {
 	type: "open_prewarm_log";
 	data?: Record<string, unknown>;
@@ -323,6 +339,26 @@ export interface TranscribeOfflineRequest {
 		sample_rate: number;
 		language: string | null;
 	};
+}
+
+// Auto-update feature (docs/auto-update-feature.md): `check_offline_pack_update`
+// — the runtime-pack update check. The renderer's `useNetworkOnline`
+// hook fires it on the false → true `online` transition (and Settings
+// "Check now" buttons can invoke it via `triggerRecheck`). The Python
+// handler (`_handle_check_offline_pack_update` in `server/ipc/lifecycle.py`)
+// delegates to `update_check.handle_check_offline_pack_update_ipc`: fetches
+// the remote `pack-manifest.json` from GitHub Releases (C-DATA-1
+// category-2 allowed update check) and, if a newer pack exists,
+// triggers a consent-gated background download
+// (`config.offline_pack_consent` must be true — C-DATA-1 category-3
+// model-download consent).
+//
+// Registered in the Python `_COMMAND_REGISTRY` +
+// the TS `ALLOWED_COMMANDS` Set + the Rust `allowed_commands()`
+// literal in lockstep.
+export interface CheckPackUpdateRequest {
+	type: "check_offline_pack_update";
+	data?: Record<string, unknown>;
 }
 
 // ``GetDiskInfoRequest`` (phantom): the ``get_disk_info``
@@ -467,11 +503,6 @@ export interface ResumeModelDownloadRequest {
 	data?: Record<string, unknown>;
 }
 
-export interface RunPrewarmRequest {
-	type: "run_prewarm";
-	data?: Record<string, unknown>;
-}
-
 export interface SaveTemplatesRequest {
 	type: "save_templates";
 	data?: Record<string, unknown>;
@@ -523,6 +554,7 @@ export type PythonRequest =
 	| GetModelCatalogRequest
 	| GetModelStatusRequest
 	| GetPrewarmStatusRequest
+	| RunPrewarmRequest
 	| GetTemplatesRequest
 	| MicrophoneTestCancelRequest
 	| MicrophoneTestStopRequest
@@ -541,11 +573,15 @@ export type PythonRequest =
 	| OnboardingStartRequest
 	// phantom ``OpenModelsFolderRequest`` removed —
 	// same reason as ``GetDiskInfoRequest`` above.
+	// RESTORED 2026-08-14: ``OpenPrewarmLogRequest`` (see the
+	// restoration note next to its interface above).
+	// auto-update feature — see `CheckPackUpdateRequest` above.
+	| CheckPackUpdateRequest
+	| OpenPrewarmLogRequest
 	| PauseModelDownloadRequest
 	| RepasteLastRequest
 	| RestoreHistoryRequest
 	| ResumeModelDownloadRequest
-	| RunPrewarmRequest
 	| SaveTemplatesRequest
 	| UndoLastRequest
 	// 12 missing interfaces added — commands that ARE in
@@ -560,7 +596,6 @@ export type PythonRequest =
 	| SetEscCancelPausedRequest
 	| MicrophoneTestStartRequest
 	| GetVolumeBackendStatusRequest
-	| OpenPrewarmLogRequest
 	| OnboardingGetModelOptionsRequest
 	| OnboardingGetHotkeyPresetsRequest
 	| AddTrustedEndpointRequest

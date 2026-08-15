@@ -1044,6 +1044,8 @@
 		},
 		"fastStartup": "Schnellstart (Prewarm)",
 		"fastStartupDescription": "Wärmt den OS-Dateicache beim Start, damit das Sprachmodell in Sekunden statt 30+ Sekunden lädt. Deaktivieren Sie dies, wenn Sie den Festplatten-/RAM-Speicherplatz für andere Apps benötigen. Sie können das Modell bei Bedarf unter Einstellungen → Fehlerbehebung → Cache-Status erneut vorwärmen.",
+		"offlinePackConsent": "Offline-Engine-Paket herunterladen",
+		"offlinePackConsentDescription": "Erlaubt den Hintergrund-Download der Offline-Engine (Spracherkennungsmodelle) von GitHub Releases. Nur aktivieren, wenn Sie nach einer Neuinstallation Offline-Diktat wünschen; der Download startet erst nach Aktivierung.",
 		"keyring": {
 			"secure": "Sicher",
 			"plaintext": "Klartext",
@@ -1098,8 +1100,8 @@
 		"errors": {
 			"unknown": "Unbekannter Fehler"
 		},
-		"lastResortUnloaded": "Das {backend}-Modell ist nicht geladen.",
-		"lastResortUnloadedHint": "Öffne die Modellseite und klicke vor der Verwendung auf Herunterladen.",
+		"lastResortUnloaded": "Das Modell ist nicht geladen.",
+		"lastResortUnloadedHint": "Öffne die Modellseite, um ein Modell herunterzuladen.",
 		"snack": {
 			"parakeetDepsRequired": "Abhängigkeiten für Parakeet erforderlich. Zuerst herunterladen.",
 			"depsRequiredName": "Abhängigkeiten für {name} erforderlich. Zuerst herunterladen.",
@@ -1449,6 +1451,8 @@
 		"step1Item": "Wählen Sie Ihr Mikrofon",
 		"step2Item": "Tastatur-Überwachungsberechtigung erteilen",
 		"step3Item": "Tastenkombination auswählen",
+		"consentTitle": "Datenschutz & Zustimmung",
+		"consentDescription": "Wählen Sie, womit Sie einverstanden sind. Alles ist standardmäßig deaktiviert — Sie können dies jederzeit unter Einstellungen → Datenschutz ändern.",
 		"micTitle": "Wählen Sie Ihr Mikrofon",
 		"micDescription": "Wählen Sie das Mikrofon, das Sie für die Diktatfunktion verwenden möchten. Sie können dies später in den Einstellungen ändern.",
 		"micSelectAria": "Mikrofon auswählen",
@@ -1504,8 +1508,9 @@
 		"permissionsInstructionsLinuxStep3": "Melden Sie sich ab und wieder an (oder starten Sie neu), damit die Gruppenänderung wirksam wird",
 		"modelOption": "{description} ● {size} ({speed})",
 		"permissionsCheckFailed": "Berechtigung konnte nicht geprüft werden — klicken Sie auf Aktualisieren, um es erneut zu versuchen.",
-		"step4Item": "Transkriptionsmodell auswählen",
-		"step5Item": "Einrichtung abschließen",
+		"step4Item": "Datenschutzzustimmungen wählen",
+		"step5Item": "Transkriptionsmodell auswählen",
+		"step6Item": "Einrichtung abschließen",
 		"refreshMics": "Mikrofone aktualisieren",
 		"noMicsHint": "Verbinden Sie ein Mikrofon oder überprüfen Sie die Mikrofonberechtigung Ihres Betriebssystems und klicken Sie dann auf Aktualisieren.",
 		"modelDownloadingHint": "Das Modell wird im Hintergrund heruntergeladen — Sie können die App währenddessen nutzen.",
@@ -1913,6 +1918,27 @@
 	"state": {
 		"app": {
 			"starting": "Wird gestartet..."
+		}
+	},
+	"pack": {
+		"preparingOfflineEngine": "Offline-Engine wird vorbereitet…",
+		"preparingOfflineEngineAria": "Offline-Engine wird vorbereitet. Status: {status}"
+	},
+	"consentDialog": {
+		"title": "Zustimmung erforderlich",
+		"allow": "Zulassen",
+		"cancel": "Abbrechen",
+		"openSettings": "Einstellungen öffnen",
+		"persistFailed": "Ihre Zustimmung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+		"retryFailed": "Zustimmung gespeichert, aber die Aktion konnte nicht automatisch wiederholt werden. Bitte versuchen Sie es erneut.",
+		"field": {
+			"voice_biometric_consent": "Für die Aufnahme ist die Zustimmung zur Stimmbiometrie erforderlich. Ihre Stimme wird als biometrisches Datum verarbeitet (DSGVO Art. 9). Aufnahme zulassen?",
+			"huggingface_consent": "Modell-Downloads von Hugging Face geben Ihre IP-Adresse an ein US-Unternehmen weiter (Hugging Face, Inc.). Audio wird nie gesendet — nur Modellgewichte. Downloads zulassen?",
+			"cloud_openai_consent": "Cloud-Transkription sendet Ihr Audio zur Transkription an OpenAI. Die Datenschutzrichtlinie von OpenAI gilt für das gesendete Audio. Zulassen?",
+			"cloud_groq_consent": "Cloud-Transkription sendet Ihr Audio zur Transkription an Groq. Die Datenschutzrichtlinie von Groq gilt für das gesendete Audio. Zulassen?",
+			"cloud_deepgram_consent": "Cloud-Transkription sendet Ihr Audio zur Transkription an Deepgram. Die Datenschutzrichtlinie von Deepgram gilt für das gesendete Audio. Zulassen?",
+			"llm_polish_consent": "Die LLM-Textverbesserung sendet Ihren transkribierten Text zur Korrektur von Grammatik und Zeichensetzung an den konfigurierten LLM-Anbieter. Zulassen?",
+			"offline_pack_consent": "Das Offline-Engine-Paket (~180 MB) wird einmalig vom Release-Server heruntergeladen und ermöglicht vollständig lokale Transkription. Download zulassen?"
 		}
 	}
 }

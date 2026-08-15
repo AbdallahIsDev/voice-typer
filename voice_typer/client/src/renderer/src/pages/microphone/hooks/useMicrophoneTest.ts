@@ -22,11 +22,11 @@ import {
 	useState,
 } from "react";
 import type { AudioPreset } from "@/components/microphone/AudioPresetSelector";
-import { useNavigation } from "@/hooks/useNavigation";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
-import { showConsentRequiredSnack } from "@/lib/consent";
+import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
+import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 
 import type { TestResultQuality } from "../lib/types";
@@ -96,19 +96,6 @@ export function useMicrophoneTest({
 }: UseMicrophoneTestOptions): UseMicrophoneTestResult {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
-	// Deep-link for the ``client.consent_required`` error path —
-	// takes the user to Settings and scrolls to + highlights the
-	// EXACT consent toggle named by the backend envelope's
-	// ``consent_field`` (Settings.tsx consumes the navigate option
-	// via ``pendingConsentField`` and jumps to the Privacy tab).
-	// Memoized so the session hook's ``startTest`` (which lists
-	// ``onOpenPrivacySettings`` as a dep) stays stable across
-	// renders — ``navigate`` is a stable zustand action.
-	const { navigate } = useNavigation();
-	const openPrivacySettings = useCallback(
-		(consentField?: string) => navigate("settings", { consentField }),
-		[navigate],
-	);
 
 	// Fix 15: user-configurable test recording duration (3–30s).
 	const [testDurationSec, setTestDurationSec] = useState(10);
@@ -132,16 +119,25 @@ export function useMicrophoneTest({
 	// loop can imperatively update the ``LevelBar``'s fill div without
 	// triggering parent re-renders at 30 Hz.
 	// Level-monitor consent refusal (a race: consent revoked between the
-	// renderer gate and the IPC) surfaces the same consent snackbar +
-	// exact-toggle deep-link as the mic-test path (shared helper in
-	// lib/consent.ts).
+	// renderer gate and the IPC) opens the unified point-of-use consent
+	// dialog — Allow → persists the consent → restarts the level
+	// monitor; "Open Settings" deep-links to the exact toggle (the
+	// dialog's built-in secondary action, replacing the old snackbar).
 	const handleLevelMonitorConsentRequired = useCallback(
 		(consentField?: string) => {
-			showConsentRequiredSnack(showSnack, t, () =>
-				navigate("settings", { consentField }),
-			);
+			const field = consentField ?? VOICE_BIOMETRIC_CONSENT_FIELD;
+			openConsentGate({
+				consentField: field,
+				bodyKey: consentBodyKey(field),
+				// Retry after granting: restart the level monitor (the
+				// consent race is resolved once the flag is persisted).
+				onAllow: () =>
+					call("level_monitor_start", {
+						mic_id: config?.microphone ?? null,
+					}),
+			});
 		},
-		[showSnack, navigate],
+		[call, config?.microphone],
 	);
 
 	const levelMonitor = useMicrophoneLevelMonitor({
@@ -172,7 +168,6 @@ export function useMicrophoneTest({
 		stopPlayback: playback.stopPlayback,
 		testRunningRef,
 		selectMicrophoneRef,
-		onOpenPrivacySettings: openPrivacySettings,
 	});
 
 	// Trivial UI handlers — pure pass-throughs to ``updateConfig``.

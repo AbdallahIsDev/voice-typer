@@ -494,32 +494,32 @@ export interface MicLevelEvent {
 // here so the host does not silently drop the frames. Pinned by
 // `tests/test_event_types_parity.py`.
 
-/** Pack download lifecycle — emitted by `voice_typer/server/service/pack.py`
+/** Offline-pack download lifecycle — emitted by `voice_typer/server/service/offline_pack.py`
  *  when a runtime-pack download begins. Payload mirrors the model-download
  *  `download_progress` event shape so the existing `useModelDownload` UI
- *  pattern can be reused by a separate `usePackDownload` hook.
+ *  pattern can be reused by a separate `useOfflinePackDownload` hook.
  *
- *  Wire shape: `{ "type": "pack_download_started", "data": {
+ *  Wire shape: `{ "type": "offline_pack_download_started", "data": {
  *      "version": "<semver>", "url": "<github-releases-url>",
  *      "total_bytes": <int> } }`. */
-export interface PackDownloadStartedEvent {
-	type: "pack_download_started";
+export interface OfflinePackDownloadStartedEvent {
+	type: "offline_pack_download_started";
 	data: { version: string; url: string; total_bytes: number };
 }
 
 /** Pack download progress (silent — no UI surface today). Emitted at
  *  ~1 Hz while the pack is downloading. The renderer may log this for
  *  diagnostics; no user-visible component subscribes (the
- *  `usePackDownload` hook surfaces a coarser progress bar via
- *  `pack_download_completed` + the `progress` field on
- *  `pack_download_started`'s sibling events).
+ *  `useOfflinePackDownload` hook surfaces a coarser progress bar via
+ *  `offline_pack_download_completed` + the `progress` field on
+ *  `offline_pack_download_started`'s sibling events).
  *
- *  Wire shape: `{ "type": "pack_download_progress", "data": {
+ *  Wire shape: `{ "type": "offline_pack_download_progress", "data": {
  *      "version": "<semver>", "progress": <0-100>,
  *      "downloaded_bytes": <int>, "total_bytes": <int>,
  *      "speed_bytes_per_sec": <int>, "eta_seconds": <int> } }`. */
-export interface PackDownloadProgressEvent {
-	type: "pack_download_progress";
+export interface OfflinePackDownloadProgressEvent {
+	type: "offline_pack_download_progress";
 	data: {
 		version: string;
 		progress: number;
@@ -531,14 +531,14 @@ export interface PackDownloadProgressEvent {
 }
 
 /** Pack download completed — emitted when the download finishes
- *  (verification is the NEXT step; see `pack_verified` /
- *  `pack_corrupt`). Payload carries the computed SHA256 so the
+ *  (verification is the NEXT step; see `offline_pack_verified` /
+ *  `offline_pack_corrupt`). Payload carries the computed SHA256 so the
  *  renderer can display it in the About page's "Pack integrity" card.
  *
- *  Wire shape: `{ "type": "pack_download_completed", "data": {
+ *  Wire shape: `{ "type": "offline_pack_download_completed", "data": {
  *      "version": "<semver>", "sha256": "<hex>" } }`. */
-export interface PackDownloadCompletedEvent {
-	type: "pack_download_completed";
+export interface OfflinePackDownloadCompletedEvent {
+	type: "offline_pack_download_completed";
 	data: { version: string; sha256: string };
 }
 
@@ -547,11 +547,11 @@ export interface PackDownloadCompletedEvent {
  *  rate-limit backoff). The renderer surfaces a tray notification +
  *  retry button.
  *
- *  Wire shape: `{ "type": "pack_download_failed", "data": {
+ *  Wire shape: `{ "type": "offline_pack_download_failed", "data": {
  *      "version": "<semver>", "reason": "<short-code>",
  *      "attempts": <int> } }`. */
-export interface PackDownloadFailedEvent {
-	type: "pack_download_failed";
+export interface OfflinePackDownloadFailedEvent {
+	type: "offline_pack_download_failed";
 	data: { version: string; reason: string; attempts: number };
 }
 
@@ -559,10 +559,10 @@ export interface PackDownloadFailedEvent {
  *  notarization ticket) both pass. The renderer's "Pack status" badge
  *  flips green.
  *
- *  Wire shape: `{ "type": "pack_verified", "data": {
+ *  Wire shape: `{ "type": "offline_pack_verified", "data": {
  *      "version": "<semver>", "sha256": "<hex>" } }`. */
-export interface PackVerifiedEvent {
-	type: "pack_verified";
+export interface OfflinePackVerifiedEvent {
+	type: "offline_pack_verified";
 	data: { version: string; sha256: string };
 }
 
@@ -572,10 +572,10 @@ export interface PackVerifiedEvent {
  *  cleaner / AV quarantined it — §8.10). The renderer prompts the user
  *  to download.
  *
- *  Wire shape: `{ "type": "pack_missing", "data": {
+ *  Wire shape: `{ "type": "offline_pack_missing", "data": {
  *      "version": "<semver>", "path": "<pack-path>" } }`. */
-export interface PackMissingEvent {
-	type: "pack_missing";
+export interface OfflinePackMissingEvent {
+	type: "offline_pack_missing";
 	data: { version: string; path: string };
 }
 
@@ -584,11 +584,11 @@ export interface PackMissingEvent {
  *  integrity check fails. The renderer surfaces a "Pack corrupt —
  *  re-download?" prompt.
  *
- *  Wire shape: `{ "type": "pack_corrupt", "data": {
+ *  Wire shape: `{ "type": "offline_pack_corrupt", "data": {
  *      "version": "<semver>", "path": "<pack-path>",
  *      "reason": "<sha256_mismatch|signature_failed|...>" } }`. */
-export interface PackCorruptEvent {
-	type: "pack_corrupt";
+export interface OfflinePackCorruptEvent {
+	type: "offline_pack_corrupt";
 	data: { version: string; path: string; reason: string };
 }
 
@@ -597,16 +597,16 @@ export interface PackCorruptEvent {
  *  "Offline engine" status flips to "Ready"; queued `transcribe_offline`
  *  requests are now dispatched.
  *
- *  Wire shape: `{ "type": "pack_ready", "data": {
+ *  Wire shape: `{ "type": "offline_pack_ready", "data": {
  *      "version": "<semver>", "worker_pid": <int> } }`. */
-export interface PackReadyEvent {
-	type: "pack_ready";
+export interface OfflinePackReadyEvent {
+	type: "offline_pack_ready";
 	data: { version: string; worker_pid: number };
 }
 
 /** Worker started — the worker process has spawned and completed its
  *  WS handshake with the slim core. Prewarm is NOT done yet (see
- *  `pack_ready` for that signal).
+ *  `offline_pack_ready` for that signal).
  *
  *  Wire shape: `{ "type": "worker_started", "data": {
  *      "pid": <int>, "version": "<semver>" } }`. */
@@ -724,14 +724,14 @@ export type PythonPushEvent =
 	// §7.4 event — `transcribe_offline` — is a REQUEST, so it
 	// lives in `PythonRequest` (requests.ts), NOT in this union.
 	// Pinned by `tests/test_event_types_parity.py`.
-	| PackDownloadStartedEvent
-	| PackDownloadProgressEvent
-	| PackDownloadCompletedEvent
-	| PackDownloadFailedEvent
-	| PackVerifiedEvent
-	| PackMissingEvent
-	| PackCorruptEvent
-	| PackReadyEvent
+	| OfflinePackDownloadStartedEvent
+	| OfflinePackDownloadProgressEvent
+	| OfflinePackDownloadCompletedEvent
+	| OfflinePackDownloadFailedEvent
+	| OfflinePackVerifiedEvent
+	| OfflinePackMissingEvent
+	| OfflinePackCorruptEvent
+	| OfflinePackReadyEvent
 	| WorkerStartedEvent
 	| WorkerCrashedEvent
 	| WorkerUnloadedEvent
