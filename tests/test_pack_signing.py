@@ -35,7 +35,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from voice_typer.server.service import pack
+from voice_typer.server.service import offline_pack
 
 
 class TestWindowsSigning:
@@ -43,28 +43,28 @@ class TestWindowsSigning:
 
     def test_returns_none_on_non_windows(self, monkeypatch):
         monkeypatch.setattr(platform, "system", lambda: "Linux")
-        assert pack.verify_pack_signature_windows(Path("/fake/worker.exe")) is None
+        assert offline_pack.verify_offline_pack_signature_windows(Path("/fake/worker.exe")) is None
 
     def test_returns_none_on_macos(self, monkeypatch):
         monkeypatch.setattr(platform, "system", lambda: "Darwin")
-        assert pack.verify_pack_signature_windows(Path("/fake/worker.exe")) is None
+        assert offline_pack.verify_offline_pack_signature_windows(Path("/fake/worker.exe")) is None
 
     def test_wintrust_unavailable_returns_none(self, monkeypatch):
         """When ``wintrust.dll`` can't be loaded, returns None."""
         monkeypatch.setattr(platform, "system", lambda: "Windows")
         # Make the internal helper return None (no wintrust).
-        monkeypatch.setattr(pack, "_wintrust_verify", lambda c, p: None)
-        assert pack.verify_pack_signature_windows(Path("/fake/worker.exe")) is None
+        monkeypatch.setattr(offline_pack, "_wintrust_verify", lambda c, p: None)
+        assert offline_pack.verify_offline_pack_signature_windows(Path("/fake/worker.exe")) is None
 
     def test_wintrust_verify_true_passes_through(self, monkeypatch):
         monkeypatch.setattr(platform, "system", lambda: "Windows")
-        monkeypatch.setattr(pack, "_wintrust_verify", lambda c, p: True)
-        assert pack.verify_pack_signature_windows(Path("/fake/worker.exe")) is True
+        monkeypatch.setattr(offline_pack, "_wintrust_verify", lambda c, p: True)
+        assert offline_pack.verify_offline_pack_signature_windows(Path("/fake/worker.exe")) is True
 
     def test_wintrust_verify_false_passes_through(self, monkeypatch):
         monkeypatch.setattr(platform, "system", lambda: "Windows")
-        monkeypatch.setattr(pack, "_wintrust_verify", lambda c, p: False)
-        assert pack.verify_pack_signature_windows(Path("/fake/worker.exe")) is False
+        monkeypatch.setattr(offline_pack, "_wintrust_verify", lambda c, p: False)
+        assert offline_pack.verify_offline_pack_signature_windows(Path("/fake/worker.exe")) is False
 
     def test_wintrust_attribute_error_returns_none(self, monkeypatch):
         """A broken ctypes install (AttributeError) returns None."""
@@ -73,8 +73,8 @@ class TestWindowsSigning:
         def boom(ctypes_mod, path):
             raise AttributeError("ctypes.windll missing")
 
-        monkeypatch.setattr(pack, "_wintrust_verify", boom)
-        assert pack.verify_pack_signature_windows(Path("/fake/worker.exe")) is None
+        monkeypatch.setattr(offline_pack, "_wintrust_verify", boom)
+        assert offline_pack.verify_offline_pack_signature_windows(Path("/fake/worker.exe")) is None
 
 
 class TestMacOSSigning:
@@ -82,11 +82,11 @@ class TestMacOSSigning:
 
     def test_returns_none_on_non_macos(self, monkeypatch):
         monkeypatch.setattr(platform, "system", lambda: "Linux")
-        assert pack.verify_pack_signature_macos(Path("/fake/worker")) is None
+        assert offline_pack.verify_offline_pack_signature_macos(Path("/fake/worker")) is None
 
     def test_returns_none_on_windows(self, monkeypatch):
         monkeypatch.setattr(platform, "system", lambda: "Windows")
-        assert pack.verify_pack_signature_macos(Path("/fake/worker")) is None
+        assert offline_pack.verify_offline_pack_signature_macos(Path("/fake/worker")) is None
 
     def test_codesign_not_found_returns_none(self, monkeypatch):
         """When ``codesign`` CLI is missing, returns None."""
@@ -96,7 +96,7 @@ class TestMacOSSigning:
             raise FileNotFoundError("codesign not installed")
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        assert pack.verify_pack_signature_macos(Path("/fake/worker")) is None
+        assert offline_pack.verify_offline_pack_signature_macos(Path("/fake/worker")) is None
 
     def test_codesign_success_spctl_success_returns_true(self, monkeypatch):
         """When both ``codesign --verify`` and ``spctl --assess`` pass."""
@@ -110,7 +110,7 @@ class TestMacOSSigning:
             return cp
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        assert pack.verify_pack_signature_macos(Path("/fake/worker")) is True
+        assert offline_pack.verify_offline_pack_signature_macos(Path("/fake/worker")) is True
 
     def test_codesign_failure_returns_false(self, monkeypatch):
         """When ``codesign --verify`` fails, returns False (without
@@ -128,7 +128,7 @@ class TestMacOSSigning:
             return cp
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        assert pack.verify_pack_signature_macos(Path("/fake/worker")) is False
+        assert offline_pack.verify_offline_pack_signature_macos(Path("/fake/worker")) is False
 
     def test_codesign_success_spctl_failure_returns_false(self, monkeypatch):
         """``codesign`` passes but ``spctl`` fails → notarization invalid."""
@@ -145,7 +145,7 @@ class TestMacOSSigning:
             return cp
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        assert pack.verify_pack_signature_macos(Path("/fake/worker")) is False
+        assert offline_pack.verify_offline_pack_signature_macos(Path("/fake/worker")) is False
 
     def test_subprocess_timeout_returns_none(self, monkeypatch):
         """A hanging ``codesign`` (timeout) returns None (graceful degrade)."""
@@ -155,7 +155,7 @@ class TestMacOSSigning:
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=30)
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        assert pack.verify_pack_signature_macos(Path("/fake/worker")) is None
+        assert offline_pack.verify_offline_pack_signature_macos(Path("/fake/worker")) is None
 
 
 if __name__ == "__main__":

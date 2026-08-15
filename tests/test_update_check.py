@@ -3,7 +3,7 @@
 Covers the auto-update mechanism from plan-runtime-pack-split.md §10.1:
 
   * SSRF protection — the manifest URL is gated by
-    :func:`pack.assert_pack_url_allowed`, which extends the runtime
+    :func:`offline_pack.assert_offline_pack_url_allowed`, which extends the runtime
     allowlist with GitHub hosts + inherits the IP-literal blocklist +
     DNS-rebinding defense from
     :func:`voice_typer.server.security.url_allowlist.assert_url_allowed`
@@ -11,17 +11,17 @@ Covers the auto-update mechanism from plan-runtime-pack-split.md §10.1:
   * Max-bytes limit — the remote manifest is parsed via
     :func:`_secure_read_text(max_bytes=)`, mirroring the cap pattern
     tested by ``tests/test_secure_file_io_max_bytes.py``.
-  * Proxy support — :func:`pack.proxy_env` returns ``HTTP_PROXY`` /
+  * Proxy support — :func:`offline_pack.proxy_env` returns ``HTTP_PROXY`` /
     ``HTTPS_PROXY`` env vars; the default transport passes them to
     ``urllib.request`` via a ``ProxyHandler``.
   * Version comparison — :func:`is_newer_version` handles ``v1.2.3``,
     ``1.2.3``, ``1.2.3-rc1``, and shorter tuples (``1.2`` == ``1.2.0``).
   * Background download trigger — when a newer version is found AND
-    consent is given, ``check_pack_update`` calls
-    ``pack.download_pack_with_resume`` on a daemon thread. The test
+    consent is given, ``check_offline_pack_update`` calls
+    ``offline_pack.download_offline_pack_with_resume`` on a daemon thread. The test
     mocks the transport + the download call to verify the trigger.
-  * Consent gate — when ``config.runtime_pack_consent`` is False,
-    ``check_pack_update`` returns ``{success: False, consent_required: True}``
+  * Consent gate — when ``config.offline_pack_consent`` is False,
+    ``check_offline_pack_update`` returns ``{success: False, consent_required: True}``
     + publishes a ``consent_required`` event (mirrors the model-download
     consent flow in ``ModelMixin._require_huggingface_consent``).
   * C-DATA-1 — the pack download from GitHub Releases is NOT covered by
@@ -43,11 +43,11 @@ from types import SimpleNamespace
 import pytest
 from voice_typer.server.service import update_check
 from voice_typer.server.service.update_check import (
-    DEFAULT_PACK_MANIFEST_URL,
+    DEFAULT_OFFLINE_PACK_MANIFEST_URL,
     MAX_MANIFEST_BYTES,
-    check_pack_update,
+    check_offline_pack_update,
     fetch_remote_manifest,
-    handle_check_pack_update_ipc,
+    handle_check_offline_pack_update_ipc,
     is_newer_version,
 )
 
@@ -89,14 +89,14 @@ def fake_event_bus():
 
 @pytest.fixture
 def fake_config_with_consent():
-    """A fake config object with ``runtime_pack_consent=True``."""
-    return SimpleNamespace(runtime_pack_consent=True)
+    """A fake config object with ``offline_pack_consent=True``."""
+    return SimpleNamespace(offline_pack_consent=True)
 
 
 @pytest.fixture
 def fake_config_no_consent():
-    """A fake config object with ``runtime_pack_consent=False``."""
-    return SimpleNamespace(runtime_pack_consent=False)
+    """A fake config object with ``offline_pack_consent=False``."""
+    return SimpleNamespace(offline_pack_consent=False)
 
 
 # ── is_newer_version ───────────────────────────────────────────────────
@@ -200,7 +200,7 @@ class TestFetchRemoteManifest:
         assert result is None
 
     def test_returns_none_on_schema_validation_failure(self, fake_manifest_url: str):
-        """A JSON response that fails ``load_pack_manifest`` schema validation → None."""
+        """A JSON response that fails ``load_offline_pack_manifest`` schema validation → None."""
         # Missing required 'version' field.
         bad_manifest = {"sha256": "0" * 64, "files": [], "min_proto_version": 1}
 
@@ -241,7 +241,7 @@ class TestFetchRemoteManifest:
         """
         monkeypatch.setenv("HTTPS_PROXY", "http://proxy.corp.example.com:8080")
         monkeypatch.setenv("HTTP_PROXY", "http://proxy.corp.example.com:8080")
-        from voice_typer.server.service.pack import proxy_env
+        from voice_typer.server.service.offline_pack import proxy_env
 
         env = proxy_env()
         assert env.get("HTTPS_PROXY") == "http://proxy.corp.example.com:8080"
@@ -253,18 +253,18 @@ class TestFetchRemoteManifest:
         monkeypatch.delenv("HTTP_PROXY", raising=False)
         monkeypatch.setenv("https_proxy", "http://proxy.corp.example.com:8080")
         monkeypatch.setenv("http_proxy", "http://proxy.corp.example.com:8080")
-        from voice_typer.server.service.pack import proxy_env
+        from voice_typer.server.service.offline_pack import proxy_env
 
         env = proxy_env()
         assert env.get("https_proxy") == "http://proxy.corp.example.com:8080"
         assert env.get("http_proxy") == "http://proxy.corp.example.com:8080"
 
 
-# ── check_pack_update ─────────────────────────────────────────────────
+# ── check_offline_pack_update ─────────────────────────────────────────────────
 
 
-class TestCheckPackUpdate:
-    """``check_pack_update`` — the main entry point."""
+class TestCheckOfflinePackUpdate:
+    """``check_offline_pack_update`` — the main entry point."""
 
     def test_no_local_pack_remote_available_triggers_download(
         self,
@@ -276,7 +276,7 @@ class TestCheckPackUpdate:
         """When no local pack exists + remote is available + consent given →
         background download is triggered."""
         # No local pack → local_version=None → update_available=True.
-        monkeypatch.setattr(update_check, "_local_pack_version", lambda root=None: None)
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda root=None: None)
         manifest = _make_manifest("1.2.3")
         body = json.dumps(manifest)
 
@@ -301,7 +301,7 @@ class TestCheckPackUpdate:
 
         monkeypatch.setattr(update_check, "_trigger_background_download", fake_trigger)
 
-        result = check_pack_update(
+        result = check_offline_pack_update(
             fake_config_with_consent,
             fake_event_bus.bus,  # type: ignore[arg-type]
             http_get=fake_http_get,
@@ -323,7 +323,7 @@ class TestCheckPackUpdate:
         monkeypatch,
     ):
         """When local == remote → no download triggered."""
-        monkeypatch.setattr(update_check, "_local_pack_version", lambda root=None: "1.2.3")
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda root=None: "1.2.3")
         manifest = _make_manifest("1.2.3")
         body = json.dumps(manifest)
 
@@ -338,7 +338,7 @@ class TestCheckPackUpdate:
 
         monkeypatch.setattr(update_check, "_trigger_background_download", fake_trigger)
 
-        result = check_pack_update(
+        result = check_offline_pack_update(
             fake_config_with_consent,
             fake_event_bus.bus,  # type: ignore[arg-type]
             http_get=fake_http_get,
@@ -360,7 +360,7 @@ class TestCheckPackUpdate:
         monkeypatch,
     ):
         """Local 1.2.2, remote 1.2.3 → update_available + download_triggered."""
-        monkeypatch.setattr(update_check, "_local_pack_version", lambda root=None: "1.2.2")
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda root=None: "1.2.2")
         manifest = _make_manifest("1.2.3")
         body = json.dumps(manifest)
 
@@ -375,7 +375,7 @@ class TestCheckPackUpdate:
 
         monkeypatch.setattr(update_check, "_trigger_background_download", fake_trigger)
 
-        result = check_pack_update(
+        result = check_offline_pack_update(
             fake_config_with_consent,
             fake_event_bus.bus,  # type: ignore[arg-type]
             http_get=fake_http_get,
@@ -395,16 +395,16 @@ class TestCheckPackUpdate:
         fake_config_no_consent,
         monkeypatch,
     ):
-        """When ``runtime_pack_consent=False`` → ``{success: False, consent_required: True}``
+        """When ``offline_pack_consent=False`` → ``{success: False, consent_required: True}``
         + a ``consent_required`` event is published."""
-        monkeypatch.setattr(update_check, "_local_pack_version", lambda root=None: None)
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda root=None: None)
         manifest = _make_manifest("1.2.3")
         body = json.dumps(manifest)
 
         def fake_http_get(url, *, max_bytes=MAX_MANIFEST_BYTES):
             return body
 
-        result = check_pack_update(
+        result = check_offline_pack_update(
             fake_config_no_consent,
             fake_event_bus.bus,  # type: ignore[arg-type]
             http_get=fake_http_get,
@@ -423,7 +423,7 @@ class TestCheckPackUpdate:
             f"expected 1 consent_required event, got {len(consent_events)}: {fake_event_bus.events}"
         )
         assert consent_events[0]["data"]["provider"] == "github"
-        assert consent_events[0]["data"]["scope"] == "runtime_pack"
+        assert consent_events[0]["data"]["scope"] == "offline_pack"
 
     def test_fetch_failure_returns_error(
         self,
@@ -433,12 +433,12 @@ class TestCheckPackUpdate:
         monkeypatch,
     ):
         """When the remote manifest can't be fetched → ``{success: False, reason: 'fetch_failed'}``."""
-        monkeypatch.setattr(update_check, "_local_pack_version", lambda root=None: "1.2.3")
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda root=None: "1.2.3")
 
         def fake_http_get(url, *, max_bytes=MAX_MANIFEST_BYTES):
             raise OSError("simulated network failure")
 
-        result = check_pack_update(
+        result = check_offline_pack_update(
             fake_config_with_consent,
             fake_event_bus.bus,  # type: ignore[arg-type]
             http_get=fake_http_get,
@@ -459,7 +459,7 @@ class TestCheckPackUpdate:
         monkeypatch,
     ):
         """``trigger_download=False`` → check runs but download is NOT triggered."""
-        monkeypatch.setattr(update_check, "_local_pack_version", lambda root=None: None)
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda root=None: None)
         manifest = _make_manifest("1.2.3")
         body = json.dumps(manifest)
 
@@ -474,7 +474,7 @@ class TestCheckPackUpdate:
 
         monkeypatch.setattr(update_check, "_trigger_background_download", fake_trigger)
 
-        result = check_pack_update(
+        result = check_offline_pack_update(
             fake_config_with_consent,
             fake_event_bus.bus,  # type: ignore[arg-type]
             http_get=fake_http_get,
@@ -496,7 +496,7 @@ class TestCheckPackUpdate:
         """``VT_PACK_MANIFEST_URL`` env var overrides the default URL."""
         custom_url = "https://github.com/my-org/my-fork/releases/latest/download/pack-manifest.json"
         monkeypatch.setenv("VT_PACK_MANIFEST_URL", custom_url)
-        monkeypatch.setattr(update_check, "_local_pack_version", lambda root=None: None)
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda root=None: None)
 
         fetched_urls: list[str] = []
         manifest = _make_manifest("1.2.3")
@@ -511,7 +511,7 @@ class TestCheckPackUpdate:
 
         monkeypatch.setattr(update_check, "_trigger_background_download", fake_trigger)
 
-        check_pack_update(
+        check_offline_pack_update(
             fake_config_with_consent,
             fake_event_bus.bus,  # type: ignore[arg-type]
             http_get=fake_http_get,
@@ -528,10 +528,10 @@ class TestCheckPackUpdate:
         — the renderer / publisher / checker all rely on this URL
         shape.
         """
-        assert DEFAULT_PACK_MANIFEST_URL == (
+        assert DEFAULT_OFFLINE_PACK_MANIFEST_URL == (
             "https://github.com/AbdallahIsDev/voice-typer/releases/latest/download/pack-manifest.json"
         ), (
-            "DEFAULT_PACK_MANIFEST_URL changed — update docs/auto-update-feature.md "
+            "DEFAULT_OFFLINE_PACK_MANIFEST_URL changed — update docs/auto-update-feature.md "
             "(Sub-agent 15) and the publisher (publish_pack_release.py) to match."
         )
 
@@ -543,7 +543,7 @@ class TestCheckPackUpdate:
         monkeypatch,
     ):
         """The result includes ``checked_at`` (epoch ms) for UI display."""
-        monkeypatch.setattr(update_check, "_local_pack_version", lambda root=None: "1.2.3")
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda root=None: "1.2.3")
         manifest = _make_manifest("1.2.3")
         body = json.dumps(manifest)
 
@@ -551,7 +551,7 @@ class TestCheckPackUpdate:
             return body
 
         before = int(time.time() * 1000)
-        result = check_pack_update(
+        result = check_offline_pack_update(
             fake_config_with_consent,
             fake_event_bus.bus,  # type: ignore[arg-type]
             http_get=fake_http_get,
@@ -591,10 +591,10 @@ class TestTriggerBackgroundDownload:
             captured["version"] = version
             return True
 
-        # Patch ``pack.download_pack_with_resume`` at the pack module
+        # Patch ``offline_pack.download_offline_pack_with_resume`` at the pack module
         # (where ``update_check`` imports it from).
         monkeypatch.setattr(
-            "voice_typer.server.service.pack.download_pack_with_resume",
+            "voice_typer.server.service.offline_pack.download_offline_pack_with_resume",
             fake_download,
         )
 
@@ -635,10 +635,10 @@ class TestTriggerBackgroundDownload:
     ):
         """When consent is missing, ``_trigger_background_download`` raises
         :class:`PackConsentRequiredError` (the caller catches it)."""
-        from voice_typer.server.service.pack import PackConsentRequiredError
+        from voice_typer.server.service.offline_pack import OfflinePackConsentRequiredError
 
         manifest = _make_manifest("1.2.3")
-        with pytest.raises(PackConsentRequiredError):
+        with pytest.raises(OfflinePackConsentRequiredError):
             update_check._trigger_background_download(
                 manifest=manifest,
                 manifest_url=fake_manifest_url,
@@ -649,15 +649,15 @@ class TestTriggerBackgroundDownload:
             )
 
 
-# ── handle_check_pack_update_ipc ──────────────────────────────────────
+# ── handle_check_offline_pack_update_ipc ──────────────────────────────────────
 
 
 class TestHandleCheckPackUpdateIpc:
-    """``handle_check_pack_update_ipc`` — thin IPC wrapper."""
+    """``handle_check_offline_pack_update_ipc`` — thin IPC wrapper."""
 
     def test_returns_plain_dict(self, fake_config_with_consent, fake_event_bus, monkeypatch):
         """The IPC handler returns a plain ``dict`` (not a TypedDict instance)."""
-        monkeypatch.setattr(update_check, "_local_pack_version", lambda root=None: "1.2.3")
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda root=None: "1.2.3")
         manifest = _make_manifest("1.2.3")
         body = json.dumps(manifest)
 
@@ -668,7 +668,7 @@ class TestHandleCheckPackUpdateIpc:
             config=fake_config_with_consent,
             event_bus=fake_event_bus.bus,
         )
-        result = handle_check_pack_update_ipc(app, None, http_get=fake_http_get)
+        result = handle_check_offline_pack_update_ipc(app, None, http_get=fake_http_get)
 
         assert isinstance(result, dict)
         assert "success" in result
@@ -679,14 +679,14 @@ class TestHandleCheckPackUpdateIpc:
 
         The check still runs; consent will fail + no events published.
         """
-        monkeypatch.setattr(update_check, "_local_pack_version", lambda root=None: None)
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda root=None: None)
         manifest = _make_manifest("1.2.3")
         body = json.dumps(manifest)
 
         def fake_http_get(url, *, max_bytes=MAX_MANIFEST_BYTES):
             return body
 
-        result = handle_check_pack_update_ipc(None, None, http_get=fake_http_get)
+        result = handle_check_offline_pack_update_ipc(None, None, http_get=fake_http_get)
         assert isinstance(result, dict)
         # consent_required (config is None → no consent)
         assert result["success"] is False
@@ -699,7 +699,7 @@ class TestHandleCheckPackUpdateIpc:
     ):
         """When ``app.event_bus`` is missing, the handler falls back to the
         module-level ``voice_typer.server.event_bus``."""
-        monkeypatch.setattr(update_check, "_local_pack_version", lambda root=None: "1.2.3")
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda root=None: "1.2.3")
         manifest = _make_manifest("1.2.3")
         body = json.dumps(manifest)
 
@@ -708,7 +708,7 @@ class TestHandleCheckPackUpdateIpc:
 
         # app has config but NO event_bus attribute.
         app = SimpleNamespace(config=fake_config_with_consent)
-        result = handle_check_pack_update_ipc(app, None, http_get=fake_http_get)
+        result = handle_check_offline_pack_update_ipc(app, None, http_get=fake_http_get)
         assert isinstance(result, dict)
         assert result["success"] is True
 
@@ -801,3 +801,302 @@ class TestSSRFInherited:
                 assert_url_allowed("https://10.0.0.5/path", check_dns_rebinding=False)
         finally:
             _user_extensions.discard("10.0.0.5")
+
+
+# ── SSRF redirect re-validation (defense-in-depth) ──────────────────────
+
+
+class TestSSRFRedirectRevalidation:
+    """``_SSRFAwareRedirectHandler`` re-validates each 3xx redirect target.
+
+    Background: ``urllib``'s default ``HTTPRedirectHandler`` silently
+    follows 3xx redirects. ``fetch_remote_manifest`` only validates the
+    INITIAL URL through ``assert_pack_url_allowed``; if the initial URL
+    returns a 3xx redirect to a private/loopback IP or non-allowlisted
+    host, urllib would follow the redirect — exfiltrating the request
+    body (User-Agent identifying app + version) to the attacker-
+    controlled internal endpoint.
+
+    Fix: ``_SSRFAwareRedirectHandler`` subclasses
+    ``HTTPRedirectHandler`` and overrides ``redirect_request`` to call
+    ``assert_pack_url_allowed(newurl)`` BEFORE delegating to
+    ``super().redirect_request()``. If validation fails, the handler
+    raises ``RuntimeError`` (caught by ``fetch_remote_manifest``'s
+    ``except (OSError, RuntimeError)`` branch → returns ``None``,
+    fail-closed → no download triggered).
+
+    These tests would FAIL on revert: without
+    ``_SSRFAwareRedirectHandler``, the default redirect handler is
+    used and the redirect is followed (raising ``URLError``, not
+    ``RuntimeError(SSRF)``).
+    """
+
+    def test_redirect_handler_rejects_private_ip_target(self):
+        """``_SSRFAwareRedirectHandler.redirect_request`` raises
+        ``RuntimeError`` (with an SSRF message) when the redirect target
+        is a private IP literal that ``assert_pack_url_allowed`` rejects.
+
+        Tests the handler in isolation (without involving the opener) so
+        the SSRF re-validation logic is pinned even if the opener
+        integration changes.
+        """
+        from urllib.request import Request
+
+        from voice_typer.server.service.update_check import _SSRFAwareRedirectHandler
+
+        handler = _SSRFAwareRedirectHandler()
+        # Initial request to an allowlisted host (GitHub). This is the
+        # request that triggered the redirect.
+        req = Request("https://github.com/owner/repo/pack-manifest.json")
+
+        # The redirect target — a private IP literal that
+        # ``assert_pack_url_allowed`` rejects (HTTP non-loopback +
+        # private IP, double-rejected).
+        with pytest.raises(RuntimeError, match="SSRF"):
+            handler.redirect_request(
+                req,
+                fp=None,
+                code=302,
+                msg="Found",
+                headers=None,
+                newurl="http://10.0.0.5/evil",
+            )
+
+    def test_redirect_handler_rejects_loopback_http_target(self):
+        """A ``http://127.0.0.1/evil`` redirect target is rejected (HTTP
+        to loopback requires explicit opt-in via ``allow_loopback_http``
+        — the default pack downloader does NOT opt in)."""
+        from urllib.request import Request
+
+        from voice_typer.server.service.update_check import _SSRFAwareRedirectHandler
+
+        handler = _SSRFAwareRedirectHandler()
+        req = Request("https://github.com/owner/repo/pack-manifest.json")
+
+        with pytest.raises(RuntimeError, match="SSRF"):
+            handler.redirect_request(
+                req,
+                fp=None,
+                code=302,
+                msg="Found",
+                headers=None,
+                newurl="http://127.0.0.1/evil",
+            )
+
+    def test_redirect_handler_accepts_allowlisted_target(self):
+        """``_SSRFAwareRedirectHandler.redirect_request`` delegates to
+        ``super().redirect_request()`` when the target is allowlisted
+        (e.g. a github.com → objects.githubusercontent.com redirect).
+
+        This pins the positive path: a legitimate GitHub Releases
+        redirect (from ``/releases/latest/download/...`` to
+        ``/releases/download/vX.Y.Z/...`` on
+        ``objects.githubusercontent.com``) MUST still be followed.
+        """
+        from urllib.request import Request
+
+        from voice_typer.server.service.update_check import _SSRFAwareRedirectHandler
+
+        handler = _SSRFAwareRedirectHandler()
+        req = Request("https://github.com/owner/repo/releases/latest/download/pack-manifest.json")
+
+        # ``objects.githubusercontent.com`` is in the pack allowlist
+        # (added by ``assert_pack_url_allowed`` on first call). The
+        # handler should delegate to ``super().redirect_request()``
+        # which returns a new Request (NOT raise).
+        result = handler.redirect_request(
+            req,
+            fp=None,
+            code=302,
+            msg="Found",
+            headers=None,
+            newurl="https://objects.githubusercontent.com/github-production-release-asset/foo",
+        )
+        assert result is not None, (
+            "expected redirect to be followed for an allowlisted target, "
+            "got redirect_request()=None (no follow)"
+        )
+        assert (
+            result.get_full_url()
+            == "https://objects.githubusercontent.com/github-production-release-asset/foo"
+        )
+
+    def test_manifest_redirect_to_private_ip_is_rejected(self, monkeypatch):
+        """A 3xx redirect to a private/loopback IP is rejected — the
+        redirect is NOT followed.
+
+        End-to-end test through ``_http_get_manifest``: a fake HTTPS
+        handler returns a 302 response with ``Location: http://10.0.0.5/evil``.
+        ``_SSRFAwareRedirectHandler`` intercepts the redirect and raises
+        ``RuntimeError`` (SSRF block) before the follow-up request is
+        made.
+
+        This test FAILS on revert: without ``_SSRFAwareRedirectHandler``,
+        urllib silently follows the redirect. The follow-up request to
+        ``http://10.0.0.5:80`` either succeeds (returns a body — no
+        exception) or raises ``URLError`` (connection refused).
+        Neither matches the expected ``RuntimeError(SSRF)``.
+
+        To keep the test deterministic (no real network calls even on
+        revert), a fake ``HTTPHandler`` raises ``URLError`` if the
+        default redirect handler follows the redirect to HTTP.
+        """
+        import email.message
+        import urllib.error
+        import urllib.request
+
+        from voice_typer.server.service import update_check
+
+        # The redirect target — a private IP literal that
+        # ``assert_pack_url_allowed`` rejects.
+        redirect_target = "http://10.0.0.5/evil"
+
+        # Build a fake HTTPS response that simulates a 302 redirect.
+        class _FakeRedirectResponse:
+            """A fake ``http.client.HTTPResponse`` that returns 302."""
+
+            def __init__(self, location: str) -> None:
+                self._location = location
+                self.status = 302
+                self.code = 302
+                self.msg = "Found"
+                self._headers = email.message.Message()
+                self._headers["Location"] = location
+
+            def getcode(self) -> int:
+                return 302
+
+            def info(self):
+                return self._headers
+
+            def read(self, size: int = -1) -> bytes:  # noqa: ARG002
+                return b""
+
+            def close(self) -> None:
+                pass
+
+            def __enter__(self) -> _FakeRedirectResponse:
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                pass
+
+        # Fake HTTPS handler that always returns a 302 redirect response
+        # to the private IP. Replaces the default ``HTTPSHandler`` so
+        # no real HTTPS connection is made to github.com.
+        class _FakeHTTPSHandler(urllib.request.HTTPSHandler):
+            def https_open(self, req):  # noqa: ARG002
+                return _FakeRedirectResponse(redirect_target)
+
+        # Fake HTTP handler that raises URLError. Installed alongside
+        # the fake HTTPS handler so that — on revert (default redirect
+        # handler follows the redirect to HTTP) — no real network call
+        # is made (URLError raised instead of a real connection to
+        # 10.0.0.5:80).
+        class _FakeHTTPHandler(urllib.request.HTTPHandler):
+            def http_open(self, req):  # noqa: ARG002
+                raise urllib.error.URLError(
+                    "test: refusing to follow redirect to HTTP target "
+                    f"{redirect_target!r} (no real network in tests)"
+                )
+
+        # Patch ``build_opener`` so the opener installs our fake HTTPS
+        # + fake HTTP handlers alongside the production
+        # ``_SSRFAwareRedirectHandler``. The real
+        # ``_SSRFAwareRedirectHandler`` is what we want to exercise —
+        # the fakes only intercept the network calls.
+        real_build_opener = urllib.request.build_opener
+
+        def fake_build_opener(*handlers):
+            return real_build_opener(_FakeHTTPSHandler(), _FakeHTTPHandler(), *handlers)
+
+        monkeypatch.setattr(urllib.request, "build_opener", fake_build_opener)
+
+        # The initial URL must be allowlisted (HTTPS + GitHub host) so
+        # the INITIAL ``assert_pack_url_allowed`` check in
+        # ``fetch_remote_manifest`` passes — we want to test the
+        # REDIRECT re-validation, not the initial URL check. The
+        # initial SSRF gate runs BEFORE ``_http_get_manifest`` is
+        # called, so it does not touch the fake HTTPS handler.
+        initial_url = "https://github.com/owner/repo/pack-manifest.json"
+
+        # ``_http_get_manifest`` should raise RuntimeError (SSRF block
+        # from ``_SSRFAwareRedirectHandler``), NOT URLError (the fake
+        # HTTP handler's raise — which would only fire if the redirect
+        # was followed).
+        with pytest.raises(RuntimeError, match="SSRF") as exc_info:
+            update_check._http_get_manifest(initial_url)
+
+        # The exception message must mention the redirect target so
+        # operators can diagnose a misconfigured / compromised endpoint.
+        assert "10.0.0.5" in str(exc_info.value) or "redirect" in str(exc_info.value).lower()
+
+    def test_fetch_remote_manifest_returns_none_on_redirect_to_private_ip(self, monkeypatch):
+        """``fetch_remote_manifest`` returns ``None`` when the manifest URL
+        returns a 3xx redirect to a private IP (fail-closed — no download
+        triggered).
+
+        This is the user-facing behavior: the caller sees ``None`` and
+        treats it as "no update info available; do not trigger a download".
+        """
+        import email.message
+        import urllib.error
+        import urllib.request
+
+        from voice_typer.server.service import update_check
+
+        redirect_target = "http://10.0.0.5/evil"
+
+        class _FakeRedirectResponse:
+            def __init__(self, location: str) -> None:
+                self._location = location
+                self.status = 302
+                self.code = 302
+                self.msg = "Found"
+                self._headers = email.message.Message()
+                self._headers["Location"] = location
+
+            def getcode(self) -> int:
+                return 302
+
+            def info(self):
+                return self._headers
+
+            def read(self, size: int = -1) -> bytes:  # noqa: ARG002
+                return b""
+
+            def close(self) -> None:
+                pass
+
+            def __enter__(self) -> _FakeRedirectResponse:
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                pass
+
+        class _FakeHTTPSHandler(urllib.request.HTTPSHandler):
+            def https_open(self, req):  # noqa: ARG002
+                return _FakeRedirectResponse(redirect_target)
+
+        class _FakeHTTPHandler(urllib.request.HTTPHandler):
+            def http_open(self, req):  # noqa: ARG002
+                raise urllib.error.URLError("test: refusing to follow redirect (no real network)")
+
+        real_build_opener = urllib.request.build_opener
+
+        def fake_build_opener(*handlers):
+            return real_build_opener(_FakeHTTPSHandler(), _FakeHTTPHandler(), *handlers)
+
+        monkeypatch.setattr(urllib.request, "build_opener", fake_build_opener)
+
+        # Use the default ``_http_get_manifest`` (do NOT inject a fake
+        # transport via ``http_get=``) so the redirect handler chain
+        # is actually exercised.
+        initial_url = "https://github.com/owner/repo/pack-manifest.json"
+
+        result = update_check.fetch_remote_manifest(initial_url)
+        assert result is None, (
+            "fetch_remote_manifest should return None (fail-closed) when "
+            "the manifest URL redirects to a private IP — got "
+            f"{result!r}"
+        )

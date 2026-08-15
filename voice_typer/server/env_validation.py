@@ -373,9 +373,9 @@ def _validate_sidecar_env() -> None:
 
     For empty / unsafe values, the offending env var is POPPED from
     ``os.environ`` (not just logged) so downstream consumers
-    (``native_hotkeys.binary_path`` / ``prewarm_resolver``) never see an
-    attacker-chosen value. A same-user attacker (or a buggy Rust host)
-    could otherwise plant e.g. ``VOICE_TYPER_NATIVE_DIR=/etc`` and have
+    (``native_hotkeys.binary_path``) never see an attacker-chosen
+    value. A same-user attacker (or a buggy Rust host) could
+    otherwise plant e.g. ``VOICE_TYPER_NATIVE_DIR=/etc`` and have
     downstream consumers read from the attacker-chosen path. The pop
     mirrors the pattern already used for ``HF_HOME`` /
     ``VOICE_TYPER_CONFIG_DIR`` above.
@@ -410,8 +410,8 @@ def _validate_sidecar_env() -> None:
             # a basic pattern + length gate, then a path-safety check
             # that rejects values escaping the user's home directory via
             # ``..`` or absolute paths outside home. On any failure, pop
-            # the env var so downstream consumers (binary_path /
-            # prewarm_resolver) never see an attacker-chosen path.
+            # the env var so downstream consumers (binary_path) never
+            # see an attacker-chosen path.
             if len(actual) > 4096 or "\0" in actual:
                 # pre-redact the path value (path -> PII).
                 log.warning(

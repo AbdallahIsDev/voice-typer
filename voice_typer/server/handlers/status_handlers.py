@@ -11,6 +11,36 @@ dropped from ``_COMMAND_REGISTRY`` and the renderer allowlist during
 the Tauri migration. The service-layer methods
 ``service.get_rms_level`` / ``service.get_audio_status`` still exist
 for internal callers; only the IPC dispatch routes were deleted.
+
+(Wave 3, 2026-08-14): ``_handle_get_prewarm_status``,
+``_handle_run_prewarm``, and ``_handle_open_prewarm_log`` were
+REMOVED in lockstep with the matching ``_COMMAND_REGISTRY`` entries,
+the TS ``ALLOWED_COMMANDS`` Set, and the Rust ``allowed_commands()``
+literal (see the restoration note below for the reversal).
+
+(RESTORED 2026-08-14): ``_handle_get_prewarm_status`` and
+``_handle_open_prewarm_log`` were restored verbatim from commit
+5a319872 (``voice_typer/server/handlers/status_handlers.py``) because
+the Cache Status card in the About page is a user-facing product
+feature, not prewarm machinery — plan §6.2 P-1 only removed the
+machinery (separate prewarm binary, OS schedulers, resolver).
+``_handle_run_prewarm`` was also restored the same day (second half
+of the §6.3 addendum), but RE-IMPLEMENTED for the post-P-1
+architecture: the old version spawned a detached
+``pythonw -m voice_typer.server.prewarm --force`` subprocess, and that
+module is deleted by design. The restored handler instead runs the
+worker's warm phase in-process — :func:`run_prewarm_now` in
+``prewarm/status.py`` executes :func:`warm_imports_for_worker` (a
+pure file-paging pass over the runtime-pack libraries) on a daemon
+thread and refreshes the status file. Same user-visible behavior
+("Run Prewarm Now" re-warms the OS standby cache), zero deleted
+machinery. "start/stop" of the automatic warm phase remains the
+``fast_startup`` toggle in Settings → General, which gates the
+worker's startup warm phase. The handler trio was re-registered in
+lockstep across all three allowlists (Python registry ↔ TS
+allowlist ↔ Rust allowlist) per the §6.4 IPC parity contract —
+pinned by ``tests/test_command_registry_parity.py`` and
+``tests/test_electron_ipc_and_build.py::TestAllowlistCorrectness::test_allowlist_matches_server_commands``.
 """
 
 from voice_typer.server.handlers._base import HandlerBase
@@ -112,8 +142,8 @@ class StatusHandlersMixin(HandlerBase):
         ADR-0009 Issue 3: returns a snapshot of the prewarm cache state
         for the About page's "Cache Status" card. The probe runs in the
         IPC handler thread (small random 4K reads, ~1ms total) and
-        degrades gracefully to ``unknown`` if the sentinel or model
-        file is absent.
+        degrades gracefully to ``unknown`` if the worker status file or
+        model file is absent.
         """
         try:
             from voice_typer.server.prewarm import get_prewarm_status
@@ -126,115 +156,30 @@ class StatusHandlersMixin(HandlerBase):
         return resp
 
     def _handle_run_prewarm(self, data: dict | None, resp: dict) -> dict | None:
-        """Handle the ``run_prewarm`` IPC command.
+        """Handle the ``run_prewarm`` IPC command — re-warm the OS cache now.
 
-        Task 3: triggers a manual prewarm run in a background subprocess.
-        The user clicks "Run Prewarm Now" in the About page's Cache
-        Status card to re-warm the OS file cache after eviction or on
-        first run without rebooting.
-
-        Launches ``pythonw.exe -m voice_typer.server.prewarm --force``
-        as a detached subprocess so it doesn't block the IPC thread and
-        survives the app's lifetime. ``--force`` bypasses the boot-
-        sentinel dedup (the user explicitly asked for a re-run).
+        RESTORED 2026-08-14 (plan §6.3 addendum, second half). The
+        pre-P-1 handler spawned a detached prewarm subprocess; that
+        machinery is deleted by design (P-1). The restored handler
+        instead re-runs the warm phase in-process via
+        ``prewarm.status.run_prewarm_now()`` — a background daemon
+        thread that calls :func:`warm_imports_for_worker` (pages the
+        runtime-pack libraries' files into the OS standby cache) and
+        refreshes the worker status file.
 
         Returns immediately with ``{"started": True}``. The frontend
-        polls ``get_prewarm_status`` to track progress (the
-        ``prewarm_running`` field flips to True while the subprocess is
-        active, then back to False when it exits).
+        polls ``get_prewarm_status`` to show progress (the restored
+        status response carries ``enabled`` / ``last_run`` /
+        ``elapsed_s`` — the old ``prewarm_running`` field was dropped
+        with the process-tracker machinery).
         """
-        import subprocess
-        import sys
-        from pathlib import Path
-
-        from voice_typer.server.platform_utils import is_windows
-
         try:
-            # Resolve the Python interpreter — prefer pythonw.exe on
-            # Windows (no console window flashes), fall back to
-            # sys.executable. Mirrors task_scheduler._prewarm_command().
-            python_bin = sys.executable
-            if is_windows():
-                pythonw = Path(sys.executable).parent / "pythonw.exe"
-                if pythonw.exists():
-                    python_bin = str(pythonw)
+            from voice_typer.server.prewarm.status import run_prewarm_now
 
-            # pass --trigger manual so the prewarm log records
-            # that the user explicitly clicked "Run Prewarm Now".
-            cmd = [
-                python_bin,
-                "-m",
-                "voice_typer.server.prewarm",
-                "--force",
-                "--trigger",
-                "manual",
-            ]
-            log.info("[IPC] run_prewarm: spawning %s", " ".join(cmd))
-
-            # Detached subprocess so it survives the app's lifetime.
-            # On Windows, CREATE_NO_WINDOW prevents a console flash.
-            # On POSIX, start_new_session=True detaches from the app's
-            # process group so the prewarm subprocess isn't killed when
-            # the app exits.
-            kwargs: dict = {}
-            if is_windows():
-                kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
-            else:
-                kwargs["start_new_session"] = True
-
-            # Redirect stdout/stderr to DEVNULL — prewarm logs to its
-            # own file via _setup_logging(), and we don't want the
-            # subprocess's pipe to keep the IPC thread alive.
-            kwargs["stdout"] = subprocess.DEVNULL
-            kwargs["stderr"] = subprocess.DEVNULL
-            kwargs["stdin"] = subprocess.DEVNULL
-
-            proc = subprocess.Popen(cmd, **kwargs)
-            log.info(
-                "[IPC] run_prewarm: spawned pid=%d (force=True)",
-                proc.pid,
-            )
-
+            started = run_prewarm_now()
+            log.info("[IPC] run_prewarm: started background warm run (started=%s)", started)
             resp["type"] = "prewarm_started"
-            resp["data"] = {"started": True, "pid": proc.pid}
-        except FileNotFoundError as e:
-            # Specific-exception branch — keep the
-            # descriptive message (no Python internals / PII — the
-            # exception text only echoes the interpreter path the
-            # app itself resolved) but stamp a structured ``code`` so
-            # the renderer can branch on ``not_found`` rather than
-            # pattern-matching the message text.
-            #
-            # (session-DE): the previous ``f"Python interpreter
-            # not found: {e}"`` echoed ``str(e)`` back to the
-            # renderer. On Windows / macOS the embedded absolute path
-            # (``/Users/<uname>/...`` or ``C:\\Users\\<uname>\\...``)
-            # leaks the username. The fix replaces the ``: {e}``
-            # suffix with a fixed string; the full ``str(e)`` is still
-            # logged server-side at ERROR (above).
-            log.error("[IPC] run_prewarm: interpreter not found: %s", e)
-            return _error_response(
-                resp,
-                "Python interpreter not found",
-                code="server.not_found",
-            )
-        except OSError as e:
-            # ``OSError`` from ``subprocess.Popen`` carries
-            # no Python internals in ``str(e)`` (it's typically
-            # "[Errno 13] Permission denied: …"), but route through
-            # ``_error_response`` for envelope-shape consistency.
-            #
-            # (session-DE): drop the ``: {e}`` suffix — the
-            # ``[Errno 13] Permission denied: '<path>'`` text embeds
-            # the absolute interpreter path which leaks the username
-            # on Windows / macOS. The full ``str(e)`` is still logged
-            # server-side at ERROR (below).
-            log.error("[IPC] run_prewarm: spawn failed: %s", e, exc_info=True)
-            return _error_response(
-                resp,
-                "Failed to start prewarm",
-                code="server.handler_error",
-            )
+            resp["data"] = {"started": started}
         except Exception as exc:
             # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "run_prewarm")
@@ -243,13 +188,15 @@ class StatusHandlersMixin(HandlerBase):
     def _handle_open_prewarm_log(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``open_prewarm_log`` IPC command.
 
-        Task 2: opens the dedicated prewarm log file in the OS default
-        text editor.  The file is ``prewarm.log`` (next to
-        ``voice-typer.log``) — it contains only ``[PREWARM]`` messages
-        via a logger-name filter applied by ``prewarm._setup_logging()``.
+        Task 2: opens the prewarm log file in the OS default text
+        editor.  Restored verbatim from 5a319872 with ONE adaptation:
+        the file is now ``worker.log`` (next to ``voice-typer.log``) —
+        the runtime-pack worker owns the warm phase, so its log is the
+        dedicated prewarm record (it carries all ``[PREWARM]`` /
+        ``[STARTUP] worker prewarm phase`` lines).
 
         The main ``voice-typer.log`` also contains these messages
-        (it is the complete record).  This handler opens the filtered
+        (it is the complete record).  This handler opens the worker's
         copy so users see only prewarm-related output.
 
         On Windows: ``os.startfile()`` opens with the default .log editor.
@@ -267,12 +214,15 @@ class StatusHandlersMixin(HandlerBase):
         from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
         try:
-            # The prewarm log lives in the app config dir. Use the same
-            # resolution as _setup_logging() in prewarm.py.
+            # The worker log lives in the app config dir.
             from voice_typer.server.config import _config_dir
 
             log_dir = _config_dir()
-            log_file = log_dir / "prewarm.log"
+            # RESTORED 2026-08-14: ``prewarm.log`` → ``worker.log`` —
+            # the dedicated prewarm log is now the worker's log (the
+            # worker exe runs the warm phase and is the only prewarm
+            # writer since the standalone prewarm process was removed).
+            log_file = log_dir / "worker.log"
 
             if not log_file.exists():
                 # File doesn't exist yet (prewarm hasn't run this boot).
@@ -294,10 +244,9 @@ class StatusHandlersMixin(HandlerBase):
                         log_file,
                         "# Prewarm log\n"
                         "#\n"
-                        "# This file is created by the prewarm process\n"
-                        "# when it runs.  It will be empty until\n"
-                        "# prewarm executes (at boot, logon, or via\n"
-                        "# the Run Prewarm Now button).\n"
+                        "# This file is created by the worker (which runs the\n"
+                        "# prewarm warm-up phase at startup when Fast Startup is\n"
+                        "# enabled). It will be empty until the worker executes.\n"
                         "#\n"
                         "# Placeholder created: " + _dt.now().strftime("%Y-%m-%d %H:%M:%S") + "\n",
                         durability=False,

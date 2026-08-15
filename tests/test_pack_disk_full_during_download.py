@@ -23,7 +23,7 @@ import hashlib
 from pathlib import Path
 
 import pytest
-from voice_typer.server.service import pack
+from voice_typer.server.service import offline_pack
 
 
 def _make_normal_transport(full_body: bytes):
@@ -91,9 +91,9 @@ class TestDiskFullDuringDownload:
         fake, expected = _make_normal_transport(full)
         dest = tmp_path / "pack-v1.partial"
         _patch_dest_to_fail_on_write(dest, monkeypatch, fail_after_bytes=100)
-        with pytest.raises(pack.PackDiskFullError) as exc_info:
-            pack.download_pack_with_resume(
-                "https://github.com/owner/repo/releases/download/v1/pack.zip",
+        with pytest.raises(offline_pack.OfflinePackDiskFullError) as exc_info:
+            offline_pack.download_offline_pack_with_resume(
+                "https://github.com/owner/repo/releases/download/v1/offline_pack.zip",
                 dest,
                 expected_sha256=expected,
                 version="v1",
@@ -109,8 +109,8 @@ class TestDiskFullDuringDownload:
         dest = tmp_path / "pack-v1.partial"
         _patch_dest_to_fail_on_write(dest, monkeypatch, fail_after_bytes=100)
         with pytest.raises(OSError):  # PackDiskFullError is OSError
-            pack.download_pack_with_resume(
-                "https://github.com/owner/repo/releases/download/v1/pack.zip",
+            offline_pack.download_offline_pack_with_resume(
+                "https://github.com/owner/repo/releases/download/v1/offline_pack.zip",
                 dest,
                 expected_sha256=expected,
                 version="v1",
@@ -124,9 +124,9 @@ class TestDiskFullDuringDownload:
         fake, expected = _make_normal_transport(full)
         dest = tmp_path / "pack-v1.partial"
         _patch_dest_to_fail_on_write(dest, monkeypatch, fail_after_bytes=100)
-        with pytest.raises(pack.PackDiskFullError):
-            pack.download_pack_with_resume(
-                "https://github.com/owner/repo/releases/download/v1/pack.zip",
+        with pytest.raises(offline_pack.OfflinePackDiskFullError):
+            offline_pack.download_offline_pack_with_resume(
+                "https://github.com/owner/repo/releases/download/v1/offline_pack.zip",
                 dest,
                 expected_sha256=expected,
                 version="v1",
@@ -155,9 +155,9 @@ class TestDiskFullDuringDownload:
         fake, expected = _make_normal_transport(full)
         dest = tmp_path / "pack-v1.partial"
         _patch_dest_to_fail_on_write(dest, monkeypatch, fail_after_bytes=100)
-        with pytest.raises(pack.PackDiskFullError):
-            pack.download_pack_with_resume(
-                "https://github.com/owner/repo/releases/download/v1/pack.zip",
+        with pytest.raises(offline_pack.OfflinePackDiskFullError):
+            offline_pack.download_offline_pack_with_resume(
+                "https://github.com/owner/repo/releases/download/v1/offline_pack.zip",
                 dest,
                 expected_sha256=expected,
                 version="v1",
@@ -165,7 +165,7 @@ class TestDiskFullDuringDownload:
                 http_get=fake,
                 chunk_bytes=64,
             )
-        failed = [e for e in events if e["type"] == "pack_download_failed"]
+        failed = [e for e in events if e["type"] == "offline_pack_download_failed"]
         assert len(failed) == 1
         assert failed[0]["data"]["reason"] == "disk_full"
         assert failed[0]["data"]["version"] == "v1"
@@ -184,10 +184,10 @@ class TestDiskFullDuringDownload:
             call_count["n"] += 1
             return original_fake(url, offset=offset)
 
-        monkeypatch.setattr(pack.time, "sleep", lambda s: None)
-        with pytest.raises(pack.PackDiskFullError):
-            pack.download_pack_with_resume(
-                "https://github.com/owner/repo/releases/download/v1/pack.zip",
+        monkeypatch.setattr(offline_pack.time, "sleep", lambda s: None)
+        with pytest.raises(offline_pack.OfflinePackDiskFullError):
+            offline_pack.download_offline_pack_with_resume(
+                "https://github.com/owner/repo/releases/download/v1/offline_pack.zip",
                 dest,
                 expected_sha256=expected,
                 version="v1",

@@ -27,7 +27,7 @@ import hashlib
 from pathlib import Path
 
 import pytest
-from voice_typer.server.service import pack
+from voice_typer.server.service import offline_pack
 
 
 def _make_fake_transport(full_body: bytes):
@@ -58,15 +58,15 @@ class TestVersionChangeDuringDownload:
         v1_body = b"v1-content" * 100
         v2_body = b"v2-content" * 100
         # Pre-create a v1 partial (simulating an interrupted v1 download).
-        v1_partial = pack.pack_partial_path("v1", root=tmp_path)
+        v1_partial = offline_pack.offline_pack_partial_path("v1", root=tmp_path)
         v1_partial.parent.mkdir(parents=True, exist_ok=True)
         v1_partial.write_bytes(v1_body[:500])
 
         # Now download v2 — must NOT use the v1 partial.
-        v2_partial = pack.pack_partial_path("v2", root=tmp_path)
+        v2_partial = offline_pack.offline_pack_partial_path("v2", root=tmp_path)
         fake, calls, v2_expected = _make_fake_transport(v2_body)
-        ok = pack.download_pack_with_resume(
-            "https://github.com/owner/repo/releases/download/v2/pack.zip",
+        ok = offline_pack.download_offline_pack_with_resume(
+            "https://github.com/owner/repo/releases/download/v2/offline_pack.zip",
             v2_partial,
             expected_sha256=v2_expected,
             version="v2",
@@ -85,8 +85,8 @@ class TestVersionChangeDuringDownload:
 
     def test_each_version_has_own_partial_path(self, tmp_path: Path):
         """The partial path is per-version — no collision."""
-        p1 = pack.pack_partial_path("v1", root=tmp_path)
-        p2 = pack.pack_partial_path("v2", root=tmp_path)
+        p1 = offline_pack.offline_pack_partial_path("v1", root=tmp_path)
+        p2 = offline_pack.offline_pack_partial_path("v2", root=tmp_path)
         assert p1 != p2
         assert p1.name == "pack-v1.partial"
         assert p2.name == "pack-v2.partial"
@@ -100,12 +100,12 @@ class TestVersionChangeDuringDownload:
         """If the version is unchanged, the partial is resumed (offset > 0)."""
         full = b"same-version-content" * 200
         expected = hashlib.sha256(full).hexdigest()
-        partial = pack.pack_partial_path("v1", root=tmp_path)
+        partial = offline_pack.offline_pack_partial_path("v1", root=tmp_path)
         partial.parent.mkdir(parents=True, exist_ok=True)
         partial.write_bytes(full[:1000])  # 1000-byte partial
         fake, calls, _ = _make_fake_transport(full)
-        ok = pack.download_pack_with_resume(
-            "https://github.com/owner/repo/releases/download/v1/pack.zip",
+        ok = offline_pack.download_offline_pack_with_resume(
+            "https://github.com/owner/repo/releases/download/v1/offline_pack.zip",
             partial,
             expected_sha256=expected,
             version="v1",
@@ -117,8 +117,8 @@ class TestVersionChangeDuringDownload:
 
     def test_version_specific_lock_files(self, tmp_path: Path):
         """The lock file is also per-version — no cross-version contention."""
-        l1 = pack.pack_lock_path("v1", root=tmp_path)
-        l2 = pack.pack_lock_path("v2", root=tmp_path)
+        l1 = offline_pack.offline_pack_lock_path("v1", root=tmp_path)
+        l2 = offline_pack.offline_pack_lock_path("v2", root=tmp_path)
         assert l1 != l2
         assert l1.name == "pack-v1.lock"
         assert l2.name == "pack-v2.lock"

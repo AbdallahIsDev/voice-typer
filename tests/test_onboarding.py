@@ -60,17 +60,20 @@ class TestOnboardingFirstRun:
 
 class TestOnboardingSteps:
     def test_initial_step(self, ctrl):
-        # total_steps bumped 5 → 6 (Permissions step added).
+        # total_steps bumped 5 → 6 (Permissions step added) and
+        # 6 → 7 (consolidated Consent step added before Model).
         assert ctrl.current_step == 0
-        assert ctrl.total_steps == 6
+        assert ctrl.total_steps == 7
 
     def test_step_names(self, ctrl):
-        # "Permissions" inserted between Microphone and Hotkey.
+        # "Permissions" inserted between Microphone and Hotkey;
+        # "Consent" inserted between Hotkey and Model.
         names = [
             "Welcome",
             "Microphone",
             "Permissions",
             "Hotkey",
+            "Consent",
             "Model",
             "Done",
         ]
@@ -83,8 +86,8 @@ class TestOnboardingSteps:
         assert ctrl.current_step == 1
 
     def test_next_step_capped(self, ctrl):
-        ctrl._current_step = 5  # last step index (6 total)
-        assert ctrl.next_step() == 5  # Already at last step
+        ctrl._current_step = 6  # last step index (7 total)
+        assert ctrl.next_step() == 6  # Already at last step
 
     def test_prev_step(self, ctrl):
         ctrl._current_step = 2
@@ -212,8 +215,9 @@ class TestOnboardingWizard:
         # 2) Wizard starts
         ctrl = OnboardingController(config_dir=onboarding_dir)
         assert ctrl.current_step == 0
-        # total_steps bumped 5 → 6 (Permissions step added).
-        assert ctrl.total_steps == 6
+        # total_steps bumped 5 → 6 (Permissions step added) and
+        # 6 → 7 (consolidated Consent step added before Model).
+        assert ctrl.total_steps == 7
 
         # 3) Step 1: select microphone
         ctrl.next_step()  # advance to step 1 (Microphone)
@@ -887,7 +891,7 @@ class TestPermissionsStep:
 
     def test_permissions_step_exists_between_mic_and_hotkey(self, ctrl):
         """Step order: Welcome(0), Microphone(1), Permissions(2),
-        Hotkey(3), Model(4), Done(5)."""
+        Hotkey(3), Consent(4), Model(5), Done(6)."""
         ctrl._current_step = 1
         assert ctrl.step_name == "Microphone"
         ctrl.next_step()
@@ -895,9 +899,18 @@ class TestPermissionsStep:
         ctrl.next_step()
         assert ctrl.step_name == "Hotkey"
 
-    def test_total_steps_is_six(self, ctrl):
-        """bumped from 5 → 6 to add Permissions step."""
-        assert ctrl.total_steps == 6
+    def test_consent_step_exists_between_hotkey_and_model(self, ctrl):
+        """The consolidated Consent step sits between Hotkey and Model."""
+        ctrl._current_step = 3
+        assert ctrl.step_name == "Hotkey"
+        ctrl.next_step()
+        assert ctrl.step_name == "Consent"
+        ctrl.next_step()
+        assert ctrl.step_name == "Model"
+
+    def test_total_steps_is_seven(self, ctrl):
+        """bumped from 6 → 7 to add the consolidated Consent step."""
+        assert ctrl.total_steps == 7
 
     def test_check_permissions_returns_dict_shape(self, ctrl):
         """``check_permissions`` returns a renderer-friendly dict with

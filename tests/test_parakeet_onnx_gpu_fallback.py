@@ -13,7 +13,7 @@ Mocks a CUDA error during ``model.recognize()`` and verifies:
    bound; the next ``transcribe_with_fallback`` call uses the CPU path
    directly without re-attempting CUDA).
 
-The tests mock ``onnx_asr.Model`` and ``onnxruntime`` so they run on
+The tests mock ``onnx_asr.load_model`` and ``onnxruntime`` so they run on
 CI without the real packages installed. The mock pattern mirrors
 ``tests/test_parakeet_onnx_load.py``.
 """
@@ -27,7 +27,7 @@ import numpy as np
 import pytest
 
 # NOTE: no module-level ``pytest.importorskip("onnx_asr")`` — these
-# tests mock onnx_asr.Model so they run without the real package.
+# tests mock onnx_asr.load_model so they run without the real package.
 # (Belt-and-suspenders: if a downstream CI env has onnx_asr installed
 # and wants to validate against the real package, the mocks here still
 # drive the engine's fallback logic correctly via sys.modules patching.)
@@ -72,7 +72,7 @@ def _mock_onnx_asr_module(recognize_side_effect=None) -> MagicMock:
             m.recognize.return_value = "hello world"
         return m
 
-    mock.Model.side_effect = _make_model
+    mock.load_model.side_effect = _make_model
     return mock
 
 
@@ -167,11 +167,11 @@ class TestParakeetOnnxCpuFallback:
         # Model must have been constructed TWICE: once for the GPU
         # session (during load()), once for the CPU fallback (during
         # _load_impl).
-        assert mock_onnx_asr.Model.call_count == 2, (
-            f"Expected 2 Model(...) calls (GPU load + CPU fallback recreate), got {mock_onnx_asr.Model.call_count}"
+        assert mock_onnx_asr.load_model.call_count == 2, (
+            f"Expected 2 Model(...) calls (GPU load + CPU fallback recreate), got {mock_onnx_asr.load_model.call_count}"
         )
         # Second call must use CPU providers only.
-        second_call_kwargs = mock_onnx_asr.Model.call_args_list[1].kwargs
+        second_call_kwargs = mock_onnx_asr.load_model.call_args_list[1].kwargs
         assert second_call_kwargs["providers"] == ["CPUExecutionProvider"], (
             f"CPU fallback must recreate session with providers=['CPUExecutionProvider'] "
             f"only (NOT torch's .to('cpu') — see PLAN_ONNX_INTEGRATION.md §3.4). "
@@ -265,13 +265,13 @@ class TestParakeetOnnxCpuFallback:
             )
 
     def test_cpu_fallback_load_failure_raises_transcription_backend_error(self):
-        """If the CPU session recreation fails (e.g. onnx_asr.Model
+        """If the CPU session recreation fails (e.g. onnx_asr.load_model
         raises), ``TranscriptionBackendError`` is raised (NOT swallowed)."""
         cuda_oom = RuntimeError("CUDA out of memory")
         engine, mock_onnx_asr, _ = _make_engine_with_cuda_loaded()
         engine._model.recognize.side_effect = cuda_oom
         # Make the second Model(...) call (the CPU recreate) raise.
-        mock_onnx_asr.Model.side_effect = RuntimeError("CPU load failed")
+        mock_onnx_asr.load_model.side_effect = RuntimeError("CPU load failed")
 
         with patch("voice_typer.server.event_bus.publish"), pytest.raises(TranscriptionBackendError):
             engine.transcribe_with_fallback(np.ones(16000, dtype=np.float32))

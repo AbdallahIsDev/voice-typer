@@ -15,39 +15,41 @@ are wired correctly for all **3 platforms × 2 archs = 6 target triples**:
 Scope (ADR-0020 §4.1 + §7 + §6.4 + §5):
 
 1. **externalBin (base name + Tauri-appended triple).**
-   ``tauri.conf.json`` declares ``bundle.externalBin: ["bin/python-sidecar"]``
+   ``tauri.conf.json`` declares
+   ``bundle.externalBin: ["bin/python-sidecar", "bin/voice-typer-worker"]``
    (Tauri appends the Rust target triple at spawn time — ADR-0020 §7
    "externalBin per-arch naming" + §4.1). The actual on-disk binaries
-   are ``src-tauri/bin/python-sidecar-<triple>[.exe]``. The base-name
-   form is the contract the ``app.shell().sidecar("python-sidecar")``
-   Rust API uses; the per-triple suffix is appended internally by
-   ``tauri-plugin-shell`` at spawn time.
+   are ``src-tauri/bin/python-sidecar-<triple>[.exe]`` and
+   ``voice-typer-worker-<triple>[.exe]``. The base-name form is the
+   contract the ``app.shell().sidecar(...)`` Rust API uses; the
+   per-triple suffix is appended internally by ``tauri-plugin-shell``
+   at spawn time. The ML worker became the second externalBin in the
+   runtime-pack split (master plan §6.2 P-1), replacing the per-arch
+   ``prewarm-<triple>`` bundle.resources (retired with the standalone
+   prewarm binary).
 
-2. **resources (per-arch prewarm + per-platform native hotkey binaries).**
-   ``bundle.resources`` MUST include all 9 entries mandated by ADR-0020 §7:
+2. **resources (per-platform native hotkey binaries only).**
+   ``bundle.resources`` MUST include the 3 native hotkey binaries
+   mandated by ADR-0020 §7:
 
        resources/native/windows-key-listener.exe
        resources/native/macos-key-listener
        resources/native/linux-key-listener
-       resources/prewarm-x86_64-pc-windows-msvc.exe
-       resources/prewarm-aarch64-pc-windows-msvc.exe
-       resources/prewarm-x86_64-apple-darwin
-       resources/prewarm-aarch64-apple-darwin
-       resources/prewarm-x86_64-unknown-linux-gnu
-       resources/prewarm-aarch64-unknown-linux-gnu
 
    Native hotkey binaries are ``resources`` (NOT ``externalBin``) because
-   they are spawned by the Python sidecar — ADR-0020 §6.4 + §7. Prewarm
-   binaries are ``resources`` (NOT ``externalBin``) because they are
-   scheduled by the OS (Windows Task Scheduler / macOS LaunchAgent /
-   Linux systemd user timer) — ADR-0020 §5.
+   they are spawned by the Python sidecar — ADR-0020 §6.4 + §7. The old
+   per-arch prewarm resources are GONE (asserted absent below) — the
+   worker exe is spawned through externalBin, not extracted as a
+   resource.
 
 3. **spawn.rs::target_triple_for() maps all 6 (arch, os) combos.**
    The pure predicate ``target_triple_for(arch, os) -> &str`` in
    ``src-tauri/src/sidecar/spawn.rs`` is the single source of truth for
-   the per-triple suffix used to resolve the prewarm binary path
-   (``prewarm-<triple>[.exe]`` in ``prewarm_resource_path()``). Tauri's
-   own ``externalBin`` resolver uses the same triple logic internally.
+   the per-triple suffix used to resolve BOTH externalBin binaries
+   (``python-sidecar-<triple>[.exe]`` via Tauri, and
+   ``voice-typer-worker-<triple>[.exe]`` via
+   ``platform::worker_path::worker_exe_path_from_env``). Tauri's own
+   ``externalBin`` resolver uses the same triple logic internally.
    All 6 supported (arch, os) combos must map to the exact triple
    string Tauri expects — ADR-0020 §4.1.
 
@@ -92,8 +94,8 @@ build + runtime validation MUST be executed by a human on real hosts
     type "%APPDATA%\voice-typer\logs\voice-typer.log" | findstr "server_started"
     # Expected: [SIDECAR] server_started port=<ephemeral>
 
-    # 5. Confirm the bundled prewarm binary exists under resourceDir:
-    dir "%LOCALAPPDATA%\Programs\Voice Typer\resources\prewarm-x86_64-pc-windows-msvc.exe"
+    # 5. Confirm the ML worker exe exists in the runtime-pack dir:
+    dir "%LOCALAPPDATA%\voice-typer\runtime-pack\<version>\voice-typer-worker-x86_64-pc-windows-msvc.exe"
 
 **VALIDATE ON HOST — Windows ARM64 (aarch64-pc-windows-msvc)**::
 
@@ -104,7 +106,7 @@ build + runtime validation MUST be executed by a human on real hosts
     cd ..
     # Install target/aarch64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
     # on a Windows-on-ARM device (Surface Pro X, Lenovo ThinkPad X13s).
-    dir "%LOCALAPPDATA%\Programs\Voice Typer\resources\prewarm-aarch64-pc-windows-msvc.exe"
+    dir "%LOCALAPPDATA%\voice-typer\runtime-pack\<version>\voice-typer-worker-aarch64-pc-windows-msvc.exe"
 
 **VALIDATE ON HOST — macOS Intel (x86_64-apple-darwin)**::
 
@@ -116,8 +118,8 @@ build + runtime validation MUST be executed by a human on real hosts
     # Drag Voice Typer.app to /Applications, launch it.
     tail -n 50 ~/Library/Application\ Support/voice-typer/logs/voice-typer.log \
         | grep server_started
-    ls "/Applications/Voice Typer.app/Contents/Resources/resources/" \
-        | grep prewarm-x86_64-apple-darwin
+    ls ~/Library/Application\ Support/voice-typer/runtime-pack/<version>/ \
+        | grep voice-typer-worker-x86_64-apple-darwin
 
 **VALIDATE ON HOST — macOS Apple Silicon (aarch64-apple-darwin)**::
 
@@ -127,8 +129,8 @@ build + runtime validation MUST be executed by a human on real hosts
     open target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
     tail -n 50 ~/Library/Application\ Support/voice-typer/logs/voice-typer.log \
         | grep server_started
-    ls "/Applications/Voice Typer.app/Contents/Resources/resources/" \
-        | grep prewarm-aarch64-apple-darwin
+    ls ~/Library/Application\ Support/voice-typer/runtime-pack/<version>/ \
+        | grep voice-typer-worker-aarch64-apple-darwin
 
 **VALIDATE ON HOST — Linux x64 (x86_64-unknown-linux-gnu)**::
 
@@ -138,9 +140,8 @@ build + runtime validation MUST be executed by a human on real hosts
     # Install the AppImage / deb / rpm bundle, then launch.
     tail -n 50 ~/.local/share/voice-typer/logs/voice-typer.log \
         | grep server_started
-    # Resource path under AppImage is a FUSE mount; under deb/rpm it is
-    # /usr/lib/voice-typer/resources/.
-    ls /usr/lib/voice-typer/resources/prewarm-x86_64-unknown-linux-gnu
+    # The worker exe lives in the runtime-pack data dir:
+    ls ~/.local/share/voice-typer/runtime-pack/<version>/voice-typer-worker-x86_64-unknown-linux-gnu
 
 **VALIDATE ON HOST — Linux ARM64 (aarch64-unknown-linux-gnu)**::
 
@@ -151,16 +152,15 @@ build + runtime validation MUST be executed by a human on real hosts
     cd ..
     tail -n 50 ~/.local/share/voice-typer/logs/voice-typer.log \
         | grep server_started
-    ls /usr/lib/voice-typer/resources/prewarm-aarch64-unknown-linux-gnu
+    ls ~/.local/share/voice-typer/runtime-pack/<version>/voice-typer-worker-aarch64-unknown-linux-gnu
 
 Each host run validates two things:
-1. The ``externalBin`` base name resolved to the right per-triple
-   sidecar binary (sidecar spawned within 30 s, log shows
+1. The ``externalBin`` base names resolved to the right per-triple
+   sidecar / worker binaries (sidecar spawned within 30 s, log shows
    ``server_started port=<ephemeral>`` — never a fixed port like 9876).
-2. The per-arch prewarm binary was extracted to ``resourceDir`` at
-   install time and is discoverable by ``prewarm_resource_path()`` in
-   spawn.rs (the file exists at the path Tauri's ``resource_dir()``
-   returns).
+2. The per-arch worker exe is discoverable by
+   ``worker_path::worker_exe_path_from_env`` in the runtime-pack dir
+   (the file exists at the versioned path the path resolver returns).
 
 References:
 - ADR-0020 §4.1 — per-arch externalBin binary naming + ``target_triple_for``.
@@ -206,16 +206,9 @@ EXPECTED_NATIVE_RESOURCES = [
     "resources/native/linux-key-listener",
 ]
 
-#: ADR-0020 §5: per-arch prewarm binaries, one per target triple.
-#: Windows prewarm binaries carry the ``.exe`` suffix; macOS + Linux do not.
-EXPECTED_PREWARM_RESOURCES = [
-    "resources/prewarm-x86_64-pc-windows-msvc.exe",
-    "resources/prewarm-aarch64-pc-windows-msvc.exe",
-    "resources/prewarm-x86_64-apple-darwin",
-    "resources/prewarm-aarch64-apple-darwin",
-    "resources/prewarm-x86_64-unknown-linux-gnu",
-    "resources/prewarm-aarch64-unknown-linux-gnu",
-]
+#: Master plan §6.2 P-1: the second externalBin base name (the ML
+#: worker exe that absorbed the retired standalone prewarm binary).
+EXPECTED_WORKER_BIN_BASENAME = "bin/voice-typer-worker"
 
 #: ADR-0020 §4.1: ``target_triple_for(arch, os)`` must map every one of
 #: these (arch, os, expected_triple) tuples. The triple strings are
@@ -249,11 +242,12 @@ def _read_spawn_module() -> str:
     """Concatenate the spawn module sources (spawn.rs + spawn/*.rs).
 
     EO-33 split the former single-file ``sidecar/spawn.rs`` into an
-    orchestrator (``spawn.rs``) + six concern submodules
+    orchestrator (``spawn.rs``) + concern submodules
     (``spawn/dev_mode.rs``, ``spawn/release_mode.rs``,
     ``spawn/handshake.rs``, ``spawn/env_allowlist.rs``,
-    ``spawn/prewarm.rs``, ``spawn/target_triple.rs``). The gate
-    assertions target the spawn module as a whole, so we read every
+    ``spawn/target_triple.rs``; ``spawn/prewarm.rs`` was deleted when
+    prewarm became a worker startup phase — master plan §6.2 P-1). The
+    gate assertions target the spawn module as a whole, so we read every
     file and join them.
     """
     files = [_SPAWN_RS] + sorted(_SPAWN_RS.parent.joinpath("spawn").glob("*.rs"))
@@ -359,38 +353,47 @@ def test_tauri_conf_resources_include_native_hotkey_binary(tauri_conf, resource:
     )
 
 
-@pytest.mark.parametrize(
-    "resource",
-    EXPECTED_PREWARM_RESOURCES,
-    ids=[r.split("/")[-1] for r in EXPECTED_PREWARM_RESOURCES],
-)
-def test_tauri_conf_resources_include_per_arch_prewarm_binary(tauri_conf, resource: str) -> None:
-    """ADR-0020 §5 + §7: every per-arch prewarm binary must be a resource.
+def test_tauri_conf_external_bin_lists_worker(tauri_conf) -> None:
+    """Master plan §6.2 P-1: externalBin must contain ``bin/voice-typer-worker``.
 
-    The prewarm binary is launched by the OS-specific scheduler
-    (Windows Task Scheduler, macOS LaunchAgent, Linux systemd user
-    timer) — NOT spawned by Tauri — so it must be a ``bundle.resource``
-    extracted to ``resourceDir``. One binary per target triple (6
-    total: x86_64 + aarch64 × Windows/macOS/Linux). Windows prewarm
-    binaries carry the ``.exe`` suffix; macOS + Linux do not.
+    The ML worker exe replaced the retired standalone prewarm binary
+    and is spawned through Tauri's ``externalBin`` mechanism (same
+    base-name + triple-appended contract as the python-sidecar).
+    """
+    external_bin = tauri_conf.get("bundle", {}).get("externalBin", [])
+    assert EXPECTED_WORKER_BIN_BASENAME in external_bin, (
+        f"bundle.externalBin must contain {EXPECTED_WORKER_BIN_BASENAME!r} "
+        f"(the ML worker exe — master plan §6.2 P-1)"
+    )
+
+
+def test_tauri_conf_resources_exclude_prewarm_binaries(tauri_conf) -> None:
+    """Master plan §6.2 P-1: per-arch prewarm resources must NOT exist.
+
+    The standalone prewarm binary was retired; the worker exe (which
+    runs the warm phase) is an externalBin, not a bundle resource.
+    Any ``resources/prewarm-*`` entry in tauri.conf.json is a
+    regression — the old binaries no longer exist to be bundled, and
+    the installers would bloat with dead entries.
     """
     resources = tauri_conf.get("bundle", {}).get("resources", [])
-    assert resource in resources, (
-        f"bundle.resources must include {resource!r} "
-        f"(per-arch prewarm binary for the {resource.split('-')[1]} "
-        f"target triple, ADR-0020 §5 + §7)"
+    prewarm_entries = [r for r in resources if "prewarm" in r]
+    assert not prewarm_entries, (
+        f"bundle.resources must NOT contain prewarm binaries (retired, "
+        f"master plan §6.2 P-1) — got: {prewarm_entries}"
     )
 
 
 def test_tauri_conf_resources_count_matches_minimum(tauri_conf) -> None:
-    """ADR-0020 §7: resources must include at least 9 mandated entries.
+    """ADR-0020 §7: resources must include the 3 mandated native entries.
 
-    The 3 native hotkey binaries + 6 per-arch prewarm binaries = 9
-    mandatory entries. Extra entries (icons, model files, etc.) are
-    permitted; missing any of the 9 is a hard fail.
+    The 3 native hotkey binaries are the mandatory resource set. Extra
+    entries (icons, model files, etc.) are permitted; missing any of
+    the 3 is a hard fail. The prewarm resources are asserted absent in
+    ``test_tauri_conf_resources_exclude_prewarm_binaries``.
     """
     resources = tauri_conf.get("bundle", {}).get("resources", [])
-    required = set(EXPECTED_NATIVE_RESOURCES) | set(EXPECTED_PREWARM_RESOURCES)
+    required = set(EXPECTED_NATIVE_RESOURCES)
     missing = required - set(resources)
     assert not missing, (
         f"bundle.resources is missing {len(missing)} mandated entr"
@@ -497,40 +500,47 @@ def test_spawn_rs_current_target_triple_delegates_to_target_triple_for(
     )
 
 
-def test_spawn_rs_prewarm_resource_path_uses_current_target_triple(
-    spawn_rs_source,
-) -> None:
-    """ADR-0020 §4.1 + §5: ``prewarm_resource_path`` uses the per-arch triple.
+def test_worker_exe_path_uses_current_target_triple() -> None:
+    """Master plan §6.2 P-1: ``worker_exe_path_from_env`` uses the per-arch triple.
 
-    The prewarm binary is named ``prewarm-<triple>[.exe]`` (one per
-    target triple). ``prewarm_resource_path(app)`` must call
+    The worker exe is named ``voice-typer-worker-<triple>[.exe]`` (one
+    per target triple) inside the runtime-pack dir.
+    ``platform/worker_path.rs::worker_exe_path_from_env`` must call
     ``current_target_triple()`` to resolve the suffix — NOT hardcode a
     single arch (which would silently break on the other 5 triples).
     """
-    assert "fn prewarm_resource_path" in spawn_rs_source, (
-        "spawn.rs must define `prewarm_resource_path(app: &tauri::AppHandle) -> Result<String, String>`"
+    worker_path_src = (_SRC_TAURI / "src" / "platform" / "worker_path.rs").read_text(
+        encoding="utf-8"
     )
-    assert "current_target_triple" in spawn_rs_source, (
-        "prewarm_resource_path must call current_target_triple() to resolve "
-        "the per-arch prewarm binary name (ADR-0020 §4.1 + §5)"
+    assert "fn worker_exe_path_from_env" in worker_path_src, (
+        "worker_path.rs must define `worker_exe_path_from_env`"
     )
-    # The prewarm name template must include the triple (+ Windows .exe
-    # suffix appended conditionally on cfg!(windows)). The format! call
-    # must reference `triple` as the first format arg.
+    assert "current_target_triple" in worker_path_src, (
+        "worker_exe_path_from_env must call current_target_triple() to resolve "
+        "the per-arch worker exe name (master plan §6.2 P-1)"
+    )
+    # The worker name template must include the triple (+ Windows .exe
+    # suffix appended conditionally on cfg!(windows)).
     assert re.search(
-        r'format!\s*\(\s*"prewarm-\{\}[^"]*"\s*,\s*triple\b',
-        spawn_rs_source,
+        r'WORKER_BIN_BASE_NAME\s*:\s*&str\s*=\s*"voice-typer-worker"',
+        worker_path_src,
     ), (
-        "prewarm_resource_path must format the binary name as "
-        "`prewarm-{triple}[.exe]` (one per-arch binary per target triple, "
-        "ADR-0020 §5)"
+        "worker_path.rs must define WORKER_BIN_BASE_NAME = \"voice-typer-worker\" "
+        "(master plan §6.2 P-1)"
+    )
+    assert re.search(
+        r'format!\s*\(\s*"\{\}-\{\}\{\}"\s*,\s*WORKER_BIN_BASE_NAME\s*,\s*triple\s*,\s*suffix',
+        worker_path_src,
+    ), (
+        "worker_exe_path_from_env must format the binary name as "
+        "`voice-typer-worker-{triple}{suffix}` (master plan §6.2 P-1)"
     )
     # The Windows .exe suffix must be conditional on cfg!(windows) — a
     # hardcoded `.exe` would break macOS/Linux; a hardcoded empty suffix
     # would break Windows.
-    assert re.search(r"cfg!\s*\(\s*windows\s*\)", spawn_rs_source), (
-        "prewarm_resource_path must use cfg!(windows) to conditionally "
-        "append the .exe suffix on Windows only (ADR-0020 §5)"
+    assert re.search(r"cfg!\s*\(\s*windows\s*\)", worker_path_src), (
+        "worker_exe_path_from_env must use cfg!(windows) to conditionally "
+        "append the .exe suffix on Windows only (master plan §6.2 P-1)"
     )
 
 
@@ -558,6 +568,16 @@ def test_tauri_conf_shell_scope_allows_python_sidecar(tauri_conf) -> None:
         f"plugins.shell.scope must include an entry "
         f"{{'name': {EXPECTED_EXTERNAL_BIN_BASENAME!r}, 'sidecar': true}} "
         f"(Tauri v2 requires explicit spawn scoping, ADR-0020 §7)"
+    )
+    # The ML worker exe is the second externalBin — it must be scoped
+    # the same way (master plan §6.2 P-1).
+    worker_matches = [
+        s for s in scope if s.get("name") == EXPECTED_WORKER_BIN_BASENAME and s.get("sidecar") is True
+    ]
+    assert worker_matches, (
+        f"plugins.shell.scope must include an entry "
+        f"{{'name': {EXPECTED_WORKER_BIN_BASENAME!r}, 'sidecar': true}} "
+        f"(the ML worker exe is spawned through externalBin, master plan §6.2 P-1)"
     )
 
 

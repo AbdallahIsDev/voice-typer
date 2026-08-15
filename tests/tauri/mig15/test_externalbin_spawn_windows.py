@@ -12,8 +12,9 @@ Scope of this check (ADR-0020 §1 + §4.1 + §7 + §10 + §14):
    "externalBin per-arch naming" + §4.1).
 
 2. ``tauri.conf.json`` ships the Windows native binary
-   (``windows-key-listener.exe``) and the Windows prewarm binaries
-   for both x86_64 and aarch64 target triples as ``bundle.resources``.
+   (``windows-key-listener.exe``) as a ``bundle.resource``. (The
+   Windows prewarm binaries were removed from ``resources`` with the
+   prewarm retirement — master plan §6.2 P-1.)
 
 3. ``src-tauri/src/sidecar/spawn.rs`` reads the ``server_started`` JSON
    line from the sidecar's stdout via ``tauri_plugin_shell``'s
@@ -120,10 +121,11 @@ def _read_spawn_module() -> str:
     """Concatenate the spawn module sources (spawn.rs + spawn/*.rs).
 
     EO-33 split the former single-file ``sidecar/spawn.rs`` into an
-    orchestrator (``spawn.rs``) + six concern submodules
+    orchestrator (``spawn.rs``) + five concern submodules
     (``spawn/dev_mode.rs``, ``spawn/release_mode.rs``,
     ``spawn/handshake.rs``, ``spawn/env_allowlist.rs``,
-    ``spawn/prewarm.rs``, ``spawn/target_triple.rs``). The gate
+    ``spawn/target_triple.rs``; the prewarm submodule was removed with
+    the prewarm retirement, master plan §6.2 P-1). The gate
     assertions target the spawn module as a whole, so we read every
     file and join them.
     """
@@ -222,7 +224,7 @@ def test_tauri_conf_shell_scope_allows_python_sidecar(tauri_conf) -> None:
     )
 
 
-# ─── Test 2: Windows native + prewarm resources ───────────────────────
+# ─── Test 2: Windows native resources ──────────────────────────────────
 
 
 def test_tauri_conf_resources_include_windows_native(tauri_conf) -> None:
@@ -238,28 +240,6 @@ def test_tauri_conf_resources_include_windows_native(tauri_conf) -> None:
     assert "resources/native/windows-key-listener.exe" in resources, (
         "bundle.resources must include 'resources/native/windows-key-listener.exe' "
         "for Windows hotkey support (ADR-0020 §6.4)"
-    )
-
-
-@pytest.mark.parametrize(
-    "triple",
-    [
-        "x86_64-pc-windows-msvc",
-        "aarch64-pc-windows-msvc",
-    ],
-)
-def test_tauri_conf_resources_include_windows_prewarm(tauri_conf, triple: str) -> None:
-    """ADR-0020 §4.1 + §5: per-arch prewarm binaries for Windows.
-
-    The prewarm binary is launched by the Windows Task Scheduler (not
-    by Tauri), so it must be a ``bundle.resource`` extracted to
-    ``resourceDir``. Tauri's ``externalBin`` is NOT used for prewarm.
-    One binary per Windows target triple (x86_64 + aarch64).
-    """
-    resources = tauri_conf.get("bundle", {}).get("resources", [])
-    expected = f"resources/prewarm-{triple}.exe"
-    assert expected in resources, (
-        f"bundle.resources must include '{expected}' (per-arch prewarm binary for Windows {triple}, ADR-0020 §5)"
     )
 
 
@@ -354,10 +334,6 @@ def test_spawn_rs_sets_ipc_token_env_var(spawn_rs_source) -> None:
         r'\.env\s*\(\s*"VOICE_TYPER_NATIVE_DIR"\s*,',
         spawn_rs_source,
     ), "spawn.rs must set VOICE_TYPER_NATIVE_DIR to resourceDir/native"
-    assert re.search(
-        r'\.env\s*\(\s*"VOICE_TYPER_PREWARM_EXE"\s*,',
-        spawn_rs_source,
-    ), "spawn.rs must set VOICE_TYPER_PREWARM_EXE to the per-arch prewarm binary"
 
 
 def test_spawn_rs_passes_ws_arg(spawn_rs_source) -> None:

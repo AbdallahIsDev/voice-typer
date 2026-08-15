@@ -1,11 +1,26 @@
-"""Qwen3- transcription engine — optional backend alongside Whisper.
+"""Qwen3-ASR transcription engine — ONNX Runtime backend (no torch).
 
-This module is entirely self-contained.  If the ``qwen-asr`` package is not
-installed, import still succeeds — the engine simply won't be loadable.
+PLAN_ONNX_INTEGRATION.md §4.3 Option C-2 — implemented 2026-08-14,
+made torch-free-only 2026-08-15. The pre-exported ONNX models
+(``andrewleech/qwen3-asr-1.7b-onnx`` / ``qwen3-asr-0.6b-onnx``) run via
+``onnxruntime`` through :class:`voice_typer.server.qwen_onnx_model.QwenOnnxModel`.
+There is NO torch path and NO ``qwen_asr`` package dependency anymore —
+``torch>=2.0``, ``transformers`` and the ``qwen-asr`` optional extra were
+removed from ``pyproject.toml`` in the same change.
+
+This module is entirely self-contained.  Import succeeds without any
+heavy dependencies; the ONNX sessions are opened lazily inside
+``load()``.
 
 Key constraints:
-- No auto-download: ``from_pretrained()`` reads from a local path only.
-- If weights are missing or init fails → graceful fallback, no crash.
+- No auto-download: ``load()`` reads from a local ONNX-export directory
+  only (``encoder.onnx`` / ``decoder_init.onnx`` / ``decoder_step.onnx``
+  + ``embed_tokens.bin`` + ``tokenizer.json``). A torch/safetensors
+  layout directory is rejected with a migration error — the torch Qwen
+  engine was removed.
+- If the directory is missing / not an ONNX export / fails to load →
+  ``load()`` returns False (non-ONNX dir) or raises ``RuntimeError``
+  (ONNX dir that fails mid-load — fail-closed, no silent fallback).
 - Whisper stays as the default and fallback backend.
 - Uses shared hallucination detection from voice_typer.server.hallucination.
 """
@@ -14,44 +29,14 @@ import contextlib
 import logging
 import os
 import threading
-import time
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
-from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
-
-# SEC-audit-007: Allowed file extensions and filenames in the Qwen model directory.
-# Prevents loading from directories that contain unexpected files (executables,
-# scripts, etc.) which could indicate tampering.
-# NOTE: .py is deliberately excluded — model directories should never contain
-# Python source files, which could execute arbitrary code during from_pretrained().
-_QWEN_ALLOWED_EXTENSIONS = {
-    ".safetensors",
-    ".bin",
-    ".json",
-    ".model",
-    ".txt",
-}
-_QWEN_ALLOWED_BASENAMES = {
-    "config.json",
-    "tokenizer.json",
-    "tokenizer_config.json",
-    "special_tokens_map.json",
-    "preprocessor_config.json",
-    "feature_extractor_config.json",
-    "generation_config.json",
-    "model.safetensors.index.json",
-    "tokenizer.model",
-    "vocab.json",
-    "merges.txt",
-    "vocab.txt",
-}
 
 # Qwen3-ASR is Whisper-based and natively handles 30 s segments.
 # Longer recordings are split into overlapping chunks for safety
@@ -77,11 +62,16 @@ _QWEN_OVERLAP_DEDUP_WORDS = 3
 
 
 class QwenEngine:
-    """Wraps Qwen3- model loading and transcription.
+    """Wraps the Qwen3-ASR ONNX model (``qwen_onnx_model.QwenOnnxModel``).
 
     Provides the same ``transcribe(audio) -> str`` interface as
     ``TranscriptionEngine`` so the app can swap backends transparently.
     Implements TranscriberProtocol.
+
+    The ONNX runtime path is CPU-first (the int4 CPU exports are the
+    documented fast path; ORT CUDA is not exercised here), so
+    ``self.device`` is pinned to ``\"cpu\"`` at ``load()`` regardless of
+    the constructor's ``device`` argument.
     """
 
     def __init__(
@@ -94,13 +84,17 @@ class QwenEngine:
         self.device = device
         self.language = language
         self._model = None
+        # Set when the ONNX backend is active (see ``load()``). Guards
+        # ``unload`` / ``device_info`` so the ONNX model is released via
+        # its ``close()`` method.
+        self._onnx_model = None
         self._lock = threading.RLock()
         # Counter + Condition so transcribe() can release the model lock
-        # during the (potentially long) GPU inference call while still
+        # during the (potentially long) inference call while still
         # coordinating with unload(). unload() waits for
         # ``_active_inference == 0`` before nulling ``self._model`` so a
-        # concurrent transcribe() doesn't dereference a freed PyTorch
-        # module (use-after-free). Mirrors ParakeetEngine's pattern.
+        # concurrent transcribe() doesn't dereference a freed model
+        # (use-after-free). Mirrors ParakeetEngine's pattern.
         self._active_inference = 0
         self._inference_cond = threading.Condition(self._lock)
         # Abort token checked between chunk iterations in the
@@ -112,9 +106,9 @@ class QwenEngine:
         # recording.
         self._abort_event = threading.Event()
         # Batch 2-4 chunks per ``model.transcribe()`` call when the
-        # qwen_asr wrapper exposes a batched-input API.  Default batch
-        # size is 1 (sequential) so the existing test contract that
-        # pins ``mock_model.transcribe.side_effect = [r1, r2, r3]``
+        # ONNX model exposes a batched-input API.  Default batch size is
+        # 1 (sequential) so the existing test contract that pins
+        # ``mock_model.transcribe.side_effect = [r1, r2, r3]``
         # (one ``transcribe`` call per chunk) keeps passing.  Operators
         # who want the batching speedup can set ``QWEN_BATCH_SIZE=2``
         # (or 3/4) in the environment; on OOM we fall back to per-chunk
@@ -134,7 +128,7 @@ class QwenEngine:
         """Return True if the model has been loaded successfully.
 
         RACE-032: ``transcribe()`` releases ``self._lock`` during the
-        multi-second GPU inference call (incrementing ``_active_inference``
+        multi-second inference call (incrementing ``_active_inference``
         before release so ``unload()`` can wait). ``is_loaded`` only
         acquires ``self._lock`` briefly to read ``self._model``, so it
         returns True even mid-inference without blocking.
@@ -142,306 +136,80 @@ class QwenEngine:
         with self._lock:
             return self._model is not None
 
-    @staticmethod
-    def _inference_mode_ctx() -> Any:
-        """Return a context manager that wraps torch.inference_mode().
-
-        model.transcribe() was previously called WITHOUT an
-                inference-mode context, which meant PyTorch built and retained
-                the autograd graph for every call. For a 30 s chunk on CUDA
-                this roughly DOUBLED activation-memory footprint (increasing
-                OOM risk) and added ~10-30 % inference latency.
-
-                torch.inference_mode() is preferred over torch.no_grad()
-                (lower overhead, recursive). Imports torch lazily so the
-                engine module imports even when torch isn't installed. If
-                torch isn't importable, returns contextlib.nullcontext.
-        """
-        try:
-            import torch
-        except ImportError:
-            return contextlib.nullcontext()
-        return torch.inference_mode()
-
-    def _resolve_device(self) -> str:
-        """Resolve the effective device, honouring ``"auto"``.
-
-                Mirrors ``TranscriptionEngine._resolve_device``
-                (transcription.py:447-480) but adapted to Qwen's ``torch``-based
-                model wrapper:
-
-                - ``"auto"`` → ``"cuda"`` if ``torch.cuda.is_available()`` else
-                  ``"cpu"``.
-                - ``"cuda"`` / ``"cpu"`` → returned as-is (explicit device wins).
-
-                ``self.device`` is NOT mutated here — the caller (``load()``)
-                updates it after a successful ``.to("cuda")`` so a failed CUDA
-                init doesn't leave a stale ``"cuda"`` value that would make
-                ``transcribe_with_fallback``'s CUDA-error branch unreachable
-        (the original  bug).
-
-                Returns the resolved device string.
-        """
-        if self.device == "auto":
-            try:
-                import torch
-            except ImportError:
-                log.warning("[QWEN] torch not installed — cannot probe CUDA, falling back to CPU")
-                return "cpu"
-            try:
-                if torch.cuda.is_available():
-                    return "cuda"
-            except Exception as exc:  # noqa: BLE001 — CUDA probe can raise varied errors
-                log.warning("[QWEN] CUDA probe failed (%s) — falling back to CPU", exc)
-            return "cpu"
-        return self.device
-
     def load(self, progress_callback=None) -> bool:
-        """Load the Qwen ASR model from the local ``model_path``.
+        """Load the Qwen3-ASR ONNX model from the local ``model_path``.
 
-        All ``qwen_asr`` imports happen inside this method so that the
-        module can be imported even when ``qwen-asr`` is not installed.
+        The directory must hold the pre-exported ONNX layout
+        (``encoder.onnx`` / ``decoder_init.onnx`` / ``decoder_step.onnx``
+        + ``embed_tokens.bin`` + ``tokenizer.json``) — the
+        torch/safetensors Qwen layout is no longer supported (the torch
+        engine was removed 2026-08-15; see PLAN_ONNX_INTEGRATION §4.3
+        C-2).
 
-        Returns True if the model was loaded successfully, False otherwise.
-        If loading fails for any reason (missing package, missing weights,
-        CUDA error, etc.) the model stays ``None`` and the error is logged.
+        Returns True if the model was loaded successfully, False
+        otherwise. A non-ONNX directory returns False with a migration
+        error logged; an ONNX directory that fails mid-load raises
+        ``RuntimeError`` (fail-closed — a corrupt or incomplete ONNX
+        export is never silently ignored).
         """
         with self._lock:
             if self._model is not None:
                 return True
 
-            # SEC-audit-007: Validate model directory contains only expected file types
-            if not _validate_qwen_model_dir(self.model_path):
+            from voice_typer.server.qwen_onnx_model import QwenOnnxModel, is_onnx_model_dir
+
+            if not is_onnx_model_dir(self.model_path):
                 log.error(
-                    "[QWEN] Model directory %s failed security validation — contains unexpected files",
+                    "[QWEN] %s is not a Qwen3-ASR ONNX export directory. "
+                    "The torch/safetensors Qwen layout is no longer "
+                    "supported (torch removed 2026-08-15, "
+                    "PLAN_ONNX_INTEGRATION.md §4.3 C-2). Download the "
+                    "pre-exported ONNX model "
+                    "(andrewleech/qwen3-asr-1.7b-onnx or "
+                    "qwen3-asr-0.6b-onnx) and point qwen_model_path at "
+                    "the extracted directory (needs encoder.onnx / "
+                    "decoder_init.onnx / decoder_step.onnx + "
+                    "embed_tokens.bin + tokenizer.json).",
                     self.model_path,
                 )
                 return False
 
-            # SEC-audit-007 /  (Session 7 — Group 4): SHA-256
-            # manifest verification of model directory contents before
-            # calling from_pretrained().  We now delegate to the shared
-            # ``security.verify_model_integrity()`` instead of the
-            # divergent local ``_verify_qwen_model_hashes`` helper.
-            #
-            # Root cause of : ``security.verify_model_integrity``
-            # hard-fails for local models with an empty ``pinned_files``
-            # dict ( — a local model has no upstream SHA pin,
-            # so the empty-files soft-pass would let a tampered
-            # directory load unchecked).  But ``qwen_engine.py``'s own
-            # ``_verify_qwen_model_hashes`` SOFT-PASSED on empty
-            # ``pinned_files``, so the hard-fail branch in
-            # ``security.py`` was dead code for the Qwen path.  A
-            # tampered local Qwen model directory would load with NO
-            # content hash verification.
-            #
-            # The fix: delete the divergent helper and call
-            # ``security.verify_model_integrity(model_path, "qwen")``
-            # directly so the  hard-fail is honoured.  When
-            # ``model_hashes.json``'s ``"qwen"`` entry has empty
-            # ``files`` (the default ship state), ``load()`` returns
-            # False — operators MUST populate the ``files`` dict with
-            # the expected SHA-256 hashes before a local Qwen model
-            # can be loaded.
-            #
-            # The return value is CHECKED: if pinned hashes are present
-            # and any mismatches, load() aborts with False instead of
-            # proceeding to from_pretrained().  Previously the return
-            # value was discarded (bare call), so a tampered model
-            # would still load — only a log warning was emitted.
             try:
-                from voice_typer.server.security import verify_model_integrity
-
-                if not verify_model_integrity(self.model_path, "qwen"):
-                    log.error(
-                        "[QWEN] Model hash verification FAILED for %s — refusing to load tampered or corrupted model",
-                        self.model_path,
-                    )
-                    return False
-            except Exception as exc:
-                log.warning(
-                    "[QWEN] Model hash verification warning for %s: %s",
-                    self.model_path,
-                    exc,
-                )
-
-            # SEC-audit-007: Read config.json with O_NOFOLLOW to prevent symlink attacks
-            config_path = Path(self.model_path) / "config.json"
-            try:
-                if not is_windows():
-                    # POSIX: open with O_NOFOLLOW to refuse symlinks.
-                    # (this session): restructure to avoid a
-                    # fragile double-close. ``os.fdopen`` takes
-                    # ownership of ``fd`` — once it succeeds, the file
-                    # object's ``__exit__`` closes ``fd``. The pre-fix
-                    # code wrapped both ``os.fdopen`` AND ``json.load``
-                    # in the same ``try`` block; if ``json.load``
-                    # raised, the ``with``'s ``__exit__`` closed
-                    # ``fd`` and then the outer ``except Exception``
-                    # branch called ``os.close(fd)`` *again*. The
-                    # double-close was silently suppressed by
-                    # ``contextlib.suppress(OSError)`` — fragile
-                    # (EBADF on some platforms; hides real bugs). The
-                    # fix separates the two failure modes:
-                    #   - ``os.fdopen`` itself fails → close ``fd``
-                    #     (no file object was ever created), re-raise.
-                    #   - ``json.load`` fails → the ``with`` block
-                    #     closes ``f`` (and thus ``fd``); no second
-                    #     close attempt.
-                    fd = os.open(str(config_path), os.O_RDONLY | os.O_NOFOLLOW)
-                    try:
-                        f = os.fdopen(fd, "r", encoding="utf-8")
-                    except Exception:
-                        # ``os.fdopen`` failed — ``f`` was never
-                        # created, so ``fd`` is still owned by us.
-                        # Close it to avoid leaking the descriptor.
-                        with contextlib.suppress(OSError):
-                            os.close(fd)
-                        raise
-                    with f:
-                        import json
-
-                        json.load(f)  # Validate it's parseable JSON
-                else:
-                    # Windows: standard open (NTFS ACLs provide protection)
-                    with open(config_path, encoding="utf-8") as f:
-                        import json
-
-                        json.load(f)
-            except OSError as exc:
-                log.exception("[QWEN] Failed to safely read config.json from %s: %s", self.model_path, exc)
-                return False
-            except Exception as exc:
-                log.exception("[QWEN] config.json in %s is not valid JSON: %s", self.model_path, exc)
-                return False
-
-            try:
-                import qwen_asr  # type: ignore[import-untyped]
-
-                if progress_callback:
-                    progress_callback("Loading Qwen3-ASR model...")
-
-                log.info(
-                    "[QWEN] Loading Qwen3-ASR model from %s (device=%s)...",
-                    self.model_path,
-                    self.device,
-                )
-                # time from_pretrained() to measure prewarm
-                # cache-hit effectiveness.
-                _t0 = time.perf_counter()
-                self._model = qwen_asr.Qwen3ASRModel.from_pretrained(
-                    self.model_path,
-                )
-                _load_elapsed = time.perf_counter() - _t0
-                _warm_label = "warm (page-cache)" if _load_elapsed < 5.0 else "cold (disk)"
-
-                # Actually move the model to the resolved device.
-                # Previously ``load()`` stored ``self.device`` but never
-                # applied it — ``from_pretrained()`` was called with no
-                # ``device=`` kwarg and no ``.to(self.device)`` call, so
-                # Qwen3- ran entirely on CPU regardless of GPU
-                # config (5-10× slower inference). ``self.device`` was
-                # also never updated from ``"auto"`` to a concrete value,
-                # making ``transcribe_with_fallback``'s ``if self.device
-                # == "cuda"`` branch unreachable.
-                effective_device = self._resolve_device()
-                if effective_device == "cuda":
-                    self._model.to("cuda")
-                    # float16 conversion is best-effort: some model
-                    # wrappers may not accept a dtype on ``.to()`` or
-                    # may not support half precision on the target GPU.
-                    try:
-                        import torch
-
-                        self._model.to(torch.float16)
-                    except ImportError:
-                        log.warning("[QWEN] torch not available — skipping float16 conversion")
-                    except Exception as exc:  # noqa: BLE001 — best-effort
-                        log.warning(
-                            "[QWEN] float16 conversion failed (%s) — keeping default dtype",
-                            exc,
-                        )
-                # Update self.device to the concrete resolved value so
-                # ``transcribe_with_fallback`` and ``device_info`` see
-                # "cuda"/"cpu" instead of the literal "auto".
-                self.device = effective_device
-
-                log.info(
-                    "[QWEN] Model loaded successfully from %s (%s) — %.1fs (device=%s)",
-                    self.model_path,
-                    _warm_label,
-                    _load_elapsed,
-                    self.device,
-                )
-                # Prime CUDA kernels at load time so the first real
-                # dictation doesn't pay the 2-5 s JIT cost (cuDNN /
-                # cuBLAS / attention kernel compilation). No-op on CPU
-                # and best-effort (failures swallowed inside the helper).
-                # See ``_warm_up_model`` for the full contract.
-                if effective_device == "cuda":
-                    self._warm_up_model()
-                return True
-            except ImportError:
+                onnx_model = QwenOnnxModel(self.model_path)
+                onnx_model.from_pretrained()
+            except Exception as exc:  # noqa: BLE001 — load failures are surfaced, not hidden
                 log.exception(
-                    "[QWEN] qwen-asr package is not installed",
-                )
-                self._model = None
-                return False
-            except Exception:
-                log.exception(
-                    "[QWEN] Failed to load Qwen3-ASR model from %s",
+                    "[QWEN] ONNX model load FAILED for %s — the directory "
+                    "is corrupt or incomplete (fail-closed; no torch retry "
+                    "exists anymore)",
                     self.model_path,
                 )
                 self._model = None
-                return False
+                self._onnx_model = None
+                raise RuntimeError(
+                    f"Qwen3-ASR ONNX model load failed: {exc}"
+                ) from exc
 
-    def _warm_up_model(self) -> None:
-        """Run a tiny dummy inference to prime CUDA kernels (JIT cost: 2-5 s).
-
-        The first ``model.transcribe()`` call after ``from_pretrained``
-        takes 2-5 s longer than subsequent ones because the GPU kernels
-        (cuDNN, cuBLAS, attention) must be JIT-compiled and memory
-        allocated for the model's specific shapes.  This warm-up runs a
-        0.5 s silence through the model at load time so the first real
-        dictation is fast.
-
-        Mirrors ``ParakeetEngine._warm_up_model`` and the Whisper
-        warm-up pattern in ``voice_typer/server/transcription.py``
-        (lines ~649-680), adapted to Qwen's
-        ``(audio, sample_rate)`` tuple API.
-
-        Non-fatal: any exception is logged at debug level and
-        swallowed — the model is still considered loaded.  ``load()``
-        returns True regardless.
-
-        No-op when:
-
-        - ``self._model`` is None (defensive — direct-call safety).
-        - ``self.device`` is not ``"cuda"`` (CPU JIT cost is
-          negligible; the gate matches ``load()``'s
-          ``effective_device == "cuda"`` check so warm-up only fires
-          when CUDA was actually used).
-        """
-        if self._model is None:
-            return
-        if self.device != "cuda":
-            return
-        try:
-            warmup_audio = np.zeros(int(WHISPER_SAMPLE_RATE * 0.5), dtype=np.float32)
-            with self._inference_mode_ctx():
-                self._model.transcribe(
-                    (warmup_audio, WHISPER_SAMPLE_RATE),
-                    language=self.language,
-                )
-            log.debug("[QWEN] warm-up transcribe() completed — first dictation will be fast")
-        except Exception as exc:
-            log.debug("[QWEN] warm-up transcribe() failed (non-fatal): %s", exc)
+            self._onnx_model = onnx_model
+            self._model = onnx_model  # self._model drives is_loaded
+            # The ONNX runtime path is CPU-first (the int4 CPU exports
+            # are the documented fast path; ORT CUDA is not exercised
+            # here). Pinning the concrete device keeps
+            # ``device_info`` honest and prevents any future
+            # CUDA-specific logic from applying to the ONNX model.
+            self.device = "cpu"
+            log.info(
+                "[QWEN] Using ONNX Runtime backend (qwen_onnx_model.QwenOnnxModel) "
+                "for %s — no torch required",
+                self.model_path,
+            )
+            return True
 
     def transcribe(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str:
         """Transcribe audio array. Returns cleaned text string.
 
         RACE-032: The lock is only held for state checks/updates.
-        GPU inference runs outside the lock so is_loaded / unload /
+        Inference runs outside the lock so is_loaded / unload /
         load don't block for the multi-second duration of the call.
         ``_active_inference`` is incremented before releasing the lock
         and decremented in a ``finally`` block; ``unload()`` waits on
@@ -481,23 +249,19 @@ class QwenEngine:
 
             if duration > _QWEN_CHUNK_SECONDS:
                 # chunk long audio to bound per-call latency and
-                # GPU memory.  ``audio_stats`` describes the whole-audio
+                # memory.  ``audio_stats`` describes the whole-audio
                 # RMS, so per-chunk RMS is computed inline in the helper.
                 return self._transcribe_chunked(model, audio, sample_rate)
 
             # Non-chunked path (audio <= _QWEN_CHUNK_SECONDS): single call
             # with the existing hallucination check using ``audio_stats``
             # if provided, else computing RMS from the audio array.
-            #
-            # wrap model.transcribe() in torch.inference_mode()
-            # to skip autograd-graph construction. See _inference_mode_ctx.
-            with self._inference_mode_ctx():
-                result = model.transcribe(
-                    (audio, sample_rate),
-                    language=self.language,
-                )
+            result = model.transcribe(
+                (audio, sample_rate),
+                language=self.language,
+            )
 
-            # result is a list of ASRTranscription objects
+            # result is a list of transcription objects
             if not result:
                 return ""
 
@@ -549,9 +313,9 @@ class QwenEngine:
 
         Batched path: when ``_INFERENCE_BATCH_SIZE`` > 1 (set via the
         ``QWEN_BATCH_SIZE`` env var), ``_transcribe_chunks_batched``
-        groups that many chunks per ``model.transcribe()`` call.  On a
-        CUDA OOM, it falls back to per-chunk sequential inference for
-        the remaining chunks so the user still gets a transcription.
+        groups that many chunks per ``model.transcribe()`` call.  On an
+        OOM, it falls back to per-chunk sequential inference for the
+        remaining chunks so the user still gets a transcription.
         Mirrors ParakeetEngine's ``_transcribe_chunks_batched`` /
         ``PARAKEET_BATCH_SIZE`` pattern.  Default batch size is 1
         (sequential) so the existing test contract that pins
@@ -576,7 +340,7 @@ class QwenEngine:
         # last appended chunk's tail and remove the matching prefix.
         # This is a sequential pass because dedup is stateful (tracks
         # ``prev_text``) — but it's pure string operations, so the cost
-        # is negligible vs. the GPU inference that produced the texts.
+        # is negligible vs. the inference that produced the texts.
         results: list[str] = []
         # track the previous chunk's appended text so the
         # current chunk's head can be deduped against it. Only updated
@@ -628,8 +392,8 @@ class QwenEngine:
         contract pinned by ``test_qwen_engine_overlap_dedup.py``
         (one ``model.transcribe()`` call per chunk, in order).  When
         set to 2+ via the ``QWEN_BATCH_SIZE`` env var, we group that
-        many chunks per ``model.transcribe()`` call.  On a CUDA OOM
-        (``"out of memory"`` in the error string), we fall back to
+        many chunks per ``model.transcribe()`` call.  On an OOM
+        (``\"out of memory\"`` in the error string), we fall back to
         per-chunk sequential inference for the remaining chunks so the
         user still gets a transcription.
 
@@ -638,13 +402,11 @@ class QwenEngine:
         dedup pass skips them without advancing ``prev_text``.
 
         NOTE: The batched path (``_INFERENCE_BATCH_SIZE > 1``) assumes
-        the ``qwen_asr.Qwen3ASRModel.transcribe`` API accepts a list of
-        ``(audio, sample_rate)`` tuples as its first positional arg.
-        This API contract is unverified in the Linux sandbox (no real
-        GPU / qwen_asr install) — VALIDATE ON CUDA HOST.  If the API
-        does not support batched input, the batched call raises and
-        the sequential fallback fires, so correctness is preserved
-        even if the batched path is unavailable.
+        the model adapter accepts a list of ``(audio, sample_rate)``
+        tuples as its first positional arg.  The ONNX adapter's
+        ``transcribe`` currently accepts a single tuple; if a batched
+        call raises, the sequential fallback fires, so correctness is
+        preserved even if the batched path is unavailable.
         """
         if not chunks:
             return []
@@ -724,13 +486,10 @@ class QwenEngine:
                 len(chunks),
                 len(chunk) / sample_rate,
             )
-            # wrap model.transcribe() in torch.inference_mode()
-            # to skip autograd-graph construction. See _inference_mode_ctx.
-            with self._inference_mode_ctx():
-                chunk_result = model.transcribe(
-                    (chunk, sample_rate),
-                    language=self.language,
-                )
+            chunk_result = model.transcribe(
+                (chunk, sample_rate),
+                language=self.language,
+            )
             if not chunk_result:
                 results.append("")
                 continue
@@ -762,20 +521,15 @@ class QwenEngine:
     ) -> list[str]:
         """Run ``model.transcribe`` on a batch of chunks in one call.
 
-        Assumes the ``qwen_asr.Qwen3ASRModel.transcribe`` API accepts a
-        list of ``(audio, sample_rate)`` tuples as its first positional
-        arg.  If the API does not support batched input, this method
-        raises and the caller (``_transcribe_chunks_batched``) falls
-        back to ``_transcribe_chunks_sequential``.
-
-        VALIDATE ON CUDA HOST: the batched API contract is unverified
-        in the Linux sandbox.  The sequential fallback ensures
-        correctness even if the batched path is unavailable.
+        Assumes the model adapter accepts a list of ``(audio,
+        sample_rate)`` tuples as its first positional arg.  If the API
+        does not support batched input, this method raises and the
+        caller (``_transcribe_chunks_batched``) falls back to
+        ``_transcribe_chunks_sequential``.
         """
         # Build list of (audio, sample_rate) tuples — one per chunk.
         inputs = [(chunk, sample_rate) for chunk in batch]
-        with self._inference_mode_ctx():
-            results = model.transcribe(inputs, language=self.language)
+        results = model.transcribe(inputs, language=self.language)
         # Decode each result, apply per-chunk hallucination filter.
         texts: list[str] = []
         for idx, chunk_result in enumerate(results or []):
@@ -865,7 +619,7 @@ class QwenEngine:
         """Split audio into overlapping chunks (mirrors ParakeetEngine._split_audio).
 
         Used by ``_transcribe_chunked`` to bound per-call audio length so
-        the Whisper-style attention matrix and GPU memory footprint stay
+        the Whisper-style attention matrix and memory footprint stay
         predictable for multi-minute recordings.
 
         Delegates to :func:`voice_typer.server.asr_utils.split_audio`
@@ -889,7 +643,7 @@ class QwenEngine:
         Processes multiple audio chunks through the model in a single
         session. This is a forward-looking API — the current Qwen3-ASR
         implementation processes chunks sequentially, but the interface
-        allows for future optimization (parallel GPU streams, batched
+        allows for future optimization (parallel streams, batched
         attention, etc.).
 
         Design rationale: the sequential implementation is acceptable
@@ -897,9 +651,9 @@ class QwenEngine:
         one dictation session is active at a time, so batch calls are
         rare (mainly used for segmented transcription of a single
         recording). The sequential path keeps the code simple and
-        avoids GPU memory fragmentation from parallel streams. A
-        future multi-user or server deployment would justify revisiting
-        this design decision.
+        avoids memory fragmentation from parallel streams. A future
+        multi-user or server deployment would justify revisiting this
+        design decision.
 
         Parameters
         ----------
@@ -923,70 +677,16 @@ class QwenEngine:
         audio: np.ndarray,
         audio_stats: "tuple[float, float, float] | None" = None,
     ) -> str:
-        """Transcribe with GPU→CPU fallback on CUDA errors.
+        """Transcribe, delegating to :meth:`transcribe`.
 
-        Previously this method just delegated to ``transcribe``
-                with no fallback at all, despite the name. If a CUDA error
-                occurred the caller received the raw exception. We now detect
-                CUDA errors and retry on CPU, mirroring the parakeet engine's
-                behavior. Non-CUDA errors are re-raised so the caller can
-        surface them via 's friendly-error path.
-
-                PERF-STATS: ``audio_stats`` is an optional pre-computed
-                ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
-                When provided, the engine skips its own RMS computation.
+        The pre-migration torch engine had a GPU→CPU fallback that
+        recreated the session with CPU providers after a CUDA error.
+        The ONNX path is CPU-pinned at ``load()`` (the int4 CPU exports
+        are the documented fast path), so there is no device to fall
+        back FROM — any exception propagates to the caller's friendly
+        error path, mirroring the old non-CUDA re-raise branch.
         """
-        try:
-            return self.transcribe(audio, audio_stats=audio_stats)
-        except Exception as exc:
-            err_str = str(exc).lower()
-            if self.device == "cuda" and (
-                "cuda" in err_str or "cublas" in err_str or "cudnn" in err_str or "out of memory" in err_str
-            ):
-                log.warning("[QWEN] CUDA error, retrying on CPU: %s", exc)
-                # initialize ``original_device`` BEFORE the try
-                # block so that the ``except`` handler below can always
-                # restore it. Without this, if the assignment of
-                # ``self.device = "cpu"`` raised, ``original_device``
-                # would be unbound and the recovery path itself would
-                # raise UnboundLocalError.
-                original_device = self.device
-                try:
-                    self.device = "cpu"
-                    if self._model is not None:
-                        with contextlib.suppress(Exception):
-                            # Not all model wrappers expose .to(); ignore.
-                            self._model.to("cpu")
-                        # Pin dtype=float32 — the previous bare
-                        # ``.to("cpu")`` left the dtype as float16 (set
-                        # during GPU load at the ``.to(torch.float16)``
-                        # call in ``load()``), and float16 kernels are
-                        # unsupported or pathologically slow on CPU, so
-                        # the "fallback" was effectively unusable.
-                        # Mirrors ParakeetEngine's PERF-REL-1 fix.  Kept
-                        # as a SEPARATE ``.to()`` call (rather than
-                        # ``.to("cpu", dtype=...)``) so
-                        # ``test_cuda_error_triggers_cpu_retry_after_auto_load``
-                        # — which asserts ``mock_model.to.assert_any_call("cpu")``
-                        # — continues to match the bare-device call.
-                        # Best-effort: skip if torch isn't importable.
-                        try:
-                            import torch
-
-                            with contextlib.suppress(Exception):
-                                self._model.to(torch.float32)
-                        except ImportError:
-                            log.warning(
-                                "[QWEN] torch not available — skipping float32 dtype conversion on CPU fallback"
-                            )
-                    return self.transcribe(audio, audio_stats=audio_stats)
-                except Exception:
-                    # Restore device on failure so the next attempt starts fresh
-                    self.device = original_device
-                    log.exception("[QWEN] CPU fallback also failed")
-                    raise
-            # Non-CUDA error: re-raise so caller can handle
-            raise
+        return self.transcribe(audio, audio_stats=audio_stats)
 
     def request_abort(self) -> None:
         """Signal an in-flight ``transcribe()`` to stop early.
@@ -1016,12 +716,8 @@ class QwenEngine:
         Waits for any in-flight ``transcribe()`` call to finish (via the
         ``_active_inference`` counter + ``_inference_cond``) BEFORE
         nulling ``self._model`` so the inference thread doesn't
-        dereference a freed PyTorch module (use-after-free). Mirrors
+        dereference a freed model (use-after-free). Mirrors
         ``ParakeetEngine.unload``.
-
-        Also releases PyTorch's CUDA caching allocator blocks via
-        ``release_gpu_memory()`` so a subsequent backend switch can use
-        the freed VRAM.
 
         RACE-023: gc.collect() moved OUTSIDE the lock to avoid blocking
         is_loaded / transcribe for 10-100ms.
@@ -1045,9 +741,16 @@ class QwenEngine:
             while getattr(self, "_active_inference", 0) > 0:
                 inference_cond.wait()
             self._model = None
+            # ONNX backend: release the ORT sessions + embedding matrix
+            # (best-effort — close() is idempotent-safe by construction).
+            onnx_model = getattr(self, "_onnx_model", None)
+            if onnx_model is not None:
+                with contextlib.suppress(Exception):
+                    onnx_model.close()
+                self._onnx_model = None
         # RACE-023: gc.collect() OUTSIDE the lock
         gc.collect()
-        # release CUDA cached blocks.
+        # release CUDA cached blocks (a no-op on the ONNX path).
         release_gpu_memory()
         log.info("[QWEN] Model unloaded")
 
@@ -1055,78 +758,12 @@ class QwenEngine:
     def device_info(self) -> str:
         """Return device info string.
 
-        uses the resolved device so ``"auto"`` is reflected as
-                the concrete ``"cuda"`` / ``"cpu"`` after ``load()`` (or, before
-                load, by probing ``torch.cuda.is_available()``). Previously this
-                returned the literal string ``"qwen/auto"`` when the engine was
-                configured with ``device="auto"``.
+        The ONNX runtime path is CPU-first and pinned to ``\"cpu\"`` at
+        ``load()``, so this is always ``\"qwen/cpu\"``.
         """
-        return f"qwen/{self._resolve_device()}"
+        return "qwen/cpu"
 
     @property
     def loaded_via(self) -> str:
         """Return description of how the model was loaded."""
         return f"qwen/{self.device}/{self.model_path}"
-
-
-def _validate_qwen_model_dir(model_path: str) -> bool:
-    """SEC-audit-007: Validate that a Qwen model directory contains only expected files.
-
-    Checks that every file in the model directory has an allowed extension
-    or basename.  Rejects directories containing executables, scripts, or
-    other unexpected files that could indicate supply-chain tampering.
-
-    Returns True if the directory passes validation, False otherwise.
-    """
-    path = Path(model_path)
-    if not path.is_dir():
-        return False
-    try:
-        for entry in path.rglob("*"):
-            if not entry.is_file():
-                continue
-            name = entry.name
-            ext = entry.suffix.lower()
-            # Allow files with known safe extensions
-            if ext in _QWEN_ALLOWED_EXTENSIONS:
-                continue
-            # Allow files with known safe basenames (no extension or unusual)
-            if name in _QWEN_ALLOWED_BASENAMES:
-                continue
-            # Reject any file that doesn't match allowlist
-            log.warning(
-                "[QWEN] Model directory contains unexpected file: %s (extension=%r not in allowlist)",
-                entry,
-                ext,
-            )
-            return False
-    except OSError as exc:
-        log.warning("[QWEN] Failed to validate model directory %s: %s", model_path, exc)
-        return False
-    return True
-
-
-def _verify_qwen_model_hashes(model_path: str) -> bool:
-    """DELETED in  (Session 7 — Group 4).
-
-        Previously this was a divergent SHA-256 manifest verifier that
-        SOFT-PASSED on empty ``pinned_files`` — but
-        ``security.verify_model_integrity`` hard-fails in that case
-    ().  The soft-pass made the security module's hard-fail
-        branch dead code for the Qwen path, so a tampered local Qwen model
-        directory would load with NO content hash verification.
-
-    The fix in  deletes this helper and replaces its call site
-        in ``QwenEngine.load()`` with a direct call to
-        ``voice_typer.server.security.verify_model_integrity(model_path,
-    "qwen")``, so the  hard-fail is honoured.
-
-        This stub is retained only so third-party imports (e.g. old tests
-        in sibling repos that haven't been updated yet) get a clear
-        ``RuntimeError`` instead of a silent ``NameError``.  New code MUST
-        use ``security.verify_model_integrity`` directly.
-    """
-    raise RuntimeError(
-        "_verify_qwen_model_hashes was deleted in the fix — "
-        "use voice_typer.server.security.verify_model_integrity(path, 'qwen') instead."
-    )

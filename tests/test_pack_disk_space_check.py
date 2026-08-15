@@ -29,23 +29,25 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from voice_typer.server.service import pack
+from voice_typer.server.service import offline_pack
 
 
 class TestPackSizeConstants:
     """§8.8 — pack size budget."""
 
     def test_required_mb_is_630(self):
-        assert pack.PACK_REQUIRED_MB == 630
+        assert offline_pack.OFFLINE_PACK_REQUIRED_MB == 630
 
     def test_compressed_mb_is_180(self):
-        assert pack.PACK_COMPRESSED_MB == 180
+        assert offline_pack.OFFLINE_PACK_COMPRESSED_MB == 180
 
     def test_unpacked_mb_is_450(self):
-        assert pack.PACK_UNPACKED_MB == 450
+        assert offline_pack.OFFLINE_PACK_UNPACKED_MB == 450
 
     def test_required_equals_compressed_plus_unpacked(self):
-        assert pack.PACK_REQUIRED_MB == pack.PACK_COMPRESSED_MB + pack.PACK_UNPACKED_MB
+        assert offline_pack.OFFLINE_PACK_REQUIRED_MB == (
+            offline_pack.OFFLINE_PACK_COMPRESSED_MB + offline_pack.OFFLINE_PACK_UNPACKED_MB
+        )
 
 
 class TestCheckPackDiskSpace:
@@ -56,7 +58,7 @@ class TestCheckPackDiskSpace:
         fake_usage = MagicMock(free=100 * 1024 * 1024)  # 100 MB free
         monkeypatch.setattr(shutil, "disk_usage", lambda p: fake_usage)
         with pytest.raises(RuntimeError) as exc_info:
-            pack.check_pack_disk_space(tmp_path)
+            offline_pack.check_offline_pack_disk_space(tmp_path)
         msg = str(exc_info.value)
         assert "630" in msg or "100" in msg  # mentions required or available
 
@@ -65,7 +67,7 @@ class TestCheckPackDiskSpace:
         fake_usage = MagicMock(free=2048 * 1024 * 1024)  # 2 GB free
         monkeypatch.setattr(shutil, "disk_usage", lambda p: fake_usage)
         # Should not raise.
-        pack.check_pack_disk_space(tmp_path)
+        offline_pack.check_offline_pack_disk_space(tmp_path)
 
     def test_custom_required_mb(self, tmp_path: Path, monkeypatch):
         """Caller can override the required size."""
@@ -73,9 +75,9 @@ class TestCheckPackDiskSpace:
         monkeypatch.setattr(shutil, "disk_usage", lambda p: fake_usage)
         # 1000 MB required, only 500 MB free → raise.
         with pytest.raises(RuntimeError):
-            pack.check_pack_disk_space(tmp_path, required_mb=1000)
+            offline_pack.check_offline_pack_disk_space(tmp_path, required_mb=1000)
         # 400 MB required, 500 MB free → pass.
-        pack.check_pack_disk_space(tmp_path, required_mb=400)
+        offline_pack.check_offline_pack_disk_space(tmp_path, required_mb=400)
 
     def test_disk_usage_oserror_swallowed(self, tmp_path: Path, monkeypatch):
         """A failed ``disk_usage`` stat does NOT block the download."""
@@ -83,14 +85,14 @@ class TestCheckPackDiskSpace:
             shutil, "disk_usage", lambda p: (_ for _ in ()).throw(OSError("stat failed"))
         )
         # Should NOT raise — best-effort check.
-        pack.check_pack_disk_space(tmp_path)
+        offline_pack.check_offline_pack_disk_space(tmp_path)
 
     def test_error_message_mentions_compressed_and_unpacked(self, tmp_path: Path, monkeypatch):
         """The error message explains WHY 630 MB is needed (180 + 450)."""
         fake_usage = MagicMock(free=10 * 1024 * 1024)  # 10 MB free
         monkeypatch.setattr(shutil, "disk_usage", lambda p: fake_usage)
         with pytest.raises(RuntimeError) as exc_info:
-            pack.check_pack_disk_space(tmp_path)
+            offline_pack.check_offline_pack_disk_space(tmp_path)
         msg = str(exc_info.value)
         assert "180" in msg
         assert "450" in msg

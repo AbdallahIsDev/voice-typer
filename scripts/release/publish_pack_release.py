@@ -60,7 +60,7 @@ separate CI step (C-CI-11 — the existing 4 signing steps + the new
 worker-exe signing). The publisher only uploads already-signed
 artifacts. The pack's integrity is verified client-side via the
 SHA-256 in ``pack-manifest.json`` (see
-:func:`voice_typer.server.service.pack.verify_pack_or_skip`).
+:func:`voice_typer.server.service.offline_pack.verify_offline_pack_or_skip`).
 
 Exit codes:
   0 — success (all assets uploaded).
@@ -71,6 +71,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
 import os
@@ -275,12 +276,16 @@ def _api_request(
             return resp.getcode(), resp.read()
     except urllib.error.HTTPError as exc:
         # HTTPError is a subclass of URLError (OSError) — read the body
-        # so the caller can surface the GitHub API error message.
+        # so the caller can surface the GitHub API error message. The
+        # read is best-effort: we already have the HTTP status code (the
+        # most important field); the body is just supplementary context.
+        # ``exc.read()`` can raise ``OSError`` (socket closed / partial
+        # body) or ``http.client.HTTPException`` (IncompleteRead) — we
+        # suppress any failure so a flaky body read does not mask the
+        # original HTTP error.
         body_bytes = b""
-        try:
+        with contextlib.suppress(Exception):
             body_bytes = exc.read()
-        except Exception:  # noqa: BLE001 — best-effort read
-            pass
         return exc.code, body_bytes
 
 
@@ -351,7 +356,8 @@ def api_upload_asset(
         "POST", url, token=token, body=body, content_type="application/octet-stream"
     )
     if status not in (200, 201):
-        return False, f"GitHub API returned {status} for {asset_name}: {resp_body.decode('utf-8', errors='replace')[:500]}"
+        body_snippet = resp_body.decode("utf-8", errors="replace")[:500]
+        return False, f"GitHub API returned {status} for {asset_name}: {body_snippet}"
     return True, None
 
 

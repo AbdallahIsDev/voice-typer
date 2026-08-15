@@ -1,15 +1,18 @@
 """Tests for ``ParakeetEngine.load()`` against the ONNX Runtime backend.
 
-Verifies the engine's load path with a mocked ``onnx_asr.Model`` so the
-tests run on CI without downloading the real ~1.3 GB FP16 ONNX model.
-The mock pattern mirrors ``tests/test_parakeet_engine.py``'s torch/
-transformers mocks (the pre-migration tests) — the engine's
-``_ensure_imports()`` lazily imports ``onnx_asr`` + ``onnxruntime`` and
-stashes them on class attributes, so we inject our mocks via
+Verifies the engine's load path with a mocked ``onnx_asr.load_model``
+so the tests run on CI without downloading the real ~1.3 GB FP16 ONNX
+model. The mock pattern mirrors ``tests/test_parakeet_engine.py``'s
+torch/transformers mocks (the pre-migration tests) — the engine's
+``_ensure_imports()`` lazily imports ``onnx_asr`` + ``onnxruntime``
+and stashes them on class attributes, so we inject our mocks via
 ``patch.dict("sys.modules", ...)`` before triggering the lazy import.
 
-PLAN_ONNX_INTEGRATION.md §3.3 (Option B-1): ``onnx_asr.Model(...)`` is
-class-based, NOT ``load_model(...)``. These tests pin that contract.
+PLAN_ONNX_INTEGRATION.md §3.3 (Option B-1). onnx-asr 0.12.0 exports
+``load_model(...)`` (verified 2026-08-15) — there is NO
+``onnx_asr.Model`` class in any onnx-asr release. The engine loads by
+TYPE name (``nemo-conformer-tdt``) + a verified local snapshot dir.
+These tests pin that contract.
 """
 
 from __future__ import annotations
@@ -20,8 +23,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # NOTE: no module-level ``pytest.importorskip("onnx_asr")`` — these
-# tests use mocks for ``onnx_asr.Model`` so they run on CI without the
-# real ~1.3 GB ONNX model downloaded. The ``is_available()`` tests
+# tests use mocks for ``onnx_asr.load_model`` so they run on CI without
+# the real ~1.3 GB ONNX model downloaded. The ``is_available()`` tests
 # explicitly exercise BOTH the present and absent cases. The lazy
 # import inside ``ParakeetEngine._ensure_imports()`` handles the
 # missing-package case gracefully (returns ``False``), so the engine
@@ -35,14 +38,15 @@ def _mock_onnx_asr_module() -> MagicMock:
     """Build a MagicMock that quacks like the bits of ``onnx_asr`` we use.
 
     The engine's ``_ensure_imports()`` does ``import onnx_asr`` then
-    accesses ``onnx_asr.Model(...)``. We mock the module so the import
-    succeeds and ``Model(...)`` returns a fresh MagicMock per call.
+    accesses ``onnx_asr.load_model(...)``. We mock the module so the
+    import succeeds and ``load_model(...)`` returns a fresh MagicMock
+    per call.
     """
     mock = MagicMock(name="mock_onnx_asr")
     mock.__version__ = "0.12.0-test"
-    # Model(...) returns a fresh MagicMock per call so each test gets
-    # an isolated model instance.
-    mock.Model.side_effect = lambda *args, **kwargs: MagicMock(name="mock_onnx_asr_model")
+    # load_model(...) returns a fresh MagicMock per call so each test
+    # gets an isolated model instance.
+    mock.load_model.side_effect = lambda *args, **kwargs: MagicMock(name="mock_onnx_asr_model")
     return mock
 
 
@@ -92,7 +96,7 @@ def _make_engine_with_mocks(device: str = "cuda", language: str = "en"):
     """Build a ParakeetEngine and force mocked onnx_asr/onnxruntime imports.
 
     Returns ``(engine, mock_onnx_asr, mock_onnxruntime)`` so the test
-    can configure ``Model.side_effect`` etc.
+    can configure ``load_model.side_effect`` etc.
     """
     mock_onnx_asr = _mock_onnx_asr_module()
     mock_onnxruntime = _mock_onnxruntime_module()
@@ -188,7 +192,7 @@ class TestParakeetOnnxEnsureImports:
 
 
 class TestParakeetOnnxLoad:
-    """``load()`` constructs an ``onnx_asr.Model`` with the right providers."""
+    """``load()`` invokes ``onnx_asr.load_model`` with the right args."""
 
     def test_load_failure_raises_when_imports_missing(self):
         """If onnx_asr / onnxruntime aren't installed, load() returns False."""
@@ -206,11 +210,14 @@ class TestParakeetOnnxLoad:
             result = engine.load()
         assert result is True
         assert engine.is_loaded is True
-        # onnx_asr.Model must have been called once with the right name.
-        mock_onnx_asr.Model.assert_called_once()
-        call_args, call_kwargs = mock_onnx_asr.Model.call_args
-        # First positional arg is the model name (PLAN_ONNX_INTEGRATION.md §3.3 B-1).
-        assert call_args[0] == "nemo-parakeet-tdt-0.6b-v3"
+        # onnx_asr.load_model must have been called once with the right
+        # type name + fp16 quantization.
+        mock_onnx_asr.load_model.assert_called_once()
+        call_args, call_kwargs = mock_onnx_asr.load_model.call_args
+        # First positional arg is the onnx-asr TYPE name
+        # (``nemo-conformer-tdt`` — the visuall fp16 repo has no
+        # config.json, so the engine cannot load it by repo name).
+        assert call_args[0] == "nemo-conformer-tdt"
         assert call_kwargs.get("quantization") == "fp16"
         assert call_kwargs.get("providers") == ["CPUExecutionProvider"]
 
@@ -228,7 +235,7 @@ class TestParakeetOnnxLoad:
         ):
             result = engine.load()
         assert result is True
-        call_args, call_kwargs = mock_onnx_asr.Model.call_args
+        call_args, call_kwargs = mock_onnx_asr.load_model.call_args
         assert call_kwargs["providers"] == ["CUDAExecutionProvider", "CPUExecutionProvider"]
 
     def test_load_cuda_falls_back_to_cpu_when_ep_unavailable(self):
@@ -243,17 +250,17 @@ class TestParakeetOnnxLoad:
         ):
             result = engine.load()
         assert result is True
-        call_args, call_kwargs = mock_onnx_asr.Model.call_args
+        call_args, call_kwargs = mock_onnx_asr.load_model.call_args
         assert call_kwargs["providers"] == ["CPUExecutionProvider"]
 
     def test_load_returns_true_when_already_loaded(self):
         """Idempotent load: if model is already set, return True immediately."""
         engine, mock_onnx_asr, _ = _make_engine_with_mocks(device="cpu")
         engine._model = MagicMock()  # simulate already-loaded
-        # Model(...) must NOT be re-called.
+        # load_model(...) must NOT be re-called.
         result = engine.load()
         assert result is True
-        mock_onnx_asr.Model.assert_not_called()
+        mock_onnx_asr.load_model.assert_not_called()
 
     def test_load_raises_when_model_not_cached(self):
         """If the model is not in the HF cache, load() raises
@@ -269,9 +276,9 @@ class TestParakeetOnnxLoad:
         assert engine.is_loaded is False
 
     def test_load_failure_when_model_constructor_raises(self):
-        """An exception from onnx_asr.Model(...) returns False (not re-raise)."""
+        """An exception from onnx_asr.load_model(...) returns False (not re-raise)."""
         engine, mock_onnx_asr, _ = _make_engine_with_mocks(device="cpu")
-        mock_onnx_asr.Model.side_effect = RuntimeError("disk read failed")
+        mock_onnx_asr.load_model.side_effect = RuntimeError("disk read failed")
         with patch.object(type(engine), "_is_cached", return_value=True):
             result = engine.load()
         assert result is False

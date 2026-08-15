@@ -51,6 +51,7 @@ from pathlib import Path
 # ``monkeypatch.setattr(prewarm, "_warm_file", ...)`` keep affecting
 # production code defined here.
 from voice_typer.server import prewarm as _pkg
+from voice_typer.server.duration import format_duration
 from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
 log = logging.getLogger("voice_typer.server.prewarm")
@@ -244,11 +245,14 @@ def _warm_package_files(pkg_name: str) -> int:
     elapsed = time.perf_counter() - t0
     # Defensive: file warmup must never have imported the package.
     assert pkg_name not in sys.modules, f"{pkg_name} was imported during file warmup — must stay unimported"
+    # C-LOG-2: lifecycle-completion log line carries the canonical
+    # ``_<duration>`` suffix from ``format_duration()`` (not an ad-hoc
+    # ``%.1fs``) so the perf marker is greppable project-wide.
     log.info(
-        "[PREWARM] file-warmed %s: %.0f MB in %.1fs",
+        "[PREWARM] file-warmed %s: %.0f MB%s",
         pkg_name,
         total / (1024 * 1024),
-        elapsed,
+        format_duration(elapsed),
     )
     return total
 
@@ -347,11 +351,14 @@ def _warm_imports() -> None:
         if bytes_read > 0:
             warmed.append(pkg)
     elapsed = time.perf_counter() - t0
+    # C-LOG-2: lifecycle-completion log line carries the canonical
+    # ``_<duration>`` suffix from ``format_duration()`` (not an ad-hoc
+    # ``%.2fs``) so the perf marker is greppable project-wide.
     log.info(
-        "[PREWARM] worker warm-imports complete: %d packages (%s) — %.2fs",
+        "[PREWARM] worker warm-imports complete: %d packages (%s)%s",
         len(warmed),
         ", ".join(warmed) if warmed else "none",
-        elapsed,
+        format_duration(elapsed),
     )
 
 

@@ -1,17 +1,12 @@
 """Unit tests for ``StatusHandlersMixin`` (CR-12).
 
-Covers the 6 status-query IPC handlers defined in
+Covers the 3 status-query IPC handlers defined in
 ``voice_typer/server/handlers/status_handlers.py``:
 
 - ``_handle_get_status`` — returns ``{type: status, data: <dict|string>}``.
 - ``_handle_get_volume_backend_status`` — returns
   ``{type: volume_backend_status, data: <status with is_windows flag>}``.
 - ``_handle_get_model_status`` — returns ``{type: model_status, data: <result>}``.
-- ``_handle_get_prewarm_status`` — returns
-  ``{type: prewarm_status, data: <result>}`` (delegates to prewarm module).
-- ``_handle_run_prewarm`` — spawns a detached prewarm subprocess.
-- ``_handle_open_prewarm_log`` — opens the prewarm log file in the OS
-  default text editor.
 
 The status handlers are mostly thin pass-throughs to the service
 layer; the interesting invariants are:
@@ -21,21 +16,35 @@ layer; the interesting invariants are:
 2. ``get_volume_backend_status`` augments the service's status dict
    with an ``is_windows`` boolean (so the renderer doesn't have to
    detect the platform itself).
-3. ``run_prewarm`` spawns a real subprocess — we patch
-   ``subprocess.Popen`` to assert the command shape without spawning.
-4. ``open_prewarm_log`` returns ``{opened: False, reason: "not_found"}``
-   when the log file doesn't exist yet (prewarm hasn't run this boot).
 
 UE-15 (2026-07-30): ``_handle_get_rms_level`` and
 ``_handle_get_audio_status`` were deleted — both commands were
 dropped from ``_COMMAND_REGISTRY`` and the renderer allowlist during
 the Tauri migration. The corresponding ``TestGetRmsLevel`` and
 ``TestGetAudioStatus`` classes were removed in lockstep.
+
+(Wave 3, 2026-08-14): ``_handle_get_prewarm_status``,
+``_handle_run_prewarm``, and ``_handle_open_prewarm_log`` were
+REMOVED from ``StatusHandlersMixin`` (and the matching
+``_COMMAND_REGISTRY`` / TS allowlist / Rust allowlist entries) —
+prewarm became a worker startup phase (master plan §6.2 P-1), so
+the slim core no longer spawns a separate prewarm process. The
+``TestGetPrewarmStatus``, ``TestRunPrewarm``, and
+``TestOpenPrewarmLog`` classes were deleted in lockstep.
+
+(RESTORED 2026-08-14): ``_handle_get_prewarm_status`` and
+``_handle_open_prewarm_log`` were restored verbatim from commit
+5a319872 — the About-page Cache Status card is a user-facing product
+feature (plan §6.3 addendum), not prewarm machinery. The matching
+``TestGetPrewarmStatus`` and ``TestOpenPrewarmLog`` classes were
+re-added below (``TestRunPrewarm`` stays deleted — its handler was
+not restored: it spawned the removed standalone-prewarm subprocess).
+The open-log tests point at ``worker.log`` — the restored handler
+opens the worker's log (the worker exe runs the warm phase now).
 """
 
 from __future__ import annotations
 
-import subprocess
 from unittest.mock import MagicMock
 
 
@@ -123,6 +132,12 @@ class TestGetModelStatus:
         assert resp["data"]["message"] == "internal error"
 
 
+# RESTORED 2026-08-14 verbatim from 5a319872
+# (tests/handlers/test_status_handlers.py) — the handler + its test
+# coverage belong to the user-facing Cache Status card (plan §6.3
+# addendum). TestRunPrewarm stays deleted (handler not restored).
+
+
 class TestGetPrewarmStatus:
     """``_handle_get_prewarm_status`` — returns the OS file cache state."""
 
@@ -157,63 +172,41 @@ class TestGetPrewarmStatus:
 
 
 class TestRunPrewarm:
-    """``_handle_run_prewarm`` — spawns a detached prewarm subprocess."""
+    """``_handle_run_prewarm`` — re-runs the warm phase on demand.
 
-    def test_happy_path_returns_prewarm_started_with_pid(self, ipc_server, monkeypatch):
-        """Valid call → ``{type: prewarm_started, data: {started: True, pid: <int>}}``.
+    RESTORED 2026-08-14 (plan §6.3 addendum 2nd half): the handler
+    delegates to ``prewarm.status.run_prewarm_now()`` (a background
+    daemon thread running ``warm_imports_for_worker`` + a status-file
+    refresh). Patch it so the test doesn't actually warm the cache.
+    """
 
-        We patch ``subprocess.Popen`` to avoid spawning a real
-        prewarm subprocess (which would slow the test and depend on
-        the prewarm module being importable in CI).
-        """
-        captured_cmd: list[list[str]] = []
-
-        class _FakeProc:
-            pid = 4242
-
-        def _fake_popen(cmd, **kwargs):
-            captured_cmd.append(cmd)
-            # Assert the kwargs are appropriate for a detached spawn.
-            assert "stdout" in kwargs and kwargs["stdout"] is subprocess.DEVNULL
-            assert "stderr" in kwargs and kwargs["stderr"] is subprocess.DEVNULL
-            return _FakeProc()
-
+    def test_happy_path_returns_started(self, ipc_server, monkeypatch):
         monkeypatch.setattr(
-            "subprocess.Popen",
-            _fake_popen,
+            "voice_typer.server.prewarm.status.run_prewarm_now",
+            lambda: True,
         )
-        # The handler does ``import subprocess`` inside the function
-        # body (line-level import), so patching the global
-        # ``subprocess.Popen`` is the right seam — patching
-        # ``voice_typer.server.handlers.status_handlers.subprocess``
-        # would fail because the module never imports subprocess at
-        # module top level.
-
         resp = ipc_server._handle_run_prewarm({}, {})
-
         assert resp["type"] == "prewarm_started"
         assert resp["data"]["started"] is True
-        assert resp["data"]["pid"] == 4242
-        # The command must include ``--force`` and ``--trigger manual``.
-        assert len(captured_cmd) == 1
-        cmd = captured_cmd[0]
-        assert "--force" in cmd
-        assert "--trigger" in cmd
-        assert "manual" in cmd
 
-    def test_popen_raises_oserror_returns_error(self, ipc_server, monkeypatch):
-        """If ``subprocess.Popen`` raises ``OSError``, return ``error``."""
+    def test_warm_pass_raises_returns_error(self, ipc_server, monkeypatch):
         monkeypatch.setattr(
-            "subprocess.Popen",
-            lambda *a, **kw: (_ for _ in ()).throw(OSError("no fork")),
+            "voice_typer.server.prewarm.status.run_prewarm_now",
+            lambda: (_ for _ in ()).throw(RuntimeError("sentinel failure")),
         )
         resp = ipc_server._handle_run_prewarm({}, {})
         assert resp["type"] == "error"
-        assert "Failed to start prewarm" in resp["data"]["message"]
+        # generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestOpenPrewarmLog:
-    """``_handle_open_prewarm_log`` — opens prewarm.log in the OS editor."""
+    """``_handle_open_prewarm_log`` — opens the worker log in the OS editor.
+
+    RESTORED 2026-08-14: the handler opens ``worker.log`` (the worker
+    exe runs the warm phase; its log carries the ``[PREWARM]`` lines).
+    """
 
     def test_log_file_not_found_returns_opened_false_with_reason(self, ipc_server, monkeypatch, tmp_path):
         """When the log file doesn't exist AND can't be created, the
@@ -246,7 +239,7 @@ class TestOpenPrewarmLog:
         """
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
-        log_file = log_dir / "prewarm.log"
+        log_file = log_dir / "worker.log"
         log_file.write_text("placeholder", encoding="utf-8")
 
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: log_dir)

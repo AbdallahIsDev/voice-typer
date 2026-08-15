@@ -27,14 +27,14 @@ import time
 from pathlib import Path
 
 import pytest
-from voice_typer.server.service import pack
+from voice_typer.server.service import offline_pack
 
 
 class TestPackLock:
     """§8.13 — cross-process lock file."""
 
     def test_acquire_and_release(self, tmp_path: Path):
-        lock = pack.PackLock("v1", root=tmp_path, timeout_s=1.0)
+        lock = offline_pack.OfflinePackLock("v1", root=tmp_path, timeout_s=1.0)
         assert lock.acquire() is True
         assert lock._acquired is True
         assert lock.path.exists()
@@ -43,32 +43,38 @@ class TestPackLock:
 
     def test_second_lock_blocks(self, tmp_path: Path):
         """A second lock on the same path cannot acquire while the first holds."""
-        lock1 = pack.PackLock("v1", root=tmp_path, timeout_s=1.0)
+        lock1 = offline_pack.OfflinePackLock("v1", root=tmp_path, timeout_s=1.0)
         lock1.acquire()
-        lock2 = pack.PackLock("v1", root=tmp_path, timeout_s=0.5)
+        lock2 = offline_pack.OfflinePackLock("v1", root=tmp_path, timeout_s=0.5)
         # Should time out — lock1 is still held.
         acquired2 = lock2.acquire()
         assert acquired2 is False
         lock1.release()
 
     def test_release_allows_second_to_acquire(self, tmp_path: Path):
-        lock1 = pack.PackLock("v1", root=tmp_path, timeout_s=1.0)
+        lock1 = offline_pack.OfflinePackLock("v1", root=tmp_path, timeout_s=1.0)
         lock1.acquire()
         lock1.release()
-        lock2 = pack.PackLock("v1", root=tmp_path, timeout_s=1.0)
+        lock2 = offline_pack.OfflinePackLock("v1", root=tmp_path, timeout_s=1.0)
         assert lock2.acquire() is True
         lock2.release()
 
     def test_lock_file_contains_pid(self, tmp_path: Path):
-        lock = pack.PackLock("v1", root=tmp_path, timeout_s=1.0)
+        lock = offline_pack.OfflinePackLock("v1", root=tmp_path, timeout_s=1.0)
         lock.acquire()
-        content = lock.path.read_text(encoding="ascii")
+        # Read the content through the lock owner's own handle: on
+        # Windows ``msvcrt.locking`` is a MANDATORY byte-range lock, so
+        # a second handle cannot read the locked byte (ERROR_LOCK_VIOLATION
+        # → PermissionError). Reading via ``lock._fh`` is the same read
+        # the PID-file fallback path performs.
+        lock._fh.seek(0)
+        content = lock._fh.read().decode("ascii")
         assert str(os.getpid()) in content
         lock.release()
 
     def test_context_manager(self, tmp_path: Path):
         """``with PackLock(...)`` acquires + releases."""
-        with pack.PackLock("v1", root=tmp_path, timeout_s=1.0) as lock:
+        with offline_pack.OfflinePackLock("v1", root=tmp_path, timeout_s=1.0) as lock:
             assert lock._acquired is True
         # After the with block, the lock is released.
         assert lock._acquired is False
@@ -76,26 +82,26 @@ class TestPackLock:
     def test_context_manager_raises_on_timeout(self, tmp_path: Path):
         """``with PackLock(...)`` raises ``TimeoutError`` if acquire fails."""
         # Pre-acquire with another lock.
-        blocker = pack.PackLock("v1", root=tmp_path, timeout_s=1.0)
+        blocker = offline_pack.OfflinePackLock("v1", root=tmp_path, timeout_s=1.0)
         blocker.acquire()
         try:
-            with pytest.raises(TimeoutError), pack.PackLock("v1", root=tmp_path, timeout_s=0.2):
+            with pytest.raises(TimeoutError), offline_pack.OfflinePackLock("v1", root=tmp_path, timeout_s=0.2):
                 pass  # Should never enter.
         finally:
             blocker.release()
 
     def test_stale_lock_is_broken(self, tmp_path: Path, monkeypatch):
         """A lock file pointing at a dead PID is stolen by a new acquirer."""
-        lock_path = pack.pack_lock_path("v1", root=tmp_path)
+        lock_path = offline_pack.offline_pack_lock_path("v1", root=tmp_path)
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         # Write a stale lock file pointing at PID 999999 (almost
         # certainly dead).
         lock_path.write_text(f"999999:{time.time():.3f}\n", encoding="ascii")
         # Force the PID-file fallback path (skip native flock).
-        monkeypatch.setattr(pack.PackLock, "_try_native_lock", lambda self: self._pid_file_fallback())
+        monkeypatch.setattr(offline_pack.OfflinePackLock, "_try_native_lock", lambda self: self._pid_file_fallback())
         # Make _is_process_alive return False for the stale PID.
-        monkeypatch.setattr(pack, "_is_process_alive", lambda pid: False)
-        lock = pack.PackLock("v1", root=tmp_path, timeout_s=1.0)
+        monkeypatch.setattr(offline_pack, "_is_process_alive", lambda pid: False)
+        lock = offline_pack.OfflinePackLock("v1", root=tmp_path, timeout_s=1.0)
         assert lock.acquire() is True
         lock.release()
 
@@ -106,7 +112,7 @@ class TestPackLock:
 
         def worker():
             barrier.wait()
-            lock = pack.PackLock("v1", root=tmp_path, timeout_s=2.0)
+            lock = offline_pack.OfflinePackLock("v1", root=tmp_path, timeout_s=2.0)
             results.append(lock.acquire())
             if results[-1]:
                 time.sleep(0.1)

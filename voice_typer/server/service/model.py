@@ -28,19 +28,6 @@ log = logging.getLogger(__name__)
 # no user-visible staleness (cache is invalidated on download/delete).
 _MODEL_STATUS_CACHE_TTL_S = 5.0
 
-# TTL (seconds) for the deps-probe cache (``_check_qwen_deps`` /
-# ``_check_parakeet_deps``).  Package install state does NOT change while
-# Voice Typer is running, but ``importlib.util.find_spec`` walks
-# ``sys.path`` (one filesystem stat per path entry) on every call — at
-# 5s status-TTL that's 2 × sys.path walk every 5s, forever.  We decouple
-# the deps-probe TTL from the on-disk-status TTL: 300s (5 min) is short
-# enough to pick up a ``pip install`` run in another terminal within a
-# reasonable window, but long enough to cut the find_spec rate by ~60×.
-# The cache is per-instance and per-module-name, so a ``pip install torch``
-# followed by a ``Config.reload()`` (which constructs a new service
-# instance) is observed immediately.
-_DEPS_PROBE_CACHE_TTL_S = 300.0
-
 # user-facing messages for each ``download_parakeet_weights``
 # reason code. The service layer unpacks the ``(success, reason, exc_info)``
 # 3-tuple and maps the short reason code to a human-readable message so
@@ -127,13 +114,6 @@ class ModelMixin(ServiceMixinBase):
         self._model_status_cache: dict[str, object] | None = None
         self._model_status_cache_ts: float = 0.0
         self._model_status_cache_lock = threading.Lock()
-        # Per-module deps-probe cache.  Keyed by module name
-        # (``"qwen_asr"`` / ``"torch"``) → ``(result, timestamp)``.
-        # ``find_spec`` walks ``sys.path`` on every call; caching the
-        # result for ``_DEPS_PROBE_CACHE_TTL_S`` (300s) decouples the
-        # probe rate from the 5s status cache TTL.
-        self._deps_probe_cache: dict[str, tuple[bool, float]] = {}
-        self._deps_probe_cache_lock = threading.Lock()
 
     # ── Download cancellation helpers ( / SERVICE-1) ──────────
 
@@ -249,7 +229,11 @@ class ModelMixin(ServiceMixinBase):
             qwen_in_cache = cache_dir_exists and os.path.isdir(os.path.join(cache_dir, qwen_repo_dir))
         status["qwen"] = {
             "downloaded": bool(qwen_path and os.path.isdir(qwen_path)) or qwen_in_cache,
-            "deps_ok": self._check_qwen_deps(),
+            # The Qwen backend is ONNX-only (qwen_onnx_model.py);
+            # onnxruntime is a base dependency, so there is no pip
+            # package gate anymore (the old qwen_asr/torch probe was
+            # removed with the torch engine, 2026-08-15).
+            "deps_ok": True,
         }
 
         # Parakeet model
@@ -261,7 +245,11 @@ class ModelMixin(ServiceMixinBase):
             parakeet_in_cache = cache_dir_exists and os.path.isdir(os.path.join(cache_dir, parakeet_repo_dir))
         status["parakeet"] = {
             "downloaded": bool(parakeet_path and os.path.isdir(parakeet_path)) or parakeet_in_cache,
-            "deps_ok": self._check_parakeet_deps(),
+            # The Parakeet backend is ONNX-only (parakeet_engine.py via
+            # onnx-asr); onnxruntime + onnx-asr are base dependencies,
+            # so there is no pip package gate anymore (the old torch
+            # probe was removed with the torch engine, 2026-08-15).
+            "deps_ok": True,
         }
 
         return status
@@ -315,10 +303,12 @@ class ModelMixin(ServiceMixinBase):
         elif model_name == "parakeet":
             repo_id = "nvidia/parakeet-tdt-0.6b-v3"
         elif model_name == "qwen":
-            # Qwen is registered in MODEL_REGISTRY (repo_id="Qwen/Qwen-Audio");
-            # fall through to the same cache-dir check so absent models
+            # Qwen is registered in MODEL_REGISTRY
+            # (repo_id="andrewleech/qwen3-asr-1.7b-onnx" — the ONNX export,
+            # torch-era "Qwen/Qwen-Audio" removed 2026-08-15); fall
+            # through to the same cache-dir check so absent models
             # report "not downloaded" rather than "Unknown model".
-            repo_id = "Qwen/Qwen-Audio"
+            repo_id = "andrewleech/qwen3-asr-1.7b-onnx"
         else:
             repo_id = None
 
@@ -543,87 +533,6 @@ class ModelMixin(ServiceMixinBase):
         except Exception as exc:
             log.warning("[SERVICE] test_llm_connection failed: %s", exc)
             return {"success": False, "message": redact_secret(redact_url(str(exc)))}
-
-    def _check_qwen_deps(self) -> bool:
-        """Check if qwen_asr package is importable.
-
-        Uses :func:`importlib.util.find_spec` so the package's top-level
-        code is NOT executed (qwen_asr pulls in heavy transitive deps
-        that allocate memory on import). The probe only resolves the
-        module spec — it doesn't run ``qwen_asr.__init__``.
-
-        ``find_spec`` raises :class:`ValueError` when the module is
-        already in ``sys.modules`` but its ``__spec__`` is ``None``
-        (some wheel layouts / namespace packages hit this). In that
-        case the module IS available, so we fall back to a
-        ``sys.modules`` membership check rather than reporting
-        ``deps_ok=False``.
-
-        The result is cached for ``_DEPS_PROBE_CACHE_TTL_S``
-        (300s), decoupled from the 5s on-disk-status TTL. Package
-        install state does not change while Voice Typer is running,
-        so the find_spec + sys.path walk is amortised to once per
-        5 min instead of once per 5 s.
-        """
-        import importlib.util
-        import sys
-
-        now = time.monotonic()
-        with self._deps_probe_cache_lock:
-            cached = self._deps_probe_cache.get("qwen_asr")
-            if cached is not None and (now - cached[1]) < _DEPS_PROBE_CACHE_TTL_S:
-                return cached[0]
-        try:
-            result = importlib.util.find_spec("qwen_asr") is not None
-        except ValueError:
-            result = "qwen_asr" in sys.modules
-        with self._deps_probe_cache_lock:
-            self._deps_probe_cache["qwen_asr"] = (result, now)
-        return result
-
-    def _check_parakeet_deps(self) -> bool:
-        """Check if the Parakeet engine's key runtime dependency is importable.
-
-        The Parakeet engine (``parakeet_engine.py``) defers its heavy imports
-        (``torch``, ``transformers``, ``psutil``) inside ``_ensure_imports``.
-        The most critical of these is ``torch`` — without it the engine cannot
-        initialise.  Previously this method checked for ``nemo_toolkit`` which
-        is not a dependency of the Parakeet engine in this codebase, causing
-        ``deps_ok`` to always be ``False`` and blocking the "Select" button
-        in the Models page even when the user was actively using Parakeet.
-
-        Uses :func:`importlib.util.find_spec` so ``torch`` is not actually
-        imported — torch's ``__init__`` allocates hundreds of MB of memory
-        and inits CUDA contexts just to probe presence. ``find_spec`` only
-        resolves the module's file path via the import machinery, so it
-        has no side effects.
-
-        ``find_spec`` raises :class:`ValueError` when ``torch`` is already
-        in ``sys.modules`` but its ``__spec__`` is ``None`` (observed with
-        some torch wheel layouts in test envs). In that case torch IS
-        importable, so fall back to a ``sys.modules`` membership check.
-
-        The result is cached for ``_DEPS_PROBE_CACHE_TTL_S``
-        (300s), decoupled from the 5s on-disk-status TTL. Package
-        install state does not change while Voice Typer is running,
-        so the find_spec + sys.path walk is amortised to once per
-        5 min instead of once per 5 s.
-        """
-        import importlib.util
-        import sys
-
-        now = time.monotonic()
-        with self._deps_probe_cache_lock:
-            cached = self._deps_probe_cache.get("torch")
-            if cached is not None and (now - cached[1]) < _DEPS_PROBE_CACHE_TTL_S:
-                return cached[0]
-        try:
-            result = importlib.util.find_spec("torch") is not None
-        except ValueError:
-            result = "torch" in sys.modules
-        with self._deps_probe_cache_lock:
-            self._deps_probe_cache["torch"] = (result, now)
-        return result
 
     # ── Model import ──────────────────────────────────────────────────────
 

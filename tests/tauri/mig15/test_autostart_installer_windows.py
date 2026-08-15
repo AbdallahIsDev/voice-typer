@@ -3,9 +3,9 @@
 Tests the Windows autostart mechanism (Task Scheduler LogonTrigger + HKCU Run
 key fallback) and the Tauri NSIS/MSI installer configuration. The autostart
 logic lives in ``voice_typer/server/server_platform.py`` (cross-platform
-facade) and ``voice_typer/server/task_scheduler.py`` (Windows Task Scheduler
-integration for the prewarm step + Run-key fallback). The installer config is
-in ``src-tauri/tauri.conf.json``.
+facade) and ``voice_typer/server/task_scheduler.py`` (schtasks wrappers
+reused by the autostart path). The installer config is in
+``src-tauri/tauri.conf.json``.
 
 AUTOSTART ARCHITECTURE (actual implementation)
 ----------------------------------------------
@@ -13,8 +13,8 @@ The app autostart (``server_platform._enable_autostart_windows``) tries the
 HKCU Run key FIRST (no admin elevation needed) and falls back to Task
 Scheduler (``_register_app_autostart_task`` which builds a LogonTrigger XML
 and calls ``task_scheduler._schtasks /Create``) only if the Run key fails
-(AUTOSTART-UAC-FIX). The prewarm autostart (``task_scheduler.register_prewarm_task``)
-does the inverse — Task Scheduler first, HKCU Run key fallback.
+(AUTOSTART-UAC-FIX). (The former prewarm scheduled task was deleted with
+the prewarm binary it launched — master plan §6.2 P-1.)
 
 Both paths:
   - Use ``LogonTrigger`` (fires at user logon, not boot — interactive session
@@ -120,22 +120,20 @@ def win32_platform(monkeypatch, fake_winreg):
     return server_platform
 
 
-# ─── Test 1: task_scheduler XML uses LogonTrigger + InteractiveToken ─────
+# ─── Test 1: app autostart task XML uses LogonTrigger + InteractiveToken ──
 
 
 def test_task_scheduler_xml_uses_logon_trigger_no_elevation():
-    """task_scheduler._build_task_xml creates a Task Scheduler entry with a
-    LogonTrigger for the current user, InteractiveToken + LeastPrivilege
-    (no admin elevation). This is the XML emitted for both the prewarm
-    task and the app autostart task (via _build_app_autostart_task_xml,
-    which mirrors this structure).
+    """``server_platform._build_app_autostart_task_xml`` creates a Task
+    Scheduler entry with a LogonTrigger for the current user,
+    InteractiveToken + LeastPrivilege (no admin elevation). (The former
+    prewarm task XML builder was deleted with the prewarm binary it
+    launched — master plan §6.2 P-1 — leaving the app autostart task as
+    the only Task Scheduler consumer.)
     """
-    from voice_typer.server import task_scheduler
+    from voice_typer.server import server_platform
 
-    xml_str = task_scheduler._build_task_xml(
-        "C:\\python\\pythonw.exe",
-        "-m voice_typer.server.prewarm --trigger logon",
-    )
+    xml_str = server_platform._build_app_autostart_task_xml()
     root = ET.fromstring(xml_str)
 
     # LogonTrigger (fires at user logon — NOT Boot/Event/Calendar triggers).
@@ -164,68 +162,10 @@ def test_task_scheduler_xml_uses_logon_trigger_no_elevation():
         "'UserId incorrectly formatted'"
     )
 
-    # Action: pythonw.exe directly, no cmd.exe wrapper (no console window).
+    # Action: the app launcher directly (no cmd.exe wrapper).
     command = root.find("ms:Actions/ms:Exec/ms:Command", _TASK_NS)
     assert command is not None, "must have an Exec/Command action"
-    assert "pythonw.exe" in command.text, (
-        "Command must be pythonw.exe directly (no cmd.exe /c wrapper that would flash a console window)"
-    )
-
-
-# ─── Test 2: register_prewarm_task falls back to HKCU Run key ────────────
-
-
-def test_register_prewarm_task_falls_back_to_hkcu_runkey(monkeypatch, fake_winreg, win32_platform):
-    """When ``schtasks /Create`` fails (e.g. locked task / Access denied),
-    ``task_scheduler.register_prewarm_task()`` falls back to the HKCU Run
-    key (admin-free, per-user logon trigger).
-    """
-    from voice_typer.server import task_scheduler
-
-    # Clear sidecar env vars so the legacy pythonw path is taken.
-    monkeypatch.delenv("TAURI_SIDECAR", raising=False)
-    monkeypatch.delenv("VOICE_TYPER_PREWARM_EXE", raising=False)
-
-    # Stub command resolution so the test doesn't depend on venv discovery.
-    monkeypatch.setattr(task_scheduler, "_prewarm_command", lambda: "C:\\python\\pythonw.exe")
-    monkeypatch.setattr(
-        task_scheduler,
-        "_registry_command",
-        lambda: '"C:\\python\\pythonw.exe" -m voice_typer.server.prewarm --delay 0',
-    )
-
-    # Mock _schtasks: /Create fails with "Access is denied" (the most common
-    # cause of schtasks /Create failure for a standard user).
-    def fake_schtasks(args, *, capture=True):
-        if "/Create" in args:
-            return 1, "ERROR: Access is denied."
-        if "/Delete" in args:
-            return 0, "SUCCESS: Deleted"
-        if "/Query" in args:
-            return 1, "ERROR: The system cannot find the file specified"
-        return 0, ""
-
-    monkeypatch.setattr(task_scheduler, "_schtasks", fake_schtasks)
-    # _schtasks_elevated uses ctypes.windll (unavailable on Linux test host).
-    monkeypatch.setattr(task_scheduler, "_schtasks_elevated", lambda args, **kw: (1, "user cancelled"))
-
-    # Track whether the registry fallback was invoked.
-    reg_calls: list[str] = []
-
-    def fake_reg(cmd):
-        reg_calls.append(cmd)
-        return True
-
-    monkeypatch.setattr(task_scheduler, "_register_prewarm_registry", fake_reg)
-    monkeypatch.setattr(task_scheduler, "is_supported", lambda: True)
-
-    result = task_scheduler.register_prewarm_task()
-
-    assert result is True, "fallback to HKCU Run key should return True"
-    assert len(reg_calls) == 1, (
-        "must call _register_prewarm_registry exactly once as fallback when schtasks /Create fails"
-    )
-    assert "pythonw.exe" in reg_calls[0], "Run-key command must invoke pythonw.exe (no console window at logon)"
+    assert command.text, "Command must be non-empty"
 
 
 # ─── Test 3: enable_autostart on Windows uses Windows path (not plist/.desktop)
@@ -434,11 +374,12 @@ def test_tauri_conf_has_bundle_windows_or_nsis_msi_defaults():
 # ─── Test 11: installer bundles sidecar + prewarm + native listener ──────
 
 
-def test_installer_includes_sidecar_prewarm_native_resources():
-    """The installer bundles the sidecar exe (``externalBin``), the prewarm
-    exe (``resources``), and the native key-listener exe (``resources``)
-    so the Tauri app can spawn them at runtime without a separate Python
-    install.
+def test_installer_includes_sidecar_and_native_resources():
+    """The installer bundles the sidecar exe (``externalBin``) and the
+    native key-listener exes (``resources``) so the Tauri app can spawn
+    them at runtime without a separate Python install. (The prewarm
+    binaries were removed from ``resources`` with the prewarm feature —
+    master plan §6.2 P-1.)
     """
     conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
     bundle = conf["bundle"]
@@ -450,19 +391,9 @@ def test_installer_includes_sidecar_prewarm_native_resources():
         "externalBin must include bin/python-sidecar (Tauri appends the target triple to find the per-platform binary)"
     )
 
-    # Prewarm + native listener: resources (per-platform binaries).
+    # Native key-listener for Windows (ADR-0020 §6.4).
     resources = bundle.get("resources", [])
     resources_blob = "\n".join(resources)
-
-    # Prewarm exes for Windows (x86_64 + aarch64).
-    assert "prewarm-x86_64-pc-windows-msvc.exe" in resources_blob, (
-        "resources must include prewarm-x86_64-pc-windows-msvc.exe "
-        "(ADR-0020 §5 — frozen Nuitka prewarm binary for Windows x64)"
-    )
-    assert "prewarm-aarch64-pc-windows-msvc.exe" in resources_blob, (
-        "resources must include prewarm-aarch64-pc-windows-msvc.exe (Windows ARM64 prewarm binary)"
-    )
-    # Native key-listener for Windows (ADR-0020 §6.4).
     assert "native/windows-key-listener.exe" in resources_blob, (
         "resources must include native/windows-key-listener.exe "
         "(ADR-0020 §6.4 — compiled WH_KEYBOARD_LL hook for dictation toggle)"

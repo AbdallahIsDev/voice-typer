@@ -171,12 +171,19 @@ class TestTranscriptionEngineAbort:
         assert "segment 4" not in result, f"abort should have stopped the loop early, but got full result: {result!r}"
 
 
-# Parakeet (parakeet_engine.py) —  StoppingCriteria ─────────────
+# Parakeet (parakeet_engine.py) — abort infrastructure ─────────
 
 
 class TestParakeetAbortStoppingCriteria:
-    """``_AbortStoppingCriteria`` is the transformers-compatible
-    stopping criterion that wires the abort event into ``model.generate()``.
+    """``_AbortStoppingCriteria`` is the legacy transformers-compatible
+    stopping-criteria shim. After the ONNX Runtime migration
+    (PLAN_ONNX_INTEGRATION.md §3), the production engine no longer
+    wires ``stopping_criteria`` into ``model.generate()`` (there is no
+    ``generate()`` — the ONNX path uses the onnx-asr adapter's
+    ``recognize()``).
+    The class is retained as a no-op shim so this module's imports keep
+    resolving; its ``__call__`` still reflects the abort-event state
+    for backward-compat with tests that reference the name.
     """
 
     def test_criteria_returns_false_when_event_not_set(self):
@@ -243,59 +250,62 @@ class TestParakeetEngineAbort:
         engine.clear_abort()
         assert not engine._abort_event.is_set()
 
-    def test_transcribe_segment_passes_stopping_criteria(self):
-        """``_transcribe_segment`` MUST pass ``stopping_criteria`` to
-        ``model.generate()`` so the abort event is checked between
-        generated tokens. Verified by inspecting the call kwargs on a
-        mocked model."""
+    def test_transcribe_segment_calls_onnx_recognize_api(self):
+        """``_transcribe_segment`` MUST call the ONNX Runtime API
+        ``model.recognize(audio, sample_rate=WHISPER_SAMPLE_RATE)``
+        (the onnx-asr ``load_model`` adapter contract per
+        PLAN_ONNX_INTEGRATION.md §3.3 Option B-1).
+
+        The pre-ONNX engine called ``model.generate(stopping_criteria=...)``
+        to wire abort into per-token generation. The ONNX backend has no
+        per-token stopping hook (``onnx-asr`` 0.12.0 does not forward
+        ``RunOptions`` to ``session.run`` — see the production docstring
+        on ``ParakeetEngine._abort_event``). Mid-segment abort is a
+        documented limitation; abort only fires BETWEEN chunks (see
+        ``test_chunk_loop_breaks_on_abort`` below).
+
+        This test pins the NEW ONNX API contract so a revert to the
+        torch ``model.generate()`` path would fail it.
+        """
+        from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
         from voice_typer.server.parakeet_engine import ParakeetEngine
 
         engine = ParakeetEngine()
+        # Mock the ONNX model — ``recognize`` returns a string per the
+        # onnx-asr ``load_model`` adapter contract.
         engine._model = MagicMock()
-        engine._processor = MagicMock()
-        # Return a fake output with a sequences attribute.
-        fake_output = MagicMock()
-        fake_output.sequences = MagicMock()
-        engine._model.generate.return_value = fake_output
-        engine._model.device = "cpu"
-        engine._model.dtype = "float32"
-        engine._processor.decode.return_value = "hello"
+        engine._model.recognize.return_value = "hello world"
 
         audio = np.ones(16000, dtype=np.float32) * 0.05
-        engine._transcribe_segment(audio)
-        # Verify generate was called with stopping_criteria.
-        call_kwargs = engine._model.generate.call_args.kwargs
-        assert "stopping_criteria" in call_kwargs
-        criteria_list = call_kwargs["stopping_criteria"]
-        assert len(criteria_list) == 1
-        # The criteria wraps the engine's abort event.
-        assert criteria_list[0]._abort_event is engine._abort_event
+        text = engine._transcribe_segment(audio)
 
-    def test_transcribe_batch_passes_stopping_criteria(self):
-        """Same check for the batched path."""
-        from voice_typer.server.parakeet_engine import ParakeetEngine
-
-        engine = ParakeetEngine()
-        engine._model = MagicMock()
-        engine._processor = MagicMock()
-        fake_output = MagicMock()
-        fake_output.sequences = MagicMock()
-        engine._model.generate.return_value = fake_output
-        engine._model.device = "cpu"
-        engine._model.dtype = "float32"
-        engine._processor.decode.return_value = ["hello"]
-
-        batch = [np.ones(16000, dtype=np.float32) * 0.05]
-        engine._transcribe_batch(batch)
-        call_kwargs = engine._model.generate.call_args.kwargs
-        assert "stopping_criteria" in call_kwargs
-        assert len(call_kwargs["stopping_criteria"]) == 1
+        # The ONNX API was called with the audio array + sample_rate.
+        engine._model.recognize.assert_called_once()
+        call_args, call_kwargs = engine._model.recognize.call_args
+        # First positional arg is the audio array (the production code
+        # calls ``recognize(audio, sample_rate=WHISPER_SAMPLE_RATE)``).
+        assert call_args[0] is audio or np.array_equal(call_args[0], audio)
+        assert call_kwargs.get("sample_rate") == WHISPER_SAMPLE_RATE
+        # The ONNX API has no ``stopping_criteria`` parameter — that was
+        # a torch/transformers ``generate()`` kwarg. If a future revert
+        # re-introduces it, this assertion fails.
+        assert "stopping_criteria" not in call_kwargs
+        # Sanity: the mocked recognize() output flowed through.
+        assert text == "hello world"
 
     def test_chunk_loop_breaks_on_abort(self):
         """When the abort event is set, the chunk-iteration loop in
-        ``_transcribe_chunks_batched`` breaks early — long audio split
-        into 13 chunks stops after the current chunk rather than
-        decoding all remaining ones."""
+        ``_transcribe_chunks`` breaks early — long audio split into 13
+        chunks stops after the current chunk rather than decoding all
+        remaining ones.
+
+        This is the working abort path in the ONNX backend: the
+        ``_abort_event`` is checked BETWEEN chunks (the only effective
+        hook — ``onnx-asr`` 0.12.0 does not forward ``RunOptions`` to
+        ``session.run``, so mid-segment termination is not supported;
+        see the production docstring on
+        ``ParakeetEngine._abort_event``).
+        """
         from voice_typer.server.parakeet_engine import ParakeetEngine
 
         engine = ParakeetEngine()
@@ -310,14 +320,14 @@ class TestParakeetEngineAbort:
             return f"chunk-{call_count['n']}"
 
         engine._transcribe_segment = fake_segment
-        # Force the sequential branch (batch size 1).
-        engine._INFERENCE_BATCH_SIZE = 1
         chunks = [np.ones(16000, dtype=np.float32) for _ in range(5)]
-        results = engine._transcribe_chunks_batched(chunks)
+        results = engine._transcribe_chunks(chunks)
         # Should have stopped after chunk 2 (abort fired after chunk 2
-        # returned, the loop's next-iteration check sees the event and
-        # breaks).
-        assert call_count["n"] <= 3, f"expected chunk loop to break early, but ran {call_count['n']} chunks"
+        # returned; the next iteration's top-of-loop check sees the
+        # event and breaks before calling _transcribe_segment again).
+        assert call_count["n"] == 2, (
+            f"expected chunk loop to break early after 2 chunks, but ran {call_count['n']} chunks"
+        )
         assert results == ["chunk-1", "chunk-2"]
 
 

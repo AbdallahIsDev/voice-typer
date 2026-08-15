@@ -111,6 +111,20 @@ _LEGACY_TOKEN_ALLOWLIST: dict[str, frozenset[str]] = {
 # spellings, so it is exempt from the scan (definitions, not usages).
 _SELF = Path("tests/test_product_namespace_consistency.py")
 
+# Session metadata files (agent worklogs / handoff summaries) are NOT
+# product code: they are live logs rewritten by every session, and the
+# prose occasionally quotes non-canonical namespaces while discussing
+# migration history. Exempting them keeps the guard effective for every
+# product/script/test file while stopping the churn of "fix the worklog
+# prose" commits (the session log is not a namespace source of truth).
+_SESSION_LOG_FILES = frozenset(
+    {
+        "worklog.md",
+        "SUMMARY.md",
+        "review.md",
+    }
+)
+
 # Reverse-DNS roots plausible for a product namespace, in the
 # ``voicetyper`` family (canonical + legacy spellings).
 _RDNN_RE = re.compile(
@@ -160,6 +174,8 @@ class TestProductNamespaceConsistency:
             rel_path = Path(rel)
             if rel_path == _SELF:
                 continue  # this module defines the banned spellings
+            if rel in _SESSION_LOG_FILES:
+                continue  # session metadata — not a namespace source of truth
             text = path.read_bytes().decode("utf-8", errors="replace")
             for match in _RDNN_RE.finditer(text):
                 token = match.group(1)

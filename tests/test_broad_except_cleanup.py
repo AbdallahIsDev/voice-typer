@@ -102,20 +102,40 @@ class TestNarrowedExceptionHandlers:
         # SIGUSR1 setup is wrapped in ``except (AttributeError, ...)``.
         assert hasattr(mod, "IPCServer"), "ipc_server module failed to import"
 
-    def test_task_scheduler_path_parse_catches_index_error(self):
-        """``resolved.split(' ', 1)[0]`` can raise ``IndexError`` if
-        ``resolved`` is empty — the narrowed handler catches it."""
+    def test_task_scheduler_schtasks_catches_filenotfound_and_timeout(self):
+        """``task_scheduler._schtasks`` runs ``schtasks`` via
+        ``subprocess.run`` with two narrowed exception handlers
+        (``FileNotFoundError`` for non-Windows hosts without schtasks.exe
+        + ``subprocess.TimeoutExpired`` for a hung Task Scheduler
+        service). Both handlers return a sentinel ``(rc, output)``
+        tuple instead of propagating — the caller (autostart register /
+        unregister / query) treats the sentinel as a soft failure and
+        falls through without crashing the IPC handler.
+
+        (Wave 3, 2026-08-14): the previous test pinned the narrowed
+        ``except (IndexError, ValueError, OSError):`` clause inside
+        ``task_scheduler._prewarm_command`` (the python-executable
+        resolver for the deleted prewarm binary). ``_prewarm_command``
+        was removed in lockstep with the prewarm binary (prewarm became
+        a worker startup phase — master plan §6.2 P-1), so the test was
+        re-pinned on the surviving ``_schtasks`` wrapper which carries
+        the SAME narrowed-handler discipline (``FileNotFoundError`` +
+        ``TimeoutExpired`` instead of a broad ``except Exception:``).
+        """
         import inspect
 
         from voice_typer.server import task_scheduler
 
-        # The narrowed handler is inside ``_prewarm_command`` (the
-        # function that resolves the python executable path). Verify
-        # the narrowed ``except (IndexError, ValueError, OSError):``
-        # clause is present in the source.
-        src = inspect.getsource(task_scheduler._prewarm_command)
-        assert "except (IndexError, ValueError, OSError):" in src, (
-            "task_scheduler._prewarm_command should catch (IndexError, ValueError, OSError) instead of broad Exception"
+        src = inspect.getsource(task_scheduler._schtasks)
+        # The narrowed handlers MUST be present (XS-36: no broad
+        # ``except Exception: pass``).
+        assert "except FileNotFoundError:" in src, (
+            "task_scheduler._schtasks should catch FileNotFoundError (schtasks.exe "
+            "missing on non-Windows hosts) instead of broad Exception"
+        )
+        assert "except subprocess.TimeoutExpired:" in src, (
+            "task_scheduler._schtasks should catch subprocess.TimeoutExpired (a hung "
+            "Task Scheduler service) instead of broad Exception"
         )
 
     def test_recorder_rec1_join_catches_runtime_error(self):

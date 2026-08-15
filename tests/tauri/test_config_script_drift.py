@@ -985,12 +985,22 @@ class TestReverseDnsIdentifierNamespace:
     ``platform_win32_test`` hash-suffix tests miss (those only verify
     the entries are swept/registered, not what they're NAMED).
 
+    (Wave 3, 2026-08-14): the ``task_scheduler.py`` pin block
+    (``TASK_NAME = "com.voicetyper.prewarm"`` +
+    ``_LEGACY_TASK_NAME = "VoiceTyperPrewarm"``) was REMOVED —
+    prewarm became a worker startup phase (master plan §6.2 P-1),
+    so ``task_scheduler.py`` no longer carries any prewarm-related
+    constants (the file was reduced from 977 → 285 LOC, keeping only
+    the ``_schtasks`` / ``_schtasks_elevated`` / ``is_supported``
+    autostart helpers + ``_APP_AUTOSTART_DELAY_SECONDS``). The
+    ``server_platform/__init__.py`` + ``autostart_windows.py`` pins
+    below remain in force (they pin the app autostart identifiers,
+    which still exist).
+
     Explicit allowlist — bare ``VoiceTyper*`` forms that are
     INTENTIONAL and must NOT be renamed (do not extend without
     reviewing the item):
 
-    - ``_LEGACY_TASK_NAME = "VoiceTyperPrewarm"`` (task_scheduler.py) —
-      register/unregister delete it to converge pre-rename installs.
     - ``_LEGACY_KEYRING_SERVICE_NAMES = ("app.voicetyper", "voice-typer")``
       (credential_store.py) — keyring migration sources (migrated once,
       then deleted).
@@ -1008,10 +1018,6 @@ class TestReverseDnsIdentifierNamespace:
     def test_windows_autostart_and_prewarm_identifiers_are_reverse_dns(self) -> None:
         """Source pins for the Windows identifier literals (active names)."""
         pins = {
-            "voice_typer/server/task_scheduler.py": [
-                'TASK_NAME = "com.voicetyper.prewarm"',
-                '_LEGACY_TASK_NAME = "VoiceTyperPrewarm"',
-            ],
             "voice_typer/server/server_platform/__init__.py": [
                 '_APP_AUTOSTART_TASK_NAME = f"com.voicetyper.autostart{_install_hash_suffix()}"',
             ],
@@ -1026,8 +1032,15 @@ class TestReverseDnsIdentifierNamespace:
             # NOTE: voice_typer/server/prewarm/completion_events.py was DELETED
             # 2026-08-13 — prewarm became a worker startup phase (Option P-1,
             # plan-runtime-pack-split §6.2). The prewarm_completion event
-            # namespace is no longer used. The reverse-DNS pin for the Windows
-            # autostart + task_scheduler identifiers above remains in force.
+            # namespace is no longer used.
+            #
+            # NOTE: voice_typer/server/task_scheduler.py no longer carries
+            # ``TASK_NAME`` / ``_LEGACY_TASK_NAME`` constants (Wave 3,
+            # 2026-08-14) — prewarm became a worker startup phase, so
+            # task_scheduler.py was reduced to the autostart-only helpers
+            # (_schtasks / _schtasks_elevated / is_supported /
+            # _APP_AUTOSTART_DELAY_SECONDS). The reverse-DNS pin for the
+            # Windows autostart identifiers above remains in force.
         }
         for rel, expected in pins.items():
             text = (PROJECT_ROOT / rel).read_text(encoding="utf-8")

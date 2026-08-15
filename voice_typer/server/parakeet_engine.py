@@ -5,9 +5,10 @@ In-place conversion from torch/transformers to ONNX Runtime per
 its registered backend name (``"parakeet"``) and class
 (``ParakeetEngine``); only the internals change. The old
 ``transformers.AutoModelForTDT`` + ``torch`` code path is gone — the
-engine now wraps the ``onnx_asr.Model`` class, which loads a pre-exported
-ONNX Parakeet TDT model and exposes a ``recognize(audio, sample_rate)``
-API. The TDT decoding loop is the library's problem (Option B-1).
+engine now calls ``onnx_asr.load_model(...)`` (the only API onnx-asr
+exports in 0.12.0), which loads a pre-exported ONNX Parakeet TDT model
+and returns an adapter exposing ``recognize(audio, sample_rate)``. The
+TDT decoding loop is the library's problem (Option B-1).
 
 GPU→CPU fallback (§3.4) recreates the ORT session with
 ``CPUExecutionProvider`` only — ONNX Runtime cannot move a session
@@ -119,22 +120,20 @@ def _local_is_cuda_error(exc: Exception) -> bool:
     try:
         import onnxruntime as _ort
 
-        if isinstance(exc, _ort.RuntimeException):
-            if "cuda" in err_str or "gpu" in err_str:
-                return True
+        if isinstance(exc, _ort.RuntimeException) and ("cuda" in err_str or "gpu" in err_str):
+            return True
     except ImportError:
         pass
     # Layer 2: RuntimeError + attribute check.
-    if isinstance(exc, RuntimeError):
-        if getattr(exc, "cuda_error", None) or getattr(exc, "is_cuda_error", False):
-            return True
+    if isinstance(exc, RuntimeError) and (
+        getattr(exc, "cuda_error", None) or getattr(exc, "is_cuda_error", False)
+    ):
+        return True
     # Layer 3: keyword match (3 keywords — OOM handled separately).
     if any(kw in err_str for kw in ("cuda", "cublas", "cudnn")):
         return True
     # Layer 4: DLL-load failures (Windows).
-    if any(kw in err_str for kw in ("dll", "not found", "cannot be loaded", "load library")):
-        return True
-    return False
+    return any(kw in err_str for kw in ("dll", "not found", "cannot be loaded", "load library"))
 
 
 def _local_compute_overlap_skip(prev_words: list[str], new_words: list[str]) -> int:
@@ -219,17 +218,33 @@ _NON_LATIN_RATIO_LIMIT = 0.30
 # ONNX weights cached; both live under the same repo-id key).
 _PARAKERT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
 
-# ONNX model name as recognized by ``onnx_asr.Model(...)``. The
-# ``onnx-asr`` library maintains its own model registry mapping these
-# short names to HuggingFace ONNX repo IDs. ``nemo-parakeet-tdt-0.6b-v3``
-# resolves to ``grikdotnet/parakeet-tdt-0.6b-fp16`` (the FP16 ONNX export).
-# See PLAN_ONNX_INTEGRATION.md §3.5.1.
-_PARAKEET_ONNX_MODEL_NAME = "nemo-parakeet-tdt-0.6b-v3"
-_PARAKEET_QUANTIZATION = "fp16"
+# ONNX Runtime FP16 export of Parakeet TDT v3 (USER-selected repo,
+# 2026-08-15). ``visuall/parakeet-tdt-0.6b-v3-onnx-fp16`` is a
+# half-precision conversion of the fp32 ONNX export published by
+# ``istupakov/parakeet-tdt-0.6b-v3-onnx``; identical WER to fp32 at
+# ~1.28 GB instead of ~2.5 GB (see the repo's README). The repo ships
+# NO ``config.json`` — onnx-asr reads ``model_type`` from it when
+# resolving a repo BY NAME, so the engine loads by TYPE name + a local
+# snapshot dir (see ``load()``).
+_PARAKERT_ONNX_REPO_ID = "visuall/parakeet-tdt-0.6b-v3-onnx-fp16"
+_PARAKERT_ONNX_CACHE_DIR = f"models--{_PARAKERT_ONNX_REPO_ID.replace('/', '--')}"
+
+# onnx-asr TYPE name (NOT a repo name). ``nemo-conformer-tdt`` selects
+# the TDT decoder class directly, which is what lets us load a
+# config.json-less repo from a local dir. Do NOT pass the visuall
+# repo_id as the model name — onnx-asr would try to download
+# ``config.json`` from it and fail (404).
+_PARAKERT_ONNX_MODEL_NAME = "nemo-conformer-tdt"
+
+# Selects the ``.fp16.`` variant files inside the repo (onnx-asr 0.12.0
+# globs ``encoder-model?fp16.onnx`` — matches ``encoder-model.fp16.onnx``).
+_PARAKERT_QUANTIZATION = "fp16"
 
 # Approximate ONNX weight size in MB for MB/s read-speed logging.
-# grikdotnet/parakeet-tdt-0.6b-fp16 is ~1.3 GB on disk.
-_PARAKERT_WEIGHTS_MB = 1300
+# visuall fp16 export: encoder-model.fp16.onnx 1,239 MB +
+# decoder_joint-model.fp16.onnx 36 MB + nemo128.onnx + vocab.txt
+# ≈ 1,275 MB on disk.
+_PARAKERT_WEIGHTS_MB = 1275
 
 # Parakeet's Conformer encoder has a practical limit of ~30s of audio.
 # Longer recordings are split into overlapping chunks via
@@ -254,10 +269,13 @@ class _AbortStoppingCriteria:
     The torch/transformers backend used this to wire
     ``model.generate()``'s ``stopping_criteria`` argument so the
     dictation pipeline's cancel path (ESC / watchdog) could stop
-    generation between tokens. The ONNX Runtime backend uses
-    ``onnxruntime.RunOptions.set_terminate()`` instead (see
-    :meth:`ParakeetEngine.request_abort`), so this class is no longer
-    used internally. It is kept as a no-op shim so the existing
+    generation between tokens. The ONNX Runtime backend has no
+    per-token stopping hook — ``onnx-asr`` 0.12.0 does not forward
+    ``RunOptions`` to ``session.run`` (see the note on
+    ``ParakeetEngine._abort_event``), so the working abort path is
+    the inter-chunk ``_abort_event`` check only (see
+    :meth:`ParakeetEngine.request_abort`). This class is no longer
+    used internally; it is kept as a no-op shim so existing
     ``from voice_typer.server.parakeet_engine import _AbortStoppingCriteria``
     imports in ``tests/test_dictation_pipeline_abort.py`` keep resolving.
     """
@@ -295,8 +313,9 @@ class ParakeetEngine:
 
     The ONNX migration (PLAN_ONNX_INTEGRATION.md §3) swaps the backend
     from ``transformers.AutoModelForTDT`` + ``torch`` to
-    ``onnx_asr.Model`` (class-based API, NOT ``load_model(...)`` — see
-    §3.3 Option B-1). GPU→CPU fallback (§3.4) recreates the ORT session
+    ``onnx_asr.load_model(...)`` (onnx-asr 0.12.0 exports only
+    ``load_model`` / ``load_vad`` — there is no ``Model`` class).
+    GPU→CPU fallback (§3.4) recreates the ORT session
     with ``CPUExecutionProvider`` only — ONNX Runtime cannot move a
     session between providers in place (unlike torch's ``.to("cpu")``).
     """
@@ -332,7 +351,7 @@ class ParakeetEngine:
         # (``config.huggingface_consent``). ``None`` is treated as
         # "consent not given" (safe default per GDPR Art. 6/13).
         self.config = config
-        # ``onnx_asr.Model`` instance (or ``None`` when unloaded).
+        # Loaded onnx-asr model adapter instance (or ``None`` when unloaded).
         self._model: Any = None
         # Backward-compat: the pre-migration code populated a separate
         # ``_processor`` (transformers' ``AutoProcessor``). The ONNX
@@ -341,6 +360,10 @@ class ParakeetEngine:
         # production. Kept as an instance attribute so existing tests
         # that ``engine._processor = MagicMock()`` keep working.
         self._processor: Any = None
+        # Verified HF-cache snapshot dir of the ONNX model, stashed by
+        # ``load()`` so the GPU→CPU fallback (``_load_impl``) can
+        # rebuild the ORT session from the same local files.
+        self._onnx_model_dir: str | None = None
         # One-time tray notification flag for CUDA→CPU transcription
         # fallback. Reset to ``False`` on every successful ``load()`` so
         # a fallback after the next reload re-notifies the user.
@@ -361,20 +384,25 @@ class ParakeetEngine:
         self._active_inference = 0
         self._inference_cond = threading.Condition(self._lock)
         # Abort token shared by the dictation pipeline's cancel path and
-        # the in-flight ``model.recognize()`` call. ``request_abort()``
-        # sets the event AND calls ``RunOptions.set_terminate(True)`` on
-        # the stashed options object so ORT stops the in-flight run.
-        # ``clear_abort()`` is called by the pipeline at the start of
-        # each transcription cycle so a stale abort from the previous
-        # cycle does NOT suppress the next one. The chunk-iteration
-        # loop in ``_transcribe_chunks`` also checks the event between
-        # chunks so a long audio split into 13 chunks stops after the
-        # current chunk rather than decoding all remaining ones.
+        # the chunk-iteration loop. ``request_abort()`` sets the event;
+        # ``_transcribe_chunks`` checks it BETWEEN chunks so a long audio
+        # split into 13 chunks stops after the current chunk rather than
+        # decoding all remaining ones. ``clear_abort()`` is called by
+        # the pipeline at the start of each transcription cycle so a
+        # stale abort from the previous cycle does NOT suppress the next
+        # one.
+        #
+        # NOTE: ORT's ``RunOptions.set_terminate`` API cannot reach the
+        # in-flight ``recognize()`` call through ``onnx-asr`` 0.12.0:
+        # the library's ``recognize_batch()`` invokes ``session.run()``
+        # without forwarding a ``run_options`` argument (verified by
+        # inspecting the wheel source — ``asr.py`` + ``models/nemo.py``
+        # call ``self._encoder.run(["outputs", ...], {...})`` with no
+        # ``run_options`` parameter). The working abort path is
+        # therefore the ``_abort_event`` check between chunks ONLY —
+        # mid-run termination of a single-segment ``recognize()`` call
+        # is NOT supported (CLOUD-AGENT-ROUND2-PROMPT.md issue 2).
         self._abort_event = threading.Event()
-        # Current ORT ``RunOptions`` for the in-flight ``recognize()``
-        # call (if any). Populated by ``_make_run_options()``; consumed
-        # by ``request_abort()`` to terminate the run.
-        self._run_options: Any = None
         # Effective ORT providers list used by the most recent
         # ``load()`` / ``_load_impl()``. Stored so the GPU→CPU fallback
         # path knows what to switch FROM (and so reload uses the same
@@ -514,17 +542,18 @@ class ParakeetEngine:
 
     @staticmethod
     def _is_cached() -> bool:
-        """Quick check if the Parakeet model is in the HF cache.
+        """Quick check if the Parakeet ONNX model is in the HF cache.
 
-        Walks the snapshot dir for a ``model.safetensors`` (the
-        torch/safetensors weights) OR a ``*.onnx`` file (the ONNX
-        export). Either counts as "cached" — the user may have
-        downloaded either format.
+        Walks the ONNX repo's snapshot dir
+        (``models--visuall--parakeet-tdt-0.6b-v3-onnx-fp16/``) for a
+        ``*.onnx`` file. The engine is ONNX-only post-migration — the
+        torch/safetensors cache (``nvidia/parakeet-tdt-0.6b-v3``) is no
+        longer loadable and does NOT count as cached.
         """
         from voice_typer.server.config import _config_dir
 
         cache_root = _config_dir() / "huggingface" / "hub"
-        model_dir = cache_root / f"models--{_PARAKERT_MODEL_ID.replace('/', '--')}"
+        model_dir = cache_root / _PARAKERT_ONNX_CACHE_DIR
         snapshots = model_dir / "snapshots"
         if not snapshots.is_dir():
             return False
@@ -532,10 +561,6 @@ class ParakeetEngine:
             for entry in snapshots.iterdir():
                 if not entry.is_dir():
                     continue
-                if (entry / "model.safetensors").exists():
-                    return True
-                # ONNX export: onnx-asr downloads weights as .onnx files
-                # (encoder.onnx, decoder.onnx, joint_decoder.onnx, etc.).
                 if any(entry.glob("*.onnx")):
                     return True
         except OSError:
@@ -550,8 +575,9 @@ class ParakeetEngine:
 
         The pre-migration code required both ``_model`` AND ``_processor``
         to be non-None (transformers' AutoProcessor + AutoModelForTDT).
-        The ONNX backend has no separate processor — ``onnx_asr.Model``
-        bundles the tokenizer + ONNX session — so we check ``_model``
+        The ONNX backend has no separate processor — the onnx-asr
+        adapter bundles the tokenizer + ONNX session — so we check
+        ``_model``
         only. The ``_processor`` attribute is kept as ``None`` in
         production for backward-compat with tests that set it.
         """
@@ -559,26 +585,22 @@ class ParakeetEngine:
             return self._model is not None
 
     def request_abort(self) -> None:
-        """Signal an in-flight ``model.recognize()`` to stop early.
+        """Signal an in-flight transcription to stop after the current chunk.
 
         Sets ``_abort_event`` (checked between chunks in
-        ``_transcribe_chunks``) AND calls
-        ``RunOptions.set_terminate(True)`` on the stashed options object
-        so ORT stops the in-flight run. Bounded latency instead of
-        waiting for the full audio to decode — frees compute for the
-        next dictation cycle.
+        ``_transcribe_chunks``). The current chunk's
+        ``model.recognize()`` call runs to completion (onnx-asr 0.12.0
+        does not forward ``RunOptions`` to ``session.run`` — see the
+        class-level note on ``_abort_event``); the loop then breaks
+        before the next chunk is decoded. Bounded latency = one chunk's
+        decode time (≤ ``_CHUNK_SECONDS`` seconds) instead of the full
+        audio — frees compute for the next dictation cycle.
 
-        ORT's ``RunOptions.set_terminate`` is the official abort API
-        (replaces the torch/transformers ``StoppingCriteria`` shim —
-        see :class:`_AbortStoppingCriteria`).
+        Replaces the torch/transformers ``StoppingCriteria`` shim — see
+        :class:`_AbortStoppingCriteria` (kept as a no-op shim for
+        backward-compat with tests/importers that reference the name).
         """
         self._abort_event.set()
-        run_opts = self._run_options
-        if run_opts is not None:
-            try:
-                run_opts.set_terminate(True)
-            except Exception:
-                log.debug("[PARAKEET] RunOptions.set_terminate failed", exc_info=True)
 
     def clear_abort(self) -> None:
         """Clear the abort token at the start of a fresh transcription cycle.
@@ -589,13 +611,9 @@ class ParakeetEngine:
         new transcription.
         """
         self._abort_event.clear()
-        # The previous RunOptions (if terminated) is stale — drop the
-        # reference so the next ``_make_run_options()`` creates a fresh
-        # one. ``set_terminate(True)`` is one-way; you cannot un-terminate.
-        self._run_options = None
 
     def load(self, progress_callback: Callable[[str], None] | None = None) -> bool:
-        """Load the Parakeet ONNX model via ``onnx_asr.Model(...)``.
+        """Load the Parakeet ONNX model via ``onnx_asr.load_model(...)``.
 
         The app never downloads models automatically — the user must
         explicitly download the Parakeet weights (Models page Download
@@ -605,9 +623,10 @@ class ParakeetEngine:
         user to the Models page. A cached-but-tampered model raises
         ``ModelIntegrityError`` and is NOT deleted automatically.
 
-        See PLAN_ONNX_INTEGRATION.md §3.3 (Option B-1) for the
-        ``onnx_asr.Model`` constructor API (class-based, NOT
-        ``load_model(...)``).
+        See PLAN_ONNX_INTEGRATION.md §3.3 (Option B-1). onnx-asr 0.12.0
+        exports ``load_model(...)`` — there is NO ``onnx_asr.Model``
+        class in any release (verified against 0.12.0 and main; only
+        ``load_model`` + ``load_vad`` are exported).
         """
         log.info("[PARAKEET] load() entered — importing onnx-asr if needed")
         if not self._ensure_imports():
@@ -628,7 +647,7 @@ class ParakeetEngine:
             self._cpu_fallback_since = None
             self._cpu_transcribe_count = 0
 
-            # Quick cache check — avoids calling onnx_asr.Model(...)
+            # Quick cache check — avoids calling onnx_asr.load_model(...)
             # entirely when the model isn't on disk.
             _cache_t0 = time.perf_counter()
             _cached = self._is_cached()
@@ -650,7 +669,7 @@ class ParakeetEngine:
                     "Open the Models page and click Download before using it.",
                     model_size="parakeet",
                     backend="parakeet",
-                    repo_id=_PARAKERT_MODEL_ID,
+                    repo_id=_PARAKERT_ONNX_REPO_ID,
                 )
 
             # Verify model integrity (hash check) — UNCONDITIONALLY on
@@ -662,14 +681,16 @@ class ParakeetEngine:
             from voice_typer.server.security import verify_model_integrity
 
             cache_root = _config_dir() / "huggingface" / "hub"
-            model_dir = cache_root / f"models--{_PARAKERT_MODEL_ID.replace('/', '--')}"
+            model_dir = cache_root / _PARAKERT_ONNX_CACHE_DIR
+            verified_snapshot: str | None = None
             if model_dir.is_dir():
                 verified = False
                 verify_exc: Exception | None = None
                 try:
                     for snapshot in (model_dir / "snapshots").iterdir():
-                        if snapshot.is_dir() and verify_model_integrity(str(snapshot), _PARAKERT_MODEL_ID):
+                        if snapshot.is_dir() and verify_model_integrity(str(snapshot), _PARAKERT_ONNX_REPO_ID):
                             verified = True
+                            verified_snapshot = str(snapshot)
                             break
                 except OSError as exc:
                     verify_exc = exc
@@ -678,7 +699,7 @@ class ParakeetEngine:
                         "[PARAKEET] Model integrity check failed%s for %s at %s. "
                         "Refusing to load tampered model. To fix: delete it from the Models page.",
                         f" (OSError: {verify_exc})" if verify_exc else "",
-                        _PARAKERT_MODEL_ID,
+                        _PARAKERT_ONNX_REPO_ID,
                         model_dir,
                     )
                     if progress_callback:
@@ -692,11 +713,12 @@ class ParakeetEngine:
                         "Delete it and download it again from the Models page to recover.",
                         model_size="parakeet",
                         backend="parakeet",
-                        repo_id=_PARAKERT_MODEL_ID,
+                        repo_id=_PARAKERT_ONNX_REPO_ID,
                     )
 
-            # Load ONNX model via onnx_asr.Model(...) — class-based API
-            # (PLAN_ONNX_INTEGRATION.md §3.3 Option B-1).
+            # Load ONNX model via onnx_asr.load_model(...) — by TYPE
+            # name (``nemo-conformer-tdt``) + the verified local
+            # snapshot dir (PLAN_ONNX_INTEGRATION.md §3.3 Option B-1).
             try:
                 if progress_callback:
                     progress_callback("Loading Parakeet TDT v3 ONNX model...")
@@ -709,14 +731,18 @@ class ParakeetEngine:
                 providers = self._select_providers(effective_device)
                 _load_start = time.perf_counter()
 
-                # onnx_asr.Model is class-based (NOT load_model(...) — see §3.3 B-1).
-                # The constructor downloads weights into the onnx-asr
-                # cache on first use; subsequent loads are cache hits.
-                # ``quantization="fp16"`` selects the FP16 ONNX export
-                # (``grikdotnet/parakeet-tdt-0.6b-fp16``).
-                self._model = self._onnx_asr.Model(
-                    _PARAKEET_ONNX_MODEL_NAME,
-                    quantization=_PARAKEET_QUANTIZATION,
+                # onnx-asr 0.12.0 exports ``load_model(...)`` — there is
+                # NO ``onnx_asr.Model`` class in any onnx-asr release
+                # (verified against 0.12.0 and main; only ``load_model``
+                # + ``load_vad`` are exported). We load by TYPE name
+                # (``nemo-conformer-tdt``) + the verified local snapshot
+                # dir because the visuall fp16 repo ships no config.json
+                # (onnx-asr would need it to resolve the repo BY NAME).
+                self._onnx_model_dir = verified_snapshot
+                self._model = self._onnx_asr.load_model(
+                    _PARAKERT_ONNX_MODEL_NAME,
+                    path=verified_snapshot,
+                    quantization=_PARAKERT_QUANTIZATION,
                     providers=providers,
                 )
 
@@ -764,8 +790,9 @@ class ParakeetEngine:
         Long audio (>CHUNK_SECONDS) is split into overlapping chunks
         via :func:`voice_typer.server.asr_utils.split_audio` to stay
         within the Conformer encoder's input-length limit. Each chunk is
-        transcribed via :meth:`onnx_asr.Model.recognize`; results are
-        merged via :func:`voice_typer.server.asr_utils.merge_chunks`.
+        transcribed via the onnx-asr adapter's ``recognize`` method;
+        results are merged via
+        :func:`voice_typer.server.asr_utils.merge_chunks`.
 
         PERF-STATS: ``audio_stats`` is an optional pre-computed
         ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
@@ -811,29 +838,23 @@ class ParakeetEngine:
         audio: np.ndarray,
         audio_stats: tuple[float, float, float] | None = None,
     ) -> str:
-        """Transcribe one audio segment via :meth:`onnx_asr.Model.recognize`.
+        """Transcribe one audio segment via the onnx-asr adapter's ``recognize``.
 
         Assumes the segment is within the model's input-length limit
         (caller enforces this via chunking). Applies the English-only
         filter and the low-audio-hallucination filter to the result.
-        """
-        # Build a fresh RunOptions so ``request_abort()`` can terminate
-        # the run mid-decode. Stashed on ``self._run_options`` so the
-        # abort path can reach it via ``request_abort()``.
-        self._make_run_options()
-        try:
-            text = self._model.recognize(audio, sample_rate=WHISPER_SAMPLE_RATE)
-        except Exception:
-            # If the abort path terminated the run, ORT raises a
-            # RuntimeException — surface it so transcribe_with_fallback
-            # can decide. Drop the run-options reference regardless.
-            self._run_options = None
-            raise
-        self._run_options = None
 
-        # ``onnx_asr.Model.recognize`` returns a single str for single
-        # audio; defensively handle list[str] in case the library
-        # changes shape (mirrors the pre-migration defensive pattern).
+        NOTE: this call runs to completion — onnx-asr 0.12.0 does not
+        forward ``RunOptions`` to ``session.run`` (verified by wheel
+        source inspection), so ``request_abort()`` cannot terminate a
+        single-segment decode mid-flight. Abort is only effective
+        between chunks (see :meth:`_transcribe_chunks`).
+        """
+        text = self._model.recognize(audio, sample_rate=WHISPER_SAMPLE_RATE)
+
+        # ``recognize`` returns a single str for single audio;
+        # defensively handle list[str] in case the library changes
+        # shape (mirrors the pre-migration defensive pattern).
         if isinstance(text, list):
             text = text[0] if text else ""
         text = (text or "").strip()
@@ -858,32 +879,15 @@ class ParakeetEngine:
             return ""
         return text
 
-    def _make_run_options(self) -> Any:
-        """Create an ORT ``RunOptions`` and stash it on ``self`` for abort.
-
-        Returns ``None`` if ``onnxruntime`` is not available (defensive
-        — should not happen post-:meth:`_ensure_imports`, but keeps the
-        method safe to call from tests that bypass ``load()``).
-        """
-        if self._ort is None:
-            return None
-        try:
-            opts = self._ort.RunOptions()
-            self._run_options = opts
-            return opts
-        except Exception:
-            log.debug("[PARAKEET] RunOptions creation failed", exc_info=True)
-            return None
-
     def _transcribe_chunks(self, chunks: list[np.ndarray]) -> list[str]:
         """Transcribe each chunk via ``model.recognize()``; respect abort.
 
         Checks ``_abort_event`` BETWEEN chunks so a long audio split
         into 13 chunks stops after the current chunk rather than
         decoding all remaining ones. The current chunk's
-        ``model.recognize()`` call is wired to ``request_abort()`` via
-        the ORT ``RunOptions.set_terminate()`` API (see
-        :meth:`_transcribe_segment`).
+        ``model.recognize()`` call runs to completion (onnx-asr 0.12.0
+        does not forward ``RunOptions`` to ``session.run`` — see the
+        class-level note on ``_abort_event``).
         """
         if not chunks:
             return []
@@ -1067,13 +1071,14 @@ class ParakeetEngine:
             raise TranscriptionBackendError(f"Parakeet transcription failed: {exc}") from exc
 
     def _load_impl(self, *, providers: list[str]) -> bool:
-        """Re-create the ``onnx_asr.Model`` with the given providers.
+        """Re-create the ONNX session (``onnx_asr.load_model``) with the given providers.
 
         Used by the GPU→CPU fallback path (§3.4) to recreate the session
         on CPU. Does NOT re-check the cache or run the integrity check
         — those already passed in the original :meth:`load` call. The
         model files are still on disk (the GPU session was loaded from
-        them); we just rebuild the ORT session with new providers.
+        them, at ``self._onnx_model_dir``); we just rebuild the ORT
+        session with new providers.
 
         Returns ``True`` on success, ``False`` if the new session could
         not be created (logged at ERROR — caller raises
@@ -1082,9 +1087,10 @@ class ParakeetEngine:
         if not self._ensure_imports():
             return False
         try:
-            self._model = self._onnx_asr.Model(
-                _PARAKEET_ONNX_MODEL_NAME,
-                quantization=_PARAKEET_QUANTIZATION,
+            self._model = self._onnx_asr.load_model(
+                _PARAKERT_ONNX_MODEL_NAME,
+                path=self._onnx_model_dir,
+                quantization=_PARAKERT_QUANTIZATION,
                 providers=providers,
             )
             self._effective_providers = providers
@@ -1097,7 +1103,7 @@ class ParakeetEngine:
             return False
 
     def _unload_impl(self) -> None:
-        """Drop the ``onnx_asr.Model`` reference (without acquiring
+        """Drop the loaded onnx-asr model reference (without acquiring
         ``_inference_cond``).
 
         Used by the GPU→CPU fallback path. The full :meth:`unload` also
@@ -1108,7 +1114,6 @@ class ParakeetEngine:
         """
         with self._lock:
             self._model = None
-            self._run_options = None
 
     def unload(self) -> None:
         """Free model memory.
@@ -1137,7 +1142,6 @@ class ParakeetEngine:
                 self._inference_cond.wait()
             self._model = None
             self._processor = None
-            self._run_options = None
         # gc.collect() OUTSIDE the lock.
         gc.collect()
         # No-op for ORT — kept for API compat (see PLAN_ONNX_INTEGRATION.md §5.2).
@@ -1152,4 +1156,4 @@ class ParakeetEngine:
 
     @property
     def loaded_via(self) -> str:
-        return f"parakeet/{self.device}/{_PARAKERT_MODEL_ID}"
+        return f"parakeet/{self.device}/{_PARAKERT_ONNX_REPO_ID}"

@@ -229,16 +229,18 @@ class TestModelSizeMbIncludesParakeet:
             "lookup fell through to the 500 MB default."
         )
 
-    def test_parakeet_size_at_least_1500_mb(self):
-        """The Parakeet estimate must be at least 1500 MB (the lower
-        bound of Parakeet TDT 0.6b v3's ~1.5–2.5 GB uncompressed size).
+    def test_parakeet_size_at_least_1000_mb(self):
+        """The Parakeet estimate must be at least 1000 MB (the lower
+        bound of the ONNX fp16 export's ~1.28 GB uncompressed size).
 
         Pre-fix: 500 MB default false-passed the check with only ~1 GB free.
+        The estimate moved from 2500 (torch/safetensors, now obsolete)
+        to 1275 (visuall fp16 ONNX export, 2026-08-15).
         """
         assert "parakeet" in _MODEL_SIZE_MB, "AP-43: missing 'parakeet' key"
-        assert _MODEL_SIZE_MB["parakeet"] >= 1500, (
-            "AP-43: _MODEL_SIZE_MB['parakeet'] must be >= 1500 (Parakeet "
-            "TDT 0.6b v3 is ~1.5–2.5 GB uncompressed); got "
+        assert _MODEL_SIZE_MB["parakeet"] >= 1000, (
+            "AP-43: _MODEL_SIZE_MB['parakeet'] must be >= 1000 (the ONNX "
+            "fp16 export is ~1.28 GB uncompressed); got "
             f"{_MODEL_SIZE_MB['parakeet']} MB."
         )
 
@@ -257,12 +259,14 @@ class TestModelSizeMbIncludesParakeet:
             f"vs registry={meta.download_size_mb}."
         )
 
-    def test_parakeet_pre_check_requires_3gb_free(self, monkeypatch, tmp_path):
+    def test_parakeet_pre_check_requires_1775mb_free(self, monkeypatch, tmp_path):
         """End-to-end: ``_check_disk_space_for_download(repo, 'parakeet')``
-        must require ~3000 MB free (2500 MB model + 500 MB margin).
+        must require ~1775 MB free (1275 MB fp16 model + 500 MB margin).
 
         Pre-fix: it required only 1000 MB (500 default + 500 margin) and
-        false-passed when there wasn't actually enough space.
+        false-passed when there wasn't actually enough space. The model
+        estimate moved from 2500 (torch/safetensors) to 1275 (visuall
+        fp16 ONNX export, 2026-08-15).
         """
         import shutil
 
@@ -277,24 +281,23 @@ class TestModelSizeMbIncludesParakeet:
             type("FakeHF", (), {"constants": fake_hf_constants})(),
         )
 
-        # Simulate ~2 GB free (2048 MB) — pre-fix this PASSED (1000 MB
-        # required); post-fix this must RAISE (3000 MB required).
-        usage_2gb = shutil._ntuple_diskusage(0, 0, 2048 * 1024 * 1024)
-        monkeypatch.setattr(shutil, "disk_usage", lambda _p: usage_2gb)
+        # Simulate ~1.5 GB free (1536 MB) — must RAISE (1775 MB required).
+        usage_1_5gb = shutil._ntuple_diskusage(0, 0, 1536 * 1024 * 1024)
+        monkeypatch.setattr(shutil, "disk_usage", lambda _p: usage_1_5gb)
 
         with pytest.raises(RuntimeError) as excinfo:
             _check_disk_space_for_download("nvidia/parakeet-tdt-0.6b-v3", "parakeet")
 
         msg = str(excinfo.value)
         assert "Insufficient disk space" in msg
-        # The error must reference the 2500 MB model estimate (not the
+        # The error must reference the 1275 MB model estimate (not the
         # 500 MB fall-through default).
-        assert "2500 MB" in msg, (
-            f"AP-43: error message must show the 2500 MB parakeet estimate (not the 500 MB default); got: {msg!r}"
+        assert "1275 MB" in msg, (
+            f"AP-43: error message must show the 1275 MB parakeet estimate (not the 500 MB default); got: {msg!r}"
         )
 
-        # And with ~3 GB free (3072 MB), the check must PASS.
-        usage_3gb = shutil._ntuple_diskusage(0, 0, 3072 * 1024 * 1024)
-        monkeypatch.setattr(shutil, "disk_usage", lambda _p: usage_3gb)
+        # And with ~2 GB free (2048 MB), the check must PASS.
+        usage_2gb = shutil._ntuple_diskusage(0, 0, 2048 * 1024 * 1024)
+        monkeypatch.setattr(shutil, "disk_usage", lambda _p: usage_2gb)
         # Must not raise.
         _check_disk_space_for_download("nvidia/parakeet-tdt-0.6b-v3", "parakeet")

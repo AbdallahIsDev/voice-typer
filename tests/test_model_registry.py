@@ -364,24 +364,25 @@ class TestModelMetadataHasNetworkBehaviorField:
                 f"got {meta.network_behavior!r}"
             )
 
-    def test_parakeet_is_no_consent(self):
-        """Parakeet downloads on first use WITHOUT explicit consent.
+    def test_parakeet_is_consent_gated(self):
+        """Parakeet downloads are gated on explicit consent.
 
-        G4-H-04 documents this as a known bug — Parakeet's engine
-        auto-fetches the model from HuggingFace on first run without
-        prompting the user.  This test asserts the *current* behavior
-        so a future fix (gating Parakeet behind consent) must
-        consciously update the registry AND this assertion, making
-        the privacy surface change explicit and reviewable.
+        G4-H-04 was fixed as part of the ONNX migration (plan §3.5.3):
+        the engine is ``onnx-asr``-based and the download path
+        (``service/model.py::_require_huggingface_consent``) fires the
+        consent gate BEFORE any ``snapshot_download``. This test pins
+        the fixed state — a regression to ``no-consent`` must update
+        the registry AND this assertion, making the privacy surface
+        change explicit and reviewable.
         """
         meta = get_model_metadata("parakeet")
         assert meta is not None, "parakeet missing from registry"
-        assert meta.network_behavior == "downloads-on-first-use-no-consent", (
-            "parakeet: expected 'downloads-on-first-use-no-consent' "
-            "(G4-H-04: Parakeet currently auto-downloads without "
-            "explicit user consent — this is a known bug; if you've "
-            "fixed it, update this assertion AND the registry entry "
-            "to 'downloads-on-first-use-consent-gated')."
+        assert meta.network_behavior == "downloads-on-first-use-consent-gated", (
+            "parakeet: expected 'downloads-on-first-use-consent-gated' "
+            "(G4-H-04 fixed by the ONNX migration, plan §3.5.3 — the "
+            "engine + download path now require explicit consent; if "
+            "you've regressed it, update this assertion AND the registry "
+            "entry to 'downloads-on-first-use-no-consent')."
         )
 
     def test_qwen_is_local_only(self):

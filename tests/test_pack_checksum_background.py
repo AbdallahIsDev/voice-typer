@@ -12,8 +12,8 @@ Tested behaviors:
   2. ``BackgroundChecksum.start()`` returns immediately (non-blocking).
   3. ``BackgroundChecksum.result`` is None until ``done``.
   4. ``BackgroundChecksum`` does NOT block the main thread.
-  5. ``BackgroundChecksum`` publishes ``pack_verified`` on success.
-  6. ``BackgroundChecksum`` publishes ``pack_corrupt`` on failure.
+  5. ``BackgroundChecksum`` publishes ``offline_pack_verified`` on success.
+  6. ``BackgroundChecksum`` publishes ``offline_pack_corrupt`` on failure.
   7. Two simultaneous ``BackgroundChecksum`` instances (different
      versions) run independently.
 """
@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 
 import pytest
-from voice_typer.server.service import pack
+from voice_typer.server.service import offline_pack
 
 
 def _sha256(b: bytes) -> str:
@@ -72,7 +72,7 @@ class TestCheapExistenceCheck:
         (tmp_path / "v1" / "pack-manifest.json").write_text(json.dumps(manifest))
 
         start = time.monotonic()
-        result = pack.pack_exists("v1", root=tmp_path)
+        result = offline_pack.offline_pack_exists("v1", root=tmp_path)
         elapsed = time.monotonic() - start
         assert result is True
         # Cheap check should complete in <1s even for 10MB (it's just stat()).
@@ -84,7 +84,7 @@ class TestBackgroundChecksumNonBlocking:
 
     def test_start_returns_immediately(self, tmp_path: Path):
         _write_valid_pack(tmp_path, "v1")
-        bg = pack.BackgroundChecksum("v1", root=tmp_path)
+        bg = offline_pack.BackgroundChecksum("v1", root=tmp_path)
         start = time.monotonic()
         bg.start()
         elapsed = time.monotonic() - start
@@ -93,7 +93,7 @@ class TestBackgroundChecksumNonBlocking:
 
     def test_result_is_none_until_done(self, tmp_path: Path):
         _write_valid_pack(tmp_path, "v1")
-        bg = pack.BackgroundChecksum("v1", root=tmp_path)
+        bg = offline_pack.BackgroundChecksum("v1", root=tmp_path)
         bg.start()
         # Immediately after start, result is None (not done yet).
         # Give the background thread a moment to finish on a slow CI.
@@ -107,7 +107,7 @@ class TestBackgroundChecksumNonBlocking:
     def test_does_not_block_main_thread(self, tmp_path: Path):
         """The main thread can do work while the checksum runs."""
         _write_valid_pack(tmp_path, "v1")
-        bg = pack.BackgroundChecksum("v1", root=tmp_path)
+        bg = offline_pack.BackgroundChecksum("v1", root=tmp_path)
         bg.start()
         # Main thread does work.
         counter = 0
@@ -117,7 +117,7 @@ class TestBackgroundChecksumNonBlocking:
         bg.join(timeout_s=5.0)
         assert bg.done is True
 
-    def test_publishes_pack_verified_on_success(self, tmp_path: Path):
+    def test_publishes_offline_pack_verified_on_success(self, tmp_path: Path):
         _write_valid_pack(tmp_path, "v1")
         events: list[dict] = []
 
@@ -125,13 +125,13 @@ class TestBackgroundChecksumNonBlocking:
             def publish(self, ev):
                 events.append(ev)
 
-        bg = pack.BackgroundChecksum("v1", event_bus=FakeBus(), root=tmp_path)
+        bg = offline_pack.BackgroundChecksum("v1", event_bus=FakeBus(), root=tmp_path)
         bg.start()
         bg.join(timeout_s=5.0)
-        verified = [e for e in events if e["type"] == "pack_verified"]
+        verified = [e for e in events if e["type"] == "offline_pack_verified"]
         assert verified
 
-    def test_publishes_pack_corrupt_on_failure(self, tmp_path: Path):
+    def test_publishes_offline_pack_corrupt_on_failure(self, tmp_path: Path):
         _write_valid_pack(tmp_path, "v1")
         # Tamper with a file.
         (tmp_path / "v1" / "worker.exe").write_bytes(b"TAMPERED")
@@ -141,10 +141,10 @@ class TestBackgroundChecksumNonBlocking:
             def publish(self, ev):
                 events.append(ev)
 
-        bg = pack.BackgroundChecksum("v1", event_bus=FakeBus(), root=tmp_path)
+        bg = offline_pack.BackgroundChecksum("v1", event_bus=FakeBus(), root=tmp_path)
         bg.start()
         bg.join(timeout_s=5.0)
-        corrupt = [e for e in events if e["type"] == "pack_corrupt"]
+        corrupt = [e for e in events if e["type"] == "offline_pack_corrupt"]
         assert corrupt
         assert corrupt[0]["data"]["version"] == "v1"
 
@@ -152,8 +152,8 @@ class TestBackgroundChecksumNonBlocking:
         """Two ``BackgroundChecksum`` instances (different versions) don't interfere."""
         _write_valid_pack(tmp_path, "v1")
         _write_valid_pack(tmp_path, "v2")
-        bg1 = pack.BackgroundChecksum("v1", root=tmp_path)
-        bg2 = pack.BackgroundChecksum("v2", root=tmp_path)
+        bg1 = offline_pack.BackgroundChecksum("v1", root=tmp_path)
+        bg2 = offline_pack.BackgroundChecksum("v2", root=tmp_path)
         bg1.start()
         bg2.start()
         r1 = bg1.join(timeout_s=5.0)

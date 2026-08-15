@@ -1,5 +1,6 @@
 """Tests for platform autostart adapters and microphone listing."""
 
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -311,6 +312,130 @@ class TestCreateLauncherShortcut:
 
         monkeypatch.setattr(mod, "SYSTEM", "win32")
         assert create_launcher_shortcut() is None
+
+
+class TestSetLnkAppUserModelId:
+    """``_set_lnk_app_user_model_id`` — toast-icon AUMID stamp on .lnk files.
+
+    The property is written into the .lnk as a ``1SPS`` serialized
+    property-store block (the same byte layout Squirrel/electron-builder
+    produce and ``lnk-parser`` reads). The stamp is idempotent via a raw
+    byte fast-path so the PowerShell C# helper only runs when the
+    property is genuinely missing.
+    """
+
+    # PKEY_AppUserModel_ID fmtid 9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3
+    # (little-endian GUID field order) + UTF-16 value, as found in a
+    # stamped .lnk.
+    _AUMID_GUID_BYTES = bytes.fromhex("55284c9f799f394ba8d0e1d42de1d5f3")
+
+    def _stamped_lnk(self, tmp_path):
+        """Create a fake .lnk that already contains the AUMID property block."""
+        lnk = tmp_path / "Voice Typer.lnk"
+        lnk.write_bytes(
+            self._AUMID_GUID_BYTES
+            + b"\x00\x00"
+            + "VoiceTyper".encode("utf-16-le")
+        )
+        return lnk
+
+    def test_skips_powershell_when_property_already_present(self, tmp_path, monkeypatch):
+        """Idempotency fast-path: bytes present → no subprocess spawn."""
+        import voice_typer.server.server_platform as mod
+
+        monkeypatch.setattr(mod, "SYSTEM", "win32")
+        lnk = self._stamped_lnk(tmp_path)
+
+        called = []
+
+        def fake_run(*args, **kwargs):
+            called.append(args)
+            raise AssertionError("subprocess must not run on idempotent path")
+
+        monkeypatch.setattr(mod.desktop_shortcut.subprocess, "run", fake_run)
+
+        assert mod.desktop_shortcut._set_lnk_app_user_model_id(lnk) is True
+        assert called == []
+
+    def test_runs_powershell_when_property_missing(self, tmp_path, monkeypatch):
+        """Property absent → PowerShell stamp runs."""
+        import voice_typer.server.server_platform as mod
+
+        monkeypatch.setattr(mod, "SYSTEM", "win32")
+        lnk = tmp_path / "Voice Typer.lnk"
+        lnk.write_bytes(b"\x00\x01\x02")
+
+        called = []
+
+        def fake_run(args, **kwargs):
+            called.append(args)
+            return subprocess.CompletedProcess(args, 0)
+
+        monkeypatch.setattr(mod.desktop_shortcut.subprocess, "run", fake_run)
+
+        assert mod.desktop_shortcut._set_lnk_app_user_model_id(lnk) is True
+        assert len(called) == 1
+        assert called[0][0].lower().endswith("powershell")
+
+    def test_returns_false_on_non_windows(self, tmp_path, monkeypatch):
+        """Non-Windows or missing .lnk → False, never spawns."""
+        import voice_typer.server.server_platform as mod
+
+        monkeypatch.setattr(mod, "SYSTEM", "linux")
+        lnk = self._stamped_lnk(tmp_path)
+
+        called = []
+
+        def fake_run(*args, **kwargs):
+            called.append(args)
+            raise AssertionError("must not spawn on non-Windows")
+
+        monkeypatch.setattr(mod.desktop_shortcut.subprocess, "run", fake_run)
+
+        assert mod.desktop_shortcut._set_lnk_app_user_model_id(lnk) is False
+        assert called == []
+
+    def test_returns_false_when_lnk_missing(self, tmp_path, monkeypatch):
+        """Missing .lnk → False (guard against phantom .lnk creation)."""
+        import voice_typer.server.server_platform as mod
+
+        monkeypatch.setattr(mod, "SYSTEM", "win32")
+        missing = tmp_path / "DoesNotExist.lnk"
+
+        called = []
+
+        def fake_run(*args, **kwargs):
+            called.append(args)
+            raise AssertionError("must not spawn for missing .lnk")
+
+        monkeypatch.setattr(mod.desktop_shortcut.subprocess, "run", fake_run)
+
+        assert mod.desktop_shortcut._set_lnk_app_user_model_id(missing) is False
+        assert called == []
+
+    def test_build_aumid_script_single_quotes_user_values(self, tmp_path):
+        """SEC-10: user-supplied values in the PowerShell script are
+        single-quoted; the script traps errors into a nonzero exit."""
+        import voice_typer.server.server_platform as mod
+
+        lnk = tmp_path / "Voice Typer.lnk"
+        script = mod.desktop_shortcut._build_aumid_powershell_script(
+            lnk, "VoiceTyper"
+        )
+        # C# here-string is literal (no interpolation).
+        assert "@'" in script and "'@" in script
+        # The .lnk path and AUMID are single-quoted PowerShell literals.
+        assert f"'{lnk}'" in script
+        assert "'VoiceTyper'" in script
+        # The generic property-store APIs (which DON'T persist) must NOT
+        # appear — only the IShellLink property-store pattern.
+        assert "SHGetPropertyStoreFromParsingName" not in script
+        # try/catch → exit 1 on any failure, exit $hr on COM failure.
+        assert "} catch {" in script
+        assert "exit $hr" in script
+        # The property key written is the AppUserModel.ID fmtid/pid.
+        assert '9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3' in script
+        assert "key.pid = 5" in script
 
 
 class TestGenerateIconIco:

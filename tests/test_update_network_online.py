@@ -24,14 +24,14 @@ What this test pins:
      network-is-back trigger).
   5. The hook calls ``removeEventListener`` in cleanup (no listener
      leak — important for React StrictMode double-mount in dev).
-  6. The hook calls the Python IPC command ``check_pack_update`` (the
+  6. The hook calls the Python IPC command ``check_offline_pack_update`` (the
      command exposed by
      ``voice_typer/server/service/update_check.py``).
   7. The hook imports ``usePython`` from ``@/hooks/usePython`` (the
      transport-agnostic IPC bridge — same pattern as
-     ``usePackDownload``).
+     ``useOfflinePackDownload``).
   8. The hook catches IPC errors gracefully (forward-compat: the
-     ``check_pack_update`` command may not be registered yet in
+     ``check_offline_pack_update`` command may not be registered yet in
      ``ipc/registry.py`` — the hook must not crash).
   9. The hook only triggers a re-check on the false → true
      ``navigator.onLine`` transition (not on every ``online`` event —
@@ -153,16 +153,16 @@ class TestBrowserEventSubscription:
 
 
 class TestIpcIntegration:
-    """The hook calls the Python IPC command ``check_pack_update``."""
+    """The hook calls the Python IPC command ``check_offline_pack_update``."""
 
-    def test_calls_check_pack_update_command(self, hook_source: str):
-        """The hook calls ``call("check_pack_update", ...)`` to trigger a re-check.
+    def test_calls_check_offline_pack_update_command(self, hook_source: str):
+        """The hook calls ``call("check_offline_pack_update", ...)`` to trigger a re-check.
 
         This is the wiring between the renderer-side network-online trigger
-        and the Python-side ``update_check.check_pack_update`` function.
+        and the Python-side ``update_check.check_offline_pack_update`` function.
         """
-        assert '"check_pack_update"' in hook_source or "'check_pack_update'" in hook_source, (
-            "hook must call the 'check_pack_update' IPC command "
+        assert '"check_offline_pack_update"' in hook_source or "'check_offline_pack_update'" in hook_source, (
+            "hook must call the 'check_offline_pack_update' IPC command "
             "(exposed by voice_typer/server/service/update_check.py)"
         )
 
@@ -170,7 +170,7 @@ class TestIpcIntegration:
         """The hook imports ``usePython`` from ``@/hooks/usePython``.
 
         This is the transport-agnostic IPC bridge — same pattern as
-        ``usePackDownload``. The hook must NOT touch Tauri or Electron
+        ``useOfflinePackDownload``. The hook must NOT touch Tauri or Electron
         APIs directly (see the contract at the top of ``usePython.ts``).
         """
         assert re.search(
@@ -180,14 +180,14 @@ class TestIpcIntegration:
 
     def test_catches_ipc_errors_gracefully(self, hook_source: str):
         """The IPC call is wrapped in try/catch — a missing registration
-        (forward-compat: ``check_pack_update`` may not be in
+        (forward-compat: ``check_offline_pack_update`` may not be in
         ``ipc/registry.py`` yet) must NOT crash the hook."""
         # Look for a try/catch around the call.
         # The exact shape varies (try/catch, .catch, etc.), but the
-        # ``check_pack_update`` reference must be inside a try block
+        # ``check_offline_pack_update`` reference must be inside a try block
         # OR the call must use ``.catch`` / ``void`` + try.
         assert "try" in hook_source and "catch" in hook_source, (
-            "hook must wrap the check_pack_update IPC call in try/catch — "
+            "hook must wrap the check_offline_pack_update IPC call in try/catch — "
             "the command may not be registered in ipc/registry.py yet "
             "(forward-compat: the call fails gracefully until the wiring lands)"
         )
@@ -288,7 +288,7 @@ class TestNoDirectNetwork:
 
     All network requests (fetch / XMLHttpRequest / axios) are FORBIDDEN
     in the renderer — the SSRF defense lives in the Python side
-    (``assert_pack_url_allowed``), and the renderer must go through the
+    (``assert_offline_pack_url_allowed``), and the renderer must go through the
     IPC bridge so the same SSRF check runs for every request. A direct
     ``fetch("https://...")`` in the renderer would bypass the allowlist
     + IP-literal blocklist.
@@ -306,7 +306,7 @@ class TestNoDirectNetwork:
         assert "fetch(" not in code_only, (
             "hook must NOT call fetch() directly — all network requests must "
             "go through the Python IPC bridge so the SSRF defense "
-            "(assert_pack_url_allowed) runs for every request"
+            "(assert_offline_pack_url_allowed) runs for every request"
         )
 
     def test_no_xmlhttprequest(self, hook_source: str):

@@ -61,6 +61,10 @@ class _FakeApp:
         self._cleanup_done = False
         self._electron_pid: int | None = None
         self._mutex_handle = None
+        # Stashed by ``quit_app()`` after it publishes ``quit_app`` so
+        # ``quit()`` (which publishes it itself for the Ctrl+C / signal
+        # paths) does not send a redundant second write.
+        self._quit_app_published = False
 
         # Subsystem collaborators (MagicMock so any attribute/method call
         # is recorded).
@@ -254,6 +258,61 @@ class TestQuitCallsDoCleanupAndExits:
         controller.quit()
 
         fake_app._thread_registry.shutdown_all.assert_called_once_with()
+
+    def test_quit_publishes_quit_app_event_when_not_published(self, controller, fake_app, monkeypatch):
+        """``quit()`` must publish the ``quit_app`` event over the TCP
+        channel when the caller did NOT go through ``quit_app()`` (the
+        Win32 Ctrl+C handler / POSIX signal watcher call ``quit()``
+        directly). This makes Electron close its window immediately on
+        every shutdown path — not just the tray menu — instead of being
+        force-killed by ``_teardown_electron`` seconds later."""
+        fake_app._do_cleanup = MagicMock()
+        monkeypatch.setattr(sys, "exit", lambda code=0: None)
+        pushed = []
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.publish",
+            lambda msg: pushed.append(msg),
+        )
+        fake_app._quit_app_published = False
+
+        controller.quit()
+
+        assert any(m.get("type") == "quit_app" for m in pushed), (
+            f"quit() must publish quit_app when not invoked via quit_app(); got pushes: {pushed!r}"
+        )
+
+    def test_quit_skips_quit_app_publish_when_already_published(self, controller, fake_app, monkeypatch):
+        """When ``quit()`` is reached via ``quit_app()`` (tray menu / IPC
+        handler), the event was already published there — ``quit()`` must
+        NOT send a redundant second write."""
+        fake_app._do_cleanup = MagicMock()
+        monkeypatch.setattr(sys, "exit", lambda code=0: None)
+        pushed = []
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.publish",
+            lambda msg: pushed.append(msg),
+        )
+        fake_app._quit_app_published = True
+
+        controller.quit()
+
+        assert not pushed, f"quit() must skip the quit_app publish when quit_app() already published; got: {pushed!r}"
+
+    def test_quit_publish_failure_does_not_block_shutdown(self, controller, fake_app, monkeypatch):
+        """A raising ``event_bus.publish`` must be swallowed — shutdown
+        must never be blocked by a broken TCP client / subscriber."""
+        fake_app._do_cleanup = MagicMock()
+        monkeypatch.setattr(sys, "exit", lambda code=0: None)
+
+        def _raising(_msg):
+            raise RuntimeError("transport gone")
+
+        monkeypatch.setattr("voice_typer.server.event_bus.publish", _raising)
+        fake_app._quit_app_published = False
+
+        controller.quit()
+
+        fake_app._do_cleanup.assert_called_once_with()
 
 
 # ── (3) _do_cleanup idempotency ────────────────────────────────────────

@@ -23,7 +23,6 @@ ARCH_DOC = ROOT / "docs" / "ARCHITECTURE.md"
 SHUTDOWN_DOC = ROOT / "docs" / "modules" / "shutdown_controller.md"
 AUDIO_Q_DOC = ROOT / "docs" / "modules" / "audio_quality_controller.md"
 SIDECAR_DOC = ROOT / "docs" / "modules" / "sidecar_ws.md"
-PREWARM_DOC = ROOT / "docs" / "modules" / "prewarm_resolver.md"
 INDEX_DOC = ROOT / "docs" / "modules" / "_index.md"
 TIMER_DOC = ROOT / "docs" / "modules" / "timer_coordinator.md"
 VOLUME_DOC = ROOT / "docs" / "modules" / "volume_controller.md"
@@ -50,8 +49,8 @@ def test_gp91_event_bus_count_is_36_in_doc_and_code():
         "Stale '24-event bus' must not appear in ARCHITECTURE.md ."
     )
     # And the IPC-contract section's frozen-surface count must also say 36.
-    assert "63 commands / 36 events" in doc, (
-        "IPC contract section must say '63 commands / 36 events'."
+    assert "69 commands / 36 events" in doc, (
+        "IPC contract section must say '69 commands / 36 events'."
     )
 
     from voice_typer.server.event_bus import EVENT_TYPES
@@ -482,13 +481,12 @@ def test_volume_controller_doc_matches_code():
         )
 
 
-def test_index_lists_all_six_module_docs():
+def test_index_lists_all_five_module_docs():
     doc = _read(INDEX_DOC)
     for name in [
         "shutdown_controller",
         "audio_quality_controller",
         "sidecar_ws",
-        "prewarm_resolver",
         "timer_coordinator",
         "volume_controller",
     ]:
@@ -526,17 +524,43 @@ def test_error_envelope_contract_uses_transport_tcp_path():
     )
 
 
-# ─── prewarm_resolver line count ────────────────────────────────────────────
+# ─── prewarm_resolver deletion (plan-runtime-pack-split §6.2 P-1) ──────────
 
 
-def test_prewarm_resolver_doc_line_count_matches_file():
-    doc = _read(PREWARM_DOC)
-    assert "(241 lines)" in doc, (
-        " (also prewarm_resolver.md:3): doc must say '(241 lines)'."
+def test_prewarm_resolver_module_deleted_per_plan_p1():
+    """``voice_typer/server/prewarm_resolver.py`` was DELETED.
+
+    Per ``plan-runtime-pack-split.md`` §6.2 Option P-1 (Decision §6.3),
+    the prewarm binary + the OS-level schedulers + ``prewarm_resolver.py``
+    (242 LOC) are in the DELETE list — prewarm is now a startup phase of
+    the worker exe (``voice_typer/worker/__main__.py``), and the Tauri
+    build no longer bundles a ``prewarm-<triple>[.exe]`` (see
+    ``src-tauri/tauri.conf.json`` ``externalBin`` / ``resources`` —
+    neither lists prewarm). ADR-0011 carries a "Status: Superseded"
+    banner recording the decision.
+
+    This test pins the deletion so an accidental revert (e.g. a stale
+    cherry-pick that resurrects ``prewarm_resolver.py``) fails here
+    instead of silently undoing the migration. The companion
+    ``docs/modules/prewarm_resolver.md`` is intentionally NOT checked
+    here — that page is now a stale historical artifact owned by the
+    docs workstream; it will be cleaned up separately.
+    """
+    prewarm_resolver_py = ROOT / "voice_typer" / "server" / "prewarm_resolver.py"
+    assert not prewarm_resolver_py.is_file(), (
+        f"{prewarm_resolver_py} must NOT exist — it was deleted per "
+        "plan-runtime-pack-split.md §6.2 P-1 (prewarm is now a startup "
+        "phase of voice_typer/worker/__main__.py, and the Tauri build no "
+        "longer bundles a prewarm-<triple>[.exe]). See ADR-0011 "
+        "(Status: Superseded)."
     )
-    actual = sum(1 for _ in (ROOT / "voice_typer/server/prewarm_resolver.py").read_text().splitlines())
-    assert actual == 241, (
-        f"prewarm_resolver.py must be 241 lines (actual: {actual})."
+    # The worker module — which absorbed the prewarm startup phase —
+    # MUST exist. This anchors the migration's target state.
+    worker_main = ROOT / "voice_typer" / "worker" / "__main__.py"
+    assert worker_main.is_file(), (
+        f"{worker_main} must exist — it is the worker exe entry point "
+        "that absorbed prewarm as a startup phase per plan-runtime-pack-"
+        "split.md §6.2 P-1."
     )
 
 

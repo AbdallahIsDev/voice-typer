@@ -4,7 +4,7 @@ Extracted verbatim from :meth:`CrashRecovery.create_diagnostic_bundle`
 so the ``crash_recovery.py`` module can focus on its core concern
 (storing / flushing / replaying transcription recovery entries). The
 diagnostic bundle is a separate concern — it reads from many subsystems
-(config, prewarm, system info, archive) and writes a redacted zip for
+(config, system info, archive) and writes a redacted zip for
 support tickets ().
 
 The function takes the owning :class:`CrashRecovery` instance (``recovery``)
@@ -349,8 +349,8 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                         # shipped verbatim and leaked the OS username
                         # via the path prefix. ``_redact_home_path``
                         # replaces the home-directory prefix with ``~``
-                        # (mirrors the prewarm.json path-redaction at
-                        # lines 442-443) — applied BEFORE secret
+                        # (mirrors the env-var path-redaction applied
+                        # just below) — applied BEFORE secret
                         # redaction so a value that is BOTH a path AND
                         # contains a secret token gets both treatments.
                         if value and (os.sep in value or "/" in value):
@@ -488,10 +488,12 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                         onnx_hashes["silero_vad.onnx"] = f"<error: {exc}>"
 
                     # Parakeet ONNX files — live in the HF cache under
-                    # ``models--grikdotnet--parakeet-tdt-0.6b-fp16/``.
-                    # We glob for ``*.onnx`` under the snapshot dir so
-                    # the hash list auto-includes any future ONNX
-                    # variants the user may have downloaded.
+                    # ``models--visuall--parakeet-tdt-0.6b-v3-onnx-fp16/``
+                    # (the fp16 ONNX export the engine + download path
+                    # use; see parakeet_engine.py). We glob for
+                    # ``*.onnx`` under the snapshot dir so the hash list
+                    # auto-includes any future ONNX variants the user
+                    # may have downloaded.
                     try:
                         from voice_typer.server.config import _config_dir
 
@@ -499,7 +501,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                             _config_dir()
                             / "huggingface"
                             / "hub"
-                            / "models--grikdotnet--parakeet-tdt-0.6b-fp16"
+                            / "models--visuall--parakeet-tdt-0.6b-v3-onnx-fp16"
                             / "snapshots"
                         )
                         if _parakeet_cache.is_dir():
@@ -522,13 +524,11 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                     # Best-effort: never abort the bundle over a hash
                     # computation failure. Write the error so the
                     # support engineer knows why the file is missing.
-                    try:
+                    with contextlib.suppress(Exception):
                         zf.writestr(
                             "onnx_model_hashes.json",
                             _json.dumps({"error": str(exc)}),
                         )
-                    except Exception:
-                        pass
 
                 # ─── 5. Crash recovery entries (METADATA ONLY) ───────
                 # fix: previously this dumped the full
@@ -558,64 +558,17 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 zf.writestr("crash_recovery.json", entries_json)
 
                 # ─── 6. Prewarm health check ─────────────────────────
-                # Bundles the full prewarm status + sentinel/PID file
-                # contents so support engineers can diagnose prewarm
-                # issues without asking the user to run --status
-                # manually. : the ``sentinel_path``
-                # ``pid_file_path`` fields are piped through
-                # ``_redact_home_path`` so the user's home directory
-                # prefix is replaced with ``~`` (the raw paths like
-                # ``/home/alice/.voice-typer/.prewarm-sentinel`` leak
-                # the OS username).
-                try:
-                    from voice_typer.server._secrets import _redact_home_path
-                    from voice_typer.server.prewarm import (
-                        _pid_file_path,
-                        _sentinel_path,
-                        get_prewarm_status,
-                    )
-
-                    prewarm_data = get_prewarm_status()
-                    # redact home-directory prefix from the
-                    # filesystem paths so the OS username doesn't
-                    # leak via the path prefix.
-                    prewarm_data["sentinel_path"] = _redact_home_path(str(_sentinel_path()))
-                    prewarm_data["pid_file_path"] = _redact_home_path(str(_pid_file_path()))
-                    # Read sentinel file raw contents (if it exists).
-                    sentinel = _sentinel_path()
-                    if sentinel.exists():
-                        try:
-                            prewarm_data["sentinel_contents"] = sentinel.read_text()
-                        except OSError as e:
-                            prewarm_data["sentinel_contents"] = f"<read error: {e}>"
-                    else:
-                        prewarm_data["sentinel_contents"] = None
-                    # Read PID file raw contents (if it exists).
-                    pid_file = _pid_file_path()
-                    if pid_file.exists():
-                        try:
-                            prewarm_data["pid_file_contents"] = pid_file.read_text()
-                        except OSError as e:
-                            prewarm_data["pid_file_contents"] = f"<read error: {e}>"
-                    else:
-                        prewarm_data["pid_file_contents"] = None
-                    zf.writestr(
-                        "prewarm.json",
-                        _json.dumps(prewarm_data, indent=2, default=str),
-                    )
-                except Exception as prewarm_exc:
-                    # Defensive: never let a prewarm probe failure
-                    # abort the entire diagnostics export. Include
-                    # the error so support engineers know why prewarm
-                    # data is missing.
-                    zf.writestr(
-                        "prewarm.json",
-                        _json.dumps(
-                            {"error": str(prewarm_exc)},
-                            indent=2,
-                            default=str,
-                        ),
-                    )
+                # Prewarm became a worker startup phase (master plan
+                # §6.2 P-1): there is no longer a separate prewarm
+                # process, sentinel file, or PID file to bundle. The
+                # previous block (which probed
+                # ``voice_typer.server.prewarm.get_prewarm_status`` +
+                # read the sentinel/PID file contents) was removed
+                # along with the deleted prewarm machinery. The
+                # ``prewarm.json`` entry is intentionally NOT emitted
+                # any more — support engineers investigating cache
+                # state should look at the worker's startup log
+                # instead.
 
                 # ─── 6b. Permission state ────────────────────
                 # Bundle the OS-level keyboard + microphone permission

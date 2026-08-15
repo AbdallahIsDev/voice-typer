@@ -203,7 +203,6 @@ class TestNoHardcodedVoiceTyperPaths:
         required_basenames = (
             "_paths.py",
             "autostart_launcher.py",
-            "prewarm_scheduler_posix.py",
             "task_scheduler.py",
             "duck_crash_recovery.py",
         )

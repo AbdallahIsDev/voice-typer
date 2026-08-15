@@ -183,49 +183,18 @@ class TestAutostartLinuxAtomicWrite:
 # ──────────────────────────────────────────────────────────────────
 # 3. systemd user unit — register_linux_app_service
 # ──────────────────────────────────────────────────────────────────
-
-
-class TestPrewarmLinuxAppServiceAtomicWrite:
-    """``register_linux_app_service`` must use ``_secure_atomic_write``
-    for the systemd user unit (mirrors the sibling
-    ``_register_prewarm_linux`` helper at lines 331-339 which already
-    routes through ``_secure_atomic_write(..., durability=False)``)."""
-
-    def test_uses_secure_atomic_write_with_durability_false(self, monkeypatch, tmp_path):
-        from voice_typer.server import prewarm_scheduler_posix as psp
-
-        # Force the Linux branch.
-        monkeypatch.setattr(psp, "is_linux", lambda: True)
-        monkeypatch.setattr(psp, "_linux_unit_dir", lambda: tmp_path)
-        monkeypatch.setattr(psp, "_linux_app_service_path", lambda: tmp_path / "voice-typer.service")
-
-        # Stub systemctl daemon-reload so the function doesn't actually
-        # shell out.
-        def _fake_run(args, **kw):
-            r = MagicMock()
-            r.returncode = 0
-            r.stdout = b""
-            r.stderr = b""
-            return r
-
-        monkeypatch.setattr(subprocess, "run", _fake_run)
-
-        real_fn = sio._secure_atomic_write
-        with (
-            patch.object(sio, "_secure_atomic_write", wraps=real_fn) as spy_atomic,
-            patch.object(Path, "write_text", autospec=True) as spy_write_text,
-        ):
-            result = psp.register_linux_app_service()
-
-        assert result is True
-        assert spy_atomic.called, "_secure_atomic_write must be called for the systemd user unit"
-        assert spy_atomic.call_args.kwargs.get("durability") is False
-        called_path = spy_atomic.call_args.args[0]
-        assert Path(called_path).name == "voice-typer.service"
-        for c in spy_write_text.call_args_list:
-            self_arg = c.args[0] if c.args else c.kwargs.get("self")
-            if self_arg is not None and Path(self_arg).name == "voice-typer.service":
-                pytest.fail("Path.write_text must NOT be used for the systemd unit; use _secure_atomic_write instead")
+#
+# (Wave 3, 2026-08-14): ``TestPrewarmLinuxAppServiceAtomicWrite`` was
+# DELETED — the entire ``prewarm_scheduler_posix`` module (which
+# defined ``register_linux_app_service`` + ``_linux_app_service_path``)
+# was removed (prewarm became a worker startup phase — master plan
+# §6.2 P-1). The systemd user-unit management for the main app lived
+# in that module; it was the ONLY caller of ``_secure_atomic_write``
+# for a ``voice-typer.service`` systemd unit. The new architecture
+# has no equivalent behavior to re-pin: the autostart code paths on
+# POSIX (``server_platform/autostart_macos.py`` / ``autostart_linux.py``)
+# use LaunchAgent / .desktop files directly (no systemd user unit),
+# and prewarm is now a worker startup phase (no OS-level scheduling).
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -333,46 +302,24 @@ class TestOnboardingFailCountAtomicWrite:
 # ──────────────────────────────────────────────────────────────────
 # 6. prewarm.log placeholder — _handle_open_prewarm_log
 # ──────────────────────────────────────────────────────────────────
+#
+# (Wave 3, 2026-08-14): ``TestPrewarmLogPlaceholderAtomicWrite`` was
+# DELETED — ``_handle_open_prewarm_log`` was removed from
+# ``StatusHandlersMixin`` (and the matching ``_COMMAND_REGISTRY`` /
+# TS allowlist / Rust allowlist entries) because prewarm became a
+# worker startup phase (master plan §6.2 P-1). The slim core no
+# longer opens a dedicated prewarm log; the renderer's About-page
+# "Open prewarm log" button was removed in lockstep. There is no
+# equivalent behavior to re-pin: the worker writes its own log
+# (``voice-typer.log`` or a worker-specific log file), and the
+# placeholder-write contract for a non-existent prewarm.log no
+# longer applies.
+#
+# (2026-08-14, later the same day): ``_handle_open_prewarm_log`` was
+# RESTORED verbatim from 5a319872 (plan §6.3 addendum — Cache Status
+# card). It no longer writes a ``prewarm.log`` placeholder — it opens
+# the worker log (``<config_dir>/worker.log``) and its behavior is
+# pinned by ``tests/handlers/test_status_handlers.py``
+# (``TestOpenPrewarmLog``). The placeholder-atomic-write contract
+# still does not apply (no file is written).
 
-
-class TestPrewarmLogPlaceholderAtomicWrite:
-    """``_handle_open_prewarm_log`` must use ``_secure_atomic_write`` for
-    the placeholder ``prewarm.log`` file when it doesn't exist yet."""
-
-    def test_uses_secure_atomic_write_with_durability_false(self, monkeypatch, tmp_path):
-        from voice_typer.server import config as config_mod
-        from voice_typer.server.handlers.status_handlers import StatusHandlersMixin
-
-        # Force the config dir to tmp_path.
-        monkeypatch.setattr(config_mod, "_config_dir", lambda: tmp_path)
-
-        # Build a minimal handler instance (the mixin only needs ``self``
-        # — _handle_open_prewarm_log doesn't reference self.app/service).
-        handler = StatusHandlersMixin.__new__(StatusHandlersMixin)
-
-        # Stub all OS-open branches so the handler returns early after
-        # writing the placeholder.
-        from voice_typer.server import platform_utils as pu
-
-        monkeypatch.setattr(pu, "is_windows", lambda: False)
-        monkeypatch.setattr(pu, "is_macos", lambda: False)
-        monkeypatch.setattr(pu, "is_linux", lambda: False)
-
-        real_fn = sio._secure_atomic_write
-        with (
-            patch.object(sio, "_secure_atomic_write", wraps=real_fn) as spy_atomic,
-            patch.object(Path, "write_text", autospec=True) as spy_write_text,
-        ):
-            resp = {"type": "prewarm_log", "data": {}}
-            handler._handle_open_prewarm_log(None, resp)
-
-        assert spy_atomic.called, "_secure_atomic_write must be called for the prewarm.log placeholder"
-        assert spy_atomic.call_args.kwargs.get("durability") is False
-        called_path = spy_atomic.call_args.args[0]
-        assert Path(called_path).name == "prewarm.log"
-        for c in spy_write_text.call_args_list:
-            self_arg = c.args[0] if c.args else c.kwargs.get("self")
-            if self_arg is not None and Path(self_arg).name == "prewarm.log":
-                pytest.fail(
-                    "Path.write_text must NOT be used for the prewarm.log placeholder; use _secure_atomic_write instead"
-                )

@@ -26,7 +26,7 @@ from __future__ import annotations
 import platform
 
 import pytest
-from voice_typer.server.service import pack
+from voice_typer.server.service import offline_pack
 
 
 class TestMeteredDetection:
@@ -34,11 +34,11 @@ class TestMeteredDetection:
 
     def test_non_windows_returns_none(self, monkeypatch):
         monkeypatch.setattr(platform, "system", lambda: "Linux")
-        assert pack.is_metered_connection_windows() is None
+        assert offline_pack.is_metered_connection_windows() is None
 
     def test_macos_returns_none(self, monkeypatch):
         monkeypatch.setattr(platform, "system", lambda: "Darwin")
-        assert pack.is_metered_connection_windows() is None
+        assert offline_pack.is_metered_connection_windows() is None
 
     def test_windows_nlm_unavailable_returns_none(self, monkeypatch):
         """When NLM COM is unavailable, the function returns None."""
@@ -50,20 +50,20 @@ class TestMeteredDetection:
         def boom(ctypes_mod, wintypes_mod):
             raise OSError("NLM COM not registered")
 
-        monkeypatch.setattr(pack, "_nlm_detect_metered", boom)
-        assert pack.is_metered_connection_windows() is None
+        monkeypatch.setattr(offline_pack, "_nlm_detect_metered", boom)
+        assert offline_pack.is_metered_connection_windows() is None
 
     def test_windows_nlm_reports_unmetered(self, monkeypatch):
         """NLM reports unmetered (cost flags = FIXED or UNRESTRICTED)."""
         monkeypatch.setattr(platform, "system", lambda: "Windows")
-        monkeypatch.setattr(pack, "_nlm_detect_metered", lambda c, w: False)
-        assert pack.is_metered_connection_windows() is False
+        monkeypatch.setattr(offline_pack, "_nlm_detect_metered", lambda c, w: False)
+        assert offline_pack.is_metered_connection_windows() is False
 
     def test_windows_nlm_reports_metered(self, monkeypatch):
         """NLM reports metered (cost flags = VARIABLE / ROAMING / OVERDATALIMIT)."""
         monkeypatch.setattr(platform, "system", lambda: "Windows")
-        monkeypatch.setattr(pack, "_nlm_detect_metered", lambda c, w: True)
-        assert pack.is_metered_connection_windows() is True
+        monkeypatch.setattr(offline_pack, "_nlm_detect_metered", lambda c, w: True)
+        assert offline_pack.is_metered_connection_windows() is True
 
     def test_windows_attribute_error_returns_none(self, monkeypatch):
         """A broken ctypes install (AttributeError) returns None."""
@@ -72,8 +72,8 @@ class TestMeteredDetection:
         def boom(ctypes_mod, wintypes_mod):
             raise AttributeError("ctypes.windll missing")
 
-        monkeypatch.setattr(pack, "_nlm_detect_metered", boom)
-        assert pack.is_metered_connection_windows() is None
+        monkeypatch.setattr(offline_pack, "_nlm_detect_metered", boom)
+        assert offline_pack.is_metered_connection_windows() is None
 
 
 if __name__ == "__main__":

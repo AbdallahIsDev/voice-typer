@@ -10,7 +10,7 @@ Tested behaviors:
 
   1. ``PACK_RATE_LIMIT_BACKOFF_S == (1.0, 2.0, 4.0, 8.0)``.
   2. ``PACK_RATE_LIMIT_MAX_ATTEMPTS == 3``.
-  3. A 403 response raises ``_RateLimited`` (the internal sentinel).
+  3. A 403 response raises ``_RateLimitedError`` (the internal sentinel).
   4. The download retries up to 3 times on 403, then raises
      ``PackRateLimitError``.
   5. ``X-RateLimit-Reset`` header is respected — the sleep time is
@@ -25,8 +25,8 @@ import time
 from pathlib import Path
 
 import pytest
-from voice_typer.server.service import pack
-from voice_typer.server.service.pack import _RateLimited
+from voice_typer.server.service import offline_pack
+from voice_typer.server.service.offline_pack import _RateLimitedError
 
 
 def _make_rate_limited_transport(
@@ -42,7 +42,7 @@ def _make_rate_limited_transport(
     def fake(url, *, offset=0):
         calls["n"] += 1
         if calls["n"] <= fail_count:
-            raise _RateLimited(
+            raise _RateLimitedError(
                 f"GitHub rate limit (attempt {calls['n']})",
                 reset_at=reset_at,
             )
@@ -60,10 +60,10 @@ class TestRateLimitConstants:
     """§8.7 — backoff schedule + max attempts."""
 
     def test_backoff_schedule(self):
-        assert pack.PACK_RATE_LIMIT_BACKOFF_S == (1.0, 2.0, 4.0, 8.0)
+        assert offline_pack.OFFLINE_PACK_RATE_LIMIT_BACKOFF_S == (1.0, 2.0, 4.0, 8.0)
 
     def test_max_attempts_is_3(self):
-        assert pack.PACK_RATE_LIMIT_MAX_ATTEMPTS == 3
+        assert offline_pack.OFFLINE_PACK_RATE_LIMIT_MAX_ATTEMPTS == 3
 
 
 class TestRateLimitRetry:
@@ -73,36 +73,36 @@ class TestRateLimitRetry:
         """3 consecutive 403s → PackRateLimitError."""
         # Skip the actual sleeps for test speed.
         sleeps: list[float] = []
-        monkeypatch.setattr(pack.time, "sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(offline_pack.time, "sleep", lambda s: sleeps.append(s))
         full = b"pack-content" * 100
         fake, calls, expected = _make_rate_limited_transport(
             fail_count=10, reset_at=None, full_body=full
         )
         dest = tmp_path / "pack-v1.partial"
-        with pytest.raises(pack.PackRateLimitError):
-            pack.download_pack_with_resume(
-                "https://github.com/owner/repo/releases/download/v1/pack.zip",
+        with pytest.raises(offline_pack.OfflinePackRateLimitError):
+            offline_pack.download_offline_pack_with_resume(
+                "https://github.com/owner/repo/releases/download/v1/offline_pack.zip",
                 dest,
                 expected_sha256=expected,
                 version="v1",
                 http_get=fake,
             )
         # 1 initial + 3 retries = 4 attempts total (then raise).
-        assert calls["n"] == pack.PACK_RATE_LIMIT_MAX_ATTEMPTS + 1
+        assert calls["n"] == offline_pack.OFFLINE_PACK_RATE_LIMIT_MAX_ATTEMPTS + 1
         # The backoff schedule was honored (1, 2, 4).
         assert sleeps[:3] == [1.0, 2.0, 4.0]
 
     def test_second_attempt_succeeds(self, tmp_path: Path, monkeypatch):
         """1 failure then success → download completes on attempt 2."""
-        monkeypatch.setattr(pack.time, "sleep", lambda s: None)
+        monkeypatch.setattr(offline_pack.time, "sleep", lambda s: None)
         full = b"pack-content" * 100
         expected = hashlib.sha256(full).hexdigest()
         fake, calls, _ = _make_rate_limited_transport(
             fail_count=1, reset_at=None, full_body=full
         )
         dest = tmp_path / "pack-v1.partial"
-        ok = pack.download_pack_with_resume(
-            "https://github.com/owner/repo/releases/download/v1/pack.zip",
+        ok = offline_pack.download_offline_pack_with_resume(
+            "https://github.com/owner/repo/releases/download/v1/offline_pack.zip",
             dest,
             expected_sha256=expected,
             version="v1",
@@ -116,7 +116,7 @@ class TestRateLimitRetry:
         """When ``X-RateLimit-Reset`` is in the future, the sleep is at
         least ``reset_at - now`` (even if backoff says less)."""
         sleeps: list[float] = []
-        monkeypatch.setattr(pack.time, "sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(offline_pack.time, "sleep", lambda s: sleeps.append(s))
         # reset_at = now + 10s (well past the 1s default backoff).
         reset_at = time.time() + 10.0
         full = b"x" * 100
@@ -127,9 +127,9 @@ class TestRateLimitRetry:
             fail_count=10, reset_at=reset_at, full_body=full
         )
         dest = tmp_path / "pack-v1.partial"
-        with pytest.raises(pack.PackRateLimitError):
-            pack.download_pack_with_resume(
-                "https://github.com/owner/repo/releases/download/v1/pack.zip",
+        with pytest.raises(offline_pack.OfflinePackRateLimitError):
+            offline_pack.download_offline_pack_with_resume(
+                "https://github.com/owner/repo/releases/download/v1/offline_pack.zip",
                 dest,
                 expected_sha256=expected,
                 version="v1",
@@ -141,7 +141,7 @@ class TestRateLimitRetry:
     def test_reset_at_in_past_uses_default_backoff(self, tmp_path: Path, monkeypatch):
         """If ``X-RateLimit-Reset`` is in the past, the default backoff is used."""
         sleeps: list[float] = []
-        monkeypatch.setattr(pack.time, "sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(offline_pack.time, "sleep", lambda s: sleeps.append(s))
         reset_at = time.time() - 100  # past
         full = b"x" * 100
         expected = hashlib.sha256(full).hexdigest()
@@ -149,9 +149,9 @@ class TestRateLimitRetry:
             fail_count=10, reset_at=reset_at, full_body=full
         )
         dest = tmp_path / "pack-v1.partial"
-        with pytest.raises(pack.PackRateLimitError):
-            pack.download_pack_with_resume(
-                "https://github.com/owner/repo/releases/download/v1/pack.zip",
+        with pytest.raises(offline_pack.OfflinePackRateLimitError):
+            offline_pack.download_offline_pack_with_resume(
+                "https://github.com/owner/repo/releases/download/v1/offline_pack.zip",
                 dest,
                 expected_sha256=expected,
                 version="v1",

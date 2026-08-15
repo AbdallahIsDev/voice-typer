@@ -24,6 +24,7 @@ so a regression in either layer is caught.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 from pathlib import Path
@@ -32,6 +33,7 @@ import voice_typer.server.log as log_module
 from voice_typer.server.log import (
     _ColorFormatter,
     _FileFormatter,
+    get_log_file_path,
     reset,
     setup_logging,
 )
@@ -281,3 +283,104 @@ def test_module_docstring_does_not_advertise_get_logger() -> None:
     canonical entry point — that would mislead readers into using a
     function that doesn't exist."""
     assert "get_logger" not in (log_module.__doc__ or "")
+
+
+# ─── Worker log rotation race (Wave 3 Sub-agent 7) ───────────────────────
+#
+# The runtime-pack WebSocket worker (``voice_typer/worker/__main__.py``)
+# runs as a SEPARATE process alongside the slim-core sidecar.  Both used
+# to write to ``voice-typer.log`` — a multi-process race on the
+# ``_SecureTruncatingFileHandler``'s in-place truncation rotation
+# (maxBytes=5 MiB, backupCount=0) that could lose data when both
+# processes rotated at once.  The fix routes the worker to its own
+# ``worker.log`` via ``process_name="worker"`` (mirroring the prewarm
+# case → ``prewarm.log``).  These tests pin the routing so a revert
+# re-introduces the race.
+
+
+def test_worker_log_file_is_separate_from_sidecar(tmp_path: Path) -> None:
+    """``process_name="worker"`` routes to ``worker.log``, NOT the
+    shared ``voice-typer.log``.
+
+    This is the core race-elimination invariant — if the worker and
+    the slim-core sidecar share ``voice-typer.log``, the
+    ``_SecureTruncatingFileHandler``'s in-place truncation rotation
+    can race (both processes stat >5 MiB, both truncate, data is
+    lost).  Routing the worker to its own file eliminates the race
+    because the two processes never share a file descriptor.
+
+    Reverting the ``"worker"`` case in :func:`get_log_file_path` makes
+    this test FAIL — the worker path would equal the sidecar path
+    (``voice-typer.log``) instead of ``worker.log``.
+    """
+    config_dir = tmp_path / "cfg"
+    config_dir.mkdir()
+
+    worker_path = get_log_file_path(config_dir, process_name="worker")
+    sidecar_path = get_log_file_path(config_dir, process_name="voice-typer")
+    default_path = get_log_file_path(config_dir)
+    main_path = get_log_file_path(config_dir, process_name="main")
+
+    # 1) Worker gets its OWN file — not the shared sidecar file.
+    assert worker_path == config_dir / "worker.log", (
+        f"regression: process_name='worker' must route to worker.log, got {worker_path}"
+    )
+    # 2) The sidecar (explicit "voice-typer" or default "main") still
+    #    routes to voice-typer.log — the routing fix must not break the
+    #    existing sidecar path.
+    assert sidecar_path == config_dir / "voice-typer.log", (
+        f"regression: process_name='voice-typer' must route to voice-typer.log, got {sidecar_path}"
+    )
+    assert default_path == config_dir / "voice-typer.log"
+    assert main_path == config_dir / "voice-typer.log"
+    # 3) The race-elimination invariant: the two paths MUST differ.
+    assert worker_path != sidecar_path, (
+        "rotation-race regression: worker and sidecar must NOT share a log file "
+        f"(both resolved to {worker_path}) — the _SecureTruncatingFileHandler "
+        "rotation race would re-emerge."
+    )
+
+
+def test_worker_setup_logging_writes_to_worker_log_file(tmp_path: Path) -> None:
+    """End-to-end: ``setup_logging(config_dir, process_name="worker")``
+    actually writes log records to ``worker.log`` on disk — and does
+    NOT touch the shared ``voice-typer.log``.
+
+    Pins the full pipeline (``setup_logging`` → ``get_log_file_path``
+    → ``_SecureTruncatingFileHandler`` → file on disk) so a revert
+    that breaks the routing at any layer is caught.  A revert that
+    removes the ``"worker"`` case from ``get_log_file_path`` would
+    cause this test to FAIL: the worker's log line would land in
+    ``voice-typer.log`` instead of ``worker.log``.
+    """
+    reset()
+    config_dir = tmp_path / "cfg"
+    config_dir.mkdir()
+    try:
+        setup_logging(config_dir, process_name="worker")
+        log = logging.getLogger("voice_typer.server.wave3_worker_routing_test")
+        log.info("[WORKER] rotation-race regression test line")
+
+        # Flush so the record reaches disk before we read the file.
+        for h in logging.getLogger("voice_typer").handlers:
+            with contextlib.suppress(Exception):
+                h.flush()
+
+        worker_log = config_dir / "worker.log"
+        sidecar_log = config_dir / "voice-typer.log"
+
+        assert worker_log.exists(), (
+            "regression: worker.log was NOT created — process_name='worker' "
+            "is not routing to worker.log"
+        )
+        assert not sidecar_log.exists(), (
+            "regression: voice-typer.log WAS created — process_name='worker' "
+            "is racing the slim-core sidecar on the shared file (the exact "
+            "race this routing was added to eliminate)."
+        )
+        content = worker_log.read_text(encoding="utf-8")
+        assert "[WORKER] rotation-race regression test line" in content, (
+            f"regression: worker log line missing from worker.log:\n{content}"
+        )
+    finally:
+        reset()

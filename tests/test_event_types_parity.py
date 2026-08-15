@@ -19,7 +19,7 @@ missing parity for the event-type allowlist.
 
 §7.4 introduces 13 new IPC events for the slim-core / runtime-pack
 split. The canonical Python-side source of truth is
-``voice_typer/server/service/pack.py::PACK_EVENT_TYPES`` (a
+``voice_typer/server/service/pack.py::OFFLINE_PACK_EVENT_TYPES`` (a
 ``frozenset[str]`` with all 13 names). The 13 events split into two
 kinds:
 
@@ -32,16 +32,16 @@ kinds:
 
 * 12 PUSH events (worker → slim core → renderer, published via
   ``event_bus.publish``):
-  ``pack_download_started`` / ``pack_download_progress`` /
-  ``pack_download_completed`` / ``pack_download_failed`` /
-  ``pack_verified`` / ``pack_missing`` / ``pack_corrupt`` /
-  ``pack_ready`` / ``worker_started`` / ``worker_crashed`` /
+  ``offline_pack_download_started`` / ``offline_pack_download_progress`` /
+  ``offline_pack_download_completed`` / ``offline_pack_download_failed`` /
+  ``offline_pack_verified`` / ``offline_pack_missing`` / ``offline_pack_corrupt`` /
+  ``offline_pack_ready`` / ``worker_started`` / ``worker_crashed`` /
   ``worker_unloaded`` / ``transcribe_offline_result``.
   These MUST be in:
     - the Rust ``ALLOWED_EVENT_TYPES`` slice (so the WS reader lets
       the frames through to the renderer);
     - the TS ``PythonPushEvent`` discriminated union (so
-      ``usePythonEvent("pack_download_started", ...)`` typechecks);
+      ``usePythonEvent("offline_pack_download_started", ...)`` typechecks);
     - the TS ``KNOWN_EVENT_TYPES`` runtime Set (so the dev-time
       typo warning doesn't false-positive on the legitimate new
       events — pinned by the TS-side
@@ -87,22 +87,22 @@ EVENT_BUS_PY = REPO_ROOT / "voice_typer" / "server" / "event_bus.py"
 # ─── the 13 new events from §7.4 ──────────────────────────────────────────
 
 
-# Single source of truth: the canonical Python ``PACK_EVENT_TYPES`` in
+# Single source of truth: the canonical Python ``OFFLINE_PACK_EVENT_TYPES`` in
 # ``voice_typer/server/service/pack.py``. We import it rather than
 # hardcoding the list here so a future rename in ``pack.py`` flows
 # through to this test (the alternative — hardcoding the 13 strings
 # here — would silently drift if ``pack.py`` is updated and this test
 # isn't).
 def _pack_event_types() -> frozenset[str]:
-    """Return the canonical 13-event frozenset from ``service.pack``.
+    """Return the canonical 13-event frozenset from ``service.offline_pack``.
 
-    ``PACK_EVENT_TYPES`` is the schema anchor referenced by the
+    ``OFFLINE_PACK_EVENT_TYPES`` is the schema anchor referenced by the
     ``event_bus.py`` catalogue docstring + the Rust
     ``ALLOWED_EVENT_TYPES`` slice + the TS ``PythonPushEvent`` union.
     """
-    from voice_typer.server.service.pack import PACK_EVENT_TYPES
+    from voice_typer.server.service.offline_pack import OFFLINE_PACK_EVENT_TYPES
 
-    return PACK_EVENT_TYPES
+    return OFFLINE_PACK_EVENT_TYPES
 
 
 # The single request-type event (the other 12 are push events).
@@ -112,7 +112,7 @@ REQUEST_EVENT_NAME = "transcribe_offline"
 
 
 def _push_event_types() -> set[str]:
-    """Return the 12 push event names (PACK_EVENT_TYPES minus the request)."""
+    """Return the 12 push event names (OFFLINE_PACK_EVENT_TYPES minus the request)."""
     return set(_pack_event_types()) - {REQUEST_EVENT_NAME}
 
 
@@ -402,7 +402,7 @@ class TestRequestEventInCommandAllowlists:
 class TestPushEventsInTsAllowlists:
     """The 12 push events MUST be in:
     - the TS ``PythonPushEvent`` discriminated union (so
-      ``usePythonEvent("pack_download_started", ...)`` typechecks);
+      ``usePythonEvent("offline_pack_download_started", ...)`` typechecks);
     - the TS ``KNOWN_EVENT_TYPES`` runtime Set (so the dev-time typo
       warning doesn't false-positive on the legitimate new events).
     """
@@ -646,14 +646,14 @@ class TestEventBusCatalogueDocstring:
         )
 
 
-# ─── 6. the canonical PACK_EVENT_TYPES source of truth exists ────────────
+# ─── 6. the canonical OFFLINE_PACK_EVENT_TYPES source of truth exists ────────────
 
 
 class TestPackEventTypesSourceOfTruth:
-    """``voice_typer/server/service/pack.py::PACK_EVENT_TYPES`` is the
+    """``voice_typer/server/service/pack.py::OFFLINE_PACK_EVENT_TYPES`` is the
     canonical frozenset that the parity tests above import. This
     test pins its existence + size so a future refactor that moves
-    or renames ``PACK_EVENT_TYPES`` fails HERE first (with a clear
+    or renames ``OFFLINE_PACK_EVENT_TYPES`` fails HERE first (with a clear
     message) instead of in the import-error traceback of every
     other test class above.
     """
@@ -661,7 +661,7 @@ class TestPackEventTypesSourceOfTruth:
     def test_pack_event_types_exists_and_has_13_entries(self) -> None:
         pack = _pack_event_types()
         assert len(pack) == 13, (
-            "§7.4: PACK_EVENT_TYPES in voice_typer/server/service/pack.py "
+            "§7.4: OFFLINE_PACK_EVENT_TYPES in voice_typer/server/service/pack.py "
             f"has {len(pack)} entries — expected exactly 13 (12 push + "
             "1 request). The master plan §7.4 catalogue is the source "
             "of truth. If you added/removed an event, update the master "
@@ -672,22 +672,22 @@ class TestPackEventTypesSourceOfTruth:
     def test_pack_event_types_contains_transcribe_offline(self) -> None:
         pack = _pack_event_types()
         assert REQUEST_EVENT_NAME in pack, (
-            f"§7.4: PACK_EVENT_TYPES must contain the request event "
+            f"§7.4: OFFLINE_PACK_EVENT_TYPES must contain the request event "
             f"'{REQUEST_EVENT_NAME}' (the 13th event in §7.4 — it's "
             "the only request-type event in the set; the other 12 are "
             "push events)."
         )
 
     def test_pack_event_types_is_frozenset(self) -> None:
-        """``PACK_EVENT_TYPES`` MUST be a ``frozenset`` so it cannot
+        """``OFFLINE_PACK_EVENT_TYPES`` MUST be a ``frozenset`` so it cannot
         be accidentally mutated at runtime (a mutable set could be
         silently extended by a stray ``.add()`` call, which would
         then pass the parity tests above without the corresponding
         allowlist updates)."""
-        from voice_typer.server.service.pack import PACK_EVENT_TYPES
+        from voice_typer.server.service.offline_pack import OFFLINE_PACK_EVENT_TYPES
 
-        assert isinstance(PACK_EVENT_TYPES, frozenset), (
-            "§7.4: PACK_EVENT_TYPES in voice_typer/server/service/pack.py "
+        assert isinstance(OFFLINE_PACK_EVENT_TYPES, frozenset), (
+            "§7.4: OFFLINE_PACK_EVENT_TYPES in voice_typer/server/service/pack.py "
             "must be a frozenset (not a set or list) so it cannot be "
             "accidentally mutated at runtime."
         )

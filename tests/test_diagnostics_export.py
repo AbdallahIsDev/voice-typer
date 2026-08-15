@@ -87,6 +87,16 @@ class TestBundleSchema:
     ``model_info.txt``, ``crash_diagnostics_archive/*``) are gated on
     file existence / subsystem availability and are NOT required by
     the schema.
+
+    (Wave 3, 2026-08-14): ``prewarm.json`` was REMOVED from the
+    required-sections set — prewarm became a worker startup phase
+    (master plan §6.2 P-1), so there is no longer a separate prewarm
+    process / sentinel / PID file to probe. Support engineers
+    investigating cache state should look at the worker's startup log
+    instead. The previous ``test_prewarm_json_schema_on_success`` /
+    ``test_prewarm_paths_have_home_prefix_replaced`` /
+    ``test_prewarm_probe_failure_does_not_abort_bundle`` tests were
+    deleted in lockstep.
     """
 
     def test_bundle_contains_required_sections(self, recovery) -> None:
@@ -97,7 +107,10 @@ class TestBundleSchema:
             names = zf.namelist()
 
         # Required sections.
-        required = {"system_info.txt", "crash_recovery.json", "prewarm.json"}
+        # NOTE: ``prewarm.json`` was removed (prewarm became a worker
+        # startup phase — master plan §6.2 P-1). The bundle no longer
+        # emits a prewarm probe section.
+        required = {"system_info.txt", "crash_recovery.json"}
         missing = required - set(names)
         assert not missing, f"diagnostic bundle missing required sections: {missing}. Got names: {names}"
 
@@ -121,22 +134,6 @@ class TestBundleSchema:
         )
         assert isinstance(data["entries"], list)
         assert len(data["entries"]) == 2
-
-    def test_prewarm_json_schema_on_success(self, recovery) -> None:
-        """``prewarm.json`` MUST contain the ``sentinel_path`` and
-        ``pid_file_path`` keys (home-redacted) on a successful probe."""
-        bundle_path = diagnostics_export.create_diagnostic_bundle(recovery)
-        assert bundle_path is not None
-
-        with zipfile.ZipFile(bundle_path, "r") as zf:
-            data = json.loads(zf.read("prewarm.json"))
-
-        # On success, the prewarm probe produces sentinel_path /
-        # pid_file_path (home-redacted). On failure, an "error" key
-        # is produced instead (see TestPartialFailure).
-        assert "sentinel_path" in data or "error" in data, (
-            f"prewarm.json must contain 'sentinel_path' (on success) or 'error' (on failure); got: {data!r}"
-        )
 
 
 # ── (b) PII redaction: secret config fields → masked ──────────────────
@@ -218,102 +215,138 @@ class TestConfigSecretRedaction:
 
 class TestHomePathRedaction:
     """UE-5-F2: filesystem paths embedded in the diagnostic bundle
-    (``sentinel_path``, ``pid_file_path``) MUST be piped through
-    ``_redact_home_path`` so the user-home prefix is replaced with
-    ``~`` (raw paths like ``/home/alice/.voice-typer/.prewarm-sentinel``
-    leak the OS username).
+    MUST be piped through ``_redact_home_path`` so the user-home prefix
+    is replaced with ``~`` (raw paths like
+    ``/home/alice/.voice-typer/voice-typer.log`` leak the OS username).
 
     The criterion's literal ``/home/user/`` → ``/home/<redacted>/``
     wording describes the spirit; the actual replacement is
     ``/home/user/...`` → ``~/...`` (``~`` is the conventional
     home-redaction token in this codebase).
+
+    (Wave 3, 2026-08-14): the previous test pinned home-redaction on
+    the prewarm ``sentinel_path`` / ``pid_file_path`` paths in
+    ``prewarm.json``. Prewarm became a worker startup phase (master
+    plan §6.2 P-1), so ``prewarm.json`` is no longer emitted and the
+    previous test was deleted. The home-redaction contract itself is
+    still exercised end-to-end by the bundle-path log redaction in
+    ``create_diagnostic_bundle`` (the final ``log.info`` call pipes
+    the bundle path through ``_redact_home_path``) — the new test
+    below pins that invariant.
     """
 
-    def test_prewarm_paths_have_home_prefix_replaced(self, recovery, recovery_dir, monkeypatch) -> None:
+    def test_bundle_path_is_home_redacted_in_log(self, recovery, recovery_dir, monkeypatch, caplog) -> None:
+        """The bundle path logged at export-completion MUST be
+        home-redacted so the OS username doesn't leak via the path.
+
+        ``create_diagnostic_bundle`` calls ``_redact_home_path`` on
+        the bundle path before logging it (the returned path string
+        is NOT redacted — callers display it to the user who already
+        knows their own home dir).
+        """
+        import logging as _logging
+
+        from voice_typer.server._secrets import _redact_home_path
+
         # Patch expanduser so the home IS recovery_dir (the test's
-        # tmp_path). The prewarm sentinel / PID paths resolve under
-        # recovery_dir; _redact_home_path replaces the home prefix
-        # with ~ so paths get a ~ prefix in the bundle.
+        # tmp_path). create_diagnostic_bundle writes the bundle under
+        # recovery_dir, so the bundle path resolves under recovery_dir;
+        # _redact_home_path replaces the home prefix with ~.
         monkeypatch.setattr(
             "os.path.expanduser",
             lambda p: str(recovery_dir) if p == "~" else p,
         )
 
-        bundle_path = diagnostics_export.create_diagnostic_bundle(recovery)
+        with caplog.at_level(_logging.INFO, logger="voice_typer.server.diagnostics_export"):
+            bundle_path = diagnostics_export.create_diagnostic_bundle(recovery)
         assert bundle_path is not None
 
-        with zipfile.ZipFile(bundle_path, "r") as zf:
-            prewarm_data = json.loads(zf.read("prewarm.json"))
-
-        # On success, sentinel_path / pid_file_path exist and are
-        # home-redacted. (On failure, prewarm_data has an "error" key
-        # instead — that path is covered by TestPartialFailure.)
-        if "error" in prewarm_data:
-            pytest.skip(
-                f"prewarm probe failed in this env; cannot verify path redaction. prewarm_data={prewarm_data!r}"
-            )
-
-        sentinel_path = prewarm_data.get("sentinel_path", "")
-        pid_file_path = prewarm_data.get("pid_file_path", "")
-
-        # The full home-directory prefix MUST NOT appear in the
-        # redacted path.
-        assert str(recovery_dir) not in sentinel_path, f"home prefix leaked into sentinel_path: {sentinel_path!r}"
-        assert str(recovery_dir) not in pid_file_path, f"home prefix leaked into pid_file_path: {pid_file_path!r}"
-        # The path is prefixed with ~ (the redacted form).
-        assert sentinel_path.startswith("~"), f"sentinel_path should start with ~ after redaction: {sentinel_path!r}"
-        assert pid_file_path.startswith("~"), f"pid_file_path should start with ~ after redaction: {pid_file_path!r}"
+        # The bundle path logged in the INFO message must NOT contain
+        # the home-directory prefix (it was redacted to ~).
+        expected_redacted = _redact_home_path(str(bundle_path))
+        log_messages = [r.getMessage() for r in caplog.records]
+        bundle_log_lines = [m for m in log_messages if "Diagnostic bundle created" in m]
+        assert bundle_log_lines, (
+            f"expected a 'Diagnostic bundle created' INFO log; got messages: {log_messages!r}"
+        )
+        assert str(recovery_dir) not in bundle_log_lines[0], (
+            f"home prefix leaked into the bundle-path log line; got: {bundle_log_lines[0]!r}"
+        )
+        assert expected_redacted in bundle_log_lines[0], (
+            f"bundle-path log line should contain the home-redacted form "
+            f"{expected_redacted!r}; got: {bundle_log_lines[0]!r}"
+        )
 
 
 # ── (d) partial-failure: subsystem raises → bundle still produced ─────
 
 
 class TestPartialFailure:
-    """When one subsystem probe RAISES (e.g. ``get_prewarm_status``),
-    the bundle MUST still be produced — the failing section is marked
-    unavailable (``prewarm.json`` gets an ``error`` key) rather than
-    aborting the entire export.
+    """When one subsystem probe RAISES, the bundle MUST still be produced —
+    the failing section is marked unavailable (the section's ``error``
+    key is populated) rather than aborting the entire export.
 
-    Mirrors the existing test
-    ``tests/test_crash_recovery.py::TestCrashRecoveryPrewarmJson
-    ::test_prewarm_json_includes_error_on_failure`` but calls
-    ``diagnostics_export.create_diagnostic_bundle`` directly to pin
-    the module-level contract.
+    (Wave 3, 2026-08-14): the previous test pinned partial-failure
+    resilience on the deleted ``voice_typer.server.prewarm.get_prewarm_status``
+    probe. Prewarm became a worker startup phase (master plan §6.2
+    P-1), so the prewarm probe was removed from ``diagnostics_export``.
+    The partial-failure contract itself is still exercised by the
+    sibling ``permissions.json`` probe (added in the same slice that
+    deleted the prewarm probe) — that probe is wrapped in a
+    ``try/except Exception`` that writes ``{"error": str(exc)}`` to
+    ``permissions.json`` on failure rather than aborting the bundle.
     """
 
-    def test_prewarm_probe_failure_does_not_abort_bundle(self, recovery, monkeypatch) -> None:
-        # Make get_prewarm_status raise.
-        def raising_status():
-            raise RuntimeError("sentinel probe blew up")
+    def test_permissions_probe_failure_does_not_abort_bundle(self, recovery, monkeypatch) -> None:
+        """A failure in the ``permissions.json`` probe MUST be captured
+        as an ``error`` key in ``permissions.json`` and MUST NOT abort
+        the rest of the bundle (``system_info.txt`` +
+        ``crash_recovery.json`` must still be present).
+
+        Mirrors the previous ``test_prewarm_probe_failure_does_not_abort_bundle``
+        contract — partial-failure resilience is a module-level
+        invariant that must hold for every probe wrapped in a
+        ``try/except Exception`` block.
+        """
+        # Make the keyboard permission probe raise. The permissions
+        # block calls ``check_keyboard_permission()`` first, so patching
+        # that function to raise exercises the partial-failure path.
+        def raising_keyboard():
+            raise RuntimeError("keyboard probe blew up")
 
         monkeypatch.setattr(
-            "voice_typer.server.prewarm.get_prewarm_status",
-            raising_status,
+            "voice_typer.server.permissions.check_keyboard_permission",
+            raising_keyboard,
         )
 
         bundle_path = diagnostics_export.create_diagnostic_bundle(recovery)
         # The bundle MUST still be produced (not None).
         assert bundle_path is not None, (
-            "diagnostics_export must NOT return None when the prewarm "
-            "probe raises — the error should be captured in prewarm.json"
+            "diagnostics_export must NOT return None when the permissions "
+            "probe raises — the error should be captured in permissions.json"
         )
 
         with zipfile.ZipFile(bundle_path, "r") as zf:
             names = zf.namelist()
-            prewarm_data = json.loads(zf.read("prewarm.json"))
+            # permissions.json is emitted on both the success and
+            # failure paths of the outer try/except — on failure, the
+            # except branch writes a permissions.json with an error key.
+            perms_data = json.loads(zf.read("permissions.json"))
 
         # Required sections must still be present (the failure did
         # not abort the rest of the bundle).
-        assert "system_info.txt" in names, f"system_info.txt missing after prewarm probe failure; got names: {names}"
+        assert "system_info.txt" in names, (
+            f"system_info.txt missing after permissions probe failure; got names: {names}"
+        )
         assert "crash_recovery.json" in names, (
-            f"crash_recovery.json missing after prewarm probe failure; got names: {names}"
+            f"crash_recovery.json missing after permissions probe failure; got names: {names}"
         )
-        # prewarm.json must contain the error key (not a sentinel_path).
-        assert "error" in prewarm_data, (
-            f"prewarm.json must include 'error' when the probe raises; got: {prewarm_data!r}"
+        # permissions.json must contain the error key.
+        assert "error" in perms_data, (
+            f"permissions.json must include 'error' when the probe raises; got: {perms_data!r}"
         )
-        assert "sentinel probe blew up" in prewarm_data["error"], (
-            f"prewarm.json error must include the original exception message; got: {prewarm_data['error']!r}"
+        assert "keyboard probe blew up" in perms_data["error"], (
+            f"permissions.json error must include the original exception message; got: {perms_data['error']!r}"
         )
 
 

@@ -102,6 +102,20 @@ def _load_model_hashes() -> dict[str, dict[str, Any]]:
                 "tokenizer_config.json": "0b2fe0037599ee335f0b972fa682bf0ece74e4ccfec755cb7daa3405d3d3e874",
             },
         },
+        # The visuall fp16 ONNX export ships no config.json upstream —
+        # asr_setup synthesizes it deterministically (json.dumps indent=4
+        # of the nemo-conformer-tdt dict) and the hash below pins those
+        # exact bytes. Keep in sync with model_hashes.json.
+        "visuall/parakeet-tdt-0.6b-v3-onnx-fp16": {
+            "revision": "125d44237abd9a53d291a3104a563fc0ba104ecb",
+            "files": {
+                "config.json": "666903c76b9798caf2c210afd4f6cd60b08a8dbf9800ec8d7a3bc0d2148ac466",
+                "encoder-model.fp16.onnx": "d7d3fcfee48f83e2c3a7940a08f4093dcb671a37b029cbcecd3c97cb8b20eb33",
+                "decoder_joint-model.fp16.onnx": "b33a73b7c1d71b9d5a0911f5cb478be3dcbf79f53355c531ab1cd1dcd68ad8ef",
+                "nemo128.onnx": "a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f",
+                "vocab.txt": "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d",
+            },
+        },
         "Systran/faster-whisper-tiny.en": {
             "revision": "0d3d19a32d3338f10357c0889762bd8d64bbdeba",
             "files": {
@@ -564,7 +578,7 @@ ALLOW_PATTERNS_PARAKEET: list[str] = [
 ]
 
 # ONNX Runtime migration (PLAN_ONNX_INTEGRATION.md §3.5.4): allowlist
-# for the ONNX Parakeet weights (``grikdotnet/parakeet-tdt-0.6b-fp16``
+# for the ONNX Parakeet weights (``istupakov/parakeet-tdt-0.6b-v3-onnx``
 # via the ``onnx-asr`` library). The pre-migration ``ALLOW_PATTERNS_PARAKEET``
 # above stays — it covers the torch/safetensors cache layout (still
 # downloaded by users who haven't migrated to ONNX). This new constant
@@ -582,8 +596,8 @@ ALLOW_PATTERNS_PARAKEET: list[str] = [
 # SECURITY: ``verify_model_integrity()`` hard-fails if a pinned file
 # is missing, so every pattern here must also have a corresponding
 # entry in the ``files`` dict of ``model_hashes.json`` for the
-# ``grikdotnet/parakeet-tdt-0.6b-fp16`` repo (or the structural check
-# passes but the pinned-files check fails).
+# ``visuall/parakeet-tdt-0.6b-v3-onnx-fp16`` repo (or the structural
+# check passes but the pinned-files check fails).
 ALLOW_PATTERNS_PARAKEET_ONNX: frozenset[str] = frozenset({
     "*.onnx",
     "config.json",

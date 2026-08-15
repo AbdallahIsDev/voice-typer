@@ -371,10 +371,9 @@ def get_autostart_dir() -> Path:
     (per the XDG Base Directory Spec, empty values must be treated as
     "unset"). ``Path("") / "autostart"`` then produces a RELATIVE
     ``PosixPath("autostart")`` and the .desktop file ends up in the
-    process's CWD — autostart never fires. The same bug was already
-    fixed in ``prewarm_scheduler_posix._linux_unit_dir`` via an
-    ``if not xdg:`` guard; we mirror that pattern here so both code
-    paths agree.
+    process's CWD — autostart never fires. Fixed via an ``if not
+    xdg:`` guard that treats both ``None`` (unset) and ``""`` (empty)
+    as "use the default ``~/.config``".
     """
     if _pkg.SYSTEM == "win32":
         return (

@@ -128,14 +128,34 @@ def quit(controller: ShutdownController) -> None:  # noqa: A001 — mirrors the 
         log.info("[SHUTDOWN] Shutting down")
         app._shutting_down = True
         # also set the Event version so executor tasks can check it
-        app._shutting_down_event.set()
-        # _quit_lock is released here (end of ``with`` block) BEFORE
-        # ``shutdown_all()`` and ``_do_cleanup()`` run. Both have
-        # their own idempotency guards (``_shutting_down`` /
-        # ``_cleanup_done``), so a concurrent quit() that arrives
-        # during the join / cleanup will short-circuit at the
-        # ``_shutting_down`` check above (now True) rather than
-        # block on _quit_lock.
+        app._shutting_down_event.set()    # _quit_lock is released here (end of ``with`` block) BEFORE
+    # ``shutdown_all()`` and ``_do_cleanup()`` run. Both have
+    # their own idempotency guards (``_shutting_down`` /
+    # ``_cleanup_done``), so a concurrent quit() that arrives
+    # during the join / cleanup will short-circuit at the
+    # ``_shutting_down`` check above (now True) rather than
+    # block on _quit_lock.
+
+    # NOTIFY-ELECTRON: publish ``quit_app`` so the Electron frontend
+    # closes its window IMMEDIATELY on shutdown paths that bypass
+    # ``quit_app()`` — the Win32 Ctrl+C handler, the POSIX
+    # SIGINT/SIGTERM watcher, and any other direct ``quit()`` caller.
+    # The tray/IPC paths already publish from ``quit_app()`` (which
+    # stashes ``app._quit_app_published = True``); skipping here avoids
+    # a redundant second write. Without this, Ctrl+C left Electron's
+    # window open for the entire ``_do_cleanup()`` (seconds) and only
+    # force-killed it at the end via ``_teardown_electron`` — the
+    # perceived "Ctrl+C is slower than tray Quit" gap. ``quit_app`` is
+    # in the IPC sender's ``_SHUTDOWN_ALLOWLIST``, so it is delivered
+    # even after ``_shutting_down`` is set. Best-effort: a failed
+    # publish (e.g. TCP client already gone) must never block shutdown.
+    if not getattr(app, "_quit_app_published", False):
+        try:
+            from voice_typer.server import event_bus
+
+            event_bus.publish({"type": "quit_app"})
+        except Exception:
+            log.debug("[SHUTDOWN] quit_app event publish failed", exc_info=True)
 
     # THREAD-REGISTRY: signal all registered threads to stop and
     # join them with their per-thread timeouts. Runs BEFORE

@@ -1,4 +1,4 @@
-"""First-run detection + 6-step onboarding wizard controller.
+"""First-run detection + 7-step onboarding wizard controller.
 
 Detects whether the app is running for the first time (no config.json
 exists) and guides the user through initial setup:
@@ -9,10 +9,16 @@ Step 3: Permissions — macOS Accessibility / Linux input group + udev rule
         ( / ). On Windows the step auto-passes (no permission
         needed) but is still shown so the user knows hotkeys will work.
 Step 4: Hotkey selection — F2-F12 or custom combo
-Step 5: Model selection — tiny.en (fastest), small.en (recommended),
+Step 5: Consent — consolidated grant of every consent flag (voice
+        biometric, HuggingFace model downloads, OpenAI / Groq /
+        Deepgram cloud ASR, LLM polish) with an "Agree to All"
+        convenience; the renderer persists each toggle immediately via
+        the allowlisted set_config fields, so no backend-side
+        collection is needed.
+Step 6: Model selection — tiny.en (fastest), small.en (recommended),
         medium.en (best accuracy), plus multilingual variants and
         Parakeet ( / )
-Step 6: Done — app starts loading the model
+Step 7: Done — app starts loading the model
 """
 
 import json
@@ -62,13 +68,14 @@ class OnboardingController:
         # apply_settings.
         self._progress_path = config_dir / ".onboarding_progress"
         self._current_step = 0
-        # bumped from 5 → 6 to add a platform-conditional
-        # Permissions step between Microphone (index 1) and Hotkey
-        # (now index 3). On Windows the step content auto-passes; on
-        # macOS it instructs the user to grant Accessibility; on Linux
-        # it instructs the user to add themselves to the ``input``
-        # group and install the udev rule.
-        self._total_steps = 6
+        # bumped from 6 → 7 to add a consolidated Consent step
+        # between Hotkey (index 3) and Model (now index 5): the
+        # consent flags are persisted by the RENDERER via the
+        # allowlisted set_config fields the moment each toggle is
+        # flipped (same pattern as the Model step's cloud panel), so
+        # this controller only needs the step count + name — no
+        # backend-side consent collection.
+        self._total_steps = 7
 
         # Collected settings
         self.selected_microphone: str | None = None
@@ -124,6 +131,16 @@ class OnboardingController:
             data = json.loads(raw)
             if not isinstance(data, dict):
                 return
+            # Progress-schema version gate: v1 progress files were
+            # written by the 6-step wizard (Model at index 4, Done at
+            # 5); restoring a v1 ``current_step`` under the 7-step
+            # layout would resume the user at the WRONG step (e.g. old
+            # step 4 "Model" → new step 4 "Consent"). v2 files (7-step
+            # layout) restore normally; v1 files are ignored and the
+            # wizard starts fresh at Welcome.
+            if data.get("version") != 2:
+                log.info("[ONBOARDING] ignoring stale progress schema v%s", data.get("version"))
+                return
             # current_step — int in [0, total_steps)
             cs = data.get("current_step")
             if isinstance(cs, int) and 0 <= cs < self._total_steps:
@@ -168,7 +185,8 @@ class OnboardingController:
 
             payload = json.dumps(
                 {
-                    "version": 1,
+                    # v2: 7-step layout (Consent inserted at index 4).
+                    "version": 2,
                     "current_step": self._current_step,
                     "selected_microphone": self.selected_microphone,
                     "selected_hotkey": self.selected_hotkey,
@@ -371,15 +389,15 @@ class OnboardingController:
     @property
     def step_name(self) -> str:
         """Human-readable name of the current step."""
-        # added "Permissions" between Microphone and
-        # Hotkey. Step order is now:
-        #   0 Welcome, 1 Microphone, 2 Permissions,
-        #   3 Hotkey,     4 Model,    5 Done
+        # Step order is now:
+        #   0 Welcome, 1 Microphone, 2 Permissions, 3 Hotkey,
+        #   4 Consent, 5 Model, 6 Done
         names = [
             "Welcome",
             "Microphone",
             "Permissions",
             "Hotkey",
+            "Consent",
             "Model",
             "Done",
         ]

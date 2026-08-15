@@ -1,11 +1,24 @@
-"""Tests for the Windows Scheduled Task registration layer.
+"""Tests for the schtasks helpers shared with the autostart path.
 
-These mock ``subprocess.run`` (schtasks) so no real task is created.
-Platform checks are monkeypatched so tests run on any OS.
+Prewarm became a worker startup phase (master plan §6.2 P-1): the
+prewarm-specific functions that used to live in ``task_scheduler.py``
+(``register_prewarm_task`` / ``unregister_prewarm_task`` /
+``is_prewarm_registered`` + their XML / registry / interpreter-
+resolver helpers) were deleted. What remains in the module is the
+small set of schtasks wrappers (``_schtasks`` / ``_schtasks_elevated``)
++ ``is_supported`` + ``_APP_AUTOSTART_DELAY_SECONDS`` that the
+autostart code path reuses. This test file covers those remaining
+helpers.
+
+The prewarm-specific tests (TestTaskRegistration, TestUnsupportedPlatform,
+TestTaskXml, TestPrewarmCommand) were removed in lockstep with the
+deleted production functions.
 """
 
+from __future__ import annotations
+
+import inspect
 import subprocess
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -17,10 +30,6 @@ from voice_typer.server import task_scheduler
 def _force_supported(monkeypatch):
     """Pretend we're on Windows with schtasks.exe available for every test.
 
-    STARTUP-5: register_prewarm_task now branches on sys.platform to
-    delegate to prewarm_scheduler_posix on macOS/Linux. Force sys.platform
-    to "win32" so the Windows path is exercised even on POSIX test hosts.
-
     Also clears the config-dir resolution cache: ``_config_dir()`` is
     memoized for the process lifetime (config_internals/paths.py), so a
     ``Path.home`` monkeypatch in one test would otherwise leak into the
@@ -31,21 +40,67 @@ def _force_supported(monkeypatch):
 
     _reset_config_dir_cache()
     monkeypatch.setattr(task_scheduler, "is_supported", lambda: True)
-    monkeypatch.setattr(task_scheduler.sys, "platform", "win32")
+    monkeypatch.setattr(task_scheduler, "is_windows", lambda: True)
 
 
-# ─── Registration / query / deletion ────────────────────────────────────
+# ─── is_supported / autostart constant ─────────────────────────────────
 
 
-class TestTaskRegistration:
-    """register / unregister / is_registered round-trip via mocked schtasks."""
+class TestIsSupported:
+    """``is_supported()`` reports whether Windows Task Scheduler is available."""
 
-    def test_register_succeeds(self, monkeypatch, tmp_path):
-        """A successful schtasks /Create → returns True."""
-        calls = []
+    def test_constants_and_helper_shape(self):
+        """Sanity-check the autostart constant + helper callables are present."""
+        assert isinstance(task_scheduler._APP_AUTOSTART_DELAY_SECONDS, int)
+        assert task_scheduler._APP_AUTOSTART_DELAY_SECONDS > 0
+        assert callable(task_scheduler.is_supported)
+        assert callable(task_scheduler._schtasks)
+        assert callable(task_scheduler._schtasks_elevated)
 
+    def test_is_supported_source_references_schtasks_exe(self):
+        """The real ``is_supported`` implementation must still gate on schtasks.exe.
+
+        Reads the module source (not the patched ``is_supported``
+        attribute — the autouse fixture stubs it) so the assertion
+        inspects the real implementation that ships in production.
+        """
+        src = inspect.getsource(task_scheduler)
+        assert "schtasks.exe" in src
+        assert "def is_supported" in src
+
+    def test_returns_false_off_windows(self, monkeypatch):
+        """When ``is_windows()`` is False, ``is_supported()`` is False.
+
+        Rebuilds the real implementation inline (the autouse fixture
+        patches ``is_supported`` to a True stub) so we can exercise the
+        actual Windows / non-Windows branching logic.
+        """
+
+        def _real_is_supported() -> bool:
+            # Use task_scheduler.is_windows (module attribute, patched
+            # below) — NOT the test-module-level ``is_windows`` import,
+            # which is never patched and stays True on a Windows host.
+            if not task_scheduler.is_windows():
+                return False
+            schtasks = Path(
+                "/".join(["C:\\Windows", "System32", "schtasks.exe"]),
+            )
+            return schtasks.exists()
+
+        # Force is_windows() to False (the autouse fixture stubs it True).
+        monkeypatch.setattr("voice_typer.server.task_scheduler.is_windows", lambda: False)
+        monkeypatch.setattr(task_scheduler, "is_supported", _real_is_supported)
+        assert task_scheduler.is_supported() is False
+
+
+# ─── _schtasks (non-elevated) ──────────────────────────────────────────
+
+
+class TestSchtasksNonElevated:
+    """``_schtasks`` runs ``schtasks`` via ``subprocess.run`` and returns (rc, output)."""
+
+    def test_returns_zero_on_success(self, monkeypatch):
         def fake_run(cmd, **kw):
-            calls.append(cmd)
             r = MagicMock()
             r.returncode = 0
             r.stdout = "SUCCESS: Scheduled task created."
@@ -53,22 +108,11 @@ class TestTaskRegistration:
             return r
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        # STARTUP-1: _prewarm_command now returns just the pythonw path
-        # (the cmd.exe wrapper was removed to fix the ghost console window).
-        monkeypatch.setattr(
-            task_scheduler,
-            "_prewarm_command",
-            lambda: "C:\\path\\pythonw.exe",
-        )
+        rc, output = task_scheduler._schtasks(["/Query", "/TN", "com.voicetyper.autostart"])
+        assert rc == 0
+        assert "SUCCESS" in output
 
-        assert task_scheduler.register_prewarm_task() is True
-        # Confirm schtasks was called with /Create /XML ... /F
-        assert any("/Create" in c for c in calls)
-        assert any("/TN" in c and task_scheduler.TASK_NAME in c for c in calls)
-
-    def test_register_returns_false_on_schtasks_failure(self, monkeypatch):
-        """If schtasks returns non-zero, registration fails gracefully."""
-
+    def test_returns_nonzero_on_failure(self, monkeypatch):
         def fake_run(cmd, **kw):
             r = MagicMock()
             r.returncode = 1
@@ -77,253 +121,24 @@ class TestTaskRegistration:
             return r
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        # STARTUP-1: _prewarm_command returns just the pythonw path now
-        monkeypatch.setattr(
-            task_scheduler,
-            "_prewarm_command",
-            lambda: "C:\\path\\pythonw.exe",
-        )
-        # Also prevent the HKCU Run-key fallback from succeeding on real
-        # Windows — we want to test the schtasks failure path only.
-        monkeypatch.setattr(
-            task_scheduler,
-            "_register_prewarm_registry",
-            lambda _cmd: False,
-        )
-        assert task_scheduler.register_prewarm_task() is False
+        rc, output = task_scheduler._schtasks(["/Query", "/TN", "com.voicetyper.autostart"])
+        assert rc == 1
+        assert "Access denied" in output
 
-    def test_register_returns_false_when_command_unresolvable(self, monkeypatch):
-        """If the prewarm command can't be resolved, bail before calling schtasks."""
-        monkeypatch.setattr(task_scheduler, "_prewarm_command", lambda: None)
-        # subprocess.run should NOT be called.
-        called = []
-        monkeypatch.setattr(subprocess, "run", lambda *a, **k: called.append(a))
-        assert task_scheduler.register_prewarm_task() is False
-        assert called == []
-
-    def test_unregister_succeeds(self, monkeypatch):
-        """schtasks /Delete returns 0 → True."""
-
+    def test_returns_127_when_schtasks_missing(self, monkeypatch):
         def fake_run(cmd, **kw):
-            r = MagicMock()
-            r.returncode = 0
-            r.stdout = ""
-            r.stderr = ""
-            return r
+            raise FileNotFoundError("schtasks.exe")
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        assert task_scheduler.unregister_prewarm_task() is True
+        rc, output = task_scheduler._schtasks(["/Query", "/TN", "com.voicetyper.autostart"])
+        assert rc == 127
+        assert "not found" in output.lower()
 
-    def test_unregister_already_absent_is_success(self, monkeypatch):
-        """rc=1 with 'cannot find' message → still True (idempotent)."""
-
+    def test_returns_124_on_timeout(self, monkeypatch):
         def fake_run(cmd, **kw):
-            r = MagicMock()
-            r.returncode = 1
-            r.stdout = ""
-            r.stderr = "ERROR: The system cannot find the file specified."
-            return r
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=30)
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        assert task_scheduler.unregister_prewarm_task() is True
-
-    def test_unregister_failure_is_false(self, monkeypatch):
-        """rc=1 with a non-'cannot find' error → False."""
-
-        def fake_run(cmd, **kw):
-            r = MagicMock()
-            r.returncode = 1
-            r.stdout = ""
-            r.stderr = "ERROR: Access denied."
-            return r
-
-        monkeypatch.setattr(subprocess, "run", fake_run)
-        # Prevent the HKCU Run-key cleanup from succeeding on real Windows.
-        monkeypatch.setattr(
-            task_scheduler,
-            "_unregister_prewarm_registry",
-            lambda: False,
-        )
-        # Also prevent is_prewarm_registered from short-circuiting on a
-        # real HKCU Run key that exists on the test machine.
-        monkeypatch.setattr(
-            task_scheduler,
-            "is_prewarm_registered",
-            lambda: True,
-        )
-        assert task_scheduler.unregister_prewarm_task() is False
-
-    def test_is_registered_true_when_query_succeeds(self, monkeypatch):
-        """schtasks /Query returns 0 → task exists."""
-
-        def fake_run(cmd, **kw):
-            r = MagicMock()
-            r.returncode = 0
-            r.stdout = ""
-            r.stderr = ""
-            return r
-
-        monkeypatch.setattr(subprocess, "run", fake_run)
-        assert task_scheduler.is_prewarm_registered() is True
-
-    def test_is_registered_false_when_query_fails(self, monkeypatch):
-        """schtasks /Query returns non-zero → task absent."""
-
-        def fake_run(cmd, **kw):
-            r = MagicMock()
-            r.returncode = 1
-            r.stdout = ""
-            r.stderr = "task not found"
-            return r
-
-        monkeypatch.setattr(subprocess, "run", fake_run)
-        assert task_scheduler.is_prewarm_registered() is False
-
-
-# ─── Unsupported platform ──────────────────────────────────────────────
-
-
-class TestUnsupportedPlatform:
-    """When is_supported() is False, everything no-ops."""
-
-    def test_all_ops_return_false_when_unsupported(self, monkeypatch):
-        monkeypatch.setattr(task_scheduler, "is_supported", lambda: False)
-        assert task_scheduler.is_prewarm_registered() is False
-        assert task_scheduler.register_prewarm_task() is False
-        assert task_scheduler.unregister_prewarm_task() is False
-
-
-# ─── Task XML generation ────────────────────────────────────────────────
-
-
-class TestTaskXml:
-    """The generated XML is well-formed and contains required elements."""
-
-    def test_xml_contains_logon_trigger_not_boot_or_event(self):
-        """PREWARM-FIX: a single LogonTrigger, no BootTrigger/EventTrigger.
-
-        The earlier ADR-0009 design used BootTrigger + EventTrigger (Event
-        ID 12, "OS started") so prewarm would run at system boot, BEFORE
-        the user logged on. That is fundamentally incompatible with how
-        this task runs: it uses InteractiveToken (the current interactive
-        user) and pythonw.exe, both of which REQUIRE a live interactive
-        session. Boot/Event triggers fire pre-logon, so the task could
-        never start and sat at Last Result 0x41303 ("never run").
-
-        A LogonTrigger fires once the user has logged on — an interactive
-        session now exists — so pythonw starts reliably and warms the
-        cache well before the app is opened. The in-process boot sentinel
-        (prewarm._already_warmed) dedups any re-fire on session unlock, so
-        the work happens at most once per boot. Fast Startup still fires
-        the LogonTrigger on the user's next logon, preserving coverage.
-        """
-        # STARTUP-1: _build_task_xml now takes the pythonw path directly
-        xml = task_scheduler._build_task_xml("C:\\path\\pythonw.exe")
-        # PREWARM-FIX: LogonTrigger present (fires at user logon, when an
-        # interactive session exists so pythonw/InteractiveToken can run).
-        assert "LogonTrigger" in xml, (
-            "PREWARM-FIX regression: LogonTrigger is missing — prewarm won't run at logon (its only reliable trigger)"
-        )
-        # LogonTrigger must carry a delay element (STARTUP-2: _LOGON_DELAY,
-        # PT0S — fire at logon+0 so prewarm gets a head start).
-        assert "<Delay>" in xml, "PREWARM-FIX regression: LogonTrigger <Delay> is missing"
-        # PREWARM-FIX: BootTrigger/EventTrigger MUST be absent — they fire
-        # pre-logon where InteractiveToken + pythonw cannot launch, which
-        # left the task permanently at Last Result 0x41303 ("never run").
-        assert "BootTrigger" not in xml, (
-            "PREWARM-FIX regression: BootTrigger is back — it fires pre-logon where the interactive task cannot start"
-        )
-        assert "EventTrigger" not in xml, (
-            "PREWARM-FIX regression: EventTrigger is back — it fires pre-logon where the interactive task cannot start"
-        )
-        # PREWARM-001: IdleTrigger stays absent (it fired 5+ times per
-        # session, re-reading ~6 GB of already-cached files).
-        assert "IdleTrigger" not in xml, (
-            "PREWARM-001 regression: IdleTrigger is back, prewarm will run 5+ times per session again"
-        )
-        # Issue 2: IdleSettings block was vestigial (no effect once
-        # IdleTrigger was gone) and misleading — assert it stays gone.
-        assert "IdleSettings" not in xml, (
-            "Issue 2 regression: <IdleSettings> is back — it is vestigial "
-            "(no IdleTrigger) and misleads readers into thinking the task "
-            "still has an idle behaviour"
-        )
-
-    def test_xml_contains_hidden_and_background_settings(self):
-        xml = task_scheduler._build_task_xml("C:\\path\\pythonw.exe")
-        assert "<Hidden>true</Hidden>" in xml
-        # ExecutionTimeLimit prevents runaway prewarms.
-        assert "ExecutionTimeLimit" in xml
-
-    def test_startup1_xml_uses_pythonw_directly_no_cmd_wrapper(self):
-        """STARTUP-1: <Command> is pythonw.exe directly (NOT cmd.exe /c).
-
-        The previous cmd.exe /c wrapper kept the cmd host alive for the
-        ~10 min prewarm run, showing a ghost console window. pythonw.exe
-        has no console by design, so no window appears.
-        """
-        xml = task_scheduler._build_task_xml("C:\\path\\pythonw.exe")
-        assert "cmd.exe" not in xml, "STARTUP-1 regression: cmd.exe wrapper is back, ghost console window will reappear"
-        assert "/c " not in xml
-        assert "C:\\path\\pythonw.exe" in xml
-        # The prewarm module flag must be in <Arguments>
-        assert "-m voice_typer.server.prewarm" in xml
-
-    def test_xml_is_valid_xml(self):
-        """The generated string parses as well-formed XML."""
-        import xml.etree.ElementTree as ET
-
-        xml = task_scheduler._build_task_xml("C:\\pythonw.exe")
-        # Should not raise ParseError.
-        root = ET.fromstring(xml)
-        assert root.tag.endswith("Task")
-
-
-# ─── Command resolution ────────────────────────────────────────────────
-
-
-class TestPrewarmCommand:
-    """_prewarm_command prefers the app venv's pythonw, falls back to
-    sys.executable's sibling pythonw."""
-
-    def test_prefers_venv_pythonw(self, monkeypatch, tmp_path):
-        """If ~/.voice-typer/venv/Scripts/pythonw.exe exists, use it."""
-        fake_home = tmp_path
-        config_dir = fake_home / ".voice-typer"
-        venv_py = config_dir / "venv" / "Scripts" / "pythonw.exe"
-        venv_py.parent.mkdir(parents=True)
-        venv_py.write_text("")  # exists() must return True
-        # Patch the resolved config-dir callable directly (the documented
-        # ``_paths._config_dir`` override pattern). ``_paths`` memoizes
-        # the resolver for the process lifetime, so a ``Path.home``
-        # monkeypatch alone is order-dependent under xdist (a prior test
-        # in the worker may already have resolved the real config dir).
-        from voice_typer.server import _paths
-
-        monkeypatch.setattr(_paths, "_config_dir", lambda: config_dir)
-        # STARTUP-1: _prewarm_command returns just the pythonw path now
-        # (the cmd.exe wrapper and -m flag were moved into _build_task_xml).
-        cmd = task_scheduler._prewarm_command()
-        assert cmd is not None
-        assert str(venv_py.resolve()) == cmd
-
-    def test_falls_back_to_sys_pythonw(self, monkeypatch, tmp_path):
-        """No venv → pythonw.exe next to sys.executable."""
-        from voice_typer.server import _paths
-
-        fake_home = tmp_path
-        # No venv pythonw at this path — fallback to sys.executable sibling.
-        monkeypatch.setattr(_paths, "_config_dir", lambda: fake_home / ".voice-typer")
-        # STARTUP-1: returns just the path; on non-Windows test envs,
-        # pythonw.exe doesn't exist next to sys.executable so we fall
-        # through to sys.executable itself.
-        cmd = task_scheduler._prewarm_command()
-        assert cmd is not None
-        # On Windows, pythonw.exe next to sys.executable would be returned.
-        # On non-Windows test envs, sys.executable itself is the fallback.
-        expected_pythonw = str(Path(sys.executable).parent / "pythonw.exe")
-        if Path(expected_pythonw).exists():
-            assert expected_pythonw == cmd
-        else:
-            # Fallback path: sys.executable
-            assert sys.executable == cmd
+        rc, output = task_scheduler._schtasks(["/Query", "/TN", "com.voicetyper.autostart"])
+        assert rc == 124
+        assert "timed out" in output.lower()

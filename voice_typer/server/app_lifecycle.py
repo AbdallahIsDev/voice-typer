@@ -168,6 +168,12 @@ class LifecycleController:
         from voice_typer.server import event_bus
 
         event_bus.publish({"type": "quit_app"})
+        # Stash the publish so ``ShutdownController.quit()`` (called via
+        # ``app.quit()`` below) does NOT re-publish the event on this
+        # path — quit() publishes ``quit_app`` itself for the Ctrl+C /
+        # signal paths that bypass ``quit_app()``, and the flag lets it
+        # skip here instead of sending a redundant second write.
+        app._quit_app_published = True
 
         # re-entry guard sits AFTER the push so the quit event
         # is always published, even on a double-quit. Only the actual

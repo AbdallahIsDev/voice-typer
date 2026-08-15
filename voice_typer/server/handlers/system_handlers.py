@@ -941,6 +941,18 @@ class SystemHandlersMixin(HandlerBase):
                         "clamp_range": (0, 24 * 60 * 60 * 1000),
                     },
                     "critical": {"type": bool, "required": False, "default": False},
+                    "click_path": {
+                        "type": str,
+                        "required": False,
+                        "default": "",
+                        "max_value_len": 256,
+                    },
+                    "click_consent_field": {
+                        "type": str,
+                        "required": False,
+                        "default": "",
+                        "max_value_len": 128,
+                    },
                 },
             )
             if error:
@@ -958,6 +970,8 @@ class SystemHandlersMixin(HandlerBase):
             message = validated["message"]
             duration_ms = int(validated["duration_ms"])
             critical = validated["critical"]
+            click_path = validated["click_path"]
+            click_consent_field = validated["click_consent_field"]
 
             # (session-DE): reject Unicode Cc/Cf control chars in
             # ``title`` / ``message``. The OS notification APIs render
@@ -995,12 +1009,32 @@ class SystemHandlersMixin(HandlerBase):
                     # rolling upgrades. The renderer subscribes to
                     # "notification" via the generic `python-event`
                     # envelope, not by name.
+                    #
+                    # Optional click targets: ``click_path`` (a page
+                    # path like "/models") and ``click_consent_field``
+                    # (a Settings consent row — the Electron host's
+                    # notification click handler broadcasts navigate
+                    # {path:"/settings", consent_field} so the user
+                    # lands on the EXACT toggle). Only the fields the
+                    # caller set are included — the host treats an
+                    # absent ``click_consent_field`` as "not a consent
+                    # notification".
                     "type": "notification",
                     "data": {
                         "title": title,
                         "message": message,
                         "duration_ms": duration_ms,
                         "critical": critical,
+                        **(
+                            {"click_path": click_path}
+                            if click_path
+                            else {}
+                        ),
+                        **(
+                            {"click_consent_field": click_consent_field}
+                            if click_consent_field
+                            else {}
+                        ),
                     },
                 }
             )

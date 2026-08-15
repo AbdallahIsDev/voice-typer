@@ -41,20 +41,14 @@ class TestEndToEndSmoke:
             "volume_duck_smart_poll_interval_ms" in r.message and "invalid value" in r.message for r in caplog.records
         )
 
-    def test_startup1_task_xml_uses_pythonw_directly(self):
-        """STARTUP-1: Task Scheduler XML uses pythonw.exe, not cmd.exe /c."""
-        from voice_typer.server import task_scheduler
-
-        xml = task_scheduler._build_task_xml("C:\\path\\pythonw.exe")
-        assert "cmd.exe" not in xml
-        assert "C:\\path\\pythonw.exe" in xml
-        assert "-m voice_typer.server.prewarm" in xml
-
-    def test_startup2_logon_delay_is_zero(self):
-        """STARTUP-2: prewarm fires at logon+0 (was PT45S)."""
-        from voice_typer.server import task_scheduler
-
-        assert task_scheduler._LOGON_DELAY == "PT0S"
+    # (Wave 3, 2026-08-14): STARTUP-1 (``_build_task_xml``) and
+    # STARTUP-2 (``_LOGON_DELAY``) tests were deleted — prewarm became
+    # a worker startup phase (master plan §6.2 P-1), so the OS-level
+    # scheduled-task XML builder (Windows Task Scheduler LogonTrigger)
+    # and the logon-delay constant were removed from ``task_scheduler.py``
+    # entirely. The worker exe now warms imports in its own startup
+    # phase (no OS-level scheduling), so there is no task XML or
+    # logon delay to pin.
 
     def test_startup4_prewarm_filters_to_active_model(self, temp_config, monkeypatch):
         """STARTUP-4: prewarm only warms active model + tiny.en fallback."""

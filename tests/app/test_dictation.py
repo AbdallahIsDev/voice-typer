@@ -350,6 +350,10 @@ class TestModelLoadingQueue:
         app.tray = MagicMock()
         # Stub the engine init so the loader body doesn't do real work.
         app.models._ensure_engine = MagicMock()
+        # The fast model-existence pre-check probes the real HF cache;
+        # this test simulates a SUCCESSFUL load (pending dictation
+        # auto-start), so the model must be "downloaded".
+        app.models._model_downloaded_precheck = lambda: True
         # Phase 2: was ``app._try_load_model = MagicMock()`` /
         # ``app._fallback_to_whisper = MagicMock()`` (delegates removed);
         # patch the ModelManager methods directly.
@@ -383,6 +387,9 @@ class TestModelLoadingQueue:
         """If the user did NOT press F2 during load, nothing is scheduled."""
         app.tray = MagicMock()
         app.models._ensure_engine = MagicMock()
+        # Fast existence pre-check probes the real HF cache — stub it
+        # (model "downloaded") so the loader body runs.
+        app.models._model_downloaded_precheck = lambda: True
         # Phase 2: was ``app._try_load_model = MagicMock()`` /
         # ``app._fallback_to_whisper = MagicMock()`` (delegates removed);
         # patch the ModelManager methods directly.
@@ -402,6 +409,9 @@ class TestModelLoadingQueue:
         """A crashing loader sets ERROR state but does not propagate."""
         app.tray = MagicMock()
         app.models._ensure_engine = MagicMock()
+        # Fast existence pre-check probes the real HF cache — stub it
+        # (model "downloaded") so the loader reaches the registry.
+        app.models._model_downloaded_precheck = lambda: True
         # _load_transcription_engine_background now delegates
         # to AsrBackendRegistry.load_with_fallback. Mock it to raise.
         # assign to ModelManager._registry directly (was
@@ -514,149 +524,3 @@ class TestTryLoadModel:
         # pyrefly: ignore [unnecessary-comparison]
         assert app.models._model_load_attempted is True
 
-    def test_try_load_spawns_background_prewarm_on_timeout(self, app, monkeypatch):
-        """Task 5: when wait_for_prewarm() times out, try_load() must
-        call spawn_background_prewarm(force=True) so the cache is warm
-        for the next app launch.
-
-        Without this, every subsequent launch in the same boot session
-        hits a cold cache (the current prewarm was preempted by the
-        app's disk I/O and never finished).
-        """
-        self._setup_registry(app)
-        app.tray = MagicMock()
-        app.models.transcriber.load = MagicMock()
-        app.models.transcriber.device_info = "cpu (int8)"
-        app.models.transcriber.loaded_via = "cpu/int8/small.en"
-
-        # Mock wait_for_prewarm to return False (timeout).
-        spawn_called = []
-        monkeypatch.setattr(
-            "voice_typer.server.prewarm.wait_for_prewarm",
-            lambda timeout_s=60.0: False,  # simulate timeout
-        )
-
-        # production call is spawn_background_prewarm(force=True,
-        # trigger="manual") — the mock must accept the trigger kwarg or
-        # the TypeError is silently swallowed by model_manager's
-        # ``except Exception as bg_exc`` block, making the test pass
-        # vacuously (spawn_called stays empty).
-        def _spawn(force=True, trigger="manual"):
-            spawn_called.append(force)
-
-        monkeypatch.setattr(
-            "voice_typer.server.prewarm.spawn_background_prewarm",
-            _spawn,
-        )
-
-        # Phase 2: was ``app._try_load_model()`` (delegate removed);
-        # call the ModelManager method directly.
-        app.models.try_load()
-
-        assert spawn_called, (
-            "Task 5: try_load() must call spawn_background_prewarm() when "
-            "wait_for_prewarm() times out, so the cache is warm for the "
-            "next app launch"
-        )
-        assert spawn_called == [True], (
-            "Task 5: spawn_background_prewarm must be called with force=True "
-            "to bypass the boot-sentinel dedup (the current boot's prewarm "
-            "hasn't finished)"
-        )
-
-    def test_try_load_does_not_spawn_prewarm_when_finished(self, app, monkeypatch):
-        """Task 5 + PREWARM-FIX: when wait_for_prewarm() returns True because
-        prewarm actually finished (it was running, and the boot sentinel
-        proves the cache is already warm), try_load() must NOT spawn a
-        background prewarm.
-
-        Only the timeout case, and the PREWARM-FIX "scheduled task missed
-        this boot" case, trigger the re-spawn.
-        """
-        self._setup_registry(app)
-        app.tray = MagicMock()
-        app.models.transcriber.load = MagicMock()
-        app.models.transcriber.device_info = "cpu (int8)"
-        app.models.transcriber.loaded_via = "cpu/int8/small.en"
-
-        spawn_called = []
-        monkeypatch.setattr(
-            "voice_typer.server.prewarm.wait_for_prewarm",
-            lambda timeout_s=60.0: True,  # prewarm finished (or not running)
-        )
-        # PREWARM-FIX: represent a prewarm that genuinely ran and warmed the
-        # cache this boot — is_prewarm_running() was True, and the boot
-        # sentinel confirms a successful warm. Under these conditions the
-        # PREWARM-FIX re-spawn branch must NOT fire.
-        monkeypatch.setattr(
-            "voice_typer.server.prewarm.is_prewarm_running",
-            lambda: True,
-        )
-        monkeypatch.setattr(
-            "voice_typer.server.prewarm._already_warmed",
-            lambda: True,
-        )
-        # Accept trigger kwarg so a (correctly) swallowed TypeError can't
-        # make this test pass vacuously.
-        monkeypatch.setattr(
-            "voice_typer.server.prewarm.spawn_background_prewarm",
-            lambda force=True, trigger="manual": spawn_called.append((force, trigger)),
-        )
-
-        # Phase 2: was ``app._try_load_model()`` (delegate removed);
-        # call the ModelManager method directly.
-        app.models.try_load()
-
-        assert not spawn_called, (
-            "Task 5: spawn_background_prewarm must NOT be called when "
-            "wait_for_prewarm returned True AND the cache is already warm "
-            "(prewarm genuinely finished this boot)"
-        )
-
-    def test_try_load_spawns_prewarm_when_scheduled_task_missed(self, app, monkeypatch):
-        """PREWARM-FIX: if the OS prewarm scheduled task never fired this
-        boot (no prewarm process, boot sentinel absent) but fast_startup is
-        enabled, try_load() must spawn a background prewarm so the NEXT
-        launch isn't cold.
-
-        This is the regression guard for the bug where an InteractiveToken +
-        BootTrigger/EventTrigger task could never start (Last Result
-        0x41303, "never run"), leaving the user on a permanently cold cache.
-        """
-        self._setup_registry(app)
-        app.tray = MagicMock()
-        app.models.transcriber.load = MagicMock()
-        app.models.transcriber.device_info = "cpu (int8)"
-        app.models.transcriber.loaded_via = "cpu/int8/small.en"
-        # fast_startup enabled (the default) — prewarm is expected to run.
-        app.config.fast_startup = True
-
-        spawn_called = []
-        # prewarm wasn't running and reported "finished" only because there
-        # was nothing to wait for.
-        monkeypatch.setattr(
-            "voice_typer.server.prewarm.wait_for_prewarm",
-            lambda timeout_s=60.0: True,
-        )
-        # No prewarm process is alive...
-        monkeypatch.setattr(
-            "voice_typer.server.prewarm.is_prewarm_running",
-            lambda: False,
-        )
-        # ...and the cache was never warmed this boot (sentinel absent).
-        monkeypatch.setattr(
-            "voice_typer.server.prewarm._already_warmed",
-            lambda: False,
-        )
-        monkeypatch.setattr(
-            "voice_typer.server.prewarm.spawn_background_prewarm",
-            lambda force=True, trigger="manual": spawn_called.append((force, trigger)),
-        )
-
-        app.models.try_load()
-
-        assert spawn_called == [(True, "manual")], (
-            "PREWARM-FIX: try_load() must spawn a background prewarm "
-            "(force=True, trigger='manual') when the scheduled task missed "
-            "this boot and the cache is cold, so the next launch is warm"
-        )

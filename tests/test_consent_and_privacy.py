@@ -155,9 +155,11 @@ class TestNoAutoUpdateFetchOnSettingsMount:
     def test_no_autofire_check_for_update_in_use_effect(self, component_source):
         """No ``useEffect`` body may call ``checkForUpdate``."""
         bodies = self._use_effect_bodies(component_source)
-        assert bodies, (
-            "PrewarmAndUpdates.tsx should have at least one useEffect (the mount-time get_prewarm_status fetch)."
-        )
+        # The component's ONLY useEffect is the mount-time
+        # get_prewarm_status fetch (Cache Status card — restored
+        # 2026-08-14, plan §6.3 addendum). The loop below asserts
+        # none of the effect bodies can fire the (removed) GitHub
+        # release check, which is the strongest C-DATA-1 form.
         for idx, body in enumerate(bodies):
             assert "checkForUpdate" not in body, (
                 f"PrewarmAndUpdates.tsx useEffect #{idx} references "

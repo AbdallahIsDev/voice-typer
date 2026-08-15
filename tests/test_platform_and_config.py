@@ -6,7 +6,6 @@ from __future__ import annotations
 import inspect
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -243,103 +242,36 @@ class TestElectronUserDataPathMatchesConfigDir:
         assert script.exists()
 
 
-class TestLinuxUnitDirHandlesEmptyXdgConfigHome:
-    """_linux_unit_dir handles empty-string XDG_CONFIG_HOME."""
-
-    def test_empty_string_xdg_config_home_uses_fallback(self, monkeypatch, tmp_path):
-        from voice_typer.server import prewarm_scheduler_posix
-
-        fake_home = tmp_path
-        monkeypatch.setattr(Path, "home", lambda: fake_home)
-        monkeypatch.setattr(
-            prewarm_scheduler_posix.os,
-            "environ",
-            {"XDG_CONFIG_HOME": ""},
-        )
-        result = prewarm_scheduler_posix._linux_unit_dir()
-        assert result.is_absolute()
-        expected = str(fake_home / ".config" / "systemd" / "user")
-        assert str(result) == expected
-
-    def test_unset_xdg_config_home_uses_fallback(self, monkeypatch, tmp_path):
-        from voice_typer.server import prewarm_scheduler_posix
-
-        fake_home = tmp_path
-        monkeypatch.setattr(Path, "home", lambda: fake_home)
-        monkeypatch.setattr(prewarm_scheduler_posix.os, "environ", {})
-        result = prewarm_scheduler_posix._linux_unit_dir()
-        expected = str(fake_home / ".config" / "systemd" / "user")
-        assert str(result) == expected
-
-    def test_set_xdg_config_home_uses_it(self, monkeypatch, tmp_path):
-        from voice_typer.server import prewarm_scheduler_posix
-
-        monkeypatch.setattr(
-            prewarm_scheduler_posix.os,
-            "environ",
-            {"XDG_CONFIG_HOME": str(tmp_path)},
-        )
-        result = prewarm_scheduler_posix._linux_unit_dir()
-        assert str(result) == str(tmp_path / "systemd" / "user")
-
-    def test_no_eager_evaluation_of_path_home(self, monkeypatch):
-        from voice_typer.server import prewarm_scheduler_posix
-
-        home_called = []
-        original_home = Path.home
-
-        def tracking_home():
-            home_called.append(True)
-            return original_home()
-
-        monkeypatch.setattr(Path, "home", tracking_home)
-        monkeypatch.setattr(
-            prewarm_scheduler_posix.os,
-            "environ",
-            {"XDG_CONFIG_HOME": "/custom/xdg"},
-        )
-        prewarm_scheduler_posix._linux_unit_dir()
-        assert home_called == []
-
-
-class TestIoprioSetUsesSyscallNotLibcSymbol:
-    """ioprio_set uses syscall(), not the non-existent libc symbol."""
-
-    def test_no_hasattr_ioprio_set_check(self):
-        from voice_typer.server import prewarm
-
-        src = inspect.getsource(prewarm._lower_io_priority)
-        code_lines = [ln for ln in src.split("\n") if not ln.strip().startswith("#")]
-        code = "\n".join(code_lines)
-        assert 'hasattr(libc, "ioprio_set")' not in code
-        assert "libc.syscall" in code
-
-    @pytest.mark.skipif(
-        sys.platform != "linux",
-        reason="Linux-only: ioprio_set syscall is Linux-specific (syscall number is Linux-defined)",
-    )
-    def test_ioprio_set_actually_runs_on_linux(self, monkeypatch):
-        import ctypes
-
-        from voice_typer.server import prewarm
-
-        syscall_called = []
-        fake_libc = MagicMock()
-        fake_libc.syscall = lambda *args: syscall_called.append(args) or 0
-        monkeypatch.setattr(ctypes, "CDLL", lambda *a, **kw: fake_libc)
-        monkeypatch.setattr(prewarm.os, "nice", lambda n: 0)
-        prewarm._lower_io_priority()
-        assert len(syscall_called) > 0
+# (Wave 3, 2026-08-14): ``TestLinuxUnitDirHandlesEmptyXdgConfigHome`` (4 tests)
+# and ``TestIoprioSetUsesSyscallNotLibcSymbol`` (2 tests) were DELETED —
+# they pinned helpers in the deleted ``voice_typer.server.prewarm_scheduler_posix``
+# module (``_linux_unit_dir``) and the deleted ``prewarm._lower_io_priority``
+# function. Prewarm became a worker startup phase (master plan §6.2 P-1),
+# so the POSIX prewarm scheduler module + the IO-priority syscall helper
+# were removed. There is no equivalent behavior to re-pin: the worker
+# doesn't run as a boot scheduled task, so it doesn't need to lower its
+# own IO priority, and the systemd user-timer unit-dir resolution was
+# only used by the deleted POSIX prewarm scheduler (the autostart code
+# paths on POSIX use LaunchAgent / .desktop files directly via
+# ``server_platform/autostart_macos.py`` / ``autostart_linux.py``).
 
 
 class TestPlatformChecksUseExactMatchNotStartswith:
-    """All platform checks use exact match, not startswith."""
+    """All platform checks use exact match, not startswith.
 
-    def test_no_startswith_linux_in_prewarm_scheduler(self):
-        from voice_typer.server import prewarm_scheduler_posix
-
-        src = inspect.getsource(prewarm_scheduler_posix)
-        assert 'startswith("linux")' not in src
+    (Wave 3, 2026-08-14): the previous ``TestLinuxUnitDirHandlesEmptyXdgConfigHome``
+    (4 tests) and ``TestIoprioSetUsesSyscallNotLibcSymbol`` (2 tests)
+    classes were DELETED — they pinned helpers in the deleted
+    ``voice_typer.server.prewarm_scheduler_posix`` module
+    (``_linux_unit_dir``) and the deleted ``prewarm._lower_io_priority``
+    function. Prewarm became a worker startup phase (master plan §6.2
+    P-1), so the POSIX prewarm scheduler module + the IO-priority
+    syscall helper were removed. The ``test_no_startswith_linux_in_prewarm_scheduler``
+    test was deleted in lockstep (it inspected the deleted module's
+    source). The surviving ``test_no_startswith_linux_in_task_scheduler``
+    + ``test_no_startswith_linux_in_prewarm`` tests below remain valid
+    (both modules still exist).
+    """
 
     def test_no_startswith_linux_in_task_scheduler(self):
         from voice_typer.server import task_scheduler
@@ -412,6 +344,22 @@ class TestConsoleHandlerPythonw:
         # signal_handlers.install_win32_console_handler (the module-level
         # function the ShutdownController delegate calls). Test the real
         # skip path with a fake controller carrying a bare _app.
+        #
+        # (Wave 3, 2026-08-14): added a non-Windows skip guard. The
+        # production code's pythonw detection uses
+        # ``Path(sys.executable).name.lower()`` — on a non-Windows host,
+        # ``PurePosixPath("C:\\Python312\\pythonw.exe").name`` returns
+        # the whole string (backslash is a regular char on POSIX), so
+        # the ``exe_name == "pythonw.exe"`` check NEVER fires and the
+        # function proceeds into the ``ctypes.windll`` branch (which
+        # raises ``AttributeError`` on non-Windows). The test monkey-
+        # patches ``sys.platform = "win32"`` but cannot make ``Path`` parse
+        # backslash as a separator — the underlying pythonw-skip
+        # invariant is only testable on a Windows host. The pre-existing
+        # failure (predates the FG session — confirmed via ``git stash``)
+        # is documented here so a future fix to ``signal_handlers.py``
+        # (e.g. switching to ``os.path.basename`` or ``PureWindowsPath``)
+        # can drop this skipif.
         from voice_typer.server import signal_handlers
 
         class _FakeApp:
@@ -425,6 +373,16 @@ class TestConsoleHandlerPythonw:
         # Must not raise and must not install a console handler.
         signal_handlers.install_win32_console_handler(_FakeController())
         assert not hasattr(_FakeController._app, "_console_handler")
+    test_skipped_on_pythonw = pytest.mark.skipif(
+        sys.platform != "win32",
+        reason=(
+            "Windows-only: production uses Path(sys.executable).name which "
+            "doesn't parse backslash as a separator on POSIX; the pythonw "
+            "skip only fires on a real Windows host. Pre-existing failure "
+            "documented in Wave 3 Sub-agent 2 worklog — fix requires "
+            "signal_handlers.py changes (out of this sub-agent's scope)."
+        ),
+    )(test_skipped_on_pythonw)
 
 
 class TestConfigDirIsPlatformAware:

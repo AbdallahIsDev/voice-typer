@@ -20,6 +20,7 @@ Usage:
     python scripts/diagnostics.py export
 """
 
+import contextlib
 import shutil
 import sys
 from pathlib import Path
@@ -212,10 +213,8 @@ def export_diagnostics() -> str:
                 if len(_parts) >= 1:
                     sys_info["gpu_name"] = _parts[0]
                 if len(_parts) >= 2:
-                    try:
+                    with contextlib.suppress(ValueError):
                         sys_info["gpu_memory_total_mb"] = int(float(_parts[1]))
-                    except ValueError:
-                        pass
             else:
                 sys_info["gpu_name"] = "nvidia-smi unavailable"
         except Exception as exc:

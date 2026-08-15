@@ -170,9 +170,19 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "get_status",
         "get_volume_backend_status",
         "get_model_status",
+        # RESTORED 2026-08-14 (plan §6.3 addendum — Cache Status card,
+        # verbatim from 5a319872):
         "get_prewarm_status",
-        "run_prewarm",
         "open_prewarm_log",
+        # run_prewarm re-restored 2026-08-14 (§6.3 addendum 2nd half) —
+        # re-implemented: the handler re-runs the worker's warm phase
+        # in-process (warm_imports_for_worker on a daemon thread) instead
+        # of spawning the deleted standalone-prewarm subprocess.
+        "run_prewarm",
+        "transcribe_offline",  # master plan §7.4 — slim core → worker offline ASR
+        # auto-update feature (docs/auto-update-feature.md): runtime-pack
+        # manifest check + consent-gated background download.
+        "check_offline_pack_update",
         # dictation_handlers
         "toggle_dictation",
         "undo_last",
@@ -341,13 +351,18 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "shutdown",
     }
 )
-assert len(EXPECTED_COMMANDS) == 65, (
-    "ADR-0020 §2 freezes the command table. 65 = post-cleanup baseline "
+assert len(EXPECTED_COMMANDS) == 67, (
+    "ADR-0020 §2 freezes the command table. 67 = post-cleanup baseline "
     "after ZR-45 + the Tauri/Rust allowlist narrowing (+ ``onboarding_set_backend``, "
     "§16 addendum 2026-08-06; + ``reset_macos_accessibility``, "
     "§16 addendum 2026-08-09; + ``reset_linux_permissions``, "
     "§16 addendum 2026-08-10; + ``check_accessibility``, "
-    "§16 addendum 2026-08-10 re-registration). The prior 76-command "
+    "§16 addendum 2026-08-10 re-registration; + ``transcribe_offline`` "
+    "§16 addendum 2026-08-13 master plan §7.4; + ``check_offline_pack_update`` "
+    "§16 addendum 2026-08-14 auto-update feature docs/auto-update-feature.md; + 3 "
+    "``get_prewarm_status`` / ``open_prewarm_log`` / ``run_prewarm`` §16 addendum 2026-08-14 "
+    "plan §6.3 addendum — Cache Status card restored verbatim from 5a319872; ``run_prewarm`` "
+    "re-implemented (in-process warm pass, no deleted-subprocess spawn)). The prior 76-command "
     "list was stale — it included 17 commands that had been deliberately "
     "REMOVED from ``_COMMAND_REGISTRY`` to match the Tauri host's Rust "
     "allowlist narrowing (see ``test_dead_code_stays_removed.py`` for the "

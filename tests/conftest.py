@@ -532,10 +532,19 @@ def mock_heavy_imports_session():
         # class was only consumed by the old ``isinstance(exc,
         # torch.cuda.OutOfMemoryError)`` check in ``transcription.py``
         # (now :func:`voice_typer.server.asr_utils.is_oom_error`,
-        # which inspects the exception message). A plain MagicMock is
-        # sufficient for the remaining torch consumers (Qwen engine,
-        # parakeet_engine until Phase 1c rewrite).
-        mp.setitem(sys.modules, "torch", MagicMock(name="mock_torch"))
+        # which inspects the exception message).
+        #
+        # ``mock_torch.Tensor`` MUST stay a REAL class (not a MagicMock
+        # attribute): scipy.signal imports ``array_api_compat``, whose
+        # ``_issubclass_fast`` calls ``issubclass(cls, torch.Tensor)``
+        # at import time — a MagicMock attribute is not a class and
+        # raises ``TypeError``, breaking ``import scipy.signal`` under
+        # the suite (regression seen 2026-08-14 in
+        # tests/test_audio_pipeline_regressions.py after the Phase 1c
+        # torch-mock simplification).
+        mock_torch = MagicMock(name="mock_torch")
+        mock_torch.Tensor = _FakeTensor
+        mp.setitem(sys.modules, "torch", mock_torch)
         mp.setitem(sys.modules, "transformers", MagicMock(name="mock_transformers"))
 
         # BLOCK THE REAL ``winreg`` MODULE. Setting ``sys.modules["winreg"]``

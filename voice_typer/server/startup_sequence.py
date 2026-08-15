@@ -969,8 +969,10 @@ class StartupSequence:
         # operators can verify from the app-start logs which triggers
         # are in effect.  On Windows the XML task uses BootTrigger +
         # EventTrigger (both system-start), and the Run-key fallback
-        # fires at logon.  On POSIX, prewarm_scheduler_posix uses
-        # RunAtLoad (macOS) or OnBootSec (Linux).
+        # fires at logon.  On POSIX, the autostart entry (LaunchAgent
+        # on macOS / .desktop on Linux) launches the app at login;
+        # prewarm itself runs as a worker startup phase (§6.2 P-1),
+        # not as a separate OS-scheduled binary.
         _triggers = (
             "boot + event (Task Scheduler XML)"
             if is_windows()

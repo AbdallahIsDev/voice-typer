@@ -111,6 +111,21 @@ cannot silently re-appear. Brief context for each removal:
   allowlist entries and consent prompts) rather than bridging through
   the generic dispatch path. The Python-side service methods still
   exist (called from the Rust bridge).
+- ``get_prewarm_status``, ``open_prewarm_log`` — the About-page
+  Cache Status card is a user-facing product feature, so these two
+  commands were RESTORED 2026-08-14 verbatim from commit 5a319872
+  (see plan §6.3 addendum) after the initial retirement removed them
+  with the prewarm machinery. ``run_prewarm`` stays REMOVED by
+  design: it spawned the deleted standalone-prewarm subprocess
+  machinery; "start/stop prewarm" is now the ``fast_startup`` toggle
+  in Settings → General, which gates the worker's startup warm phase.
+  The retirement history (2026-08-14 per plan §6.2 P-1): prewarm
+  became a worker-startup phase (master plan §6.2 P-1 — the slim core
+  no longer spawns a separate prewarm process; each worker spawn
+  warms the cache itself). The prewarm cache-probe machinery still
+  exists in ``voice_typer/server/prewarm/`` (it is invoked by the
+  worker at startup via ``warm_imports_for_worker``); only the
+  run/log subprocess surface was retired.
 """
 
 from __future__ import annotations
@@ -155,8 +170,8 @@ _PYTHON_ONLY_COMMANDS: frozenset[str] = frozenset({"shutdown", "tray_click"})
 # Each handler takes (data, resp) and returns resp (to send) or None
 # (for commands that send their response internally, like restart_app).
 #
-# reconciliation (2026-07-18, updated 2026-10): the registry
-# contains exactly 65 commands. The 63 "domain" handlers live in
+# reconciliation (2026-07-18, updated 2026-08-14): the registry
+# contains exactly 69 commands. The 67 "domain" handlers live in
 # voice_typer/server/handlers/ (one mixin module per domain). The
 # remaining two — `heartbeat` (, ADR-0018 Electron-alive watchdog)
 # and `relaunch_ack` (PERF-005, ack of `relaunch_electron` so
@@ -168,7 +183,22 @@ _PYTHON_ONLY_COMMANDS: frozenset[str] = frozenset({"shutdown", "tray_click"})
 # count. The count was bumped from 63 to 65 to reflect the two
 # `force_cancel_transcription` and `tray_click` handlers added since
 # the prior reconciliation (the `tray_click` host-only command was
-# already counted in `_PYTHON_ONLY_COMMANDS`).
+# already counted in `_PYTHON_ONLY_COMMANDS`). The initial runtime-pack
+# split added the §7.4 `transcribe_offline` request
+# (slim core → worker) and three prewarm-stub handlers
+# (`get_prewarm_status` / `run_prewarm` / `open_prewarm_log`,
+# kept as parity-clean stubs while the renderer's About page still
+# invoked them) — net 70. The 2026-08-14 retirement removed the three
+# prewarm stubs in lockstep across all four allowlists (this
+# registry, the TS ``ALLOWED_COMMANDS`` Set, the Rust
+# ``allowed_commands()`` literal, and the now-deleted
+# ``handlers/status_handlers.py`` stub methods) because the
+# prewarm surface was fully absorbed into the worker startup
+# phase (master plan §6.2 P-1) — net 67. RESTORED 2026-08-14:
+# `get_prewarm_status` + `open_prewarm_log` came back verbatim
+# from 5a319872 (the Cache Status card is a user-facing feature —
+# plan §6.3 addendum); `run_prewarm` stays removed (its subprocess
+# machinery is gone) — net 69.
 _COMMAND_REGISTRY: dict[str, str] = {
     "get_status": "_handle_get_status",
     "toggle_dictation": "_handle_toggle_dictation",
@@ -200,15 +230,24 @@ _COMMAND_REGISTRY: dict[str, str] = {
     "get_model_status": "_handle_get_model_status",
     # ADR-0009 Issue 3: prewarm cache status (Hot/Partial/Cold label,
     # cache ratio, last-run timestamp, elapsed seconds) for the About
-    # page's "Cache Status" card.
+    # page's "Cache Status" card. RESTORED 2026-08-14 verbatim from
+    # commit 5a319872 — the card is a user-facing product feature
+    # (plan §6.3 addendum), not prewarm machinery. Lockstep-across all
+    # four allowlists per §6.4 parity: this registry, the TS
+    # ``ALLOWED_COMMANDS`` Set, the Rust ``allowed_commands()``
+    # literal, and the Python handler in ``handlers/status_handlers.py``.
     "get_prewarm_status": "_handle_get_prewarm_status",
-    # Task 3: manually trigger a prewarm run (force=True) from the
-    # About page's "Run Prewarm Now" button. Spawns a detached
-    # subprocess; the frontend polls get_prewarm_status to track it.
-    "run_prewarm": "_handle_run_prewarm",
-    # Task 2: open the prewarm log file in the OS default text editor
-    # from the About page's "View prewarm log" button.
+    # Task 2: open the prewarm log file in the OS default text editor.
+    # RESTORED 2026-08-14 verbatim from 5a319872 (points at the worker
+    # log — the worker exe runs the warm phase now).
     "open_prewarm_log": "_handle_open_prewarm_log",
+    # (RESTORED 2026-08-14, plan §6.3 addendum second half) — the
+    # user-facing "Run Prewarm Now" control. RE-IMPLEMENTED for the
+    # post-P-1 architecture: instead of spawning the deleted standalone
+    # prewarm subprocess, the handler runs the warm phase in-process
+    # (warm_imports_for_worker on a daemon thread + status-file refresh,
+    # see prewarm/status.run_prewarm_now).
+    "run_prewarm": "_handle_run_prewarm",
     "get_vocabulary": "_handle_get_vocabulary",
     "save_vocabulary": "_handle_save_vocabulary",
     "get_templates": "_handle_get_templates",
@@ -354,6 +393,13 @@ _COMMAND_REGISTRY: dict[str, str] = {
     # ``voice_typer/client/src/renderer/src/types/ipc/push_events.ts``).
     # Pinned by ``tests/test_event_types_parity.py``.
     "transcribe_offline": "_handle_transcribe_offline",
+    # Auto-update feature (docs/auto-update-feature.md) — pack update
+    # check + consent-gated background download. Registered in the TS
+    # ``ALLOWED_COMMANDS`` Set + the Rust ``allowed_commands()``
+    # literal in lockstep. Handler: ``_handle_check_offline_pack_update`` in
+    # ``ipc/lifecycle.py`` (delegates to
+    # ``update_check.handle_check_offline_pack_update_ipc``).
+    "check_offline_pack_update": "_handle_check_offline_pack_update",
 }
 
 

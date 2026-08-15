@@ -71,7 +71,9 @@ _MODEL_SIZE_MB = {
     "turbo": 809,  # alias for large-v3-turbo
     "distil-large-v3": 1500,
     "distil-medium.en": 780,
-    # Parakeet TDT 0.6b v3 is ~2.5 GB uncompressed. Pre-fix the
+    # Parakeet TDT 0.6b v3 — ONNX fp16 export (visuall repo, 2026-08-15)
+    # is ~1.28 GB uncompressed (the engine is ONNX-only post-migration;
+    # the old torch/safetensors 2.5 GB estimate is obsolete). Pre-fix the
     # ``"parakeet"`` key was missing and ``_MODEL_SIZE_MB.get("parakeet", 500)``
     # fell through to the 500 MB default, so the disk-space pre-check
     # required only ~1000 MB (500 + 500 margin) and false-passed with
@@ -80,7 +82,7 @@ _MODEL_SIZE_MB = {
     # ``disk_space_insufficient`` reason. Value matches
     # ``model_registry.ModelMetadata.download_size_mb`` for "parakeet"
     # so the pre-check and the UI's download-size display agree.
-    "parakeet": 2500,
+    "parakeet": 1275,
 }
 # Extra margin for temporary files, metadata, tokenizer, etc.
 _DISK_SPACE_MARGIN_MB = 500

@@ -700,57 +700,10 @@ class TestGpuRuntimeErrorTypeCheck:
         assert engine._is_gpu_runtime_error(CUBLASRuntimeError("failed")) is False
 
 
-class TestCudaDll001TorchLib:
-    """CUDA-DLL-001: NVIDIA DLLs in torch/lib must be discovered.
-
-    When the user installs the GPU torch wheel (``pip install torch``
-    with CUDA) but NOT the standalone ``nvidia-cublas-cu12`` /
-    ``nvidia-cudnn-cu12`` / ``nvidia-cuda-nvrtc-cu12`` packages, the
-    NVIDIA DLLs live in ``<site-packages>/torch/lib/`` instead of
-    ``<site-packages>/nvidia/cublas/bin/``. Previously the search
-    missed torch/lib, so all 3 primary candidate paths returned "not
-    found" even though the DLLs physically existed. The fix adds
-    ("torch", "lib") to the candidate_parts list.
-    """
-
-    def test_torch_lib_path_is_searched(self, tmp_path, monkeypatch):
-        """If only torch/lib contains the DLLs, configure must find them."""
-        import site
-
-        import voice_typer.server.transcription as mod
-
-        # Create torch/lib with the DLLs — but NO nvidia/*/bin dirs.
-        torch_lib = tmp_path / "torch" / "lib"
-        torch_lib.mkdir(parents=True)
-        (torch_lib / "cublas64_12.dll").write_text("")
-        (torch_lib / "cudnn64_9.dll").write_text("")
-        (torch_lib / "nvrtc64_120_0.dll").write_text("")
-
-        added = []
-        monkeypatch.setattr(sys, "platform", "win32")
-        # ``site`` / ``sys`` / ``os`` are stdlib singletons — patch them
-        # directly (not via ``mod.site`` etc.) because ``transcription.py``
-        # delegates DLL discovery to ``nvidia_dll_paths.py`` which imports
-        # them in its own namespace.
-        monkeypatch.setattr(site, "getsitepackages", lambda: [str(tmp_path)])
-        monkeypatch.setattr(site, "getusersitepackages", lambda: str(tmp_path / "user"))
-        monkeypatch.setattr(sys, "prefix", str(tmp_path / "prefix"))
-        monkeypatch.setattr(os.path, "expanduser", lambda _: str(tmp_path / "home"))
-        monkeypatch.setattr(os, "add_dll_directory", lambda path: added.append(path), raising=False)
-        monkeypatch.setenv("PATH", "C:\\Windows")
-        mod._nvidia_dll_path_handles.clear()
-        mod._nvidia_dll_paths_configured = False
-
-        mod._configure_nvidia_dll_paths()
-
-        # The torch/lib directory must be in PATH and registered
-        # via os.add_dll_directory.
-        assert str(torch_lib) in os.environ["PATH"], (
-            "CUDA-DLL-001 regression: torch/lib not in PATH; "
-            "users with GPU torch wheel but no nvidia-* pip packages "
-            "will have all 3 primary candidate paths miss."
-        )
-        assert str(torch_lib) in added, "CUDA-DLL-001 regression: torch/lib not registered with os.add_dll_directory"
+# TestCudaDll001TorchLib removed 2026-08-15: the ``("torch", "lib")``
+# DLL-scan entry was removed together with the torch dependency
+# (PLAN_ONNX_INTEGRATION.md §4.3 C-2) — there is no torch/lib to
+# discover anymore.
 
 
 # =============================================================================

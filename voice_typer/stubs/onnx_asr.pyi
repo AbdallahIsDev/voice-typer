@@ -9,55 +9,60 @@
 # `try/except ImportError`, so this stub only needs to declare the
 # small import surface actually used:
 #
-#   - `onnx_asr.Model(name, *, quantization=None, providers=None, onnx_dir=None)`
-#     -> model instance
-#   - `model.recognize(audio, sample_rate=16000)` -> str (or list[str]
-#     if a list of audios is passed)
+#   - `onnx_asr.load_model(model, path=None, *, quantization=None,
+#     providers=None, ...)` -> TextResultsAsrAdapter
+#   - `adapter.recognize(audio, sample_rate=16000)` -> str
 #
-# Constructor signature follows PLAN_ONNX_INTEGRATION.md §3.3 (Option
-# B-1) — class-based API (NOT `load_model(...)`). The `providers` arg
-# is forwarded to `onnxruntime.InferenceSession`'s `providers` kwarg.
-# `quantization` selects the ONNX export variant: `"fp16"` for the
-# FP16 export (`grikdotnet/parakeet-tdt-0.6b-fp16`), `"int8"` for the
-# INT8 quantised variant, `None` for the FP32 default.
+# NOTE (verified against the onnx-asr 0.12.0 wheel AND the `main`
+# branch on 2026-08-15): onnx-asr exports ONLY `load_model` and
+# `load_vad` (`__init__.py: __all__ = ["load_model", "load_vad"]`).
+# There is NO `onnx_asr.Model` class in any release — earlier drafts
+# of this stub (and parakeet_engine.py) referenced a class-based
+# `Model(...)` API that does not exist; calling it raises
+# AttributeError at runtime. `load_model` is the canonical entry
+# point.
+#
+# `load_model(model, ...)` accepts either a short model name (e.g.
+# `nemo-parakeet-tdt-0.6b-v3`), a full HuggingFace repo id (a string
+# containing "/"), or a TYPE name (`nemo-conformer-tdt` etc.) when a
+# local `path` is given. `path` points at a directory containing the
+# model files; when set, the resolver loads entirely from disk
+# (offline) and does NOT need `config.json` when a type name is
+# passed. `quantization` selects the variant files inside the repo via
+# a single-char glob (`encoder-model?fp16.onnx` matches
+# `encoder-model.fp16.onnx`); the visuall fp16 export ships
+# `"fp16"` files, istupakov's base export ships no `"fp16"` variant
+# (use `None` there).
 #
 # All symbols are typed `Any` because the surrounding code is wrapped
 # in `try/except ImportError` and we do not need pyrefly to verify the
 # onnx_asr call sites.
 from typing import Any
 
-class Model:
-    """ONNX ASR model wrapper (see `onnx-asr` library docs)."""
-
-    def __init__(
-        self,
-        model_name: str,
-        *,
-        quantization: str | None = ...,
-        providers: list[str] | None = ...,
-        onnx_dir: str | None = ...,
-        **kwargs: Any,
-    ) -> None: ...
-
-    def recognize(
-        self,
-        audio: Any,
-        *,
-        sample_rate: int = ...,
-        language: str | None = ...,
-        **kwargs: Any,
-    ) -> str: ...
-
-    def recognize_batch(
-        self,
-        audio_batch: list[Any],
-        *,
-        sample_rate: int = ...,
-        language: str | None = ...,
-        **kwargs: Any,
-    ) -> list[str]: ...
-
-    def release(self) -> None: ...
+def load_model(
+    model: str,
+    path: str | None = None,
+    *,
+    quantization: str | None = ...,
+    sess_options: Any = ...,
+    providers: list[str] | None = ...,
+    provider_options: list[dict[Any, Any]] | None = ...,
+    cpu_preprocessing: bool | None = ...,
+    asr_config: dict[Any, Any] | None = ...,
+    preprocessor_config: dict[Any, Any] | None = ...,
+    resampler_config: dict[Any, Any] | None = ...,
+) -> Any: ...
 
 
-__all__: list[str] = ["Model"]
+def load_vad(
+    model: str = ...,
+    path: str | None = ...,
+    *,
+    quantization: str | None = ...,
+    sess_options: Any = ...,
+    providers: list[str] | None = ...,
+    provider_options: list[dict[Any, Any]] | None = ...,
+) -> Any: ...
+
+
+__all__: list[str] = ["load_model", "load_vad"]

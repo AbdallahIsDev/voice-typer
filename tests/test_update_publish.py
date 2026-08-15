@@ -33,7 +33,7 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from release import publish_pack_release as pub  # type: ignore[import-not-found]
+from release import publish_pack_release as pub  # type: ignore[import-not-found]  # noqa: E402
 
 # ── Fixtures ────────────────────────────────────────────────────────────
 
@@ -247,29 +247,36 @@ class TestGhReleaseExists:
     """``gh_release_exists`` + ``gh_release_url``."""
 
     def test_exists_returns_true_on_exit_zero(self):
-        runner = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        def runner(cmd, **kw):
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         assert pub.gh_release_exists("v1.2.3", repo="owner/repo", runner=runner) is True
 
     def test_exists_returns_false_on_nonzero(self):
-        runner = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, stdout="", stderr="not found")
+        def runner(cmd, **kw):
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="not found")
         assert pub.gh_release_exists("v1.2.3", repo="owner/repo", runner=runner) is False
 
     def test_release_url_returns_url_on_success(self):
         """``gh_release_url`` uses ``--jq '.url'`` so ``gh`` returns the URL
         as a plain string (not JSON). The fake runner simulates that."""
-        runner = lambda cmd, **kw: subprocess.CompletedProcess(
-            cmd, 0, stdout="https://github.com/owner/repo/releases/tag/v1.2.3", stderr=""
-        )
+        def runner(cmd, **kw):
+            return subprocess.CompletedProcess(
+                cmd, 0,
+                stdout="https://github.com/owner/repo/releases/tag/v1.2.3",
+                stderr="",
+            )
         url = pub.gh_release_url("v1.2.3", repo="owner/repo", runner=runner)
         assert url == "https://github.com/owner/repo/releases/tag/v1.2.3"
 
     def test_release_url_returns_none_on_failure(self):
-        runner = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, stdout="", stderr="not found")
+        def runner(cmd, **kw):
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="not found")
         url = pub.gh_release_url("v1.2.3", repo="owner/repo", runner=runner)
         assert url is None
 
     def test_release_url_returns_none_on_empty_stdout(self):
-        runner = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        def runner(cmd, **kw):
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         url = pub.gh_release_url("v1.2.3", repo="owner/repo", runner=runner)
         assert url is None
 

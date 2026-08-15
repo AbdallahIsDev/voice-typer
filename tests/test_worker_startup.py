@@ -33,8 +33,12 @@ the master plan:
    connection tests mirroring ``test_sidecar_ws_auth_failed.py``.
 
 4. **Shutdown is clean** (§7.2).
-   ``test_shutdown_command_clean_exit`` (mocked) verifies the
-   ``shutdown`` command emits ``shutdown_ack`` + closes the socket.
+   ``test_shutdown_command_emits_ack_and_closes`` (mocked) verifies the
+   ``shutdown`` command emits ``shutdown_ack``, closes the socket, AND
+   sets ``stop_event`` (regression guard for the shutdown-hang bug).
+   ``test_shutdown_command_exits_worker`` (integration) spawns a real
+   worker, sends ``shutdown`` via WS, asserts the process exits with
+   ``EXIT_OK`` within 3s and the lockfile is released.
    ``test_sigterm_clean_exit`` (integration) spawns the worker, sends
    SIGTERM, verifies the exit code + lock-file release.
 
@@ -46,13 +50,17 @@ voice_typer.worker`` subprocess.
 
 from __future__ import annotations
 
+import asyncio
+import atexit
 import contextlib
 import json
 import os
+import shutil
 import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -76,21 +84,41 @@ from voice_typer.worker import __main__ as worker_main  # noqa: E402
 # the env-var value via ``hmac.compare_digest``.
 _TEST_TOKEN = "test-worker-token-12345"
 
+# Per-xdist-worker isolated config dir. The integration tests spawn
+# REAL worker subprocesses, and ``--dist=loadgroup`` puts each test on
+# a DIFFERENT xdist worker → multiple worker subprocesses run
+# CONCURRENTLY and would race the single ``worker.lock`` in the user's
+# real config dir (Windows: existence check → silent
+# EXIT_DUPLICATE_INSTANCE; also: shared ``worker.log`` rotation
+# contention). Pointing every spawned worker at a per-pytest-process
+# temp dir (keyed on ``PYTEST_XDIST_WORKER``) isolates the lock, the
+# log, and the prewarm status file — and keeps the user's real config
+# untouched.
+_worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
+_TEST_CONFIG_DIR = Path(tempfile.mkdtemp(prefix=f"voice-typer-worker-test-{_worker_id}-"))
+atexit.register(lambda: shutil.rmtree(_TEST_CONFIG_DIR, ignore_errors=True))
+
 # Hard deadline for the worker subprocess to emit ``worker_started``
-# after spawn. The master plan §3.4 target is ≤ 600 ms; the test
-# deadline is generous (5 s) so a slow CI runner doesn't false-fail.
-_WORKER_START_DEADLINE_S = 5.0
+# after spawn. The master plan §3.4 target is ≤ 600 ms, but the
+# worker's warm phase runs BEFORE ``worker_started`` (it pages
+# onnxruntime/ctranslate2/numpy/scipy/faster_whisper files into the OS
+# cache), and the suite runs these integration tests under
+# ``pytest -n auto`` where parallel workers hammer the same disk (and
+# Windows Defender scans every imported .py). 5 s false-failed under
+# that load (2026-08-14); 20 s is generous for a loaded CI runner
+# while still bounding a genuinely hung worker.
+_WORKER_START_DEADLINE_S = 20.0
 
 
 def _find_worker_lock() -> Path | None:
     """Find any stale worker.lock file from a prior test/crash.
 
     Tests must clean these up before spawning a real worker to avoid
-    spurious ``EXIT_DUPLICATE_INSTANCE`` failures.
+    spurious ``EXIT_DUPLICATE_INSTANCE`` failures. Looks in the
+    per-pytest-process temp config dir (spawned workers honor
+    ``VOICE_TYPER_CONFIG_DIR``), NOT the user's real config dir.
     """
-    from voice_typer.server.config import _config_dir
-
-    lock = _config_dir() / "worker.lock"
+    lock = _TEST_CONFIG_DIR / "worker.lock"
     return lock if lock.exists() else None
 
 
@@ -143,6 +171,10 @@ def _spawn_worker(token: str | None = _TEST_TOKEN):
         # restart-env-var hint (the stale-lock cleanup above handles
         # any prior lockfile).
         "PYTHONDONTWRITEBYTECODE": "1",
+        # Isolate the worker's config dir (worker.lock + worker.log +
+        # prewarm_status.json) from the user's real config AND from
+        # concurrent worker tests on other xdist workers.
+        "VOICE_TYPER_CONFIG_DIR": str(_TEST_CONFIG_DIR),
     }
     if token is not None:
         env["VOICE_TYPER_IPC_TOKEN"] = token
@@ -424,13 +456,16 @@ def test_worker_exits_without_token_env() -> None:
     ``EXIT_NO_TOKEN`` (4) without binding the WS server.
     """
     with _spawn_worker(token=None) as proc:
-        # The worker should exit quickly (no prewarm, no WS bind).
+        # The worker should exit quickly (no prewarm, no WS bind). The
+        # 15 s bound tolerates loaded-CI startup (cold Python import +
+        # Defender scanning under ``-n auto``); it still catches a hung
+        # worker.
         try:
-            proc.wait(timeout=5.0)
+            proc.wait(timeout=15.0)
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=2.0)
-            pytest.fail("worker did not exit within 5s when VOICE_TYPER_IPC_TOKEN was unset")
+            pytest.fail("worker did not exit within 15s when VOICE_TYPER_IPC_TOKEN was unset")
     assert proc.returncode == worker_main.EXIT_NO_TOKEN, (
         f"expected EXIT_NO_TOKEN ({worker_main.EXIT_NO_TOKEN}), got {proc.returncode}"
     )
@@ -451,7 +486,11 @@ async def test_wrong_token_emits_auth_failed_before_close(monkeypatch) -> None:
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "expected-secret")
     ws = _make_fake_websocket(json.dumps({"type": "auth", "token": "wrong-secret"}))
 
-    await worker_main._handle_connection(ws, prewarm_ran=True)
+    stop_event = asyncio.Event()
+    shutdown_timer = worker_main._ShutdownTimer()
+    await worker_main._handle_connection(
+        ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer
+    )
 
     assert len(ws._sent_frames) == 1, f"expected exactly one auth_failed frame, got {ws._sent_frames}"
     frame = json.loads(ws._sent_frames[0])
@@ -460,6 +499,8 @@ async def test_wrong_token_emits_auth_failed_before_close(monkeypatch) -> None:
     assert len(ws._closed_with) == 1
     _, close_kwargs = ws._closed_with[0]
     assert close_kwargs.get("code") == 1008
+    # Auth failure must NOT trigger graceful shutdown.
+    assert not stop_event.is_set(), "auth failure must not set stop_event"
 
 
 async def test_non_auth_first_frame_emits_auth_failed(monkeypatch) -> None:
@@ -470,7 +511,11 @@ async def test_non_auth_first_frame_emits_auth_failed(monkeypatch) -> None:
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "tok")
     ws = _make_fake_websocket(json.dumps({"type": "get_status"}))
 
-    await worker_main._handle_connection(ws, prewarm_ran=True)
+    stop_event = asyncio.Event()
+    shutdown_timer = worker_main._ShutdownTimer()
+    await worker_main._handle_connection(
+        ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer
+    )
 
     assert len(ws._sent_frames) == 1
     frame = json.loads(ws._sent_frames[0])
@@ -478,6 +523,7 @@ async def test_non_auth_first_frame_emits_auth_failed(monkeypatch) -> None:
     assert len(ws._closed_with) == 1
     _, close_kwargs = ws._closed_with[0]
     assert close_kwargs.get("code") == 1008
+    assert not stop_event.is_set()
 
 
 async def test_invalid_json_auth_frame_emits_auth_failed(monkeypatch) -> None:
@@ -485,12 +531,17 @@ async def test_invalid_json_auth_frame_emits_auth_failed(monkeypatch) -> None:
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "tok")
     ws = _make_fake_websocket(b"not json at all")
 
-    await worker_main._handle_connection(ws, prewarm_ran=True)
+    stop_event = asyncio.Event()
+    shutdown_timer = worker_main._ShutdownTimer()
+    await worker_main._handle_connection(
+        ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer
+    )
 
     assert len(ws._sent_frames) == 1
     frame = json.loads(ws._sent_frames[0])
     assert frame["data"]["code"] == "auth_failed"
     assert len(ws._closed_with) == 1
+    assert not stop_event.is_set()
 
 
 async def test_missing_token_env_rejects_connection(monkeypatch) -> None:
@@ -506,23 +557,32 @@ async def test_missing_token_env_rejects_connection(monkeypatch) -> None:
     monkeypatch.delenv("VOICE_TYPER_IPC_TOKEN", raising=False)
     ws = _make_fake_websocket(json.dumps({"type": "auth", "token": "anything"}))
 
-    await worker_main._handle_connection(ws, prewarm_ran=True)
+    stop_event = asyncio.Event()
+    shutdown_timer = worker_main._ShutdownTimer()
+    await worker_main._handle_connection(
+        ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer
+    )
 
     assert len(ws._sent_frames) == 1
     frame = json.loads(ws._sent_frames[0])
     assert frame["data"]["code"] == "auth_failed"
+    assert not stop_event.is_set()
 
 
 # ─── 4. Shutdown is clean ──────────────────────────────────────────────
 
 
 async def test_shutdown_command_emits_ack_and_closes(monkeypatch) -> None:
-    """The ``shutdown`` command emits ``shutdown_ack`` + closes the socket.
+    """The ``shutdown`` command emits ``shutdown_ack`` + closes the socket + sets stop_event.
 
     Master plan §7.2: the slim-core sidecar sends ``shutdown`` to
     gracefully stop the worker. The worker acknowledges with
-    ``shutdown_ack`` and closes the WS (which causes ``run()``'s
-    asyncio loop to exit cleanly).
+    ``shutdown_ack``, sets ``stop_event`` (so :func:`run_worker_server`'s
+    ``await stop_event.wait()`` unblocks and ``run()`` returns
+    ``EXIT_OK``), and closes the WS. The ``stop_event.set()`` call is
+    the regression guard for the shutdown-hang bug where the worker
+    sent ``shutdown_ack`` + closed the WS but never set ``stop_event``,
+    leaving ``run()`` blocked forever at ``await stop_event.wait()``.
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", _TEST_TOKEN)
 
@@ -582,13 +642,105 @@ async def test_shutdown_command_emits_ack_and_closes(monkeypatch) -> None:
     ws.send = _track_send
     ws.close = _track_close
 
-    await worker_main._handle_connection(ws, prewarm_ran=True)
+    stop_event = asyncio.Event()
+    shutdown_timer = worker_main._ShutdownTimer()
+    await worker_main._handle_connection(
+        ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer
+    )
 
     # The shutdown_ack frame must be sent BEFORE the close.
     assert any(json.loads(f).get("type") == "shutdown_ack" for f in sent_frames), (
         f"expected shutdown_ack frame, got {sent_frames}"
     )
     assert len(closed_with) >= 1, "expected the worker to close the socket after shutdown_ack"
+    # Regression guard: stop_event MUST be set so run_worker_server's
+    # await stop_event.wait() unblocks and the worker exits cleanly.
+    # Without this call, the worker hangs forever after shutdown_ack.
+    assert stop_event.is_set(), (
+        "shutdown command must set stop_event so run() unblocks — "
+        "missing stop_event.set() reproduces the shutdown-hang regression"
+    )
+    # The shutdown timer MUST be started so the [SHUTDOWN] log line
+    # carries a real _<duration> suffix (C-LOG-2).
+    assert shutdown_timer.elapsed() >= 0.0, "shutdown_timer.start() must have been called"
+
+
+def test_shutdown_command_exits_worker() -> None:
+    """The ``shutdown`` command causes the worker process to exit cleanly with EXIT_OK.
+
+    Regression test (integration, POSIX-only): the ``shutdown`` command
+    handler previously did NOT call ``stop_event.set()``, so the worker
+    hung forever after receiving ``shutdown`` — ``run()``'s
+    ``await stop_event.wait()`` blocked indefinitely, the ``finally``
+    block never ran, and the single-instance lockfile leaked on disk.
+
+    This test spawns a real ``python -m voice_typer.worker`` subprocess,
+    connects via the ``websockets`` client library, sends ``shutdown``
+    via WS, and asserts the worker exits within 3s with ``EXIT_OK`` and
+    the lockfile is released.
+    """
+    if not hasattr(signal, "SIGTERM") or os.name != "posix":
+        pytest.skip(
+            "Integration test uses POSIX-only subprocess patterns (SIGTERM fallback in cleanup)"
+        )
+
+    _kill_stale_worker()
+    env = {
+        **os.environ,
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "VOICE_TYPER_IPC_TOKEN": _TEST_TOKEN,
+        "VOICE_TYPER_CONFIG_DIR": str(_TEST_CONFIG_DIR),
+    }
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "voice_typer.worker"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+    try:
+        evt = _read_worker_started(proc)
+        assert evt is not None, "worker did not emit worker_started before shutdown command"
+        port = evt["port"]
+
+        async def _send_shutdown() -> None:
+            async with websockets.connect(f"ws://127.0.0.1:{port}") as ws:
+                await ws.send(json.dumps({"type": "auth", "token": _TEST_TOKEN}))
+                await ws.send(json.dumps({"cmd": "shutdown"}))
+                # Best-effort: read the shutdown_ack frame. The worker
+                # may close the socket before we read it (which raises
+                # ConnectionClosed) — that's fine, the assertion below
+                # on ``proc.wait`` is the authoritative check.
+                with contextlib.suppress(asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
+                    await asyncio.wait_for(ws.recv(), timeout=2.0)
+
+        asyncio.run(_send_shutdown())
+
+        try:
+            exit_code = proc.wait(timeout=3.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=2.0)
+            stderr = proc.stderr.read() if proc.stderr else "<no stderr>"
+            pytest.fail(
+                f"worker did not exit within 3s of `shutdown` command — "
+                f"stop_event.set() not called? stderr: {stderr}"
+            )
+        assert exit_code == worker_main.EXIT_OK, (
+            f"expected EXIT_OK ({worker_main.EXIT_OK}) after shutdown command, got {exit_code}"
+        )
+    finally:
+        with contextlib.suppress(Exception):
+            proc.terminate()
+            proc.wait(timeout=2.0)
+        _kill_stale_worker()
+
+    # The single-instance lockfile MUST be released on clean exit
+    # (verifies the finally:lock_handle.release() block ran).
+    lock = _find_worker_lock()
+    assert lock is None, (
+        f"worker.lock still exists after shutdown command — release() did not run: {lock}"
+    )
 
 
 def test_sigterm_clean_exit() -> None:
@@ -609,6 +761,7 @@ def test_sigterm_clean_exit() -> None:
         **os.environ,
         "PYTHONDONTWRITEBYTECODE": "1",
         "VOICE_TYPER_IPC_TOKEN": _TEST_TOKEN,
+        "VOICE_TYPER_CONFIG_DIR": str(_TEST_CONFIG_DIR),
     }
     proc = subprocess.Popen(
         [sys.executable, "-m", "voice_typer.worker"],

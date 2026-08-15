@@ -81,6 +81,10 @@ coverage.xml
 # (rlibs, rmetas, .rcgu.o, .fingerprint, build/ intermediates). It is
 # regenerated on every build and must not enter git.
 src-tauri/target/
+# Custom --target-dir variants used by verification runs (NOT gitignored by
+# the default target/ rule — must be listed explicitly so they never appear
+# in `git status`).
+src-tauri/target-gnu*/
 # Tauri v2 build output (bundles/binaries/resources copied by `tauri build`).
 src-tauri/src-tauri/
 # NOTE: src-tauri/Cargo.lock IS intentionally committed (Tauri is a binary
@@ -99,7 +103,8 @@ src-tauri/bin/
 src-tauri/resources/native/
 src-tauri/resources/prewarm-*
 src-tauri/.cargo/
-cargo-check-log.txt
+# cargo check run logs (any suffix variant: cargo-check-log.txt, -vv, -vv-full)
+cargo-check-*.txt
 src-tauri/gen/
 .sessions/
 MERGE_CONTEXT_BRIEF.md
@@ -109,5 +114,6 @@ changes/
 downloads/
 merged-output/
 status.md
+sub-worklog-*.md
 WINDOWS_PIPELINE_LOCAL_RUN_STATUS.md
 archive/deleted_files.txt

@@ -26,7 +26,7 @@ import hashlib
 from pathlib import Path
 
 import pytest
-from voice_typer.server.service import pack
+from voice_typer.server.service import offline_pack
 
 # ── Fake transport ─────────────────────────────────────────────────────
 
@@ -79,8 +79,8 @@ class TestResumeFromPartial:
         partial.write_bytes(full[:1024])  # 1024 bytes already on disk
         fake, calls = _make_fake_transport(full, expected_sha256=expected)
         dest = tmp_path / "pack-v1.partial"
-        ok = pack.download_pack_with_resume(
-            "https://github.com/owner/repo/releases/download/v1/pack.zip",
+        ok = offline_pack.download_offline_pack_with_resume(
+            "https://github.com/owner/repo/releases/download/v1/offline_pack.zip",
             dest,
             expected_sha256=expected,
             version="v1",
@@ -98,8 +98,8 @@ class TestResumeFromPartial:
         prefix = full[:500]
         partial.write_bytes(prefix)
         fake, _ = _make_fake_transport(full, expected_sha256=expected)
-        ok = pack.download_pack_with_resume(
-            "https://github.com/owner/repo/releases/download/v1/pack.zip",
+        ok = offline_pack.download_offline_pack_with_resume(
+            "https://github.com/owner/repo/releases/download/v1/offline_pack.zip",
             partial,
             expected_sha256=expected,
             version="v1",
@@ -115,8 +115,8 @@ class TestResumeFromPartial:
         partial = tmp_path / "pack-v1.partial"
         partial.write_bytes(full[:200])  # partial
         fake, _ = _make_fake_transport(full, expected_sha256=wrong_sha)
-        ok = pack.download_pack_with_resume(
-            "https://github.com/owner/repo/releases/download/v1/pack.zip",
+        ok = offline_pack.download_offline_pack_with_resume(
+            "https://github.com/owner/repo/releases/download/v1/offline_pack.zip",
             partial,
             expected_sha256=wrong_sha,
             version="v1",
@@ -137,8 +137,8 @@ class TestResumeFromPartial:
         expected = hashlib.sha256(full).hexdigest()
         dest = tmp_path / "pack-v1.partial"
         fake, _ = _make_fake_transport(full, expected_sha256=expected)
-        ok = pack.download_pack_with_resume(
-            "https://github.com/owner/repo/releases/download/v1/pack.zip",
+        ok = offline_pack.download_offline_pack_with_resume(
+            "https://github.com/owner/repo/releases/download/v1/offline_pack.zip",
             dest,
             expected_sha256=expected,
             version="v1",
@@ -146,7 +146,7 @@ class TestResumeFromPartial:
             http_get=fake,
         )
         assert ok
-        completed = [e for e in events if e["type"] == "pack_download_completed"]
+        completed = [e for e in events if e["type"] == "offline_pack_download_completed"]
         assert completed
         assert completed[0]["data"]["version"] == "v1"
         assert completed[0]["data"]["sha256"] == expected
@@ -180,8 +180,8 @@ class TestResumeFromPartial:
             return real_open(self, mode, *args, **kwargs)
 
         monkeypatch.setattr(Path, "open", fake_open)
-        ok = pack.download_pack_with_resume(
-            "https://github.com/owner/repo/releases/download/v1/pack.zip",
+        ok = offline_pack.download_offline_pack_with_resume(
+            "https://github.com/owner/repo/releases/download/v1/offline_pack.zip",
             partial,
             expected_sha256=expected,
             version="v1",

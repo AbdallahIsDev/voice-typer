@@ -54,6 +54,55 @@ log = logging.getLogger(__name__)
 VOICE_BIOMETRIC_CONSENT_FIELD = "voice_biometric_consent"
 
 
+def _notify_consent_gate(title: str, message: str) -> bool:
+    """Prefer a CLICKABLE host notification over the pystray balloon.
+
+    pystray Win32 balloons (``tray.notify_safety``) cannot carry click
+    handlers — clicking them does nothing, so a refused recording
+    leaves the user with no path to fix it. When a live Electron /
+    Tauri host is connected, publish a ``notification`` event carrying
+    ``click_consent_field`` (the voice-biometric field): the Electron
+    main-process ``notification`` handler wires ``Notification.on("click")``
+    → show window + broadcast ``navigate {path:"/settings",
+    consent_field}``, so clicking the toast lands the user on the
+    EXACT Settings consent row (mirrors the ``/models`` click_path
+    pattern in ``model_manager.py``).
+
+    Returns True when the clickable event was published (the caller
+    should NOT also show the non-clickable balloon), False otherwise
+    (no live transport / publish failed → the caller falls back to the
+    balloon so the refusal is still visible).
+    """
+    try:
+        from voice_typer.server import event_bus
+
+        if not event_bus.has_live_transport():
+            return False
+        ok = event_bus.publish(
+            {
+                "type": "notification",
+                "data": {
+                    "title": title,
+                    "message": message,
+                    "duration_ms": 0,
+                    "critical": False,
+                    "click_consent_field": VOICE_BIOMETRIC_CONSENT_FIELD,
+                },
+            }
+        )
+        if ok:
+            log.info(
+                "[DICTATION] published clickable consent notification "
+                "(click -> Settings > Voice Biometric)"
+            )
+            return True
+    except Exception:
+        log.debug(
+            "[DICTATION] clickable consent notification push failed", exc_info=True
+        )
+    return False
+
+
 def _publish_consent_required_event() -> None:
     """Best-effort publish of a ``consent_required`` push event.
 
@@ -260,10 +309,18 @@ class RecordingLifecycle:
                 )
                 try:
                     app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.consent_required"))
-                    app.tray.notify_safety(
+                    # Prefer the CLICKABLE host toast (click → Settings
+                    # → exact Voice Biometric row); fall back to the
+                    # non-clickable pystray balloon when no host
+                    # transport is live.
+                    if not _notify_consent_gate(
                         APP_NAME,
                         i18n.t("notify.recording_controller.consent_required"),
-                    )
+                    ):
+                        app.tray.notify_safety(
+                            APP_NAME,
+                            i18n.t("notify.recording_controller.consent_required"),
+                        )
                 except Exception:
                     log.debug("[DICTATION] failed to notify about missing consent", exc_info=True)
                 # Publish the ``consent_required`` push event so the
@@ -289,10 +346,14 @@ class RecordingLifecycle:
                     AppState.ERROR,
                     i18n.t("state.recording_controller.consent_required"),
                 )
-                app.tray.notify_safety(
+                if not _notify_consent_gate(
                     APP_NAME,
                     "Could not verify voice biometric consent.\nRecording refused — check Settings > Privacy.",
-                )
+                ):
+                    app.tray.notify_safety(
+                        APP_NAME,
+                        "Could not verify voice biometric consent.\nRecording refused — check Settings > Privacy.",
+                    )
             except Exception:
                 log.debug(
                     "[DICTATION] failed to notify about consent check exception",

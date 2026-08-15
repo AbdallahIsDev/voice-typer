@@ -5,14 +5,13 @@ in TrayIcon.  The data-gathering logic is now a standalone function
 so it can be tested independently and potentially shared.
 
 previously every menu rebuild (every right-click on the
-tray icon) called ``ensure_hf_env()``, did a fresh ``import qwen_asr``
-(~50–150 ms), and ran 5+ filesystem ``exists()`` checks.  This caused
-noticeable menu-open lag.  We now cache:
-
-- The qwen_asr import availability (it never changes mid-session).
-- The HuggingFace hub ``refs/main`` existence check (with a 5-second
-  TTL so a download started in the Models page is reflected within
-  5 seconds without making the user wait on every right-click).
+tray icon) called ``ensure_hf_env()`` and ran 5+ filesystem
+``exists()`` checks.  This caused noticeable menu-open lag.  We now
+cache the HuggingFace hub ``refs/main`` existence check (with a
+5-second TTL so a download started in the Models page is reflected
+within 5 seconds without making the user wait on every right-click).
+(An older ``import qwen_asr`` availability cache was removed 2026-08-15
+with the torch Qwen engine — Qwen is a built-in ONNX backend now.)
 
 Qwen availability (its ``downloaded`` flag in the submenu data) is
 NOT the qwen_asr import alone: it mirrors the Models page's
@@ -33,11 +32,8 @@ log = logging.getLogger(__name__)
 
 # caches for the model availability checks.
 # These are module-level because the tray menu is rebuilt on every
-# right-click and the underlying data (qwen_asr installed; HF model
-# downloaded) changes very rarely — only when the user installs a
-# new package or finishes a model download.
-_qwen_asr_available_cache: "bool | None" = None
-_qwen_asr_cache_checked: bool = False
+# right-click and the underlying data (HF model downloaded) changes
+# very rarely — only when the user finishes a model download.
 # Cache of (repo_id, config_dir) → (downloaded, timestamp).
 # TTL is 5 seconds: long enough to avoid per-right-click stat() calls,
 # short enough that a download finishing in the Models page is
@@ -63,7 +59,18 @@ _hf_env_ensured: bool = False
 # under this repo. Mirrors ``ModelMetadata.repo_id`` for "qwen" so the
 # tray and the Models page's ``get_model_status`` agree on what
 # "downloaded" means.
-_QWEN_REPO_ID = "Qwen/Qwen-Audio"
+# The pre-exported ONNX repo (torch-free, 2026-08-15) — the old torch
+# ``Qwen/Qwen-Audio`` repo_id was removed with the torch engine.
+_QWEN_REPO_ID = "andrewleech/qwen3-asr-1.7b-onnx"
+
+# Parakeet's ONNX export repo (fp16, torch-free) — informational
+# only: the backend registry (``model_registry.py``) declares Parakeet
+# ``network_behavior="local-only"``, so the weights are NEVER
+# auto-fetched. They live either under the configured
+# ``parakeet_model_path`` or in the HF cache under this repo. Mirrors
+# ``ModelMetadata.repo_id`` for "parakeet" so the tray and the Models
+# page's ``get_model_status`` agree on what "downloaded" means.
+_PARAKEET_REPO_ID = "visuall/parakeet-tdt-0.6b-v3-onnx-fp16"
 
 
 def _ensure_hf_env_once() -> None:
@@ -84,28 +91,6 @@ def _ensure_hf_env_once() -> None:
 
     ensure_hf_env()
     _hf_env_ensured = True
-
-
-def _check_qwen_asr_available() -> bool:
-    """Return True if qwen_asr is importable.  Cached for the session.
-
-    the ``import qwen_asr`` statement takes 50–150 ms
-        because qwen_asr pulls in heavy ML deps.  Doing this on every
-        tray right-click caused noticeable menu-open lag.  The result
-        never changes mid-session (you'd have to pip install/uninstall
-        qwen_asr), so we cache it after the first check.
-    """
-    global _qwen_asr_available_cache, _qwen_asr_cache_checked
-    if _qwen_asr_cache_checked:
-        return bool(_qwen_asr_available_cache)
-    try:
-        import qwen_asr  # noqa: F401
-
-        _qwen_asr_available_cache = True
-    except ImportError:
-        _qwen_asr_available_cache = False
-    _qwen_asr_cache_checked = True
-    return bool(_qwen_asr_available_cache)
 
 
 def _check_hf_model_downloaded(repo_id: str, config_dir) -> bool:
@@ -153,6 +138,73 @@ def _check_qwen_model_downloaded(config_dir, qwen_model_path) -> bool:
     return _check_hf_model_downloaded(_QWEN_REPO_ID, config_dir)
 
 
+def _check_parakeet_model_downloaded(config_dir, parakeet_model_path) -> bool:
+    """Return True if the Parakeet model WEIGHTS are on disk.
+
+    Mirrors ``ModelMixin._compute_model_status`` (service/model.py):
+    ``downloaded`` means the configured ``parakeet_model_path`` points
+    at an existing directory OR the HuggingFace cache holds
+    ``models--visuall--parakeet-tdt-0.6b-v3-onnx-fp16``.
+    """
+    if isinstance(parakeet_model_path, str) and Path(parakeet_model_path).is_dir():
+        return True
+    return _check_hf_model_downloaded(_PARAKEET_REPO_ID, config_dir)
+
+
+def is_active_model_downloaded(config) -> bool:
+    """Return True if the currently-configured ASR model is on disk.
+
+    Fast single-model probe mirroring ``ModelMixin._compute_model_status``
+    (service/model.py) for the ACTIVE backend only — one TTL-cached
+    HF-cache check (or path ``isdir``) instead of the full registry
+    scan. Used by:
+
+    - ``TrayIcon._compute_tooltip`` — only show the ``[model]`` suffix
+      when the model is actually downloaded (a stale ``model_size``
+      selected before the model was deleted must not be advertised).
+    - ``ModelManager._model_downloaded_precheck`` — refuse the load
+      attempt early (before the heavy engine import + LOADING state)
+      when the configured model is definitively absent.
+
+    Cloud backends (openai / groq / deepgram / custom) have no local
+    model to gate — returns True (nothing to refuse). Unknown model
+    sizes (not in ``MODEL_REGISTRY``) also return True and let the
+    load path surface its own error. Non-``Config`` objects (test
+    doubles) return True so probes never run against a real user cache
+    from a unit test.
+    """
+    # Guard: only probe against a REAL Config. Test doubles
+    # (MagicMock / SimpleNamespace / local ``_Config`` classes) are
+    # duck-typed for ``load_background`` but must not read the real
+    # user's HF cache — the probe would be nondeterministic and the
+    # pre-check would misfire. In production ``app.config`` is always a
+    # real ``Config``.
+    from voice_typer.server.config import Config as _ConfigCls
+
+    if not isinstance(config, _ConfigCls):
+        return True
+    from voice_typer.server.config import _config_dir
+
+    config_dir = _config_dir()
+    backend = getattr(config, "asr_backend", "whisper") or "whisper"
+    if backend == "qwen":
+        return _check_qwen_model_downloaded(config_dir, getattr(config, "qwen_model_path", None))
+    if backend == "parakeet":
+        return _check_parakeet_model_downloaded(config_dir, getattr(config, "parakeet_model_path", None))
+    if backend in ("whisper", "distil-whisper"):
+        model_size = getattr(config, "model_size", "tiny.en") or "tiny.en"
+        from voice_typer.server.model_registry import get_model_metadata
+
+        meta = get_model_metadata(model_size)
+        if meta is None:
+            # Unknown model size — let the load path surface its own
+            # error rather than refusing on a guessed repo id.
+            return True
+        return _check_hf_model_downloaded(meta.repo_id, config_dir)
+    # cloud / custom / unknown backend — no local model gate.
+    return True
+
+
 def invalidate_model_availability_cache() -> None:
     """Invalidate the cached model availability checks.
 
@@ -160,9 +212,6 @@ def invalidate_model_availability_cache() -> None:
     right-click reflects the newly-downloaded model immediately,
     without waiting for the TTL to expire.
     """
-    global _qwen_asr_available_cache, _qwen_asr_cache_checked
-    _qwen_asr_available_cache = None
-    _qwen_asr_cache_checked = False
     _hf_download_cache.clear()
 
 
@@ -239,15 +288,12 @@ def build_models_submenu_data(
     for name, backend, repo_id in candidates:
         downloaded = False
         if backend == "qwen":
-            # Align the tray with the Models page's ``get_model_status``
-            # semantics: ``downloaded`` means model WEIGHTS on disk
-            # (``qwen_model_path`` dir OR HF cache), and the ``qwen_asr``
-            # pip package must be importable (the ``deps_ok`` gate —
-            # cached, avoiding the 50–150 ms import on every
-            # right-click). Previously the tray gated Qwen ONLY on the
-            # package import, so Qwen showed as selectable with zero
-            # weights downloaded and the click failed at load time.
-            downloaded = _check_qwen_asr_available() and _check_qwen_model_downloaded(
+            # Qwen is a built-in ONNX backend now (qwen_onnx_model.py —
+            # no pip package gate; onnxruntime is a base dependency).
+            # ``downloaded`` means an ONNX model dir is on disk
+            # (``qwen_model_path`` dir OR HF cache), matching the Models
+            # page's ``get_model_status`` semantics.
+            downloaded = _check_qwen_model_downloaded(
                 config_dir, qwen_model_path
             )
         elif repo_id:

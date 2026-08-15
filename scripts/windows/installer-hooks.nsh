@@ -56,6 +56,27 @@
 ;         (Expected: {"include_offline_engine_pack": false, ...})
 ;   6. Repeat with the checkbox ticked — confirm the value is true.
 
+; ─── Terms of Service page (installer consent) ───────────────────────────
+; The installer shows a mandatory Terms-of-Service / consent page BEFORE
+; the Components page (Tauri v2 ``!include``s this file before the MUI
+; page declarations, so a page macro inserted here lands in the natural
+; wizard order: Welcome → License → Components → Directory → Install →
+; Finish). ``MUI_LICENSEPAGE_CHECKBOX`` turns the page's "I agree"
+; button into a mandatory checkbox — the installer cannot proceed
+; without ticking it, making the installer acceptance the single
+; up-front legal contract for the app's consent-gated features (the
+; app itself remains privacy-by-default; features only activate when
+; the user grants them in the onboarding Consent step / Settings).
+;
+; Guarded so a future re-include can't double-insert the page (NSIS
+; macro guards via !ifndef are the standard idiom).
+!ifndef MUI_PAGE_LICENSE_INSERTED
+  !define MUI_LICENSEPAGE_CHECKBOX
+  !define MUI_LICENSEPAGE_CHECKBOX_TEXT "I agree to the Terms of Service and consent terms"
+  !insertmacro MUI_PAGE_LICENSE "${__FILEDIR__}\installer-license.txt"
+  !define MUI_PAGE_LICENSE_INSERTED
+!endif
+
 ; ─── Section variable ─────────────────────────────────────────────────────
 ; NSIS ``Var`` declarations are file-scoped — declaring here is safe even
 ; though ``installer.nsi`` (Tauri-generated) declares its own. The Var is

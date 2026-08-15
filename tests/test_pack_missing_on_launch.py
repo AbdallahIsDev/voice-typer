@@ -16,8 +16,8 @@ Tested behaviors:
      closed — never trust a partial).
   5. ``BackgroundChecksum`` runs on a daemon thread; ``result`` is
      True (verified) or False (corrupt).
-  6. ``BackgroundChecksum`` publishes ``pack_verified`` on success and
-     ``pack_corrupt`` on failure.
+  6. ``BackgroundChecksum`` publishes ``offline_pack_verified`` on success and
+     ``offline_pack_corrupt`` on failure.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ import json
 from pathlib import Path
 
 import pytest
-from voice_typer.server.service import pack
+from voice_typer.server.service import offline_pack
 
 
 def _sha256(b: bytes) -> str:
@@ -59,27 +59,27 @@ class TestPackExists:
 
     def test_present_pack_returns_true(self, tmp_path: Path):
         _write_valid_pack(tmp_path, "v1")
-        assert pack.pack_exists("v1", root=tmp_path) is True
+        assert offline_pack.offline_pack_exists("v1", root=tmp_path) is True
 
     def test_missing_manifest_returns_false(self, tmp_path: Path):
         (tmp_path / "v1").mkdir()  # dir exists, no manifest
-        assert pack.pack_exists("v1", root=tmp_path) is False
+        assert offline_pack.offline_pack_exists("v1", root=tmp_path) is False
 
     def test_missing_file_returns_false(self, tmp_path: Path):
         _write_valid_pack(tmp_path, "v1")
         (tmp_path / "v1" / "worker.exe").unlink()
-        assert pack.pack_exists("v1", root=tmp_path) is False
+        assert offline_pack.offline_pack_exists("v1", root=tmp_path) is False
 
     def test_malformed_manifest_returns_false(self, tmp_path: Path):
         root = tmp_path / "v1"
         root.mkdir()
         (root / "worker.exe").write_bytes(b"x")
         (root / "pack-manifest.json").write_text("{broken json")
-        assert pack.pack_exists("v1", root=tmp_path) is False
+        assert offline_pack.offline_pack_exists("v1", root=tmp_path) is False
 
     def test_completely_missing_dir_returns_false(self, tmp_path: Path):
         # No version directory at all.
-        assert pack.pack_exists("nonexistent-version", root=tmp_path) is False
+        assert offline_pack.offline_pack_exists("nonexistent-version", root=tmp_path) is False
 
 
 class TestBackgroundChecksum:
@@ -93,11 +93,11 @@ class TestBackgroundChecksum:
             def publish(self, ev):
                 events.append(ev)
 
-        bg = pack.BackgroundChecksum("v1", event_bus=FakeBus(), root=tmp_path)
+        bg = offline_pack.BackgroundChecksum("v1", event_bus=FakeBus(), root=tmp_path)
         bg.start()
         result = bg.join(timeout_s=5.0)
         assert result is True
-        verified = [e for e in events if e["type"] == "pack_verified"]
+        verified = [e for e in events if e["type"] == "offline_pack_verified"]
         assert verified
         assert verified[0]["data"]["version"] == "v1"
 
@@ -111,31 +111,31 @@ class TestBackgroundChecksum:
             def publish(self, ev):
                 events.append(ev)
 
-        bg = pack.BackgroundChecksum("v1", event_bus=FakeBus(), root=tmp_path)
+        bg = offline_pack.BackgroundChecksum("v1", event_bus=FakeBus(), root=tmp_path)
         bg.start()
         result = bg.join(timeout_s=5.0)
         assert result is False
-        corrupt = [e for e in events if e["type"] == "pack_corrupt"]
+        corrupt = [e for e in events if e["type"] == "offline_pack_corrupt"]
         assert corrupt
         assert corrupt[0]["data"]["version"] == "v1"
 
     def test_done_property_clears_after_run(self, tmp_path: Path):
         _write_valid_pack(tmp_path, "v1")
-        bg = pack.BackgroundChecksum("v1", root=tmp_path)
+        bg = offline_pack.BackgroundChecksum("v1", root=tmp_path)
         assert bg.done is False
         bg.start()
         bg.join(timeout_s=5.0)
         assert bg.done is True
 
     def test_join_before_start_returns_none(self, tmp_path: Path):
-        bg = pack.BackgroundChecksum("v1", root=tmp_path)
+        bg = offline_pack.BackgroundChecksum("v1", root=tmp_path)
         # No start() call → join returns None (no thread to join).
         assert bg.join(timeout_s=0.1) is None
 
     def test_start_idempotent(self, tmp_path: Path):
         """Calling ``start()`` twice does not spawn two threads."""
         _write_valid_pack(tmp_path, "v1")
-        bg = pack.BackgroundChecksum("v1", root=tmp_path)
+        bg = offline_pack.BackgroundChecksum("v1", root=tmp_path)
         bg.start()
         first_thread = bg._thread
         bg.start()

@@ -4,17 +4,25 @@ Source marker: ``tests/test_new_mem_001_gpu_release.py``.
 
 Regression tests for NEW-MEM-001: GPU memory not released on backend switch.
 
-Previously, ``del self._model; gc.collect()`` released Python references
-but PyTorch's CUDA caching allocator retained the freed blocks for
-reuse.  After 2 backend switches (Whisper → Parakeet → Whisper) on
-RTX 3060/4060 (8–12 GB VRAM), the accumulated cached blocks caused
-GPU OOMs.
-
-The fix adds a shared ``release_gpu_memory()`` helper that calls
+Originally, ``del self._model; gc.collect()`` released Python references
+but PyTorch's CUDA caching allocator retained the freed blocks for reuse.
+After 2 backend switches (Whisper → Parakeet → Whisper) on RTX 3060/4060
+(8–12 GB VRAM), the accumulated cached blocks caused GPU OOMs. The fix
+added a shared ``release_gpu_memory()`` helper that called
 ``torch.cuda.empty_cache()`` after every model unload / fallback path.
 
-Class/method names, assertion logic, and imports below are preserved
-verbatim from the original monolith — only file location has changed.
+After the ONNX Runtime migration (PLAN_ONNX_INTEGRATION.md §5.2), torch
+is no longer a project dependency. ONNX Runtime has **no**
+``empty_cache()`` API — the CUDA arena is freed automatically when the
+``ort.InferenceSession`` is destroyed (i.e. when the engine drops its
+session reference and ``gc.collect()`` runs). The helper is therefore a
+no-op for ORT, kept for API compatibility with existing callers in
+``TranscriptionEngine.unload()``, ``ParakeetEngine.unload()``, and
+``QwenEngine.unload()``.
+
+These tests pin the post-ONNX no-op contract: ``release_gpu_memory()``
+must NOT invoke any ``torch.cuda.*`` method (because ORT has no
+equivalent — the helper is a no-op regardless of torch / CUDA state).
 """
 
 # === Source: tests/test_new_mem_001_gpu_release.py ===
@@ -30,7 +38,8 @@ from voice_typer.server.asr_utils import release_gpu_memory
 
 
 class TestReleaseGpuMemoryHelper:
-    """The shared helper must be safe in every environment."""
+    """The shared helper is a no-op for ONNX Runtime — kept for API
+    compatibility with the existing ``unload()`` call sites."""
 
     def test_no_torch_installed_is_noop(self, monkeypatch):
         """When torch is not installed, the helper must silently no-op."""
@@ -39,23 +48,18 @@ class TestReleaseGpuMemoryHelper:
         # Must not raise.
         release_gpu_memory()
 
-    def test_cuda_not_available_is_noop(self, monkeypatch):
-        """When CUDA is not available, the helper must no-op."""
-        fake_torch = MagicMock()
-        fake_torch.cuda.is_available.return_value = False
-        fake_torch.cuda.synchronize = MagicMock()
-        fake_torch.cuda.empty_cache = MagicMock()
-        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    def test_does_not_invoke_torch_cuda_api_when_cuda_available(self, monkeypatch):
+        """The post-ONNX helper is a no-op regardless of torch / CUDA
+        state. Even when a fake ``torch.cuda.is_available()`` would
+        return True, the helper MUST NOT call ``is_available`` /
+        ``synchronize`` / ``empty_cache`` — ONNX Runtime has no
+        ``empty_cache()`` API, and the helper exists only for backward
+        compatibility with the existing ``unload()`` call sites (see
+        PLAN_ONNX_INTEGRATION.md §5.2).
 
-        release_gpu_memory()
-
-        # is_available was called; synchronize/empty_cache were NOT.
-        fake_torch.cuda.is_available.assert_called_once()
-        fake_torch.cuda.synchronize.assert_not_called()
-        fake_torch.cuda.empty_cache.assert_not_called()
-
-    def test_calls_empty_cache_when_cuda_available(self, monkeypatch):
-        """When CUDA is available, the helper must call empty_cache()."""
+        This test pins the no-op contract: a revert to the old
+        torch-based ``empty_cache()`` implementation would fail it.
+        """
         fake_torch = MagicMock()
         fake_torch.cuda.is_available.return_value = True
         fake_torch.cuda.synchronize = MagicMock()
@@ -64,14 +68,20 @@ class TestReleaseGpuMemoryHelper:
 
         release_gpu_memory()
 
-        # is_available, synchronize, and empty_cache were all called.
-        fake_torch.cuda.is_available.assert_called_once()
-        fake_torch.cuda.synchronize.assert_called_once()
-        fake_torch.cuda.empty_cache.assert_called_once()
+        # The post-ONNX no-op must NOT touch the torch.cuda API at all.
+        fake_torch.cuda.is_available.assert_not_called()
+        fake_torch.cuda.synchronize.assert_not_called()
+        fake_torch.cuda.empty_cache.assert_not_called()
 
     def test_swallows_runtime_errors(self, monkeypatch):
         """If torch.cuda.synchronize() raises (e.g. CUDA not initialized),
-        the helper must not propagate the exception."""
+        the helper must not propagate the exception.
+
+        Post-ONNX this is trivially true (the no-op never calls
+        ``synchronize``), but the assertion is preserved so a future
+        revert to the torch-based implementation would still be
+        regression-proof.
+        """
         fake_torch = MagicMock()
         fake_torch.cuda.is_available.return_value = True
         fake_torch.cuda.synchronize.side_effect = RuntimeError("cuda not initialized")
@@ -81,7 +91,8 @@ class TestReleaseGpuMemoryHelper:
         # Must not raise.
         release_gpu_memory()
 
-        # empty_cache was NOT called because synchronize raised first.
+        # empty_cache was NOT called (no-op path; pre-ONNX this verified
+        # the synchronize-raised branch).
         fake_torch.cuda.empty_cache.assert_not_called()
 
 

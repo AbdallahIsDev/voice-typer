@@ -474,6 +474,17 @@ def setup_logging(
         terminal ``--port`` run still gets colours (a terminal IS a
         TTY, so the old ``or port_mode`` was redundant for the case it
         was designed for).
+    process_name:
+        Routes the rotating file handler to a per-process file so
+        concurrent processes don't race on the same file.  ``"main"``
+        (default) → ``voice-typer.log``; ``"prewarm"`` → ``prewarm.log``;
+        ``"worker"`` → ``worker.log``.  The runtime-pack worker
+        (``voice_typer/worker/__main__.py``) passes ``"worker"`` so it
+        doesn't share a file descriptor with the slim-core sidecar
+        (both writing to ``voice-typer.log`` would race on the
+        ``_SecureTruncatingFileHandler``'s in-place truncation
+        rotation).  An unrecognised value falls back to
+        ``voice-typer.log``.
 
     Returns
     -------
@@ -521,9 +532,13 @@ def setup_logging(
         if os.name == "posix":
             with contextlib.suppress(OSError):
                 os.chmod(config_dir, 0o700)
-        # Single-file policy: process_name == "prewarm" routes to
-        # prewarm.log so the prewarm and main processes don't race on
-        # the same file (there is no separate voice-typer-prewarm.log).
+        # Single-file policy: process_name routes each long-lived
+        # process to its OWN file so concurrent writers never share a
+        # file descriptor on the same file (the rotation race covered
+        # by ``tests/test_log_multiprocess.py``).
+        # ``"main"`` → ``voice-typer.log``; ``"prewarm"`` →
+        # ``prewarm.log``; ``"worker"`` → ``worker.log``; any other
+        # value falls back to ``voice-typer.log``.
         log_file = get_log_file_path(config_dir, process_name=process_name)
 
         # structured JSON logging is opt-in via VOICE_TYPER_LOG_JSON.
@@ -783,11 +798,21 @@ def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "ma
     literal here means the viewer and ``setup_logging`` agree on the
     filename even if it ever changes.
 
-    The ``process_name`` parameter routes
-    the prewarm process to ``prewarm.log`` (its single file) so the
-    prewarm and main processes don't race on the same file.
-    ``"main"`` (and any unrecognised value) routes to ``voice-typer.log``;
-    ``"prewarm"`` routes to ``prewarm.log``.
+    The ``process_name`` parameter routes each long-lived process to
+    its OWN file so concurrent writers never share a file descriptor
+    on the same file (which would race on the
+    :class:`_SecureTruncatingFileHandler`'s in-place truncation
+    rotation — see ``tests/test_log_multiprocess.py`` for
+    the failure mode).
+
+    Routing table:
+
+    - ``"main"`` (default) and any unrecognised value → ``voice-typer.log``
+    - ``"prewarm"`` → ``prewarm.log``
+    - ``"worker"`` → ``worker.log`` (the runtime-pack WebSocket worker
+      spawned by the Tauri host; without this case it would fall
+      through to ``voice-typer.log`` and race the slim-core sidecar's
+      rotation — the same race that motivated the ``prewarm`` case).
 
     Parameters
     ----------
@@ -797,14 +822,17 @@ def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "ma
         :func:`voice_typer.server._paths.config_dir` (lazy import to
         avoid circular imports at module load time).
     process_name:
-        ``"main"`` (default) or ``"prewarm"``. Controls which log file
-        is returned.
+        ``"main"`` (default), ``"prewarm"``, or ``"worker"``. Controls
+        which log file is returned.  An unrecognised value falls back
+        to the main log path (defensive — see
+        ``test_get_log_file_path_unknown_process_name_falls_back_to_main``).
 
     Returns
     -------
     Path
-        ``<config_dir>/voice-typer.log`` or ``<config_dir>/prewarm.log``.
-        The path may not yet exist on disk — callers should check ``.exists()`` before opening.
+        ``<config_dir>/voice-typer.log`` / ``<config_dir>/prewarm.log`` /
+        ``<config_dir>/worker.log``.  The path may not yet exist on disk —
+        callers should check ``.exists()`` before opening.
     """
     if config_dir is None:
         from voice_typer.server import _paths
@@ -814,6 +842,18 @@ def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "ma
         # Single-file policy: the prewarm process writes to ONE file —
         # ``prewarm.log``.  There is no separate ``voice-typer-prewarm.log``.
         return config_dir / "prewarm.log"
+    if process_name == "worker":
+        # Single-file policy: the runtime-pack WebSocket worker
+        # (``voice_typer/worker/__main__.py``) writes to its OWN file
+        # so it never shares a file descriptor with the slim-core
+        # sidecar (``voice-typer.log``).  Concurrent writes by both
+        # processes to ``voice-typer.log`` would race on the
+        # ``_SecureTruncatingFileHandler``'s in-place truncation
+        # rotation (maxBytes=5 MiB, backupCount=0) — exactly the race
+        # the ``prewarm`` case above was added to eliminate.  The
+        # worker calls ``setup_logging(config_dir, process_name="worker")``
+        # so this branch is exercised on every worker launch.
+        return config_dir / "worker.log"
     return config_dir / "voice-typer.log"
 
 

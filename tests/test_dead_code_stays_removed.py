@@ -802,6 +802,9 @@ class TestExtendUrlAllowlistIsWired:
             # ConfigHandlersMixin: set_config trusted_extra_hosts re-apply
             # + the add_trusted_endpoint IPC handler.
             "voice_typer/server/handlers/config_handlers.py",
+            # Pack downloads: service/pack.py filters model-pack URLs
+            # through the allowlist before fetching (SSRF hardening).
+            "voice_typer/server/service/offline_pack.py",
         }
     )
 

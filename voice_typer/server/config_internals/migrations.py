@@ -35,10 +35,11 @@ from typing import Any
 
 log = logging.getLogger("voice_typer.server.config")
 
-_CURRENT_SCHEMA_VERSION = 3
+_CURRENT_SCHEMA_VERSION = 4
 
 # _MIGRATIONS infrastructure for schema version migrations.
 # v3 prunes deprecated dead-code keys.
+# v4 renames the offline-pack consent flag (2026-08-14, offline_pack rename).
 # T1-F3: typed as ``dict[int, Callable[[dict[str, Any]], dict[str, Any]]]``
 # so static checkers can verify that every registered migration is a function
 # taking a config dict and returning a (possibly mutated) config dict.
@@ -121,8 +122,32 @@ def _migrate_to_v3(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def _migrate_to_v4(data: dict[str, Any]) -> dict[str, Any]:
+    """Migrate config from schema v3 to v4 (2026-08-14 offline-pack rename).
+
+    Renames the consent flag ``runtime_pack_consent`` -> ``offline_pack_consent``
+    (the feature was renamed from "runtime pack" to "offline pack").
+    ``runtime_pack_consent`` was introduced 2026-08-13 (auto-update
+    feature, docs/auto-update-feature.md), so v3 configs may carry it.
+    Both keys absent is fine (default False). If the target key already
+    exists (e.g. user edited config.json by hand), the old key is
+    dropped in favour of the explicit new value.
+    """
+    data.setdefault("_load_warnings", [])
+    if "runtime_pack_consent" in data:
+        log.info(
+            "[CONFIG] migrating schema v3 -> v4: renaming runtime_pack_consent -> offline_pack_consent"
+        )
+        data.setdefault("offline_pack_consent", data.pop("runtime_pack_consent"))
+        data["_load_warnings"].append(
+            "runtime_pack_consent renamed to offline_pack_consent (schema v4 migration)"
+        )
+    return data
+
+
 _MIGRATIONS[2] = _migrate_to_v2
 _MIGRATIONS[3] = _migrate_to_v3
+_MIGRATIONS[4] = _migrate_to_v4
 
 
 def _run_migrations(

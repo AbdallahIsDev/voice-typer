@@ -24,7 +24,7 @@ import threading
 import time
 
 import pytest
-from voice_typer.server.service import pack
+from voice_typer.server.service import offline_pack
 
 
 class TestEarlyTranscribe:
@@ -32,21 +32,21 @@ class TestEarlyTranscribe:
 
     def test_early_request_is_queued(self):
         """A request arriving before the pack is ready is queued."""
-        q = pack.PackTranscriptionQueue()
+        q = offline_pack.OfflinePackTranscriptionQueue()
         queued = q.enqueue({"audio_path": "/tmp/early.wav", "sample_rate": 16000})
         assert queued is True
         assert q.waiting == 1
 
     def test_renderer_shows_preparing_when_waiting(self):
         """``q.waiting > 0`` is the renderer's signal to show "Preparing…"."""
-        q = pack.PackTranscriptionQueue()
+        q = offline_pack.OfflinePackTranscriptionQueue()
         assert q.waiting == 0  # no preparing line
         q.enqueue({"audio_path": "/tmp/a.wav"})
         assert q.waiting > 0  # show preparing line
 
     def test_auto_continue_on_mark_ready(self):
         """When the pack becomes ready, queued requests are drained in order."""
-        q = pack.PackTranscriptionQueue()
+        q = offline_pack.OfflinePackTranscriptionQueue()
         q.enqueue({"audio_path": "/tmp/a.wav"})
         q.enqueue({"audio_path": "/tmp/b.wav"})
         q.enqueue({"audio_path": "/tmp/c.wav"})
@@ -60,7 +60,7 @@ class TestEarlyTranscribe:
 
     def test_post_ready_request_not_queued(self):
         """A request arriving AFTER ``mark_ready`` is NOT queued."""
-        q = pack.PackTranscriptionQueue()
+        q = offline_pack.OfflinePackTranscriptionQueue()
         q.mark_ready(worker_pid=1)
         queued = q.enqueue({"audio_path": "/tmp/late.wav"})
         assert queued is False
@@ -73,7 +73,7 @@ class TestEarlyTranscribe:
         ``mark_ready``. Every request is either in the drained list
         or returns False (post-ready). No request is silently lost.
         """
-        q = pack.PackTranscriptionQueue()
+        q = offline_pack.OfflinePackTranscriptionQueue()
         drained_lock = threading.Lock()
         drained: list[dict] = []
         enqueued_count = {"n": 0}
@@ -108,7 +108,7 @@ class TestEarlyTranscribe:
 
     def test_preparing_line_clears_after_ready(self):
         """After ``mark_ready``, ``q.waiting`` is 0 (preparing line hides)."""
-        q = pack.PackTranscriptionQueue()
+        q = offline_pack.OfflinePackTranscriptionQueue()
         q.enqueue({"audio_path": "/tmp/a.wav"})
         assert q.waiting > 0
         q.mark_ready(worker_pid=1)

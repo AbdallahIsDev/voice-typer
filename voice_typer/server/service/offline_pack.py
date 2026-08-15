@@ -6,7 +6,7 @@ A SEPARATE consent-gated downloader for the ML **runtime pack**
 
 * the pack download phones home to **GitHub Releases** (revealing the
   user's IP to Microsoft), so it MUST be gated on a DIFFERENT consent
-  flag — :attr:`Config.runtime_pack_consent` — NOT
+  flag — :attr:`Config.offline_pack_consent` — NOT
   :attr:`Config.huggingface_consent` (which gates HuggingFace model
   downloads only). See §8.4 / C-DATA-1.
 * the pack is verified against a new ``pack-manifest.json`` manifest
@@ -39,7 +39,7 @@ Edge cases handled (full list in §8):
   * §8.2  corruption recovery (3 attempts, exponential backoff)
   * §8.3  atomic swap (Windows: stop worker → rename → start worker;
           POSIX: rename-over)
-  * §8.4  consent gate (``runtime_pack_consent`` flag)
+  * §8.4  consent gate (``offline_pack_consent`` flag)
   * §8.5  metered detection (Windows NLM only; manual elsewhere)
   * §8.6  corporate proxy (``HTTP_PROXY`` / ``HTTPS_PROXY`` + SSRF gate)
   * §8.7  GitHub rate limit (1s/2s/4s/8s, ``X-RateLimit-Reset``)
@@ -62,16 +62,16 @@ Edge cases handled (full list in §8):
 IPC events published (Sub-agent 8 owns the allowlist wiring; we
 PUBLISH via :func:`voice_typer.server.event_bus.publish`):
 
-  * ``pack_download_started``    — payload ``{version, url, total_bytes}``
-  * ``pack_download_progress``   — payload ``{version, progress,
+  * ``offline_pack_download_started``    — payload ``{version, url, total_bytes}``
+  * ``offline_pack_download_progress``   — payload ``{version, progress,
                                     downloaded_bytes, total_bytes,
                                     speed_bytes_per_sec, eta_seconds}``
-  * ``pack_download_completed``  — payload ``{version, sha256}``
-  * ``pack_download_failed``     — payload ``{version, reason, attempts}``
-  * ``pack_verified``            — payload ``{version, sha256}``
-  * ``pack_missing``             — payload ``{version, path}``
-  * ``pack_corrupt``             — payload ``{version, path, reason}``
-  * ``pack_ready``               — payload ``{version, worker_pid}``
+  * ``offline_pack_download_completed``  — payload ``{version, sha256}``
+  * ``offline_pack_download_failed``     — payload ``{version, reason, attempts}``
+  * ``offline_pack_verified``            — payload ``{version, sha256}``
+  * ``offline_pack_missing``             — payload ``{version, path}``
+  * ``offline_pack_corrupt``             — payload ``{version, path, reason}``
+  * ``offline_pack_ready``               — payload ``{version, worker_pid}``
   * ``worker_started``           — payload ``{pid, version}``
   * ``worker_crashed``           — payload ``{pid, exit_code}``
   * ``worker_unloaded``          — payload ``{reason}``
@@ -79,7 +79,7 @@ PUBLISH via :func:`voice_typer.server.event_bus.publish`):
                                     sample_rate, language}``
   * ``transcribe_offline_result`` — payload ``{text, latency_ms}``
 
-The :data:`PACK_EVENT_TYPES` constant below is the canonical list —
+The :data:`OFFLINE_PACK_EVENT_TYPES` constant below is the canonical list —
 Sub-agent 8 imports it to wire the IPC allowlists in lockstep.
 """
 
@@ -97,7 +97,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, BinaryIO, TypedDict
 
 from voice_typer.server._paths import LOOPBACK_HOSTS  # noqa: F401 — re-export for tests
 from voice_typer.server.branding import APP_NAME
@@ -115,7 +115,7 @@ log = logging.getLogger(__name__)
 # ── Manifest schema (§4.6) ────────────────────────────────────────────────
 
 
-class PackFileEntry(TypedDict):
+class OfflinePackFileEntry(TypedDict):
     """One file entry inside a ``pack-manifest.json``."""
 
     name: str
@@ -123,7 +123,7 @@ class PackFileEntry(TypedDict):
     size: int
 
 
-class PackManifest(TypedDict):
+class OfflinePackManifest(TypedDict):
     """``pack-manifest.json`` schema (§4.6).
 
     Lives at the per-platform pack path:
@@ -134,7 +134,7 @@ class PackManifest(TypedDict):
 
     version: str
     sha256: str
-    files: list[PackFileEntry]
+    files: list[OfflinePackFileEntry]
     min_proto_version: int
 
 
@@ -143,39 +143,50 @@ class PackManifest(TypedDict):
 # Pack size budget per §5.3: 180 MB compressed + 450 MB unpacked = 630 MB
 # required (with margin). Mirrors the ``_DISK_SPACE_MARGIN_MB`` pattern
 # in :mod:`voice_typer.server.asr_utils`.
-PACK_COMPRESSED_MB = 180
-PACK_UNPACKED_MB = 450
-PACK_REQUIRED_MB = PACK_COMPRESSED_MB + PACK_UNPACKED_MB  # 630 MB total
+OFFLINE_PACK_COMPRESSED_MB = 180
+OFFLINE_PACK_UNPACKED_MB = 450
+OFFLINE_PACK_REQUIRED_MB = OFFLINE_PACK_COMPRESSED_MB + OFFLINE_PACK_UNPACKED_MB  # 630 MB total
+
+# Per-file size cap (defense-in-depth — §5.5, §8.8). The pack total is
+# ~530 MB compressed+unpacked; individual files are typically << 100 MB
+# (the largest is the worker exe at ~80 MB). A 500 MB per-file cap
+# rejects PATOLOGICAL entries (e.g. a 100 GB size field that would
+# crash the disk-space check or be used as a DoS vector) while allowing
+# any legitimate file in the pack. The cap is defense-in-depth —
+# already mitigated by per-file SHA-256 verification (a malicious file
+# with a wrong size field fails the hash check) + the 630 MB disk-space
+# check (the pack download aborts when free space < 630 MB).
+OFFLINE_PACK_MAX_PER_FILE_BYTES = 500 * 1024 * 1024  # 500 MB
 
 # ── Retry / backoff (§8.2, §8.7) ─────────────────────────────────────────
 
 # Corruption recovery (§8.2): discard + re-download, up to 3 attempts.
-PACK_MAX_CORRUPTION_RETRIES = 3
+OFFLINE_PACK_MAX_CORRUPTION_RETRIES = 3
 
 # GitHub rate limit (§8.7): exponential backoff 1s, 2s, 4s, 8s.
-PACK_RATE_LIMIT_BACKOFF_S: tuple[float, ...] = (1.0, 2.0, 4.0, 8.0)
-PACK_RATE_LIMIT_MAX_ATTEMPTS = 3
+OFFLINE_PACK_RATE_LIMIT_BACKOFF_S: tuple[float, ...] = (1.0, 2.0, 4.0, 8.0)
+OFFLINE_PACK_RATE_LIMIT_MAX_ATTEMPTS = 3
 
 # ── Lock file (§8.13) ────────────────────────────────────────────────────
 
 # Lock acquisition is blocking with a short timeout — the second
 # instance waits, sees the lock-file version, and either defers (same
 # version) or proceeds with its own download (different version).
-PACK_LOCK_TIMEOUT_S = 30.0
-PACK_LOCK_POLL_S = 0.25
+OFFLINE_PACK_LOCK_TIMEOUT_S = 30.0
+OFFLINE_PACK_LOCK_POLL_S = 0.25
 
 # ── IPC events (§7.4 — published via event_bus.publish) ──────────────────
 
-PACK_EVENT_TYPES: frozenset[str] = frozenset(
+OFFLINE_PACK_EVENT_TYPES: frozenset[str] = frozenset(
     {
-        "pack_download_started",
-        "pack_download_progress",
-        "pack_download_completed",
-        "pack_download_failed",
-        "pack_verified",
-        "pack_missing",
-        "pack_corrupt",
-        "pack_ready",
+        "offline_pack_download_started",
+        "offline_pack_download_progress",
+        "offline_pack_download_completed",
+        "offline_pack_download_failed",
+        "offline_pack_verified",
+        "offline_pack_missing",
+        "offline_pack_corrupt",
+        "offline_pack_ready",
         "worker_started",
         "worker_crashed",
         "worker_unloaded",
@@ -188,23 +199,23 @@ PACK_EVENT_TYPES: frozenset[str] = frozenset(
 # ── Exceptions ───────────────────────────────────────────────────────────
 
 
-class PackConsentRequiredError(RuntimeError):
+class OfflinePackConsentRequiredError(RuntimeError):
     """Raised when a pack download is attempted without
-    :attr:`Config.runtime_pack_consent`.
+    :attr:`Config.offline_pack_consent`.
 
     Mirrors :class:`voice_typer.server.asr_errors.ConsentRequiredError`
     so the IPC layer can ``isinstance``-check and surface a consent
     dialog instead of an error toast. The structured fields let the
     renderer deep-link to the exact Settings toggle.
 
-    The consent flag is ``runtime_pack_consent`` — NOT
+    The consent flag is ``offline_pack_consent`` — NOT
     ``huggingface_consent`` — because the pack download phones home to
     GitHub Releases (Microsoft), not HuggingFace. See §8.4.
     """
 
     provider: str = "github"
     scope: str = "download"
-    consent_field: str = "runtime_pack_consent"
+    consent_field: str = "offline_pack_consent"
 
     def __init__(self, message: str | None = None, *, version: str | None = None) -> None:
         self.version = version
@@ -214,7 +225,7 @@ class PackConsentRequiredError(RuntimeError):
         )
 
 
-class PackCorruptError(RuntimeError):
+class OfflinePackCorruptError(RuntimeError):
     """Raised when the downloaded pack fails SHA-256 verification."""
 
     def __init__(self, message: str, *, version: str, path: str, attempts: int) -> None:
@@ -224,7 +235,7 @@ class PackCorruptError(RuntimeError):
         super().__init__(message)
 
 
-class PackDiskFullError(OSError):
+class OfflinePackDiskFullError(OSError):
     """Raised when the disk fills mid-download (§8.9)."""
 
     def __init__(self, message: str, *, version: str, path: str) -> None:
@@ -233,7 +244,7 @@ class PackDiskFullError(OSError):
         super().__init__(message)
 
 
-class PackRateLimitError(RuntimeError):
+class OfflinePackRateLimitError(RuntimeError):
     """Raised when GitHub returns 403 / 429 and the retry budget is exhausted."""
 
     def __init__(self, message: str, *, version: str, reset_at: float | None) -> None:
@@ -245,7 +256,7 @@ class PackRateLimitError(RuntimeError):
 # ── Cross-platform path resolution (§4.7) ────────────────────────────────
 
 
-def _default_pack_root() -> Path:
+def _default_offline_pack_root() -> Path:
     """Resolve the per-platform default pack root directory.
 
     Mirrors the path table documented in §4.7 (which itself mirrors
@@ -272,32 +283,32 @@ def _default_pack_root() -> Path:
     return Path(xdg) / "voice-typer" / "runtime-pack"
 
 
-def pack_dir_for_version(version: str, *, root: Path | None = None) -> Path:
+def offline_pack_dir_for_version(version: str, *, root: Path | None = None) -> Path:
     """Return ``<pack-root>/<version>/`` for the given pack version.
 
     The directory may not exist yet — callers should ``mkdir(parents=True,
     exist_ok=True)`` before writing.
     """
-    base = root if root is not None else _default_pack_root()
+    base = root if root is not None else _default_offline_pack_root()
     return base / version
 
 
-def pack_manifest_path(version: str, *, root: Path | None = None) -> Path:
+def offline_pack_manifest_path(version: str, *, root: Path | None = None) -> Path:
     """Return the path to ``pack-manifest.json`` for *version*."""
-    return pack_dir_for_version(version, root=root) / "pack-manifest.json"
+    return offline_pack_dir_for_version(version, root=root) / "pack-manifest.json"
 
 
-def pack_partial_path(version: str, *, root: Path | None = None) -> Path:
+def offline_pack_partial_path(version: str, *, root: Path | None = None) -> Path:
     """Return the path to ``pack-<version>.partial`` (§8.1 resume)."""
-    return pack_dir_for_version(version, root=root) / f"pack-{version}.partial"
+    return offline_pack_dir_for_version(version, root=root) / f"pack-{version}.partial"
 
 
-def pack_lock_path(version: str, *, root: Path | None = None) -> Path:
+def offline_pack_lock_path(version: str, *, root: Path | None = None) -> Path:
     """Return the path to ``pack-<version>.lock`` (§8.13 dual-instance)."""
-    return pack_dir_for_version(version, root=root) / f"pack-{version}.lock"
+    return offline_pack_dir_for_version(version, root=root) / f"pack-{version}.lock"
 
 
-def fallback_pack_root() -> Path | None:
+def fallback_offline_pack_root() -> Path | None:
     """Return the fallback pack root when the primary is write-blocked (§8.11).
 
     Windows: roaming AppData (``%APPDATA%\\voice-typer\\runtime-pack``).
@@ -321,7 +332,7 @@ def fallback_pack_root() -> Path | None:
 # ── Manifest helpers (§4.6, §8.2) ────────────────────────────────────────
 
 
-def load_pack_manifest(manifest_path: Path) -> PackManifest | None:
+def load_offline_pack_manifest(manifest_path: Path) -> OfflinePackManifest | None:
     """Load + structurally validate ``pack-manifest.json``.
 
     Returns ``None`` when the file is missing or malformed (fail-closed
@@ -369,6 +380,15 @@ def load_pack_manifest(manifest_path: Path) -> PackManifest | None:
         if not isinstance(entry.get("size"), int) or entry["size"] < 0:
             log.error("[PACK] FAIL CLOSED: manifest %s file '%s' size invalid", manifest_path, entry.get("name"))
             return None
+        if entry["size"] > OFFLINE_PACK_MAX_PER_FILE_BYTES:
+            log.error(
+                "[PACK] FAIL CLOSED: manifest %s file '%s' size %d exceeds per-file cap %d bytes",
+                manifest_path,
+                entry.get("name"),
+                entry["size"],
+                OFFLINE_PACK_MAX_PER_FILE_BYTES,
+            )
+            return None
     if not isinstance(min_proto, int) or min_proto < 0:
         log.error("[PACK] FAIL CLOSED: manifest %s 'min_proto_version' invalid", manifest_path)
         return None
@@ -390,7 +410,7 @@ def _sha256_file(path: Path, *, chunk_bytes: int = 1 << 20) -> str:
     return h.hexdigest()
 
 
-def verify_pack_or_skip(version: str, *, root: Path | None = None) -> bool:
+def verify_offline_pack_or_skip(version: str, *, root: Path | None = None) -> bool:
     """Verify the pack for *version* against ``pack-manifest.json``.
 
     Modeled on :func:`voice_typer.server.autostart_launcher.verify_tauri_binary_or_skip`
@@ -402,15 +422,15 @@ def verify_pack_or_skip(version: str, *, root: Path | None = None) -> bool:
     - Otherwise → return True (the pack is safe to use).
 
     The check is O(pack-size) — ~450 MB hashed. Callers that need a
-    *cheap* launch-time check should use :func:`pack_exists` instead
-    and run :func:`verify_pack_or_skip` in the background (§8.10,
+    *cheap* launch-time check should use :func:`offline_pack_exists` instead
+    and run :func:`verify_offline_pack_or_skip` in the background (§8.10,
     §8.16).
     """
-    manifest_path = pack_manifest_path(version, root=root)
-    manifest = load_pack_manifest(manifest_path)
+    manifest_path = offline_pack_manifest_path(version, root=root)
+    manifest = load_offline_pack_manifest(manifest_path)
     if manifest is None:
         return False
-    pack_root = pack_dir_for_version(version, root=root)
+    pack_root = offline_pack_dir_for_version(version, root=root)
     for entry in manifest["files"]:
         path = pack_root / entry["name"]
         if not path.exists():
@@ -436,28 +456,28 @@ def verify_pack_or_skip(version: str, *, root: Path | None = None) -> bool:
     return True
 
 
-def pack_exists(version: str, *, root: Path | None = None) -> bool:
+def offline_pack_exists(version: str, *, root: Path | None = None) -> bool:
     """Cheap launch-time existence check (§8.10, §8.16).
 
     Returns True iff ``pack-<version>/pack-manifest.json`` AND every
     file declared in the manifest is **present on disk**. Does NOT
-    hash — that's :func:`verify_pack_or_skip`'s job. Use this on the
+    hash — that's :func:`verify_offline_pack_or_skip`'s job. Use this on the
     hot startup path; schedule the full checksum in the background.
     """
-    manifest_path = pack_manifest_path(version, root=root)
+    manifest_path = offline_pack_manifest_path(version, root=root)
     if not manifest_path.exists():
         return False
-    manifest = load_pack_manifest(manifest_path)
+    manifest = load_offline_pack_manifest(manifest_path)
     if manifest is None:
         return False
-    pack_root = pack_dir_for_version(version, root=root)
+    pack_root = offline_pack_dir_for_version(version, root=root)
     return all((pack_root / entry["name"]).exists() for entry in manifest["files"])
 
 
 # ── Disk space (§8.8) ────────────────────────────────────────────────────
 
 
-def check_pack_disk_space(pack_dir: Path, *, required_mb: int = PACK_REQUIRED_MB) -> None:
+def check_offline_pack_disk_space(pack_dir: Path, *, required_mb: int = OFFLINE_PACK_REQUIRED_MB) -> None:
     """Raise :class:`RuntimeError` if *pack_dir* has less than *required_mb* free.
 
     Wraps the existing :func:`voice_typer.server.asr_utils._check_disk_space_for_download`
@@ -477,7 +497,7 @@ def check_pack_disk_space(pack_dir: Path, *, required_mb: int = PACK_REQUIRED_MB
         raise RuntimeError(
             f"Insufficient disk space to download runtime pack. "
             f"Available: {available_mb} MB, Required: {required_mb} MB "
-            f"({PACK_COMPRESSED_MB} MB compressed + {PACK_UNPACKED_MB} MB unpacked). "
+            f"({OFFLINE_PACK_COMPRESSED_MB} MB compressed + {OFFLINE_PACK_UNPACKED_MB} MB unpacked). "
             f"Free up disk space and try again."
         )
     log.debug(
@@ -490,13 +510,13 @@ def check_pack_disk_space(pack_dir: Path, *, required_mb: int = PACK_REQUIRED_MB
 # ── Consent gate (§8.4) ──────────────────────────────────────────────────
 
 
-def require_runtime_pack_consent(config: Config | None, *, version: str | None = None) -> None:
+def require_offline_pack_consent(config: Config | None, *, version: str | None = None) -> None:
     """Raise :class:`PackConsentRequiredError` if consent is missing.
 
     Mirrors the pattern in
     :func:`voice_typer.server.asr_utils._require_huggingface_consent`
     (lines 307-384) but checks a DIFFERENT config field:
-    :attr:`Config.runtime_pack_consent` (not ``huggingface_consent``).
+    :attr:`Config.offline_pack_consent` (not ``huggingface_consent``).
 
     Safe default per GDPR Art. 6/13: ``config is None`` → NOT consented.
     The pack download phones home to GitHub Releases (revealing user IP
@@ -505,21 +525,21 @@ def require_runtime_pack_consent(config: Config | None, *, version: str | None =
     The caller is responsible for catching the exception and surfacing
     a consent dialog to the user.
     """
-    consent = False if config is None else bool(getattr(config, "runtime_pack_consent", False))
+    consent = False if config is None else bool(getattr(config, "offline_pack_consent", False))
     if consent:
         return
     log.warning(
-        "[PACK] runtime_pack_consent not given — refusing to download pack %s. "
+        "[PACK] offline_pack_consent not given — refusing to download pack %s. "
         "The renderer should show a consent dialog.",
         version or "<unknown>",
     )
-    raise PackConsentRequiredError(version=version)
+    raise OfflinePackConsentRequiredError(version=version)
 
 
 # ── SSRF (§8.6) ──────────────────────────────────────────────────────────
 
 
-def assert_pack_url_allowed(url: str) -> None:
+def assert_offline_pack_url_allowed(url: str) -> None:
     """SSRF gate for the pack download URL.
 
     Inherits :func:`voice_typer.server.security.url_allowlist.assert_url_allowed`
@@ -568,12 +588,12 @@ def proxy_env() -> dict[str, str]:
 # ── Lock file (§8.13) ────────────────────────────────────────────────────
 
 
-class PackLock:
+class OfflinePackLock:
     """Cross-process lock file for the pack downloader (§8.13).
 
     Acquires an exclusive lock on ``pack-<version>.lock`` inside the
     pack directory. The lock is held for the lifetime of the
-    ``PackLock`` context manager. On POSIX this uses ``fcntl.flock``
+    ``OfflinePackLock`` context manager. On POSIX this uses ``fcntl.flock``
     (advisory); on Windows it uses ``msvcrt.locking`` (mandatory).
     Both fall back to a best-effort PID-file + sleep loop if the
     native API is unavailable.
@@ -588,12 +608,16 @@ class PackLock:
         version: str,
         *,
         root: Path | None = None,
-        timeout_s: float = PACK_LOCK_TIMEOUT_S,
+        timeout_s: float = OFFLINE_PACK_LOCK_TIMEOUT_S,
     ) -> None:
         self.version = version
-        self.path = pack_lock_path(version, root=root)
+        self.path = offline_pack_lock_path(version, root=root)
         self.timeout_s = timeout_s
-        self._fh = None
+        # ``BinaryIO`` file handle of the lock file. ``None`` until
+        # :meth:`acquire` opens it (or after a failed acquire closes it).
+        # Annotated so type checkers narrow the non-None accesses in
+        # :meth:`_try_native_lock` / :meth:`_release` correctly.
+        self._fh: BinaryIO | None = None
         self._native_handle = None
         self._acquired = False
 
@@ -609,35 +633,48 @@ class PackLock:
                     self._write_pid()
                     return True
                 # Locked by another process — close our fh and retry.
-                try:
+                with contextlib.suppress(OSError):
                     self._fh.close()
-                except OSError:
-                    pass
                 self._fh = None
             except OSError as exc:
                 log.debug("[PACK] lock acquire open-failed: %s", exc)
                 return False
             if time.monotonic() >= deadline:
                 return False
-            time.sleep(PACK_LOCK_POLL_S)
+            time.sleep(OFFLINE_PACK_LOCK_POLL_S)
 
     def _try_native_lock(self) -> bool:
         """Acquire the OS-native exclusive lock on ``self._fh``."""
+        fh = self._fh
+        if fh is None:
+            # No open file handle — cannot lock (caller should have
+            # opened it in :meth:`acquire` first).
+            return False
         try:
             if platform.system() == "Windows":
                 import msvcrt
 
                 # Lock the first byte of the file. ``LK_NBLCK`` is
                 # non-blocking — we retry on failure.
+                #
+                # MUST ``seek(0)`` first: ``msvcrt.locking`` locks the
+                # byte range at the CURRENT file position, and the lock
+                # file is opened in append mode ("a+b"), so the position
+                # sits at EOF — a second opener would lock a DIFFERENT
+                # (non-overlapping) range and both lockers would
+                # succeed, defeating the exclusive lock. Locking byte 0
+                # always keeps every contender contending for the same
+                # range.
                 try:
-                    msvcrt.locking(self._fh.fileno(), msvcrt.LK_NBLCK, 1)
+                    fh.seek(0)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
                     return True
                 except OSError:
                     return False
             else:
                 import fcntl
 
-                fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 return True
         except (ImportError, OSError, AttributeError) as exc:
             log.debug("[PACK] native lock unavailable: %s — using PID-file fallback", exc)
@@ -650,30 +687,40 @@ class PackLock:
         PID is dead (or stale by >1 day), the lock is considered
         abandoned and we steal it.
         """
+        fh = self._fh
+        if fh is None:
+            return False
         try:
-            self._fh.seek(0)
-            existing = self._fh.read().decode("utf-8", errors="replace").strip()
+            fh.seek(0)
+            existing = fh.read().decode("utf-8", errors="replace").strip()
             if existing:
                 parts = existing.split(":", 1)
                 pid = int(parts[0]) if parts[0].isdigit() else None
                 started_at = float(parts[1]) if len(parts) > 1 and _is_float(parts[1]) else 0.0
-                if pid is not None and _is_process_alive(pid):
-                    if started_at > 0 and (time.time() - started_at) < 86400:
-                        return False  # live + recent — wait
+                if (
+                    pid is not None
+                    and _is_process_alive(pid)
+                    and started_at > 0
+                    and (time.time() - started_at) < 86400
+                ):
+                    return False  # live + recent — wait
                 # Stale — truncate and steal.
-                self._fh.seek(0)
-                self._fh.truncate()
+                fh.seek(0)
+                fh.truncate()
         except (OSError, ValueError):
             return False
         return True
 
     def _write_pid(self) -> None:
         """Write ``pid:start_time`` to the lock file."""
+        fh = self._fh
+        if fh is None:
+            return
         try:
-            self._fh.seek(0)
-            self._fh.truncate()
-            self._fh.write(f"{os.getpid()}:{time.time():.3f}\n".encode("ascii"))
-            self._fh.flush()
+            fh.seek(0)
+            fh.truncate()
+            fh.write(f"{os.getpid()}:{time.time():.3f}\n".encode("ascii"))
+            fh.flush()
         except OSError:
             pass
 
@@ -681,31 +728,34 @@ class PackLock:
         """Release the lock. Safe to call when not acquired (no-op)."""
         if not self._acquired:
             return
+        fh = self._fh
+        if fh is None:
+            return
         try:
             if platform.system() != "Windows":
                 import fcntl
 
-                fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
             else:
                 import msvcrt
 
-                try:
-                    msvcrt.locking(self._fh.fileno(), msvcrt.LK_UNLCK, 1)
-                except OSError:
-                    pass
+                with contextlib.suppress(OSError):
+                    # seek(0) so the unlock covers the SAME byte range
+                    # that was locked (msvcrt.locking is position-based;
+                    # after ``_write_pid`` the position sits at EOF).
+                    fh.seek(0)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
         except (ImportError, OSError, AttributeError):
             pass
-        try:
-            self._fh.close()
-        except OSError:
-            pass
+        with contextlib.suppress(OSError):
+            fh.close()
         # Best-effort delete — if a second instance is waiting, the
         # file may be re-created between close + unlink; that's fine.
         with contextlib.suppress(OSError):
             self.path.unlink(missing_ok=True)
         self._acquired = False
 
-    def __enter__(self) -> PackLock:
+    def __enter__(self) -> OfflinePackLock:
         if not self.acquire():
             raise TimeoutError(f"Could not acquire pack lock {self.path} within {self.timeout_s}s")
         return self
@@ -733,9 +783,9 @@ def _is_process_alive(pid: int) -> bool:
             # For tests we accept the simpler ``OpenProcess`` path.
             import ctypes
 
-            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            process_query_limited_information = 0x1000
             kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-            h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            h = kernel32.OpenProcess(process_query_limited_information, False, pid)
             if not h:
                 return False
             kernel32.CloseHandle(h)
@@ -749,7 +799,7 @@ def _is_process_alive(pid: int) -> bool:
 # ── Atomic swap (§8.3) ──────────────────────────────────────────────────
 
 
-def atomic_swap_pack(
+def atomic_swap_offline_pack(
     new_dir: Path,
     current_dir: Path,
     *,
@@ -829,7 +879,7 @@ def atomic_swap_pack(
 # ── Download with resume (§8.1, §8.9) ────────────────────────────────────
 
 
-def download_pack_with_resume(
+def download_offline_pack_with_resume(
     url: str,
     dest: Path,
     *,
@@ -862,7 +912,7 @@ def download_pack_with_resume(
     """
     if http_get is None:
         http_get = _http_get_streaming
-    assert_pack_url_allowed(url)
+    assert_offline_pack_url_allowed(url)
     # Ensure the pack directory exists before opening the partial —
     # first launch the directory may not exist yet.
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -894,26 +944,26 @@ def download_pack_with_resume(
             offset = 0
             h = hashlib.sha256()
     # Rate-limit retry loop (§8.7).
-    backoff_iter = iter(PACK_RATE_LIMIT_BACKOFF_S)
+    backoff_iter = iter(OFFLINE_PACK_RATE_LIMIT_BACKOFF_S)
     attempt = 0
     while True:
         attempt += 1
         try:
             resp = http_get(url, offset=offset)
-        except _RateLimited as exc:
+        except _RateLimitedError as exc:
             reset_at = exc.reset_at
-            if attempt > PACK_RATE_LIMIT_MAX_ATTEMPTS:
+            if attempt > OFFLINE_PACK_RATE_LIMIT_MAX_ATTEMPTS:
                 _publish_event(
                     event_bus,
-                    "pack_download_failed",
+                    "offline_pack_download_failed",
                     {"version": version, "reason": "rate_limited", "attempts": attempt},
                 )
-                raise PackRateLimitError(
+                raise OfflinePackRateLimitError(
                     f"GitHub rate limit exhausted for pack {version}",
                     version=version,
                     reset_at=reset_at,
                 ) from exc
-            wait_s = next(backoff_iter, PACK_RATE_LIMIT_BACKOFF_S[-1])
+            wait_s = next(backoff_iter, OFFLINE_PACK_RATE_LIMIT_BACKOFF_S[-1])
             if reset_at is not None:
                 wait_s = max(wait_s, reset_at - time.time())
             log.warning(
@@ -933,7 +983,7 @@ def download_pack_with_resume(
                 total_bytes = offset + total_bytes
             _publish_event(
                 event_bus,
-                "pack_download_started",
+                "offline_pack_download_started",
                 {
                     "version": version,
                     "url": url,
@@ -948,16 +998,19 @@ def download_pack_with_resume(
                     try:
                         fh.write(chunk)
                     except OSError as exc:
-                        # §8.9: disk-full mid-download.
+                        # §8.9: disk-full mid-download. The partial is
+                        # unlinked in the ``except PackDiskFullError``
+                        # handler BELOW (after the ``with`` block has
+                        # closed the file handle) — deleting an open
+                        # file fails with PermissionError on Windows,
+                        # which would leak the partial.
                         log.error("[PACK] disk-full mid-download of %s: %s", version, exc)
-                        with contextlib.suppress(OSError):
-                            dest.unlink()
                         _publish_event(
                             event_bus,
-                            "pack_download_failed",
+                            "offline_pack_download_failed",
                             {"version": version, "reason": "disk_full", "attempts": attempt},
                         )
-                        raise PackDiskFullError(
+                        raise OfflinePackDiskFullError(
                             f"Disk full while downloading pack {version}",
                             version=version,
                             path=str(dest),
@@ -979,7 +1032,7 @@ def download_pack_with_resume(
                         )
                         _publish_event(
                             event_bus,
-                            "pack_download_progress",
+                            "offline_pack_download_progress",
                             {
                                 "version": version,
                                 "progress": pct,
@@ -991,13 +1044,19 @@ def download_pack_with_resume(
                         )
                         last_progress = now
                         last_bytes = downloaded_bytes
-        except PackDiskFullError:
+        except OfflinePackDiskFullError:
+            # §8.9: the ``with dest.open(...)`` block above has ALREADY
+            # closed the partial's file handle by the time this handler
+            # runs, so unlink is safe on every platform (Windows raises
+            # PermissionError when deleting an open file).
+            with contextlib.suppress(OSError):
+                dest.unlink()
             raise
         except OSError as exc:
             log.error("[PACK] download error: %s", exc)
             _publish_event(
                 event_bus,
-                "pack_download_failed",
+                "offline_pack_download_failed",
                 {"version": version, "reason": "io_error", "attempts": attempt},
             )
             raise
@@ -1014,13 +1073,13 @@ def download_pack_with_resume(
                 dest.unlink()
             _publish_event(
                 event_bus,
-                "pack_corrupt",
+                "offline_pack_corrupt",
                 {"version": version, "path": str(dest), "reason": "sha256_mismatch"},
             )
             return False
         _publish_event(
             event_bus,
-            "pack_download_completed",
+            "offline_pack_download_completed",
             {"version": version, "sha256": actual},
         )
         return True
@@ -1029,7 +1088,7 @@ def download_pack_with_resume(
 # ── HTTP transport (default; tests inject a fake) ────────────────────────
 
 
-class _RateLimited(Exception):
+class _RateLimitedError(Exception):
     """Internal sentinel raised by ``_http_get_streaming`` on 403/429."""
 
     def __init__(self, message: str, *, reset_at: float | None) -> None:
@@ -1059,7 +1118,7 @@ def _http_get_streaming(url: str, *, offset: int = 0) -> dict:
         reset_at: float | None = None
         if reset_hdr and reset_hdr.isdigit():
             reset_at = float(reset_hdr)
-        raise _RateLimited(f"GitHub rate limit (status {status})", reset_at=reset_at)
+        raise _RateLimitedError(f"GitHub rate limit (status {status})", reset_at=reset_at)
     if status not in (200, 206):
         raise RuntimeError(f"unexpected HTTP status {status} for {url}")
     content_length_hdr = resp.headers.get("Content-Length")
@@ -1079,11 +1138,11 @@ def _http_get_streaming(url: str, *, offset: int = 0) -> dict:
 
 
 class BackgroundChecksum:
-    """Run :func:`verify_pack_or_skip` on a daemon thread (§8.10, §8.16).
+    """Run :func:`verify_offline_pack_or_skip` on a daemon thread (§8.10, §8.16).
 
-    Launch-time path uses :func:`pack_exists` (cheap, sync).
+    Launch-time path uses :func:`offline_pack_exists` (cheap, sync).
     Background checksum runs in the daemon thread; on completion it
-    publishes ``pack_verified`` (success) or ``pack_corrupt`` (failure)
+    publishes ``offline_pack_verified`` (success) or ``offline_pack_corrupt`` (failure)
     via the event bus.
     """
 
@@ -1112,7 +1171,7 @@ class BackgroundChecksum:
 
     def _run(self) -> None:
         try:
-            ok = verify_pack_or_skip(self.version, root=self.root)
+            ok = verify_offline_pack_or_skip(self.version, root=self.root)
         except Exception:
             log.exception("[PACK] background checksum crashed for %s", self.version)
             ok = False
@@ -1121,14 +1180,18 @@ class BackgroundChecksum:
         if ok:
             _publish_event(
                 self.event_bus,
-                "pack_verified",
+                "offline_pack_verified",
                 {"version": self.version},
             )
         else:
             _publish_event(
                 self.event_bus,
-                "pack_corrupt",
-                {"version": self.version, "path": str(pack_dir_for_version(self.version, root=self.root)), "reason": "background_checksum_failed"},
+                "offline_pack_corrupt",
+                {
+                    "version": self.version,
+                    "path": str(offline_pack_dir_for_version(self.version, root=self.root)),
+                    "reason": "background_checksum_failed",
+                },
             )
 
     @property
@@ -1149,7 +1212,7 @@ class BackgroundChecksum:
 # ── Transcription queue (§8.14, §8.15) ───────────────────────────────────
 
 
-class PackTranscriptionQueue:
+class OfflinePackTranscriptionQueue:
     """Queue transcribe-offline requests until the pack is ready (§8.14, §8.15).
 
     "Ready" is the SINGLE definition from §8.14:
@@ -1161,8 +1224,8 @@ class PackTranscriptionQueue:
     A request that arrives before "ready" is queued; it auto-continues
     when the state transitions to ready. The renderer's "Preparing
     offline engine…" line is driven by the queue's ``waiting`` property
-    (the renderer subscribes to ``pack_download_started`` /
-    ``pack_download_progress`` / ``pack_ready`` events).
+    (the renderer subscribes to ``offline_pack_download_started`` /
+    ``offline_pack_download_progress`` / ``offline_pack_ready`` events).
     """
 
     def __init__(self, *, event_bus: event_bus_module | None = None) -> None:
@@ -1183,7 +1246,7 @@ class PackTranscriptionQueue:
             self._queue.clear()
         _publish_event(
             self._event_bus,
-            "pack_ready",
+            "offline_pack_ready",
             {"worker_pid": worker_pid},
         )
         return drained
@@ -1226,7 +1289,7 @@ class PackTranscriptionQueue:
 # ── Download queue (§8.17) ───────────────────────────────────────────────
 
 
-class PackDownloadQueue:
+class OfflinePackDownloadQueue:
     """Shared download queue — pack is always lowest-priority (§8.17).
 
     The pack downloader pauses while a user-initiated download runs
@@ -1334,7 +1397,7 @@ def _nlm_detect_metered(ctypes_module, wintypes_module) -> bool | None:
 # ── Code signing (§8.18) ─────────────────────────────────────────────────
 
 
-def verify_pack_signature_windows(path: Path) -> bool | None:
+def verify_offline_pack_signature_windows(path: Path) -> bool | None:
     """Verify the worker exe's Authenticode signature (§8.18).
 
     Returns True / False when verification ran; ``None`` when the
@@ -1366,7 +1429,7 @@ def _wintrust_verify(ctypes_module, path: Path) -> bool | None:
     return None
 
 
-def verify_pack_signature_macos(path: Path) -> bool | None:
+def verify_offline_pack_signature_macos(path: Path) -> bool | None:
     """Verify the worker exe's notarization + Developer ID (§8.18).
 
     Returns True / False when verification ran; ``None`` when
@@ -1418,40 +1481,41 @@ def _publish_event(event_bus: event_bus_module | None, event_type: str, payload:
 
 __all__ = [
     "APP_NAME",
-    "PACK_COMPRESSED_MB",
-    "PACK_EVENT_TYPES",
-    "PACK_LOCK_POLL_S",
-    "PACK_LOCK_TIMEOUT_S",
-    "PACK_MAX_CORRUPTION_RETRIES",
-    "PACK_RATE_LIMIT_BACKOFF_S",
-    "PACK_RATE_LIMIT_MAX_ATTEMPTS",
-    "PACK_REQUIRED_MB",
-    "PACK_UNPACKED_MB",
+    "OFFLINE_PACK_COMPRESSED_MB",
+    "OFFLINE_PACK_EVENT_TYPES",
+    "OFFLINE_PACK_LOCK_POLL_S",
+    "OFFLINE_PACK_LOCK_TIMEOUT_S",
+    "OFFLINE_PACK_MAX_CORRUPTION_RETRIES",
+    "OFFLINE_PACK_MAX_PER_FILE_BYTES",
+    "OFFLINE_PACK_RATE_LIMIT_BACKOFF_S",
+    "OFFLINE_PACK_RATE_LIMIT_MAX_ATTEMPTS",
+    "OFFLINE_PACK_REQUIRED_MB",
+    "OFFLINE_PACK_UNPACKED_MB",
     "BackgroundChecksum",
-    "PackConsentRequiredError",
-    "PackCorruptError",
-    "PackDiskFullError",
-    "PackDownloadQueue",
-    "PackFileEntry",
-    "PackLock",
-    "PackManifest",
-    "PackRateLimitError",
-    "PackTranscriptionQueue",
-    "assert_pack_url_allowed",
-    "atomic_swap_pack",
-    "check_pack_disk_space",
-    "download_pack_with_resume",
-    "fallback_pack_root",
+    "OfflinePackConsentRequiredError",
+    "OfflinePackCorruptError",
+    "OfflinePackDiskFullError",
+    "OfflinePackDownloadQueue",
+    "OfflinePackFileEntry",
+    "OfflinePackLock",
+    "OfflinePackManifest",
+    "OfflinePackRateLimitError",
+    "OfflinePackTranscriptionQueue",
+    "assert_offline_pack_url_allowed",
+    "atomic_swap_offline_pack",
+    "check_offline_pack_disk_space",
+    "download_offline_pack_with_resume",
+    "fallback_offline_pack_root",
     "is_metered_connection_windows",
-    "load_pack_manifest",
-    "pack_dir_for_version",
-    "pack_exists",
-    "pack_lock_path",
-    "pack_manifest_path",
-    "pack_partial_path",
+    "load_offline_pack_manifest",
+    "offline_pack_dir_for_version",
+    "offline_pack_exists",
+    "offline_pack_lock_path",
+    "offline_pack_manifest_path",
+    "offline_pack_partial_path",
     "proxy_env",
-    "require_runtime_pack_consent",
-    "verify_pack_or_skip",
-    "verify_pack_signature_macos",
-    "verify_pack_signature_windows",
+    "require_offline_pack_consent",
+    "verify_offline_pack_or_skip",
+    "verify_offline_pack_signature_macos",
+    "verify_offline_pack_signature_windows",
 ]

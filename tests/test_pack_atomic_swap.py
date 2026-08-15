@@ -29,7 +29,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from voice_typer.server.service import pack
+from voice_typer.server.service import offline_pack
 
 
 class TestPosixAtomicSwap:
@@ -43,7 +43,7 @@ class TestPosixAtomicSwap:
         (new_dir / "worker").write_bytes(b"new-worker")
         cur_dir.mkdir()
         (cur_dir / "worker").write_bytes(b"old-worker")
-        trash = pack.atomic_swap_pack(new_dir, cur_dir)
+        trash = offline_pack.atomic_swap_offline_pack(new_dir, cur_dir)
         # POSIX returns the trash path too (best-effort cleanup
         # attempted; if the worker is still running on it, the rmtree
         # silently fails and the trash remains — but for this test
@@ -65,7 +65,7 @@ class TestPosixAtomicSwap:
         cur_dir = tmp_path / "current"
         new_dir.mkdir()
         cur_dir.mkdir()
-        pack.atomic_swap_pack(new_dir, cur_dir, stop_worker=stop, start_worker=start)
+        offline_pack.atomic_swap_offline_pack(new_dir, cur_dir, stop_worker=stop, start_worker=start)
         stop.assert_not_called()
         start.assert_not_called()
 
@@ -83,7 +83,7 @@ class TestWindowsAtomicSwap:
         (new_dir / "worker.exe").write_bytes(b"new-worker")
         cur_dir.mkdir()
         (cur_dir / "worker.exe").write_bytes(b"old-worker")
-        trash = pack.atomic_swap_pack(new_dir, cur_dir, stop_worker=stop, start_worker=start)
+        trash = offline_pack.atomic_swap_offline_pack(new_dir, cur_dir, stop_worker=stop, start_worker=start)
         # stop called BEFORE start.
         stop.assert_called_once()
         start.assert_called_once()
@@ -101,7 +101,7 @@ class TestWindowsAtomicSwap:
         (new_dir / "worker.exe").write_bytes(b"new")
         cur_dir.mkdir()
         (cur_dir / "worker.exe").write_bytes(b"old")
-        trash = pack.atomic_swap_pack(new_dir, cur_dir)
+        trash = offline_pack.atomic_swap_offline_pack(new_dir, cur_dir)
         assert trash is not None
         assert str(trash).endswith("current.trash")
         # Trash deleted after successful swap.
@@ -119,7 +119,7 @@ class TestWindowsAtomicSwap:
         (new_dir / "worker.exe").write_bytes(b"new")
         cur_dir.mkdir()
         (cur_dir / "worker.exe").write_bytes(b"old")
-        pack.atomic_swap_pack(new_dir, cur_dir)
+        offline_pack.atomic_swap_offline_pack(new_dir, cur_dir)
         # Stale trash was deleted (then re-created and deleted again
         # in the normal swap flow).
         assert not trash_path.exists()
@@ -149,7 +149,7 @@ class TestWindowsAtomicSwap:
 
         monkeypatch.setattr(os, "replace", flaky_replace)
         with pytest.raises(OSError):
-            pack.atomic_swap_pack(new_dir, cur_dir, stop_worker=stop, start_worker=start)
+            offline_pack.atomic_swap_offline_pack(new_dir, cur_dir, stop_worker=stop, start_worker=start)
         # Worker was stopped, then started again on rollback.
         stop.assert_called_once()
         start.assert_called_once()
@@ -168,7 +168,7 @@ class TestWindowsAtomicSwap:
         # Patch os.replace to always fail.
         monkeypatch.setattr(os, "replace", lambda s, d: (_ for _ in ()).throw(OSError("nope")))
         with pytest.raises(OSError):
-            pack.atomic_swap_pack(new_dir, cur_dir, stop_worker=stop, start_worker=start)
+            offline_pack.atomic_swap_offline_pack(new_dir, cur_dir, stop_worker=stop, start_worker=start)
         stop.assert_called_once()
         start.assert_called_once()
 

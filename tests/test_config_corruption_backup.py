@@ -35,7 +35,7 @@ import logging
 import re
 import time
 
-from voice_typer.server.config import Config
+from voice_typer.server.config import _CURRENT_SCHEMA_VERSION, Config
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -686,7 +686,7 @@ class TestDeprecatedKeysSilentlyScrubbed:
 
         assert cfg.hotkey == "<f9>"
         assert cfg.autostart is False
-        assert cfg.schema_version == 3
+        assert cfg.schema_version == _CURRENT_SCHEMA_VERSION
         for key in self.DEPRECATED_KEYS:
             assert not hasattr(cfg, key), f"Deprecated field {key!r} must not be on the Config instance"
         corrupt_backups = list(tmp_config_dir.glob("config.json.corrupt-*"))

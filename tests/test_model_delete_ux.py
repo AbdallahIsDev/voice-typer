@@ -156,8 +156,12 @@ class TestModelDeleteRationale:
         # Locate the delete_model method body.
         fn_idx = src.find("def delete_model(")
         assert fn_idx != -1, "VoiceTyperService.delete_model not found"
-        # Take the next ~120 lines (the method is ~80 lines per the source).
-        method_body = src[fn_idx : fn_idx + 4000]
+        # Slice the method body precisely: from ``def delete_model(`` up to
+        # the next top-level ``def `` (the next method on the class). A
+        # fixed char window (previously 4000) silently missed the rmtree
+        # call once the method's docstring/comments grew past the window.
+        next_def = src.find("\n    def ", fn_idx + 1)
+        method_body = src[fn_idx : next_def if next_def != -1 else fn_idx + 4000]
 
         assert "shutil.rmtree" in method_body, (
             "delete_model must use shutil.rmtree (hard delete). If you "

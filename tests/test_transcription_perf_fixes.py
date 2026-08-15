@@ -27,7 +27,6 @@ downloads.
 from __future__ import annotations
 
 import inspect
-import os
 import sys
 import threading
 from unittest.mock import MagicMock
@@ -309,31 +308,61 @@ class TestParakeetBatchSizeReadAtConstruction:
     ParakeetEngine construction time (NOT import time) so changes to
     ``PARAKEET_BATCH_SIZE`` between engine constructions take effect."""
 
-    def test_class_attribute_is_default_one(self):
-        """The class-level ``_INFERENCE_BATCH_SIZE`` is now a static
-        default of 1 (NOT a frozen env-var read). The instance attribute
-        in ``__init__`` overrides it at construction time."""
+    def test_instance_attribute_defaults_to_two_when_env_unset(self, monkeypatch):
+        """The post-ONNX ``ParakeetEngine`` has NO class-level
+        ``_INFERENCE_BATCH_SIZE`` — the attribute is set in ``__init__``
+        from ``os.environ.get("PARAKEET_BATCH_SIZE", "2")`` at
+        construction time. The default of 2 (not 1) matches the
+        ONNX-rewritten ``parakeet_engine.py`` (the ONNX backend does
+        not actually batch — ``onnx_asr.recognize`` processes one audio
+        at a time — but the attribute is kept so existing test
+        read-sites don't ``AttributeError``).
+
+        Verifies two invariants:
+        1. The class does NOT define ``_INFERENCE_BATCH_SIZE`` (the
+           import-time freeze bug is gone because the attribute does
+           not exist at class level — a revert that re-introduces a
+           class-level env-var read would fail this).
+        2. The instance attribute defaults to 2 when the env var is
+           unset (the production code's documented default).
+        """
         from voice_typer.server.parakeet_engine import ParakeetEngine
 
-        # The class attribute must be a plain int (not an os.environ.get
-        # call result that was evaluated at import time).
-        assert ParakeetEngine._INFERENCE_BATCH_SIZE == 1, (
-            "IN-5: the class-level _INFERENCE_BATCH_SIZE must be a static "
-            "default of 1 (the instance attribute in __init__ overrides it "
-            "at construction time)."
+        # (1) No class-level attribute — the import-time freeze path
+        # is gone entirely post-ONNX. ``__dict__`` lookup avoids
+        # walking the MRO (an inherited attribute would still fail).
+        assert "_INFERENCE_BATCH_SIZE" not in ParakeetEngine.__dict__, (
+            "IN-5: ParakeetEngine must NOT define _INFERENCE_BATCH_SIZE "
+            "as a class attribute — the value is read at construction "
+            "time as an instance attribute (a class-level form would "
+            "re-introduce the import-time freeze bug)."
         )
+
+        # (2) Construction with the env var unset yields the documented
+        # default of 2.
+        monkeypatch.delenv("PARAKEET_BATCH_SIZE", raising=False)
+        eng = ParakeetEngine()
+        assert eng._INFERENCE_BATCH_SIZE == 2, (
+            "IN-5: when PARAKEET_BATCH_SIZE is unset, the instance "
+            "attribute must default to 2 (the ONNX-rewritten "
+            "production default at parakeet_engine.py __init__)."
+        )
+        # The attribute is a plain int, not a callable / property / env-var
+        # read result captured at import time.
+        assert isinstance(eng._INFERENCE_BATCH_SIZE, int)
 
     def test_init_reads_env_var_at_construction_time(self, monkeypatch):
         """``__init__`` must read ``PARAKEET_BATCH_SIZE`` from the env
         so changes between constructions take effect."""
         from voice_typer.server.parakeet_engine import ParakeetEngine
 
-        # Construct with PARAKEET_BATCH_SIZE=3.
+        # Construct with PARAKEET_BATCH_SIZE=3 — exercises the real
+        # ``__init__`` (NOT a __new__ + manual-replicate bypass), so
+        # a regression that re-introduces the class-attribute form
+        # would freeze the value at import time and fail the second
+        # assertion below.
         monkeypatch.setenv("PARAKEET_BATCH_SIZE", "3")
-        # Use __new__ to bypass _ensure_hf_env / heavy imports, then
-        # manually call the relevant init lines.
-        eng1 = ParakeetEngine.__new__(ParakeetEngine)
-        eng1._INFERENCE_BATCH_SIZE = max(1, int(os.environ.get("PARAKEET_BATCH_SIZE", "1")))
+        eng1 = ParakeetEngine()
         assert eng1._INFERENCE_BATCH_SIZE == 3, (
             "IN-5: when PARAKEET_BATCH_SIZE=3 is set, the engine must read 3 at construction time."
         )
@@ -342,8 +371,7 @@ class TestParakeetBatchSizeReadAtConstruction:
         # see the new value (the pre-fix class-attribute form would have
         # frozen the value at import time, ignoring this change).
         monkeypatch.setenv("PARAKEET_BATCH_SIZE", "4")
-        eng2 = ParakeetEngine.__new__(ParakeetEngine)
-        eng2._INFERENCE_BATCH_SIZE = max(1, int(os.environ.get("PARAKEET_BATCH_SIZE", "1")))
+        eng2 = ParakeetEngine()
         assert eng2._INFERENCE_BATCH_SIZE == 4, (
             "IN-5: changing PARAKEET_BATCH_SIZE between engine "
             "constructions must take effect (the pre-fix class-attribute "
@@ -352,7 +380,7 @@ class TestParakeetBatchSizeReadAtConstruction:
 
     def test_init_source_reads_env_var(self):
         """Source guard: ``__init__`` must contain
-        ``os.environ.get(\"PARAKEET_BATCH_SIZE\", \"1\")`` so the value
+        ``os.environ.get(\"PARAKEET_BATCH_SIZE\", ...)`` so the value
         is read at construction time."""
         from voice_typer.server.parakeet_engine import ParakeetEngine
 
@@ -363,18 +391,54 @@ class TestParakeetBatchSizeReadAtConstruction:
             "that evaluated once at import time)."
         )
 
-    def test_class_attribute_source_no_longer_calls_environ_get(self):
-        """Source guard: the class-level ``_INFERENCE_BATCH_SIZE`` must
-        NOT call ``os.environ.get`` (the import-time freeze bug)."""
+    def test_no_class_level_inference_batch_size_attribute(self):
+        """Source guard: the class body must NOT define
+        ``_INFERENCE_BATCH_SIZE`` (the import-time freeze bug). The
+        attribute is set in ``__init__`` as an instance attribute.
+
+        A revert that re-introduces a class-level
+        ``_INFERENCE_BATCH_SIZE = max(1, int(os.environ.get(...)))``
+        would re-freeze the value at import time; this test catches
+        that by inspecting the class body source for the banned
+        pattern.
+        """
         from voice_typer.server.parakeet_engine import ParakeetEngine
 
-        # The class attribute is now a plain int literal, not an env-var
-        # read. Verify by checking it's not a callable / property.
-        assert isinstance(ParakeetEngine._INFERENCE_BATCH_SIZE, int), (
-            "IN-5: _INFERENCE_BATCH_SIZE class attribute must be a plain int "
-            "(not an os.environ.get result that was evaluated at import time)."
+        # The class dict must NOT contain _INFERENCE_BATCH_SIZE — the
+        # attribute exists only on instances (set in __init__).
+        assert "_INFERENCE_BATCH_SIZE" not in ParakeetEngine.__dict__, (
+            "IN-5: ParakeetEngine must NOT define _INFERENCE_BATCH_SIZE "
+            "as a class attribute (the value must be read at construction "
+            "time as an instance attribute to avoid the import-time freeze)."
         )
-        assert ParakeetEngine._INFERENCE_BATCH_SIZE == 1
+        # Source-level guard: the class body (between ``class
+        # ParakeetEngine:`` and the first ``def``) must not assign
+        # ``_INFERENCE_BATCH_SIZE``. We approximate by checking the
+        # class-body source snippet for the banned assignment.
+        src = inspect.getsource(ParakeetEngine)
+        # Find the class body — between the ``class`` line and the
+        # first decorator/def at the same indent level. The banned
+        # pattern is a class-body assignment (no leading ``self.``).
+        # ``self._INFERENCE_BATCH_SIZE = ...`` (in __init__) is fine;
+        # a bare ``_INFERENCE_BATCH_SIZE = ...`` at class level is not.
+        for line in src.splitlines():
+            stripped = line.lstrip()
+            # Skip lines inside methods (indented further than class
+            # body). The class body itself is indented 4 spaces under
+            # ``class ParakeetEngine:``; method bodies are 8+ spaces.
+            if not line.startswith("    ") or line.startswith("        "):
+                continue
+            # Match a bare class-level assignment to _INFERENCE_BATCH_SIZE
+            # (no leading ``self.``). The ONNX-rewritten code assigns
+            # ``self._INFERENCE_BATCH_SIZE = ...`` in __init__ — that's
+            # an instance attribute, not a class attribute.
+            if stripped.startswith("_INFERENCE_BATCH_SIZE") and "=" in stripped:
+                pytest.fail(
+                    "IN-5: ParakeetEngine class body must NOT assign "
+                    "_INFERENCE_BATCH_SIZE (the value must be set as an "
+                    "instance attribute in __init__ to avoid the "
+                    "import-time env-var freeze bug). Found: " + line
+                )
 
 
 # ── IN-7: _set_active_backend_blocking re-checks busy/recording inside locks ──

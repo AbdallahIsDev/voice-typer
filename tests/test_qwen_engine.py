@@ -1,10 +1,33 @@
 """Tests for the optional Qwen3-ASR backend."""
 
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def real_faster_whisper(monkeypatch):
+    """Restore the REAL ``faster_whisper`` package for the mel path.
+
+    The session-scoped ``mock_heavy_imports`` fixture stubs
+    ``faster_whisper`` as a non-package MagicMock, which breaks the lazy
+    ``from faster_whisper.feature_extractor import FeatureExtractor`` in
+    ``qwen_onnx_model._log_mel_spectrogram``. Loads the real package
+    fresh and swaps it in for the test's duration (monkeypatch restores
+    the mock afterwards). Mirrors the autouse fixture in
+    ``tests/test_qwen_onnx_model.py``.
+    """
+    import importlib
+    import sys
+
+    mocked = sys.modules.get("faster_whisper")
+    if mocked is not None and not hasattr(mocked, "__path__"):
+        for name in [n for n in list(sys.modules) if n == "faster_whisper" or n.startswith("faster_whisper.")]:
+            monkeypatch.delitem(sys.modules, name, raising=False)
+        real = importlib.import_module("faster_whisper")
+        monkeypatch.setitem(sys.modules, "faster_whisper", real)
 
 
 class TestQwenEngineUnit:
@@ -33,73 +56,55 @@ class TestQwenEngineUnit:
         result = engine.transcribe(np.array([], dtype=np.float32))
         assert result == ""
 
-    def test_load_success(self, tmp_path):
-        # load() now validates the model directory and reads
-        # config.json before importing qwen_asr. Use a real tmp dir with a
-        # config.json so the security gates pass.
-        #
-        # (Session 7 — Group 4): ``load()`` now calls
-        # ``security.verify_model_integrity(model_path, "qwen")`` instead
-        # of the deleted local ``_verify_qwen_model_hashes``.  The
-        # shared verifier hard-fails on the default ship-state manifest
-        # (``qwen`` entry has ``revision: local, files: {}``) which is
-        # the correct production behaviour but would mask the
-        # ``qwen_asr`` import / ``from_pretrained`` flow this test
-        # exercises.  Mock ``verify_model_integrity`` to return True so
-        # the test focuses on the import path, not the manifest.
-        import json as _json
+    def test_load_success_onnx_dir(self, tmp_path):
+        """A valid ONNX-export directory loads the ONNX backend."""
+        from tests.test_qwen_onnx_model import make_onnx_dir, patch_ort, patch_tokenizer, scripted_sessions
 
-        model_dir = tmp_path / "qwen_model"
-        model_dir.mkdir()
-        (model_dir / "config.json").write_text(_json.dumps({"arch": "qwen3"}))
+        model_dir = make_onnx_dir(tmp_path, hidden=4, vocab=64)
         engine = self._make_engine(model_path=str(model_dir))
-        mock_model = MagicMock()
-        mock_transcription = MagicMock()
-        mock_transcription.text = "hello from qwen"
-        mock_model.transcribe.return_value = [mock_transcription]
-
-        mock_qwen_module = MagicMock()
-        mock_qwen_module.Qwen3ASRModel.from_pretrained.return_value = mock_model
-        with (
-            patch.dict("sys.modules", {"qwen_asr": mock_qwen_module}),
-            patch(
-                "voice_typer.server.security.verify_model_integrity",
-                return_value=True,
-            ),
-        ):
-            engine.load()
+        sessions = scripted_sessions(hidden=4, vocab=64)
+        with patch_ort(sessions), patch_tokenizer():
+            assert engine.load() is True
 
         assert engine.is_loaded is True
+        assert engine.device == "cpu"  # ONNX path is CPU-pinned
+        assert engine.device_info == "qwen/cpu"
+        assert engine._onnx_model is not None
 
         audio = np.ones(16000, dtype=np.float32)
         result = engine.transcribe(audio)
-        assert result == "hello from qwen"
+        assert isinstance(result, str)
 
-    def test_load_failure_missing_package(self):
+    def test_load_failure_non_onnx_dir_returns_false(self, tmp_path):
+        """A torch/safetensors (non-ONNX) directory is refused — the
+        torch engine was removed; load() returns False with a migration
+        error instead of crashing."""
+        model_dir = tmp_path / "torch_qwen"
+        model_dir.mkdir()
+        (model_dir / "config.json").write_text('{"arch": "qwen3"}')
+        (model_dir / "model.safetensors").write_bytes(b"\x00" * 100)
+
+        engine = self._make_engine(model_path=str(model_dir))
+        assert engine.load() is False
+        assert engine.is_loaded is False
+
+    def test_load_failure_missing_dir_returns_false(self):
         engine = self._make_engine()
-        # Ensure qwen_asr is not importable — load() returns False
-        with patch.dict("sys.modules", {"qwen_asr": None}):
-            result = engine.load()
-
+        result = engine.load()
         assert result is False
         assert engine.is_loaded is False
 
-    def test_load_failure_missing_weights(self):
-        engine = self._make_engine()
-        mock_qwen_module = MagicMock()
-        mock_qwen_module.Qwen3ASRModel.from_pretrained.side_effect = FileNotFoundError("weights not found")
-        with patch.dict("sys.modules", {"qwen_asr": mock_qwen_module}):
+    def test_load_failure_incomplete_onnx_dir_raises(self, tmp_path):
+        """An ONNX-layout dir that fails mid-load raises RuntimeError
+        (fail-closed — no silent fallback)."""
+        from tests.test_qwen_onnx_model import make_onnx_dir, patch_ort, patch_tokenizer, scripted_sessions
+
+        model_dir = make_onnx_dir(tmp_path, hidden=4, vocab=64)
+        (model_dir / "decoder_step.onnx").unlink()
+        engine = self._make_engine(model_path=str(model_dir))
+        sessions = scripted_sessions(hidden=4, vocab=64)
+        with patch_ort(sessions), patch_tokenizer(), pytest.raises(RuntimeError):
             engine.load()
-
-        assert engine.is_loaded is False
-
-    def test_load_failure_cuda_error(self):
-        engine = self._make_engine()
-        mock_qwen_module = MagicMock()
-        mock_qwen_module.Qwen3ASRModel.from_pretrained.side_effect = RuntimeError("CUDA out of memory")
-        with patch.dict("sys.modules", {"qwen_asr": mock_qwen_module}):
-            engine.load()
-
         assert engine.is_loaded is False
 
     def test_unload_clears_model(self):
@@ -443,44 +448,31 @@ class TestLoadReturnValues:
         return QwenEngine(model_path=model_path, **kwargs)
 
     def test_load_returns_true_on_success(self, tmp_path):
-        # load() validates the model directory and reads
-        # config.json before importing qwen_asr. Use a real tmp dir with
-        # a config.json so the security gates pass.
-        # mock verify_model_integrity (see
-        # ``test_load_success`` for rationale).
-        import json as _json
+        """A valid ONNX-export directory → load() returns True."""
+        from tests.test_qwen_onnx_model import make_onnx_dir, patch_ort, patch_tokenizer, scripted_sessions
 
-        model_dir = tmp_path / "qwen_model"
-        model_dir.mkdir()
-        (model_dir / "config.json").write_text(_json.dumps({"arch": "qwen3"}))
+        model_dir = make_onnx_dir(tmp_path, hidden=4, vocab=64)
         engine = self._make_engine(model_path=str(model_dir))
-        mock_qwen_module = MagicMock()
-        mock_model = MagicMock()
-        mock_qwen_module.Qwen3ASRModel.from_pretrained.return_value = mock_model
-        with (
-            patch.dict("sys.modules", {"qwen_asr": mock_qwen_module}),
-            patch(
-                "voice_typer.server.security.verify_model_integrity",
-                return_value=True,
-            ),
-        ):
+        sessions = scripted_sessions(hidden=4, vocab=64)
+        with patch_ort(sessions), patch_tokenizer():
             result = engine.load()
         assert result is True
         assert engine.is_loaded is True
 
-    def test_load_returns_false_on_import_error(self):
-        engine = self._make_engine()
-        with patch.dict("sys.modules", {"qwen_asr": None}):
-            result = engine.load()
+    def test_load_returns_false_on_non_onnx_dir(self, tmp_path):
+        """A non-ONNX (torch/safetensors) dir → load() returns False."""
+        model_dir = tmp_path / "qwen_model"
+        model_dir.mkdir()
+        (model_dir / "config.json").write_text('{"arch": "qwen3"}')
+        (model_dir / "model.safetensors").write_bytes(b"\x00" * 100)
+        engine = self._make_engine(model_path=str(model_dir))
+        result = engine.load()
         assert result is False
         assert engine.is_loaded is False
 
-    def test_load_returns_false_on_runtime_error(self):
+    def test_load_returns_false_on_missing_dir(self):
         engine = self._make_engine()
-        mock_qwen_module = MagicMock()
-        mock_qwen_module.Qwen3ASRModel.from_pretrained.side_effect = RuntimeError("fail")
-        with patch.dict("sys.modules", {"qwen_asr": mock_qwen_module}):
-            result = engine.load()
+        result = engine.load()
         assert result is False
         assert engine.is_loaded is False
 
@@ -536,23 +528,15 @@ class TestHallucinationDetection:
         assert result == "Hello world"
 
 
-# (Session 7 — Group 4): regression tests ─────────────────────
+# ONNX fail-closed regression tests ──────────────────────────
 
 
-class TestQwenIntegrityHardFail:
-    """``qwen_engine._verify_qwen_model_hashes`` deleted; load()
-    now delegates to ``security.verify_model_integrity(model_path, "qwen")``
-    which hard-fails on a tampered local directory.
-
-    These tests verify:
-      1. The divergent local helper is gone (calling it raises).
-      2. A tampered local Qwen dir (missing pinned file or hash mismatch)
-         causes ``load()`` to return False instead of silently loading.
-      3. The default ship-state manifest (``revision: local, files: {}``)
-         causes ``load()`` to return False — operators MUST populate the
-         ``files`` dict with real SHA-256 hashes before a local Qwen
-         model can be loaded.  This is the the fix-9 hard-fail that was
-         previously dead code (the local helper soft-passed).
+class TestQwenOnnxFailClosed:
+    """The ONNX-only engine must be fail-closed: a non-ONNX directory
+    (the old torch/safetensors layout) is refused with False, and an
+    ONNX-layout directory that fails mid-load raises RuntimeError. The
+    old ``_verify_qwen_model_hashes`` helper + the torch manifest gate
+    were removed with the torch engine (2026-08-15).
     """
 
     def _make_engine(self, model_path="/fake/qwen/model", **kwargs):
@@ -560,132 +544,43 @@ class TestQwenIntegrityHardFail:
 
         return QwenEngine(model_path=model_path, **kwargs)
 
-    def test_deleted_helper_raises(self):
-        """the divergent local helper is gone.
-
-        Calling it raises ``RuntimeError`` pointing the caller at the
-        replacement ``security.verify_model_integrity``.  This catches
-        third-party imports that haven't been migrated.
-        """
-        from voice_typer.server.qwen_engine import _verify_qwen_model_hashes
-
-        with pytest.raises(RuntimeError, match="deleted in the fix"):
-            _verify_qwen_model_hashes("/some/path")
-
-    def test_load_returns_false_for_empty_files_manifest(self, isolated_integrity_cache, tmp_path):
-        """the fix-9: default ship-state manifest (``revision:
-        local, files: {}``) → ``load()`` returns False.
-
-        Pre-fix the local ``_verify_qwen_model_hashes`` SOFT-PASSED on
-        empty ``pinned_files``, defeating the hard-fail in
-        ``security.verify_model_integrity``.  Now that we delegate to
-        the shared verifier, the hard-fail is honoured — a tampered or
-        unconfigured local Qwen directory is refused.
-        """
-        import json as _json
-
-        # Build a model dir that passes the structural checks (has a
-        # model file + config.json) but would have soft-passed under
-        # the old local helper because the manifest has empty files.
-        model_dir = tmp_path / "qwen_model"
+    def test_torch_layout_dir_returns_false(self, tmp_path):
+        """A torch/safetensors Qwen dir (the ONLY layout before
+        2026-08-14) is refused with a migration error, not loaded."""
+        model_dir = tmp_path / "torch_qwen"
         model_dir.mkdir()
-        (model_dir / "config.json").write_text(_json.dumps({"arch": "qwen3"}))
+        (model_dir / "config.json").write_text('{"arch": "qwen3"}')
         (model_dir / "model.safetensors").write_bytes(b"\x00" * 100)
 
         engine = self._make_engine(model_path=str(model_dir))
-
-        # Mock qwen_asr to ensure we never reach from_pretrained — the
-        # integrity gate must refuse to load BEFORE the package import.
-        mock_qwen_module = MagicMock()
-        with patch.dict("sys.modules", {"qwen_asr": mock_qwen_module}):
-            result = engine.load()
-
-        assert result is False, (
-            "load() must return False when the qwen manifest "
-            'has empty "files" dict (revision: local). Pre-fix the local '
-            "_verify_qwen_model_hashes soft-passed, defeating the "
-            "the fix-9 hard-fail in security.verify_model_integrity."
-        )
+        result = engine.load()
+        assert result is False, "a torch/safetensors Qwen dir must be refused (torch engine removed)"
         assert engine.is_loaded is False
-        # qwen_asr.Qwen3ASRModel.from_pretrained must NOT have been
-        # called — the integrity gate fires before the package import.
-        mock_qwen_module.Qwen3ASRModel.from_pretrained.assert_not_called()
 
-    def test_load_returns_false_on_pinned_hash_mismatch(self, isolated_integrity_cache, tmp_path, monkeypatch):
-        """when the qwen manifest pins hashes and a file's
-        SHA-256 doesn't match, ``load()`` returns False (tampered model
-        refused)."""
-        import hashlib
+    def test_missing_required_onnx_file_raises(self, tmp_path):
+        """An ONNX-layout dir missing a decoder session (a file
+        ``is_onnx_model_dir`` does NOT check — it only requires encoder
+        + embed_tokens.bin + tokenizer.json) raises RuntimeError
+        (fail-closed, no silent fallback)."""
+        from tests.test_qwen_onnx_model import make_onnx_dir, patch_ort, patch_tokenizer, scripted_sessions
 
-        from voice_typer.server import security
-
-        # Build a manifest that pins config.json to a known hash.
-        config_content = b'{"arch": "qwen3"}'
-        hashlib.sha256(config_content).hexdigest()
-
-        # Tamper: pin a WRONG hash so verify_model_integrity hard-fails.
-        fake_manifest = {
-            "qwen": {
-                "revision": "local",
-                "files": {
-                    "config.json": "0" * 64,  # wrong hash
-                },
-            }
-        }
-        monkeypatch.setattr(security, "MODEL_HASHES", fake_manifest)
-
-        model_dir = tmp_path / "qwen_model"
-        model_dir.mkdir()
-        (model_dir / "config.json").write_bytes(config_content)
-        (model_dir / "model.safetensors").write_bytes(b"\x00" * 100)
-
+        model_dir = make_onnx_dir(tmp_path, hidden=4, vocab=64)
+        (model_dir / "decoder_step.onnx").unlink()
         engine = self._make_engine(model_path=str(model_dir))
-        mock_qwen_module = MagicMock()
-        with patch.dict("sys.modules", {"qwen_asr": mock_qwen_module}):
-            result = engine.load()
-
-        assert result is False, (
-            "load() must return False when a pinned file's SHA-256 doesn't match (tampered local Qwen model)."
-        )
+        sessions = scripted_sessions(hidden=4, vocab=64)
+        with patch_ort(sessions), patch_tokenizer(), pytest.raises(RuntimeError):
+            engine.load()
         assert engine.is_loaded is False
-        mock_qwen_module.Qwen3ASRModel.from_pretrained.assert_not_called()
+        assert engine._onnx_model is None
 
-    def test_load_succeeds_when_pinned_hashes_match(self, isolated_integrity_cache, tmp_path, monkeypatch):
-        """happy path: when the qwen manifest pins the correct
-        SHA-256 for every file, ``load()`` proceeds to from_pretrained
-        and returns True."""
-        import hashlib
+    def test_load_succeeds_with_complete_onnx_dir(self, tmp_path):
+        """A complete ONNX dir loads and transcribes (scripted sessions)."""
+        from tests.test_qwen_onnx_model import make_onnx_dir, patch_ort, patch_tokenizer, scripted_sessions
 
-        from voice_typer.server import security
-
-        config_content = b'{"arch": "qwen3"}'
-        config_hash = hashlib.sha256(config_content).hexdigest()
-        weights_content = b"\x00" * 100
-        weights_hash = hashlib.sha256(weights_content).hexdigest()
-
-        fake_manifest = {
-            "qwen": {
-                "revision": "local",
-                "files": {
-                    "config.json": config_hash,
-                    "model.safetensors": weights_hash,
-                },
-            }
-        }
-        monkeypatch.setattr(security, "MODEL_HASHES", fake_manifest)
-
-        model_dir = tmp_path / "qwen_model"
-        model_dir.mkdir()
-        (model_dir / "config.json").write_bytes(config_content)
-        (model_dir / "model.safetensors").write_bytes(weights_content)
-
+        model_dir = make_onnx_dir(tmp_path, hidden=4, vocab=64)
         engine = self._make_engine(model_path=str(model_dir))
-        mock_qwen_module = MagicMock()
-        mock_model = MagicMock()
-        mock_qwen_module.Qwen3ASRModel.from_pretrained.return_value = mock_model
-        with patch.dict("sys.modules", {"qwen_asr": mock_qwen_module}):
-            result = engine.load()
-
-        assert result is True
+        sessions = scripted_sessions(hidden=4, vocab=64)
+        with patch_ort(sessions), patch_tokenizer():
+            assert engine.load() is True
         assert engine.is_loaded is True
-        mock_qwen_module.Qwen3ASRModel.from_pretrained.assert_called_once_with(str(model_dir))
+        assert engine.device == "cpu"

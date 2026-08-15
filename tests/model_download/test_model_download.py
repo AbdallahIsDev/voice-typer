@@ -107,7 +107,7 @@ class TestDeleteModelUsesRegistryUnconditionally:
         service = self._make_service()
         meta = get_model_metadata("parakeet")
         assert meta is not None, "parakeet must be in MODEL_REGISTRY"
-        assert meta.repo_id == "nvidia/parakeet-tdt-0.6b-v3"
+        assert meta.repo_id == "visuall/parakeet-tdt-0.6b-v3-onnx-fp16"
 
         import voice_typer.server.config as cfg_mod
 
@@ -121,15 +121,16 @@ class TestDeleteModelUsesRegistryUnconditionally:
 
     def test_qwen_uses_registry_repo_id(self, tmp_config_dir):
         """``delete_model("qwen")`` no longer returns "Unknown model"
-        — it derives ``Qwen/Qwen-Audio`` from the registry and either
-        deletes the matching cache dir or returns "not downloaded"
-        when the dir is absent."""
+        — it derives ``andrewleech/qwen3-asr-1.7b-onnx`` from the
+        registry (the ONNX export repo, 2026-08-15) and either deletes
+        the matching cache dir or returns "not downloaded" when the
+        dir is absent."""
         from voice_typer.server.model_registry import get_model_metadata
 
         service = self._make_service()
         meta = get_model_metadata("qwen")
         assert meta is not None, "qwen must be in MODEL_REGISTRY"
-        assert meta.repo_id == "Qwen/Qwen-Audio"
+        assert meta.repo_id == "andrewleech/qwen3-asr-1.7b-onnx"
 
         result = service.delete_model("qwen")
         assert result["success"] is False

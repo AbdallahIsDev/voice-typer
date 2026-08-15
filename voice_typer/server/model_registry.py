@@ -323,14 +323,14 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     # model was fully cached).
     "parakeet": ModelMetadata(
         name="parakeet",
-        download_size_mb=2500,
-        required_vram_mb=4096,
+        download_size_mb=1275,
+        required_vram_mb=3072,
         backend="parakeet",
         multilingual=True,
         supported_languages=None,
-        description="NVIDIA Parakeet TDT 0.6b — high-accuracy ASR model.",
-        network_behavior="downloads-on-first-use-no-consent",
-        repo_id="nvidia/parakeet-tdt-0.6b-v3",
+        description="NVIDIA Parakeet TDT 0.6b v3 — ONNX fp16 export (visuall), fast CPU/GPU ASR without PyTorch.",
+        network_behavior="downloads-on-first-use-consent-gated",
+        repo_id="visuall/parakeet-tdt-0.6b-v3-onnx-fp16",
         speed_rating="fast",
         accuracy_rating="high",
     ),
@@ -354,9 +354,14 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         backend="qwen",
         multilingual=True,
         supported_languages=None,
-        description="Alibaba Qwen3-ASR-1.7B — multilingual ASR. Requires manual model path setup in Settings.",
+        description="Alibaba Qwen3-ASR-1.7B (ONNX) — multilingual ASR via "
+        "onnxruntime. Requires manual model path setup in Settings "
+        "(pre-exported ONNX dir, see PLAN_ONNX_INTEGRATION.md §4.3 C-2).",
         network_behavior="local-only",
-        repo_id="Qwen/Qwen-Audio",
+        # The pre-exported ONNX repo (torch-free, 2026-08-15) — the old
+        # torch ``Qwen/Qwen-Audio`` repo_id was removed with the torch
+        # engine.
+        repo_id="andrewleech/qwen3-asr-1.7b-onnx",
         speed_rating="medium",
         accuracy_rating="high",
     ),

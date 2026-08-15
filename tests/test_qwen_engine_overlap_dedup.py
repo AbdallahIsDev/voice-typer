@@ -14,7 +14,7 @@ instead of the correct:
 
 These tests exercise both the pure ``_dedup_overlap`` helper and the
 end-to-end ``_transcribe_chunked`` integration path. The model and
-``torch`` are mocked — no real GPU or weights required.
+the ONNX sessions are mocked — no real weights required.
 """
 
 from unittest.mock import MagicMock

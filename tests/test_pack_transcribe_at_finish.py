@@ -21,32 +21,32 @@ Tested behaviors:
 from __future__ import annotations
 
 import pytest
-from voice_typer.server.service import pack
+from voice_typer.server.service import offline_pack
 
 
 class TestPackTranscriptionQueue:
     """§8.14 — transcribe-at-finish queue + auto-continue."""
 
     def test_starts_not_ready(self):
-        q = pack.PackTranscriptionQueue()
+        q = offline_pack.OfflinePackTranscriptionQueue()
         assert q.ready is False
         assert q.waiting == 0
 
     def test_enqueue_when_not_ready_queues(self):
-        q = pack.PackTranscriptionQueue()
+        q = offline_pack.OfflinePackTranscriptionQueue()
         queued = q.enqueue({"audio_path": "/tmp/a.wav"})
         assert queued is True
         assert q.waiting == 1
 
     def test_enqueue_when_ready_returns_false(self):
-        q = pack.PackTranscriptionQueue()
+        q = offline_pack.OfflinePackTranscriptionQueue()
         q.mark_ready(worker_pid=12345)
         queued = q.enqueue({"audio_path": "/tmp/a.wav"})
         assert queued is False  # caller dispatches immediately
         assert q.waiting == 0
 
     def test_mark_ready_drains_queue(self):
-        q = pack.PackTranscriptionQueue()
+        q = offline_pack.OfflinePackTranscriptionQueue()
         q.enqueue({"audio_path": "/tmp/a.wav"})
         q.enqueue({"audio_path": "/tmp/b.wav"})
         q.enqueue({"audio_path": "/tmp/c.wav"})
@@ -64,14 +64,14 @@ class TestPackTranscriptionQueue:
             def publish(self, ev):
                 events.append(ev)
 
-        q = pack.PackTranscriptionQueue(event_bus=FakeBus())
+        q = offline_pack.OfflinePackTranscriptionQueue(event_bus=FakeBus())
         q.mark_ready(worker_pid=99999)
-        ready_events = [e for e in events if e["type"] == "pack_ready"]
+        ready_events = [e for e in events if e["type"] == "offline_pack_ready"]
         assert ready_events
         assert ready_events[0]["data"]["worker_pid"] == 99999
 
     def test_mark_not_ready_reverses_state(self):
-        q = pack.PackTranscriptionQueue()
+        q = offline_pack.OfflinePackTranscriptionQueue()
         q.mark_ready(worker_pid=1)
         assert q.ready is True
         q.mark_not_ready(reason="worker_crashed")
@@ -86,7 +86,7 @@ class TestPackTranscriptionQueue:
             def publish(self, ev):
                 events.append(ev)
 
-        q = pack.PackTranscriptionQueue(event_bus=FakeBus())
+        q = offline_pack.OfflinePackTranscriptionQueue(event_bus=FakeBus())
         q.mark_ready(worker_pid=1)
         q.mark_not_ready(reason="worker_crashed")
         unloaded = [e for e in events if e["type"] == "worker_unloaded"]
@@ -94,7 +94,7 @@ class TestPackTranscriptionQueue:
         assert unloaded[0]["data"]["reason"] == "worker_crashed"
 
     def test_clear_drops_pending_requests(self):
-        q = pack.PackTranscriptionQueue()
+        q = offline_pack.OfflinePackTranscriptionQueue()
         q.enqueue({"audio_path": "/tmp/a.wav"})
         q.enqueue({"audio_path": "/tmp/b.wav"})
         q.clear()
@@ -102,7 +102,7 @@ class TestPackTranscriptionQueue:
 
     def test_multiple_mark_ready_calls_idempotent(self):
         """Calling ``mark_ready`` twice drains only newly-queued requests."""
-        q = pack.PackTranscriptionQueue()
+        q = offline_pack.OfflinePackTranscriptionQueue()
         q.enqueue({"audio_path": "/tmp/a.wav"})
         first = q.mark_ready(worker_pid=1)
         assert len(first) == 1

@@ -694,21 +694,22 @@ class LifecycleMixin:
     def _handle_transcribe_offline(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope:
         """Master plan §7.4 — handle the transcribe_offline IPC command.
 
-        STUB handler. The renderer invokes this to run an offline
+        FORWARDER handler. The renderer invokes this to run an offline
         transcription through the runtime-pack worker (slim core →
-        worker over the worker's dedicated WS hop). The actual
-        implementation lives in the worker-IPC sub-agent's
-        WorkerHandlersMixin (added in parallel); this stub is the
-        bare-minimum placeholder so the IPCServer.__init__-time
-        registry-validation loop (which asserts every
-        _COMMAND_REGISTRY entry resolves to a callable bound
-        method) does not fail with a RuntimeError.
+        worker over the worker's dedicated WS hop). The worker-side
+        ASR is implemented in
+        ``voice_typer/worker/_transcribe.py`` + the
+        ``transcribe_offline`` branch of
+        ``voice_typer/worker/_ws_server.py::_handle_connection`` — the
+        worker transcribes the file and pushes
+        ``transcribe_offline_result`` back.
 
-        Once the worker-IPC architecture lands, this stub will be
-        DELETED and the real handler will live in
-        voice_typer/server/handlers/worker_handlers.py (or
-        equivalent) — registered in _COMMAND_REGISTRY under the
-        same key.
+        The slim-core → worker forwarding hop (sidecar WS client +
+        the Rust host's worker spawn) is the remaining Phase 2a/2b
+        wiring: until it lands, this handler acks the request and the
+        actual transcription cannot complete end-to-end. The ack
+        keeps the renderer's ``call()`` from timing out while the
+        architecture is being completed.
 
         Pinned by tests/test_event_types_parity.py.
         """
@@ -719,4 +720,30 @@ class LifecycleMixin:
         # src-tauri/src/sidecar/ws/event_protocol.rs).
         resp["type"] = "ack"
         resp.setdefault("data", {})["queued"] = True
+        return resp
+
+    def _handle_check_offline_pack_update(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope:
+        """Auto-update feature (docs/auto-update-feature.md) — pack update check.
+
+        Delegates to ``update_check.handle_check_offline_pack_update_ipc`` which
+        fetches the remote ``pack-manifest.json`` from GitHub Releases
+        (C-DATA-1 category-2 allowed: silent update check against the
+        GitHub API) and, if a newer pack is available, triggers a
+        background download — gated on ``config.offline_pack_consent``
+        (C-DATA-1 category-3 model-download consent; the download
+        refuses to start without the user's opt-in flag).
+
+        Registered in ``_COMMAND_REGISTRY`` (``check_offline_pack_update``) +
+        the TS ``ALLOWED_COMMANDS`` Set + the Rust
+        ``allowed_commands()`` literal in lockstep.
+        """
+        try:
+            from voice_typer.server.service.update_check import handle_check_offline_pack_update_ipc
+
+            result = handle_check_offline_pack_update_ipc(self.app, data if isinstance(data, dict) else None)
+        except Exception as exc:  # noqa: BLE001 — IPC handlers must never raise
+            log.exception("[UPDATE] check_offline_pack_update IPC handler failed: %s", exc)
+            result = {"success": False, "error": str(exc), "reason": "handler_error"}
+        resp["type"] = "ack"
+        resp.setdefault("data", {}).update(result)
         return resp

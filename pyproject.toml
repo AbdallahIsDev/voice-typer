@@ -133,45 +133,25 @@ dependencies = [
     # The `>=1.7` floor matches the first release with the `mouse.Listener`
     # `suppress=True` flag we use for the bubble-drag capture path.
     "pynput>=1.7,<2.0",
-    # transformers 5.14.1 restored ``AutoModelForTDT`` (it was
-    # absent in 5.0.0–5.5.0 but is present again by 5.14.1; verified
-    # empirically: ``hasattr(transformers, "AutoModelForTDT") == True``
-    # on 5.14.1).  ``AutoModelForCTC`` is present in all 4.x and 5.x.
-    # ``parakeet_engine.py`` uses both via ``getattr`` guards.
-    # Pin bumped from <5.0 to <6.0 to clear 3 CVEs (PYSEC-2026-2288,
-    # PYSEC-2026-2289, PYSEC-2026-2290) fixed by 5.0.0/5.3.0/5.5.0.
-    # PYSEC-2025-217 remains open (no upstream fix) but is mitigated
-    # by the fact that the model files come from HuggingFace Hub
-    # with SHA-256 verification (``verify_model_integrity``).
-    "transformers>=5.14.1,<6.0",
-    # DEP-CLEAN: accelerate removed — nothing under voice_typer/ imports it
-    # (verified by grep). It previously only pulled torch in transitively;
-    # torch is now declared directly below.
-    # Phase 1c (2026-XX-XX): VAD + Parakeet + 7 supporting modules have
-    # been migrated to ONNX Runtime (vad.py, parakeet_engine.py,
-    # transcription.py, asr_utils.py, resource_probe.py,
-    # diagnostics_export.py, scripts/diagnostics.py, prewarm/*). torch is
-    # now imported ONLY by qwen_engine.py (verified via
-    # `grep -rn "^import torch\|^from torch" voice_typer/`). Per the
-    # PLAN_ONNX_INTEGRATION.md §4.3 Option C-3 deferral, qwen_engine.py
-    # stays on torch + transformers until Phase 1d. The lockfile
-    # (requirements-lock.txt:1700) shows torch is pulled ONLY by
-    # `voice-typer (pyproject.toml)` directly — there is NO transitive
-    # source, so this direct declaration is REQUIRED to keep
-    # qwen_engine.py working. Drop this dep (and the `transformers` pin
-    # below) at Phase 1d when qwen_engine.py is migrated to ONNX.
-    # Qwen ASR still needs torch (Phase 1d deferral).
-    "torch>=2.0,<3.0",
-    # Phase 1b (§3.3 Option B-1): onnx-asr provides the class-based
-    # `onnx_asr.Model(name, quantization="fp16", providers=...)` API used
-    # by the rewritten parakeet_engine.py. The `>=0.12.0` floor matches
-    # the first release with the `quantization` kwarg + the
-    # `recognize(audio, *, sample_rate=...)` signature (older 0.11.x had
-    # a positional-only `recognize(audio, sr)` and no quantization
-    # support — breaks parakeet_engine.py:_load_impl). No upper cap yet
-    # (the API is stable; a future 1.0 redesign would need re-validation
-    # of the `_select_providers` mapping and `RunOptions.set_terminate`
-    # abort path).
+    # torch + transformers + qwen-asr REMOVED 2026-08-15 (Phase 1d):
+    # qwen_engine.py migrated to the ONNX-only backend
+    # (qwen_onnx_model.py — pre-exported andrewleech/qwen3-asr-*-onnx
+    # via onnxruntime, no torch). Parakeet + VAD were already ONNX
+    # (Phase 1b/1c). torch>=2.0,<3.0, transformers>=5.14.1,<6.0 and the
+    # `qwen-asr` extra were the LAST torch-family deps; nothing imports
+    # them anymore (verified `grep -rn "^import torch" voice_typer/` →
+    # 0 hits). The installer is now torch-free.
+    # Phase 1b (§3.3 Option B-1): onnx-asr provides the
+    # `load_model(name, path=..., quantization=..., providers=...)`
+    # function + `recognize(audio, *, sample_rate=...)` adapter used by
+    # the rewritten parakeet_engine.py (onnx-asr 0.12.0 exports ONLY
+    # `load_model` / `load_vad` — there is no `Model` class). The
+    # `>=0.12.0` floor matches the first release with the `quantization`
+    # kwarg + the `recognize(audio, *, sample_rate=...)` signature
+    # (older 0.11.x had a positional-only `recognize(audio, sr)` and no
+    # quantization support — breaks parakeet_engine.py:_load_impl). No
+    # upper cap yet (the API is stable; a future 1.0 redesign would
+    # need re-validation of the `_select_providers` mapping).
     "onnx-asr>=0.12.0",
     # Phase 1a + §5.3 (companion plan): onnxruntime is declared
     # explicitly because after the slim-core / runtime-pack split
@@ -191,6 +171,14 @@ dependencies = [
     # for why onnxruntime-gpu does NOT bundle NVIDIA DLLs and
     # nvidia_dll_paths.py is still required).
     "onnxruntime>=1.20",
+    # tokenizers is imported directly by the Qwen3-ASR ONNX backend
+    # (qwen_onnx_model.py — ``Tokenizer.from_file`` for the ASR prompt
+    # decode). It is pulled transitively by the declared
+    # ``transformers>=5.14.1`` dep, but the ONNX path (PLAN_ONNX_INTEGRATION
+    # §4.3 C-2) intends to be the torch-free Qwen option, so the direct
+    # import gets a direct declaration (E13 — declare what you import;
+    # survives the eventual transformers removal at Phase 1d).
+    "tokenizers>=0.21,<1",
     # psutil is used by _another_voice_typer_alive
     # (ARCH-012) and is required for process scanning on all platforms.
     "psutil>=5.9,<8.0",
@@ -199,7 +187,6 @@ dependencies = [
     # snapshot_download. Previously imported with # type: ignore
     # but not declared — cold pip install succeeded but first model
     # load crashed with ModuleNotFoundError.
-    # Bumped from <1.0 to <2.0 to satisfy transformers>=5.14.1.
     "huggingface_hub>=1.24.0,<2.0",
     # Volume ducking on Windows — pycaw wraps the Win32
     # IAudioSessionManager2 COM interface (used by WinVolumeBackend to
@@ -378,10 +365,6 @@ macos = []
 # degrades gracefully when it's absent. Install explicitly on Linux
 # desktops that want proper SNI tray detection: pip install .[linux]
 linux = ["dbus-python>=1.3,<2; sys_platform == 'linux'"]
-# Qwen3-ASR-0.6B optional backend. Lazy-imported in
-# qwen_engine.py — the module can be imported without this package,
-# but the QwenEngine.load() will raise ImportError if not installed.
-qwen = ["qwen-asr>=0.1,<1"]
 # ADR 0007: Noise filtering — RNNoise is now a default dep (above).
 # noisereduce is removed (post-capture denoise deleted per ADR 0007 §3.8).
 # DeepFilterNet is offered as a premium alternative to RNNoise (requires torch).
@@ -486,10 +469,10 @@ baseline = "pyrefly-baseline.json"
 # 1.x emits `WARN Extra keys found in config: extra-paths` and silently
 # ignores it. The valid key (per `pyrefly check --help` →
 # `--search-path`) is `search-path`. Verified empirically: adding the
-# venv to `search-path` drops missing-imports from 73 → 3 (win32gui,
-# win32com.client, qwen_asr — all platform-only / optional, already in
+# venv to `search-path` drops missing-imports from 73 → 2 (win32gui,
+# win32com.client — all platform-only / optional, already in
 # `pyrefly-baseline.json`). With the baseline applied, missing-imports
-# drop to 0.
+# drop to 0. (qwen_asr + torch + transformers removed 2026-08-15.)
 #
 # Note: the hardcoded `.venv/lib/python3.12/site-packages`
 # entry was REMOVED from `search-path`. Rationale: pyrefly 1.x
@@ -823,8 +806,6 @@ module = [
     "pynput.*",
     "pyperclip",
     "psutil",
-    "transformers.*",
-    "qwen_asr.*",
     "pyrnnoise",
     # ADR 0007: noisereduce removed (post-capture denoise deleted).
     # DeepFilterNet is optional (deepfilternet extra).

@@ -27,25 +27,25 @@ import threading
 import time
 
 import pytest
-from voice_typer.server.service import pack
+from voice_typer.server.service import offline_pack
 
 
 class TestPackDownloadQueue:
     """§8.17 — shared download queue; pack is lowest-priority."""
 
     def test_starts_unpaused(self):
-        q = pack.PackDownloadQueue()
+        q = offline_pack.OfflinePackDownloadQueue()
         assert q.user_active == 0
         assert q.pack_should_pause() is False
 
     def test_user_download_started_sets_pause(self):
-        q = pack.PackDownloadQueue()
+        q = offline_pack.OfflinePackDownloadQueue()
         q.user_download_started()
         assert q.user_active == 1
         assert q.pack_should_pause() is True
 
     def test_user_download_finished_clears_pause(self):
-        q = pack.PackDownloadQueue()
+        q = offline_pack.OfflinePackDownloadQueue()
         q.user_download_started()
         q.user_download_finished()
         assert q.user_active == 0
@@ -53,7 +53,7 @@ class TestPackDownloadQueue:
 
     def test_multiple_user_downloads_keep_paused(self):
         """Two concurrent user downloads — pause stays until BOTH finish."""
-        q = pack.PackDownloadQueue()
+        q = offline_pack.OfflinePackDownloadQueue()
         q.user_download_started()
         q.user_download_started()
         assert q.user_active == 2
@@ -67,7 +67,7 @@ class TestPackDownloadQueue:
     def test_user_download_finished_does_not_go_negative(self):
         """A spurious ``user_download_finished`` (without a matching
         ``user_download_started``) must NOT make the count negative."""
-        q = pack.PackDownloadQueue()
+        q = offline_pack.OfflinePackDownloadQueue()
         q.user_download_finished()  # spurious
         assert q.user_active == 0
         assert q.pack_should_pause() is False
@@ -75,7 +75,7 @@ class TestPackDownloadQueue:
     def test_pack_wait_for_resume_returns_true_when_unpaused(self):
         """``pack_wait_for_resume`` blocks then returns True when the
         pause flag clears."""
-        q = pack.PackDownloadQueue()
+        q = offline_pack.OfflinePackDownloadQueue()
         q.user_download_started()
 
         def releaser():
@@ -88,7 +88,7 @@ class TestPackDownloadQueue:
 
     def test_pack_wait_for_resume_returns_false_on_timeout(self):
         """When the pause doesn't clear within the timeout, returns False."""
-        q = pack.PackDownloadQueue()
+        q = offline_pack.OfflinePackDownloadQueue()
         q.user_download_started()
         cleared = q.pack_wait_for_resume(timeout_s=0.1)
         assert cleared is False  # still paused
@@ -96,7 +96,7 @@ class TestPackDownloadQueue:
     def test_thread_safety(self):
         """Concurrent ``user_download_started`` / ``user_download_finished``
         calls don't race — the count is consistent."""
-        q = pack.PackDownloadQueue()
+        q = offline_pack.OfflinePackDownloadQueue()
 
         def worker():
             for _ in range(100):

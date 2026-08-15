@@ -165,15 +165,22 @@ class TestLastResortNotificationShown:
             "last-resort notification must point the user at the Models "
             f"page. Got message: {message!r}"
         )
-        assert "Download" in message, (
+        assert "download a model" in message, (
             "last-resort notification must include the download "
             f"instruction. Got message: {message!r}"
         )
-        # The backend name must be interpolated so the user knows which
-        # model is affected.
-        assert "whisper" in message.lower(), (
-            "last-resort notification must name the affected backend. "
+        # 2026-08-15 user request: the message must be GENERIC — it must
+        # NOT name the backend/model (the stale ``model_size`` in config
+        # may not match anything on disk, and naming it misleads the
+        # user into thinking that specific model is the one being
+        # handled).
+        assert "whisper" not in message.lower(), (
+            "last-resort notification must NOT name the backend. "
             f"Got message: {message!r}"
+        )
+        assert "Open the Models page to download a model" in message, (
+            "last-resort notification must carry the generic download "
+            f"instruction. Got message: {message!r}"
         )
 
     def test_notification_not_shown_when_backend_is_ready(self):
@@ -339,7 +346,7 @@ class TestLastResortNotificationClickable:
 
         app.tray.notify.assert_called_once()
         title, message = app.tray.notify.call_args.args
-        assert "Models page" in message and "Download" in message
+        assert "Models page" in message and "download a model" in message
 
     def test_publish_failure_falls_back_to_pystray_balloon(self, monkeypatch):
         """If the ``notification`` event publish raises, the fallback

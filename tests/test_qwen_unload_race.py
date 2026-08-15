@@ -41,7 +41,7 @@ from voice_typer.server.qwen_engine import QwenEngine
 
 
 def _make_engine() -> QwenEngine:
-    """Build a QwenEngine WITHOUT importing torch / qwen_asr."""
+    """Build a QwenEngine without importing any heavy ML deps."""
     return QwenEngine(model_path="/fake/qwen/model", device="cpu", language="en")
 
 

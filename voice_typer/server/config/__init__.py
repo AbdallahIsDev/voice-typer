@@ -789,6 +789,15 @@ class Config:
     # Prewarm Now" button in the About page remains usable for
     # on-demand warming even when scheduled prewarm is disabled.
     fast_startup: bool = True
+    # Auto-update feature (docs/auto-update-feature.md §8.4): user
+    # opt-in for the offline-pack background download from GitHub
+    # Releases. Defaults OFF — the pack is never downloaded without
+    # explicit consent (C-DATA-1 category-3 model-download consent
+    # gate; ``check_offline_pack_update`` refuses to start the download
+    # when this is False). In the SEC-002 IPC allowlist so the Settings
+    # UI toggle can persist it. Renamed from ``runtime_pack_consent``
+    # on 2026-08-14 (the legacy key is migrated in ``config/loader.py``).
+    offline_pack_consent: bool = False
 
     # ASR backend selection
     # ``Literal[...]`` instead of bare ``str`` so static

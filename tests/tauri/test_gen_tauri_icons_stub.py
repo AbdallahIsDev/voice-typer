@@ -123,9 +123,12 @@ def _stub_paths() -> list[Path]:
             SRC_TAURI / "resources/native/linux-key-listener",
         ]
     )
+    # Prewarm retired (master plan §6.2 P-1): the ML worker exe is now
+    # the second externalBin, so its per-triple stubs live in
+    # ``src-tauri/bin/`` (same dir as the sidecar stubs).
     for triple in TRIPLES:
         ext = ".exe" if triple in WINDOWS_TRIPLES else ""
-        paths.append(SRC_TAURI / "resources" / f"prewarm-{triple}{ext}")
+        paths.append(SRC_TAURI / "bin" / f"voice-typer-worker-{triple}{ext}")
     return paths
 
 
@@ -193,7 +196,7 @@ def test_generate_stdout_lists_summary():
     # icons are committed real files, not generated).
     assert "Sidecar binaries:" in result.stdout
     assert "Native resources:" in result.stdout
-    assert "Prewarm resources:" in result.stdout
+    assert "Worker binaries:" in result.stdout
 
 
 _DIM_TABLE = _script_module().EXPECTED_PNG_DIMENSIONS
@@ -1284,7 +1287,7 @@ def test_generate_heals_truncated_and_empty_stubs():
     _run("--clean")
     p = _windows_sidecar_path()
     p.write_bytes(b"")  # empty -> corrupt
-    q = SRC_TAURI / "resources" / "prewarm-x86_64-pc-windows-msvc.exe"
+    q = SRC_TAURI / "bin" / "voice-typer-worker-x86_64-pc-windows-msvc.exe"
     _run()  # generate — must heal p and create q
     content = p.read_bytes()
     assert content != b"", "generate() should replace an empty file with a stub"

@@ -23,12 +23,23 @@ class TestParakeetNoMaxNewTokensCap:
     """RC-1: max_new_tokens=256 silently truncated dense chunks."""
 
     def test_transcribe_segment_has_no_max_new_tokens_256(self):
-        """The generate() call in _transcribe_segment must NOT pass max_new_tokens=256.
+        """The ``_transcribe_segment`` method must NOT pass
+        ``max_new_tokens=256`` to the model. 256 is too small for 25s
+        of dense English speech (Parakeet TDT emits ~5-12 tokens/sec
+        including duration tokens). Either remove the cap entirely (let
+        the model use generation_config.max_length) or set it to a
+        value >= 1024.
 
-        256 is too small for 25s of dense English speech (Parakeet TDT emits
-        ~5-12 tokens/sec including duration tokens). Either remove the cap
-        entirely (let the model use generation_config.max_length) or set it
-        to a value >= 1024.
+        Post-ONNX: ``_transcribe_segment`` calls the onnx-asr adapter's
+        ``recognize(audio, sample_rate=...)`` — there is
+        no ``model.generate()`` call, so there is no ``max_new_tokens``
+        kwarg at all. This test pins that invariant: a revert to the
+        torch/transformers ``model.generate(max_new_tokens=256)`` path
+        would re-introduce the silent-truncation bug and fail this
+        test. The same method is used by both the GPU path and the
+        GPU→CPU fallback path (PLAN_ONNX_INTEGRATION.md §3.4 — the
+        fallback recreates the ORT session and calls
+        ``_transcribe_segment`` again), so this assertion covers both.
         """
         src = inspect.getsource(ParakeetEngine._transcribe_segment)
         assert "max_new_tokens=256" not in src, (
@@ -36,11 +47,30 @@ class TestParakeetNoMaxNewTokensCap:
             "truncates dense 25s chunks. Remove the cap or raise to >=1024."
         )
 
-    def test_transcribe_segment_unlocked_has_no_max_new_tokens_256(self):
-        """Same cap must be removed from the CPU fallback path."""
-        src = inspect.getsource(ParakeetEngine._transcribe_segment_unlocked)
-        assert "max_new_tokens=256" not in src, (
-            "_transcribe_segment_unlocked must not use max_new_tokens=256 — same truncation bug as the GPU path."
+    def test_no_separate_unlocked_segment_method(self):
+        """Post-ONNX: there is no separate ``_transcribe_segment_unlocked``
+        method. The pre-ONNX engine had a torch/transformers
+        ``_transcribe_segment`` (GPU path) and a separate
+        ``_transcribe_segment_unlocked`` (CPU fallback path that
+        released the model lock during generation). Each had its own
+        ``max_new_tokens`` cap, so the original RC-1 regression test
+        had to verify both.
+
+        The ONNX-rewritten engine has a single ``_transcribe_segment``
+        method used by both the GPU path and the GPU→CPU fallback path
+        (PLAN_ONNX_INTEGRATION.md §3.4 — the fallback recreates the
+        ORT session, then calls the same ``_transcribe_segment``). This
+        test pins the single-method invariant so a revert that
+        re-introduces a separate ``_transcribe_segment_unlocked`` would
+        fail it (and the new method would need its own cap-removal
+        test).
+        """
+        assert not hasattr(ParakeetEngine, "_transcribe_segment_unlocked"), (
+            "ParakeetEngine must NOT define a separate _transcribe_segment_unlocked "
+            "method — the ONNX backend has a single _transcribe_segment method "
+            "used by both the GPU path and the GPU→CPU fallback path. A separate "
+            "unlocked method would re-introduce the RC-1 risk of one path "
+            "carrying the max_new_tokens=256 cap while the other doesn't."
         )
 
 

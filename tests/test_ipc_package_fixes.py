@@ -34,6 +34,8 @@ Findings covered:
 from __future__ import annotations
 
 import dataclasses
+import threading
+from unittest.mock import patch
 
 import pytest
 
@@ -432,7 +434,7 @@ class TestCommandCostsContract:
 
     Previously the map listed only 5 commands; every other dispatched
     command fell through to ``DEFAULT_COST = 1``, including expensive
-    operations like ``delete_model``, ``run_prewarm``,
+    operations like ``delete_model``, ``transcribe_offline``,
     ``test_llm_connection``, ``export_diagnostics``, ``clear_history``,
     ``microphone_test_start``. A buggy or hostile client could fire
     200/s of any unlisted expensive command. The map now lists EVERY
@@ -537,6 +539,7 @@ class TestCommandCostsNewlyListed:
         [
             # Heavy I/O or subprocess (cost >= 10).
             ("delete_model", 10),
+            ("transcribe_offline", 10),
             ("run_prewarm", 10),
             ("restart_app", 10),
             ("test_llm_connection", 10),
@@ -912,3 +915,55 @@ class TestNamespacedCodesRegistered:
             f"is NOT in ERROR_CODES. Add it to the registry in "
             f"voice_typer/server/ipc/validation.py."
         )
+
+
+class TestCheckPackUpdateDispatch:
+    """the auto-update feature's ``check_offline_pack_update`` IPC command
+    dispatches through the real registry + handler (docs/auto-update-feature.md).
+
+    The handler is ``_handle_check_offline_pack_update`` in
+    ``voice_typer/server/ipc/lifecycle.py``, which delegates to
+    ``update_check.handle_check_offline_pack_update_ipc``. The manifest fetch
+    fails (no network / no release) but must produce a structured
+    ``ack`` result — never a raised exception or a dropped envelope.
+    """
+
+    def test_command_registered_and_rate_limited(self):
+        assert "check_offline_pack_update" in IPCServer._COMMAND_REGISTRY
+        assert "check_offline_pack_update" in COMMAND_COSTS
+
+    def test_dispatch_returns_structured_ack(self):
+        server = IPCServer.__new__(IPCServer)
+        server.app = _ConfigLike()  # no config → consent denied, still ack
+        server._ready_emitted = False
+        server._last_heartbeat_at = 0.0
+        server._shutting_down = False
+        server._dispatch_lock = threading.RLock()
+        server._cached_shutting_down = False
+        resp = server._dispatch({"type": "check_offline_pack_update", "data": {}})
+        assert resp is not None
+        assert resp["type"] == "ack"
+        assert isinstance(resp["data"], dict)
+        assert "success" in resp["data"]
+        assert "checked_at" in resp["data"]
+        assert "update_available" in resp["data"]
+        assert "download_triggered" in resp["data"]
+
+    def test_dispatch_never_raises_on_handler_error(self):
+        """an unexpected handler exception becomes a structured error ack."""
+        server = IPCServer.__new__(IPCServer)
+        server.app = _ConfigLike()
+        server._ready_emitted = False
+        server._last_heartbeat_at = 0.0
+        server._shutting_down = False
+        server._dispatch_lock = threading.RLock()
+        server._cached_shutting_down = False
+        with patch(
+            "voice_typer.server.service.update_check.handle_check_offline_pack_update_ipc",
+            side_effect=RuntimeError("boom"),
+        ):
+            resp = server._dispatch({"type": "check_offline_pack_update", "data": {}})
+        assert resp is not None
+        assert resp["type"] == "ack"
+        assert resp["data"]["success"] is False
+        assert "boom" in resp["data"]["error"]

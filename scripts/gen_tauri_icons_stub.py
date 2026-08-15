@@ -860,6 +860,7 @@ def _print_summary(created: list[Path]) -> None:
     print()
     print("[gen_tauri_icons_stub] Summary:")
     print(f"  Sidecar binaries:  {len(SIDECAR_TRIPLES)}")
+    print(f"  Worker binaries:   {len(SIDECAR_TRIPLES)}")
     print(f"  Native resources:  {len(NATIVE_RESOURCES)}")
     print(f"  Total:             {len(created)}")
     print()

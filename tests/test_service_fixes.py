@@ -32,7 +32,6 @@ so no real torch / qwen_asr / network is required.
 
 from __future__ import annotations
 
-import importlib.util
 import inspect
 import time
 from pathlib import Path
@@ -57,99 +56,10 @@ def _make_service(tmp_config_dir):
     return svc_mod.VoiceTyperService(FakeApp())
 
 
-# deps probes use find_spec ───────────────────────────────────
-
-
-class TestDepsProbesUseFindSpec:
-    """XV-1: replace ``importlib.import_module`` with
-    ``importlib.util.find_spec`` in both deps-probe helpers so probing
-    for ``torch`` / ``qwen_asr`` doesn't execute their (heavy) top-level
-    code."""
-
-    def test_parakeet_deps_source_uses_find_spec(self):
-        """Source guard: ``_check_parakeet_deps`` must reference
-        ``importlib.util.find_spec`` and must not call
-        ``importlib.import_module(...)``."""
-        from voice_typer.server.service import VoiceTyperService
-
-        src = inspect.getsource(VoiceTyperService._check_parakeet_deps)
-        assert "importlib.util.find_spec" in src
-        assert "import_module(" not in src, (
-            "XV-1 regression: _check_parakeet_deps still calls "
-            "import_module(...) — this executes torch's top-level code "
-            "which allocates ~500MB-1GB of RSS just to probe presence."
-        )
-
-    def test_qwen_deps_source_uses_find_spec(self):
-        """Source guard: ``_check_qwen_deps`` must reference
-        ``importlib.util.find_spec`` and must not call
-        ``importlib.import_module(...)``."""
-        from voice_typer.server.service import VoiceTyperService
-
-        src = inspect.getsource(VoiceTyperService._check_qwen_deps)
-        assert "importlib.util.find_spec" in src
-        assert "import_module(" not in src, "XV-1 regression: _check_qwen_deps still calls import_module(...)."
-
-    def test_parakeet_deps_does_not_execute_torch(self, tmp_config_dir, monkeypatch):
-        """The probe must call ``find_spec("torch")`` and return True
-        WITHOUT executing torch's module body (i.e. without torch ever
-        landing in ``sys.modules``)."""
-        import sys
-
-        svc = _make_service(tmp_config_dir)
-        # Ensure torch is not already imported (it may be in some envs).
-        monkeypatch.setattr(importlib.util, "find_spec", lambda name: MagicMock() if name == "torch" else None)
-        # Sentinel: if anything imports torch, sys.modules will gain it.
-        before = "torch" in sys.modules
-        result = svc._check_parakeet_deps()
-        after = "torch" in sys.modules
-        assert result is True
-        # The probe must not have caused torch to be imported (it
-        # wasn't before, and it isn't after).
-        assert not (not before and after), (
-            "XV-1: _check_parakeet_deps imported torch into sys.modules — find_spec must NOT execute the module body."
-        )
-
-    def test_parakeet_deps_true_when_spec_present(self, tmp_config_dir, monkeypatch):
-        """When ``find_spec('torch')`` returns a non-None ModuleSpec,
-        ``_check_parakeet_deps`` returns True."""
-        svc = _make_service(tmp_config_dir)
-        fake_find_spec = MagicMock(return_value=MagicMock(name="ModuleSpec"))
-        monkeypatch.setattr(importlib.util, "find_spec", fake_find_spec)
-        assert svc._check_parakeet_deps() is True
-        fake_find_spec.assert_called_once_with("torch")
-
-    def test_parakeet_deps_false_when_spec_missing(self, tmp_config_dir, monkeypatch):
-        """When ``find_spec('torch')`` returns ``None`` (torch not
-        installed), ``_check_parakeet_deps`` returns False."""
-        svc = _make_service(tmp_config_dir)
-        monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
-        assert svc._check_parakeet_deps() is False
-
-    def test_qwen_deps_true_when_spec_present(self, tmp_config_dir, monkeypatch):
-        svc = _make_service(tmp_config_dir)
-        monkeypatch.setattr(importlib.util, "find_spec", lambda name: MagicMock() if name == "qwen_asr" else None)
-        assert svc._check_qwen_deps() is True
-
-    def test_qwen_deps_false_when_spec_missing(self, tmp_config_dir, monkeypatch):
-        svc = _make_service(tmp_config_dir)
-        monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
-        assert svc._check_qwen_deps() is False
-
-    def test_qwen_deps_does_not_execute_module(self, tmp_config_dir, monkeypatch):
-        """Symmetric to the parakeet test: qwen_asr must never land in
-        ``sys.modules`` as a side-effect of probing."""
-        import sys
-
-        svc = _make_service(tmp_config_dir)
-        monkeypatch.setattr(importlib.util, "find_spec", lambda name: MagicMock() if name == "qwen_asr" else None)
-        before = "qwen_asr" in sys.modules
-        result = svc._check_qwen_deps()
-        after = "qwen_asr" in sys.modules
-        assert result is True
-        assert not (not before and after), (
-            "XV-1: _check_qwen_deps imported qwen_asr into sys.modules — find_spec must NOT execute the module body."
-        )
+# XV-1 deps-probe tests removed 2026-08-15: ``_check_qwen_deps`` /
+# ``_check_parakeet_deps`` were deleted with the torch engine — both
+# backends are ONNX now (onnxruntime + onnx-asr are base deps), so the
+# Models-page ``deps_ok`` is a constant True with no module probe.
 
 
 # download_model polling walks only the per-repo subdir ──────

@@ -3,11 +3,11 @@
 On launch, the slim core fetches the latest ``pack-manifest.json`` from
 the GitHub Releases URL (with consent — §8.4). If the version is newer
 than the local pack, a background download is triggered via
-:mod:`voice_typer.server.service.pack` (Sub-agent 7's module — we call
+:mod:`voice_typer.server.service.offline_pack` (Sub-agent 7's module — we call
 its PUBLIC API only, never edit it).
 
-This module is the auto-update counterpart to ``service/pack.py``.
-``pack.py`` owns the *download* mechanics (resume, checksum, lock file,
+This module is the auto-update counterpart to ``service/offline_pack.py``.
+``offline_pack.py`` owns the *download* mechanics (resume, checksum, lock file,
 proxy env, SSRF gate); this module owns the *check* mechanics (fetch the
 remote manifest, compare versions, decide whether to trigger). The two
 are intentionally separate so Sub-agent 7's pack downloader can be
@@ -15,7 +15,7 @@ tested / iterated without coupling to the version-check logic.
 
 Security inheritance (per §10.1):
   * SSRF protection — delegates to
-    :func:`voice_typer.server.service.pack.assert_pack_url_allowed`,
+    :func:`voice_typer.server.service.offline_pack.assert_offline_pack_url_allowed`,
     which extends the runtime URL allowlist with the GitHub Releases
     hosts (``github.com`` / ``objects.githubusercontent.com`` /
     ``codeload.github.com``) AND inherits the IP-literal blocklist +
@@ -29,14 +29,14 @@ Security inheritance (per §10.1):
     malicious server returning a multi-GB body would otherwise exhaust
     RAM before the JSON parser saw a single byte). Mirrors the cap
     pattern tested by ``tests/test_secure_file_io_max_bytes.py``.
-  * Proxy support — :func:`voice_typer.server.service.pack.proxy_env`
+  * Proxy support — :func:`voice_typer.server.service.offline_pack.proxy_env`
     returns the ``HTTP_PROXY`` / ``HTTPS_PROXY`` env vars; the default
     ``_http_get_manifest`` transport passes them to
     ``urllib.request.urlopen`` via a ``ProxyHandler`` so corporate
     networks work (§8.6).
-  * Consent gate — :func:`voice_typer.server.service.pack.require_runtime_pack_consent`
-    raises :class:`PackConsentRequiredError` when
-    ``config.runtime_pack_consent`` is False. The pack download phones
+  * Consent gate — :func:`voice_typer.server.service.offline_pack.require_offline_pack_consent`
+    raises :class:`OfflinePackConsentRequiredError` when
+    ``config.offline_pack_consent`` is False. The pack download phones
     home to GitHub Releases (revealing user IP to Microsoft), so it MUST
     be consent-gated (§8.4 / C-DATA-1).
 
@@ -48,23 +48,23 @@ AGENTS.md.
 
 Public API:
   * :data:`UpdateCheckResult` — TypedDict returned by
-    :func:`check_pack_update`.
-  * :func:`check_pack_update` — main entry point. Fetches the remote
+    :func:`check_offline_pack_update`.
+  * :func:`check_offline_pack_update` — main entry point. Fetches the remote
     manifest, compares versions, optionally triggers a background
-    download via :func:`pack.download_pack_with_resume`.
-  * :func:`handle_check_pack_update_ipc` — thin IPC handler wrapper
-    around :func:`check_pack_update`. Returns a plain ``dict`` for IPC
+    download via :func:`offline_pack.download_offline_pack_with_resume`.
+  * :func:`handle_check_offline_pack_update_ipc` — thin IPC handler wrapper
+    around :func:`check_offline_pack_update`. Returns a plain ``dict`` for IPC
     serialization. NOT auto-registered in ``ipc/registry.py`` — the
     wiring is left to whoever owns the registry (Sub-agent 7 or a
     future integration agent). The renderer-side ``useNetworkOnline``
-    hook calls ``call("check_pack_update", {})``; if the command isn't
+    hook calls ``call("check_offline_pack_update", {})``; if the command isn't
     registered yet, the call fails gracefully (caught + logged at
     debug).
   * :func:`fetch_remote_manifest` — pure helper that fetches + parses
     the remote manifest. Exposed for unit testing.
   * :func:`is_newer_version` — pure semver-ish comparison. Exposed for
     unit testing.
-  * :data:`DEFAULT_PACK_MANIFEST_URL` — the stable GitHub Releases URL.
+  * :data:`DEFAULT_OFFLINE_PACK_MANIFEST_URL` — the stable GitHub Releases URL.
   * :data:`MAX_MANIFEST_BYTES` — the byte cap on the remote manifest
     (1 MiB).
 """
@@ -82,13 +82,13 @@ from urllib.parse import urlparse
 
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.secure_file_io import _secure_read_text
-from voice_typer.server.service import pack
-from voice_typer.server.service.pack import (
-    PackConsentRequiredError,
-    PackManifest,
-    assert_pack_url_allowed,
+from voice_typer.server.service import offline_pack
+from voice_typer.server.service.offline_pack import (
+    OfflinePackConsentRequiredError,
+    OfflinePackManifest,
+    assert_offline_pack_url_allowed,
     proxy_env,
-    require_runtime_pack_consent,
+    require_offline_pack_consent,
 )
 
 if TYPE_CHECKING:
@@ -107,11 +107,11 @@ log = logging.getLogger(__name__)
 #
 # The repo owner / name are hardcoded here as a sane default. Power
 # users can override via the ``VT_PACK_MANIFEST_URL`` env var (mirrors
-# the ``VT_PACK_ROOT`` override in ``pack._default_pack_root``). Tests
+# the ``VT_PACK_ROOT`` override in ``offline_pack._default_offline_pack_root``). Tests
 # inject ``manifest_url=`` directly.
 _DEFAULT_REPO_OWNER = "AbdallahIsDev"
 _DEFAULT_REPO_NAME = "voice-typer"
-DEFAULT_PACK_MANIFEST_URL = (
+DEFAULT_OFFLINE_PACK_MANIFEST_URL = (
     f"https://github.com/{_DEFAULT_REPO_OWNER}/{_DEFAULT_REPO_NAME}/releases/latest/download/pack-manifest.json"
 )
 
@@ -121,14 +121,14 @@ def _resolve_manifest_url(manifest_url: str | None) -> str:
 
     The env var is a test escape hatch + power-user override — production
     code SHOULD NOT document it (mirrors the ``VT_PACK_ROOT`` stance in
-    ``pack._default_pack_root``).
+    ``offline_pack._default_offline_pack_root``).
     """
     if manifest_url is not None:
         return manifest_url
     env = _os.environ.get("VT_PACK_MANIFEST_URL")
     if env:
         return env
-    return DEFAULT_PACK_MANIFEST_URL
+    return DEFAULT_OFFLINE_PACK_MANIFEST_URL
 
 
 # 1 MiB cap on the remote manifest. Real pack-manifest.json is <2 KB
@@ -245,12 +245,82 @@ def is_newer_version(remote: str, local: str) -> bool:
 # ── HTTP transport (default; tests inject a fake) ────────────────────────
 
 
+class _SSRFAwareRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """``HTTPRedirectHandler`` subclass that re-validates each 3xx hop.
+
+    Background: ``urllib.request.build_opener`` ALWAYS installs the
+    default ``HTTPRedirectHandler`` (which silently follows 3xx
+    responses) UNLESS the caller passes an explicit
+    ``HTTPRedirectHandler`` subclass. The default handler follows
+    redirects to ANY URL — including private/reserved IP literals and
+    non-allowlisted hosts — without re-running the SSRF gate.
+
+    The gap (R2-4 should-improve): ``fetch_remote_manifest`` calls
+    :func:`assert_offline_pack_url_allowed` on the INITIAL manifest URL before
+    opening a socket, but if the initial URL returned a 3xx redirect to
+    a private/loopback IP (e.g. an attacker-controlled GitHub mirror
+    that returns ``302 Location: http://10.0.0.5/evil``), urllib would
+    silently follow the redirect — exfiltrating the request body (which
+    includes the ``User-Agent`` identifying the app + version) to the
+    attacker-controlled internal endpoint. Low risk for the default
+    GitHub URL (trusted first-party), higher when
+    ``VT_PACK_MANIFEST_URL`` is overridden to a non-GitHub host.
+
+    Fix: override :meth:`redirect_request` to call
+    :func:`assert_offline_pack_url_allowed` on the redirect target
+    (``newurl``) BEFORE delegating to :meth:`super().redirect_request`.
+    If validation fails (``ValueError`` from ``assert_url_allowed``'s
+    allowlist / HTTPS / IP-literal-blocklist checks), re-raise as
+    ``RuntimeError`` so the exception propagates cleanly through
+    ``opener.open()`` and is caught by ``fetch_remote_manifest``'s
+    ``except (OSError, RuntimeError)`` (which logs + returns ``None``,
+    fail-closed — no download triggered).
+
+    Passing an instance of this subclass to
+    :func:`urllib.request.build_opener` REPLACES the default
+    ``HTTPRedirectHandler`` (build_opener deduplicates by class
+    hierarchy), so the SSRF-aware handler is the ONLY redirect handler
+    in the chain.
+
+    See https://docs.python.org/3/library/urllib.request.html#urllib.request.HTTPRedirectHandler.redirect_request
+    for the contract.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        """Re-validate ``newurl`` through :func:`assert_offline_pack_url_allowed`.
+
+        Raises ``RuntimeError`` if the redirect target is not in the
+        allowlist, is a private/reserved IP literal, or fails the
+        DNS-rebinding defense. Otherwise delegates to
+        :meth:`super().redirect_request` (the default behavior — return
+        a new ``Request`` for the redirect target).
+        """
+        try:
+            assert_offline_pack_url_allowed(newurl)
+        except ValueError as exc:
+            # Convert ``ValueError`` (raised by ``assert_url_allowed``)
+            # to ``RuntimeError`` so it propagates through
+            # ``opener.open()`` cleanly and is caught by
+            # ``fetch_remote_manifest``'s
+            # ``except (OSError, RuntimeError)`` branch (which logs +
+            # returns ``None``, fail-closed). Letting ``ValueError``
+            # propagate would let it escape the catch and crash the
+            # caller — the SSRF defense would still fire, but the
+            # caller would see an unexpected exception type.
+            raise RuntimeError(
+                f"SSRF block on redirect target (refusing to follow "
+                f"{code} redirect to a non-allowlisted / private IP "
+                f"target): {exc}"
+            ) from exc
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _http_get_manifest(url: str, *, max_bytes: int = MAX_MANIFEST_BYTES) -> str:
     """Default HTTP transport — fetches *url* and returns the body as text.
 
     Uses ``urllib.request`` (no extra dep). Respects ``HTTP_PROXY`` /
     ``HTTPS_PROXY`` env vars (§8.6) via a ``ProxyHandler`` built from
-    :func:`pack.proxy_env`. Enforces ``max_bytes`` by reading in chunks
+    :func:`offline_pack.proxy_env`. Enforces ``max_bytes`` by reading in chunks
     and aborting when the cap is exceeded (mirrors the chunked-read
     pattern in :func:`voice_typer.server.security.file_io._read_with_byte_limit`).
 
@@ -260,17 +330,26 @@ def _http_get_manifest(url: str, *, max_bytes: int = MAX_MANIFEST_BYTES) -> str:
     ``max_bytes + 1`` bytes; if the extra byte is non-empty, the body
     exceeded the cap and we raise.
 
+    SSRF redirect re-validation: the opener installs
+    :class:`_SSRFAwareRedirectHandler` so each 3xx hop is re-validated
+    through :func:`assert_offline_pack_url_allowed` (the same SSRF gate that
+    ``fetch_remote_manifest`` runs on the initial URL). A redirect to
+    a private/loopback IP or non-allowlisted host raises
+    ``RuntimeError`` (caught by ``fetch_remote_manifest``, fail-closed
+    → ``None`` → no download triggered).
+
     Raises:
-        RuntimeError: if the HTTP status is not 200, or the body
-            exceeds ``max_bytes``.
+        RuntimeError: if the HTTP status is not 200, the body
+            exceeds ``max_bytes``, OR a 3xx redirect target fails
+            the SSRF re-validation.
         OSError: if the connection fails (DNS, refused, timeout).
     """
     proxies = proxy_env()
     if proxies:
         proxy_handler = urllib.request.ProxyHandler(proxies)
-        opener = urllib.request.build_opener(proxy_handler)
+        opener = urllib.request.build_opener(_SSRFAwareRedirectHandler(), proxy_handler)
     else:
-        opener = urllib.request.build_opener()
+        opener = urllib.request.build_opener(_SSRFAwareRedirectHandler())
     req = urllib.request.Request(
         url,
         headers={"User-Agent": f"{APP_NAME}/pack-update-checker", "Accept": "application/json"},
@@ -307,16 +386,16 @@ def fetch_remote_manifest(
     *,
     http_get: callable | None = None,
     max_bytes: int = MAX_MANIFEST_BYTES,
-) -> PackManifest | None:
+) -> OfflinePackManifest | None:
     """Fetch + validate the remote ``pack-manifest.json``.
 
     Delegates SSRF protection to
-    :func:`voice_typer.server.service.pack.assert_pack_url_allowed`
+    :func:`voice_typer.server.service.offline_pack.assert_offline_pack_url_allowed`
     (which extends the allowlist with GitHub hosts + inherits the
     IP-literal blocklist + DNS-rebinding defense from
     :func:`voice_typer.server.security.url_allowlist.assert_url_allowed`).
 
-    Delegates parsing to :func:`voice_typer.server.service.pack.load_pack_manifest`
+    Delegates parsing to :func:`voice_typer.server.service.offline_pack.load_offline_pack_manifest`
     so the remote manifest is validated against the SAME schema as the
     local manifest (a mismatch would let a malicious server ship a
     pack that bypasses the local integrity check).
@@ -335,10 +414,10 @@ def fetch_remote_manifest(
     """
     # SSRF gate first — refuse to fetch from a private/disallowed host
     # even before we open a socket. This is the SAME check
-    # ``download_pack_with_resume`` runs, so the check + download paths
+    # ``download_offline_pack_with_resume`` runs, so the check + download paths
     # can never disagree about whether a URL is safe.
     try:
-        assert_pack_url_allowed(url)
+        assert_offline_pack_url_allowed(url)
     except ValueError as exc:
         log.warning("[UPDATE] SSRF block on manifest URL: %s", exc)
         return None
@@ -359,7 +438,7 @@ def fetch_remote_manifest(
     except json.JSONDecodeError:
         log.warning("[UPDATE] remote manifest from %s is not valid JSON", url)
         return None
-    # Reuse pack's structural validator. ``load_pack_manifest`` expects
+    # Reuse pack's structural validator. ``load_offline_pack_manifest`` expects
     # a path, so we round-trip through a temp file + ``_secure_read_text``
     # to enforce the max_bytes cap via the SAME code path as config /
     # vocabulary / templates reads (defense-in-depth).
@@ -374,7 +453,7 @@ def fetch_remote_manifest(
         # bypasses the chunked cap, this still catches an oversized
         # manifest.
         _secure_read_text(tmp_path, max_bytes=max_bytes)
-        manifest = pack.load_pack_manifest(tmp_path)
+        manifest = offline_pack.load_offline_pack_manifest(tmp_path)
     finally:
         with __import__("contextlib").suppress(OSError):
             tmp_path.unlink()
@@ -384,14 +463,14 @@ def fetch_remote_manifest(
     return manifest
 
 
-def _local_pack_version(root: Path | None = None) -> str | None:
+def _local_offline_pack_version(root: Path | None = None) -> str | None:
     """Return the locally-installed pack version, or ``None`` if none.
 
     Scans ``<pack-root>/<version>/pack-manifest.json`` for every version
     directory under the pack root and returns the highest version that
-    passes :func:`pack.pack_exists` (cheap existence check — no SHA-256
+    passes :func:`offline_pack.offline_pack_exists` (cheap existence check — no SHA-256
     hashing). The full checksum is run in the background by
-    :class:`pack.BackgroundChecksum` on startup (§8.16); this function
+    :class:`offline_pack.BackgroundChecksum` on startup (§8.16); this function
     is the cheap launch-time check (§8.10).
 
     Returns ``None`` when:
@@ -400,7 +479,7 @@ def _local_pack_version(root: Path | None = None) -> str | None:
       * every version directory fails the existence check (corrupt /
         partial downloads).
     """
-    base = pack._default_pack_root() if root is None else root
+    base = offline_pack._default_offline_pack_root() if root is None else root
     if not base.exists():
         return None
     best: str | None = None
@@ -410,10 +489,12 @@ def _local_pack_version(root: Path | None = None) -> str | None:
                 continue
             version = entry.name
             try:
-                if pack.pack_exists(version, root=root) and (best is None or is_newer_version(version, best)):
+                if offline_pack.offline_pack_exists(version, root=root) and (
+                    best is None or is_newer_version(version, best)
+                ):
                     best = version
             except Exception:  # noqa: BLE001 — defensive: a single corrupt dir must not abort the scan
-                log.debug("[UPDATE] pack_exists check failed for %s", version, exc_info=True)
+                log.debug("[UPDATE] offline_pack_exists check failed for %s", version, exc_info=True)
     except OSError:
         log.debug("[UPDATE] pack root scan failed", exc_info=True)
         return None
@@ -425,7 +506,7 @@ def _local_pack_version(root: Path | None = None) -> str | None:
 
 def _trigger_background_download(
     *,
-    manifest: PackManifest,
+    manifest: OfflinePackManifest,
     manifest_url: str,
     config: Config | None,
     event_bus: event_bus_module | None,
@@ -434,8 +515,8 @@ def _trigger_background_download(
 ) -> bool:
     """Trigger a background download of the pack via :mod:`pack`.
 
-    Calls :func:`pack.require_runtime_pack_consent` first — if consent
-    is missing, raises :class:`PackConsentRequiredError` (the caller
+    Calls :func:`offline_pack.require_offline_pack_consent` first — if consent
+    is missing, raises :class:`OfflinePackConsentRequiredError` (the caller
     catches it and surfaces a consent dialog).
 
     Constructs the pack-download URL from the manifest URL + version
@@ -444,11 +525,11 @@ def _trigger_background_download(
     ``scripts/release/publish_pack_release.py`` — the publisher uploads
     the pack as ``pack-<version>.zip`` alongside ``pack-manifest.json``.
 
-    Runs :func:`pack.download_pack_with_resume` on a daemon thread so
+    Runs :func:`offline_pack.download_offline_pack_with_resume` on a daemon thread so
     the caller (e.g. the IPC handler) is not blocked. The download
-    publishes its own events (``pack_download_started`` /
-    ``pack_download_progress`` / ``pack_download_completed`` /
-    ``pack_download_failed``) via the event bus; the renderer's
+    publishes its own events (``offline_pack_download_started`` /
+    ``offline_pack_download_progress`` / ``offline_pack_download_completed`` /
+    ``offline_pack_download_failed``) via the event bus; the renderer's
     ``usePackDownload`` hook subscribes to those events.
 
     Returns ``True`` if the download thread was started. Returns
@@ -457,10 +538,10 @@ def _trigger_background_download(
     """
     # Consent gate first — mirrors the pattern in
     # ``ModelMixin._require_huggingface_consent`` and
-    # ``pack.require_runtime_pack_consent``. The pack download phones
+    # ``offline_pack.require_offline_pack_consent``. The pack download phones
     # home to GitHub Releases (revealing user IP to Microsoft), so it
     # MUST be consent-gated (§8.4 / C-DATA-1).
-    require_runtime_pack_consent(config, version=manifest["version"])
+    require_offline_pack_consent(config, version=manifest["version"])
 
     # Construct the pack-download URL. The manifest lives at
     # ``.../releases/latest/download/pack-manifest.json`` (or a pinned
@@ -477,15 +558,15 @@ def _trigger_background_download(
     pack_asset_name = f"pack-{manifest['version']}.zip"
     pack_url = f"{parsed.scheme}://{parsed.netloc}{dir_path}/{pack_asset_name}"
 
-    dest = pack.pack_partial_path(manifest["version"], root=root)
-    # Ensure the version directory exists (``download_pack_with_resume``
+    dest = offline_pack.offline_pack_partial_path(manifest["version"], root=root)
+    # Ensure the version directory exists (``download_offline_pack_with_resume``
     # opens ``dest`` with ``open("wb")`` / ``open("ab")`` — the parent
     # must exist).
     dest.parent.mkdir(parents=True, exist_ok=True)
 
     def _bg() -> None:
         try:
-            pack.download_pack_with_resume(
+            offline_pack.download_offline_pack_with_resume(
                 pack_url,
                 dest,
                 expected_sha256=manifest["sha256"],
@@ -493,7 +574,7 @@ def _trigger_background_download(
                 event_bus=event_bus,
                 http_get=http_get,
             )
-        except PackConsentRequiredError:
+        except OfflinePackConsentRequiredError:
             # Should not happen — consent was checked above — but
             # defensive: a race where the user revokes consent between
             # the check + the download.
@@ -524,7 +605,7 @@ def _trigger_background_download(
 # ── Main entry point ────────────────────────────────────────────────────
 
 
-def check_pack_update(
+def check_offline_pack_update(
     config: Config | None,
     event_bus: event_bus_module | None,
     *,
@@ -538,7 +619,7 @@ def check_pack_update(
 
     Steps:
       1. Resolve the manifest URL (param > ``VT_PACK_MANIFEST_URL`` env >
-         :data:`DEFAULT_PACK_MANIFEST_URL`).
+         :data:`DEFAULT_OFFLINE_PACK_MANIFEST_URL`).
       2. Fetch + validate the remote manifest via
          :func:`fetch_remote_manifest` (SSRF-gated, max-bytes-capped).
       3. Resolve the local pack version (param > scan the pack root).
@@ -548,7 +629,7 @@ def check_pack_update(
 
     Returns an :data:`UpdateCheckResult`. Never raises — all errors are
     caught and returned as ``{"success": False, "error": ..., "reason": ...}``.
-    The ONLY exception is :class:`PackConsentRequiredError` from the
+    The ONLY exception is :class:`OfflinePackConsentRequiredError` from the
     consent gate, which is caught and returned as
     ``{"success": False, "consent_required": True, ...}`` so the
     renderer can surface a consent dialog (mirrors the
@@ -561,7 +642,7 @@ def check_pack_update(
     # Default local_version to a scan of the pack root.
     if local_version is None:
         try:
-            local_version = _local_pack_version(root=root)
+            local_version = _local_offline_pack_version(root=root)
         except Exception:  # noqa: BLE001 — defensive: pack-root scan must not abort the check
             log.exception("[UPDATE] local pack scan failed")
             local_version = None
@@ -625,9 +706,9 @@ def check_pack_update(
             http_get=http_get,
         )
         result["download_triggered"] = download_started
-    except PackConsentRequiredError:
+    except OfflinePackConsentRequiredError:
         log.warning(
-            "[UPDATE] runtime_pack_consent not given — refusing to download pack %s",
+            "[UPDATE] offline_pack_consent not given — refusing to download pack %s",
             remote_version,
         )
         # Surface a consent_required event so the renderer can show the
@@ -639,8 +720,9 @@ def check_pack_update(
                         "type": "consent_required",
                         "data": {
                             "provider": "github",
-                            "scope": "runtime_pack",
+                            "scope": "offline_pack",
                             "model": remote_version,
+                            "consent_field": "offline_pack_consent",
                             "message": (
                                 "Runtime pack consent required before downloading "
                                 "the offline engine pack from GitHub Releases."
@@ -666,7 +748,7 @@ def check_pack_update(
 # ── IPC handler wrapper ─────────────────────────────────────────────────
 
 
-def handle_check_pack_update_ipc(
+def handle_check_offline_pack_update_ipc(
     app: Any,
     data: dict | None,
     *,
@@ -676,7 +758,7 @@ def handle_check_pack_update_ipc(
     root: Path | None = None,
     trigger_download: bool = True,
 ) -> dict[str, Any]:
-    """Thin IPC handler wrapper around :func:`check_pack_update`.
+    """Thin IPC handler wrapper around :func:`check_offline_pack_update`.
 
     Returns a plain ``dict`` (not a TypedDict) for IPC serialization —
     mirrors the pattern in ``ModelMixin.download_model`` which converts
@@ -686,7 +768,7 @@ def handle_check_pack_update_ipc(
     NOT auto-registered in ``ipc/registry.py`` — the wiring is left to
     whoever owns the registry (Sub-agent 7 or a future integration
     agent). The renderer-side ``useNetworkOnline`` hook calls
-    ``call("check_pack_update", {})``; if the command isn't registered
+    ``call("check_offline_pack_update", {})``; if the command isn't registered
     yet, the call fails gracefully (caught + logged at debug).
 
     Args:
@@ -717,7 +799,7 @@ def handle_check_pack_update_ipc(
             event_bus = _event_bus_module
         except ImportError:
             pass
-    result = check_pack_update(
+    result = check_offline_pack_update(
         config,
         event_bus,  # type: ignore[arg-type]
         http_get=http_get,
@@ -730,11 +812,11 @@ def handle_check_pack_update_ipc(
 
 
 __all__ = [
-    "DEFAULT_PACK_MANIFEST_URL",
+    "DEFAULT_OFFLINE_PACK_MANIFEST_URL",
     "MAX_MANIFEST_BYTES",
     "UpdateCheckResult",
-    "check_pack_update",
+    "check_offline_pack_update",
     "fetch_remote_manifest",
-    "handle_check_pack_update_ipc",
+    "handle_check_offline_pack_update_ipc",
     "is_newer_version",
 ]

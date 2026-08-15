@@ -96,10 +96,10 @@ Events emitted via ``event_bus.publish`` (the modern path):
 
 Master plan §7.4 — runtime-pack / worker IPC events (13 new event
 types introduced by the slim-core / runtime-pack split). The
-canonical schema is the ``PACK_EVENT_TYPES`` frozenset in
-``voice_typer/server/service/pack.py``; the per-event payloads
+canonical schema is the ``OFFLINE_PACK_EVENT_TYPES`` frozenset in
+``voice_typer/server/service/offline_pack.py``; the per-event payloads
 mirrored here are duplicated for documentation parity (a contributor
-reading the docstring should NOT have to flip to ``pack.py`` to
+reading the docstring should NOT have to flip to ``offline_pack.py`` to
 understand the wire shape). All 13 are also listed in the Rust
 ``ALLOWED_EVENT_TYPES`` slice in
 ``src-tauri/src/sidecar/ws/event_protocol.rs`` so the Tauri WS reader
@@ -111,32 +111,32 @@ the 1 request event is a member of the TS ``PythonRequest`` union
 Pinned by ``tests/test_event_types_parity.py`` (the new parity test
 that closes the "4th allowlist has no parity test" gap from §9.4).
 
-Pack download lifecycle (push, published by
-``voice_typer/server/service/pack.py``):
+Offline-pack download lifecycle (push, published by
+``voice_typer/server/service/offline_pack.py``):
 
-* ``pack_download_started`` — payload ``{version:str, url:str,
+* ``offline_pack_download_started`` — payload ``{version:str, url:str,
   total_bytes:int}``. User-visible download started.
-* ``pack_download_progress`` — payload ``{version:str, progress:int
+* ``offline_pack_download_progress`` — payload ``{version:str, progress:int
   (0-100), downloaded_bytes:int, total_bytes:int,
   speed_bytes_per_sec:int, eta_seconds:int}``. Silent — no UI surface
   today (the ``usePackDownload`` hook surfaces a coarser progress bar
   via the started/completed siblings).
-* ``pack_download_completed`` — payload ``{version:str, sha256:str}``.
-  Download finished, verification pending (see ``pack_verified`` /
-  ``pack_corrupt``).
-* ``pack_download_failed`` — payload ``{version:str, reason:str,
+* ``offline_pack_download_completed`` — payload ``{version:str, sha256:str}``.
+  Download finished, verification pending (see ``offline_pack_verified`` /
+  ``offline_pack_corrupt``).
+* ``offline_pack_download_failed`` — payload ``{version:str, reason:str,
   attempts:int}``. Exhausted the §8.2 / §8.7 retry budgets.
 
-Pack integrity (push, published by ``service/pack.py``):
+Offline-pack integrity (push, published by ``service/offline_pack.py``):
 
-* ``pack_verified`` — payload ``{version:str, sha256:str}``. SHA256 +
+* ``offline_pack_verified`` — payload ``{version:str, sha256:str}``. SHA256 +
   signature both pass.
-* ``pack_missing`` — payload ``{version:str, path:str}``. Cheap
+* ``offline_pack_missing`` — payload ``{version:str, path:str}``. Cheap
   existence probe found no pack file (deleted by user / quarantined
   by AV — §8.10).
-* ``pack_corrupt`` — payload ``{version:str, path:str, reason:str}``.
+* ``offline_pack_corrupt`` — payload ``{version:str, path:str, reason:str}``.
   SHA256 mismatch / signature failure.
-* ``pack_ready`` — payload ``{version:str, worker_pid:int}``. Worker
+* ``offline_pack_ready`` — payload ``{version:str, worker_pid:int}``. Worker
   started AND prewarmed — ready to transcribe (queued
   ``transcribe_offline`` requests now dispatch).
 
@@ -145,7 +145,7 @@ once the worker process spawns / crashes / unloads):
 
 * ``worker_started`` — payload ``{pid:int, version:str}``. Worker
   spawned + WS handshake done (prewarm NOT done yet — see
-  ``pack_ready``).
+  ``offline_pack_ready``).
 * ``worker_crashed`` — payload ``{pid:int, exit_code:int}``. Worker
   process exited non-zero (or killed by a signal); supervisor
   restarts with exponential backoff.

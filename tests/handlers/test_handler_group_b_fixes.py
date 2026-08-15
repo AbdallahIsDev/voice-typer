@@ -42,6 +42,32 @@ Covers six findings from the comprehensive Group 4 review:
   via the embedded absolute path on Windows / macOS. The fix
   replaces the 4 ``f'...: {e}'`` messages with fixed strings; the
   full ``str(e)`` is still logged server-side at ERROR.
+
+  (Wave 3, 2026-08-14): the ``_handle_run_prewarm`` /
+  ``_handle_open_prewarm_log`` handlers were REMOVED entirely —
+  prewarm became a worker startup phase (master plan §6.2 P-1), so
+  the slim core no longer spawns a separate prewarm process or opens
+  a dedicated prewarm log. The ``TestRunPrewarmNoStrEcho`` and
+  ``TestOpenPrewarmLogNoStrEcho`` classes (4 tests) were deleted in
+  lockstep, along with the ``test_run_prewarm_oserror_still_returns_error_envelope``
+  regression-guard in ``TestExistingContractsPreserved``. The DE-46
+  fixed-string-no-echo invariant itself is still pinned by the
+  surviving ``TestNoStrEcho`` suite (other handlers in the slice
+  that have specific-exception branches with the same fixed-string
+  pattern).
+
+  (2026-08-14, later the same day): ``_handle_open_prewarm_log`` was
+  RESTORED verbatim from 5a319872 along with ``_handle_get_prewarm_status``
+  (plan §6.3 addendum — Settings → About Cache Status card); it
+  opens ``worker.log`` instead of the retired ``prewarm.log`` and
+  keeps the DE-46 fixed-string-no-echo invariant. ``_handle_run_prewarm``
+  was ALSO restored (addendum 2nd half) but RE-IMPLEMENTED: instead
+  of spawning the deleted standalone-prewarm subprocess it re-runs
+  the worker's warm phase in-process via
+  ``prewarm.status.run_prewarm_now()`` (warm_imports_for_worker on a
+  daemon thread + status-file refresh). The DE-46 fixed-string-no-echo
+  invariant still holds — the handler routes exceptions through
+  ``_respond_with_error`` / ``_error_response`` with fixed strings.
 """
 
 from __future__ import annotations
@@ -534,138 +560,24 @@ class TestDurationClampRange:
 # ────────────────────────────────────────────────────────────────────────────
 # run_prewarm / open_prewarm_log fixed-string error messages
 # ────────────────────────────────────────────────────────────────────────────
-
-
-class TestRunPrewarmNoStrEcho:
-    """DE-46: ``_handle_run_prewarm`` does not echo ``str(e)`` to renderer."""
-
-    def test_oserror_message_does_not_leak_path(self, ipc_server, monkeypatch):
-        """An ``OSError`` whose ``str()`` includes a path → renderer sees a fixed string.
-
-        On Windows / macOS, ``subprocess.Popen`` raises ``OSError`` with
-        a message like ``[Errno 13] Permission denied: '/Users/<uname>/...'``
-        — the absolute path leaks the username. The fix replaces
-        ``f"Failed to start prewarm: {e}"`` with the fixed string
-        ``"Failed to start prewarm"``.
-        """
-        leaky_path = "/Users/leaked_username/AppData/Local/Programs/Python/python.exe"
-        monkeypatch.setattr(
-            "subprocess.Popen",
-            lambda *a, **kw: (_ for _ in ()).throw(OSError(f"[Errno 13] Permission denied: '{leaky_path}'")),
-        )
-        resp = ipc_server._handle_run_prewarm({}, {})
-        assert resp["type"] == "error"
-        assert resp["data"]["code"] == "server.handler_error"
-        assert resp["data"]["message"] == "Failed to start prewarm"
-        # The leaky path must NOT appear in the renderer-facing message.
-        assert "leaked_username" not in resp["data"]["message"], (
-            f"Username leaked via str(e) echo: {resp['data']['message']!r}"
-        )
-        assert leaky_path not in resp["data"]["message"]
-
-    def test_filenotfounderror_message_does_not_leak_path(self, ipc_server, monkeypatch):
-        """A ``FileNotFoundError`` whose ``str()`` includes a path → fixed string."""
-        leaky_path = "/Users/leaked_username/.venv/bin/python"
-        monkeypatch.setattr(
-            "subprocess.Popen",
-            lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError(f"[Errno 2] No such file: '{leaky_path}'")),
-        )
-        resp = ipc_server._handle_run_prewarm({}, {})
-        assert resp["type"] == "error"
-        assert resp["data"]["code"] == "server.not_found"
-        assert resp["data"]["message"] == "Python interpreter not found"
-        assert "leaked_username" not in resp["data"]["message"]
-        assert leaky_path not in resp["data"]["message"]
-
-
-class TestOpenPrewarmLogNoStrEcho:
-    """DE-46: ``_handle_open_prewarm_log`` does not echo ``str(e)``."""
-
-    def test_oserror_message_does_not_leak_path(self, ipc_server, monkeypatch, tmp_path):
-        """``OSError`` from the editor ``Popen`` → fixed string."""
-        log_dir = tmp_path / "logs"
-        log_dir.mkdir()
-        log_file = log_dir / "prewarm.log"
-        log_file.write_text("placeholder", encoding="utf-8")
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: log_dir)
-
-        # Force the POSIX editor path (xdg-open) regardless of host OS
-        # so the test is platform-independent. Patch the canonical
-        # module since status_handlers imports these inside the function.
-        monkeypatch.setattr(
-            "voice_typer.server.platform_utils.is_windows",
-            lambda: False,
-        )
-        monkeypatch.setattr(
-            "voice_typer.server.platform_utils.is_linux",
-            lambda: True,
-        )
-        monkeypatch.setattr(
-            "voice_typer.server.platform_utils.is_macos",
-            lambda: False,
-        )
-
-        leaky_path = "/Users/leaked_username/bin/xdg-open"
-        monkeypatch.setattr(
-            "subprocess.Popen",
-            lambda cmd, **kw: (_ for _ in ()).throw(OSError(f"[Errno 13] Permission denied: '{leaky_path}'")),
-        )
-        # Ensure the Windows path (os.startfile) is a no-op so the
-        # POSIX path runs on Linux test runners.
-        monkeypatch.setattr(
-            "os.startfile",
-            lambda path, *args, **kwargs: None,
-            raising=False,
-        )
-
-        resp = ipc_server._handle_open_prewarm_log({}, {})
-        assert resp["type"] == "error"
-        assert resp["data"]["code"] == "server.handler_error"
-        assert resp["data"]["message"] == "Failed to open log"
-        assert "leaked_username" not in resp["data"]["message"]
-        assert leaky_path not in resp["data"]["message"]
-
-    def test_filenotfounderror_message_does_not_leak_path(self, ipc_server, monkeypatch, tmp_path):
-        """``FileNotFoundError`` from the editor ``Popen`` → fixed string."""
-        log_dir = tmp_path / "logs"
-        log_dir.mkdir()
-        log_file = log_dir / "prewarm.log"
-        log_file.write_text("placeholder", encoding="utf-8")
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: log_dir)
-
-        # Force the POSIX editor path (xdg-open) regardless of host OS
-        # so the test is platform-independent. Patch the canonical
-        # module since status_handlers imports these inside the function.
-        monkeypatch.setattr(
-            "voice_typer.server.platform_utils.is_windows",
-            lambda: False,
-        )
-        monkeypatch.setattr(
-            "voice_typer.server.platform_utils.is_linux",
-            lambda: True,
-        )
-        monkeypatch.setattr(
-            "voice_typer.server.platform_utils.is_macos",
-            lambda: False,
-        )
-
-        leaky_path = "/Users/leaked_username/bin/xdg-open"
-        monkeypatch.setattr(
-            "subprocess.Popen",
-            lambda cmd, **kw: (_ for _ in ()).throw(FileNotFoundError(f"[Errno 2] No such file: '{leaky_path}'")),
-        )
-        monkeypatch.setattr(
-            "os.startfile",
-            lambda path, *args, **kwargs: None,
-            raising=False,
-        )
-
-        resp = ipc_server._handle_open_prewarm_log({}, {})
-        assert resp["type"] == "error"
-        assert resp["data"]["code"] == "server.not_found"
-        assert resp["data"]["message"] == "No editor available to open the log"
-        assert "leaked_username" not in resp["data"]["message"]
-        assert leaky_path not in resp["data"]["message"]
+#
+# (Wave 3, 2026-08-14): The ``_handle_run_prewarm`` and
+# ``_handle_open_prewarm_log`` handlers were REMOVED entirely (prewarm
+# became a worker startup phase — master plan §6.2 P-1). The four
+# tests that pinned the DE-46 fixed-string-no-echo invariant on those
+# handlers were deleted in lockstep. The DE-46 invariant itself is
+# still pinned by the surviving ``TestNoStrEcho`` suite (other
+# handlers in the slice that have specific-exception branches with
+# the same fixed-string pattern).
+#
+# (2026-08-14, later): ``_handle_open_prewarm_log`` was RESTORED
+# verbatim from 5a319872 (plan §6.3 addendum — Cache Status card);
+# it now opens ``worker.log`` and keeps the DE-46 fixed-string pattern.
+# ``_handle_run_prewarm`` was also restored (addendum 2nd half),
+# re-implemented to re-run the warm phase in-process (see
+# ``prewarm.status.run_prewarm_now``) — the DE-46 fixed-string
+# invariant is pinned by ``TestRunPrewarm`` in
+# ``tests/handlers/test_status_handlers.py``.
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -675,22 +587,6 @@ class TestOpenPrewarmLogNoStrEcho:
 
 class TestExistingContractsPreserved:
     """Regression guards: existing handler contracts still hold after the DE-2H fixes."""
-
-    def test_run_prewarm_oserror_still_returns_error_envelope(self, ipc_server, monkeypatch):
-        """Existing contract: ``OSError`` → ``{type: error, data.code: handler_error}``.
-
-        The existing ``test_popen_raises_oserror_returns_error`` test
-        asserts ``"Failed to start prewarm" in resp["data"]["message"]``.
-        After DE-46 the message is exactly ``"Failed to start prewarm"``
-        (no ``": {e}"`` suffix) so the substring check still passes.
-        """
-        monkeypatch.setattr(
-            "subprocess.Popen",
-            lambda *a, **kw: (_ for _ in ()).throw(OSError("no fork")),
-        )
-        resp = ipc_server._handle_run_prewarm({}, {})
-        assert resp["type"] == "error"
-        assert "Failed to start prewarm" in resp["data"]["message"]
 
     def test_microphone_test_string_duration_still_coerced(self, ipc_server, fake_service):
         """Existing contract: ``"7.5" → 7.5`` (documented string coercion)."""

@@ -1,0 +1,50 @@
+Voice Typer - Terms of Service and Consent
+
+By installing this software you agree to the following terms.
+
+1. LOCAL PROCESSING BY DEFAULT
+Voice Typer processes your voice, transcribed text, and metadata locally
+on your device by default. No audio or text is sent anywhere unless you
+explicitly enable a cloud feature.
+
+2. FEATURE CONSENT
+Certain features send data to third parties only when you enable them:
+- Cloud speech recognition (OpenAI / Groq / Deepgram): sends audio
+  recordings to the selected provider for transcription when that
+  provider is the active speech recognition backend and you have granted
+  consent.
+- LLM text polishing: sends transcribed text (not audio) to an
+  OpenAI-compatible LLM API for grammar and punctuation cleanup when you
+  have granted consent.
+- Model downloads: local speech models are downloaded from Hugging Face,
+  which reveals your IP address to a US-based third party (Hugging Face,
+  Inc.). Audio is never sent. Downloads occur only when you explicitly
+  initiate them and have granted consent.
+- Offline engine pack: an offline transcription engine (~180 MB) is
+  downloaded once from the release server when you have granted consent
+  or selected it during installation.
+
+3. VOICE BIOMETRIC ACKNOWLEDGEMENT
+Local voice recordings may be considered biometric data under the
+Illinois Biometric Information Privacy Act (BIPA) and GDPR Article 9.
+You grant consent for local voice-biometric processing when you enable
+recording. Raw audio is not stored after transcription - only the
+transcribed text is kept.
+
+4. REVOCATION
+You may revoke any consent at any time in Settings > Privacy with the
+same ease as granting it. Revoked features refuse to run until consent
+is re-granted.
+
+5. SOFTWARE UPDATES
+The application periodically checks for updates against the official
+release server. This reveals only your IP address and app version.
+
+6. LIMITATION OF LIABILITY
+The software is provided "as is" without warranty of any kind. To the
+maximum extent permitted by law, the authors are not liable for any
+damages arising from use of this software.
+
+7. PRIVACY POLICY
+The full privacy and security policy is available at
+https://github.com/voice-typer - see SECURITY.md.

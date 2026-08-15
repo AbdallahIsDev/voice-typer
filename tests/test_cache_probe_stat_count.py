@@ -12,7 +12,10 @@ These tests pin the fix so a future revert fails loudly.
 
 from __future__ import annotations
 
+import logging
 import os
+import re
+from importlib.machinery import ModuleSpec
 from pathlib import Path
 from unittest.mock import patch
 
@@ -181,4 +184,161 @@ class TestCacheProbeStatCount:
         assert len(files) == 10, (
             f"expected 10 .pyc files across 10 nested dirs, got {len(files)} — "
             f"the walk did not descend into all subdirectories."
+        )
+
+
+# ─── C-LOG-2 regression ──────────────────────────────────────────────────
+#
+# Canonical C-LOG-2 grep anchor (AGENTS.md): every lifecycle-completion
+# log line ends with a `_<duration>` suffix produced by
+# `voice_typer.server.duration.format_duration()` — `_2.3s` for sub-minute
+# durations, `_1m 2.3s` for anything longer. The two ``log.info`` calls
+# in ``cache_probe`` that previously used ad-hoc ``%.1fs`` / ``%.2fs``
+# formatting were rewritten to use ``format_duration()`` so the perf
+# marker is greppable project-wide. These tests pin the canonical suffix
+# shape so a future revert to ad-hoc formatting fails loudly.
+#
+# We anchor the regex to END-of-message with ``$`` — both lifecycle
+# lines (``[PREWARM] file-warmed ...`` and ``[PREWARM] worker
+# warm-imports complete ...``) place the ``%s`` duration argument as
+# the FINAL format arg, so ``format_duration(elapsed)`` always lands at
+# the very end of the rendered message. A revert to ``"... in %.1fs"``
+# would render as ``... in 0.0s`` — no leading underscore before the
+# duration, and the canonical pattern no longer matches at line END.
+_CLOG2_DURATION_RE = re.compile(r"_\d+(m \d+)?\.\ds$")
+
+
+class TestCacheProbeLogLinesUseFormatDuration:
+    """C-LOG-2 regression: lifecycle-completion ``log.info`` calls in
+    ``cache_probe`` MUST end with the canonical ``_<duration>`` suffix
+    produced by ``format_duration()`` — not an ad-hoc ``%.1fs`` /
+    ``%.2fs`` string. A revert to ad-hoc formatting breaks the
+    project-wide grep-summed perf-marker convention (AGENTS.md C-LOG-2).
+    """
+
+    def test_warm_package_files_log_line_carries_duration_suffix(
+        self, tmp_path, caplog, monkeypatch
+    ):
+        """``_warm_package_files`` emits ``[PREWARM] file-warmed <pkg>:
+        <MB>_<duration>`` on completion. The ``_<duration>`` suffix
+        MUST come from ``format_duration()`` — greppable project-wide
+        per C-LOG-2. If someone reverts to ``%.1fs`` (e.g. ``"... in
+        %.1fs"``), the rendered message loses the leading underscore
+        and the canonical pattern no longer matches at line END.
+        """
+        # Build a fake package directory with one warmable file. The
+        # file is never actually read — _pkg._warm_file is stubbed
+        # below — but it must exist on disk so the rglob walk in
+        # _warm_package_files yields it (the suffix filter + skip-dir
+        # filter must accept it).
+        pkg_dir = tmp_path / "fakepkg"
+        pkg_dir.mkdir()
+        (pkg_dir / "module.pyc").write_bytes(b"\x00" * 1024)
+
+        # Fake the importlib.util.find_spec result so
+        # _warm_package_files treats our tmp_path as the package's
+        # install location. ModuleSpec(is_package=True) initialises
+        # submodule_search_locations to [] so we can override it.
+        fake_spec = ModuleSpec(name="fakepkg", loader=None, is_package=True)
+        fake_spec.submodule_search_locations = [str(pkg_dir)]
+
+        real_find_spec = cache_probe.importlib.util.find_spec
+
+        def fake_find_spec(name, *args, **kwargs):
+            if name == "fakepkg":
+                return fake_spec
+            return real_find_spec(name, *args, **kwargs)
+
+        monkeypatch.setattr(
+            cache_probe.importlib.util, "find_spec", fake_find_spec
+        )
+
+        # Stub _pkg._warm_file so the test doesn't actually page-cache
+        # bytes (keeps the test fast + platform-independent). Returns
+        # 1 MiB so the "%.0f MB" rendering is "1 MB" — the assertion
+        # below pins the rendered shape so a future revert can't slip
+        # in a different unit (KiB, GiB) either.
+        monkeypatch.setattr(
+            cache_probe._pkg, "_warm_file", lambda path: 1024 * 1024
+        )
+
+        with caplog.at_level(
+            logging.INFO, logger="voice_typer.server.prewarm"
+        ):
+            total = cache_probe._warm_package_files("fakepkg")
+
+        # Sanity: the stubbed _warm_file was called exactly once.
+        assert total == 1024 * 1024, (
+            f"expected 1 MiB total from stubbed _warm_file, got {total} — "
+            f"the stub may not have been called."
+        )
+
+        # Find the lifecycle-completion log line.
+        matching = [
+            r.getMessage()
+            for r in caplog.records
+            if "file-warmed" in r.getMessage()
+        ]
+        assert matching, (
+            "expected an INFO log line containing 'file-warmed' from "
+            "_warm_package_files(); got records: "
+            f"{[r.getMessage() for r in caplog.records]}"
+        )
+        msg = matching[-1]
+        # C-LOG-2: the log line MUST end with the canonical
+        # `_<duration>` suffix from format_duration().
+        assert _CLOG2_DURATION_RE.search(msg), (
+            f"C-LOG-2 violation: {msg!r} does NOT end with the canonical "
+            f"`_<duration>` suffix (pattern {_CLOG2_DURATION_RE.pattern!r}). "
+            f"A revert to ad-hoc `%.1fs` formatting (e.g. '... in %.1fs') "
+            f"would strip the leading underscore and break this assertion."
+        )
+
+    def test_warm_imports_log_line_carries_duration_suffix(
+        self, caplog, monkeypatch
+    ):
+        """``_warm_imports`` emits ``[PREWARM] worker warm-imports
+        complete: <N> packages (<list>)_<duration>`` on completion.
+        Same C-LOG-2 contract as above — the ``_<duration>`` suffix
+        MUST come from ``format_duration()``.
+        """
+        # Patch _WORKER_WARM_PACKAGES to a single fake package so the
+        # loop runs exactly once + we don't depend on real packages
+        # being installed (onnxruntime / ctranslate2 etc. are NOT in
+        # the dev sandbox per FG-SESSION-START).
+        monkeypatch.setattr(
+            cache_probe, "_WORKER_WARM_PACKAGES", ("fakepkg",)
+        )
+        # Stub _warm_package_files to return >0 bytes so the package
+        # appears in the `warmed` list (otherwise the log line still
+        # fires, but with "0 packages (none)" which is a less
+        # interesting contract to pin — a revert that drops the
+        # duration suffix entirely would still fail this test, but
+        # pinning the populated-list shape makes the assertion message
+        # clearer).
+        monkeypatch.setattr(
+            cache_probe, "_warm_package_files", lambda pkg: 1024 * 1024
+        )
+
+        with caplog.at_level(
+            logging.INFO, logger="voice_typer.server.prewarm"
+        ):
+            cache_probe._warm_imports()
+
+        matching = [
+            r.getMessage()
+            for r in caplog.records
+            if "worker warm-imports complete" in r.getMessage()
+        ]
+        assert matching, (
+            "expected an INFO log line containing 'worker warm-imports "
+            "complete' from _warm_imports(); got records: "
+            f"{[r.getMessage() for r in caplog.records]}"
+        )
+        msg = matching[-1]
+        assert _CLOG2_DURATION_RE.search(msg), (
+            f"C-LOG-2 violation: {msg!r} does NOT end with the canonical "
+            f"`_<duration>` suffix (pattern {_CLOG2_DURATION_RE.pattern!r}). "
+            f"A revert to ad-hoc `%.2fs` formatting would strip the leading "
+            f"underscore and break this assertion."
         )

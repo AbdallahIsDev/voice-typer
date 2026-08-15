@@ -139,12 +139,14 @@ def config_dir() -> Path:
 
 
 def prewarm_launchagent_log() -> Path:
-    """Path to the macOS LaunchAgent's prewarm log file.
+    """Path to the legacy macOS LaunchAgent's prewarm log file.
 
-    Used by :mod:`voice_typer.server.prewarm_scheduler_posix` as the
-    ``StandardOutPath`` / ``StandardErrorPath`` of the LaunchAgent
-    plist, so launchd's prewarm output is captured to a known file
-    rather than the system log.
+    Prewarm became a worker startup phase (master plan §6.2 P-1): the
+    macOS LaunchAgent + the ``prewarm_scheduler_posix`` module that
+    wrote here were deleted. The path helper is retained so an
+    uninstaller sweep can still clean up the legacy log file on
+    upgraded installs (the file may exist on installs that predate
+    the prewarm retirement).
     """
     return _resolve_config_dir()() / "prewarm-launchagent.log"
 
@@ -163,9 +165,9 @@ def autostart_log() -> Path:
 def venv_pythonw() -> Path:
     """Path to the venv's pythonw.exe (Windows) or python (Unix).
 
-    Used by the Windows Task Scheduler and HKCU Run-key fallback
-    (:mod:`voice_typer.server.task_scheduler`) to launch the prewarm
-    script in the same Python environment the app uses at runtime.
+    Used by :func:`voice_typer.server.server_platform.autostart_windows`
+    to launch the autostart task in the same Python environment the
+    app uses at runtime.
 
     The path may not exist on a fresh install (no venv yet) — callers
     must check ``.exists()`` before relying on it. On non-Windows the
@@ -187,9 +189,9 @@ def legacy_hf_cache_dir() -> Path:
         ``_config_dir()`` itself raises (e.g. the BootTrigger scenario
         where ``$HOME`` / ``%USERPROFILE%`` are unset and the platform
         detection chain can't resolve a config dir). The literal
-        ``Path.home() / ".voice-typer"`` lives here (rather than inline in
-    ``prewarm.py``) so the  regression test can allow it in a
-        single, well-documented location.
+        ``Path.home() / ".voice-typer"`` lives here (rather than inline
+        in :mod:`voice_typer.server.prewarm`) so the regression test
+        can allow it in a single, well-documented location.
     """
     return Path.home() / ".voice-typer" / "huggingface"
 

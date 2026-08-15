@@ -720,75 +720,17 @@ class TestEnvVarRedaction:
         )
 
 
-# home-directory prefix redacted in prewarm.json + log ─
+# home-directory prefix redacted in bundle + log ──────
 
 
 class TestHomePathRedaction:
     """UE-5-F2: filesystem paths embedded in the diagnostic bundle
-    (``sentinel_path``, ``pid_file_path``, ``bundle_path``) are piped
-    through ``_redact_home_path`` so the user-home prefix is replaced
-    with ``~`` (the raw paths like
-    ``/home/alice/.voice-typer/.prewarm-sentinel`` leak the OS
-    username).
+    (``bundle_path``) are piped through ``_redact_home_path`` so the
+    user-home prefix is replaced with ``~`` (the raw paths leak the OS
+    username). The former ``prewarm.json``-specific redaction tests
+    were removed with the entry itself (prewarm became a worker
+    startup phase — master plan §6.2 P-1).
     """
-
-    def test_prewarm_json_sentinel_path_redacted(self, recovery_dir, monkeypatch):
-        """The ``sentinel_path`` field in ``prewarm.json`` is
-        home-redacted."""
-        import json as _json
-        import zipfile
-
-        from voice_typer.server.crash_recovery import CrashRecovery
-
-        # Patch expanduser so the home IS recovery_dir (the test's
-        # tmp_path). The bundle's prewarm.json contains paths under
-        # the recovery_dir; ``_redact_home_path`` replaces the
-        # home prefix with ``~`` so paths get a ``~`` prefix in the
-        # bundle.
-        monkeypatch.setattr(
-            "os.path.expanduser",
-            lambda p: str(recovery_dir) if p == "~" else p,
-        )
-        cr = CrashRecovery(config_dir=recovery_dir)
-        bundle_path = cr.create_diagnostic_bundle()
-
-        with zipfile.ZipFile(bundle_path, "r") as zf:
-            prewarm_data = _json.loads(zf.read("prewarm.json").decode("utf-8"))
-
-        sentinel_path = prewarm_data.get("sentinel_path", "")
-        # The full home-directory prefix MUST NOT appear in the
-        # redacted path.
-        assert str(recovery_dir) not in sentinel_path, (
-            f"UE-5-F2 regression: home prefix leaked into sentinel_path: {sentinel_path!r}"
-        )
-        # The path is prefixed with ``~`` (the redacted form).
-        assert sentinel_path.startswith("~"), (
-            f"UE-5-F2: sentinel_path should start with ~ after redaction: {sentinel_path!r}"
-        )
-
-    def test_prewarm_json_pid_file_path_redacted(self, recovery_dir, monkeypatch):
-        """The ``pid_file_path`` field in ``prewarm.json`` is
-        home-redacted."""
-        import json as _json
-        import zipfile
-
-        from voice_typer.server.crash_recovery import CrashRecovery
-
-        # See ``test_prewarm_json_sentinel_path_redacted`` for the
-        # rationale on pinning expanduser to recovery_dir.
-        monkeypatch.setattr(
-            "os.path.expanduser",
-            lambda p: str(recovery_dir) if p == "~" else p,
-        )
-        cr = CrashRecovery(config_dir=recovery_dir)
-        bundle_path = cr.create_diagnostic_bundle()
-
-        with zipfile.ZipFile(bundle_path, "r") as zf:
-            prewarm_data = _json.loads(zf.read("prewarm.json").decode("utf-8"))
-
-        pid_file_path = prewarm_data.get("pid_file_path", "")
-        assert str(recovery_dir) not in pid_file_path
-        assert pid_file_path.startswith("~")
 
     def test_bundle_path_in_log_is_redacted(self, recovery_dir, monkeypatch, caplog):
         """UE-5-F2: the ``[RECOVERY] Diagnostic bundle created: <path>``

@@ -399,20 +399,22 @@ def test_script_outputs_to_src_tauri_bin(script_texts: dict[str, str], platform:
 
 # ─── 3. Tauri externalBin config ────────────────────────────────────────────
 def test_tauri_conf_external_bin_uses_base_name():
-    """``tauri.conf.json`` must declare ``externalBin: ["bin/python-sidecar"]``.
+    """``tauri.conf.json`` must declare ``externalBin`` with BASE names only.
 
     ADR-0020 §7 + Tauri v2 docs: Tauri appends the Rust target triple to
     the base name at runtime, so we declare ONLY the base name (no arch /
     triple suffix). Listing the triple-suffixed name here would break
-    Tauri's auto-selection.
+    Tauri's auto-selection. Since the runtime-pack split (master plan
+    §6.2 P-1), the ML worker is also an ``externalBin`` sidecar, so both
+    ``bin/python-sidecar`` and ``bin/voice-typer-worker`` must be listed.
     """
     assert TAURI_CONF.is_file(), f"missing: {TAURI_CONF}"
     conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
     external_bin = conf.get("bundle", {}).get("externalBin", [])
-    assert external_bin == ["bin/python-sidecar"], (
+    assert external_bin == ["bin/python-sidecar", "bin/voice-typer-worker"], (
         f"tauri.conf.json `bundle.externalBin` must be exactly "
-        f'["bin/python-sidecar"] (Tauri appends the triple at runtime); '
-        f"got: {external_bin!r}"
+        f'["bin/python-sidecar", "bin/voice-typer-worker"] '
+        f"(Tauri appends the triple at runtime); got: {external_bin!r}"
     )
 
 

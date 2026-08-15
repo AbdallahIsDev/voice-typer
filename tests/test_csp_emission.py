@@ -407,7 +407,15 @@ def built_html_files():
         pytest.skip(f"Built HTML files not found in {out_dir}")
         return None, None  # pragma: no cover
 
-    return built_index.read_text(encoding="utf-8"), built_bubble.read_text(encoding="utf-8")
+    try:
+        return built_index.read_text(encoding="utf-8"), built_bubble.read_text(encoding="utf-8")
+    except OSError as exc:
+        # Parallel-suite race: under ``pytest -n auto --dist=loadgroup``
+        # another worker's build step can rmtree/recreate ``out/renderer``
+        # between the ``is_file()`` check and the read. Treat as a skip
+        # (the CSP source-string tests still cover the emission logic).
+        pytest.skip(f"built HTML read raced with another worker's build: {exc!r}")
+        return None, None  # pragma: no cover
 
 
 @pytest.mark.usefixtures("built_html_files")

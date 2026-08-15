@@ -283,6 +283,12 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # prewarm scheduled-task master toggle. Surfaced in Settings →
     # General so users can opt out (e.g. gamers who want the RAM back).
     "fast_startup": (bool, _bool_validator),
+    # auto-update feature — offline-pack download consent toggle
+    # (docs/auto-update-feature.md §8.4). Renderer-writable via
+    # set_config so the Settings UI can persist the opt-in. Renamed
+    # from ``runtime_pack_consent`` 2026-08-14 (legacy key migrated in
+    # config/loader.py).
+    "offline_pack_consent": (bool, _bool_validator),
     # ── Clipboard borrow/restore (ADR-0010) ───────────────────────────
     # ADR-0010 §2.11 / §8.3a: these keys MUST be in the IPC allowlist
     # or ``validate_config_update()`` drops them, ``service.apply_config()``

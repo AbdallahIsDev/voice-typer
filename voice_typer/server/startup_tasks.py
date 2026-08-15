@@ -29,7 +29,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from voice_typer.server import onboarding_status, task_scheduler
+from voice_typer.server import onboarding_status
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.platform_utils import is_windows
 from voice_typer.server.providers import AppProtocol
@@ -219,55 +219,24 @@ def sync_autostart(app: AppProtocol) -> dict:
 
 
 def sync_prewarm_task(app: AppProtocol, shutdown_event: threading.Event | None = None) -> dict:
-    """Ensure the OS prewarm scheduled task matches the user's fast_startup setting.
+    """No-op stub retained for caller compatibility.
 
-    when ``app.config.fast_startup`` is False, the prewarm task is
-        UNREGISTERED so the OS scheduler doesn't fire a process that exits
-        immediately with EXIT_DISABLED. When True (the default), the task is
-        registered as before.
+    Prewarm became a worker startup phase (master plan §6.2 P-1): the
+    OS-level scheduled-task registration (Windows Task Scheduler /
+    macOS LaunchAgent / Linux systemd user timer) was deleted along
+    with the prewarm binary it launched. There is no longer anything
+    to register or unregister here.
 
-        Falls back gracefully if the platform doesn't support scheduled
-        tasks (non-Windows).
-
-        RACE-020: accepts an optional shutdown_event so the task can
-        abort early if the app is quitting during startup.
-
-    returns a result dict
-        ``{"registered": bool, "error": str | None}`` so the caller
-        (``ConfigApplier.apply_config_side_effects``) can propagate the
-        prewarm status to the ``set_config`` IPC response. The renderer
-        reads ``prewarm_status.registered`` / ``prewarm_status.error`` to
-        surface "Prewarm task registration failed: <reason>".
+    The renderer's Settings page still surfaces a "Fast Startup"
+    toggle (and the ``set_config`` IPC response still carries a
+    ``prewarm_status`` field) — this stub returns a no-op success so
+    the renderer doesn't show a spurious error when the user toggles
+    the (now-cosmetic) setting. The actual cache-warming happens
+    inside the worker process on each spawn.
     """
-    if not task_scheduler.is_supported():
-        # Non-Windows platforms don't have a prewarm scheduled task —
-        # report a no-op success so the renderer doesn't show a
-        # spurious error on Linux/macOS.
-        return {"registered": False, "error": None}
-    if shutdown_event is not None and shutdown_event.is_set():
-        return {"registered": False, "error": None}
-    try:
-        fast_startup = bool(getattr(app.config, "fast_startup", True))
-        registered = task_scheduler.is_prewarm_registered()
-        if shutdown_event is not None and shutdown_event.is_set():
-            return {"registered": bool(registered), "error": None}
-        if fast_startup:
-            if not registered:
-                log.info("[CONFIG] Registering prewarm scheduled task")
-                task_scheduler.register_prewarm_task()
-                registered = True
-        else:
-            # user disabled prewarm — unregister the OS task so
-            # it stops firing silently. Idempotent: if not registered,
-            # unregister is a no-op.
-            if registered:
-                log.info("[CONFIG] fast_startup disabled — unregistering prewarm scheduled task")
-                task_scheduler.unregister_prewarm_task()
-                registered = False
-        return {"registered": bool(registered), "error": None}
-    except Exception as e:
-        log.warning("[CONFIG] Prewarm task sync failed: %s", e)
-        return {"registered": False, "error": str(e)}
+    _ = app  # unused — kept for signature backward-compat
+    _ = shutdown_event  # unused — kept for signature backward-compat
+    return {"registered": False, "error": None}
 
 
 def ensure_desktop_shortcut(app: AppProtocol) -> None:

@@ -523,14 +523,28 @@ class TestRegistryExtraction:
         # to 69.
         # transcribe_offline (Phase 2b pack downloader — plan-runtime-
         # pack-split.md §7.4) brought it to 70.
+        # prewarm retirement (plan §6.2 P-1 — get_prewarm_status,
+        # run_prewarm, open_prewarm_log removed across all 4 allowlists
+        # in lockstep) brought it to 67.
+        # prewarm status RESTORATION (plan §6.3 addendum 2026-08-14 —
+        # Settings → About Cache Status card restored verbatim from
+        # 5a319872; run_prewarm stays retired) brought it back to 69.
+        # check_offline_pack_update (auto-update feature, docs/auto-update-feature.md
+        # — 2026-08-14) brought it to 70.
+        # run_prewarm (plan §6.3 addendum 2nd half, 2026-08-14 —
+        # re-implemented to re-run the warm phase in-process instead of
+        # spawning the deleted subprocess) brought it to 71.
         # The count is deliberately pinned here and in SECURITY.md —
         # update all sources of truth together.
-        assert len(registry._COMMAND_REGISTRY) == 70, (
-            f"registry._COMMAND_REGISTRY must contain 70 entries "
+        assert len(registry._COMMAND_REGISTRY) == 71, (
+            f"registry._COMMAND_REGISTRY must contain 71 entries "
             f"(64 baseline + test_cloud_connection + "
             f"add_trusted_endpoint + onboarding_set_backend + "
             f"reset_macos_accessibility + reset_linux_permissions + "
-            f"check_accessibility + transcribe_offline); got "
+            f"check_accessibility + transcribe_offline + check_offline_pack_update "
+            f"+ 3 restored prewarm commands "
+            f"(get_prewarm_status, open_prewarm_log, run_prewarm - plan §6.3 "
+            f"addendum)); got "
             f"{len(registry._COMMAND_REGISTRY)}. "
             f"If the count drifted, update this test together with the "
             f"registry + the TS/Rust allowlists."

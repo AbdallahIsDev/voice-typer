@@ -287,53 +287,14 @@ class TestQwenModelIntegrityHardFail:
             security.MODEL_HASHES.update(original)
 
 
-# ─── SEC-audit-007: Qwen Model Directory Validation ──────────────────────
-
-
-class TestQwenModelDirValidation:
-    """SEC-audit-007: .py files rejected in Qwen model directories."""
-
-    def test_py_files_rejected(self, tmp_path):
-        """Directories containing .py files are rejected."""
-        from voice_typer.server.qwen_engine import _validate_qwen_model_dir
-
-        (tmp_path / "model.safetensors").write_bytes(b"\x00" * 10)
-        (tmp_path / "config.json").write_text("{}")
-        (tmp_path / "malicious.py").write_text("import os; os.system('rm -rf /')")
-        assert _validate_qwen_model_dir(str(tmp_path)) is False
-
-    def test_sh_files_rejected(self, tmp_path):
-        """Directories containing .sh files are rejected."""
-        from voice_typer.server.qwen_engine import _validate_qwen_model_dir
-
-        (tmp_path / "model.safetensors").write_bytes(b"\x00" * 10)
-        (tmp_path / "config.json").write_text("{}")
-        (tmp_path / "setup.sh").write_text("#!/bin/bash\necho pwned")
-        assert _validate_qwen_model_dir(str(tmp_path)) is False
-
-    def test_exe_files_rejected(self, tmp_path):
-        """Directories containing .exe files are rejected."""
-        from voice_typer.server.qwen_engine import _validate_qwen_model_dir
-
-        (tmp_path / "model.safetensors").write_bytes(b"\x00" * 10)
-        (tmp_path / "config.json").write_text("{}")
-        (tmp_path / "payload.exe").write_bytes(b"\x00" * 10)
-        assert _validate_qwen_model_dir(str(tmp_path)) is False
-
-    def test_safe_model_dir_accepted(self, tmp_path):
-        """Directories with only allowed file types are accepted."""
-        from voice_typer.server.qwen_engine import _validate_qwen_model_dir
-
-        (tmp_path / "model.safetensors").write_bytes(b"\x00" * 10)
-        (tmp_path / "config.json").write_text("{}")
-        (tmp_path / "tokenizer.json").write_text("{}")
-        assert _validate_qwen_model_dir(str(tmp_path)) is True
-
-    def test_py_not_in_allowed_extensions(self):
-        """SEC-audit-007: .py is NOT in _QWEN_ALLOWED_EXTENSIONS."""
-        from voice_typer.server.qwen_engine import _QWEN_ALLOWED_EXTENSIONS
-
-        assert ".py" not in _QWEN_ALLOWED_EXTENSIONS
+# SEC-audit-007 note (2026-08-15): the Qwen model-directory allowlist
+# (``_validate_qwen_model_dir`` / ``_QWEN_ALLOWED_EXTENSIONS``) was
+# removed with the torch Qwen engine. The ONNX backend
+# (``qwen_onnx_model.py``) loads ONLY the specific known files
+# (encoder/decoder ONNX sessions, embed_tokens.bin, tokenizer.json,
+# config.json) via ``is_onnx_model_dir`` + ``from_pretrained`` — a
+# stricter trust posture than the old extension allowlist, with no
+# code-execution surface from the model dir.
 
 
 # ─── SEC-001: Mutex Local\ Prefix ──────────────────────────────────────────

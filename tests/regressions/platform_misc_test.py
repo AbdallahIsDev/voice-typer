@@ -232,27 +232,6 @@ class TestDaemonThreadRationaleDocumented:
         )
 
 
-class TestSystemdUserUnitForMainApp:
-    """systemd user unit for the main app."""
-
-    def test_register_linux_app_service_exists(self):
-        from voice_typer.server import prewarm_scheduler_posix as psp
-
-        assert hasattr(psp, "register_linux_app_service")
-
-    def test_build_linux_app_service_has_restart(self):
-        from voice_typer.server import prewarm_scheduler_posix as psp
-
-        service = psp._build_linux_app_service()
-        assert "Restart=on-failure" in service
-        assert "Type=simple" in service
-        # ExecStart must use the autostart launcher (frontend +
-        # backend orchestration), NOT the bare ipc_server backend.
-        # Prior assertion of ``voice_typer.server.ipc_server`` was
-        # pinning the  bug; updated to assert the fixed behaviour.
-        assert "voice_typer.server.autostart_launcher" in service
-
-
 class TestContainerEnvironmentDetection:
     """Detect container/cgroup environments."""
 

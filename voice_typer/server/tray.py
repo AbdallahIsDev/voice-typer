@@ -582,9 +582,17 @@ class TrayIcon:
         if state == AppState.RECORDING and self._recording_started_at is not None:
             elapsed = time.monotonic() - self._recording_started_at
             title += f" ({self._format_elapsed(elapsed)})"
+        # Model name suffix — only when the configured model is ACTUALLY
+        # on disk. A stale ``model_size`` (selected before the model was
+        # deleted / never downloaded) must not be advertised next to
+        # "Loading model..." or an ERROR message — that misleads the user
+        # into thinking the named model is being (or failed being) loaded.
+        # The probe is TTL-cached (5s) and cheap (one stat).
         if self._config:  # model name
+            from voice_typer.server.tray_models import is_active_model_downloaded
+
             model = getattr(self._config, "model_size", "")
-            if model:
+            if model and is_active_model_downloaded(self._config):
                 title += f" [{model}]"
         hotkey = self._display_hotkey()  # hotkey
         if hotkey:

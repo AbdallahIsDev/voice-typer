@@ -223,17 +223,18 @@ class TestCheckResourcesGPU:
     """
 
     def test_logs_gpu_info_when_sufficient(self, caplog, monkeypatch):
-        """When torch.cuda is available and GPU memory is sufficient,
-        an INFO line shows the allocated / reserved / free amounts."""
+        """When the nvidia-smi/pynvml probe reports sufficient GPU memory,
+        an INFO line shows used / free / total."""
         total_memory = 8 * 1024**3  # 8 GB total
         allocated = 2 * 1024**3  # 2 GB allocated  → 6144 MB free > 512 MB
 
-        monkeypatch.setattr("torch.cuda.is_available", lambda: True)
-        monkeypatch.setattr("torch.cuda.memory_allocated", lambda: allocated)
-        monkeypatch.setattr("torch.cuda.memory_reserved", lambda: allocated)
+        # Phase 1c (PLAN_ONNX_INTEGRATION.md §6.4): the GPU probe no
+        # longer uses torch.cuda — it queries ``pynvml`` / ``nvidia-smi``
+        # via ``_probe_gpu_memory_via_nvidia_smi`` (MB). Patch that so
+        # the test is deterministic on GPU-less CI hosts.
         monkeypatch.setattr(
-            "torch.cuda.get_device_properties",
-            lambda device: type("_FakeDeviceProps", (), {"total_memory": total_memory})(),
+            "voice_typer.server.resource_probe._probe_gpu_memory_via_nvidia_smi",
+            lambda: (total_memory // 1024**2, (total_memory - allocated) // 1024**2),
         )
 
         pipeline = _make_pipeline()
@@ -249,17 +250,18 @@ class TestCheckResourcesGPU:
         assert not gpu_warnings, "Should NOT warn when GPU has > 512 MB free"
 
     def test_warns_when_gpu_memory_below_512_mb(self, caplog, monkeypatch):
-        """When torch.cuda reports < 512 MB free GPU memory, a WARNING
-        about CUDA out-of-memory errors is logged."""
+        """When the nvidia-smi/pynvml probe reports < 512 MB free GPU
+        memory, a WARNING about CUDA out-of-memory errors is logged."""
         total_memory = 1024**3  # 1 GB total
         allocated = 900 * 1024**2  # 900 MB allocated → 124 MB free < 512 MB
 
-        monkeypatch.setattr("torch.cuda.is_available", lambda: True)
-        monkeypatch.setattr("torch.cuda.memory_allocated", lambda: allocated)
-        monkeypatch.setattr("torch.cuda.memory_reserved", lambda: allocated)
+        # Phase 1c (PLAN_ONNX_INTEGRATION.md §6.4): the GPU probe no
+        # longer uses torch.cuda — it queries ``pynvml`` / ``nvidia-smi``
+        # via ``_probe_gpu_memory_via_nvidia_smi`` (MB). Patch that so
+        # the test is deterministic on GPU-less CI hosts.
         monkeypatch.setattr(
-            "torch.cuda.get_device_properties",
-            lambda device: type("_FakeDeviceProps", (), {"total_memory": total_memory})(),
+            "voice_typer.server.resource_probe._probe_gpu_memory_via_nvidia_smi",
+            lambda: (total_memory // 1024**2, (total_memory - allocated) // 1024**2),
         )
 
         pipeline = _make_pipeline()
@@ -529,13 +531,16 @@ class TestCheckResourcesXZEH008SilentExcept:
         (or any other GPU-check exception fires), a DEBUG line is
         emitted (not silent ``pass``)."""
 
-        # Make ``torch.cuda.is_available`` raise — the production
+        # Make the nvidia-smi/pynvml probe raise — the production
         # GPU-check try/except catches this and (post-) logs
         # a DEBUG line.
-        def _raising_is_available():
+        def _raising_probe():
             raise RuntimeError("CUDA driver mismatch")
 
-        monkeypatch.setattr("torch.cuda.is_available", _raising_is_available)
+        monkeypatch.setattr(
+            "voice_typer.server.resource_probe._probe_gpu_memory_via_nvidia_smi",
+            _raising_probe,
+        )
 
         pipeline = _make_pipeline()
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.dictation_pipeline"):

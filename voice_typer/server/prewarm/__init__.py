@@ -103,6 +103,16 @@ from .cache_probe import (  # noqa: E402
     warm_imports_for_worker,
 )
 
+# RESTORED 2026-08-14: the user-facing prewarm status surface (About-page
+# Cache Status card) is a product feature — see plan §6.3 addendum. The
+# status probe + the worker's persisted warm-run timing live in
+# :mod:`.status`; both are re-exported here so the IPC handler and the
+# worker entry point can import them from the package root.
+from .status import (  # noqa: E402
+    get_prewarm_status,
+    write_prewarm_status_file,
+)
+
 __all__ = [
     # cache_probe
     "_resolve_hf_cache_dir",
@@ -113,6 +123,10 @@ __all__ = [
     "_warm_package_files",
     "_warm_imports",
     "warm_imports_for_worker",
+    # status (restored 2026-08-14 — user-facing feature, see plan §6.3
+    # addendum; do NOT remove with the prewarm machinery)
+    "get_prewarm_status",
+    "write_prewarm_status_file",
     "_WORKER_WARM_PACKAGES",
     "_READ_CHUNK_BYTES",
     "_CACHE_RATIO_SAMPLES",

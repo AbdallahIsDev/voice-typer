@@ -15,9 +15,10 @@ The worker's job:
    ONCE at startup, BEFORE the first transcription request.
 2. **WebSocket server**: bind on ``127.0.0.1:0`` (loopback-only,
    ADR-0020 §1), report the OS-assigned port to the host via a single
-   ``{"event":"server_started","port":N}`` line on stdout, and accept
-   authenticated WS connections from the slim-core sidecar (which acts
-   as the WS client — see plan §7.1 "1-host ↔ 2-processes pattern").
+   ``{"event":"worker_started","port":N,"protocol":P}`` line on stdout,
+   and accept authenticated WS connections from the slim-core sidecar
+   (which acts as the WS client — see plan §7.1 "1-host ↔ 2-processes
+   pattern").
 3. **Auth**: bearer-token handshake via ``hmac.compare_digest`` (pattern
    from :mod:`voice_typer.server.ipc.auth`). The token comes from the
    ``VOICE_TYPER_IPC_TOKEN`` env var set by the Tauri host at spawn.

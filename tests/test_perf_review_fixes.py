@@ -536,8 +536,22 @@ class TestAllLocalEnginesAcceptAudioStats:
         from voice_typer.server.parakeet_engine import ParakeetEngine
 
         src = inspect.getsource(ParakeetEngine._transcribe_segment)
-        assert "if audio_stats is not None" in src, "_transcribe_segment must guard RMS recomputation with audio_stats"
-        assert "rms = audio_stats[0]" in src, "_transcribe_segment must reuse audio_stats[0] as RMS"
+        # The post-ONNX ``_transcribe_segment`` body uses a multi-line
+        # ternary:
+        #     rms = (
+        #         audio_stats[0]
+        #         if audio_stats is not None
+        #         else float(np.sqrt(np.mean(np.square(audio, dtype=np.float64))))
+        #     )
+        # Pin the two invariants the original single-line assertion
+        # captured: (a) the ``audio_stats is not None`` guard fires
+        # before RMS recomputation, and (b) ``audio_stats[0]`` is the
+        # reused RMS value. A revert that drops the audio_stats guard
+        # OR stops reusing ``audio_stats[0]`` fails one of these.
+        assert "if audio_stats is not None" in src, (
+            "_transcribe_segment must guard RMS recomputation with audio_stats"
+        )
+        assert "audio_stats[0]" in src, "_transcribe_segment must reuse audio_stats[0] as RMS"
 
     def test_qwen_transcribe_skips_recomputation_when_stats_provided(self):
         from voice_typer.server.qwen_engine import QwenEngine

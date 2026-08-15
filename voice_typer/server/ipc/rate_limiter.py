@@ -71,7 +71,8 @@ COMMAND_COSTS: dict[str, int] = {
     "download_model": 50,
     "import_model": 20,
     "delete_model": 50,  # was 10 — model delete spawns subprocess + fs writes
-    "run_prewarm": 50,  # was 10 — prewarm touches ~6GB of files
+    "transcribe_offline": 10,  # forwards audio to worker for ASR inference
+    "check_offline_pack_update": 1,  # auto-update pack check — rare, network-bound
     "restart_app": 100,  # was 10 — full process restart
     "quit_app": 100,  # was 5 — full process teardown
     "resume_model_download": 10,
@@ -103,7 +104,7 @@ COMMAND_COSTS: dict[str, int] = {
     "get_microphones": 1,
     "get_model_catalog": 1,
     "get_model_status": 1,
-    "get_prewarm_status": 1,
+    "get_prewarm_status": 1,  # RESTORED 2026-08-14 (About-page Cache Status card — see plan §6.3)
     "get_status": 1,
     "get_templates": 1,
     "get_today_stats": 1,
@@ -128,7 +129,8 @@ COMMAND_COSTS: dict[str, int] = {
     "onboarding_set_model": 1,
     "onboarding_skip": 1,
     "onboarding_start": 1,
-    "open_prewarm_log": 1,
+    "open_prewarm_log": 1,  # RESTORED 2026-08-14 (About-page Cache Status card — see plan §6.3); launches OS editor
+    "run_prewarm": 10,  # RESTORED 2026-08-14 (§6.3 addendum 2nd half); warm pass reads ~200 MB
     "relaunch_ack": 1,
     "repaste_last": 1,
     "search_history": 1,

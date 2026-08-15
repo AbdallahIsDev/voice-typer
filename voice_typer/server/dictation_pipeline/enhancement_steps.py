@@ -345,6 +345,23 @@ class _EnhancementStepsMixin:
         ) and not getattr(self._app, "_llm_consent_warned", False):
             log.info("[LLM_POLISH] llm_polish is enabled but llm_polish_consent is False — skipping polish.")
             self._app._llm_consent_warned = True
+            # Surface the silent skip: publish a ``consent_required``
+            # event so the renderer's unified point-of-use consent
+            # dialog can offer to grant ``llm_polish_consent`` in
+            # place (previously the skip was invisible — the user had
+            # no idea the polish toggle was doing nothing). Once
+            # granted, polish applies to the NEXT transcription; there
+            # is no re-runnable action from here, so no retry is
+            # attached.
+            with contextlib.suppress(Exception):
+                from voice_typer.server import event_bus
+
+                event_bus.publish(
+                    {
+                        "type": "consent_required",
+                        "data": {"consent_field": "llm_polish_consent"},
+                    }
+                )
         return text
 
     def _apply_ai_enhancement(self, text: str) -> str:
