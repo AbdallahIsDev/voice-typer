@@ -202,9 +202,7 @@ class TestLaunchCheck:
         """Consent off → event still published; check returns consent_required."""
         monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda: None)
         published: list[str] = []
-        monkeypatch.setattr(
-            offline_pack, "_publish_event", lambda bus, etype, payload: published.append(etype)
-        )
+        monkeypatch.setattr(offline_pack, "_publish_event", lambda bus, etype, payload: published.append(etype))
         calls: list[bool] = []
 
         def fake_check(config, event_bus, *, trigger_download=True):
@@ -238,6 +236,7 @@ class TestLaunchCheck:
 
     def test_broken_pack_scan_degrades_gracefully(self, monkeypatch):
         """Broken scan → graceful failure result (update_check catches it), no raise."""
+
         def boom(root=None):
             raise RuntimeError("broken pack root")
 

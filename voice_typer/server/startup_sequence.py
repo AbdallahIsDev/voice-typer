@@ -758,15 +758,8 @@ class StartupSequence:
             except Exception:
                 _current_vt_version = None
             _last_warned_version = getattr(_MODULE_STATE, "wayland_warned_version", None)
-            version_changed = (
-                _current_vt_version is not None
-                and _last_warned_version != _current_vt_version
-            )
-            should_warn = (
-                not app.config.wayland_warned
-                or state_changed
-                or version_changed
-            )
+            version_changed = _current_vt_version is not None and _last_warned_version != _current_vt_version
+            should_warn = not app.config.wayland_warned or state_changed or version_changed
             if should_warn:
                 if not wtype_available and not ydotool_available:
                     log.warning(

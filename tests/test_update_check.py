@@ -722,28 +722,34 @@ class TestTriggerBackgroundDownload:
             fake_download,
         )
 
-        assert update_check._trigger_background_download(
-            manifest=manifest,
-            manifest_url=fake_manifest_url,
-            config=fake_config_with_consent,
-            event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
-            root=None,
-            http_get=None,
-        ) is True
+        assert (
+            update_check._trigger_background_download(
+                manifest=manifest,
+                manifest_url=fake_manifest_url,
+                config=fake_config_with_consent,
+                event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
+                root=None,
+                http_get=None,
+            )
+            is True
+        )
         assert done.wait(2.0), "download thread never ran"
         # Give the finally-block time to release the guard.
         deadline = time.monotonic() + 2.0
         while update_check._ACTIVE_PACK_DOWNLOADS and time.monotonic() < deadline:
             time.sleep(0.01)
 
-        assert update_check._trigger_background_download(
-            manifest=manifest,
-            manifest_url=fake_manifest_url,
-            config=fake_config_with_consent,
-            event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
-            root=None,
-            http_get=None,
-        ) is True
+        assert (
+            update_check._trigger_background_download(
+                manifest=manifest,
+                manifest_url=fake_manifest_url,
+                config=fake_config_with_consent,
+                event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
+                root=None,
+                http_get=None,
+            )
+            is True
+        )
 
 
 # ── handle_check_offline_pack_update_ipc ──────────────────────────────────────
@@ -1010,13 +1016,9 @@ class TestSSRFRedirectRevalidation:
             newurl="https://objects.githubusercontent.com/github-production-release-asset/foo",
         )
         assert result is not None, (
-            "expected redirect to be followed for an allowlisted target, "
-            "got redirect_request()=None (no follow)"
+            "expected redirect to be followed for an allowlisted target, got redirect_request()=None (no follow)"
         )
-        assert (
-            result.get_full_url()
-            == "https://objects.githubusercontent.com/github-production-release-asset/foo"
-        )
+        assert result.get_full_url() == "https://objects.githubusercontent.com/github-production-release-asset/foo"
 
     def test_manifest_redirect_to_private_ip_is_rejected(self, monkeypatch):
         """A 3xx redirect to a private/loopback IP is rejected — the
@@ -1093,8 +1095,7 @@ class TestSSRFRedirectRevalidation:
         class _FakeHTTPHandler(urllib.request.HTTPHandler):
             def http_open(self, req):  # noqa: ARG002
                 raise urllib.error.URLError(
-                    "test: refusing to follow redirect to HTTP target "
-                    f"{redirect_target!r} (no real network in tests)"
+                    f"test: refusing to follow redirect to HTTP target {redirect_target!r} (no real network in tests)"
                 )
 
         # Patch ``build_opener`` so the opener installs our fake HTTPS

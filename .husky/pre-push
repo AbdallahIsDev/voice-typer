@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Husky pre-push hook — scoped for speed (XS-35).
+# Husky pre-push hook — lean: seconds-cost gates only.
 #
 # Husky is the SOLE installer of git hooks (XS-34): `npm install` in
 # voice_typer/client/ runs the `prepare` script which sets
@@ -7,75 +7,30 @@
 # that husky's `.husky/_/pre-push` wrapper sources. See
 # CONTRIBUTING.md §"Pre-commit hooks" for the full architecture.
 #
-# The previous version ran ``npm run typecheck:ci`` (``tsc -b --force``,
-# cache-busting, 30s-2min) + the FULL pytest suite minus 5 tauri dirs
-# (10+ min for 331 files). Combined: 10-15 min, which made
-# ``git push --no-verify`` the de-facto default.
+# History: the hook originally ran ``npm run typecheck:ci`` + the FULL
+# pytest suite (10-15 min), then was scoped down to a fast pytest subset
+# (XS-35, ~2-3 min), which still made ``git push --no-verify`` the
+# de-facto default for anyone who greened the suite during work.
 #
-# Fixes applied:
-#   1. ``typecheck:ci`` → ``typecheck`` — uses the tsbuildinfo cache
-#      (~5s incremental on a warm tree). ``typecheck:ci`` is reserved
-#      for CI where a clean build is required; pre-push only needs to
-#      catch NEW type errors introduced by the pushed commits, which
-#      the cached check does correctly.
-#   2. pytest scope tightened: ``--timeout=30`` (was 60), ``-k 'not
-#      slow and not integration'`` (was just ``-k "not slow"``), and
-#      ``-m 'not slow'`` marker filter. Drops the typical pre-push
-#      pytest time from 10+ min to ~2-3 min for the fast unit subset.
-#      Integration tests (which hit the filesystem / network / audio
-#      devices) are deferred to CI.
-#   3. mypy is at ``stages: [pre-push]`` in .pre-commit-config.yaml
-#      AND is now a LOCAL hook with ``language: system`` /
-#      ``entry: python scripts/mypy_ratchet_check.py`` so it reuses
-#      the project venv instead of creating an isolated venv via
-#      mirrors-mypy. The previous ``additional_dependencies:
-#      [numpy, torch, ...]`` caused a 2GB torch reinstall on first
-#      ``pre-commit run mypy``; the local hook eliminates that — the
-#      ratchet script runs mypy against the deps already installed by
-#      ``uv pip install -e ".[test,dev]"``. It is invoked below via
-#      ``pre-commit run --hook-stage pre-push`` (mypy is NOT part of
-#      the commit-stage ``pre-commit run`` block in
-#      ``.husky/pre-commit``).
+# The pytest block was REMOVED: the working convention (AGENTS.md) is
+# that the full test suite is run and greened at the END of every task
+# by the developer/agent doing the work — a push-time pytest re-run
+# only re-checks an already-verified test state. Push-time verification
+# keeps ONLY the gates that are seconds, not minutes:
+#   1. ``npm run typecheck`` — cached client typecheck (~5s incremental
+#      on a warm tree; NOT the cache-busting ``typecheck:ci``, which is
+#      reserved for CI where a clean build is required).
+#   2. mypy ratchet via ``pre-commit run --hook-stage pre-push`` — mypy
+#      has NO CI gate, so this hook is its only automated enforcement.
+#      Locally: ``stages: [pre-push]`` in .pre-commit-config.yaml,
+#      ``language: system`` / ``entry: python scripts/mypy_ratchet_check.py``
+#      so it reuses the project venv (no torch reinstall, XS-35) and
+#      blocks only NEW typing errors vs mypy-baseline.json.
 echo "[pre-push] Running typecheck (client, cached)..."
 cd voice_typer/client && npm run typecheck || { echo "[pre-push] typecheck FAILED"; exit 1; }
-
-echo "[pre-push] Running pytest fast subset (server)..."
 cd ../..
-# Resolve a working Python interpreter: prefer the project venv (portable
-# across Unix `.venv/bin/python` and Windows `.venv/Scripts/python.exe`),
-# fall back to `python`/`python3` on PATH so the hook doesn't hard-fail in
-# environments without a local venv.
-PY_BIN=""
-if [ -x .venv/bin/python ]; then
-        PY_BIN=.venv/bin/python
-elif [ -x .venv/Scripts/python.exe ]; then
-        PY_BIN=.venv/Scripts/python.exe
-elif command -v python >/dev/null 2>&1; then
-        PY_BIN=python
-elif command -v python3 >/dev/null 2>&1; then
-        PY_BIN=python3
-fi
-if [ -z "$PY_BIN" ]; then
-        echo "[pre-push] No Python interpreter found; skipping pytest."
-        exit 1
-fi
-"$PY_BIN" -m pytest tests/ -x -q --timeout=30 --no-cov \
-        --ignore=tests/test_noise_suppressor_resampler.py \
-        --ignore=tests/test_permissions_pyobjc_cache.py \
-        --ignore=tests/tauri/mig15 \
-        --ignore=tests/tauri/mig16 \
-        --ignore=tests/tauri/mig17 \
-        --ignore=tests/tauri/mig18 \
-        --ignore=tests/tauri/mig19 \
-        -k "not slow and not integration" \
-        -m "not slow" || {
-        echo "[pre-push] pytest FAILED";
-        echo "[pre-push] If collection failed with ModuleNotFoundError, the venv is missing deps.";
-        echo "[pre-push] Reinstall with:  uv pip install -e \".[test,dev]\"";
-        echo "[pre-push] (base deps only:  uv pip install -e . -r requirements-lock.txt)";
-        exit 1; }
 
-# Run pre-commit hooks declared at the `pre-push` stage — primarily mypy
+# Run pre-commit hooks declared at the `pre-push` stage — mypy only
 # (see .pre-commit-config.yaml `stages: [pre-push]`). pre-commit is
 # optional: skip silently if not installed so the hook still works in
 # minimal checkouts. The `--from-ref HEAD~1 --to-ref HEAD` pair scopes

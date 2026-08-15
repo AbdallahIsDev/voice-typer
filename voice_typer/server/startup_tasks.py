@@ -239,9 +239,7 @@ def sync_prewarm_task(app: AppProtocol, shutdown_event: threading.Event | None =
     return {"registered": False, "error": None}
 
 
-def check_offline_pack_on_launch(
-    app: AppProtocol, shutdown_event: threading.Event | None = None
-) -> dict:
+def check_offline_pack_on_launch(app: AppProtocol, shutdown_event: threading.Event | None = None) -> dict:
     """Phase 2d launch-time offline-pack existence check (§8.10, §8.16).
 
     Runs on a fire-and-forget daemon thread at startup (see
@@ -316,9 +314,7 @@ def check_offline_pack_on_launch(
         log.info("[PACK] offline pack missing at launch — consent-gated re-download check")
 
         try:
-            result = update_check.check_offline_pack_update(
-                config, event_bus, trigger_download=True
-            )
+            result = update_check.check_offline_pack_update(config, event_bus, trigger_download=True)
             return {
                 "checked": True,
                 "installed_version": None,

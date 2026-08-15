@@ -800,7 +800,7 @@ class TestVersionLockstep:
     ``sync_versions.py --apply``; a version bump that touches only ONE
     file (hand-edited package.json, or a direct tauri.conf.json edit
     that bypasses the sync script) breaks the lockstep HERE — every CI
-    surface (Tauri workflows' fail-fast gates, pre-push pytest) fails
+    surface (Tauri workflows' fail-fast gates, CI pytest) fails
     instead of shipping mismatched app/installer metadata.
     """
 

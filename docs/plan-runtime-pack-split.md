@@ -1007,11 +1007,14 @@ After the migration, regenerate all 4 ratchet baselines:
 **Note:** ratchets refuse to auto-regenerate on improvement — the
 `--regenerate --force` flag is required.
 
-### 11.8 `.husky/pre-push:62` runs `pytest tests/ -x`
+### 11.8 `.husky/pre-push` no longer runs pytest
 
-80 test files import torch/silero_vad. Every push is blocked until tests
-are rewritten. The plan must sequence the test rewrites BEFORE the torch
-removal in the code (otherwise pre-push fails on every commit).
+The pre-push hook was leaned down: pytest (even the fast subset) was
+removed — the full suite is greened at the end of every task
+(AGENTS.md working convention), so push-time verification keeps only
+the cached client typecheck + the mypy ratchet. The torch-import
+concern below is now moot for pre-push; it applies to local
+`pytest` runs and CI instead.
 
 ### 11.9 New artifact naming (C-CI-13)
 

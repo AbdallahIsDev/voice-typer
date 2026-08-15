@@ -235,10 +235,13 @@ file in `.husky/`. There are currently two husky-managed hooks:
    `command -v pre-commit` guard means contributors who haven't
    installed the `pre-commit` framework are silently skipped (no hard
    failure — the lint-staged biome gate still runs).
-2. **`.husky/pre-push`** — runs `npm run typecheck` (cached, ~5s on a
-   warm tree) and the fast pytest subset (`-k 'not slow and not
-   integration' -m 'not slow' --timeout=30`, ~2-3 min). See §7.2.1
-   for skip hooks in an emergency.
+2. **`.husky/pre-push`** — lean: runs `npm run typecheck` (cached,
+   ~5s on a warm tree) and the mypy ratchet at the pre-push stage
+   (`pre-commit run --hook-stage pre-push`, ~seconds, only NEW typing
+   errors). It deliberately runs NO pytest — the full suite is greened
+   at the end of every task (AGENTS.md), so a push-time re-run would
+   only re-check an already-verified test state. See §7.2.1 for skip
+   hooks in an emergency.
 
 The pre-commit framework (`.pre-commit-config.yaml`) provides the
 non-lint-staged hooks: ruff (lint + format), mypy (server-only, at

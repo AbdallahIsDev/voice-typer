@@ -251,14 +251,38 @@ def test_husky_pre_push_uses_cached_typecheck() -> None:
     )
 
 
-def test_husky_pre_push_scopes_pytest_to_fast_subset() -> None:
-    """``.husky/pre-push`` must scope pytest to the fast subset
-    (``-k 'not slow and not integration' -m 'not slow' --timeout=30``)
-    so the pre-push run is 2-3 min, not 10-15 min (XS-35)."""
+def test_husky_pre_push_drops_pytest_keeps_fast_gates() -> None:
+    """``.husky/pre-push`` must be LEAN: no pytest invocation at all, only
+    the seconds-cost gates — cached client typecheck + the mypy ratchet at
+    the pre-push stage.
+
+    The pytest block (even the XS-35 fast subset, ~2-3 min) was removed:
+    the working convention (AGENTS.md) is that the full suite is run and
+    greened at the end of every task, making a push-time pytest re-run a
+    redundant re-check of an already-verified test state. The historical
+    pytest flags (``--timeout=30`` / ``-k "not slow"`` / ``-m "not slow"``
+    / ``--ignore=``) belong to the rationale comment only.
+    """
     text = HUSKY_PRE_PUSH.read_text()
-    assert "--timeout=30" in text, ".husky/pre-push must use --timeout=30 for pytest (XS-35)."
-    assert "not slow" in text, ".husky/pre-push must exclude slow tests (XS-35)."
-    assert "not integration" in text, ".husky/pre-push must exclude integration tests (XS-35)."
+    # Strip comment lines to isolate actual shell commands.
+    code_lines = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
+    code_only = "\n".join(code_lines)
+    assert "-m pytest" not in code_only, (
+        ".husky/pre-push must NOT invoke pytest — the full suite is "
+        "already greened at the end of every task; the push gate keeps "
+        "only seconds-cost checks. Code-only content:\n" + textwrap.indent(code_only, "    ")
+    )
+    assert "pytest" not in code_only, (
+        ".husky/pre-push must not run pytest in any form. Code-only content:\n" + textwrap.indent(code_only, "    ")
+    )
+    assert "npm run typecheck" in code_only, (
+        ".husky/pre-push must keep the cached client typecheck. Code-only content:\n"
+        + textwrap.indent(code_only, "    ")
+    )
+    assert "pre-commit run --hook-stage pre-push" in code_only, (
+        ".husky/pre-push must keep the mypy ratchet (pre-commit, pre-push "
+        "stage) — mypy has no CI gate. Code-only content:\n" + textwrap.indent(code_only, "    ")
+    )
 
 
 # ── XS-68: typecheck:root is not a no-op ─────────────────────────────────

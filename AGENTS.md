@@ -153,8 +153,9 @@ uv venv
 source .venv/bin/activate
 # Full dev+test extras (pytest, ruff, mypy, pre-commit) + the hash-pinned
 # lock. NOTE: requirements-lock.txt is BASE-deps only (it does NOT contain
-# pytest/test extras), so install both — the pre-push hook's pytest needs
-# the [test] extra present in the venv.
+# pytest/test extras), so install both — pytest runs and pre-commit's mypy
+# (the pre-push hook's remaining server-side check) need the [test]/[dev]
+# extras present in the venv.
 uv pip install -e ".[test,dev]" -r requirements-lock.txt
 
 # Renderer + main process — one-time install

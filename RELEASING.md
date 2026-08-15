@@ -179,8 +179,10 @@ The following CI jobs must be green for a release to ship:
   migration; failures here do not block an Electron release but should
   be investigated before cutover).
 
-The husky `pre-push` hook (`.husky/pre-push`) runs `pytest tests/ -x`
-before any push — do not bypass it for release pushes.
+The husky `pre-push` hook (`.husky/pre-push`) is lean by design: it
+runs the cached client typecheck + the mypy ratchet only — no pytest
+(the full suite must be greened during work, per AGENTS.md, before
+any release push). Do not bypass it for release pushes.
 
 ## 10. Signing
 
