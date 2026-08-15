@@ -158,7 +158,7 @@ fn test_allowed_commands_count_matches_ts_parity() {
     // the COUNT so a local `cargo test` catches a drift before the
     // Python test even runs.
     //
-    // 66 shared commands (TS has 68 = 66 shared + heartbeat +
+    // 63 shared commands (TS has 65 = 63 shared + heartbeat +
     // relaunch_ack). `heartbeat` and `relaunch_ack` are
     // intentionally ABSENT from this Rust literal — see the
     // doc comment on the cmds literal below. `check_accessibility`
@@ -168,6 +168,14 @@ fn test_allowed_commands_count_matches_ts_parity() {
     // `transcribe_offline` was added on 2026-08-13 by the runtime-pack
     // split (master plan §7.4 — slim core → worker offline-transcription
     // request), bumping the count from 65 to 66.
+    //
+    // (2026-08-14): `get_prewarm_status` / `open_prewarm_log` were
+    // RESTORED in lockstep from this Rust literal + the TS
+    // `ALLOWED_COMMANDS` Set + the Python `_COMMAND_REGISTRY` +
+    // `handlers/status_handlers.py` (the About-page Cache Status card
+    // is a user-facing product feature — plan §6.3 addendum).
+    // `run_prewarm` stays removed (spawned the deleted standalone
+    // prewarm subprocess machinery). Count went from 63 to 65.
     assert_eq!(
         allowed_commands().len(),
         66,
@@ -178,13 +186,16 @@ fn test_allowed_commands_count_matches_ts_parity() {
 #[test]
 fn test_allowed_commands_set_contains_no_duplicates() {
     let set = allowed_commands();
-    // 66 entries — must match the cmds literal below (single
+    // 67 entries — must match the cmds literal below (single
     // source of truth). A duplicate in the literal would make
-    // set.len() < 66.
+    // set.len() < 67.
+    // 66 → 67: `run_prewarm` restored 2026-08-14 (§6.3 addendum
+    // second half — re-implemented to re-run the warm phase
+    // in-process instead of spawning the deleted subprocess).
     assert_eq!(
         set.len(),
-        66,
-        "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (66). \
+        67,
+        "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (67). \
          Check the constructor log for the duplicate name.",
         set.len()
     );
@@ -192,20 +203,20 @@ fn test_allowed_commands_set_contains_no_duplicates() {
 
 #[test]
 fn test_allowed_commands_exact_snapshot() {
-    //Stricter parity test: pin the EXACT 66-entry set (sorted)
+    //Stricter parity test: pin the EXACT 65-entry set (sorted)
     // so any drift between the Rust literal and the TS allowlist is
     // caught at `cargo test` time, BEFORE the cross-layer Python
     // parity test in
     // `tests/test_security_doc_command_count.py::test_rust_allowlist_matches_ts_allowlist`
     // runs. The count-only test above catches add/remove drift but
     // MISSES a rename (e.g. `onboarding_reset` → `reset_onboarding`)
-    // that keeps the count at 63. This snapshot test catches both
+    // that keeps the count at 65. This snapshot test catches both
     // renames and any silent reordering that would mask a missing
     // entry.
     //
     // The expected list is the alphabetically-sorted union of:
     //   - the TS `ALLOWED_COMMANDS` literal in
-    //     `voice_typer/client/src/main/allowed-commands.ts` (68 entries)
+    //     `voice_typer/client/src/main/allowed-commands.ts` (67 entries)
     //   - minus the two Rust-only-excluded commands:
     //     `heartbeat` (sent by the Rust WS-reader task) and
     //     `relaunch_ack` (sent by the Rust `relaunch_app` event
@@ -218,6 +229,14 @@ fn test_allowed_commands_exact_snapshot() {
     // the same PR. The Python parity test will catch a missed TS
     // update, but this test catches a missed Rust snapshot update
     // faster (no Python venv required).
+    //
+    // (2026-08-14): `get_prewarm_status` / `open_prewarm_log`
+    // were RESTORED in lockstep from this Rust literal + the TS
+    // `ALLOWED_COMMANDS` Set + the Python `_COMMAND_REGISTRY` +
+    // `handlers/status_handlers.py` — see the inline comment at the
+    // restoration site in the `cmds` literal below. Count went from
+    // 63 to 65 (snapshot re-includes the two entries at their
+    // alphabetically-sorted positions; `run_prewarm` stays absent).
     let mut actual: Vec<&str> = allowed_commands().iter().copied().collect();
     actual.sort();
     let expected: &[&str] = &[
@@ -275,7 +294,6 @@ fn test_allowed_commands_exact_snapshot() {
         "restart_app",
         "restore_history",
         "resume_model_download",
-        "run_prewarm",
         "save_templates",
         "save_vocabulary",
         "search_history",
@@ -300,7 +318,7 @@ fn test_allowed_commands_exact_snapshot() {
     assert_eq!(
         actual, expected,
         "ALLOWED_COMMANDS snapshot drift — the Rust literal no longer matches the pinned \
-         66-entry snapshot. Diff the actual vs expected Vec above. If the change is \
+         65-entry snapshot. Diff the actual vs expected Vec above. If the change is \
          intentional, update this snapshot in lockstep with the cmds literal AND the TS \
          allowlist (see MAINTENANCE note above)."
     );

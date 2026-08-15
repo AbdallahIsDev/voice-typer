@@ -167,15 +167,15 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     // plan §7.4 for the per-event rationale + payload shapes.
     //
     // Pack download lifecycle (push):
-    "pack_download_started",        // user-visible download started
-    "pack_download_progress",       // silent — no UI; logged for diagnostics
-    "pack_download_completed",      // download finished, verification pending
-    "pack_download_failed",         // download failed (network / disk / etc.)
+    "offline_pack_download_started",   // user-visible download started
+    "offline_pack_download_progress",  // silent — no UI; logged for diagnostics
+    "offline_pack_download_completed", // download finished, verification pending
+    "offline_pack_download_failed",    // download failed (network / disk / etc.)
     // Pack integrity (push):
-    "pack_verified",                // SHA256 + signature verified OK
-    "pack_missing",                 // pack file absent at expected path
-    "pack_corrupt",                 // SHA256 mismatch / signature failure
-    "pack_ready",                   // worker started AND prewarmed — ready to transcribe
+    "offline_pack_verified",           // SHA256 + signature verified OK
+    "offline_pack_missing",            // pack file absent at expected path
+    "offline_pack_corrupt",            // SHA256 mismatch / signature failure
+    "offline_pack_ready",              // worker started AND prewarmed — ready to transcribe
     // Worker process lifecycle (push):
     "worker_started",               // worker process spawned + WS handshake done
     "worker_crashed",               // worker process crashed (exit code in payload)

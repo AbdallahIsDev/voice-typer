@@ -158,9 +158,22 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "save_templates",
             "get_volume_backend_status",
             "get_model_status",
+            // (RESTORED 2026-08-14) `get_prewarm_status` +
+            // `open_prewarm_log` came back in lockstep with the TS
+            // `ALLOWED_COMMANDS` Set and the Python `_COMMAND_REGISTRY`
+            // (see the inline history block in
+            // `voice_typer/server/ipc/registry.py` and the §6.4 IPC
+            // parity contract): the About-page Cache Status card is a
+            // user-facing product feature, not prewarm machinery.
+            // `run_prewarm` was ALSO restored the same day (§6.3
+            // addendum second half) but re-implemented server-side —
+            // the Python handler no longer spawns the deleted
+            // standalone-prewarm subprocess; it re-runs the worker's
+            // warm phase in-process (warm_imports_for_worker on a
+            // daemon thread, see prewarm/status.run_prewarm_now).
             "get_prewarm_status",
-            "run_prewarm",
             "open_prewarm_log",
+            "run_prewarm",
             "get_vocabulary",
             "save_vocabulary",
             "onboarding_is_first_run",
@@ -287,10 +300,18 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             // `src-tauri/src/sidecar/ws/event_protocol.rs`). Pinned by
             // `tests/test_event_types_parity.py`.
             "transcribe_offline",
+            // Auto-update feature (docs/auto-update-feature.md):
+            // runtime-pack update check. The renderer's `useNetworkOnline`
+            // hook fires it on the `online` transition; Python handler
+            // `_handle_check_offline_pack_update` delegates to
+            // `update_check.handle_check_offline_pack_update_ipc` (GitHub-API
+            // manifest check + consent-gated background download).
+            // Mirrors the TS allowlist + Python `_COMMAND_REGISTRY`.
+            "check_offline_pack_update",
         ];
         // Build the set in one pass. Duplicate detection is enforced
         // by the `test_allowed_commands_set_contains_no_duplicates`
-        // unit test (which asserts `set.len() == 66`), so we don't
+        // unit test (which asserts `set.len() == 63`), so we don't
         // need a runtime `log::error!` per duplicate here — that path
         // was ~14 lines of defensive logging on a static `&[&str]`
         // literal and was redundant with the test. If a future

@@ -119,3 +119,62 @@ fn test_si14_tray_fallback_notification_is_allowed() {
         "ALLOWED_EVENT_TYPES slice must contain tray_fallback_notification"
     );
 }
+
+// ── Pack + worker IPC event types (master plan §7.4 — 13 new) ───────
+//
+// The runtime-pack split introduces 13 new server-initiated event types:
+// pack download lifecycle (4), pack integrity (4), worker process
+// lifecycle (3), and offline transcription (2 — request + result push).
+// Each is registered in `ALLOWED_EVENT_TYPES` so the WS reader's
+// `is_allowed_event_type` gate does NOT silently drop the frame once
+// the worker comes online. This test pins the full 13-entry set so a
+// future rename or accidental removal fails `cargo test` BEFORE the
+// cross-layer Python parity test in
+// `tests/test_event_types_parity.py` (`TestRustAllowlistContainsAllNewEvents`
+// + `TestEventAllowlistCrossLayerParity`) runs in CI.
+
+/// The 13 new pack/worker event types must all be in
+/// `ALLOWED_EVENT_TYPES`. Each event is asserted both via the slice
+/// `.contains()` (defends against a HashSet-only addition that would
+/// diverge from the commented source-of-truth list) AND via
+/// `is_allowed_event_type()` (defends against the lookup-set being
+/// constructed from a different source than the slice).
+#[test]
+fn test_offline_pack_worker_event_types_are_allowed() {
+    let pack_worker_events: &[&str] = &[
+        // Offline-pack download lifecycle (push):
+        "offline_pack_download_started",
+        "offline_pack_download_progress",
+        "offline_pack_download_completed",
+        "offline_pack_download_failed",
+        // Offline-pack integrity (push):
+        "offline_pack_verified",
+        "offline_pack_missing",
+        "offline_pack_corrupt",
+        "offline_pack_ready",
+        // Worker process lifecycle (push):
+        "worker_started",
+        "worker_crashed",
+        "worker_unloaded",
+        // Offline transcription (request + result push):
+        "transcribe_offline",
+        "transcribe_offline_result",
+    ];
+    assert_eq!(
+        pack_worker_events.len(),
+        13,
+        "sanity: the §7.4 pack/worker event set is exactly 13 entries — \
+         if the plan adds/removes one, update this test in lockstep"
+    );
+    for &evt in pack_worker_events {
+        assert!(
+            ALLOWED_EVENT_TYPES.contains(&evt),
+            "ALLOWED_EVENT_TYPES slice must contain `{evt}` (master plan §7.4)"
+        );
+        assert!(
+            is_allowed_event_type(evt),
+            "is_allowed_event_type(`{evt}`) must return true — the WS reader \
+             would otherwise drop the frame"
+        );
+    }
+}
