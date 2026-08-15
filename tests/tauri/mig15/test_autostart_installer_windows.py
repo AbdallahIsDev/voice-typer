@@ -9,19 +9,23 @@ reused by the autostart path). The installer config is in
 
 AUTOSTART ARCHITECTURE (actual implementation)
 ----------------------------------------------
-The app autostart (``server_platform._enable_autostart_windows``) tries the
-HKCU Run key FIRST (no admin elevation needed) and falls back to Task
-Scheduler (``_register_app_autostart_task`` which builds a LogonTrigger XML
-and calls ``task_scheduler._schtasks /Create``) only if the Run key fails
-(AUTOSTART-UAC-FIX). (The former prewarm scheduled task was deleted with
-the prewarm binary it launched — master plan §6.2 P-1.)
+The app autostart (``server_platform._enable_autostart_windows``) tries Task
+Scheduler FIRST (``_register_app_autostart_task`` which builds a
+LogonTrigger XML and calls ``task_scheduler._schtasks /Create``), then the
+Startup-folder .bat (admin-free, always processed by Explorer at logon),
+then the HKCU Run key last (AUTOSTART-ORDER-FIX — the Run key's raw command
+line can be rejected by the Windows 11 StartupApp launcher at logon; it
+was previously first and produced the broken PID-0-at-logon entries). (The
+former prewarm scheduled task was deleted with the prewarm binary it
+launched — master plan §6.2 P-1.)
 
-Both paths:
+All paths:
   - Use ``LogonTrigger`` (fires at user logon, not boot — interactive session
     required for ``InteractiveToken`` + ``pythonw.exe``).
   - Run as the current user with ``LeastPrivilege`` (NO admin elevation).
   - Omit ``<UserId>`` so the task defaults to the registering (HKCU) user.
-  - Have an admin-free HKCU Run key fallback for the locked-task scenario.
+  - Have admin-free Startup .bat / HKCU Run key fallbacks for the
+    locked-task / standard-user scenario.
 
 VALIDATE ON WINDOWS HOST:
 1. Build the installer: cd src-tauri; cargo tauri build --target x86_64-pc-windows-msvc
@@ -173,21 +177,29 @@ def test_task_scheduler_xml_uses_logon_trigger_no_elevation():
 
 def test_enable_autostart_on_windows_uses_windows_path_not_plist_or_desktop(monkeypatch, fake_winreg, win32_platform):
     """``enable_autostart()`` on Windows dispatches to
-    ``_enable_autostart_windows()`` (HKCU Run key + Task Scheduler fallback).
-    It must NOT create a macOS LaunchAgent plist or a Linux .desktop file.
+    ``_enable_autostart_windows()`` (Task Scheduler preferred, then
+    Startup .bat, then HKCU Run key). It must NOT create a macOS
+    LaunchAgent plist or a Linux .desktop file.
 
-    NOTE: the actual implementation prefers the HKCU Run key FIRST (no admin
-    elevation) and falls back to Task Scheduler — see ``AUTOSTART-UAC-FIX``
-    in ``server_platform._enable_autostart_windows``. The Run key + Task
-    Scheduler both launch ``autostart_launcher.py`` (not a plist or .desktop).
+    NOTE: the actual implementation prefers Task Scheduler FIRST, then the
+    Startup-folder .bat, then the HKCU Run key last — see
+    ``AUTOSTART-ORDER-FIX`` in ``server_platform._enable_autostart_windows``.
+    All three mechanisms launch ``autostart_launcher.py`` (not a plist or
+    .desktop).
     """
     server_platform = win32_platform
 
     runkey_calls: list[int] = []
     task_calls: list[int] = []
+    startup_calls: list[int] = []
     macos_calls: list[int] = []
     linux_calls: list[int] = []
 
+    monkeypatch.setattr(
+        server_platform,
+        "_register_app_autostart_task",
+        lambda: (task_calls.append(1), True)[1],
+    )
     monkeypatch.setattr(
         server_platform,
         "_register_app_autostart_runkey",
@@ -195,8 +207,8 @@ def test_enable_autostart_on_windows_uses_windows_path_not_plist_or_desktop(monk
     )
     monkeypatch.setattr(
         server_platform,
-        "_register_app_autostart_task",
-        lambda: (task_calls.append(1), False)[1],
+        "_register_app_autostart_startup",
+        lambda: (startup_calls.append(1), True)[1],
     )
     monkeypatch.setattr(
         server_platform,
@@ -212,8 +224,9 @@ def test_enable_autostart_on_windows_uses_windows_path_not_plist_or_desktop(monk
     result = server_platform.enable_autostart()
 
     assert result is True
-    assert len(runkey_calls) == 1, "must call _register_app_autostart_runkey on Windows (preferred path)"
-    assert len(task_calls) == 0, "Task Scheduler is the FALLBACK — not called when Run key succeeds"
+    assert len(task_calls) == 1, "must call _register_app_autostart_task first (AUTOSTART-ORDER-FIX)"
+    assert len(runkey_calls) == 0, "HKCU Run key is LAST resort — not called when Task succeeds"
+    assert len(startup_calls) == 0, "Startup .bat must NOT be registered when Task Scheduler succeeds"
     assert len(macos_calls) == 0, "must NOT call _enable_autostart_macos (LaunchAgent plist) on Windows"
     assert len(linux_calls) == 0, "must NOT call _enable_autostart_linux (.desktop file) on Windows"
 
@@ -262,9 +275,9 @@ def test_enable_autostart_windows_falls_back_to_task_scheduler(monkeypatch, fake
 
     result = server_platform.enable_autostart()
 
-    assert result is True, "Task Scheduler fallback must succeed"
+    assert result is True, "Task Scheduler registration must succeed"
     create_calls = [c for c in schtasks_calls if "/Create" in c]
-    assert len(create_calls) >= 1, "must call schtasks /Create as the Task Scheduler fallback"
+    assert len(create_calls) >= 1, "must call schtasks /Create for the Task Scheduler path"
     # The task name must use the com.voicetyper.autostart prefix (+ install hash).
     assert any("com.voicetyper.autostart" in " ".join(c) for c in create_calls), (
         "task name must include the com.voicetyper.autostart prefix"

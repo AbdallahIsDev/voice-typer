@@ -443,16 +443,64 @@ fn test_is_shutting_down_observes_concurrent_flip() {
     assert!(is_shutting_down(Some(&flag)));
 }
 
-// ── Worker spawn stubs (Phase 2a — runtime-pack split, §7) ──────────
+// ── Worker spawn (Phase 2b — runtime-pack split, §7) ───────────────
 //
-// These tests cover the Phase 2a worker scaffolding delivered in this
-// slice: the `WorkerState` struct (parallel to `SidecarState`) + the
-// `spawn_worker_and_get_port_with_shutdown` / `initialize_worker`
-// stubs. The stubs themselves are async + require a Tauri `AppHandle`
-// (not constructible in a plain unit test without a full Tauri test
-// harness), so we test the PURE parts: `WorkerState::new()` field
-// initialization + the stub function pointers (compile-time contract
-// that the symbols exist with the documented signature).
+// These tests cover the worker spawn slice: `parse_worker_started`
+// (the pure stdout-handshake parser) + the `WorkerState` struct. The
+// spawn functions themselves (`spawn_worker_and_get_port_with_shutdown`
+// / `initialize_worker` / `spawn_worker_release` / `spawn_worker_dev_mode`)
+// are async + require a Tauri `AppHandle` (not constructible in a
+// plain unit test without a full Tauri test harness), so we test the
+// PURE parts + verify the symbols exist (compile-time contract).
+
+// ── parse_worker_started ──────────────────────────────────────────
+
+#[test]
+fn test_parse_worker_started_valid() {
+    let line = r#"{"event":"worker_started","port":54321,"protocol":1}"#;
+    assert_eq!(parse_worker_started(line), Some(54321));
+}
+
+#[test]
+fn test_parse_worker_started_rejects_sidecar_event() {
+    // The worker emits a DISTINCT event name (`worker_started`, NOT
+    // `server_started`) so the host's stdout parser can route the
+    // worker's bind info to the worker-spawn path. A sidecar line
+    // must NOT be mistaken for a worker line (and vice versa).
+    let line = r#"{"event":"server_started","port":12345}"#;
+    assert_eq!(
+        parse_worker_started(line),
+        None,
+        "worker parser must reject the sidecar's server_started event"
+    );
+}
+
+#[test]
+fn test_parse_worker_started_no_port() {
+    let line = r#"{"event":"worker_started"}"#;
+    assert_eq!(parse_worker_started(line), None);
+}
+
+#[test]
+fn test_parse_worker_started_port_zero_rejected() {
+    // Mirrors the parse_server_started rule: port 0 is always a bug
+    // (a worker that bound a real socket never reports 0).
+    let line = r#"{"event":"worker_started","port":0}"#;
+    assert_eq!(parse_worker_started(line), None);
+}
+
+#[test]
+fn test_parse_worker_started_port_above_u16_max_returns_none() {
+    // Shared handshake_port validation: no silent truncation.
+    let line = r#"{"event":"worker_started","port":70000}"#;
+    assert_eq!(parse_worker_started(line), None);
+}
+
+#[test]
+fn test_parse_worker_started_invalid_json() {
+    assert_eq!(parse_worker_started("not json"), None);
+    assert_eq!(parse_worker_started(""), None);
+}
 
 /// `WorkerState::new()` must initialize `child` to `None` — the worker
 /// child handle is installed lazily by `initialize_worker` after the

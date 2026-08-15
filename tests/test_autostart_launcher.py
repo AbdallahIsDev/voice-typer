@@ -262,3 +262,78 @@ class TestLaunchPortClosedPath:
         ret = launch()
         assert ret == 0
         assert captured_env.get("VT_START_HIDDEN") is None
+
+
+class TestLauncherOutcomeLogging:
+    """main() logs a single greppable outcome line for every autostart attempt.
+
+    The OS runs this file as a bare script (``pythonw autostart_launcher.py``),
+    so ``__name__`` is ``"__main__"`` — the module logger MUST use the
+    explicit dotted name (``voice_typer.server.autostart_launcher``) or its
+    records never reach the ``voice_typer`` file handler and autostart
+    attempts are invisible in ``voice-typer.log`` (the bug that produced
+    zero ``[AUTOSTART]`` lines ever).
+    """
+
+    def test_logger_uses_dotted_name_not_main(self):
+        """The module logger must be under the ``voice_typer`` root so its
+        records reach the rotating file handler when run as a script."""
+        import voice_typer.server.autostart_launcher as launcher_mod
+
+        assert launcher_mod.log.name == "voice_typer.server.autostart_launcher"
+        assert launcher_mod.log.name != "__main__"
+
+    def test_main_logs_success_outcome(self, monkeypatch, caplog):
+        from voice_typer.server.autostart_launcher import main
+
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher.launch",
+            lambda: 0,
+        )
+        import logging
+
+        with caplog.at_level(logging.INFO, logger="voice_typer"):
+            assert main() == 0
+        result_lines = [r.getMessage() for r in caplog.records if "[AUTOSTART] RESULT" in r.getMessage()]
+        assert any("RESULT success exit=0" in m for m in result_lines), result_lines
+
+    def test_main_logs_failure_outcome(self, monkeypatch, caplog):
+        from voice_typer.server.autostart_launcher import main
+
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher.launch",
+            lambda: 1,
+        )
+        import logging
+
+        with caplog.at_level(logging.INFO, logger="voice_typer"):
+            assert main() == 1
+        result_lines = [r.getMessage() for r in caplog.records if "[AUTOSTART] RESULT" in r.getMessage()]
+        assert any("RESULT failure exit=1" in m for m in result_lines), result_lines
+
+    def test_main_catches_unhandled_exception_and_logs_traceback(self, monkeypatch, caplog):
+        """A pythonw launch that crashes mid-way must not lose the traceback
+        (no console) — main() logs it and returns 1."""
+        from voice_typer.server.autostart_launcher import main
+
+        def boom():
+            raise RuntimeError("launcher exploded")
+
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher.launch",
+            boom,
+        )
+        import logging
+
+        with caplog.at_level(logging.ERROR, logger="voice_typer"):
+            assert main() == 1
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("RESULT failure unhandled-exception" in m for m in messages), messages
+        # log.exception stores the traceback in exc_info, not getMessage().
+        exc_records = [r for r in caplog.records if r.exc_info]
+        assert exc_records, "expected an exception record with traceback"
+        import traceback as _tb
+
+        formatted = "".join(_tb.format_exception(*exc_records[0].exc_info))
+        assert "launcher exploded" in formatted, formatted
+        assert any("RESULT failure exit=1" in m for m in messages), messages

@@ -237,6 +237,56 @@ violations of them during Investigation and Review waves (finding one is a
 finding; fixing one is implementation work). P1–P4 are critical failures when
 violated.
 
+## Web-search first (W0 — highest-priority rule)
+
+**W0 — Web-search first — MANDATORY, every task, before anything else.** Use
+your built-in web-search tool to search the internet for the latest
+documentation and best practices about the task — at the START of the task, in
+the middle of it, and whenever a trigger below fires. There is no "wrong time"
+to search. This is the FIRST instruction of this section and the most important
+one: it binds before every E/W/P rule and every other instruction in this file.
+An answer you haven't checked is a `suspected` fact, never a `verified` one;
+checking is not conditional on doubt. Confidence is never a reason to skip the
+search. If the online information matches what you know, proceed with confidence.
+If it differs, prioritize the online information — the latest official
+documentation — over your own assumptions, every time.
+
+You MUST stop whatever you are doing and run a web search IMMEDIATELY when ANY
+of these triggers fire — do not keep thinking, do not keep experimenting, do not
+trial-and-error:
+
+1. **The 5-minute rule.** You have been working on the same problem, feature,
+   or step for ~5 minutes without a verified, working solution — or any single
+   step of a task has taken more than 5 minutes. STOP. Web search right now,
+   then resume with the answer.
+2. **The going-in-circles rule.** You catch yourself going back and forth,
+   re-trying the same command/approach with variations, forming and discarding
+   theories, or "overthinking" a single point. STOP. Web search.
+3. **The difficulty rule.** The task, API, platform behavior, error message, or
+   integration feels difficult, unfamiliar, or you are unsure of the current
+   best practice. Search FIRST — before writing any code or running any
+   experiment.
+4. **The recency rule.** Any fact that may postdate your training data — library
+   APIs and versions, deprecations, framework majors, platform behavior (e.g.
+   Windows autostart mechanisms, installer behavior), security advisories,
+   current best practice. Web search before relying on it.
+5. **The uncertainty rule.** Any time you would rely on memory or assumption
+   instead of verification — an API call, an option, a flag, a registry key, a
+   workflow file, a platform quirk. Web search.
+
+**Canonical example — the autostart bug (2026-08-15).** An agent spent 30+
+minutes going in circles over why the app no longer auto-started at Windows
+logon: manually dumping registry hex, spawning test processes, checking event
+logs, forming and discarding theories (doubled backslashes → ruled out, PID 0 →
+ruled out, ShellExecute semantics → partial). The user told it to web search, and
+ONE search — "Windows Run key startup entry with arguments not launching
+ShellExecute ERROR_FILE_NOT_FOUND startup apps not working arguments" — pointed
+toward the answer immediately. The wasted 30 minutes were spent re-deriving
+knowledge a single search surfaces in seconds. That is the failure mode this
+rule exists to prevent. The correct sequence is: stuck or going in circles → web
+search NOW → find the documented mechanism → verify → fix. Never burn hours
+manually rediscovering what a web search already knows.
+
 ## Engineering rules (E-rules)
 
 **E1 — Wiring verification — no code ships without it.** `cargo check`,
@@ -398,15 +448,8 @@ re-implementation of something a library or an existing abstraction already
 provides is a defect: rewrite it against the library/abstraction unless a real
 constraint forbids it, and say which constraint.
 
-**W3 — Web-search facts — MANDATORY, every task.** Use your built-in web-search
-tool to search the internet for the latest documentation and best practices about
-the task — before and during its execution, always, every task, small or big,
-even when you are certain you already know the answer. Confidence is never a
-reason to skip the search. If the online information matches what you know,
-proceed with confidence. If it differs, prioritize the online information — the
-latest official documentation — over your own assumptions, every time. An answer
-you haven't checked is a `suspected` fact, never a `verified` one; checking is
-not conditional on doubt.
+> **W3 → W0:** the web-search rule was promoted to the top of this section —
+> see `## Web-search first (W0)` above. W1, W2, W4 below are unchanged.
 
 **W4 — No laziness, at any task size.** Don't get lazy, don't trim the work to
 what's easy, don't deliver a fraction of a task and call it done. Complete the
@@ -434,7 +477,7 @@ to deliver less than the whole task.
 
 ## Working protocols
 
-**Web search — mandatory (core rule: W3).** Before relying on any fact that may
+**Web search — mandatory (core rule: W0).** Before relying on any fact that may
 postdate your training data — library APIs and versions, deprecations, framework
 majors, platform behavior, security advisories, current best practice — run a web
 search and verify (you have a web-search tool and a web reader). This applies to:
@@ -501,6 +544,21 @@ cd src-tauri && cargo check 2>&1
 # a `mod` declaration, every route/IPC channel registered on both sides — grep for
 # orphan impls, unregistered commands, dangling imports.
 ```
+
+**One full-suite run per code state — NEVER run the full pytest suite twice in a
+row for the same test-state.** The two-command pattern of (1) `python -m pytest tests/ -n auto --dist=loadgroup -q --no-cov 2>&1 | tail -5` to read the pass/fail counts and then (2) running the suite a SECOND time with `| grep -E "^FAILED"` to learn WHICH tests failed is FORBIDDEN — it wastes ~10 minutes re-running everything to learn what the first run already printed. ALWAYS run exactly ONE full-suite command per test-state, and that ONE command MUST print BOTH the failing test names AND the final counts in the same output. pytest already does this: the `short test summary info` block (`FAILED tests/<file>::<test>` lines naming every failure/error) is printed immediately before the final counts line (`N passed, M failed ...`) — `tail -5` cut the `FAILED` lines off, which is what made agents think a second run was needed. The canonical single-run command (counts + failure list, no traceback noise):
+
+```bash
+python -m pytest tests/ -n auto --dist=loadgroup -q --no-cov --tb=no 2>&1 | tail -40
+```
+
+Never pipe the full suite through `tail -5` / `head -10` / `grep` in a way that
+takes only partial output, and never run the suite again just to reveal what it
+already printed. To get the exact failing test IDs, grep the SAME command's
+output (or rerun with `--lf`, which replays ONLY the previously failed tests —
+never the whole suite). The per-file targeted runs of the failed files are fine
+and expected; the forbidden waste is a second FULL-suite run whose only purpose
+is to enumerate failures the first run already reported.
 
 **Manual Verification — mandatory before packaging.** Launch the app the way a
 real user would (`npm run dev`), then drive it with browser automation: it
@@ -600,6 +658,42 @@ Applies to: All agents, all modes.
 
 ## Category: Cross-Platform Behavior
 
+```
+C-CROSS-1
+Rule: Do NOT apply freedesktop `.desktop` Exec quoting (`_desktop_quote`, backslash → `\\`) to Windows autostart command lines. On Windows the autostart command MUST be built with `subprocess.list2cmdline(args)` (see `_autostart_command()` in `voice_typer/server/server_platform/autostart.py`).
+Rationale: `_autostart_command()` was hardened (XZ-R6-AS-04) to escape backslashes per the Desktop Entry Spec and applied on ALL platforms — correct for Linux `.desktop` files, WRONG on Windows. It baked doubled-backslash paths (e.g. `C:\Users\...` written with two backslashes between segments) into the HKCU Run-key value. The Windows 11 StartupApp launcher then failed the entry at EVERY logon (Shell-Core events 9707/9708, PID 0, process never created, zero `[AUTOSTART]` log lines) — autostart that had worked for a month silently broke after this unrelated "hardening". `Path.exists()` collapsed the doubled separators so the broken value looked valid and was never re-registered (two prior fix attempts failed for exactly this). The quoting is now platform-gated: Windows → `list2cmdline`, macOS/Linux → `_desktop_quote`.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CROSS-2
+Rule: Do NOT reorder `_enable_autostart_windows()` back to HKCU-Run-key-first. The order is FIXED: Task Scheduler → Startup-folder .bat → HKCU Run key (AUTOSTART-ORDER-FIX in `voice_typer/server/server_platform/autostart_windows.py`).
+Rationale: the Run key's raw command line was observed failing at logon (PID 0) on Windows 11 while Task Scheduler (split Command/Arguments fields, immune to command-line parsing) and the Startup .bat (admin-free, always processed by Explorer at logon) both work. Run-key-first made a standard-user machine land on the broken mechanism. Reordering silently reintroduces the failure.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CROSS-3
+Rule: Do NOT change `autostart_launcher.py`'s logger back to `logging.getLogger(__name__)`. It MUST stay `logging.getLogger("voice_typer.server.autostart_launcher")`.
+Rationale: the OS launches this file as a BARE SCRIPT (`pythonw.exe autostart_launcher.py`), so `__name__ == "__main__"`. A `__main__` logger hangs off the root logger where the app's rotating file handler (attached to the `voice_typer` logger) never fires — every `[AUTOSTART]` line is silently dropped and autostart becomes invisible in `voice-typer.log`. This is why zero launcher lines ever appeared despite the launcher running. The dotted name routes records to the `voice_typer` handler. Same rule as `voice_typer/worker/__main__.py`.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CROSS-4
+Rule: Do NOT validate Windows autostart entries (Run key, Task Scheduler command, Startup .bat) with `Path(...).exists()` alone. The raw command-line string MUST also be checked for the doubled-backslash malformed value (non-UNC) — see `_validate_runkey_command()` in `voice_typer/server/server_platform/autostart_windows.py`.
+Rationale: `Path.exists()` collapses `\\` → `\`, so the doubled-backslash Run-key value (C-CROSS-1) passed validation, `is_autostart_enabled()` returned True, and the broken entry persisted forever — the app never re-registered. The raw-string check is what makes the self-heal work.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CROSS-5
+Rule: Do NOT remove the autostart observability lines from `autostart_launcher.py`: `[AUTOSTART] launcher starting (pid=...)`, the `[AUTOSTART] RESULT success|failure exit=N_<duration>` outcome line (C-LOG-2 duration suffix), and the `[AUTOSTART] RESULT failure unhandled-exception` traceback in `main()`.
+Rationale: the user relies on these timestamped lines in `voice-typer.log` to know whether autostart fired at logon and succeeded or failed. The failure line carries the reason; the unhandled-exception branch captures tracebacks that would otherwise vanish (pythonw has no console). Removing them reverts to silent autostart.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+General lesson (why autostart broke despite "nothing touching it"): cross-platform helpers with platform-specific semantics (freedesktop Exec quoting, POSIX shell syntax, path escaping) must be platform-gated. "Hardening" or "improving" such a helper and applying it platform-blind silently breaks the other OSes — the freedesktop quoting change was unrelated to autostart and broke Windows logon for a month. Any change to `voice_typer/server/server_platform/autostart*.py`, `voice_typer/server/autostart_launcher.py`, or `voice_typer/server/task_scheduler.py` MUST keep the Windows (list2cmdline), Linux (.desktop Exec), and macOS (LaunchAgent ProgramArguments) output shapes intact, and the Windows allowlist tests (`tests/test_autostart*.py`, `tests/tauri/mig15/test_autostart_installer_windows.py`, `tests/test_e2e_regression.py`) green.
 
 ---
 

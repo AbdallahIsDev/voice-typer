@@ -46,20 +46,19 @@
 // ownership) while delegating the pack-lifecycle state machine to
 // `useOfflinePackDownload` (Sub-agent 9's ownership). No file collision.
 //
-// ── Forward-compat: the IPC command may not be registered yet ────────
+// ── Registration status ───────────────────────────────────────────────
 //
-// `check_offline_pack_update` is exposed by `voice_typer/server/service/update_check.py`
-// (`handle_check_offline_pack_update_ipc`) but NOT auto-registered in
-// `voice_typer/server/ipc/registry.py` (registry is a shared file —
-// Sub-agent 7 owns the pack-related additions). Until the command is
-// wired into the registry + the TS allowlist (`allowed-commands.ts`) +
-// the Rust allowlist (`allowlist.rs`), the `call("check_offline_pack_update")`
-// will reject. The hook catches the rejection and logs at debug — the
-// `isOnline` state still updates correctly, so UI consumers can react
-// to network changes regardless of whether the Python side is wired.
-//
-// When Sub-agent 7 (or a future integration agent) registers the
-// command, the hook starts working end-to-end without any change here.
+// `check_offline_pack_update` is exposed by
+// `voice_typer/server/service/update_check.py`
+// (`handle_check_offline_pack_update_ipc`) and registered in all four
+// allowlists in lockstep (2026-08-14, auto-update feature): Python
+// `_COMMAND_REGISTRY` in `ipc/registry.py` (handler
+// `_handle_check_offline_pack_update` in `ipc/lifecycle.py`), the TS
+// `ALLOWED_COMMANDS` set (`allowed-commands.ts`), the Rust
+// `allowlist.rs`, and the renderer `PythonRequest` union
+// (`types/ipc/requests.ts`). The try/catch below stays as defense-ink-depth — a stale renderer bundle could still hit a not-yet-registered
+// command during a partial upgrade, and `isOnline` must update either
+// way.
 //
 // ── Transport-agnostic ───────────────────────────────────────────────
 //

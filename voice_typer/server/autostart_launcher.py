@@ -99,7 +99,17 @@ from voice_typer.server._electron_build import (
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.platform_utils import is_macos, is_windows
 
-log = logging.getLogger(__name__)
+# The OS invokes this file as a BARE SCRIPT (``pythonw.exe
+# autostart_launcher.py`` at logon), so ``__name__`` is ``"__main__"`` here
+# — ``logging.getLogger(__name__)`` would create a logger hanging off the
+# root, where the app's rotating file handler (attached to the
+# ``voice_typer`` logger by ``log.setup_logging``) never fires, silently
+# dropping EVERY launcher log line. That is why no ``[AUTOSTART]`` lines
+# ever appeared in ``voice-typer.log`` despite the launcher running. Use
+# the explicit dotted name (same pattern as ``voice_typer/worker/__main__.py``)
+# so launcher lines land in the app log and autostart attempts are
+# traceable.
+log = logging.getLogger("voice_typer.server.autostart_launcher")
 
 
 def _tauri_log_files() -> dict:
@@ -1156,8 +1166,36 @@ def launch() -> int:
 
 
 def main() -> int:
-    """Entry point. Supports --hidden (autostart) and --dev (force dev mode)."""
-    return launch()
+    """Entry point. Supports --hidden (autostart) and --dev (force dev mode).
+
+    Wraps :func:`launch` so EVERY autostart attempt leaves a single
+    greppable outcome line in the app log:
+
+        [AUTOSTART] RESULT success exit=0_2.3s
+        [AUTOSTART] RESULT failure exit=1_1.4s
+
+    plus, on an unhandled exception, ``[AUTOSTART] RESULT failure
+    unhandled-exception`` with the traceback. Without this, a pythonw
+    launch that crashes mid-way would exit with a traceback written to a
+    non-existent console — invisible. The duration suffix follows the
+    canonical ``_<duration>`` performance-marker convention (C-LOG-2).
+    """
+    from voice_typer.server.duration import format_duration
+
+    start = time.perf_counter()
+    try:
+        rc = launch()
+    except Exception:
+        # pythonw has no console — an unhandled traceback would vanish.
+        # Log it to the rotating file so autostart failures are traceable.
+        log.exception("[AUTOSTART] RESULT failure unhandled-exception")
+        rc = 1
+    elapsed = format_duration(time.perf_counter() - start)
+    if rc == 0:
+        log.info("[AUTOSTART] RESULT success exit=0%s", elapsed)
+    else:
+        log.error("[AUTOSTART] RESULT failure exit=%d%s", rc, elapsed)
+    return rc
 
 
 if __name__ == "__main__":

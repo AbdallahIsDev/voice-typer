@@ -196,31 +196,90 @@ class TestParakeetBackendError:
             engine.transcribe_with_fallback(np.ones(16000, dtype=np.float32))
 
 
-class TestQwenFallback:
-    """QwenEngine does CPU fallback on CUDA errors."""
+class TestQwenTranscribeWithFallback:
+    """QwenEngine's ``transcribe_with_fallback`` delegates to ``transcribe``.
 
-    def test_cuda_error_triggers_cpu_retry(self):
+    The pre-migration torch engine retried on CPU after a CUDA error. The
+    ONNX path is CPU-pinned at ``load()`` (int4 CPU exports are the
+    documented fast path; ORT CUDA is not exercised), so there is no
+    device to fall back from — the method delegates and lets exceptions
+    propagate to the caller's friendly error path.
+    """
+
+    def test_delegates_to_transcribe_passing_audio_and_stats(self):
         from voice_typer.server.qwen_engine import QwenEngine
 
         engine = QwenEngine.__new__(QwenEngine)
         engine._lock = threading.Lock()
         engine._model = MagicMock()
-        engine.device = "cuda"
+        engine.device = "cpu"
+        engine.language = "en"
+
+        audio = np.ones(16000, dtype=np.float32)
+        stats = (1.0, 2.0, 3.0)
+        captured = {}
+
+        def fake_transcribe(a, audio_stats=None):
+            captured["audio"] = a
+            captured["stats"] = audio_stats
+            return "result text"
+
+        engine.transcribe = fake_transcribe
+
+        result = engine.transcribe_with_fallback(audio, audio_stats=stats)
+        assert result == "result text"
+        assert captured["audio"] is audio
+        assert captured["stats"] is stats
+
+    def test_exceptions_propagate_no_cpu_retry(self):
+        """The ONNX path has no device to fall back from — the exception
+        propagates (mirrors the old non-CUDA re-raise branch)."""
+        from voice_typer.server.qwen_engine import QwenEngine
+
+        engine = QwenEngine.__new__(QwenEngine)
+        engine._lock = threading.Lock()
+        engine._model = MagicMock()
+        engine.device = "cpu"
         engine.language = "en"
 
         call_count = {"n": 0}
 
         def fake_transcribe(audio, audio_stats=None):
             call_count["n"] += 1
-            if call_count["n"] == 1:
-                raise RuntimeError("CUDA error: out of memory")
-            return "cpu fallback result"
+            raise RuntimeError("CUDA error: out of memory")
 
         engine.transcribe = fake_transcribe
 
-        result = engine.transcribe_with_fallback(np.ones(16000, dtype=np.float32))
-        assert result == "cpu fallback result"
-        assert call_count["n"] == 2
+        with pytest.raises(RuntimeError, match="CUDA error: out of memory"):
+            engine.transcribe_with_fallback(np.ones(16000, dtype=np.float32))
+        assert call_count["n"] == 1, "must not retry on CPU — no device to fall back from"
+
+    def test_load_pins_device_to_cpu_regardless_of_constructor_arg(self):
+        """The ONNX engine is CPU-first: ``load()`` pins ``device`` to
+        ``cpu`` even when constructed with ``device="cuda"``."""
+        from voice_typer.server import qwen_onnx_model as qom
+        from voice_typer.server.qwen_engine import QwenEngine
+
+        engine = QwenEngine.__new__(QwenEngine)
+        engine._lock = threading.RLock()
+        engine.device = "cuda"
+        engine.language = "en"
+        engine.model_path = r"C:\fake\onnx-dir"
+        engine._model = None
+        engine._onnx_model = None
+        engine._active_inference = 0
+        engine._inference_cond = threading.Condition(engine._lock)
+        # load() imports is_onnx_model_dir + QwenOnnxModel from the
+        # qwen_onnx_model module; stub them so no real ONNX download/
+        # import happens, then verify the device-pin behavior.
+        fake_onnx = MagicMock()
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(qom, "is_onnx_model_dir", lambda p: True)
+        monkeypatch.setattr(qom, "QwenOnnxModel", lambda p: fake_onnx)
+        try:
+            assert engine.load() is True
+        finally:
+            monkeypatch.undo()
         assert engine.device == "cpu"
 
 

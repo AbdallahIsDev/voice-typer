@@ -1,12 +1,17 @@
-"""Windows autostart — Task Scheduler + HKCU Run key.
+"""Windows autostart — Task Scheduler + Startup .bat + HKCU Run key.
 
 Phase 4.5 /  — extracted from the original
-``voice_typer/server/server_platform.py`` god-module.  Implements two
+``voice_typer/server/server_platform.py`` god-module.  Implements three
 parallel autostart mechanisms on Windows:
 
-  - **HKCU Run key** (preferred — no admin elevation needed).
-  - **Task Scheduler with a LogonTrigger** (fallback for the
-    locked-task scenario where the Run key fails).
+  - **Task Scheduler with a LogonTrigger** (preferred — fires at
+    logon+0, split Command/Arguments, hidden; may need UAC elevation
+    for a locked task created by an admin install).
+  - **Startup-folder .bat** (admin-free fallback — always processed by
+    Explorer at logon, no command-line parsing).
+  - **HKCU Run key** (last resort — its raw command line can be
+    rejected by the Windows 11 StartupApp launcher; see
+    ``_validate_runkey_command``).
 
 STARTUP-7: the Run key is tried FIRST because it requires no admin
 elevation (HKCU is per-user, always writable).  Task Scheduler is tried
@@ -78,8 +83,11 @@ log = logging.getLogger(__name__)
 
 # STARTUP-7: Task Scheduler logon trigger fires earlier and more
 # predictably than HKCU Run keys (which are gated by Windows Explorer's
-# startup sequencing). We prefer the Task Scheduler path; HKCU Run key
-# remains as a fallback for the locked-task scenario.
+# startup sequencing). We prefer the Task Scheduler path; the
+# Startup-folder .bat is the admin-free fallback, and the HKCU Run key
+# remains as the last resort (its raw command line can be rejected by
+# the Windows 11 StartupApp launcher at logon — see
+# ``_validate_runkey_command``).
 #
 # PLAT-RUN: append the install-path hash to the task name so two
 # installations in different directories register distinct schtasks
@@ -102,35 +110,41 @@ log = logging.getLogger(__name__)
 
 
 def _enable_autostart_windows() -> bool:
-    """STARTUP-7: register app autostart via HKCU Run key (preferred),
-    Task Scheduler (fallback), or Windows Startup-folder .bat (tertiary).
+    """STARTUP-7: register app autostart via Task Scheduler (preferred),
+    Windows Startup-folder .bat (fallback), or HKCU Run key (tertiary).
 
-    AUTOSTART-UAC-FIX: The Run key is tried FIRST because it requires
-    NO admin elevation (HKCU is per-user, always writable). Task
-    Scheduler is tried only as a fallback because registering a
-    scheduled task may require UAC elevation if a previous task was
-    created by an admin install (locked task). The Run key fires
-    ~33 s after logon, which is soon enough for the autostart
-    launcher (which has a --delay 15 internal delay).
+    AUTOSTART-ORDER-FIX: the order is Task Scheduler FIRST, Startup
+    .bat SECOND, HKCU Run key LAST:
 
-    AUTOSTART-STARTUP-FALLBACK: if BOTH the Run key and Task Scheduler
-    fail, we write a .bat file to the Windows Startup folder as a
-    tertiary mechanism. The .bat sets VT_START_HIDDEN=1 and spawns the
-    autostart command via ``start "" /B`` (no console window flash).
+      - **Task Scheduler** fires at logon+0 with split Command/Arguments
+        fields (immune to command-line parsing), is hidden, and is the
+        documented-preferred mechanism. Creating a task may require
+        UAC elevation when a previous task was created by an admin
+        install (locked task) — the ``_schtasks_elevated`` fallback
+        handles that.
+      - **Startup-folder .bat** needs NO admin elevation and is ALWAYS
+        processed by Explorer at logon — the reliable fallback for
+        standard users and locked-task machines.
+      - **HKCU Run key** was previously FIRST because it needs no
+        elevation, but its value is a raw command line that the
+        Windows 11 StartupApp launcher can reject at logon (observed:
+        Shell-Core 9707/9708 with PID 0 on every logon for a malformed
+        value — see ``_validate_runkey_command``). It stays as the last
+        resort with correct quoting (``subprocess.list2cmdline``).
     """
-    if _pkg._register_app_autostart_runkey():
-        with contextlib.suppress(Exception):
-            _pkg._unregister_app_autostart_task()
-        with contextlib.suppress(Exception):
-            _pkg._unregister_app_autostart_startup()
-        return True
-    log.warning("[CONFIG] HKCU Run key autostart failed; trying Task Scheduler")
     if _pkg._register_app_autostart_task():
+        with contextlib.suppress(Exception):
+            _pkg._unregister_app_autostart_runkey()
         with contextlib.suppress(Exception):
             _pkg._unregister_app_autostart_startup()
         return True
     log.warning("[CONFIG] Task Scheduler autostart failed; trying Startup-folder .bat")
     if _pkg._register_app_autostart_startup():
+        with contextlib.suppress(Exception):
+            _pkg._unregister_app_autostart_runkey()
+        return True
+    log.warning("[CONFIG] Startup-folder .bat autostart failed; trying HKCU Run key")
+    if _pkg._register_app_autostart_runkey():
         return True
     log.warning("[CONFIG] All three autostart mechanisms failed")
     return False
@@ -757,6 +771,18 @@ def _validate_runkey_command(value: str) -> bool:
     exe_path = exe_token.strip('"')
     if not exe_path:
         return True  # malformed — don't claim stale
+    # AUTOSTART-QUOTING-FIX: a doubled backslash inside a Windows path
+    # (e.g. ``"C:\\Users\\11\\...pythonw.exe"``) is a MALFORMED command
+    # line — the freedesktop Exec quoting bug baked ``\\`` into every
+    # Run-key value. ``Path.exists()`` collapses ``\\`` to ``\``, so it
+    # reports such paths as existing and the broken entry is never
+    # re-registered (the "autostart fixed but still broken at logon"
+    # loop). Detect the malformed value here and report it as stale so
+    # the caller cleans it up and re-registers with correct quoting.
+    # UNC paths (``\\server\share``) legitimately start with a doubled
+    # separator and are exempt.
+    if sys.platform == "win32" and "\\\\" in exe_path and not exe_path.startswith("\\\\"):
+        return False
     was_quoted = exe_token.startswith('"')
     has_multiple_tokens = len(tokens) > 1
     # CONSERVATIVE-DELETE: only claim stale when we're CERTAIN —

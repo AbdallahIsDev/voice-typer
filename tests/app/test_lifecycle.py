@@ -552,6 +552,11 @@ class TestStartupResilience:
         # a @property delegate on VoiceTyperApp).
         app.models._registry = MagicMock()
         app.models.registry.load_with_fallback = track_model_load
+        # The model-not-downloaded precheck would refuse the load before
+        # it reaches load_with_fallback (no real model on disk in tests),
+        # breaking the hotkey-before-model ordering assertion. Stub it
+        # so the load path runs.
+        app.models._model_downloaded_precheck = lambda: True
         # Phase 1: was ``app._sync_autostart = MagicMock()`` etc.
         # (test-seam delegates removed); patch the standalone functions
         # directly so production callers see the no-op.

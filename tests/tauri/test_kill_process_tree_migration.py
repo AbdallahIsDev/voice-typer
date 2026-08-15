@@ -152,23 +152,34 @@ def test_spawn_rs_does_not_reference_state_shim() -> None:
 def test_spawn_rs_uses_platform_module_exactly_four_times() -> None:
     """All spawn-module cleanup callers must route through the platform module.
 
-    The call sites (across the EO-33 submodules) are:
+    The call sites (across the EO-33 submodules + the Phase 2b worker
+    spawn module) are:
       1. release-path ``Terminated`` arm — spawn-failure cleanup.
       2. release-path ``Error`` arm — spawn-failure cleanup.
       3. release-path server-started-deadline fallback — kill after timeout.
       4. dev-mode server-started-deadline fallback — kill after timeout.
+      5. worker release-path ``Terminated`` arm — Phase 2b.
+      6. worker release-path ``Error`` arm — Phase 2b.
+      7. worker release-path shutting-down short-circuit — Phase 2b.
+      8. worker release-path server-started-deadline fallback — Phase 2b.
+      9. worker dev-mode shutting-down short-circuit — Phase 2b.
+     10. worker dev-mode server-started-deadline fallback — Phase 2b.
+    (The worker's six call sites mirror the sidecar's kill-tree cleanup
+    paths 1:1 — see ``src-tauri/src/sidecar/spawn/worker.rs``.)
     """
     body = _read_spawn_module()
     matches = re.findall(r"crate::platform::process::kill_process_tree\s*\(", body)
-    # Six call sites: the four original spawn-timeout / Terminated / Error
-    # cleanup paths (which migrated off the state.rs shim) + two later
-    # additions (a dev-mode server-started-deadline fallback wrapped in
-    # spawn_blocking, and a shared-process cleanup helper). Bump this pin
-    # deliberately when adding ANOTHER kill path — the point is that
-    # spawn.rs must route through the platform module, never resurrect
-    # the state.rs shim.
-    assert len(matches) == 6, (
+    # Twelve call sites: the original four sidecar spawn-timeout /
+    # Terminated / Error cleanup paths (which migrated off the state.rs
+    # shim) + two later sidecar additions (a dev-mode
+    # server-started-deadline fallback wrapped in spawn_blocking, and a
+    # shared-process cleanup helper) + six worker spawn paths added by
+    # Phase 2b (spawn/worker.rs). Bump this pin deliberately when
+    # adding ANOTHER kill path — the point is that the spawn module
+    # must route through the platform module, never resurrect the
+    # state.rs shim.
+    assert len(matches) == 12, (
         f"the spawn module must call `crate::platform::process::kill_process_tree` "
-        f"exactly 6 times (4 spawn-timeout/cleanup paths + 2 later "
-        f"additions); found {len(matches)}."
+        f"exactly 12 times (6 sidecar spawn paths + 6 worker spawn "
+        f"paths, Phase 2b); found {len(matches)}."
     )

@@ -33,23 +33,56 @@ pub(crate) fn is_shutting_down(shutting_down: Option<&AtomicBool>) -> bool {
 pub(crate) fn parse_server_started(line: &str) -> Option<u16> {
     let v: Value = serde_json::from_str(line.trim()).ok()?;
     if v.get("event").and_then(|e| e.as_str()) == Some("server_started") {
-        v.get("port")
-            .and_then(|p| p.as_u64())
-            // try_from instead of truncating `as u16`.
-            .and_then(|p| u16::try_from(p).ok())
-            // reject port 0. A sidecar that has successfully
-            // bound a real port never reports 0 in its `server_started`
-            // handshake (the value comes from `socket.getsockname()[1]`
-            // AFTER bind succeeds). A `port: 0` is therefore always a
-            // bug (uninitialized field, JSON-schema drift, or a
-            // hostile/malformed input). Returning `None` here forces the
-            // spawn loop to time out and surface a clear error rather
-            // than handing a `0` back to `reconnect_ws` which would
-            // then attempt to dial `127.0.0.1:0` and get an OS-assigned
-            // unrelated connection (or an EADDRNOTAVAIL on platforms
-            // that reject port 0 for connect).
-            .filter(|p| *p != 0)
+        handshake_port(&v)
     } else {
         None
     }
+}
+
+/// Worker-handshake stdout parser (Phase 2b — runtime-pack split §7.3).
+/// Mirrors [`parse_server_started`] but for the ML worker's DISTINCT
+/// event name: `{"event":"worker_started","port":N,"protocol":1}`
+/// (see `voice_typer/worker/_ws_server.py` `_WORKER_STARTED_EVENT`).
+///
+/// The worker deliberately does NOT emit `server_started` (that name
+/// is reserved for the slim-core sidecar, which the host already
+/// listens for) — a distinct event name lets the host's stdout parser
+/// route the worker's bind info to the worker-spawn code path instead
+/// of mistaking it for a second sidecar.
+///
+/// Returns the port if `line` is the worker's `worker_started` JSON
+/// line, else `None`. Port validation (range + non-zero) is shared
+/// with [`parse_server_started`] via [`handshake_port`].
+pub(crate) fn parse_worker_started(line: &str) -> Option<u16> {
+    let v: Value = serde_json::from_str(line.trim()).ok()?;
+    if v.get("event").and_then(|e| e.as_str()) == Some("worker_started") {
+        handshake_port(&v)
+    } else {
+        None
+    }
+}
+
+/// Extract the `port` field from a parsed handshake JSON object.
+/// Shared by [`parse_server_started`] and [`parse_worker_started`].
+///
+/// The port is parsed via `u16::try_from(p).ok()` instead of `p as
+/// u16` — the previous `as u16` cast silently truncated any port value
+/// above 65535 (e.g. a corrupted `port: 70000` JSON would wrap to
+/// `70000_u32 as u16 = 4464`). `try_from` returns `Err` for out-of-range
+/// values, which `.ok()` maps to `None`.
+///
+/// Port 0 is rejected: a process that has successfully bound a real
+/// port never reports 0 in its handshake (the value comes from
+/// `socket.getsockname()[1]` AFTER bind succeeds). A `port: 0` is
+/// therefore always a bug (uninitialized field, JSON-schema drift, or
+/// hostile/malformed input). Returning `None` here forces the spawn
+/// loop to time out and surface a clear error rather than handing a
+/// `0` back to the WS client which would then attempt to dial
+/// `127.0.0.1:0` and get an OS-assigned unrelated connection (or an
+/// EADDRNOTAVAIL on platforms that reject port 0 for connect).
+fn handshake_port(v: &Value) -> Option<u16> {
+    v.get("port")
+        .and_then(|p| p.as_u64())
+        .and_then(|p| u16::try_from(p).ok())
+        .filter(|p| *p != 0)
 }

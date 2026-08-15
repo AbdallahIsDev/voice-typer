@@ -115,6 +115,50 @@ class TestValidateRunkeyCommand:
         # Ambiguous — can't determine the full exe path, so preserve.
         assert _validate_runkey_command(value) is True
 
+    def test_doubled_backslash_path_is_invalid_on_windows(self, monkeypatch):
+        """A doubled-backslash path (freedesktop Exec quoting leaked onto
+        Windows) is a malformed command line — Path.exists() collapses the
+        doubled separator so it reports the path valid; the raw-string
+        check must catch it (AUTOSTART-QUOTING-FIX)."""
+        from voice_typer.server.server_platform.autostart_windows import _validate_runkey_command
+
+        monkeypatch.setattr(Path, "exists", lambda self: True)
+        value = (
+            r'"C:\\Users\\11\\.voice-typer\\venv\\Scripts\\pythonw.exe" '
+            r'"C:\\Users\\11\\voice-typer\\server\\autostart_launcher.py" '
+            r"--hidden --delay 15"
+        )
+        with monkeypatch.context() as m:
+            m.setattr(sys, "platform", "win32")
+            assert _validate_runkey_command(value) is False
+
+    def test_doubled_backslash_unc_path_is_valid_on_windows(self, monkeypatch):
+        """UNC paths legitimately start with a doubled separator and must
+        NOT be flagged as malformed (AUTOSTART-QUOTING-FIX)."""
+        from voice_typer.server.server_platform.autostart_windows import _validate_runkey_command
+
+        monkeypatch.setattr(Path, "exists", lambda self: True)
+        value = r'"\\server\share\VoiceTyper\pythonw.exe" "\\server\share\VoiceTyper\launcher.py" --hidden'
+        with monkeypatch.context() as m:
+            m.setattr(sys, "platform", "win32")
+            assert _validate_runkey_command(value) is True
+
+    def test_single_backslash_path_is_valid_on_windows(self, monkeypatch):
+        """A correctly-quoted single-backslash value remains valid on
+        Windows (AUTOSTART-QUOTING-FIX)."""
+        from voice_typer.server.server_platform.autostart_windows import _validate_runkey_command
+
+        existing = {r"C:\Users\11\.voice-typer\venv\Scripts\pythonw.exe"}
+        monkeypatch.setattr(Path, "exists", lambda self: str(self) in existing)
+        value = (
+            r'"C:\Users\11\.voice-typer\venv\Scripts\pythonw.exe" '
+            r'"C:\Users\11\voice-typer\server\autostart_launcher.py" '
+            r"--hidden --delay 15"
+        )
+        with monkeypatch.context() as m:
+            m.setattr(sys, "platform", "win32")
+            assert _validate_runkey_command(value) is True
+
     def test_empty_value_is_valid(self):
         """Empty/None values are treated as valid (caller checks truthy)."""
         from voice_typer.server.server_platform.autostart_windows import _validate_runkey_command
@@ -549,12 +593,17 @@ class TestAutostartCommandValidation:
         monkeypatch.setenv("VT_TAURI_BINARY", str(fake_tauri))
 
         cmd = server_platform._autostart_command()
-        # The command should be the Tauri binary path (quoted). The path is
-        # escaped per the freedesktop Exec spec (_quote_exec_arg doubles
-        # backslashes), so on Windows compare against the escaped form — the
-        # raw str(Path) has single backslashes and would not match.
-        escaped = str(fake_tauri).replace("\\", "\\\\")
-        assert escaped in cmd
+        # The command should be the Tauri binary path (quoted).
+        # AUTOSTART-QUOTING-FIX: on Windows the command is built with
+        # ``subprocess.list2cmdline`` (single backslashes preserved); on
+        # macOS/Linux it is escaped per the freedesktop Exec spec
+        # (backslashes doubled) — assert the form matching the platform.
+        raw = str(fake_tauri)
+        if sys.platform == "win32":
+            assert raw in cmd
+        else:
+            escaped = raw.replace("\\", "\\\\")
+            assert escaped in cmd
         # No --hidden or --delay args (Tauri binary takes no CLI args).
         assert "--hidden" not in cmd
 

@@ -52,6 +52,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -250,6 +251,11 @@ def _autostart_command() -> str:
                 "[AUTOSTART] Using Tauri binary as autostart command (no Python interpreter available): %s",
                 tauri_bin,
             )
+            if is_windows():
+                # Windows command lines: single token, quoted only if the
+                # path contains whitespace. ``_desktop_quote`` (freedesktop
+                # Exec escaping) would double the backslashes here.
+                return subprocess.list2cmdline([tauri_bin])
             return _desktop_quote(tauri_bin)
         log.error(
             "[AUTOSTART] No Python interpreter AND no Tauri binary "
@@ -258,7 +264,22 @@ def _autostart_command() -> str:
             resolved_python,
         )
 
-    cmd = " ".join(_desktop_quote(arg) for arg in args)
+    # AUTOSTART-QUOTING-FIX (root cause of the Windows Run-key logon
+    # failure): the command was previously built with ``_desktop_quote``
+    # on EVERY platform. ``_desktop_quote`` implements the freedesktop
+    # Desktop Entry Spec's Exec quoting, which escapes ``\`` as ``\\`` —
+    # correct for Linux ``.desktop`` files, but WRONG for Windows command
+    # lines: it produced Run-key values like
+    # ``"C:\\Users\\11\\.voice-typer\\venv\\Scripts\\pythonw.exe" ...``
+    # (doubled backslashes). The malformed value then failed to launch at
+    # logon (Shell-Core event 9707/9708, PID 0 on every logon) while
+    # ``Path.exists()`` still reported the path valid (it collapses
+    # ``\\`` to ``\``), so the broken entry was never re-registered.
+    # On Windows we now build the command line with
+    # ``subprocess.list2cmdline`` (the exact quoting Windows itself
+    # uses — backslashes preserved literally, args quoted only when
+    # needed). On macOS/Linux the freedesktop Exec quoting stays.
+    cmd = subprocess.list2cmdline(args) if is_windows() else " ".join(_desktop_quote(arg) for arg in args)
     log.info("[AUTOSTART] Resolved autostart command: %s", cmd)
     return cmd
 

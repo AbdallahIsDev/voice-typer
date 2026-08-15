@@ -173,13 +173,16 @@ fn test_allowed_commands_count_matches_ts_parity() {
     // RESTORED in lockstep from this Rust literal + the TS
     // `ALLOWED_COMMANDS` Set + the Python `_COMMAND_REGISTRY` +
     // `handlers/status_handlers.py` (the About-page Cache Status card
-    // is a user-facing product feature — plan §6.3 addendum).
-    // `run_prewarm` stays removed (spawned the deleted standalone
-    // prewarm subprocess machinery). Count went from 63 to 65.
+    // is a user-facing product feature — plan §6.3 addendum). Count
+    // went from 63 to 65. `run_prewarm` was ALSO restored the same
+    // day (§6.3 addendum second half — re-implemented to re-run the
+    // worker's warm phase in-process via `prewarm.status.run_prewarm_now`,
+    // no deleted-subprocess spawn) → 66. `check_offline_pack_update`
+    // (auto-update feature) was added the same day → 67.
     assert_eq!(
         allowed_commands().len(),
-        66,
-        "must match TS allowlist (68 entries) minus heartbeat/relaunch_ack (66 entries)"
+        67,
+        "must match TS allowlist (69 entries) minus heartbeat/relaunch_ack (67 entries)"
     );
 }
 
@@ -203,20 +206,20 @@ fn test_allowed_commands_set_contains_no_duplicates() {
 
 #[test]
 fn test_allowed_commands_exact_snapshot() {
-    //Stricter parity test: pin the EXACT 65-entry set (sorted)
+    //Stricter parity test: pin the EXACT 67-entry set (sorted)
     // so any drift between the Rust literal and the TS allowlist is
     // caught at `cargo test` time, BEFORE the cross-layer Python
     // parity test in
     // `tests/test_security_doc_command_count.py::test_rust_allowlist_matches_ts_allowlist`
     // runs. The count-only test above catches add/remove drift but
     // MISSES a rename (e.g. `onboarding_reset` → `reset_onboarding`)
-    // that keeps the count at 65. This snapshot test catches both
+    // that keeps the count at 67. This snapshot test catches both
     // renames and any silent reordering that would mask a missing
     // entry.
     //
     // The expected list is the alphabetically-sorted union of:
     //   - the TS `ALLOWED_COMMANDS` literal in
-    //     `voice_typer/client/src/main/allowed-commands.ts` (67 entries)
+    //     `voice_typer/client/src/main/allowed-commands.ts` (69 entries)
     //   - minus the two Rust-only-excluded commands:
     //     `heartbeat` (sent by the Rust WS-reader task) and
     //     `relaunch_ack` (sent by the Rust `relaunch_app` event
@@ -235,14 +238,17 @@ fn test_allowed_commands_exact_snapshot() {
     // `ALLOWED_COMMANDS` Set + the Python `_COMMAND_REGISTRY` +
     // `handlers/status_handlers.py` — see the inline comment at the
     // restoration site in the `cmds` literal below. Count went from
-    // 63 to 65 (snapshot re-includes the two entries at their
-    // alphabetically-sorted positions; `run_prewarm` stays absent).
+    // 63 to 65. `run_prewarm` was restored the same day (second
+    // half of the §6.3 addendum) → 66, and `check_offline_pack_update`
+    // (auto-update feature) was added → 67. This snapshot is the
+    // current 67-entry set.
     let mut actual: Vec<&str> = allowed_commands().iter().copied().collect();
     actual.sort();
     let expected: &[&str] = &[
         "add_trusted_endpoint",
         "cancel_model_download",
         "check_accessibility",
+        "check_offline_pack_update",
         "clear_history",
         "delete_history",
         "delete_model",
@@ -294,6 +300,7 @@ fn test_allowed_commands_exact_snapshot() {
         "restart_app",
         "restore_history",
         "resume_model_download",
+        "run_prewarm",
         "save_templates",
         "save_vocabulary",
         "search_history",

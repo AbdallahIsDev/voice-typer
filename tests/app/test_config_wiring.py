@@ -101,6 +101,11 @@ class TestConfigWiring:
         monkeypatch.setattr("voice_typer.server.startup_tasks.load_microphones", MagicMock())
         app.hotkeys.register = MagicMock()
         app.models.try_load = MagicMock()
+        # The model-not-downloaded precheck would refuse the load before
+        # TranscriptionEngine is constructed (no real model on disk in
+        # tests), leaving transcriber_cls never called. Stub it so the
+        # engine construction path runs.
+        app.models._model_downloaded_precheck = lambda: True
         app._do_startup()
         # Model load now runs in a daemon thread — wait for it so the
         # assertions below don't race with the background worker.

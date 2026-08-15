@@ -35,6 +35,13 @@ mod dev_mode;
 mod env_allowlist;
 mod handshake;
 mod release_mode;
+// Worker exe spawn logic (Phase 2b — plan-runtime-pack-split §7):
+// `spawn_worker_release` + `spawn_worker_dev_mode` live in `worker.rs`
+// so `spawn.rs` itself stays orchestration-only (E3). The worker is
+// the SECOND spawned child (after the slim-core sidecar); its spawn
+// mirrors the sidecar's dev/release split but with the worker's own
+// env contract (VOICE_TYPER_IPC_TOKEN) + `worker_started` handshake.
+mod worker;
 // `pub(crate)` (not `mod`) so the worker-path resolver in
 // `platform::worker_path` can reach `current_target_triple()` to build
 // the per-platform worker exe name (`voice-typer-worker-<triple>[.exe]`).
@@ -52,7 +59,7 @@ pub(crate) use dev_mode::is_dev_mode_for;
 #[cfg(test)]
 pub(crate) use env_allowlist::passthrough_env_allowlist;
 #[cfg(test)]
-pub(crate) use handshake::{is_shutting_down, parse_server_started};
+pub(crate) use handshake::{is_shutting_down, parse_server_started, parse_worker_started};
 #[cfg(test)]
 pub(crate) use target_triple::{current_target_triple, target_triple_for};
 
@@ -230,38 +237,41 @@ pub(crate) async fn initialize_sidecar(
 #[path = "spawn_tests.rs"]
 mod spawn_tests;
 
-// ─── Worker spawn scaffolding (Phase 2a — runtime-pack split, §7) ────
+// ─── Worker spawn (Phase 2b — runtime-pack split, §7) ────────────────
 //
-// The worker spawn entry points below are STUBS. Phase 2a delivers the
-// infrastructure (path resolution, state struct, conf-file wiring,
-// externalBin + shell.scope entries) but the actual spawn logic that
-// connects Tauri's `app.shell().sidecar("voice-typer-worker")` to a
-// running worker exe depends on:
-//   - The worker exe itself (built by Sub-agent 7 — `voice_typer/worker/__main__.py`
-//     + `scripts/build/build_worker_*.sh`).
-//   - The pack downloader + `verify_pack_or_skip()` (Sub-agent 7 —
-//     the worker only spawns AFTER the pack is downloaded + verified).
-//   - The worker's WS server handshake (the worker emits its own
-//     `server_started` JSON on stdout, parallel to the sidecar's).
-//   - The slim-core sidecar's WS CLIENT connection to the worker
-//     (the new 1-host↔2-processes pattern, §7.1 — NOT the same as the
-//     Tauri→sidecar WS bridge).
+// The worker spawn entry points below are IMPLEMENTED (Phase 2b). The
+// actual process spawn lives in the `worker` submodule
+// (`spawn_worker_release` / `spawn_worker_dev_mode`), which mirrors
+// the sidecar's release/dev split but with the worker's own contract:
 //
-// The stubs document the contract the future implementation must
-// satisfy + return `Err("worker spawn not yet implemented — Phase 2a
-// skeleton")` so a premature caller fails loudly rather than silently
-// no-op'ing. The WorkerState struct + worker_path::worker_exe_path()
-// + the conf-file externalBin entry ARE delivered in Phase 2a —
-// `cargo tauri build` will resolve the `voice-typer-worker-<triple>`
-// binary name via Tauri's `externalBin` mechanism (and fail at build
-// time if the binary is missing, which is the correct fail-closed
-// behavior for a release build).
+//   - Spawn: `app.shell().sidecar("voice-typer-worker")` (release,
+//     externalBin) or `python -m voice_typer.worker` (dev mode).
+//   - Env: `VOICE_TYPER_IPC_TOKEN` (the worker refuses to start
+//     without it — EXIT_NO_TOKEN), `VOICE_TYPER_CONFIG_DIR`,
+//     `VOICE_TYPER_SESSION_ID` (GT-68 log correlation).
+//   - Handshake: `{"event":"worker_started","port":N,"protocol":1}`
+//     on stdout — a DISTINCT event name from the sidecar's
+//     `server_started` (see `parse_worker_started` in handshake.rs).
+//
+// Not yet delivered (next phases, per plan §7.2/§7.3): the worker's
+// WS CLIENT connection is owned by the slim-core sidecar (NOT the
+// Tauri host — the 1-host↔2-processes pattern §7.1), so the host's
+// `reconnect_worker_ws` proxy + the worker respawn supervisor + the
+// port handoff to the sidecar are still TBD. `initialize_worker` is
+// likewise not yet CALLED anywhere: it must run after the pack is
+// downloaded + verified (Phase 2c), and `WorkerState` is not yet
+// `app.manage()`d in main.rs. The spawn logic itself is complete +
+// compile-verified; wiring it into the lifecycle is the remaining
+// integration step.
 
-/// Spawn the ML worker exe via Tauri's `externalBin` mechanism.
+/// Spawn the ML worker exe via Tauri's `externalBin` mechanism
+/// (release) or `python -m voice_typer.worker` (dev mode), reading the
+/// `worker_started` JSON from stdout.
 ///
-/// Phase 2a stub — the actual spawn logic is deferred to Phase 2b
-/// (after the worker exe exists + the pack downloader is wired up).
-/// The stub returns an error so a premature caller fails loudly.
+/// Returns the bound port + the child handle on success — the same
+/// shape as `spawn_sidecar_and_get_port_with_shutdown` so the caller
+/// (`initialize_worker`) can install them into `WorkerState` via the
+/// same pattern.
 ///
 /// # Contract (for the future implementer)
 ///
@@ -310,28 +320,40 @@ mod spawn_tests;
 /// `spawn_sidecar_and_get_port_with_shutdown` so the caller
 /// (`initialize_worker` — TBD, parallel to `initialize_sidecar`)
 /// can install them into `WorkerState` via the same pattern.
+/// Uncalled until Phase 2c wires `initialize_worker` after pack
+/// verification + `app.manage()`s `WorkerState` (see the module-level
+/// comment) — same contract-pinned pattern as `spawn_sidecar_and_get_port`.
+#[allow(dead_code)]
 pub(crate) async fn spawn_worker_and_get_port_with_shutdown(
-    _app: &tauri::AppHandle,
-    _state: Arc<crate::state::WorkerState>,
-    _shutting_down: &AtomicBool,
+    app: &tauri::AppHandle,
+    state: Arc<crate::state::WorkerState>,
+    shutting_down: &AtomicBool,
 ) -> Result<(u16, SidecarHandle, Option<mpsc::Receiver<CommandEvent>>), String> {
-    // Phase 2a skeleton — the worker exe does not exist yet. The path
-    // resolution + state struct + conf-file wiring ARE delivered; the
-    // spawn logic is deferred to Phase 2b. See the contract above.
-    Err(
-        "worker spawn not yet implemented — Phase 2a skeleton (see spawn_worker_and_get_port_with_shutdown contract)"
-            .to_string(),
-    )
+    // The per-launch bearer token comes from `state.auth_token` — set
+    // ONCE by `initialize_worker` (OnceLock) so a respawned worker
+    // inherits the host's token and the slim-core sidecar can
+    // re-authenticate without re-negotiating (§7.3).
+    let token = state
+        .auth_token
+        .get()
+        .ok_or_else(|| "worker auth token not set — call initialize_worker first".to_string())?;
+
+    if dev_mode::is_dev_mode() {
+        let (port, child) = worker::spawn_worker_dev_mode(token, Some(shutting_down)).await?;
+        return Ok((port, child, None));
+    }
+    let (port, child, rx) = worker::spawn_worker_release(app, token, Some(shutting_down)).await?;
+    Ok((port, child, Some(rx)))
 }
 
 /// Cold-start worker initialization: spawn the worker, install the
-/// child handle + exit receiver into shared state, and kick off the
-/// initial WS reconnect.
+/// child handle + exit receiver into shared state.
 ///
-/// Phase 2a stub — defers to `spawn_worker_and_get_port_with_shutdown`
-/// (also a stub). The future implementation mirrors
-/// `initialize_sidecar`'s sequence (§7.3 lifecycle: starts once after
-/// pack download + verification, stays running for app lifetime).
+/// Mirrors `initialize_sidecar`'s sequence (§7.3 lifecycle: starts
+/// once after pack download + verification, stays running for app
+/// lifetime). Unlike the sidecar, the host does NOT open a WS client
+/// to the worker — the slim-core sidecar owns that connection
+/// (1-host↔2-processes §7.1).
 ///
 /// # Sequence (for the future implementer)
 ///
@@ -350,18 +372,73 @@ pub(crate) async fn spawn_worker_and_get_port_with_shutdown(
 ///    `sidecar::ws::reconnect_ws`). On failure, fall back to the
 ///    worker supervisor's `respawn` (TBD, parallel to
 ///    `sidecar::supervisor::respawn`).
+/// Uncalled until Phase 2c wires the pack-verified trigger (see the
+/// module-level comment) — same contract-pinned pattern as
+/// `spawn_sidecar_and_get_port`.
+#[allow(dead_code)]
 pub(crate) async fn initialize_worker(
-    _app_handle: &tauri::AppHandle,
-    _state: Arc<crate::state::WorkerState>,
+    app_handle: &tauri::AppHandle,
+    state: Arc<crate::state::WorkerState>,
 ) {
-    // Phase 2a skeleton — see the contract above. The future
-    // implementation mirrors `initialize_sidecar`'s shape but with
-    // `WorkerState` instead of `SidecarState` + the worker's separate
-    // `shutting_down` flag (§7.2: worker lifecycle is independent of
-    // the sidecar's — worker crash must NOT trip the sidecar's circuit
-    // breaker).
-    log::info!(
-        "[WORKER-INIT] initialize_worker called — Phase 2a skeleton, \
-         no-op (worker spawn deferred to Phase 2b)"
-    );
+    // Per-launch token: generate ONCE per host launch and store in
+    // `state.auth_token` (OnceLock). A second call (e.g. a worker
+    // respawn) reuses the stored token — the worker inherits the
+    // host's token so the slim-core sidecar can authenticate to a
+    // respawned worker without re-negotiating (§7.3).
+    state.auth_token.get_or_init(crate::util::generate_token);
+
+    // Single-instance lock file path (parallel to
+    // `VoiceTyperSingleInstance`): the worker takes this lock at spawn
+    // time + releases it on exit; a stale lock is detected via PID
+    // check. Resolved once per host launch (OnceLock).
+    state.lock_file_path.get_or_init(|| {
+        crate::platform::worker_path::worker_exe_path().with_file_name("worker.lock")
+    });
+
+    match spawn_worker_and_get_port_with_shutdown(app_handle, state.clone(), &state.shutting_down)
+        .await
+    {
+        Ok((port, child, exit_rx)) => {
+            // Re-check `state.shutting_down` AFTER spawn returns — if
+            // the user quit the app while we were waiting for
+            // `worker_started` (up to 30s on a cold start), kill the
+            // freshly-spawned worker so it doesn't outlive the host
+            // (parallel to `initialize_sidecar`).
+            if state.shutting_down.load(Ordering::SeqCst) {
+                log::info!(
+                    "[WORKER-INIT] shutting_down set during worker spawn — \
+                     killing freshly-spawned worker"
+                );
+                if let Err(e) = child.kill_tree().await {
+                    log::warn!(
+                        "[WORKER-INIT] kill_tree on freshly-spawned worker failed \
+                         (best-effort): {}",
+                        e
+                    );
+                }
+                return;
+            }
+            *crate::state::lock(&state.child) = Some(child);
+            // Store the worker's event receiver so the future
+            // `shutdown_worker_for_exit` can poll for graceful exit.
+            *state.child_exit_rx.lock().await = exit_rx;
+            // NOTE: never include the bearer token (or the word
+            // "token") in any log line here — ADR-0020 §3 "never
+            // logged" is enforced by
+            // test_externalbin_spawn_windows.py::test_spawn_rs_server_started_log_line_format.
+            log::info!(
+                "[WORKER-INIT] worker spawned (port={}) — WS client + \
+                 respawn supervisor are the next phase (plan §7.2/§7.3; \
+                 the slim-core sidecar owns the worker WS connection)",
+                port
+            );
+        }
+        Err(e) => {
+            log::error!("[WORKER-INIT] worker spawn failed: {}", e);
+            // Worker respawn supervisor (plan §7.2) is the next phase —
+            // a failed spawn currently just logs; the supervisor will
+            // retry with backoff without tripping the sidecar's circuit
+            // breaker.
+        }
+    }
 }
