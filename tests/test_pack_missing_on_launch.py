@@ -24,10 +24,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
-from voice_typer.server.service import offline_pack
+import voice_typer.server.startup_tasks as startup_tasks
+from voice_typer.server.service import offline_pack, update_check
 
 
 def _sha256(b: bytes) -> str:
@@ -141,6 +144,128 @@ class TestBackgroundChecksum:
         bg.start()
         assert bg._thread is first_thread  # same thread
         bg.join(timeout_s=5.0)
+
+
+class TestLaunchCheck:
+    """§8.10 / §8.16 — ``startup_tasks.check_offline_pack_on_launch``.
+
+    The fire-and-forget daemon task wired into ``StartupSequence``:
+    cheap existence check on launch; present → background checksum;
+    missing → ``offline_pack_missing`` event + consent-gated
+    re-download. Never raises.
+    """
+
+    def test_pack_present_starts_background_checksum(self, monkeypatch):
+        """Pack present → BackgroundChecksum spawned with the version."""
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda: "v1")
+        started: list[tuple] = []
+
+        class FakeBackground:
+            def __init__(self, version, *, event_bus=None):
+                started.append((version, event_bus))
+
+            def start(self):
+                pass
+
+        monkeypatch.setattr(offline_pack, "BackgroundChecksum", FakeBackground)
+        result = startup_tasks.check_offline_pack_on_launch(SimpleNamespace(config=None))
+        assert result == {"checked": True, "installed_version": "v1", "checksum": "background"}
+        # BackgroundChecksum spawned with the detected version (event_bus
+        # is the real module — non-None).
+        assert started[0][0] == "v1"
+        assert started[0][1] is not None
+
+    def test_pack_missing_publishes_event_and_triggers_download(self, monkeypatch):
+        """Missing → offline_pack_missing + consent-gated re-download."""
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda: None)
+        published: list[tuple] = []
+        monkeypatch.setattr(
+            offline_pack, "_publish_event", lambda bus, etype, payload: published.append((etype, payload))
+        )
+        calls: list[dict] = []
+
+        def fake_check(config, event_bus, *, trigger_download=True):
+            calls.append({"config": config, "trigger_download": trigger_download})
+            return {"success": True, "download_triggered": True}
+
+        monkeypatch.setattr(update_check, "check_offline_pack_update", fake_check)
+        app = SimpleNamespace(config=SimpleNamespace(offline_pack_consent=True))
+        result = startup_tasks.check_offline_pack_on_launch(app)
+        assert result["checked"] is True
+        assert result["installed_version"] is None
+        assert result["update_check"]["success"] is True
+        # offline_pack_missing published BEFORE the download attempt.
+        assert published[0][0] == "offline_pack_missing"
+        assert calls == [{"config": app.config, "trigger_download": True}]
+
+    def test_consent_off_still_publishes_missing_but_no_download(self, monkeypatch):
+        """Consent off → event still published; check returns consent_required."""
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda: None)
+        published: list[str] = []
+        monkeypatch.setattr(
+            offline_pack, "_publish_event", lambda bus, etype, payload: published.append(etype)
+        )
+        calls: list[bool] = []
+
+        def fake_check(config, event_bus, *, trigger_download=True):
+            calls.append(trigger_download)
+            return {"success": False, "consent_required": True}
+
+        monkeypatch.setattr(update_check, "check_offline_pack_update", fake_check)
+        result = startup_tasks.check_offline_pack_on_launch(SimpleNamespace(config=None))
+        assert published == ["offline_pack_missing"]
+        assert calls == [True]  # still attempted — consent gate refuses inside
+        assert result["update_check"]["consent_required"] is True
+
+    def test_shutdown_event_short_circuits_before_download(self, monkeypatch):
+        """Shutdown requested → no checksum, no download."""
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda: "v1")
+        started: list = []
+
+        class FakeBackground:
+            def __init__(self, version, *, event_bus=None):
+                started.append(version)
+
+            def start(self):
+                pass
+
+        monkeypatch.setattr(offline_pack, "BackgroundChecksum", FakeBackground)
+        ev = threading.Event()
+        ev.set()
+        result = startup_tasks.check_offline_pack_on_launch(SimpleNamespace(config=None), ev)
+        assert result == {"checked": False, "reason": "shutdown"}
+        assert started == []
+
+    def test_broken_pack_scan_degrades_gracefully(self, monkeypatch):
+        """Broken scan → graceful failure result (update_check catches it), no raise."""
+        def boom(root=None):
+            raise RuntimeError("broken pack root")
+
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", boom)
+        monkeypatch.setattr(offline_pack, "_publish_event", lambda bus, etype, payload: None)
+        monkeypatch.setattr(
+            update_check,
+            "check_offline_pack_update",
+            lambda config, event_bus, *, trigger_download=True: {"success": False, "error": "scan failed"},
+        )
+        result = startup_tasks.check_offline_pack_on_launch(SimpleNamespace(config=None))
+        # The launch check itself succeeded (checked=True); the re-download
+        # check returned a graceful failure — nothing propagated.
+        assert result["checked"] is True
+        assert result["installed_version"] is None
+        assert result["update_check"]["success"] is False
+
+    def test_outer_guard_never_raises(self, monkeypatch):
+        """Unexpected error in the re-download check → best-effort dict, no raise."""
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda: None)
+        monkeypatch.setattr(offline_pack, "_publish_event", lambda bus, etype, payload: None)
+
+        def boom(config, event_bus, *, trigger_download=True):
+            raise RuntimeError("unexpected")
+
+        monkeypatch.setattr(update_check, "check_offline_pack_update", boom)
+        result = startup_tasks.check_offline_pack_on_launch(SimpleNamespace(config=None))
+        assert result == {"checked": True, "installed_version": None, "update_check": None}
 
 
 if __name__ == "__main__":

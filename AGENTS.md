@@ -776,7 +776,7 @@ Applies to: All agents, all modes, all sub-agents.
 
 ```
 C-CI-11
-Rule: Do NOT change the code-signing gates in `tauri-windows-build.yml`: `sign=true` + missing secrets MUST hard-fail the build; `sign=false` MUST skip signing even when secrets exist. Do NOT drop or merge any of the four signing steps (sidecar + prewarm + native listener; NSIS; MSI; standalone `voice-typer-tauri.exe`). Do NOT remove the job-level `env:` mapping of `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD`, and do NOT replace it with a `secrets.*` reference inside a step `if:` condition.
+Rule: Do NOT change the code-signing gates in `tauri-windows-build.yml`: `sign=true` + missing secrets MUST hard-fail the build; `sign=false` MUST skip signing even when secrets exist. Do NOT drop or merge any of the signing steps (sidecar + prewarm + native listener; NSIS; MSI; standalone `voice-typer-tauri.exe`; **the runtime-pack worker `voice-typer-worker-<triple>.exe` — added 2026-08-15 as the 5th binary per plan-runtime-pack-split §11.5**; and the full-offline installer when present). Do NOT remove the job-level `env:` mapping of `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD`, and do NOT replace it with a `secrets.*` reference inside a step `if:` condition.
 Rationale: TX-23 — a misconfigured release must not silently ship unsigned (that's why sign=true + missing secrets hard-fails). S1-CR-99 — before the fix, the native listener, the MSI, and the standalone exe shipped UNSIGNED inside a signed installer; SmartScreen on Windows 11 flags unsigned binaries inside a signed installer ("Windows protected your PC" on first launch) and MSI/standalone users hit it on every install/launch. CRIT-7 — the `secrets` context is NOT populated in step `if:` conditions, so a gate on `secrets.X != ''` NEVER matches and signing is silently skipped; secrets must be mapped to job-level env first (empty on PR/fork builds → steps skip).
 Applies to: All agents, all modes, all sub-agents.
 ```
@@ -790,7 +790,7 @@ Applies to: All agents, all modes, all sub-agents.
 
 ```
 C-CI-13
-Rule: Do NOT rename the artifact names produced by `tauri-windows-build.yml` (`tauri-windows-installer`, `VoiceTyper-Tauri-MSI`, `VoiceTyper-Tauri-Sidecar-Binaries`, `VoiceTyper-Tauri-SHA256SUMS`, `tauri-binaries-manifest-windows`), and do NOT change the default binary filenames (`python-sidecar-<triple>.exe`, `prewarm-<triple>.exe`, `windows-key-listener.exe`).
+Rule: Do NOT rename the artifact names produced by `tauri-windows-build.yml` (`tauri-windows-installer`, `VoiceTyper-Tauri-MSI`, `VoiceTyper-Tauri-Sidecar-Binaries`, `VoiceTyper-Tauri-SHA256SUMS`, `tauri-binaries-manifest-windows`), and do NOT change the default binary filenames (`python-sidecar-<triple>.exe`, `prewarm-<triple>.exe`, `windows-key-listener.exe`, `voice-typer-worker-<triple>.exe` — the runtime-pack worker added by the pack split). New artifact names (e.g. `voice-typer-slim-core-<version>-<triple>.exe`, `voice-typer-runtime-pack-<pack-version>-<triple>.zip`, `pack-manifest.json` per plan §11.9) may be ADDED, but only if `tauri-build.yml`'s download steps are updated in the same commit.
 Rationale: `tauri-build.yml`'s aggregate job downloads `name: tauri-windows-installer` by exact literal, and `tests/tauri/mig18/test_windows_signing.py` greps the default binary names — renaming breaks aggregation and/or the signing tests. If the aarch64 leg is ever enabled, arch-suffix the artifact names AND update tauri-build.yml's download steps in the same commit.
 Applies to: All agents, all modes, all sub-agents.
 ```

@@ -504,6 +504,24 @@ def _local_offline_pack_version(root: Path | None = None) -> str | None:
 # ── Background download trigger ──────────────────────────────────────────
 
 
+# Per-version in-flight download guard (§8.13 / §8.16).
+#
+# Multiple triggers can fire `check_offline_pack_update(trigger_download=True)`
+# concurrently: the renderer's `useNetworkOnline` network-is-back hook, the
+# manual Settings re-check, and the Phase 2d launch-time check
+# (`startup_tasks.check_offline_pack_on_launch`). Without a guard, two
+# `download_offline_pack_with_resume` threads would write the SAME
+# `pack-<version>.zip` partial file concurrently — interleaved corruption,
+# doubled bandwidth, and duplicate progress events.
+#
+# This is the in-process dedupe. Cross-process dedupe (two app instances)
+# is the job of `offline_pack.OfflinePackLock` — which is defined but not
+# yet wired into the download path (pre-existing §8.13 gap, tracked in
+# docs/plan-runtime-pack-split.md).
+_ACTIVE_PACK_DOWNLOADS: set[str] = set()
+_ACTIVE_PACK_DOWNLOADS_LOCK = threading.Lock()
+
+
 def _trigger_background_download(
     *,
     manifest: OfflinePackManifest,
@@ -536,12 +554,27 @@ def _trigger_background_download(
     ``False`` if consent is missing (the caller surfaces a consent
     dialog; the renderer retries after the user accepts).
     """
+    version = manifest["version"]
+
     # Consent gate first — mirrors the pattern in
     # ``ModelMixin._require_huggingface_consent`` and
     # ``offline_pack.require_offline_pack_consent``. The pack download phones
     # home to GitHub Releases (revealing user IP to Microsoft), so it
     # MUST be consent-gated (§8.4 / C-DATA-1).
-    require_offline_pack_consent(config, version=manifest["version"])
+    require_offline_pack_consent(config, version=version)
+
+    # Dedupe: if a download for this version is already in flight (started
+    # by another trigger), skip — the in-flight thread owns the partial
+    # file. Register BEFORE spawning so a re-entrant trigger cannot slip
+    # between the check and the thread start.
+    with _ACTIVE_PACK_DOWNLOADS_LOCK:
+        if version in _ACTIVE_PACK_DOWNLOADS:
+            log.info(
+                "[UPDATE] pack %s download already in flight — skipping duplicate trigger",
+                version,
+            )
+            return False
+        _ACTIVE_PACK_DOWNLOADS.add(version)
 
     # Construct the pack-download URL. The manifest lives at
     # ``.../releases/latest/download/pack-manifest.json`` (or a pinned
@@ -570,7 +603,7 @@ def _trigger_background_download(
                 pack_url,
                 dest,
                 expected_sha256=manifest["sha256"],
-                version=manifest["version"],
+                version=version,
                 event_bus=event_bus,
                 http_get=http_get,
             )
@@ -585,8 +618,13 @@ def _trigger_background_download(
         except Exception:  # noqa: BLE001 — background thread must not propagate
             log.exception(
                 "[UPDATE] background pack download failed for %s",
-                manifest["version"],
+                version,
             )
+        finally:
+            # Release the in-flight guard so a LATER trigger (or the next
+            # launch) can retry the download.
+            with _ACTIVE_PACK_DOWNLOADS_LOCK:
+                _ACTIVE_PACK_DOWNLOADS.discard(version)
 
     thread = threading.Thread(
         target=_bg,

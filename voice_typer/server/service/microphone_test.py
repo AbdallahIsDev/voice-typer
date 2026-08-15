@@ -188,6 +188,16 @@ class MicrophoneTestMixin(ServiceMixinBase):
                             log.debug("[SERVICE] Test transcription failed: %s", tx_err)
                     else:
                         log.debug("[SERVICE] Active engine not loaded — skipping transcription")
+                        # Phase 2d degradation matrix (§8.10): the mic
+                        # test must tell the user WHY the "You said:"
+                        # line is missing instead of silently omitting
+                        # it. Marker is factual — ``no_engine_loaded``
+                        # covers pack-missing (no offline engine) AND
+                        # an engine that is still warming up / a cloud
+                        # engine mid-connect; the renderer maps it to
+                        # the user-facing degradation message.
+                        result.setdefault("transcription_unavailable", True)
+                        result["transcription_reason"] = "no_engine_loaded"
             except Exception as transcribe_err:
                 log.debug("[SERVICE] Test transcription setup failed: %s", transcribe_err)
 

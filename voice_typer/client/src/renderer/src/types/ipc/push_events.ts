@@ -573,10 +573,14 @@ export interface OfflinePackVerifiedEvent {
  *  to download.
  *
  *  Wire shape: `{ "type": "offline_pack_missing", "data": {
- *      "version": "<semver>", "path": "<pack-path>" } }`. */
+ *      "version": "<semver>|null", "path": "<pack-path>" } }`.
+ *  `version` is `null` when NO pack has ever been installed (the
+ *  launch-time existence check found nothing — there is no version to
+ *  report); it is a semver string when a known version dir exists but
+ *  fails the manifest existence check. */
 export interface OfflinePackMissingEvent {
 	type: "offline_pack_missing";
-	data: { version: string; path: string };
+	data: { version: string | null; path: string };
 }
 
 /** Pack corrupt — SHA256 mismatch or signature verification failed.

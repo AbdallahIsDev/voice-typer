@@ -37,6 +37,36 @@ class TestDispatchGetStatus:
         result = server._dispatch({"type": "get_status"})
         assert "id" not in result
 
+    def test_includes_offline_pack_degradation_state(self, server, monkeypatch):
+        """Phase 2d (§8.10): get_status carries the offline-pack state."""
+        from voice_typer.server.service import update_check
+
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda: None)
+        result = server._dispatch({"id": 9, "type": "get_status"})
+        assert result["type"] == "status"
+        op = result["data"]["offline_pack"]
+        assert set(op) == {"installed_version", "available", "consent_granted"}
+        assert op == {"installed_version": None, "available": False, "consent_granted": False}
+
+    def test_offline_pack_present_is_reported_available(self, server, monkeypatch):
+        """Pack installed → available True + version surfaced."""
+        from voice_typer.server.service import update_check
+
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda: "v9")
+        result = server._dispatch({"id": 10, "type": "get_status"})
+        op = result["data"]["offline_pack"]
+        assert op["installed_version"] == "v9"
+        assert op["available"] is True
+
+    def test_consent_reflected_in_status(self, server, monkeypatch):
+        """Consent flag surfaced for the renderer's silent-download UX."""
+        from voice_typer.server.service import update_check
+
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda: None)
+        server.app.config.offline_pack_consent = True
+        result = server._dispatch({"id": 11, "type": "get_status"})
+        assert result["data"]["offline_pack"]["consent_granted"] is True
+
 
 class TestDispatchGetTodayStats:
     def test_returns_stats(self, server):

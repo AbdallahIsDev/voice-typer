@@ -6,6 +6,7 @@ Extracted verbatim from the original ``service.py`` god class
 """
 
 import logging
+import time
 from typing import TYPE_CHECKING
 
 from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
@@ -64,6 +65,52 @@ class StatusMixin(ServiceMixinBase):
 
     # ── Status ──────────────────────────────────────────────────
 
+    # Offline-pack state cache for :meth:`_get_offline_pack_status`.
+    # The status endpoint is polled ~every 2s; the pack scan (``iterdir``
+    # + ``pack-manifest.json`` parse) must not run on every poll. The pack
+    # only appears/disappears via download or AV-deletion — both rare vs.
+    # the poll rate — so a 15s TTL cache is safe (mirrors the
+    # ``_volume_backend_status_cache`` pattern in this class).
+    _OFFLINE_PACK_STATUS_TTL_S = 15.0
+    _pack_status_cache: dict[str, object] | None = None
+    _pack_status_cached_at: float = 0.0
+
+    def _get_offline_pack_status(self) -> dict[str, object]:
+        """Cheap, cached offline-pack state for the degradation matrix (§8.10).
+
+        Returns ``{"installed_version": <str|None>, "available": bool,
+        "consent_granted": bool}``. Never raises — a broken pack root
+        yields ``available: False`` (fail-safe: the renderer shows the
+        "offline engine unavailable" state rather than a false ready).
+
+        ``installed_version`` comes from
+        ``update_check._local_offline_pack_version`` (existence check —
+        no SHA-256 hashing; the full checksum runs in the background at
+        launch via ``BackgroundChecksum``, §8.16).
+        """
+        now = time.monotonic()
+        cached = self._pack_status_cache
+        if cached is not None and (now - self._pack_status_cached_at) < self._OFFLINE_PACK_STATUS_TTL_S:
+            return cached
+        state: dict[str, object] = {
+            "installed_version": None,
+            "available": False,
+            "consent_granted": False,
+        }
+        try:
+            from voice_typer.server.service import update_check
+
+            local = update_check._local_offline_pack_version()
+            state["installed_version"] = local
+            state["available"] = local is not None
+            cfg = getattr(self._app, "config", None)
+            state["consent_granted"] = bool(getattr(cfg, "offline_pack_consent", False))
+        except Exception:  # noqa: BLE001 — fail-safe: degraded state, never raise
+            log.debug("[SERVICE] offline pack status unavailable", exc_info=True)
+        self._pack_status_cache = state
+        self._pack_status_cached_at = now
+        return state
+
     def get_status(self) -> "StatusResponse":  # noqa: F821 (forward ref resolved in __init__)
         """Return the current app state plus audio-quality telemetry.
 
@@ -71,6 +118,7 @@ class StatusMixin(ServiceMixinBase):
                 xrun counter was tracked in the recorder but never reached the
                 IPC layer, so the UI couldn't warn the user of degraded audio.
                 We now return a dict with ``status``, ``xruns_since_start``,
+                ``offline_pack`` (Phase 2d degradation matrix, §8.10),
                 and other useful fields.
         """
         app = self._app
@@ -93,6 +141,7 @@ class StatusMixin(ServiceMixinBase):
             "status": status_str,
             "xruns_since_start": xruns,
             "loaded_via": loaded_via,
+            "offline_pack": self._get_offline_pack_status(),
         }
 
     # Volume / Model status () ────────────────────────

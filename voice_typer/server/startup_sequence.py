@@ -1018,6 +1018,28 @@ class StartupSequence:
                 "proceeds without waiting on it"
             )
 
+            # Phase 2d (§8.10, §8.16): launch-time offline-pack existence
+            # check. Fire-and-forget daemon thread (same pattern as the
+            # prewarm sync) — the cheap ``pack-manifest.json`` existence
+            # scan + the optional consent-gated re-download must never
+            # delay hotkey registration or the window. When the pack is
+            # present the full SHA-256 checksum runs on its own daemon
+            # thread (BackgroundChecksum); startup only ever does the
+            # cheap check synchronously (§8.16).
+            def _pack_check_task() -> None:
+                startup_tasks.check_offline_pack_on_launch(app, _shutdown_event)
+
+            pack_thread = threading.Thread(
+                target=_pack_check_task,
+                name="startup-pack-check",
+                daemon=True,
+            )
+            pack_thread.start()
+            log.debug(
+                "[STARTUP] Phase 2d pack existence check dispatched to "
+                "fire-and-forget daemon thread (no wait, no timeout)"
+            )
+
             def _mic_task() -> None:
                 startup_tasks.load_microphones(app, _shutdown_event)
 

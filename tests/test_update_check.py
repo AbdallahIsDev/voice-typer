@@ -36,6 +36,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -647,6 +648,102 @@ class TestTriggerBackgroundDownload:
                 root=None,
                 http_get=None,
             )
+
+    def test_second_concurrent_trigger_is_skipped(
+        self,
+        fake_manifest_url: str,
+        fake_event_bus,
+        fake_config_with_consent,
+        monkeypatch,
+    ):
+        """§8.13/§8.16 — two triggers for the same version → ONE download.
+
+        The launch-time check + the renderer's network-is-back hook can
+        fire ``check_offline_pack_update(trigger_download=True)`` back to
+        back; without the in-flight guard, two threads would write the
+        same partial file concurrently.
+        """
+        manifest = _make_manifest("2.0.0")
+        entered = threading.Event()
+        release = threading.Event()
+
+        def fake_download(url, dest, *, expected_sha256, version, event_bus, http_get=None):
+            entered.set()
+            release.wait(5.0)  # hold the guard until the test checks it
+            return True
+
+        monkeypatch.setattr(
+            "voice_typer.server.service.offline_pack.download_offline_pack_with_resume",
+            fake_download,
+        )
+
+        first = update_check._trigger_background_download(
+            manifest=manifest,
+            manifest_url=fake_manifest_url,
+            config=fake_config_with_consent,
+            event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
+            root=None,
+            http_get=None,
+        )
+        assert first is True
+        assert entered.wait(2.0), "first download thread never started"
+
+        # Second trigger while the first is still in flight → skipped.
+        second = update_check._trigger_background_download(
+            manifest=manifest,
+            manifest_url=fake_manifest_url,
+            config=fake_config_with_consent,
+            event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
+            root=None,
+            http_get=None,
+        )
+        assert second is False
+        release.set()
+
+    def test_guard_releases_after_download_finishes(
+        self,
+        fake_manifest_url: str,
+        fake_event_bus,
+        fake_config_with_consent,
+        monkeypatch,
+    ):
+        """Once the in-flight download completes, a later trigger retries."""
+        manifest = _make_manifest("2.1.0")
+        started: list[int] = []
+        done = threading.Event()
+
+        def fake_download(url, dest, *, expected_sha256, version, event_bus, http_get=None):
+            started.append(1)
+            done.set()
+            return True
+
+        monkeypatch.setattr(
+            "voice_typer.server.service.offline_pack.download_offline_pack_with_resume",
+            fake_download,
+        )
+
+        assert update_check._trigger_background_download(
+            manifest=manifest,
+            manifest_url=fake_manifest_url,
+            config=fake_config_with_consent,
+            event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
+            root=None,
+            http_get=None,
+        ) is True
+        assert done.wait(2.0), "download thread never ran"
+        # Give the finally-block time to release the guard.
+        deadline = time.monotonic() + 2.0
+        while update_check._ACTIVE_PACK_DOWNLOADS and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        assert update_check._trigger_background_download(
+            manifest=manifest,
+            manifest_url=fake_manifest_url,
+            config=fake_config_with_consent,
+            event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
+            root=None,
+            http_get=None,
+        ) is True
 
 
 # ── handle_check_offline_pack_update_ipc ──────────────────────────────────────

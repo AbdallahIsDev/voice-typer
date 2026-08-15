@@ -1028,15 +1028,33 @@ Update `tauri-build.yml` download steps in lockstep.
 
 ## 12. Execution order (revised)
 
-> **Status (2026-08-14):** Phases 1a–1c, 2a–2b implemented. Remaining
-> open items: (a) Phase 1d Qwen → ONNX (deferred — see §14 #1);
-> (b) the Rust host's worker *spawn* (Phase 2a's ``spawn_worker_*`` is
-> a documented stub — the worker exe + ``transcribe_offline`` ASR are
-> delivered, but the host does not yet spawn the worker nor forward
-> ``transcribe_offline`` from the slim core; see §7.1 1-host↔2-processes
-> and ``src-tauri/src/sidecar/spawn.rs``); (c) Phase 2c slim-core build
-> + Phase 2d launch-time existence checks (CI/workflow + installer
-> work, C-CI-2 gated); (d) the C-DATA-1 rule-text extension — DONE
+> **Status (2026-08-15):** Phases 1a–1d, 2a–2b implemented. Updated:
+> (a) Phase 1d Qwen → ONNX is DONE — torch engine removed entirely
+> (``qwen_onnx_model.py``); (b) the Rust host's worker *spawn* is
+> IMPLEMENTED (`spawn_worker_release` / `spawn_worker_dev_mode` in
+> `src-tauri/src/sidecar/spawn/worker.rs`, `parse_worker_started`
+> handshake, 6 unit tests — committed 2026-08-15); the remaining gap is
+> main.rs WIRING: `WorkerState` is not yet `app.manage()`d and nothing
+> calls `initialize_worker` (the pack-verified spawn trigger), and the
+> slim-core → worker ``transcribe_offline`` forwarding hop is still a
+> stub ack — the runtime split is NOT yet end-to-end; (c) Phase 2c/2d:
+> Phase 2d launch-time existence checks IMPLEMENTED 2026-08-15
+> (``startup_tasks.check_offline_pack_on_launch`` wired into
+> ``StartupSequence`` — cheap existence check, background checksum,
+> ``offline_pack_missing`` event, consent-gated silent re-download;
+> ``get_status`` now carries ``offline_pack`` state; degradation markers
+> in ``transcribe_offline`` + mic-test auto-transcribe). Phase 2c CI
+> gates are PRE-WIRED (worker build + signing + torch-free + size gates +
+> artifact uploads — all conditional on ``build_worker_*.sh``). The
+> slim-core BUILD (sidecar without ML libs) + custom .nsi pack checkbox
+> + full-offline artifact remain BLOCKED: the slim-core server still
+> imports the ML stack in 10 files (vad.py, transcription.py,
+> parakeet_engine.py, qwen_onnx_model.py, …), so slimming the sidecar
+> before the runtime handoff is verified would break the running app —
+> complete the main.rs worker-spawn trigger + transcribe_offline
+> forwarding first (see "Remaining work" below). C-CI-11 (5th binary)
+> + C-CI-13 (worker binary name) updated 2026-08-15 by the user's
+> direction; (d) the C-DATA-1 rule-text extension — DONE
 > 2026-08-15: the USER added category (4) "offline-pack download from
 > GitHub Releases" to C-DATA-1 in AGENTS.md, so the pack download is
 > explicitly permitted whether or not it is consent-gated (see

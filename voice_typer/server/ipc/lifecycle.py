@@ -712,14 +712,37 @@ class LifecycleMixin:
         architecture is being completed.
 
         Pinned by tests/test_event_types_parity.py.
+
+        Phase 2d degradation matrix (§8.10): when the offline pack is
+        NOT installed, the request cannot ever complete — respond with
+        ``queued: False`` + ``degraded: True`` + ``reason:
+        "offline_pack_missing"`` so the renderer surfaces the
+        "offline engine unavailable" state instead of queueing
+        silently forever. When the pack IS present, ack with
+        ``queued: True`` as before (the result arrives via
+        ``transcribe_offline_result``).
         """
-        # Minimal ack so the renderer's call() resolves instead of
-        # timing out. The actual transcription comes back via the
-        # transcribe_offline_result push event (see
-        # ALLOWED_EVENT_TYPES in
-        # src-tauri/src/sidecar/ws/event_protocol.rs).
         resp["type"] = "ack"
-        resp.setdefault("data", {})["queued"] = True
+        data = resp.setdefault("data", {})
+        # Cheap existence check — no hashing (§8.10).
+        pack_missing = True
+        try:
+            from voice_typer.server.service import update_check
+
+            pack_missing = update_check._local_offline_pack_version() is None
+        except Exception:  # noqa: BLE001 — fail-safe: assume missing (degrade, don't queue silently)
+            log.debug("[PACK] transcribe_offline pack check failed", exc_info=True)
+        if pack_missing:
+            data["queued"] = False
+            data["degraded"] = True
+            data["reason"] = "offline_pack_missing"
+        else:
+            # Minimal ack so the renderer's call() resolves instead of
+            # timing out. The actual transcription comes back via the
+            # transcribe_offline_result push event (see
+            # ALLOWED_EVENT_TYPES in
+            # src-tauri/src/sidecar/ws/event_protocol.rs).
+            data["queued"] = True
         return resp
 
     def _handle_check_offline_pack_update(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope:

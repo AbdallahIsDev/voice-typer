@@ -615,3 +615,46 @@ class TestRegistryExtraction:
             "(``_COMMAND_REGISTRY: dict[str, str] = _COMMAND_REGISTRY``) "
             "is the only allowed form."
         )
+
+
+class TestTranscribeOfflineDegradation:
+    """Phase 2d degradation matrix (§8.10).
+
+    ``_handle_transcribe_offline`` must NOT queue silently when the
+    offline pack is missing — the request can never complete, so the
+    ack carries ``queued: False`` + ``degraded: True`` +
+    ``reason: "offline_pack_missing"`` for the renderer to surface.
+    """
+
+    def _dispatch(self, server: IPCServer) -> dict:
+        return server._dispatch({"id": 7, "type": "transcribe_offline", "data": {}})
+
+    def test_pack_missing_returns_degraded_not_queued(self, monkeypatch):
+        from voice_typer.server.service import update_check
+
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda: None)
+        resp = self._dispatch(_make_server())
+        assert resp["type"] == "ack"
+        assert resp["data"]["queued"] is False
+        assert resp["data"]["degraded"] is True
+        assert resp["data"]["reason"] == "offline_pack_missing"
+
+    def test_pack_present_acks_queued(self, monkeypatch):
+        from voice_typer.server.service import update_check
+
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda: "v1")
+        resp = self._dispatch(_make_server())
+        assert resp["type"] == "ack"
+        assert resp["data"]["queued"] is True
+        assert "degraded" not in resp["data"]
+
+    def test_check_failure_fails_safe_to_degraded(self, monkeypatch):
+        from voice_typer.server.service import update_check
+
+        def boom():
+            raise RuntimeError("broken pack root")
+
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", boom)
+        resp = self._dispatch(_make_server())
+        assert resp["data"]["queued"] is False
+        assert resp["data"]["reason"] == "offline_pack_missing"

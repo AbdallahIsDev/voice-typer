@@ -239,6 +239,99 @@ def sync_prewarm_task(app: AppProtocol, shutdown_event: threading.Event | None =
     return {"registered": False, "error": None}
 
 
+def check_offline_pack_on_launch(
+    app: AppProtocol, shutdown_event: threading.Event | None = None
+) -> dict:
+    """Phase 2d launch-time offline-pack existence check (§8.10, §8.16).
+
+    Runs on a fire-and-forget daemon thread at startup (see
+    ``StartupSequence._startup_parallel_work``). Never blocks the window:
+
+    1. **Cheap existence check** (``update_check._local_offline_pack_version``
+       — ``iterdir`` + ``pack-manifest.json`` presence, NO SHA-256 hashing)
+       on the hot startup path.
+    2. **Pack present** → spawn :class:`offline_pack.BackgroundChecksum`
+       on its own daemon thread (§8.16: the full checksum runs in the
+       background and publishes ``offline_pack_verified`` /
+       ``offline_pack_corrupt``). Launch is never slowed.
+    3. **Pack missing** → publish the ``offline_pack_missing`` event
+       (§8.10 — the renderer's ``useOfflinePackDownload`` hook flips to
+       the "missing" state) and run ``check_offline_pack_update`` with
+       ``trigger_download=True`` — the silent re-download. The download
+       is consent-gated (``offline_pack_consent``); when consent is off
+       the check returns ``consent_required=True`` and nothing is
+       downloaded (C-DATA-1).
+
+    Best-effort: never raises. All failures are caught and logged so a
+    broken pack-root scan can never abort startup.
+
+    Returns a small outcome dict (testable):
+    ``{"checked": True, "installed_version": <str|None>, ...}``.
+    """
+    try:
+        from voice_typer.server import event_bus as _event_bus_module
+        from voice_typer.server.service import offline_pack, update_check
+
+        config = getattr(app, "config", None)
+        event_bus = _event_bus_module
+
+        # 1. Cheap existence check — no hashing (§8.10).
+        local_version: str | None = None
+        try:
+            local_version = update_check._local_offline_pack_version()
+        except Exception:  # noqa: BLE001 — a corrupt pack root must not abort startup
+            log.debug("[PACK] launch-time local pack scan failed", exc_info=True)
+
+        if shutdown_event is not None and shutdown_event.is_set():
+            return {"checked": False, "reason": "shutdown"}
+
+        if local_version is not None:
+            # 2. Present → background checksum (§8.16). Never blocks launch.
+            try:
+                background = offline_pack.BackgroundChecksum(local_version, event_bus=event_bus)
+                background.start()
+            except Exception:  # noqa: BLE001 — checksum spawn is best-effort
+                log.exception("[PACK] background checksum spawn failed for %s", local_version)
+            log.info(
+                "[PACK] offline pack %s present at launch — background checksum started",
+                local_version,
+            )
+            return {"checked": True, "installed_version": local_version, "checksum": "background"}
+
+        # 3. Missing → publish offline_pack_missing (§8.10) + consent-gated
+        #    silent re-download. The event is published even when consent
+        #    is off so the renderer can show the "Preparing offline
+        #    engine…" banner instead of silently failing later.
+        try:
+            offline_pack._publish_event(
+                event_bus,
+                "offline_pack_missing",
+                {
+                    "version": None,
+                    "path": str(offline_pack._default_offline_pack_root()),
+                },
+            )
+        except Exception:  # noqa: BLE001 — event publish is best-effort
+            log.debug("[PACK] offline_pack_missing publish failed", exc_info=True)
+        log.info("[PACK] offline pack missing at launch — consent-gated re-download check")
+
+        try:
+            result = update_check.check_offline_pack_update(
+                config, event_bus, trigger_download=True
+            )
+            return {
+                "checked": True,
+                "installed_version": None,
+                "update_check": dict(result),
+            }
+        except Exception:  # noqa: BLE001 — never raise from the launch task
+            log.exception("[PACK] consent-gated re-download check failed (best-effort)")
+            return {"checked": True, "installed_version": None, "update_check": None}
+    except Exception:  # noqa: BLE001 — outermost guard: this task must never raise
+        log.exception("[PACK] launch-time pack check failed (best-effort)")
+        return {"checked": False, "reason": "error"}
+
+
 def ensure_desktop_shortcut(app: AppProtocol) -> None:
     """Create the Desktop + Start Menu shortcuts on first run.
 
