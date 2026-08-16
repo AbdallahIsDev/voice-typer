@@ -23,80 +23,34 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Hoist the mock call/event handlers so they're available inside the
-// vi.mock factory (which is hoisted to the top of the file by vitest
-// and runs before any other code).
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + the standard vi.mock registrations, one line
+// per module. The destructure below mirrors the names the old
+// vi.hoisted block exported, so the test bodies are untouched.
+import {
+	hugeiconsCoreMock,
+	hugeiconsReactMock,
+	navigationMock,
+	nextThemesMock,
+	pythonMock,
+	resetStableMocks,
+	sonnerMock,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
+
 const {
 	mockCall,
-	mockPythonEvent,
 	mockNavigate,
 	mockPendingConsentField,
 	mockConsumeConsentField,
-} = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	mockPythonEvent: vi.fn(),
-	mockNavigate: vi.fn(),
-	// Consent deep-link channel (see NavigateOptions in
-	// useNavigation.ts) — mocked so the deep-link test can arm a
-	// pending field and observe the consume call.
-	mockPendingConsentField: vi.fn<() => string | null>(() => null),
-	mockConsumeConsentField: vi.fn<() => string | null>(() => null),
-}));
+} = stableMocks;
 
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-	usePythonEvent: mockPythonEvent,
-}));
-
-vi.mock("@/hooks/useNavigation", () => ({
-	useNavigation: () => ({
-		navigate: mockNavigate,
-		pendingConsentField: mockPendingConsentField(),
-		consumeConsentField: mockConsumeConsentField,
-	}),
-}));
-
-vi.mock("@hugeicons/react", () => ({
-	HugeiconsIcon: ({
-		children,
-		icon,
-	}: {
-		children?: React.ReactNode;
-		icon?: { name?: string };
-	}) => (
-		<span data-testid="hugeicon" data-name={icon?.name}>
-			{children}
-		</span>
-	),
-}));
-
-vi.mock("@hugeicons/core-free-icons", async () => {
-	const { createHugeiconsMock } = await import(
-		"@/__tests__/helpers/hugeicons-mock"
-	);
-	return createHugeiconsMock();
-});
-
-// sonner is imported transitively via useSnackbar → toast.  Stub it so
-// the test doesn't depend on sonner's portal/DOM rendering.
-vi.mock("sonner", () => ({
-	toast: {
-		success: vi.fn(),
-		error: vi.fn(),
-		warning: vi.fn(),
-		info: vi.fn(),
-		dismiss: vi.fn(),
-	},
-	Toaster: () => null,
-}));
-
-// next-themes is imported by components/ui/sonner.tsx (which is pulled
-// in via the Settings page's transitive import graph through useSnackbar
-// → sonner).  Stub it so the test doesn't depend on next-themes' context
-// provider.
-vi.mock("next-themes", () => ({
-	useTheme: () => ({ theme: "light" as const }),
-}));
+vi.mock("@/hooks/usePython", () => pythonMock());
+vi.mock("@/hooks/useNavigation", () => navigationMock());
+vi.mock("@hugeicons/react", () => hugeiconsReactMock());
+vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
+vi.mock("sonner", () => sonnerMock());
+vi.mock("next-themes", () => nextThemesMock());
 
 import { makeConfig } from "@/__tests__/helpers/fixtures";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -165,13 +119,9 @@ function lastSetConfigPayload(): Record<string, unknown> | null {
 
 describe("Settings page — PERF-002 batched config writes", () => {
 	beforeEach(() => {
-		mockCall.mockReset();
-		mockPythonEvent.mockReset();
-		mockNavigate.mockReset();
-		mockPendingConsentField.mockReset();
-		mockPendingConsentField.mockReturnValue(null);
-		mockConsumeConsentField.mockReset();
-		mockConsumeConsentField.mockReturnValue(null);
+		// Reset the shared singletons (mockCall, the consent channel, …)
+		// and restore the consent-field defaults.
+		resetStableMocks();
 		localStorage.clear();
 		// Reset the module registry so Settings' module-level cache
 		// (_cachedConfig) is re-initialised on each test.

@@ -17,23 +17,22 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockCall, mockNavigate, mockShowSnack } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	mockNavigate: vi.fn(),
-	mockShowSnack: vi.fn(),
-}));
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module.
+import {
+	pythonMock,
+	resetStableMocks,
+	snackbarMock,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
 
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-}));
+const { mockCall, mockNavigate, showSnack: mockShowSnack } = stableMocks;
 
+vi.mock("@/hooks/usePython", () => pythonMock());
 vi.mock("@/hooks/useNavigation", () => ({
 	useNavigation: () => ({ navigate: mockNavigate }),
 }));
-
-vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({ showSnack: mockShowSnack }),
-}));
+vi.mock("@/hooks/useSnackbar", () => snackbarMock());
 
 vi.mock("@/i18n/i18n", () => ({
 	useT: () => (key: string, params?: Record<string, string>) =>
@@ -49,9 +48,7 @@ import ConsentGateDialog from "../ConsentGateDialog";
 describe("ConsentGateDialog — unified point-of-use consent", () => {
 	beforeEach(() => {
 		useConsentGateStore.setState({ request: null });
-		mockCall.mockReset();
-		mockNavigate.mockReset();
-		mockShowSnack.mockReset();
+		resetStableMocks();
 		mockCall.mockResolvedValue({});
 	});
 

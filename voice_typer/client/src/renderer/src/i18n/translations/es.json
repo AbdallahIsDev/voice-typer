@@ -221,6 +221,12 @@
 		"testNoChange": "No se aplicaron correcciones",
 		"testPlaceholder": "Escribe una frase para ver las correcciones…",
 		"testTitle": "Probar correcciones",
+		"testEntry": "Probar esta entrada",
+		"testEntryAria": "Probar esta entrada: {name}",
+		"testEntryFailed": "No se pudo conectar con el motor — comprueba la conexión e inténtalo de nuevo",
+		"testEntryNoChange": "Sin cambios — el motor no coincidió con esta frase",
+		"testEntryPending": "Probando con el motor en vivo…",
+		"testFallbackNote": "Backend sin conexión — se muestra una aproximación de la vista previa",
 		"fillBothFields": "Por favor, completa ambos campos",
 		"updatedEntry": "Actualizado: {original} → {correction}",
 		"addedEntry": "Agregado: {original} → {correction}",
@@ -237,6 +243,8 @@
 		"whatYouSay": "Lo que dices",
 		"triggerHelp": "Escribe la(s) palabra(s) exactamente como las malinterpreta el reconocedor de voz.",
 		"whatGetsTyped": "Lo que se escribe en su lugar",
+		"usedCount": "Usado {count}×",
+		"lastUsed": "último uso {date}",
 		"replacementHelp": "El texto corregido que se pegará. Las mayúsculas importan — lo que escribas aquí es exactamente lo que se emitirá.",
 		"deleteEntryTitle": "Eliminar entrada de vocabulario",
 		"deleteEntryMessage": "¿Seguro que quieres eliminar \"{name}\"? Esta acción no se puede deshacer.",
@@ -374,6 +382,9 @@
 		"peakWeekday": "Día pico: {day}",
 		"rangeAria": "Rango de tiempo de las estadísticas",
 		"sampledNote": "Basado en las últimas {count} dictados",
+		"corrections": "Correcciones",
+		"correctionsTooltip": "Correcciones de vocabulario que el motor aplicó durante el dictado",
+		"correctionsRate": "{pct}% de los dictados",
 		"shareTooltip": "Exporta una imagen de resumen compartible",
 		"totalDictations": "Dictados totales",
 		"totalDictationsTooltip": "Todos los dictados registrados. Los totales de caracteres se basan en los últimos 500.",
@@ -470,11 +481,8 @@
 		"viewChangelog": "Ver registro de cambios",
 		"offlineUpdatesMessage": "{appName} es una aplicación sin conexión. Para comprobar si hay actualizaciones, visite la página de versiones de GitHub en su navegador.",
 		"startStopDictation": "Iniciar / Detener dictado",
-		"startStopDictationValue": "F2 (o tu atajo configurado)",
 		"cancelRecording": "Cancelar grabación",
-		"cancelRecordingValue": "Esc (si está activado en Configuración)",
 		"repasteTranscription": "Re-pegar última transcripción",
-		"repasteTranscriptionValue": "Ctrl+Alt+V (predeterminado)",
 		"toggleSidebar": "Alternar barra lateral",
 		"navigateFields": "Navegar entre campos",
 		"toggleSwitches": "Alternar interruptores",
@@ -490,11 +498,6 @@
 		"newVersionAvailable": "Nueva versión disponible: {version}",
 		"installedNewer": "La versión instalada ({installed}) es más reciente que la última versión publicada ({latest})",
 		"updateCheckFailed": "No se pudieron comprobar las actualizaciones: {error}",
-		"toggleSidebarValue": "Ctrl+B",
-		"navigateFieldsValue": "Tab / Mayús+Tab",
-		"toggleSwitchesValue": "Espacio",
-		"closeDialogsValue": "Esc",
-		"openDropdownsValue": "Enter o Espacio",
 		"cacheTitle": "Estado de la caché",
 		"cacheDescription": "Estado en vivo de la caché del sistema para el modelo de voz. El precalentamiento se ejecuta en el arranque para mantener los archivos del modelo en RAM para un inicio rápido.",
 		"prewarmStatus": "Estado del precalentamiento",
@@ -1365,19 +1368,6 @@
 		"navBack": "Navegar atrás / adelante",
 		"closeHint": "Presiona {key} o haz clic fuera para cerrar.",
 		"zoomTextSize": "Tamaño del texto",
-		"keys": {
-			"cancel": "Esc",
-			"repaste": "Ctrl+Alt+V",
-			"toggleSidebar": "Ctrl+B",
-			"openSettings": "Ctrl+,",
-			"goHome": "Ctrl+H",
-			"navigate": "Tab / Shift+Tab",
-			"toggle": "Space",
-			"activate": "Enter",
-			"zoomTextSize": "Ctrl+Plus / Ctrl+Minus",
-			"openHelp": "?",
-			"navBack": "Alt+Left / Alt+Right"
-		},
 		"punctuationTitle": "Hoja de referencia de puntuación",
 		"punctuationHint": "Di estas palabras durante el dictado para insertar el signo de puntuación correspondiente. {appName} las reconoce mediante el modelo de voz y las conserva durante la limpieza del texto.",
 		"punctuation": {
@@ -1943,19 +1933,58 @@
 			"mic_permission_revoked_title": "{appName}",
 			"mic_permission_revoked_body": "Permiso de micrófono revocado.",
 			"xrun_warning_title": "{appName}",
-			"xrun_warning_body": "Se detectó un desbordamiento del búfer de audio. Prueba con un tamaño de búfer mayor."
+			"xrun_warning_body": "Se detectó un desbordamiento del búfer de audio. Prueba con un tamaño de búfer mayor.",
+			"cancelled_timeout": "La transcripción tardó demasiado y se canceló.\nPulse {hotkey} para reintentar.",
+			"start_failed": "No se pudo iniciar la grabación.\nConsulte voice-typer.log para ver el rastreo.",
+			"stop_failed": "No se pudo detener la grabación.",
+			"silence_warning": "No se detectó audio. Compruebe que el micrófono esté conectado y funcionando.",
+			"consent_required": "Se requiere el consentimiento de biometría de voz para iniciar la grabación.\nActívalo en Configuración > Privacidad > Consentimiento de biometría de voz.",
+			"max_duration_auto_stop": "Grabación detenida: se alcanzó la duración máxima de grabación.",
+			"mic_disconnected": "Micrófono desconectado. Grabación detenida. Vuelve a conectar el micrófono para continuar.",
+			"mic_permission_revoked": "Permiso de micrófono revocado. Grabación detenida. Vuelve a conceder el acceso al micrófono en la configuración de privacidad de tu sistema para continuar.",
+			"silence_auto_stop": "Grabación detenida: no se detectó audio durante un período prolongado.",
+			"load_failed": "No se pudo cargar el modelo de voz.\n{error}\n\nLa aplicación seguirá funcionando. Pulse {hotkey} para reintentar la carga."
 		},
 		"model_manager": {
 			"backend_init_failed_title": "{appName}",
 			"backend_init_failed_body": "No se pudo inicializar el backend {backend}. Revisa los registros para más detalles.",
 			"backend_change_deferred_title": "{appName}",
-			"backend_change_deferred_body": "El backend cambiará a {backend} después de la grabación actual."
+			"backend_change_deferred_body": "El backend cambiará a {backend} después de la grabación actual.",
+			"change_deferred": "El modelo cambiará a {model} después de la grabación actual",
+			"load_failed": "No se pudo cargar el modelo de voz.\n{error}\n\nLa aplicación seguirá funcionando. Pulse {hotkey} para reintentar la carga.",
+			"backend_change_deferred": "El backend cambiará a {backend} después de la grabación actual.",
+			"backend_init_failed": "No se pudo inicializar el backend {backend}.{hint}",
+			"last_resort_unloaded": "El modelo no está cargado.\nAbre la página de modelos para descargar un modelo.",
+			"model_not_downloaded": "No hay modelos disponibles.\nAbre la página de modelos para descargar un modelo.",
+			"no_model_selected": "No hay ningún modelo seleccionado.\nVe a la página de modelos para seleccionar uno.",
+			"load_failed_critical": "No se pudo cargar el modelo de voz.\nLa aplicación seguirá funcionando. Pulse {hotkey} para reintentar la carga."
 		},
 		"settings_controller": {
 			"autostart_toggle_failed_title": "{appName}",
 			"autostart_toggle_failed_body": "No se pudo cambiar la configuración de inicio automático.\n{error}",
 			"microphone_selection_failed_title": "{appName}",
-			"microphone_selection_failed_body": "No se pudo cambiar el micrófono."
+			"microphone_selection_failed_body": "No se pudo cambiar el micrófono.",
+			"mic_changed": "Micrófono: {label}",
+			"mic_next_recording": "Micrófono para la próxima grabación: {label}",
+			"autostart_failed": "No se pudo cambiar la configuración de inicio automático.\n{error}",
+			"mic_save_failed": "No se pudo guardar la selección de micrófono. Comprueba el espacio en disco o los permisos."
+		},
+		"app": {
+			"repaste_no_previous": "No hay ninguna transcripción anterior para volver a pegar.",
+			"repaste_copy_failed": "No se pudo copiar la transcripción al portapapeles. Es posible que otra aplicación tenga el bloqueo del portapapeles.",
+			"repaste_done": "Última transcripción vuelta a pegar",
+			"repaste_blocked": "Se bloqueó el re-pegado (destino no seguro o límite de velocidad). Se conservó su portapapeles anterior. Vuelva a usar el atajo de re-pegado para intentarlo.",
+			"undo_nothing": "No hay nada que deshacer.",
+			"undo_done": "Se deshizo la última transcripción ({char_count} caracteres)",
+			"undo_no_pynput": "Deshacer no disponible (falta pynput)",
+			"undo_failed": "No se pudo deshacer la última transcripción. Consulte los registros para más detalles."
+		},
+		"permissions": {
+			"macos_title": "{appName} necesita permiso",
+			"macos_body": "Haz clic para abrir Configuración del sistema → Accesibilidad. Añade {appName} (y su asistente de escucha de teclas) a la lista.",
+			"macos_body_with_command": "Haz clic para abrir Configuración del sistema → Accesibilidad. Añade {appName} (y su asistente de escucha de teclas) a la lista. Luego ejecuta: {command}",
+			"linux_title": "{appName} necesita permiso de teclado",
+			"linux_body": "Haz clic para conceder acceso. El sistema te pedirá tu contraseña para instalar el permiso de teclado (regla udev + grupo de entrada). Tras concederlo, cierra sesión y vuelve a iniciarla para que el cambio surta efecto."
 		}
 	},
 	"error": {
@@ -1988,6 +2017,50 @@
 			"cloud_deepgram_consent": "La transcripción en la nube envía su audio a Deepgram para transcribirlo. La política de privacidad de Deepgram se aplica al audio enviado. ¿Permitir?",
 			"llm_polish_consent": "El pulido con LLM envía su texto transcrito al proveedor LLM configurado para corregir gramática y puntuación. ¿Permitir?",
 			"offline_pack_consent": "El paquete del motor sin conexión (~180 MB) se descarga una vez desde el servidor de lanzamiento y permite la transcripción totalmente local. ¿Permitir la descarga?"
+		}
+	},
+	"trayState": {
+		"idle": "inactivo",
+		"recording": "grabando",
+		"transcribing": "transcribiendo",
+		"loading": "cargando",
+		"error": "error",
+		"cancelling": "cancelando",
+		"recordingController": {
+			"loadingQueued": "Cargando el modelo: su dictado comenzará automáticamente…",
+			"startingUp": "Iniciando… espere, por favor...",
+			"consentRequired": "Se requiere consentimiento biométrico de voz",
+			"modelFailedRetry": "No se pudo cargar el modelo: pulse su atajo de teclado para reintentar",
+			"recording": "Grabando...",
+			"recordingFailed": "Error al grabar",
+			"recordingFailedPermission": "Error al grabar: permiso de micrófono denegado. Permita el acceso al micrófono en los ajustes del sistema.",
+			"recordingFailedNoDevice": "Error al grabar: no se encontró ningún micrófono. Conecte un micrófono e inténtelo de nuevo.",
+			"stopFailed": "Error al detener",
+			"tooShort": "Demasiado corto: ignorado",
+			"transcribing": "Transcribiendo...",
+			"cancelling": "Cancelando...",
+			"cancelled": "Cancelado",
+			"recovered": "Recuperado: la transcripción agotó el tiempo de espera",
+			"stillTranscribing": "Todavía transcribiendo..."
+		},
+		"modelManager": {
+			"loading": "Cargando el modelo: pulse su atajo de teclado para ponerlo en cola...",
+			"readyWhisper": "Listo: {device_info}",
+			"readyOther": "Listo: {name} ASR",
+			"loadFailedRetry": "No se pudo cargar el modelo: pulse su atajo de teclado para reintentar",
+			"backendFailed": "No se pudo cargar el modelo {backend}",
+			"modelFailed": "Error del modelo: {error}",
+			"modelNotDownloaded": "No hay modelos disponibles. Abra la página de modelos para descargar uno.",
+			"modelIntegrityFailed": "El modelo {backend} no superó la verificación de integridad. Elimínelo y descárguélo de nuevo desde la página de modelos."
+		},
+		"pipeline": {
+			"clipboardUnavailable": "Hecho: portapapeles no disponible",
+			"noSpeechDetected": "No se detectó voz",
+			"noSpeechCheckMic": "No se detectó voz: compruebe el micrófono",
+			"transcriptionEmpty": "Transcripción vacía",
+			"donePasted": "Hecho: {count} caracteres (pegado)",
+			"doneInDb": "Hecho: {count} caracteres (en BD, use el atajo de re-pegado)",
+			"doneInClipboard": "Hecho: {count} caracteres (en el portapapeles)"
 		}
 	}
 }

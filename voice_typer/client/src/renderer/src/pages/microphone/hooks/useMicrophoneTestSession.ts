@@ -143,6 +143,14 @@ export function useMicrophoneTestSession({
 	testRunningRef,
 	selectMicrophoneRef,
 }: UseMicrophoneTestSessionOptions): UseMicrophoneTestSessionResult {
+	// callRef mirror (Home.tsx pattern): the unmount/transition cleanup
+	// effect below must not depend on the `call` identity — a test mock
+	// handing out a fresh `call` per render would re-fire it (OOM loop
+	// class). ``callRef.current`` is read at cleanup time instead.
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
 	// ``updateConfig`` is part of the public session-hook signature
 	// for parity with the prior ``useMicrophoneTest`` API but is not
 	// used directly here — preset / config-change handlers live in
@@ -409,7 +417,7 @@ export function useMicrophoneTestSession({
 			// Stop any active test first
 			if (testRunningRef.current && !stoppingRef.current) {
 				try {
-					await call("microphone_test_cancel");
+					await callRef.current("microphone_test_cancel");
 				} catch (e) {
 					/* ignore — test may have already finished, or the
 					   backend may be tearing down */
@@ -437,7 +445,7 @@ export function useMicrophoneTestSession({
 			setTestQuality(null);
 
 			try {
-				await call("set_config", { microphone: micId });
+				await callRef.current("set_config", { microphone: micId });
 				setConfig((prev) => (prev ? { ...prev, microphone: micId } : prev));
 				setLevel(0);
 				setPeak(0);
@@ -463,7 +471,14 @@ export function useMicrophoneTestSession({
 			}
 		},
 		[
-			call,
+			// `call` deliberately dropped: read via the callRef mirror
+			// above so this callback keeps a STABLE identity — the
+			// selectMicrophoneRef sync effect below (deps
+			// [selectMicrophone]) is the documented-to-be-stable
+			// consumer, and an identity churn under test mocks would
+			// re-assign the shared ref on every render. The remaining
+			// deps (microphones, setters, showSnack, t) are genuine
+			// state deps and stay.
 			microphones,
 			setConfig,
 			showSnack,
@@ -511,15 +526,17 @@ export function useMicrophoneTestSession({
 				elapsedTimerRef.current = null;
 			}
 			if (testRunning && !stoppingRef.current) {
-				call("microphone_test_cancel").catch((err) =>
-					console.warn(
-						"[renderer:useMicrophoneTestSession] microphone command failed: microphone_test_cancel:",
-						err,
-					),
-				);
+				callRef
+					.current("microphone_test_cancel")
+					.catch((err) =>
+						console.warn(
+							"[renderer:useMicrophoneTestSession] microphone command failed: microphone_test_cancel:",
+							err,
+						),
+					);
 			}
 		};
-	}, [call, testRunning]);
+	}, [testRunning]);
 
 	// Keep ``selectMicrophoneRef`` pointed at the latest stable
 	//``selectMicrophone`` closure (). The assignment now happens

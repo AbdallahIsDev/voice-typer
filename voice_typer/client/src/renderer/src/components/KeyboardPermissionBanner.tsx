@@ -57,6 +57,17 @@ function useKeyboardPermission(): PermissionsResult | null {
 	const { call } = usePython();
 	const [result, setResult] = useState<PermissionsResult | null>(null);
 
+	// Ref mirror of `call` so the probe effect keeps `[]` deps. `call`
+	// is useCallback-stable in production, but test mocks return a FRESH
+	// call per render — depending on it would re-run the probe (and its
+	// 60s interval) on every render: probe → setResult → re-render →
+	// new call → effect re-fires → infinite loop. Same pattern as
+	// useVocabulary.ts.
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
+
 	// Track the in-flight promise + interval id so cleanup is
 	// deterministic (mirrors the `cancelled` flag pattern in
 	// `usePermissionsProbe` so a setState-after-unmount warning is
@@ -69,7 +80,9 @@ function useKeyboardPermission(): PermissionsResult | null {
 
 		const probe = async () => {
 			try {
-				const r = await call<PermissionsResult>("onboarding_check_permissions");
+				const r = await callRef.current<PermissionsResult>(
+					"onboarding_check_permissions",
+				);
 				if (cancelledRef.current) return;
 				setResult(r);
 			} catch (err) {
@@ -102,7 +115,7 @@ function useKeyboardPermission(): PermissionsResult | null {
 				intervalRef.current = null;
 			}
 		};
-	}, [call]);
+	}, []);
 
 	return result;
 }

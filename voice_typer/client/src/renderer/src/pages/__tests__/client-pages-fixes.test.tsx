@@ -28,69 +28,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Hoisted mocks (shared across describe blocks) ─────────────────────
 
-const { mockCall, mockShowSnack } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	mockShowSnack: vi.fn(),
-}));
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module. Variants here:
+// usePythonEvent is a noop, and the snackbar singleton is destructured
+// as mockShowSnack (the name the test bodies use).
+import {
+	hugeiconsCoreMock,
+	hugeiconsReactMock,
+	lastUpdatedMock,
+	navigationMock,
+	nextThemesMock,
+	pythonMock,
+	resetStableMocks,
+	snackbarMock,
+	sonnerMock,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
 
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-	usePythonEvent: () => {},
-}));
+const { mockCall } = stableMocks;
 
-vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({ showSnack: mockShowSnack }),
-	showUndoableToast: vi.fn(),
-}));
-
-vi.mock("@/hooks/useLastUpdated", () => ({
-	useLastUpdated: () => ({
-		agoLabel: "",
-		markUpdated: vi.fn(),
-		refreshing: false,
-		withRefresh: async <T,>(op: () => Promise<T>): Promise<T> => op(),
-	}),
-}));
-
-vi.mock("@/hooks/useNavigation", () => ({
-	useNavigation: () => ({ navigate: vi.fn() }),
-}));
-
-vi.mock("@/hugeicons/react", () => ({
-	HugeiconsIcon: ({
-		children,
-		icon,
-	}: {
-		children?: React.ReactNode;
-		icon?: { name?: string };
-	}) => (
-		<span data-testid="hugeicon" data-name={icon?.name}>
-			{children}
-		</span>
-	),
-}));
-
-vi.mock("@hugeicons/core-free-icons", async () => {
-	const { createHugeiconsMock } = await import(
-		"@/__tests__/helpers/hugeicons-mock"
-	);
-	return createHugeiconsMock();
-});
-
-vi.mock("sonner", () => ({
-	toast: {
-		success: vi.fn(),
-		error: vi.fn(),
-		warning: vi.fn(),
-		info: vi.fn(),
-		dismiss: vi.fn(),
-	},
-	Toaster: () => null,
-}));
-
-vi.mock("next-themes", () => ({
-	useTheme: () => ({ theme: "light" as const }),
-}));
+vi.mock("@/hooks/usePython", () => pythonMock({ noopEvent: true }));
+vi.mock("@/hooks/useSnackbar", () => snackbarMock());
+vi.mock("@/hooks/useLastUpdated", () => lastUpdatedMock({ withRefresh: true }));
+vi.mock("@/hooks/useNavigation", () => navigationMock());
+vi.mock("@hugeicons/react", () => hugeiconsReactMock());
+vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
+vi.mock("sonner", () => sonnerMock());
+vi.mock("next-themes", () => nextThemesMock());
 
 // Inline the Select mock so SelectItem children (the Default + BT
 // badges) render in the DOM without Radix's pointer-capture machinery.
@@ -151,10 +115,9 @@ if (
 	Element.prototype.setPointerCapture = function setPointerCapture() {};
 	Element.prototype.releasePointerCapture = function releasePointerCapture() {};
 }
-
 beforeEach(() => {
-	mockCall.mockReset();
-	mockShowSnack.mockReset();
+	// Reset the shared singletons (mockCall, showSnack, …).
+	resetStableMocks();
 	localStorage.clear();
 });
 
@@ -446,7 +409,7 @@ describe("EC-12: Home.tsx extraction (subcomponents moved to ./home/)", () => {
 		// inlined). RecordingErrorCard is no longer mounted by Home
 		// (errors now live in the single dynamic status line below the
 		// mic button), so its import is gone by design; the status pill
-		// is back and imported from ./home/components.
+		// is imported from ./home/components.
 		expect(src).toContain("./home/lib/cache");
 		expect(src).toContain("./home/lib/constants");
 		expect(src).toContain("./home/lib/status");

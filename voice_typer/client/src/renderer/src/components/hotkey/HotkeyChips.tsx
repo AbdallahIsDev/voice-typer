@@ -1,12 +1,16 @@
 import { Fragment } from "react";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
+import { formatHotkeyForPlatform } from "./hotkey-utils";
 
 interface HotkeyChipsProps {
 	/**
-	 * Pre-formatted hotkey string, e.g. `"Ctrl+Alt+V"` or
+	 * Canonical cross-platform hotkey string, e.g. `"Ctrl+Alt+V"` or
 	 * `"Tab / Shift+Tab"`. `" / "` separates alternative bindings
 	 * (rendered with a plain separator); `"+"` separates the individual
-	 * keys of a combo (rendered as a `KbdGroup` of `Kbd` chips).
+	 * keys of a combo (rendered as a `KbdGroup` of `Kbd` chips). On
+	 * macOS the modifier labels are rendered as native glyphs
+	 * ("Ctrl+B" → "⌃B") automatically via {@link formatHotkeyForPlatform}
+	 * — the same treatment `formatHotkey` applies in the Sidebar.
 	 */
 	keys: string;
 	/** Optional extra classes applied to each chip group / chip. */
@@ -61,7 +65,12 @@ function HotkeyCombo({
  * chip styling always matches the design-system `Kbd` component.
  */
 export function HotkeyChips({ keys, className }: HotkeyChipsProps) {
-	const alternatives = keys.split(" / ");
+	// Platform transform FIRST (before splitting): on macOS the
+	// modifiers become glyphs joined without "+" ("Ctrl+B" → "⌃B"),
+	// matching the Sidebar's formatHotkey rendering; on Windows/Linux
+	// this is a no-op. Already-formatted glyph input passes through
+	// unchanged (idempotent).
+	const alternatives = formatHotkeyForPlatform(keys).split(" / ");
 	return (
 		<>
 			{alternatives.map((alt, i) => (

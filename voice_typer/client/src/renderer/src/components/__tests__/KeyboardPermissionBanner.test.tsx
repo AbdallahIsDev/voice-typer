@@ -27,21 +27,22 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { KeyboardPermissionBanner } from "@/components/KeyboardPermissionBanner";
 import type { PermissionsResult } from "@/types/ipc";
 
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx):
 // `usePython` is mocked so the `useKeyboardPermission()` hook's
 // `call("onboarding_check_permissions")` is a no-op that never resolves
 // — the hook stays in its initial `null` state for the duration of each
 // test, and the `permissionResult` prop injection is what drives the
 // rendered output. This keeps the tests deterministic without fake
-// timers. The hoisted shape mirrors the pattern in
-// `pages/__tests__/Onboarding.test.tsx`.
-const mockCall = vi.hoisted(() => vi.fn());
+// timers.
+import { pythonMock, resetStableMocks, stableMocks } from "@/__tests__/helpers/stableMocks";
 
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-}));
+const { mockCall } = stableMocks;
+
+vi.mock("@/hooks/usePython", () => pythonMock());
+
+import { KeyboardPermissionBanner } from "@/components/KeyboardPermissionBanner";
 
 const DENIED: PermissionsResult = {
 	platform: "macos",
@@ -69,7 +70,7 @@ describe("KeyboardPermissionBanner ", () => {
 
 	beforeEach(() => {
 		originalUserAgent = navigator.userAgent;
-		mockCall.mockReset();
+		resetStableMocks();
 		// Never-resolving promise: the probe stays in flight so
 		// `probed === null` and the `permissionResult` prop is
 		// what the component renders against.

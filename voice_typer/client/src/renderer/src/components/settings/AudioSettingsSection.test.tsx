@@ -22,27 +22,26 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mock the navigation hook so we can assert that the "Go to Microphone"
-// button calls navigate("microphone").
-const { mockNavigate } = vi.hoisted(() => ({
-	mockNavigate: vi.fn(),
-}));
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module. The navigation
+// mock wires the "Go to Microphone" deep-link; the python mock keeps
+// the volumeBackend fetch from firing.
+import {
+	hugeiconsCoreMock,
+	hugeiconsReactMock,
+	pythonMock,
+	resetStableMocks,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
 
+const { mockNavigate } = stableMocks;
+
+vi.mock("@/hooks/usePython", () => pythonMock());
 vi.mock("@/hooks/useNavigation", () => ({
 	useNavigation: () => ({ navigate: mockNavigate }),
 }));
-
-// Stub the hugeicons runtime so we don't pull in the real SVG renderer.
-vi.mock("@hugeicons/react", () => ({
-	HugeiconsIcon: () => <span data-testid="hugeicon" />,
-}));
-
-vi.mock("@hugeicons/core-free-icons", async () => {
-	const { createHugeiconsMock } = await import(
-		"@/__tests__/helpers/hugeicons-mock"
-	);
-	return createHugeiconsMock();
-});
+vi.mock("@hugeicons/react", () => hugeiconsReactMock());
+vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
 
 // Stub InfoTooltip to avoid the Radix Tooltip provider requirement
 //(the  fix removed per-caller TooltipProviders; tests that mount
@@ -58,11 +57,6 @@ vi.mock("@/components/feedback/InfoTooltip", () => ({
 // render graph (we're only testing the cross-link banner).
 vi.mock("@/components/audio/AudioFilterChain", () => ({
 	AudioFilterChain: () => <div data-testid="audio-filter-chain" />,
-}));
-
-// Stub usePython so the volumeBackend fetch doesn't fire.
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: vi.fn() }),
 }));
 
 import { AudioSettingsSection } from "@/components/settings/AudioSettingsSection";
@@ -182,7 +176,8 @@ const alwaysVisible = () => true;
 
 describe("AudioSettingsSection — cross-link banner to Microphone page", () => {
 	beforeEach(() => {
-		mockNavigate.mockReset();
+		resetStableMocks();
+		vi.clearAllMocks();
 		cleanup();
 	});
 

@@ -21,20 +21,16 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + the usePython mock factory binding.
+import { pythonMock, resetStableMocks, stableMocks } from "@/__tests__/helpers/stableMocks";
+
+const { mockCall } = stableMocks;
+
+vi.mock("@/hooks/usePython", () => pythonMock());
+
 import { useConnection } from "@/hooks/useConnection";
 import { useAppStore } from "@/stores/appStore";
-
-// Hoist the mock call/event handlers so they're available inside the
-// vi.mock factory (hoisted above imports by vitest).
-const { mockCall, mockPythonEvent } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	mockPythonEvent: vi.fn(),
-}));
-
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-	usePythonEvent: mockPythonEvent,
-}));
 
 // Stub localStorage (jsdom 29 with opaque origin doesn't expose it).
 const lsStub: Record<string, string> = {};
@@ -90,8 +86,7 @@ const CONFIG_OK = { onboarding_completed: true };
 
 describe("useConnection — OPTION-A retry escalation (probe → backend restart)", () => {
 	beforeEach(() => {
-		mockCall.mockReset();
-		mockPythonEvent.mockReset();
+		resetStableMocks();
 		useAppStore.getState().setConnectionStatus("connecting");
 		useAppStore.getState().setLastError(null);
 		// First mount-probe succeeds (backend healthy); subsequent

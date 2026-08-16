@@ -12,9 +12,19 @@
  * The zoom shortcuts (Ctrl+= / Ctrl+-) are intentionally NOT guarded —
  * they're page-zoom semantics that apply regardless of modal state.
  */
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Shared stable-mocks singleton: the sonner `toast.error` wired into
+// the stableMocks error channel so the tests can assert on the
+// loud/silent error surfaces across resets.
+import { sonnerMock, stableMocks } from "@/__tests__/helpers/stableMocks";
+
 import { useGlobalKeyboardShortcuts } from "@/hooks/useGlobalKeyboardShortcuts";
+
+const { mockToastError } = stableMocks;
+
+vi.mock("sonner", () => sonnerMock({ errorTo: "mockToastError" }));
 
 const mockNavigate = vi.fn();
 const mockSetSidebarCollapsed = vi.fn(
@@ -27,10 +37,6 @@ const mockSetSidebarCollapsed = vi.fn(
 );
 const mockCall = vi.fn().mockResolvedValue(undefined);
 const mockT = vi.fn((key: string) => key);
-
-vi.mock("sonner", () => ({
-	toast: { error: vi.fn() },
-}));
 
 function renderHook(textSize: number | null = 14) {
 	const setTextSize = vi.fn();
@@ -61,6 +67,10 @@ function dispatchKey(
 	});
 }
 
+function dispatchWheel(deltaY: number) {
+	fireEvent.wheel(window, { ctrlKey: true, deltaY });
+}
+
 function attachOpenDialog() {
 	const el = document.createElement("div");
 	el.setAttribute("role", "dialog");
@@ -73,7 +83,9 @@ beforeEach(() => {
 	mockNavigate.mockClear();
 	mockSetSidebarCollapsed.mockClear();
 	mockCall.mockClear();
+	mockCall.mockResolvedValue(undefined);
 	mockT.mockClear();
+	mockToastError.mockClear();
 });
 
 afterEach(() => {
@@ -129,6 +141,41 @@ describe("useGlobalKeyboardShortcuts — modal-open guard", () => {
 		dispatchKey("=");
 		expect(mockCall).toHaveBeenCalledWith("set_config", { text_size: 15 });
 		dialog.remove();
+	});
+
+	it("Ctrl++ (zoom in via the '+' alternative key) fires the same set_config", () => {
+		// The catalog pins eventKeys ["=", "+"] — the "+" form is the
+		// unshifted alternative on some layouts. Both must dispatch to
+		// the same zoom-in handler.
+		renderHook();
+		dispatchKey("+");
+		expect(mockCall).toHaveBeenCalledWith("set_config", { text_size: 15 });
+	});
+
+	it("Ctrl+Wheel set_config failure stays SILENT (documented wheel contract)", async () => {
+		// The wheel error path swallows set_config failures — the key
+		// shortcuts toast, the wheel does not (matches the original
+		// inline effect). Pinned here so a refactor can't re-unify the
+		// two error surfaces.
+		renderHook();
+		mockCall.mockRejectedValueOnce(new Error("backend restart"));
+		dispatchWheel(-1);
+		// Let the rejected promise's catch run.
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(mockCall).toHaveBeenCalledWith("set_config", { text_size: 15 });
+		expect(mockToastError).not.toHaveBeenCalled();
+	});
+
+	it("Ctrl+= set_config failure surfaces a toast (key path is loud)", async () => {
+		// The asymmetry pinned by the test above: key shortcuts DO toast
+		// on set_config failure. Guards the loud path from being
+		// accidentally silenced too.
+		renderHook();
+		mockCall.mockRejectedValueOnce(new Error("backend restart"));
+		dispatchKey("=");
+		await waitFor(() => {
+			expect(mockToastError).toHaveBeenCalledWith("errorBoundary.unknownError");
+		});
 	});
 
 	it("Ctrl+- (zoom out) still fires when a modal is open (zoom is not gated)", () => {

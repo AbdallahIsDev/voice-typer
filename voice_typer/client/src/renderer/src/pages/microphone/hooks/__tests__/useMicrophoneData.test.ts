@@ -37,6 +37,10 @@ const {
 	agoLabelMock: "just now",
 }));
 
+const stable = vi.hoisted(() => ({
+	clearSnack: vi.fn(),
+}));
+
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({
 		call: callMock,
@@ -47,7 +51,10 @@ vi.mock("@/hooks/usePython", () => ({
 }));
 
 vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({ showSnack: showSnackMock, clearSnack: vi.fn() }),
+	useSnackbar: () => ({
+		showSnack: showSnackMock,
+		clearSnack: stable.clearSnack,
+	}),
 }));
 
 vi.mock("@/hooks/useLastUpdated", () => ({
@@ -142,6 +149,7 @@ function getEventHandler(eventName: string) {
 }
 
 beforeEach(() => {
+	vi.clearAllMocks();
 	callMock.mockReset();
 	usePythonEventMock.mockReset();
 	showSnackMock.mockReset();

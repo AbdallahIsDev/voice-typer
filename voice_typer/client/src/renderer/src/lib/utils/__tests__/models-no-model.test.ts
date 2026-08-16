@@ -38,24 +38,22 @@ function makeConfig(model_size: string): VoiceTyperConfig {
 
 describe("isModelActive — empty model_size means nothing is active", () => {
 	it("returns false for whisper models when activeModel is empty", () => {
-		expect(
-			isModelActive(makeModel("whisper", "tiny"), "whisper", ""),
-		).toBe(false);
+		expect(isModelActive(makeModel("whisper", "tiny"), "whisper", "")).toBe(
+			false,
+		);
 	});
 
 	it("returns false for backend-keyed models (qwen/parakeet) when activeModel is empty", () => {
 		// qwen / parakeet are keyed by backend alone — without the guard
 		// they would render active even with an empty model_size.
 		expect(isModelActive(makeModel("qwen"), "qwen", "")).toBe(false);
-		expect(isModelActive(makeModel("parakeet"), "parakeet", "")).toBe(
-			false,
-		);
+		expect(isModelActive(makeModel("parakeet"), "parakeet", "")).toBe(false);
 	});
 
 	it("still returns true for a real selection", () => {
-		expect(
-			isModelActive(makeModel("whisper", "tiny"), "whisper", "tiny"),
-		).toBe(true);
+		expect(isModelActive(makeModel("whisper", "tiny"), "whisper", "tiny")).toBe(
+			true,
+		);
 	});
 });
 

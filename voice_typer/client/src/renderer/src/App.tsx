@@ -9,7 +9,7 @@ import {
 import { APP_NAME } from "@/branding";
 import ConsentGateDialog from "@/components/consent/ConsentGateDialog";
 import { HelpOverlay } from "@/components/help/HelpOverlay";
-import { formatHotkey } from "@/components/hotkey/hotkey-utils";
+import { configHotkeyLabels } from "@/components/hotkey/hotkey-utils";
 import { ConnectionStatusScreen } from "@/components/layout/ConnectionStatusScreen";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TitleBar } from "@/components/layout/TitleBar";
@@ -56,7 +56,6 @@ const SettingsPage = lazy(() => import("@/pages/Settings"));
 const TemplatesPage = lazy(() => import("@/pages/Templates"));
 const VocabularyPage = lazy(() => import("@/pages/Vocabulary"));
 
-import { HOTKEY_DEFAULT } from "@/pages/onboarding/lib/constants";
 import { isKnownPage } from "@/router/routes";
 import { useAppStore } from "@/stores/appStore";
 import type { WindowBridge } from "@/types/ipc";
@@ -64,12 +63,11 @@ import type { WindowBridge } from "@/types/ipc";
 /**
  * Suspense fallback for the lazy-loaded secondary routes.
  *
- * Inline (not a separate component file) so we don't introduce a new
- * module outside the refactor scope. The spinner matches the visual
- * style already used by ``DoneStep.tsx``, ``RecordingErrorCard.tsx``,
- * and ``MicToggleButton.tsx`` (``animate-spin rounded-full border-2
- * border-current border-t-transparent``) so the user sees a consistent
- * loading indicator across the app.
+ * Inline (not a separate component file) so we don't introduce a new	 * module outside the refactor scope. The spinner matches the visual
+ * style already used by ``DoneStep.tsx`` and ``MicToggleButton.tsx``
+ * (``animate-spin rounded-full border-2 border-current
+ * border-t-transparent``) so the user sees a consistent loading
+ * indicator across the app.
  *
  * The fallback is intentionally minimal — a route chunk typically
  * loads in <100ms on a local dev server and <300ms from a packaged
@@ -408,10 +406,10 @@ export default function App() {
 		reloadThemeFromConfig,
 	});
 
-	const dictationLabel = formatHotkey(hotkeyFromConfig ?? HOTKEY_DEFAULT);
-	const repasteLabel = formatHotkey(
-		repasteHotkeyFromConfig ?? "<ctrl>+<alt>+v",
-	);
+	const { dictationLabel, repasteLabel } = configHotkeyLabels({
+		hotkey: hotkeyFromConfig,
+		repaste_hotkey: repasteHotkeyFromConfig,
+	});
 
 	const renderPage = () => {
 		// Route table: see router/routes.ts for the single source of page names.
@@ -573,10 +571,22 @@ export default function App() {
 				    re-announces when ITS OWN content changes. */}
 				<div aria-live="polite" aria-atomic="true" className="sr-only">
 					{recordingState === "recording" ? t("a11y.recordingStarted") : ""}
-					{recordingState === "transcribing" ? t("a11y.transcribingAudio") : ""}
+					{/* Coarse transcribing/loading announcements are suppressed
+					    on the Home page: Home's dynamic status line (its single
+					    specific live region) already announces "Transcribing…
+					    please wait" / "Downloading model…", so this coarse
+					    "Transcribing audio." / "Loading model…" would
+					    double-announce the same transition across the two live
+					    regions. On every OTHER page the coarse announcement is
+					    the only one (Home isn't mounted), so keep it there. */}
+					{recordingState === "transcribing" && currentPage !== "home"
+						? t("a11y.transcribingAudio")
+						: ""}
 					{recordingState === "idle" ? t("a11y.ready") : ""}
 					{recordingState === "error" ? t("a11y.errorOccurred") : ""}
-					{recordingState === "loading" ? t("a11y.loadingModel") : ""}
+					{recordingState === "loading" && currentPage !== "home"
+						? t("a11y.loadingModel")
+						: ""}
 					{recordingState === "cancelling" ? t("a11y.cancelling") : ""}
 				</div>
 				{/* Assertive region for connection ERRORS (disconnected,

@@ -55,6 +55,32 @@ const { mockUsePythonCall, mockUsePythonEvent } = vi.hoisted(() => ({
 	mockUsePythonEvent: vi.fn(),
 }));
 
+const stable = vi.hoisted(() => ({
+	snackbarSuccess: vi.fn(),
+	snackbarError: vi.fn(),
+	snackbarWarning: vi.fn(),
+	snackbarInfo: vi.fn(),
+	markUpdated: vi.fn(),
+	captureImage: vi.fn(),
+	downloadImage: vi.fn(),
+	saveImageAs: vi.fn(),
+	copyImageToClipboard: vi.fn(),
+	revealInFolder: vi.fn(),
+	handleRetryConnection: vi.fn(),
+	navigate: vi.fn(),
+	setCurrentPage: vi.fn(),
+	handleThemeChange: vi.fn(),
+	reloadThemeFromConfig: vi.fn(),
+	setTextSize: vi.fn(),
+	handleManualRefresh: vi.fn(),
+	handleImportModel: vi.fn(),
+	downloadModel: vi.fn(),
+	deleteModel: vi.fn(),
+	setCloudApiKey: vi.fn(),
+	testCloudConnection: vi.fn(),
+	refresh: vi.fn(),
+}));
+
 vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: ({
 		children,
@@ -104,28 +130,28 @@ vi.mock("@/hooks/usePython", () => ({
 
 vi.mock("@/hooks/useSnackbar", () => ({
 	useSnackbar: () => ({
-		success: vi.fn(),
-		error: vi.fn(),
-		warning: vi.fn(),
-		info: vi.fn(),
+		success: stable.snackbarSuccess,
+		error: stable.snackbarError,
+		warning: stable.snackbarWarning,
+		info: stable.snackbarInfo,
 	}),
 }));
 
 vi.mock("@/hooks/useLastUpdated", () => ({
 	useLastUpdated: () => ({
 		agoLabel: "",
-		markUpdated: vi.fn(),
+		markUpdated: stable.markUpdated,
 	}),
 }));
 
 vi.mock("@/hooks/useStatsShare", () => ({
 	useStatsShare: () => ({
 		imageRef: { current: null },
-		captureImage: vi.fn(),
-		downloadImage: vi.fn(),
-		saveImageAs: vi.fn(),
-		copyImageToClipboard: vi.fn(),
-		revealInFolder: vi.fn(),
+		captureImage: stable.captureImage,
+		downloadImage: stable.downloadImage,
+		saveImageAs: stable.saveImageAs,
+		copyImageToClipboard: stable.copyImageToClipboard,
+		revealInFolder: stable.revealInFolder,
 	}),
 	computeShareStats: vi.fn(() => ({ dictations: 0, chars: 0, durationSec: 0 })),
 	//#7: canShareStats is a pure function used by Home.tsx
@@ -150,7 +176,7 @@ vi.mock("@/hooks/useConnection", () => ({
 		recordingState: "idle" as const,
 		connectionStatus: "connected" as const,
 		lastError: null,
-		handleRetryConnection: vi.fn(),
+		handleRetryConnection: stable.handleRetryConnection,
 	}),
 }));
 
@@ -175,19 +201,19 @@ vi.mock("@/hooks/useMediaQuery", () => ({
 
 vi.mock("@/hooks/useNavigation", () => ({
 	useNavigation: () => ({
-		navigate: vi.fn(),
+		navigate: stable.navigate,
 		currentPage: "home" as const,
-		setCurrentPage: vi.fn(),
+		setCurrentPage: stable.setCurrentPage,
 	}),
 }));
 
 vi.mock("@/hooks/useTheme", () => ({
 	useTheme: () => ({
 		themeMode: "system" as const,
-		handleThemeChange: vi.fn(),
-		reloadThemeFromConfig: vi.fn(),
+		handleThemeChange: stable.handleThemeChange,
+		reloadThemeFromConfig: stable.reloadThemeFromConfig,
 		textSize: 14,
-		setTextSize: vi.fn(),
+		setTextSize: stable.setTextSize,
 	}),
 }));
 
@@ -207,14 +233,14 @@ vi.mock("@/hooks/useModelLifecycle", () => ({
 		error: null,
 		refreshing: false,
 		agoLabel: "",
-		handleManualRefresh: vi.fn(),
-		handleImportModel: vi.fn(),
+		handleManualRefresh: stable.handleManualRefresh,
+		handleImportModel: stable.handleImportModel,
 		isImporting: false,
-		downloadModel: vi.fn(),
-		deleteModel: vi.fn(),
-		setCloudApiKey: vi.fn(),
-		testCloudConnection: vi.fn(),
-		refresh: vi.fn(),
+		downloadModel: stable.downloadModel,
+		deleteModel: stable.deleteModel,
+		setCloudApiKey: stable.setCloudApiKey,
+		testCloudConnection: stable.testCloudConnection,
+		refresh: stable.refresh,
 	}),
 }));
 
@@ -501,6 +527,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 	// combobox by its missing accessible name.
 	describe("BG-R19 #13: every mounted Select trigger has an accessible name (behavioral)", () => {
 		beforeEach(() => {
+			vi.clearAllMocks();
 			cleanup();
 		});
 
@@ -644,6 +671,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			| null = null;
 
 		beforeEach(() => {
+			vi.clearAllMocks();
 			cleanup();
 			capturedTranscriptionFinalHandler = null;
 			// Swap usePythonEvent's implementation so we can
@@ -725,6 +753,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 	// rendered switch role has an accessible name.
 	describe("PVT-049: every mounted Switch has an accessible name (behavioral)", () => {
 		beforeEach(() => {
+			vi.clearAllMocks();
 			cleanup();
 		});
 
@@ -1095,6 +1124,7 @@ describe("Item 10: TitleBar SVGs should NOT carry <title> inside aria-hidden SVG
 // complement (not duplicate) F12's Modal.test.tsx.
 describe("BG-R19 #10: Modal focus-management a11y invariants", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		cleanup();
 	});
 

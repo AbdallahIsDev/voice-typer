@@ -39,6 +39,10 @@ ALLOWED_UNTRANSLATED = {
     "settings.presetCode",  # "Code" — technical term
     "settings.notifications",  # "Notifications" — technical term
     "home.error",  # "ERROR" — technical term
+    # trayState.error — the tooltip's AppState error label. "error" is
+    # the same word in Spanish (and a universal technical cognate); the
+    # es.json value is a genuine translation, not an untranslated copy.
+    "trayState.error",
     # (client_root_i18n): "⚠ Error" — universal warning symbol +
     # technical term, identical across all locales (same rationale as
     # home.error). The bubble renders this as a small status badge
@@ -79,18 +83,10 @@ ALLOWED_UNTRANSLATED = {
     # native speakers — same rationale as the Equalizer/Limiter entries.
     "vocabulary.columnOriginal",  # "Original"
     "vocabulary.columnActions",  # "Actions"
-    # keyboard shortcut values that are universal key-combo notation
-    # (no natural translation — "Ctrl+B", "Tab / Shift+Tab", "Esc" stay
-    # identical across locales that use the Latin keyboard layout).
-    "about.toggleSidebarValue",  # "Ctrl+B"
-    "about.navigateFieldsValue",  # "Tab / Shift+Tab"
-    "about.closeDialogsValue",  # "Esc"
-    # IMPL-C (parity): "Enter or Space" and "Space" are the same universal
-    # keyboard-key notation as the about.*Value keys above.  Adding them
-    # here keeps the keyboard-shortcut table consistent — translating key
-    # names will not match how users see them on their physical keyboards.
-    "about.openDropdownsValue",  # "Enter or Space"
-    "about.toggleSwitchesValue",  # "Space"
+    # "Corrections" — the Analytics corrections card label. The word is
+    # genuinely identical in English and French ("les corrections"), so
+    # fr.json's value matches English by cognate, not by a translation gap.
+    "analytics.corrections",  # "Corrections"
     # "Auto" is a universal abbreviation for automatic mode — kept
     # identical across Latin-script locales.
     "analytics.auto",  # "Auto"
@@ -411,21 +407,11 @@ PRE_EXISTING_UNTRANSLATED = {
 #     enforces this.
 RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     # about.relativeTime.* (4 keys)
-    # help.keys.* (12 keys) — keyboard shortcut notation; many of these are
-    # universal ("Ctrl+B", "Esc", "Space") but the surrounding help-overlay
-    # framework still expects a per-locale value. Backfilled as English
-    # pending native review of which key names need translation.
-    "help.keys.activate",
-    "help.keys.cancel",
-    "help.keys.goHome",
-    "help.keys.navBack",
-    "help.keys.navigate",
-    "help.keys.openHelp",
-    "help.keys.openSettings",
-    "help.keys.repaste",
-    "help.keys.toggle",
-    "help.keys.toggleSidebar",
-    "help.keys.zoomTextSize",
+    # NOTE: help.keys.* (11 keys) were REMOVED from every locale on
+    # 2026-08-16 — the keyboard-shortcut strings now live in the renderer
+    # catalog `components/hotkey/shortcuts.ts` (single source of truth
+    # shared by TitleBar, Sidebar, About, and the Help overlay), so the
+    # per-locale copies would just be drift traps.
     # microphoneTest.* (23 keys) — microphone test result UI strings
     "microphoneTest.volume",
     # settings.fastStartup* (2 keys) — added by  (prewarm toggle)
@@ -441,13 +427,8 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     # complete bubble aria-label translations across all locales"),
     # so leaving them in RW2_BACKFILLED_PENDING_TRANSLATION would be
     # dead weight flagged by TestBackfillSetIsMinimal.
-    # about (7 keys)
-    "about.closeDialogsValue",  # "Esc"
+    # about (2 keys)
     "about.documentationLink",  # "Documentation"
-    "about.navigateFieldsValue",  # "Tab / Shift+Tab"
-    "about.openDropdownsValue",  # "Enter or Space"
-    "about.toggleSidebarValue",  # "Ctrl+B"
-    "about.toggleSwitchesValue",  # "Space"
     "about.versionValue",  # "v{version}"
     # analytics (1 key)
     "analytics.auto",  # "Auto"

@@ -93,6 +93,10 @@ const { mockCall, mockPythonEvent, mockNavigate } = vi.hoisted(() => ({
 	mockNavigate: vi.fn(),
 }));
 
+const stable = vi.hoisted(() => ({
+	showSnack: vi.fn(),
+}));
+
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({ call: mockCall }),
 	usePythonEvent: mockPythonEvent,
@@ -103,7 +107,7 @@ vi.mock("@/hooks/useNavigation", () => ({
 }));
 
 vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({ showSnack: vi.fn() }),
+	useSnackbar: () => ({ showSnack: stable.showSnack }),
 }));
 
 // Stub hugeicons. About / Settings / Models all import a handful of
@@ -309,6 +313,7 @@ function lastSetConfigPayload(): Record<string, unknown> | null {
 
 describe("About page — updates / help / feedback sections", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		// Minimal IPC mock: get_config, get_status
 		// so About doesn't blow up on its initial data fetches.
@@ -448,6 +453,7 @@ describe("About page — updates / help / feedback sections", () => {
 
 describe("Settings page — Troubleshooting section", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		localStorage.clear();
@@ -786,6 +792,7 @@ describe("VoiceTyperConfig type — consent flags", () => {
 
 describe("Models page — cloud consent toggles", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 	});

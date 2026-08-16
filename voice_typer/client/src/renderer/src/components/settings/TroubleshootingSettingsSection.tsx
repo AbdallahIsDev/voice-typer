@@ -25,7 +25,7 @@ import {
 	ShieldBanIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
@@ -57,6 +57,16 @@ export const TroubleshootingSettingsSection = memo(
 	}: TroubleshootingSettingsSectionProps) {
 		const { call } = usePython();
 		const { showSnack } = useSnackbar();
+
+		// Ref mirror of `call` so the mount probe effect depends only on
+		// `isMac`. Test mocks may return a fresh `call` per render — an
+		// effect dep on it would re-fire the probe (check_accessibility →
+		// setStaleResetCommand → re-render → new call → loop). Same
+		// pattern as useVocabulary.ts.
+		const callRef = useRef(call);
+		useEffect(() => {
+			callRef.current = call;
+		}, [call]);
 
 		// Resolve translated strings once per render so the search-visible
 		// predicate and the rendered labels share the same values.
@@ -98,7 +108,7 @@ export const TroubleshootingSettingsSection = memo(
 			let cancelled = false;
 			(async () => {
 				try {
-					const result = (await call("check_accessibility")) as {
+					const result = (await callRef.current("check_accessibility")) as {
 						suggest_reset?: boolean;
 						reset_command?: string;
 					};
@@ -119,7 +129,7 @@ export const TroubleshootingSettingsSection = memo(
 			return () => {
 				cancelled = true;
 			};
-		}, [call, isMac]);
+		}, [isMac]);
 
 		// Section-level hide-when-empty: hide the whole section unless the
 		// title OR at least one button label matches the active search query.

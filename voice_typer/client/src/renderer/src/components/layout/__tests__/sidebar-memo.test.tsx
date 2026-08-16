@@ -47,8 +47,22 @@ vi.mock("@/components/layout/ThemeSwitch", () => ({
 }));
 
 import { Sidebar } from "@/components/layout/Sidebar";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
+
+// Sidebar mounts real Radix Tooltips (HotkeyTooltip on the nav items),
+// which REQUIRE a TooltipProvider ancestor — the app shell provides
+// one (App.tsx:475). Same props as App.tsx so tooltip timing in tests
+// mirrors production. The provider sits OUTSIDE the memoized Sidebar,
+// so the re-render gating under test is unaffected.
+function wrap(ui: React.ReactElement) {
+	return (
+		<TooltipProvider delayDuration={200} skipDelayDuration={500}>
+			{ui}
+		</TooltipProvider>
+	);
+}
 
 interface SidebarProps {
 	currentPage: Page;
@@ -97,7 +111,7 @@ describe("Sidebar — React.memo re-render gating", () => {
 
 	it("parent re-render with unchanged props does NOT re-render Sidebar", () => {
 		const props = makeProps();
-		render(<TestParent props={props} />);
+		render(wrap(<TestParent props={props} />));
 		expect(themeSwitchRenderCount).toBe(1);
 
 		// Force an unrelated parent re-render. Sidebar's props are the
@@ -115,28 +129,32 @@ describe("Sidebar — React.memo re-render gating", () => {
 		// Use the same prop object references for stable callbacks; only
 		// `currentPage` changes between renders.
 		const { rerender } = render(
-			<TestParent props={makeProps({ currentPage: "home" })} />,
+			wrap(<TestParent props={makeProps({ currentPage: "home" })} />),
 		);
 		expect(themeSwitchRenderCount).toBe(1);
 
 		// Re-render with a DIFFERENT currentPage. The shallow compare
 		// detects the change and Sidebar re-renders (ThemeSwitch count
 		// increments). This proves the memo doesn't break navigation.
-		rerender(<TestParent props={makeProps({ currentPage: "settings" })} />);
+		rerender(
+			wrap(<TestParent props={makeProps({ currentPage: "settings" })} />),
+		);
 		expect(themeSwitchRenderCount).toBe(2);
 
 		// And a third navigation flips it again.
-		rerender(<TestParent props={makeProps({ currentPage: "history" })} />);
+		rerender(
+			wrap(<TestParent props={makeProps({ currentPage: "history" })} />),
+		);
 		expect(themeSwitchRenderCount).toBe(3);
 	});
 
 	it("NEVER-DOWNGRADE: changing `themeMode` re-renders Sidebar (theme toggle still works)", () => {
 		const { rerender } = render(
-			<TestParent props={makeProps({ themeMode: "light" })} />,
+			wrap(<TestParent props={makeProps({ themeMode: "light" })} />),
 		);
 		expect(themeSwitchRenderCount).toBe(1);
 
-		rerender(<TestParent props={makeProps({ themeMode: "dark" })} />);
+		rerender(wrap(<TestParent props={makeProps({ themeMode: "dark" })} />));
 		expect(themeSwitchRenderCount).toBe(2);
 	});
 });

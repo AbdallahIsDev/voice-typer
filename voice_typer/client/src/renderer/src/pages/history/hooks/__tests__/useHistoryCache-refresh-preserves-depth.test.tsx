@@ -25,6 +25,10 @@ const { mockCall } = vi.hoisted(() => ({
 	mockCall: vi.fn(),
 }));
 
+const stable = vi.hoisted(() => ({
+	markUpdated: vi.fn(),
+}));
+
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({ call: mockCall }),
 }));
@@ -32,7 +36,7 @@ vi.mock("@/hooks/usePython", () => ({
 vi.mock("@/hooks/useLastUpdated", () => ({
 	useLastUpdated: () => ({
 		agoLabel: "",
-		markUpdated: vi.fn(),
+		markUpdated: stable.markUpdated,
 		refreshing: false,
 		withRefresh: async <T,>(op: () => Promise<T>): Promise<T> => op(),
 	}),
@@ -69,6 +73,7 @@ const zeroStats: TodayStats = {
 };
 
 beforeEach(() => {
+	vi.clearAllMocks();
 	mockCall.mockReset();
 	localStorage.clear();
 	vi.resetModules();

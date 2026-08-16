@@ -69,7 +69,7 @@
  * store + resets the ``initOnce`` flag so a test can mount a fresh
  * ``useTheme`` consumer deterministically.
  */
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { usePythonEvent } from "@/hooks/usePython";
@@ -544,6 +544,16 @@ export function useTheme(
 ) {
 	const mergeConfig = useAppStore((s) => s.mergeConfig);
 
+	// callRef mirror (Home.tsx pattern): the singleton init effect below
+	// must not depend on the `call` identity — stable in production, but
+	// a test mock handing out a fresh `call` per render would re-fire
+	// it every render (OOM loop class). The mirror keeps the ref fresh;
+	// ``ensureThemeSideEffects``'s initOnce guard makes re-runs no-ops.
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
+
 	// ── Read state from the singleton store ────────────────────────
 	//
 	// ``useShallow`` collapses the 5 value reads into ONE selector
@@ -584,11 +594,13 @@ export function useTheme(
 	// and runs: (1) ``reloadThemeFromConfig`` (single ``get_config``
 	// IPC), (2) the ``beforeunload`` flush listener (single app-wide
 	// listener). Subsequent callers' mount effects are no-ops (the
-	// flag short-circuits). The ``call`` + ``mergeConfig`` references
-	// are refreshed on every call (cheap, robust to test bridge swaps).
+	// flag short-circuits). The ``call`` reference is read via
+	// ``callRef.current`` (mirrored above) so the effect deps stay
+	// identity-free; ``mergeConfig`` remains a dep because a stale
+	// config-merge closure would apply outdated theme defaults.
 	useEffect(() => {
-		ensureThemeSideEffects(call, mergeConfig);
-	}, [call, mergeConfig]);
+		ensureThemeSideEffects(callRef.current, mergeConfig);
+	}, [mergeConfig]);
 
 	// ── Theme detection & application (per-instance, idempotent) ────
 	//
@@ -663,9 +675,14 @@ export function useTheme(
 	// Promise). The ``call`` reference is refreshed from the singleton
 	// so the latest caller's bridge is used.
 	const reloadThemeFromConfig = useCallback(async () => {
-		activeCall = call;
+		// Read the freshest bridge from the mirrored ref (see the
+		// callRef mirror above) so this callback keeps a STABLE identity
+		// ([] deps) — its consumer (App.tsx → useConnectionToasts) lists
+		// it in an effect dep array, and an identity churn under test
+		// mocks would re-fire that effect on every render.
+		activeCall = callRef.current;
 		await reloadThemeFromConfigImpl();
-	}, [call]);
+	}, []);
 
 	// ── Sync theme state to localStorage on every change ────────────
 	//

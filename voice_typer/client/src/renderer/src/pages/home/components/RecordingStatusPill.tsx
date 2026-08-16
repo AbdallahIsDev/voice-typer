@@ -3,12 +3,18 @@ import { cn } from "@/lib/utils";
 
 /**
  * The coloured status pill shown at the top of the Home page. Pulses
- * while recording. The `aria-live` announcement lives in App.tsx (a
- * single sr-only live region) — a duplicate `aria-live` on this `<output>`
- * would cause double-announcements, so it's intentionally omitted.
+ * while recording.
  *
- *  / : extracted from Home.tsx so the page file stays a
- * thin composition root. Behaviour + props are preserved byte-for-byte.
+ * NOT a live region: rendered as a plain `<div>` rather than `<output>`
+ * so the implicit `status` live-region role does NOT announce
+ * statusLabel changes. Home's single status live region is the dynamic
+ * status line under the mic button (`<output aria-live="polite">` in
+ * Home.tsx), and coarse state transitions are announced by App.tsx's
+ * sr-only region ("Recording started." / "Ready." / …) — a live pill
+ * would triple-announce every state change (e.g. READY → ERROR) along
+ * side the line and the App-level region. (The original `<output>`
+ * element silently re-introduced a live region despite this intent;
+ * the extracted-file history is in Home.tsx's composition comment.)
  */
 export interface RecordingStatusPillProps {
 	statusColor: string;
@@ -22,7 +28,7 @@ export function RecordingStatusPill({
 	isRecording,
 }: RecordingStatusPillProps) {
 	return (
-		<output className="flex items-center gap-2 animate-fade-in">
+		<div className="flex items-center gap-2 animate-fade-in">
 			<span
 				className={cn(
 					"h-2 w-2 rounded-full transition-colors duration-300",
@@ -37,7 +43,7 @@ export function RecordingStatusPill({
 			>
 				{statusLabel}
 			</span>
-		</output>
+		</div>
 	);
 }
 

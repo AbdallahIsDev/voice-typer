@@ -112,6 +112,14 @@ export default function OnboardingPage({
 	// get_config so a user who already consented via Settings → Privacy
 	// can skip past.
 	const { call } = usePython();
+	// callRef mirror (Home.tsx pattern): the consent-probe effect below
+	// must not depend on the `call` identity — a test mock handing out a
+	// fresh `call` per render would re-fire the get_config probe on every
+	// render (OOM loop class). ``callRef.current`` is read instead.
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
 	const [consentAccepted, setConsentAccepted] = useState(false);
 	const [consentPersisting, setConsentPersisting] = useState(false);
 
@@ -120,9 +128,9 @@ export default function OnboardingPage({
 		let cancelled = false;
 		(async () => {
 			try {
-				const cfg = await call<{ voice_biometric_consent?: boolean }>(
-					"get_config",
-				);
+				const cfg = await callRef.current<{
+					voice_biometric_consent?: boolean;
+				}>("get_config");
 				if (cancelled) return;
 				if (cfg?.voice_biometric_consent === true) {
 					setConsentAccepted(true);
@@ -140,7 +148,7 @@ export default function OnboardingPage({
 		return () => {
 			cancelled = true;
 		};
-	}, [call, step?.step_name]);
+	}, [step?.step_name]);
 
 	const handleConsentToggle = (nextChecked: boolean) => {
 		setConsentAccepted(nextChecked);

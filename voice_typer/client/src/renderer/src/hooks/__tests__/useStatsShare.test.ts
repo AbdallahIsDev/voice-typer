@@ -28,12 +28,18 @@ function makeElement(overrides?: Partial<HTMLDivElement>): HTMLDivElement {
 const PNG_DATA_URL = "data:image/png;base64,AA==";
 
 function installWindowBridge(overrides?: {
-	saveStatsImage?: (dataUrl: string, name: string, mode: string) => Promise<unknown>;
+	saveStatsImage?: (
+		dataUrl: string,
+		name: string,
+		mode: string,
+	) => Promise<unknown>;
 	copyStatsImage?: (dataUrl: string) => Promise<unknown>;
 	revealStatsImage?: (path: string) => Promise<unknown>;
 }) {
 	const bridge = {
-		saveStatsImage: vi.fn().mockResolvedValue({ success: true, path: "/tmp/x.png" }),
+		saveStatsImage: vi
+			.fn()
+			.mockResolvedValue({ success: true, path: "/tmp/x.png" }),
 		copyStatsImage: vi.fn().mockResolvedValue({ success: true }),
 		revealStatsImage: vi.fn().mockResolvedValue({ success: true }),
 		...overrides,
@@ -142,7 +148,9 @@ describe("useStatsShare hook", () => {
 	it("downloadImage surfaces the bridge error via onError", async () => {
 		vi.mocked(toPng).mockResolvedValue(PNG_DATA_URL);
 		installWindowBridge({
-			saveStatsImage: vi.fn().mockResolvedValue({ success: false, error: "boom" }),
+			saveStatsImage: vi
+				.fn()
+				.mockResolvedValue({ success: false, error: "boom" }),
 		});
 		const onError = vi.fn();
 		const { result } = renderHook(() => useStatsShare({ onError }));
@@ -194,7 +202,9 @@ describe("useStatsShare hook", () => {
 	it("saveImageAs is silent when the user cancels the dialog", async () => {
 		vi.mocked(toPng).mockResolvedValue(PNG_DATA_URL);
 		installWindowBridge({
-			saveStatsImage: vi.fn().mockResolvedValue({ success: false, canceled: true }),
+			saveStatsImage: vi
+				.fn()
+				.mockResolvedValue({ success: false, canceled: true }),
 		});
 		const onError = vi.fn();
 		const { result } = renderHook(() => useStatsShare({ onError }));
@@ -223,7 +233,9 @@ describe("useStatsShare hook", () => {
 	it("copyImageToClipboard surfaces failures via onError", async () => {
 		vi.mocked(toPng).mockResolvedValue(PNG_DATA_URL);
 		installWindowBridge({
-			copyStatsImage: vi.fn().mockResolvedValue({ success: false, error: "nope" }),
+			copyStatsImage: vi
+				.fn()
+				.mockResolvedValue({ success: false, error: "nope" }),
 		});
 		const onError = vi.fn();
 		const { result } = renderHook(() => useStatsShare({ onError }));

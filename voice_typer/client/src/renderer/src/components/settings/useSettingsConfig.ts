@@ -155,6 +155,18 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 		configRef.current = config;
 	}, [config]);
 
+	// callRef mirror (Home.tsx pattern): `loadConfig` must keep a STABLE
+	// identity ([] deps) so the Settings page's mount effect (and the
+	// handleManualRefresh wrapper) don't re-fire on a `call` identity
+	// change. `call` is useCallback-stable in production, but a test
+	// mock handing out a FRESH `call` per render would re-trigger the
+	// mount effect (get_config → setConfig → re-render → new call →
+	// loop → worker OOM). The mirror keeps the ref fresh.
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
+
 	// Per-instance cancelled flag. Set to `true` on unmount so any
 	// in-flight `loadConfig` fetch (whether triggered by the Settings
 	// page's mount effect, a `config_changed` event, or a manual refresh)
@@ -177,7 +189,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 	const loadConfig = useCallback(
 		async (isCancelled: () => boolean = () => cancelledRef.current) => {
 			try {
-				const result = await call<VoiceTyperConfig>("get_config");
+				const result = await callRef.current<VoiceTyperConfig>("get_config");
 				// Short-circuit every setState after the await so an
 				// unmounted component (or a stale invocation superseded by a
 				// newer `loadConfig` call) does not have its in-flight
@@ -195,7 +207,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 				}
 			}
 		},
-		[call],
+		[],
 	);
 
 	const flushPendingUpdates = useCallback(async () => {

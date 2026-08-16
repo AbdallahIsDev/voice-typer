@@ -58,6 +58,16 @@ export function useTemplates({
 	call,
 	showSnack,
 }: UseTemplatesArgs): UseTemplatesResult {
+	// Ref mirror of `call` so `loadRows` keeps a STABLE identity ([]
+	// deps). `call` is useCallback-stable in production, but test mocks
+	// return a FRESH call per render — an identity churn would re-fire
+	// the mount-load effect (loadRows → setTemplates → re-render → new
+	// call → loop → worker OOM). Same pattern as useVocabulary.ts.
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
+
 	const [templates, setTemplates] = useState<TemplateRow[]>([]);
 	const [loading, setLoading] = useState(true);
 	//surface backend-load failures (IPC error or malformed
@@ -110,7 +120,7 @@ export function useTemplates({
 			let backendTemplates: Template[] = [];
 			let backendFailed = false;
 			try {
-				backendTemplates = await loadTemplatesFromBackend(call);
+				backendTemplates = await loadTemplatesFromBackend(callRef.current);
 			} catch (err) {
 				// Backend not yet ready (e.g. Python still booting).  Fall
 				// back to localStorage so the page is still usable; the next
@@ -126,11 +136,11 @@ export function useTemplates({
 			// One-time migration: if backend is empty AND localStorage has
 			// data AND we haven't migrated yet, push localStorage → backend.
 			const migrated = localStorage.getItem(MIGRATION_FLAG_KEY) === "1";
-			if (backendTemplates.length === 0 && !migrated && call) {
+			if (backendTemplates.length === 0 && !migrated && callRef.current) {
 				const localItems = loadTemplatesFromLocalStorage();
 				if (localItems.length > 0) {
 					try {
-						await call("save_templates", { templates: localItems });
+						await callRef.current("save_templates", { templates: localItems });
 						backendTemplates = localItems;
 						console.warn(
 							"[renderer:useTemplates] Migrated %d templates from localStorage to backend",
@@ -184,7 +194,7 @@ export function useTemplates({
 		} finally {
 			setLoading(false);
 		}
-	}, [call]);
+	}, []);
 
 	useEffect(() => {
 		loadRows();

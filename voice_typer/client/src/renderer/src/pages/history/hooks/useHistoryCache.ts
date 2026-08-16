@@ -37,7 +37,7 @@
 // loop lives in ``useHistoryExport``; the client-side sort lives in
 // ``historySort.ts``.
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython } from "@/hooks/usePython";
 import type { HistoryRecord, TodayStats } from "@/types/ipc";
@@ -100,6 +100,21 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 
 	const { agoLabel, markUpdated } = useLastUpdated();
 	const { call } = usePython();
+
+	// Ref mirrors of `call` / `markUpdated` so the load callbacks keep
+	// STABLE identities (`[]`-ish deps). Both are useCallback-stable in
+	// production, but test mocks return FRESH functions per render — an
+	// identity churn would re-create `load` every render and re-fire the
+	// page's mount-load effect (fetch → setRecords → re-render → new
+	// call → loop → worker OOM). Same pattern as useVocabulary.ts.
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
+	const markUpdatedRef = useRef(markUpdated);
+	useEffect(() => {
+		markUpdatedRef.current = markUpdated;
+	}, [markUpdated]);
 
 	// Ref mirror of the active filter so the page can call
 	// ``setFilter(searchQuery, favoritesOnly)`` on every render (cheap —
@@ -176,17 +191,17 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 			// the export) reflects what the user is asking for, not always
 			// the full history.
 			if (favoritesOnly) {
-				return call<HistoryRecord[]>("get_favorites", payload);
+				return callRef.current<HistoryRecord[]>("get_favorites", payload);
 			}
 			if (query.trim() !== "") {
-				return call<HistoryRecord[]>("search_history", {
+				return callRef.current<HistoryRecord[]>("search_history", {
 					query,
 					...payload,
 				});
 			}
-			return call<HistoryRecord[]>("get_history", payload);
+			return callRef.current<HistoryRecord[]>("get_history", payload);
 		},
-		[call],
+		[],
 	);
 
 	// ``load`` is invoked from the page mount effect, the search debounce,
@@ -210,7 +225,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 				// last row of this page for subsequent fetches.
 				const [rows, todayStats] = await Promise.all([
 					fetchPage(q, fav, HISTORY_PAGE_SIZE, 0),
-					call<TodayStats>("get_today_stats"),
+					callRef.current<TodayStats>("get_today_stats"),
 				]);
 				const safeRows = Array.isArray(rows) ? rows : [];
 				setRecords(safeRows.slice(0, HISTORY_MAX_ROWS));
@@ -229,7 +244,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 				// find out".
 				setHasMore(safeRows.length >= HISTORY_PAGE_SIZE);
 				offsetRef.current = safeRows.length;
-				markUpdated();
+				markUpdatedRef.current();
 			} catch (err) {
 				console.error("[renderer:History] load failed:", err);
 				setRecords([]);
@@ -238,7 +253,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 				setLoading(false);
 			}
 		},
-		[fetchPage, call, markUpdated],
+		[fetchPage],
 	);
 
 	const loadMore = useCallback(async () => {
@@ -299,7 +314,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 			const refreshLimit = Math.max(HISTORY_PAGE_SIZE, offsetRef.current);
 			const [rows, todayStats] = await Promise.all([
 				fetchPage(query, favoritesOnly, refreshLimit, 0),
-				call<TodayStats>("get_today_stats"),
+				callRef.current<TodayStats>("get_today_stats"),
 			]);
 			const safeRows = Array.isArray(rows) ? rows : [];
 			setRecords(safeRows.slice(0, HISTORY_MAX_ROWS));
@@ -313,11 +328,11 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 			);
 			setHasMore(safeRows.length >= refreshLimit);
 			offsetRef.current = safeRows.length;
-			markUpdated();
+			markUpdatedRef.current();
 		} catch (err) {
 			console.warn("[renderer:History] background refresh failed:", err);
 		}
-	}, [fetchPage, call, markUpdated]);
+	}, [fetchPage]);
 
 	// Cheap ref-only update — called on every page render to keep the
 	// hook's filter mirror in sync with the page's state. Must NOT

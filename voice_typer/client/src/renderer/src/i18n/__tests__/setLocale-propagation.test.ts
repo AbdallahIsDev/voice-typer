@@ -430,6 +430,102 @@ describe("NH-4: trayLabelsForLocale helper", () => {
 		);
 		expect(labels["state.app.starting"]).toBe("Starting...");
 	});
+
+	it("pushes every server tray state message under its server key", () => {
+		// Every ``state.*`` key in the server i18n registry must follow
+		// the renderer locale via ``set_tray_locale`` — not just
+		// no-model-selected. The server keys map to ``trayState.*``
+		// renderer translations (placeholders stay literal so the
+		// server's i18n.t formats them at call time).
+		registerTranslations("en", {
+			models: { title: "Models" },
+			microphone: { microphone: "Microphone" },
+			trayState: {
+				recording: "recording",
+				error: "error",
+				recordingController: {
+					recordingFailed: "Recording failed",
+					tooShort: "Too short -- ignored",
+					loadingQueued:
+						"Loading model -- your dictation will start automatically…",
+				},
+				modelManager: {
+					modelNotDownloaded:
+						"No models are available. Open the models page to download a model.",
+					readyWhisper: "Ready -- {device_info}",
+				},
+				pipeline: {
+					noSpeechDetected: "No speech detected",
+					transcriptionEmpty: "Transcription returned empty",
+					donePasted: "Done -- {count} chars (pasted)",
+					doneInDb: "Done -- {count} chars (in DB, use repaste hotkey)",
+					doneInClipboard: "Done -- {count} chars (in clipboard)",
+				},
+			},
+		});
+		setLocale("en" as Locale);
+		const labels = trayLabelsForLocale();
+		// recording_controller
+		expect(labels["state.recording_controller.recording_failed"]).toBe(
+			"Recording failed",
+		);
+		expect(labels["state.recording_controller.too_short"]).toBe(
+			"Too short -- ignored",
+		);
+		expect(labels["state.recording_controller.loading_queued"]).toBe(
+			"Loading model -- your dictation will start automatically…",
+		);
+		// model_manager
+		expect(labels["state.model_manager.model_not_downloaded"]).toBe(
+			"No models are available. Open the models page to download a model.",
+		);
+		// placeholders preserved verbatim (server formats them later)
+		expect(labels["state.model_manager.ready_whisper"]).toBe(
+			"Ready -- {device_info}",
+		);
+		// AppState fallback labels
+		expect(labels["state.recording"]).toBe("recording");
+		expect(labels["state.error"]).toBe("error");
+		// dictation pipeline
+		expect(labels["state.dictation_pipeline.no_speech_detected"]).toBe(
+			"No speech detected",
+		);
+		expect(labels["state.dictation_pipeline.transcription_empty"]).toBe(
+			"Transcription returned empty",
+		);
+		// paste_step "Done -- N chars (mode)" statuses (dynamic count)
+		expect(labels["state.dictation_pipeline.done_pasted"]).toBe(
+			"Done -- {count} chars (pasted)",
+		);
+		expect(labels["state.dictation_pipeline.done_in_db"]).toBe(
+			"Done -- {count} chars (in DB, use repaste hotkey)",
+		);
+		expect(labels["state.dictation_pipeline.done_in_clipboard"]).toBe(
+			"Done -- {count} chars (in clipboard)",
+		);
+	});
+
+	it("pushes the no-model-selected message under the server key (tray/Home agreement)", () => {
+		// The tray tooltip and the Home status hint must show the SAME
+		// localized message for the "no model selected" error state.
+		// `trayLabelsForLocale` maps the server key
+		// `state.model_manager.no_model_selected` to the renderer key
+		// `home.noModelSelectedHint`, so the pushed payload carries the
+		// Home hint's translation verbatim.
+		registerTranslations("en", {
+			models: { title: "Models" },
+			microphone: { microphone: "Microphone" },
+			home: {
+				noModelSelectedHint:
+					"No model selected. Go to the models page to select a model.",
+			},
+		});
+		setLocale("en" as Locale);
+		const labels = trayLabelsForLocale();
+		expect(labels["state.model_manager.no_model_selected"]).toBe(
+			"No model selected. Go to the models page to select a model.",
+		);
+	});
 });
 
 describe("NH-2/NH-3/NH-4 combined: a single setLocale call triggers all propagations", () => {

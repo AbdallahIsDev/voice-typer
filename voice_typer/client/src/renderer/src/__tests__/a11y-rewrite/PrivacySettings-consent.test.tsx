@@ -36,6 +36,11 @@ const renderWithProviders = (ui: React.ReactElement) =>
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const stable = vi.hoisted(() => ({
+	pythonCall: vi.fn(),
+	showSnack: vi.fn(),
+}));
+
 vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: () => <span data-testid="hugeicon" />,
 }));
@@ -48,11 +53,11 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 });
 
 vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: vi.fn() }),
+	usePython: () => ({ call: stable.pythonCall }),
 }));
 
 vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({ showSnack: vi.fn() }),
+	useSnackbar: () => ({ showSnack: stable.showSnack }),
 }));
 
 vi.mock("sonner", () => ({
@@ -193,6 +198,7 @@ const alwaysVisible = () => true;
 
 describe("PrivacySettings consent toggles — RW-0 rewrite of test_settings_has_all_consent_toggles_consolidated", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		cleanup();
 	});
 

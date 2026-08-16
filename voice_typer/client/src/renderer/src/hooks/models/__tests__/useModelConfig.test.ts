@@ -124,7 +124,7 @@ describe("useModelConfig — loadConfig (parallelized fetch)", () => {
 			if (cmd === "get_config") return Promise.resolve(cfg);
 			if (cmd === "get_model_status")
 				return Promise.resolve({
-					"tiny": { downloaded: true, deps_ok: true },
+					tiny: { downloaded: true, deps_ok: true },
 				});
 			if (cmd === "get_model_catalog")
 				return Promise.resolve({
@@ -164,8 +164,8 @@ describe("useModelConfig — loadConfig (parallelized fetch)", () => {
 		// Config + models + catalog state populated.
 		expect(result.current.config?.model_size).toBe("tiny");
 		expect(result.current.models.length).toBeGreaterThan(0);
-		expect(result.current.modelCatalog["tiny"]).toBeDefined();
-		expect(result.current.modelCatalog["tiny"]?.download_size_mb).toBe(466);
+		expect(result.current.modelCatalog.tiny).toBeDefined();
+		expect(result.current.modelCatalog.tiny?.download_size_mb).toBe(466);
 
 		// markUpdated invoked at the end of loadConfig (finally block).
 		expect(args.markUpdated).toHaveBeenCalled();
@@ -298,7 +298,7 @@ describe("useModelConfig — refreshModelStatus helper", () => {
 			if (cmd === "get_config") return Promise.resolve(initial);
 			if (cmd === "get_model_status")
 				return Promise.resolve({
-					"tiny": { downloaded: true, deps_ok: true },
+					tiny: { downloaded: true, deps_ok: true },
 					"large-v3-turbo": { downloaded: false, deps_ok: true },
 				});
 			if (cmd === "get_model_catalog") return Promise.resolve({ models: [] });
@@ -316,7 +316,7 @@ describe("useModelConfig — refreshModelStatus helper", () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "get_model_status")
 				return Promise.resolve({
-					"tiny": { downloaded: true, deps_ok: true },
+					tiny: { downloaded: true, deps_ok: true },
 				});
 			return Promise.resolve({});
 		});
@@ -342,7 +342,7 @@ describe("useModelConfig — refreshModelStatus helper", () => {
 			if (cmd === "get_config") return Promise.resolve(initial);
 			if (cmd === "get_model_status")
 				return Promise.resolve({
-					"tiny": { downloaded: false, deps_ok: true },
+					tiny: { downloaded: false, deps_ok: true },
 					"large-v3-turbo": { downloaded: true, deps_ok: true },
 				});
 			if (cmd === "get_model_catalog") return Promise.resolve({ models: [] });
@@ -370,7 +370,7 @@ describe("useModelConfig — refreshModelStatus helper", () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "get_model_status")
 				return Promise.resolve({
-					"tiny": { downloaded: false, deps_ok: true },
+					tiny: { downloaded: false, deps_ok: true },
 					"large-v3-turbo": { downloaded: true, deps_ok: true },
 				});
 			return Promise.resolve({});

@@ -47,7 +47,7 @@
  * The WindowBridge is stubbed so the component can mount in jsdom
  * without the Electron preload present.
  */
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@hugeicons/react", () => ({
@@ -64,7 +64,20 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 });
 
 import { TitleBar } from "@/components/layout/TitleBar";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { WindowBridge } from "@/types/ipc";
+
+// TitleBar renders real Radix Tooltips (via HotkeyTooltip on the
+// sidebar/back/forward/help buttons), which REQUIRE a TooltipProvider
+// ancestor — the app shell provides one (App.tsx:475). Same props as
+// App.tsx so tooltip timing in tests mirrors production.
+function renderWithProviders(ui: React.ReactElement) {
+	return render(
+		<TooltipProvider delayDuration={200} skipDelayDuration={500}>
+			{ui}
+		</TooltipProvider>,
+	);
+}
 
 const WIN_UA =
 	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
@@ -151,7 +164,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		render(
+		renderWithProviders(
 			<WinTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -169,7 +182,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		render(
+		renderWithProviders(
 			<WinTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -208,7 +221,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		render(
+		renderWithProviders(
 			<WinTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -231,7 +244,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		const { container } = render(
+		const { container } = renderWithProviders(
 			<WinTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -257,7 +270,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		render(
+		renderWithProviders(
 			<WinTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -294,7 +307,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		render(
+		renderWithProviders(
 			<WinTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={true}
@@ -314,7 +327,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		render(
+		renderWithProviders(
 			<WinTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -343,7 +356,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		render(
+		renderWithProviders(
 			<WinTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -365,7 +378,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		const { container } = render(
+		const { container } = renderWithProviders(
 			<WinTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -405,7 +418,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		render(
+		renderWithProviders(
 			<WinTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -433,7 +446,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		render(
+		renderWithProviders(
 			<WinTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -448,7 +461,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 
 	it("PROD-9: sidebar toggle button exposes aria-keyshortcuts='Control+B'", async () => {
 		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
-		render(
+		renderWithProviders(
 			<WinTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -460,9 +473,38 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 		expect(toggle.getAttribute("aria-keyshortcuts")).toBe("Control+B");
 	});
 
+	it("renders the sidebar-toggle shortcut as Kbd chips in a Radix tooltip, keeping the aria-label", async () => {
+		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
+		renderWithProviders(
+			<WinTitleBar
+				onToggleSidebar={() => {}}
+				isMaximized={false}
+				onOpenHelp={() => {}}
+			/>,
+		);
+		const toggle = screen.getByLabelText("Toggle sidebar (Ctrl+B)");
+		// The plain-text `title` is gone — the shortcut moved into the
+		// Radix tooltip as Kbd chips.
+		expect(toggle.hasAttribute("title")).toBe(false);
+		// Focusing the trigger opens the tooltip (Radix opens on focus).
+		toggle.focus();
+		const tooltip = await screen.findByRole("tooltip");
+		// Label text + one <kbd> chip per key of the combo ("Ctrl+B").
+		// (KbdGroup wraps the combo in an outer <kbd>, so we assert the
+		// chip texts rather than a fixed element count.)
+		expect(within(tooltip).getByText("Toggle sidebar")).toBeTruthy();
+		const kbdTexts = Array.from(tooltip.querySelectorAll("kbd")).map(
+			(k) => k.textContent,
+		);
+		expect(kbdTexts).toContain("Ctrl");
+		expect(kbdTexts).toContain("B");
+		// The accessible name is preserved — aria-label untouched.
+		expect(toggle.getAttribute("aria-label")).toBe("Toggle sidebar (Ctrl+B)");
+	});
+
 	it("PROD-9: help button exposes aria-keyshortcuts='?'", async () => {
 		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
-		render(
+		renderWithProviders(
 			<WinTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -479,7 +521,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		render(
+		renderWithProviders(
 			<WinTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -519,7 +561,7 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		render(
+		renderWithProviders(
 			<LinuxTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -539,7 +581,7 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 		const { TitleBar: LinuxTitleBar } = await loadTitleBarFor(LINUX_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		render(
+		renderWithProviders(
 			<LinuxTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -568,7 +610,7 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 		const { TitleBar: LinuxTitleBar } = await loadTitleBarFor(LINUX_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		render(
+		renderWithProviders(
 			<LinuxTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -593,7 +635,7 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 		const { TitleBar: LinuxTitleBar } = await loadTitleBarFor(LINUX_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		render(
+		renderWithProviders(
 			<LinuxTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -616,7 +658,7 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 		const { TitleBar: LinuxTitleBar } = await loadTitleBarFor(LINUX_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		render(
+		renderWithProviders(
 			<LinuxTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -632,7 +674,7 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 		const { TitleBar: LinuxTitleBar } = await loadTitleBarFor(LINUX_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		render(
+		renderWithProviders(
 			<LinuxTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -663,7 +705,7 @@ describe("TitleBar — macOS native traffic-light mode", () => {
 
 	it("hides the Windows-style minimize/maximize/close buttons on macOS (native traffic lights instead)", async () => {
 		const MacTitleBar = await loadMacTitleBar();
-		render(
+		renderWithProviders(
 			<MacTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -680,7 +722,7 @@ describe("TitleBar — macOS native traffic-light mode", () => {
 
 	it("reserves a traffic-light gutter on macOS so bar buttons don't collide with the dots", async () => {
 		const MacTitleBar = await loadMacTitleBar();
-		const { container } = render(
+		const { container } = renderWithProviders(
 			<MacTitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -712,7 +754,7 @@ describe("TitleBar — XA-1 (focus-ring parity + sidebar-toggle hover)", () => {
 	});
 
 	it("XA-1: sidebar-toggle button has rounded + transition + hover:bg-foreground/5 (parity with back/forward/help)", () => {
-		render(
+		renderWithProviders(
 			<TitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -731,7 +773,7 @@ describe("TitleBar — XA-1 (focus-ring parity + sidebar-toggle hover)", () => {
 	});
 
 	it("XA-1: all four TitleBar icon buttons use the shared focusRing (ring-3, not ring-2)", () => {
-		render(
+		renderWithProviders(
 			<TitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}
@@ -759,7 +801,7 @@ describe("TitleBar — XA-1 (focus-ring parity + sidebar-toggle hover)", () => {
 	it("XA-1: window-control TitleBarButtons use ring-3 focus ring (matches Button)", () => {
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		render(
+		renderWithProviders(
 			<TitleBar
 				onToggleSidebar={() => {}}
 				isMaximized={false}

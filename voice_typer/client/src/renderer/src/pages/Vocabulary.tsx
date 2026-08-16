@@ -34,12 +34,16 @@ import { VocabQuickAdd } from "./vocabulary/components/VocabQuickAdd";
 import { VocabSearchFilterBar } from "./vocabulary/components/VocabSearchFilterBar";
 import { VocabTestPanel } from "./vocabulary/components/VocabTestPanel";
 import { VocabToolbar } from "./vocabulary/components/VocabToolbar";
-import { useVocabulary } from "./vocabulary/hooks/useVocabulary";
+import { usageKey, useVocabulary } from "./vocabulary/hooks/useVocabulary";
 import { useVocabularyDialog } from "./vocabulary/hooks/useVocabularyDialog";
 import { useVocabularyImportExport } from "./vocabulary/hooks/useVocabularyImportExport";
 import { useVocabularyQuickAdd } from "./vocabulary/hooks/useVocabularyQuickAdd";
 import { useVocabularySelection } from "./vocabulary/hooks/useVocabularySelection";
 import { useVocabularyTester } from "./vocabulary/hooks/useVocabularyTester";
+import {
+	type EntryTestResult,
+	testPhraseOnServer,
+} from "./vocabulary/lib/testServer";
 import {
 	findDuplicateGroups,
 	normalizeWrongPhrase,
@@ -88,6 +92,7 @@ export default function VocabularyPage() {
 		sortOrder,
 		setSortOrder,
 		filteredSorted,
+		usageByKey,
 	} = useVocabulary({ call, showSnack });
 
 	//: mark the data as fresh once the page has finished a load (or an
@@ -165,6 +170,41 @@ export default function VocabularyPage() {
 	// backend correction engine (debounced) with a client-mirror
 	// fallback; see useVocabularyTester.
 	const tester = useVocabularyTester({ call, entries, query: testQuery });
+
+	// Per-entry "Test this entry" — runs the entry's wrong phrase
+	// through the LIVE server engine (no client mirror): the result is
+	// the authoritative answer. One test at a time; clicking another
+	// row's button replaces it. ``entryTestIdRef`` guards the async
+	// continuation so a slow response for an earlier row can't clobber
+	// a newer test.
+	const [entryTest, setEntryTest] = useState<{
+		id: string;
+		result: EntryTestResult;
+	} | null>(null);
+	const entryTestIdRef = useRef<string | null>(null);
+
+	const handleTestEntry = useCallback(
+		async (entry: VocabRow) => {
+			entryTestIdRef.current = entry._id;
+			setEntryTest({ id: entry._id, result: { status: "running" } });
+			try {
+				const { output, applied } = await testPhraseOnServer(
+					call,
+					entry.original,
+				);
+				if (entryTestIdRef.current !== entry._id) return;
+				setEntryTest({
+					id: entry._id,
+					result: { status: "done", output, applied },
+				});
+			} catch (err) {
+				console.warn("[renderer:Vocabulary] live engine test failed:", err);
+				if (entryTestIdRef.current !== entry._id) return;
+				setEntryTest({ id: entry._id, result: { status: "error" } });
+			}
+		},
+		[call],
+	);
 
 	// One-time cleanup: surface PRE-EXISTING duplicates (same wrong
 	// phrase, case-insensitive) already in the list so the user can
@@ -318,6 +358,7 @@ export default function VocabularyPage() {
 						output={tester.output}
 						applied={tester.applied}
 						pending={tester.pending}
+						usingFallback={tester.usingFallback}
 					/>
 				)}
 
@@ -372,6 +413,13 @@ export default function VocabularyPage() {
 												onToggleSelect={selection.toggleSelect}
 												onEdit={handleEdit}
 												onDelete={instantDeleteEntry}
+												onTest={handleTestEntry}
+												testResult={
+													entryTest?.id === entry._id ? entryTest.result : null
+												}
+												usage={usageByKey.get(
+													usageKey(entry.category, entry.original),
+												)}
 											/>
 										))}
 									</div>

@@ -32,57 +32,33 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module. The sonner toast
+// fns are singletons (toast.warning === stableMocks.toastWarning), so
+// the assertions below observe the page's calls via the destructured
+// names instead of a static `import { toast } from "sonner"` (a static
+// sonner import would be hoisted ABOVE the stableMocks import by the
+// import sorter and break the mock-factory binding order).
+import {
+	hugeiconsCoreMock,
+	hugeiconsReactMock,
+	navigationMock,
+	pythonMock,
+	resetStableMocks,
+	sonnerMock,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useConsentGateStore } from "@/lib/consentGate";
 
-const { mockCall, mockPythonEvent, mockNavigate } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	mockPythonEvent: vi.fn(),
-	mockNavigate: vi.fn(),
-}));
+const { mockCall, mockPythonEvent, mockNavigate, toastWarning } = stableMocks;
 
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-	usePythonEvent: mockPythonEvent,
-}));
-
-vi.mock("@/hooks/useNavigation", () => ({
-	useNavigation: () => ({ navigate: mockNavigate }),
-}));
-
-vi.mock("@hugeicons/react", () => ({
-	HugeiconsIcon: ({
-		children,
-		icon,
-	}: {
-		children?: React.ReactNode;
-		icon?: { name?: string };
-	}) => (
-		<span data-testid="hugeicon" data-name={icon?.name}>
-			{children}
-		</span>
-	),
-}));
-
-vi.mock("@hugeicons/core-free-icons", async () => {
-	const { createHugeiconsMock } = await import(
-		"@/__tests__/helpers/hugeicons-mock"
-	);
-	return createHugeiconsMock();
-});
-
-vi.mock("sonner", () => ({
-	toast: {
-		success: vi.fn(),
-		error: vi.fn(),
-		warning: vi.fn(),
-		info: vi.fn(),
-		dismiss: vi.fn(),
-	},
-	Toaster: () => null,
-}));
+vi.mock("@/hooks/usePython", () => pythonMock());
+vi.mock("@/hooks/useNavigation", () => navigationMock());
+vi.mock("@hugeicons/react", () => hugeiconsReactMock());
+vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
+vi.mock("sonner", () => sonnerMock());
 
 // File-level cleanup so renders from one `it` block don't leak into the
 // next (each describe block below doesn't have to repeat the boilerplate).
@@ -101,8 +77,8 @@ async function renderHome() {
 
 describe("QV-9: lastText is rendered inside an <output aria-live='polite'> region", () => {
 	beforeEach(() => {
-		mockCall.mockReset();
-		mockPythonEvent.mockReset();
+		// Reset the shared singletons (mockCall, mockPythonEvent, mockNavigate, …).
+		resetStableMocks();
 		localStorage.clear();
 		vi.resetModules();
 		// Keep the backend calls pending so initial-load effects don't
@@ -222,12 +198,11 @@ describe("QV-16: MicToggleButton exposes aria-pressed matching isRecording", () 
 	});
 });
 
-//RecordingErrorCard retry label matches the action ──
-//
-// The shared `<Button>` from `@/components/ui/button` is mocked here so
-// the RecordingErrorCard can be tested in isolation. The shared Button
-// has a dev-mode useEffect (owned by another sub-agent) that is
-// orthogonal to the retry-label contract under test.
+// The shared `<Button>` from `@/components/ui/button` is mocked so
+// components rendered through Home (e.g. MicToggleButton) can be tested
+// without the shared Button's dev-mode useEffect. File-level mock —
+// kept even though RecordingErrorCard (its original reason for existing)
+// has been removed.
 
 vi.mock("@/components/ui/button", () => ({
 	Button: ({
@@ -247,45 +222,12 @@ vi.mock("@/components/ui/button", () => ({
 	),
 }));
 
-describe("QV-11: RecordingErrorCard retry button label defaults to t('home.retry') and can be overridden", () => {
-	it("renders the default 'Retry' label when retryLabel is not provided", async () => {
-		const { RecordingErrorCard } = await import(
-			"@/pages/home/components/RecordingErrorCard"
-		);
-		render(
-			<RecordingErrorCard message="boom" onRetry={() => {}} retrying={false} />,
-		);
-		// en.json value for home.retry is "Retry".
-		expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
-	});
-
-	it("renders the provided retryLabel so the action matches the label", async () => {
-		const { RecordingErrorCard } = await import(
-			"@/pages/home/components/RecordingErrorCard"
-		);
-		render(
-			<RecordingErrorCard
-				message="boom"
-				onRetry={() => {}}
-				retrying={false}
-				retryLabel="Start dictation"
-			/>,
-		);
-		// The override must replace the default label.
-		expect(
-			screen.getByRole("button", { name: "Start dictation" }),
-		).toBeTruthy();
-		// The default label must NOT appear when the override is set.
-		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
-	});
-});
-
 //(a): live MM:SS timer renders while recording ──
 
 describe("QV-49(a): Home renders a live MM:SS timer while recording", () => {
 	beforeEach(() => {
-		mockCall.mockReset();
-		mockPythonEvent.mockReset();
+		// Reset the shared singletons (mockCall, mockPythonEvent, mockNavigate, …).
+		resetStableMocks();
 		localStorage.clear();
 		vi.resetModules();
 		mockCall.mockImplementation(() => new Promise(() => {}));
@@ -331,9 +273,8 @@ describe("QV-49(a): Home renders a live MM:SS timer while recording", () => {
 
 describe("Home renders the single dynamic status line below the mic button", () => {
 	beforeEach(() => {
-		mockCall.mockReset();
-		mockPythonEvent.mockReset();
-		mockNavigate.mockReset();
+		// Reset the shared singletons (mockCall, mockPythonEvent, mockNavigate, …).
+		resetStableMocks();
 		localStorage.clear();
 		vi.resetModules();
 		mockCall.mockImplementation(() => new Promise(() => {}));
@@ -401,6 +342,78 @@ describe("Home renders the single dynamic status line below the mic button", () 
 		expect(screen.queryByText("or click to dictate")).toBeNull();
 	});
 
+	it("navigates to the Models page when the 'No model selected' hint is clicked", async () => {
+		// Resolve get_config with the NO_MODEL_SIZE sentinel ("") so the
+		// no-model branch renders the clickable hint.
+		mockCall.mockImplementation((cmd: string) => {
+			if (cmd === "get_config") {
+				return Promise.resolve({ hotkey: "<f2>", model_size: "" });
+			}
+			return new Promise(() => {});
+		});
+		const { useAppStore } = await import("@/stores/appStore");
+		useAppStore.setState({ recordingState: "idle", lastError: null });
+
+		await renderHome();
+
+		const hint = await screen.findByRole("button", {
+			name: "No model selected. Go to the models page to select a model.",
+		});
+		fireEvent.click(hint);
+		expect(mockNavigate).toHaveBeenCalledWith("models");
+	});
+
+	it("flips the status pill to the error state when the dynamic line shows an error (no model selected)", async () => {
+		// Resolve get_config with the NO_MODEL_SIZE sentinel ("") so
+		// the no-model branch of the status line activates — the pill
+		// must agree with the red error line below the button instead of
+		// staying in the underlying idle state.
+		mockCall.mockImplementation((cmd: string) => {
+			if (cmd === "get_config") {
+				return Promise.resolve({ hotkey: "<f2>", model_size: "" });
+			}
+			return new Promise(() => {});
+		});
+		const { useAppStore } = await import("@/stores/appStore");
+		useAppStore.setState({ recordingState: "idle", lastError: null });
+
+		await renderHome();
+
+		// Wait for the error line to render (config loaded).
+		await screen.findByText(
+			"No model selected. Go to the models page to select a model.",
+		);
+
+		// The pill shows the error label + red dot (en.json
+		// home.error = "ERROR", STATUS_COLORS.error = #E74C3C).
+		const pillLabel = screen.getByText("ERROR");
+		expect(pillLabel).toBeTruthy();
+		const dot = pillLabel.previousElementSibling as HTMLElement | null;
+		expect(dot?.style.backgroundColor).toBe("rgb(231, 76, 60)");
+		// The underlying state is NOT shown — "READY" is gone.
+		expect(screen.queryByText("READY")).toBeNull();
+	});
+
+	it("keeps the status pill in the underlying state when the dynamic line is not an error", async () => {
+		// Model selected (tiny) + idle → the pill stays "Ready" because
+		// the dynamic line below is the default hotkey hint, not an
+		// error.
+		mockCall.mockImplementation((cmd: string) => {
+			if (cmd === "get_config") {
+				return Promise.resolve({ hotkey: "<f2>", model_size: "tiny" });
+			}
+			return new Promise(() => {});
+		});
+		const { useAppStore } = await import("@/stores/appStore");
+		useAppStore.setState({ recordingState: "idle", lastError: null });
+
+		await renderHome();
+
+		// en.json home.ready = "READY".
+		await screen.findByText("READY");
+		expect(screen.queryByText("ERROR")).toBeNull();
+	});
+
 	it("renders 'Preparing offline engine…' in the status line after an attempted dictation with the pack not ready", async () => {
 		const { useAppStore } = await import("@/stores/appStore");
 		useAppStore.setState({ recordingState: "idle", lastError: null });
@@ -433,6 +446,59 @@ describe("Home renders the single dynamic status line below the mic button", () 
 	});
 });
 
+// Exactly ONE live region across the three status surfaces ──
+//
+// The pill, the recording timer, and the dynamic status line all
+// derive from the same recordingState store. Only the dynamic line
+// may be a live region: the pill is a plain <div> (no implicit
+// `status` role) and the timer is role="timer" (implicit
+// aria-live="off"). This guard asserts the invariant so a future
+// <output> swap or stray aria-live can't silently double-announce
+// every state change.
+
+describe("Home keeps exactly ONE live region across pill / timer / dynamic line", () => {
+	beforeEach(() => {
+		// Reset the shared singletons (mockCall, mockPythonEvent, mockNavigate, …).
+		resetStableMocks();
+		localStorage.clear();
+		vi.resetModules();
+		mockCall.mockImplementation(() => new Promise(() => {}));
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("renders all three surfaces with exactly one [aria-live] element — the dynamic line", async () => {
+		// Recording state puts ALL THREE surfaces in the DOM at once:
+		// the pill (RECORDING label), the MM:SS timer, and the dynamic
+		// status line.
+		const { useAppStore } = await import("@/stores/appStore");
+		useAppStore.setState({ recordingState: "recording", lastError: null });
+
+		await renderHome();
+
+		// The pill must be present but NON-live — a plain <div>, never
+		// an <output> (whose implicit `status` role is a live region).
+		const pillLabel = screen.getByText("RECORDING");
+		expect(pillLabel.closest("output")).toBeNull();
+		expect(pillLabel.closest("div")).not.toBeNull();
+
+		// The timer is role="timer" with NO aria-live attribute (its
+		// implicit live value is "off" — the tick is never announced).
+		const timer = screen.getByLabelText(/Recording duration:/i);
+		expect(timer.getAttribute("role")).toBe("timer");
+		expect(timer.hasAttribute("aria-live")).toBe(false);
+
+		// Exactly ONE live region in the whole Home tree, and it is the
+		// dynamic status line below the mic button.
+		const liveRegions = document.querySelectorAll("[aria-live]");
+		expect(liveRegions.length).toBe(1);
+		expect(liveRegions[0]?.getAttribute("aria-live")).toBe("polite");
+		expect(liveRegions[0]?.tagName).toBe("OUTPUT");
+	});
+});
+
 //(b): LAST_TEXT_AUTO_CLEAR_MS bumped to 30_000 ──
 
 describe("QV-49(b): LAST_TEXT_AUTO_CLEAR_MS is 30000ms", () => {
@@ -448,7 +514,6 @@ describe("QV-25: owned files contain no task-ID / session-prefix comments", () =
 	const OWNED_FILES = [
 		"src/renderer/src/pages/Home.tsx",
 		"src/renderer/src/pages/home/components/RecordingStatusPill.tsx",
-		"src/renderer/src/pages/home/components/RecordingErrorCard.tsx",
 		"src/renderer/src/pages/home/components/LastTranscriptionPreview.tsx",
 		"src/renderer/src/pages/home/components/MicToggleButton.tsx",
 		"src/renderer/src/pages/home/lib/constants.ts",
@@ -503,9 +568,8 @@ describe("QV-25: owned files contain no task-ID / session-prefix comments", () =
 
 describe("Home renders an inline status hint while transcribing or loading", () => {
 	beforeEach(() => {
-		mockCall.mockReset();
-		mockPythonEvent.mockReset();
-		mockNavigate.mockReset();
+		// Reset the shared singletons (mockCall, mockPythonEvent, mockNavigate, …).
+		resetStableMocks();
 		localStorage.clear();
 		vi.resetModules();
 		mockCall.mockImplementation(() => new Promise(() => {}));
@@ -620,77 +684,6 @@ describe("MicToggleButton surfaces disabledReason as the accessible name when di
 	});
 });
 
-// ── RecordingErrorCard secondary "Open Microphone settings" CTA ──
-
-describe("RecordingErrorCard renders a secondary 'Open Microphone settings' ghost button", () => {
-	it("does NOT render the secondary button when onOpenMicSettings is not provided", async () => {
-		const { RecordingErrorCard } = await import(
-			"@/pages/home/components/RecordingErrorCard"
-		);
-		render(
-			<RecordingErrorCard message="boom" onRetry={() => {}} retrying={false} />,
-		);
-		expect(
-			screen.queryByRole("button", { name: /Open Microphone settings/i }),
-		).toBeNull();
-	});
-
-	it("renders the secondary ghost button when onOpenMicSettings is provided", async () => {
-		const { RecordingErrorCard } = await import(
-			"@/pages/home/components/RecordingErrorCard"
-		);
-		render(
-			<RecordingErrorCard
-				message="boom"
-				onRetry={() => {}}
-				retrying={false}
-				onOpenMicSettings={() => {}}
-			/>,
-		);
-		expect(
-			screen.getByRole("button", { name: /Open Microphone settings/i }),
-		).toBeTruthy();
-	});
-
-	it("calls onOpenMicSettings when the secondary button is clicked", async () => {
-		const { RecordingErrorCard } = await import(
-			"@/pages/home/components/RecordingErrorCard"
-		);
-		const onOpenMicSettings = vi.fn();
-		render(
-			<RecordingErrorCard
-				message="boom"
-				onRetry={() => {}}
-				retrying={false}
-				onOpenMicSettings={onOpenMicSettings}
-			/>,
-		);
-		const btn = screen.getByRole("button", {
-			name: /Open Microphone settings/i,
-		});
-		btn.click();
-		expect(onOpenMicSettings).toHaveBeenCalledTimes(1);
-	});
-
-	it("honours a custom micSettingsLabel override", async () => {
-		const { RecordingErrorCard } = await import(
-			"@/pages/home/components/RecordingErrorCard"
-		);
-		render(
-			<RecordingErrorCard
-				message="boom"
-				onRetry={() => {}}
-				retrying={false}
-				onOpenMicSettings={() => {}}
-				micSettingsLabel="Open Mic Settings"
-			/>,
-		);
-		expect(
-			screen.getByRole("button", { name: "Open Mic Settings" }),
-		).toBeTruthy();
-	});
-});
-
 // ── GDPR gate: Home refuses dictation start without consent ──
 
 /**
@@ -718,10 +711,9 @@ async function renderHomeWithDeferredConfig() {
 }
 describe("Home gates dictation on voice_biometric_consent (GDPR Art. 9)", () => {
 	beforeEach(() => {
-		mockCall.mockReset();
-		mockPythonEvent.mockReset();
-		mockNavigate.mockReset();
-		vi.mocked(toast.warning).mockClear();
+		// Reset the shared singletons (mockCall, mockPythonEvent, mockNavigate, …).
+		resetStableMocks();
+		toastWarning.mockClear();
 		useConsentGateStore.setState({ request: null });
 		localStorage.clear();
 		vi.resetModules();
@@ -797,23 +789,21 @@ describe("Home gates dictation on voice_biometric_consent (GDPR Art. 9)", () => 
 			);
 			expect(toggleCalls.length).toBe(1);
 		});
-		expect(toast.warning).not.toHaveBeenCalled();
+		expect(toastWarning).not.toHaveBeenCalled();
 	});
 });
 
-// ── Home no longer mounts the RecordingErrorCard ──
+// ── Home shows recording errors as red status-line text ──
 //
 // Recording errors are surfaced as red text inside the single dynamic
 // status line (see "Home renders the single dynamic status line below
-// the mic button" above); the error card + its secondary CTA are gone
-// from Home. The RecordingErrorCard component itself still exists in
-// ./home/components and is covered by its own tests.
+// the mic button" above). The old error card + its secondary CTA were
+// removed entirely (RecordingErrorCard deleted).
 
-describe("Home no longer mounts the RecordingErrorCard above the mic button", () => {
+describe("Home shows recording errors as red status-line text, not a card", () => {
 	beforeEach(() => {
-		mockCall.mockReset();
-		mockPythonEvent.mockReset();
-		mockNavigate.mockReset();
+		// Reset the shared singletons (mockCall, mockPythonEvent, mockNavigate, …).
+		resetStableMocks();
 		localStorage.clear();
 		vi.resetModules();
 		mockCall.mockImplementation(() => new Promise(() => {}));

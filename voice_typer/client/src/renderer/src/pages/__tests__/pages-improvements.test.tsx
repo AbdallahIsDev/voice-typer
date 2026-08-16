@@ -59,70 +59,32 @@ const renderWithProviders = (ui: React.ReactElement) =>
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// ── Hoisted mock fixtures ──────────────────────────────────────────────
-// vi.mock factories are hoisted to the top of the file by vitest, so
-// any value they close over must also be hoisted.
-const { mockCall, mockPythonEvent, showSnack } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	mockPythonEvent: vi.fn(),
-	showSnack: vi.fn(),
-}));
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module. The R7-F13
+// single-callback-identity contract is verified by reading the page
+// SOURCE (the hook must pass one callback to both usePythonEvent
+// subscriptions) — the mock itself only needs to be a call-recorder.
+import {
+	hugeiconsCoreMock,
+	hugeiconsReactMock,
+	lastUpdatedMock,
+	nextThemesMock,
+	pythonMock,
+	resetStableMocks,
+	snackbarMock,
+	sonnerMock,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
 
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-	// usePythonEvent(eventName, handler): record the event name + the
-	// handler closure so tests can verify both subscriptions received
-	// the SAME callback identity (R7-F13).
-	usePythonEvent: mockPythonEvent,
-}));
+const { mockCall } = stableMocks;
 
-vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({ showSnack }),
-	showUndoableToast: vi.fn(),
-}));
-
-vi.mock("@/hooks/useLastUpdated", () => ({
-	useLastUpdated: () => ({
-		agoLabel: "",
-		markUpdated: vi.fn(),
-	}),
-}));
-
-vi.mock("@hugeicons/react", () => ({
-	HugeiconsIcon: ({
-		children,
-		icon,
-	}: {
-		children?: React.ReactNode;
-		icon?: { name?: string };
-	}) => (
-		<span data-testid="hugeicon" data-name={icon?.name}>
-			{children}
-		</span>
-	),
-}));
-
-vi.mock("@hugeicons/core-free-icons", async () => {
-	const { createHugeiconsMock } = await import(
-		"@/__tests__/helpers/hugeicons-mock"
-	);
-	return createHugeiconsMock();
-});
-
-vi.mock("sonner", () => ({
-	toast: {
-		success: vi.fn(),
-		error: vi.fn(),
-		warning: vi.fn(),
-		info: vi.fn(),
-		dismiss: vi.fn(),
-	},
-	Toaster: () => null,
-}));
-
-vi.mock("next-themes", () => ({
-	useTheme: () => ({ theme: "light" as const }),
-}));
+vi.mock("@/hooks/usePython", () => pythonMock());
+vi.mock("@/hooks/useSnackbar", () => snackbarMock());
+vi.mock("@/hooks/useLastUpdated", () => lastUpdatedMock());
+vi.mock("@hugeicons/react", () => hugeiconsReactMock());
+vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
+vi.mock("sonner", () => sonnerMock());
+vi.mock("next-themes", () => nextThemesMock());
 
 import { setLocale, t } from "@/i18n/i18n";
 // Import pages AFTER mocks are declared. Using dynamic import() inside
@@ -276,11 +238,10 @@ const MINIMAL_CONFIG: VoiceTyperConfig = {
 	vocabulary_auto_confidence_threshold: 0.7,
 	vocabulary_auto_apply_threshold: 0.95,
 } as unknown as VoiceTyperConfig;
-
 beforeEach(() => {
-	mockCall.mockReset();
-	mockPythonEvent.mockReset();
-	showSnack.mockReset();
+	// Reset the shared singletons (mockCall, mockPythonEvent, showSnack,
+	// toast, …) — replaces the old clearAllMocks + per-fn resets.
+	resetStableMocks();
 	localStorage.clear();
 	// Reset locale to English between tests so locale-switch tests
 	// start from a known state.

@@ -20,51 +20,29 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module.
+import {
+	hugeiconsCoreMock,
+	hugeiconsReactMock,
+	navigationMock,
+	pythonMock,
+	resetStableMocks,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-// Hoist the mock call/event handlers so they're available inside the
-// vi.mock factory (which is hoisted to the top of the file by vitest
-// and runs before any other code).
-const { mockCall, mockPythonEvent, mockNavigate } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	mockPythonEvent: vi.fn(),
-	mockNavigate: vi.fn(),
-}));
+const { mockCall, mockPythonEvent, mockNavigate } = stableMocks;
 
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-	usePythonEvent: mockPythonEvent,
-}));
-
-vi.mock("@/hooks/useNavigation", () => ({
-	useNavigation: () => ({ navigate: mockNavigate }),
-}));
-
-vi.mock("@hugeicons/react", () => ({
-	HugeiconsIcon: ({
-		children,
-		icon,
-	}: {
-		children?: React.ReactNode;
-		icon?: { name?: string };
-	}) => (
-		<span data-testid="hugeicon" data-name={icon?.name}>
-			{children}
-		</span>
-	),
-}));
-
-vi.mock("@hugeicons/core-free-icons", async () => {
-	const { createHugeiconsMock } = await import(
-		"@/__tests__/helpers/hugeicons-mock"
-	);
-	return createHugeiconsMock();
-});
+vi.mock("@/hooks/usePython", () => pythonMock());
+vi.mock("@/hooks/useNavigation", () => navigationMock());
+vi.mock("@hugeicons/react", () => hugeiconsReactMock());
+vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
 
 describe("Home page", () => {
 	beforeEach(() => {
-		mockCall.mockReset();
-		mockPythonEvent.mockReset();
+		// Reset the shared singletons (mockCall, mockPythonEvent, …).
+		resetStableMocks();
 		localStorage.clear();
 		// Reset the module registry so Home's module-level caches
 		// (_cachedStats, _cachedRecent) are re-initialised on each test.

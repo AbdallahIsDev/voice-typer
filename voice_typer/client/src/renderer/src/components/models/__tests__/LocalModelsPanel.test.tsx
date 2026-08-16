@@ -167,7 +167,7 @@ const families: ModelFamily[] = [
 ];
 
 const catalog: Record<string, ModelMetadata> = {
-	"tiny": tinyMeta,
+	tiny: tinyMeta,
 	"large-v3-turbo": bigMeta,
 };
 

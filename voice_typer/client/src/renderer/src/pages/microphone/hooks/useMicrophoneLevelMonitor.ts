@@ -168,6 +168,16 @@ export function useMicrophoneLevelMonitor({
 }: UseMicrophoneLevelMonitorOptions): UseMicrophoneLevelMonitorResult {
 	const { call } = usePython();
 
+	// Ref mirror of `call` so the level-monitor lifecycle effect depends
+	// only on the mic/consent config. Test mocks may return a FRESH call
+	// per render — an effect dep on it re-fires level_monitor_start +
+	// the one-shot poll (→ setLevel → re-render → new call → loop). Same
+	// pattern as useVocabulary.ts.
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
+
 	const [level, setLevel] = useState(0);
 	const [peak, setPeak] = useState(0);
 	// Initialize micMonitoring to ``true`` so the level polling loop
@@ -228,8 +238,11 @@ export function useMicrophoneLevelMonitor({
 		// consent prompt when they try to START a test instead).
 		if (!config?.voice_biometric_consent) return;
 		const micId = config?.microphone ?? null;
-		call<{ success: boolean }>("level_monitor_start", { mic_id: micId }).catch(
-			(err) => {
+		callRef
+			.current<{ success: boolean }>("level_monitor_start", {
+				mic_id: micId,
+			})
+			.catch((err) => {
 				// The backend's ``client.consent_required`` envelope
 				// (ConsentRequiredError with consent_field) surfaces
 				// only in a race — the client-side gate above normally
@@ -248,8 +261,7 @@ export function useMicrophoneLevelMonitor({
 					"[renderer:useMicrophoneLevelMonitor] microphone command failed: level_monitor_start:",
 					err,
 				);
-			},
-		);
+			});
 
 		// one-shot fallback poll. The backend's ``mic_level`` push
 		// is coalesced at ≤30 Hz, so the first frame may take up to ~33 ms
@@ -272,7 +284,7 @@ export function useMicrophoneLevelMonitor({
 				return;
 			if (playingRef.current) return;
 			try {
-				const levelData = await call<{
+				const levelData = await callRef.current<{
 					level: number;
 					peak: number;
 					active: boolean;
@@ -299,15 +311,16 @@ export function useMicrophoneLevelMonitor({
 		})();
 
 		return () => {
-			call("level_monitor_stop").catch((err) =>
-				console.warn(
-					"[renderer:useMicrophoneLevelMonitor] microphone command failed: level_monitor_stop:",
-					err,
-				),
-			);
+			callRef
+				.current("level_monitor_stop")
+				.catch((err) =>
+					console.warn(
+						"[renderer:useMicrophoneLevelMonitor] microphone command failed: level_monitor_stop:",
+						err,
+					),
+				);
 		};
 	}, [
-		call,
 		config?.microphone,
 		config?.voice_biometric_consent,
 		playingRef,

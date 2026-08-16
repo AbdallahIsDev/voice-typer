@@ -207,10 +207,7 @@ export function ModelStep({
 							</span>
 							<div className="flex items-center gap-4">
 								{localFamilies.map((family) => (
-									<span
-										key={family}
-										className="flex items-center gap-1.5"
-									>
+									<span key={family} className="flex items-center gap-1.5">
 										<FamilyLogo family={family} />
 										<span className="text-xs font-medium text-(--text-secondary)">
 											{FAMILY_STRIP_LABELS[family] ?? family}

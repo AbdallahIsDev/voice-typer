@@ -35,6 +35,15 @@ const { mockCall, mockPythonEvent, mockNavigate } = vi.hoisted(() => ({
 	mockNavigate: vi.fn(),
 }));
 
+const stable = vi.hoisted(() => ({
+	handleRetryConnection: vi.fn(),
+	handleThemeChange: vi.fn(),
+	reloadThemeFromConfig: vi.fn(),
+	setTextSize: vi.fn(),
+	goBack: vi.fn(),
+	goForward: vi.fn(),
+}));
+
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({ call: mockCall }),
 	usePythonEvent: mockPythonEvent,
@@ -45,17 +54,17 @@ vi.mock("@/hooks/useConnection", () => ({
 		recordingState: "idle" as const,
 		connectionStatus: "connected" as const,
 		lastError: null,
-		handleRetryConnection: vi.fn(),
+		handleRetryConnection: stable.handleRetryConnection,
 	}),
 }));
 
 vi.mock("@/hooks/useTheme", () => ({
 	useTheme: () => ({
 		themeMode: "system" as const,
-		handleThemeChange: vi.fn(),
-		reloadThemeFromConfig: vi.fn(),
+		handleThemeChange: stable.handleThemeChange,
+		reloadThemeFromConfig: stable.reloadThemeFromConfig,
 		textSize: 14,
-		setTextSize: vi.fn(),
+		setTextSize: stable.setTextSize,
 	}),
 }));
 
@@ -308,6 +317,7 @@ function dispatchKey(
 
 describe("UX-19: App page-not-found fallback uses i18n + Go-to-Home button", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		mockNavigate.mockReset();
@@ -341,8 +351,8 @@ describe("UX-19: App page-not-found fallback uses i18n + Go-to-Home button", () 
 			useNavigation: () => ({
 				currentPage: "totally_invalid_page" as Page,
 				navigate: mockNavigate,
-				goBack: vi.fn(),
-				goForward: vi.fn(),
+				goBack: stable.goBack,
+				goForward: stable.goForward,
 				canGoBack: false,
 				canGoForward: false,
 			}),
@@ -369,8 +379,8 @@ describe("UX-19: App page-not-found fallback uses i18n + Go-to-Home button", () 
 			useNavigation: () => ({
 				currentPage: "totally_invalid_page" as Page,
 				navigate: mockNavigate,
-				goBack: vi.fn(),
-				goForward: vi.fn(),
+				goBack: stable.goBack,
+				goForward: stable.goForward,
 				canGoBack: false,
 				canGoForward: false,
 			}),
@@ -394,6 +404,7 @@ describe("UX-19: App page-not-found fallback uses i18n + Go-to-Home button", () 
 
 describe("UX-24: help overlay shows the user's actual configured hotkey", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		localStorage.clear();
@@ -552,6 +563,7 @@ describe("UX-24: help overlay shows the user's actual configured hotkey", () => 
 
 describe("UX-25: `?` keydown guard skips contentEditable elements", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		localStorage.clear();
@@ -686,6 +698,7 @@ describe("UX-25: `?` keydown guard skips contentEditable elements", () => {
 
 describe("BG-25: document.title updates on route change", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		localStorage.clear();
@@ -747,6 +760,7 @@ describe("BG-25: document.title updates on route change", () => {
 
 describe("BG-26: focus moves to <main> on route change (skip link + tabIndex plumbing)", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		localStorage.clear();

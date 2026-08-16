@@ -1,8 +1,32 @@
 import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import {
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 import { HotkeyChips } from "@/components/hotkey/HotkeyChips";
 
+// The platform transform (``formatHotkeyForPlatform``) keys off
+// navigator.userAgent, so every test pins its platform explicitly:
+// win32 for the baseline chip-splitting behavior (the canonical
+// display form), darwin for the macOS glyph cases. Without the stubs
+// the suite's outcome would depend on the host OS.
+const WIN_UA =
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+const MAC_UA =
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+
+beforeAll(() => {
+	vi.stubGlobal("navigator", { userAgent: WIN_UA });
+});
+
 afterEach(() => {
+	vi.unstubAllGlobals();
+	vi.stubGlobal("navigator", { userAgent: WIN_UA });
 	cleanup();
 });
 
@@ -77,5 +101,66 @@ describe("HotkeyChips", () => {
 		const kbds = chips();
 		expect(kbds).toHaveLength(1);
 		expect(kbds[0]?.textContent).toBe("help.keys.cancel");
+	});
+});
+
+describe("HotkeyChips on macOS", () => {
+	beforeEach(() => {
+		// The outer describe's afterEach re-stubs WIN after each test,
+		// so re-apply the macOS UA before every test in this group.
+		vi.stubGlobal("navigator", { userAgent: MAC_UA });
+	});
+
+	it("renders modifier glyphs joined without '+' (Ctrl+B → ⌃B)", () => {
+		render(<HotkeyChips keys="Ctrl+B" />);
+		const kbds = chips();
+		expect(kbds).toHaveLength(1);
+		expect(kbds[0]?.textContent).toBe("\u2303B"); // ⌃B
+	});
+
+	it("renders the catalog's Alt+arrow shortcuts as glyph + arrow (Alt+← → ⌥←)", () => {
+		render(<HotkeyChips keys="Alt+←" />);
+		const kbds = chips();
+		expect(kbds).toHaveLength(1);
+		expect(kbds[0]?.textContent).toBe("\u2325←"); // ⌥←
+	});
+
+	it("keeps the ' / ' alternative separator with per-alternative glyphs", () => {
+		render(<HotkeyChips keys="Tab / Shift+Tab" />);
+		const kbds = chips();
+		// "Tab" stays text; "Shift+Tab" → "⇧Tab" (glyph + text, no '+'
+		// separator on macOS).
+		expect(kbds.map((k) => k.textContent)).toEqual(["Tab", "\u21E7Tab"]);
+		// The " / " separator is still rendered between alternatives.
+		const separators = Array.from(document.querySelectorAll("span")).filter(
+			(s) => s.textContent === " / ",
+		);
+		expect(separators).toHaveLength(1);
+	});
+
+	it("renders a multi-modifier combo as one glyph string (Ctrl+Alt+V → ⌃⌥V)", () => {
+		render(<HotkeyChips keys="Ctrl+Alt+V" />);
+		const kbds = chips();
+		expect(kbds).toHaveLength(1);
+		expect(kbds[0]?.textContent).toBe("\u2303\u2325V"); // ⌃⌥V
+	});
+
+	it("is a no-op for already-formatted glyph input (idempotent)", () => {
+		// NB: the glyph string goes through a JS expression (JSX
+		// attribute strings don't process `\u` escapes).
+		render(<HotkeyChips keys={"\u2303\u2325V"} />); // already "⌃⌥V"
+		const kbds = chips();
+		expect(kbds).toHaveLength(1);
+		expect(kbds[0]?.textContent).toBe("\u2303\u2325V");
+	});
+
+	it("leaves non-modifier keys (Esc, ?, Space, Enter) untouched", () => {
+		for (const keys of ["Esc", "?", "Space", "Enter"]) {
+			render(<HotkeyChips keys={keys} />);
+			const kbds = chips();
+			expect(kbds).toHaveLength(1);
+			expect(kbds[0]?.textContent).toBe(keys);
+			cleanup();
+		}
 	});
 });

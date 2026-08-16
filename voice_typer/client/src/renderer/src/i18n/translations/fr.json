@@ -954,19 +954,6 @@
 		"navBack": "Naviguer en arrière / en avant",
 		"closeHint": "Appuyez sur {key} ou cliquez à l'extérieur pour fermer.",
 		"zoomTextSize": "Taille du texte du zoom",
-		"keys": {
-			"cancel": "Esc",
-			"repaste": "Ctrl+Alt+V",
-			"toggleSidebar": "Ctrl+B",
-			"openSettings": "Ctrl+,",
-			"goHome": "Ctrl+H",
-			"navigate": "Tab / Shift+Tab",
-			"toggle": "Space",
-			"activate": "Enter",
-			"zoomTextSize": "Ctrl+Plus / Ctrl+Minus",
-			"openHelp": "?",
-			"navBack": "Alt+Left / Alt+Right"
-		},
 		"punctuationTitle": "Aide-mémoire de ponctuation",
 		"punctuationHint": "Prononcez ces mots pendant la dictée pour insérer le signe de ponctuation correspondant. {appName} les reconnaît via le modèle vocal et les conserve lors du nettoyage du texte.",
 		"punctuation": {
@@ -1130,6 +1117,12 @@
 		"testNoChange": "Aucune correction appliquée",
 		"testPlaceholder": "Saisissez une phrase pour voir les corrections…",
 		"testTitle": "Tester les corrections",
+		"testEntry": "Tester cette entrée",
+		"testEntryAria": "Tester cette entrée : {name}",
+		"testEntryFailed": "Impossible de joindre le moteur — vérifiez la connexion et réessayez",
+		"testEntryNoChange": "Aucun changement — le moteur n'a pas reconnu cette phrase",
+		"testEntryPending": "Test avec le moteur en direct…",
+		"testFallbackNote": "Backend hors ligne — affichage d'une approximation de l'aperçu",
 		"fillBothFields": "Veuillez remplir les deux champs",
 		"updatedEntry": "Mis à jour : {original} → {correction}",
 		"addedEntry": "Ajouté : {original} → {correction}",
@@ -1146,6 +1139,8 @@
 		"whatYouSay": "Ce que vous dites",
 		"triggerHelp": "Saisissez le(s) mot(s) exactement comme la reconnaissance vocale les comprend mal.",
 		"whatGetsTyped": "Ce qui est saisi à la place",
+		"usedCount": "Utilisé {count}×",
+		"lastUsed": "dernier usage {date}",
 		"replacementHelp": "Le texte corrigé qui sera collé. La casse compte — ce que vous saisissez ici est exactement ce qui sera produit.",
 		"deleteEntryTitle": "Supprimer l'entrée de vocabulaire",
 		"deleteEntryMessage": "Voulez-vous vraiment supprimer « {name} » ? Cette action est irréversible.",
@@ -1283,6 +1278,9 @@
 		"peakWeekday": "Jour de pointe : {day}",
 		"rangeAria": "Période des statistiques",
 		"sampledNote": "Basé sur les {count} dernières dictées",
+		"corrections": "Corrections",
+		"correctionsTooltip": "Corrections de vocabulaire appliquées par le moteur pendant la dictée",
+		"correctionsRate": "{pct}% des dictées",
 		"shareTooltip": "Exporte une image de résumé partageable",
 		"totalDictations": "Dictées au total",
 		"totalDictationsTooltip": "Toutes les dictées enregistrées. Les totaux de caractères sont basés sur les 500 dernières.",
@@ -1379,11 +1377,8 @@
 		"viewChangelog": "Voir le journal des modifications",
 		"offlineUpdatesMessage": "{appName} est une application hors ligne. Pour vérifier les mises à jour, visitez la page des versions GitHub dans votre navigateur.",
 		"startStopDictation": "Démarrer / Arrêter la dictée",
-		"startStopDictationValue": "F2 (ou votre raccourci configuré)",
 		"cancelRecording": "Annuler l'enregistrement",
-		"cancelRecordingValue": "Échap (si activé dans les Paramètres)",
 		"repasteTranscription": "Re-coller la dernière transcription",
-		"repasteTranscriptionValue": "Ctrl+Alt+V (par défaut)",
 		"toggleSidebar": "Basculer la barre latérale",
 		"navigateFields": "Naviguer entre les champs",
 		"toggleSwitches": "Basculer les interrupteurs",
@@ -1421,11 +1416,6 @@
 		"prewarmLogNotFound": "Aucun journal de préchauffage trouvé",
 		"prewarmLogOpened": "Journal de préchauffage ouvert",
 		"prewarmLogOpenFailed": "Impossible d'ouvrir le journal de préchauffage",
-		"closeDialogsValue": "Esc",
-		"navigateFieldsValue": "Tab / Shift+Tab",
-		"openDropdownsValue": "Enter or Space",
-		"toggleSidebarValue": "Ctrl+B",
-		"toggleSwitchesValue": "Space",
 		"relativeTime": {
 			"lessThanMinute": "il y a <1 min",
 			"minutesAgo": "il y a {count} min",
@@ -1943,19 +1933,58 @@
 			"mic_permission_revoked_title": "{appName}",
 			"mic_permission_revoked_body": "Autorisation du microphone révoquée.",
 			"xrun_warning_title": "{appName}",
-			"xrun_warning_body": "Dépassement de tampon audio détecté. Essayez une taille de tampon plus grande."
+			"xrun_warning_body": "Dépassement de tampon audio détecté. Essayez une taille de tampon plus grande.",
+			"cancelled_timeout": "La transcription a pris trop de temps et a été annulée.\nAppuyez sur {hotkey} pour réessayer.",
+			"start_failed": "Impossible de démarrer l'enregistrement.\nConsultez voice-typer.log pour la trace.",
+			"stop_failed": "Impossible d'arrêter l'enregistrement.",
+			"silence_warning": "Aucun audio détecté. Vérifiez que votre microphone est connecté et fonctionne.",
+			"consent_required": "Le consentement à la biométrie vocale est requis pour démarrer l'enregistrement.\nActivez-le dans Paramètres > Confidentialité > Consentement à la biométrie vocale.",
+			"max_duration_auto_stop": "Enregistrement arrêté : durée maximale d'enregistrement atteinte.",
+			"mic_disconnected": "Microphone déconnecté. Enregistrement arrêté. Rebranchez le microphone pour reprendre.",
+			"mic_permission_revoked": "Autorisation du microphone révoquée. Enregistrement arrêté. Réautorisez l'accès au microphone dans les paramètres de confidentialité de votre système pour reprendre.",
+			"silence_auto_stop": "Enregistrement arrêté : aucun audio détecté pendant une période prolongée.",
+			"load_failed": "Impossible de charger le modèle vocal.\n{error}\n\nL'application continuera de fonctionner. Appuyez sur {hotkey} pour réessayer le chargement."
 		},
 		"model_manager": {
 			"backend_init_failed_title": "{appName}",
 			"backend_init_failed_body": "Impossible d'initialiser le backend {backend}. Consultez les journaux pour plus de détails.",
 			"backend_change_deferred_title": "{appName}",
-			"backend_change_deferred_body": "Le backend passera à {backend} après l'enregistrement actuel."
+			"backend_change_deferred_body": "Le backend passera à {backend} après l'enregistrement actuel.",
+			"change_deferred": "Le modèle passera à {model} après l'enregistrement actuel",
+			"load_failed": "Impossible de charger le modèle vocal.\n{error}\n\nL'application continuera de fonctionner. Appuyez sur {hotkey} pour réessayer le chargement.",
+			"backend_change_deferred": "Le backend passera à {backend} après l'enregistrement actuel.",
+			"backend_init_failed": "Impossible d'initialiser le backend {backend}.{hint}",
+			"last_resort_unloaded": "Le modèle n'est pas chargé.\nOuvrez la page des modèles pour télécharger un modèle.",
+			"model_not_downloaded": "Aucun modèle disponible.\nOuvrez la page des modèles pour télécharger un modèle.",
+			"no_model_selected": "Aucun modèle sélectionné.\nAccédez à la page des modèles pour en sélectionner un.",
+			"load_failed_critical": "Impossible de charger le modèle vocal.\nL'application continuera de fonctionner. Appuyez sur {hotkey} pour réessayer le chargement."
 		},
 		"settings_controller": {
 			"autostart_toggle_failed_title": "{appName}",
 			"autostart_toggle_failed_body": "Impossible de modifier le paramètre de démarrage automatique.\n{error}",
 			"microphone_selection_failed_title": "{appName}",
-			"microphone_selection_failed_body": "Impossible de changer de microphone."
+			"microphone_selection_failed_body": "Impossible de changer de microphone.",
+			"mic_changed": "Microphone : {label}",
+			"mic_next_recording": "Microphone pour le prochain enregistrement : {label}",
+			"autostart_failed": "Impossible de modifier le paramètre de démarrage automatique.\n{error}",
+			"mic_save_failed": "Impossible d'enregistrer la sélection du microphone. Vérifiez l'espace disque ou les autorisations."
+		},
+		"app": {
+			"repaste_no_previous": "Aucune transcription précédente à recoller.",
+			"repaste_copy_failed": "Impossible de copier la transcription dans le presse-papiers. Une autre application pourrait verrouiller le presse-papiers.",
+			"repaste_done": "Dernière transcription recollée",
+			"repaste_blocked": "Le recollement a été bloqué (cible non sûre ou limite de débit). Votre presse-papiers précédent a été conservé. Utilisez à nouveau le raccourci de recollement pour essayer.",
+			"undo_nothing": "Rien à annuler.",
+			"undo_done": "Dernière transcription annulée ({char_count} caractères)",
+			"undo_no_pynput": "Annulation indisponible (pynput manquant)",
+			"undo_failed": "Impossible d'annuler la dernière transcription. Consultez les journaux pour plus de détails."
+		},
+		"permissions": {
+			"macos_title": "{appName} nécessite une autorisation",
+			"macos_body": "Cliquez pour ouvrir Réglages système → Accessibilité. Ajoutez {appName} (et son assistant d'écoute des touches) à la liste.",
+			"macos_body_with_command": "Cliquez pour ouvrir Réglages système → Accessibilité. Ajoutez {appName} (et son assistant d'écoute des touches) à la liste. Exécutez ensuite : {command}",
+			"linux_title": "{appName} nécessite l'autorisation du clavier",
+			"linux_body": "Cliquez pour accorder l'accès. Votre système demandera votre mot de passe pour installer l'autorisation du clavier (règle udev + groupe d'entrée). Après l'octroi, déconnectez-vous puis reconnectez-vous pour que le changement prenne effet."
 		}
 	},
 	"error": {
@@ -1988,6 +2017,50 @@
 			"cloud_deepgram_consent": "La transcription cloud envoie votre audio à Deepgram pour transcription. La politique de confidentialité de Deepgram s'applique à l'audio envoyé. Autoriser ?",
 			"llm_polish_consent": "La correction par LLM envoie votre texte transcrit au fournisseur LLM configuré pour corriger la grammaire et la ponctuation. Autoriser ?",
 			"offline_pack_consent": "Le pack moteur hors ligne (~180 Mo) est téléchargé une fois depuis le serveur de publication et permet une transcription entièrement locale. Autoriser le téléchargement ?"
+		}
+	},
+	"trayState": {
+		"idle": "inactif",
+		"recording": "enregistrement",
+		"transcribing": "transcription",
+		"loading": "chargement",
+		"error": "erreur",
+		"cancelling": "annulation",
+		"recordingController": {
+			"loadingQueued": "Chargement du modèle : votre dictée démarrera automatiquement…",
+			"startingUp": "Démarrage… veuillez patienter...",
+			"consentRequired": "Consentement biométrique vocal requis",
+			"modelFailedRetry": "Échec du chargement du modèle : appuyez sur votre raccourci clavier pour réessayer",
+			"recording": "Enregistrement...",
+			"recordingFailed": "Échec de l'enregistrement",
+			"recordingFailedPermission": "Échec de l'enregistrement : accès au microphone refusé. Autorisez l'accès au microphone dans les paramètres système.",
+			"recordingFailedNoDevice": "Échec de l'enregistrement : aucun microphone trouvé. Connectez un microphone et réessayez.",
+			"stopFailed": "Échec de l'arrêt",
+			"tooShort": "Trop court : ignoré",
+			"transcribing": "Transcription...",
+			"cancelling": "Annulation...",
+			"cancelled": "Annulé",
+			"recovered": "Récupéré : la transcription a expiré",
+			"stillTranscribing": "Toujours en cours de transcription..."
+		},
+		"modelManager": {
+			"loading": "Chargement du modèle : appuyez sur votre raccourci clavier pour le mettre en file...",
+			"readyWhisper": "Prêt : {device_info}",
+			"readyOther": "Prêt : {name} ASR",
+			"loadFailedRetry": "Échec du chargement du modèle : appuyez sur votre raccourci clavier pour réessayer",
+			"backendFailed": "Échec du chargement du modèle {backend}",
+			"modelFailed": "Erreur du modèle : {error}",
+			"modelNotDownloaded": "Aucun modèle disponible. Ouvrez la page des modèles pour en télécharger un.",
+			"modelIntegrityFailed": "Le modèle {backend} a échoué à la vérification d'intégrité. Supprimez-le et téléchargez-le à nouveau depuis la page des modèles."
+		},
+		"pipeline": {
+			"clipboardUnavailable": "Terminé : presse-papiers indisponible",
+			"noSpeechDetected": "Aucune parole détectée",
+			"noSpeechCheckMic": "Aucune parole détectée : vérifiez le microphone",
+			"transcriptionEmpty": "Transcription vide",
+			"donePasted": "Terminé : {count} caractères (collé)",
+			"doneInDb": "Terminé : {count} caractères (en BD, utilisez le raccourci de recollement)",
+			"doneInClipboard": "Terminé : {count} caractères (dans le presse-papiers)"
 		}
 	}
 }

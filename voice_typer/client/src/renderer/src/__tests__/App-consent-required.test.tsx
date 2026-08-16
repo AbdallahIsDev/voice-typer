@@ -60,13 +60,23 @@ const { mockCall, mockPythonEvent, capturedHandlerRef, mockNavigate } =
 // App destructures the full navigation API; mock it so the test can
 // assert the consent deep-link navigate call (``("settings",
 // { consentField })``) without triggering a real route change.
+const stable = vi.hoisted(() => ({
+	handleRetryConnection: vi.fn(),
+	handleThemeChange: vi.fn(),
+	reloadThemeFromConfig: vi.fn(),
+	setTextSize: vi.fn(),
+	replace: vi.fn(),
+	goBack: vi.fn(),
+	goForward: vi.fn(),
+}));
+
 vi.mock("@/hooks/useNavigation", () => ({
 	useNavigation: () => ({
 		currentPage: "home" as const,
 		navigate: mockNavigate,
-		replace: vi.fn(),
-		goBack: vi.fn(),
-		goForward: vi.fn(),
+		replace: stable.replace,
+		goBack: stable.goBack,
+		goForward: stable.goForward,
 		canGoBack: false,
 		canGoForward: false,
 	}),
@@ -82,17 +92,17 @@ vi.mock("@/hooks/useConnection", () => ({
 		recordingState: "idle" as const,
 		connectionStatus: "connected" as const,
 		lastError: null,
-		handleRetryConnection: vi.fn(),
+		handleRetryConnection: stable.handleRetryConnection,
 	}),
 }));
 
 vi.mock("@/hooks/useTheme", () => ({
 	useTheme: () => ({
 		themeMode: "system" as const,
-		handleThemeChange: vi.fn(),
-		reloadThemeFromConfig: vi.fn(),
+		handleThemeChange: stable.handleThemeChange,
+		reloadThemeFromConfig: stable.reloadThemeFromConfig,
 		textSize: 14,
-		setTextSize: vi.fn(),
+		setTextSize: stable.setTextSize,
 	}),
 }));
 
@@ -164,6 +174,7 @@ import { makeConfig } from "./helpers/fixtures";
 
 describe("App — consent_required push handler (unified point-of-use consent gate)", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		cleanup();
 		mockCall.mockReset();
 		mockCall.mockImplementation((type: string) => {

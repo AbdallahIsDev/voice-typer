@@ -365,9 +365,8 @@ export default function HistoryPage() {
 						// destructive design token at rest (text + border)
 						// and intensify on hover — matches the visual
 						// language used by ConfirmDialog's
-						// `variant="destructive"` and the RecordingErrorCard
-						// retry button. The disabled state still uses
-						// disabled:opacity-50 from the Button base styles.
+						// `variant="destructive"`. The disabled state still
+						// uses disabled:opacity-50 from the Button base styles.
 						className="gap-2 border-destructive/40 text-destructive/80 hover:text-destructive hover:border-destructive hover:bg-destructive/5"
 					>
 						<HugeiconsIcon

@@ -26,6 +26,12 @@ interface VocabTestPanelProps {
 	output: string;
 	applied: boolean;
 	pending: boolean;
+	/**
+	 * True when the backend round-trip failed and the preview fell
+	 * back to the client-side mirror. Surfaced so a preview is never
+	 * silently presented as the authoritative engine result.
+	 */
+	usingFallback: boolean;
 }
 
 export function VocabTestPanel({
@@ -36,6 +42,7 @@ export function VocabTestPanel({
 	output,
 	applied,
 	pending,
+	usingFallback,
 }: VocabTestPanelProps) {
 	const active = query.trim().length > 0;
 
@@ -105,9 +112,17 @@ export function VocabTestPanel({
 							<p className="whitespace-pre-wrap break-words">{output}</p>
 						</div>
 					)}
-					{active && !applied && (
+					{active && !applied && !usingFallback && (
 						<p className="text-xs text-(--text-muted)">
 							{t("vocabulary.testNoChange")}
+						</p>
+					)}
+					{active && usingFallback && (
+						<p
+							data-testid="vocab-test-fallback"
+							className="text-xs font-medium text-amber-700 dark:text-amber-400"
+						>
+							{t("vocabulary.testFallbackNote")}
 						</p>
 					)}
 				</div>

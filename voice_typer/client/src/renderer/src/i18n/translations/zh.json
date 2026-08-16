@@ -221,6 +221,12 @@
 		"testNoChange": "未应用任何修正",
 		"testPlaceholder": "输入短语以查看修正…",
 		"testTitle": "测试修正",
+		"testEntry": "测试此词条",
+		"testEntryAria": "测试此词条：{name}",
+		"testEntryFailed": "无法连接引擎 — 请检查连接后重试",
+		"testEntryNoChange": "无更改 — 引擎未匹配此短语",
+		"testEntryPending": "正在使用实时引擎测试…",
+		"testFallbackNote": "后端离线 — 显示预览近似结果",
 		"fillBothFields": "请填写两个字段",
 		"updatedEntry": "已更新：{original} → {correction}",
 		"addedEntry": "已添加：{original} → {correction}",
@@ -237,6 +243,8 @@
 		"whatYouSay": "您说的内容",
 		"triggerHelp": "请按语音识别器听错的样子原样输入词。",
 		"whatGetsTyped": "实际输入的内容",
+		"usedCount": "已使用 {count}×",
+		"lastUsed": "最近使用 {date}",
 		"replacementHelp": "将要粘贴的纠正文本。大小写有影响 — 您在这里输入的内容就是输出。",
 		"deleteEntryTitle": "删除词汇条目",
 		"deleteEntryMessage": "确定要删除「{name}」吗？此操作无法撤销。",
@@ -374,6 +382,9 @@
 		"peakWeekday": "高峰日：{day}",
 		"rangeAria": "分析时间范围",
 		"sampledNote": "基于最近 {count} 次听写",
+		"corrections": "修正",
+		"correctionsTooltip": "听写时引擎应用的词汇修正",
+		"correctionsRate": "占听写的 {pct}%",
 		"shareTooltip": "导出可分享的摘要图片",
 		"totalDictations": "听写总数",
 		"totalDictationsTooltip": "所有已记录的听写。字符总数基于最近 500 条采样。",
@@ -470,11 +481,8 @@
 		"viewChangelog": "查看更新日志",
 		"offlineUpdatesMessage": "{appName} 是一款离线应用。要检查更新，请在浏览器中访问 GitHub 发布页面。",
 		"startStopDictation": "开始 / 停止听写",
-		"startStopDictationValue": "F2（或您配置的快捷键）",
 		"cancelRecording": "取消录音",
-		"cancelRecordingValue": "Esc（如果在设置中启用）",
 		"repasteTranscription": "重新粘贴上次转写",
-		"repasteTranscriptionValue": "Ctrl+Alt+V（默认）",
 		"toggleSidebar": "切换侧边栏",
 		"navigateFields": "在字段间导航",
 		"toggleSwitches": "切换开关",
@@ -490,11 +498,6 @@
 		"newVersionAvailable": "有新版本可用：{version}",
 		"installedNewer": "已安装版本（{installed}）比最新发布版本（{latest}）更新",
 		"updateCheckFailed": "检查更新失败：{error}",
-		"toggleSidebarValue": "Ctrl+B",
-		"navigateFieldsValue": "Tab / Shift+Tab",
-		"toggleSwitchesValue": "Space",
-		"closeDialogsValue": "Esc",
-		"openDropdownsValue": "Enter or Space",
 		"cacheTitle": "缓存状态",
 		"cacheDescription": "语音模型的操作系统文件缓存实时状态。预热在开机时运行，将模型文件保留在 RAM 中以实现快速启动。",
 		"prewarmStatus": "预热状态",
@@ -1365,19 +1368,6 @@
 		"navBack": "向后 / 向前导航",
 		"closeHint": "按 {key} 或点击外部以关闭。",
 		"zoomTextSize": "文本大小",
-		"keys": {
-			"cancel": "Esc",
-			"repaste": "Ctrl+Alt+V",
-			"toggleSidebar": "Ctrl+B",
-			"openSettings": "Ctrl+,",
-			"goHome": "Ctrl+H",
-			"navigate": "Tab / Shift+Tab",
-			"toggle": "Space",
-			"activate": "Enter",
-			"zoomTextSize": "Ctrl+Plus / Ctrl+Minus",
-			"openHelp": "?",
-			"navBack": "Alt+Left / Alt+Right"
-		},
 		"punctuationTitle": "标点符号速查表",
 		"punctuationHint": "在听写时说出这些词语以插入相应的标点符号。{appName} 通过语音模型识别它们，并在文本清理过程中保留这些符号。",
 		"punctuation": {
@@ -1943,19 +1933,58 @@
 			"mic_permission_revoked_title": "{appName}",
 			"mic_permission_revoked_body": "麦克风权限已被撤销。",
 			"xrun_warning_title": "{appName}",
-			"xrun_warning_body": "检测到音频缓冲区溢出。请尝试更大的缓冲区大小。"
+			"xrun_warning_body": "检测到音频缓冲区溢出。请尝试更大的缓冲区大小。",
+			"cancelled_timeout": "转录耗时过长，已取消。\n按 {hotkey} 重试。",
+			"start_failed": "无法开始录音。\n请查看 voice-typer.log 中的回溯信息。",
+			"stop_failed": "无法停止录音。",
+			"silence_warning": "未检测到音频。请检查麦克风是否已连接并正常工作。",
+			"consent_required": "开始录音需要语音生物识别同意。\n请在 设置 > 隐私 > 语音生物识别同意 中启用。",
+			"max_duration_auto_stop": "录音已停止：已达到最大录音时长。",
+			"mic_disconnected": "麦克风已断开。录音已停止。请重新连接麦克风以继续。",
+			"mic_permission_revoked": "麦克风权限已被撤销。录音已停止。请在系统隐私设置中重新授予麦克风访问权限以继续。",
+			"silence_auto_stop": "录音已停止：长时间未检测到音频。",
+			"load_failed": "无法加载语音模型。\n{error}\n\n应用将继续运行。按 {hotkey} 重试加载。"
 		},
 		"model_manager": {
 			"backend_init_failed_title": "{appName}",
 			"backend_init_failed_body": "无法初始化 {backend} 后端。请查看日志了解详情。",
 			"backend_change_deferred_title": "{appName}",
-			"backend_change_deferred_body": "当前录音结束后，后端将切换为 {backend}。"
+			"backend_change_deferred_body": "当前录音结束后，后端将切换为 {backend}。",
+			"change_deferred": "当前录音结束后，模型将切换为 {model}",
+			"load_failed": "无法加载语音模型。\n{error}\n\n应用将继续运行。按 {hotkey} 重试加载。",
+			"backend_change_deferred": "当前录音结束后，后端将切换为 {backend}。",
+			"backend_init_failed": "无法初始化 {backend} 后端。{hint}",
+			"last_resort_unloaded": "模型未加载。\n打开模型页面下载模型。",
+			"model_not_downloaded": "没有可用的模型。\n打开模型页面下载模型。",
+			"no_model_selected": "未选择模型。\n前往模型页面选择模型。",
+			"load_failed_critical": "无法加载语音模型。\n应用将继续运行。按 {hotkey} 重试加载。"
 		},
 		"settings_controller": {
 			"autostart_toggle_failed_title": "{appName}",
 			"autostart_toggle_failed_body": "无法更改自启动设置。\n{error}",
 			"microphone_selection_failed_title": "{appName}",
-			"microphone_selection_failed_body": "无法更改麦克风。"
+			"microphone_selection_failed_body": "无法更改麦克风。",
+			"mic_changed": "麦克风：{label}",
+			"mic_next_recording": "下次录音的麦克风：{label}",
+			"autostart_failed": "无法更改自启动设置。\n{error}",
+			"mic_save_failed": "无法保存麦克风选择。请检查磁盘空间或权限。"
+		},
+		"app": {
+			"repaste_no_previous": "没有可重新粘贴的先前转录。",
+			"repaste_copy_failed": "无法将转录复制到剪贴板。可能有其他应用占用了剪贴板锁。",
+			"repaste_done": "已重新粘贴上次转录",
+			"repaste_blocked": "重新粘贴已被阻止（目标不安全或触达频率限制）。已保留你之前的剪贴板内容。请再次按重新粘贴快捷键重试。",
+			"undo_nothing": "没有可撤销的操作。",
+			"undo_done": "已撤销上次转录（{char_count} 个字符）",
+			"undo_no_pynput": "撤销不可用（缺少 pynput）",
+			"undo_failed": "无法撤销上次转录。详情请查看日志。"
+		},
+		"permissions": {
+			"macos_title": "{appName} 需要权限",
+			"macos_body": "点击打开系统设置 → 辅助功能。将 {appName}（及其按键监听辅助程序）添加到列表中。",
+			"macos_body_with_command": "点击打开系统设置 → 辅助功能。将 {appName}（及其按键监听辅助程序）添加到列表中。然后运行：{command}",
+			"linux_title": "{appName} 需要键盘权限",
+			"linux_body": "点击以授予访问权限。系统将要求输入密码以安装键盘权限（udev 规则 + 输入组）。授予后，请注销并重新登录以使更改生效。"
 		}
 	},
 	"error": {
@@ -1988,6 +2017,50 @@
 			"cloud_deepgram_consent": "云端转录会将您的音频发送到 Deepgram 进行转录。Deepgram 的隐私政策适用于所发送的音频。允许吗？",
 			"llm_polish_consent": "LLM 润色会将您的转录文本发送到所配置的 LLM 提供商，用于语法和标点修正。允许吗？",
 			"offline_pack_consent": "离线引擎包（约 180 MB）将从发布服务器下载一次，支持完全本地转录。允许下载吗？"
+		}
+	},
+	"trayState": {
+		"idle": "空闲",
+		"recording": "录音中",
+		"transcribing": "转录中",
+		"loading": "加载中",
+		"error": "错误",
+		"cancelling": "取消中",
+		"recordingController": {
+			"loadingQueued": "正在加载模型——听写将自动开始…",
+			"startingUp": "正在启动——请稍候...",
+			"consentRequired": "需要语音生物识别同意",
+			"modelFailedRetry": "模型加载失败——按你的快捷键重试",
+			"recording": "录音中...",
+			"recordingFailed": "录音失败",
+			"recordingFailedPermission": "录音失败——麦克风权限被拒绝。请在系统设置中允许麦克风访问。",
+			"recordingFailedNoDevice": "录音失败——未找到麦克风。请连接麦克风后重试。",
+			"stopFailed": "停止失败",
+			"tooShort": "太短——已忽略",
+			"transcribing": "转录中...",
+			"cancelling": "取消中...",
+			"cancelled": "已取消",
+			"recovered": "已恢复——转录超时",
+			"stillTranscribing": "仍在转录..."
+		},
+		"modelManager": {
+			"loading": "正在加载模型——按你的快捷键排队...",
+			"readyWhisper": "就绪——{device_info}",
+			"readyOther": "就绪——{name} ASR",
+			"loadFailedRetry": "模型加载失败——按你的快捷键重试",
+			"backendFailed": "{backend} 模型加载失败",
+			"modelFailed": "模型错误：{error}",
+			"modelNotDownloaded": "没有可用的模型。请打开模型页面下载模型。",
+			"modelIntegrityFailed": "{backend} 模型未通过完整性验证。请删除并从模型页面重新下载。"
+		},
+		"pipeline": {
+			"clipboardUnavailable": "完成——剪贴板不可用",
+			"noSpeechDetected": "未检测到语音",
+			"noSpeechCheckMic": "没有语音——请检查麦克风",
+			"transcriptionEmpty": "转录结果为空",
+			"donePasted": "完成——已粘贴 {count} 个字符",
+			"doneInDb": "完成——{count} 个字符（已存入数据库，请按重新粘贴快捷键）",
+			"doneInClipboard": "完成——{count} 个字符（已在剪贴板）"
 		}
 	}
 }

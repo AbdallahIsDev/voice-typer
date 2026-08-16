@@ -38,6 +38,9 @@ import type { HistoryRecord } from "@/types/ipc";
 import {
 	type ActivityChartData,
 	buildActivityBars,
+	type CorrectionStats,
+	type CorrectionUsageSnapshot,
+	computeCorrectionStats,
 	computePeriodStats,
 	computeStreaks,
 	type DashboardData,
@@ -76,6 +79,8 @@ export interface UseDashboardDataResult {
 	period: PeriodStats;
 	/** Range-aware chart bars (hourly for Today, daily otherwise). */
 	activity: ActivityChartData;
+	/** Range-aware corrections-applied totals from the vocabulary usage snapshot. */
+	correctionStats: CorrectionStats;
 	refreshData: () => Promise<void>;
 	handleManualRefresh: () => Promise<void>;
 	/**
@@ -100,6 +105,17 @@ export function useDashboardData({
 	// to the dashboard shows the previously-fetched data instead of
 	// flashing empty.
 	const cachedDataRef = useRef<DashboardData | null>(null);
+
+	// Ref mirror of `call` so `refreshData` keeps a STABLE identity
+	// ([] deps). `call` is useCallback-stable in production, but test
+	// mocks return a FRESH call per render — an identity churn would
+	// re-fire the mount-load effect (refreshData → setData → re-render
+	// → new call → loop → worker OOM). Same pattern as useVocabulary.ts.
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
+
 	const [data, setData] = useState<DashboardData | null>(cachedDataRef.current);
 	// R7-F18: removed dead `const [, setLoading] = useState(true)`.
 	const [configRaw, setConfigRaw] = useState<VoiceTyperConfig | null>(null);
@@ -109,6 +125,11 @@ export function useDashboardData({
 	// mount, so we mark the timestamp after each successful refreshData()
 	// to surface staleness to the user.
 	const { agoLabel, markUpdated } = useLastUpdated();
+	// Ref mirror of `markUpdated` — same rationale as the callRef above.
+	const markUpdatedRef = useRef(markUpdated);
+	useEffect(() => {
+		markUpdatedRef.current = markUpdated;
+	}, [markUpdated]);
 	const [refreshing, setRefreshing] = useState(false);
 	const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -118,28 +139,44 @@ export function useDashboardData({
 	// The history sample backing every derived stat (kept so period /
 	// activity memos recompute when the data refreshes).
 	const [sample, setSample] = useState<HistoryRecord[]>([]);
+	// Per-correction usage snapshot from `get_correction_usage`.
+	const [correctionUsage, setCorrectionUsage] =
+		useState<CorrectionUsageSnapshot | null>(null);
 
 	/** Fetch all dashboard data from the Python backend. */
 	const refreshData = useCallback(async () => {
 		try {
-			const [cfg, history, totalCount, status] = await Promise.all([
-				call<VoiceTyperConfig>("get_config"),
-				call<HistoryRecord[]>("get_history", {
-					limit: DASHBOARD_SAMPLE_LIMIT,
-				}).catch(() => [] as HistoryRecord[]),
-				// Fetch the TRUE total dictation count via the dedicated
-				// `get_history_count` IPC. The `get_history` sample above
-				// is still used for daily-activity / streak / period
-				// computation (a 500-row sample covers weeks of use), but
-				// the "Total Dictations" stat card reflects the actual
-				// row count instead of capping at the sample forever.
-				call<{ count: number }>("get_history_count").catch(() => ({
-					count: 0,
-				})),
-				// Fetch the backend config directory (for the data-path display).
-				// Returns null on failure — the caller falls back to the default path.
-				call<{ config_dir?: string } | null>("get_status").catch(() => null),
-			]);
+			const [cfg, history, totalCount, status, correctionUsage] =
+				await Promise.all([
+					callRef.current<VoiceTyperConfig>("get_config"),
+					callRef
+						.current<HistoryRecord[]>("get_history", {
+							limit: DASHBOARD_SAMPLE_LIMIT,
+						})
+						.catch(() => [] as HistoryRecord[]),
+					// Fetch the TRUE total dictation count via the dedicated
+					// `get_history_count` IPC. The `get_history` sample above
+					// is still used for daily-activity / streak / period
+					// computation (a 500-row sample covers weeks of use), but
+					// the "Total Dictations" stat card reflects the actual
+					// row count instead of capping at the sample forever.
+					callRef.current<{ count: number }>("get_history_count").catch(() => ({
+						count: 0,
+					})),
+					// Fetch the backend config directory (for the data-path display).
+					// Returns null on failure — the caller falls back to the default path.
+					callRef
+						.current<{ config_dir?: string } | null>("get_status")
+						.catch(() => null),
+					// Per-correction usage snapshot (counts + per-day
+					// correction/dictation totals) powering the
+					// corrections-applied card. Null on failure — the
+					// card then shows an empty state instead of blocking
+					// the rest of the dashboard.
+					callRef
+						.current<CorrectionUsageSnapshot | null>("get_correction_usage")
+						.catch(() => null),
+				]);
 
 			const recs = history ?? [];
 			const streaks = computeStreaks(recs);
@@ -201,6 +238,7 @@ export function useDashboardData({
 			cachedDataRef.current = newData;
 			setData(newData);
 			setSample(recs);
+			setCorrectionUsage(correctionUsage ?? null);
 			setConfigRaw(cfg ?? null);
 			if (status?.config_dir) setConfigDir(status.config_dir);
 			setFetchError(null);
@@ -223,9 +261,9 @@ export function useDashboardData({
 		} finally {
 			// F4: bump the "last updated" timestamp after each refresh
 			// attempt (success or failure) so the indicator stays accurate.
-			markUpdated();
+			markUpdatedRef.current();
 		}
-	}, [call, markUpdated]);
+	}, []);
 
 	// ── Range-aware derived stats (single source: `sample`) ───────────
 	const period = useMemo(
@@ -235,6 +273,10 @@ export function useDashboardData({
 	const activity = useMemo(
 		() => buildActivityBars(sample, range),
 		[sample, range],
+	);
+	const correctionStats = useMemo(
+		() => computeCorrectionStats(correctionUsage, range),
+		[correctionUsage, range],
 	);
 
 	// F4: manual refresh handler for the LastUpdatedIndicator button.
@@ -325,6 +367,7 @@ export function useDashboardData({
 		setRange,
 		period,
 		activity,
+		correctionStats,
 		refreshData,
 		handleManualRefresh,
 		debouncedRefreshFromEvent,

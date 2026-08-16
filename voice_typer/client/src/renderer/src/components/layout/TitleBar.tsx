@@ -1,7 +1,9 @@
 import { PanelLeftIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useEffect, useState } from "react";
+import { HotkeyTooltip } from "@/components/hotkey/HotkeyTooltip";
 import { IS_LINUX, IS_MAC, IS_WIN } from "@/components/hotkey/hotkey-utils";
+import { SHORTCUTS } from "@/components/hotkey/shortcuts";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { cn, focusRing } from "@/lib/utils";
@@ -335,129 +337,137 @@ function TitleBarInner({
 			    with them. Windows/Linux don't need it (their window
 			    controls are the custom ones on the right). */}
 			{IS_MAC && <div className="h-8 w-18 shrink-0" aria-hidden="true" />}
-			<button
-				type="button"
-				onClick={onToggleSidebar}
-				aria-label={t("a11y.toggleSidebarWithShortcut", { shortcut: "Ctrl+B" })}
-				//expose the keyboard shortcut via aria-keyshortcuts
-				// so AT users can discover it without inspecting the tooltip.
-				// "Control+B" matches the ARIA keyshortcuts spec format
-				// (Modifier+Key, case-significant).
-				aria-keyshortcuts="Control+B"
-				//surface the Ctrl+B keyboard shortcut in the
-				// tooltip so users discover the keyboard alternative.
-				title={t("a11y.toggleSidebarWithShortcut", { shortcut: "Ctrl+B" })}
-				className={cn(
-					// Fix: sidebar toggle button height matches the TitleBar
-					// h-8 so the icon stays vertically centered (was h-10
-					// w-10 which made it taller than the 32px title bar).
-					"no-drag press-scale flex h-8 w-8 items-center justify-center",
-					"text-(--text-muted)",
-					//parity with sibling back/forward/help buttons —
-					// add rounded corners + transition + hover bg so the
-					// toggle snaps in consistently with its neighbors
-					// (previously the only TitleBar button without a hover bg).
-					"rounded transition-colors duration-150",
-					"hover:bg-foreground/5 hover:text-(--text-primary)",
-					focusRing,
-				)}
+			<HotkeyTooltip
+				label={t("a11y.toggleSidebar")}
+				keys={SHORTCUTS.toggleSidebar.keys}
 			>
-				<HugeiconsIcon
-					icon={PanelLeftIcon}
-					strokeWidth={2}
-					className="h-4 w-4"
-				/>
-			</button>
+				<button
+					type="button"
+					onClick={onToggleSidebar}
+					aria-label={t("a11y.toggleSidebarWithShortcut", {
+						shortcut: SHORTCUTS.toggleSidebar.keys,
+					})}
+					//expose the keyboard shortcut via aria-keyshortcuts
+					// so AT users can discover it without inspecting the
+					// tooltip. Sourced from the SHORTCUTS catalog so the
+					// attribute can't drift from the tooltip chips.
+					aria-keyshortcuts={SHORTCUTS.toggleSidebar.ariaKeyshortcuts}
+					className={cn(
+						// Fix: sidebar toggle button height matches the TitleBar
+						// h-8 so the icon stays vertically centered (was h-10
+						// w-10 which made it taller than the 32px title bar).
+						"no-drag press-scale flex h-8 w-8 items-center justify-center",
+						"text-(--text-muted)",
+						//parity with sibling back/forward/help buttons —
+						// add rounded corners + transition + hover bg so the
+						// toggle snaps in consistently with its neighbors
+						// (previously the only TitleBar button without a hover bg).
+						"rounded transition-colors duration-150",
+						"hover:bg-foreground/5 hover:text-(--text-primary)",
+						focusRing,
+					)}
+				>
+					<HugeiconsIcon
+						icon={PanelLeftIcon}
+						strokeWidth={2}
+						className="h-4 w-4"
+					/>
+				</button>
+			</HotkeyTooltip>
 
 			{/* Back/Forward navigation */}
-			<button
-				type="button"
-				onClick={onGoBack}
-				disabled={!canGoBack}
-				aria-label={t("a11y.goBack")}
-				//surface Alt+Left shortcut in the tooltip.
-				title={t("titleBar.backWithShortcut", { shortcut: "Alt+←" })}
-				className={cn(
-					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
-					"text-(--text-muted) transition-colors duration-150",
-					// task-9: theme-aware hover (replaces the physical
-					// black/white pairing so custom + dark themes get a
-					// consistent hover wash).
-					"hover:bg-foreground/5 hover:text-(--text-primary)",
-					"disabled:opacity-30 disabled:cursor-not-allowed",
-					focusRing,
-				)}
-			>
-				<svg
-					width="16"
-					height="16"
-					viewBox="0 0 16 16"
-					fill="none"
-					aria-hidden="true"
+			<HotkeyTooltip label={t("titleBar.back")} keys={SHORTCUTS.navBack.keys}>
+				<button
+					type="button"
+					onClick={onGoBack}
+					disabled={!canGoBack}
+					aria-label={t("a11y.goBack")}
+					className={cn(
+						"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
+						"text-(--text-muted) transition-colors duration-150",
+						// task-9: theme-aware hover (replaces the physical
+						// black/white pairing so custom + dark themes get a
+						// consistent hover wash).
+						"hover:bg-foreground/5 hover:text-(--text-primary)",
+						"disabled:opacity-30 disabled:cursor-not-allowed",
+						focusRing,
+					)}
 				>
-					<path
-						d="M10 12L6 8L10 4"
-						stroke="currentColor"
-						strokeWidth="1.5"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					/>
-				</svg>
-			</button>
-			<button
-				type="button"
-				onClick={onGoForward}
-				disabled={!canGoForward}
-				aria-label={t("a11y.goForward")}
-				//surface Alt+Right shortcut in the tooltip.
-				title={t("titleBar.forwardWithShortcut", { shortcut: "Alt+→" })}
-				className={cn(
-					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
-					"text-(--text-muted) transition-colors duration-150",
-					"hover:bg-foreground/5 hover:text-(--text-primary)",
-					"disabled:opacity-30 disabled:cursor-not-allowed",
-					focusRing,
-				)}
+					<svg
+						width="16"
+						height="16"
+						viewBox="0 0 16 16"
+						fill="none"
+						aria-hidden="true"
+					>
+						<path
+							d="M10 12L6 8L10 4"
+							stroke="currentColor"
+							strokeWidth="1.5"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+						/>
+					</svg>
+				</button>
+			</HotkeyTooltip>
+			<HotkeyTooltip
+				label={t("titleBar.forward")}
+				keys={SHORTCUTS.navForward.keys}
 			>
-				<svg
-					width="16"
-					height="16"
-					viewBox="0 0 16 16"
-					fill="none"
-					aria-hidden="true"
+				<button
+					type="button"
+					onClick={onGoForward}
+					disabled={!canGoForward}
+					aria-label={t("a11y.goForward")}
+					className={cn(
+						"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
+						"text-(--text-muted) transition-colors duration-150",
+						"hover:bg-foreground/5 hover:text-(--text-primary)",
+						"disabled:opacity-30 disabled:cursor-not-allowed",
+						focusRing,
+					)}
 				>
-					<path
-						d="M6 4L10 8L6 12"
-						stroke="currentColor"
-						strokeWidth="1.5"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					/>
-				</svg>
-			</button>
+					<svg
+						width="16"
+						height="16"
+						viewBox="0 0 16 16"
+						fill="none"
+						aria-hidden="true"
+					>
+						<path
+							d="M6 4L10 8L6 12"
+							stroke="currentColor"
+							strokeWidth="1.5"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+						/>
+					</svg>
+				</button>
+			</HotkeyTooltip>
 
 			{/*discoverable "?" help button. Mirrors the "?"
                             keyboard shortcut (handled in App.tsx) so mouse users and
                             AT users can also open the keyboard-shortcut overlay. */}
-			<button
-				type="button"
-				onClick={onOpenHelp}
-				aria-label={t("help.openHelp")}
-				//expose the "?" shortcut via aria-keyshortcuts so
-				// AT users can discover that pressing "?" opens this overlay.
-				aria-keyshortcuts="?"
-				title={t("help.openHelp")}
-				className={cn(
-					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
-					"text-(--text-muted) transition-colors duration-150",
-					"hover:bg-foreground/5 hover:text-(--text-primary)",
-					focusRing,
-				)}
-			>
-				<span aria-hidden className="text-[13px] font-semibold leading-none">
-					?
-				</span>
-			</button>
+			<HotkeyTooltip label={t("help.openHelp")} keys={SHORTCUTS.openHelp.keys}>
+				<button
+					type="button"
+					onClick={onOpenHelp}
+					aria-label={t("help.openHelp")}
+					//expose the "?" shortcut via aria-keyshortcuts so
+					// AT users can discover that pressing "?" opens this overlay.
+					aria-keyshortcuts={SHORTCUTS.openHelp.ariaKeyshortcuts}
+					className={cn(
+						"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
+						"text-(--text-muted) transition-colors duration-150",
+						"hover:bg-foreground/5 hover:text-(--text-primary)",
+						focusRing,
+					)}
+				>
+					<span aria-hidden className="text-[13px] font-semibold leading-none">
+						?
+					</span>
+				</button>
+			</HotkeyTooltip>
 
 			<div className="flex-1" />
 

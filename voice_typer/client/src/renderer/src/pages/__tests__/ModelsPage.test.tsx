@@ -34,65 +34,28 @@ const renderWithProviders = (ui: React.ReactElement) =>
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// ── Module-level mocks (hoisted by vitest) ────────────────────────────
-//
-// IMPORTANT: vi.mock() factories are HOISTED by vitest and execute before
-// any module-level const/let declarations.  Use vi.hoisted() for factory
-// dependencies so they're available when the factory runs.
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module. This file's
+// variants: usePythonEvent is a noop, the hugeicons renderer spreads
+// extra props, and toast.error routes to mockToastError for the
+// download-failure assertions.
+import {
+	hugeiconsCoreMock,
+	hugeiconsReactMock,
+	modelsConfigMock,
+	pythonMock,
+	snackbarMock,
+	sonnerMock,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
 
-const { mockCall, showSnack, mockToastError } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	showSnack: vi.fn(),
-	mockToastError: vi.fn(),
-}));
+const { mockCall, showSnack, mockToastError } = stableMocks;
 
-vi.mock("@hugeicons/react", () => ({
-	HugeiconsIcon: ({
-		children,
-		icon,
-		...props
-	}: {
-		children?: React.ReactNode;
-		icon?: { name?: string };
-	}) => (
-		<span data-testid="hugeicon" data-name={icon?.name} {...props}>
-			{children}
-		</span>
-	),
-}));
-
-vi.mock("@hugeicons/core-free-icons", async () => {
-	const { createHugeiconsMock } = await import(
-		"@/__tests__/helpers/hugeicons-mock"
-	);
-	return createHugeiconsMock();
-});
-
-// Mock the Python IPC bridge — mockCall is created via vi.hoisted() so
-// it's defined when this hoisted factory runs.
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-	usePythonEvent: () => {},
-}));
-
-vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({
-		showSnack,
-	}),
-}));
-
-// useModelLifecycle imports `toast` from sonner directly for download
-// failure toasts (with Retry action buttons). Mock it so we can assert.
-vi.mock("sonner", () => ({
-	toast: {
-		success: vi.fn(),
-		error: (...args: unknown[]) => mockToastError(...args),
-		warning: vi.fn(),
-		info: vi.fn(),
-		dismiss: vi.fn(),
-	},
-	Toaster: () => null,
-}));
+vi.mock("@hugeicons/react", () => hugeiconsReactMock({ spreadProps: true }));
+vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
+vi.mock("@/hooks/usePython", () => pythonMock({ noopEvent: true }));
+vi.mock("@/hooks/useSnackbar", () => snackbarMock());
+vi.mock("sonner", () => sonnerMock({ errorTo: "mockToastError" }));
 
 // We import en.json directly for assertion string lookups.
 import en from "@/i18n/translations/en.json";
@@ -131,17 +94,7 @@ function t(key: string): string {
 
 // ── Mock config returned by get_config IPC call ────────────────────────
 
-const MOCK_CONFIG = {
-	asr_backend: "whisper",
-	model_size: "tiny",
-	huggingface_consent: true,
-	openai_api_key: "",
-	groq_api_key: "",
-	deepgram_api_key: "",
-	cloud_openai_consent: false,
-	cloud_groq_consent: false,
-	cloud_deepgram_consent: false,
-};
+const MOCK_CONFIG = modelsConfigMock();
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -786,7 +739,7 @@ describe("ModelsPage — MDL-16: Select buttons disabled during download", () =>
 				return Promise.resolve({ ...MOCK_CONFIG, model_size: "large-v3" });
 			if (type === "get_model_status") {
 				return Promise.resolve({
-					"tiny": { downloaded: true, deps_ok: true },
+					tiny: { downloaded: true, deps_ok: true },
 				});
 			}
 			if (type === "get_model_catalog") return Promise.resolve({ models: [] });

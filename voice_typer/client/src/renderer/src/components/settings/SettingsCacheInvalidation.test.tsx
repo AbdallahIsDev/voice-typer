@@ -28,46 +28,27 @@
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockCall, mockPythonEvent, mockNavigate } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	mockPythonEvent: vi.fn(),
-	mockNavigate: vi.fn(),
-}));
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module.
+import {
+	hugeiconsCoreMock,
+	hugeiconsReactMock,
+	navigationMock,
+	nextThemesMock,
+	pythonMock,
+	resetStableMocks,
+	sonnerMock,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
 
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-	usePythonEvent: mockPythonEvent,
-}));
+const { mockCall } = stableMocks;
 
-vi.mock("@/hooks/useNavigation", () => ({
-	useNavigation: () => ({ navigate: mockNavigate }),
-}));
-
-vi.mock("@hugeicons/react", () => ({
-	HugeiconsIcon: () => <span data-testid="hugeicon" />,
-}));
-
-vi.mock("@hugeicons/core-free-icons", async () => {
-	const { createHugeiconsMock } = await import(
-		"@/__tests__/helpers/hugeicons-mock"
-	);
-	return createHugeiconsMock();
-});
-
-vi.mock("sonner", () => ({
-	toast: {
-		success: vi.fn(),
-		error: vi.fn(),
-		warning: vi.fn(),
-		info: vi.fn(),
-		dismiss: vi.fn(),
-	},
-	Toaster: () => null,
-}));
-
-vi.mock("next-themes", () => ({
-	useTheme: () => ({ theme: "light" as const }),
-}));
+vi.mock("@/hooks/usePython", () => pythonMock());
+vi.mock("@/hooks/useNavigation", () => navigationMock());
+vi.mock("@hugeicons/react", () => hugeiconsReactMock());
+vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
+vi.mock("sonner", () => sonnerMock());
+vi.mock("next-themes", () => nextThemesMock());
 
 // Stub InfoTooltip so the test doesn't need to wrap in TooltipProvider
 //(the  fix removed per-caller TooltipProviders).
@@ -214,9 +195,7 @@ function getConfigCallCount(): number {
 
 describe("Settings page — config cache invalidation on re-mount", () => {
 	beforeEach(() => {
-		mockCall.mockReset();
-		mockPythonEvent.mockReset();
-		mockNavigate.mockReset();
+		resetStableMocks();
 		localStorage.clear();
 		// Reset the module registry so Settings' module-level
 		// cache (_cachedConfig) is re-initialised on each test.

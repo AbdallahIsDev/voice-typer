@@ -27,66 +27,28 @@ const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module. The snackbar
+// routes through the toast singletons by type (the real useSnackbar
+// delegates to sonner), so tests assert on toastSuccess / toastError.
+import {
+	hugeiconsCoreMock,
+	hugeiconsReactMock,
+	nextThemesMock,
+	pythonMock,
+	snackbarMock,
+	sonnerMock,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
 
-const { mockCall, showSnack } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	showSnack: vi.fn(),
-}));
+const { mockCall, showSnack, toastSuccess, toastError } = stableMocks;
 
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-}));
-
-vi.mock("@/hooks/useSnackbar", () => ({
-	// The real useSnackbar delegates to sonner (toast.success / toast.error
-	// by type). Route the mock through the same sonner spies so tests can
-	// assert the toast module received the call.
-	useSnackbar: () => ({
-		showSnack: (message: string, type?: string) => {
-			if (type === "error") toastError(message);
-			else toastSuccess(message);
-		},
-	}),
-	showUndoableToast: vi.fn(),
-}));
-
-vi.mock("@hugeicons/react", () => ({
-	HugeiconsIcon: ({
-		children,
-		icon,
-	}: {
-		children?: React.ReactNode;
-		icon?: { name?: string };
-	}) => (
-		<span data-testid="hugeicon" data-name={icon?.name}>
-			{children}
-		</span>
-	),
-}));
-
-vi.mock("@hugeicons/core-free-icons", async () => {
-	const { createHugeiconsMock } = await import(
-		"@/__tests__/helpers/hugeicons-mock"
-	);
-	return createHugeiconsMock();
-});
-
-const toastSuccess = vi.fn();
-const toastError = vi.fn();
-vi.mock("sonner", () => ({
-	toast: {
-		success: (...args: unknown[]) => toastSuccess(...args),
-		error: (...args: unknown[]) => toastError(...args),
-		warning: vi.fn(),
-		info: vi.fn(),
-		dismiss: vi.fn(),
-	},
-	Toaster: () => null,
-}));
-
-vi.mock("next-themes", () => ({
-	useTheme: () => ({ theme: "light" as const }),
-}));
+vi.mock("@/hooks/usePython", () => pythonMock());
+vi.mock("@/hooks/useSnackbar", () => snackbarMock({ routeToSonner: true }));
+vi.mock("@hugeicons/react", () => hugeiconsReactMock());
+vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
+vi.mock("sonner", () => sonnerMock());
+vi.mock("next-themes", () => nextThemesMock());
 
 import type { VocabularyData } from "@/types/ipc";
 

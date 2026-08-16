@@ -19,6 +19,12 @@
  * All shortcuts require Ctrl OR Cmd AND no Shift AND no Alt (matches the
  * original `(e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey` guard).
  *
+ * The keydown listener dispatches on `IN_APP_BINDINGS` from
+ * `components/hotkey/shortcuts.ts` — the catalog owns which
+ * `KeyboardEvent.key` values map to which binding, so the actual
+ * bindings (not just the display strings) can't drift from the Help
+ * overlay / tooltips. This hook only supplies the per-binding actions.
+ *
  * The `b`/`,``h`/`=`/`-` shortcuts are suppressed when the user is typing
  * inside an `<input>`, `<textarea>`, `<select>`, or `contentEditable` host
  * so the app doesn't hijack legitimate text-entry keystrokes. The wheel
@@ -29,8 +35,13 @@
  * errorBoundary.unknownError)` for the key shortcuts and silently
  * swallowed for the wheel shortcut (matches original).
  */
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { toast } from "sonner";
+import type {
+	InAppBinding,
+	InAppShortcutId,
+} from "@/components/hotkey/shortcuts";
+import { IN_APP_BINDINGS } from "@/components/hotkey/shortcuts";
 import type { Page } from "@/types/ipc";
 
 /** Minimal `t` function type matching i18n.t's signature. */
@@ -42,43 +53,44 @@ type CallFn = <T = unknown>(
 	data?: Record<string, unknown>,
 ) => Promise<T>;
 
-/**
- * Static, data-driven descriptor for the in-app keyboard shortcuts
- * handled by this hook. Exported so the help overlay (and any future
- * documentation surface) can render the same authoritative list the
- * hook implements — closing the loophole where the overlay's text
- * drifted from the actual key bindings.
- *
- * `keys` is the user-facing key combination string (matching the
- * format already used in the i18n `help.keys.*` entries: "Ctrl+B",
- * "Ctrl+,", etc.). `labelKey` is the i18n key whose value localises
- * the shortcut's description; if the key is missing from a locale,
- * `t()` falls back to the raw key (the i18n sub-agent will fill in
- * translations later). `category` groups shortcuts in the overlay
- * (e.g. "navigation" vs "view") so future sections can split them
- * visually without reshuffling the array.
- */
-export interface InAppShortcut {
-	keys: string;
-	labelKey: string;
-	category: string;
-}
+// NOTE: these are re-exported for the hook's public type surface; the
+// LOCAL bindings above (`import type`) are what the implementation uses
+// — `export … from` alone does NOT create a module-local binding.
+export type {
+	InAppBinding,
+	InAppShortcut,
+	InAppShortcutId,
+} from "@/components/hotkey/shortcuts";
+// The shortcut string catalog (`SHORTCUTS`), the derived
+// `IN_APP_SHORTCUTS` list, and the actual keyboard-event dispatch
+// table (`IN_APP_BINDINGS`) all live in
+// `components/hotkey/shortcuts.ts` — the single source of truth
+// shared with TitleBar, Sidebar, the Help overlay, and the About
+// page. The keydown listener below dispatches on `IN_APP_BINDINGS`,
+// so the bindings themselves (not just the display strings) can't
+// drift from the catalog. Re-exported here so the hook's
+// documentation surface (and any importer) resolves the same catalog.
+export {
+	IN_APP_BINDINGS,
+	IN_APP_SHORTCUTS,
+} from "@/components/hotkey/shortcuts";
 
-export const IN_APP_SHORTCUTS: InAppShortcut[] = [
-	{
-		keys: "Ctrl+B",
-		labelKey: "help.shortcuts.toggleSidebar",
-		category: "navigation",
-	},
-	{
-		keys: "Ctrl+,",
-		labelKey: "help.shortcuts.openSettings",
-		category: "navigation",
-	},
-	{ keys: "Ctrl+H", labelKey: "help.shortcuts.goHome", category: "navigation" },
-	{ keys: "Ctrl+=", labelKey: "help.shortcuts.zoomIn", category: "view" },
-	{ keys: "Ctrl+-", labelKey: "help.shortcuts.zoomOut", category: "view" },
-];
+/**
+ * The renderer-side half of each modifier profile declared in the
+ * catalog: `IN_APP_BINDINGS[].modifier` → the event guard that decides
+ * whether a keystroke matches. Keyed exhaustively over
+ * `InAppBinding["modifier"]`, so adding a NEW modifier profile to the
+ * catalog is a type error until a guard exists here — the modifier
+ * axis can no longer drift (the binding would otherwise never fire).
+ */
+const MODIFIER_GUARDS: Record<
+	InAppBinding["modifier"],
+	(e: KeyboardEvent) => boolean
+> = {
+	// Ctrl OR Cmd, never Shift/Alt — the original
+	// `(e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey` guard.
+	ctrlCmd: (e) => (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey,
+};
 
 interface UseGlobalKeyboardShortcutsArgs {
 	/** Navigate function from useNavigation. */
@@ -103,109 +115,125 @@ export function useGlobalKeyboardShortcuts({
 	t,
 	setSidebarCollapsed,
 }: UseGlobalKeyboardShortcutsArgs) {
+	// Ref mirror of `call` so the keydown-listener effect doesn't
+	// re-register on every render when a test mock returns a fresh
+	// `call` per render. The listener body reads the latest `call` via
+	// the ref. Same pattern as useVocabulary.ts.
+	const callRef = useRef(call);
 	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
+
+	useEffect(() => {
+		// Per-binding handlers keyed by catalog id — the ACTIONS half of
+		// the binding table. Which key triggers which action comes from
+		// `IN_APP_BINDINGS` (the catalog); this map only decides what
+		// each binding DOES. Both halves are exhaustive over
+		// `InAppShortcutId`, so adding a shortcut to the catalog forces
+		// a handler here (type error) and removing one forces cleanup.
+		//
+		// Guard helpers: the navigation bindings (toggleSidebar,
+		// openSettings, goHome) suppress while a Radix Dialog is open
+		// OR the user is typing in an input; the zoom bindings only
+		// suppress while typing.
+		const isModalOpen = () =>
+			document.querySelector('[role="dialog"][data-state="open"]') != null;
+		const isTyping = (e: KeyboardEvent) => {
+			const target = e.target as HTMLElement | null;
+			const tag = target?.tagName?.toLowerCase() ?? "";
+			return (
+				tag === "input" ||
+				tag === "textarea" ||
+				target?.isContentEditable === true
+			);
+		};
+
+		const bumpTextSize = (
+			delta: number,
+			opts: { silentOnError?: boolean } = {},
+		) => {
+			const current = textSize ?? 14;
+			const next =
+				delta > 0 ? Math.min(current + 1, 20) : Math.max(current - 1, 10);
+			if (next === current) return;
+			setTextSize(next);
+			callRef
+				.current("set_config", { text_size: next })
+				.catch((err: unknown) => {
+					// Key shortcuts surface failures loudly; the wheel path
+					// swallows them (documented contract below — the wheel
+					// handler passes silentOnError: true).
+					if (opts.silentOnError) return;
+					console.warn(
+						"[renderer:useGlobalKeyboardShortcuts] set_config failed:",
+						err,
+					);
+					toast.error(t("errorBoundary.unknownError"));
+				});
+		};
+
+		const handlers: Record<InAppShortcutId, (e: KeyboardEvent) => void> = {
+			toggleSidebar: (e) => {
+				if (isTyping(e) || isModalOpen()) return;
+				e.preventDefault();
+				setSidebarCollapsed((c) => !c);
+			},
+			openSettings: (e) => {
+				if (isTyping(e) || isModalOpen()) return;
+				e.preventDefault();
+				navigate("settings");
+			},
+			goHome: (e) => {
+				if (isTyping(e) || isModalOpen()) return;
+				e.preventDefault();
+				navigate("home");
+			},
+			// Zoom shortcuts (Ctrl+= / Ctrl+-) are intentionally NOT
+			// modal-gated — they're page-zoom semantics that apply
+			// regardless of modal state, and a user adjusting zoom
+			// while a dialog is open is a legitimate action. They ARE
+			// typing-gated so Ctrl+=/Ctrl+- pressed while focus is
+			// inside an <input>/<textarea>/contentEditable (e.g. the
+			// Settings search field) does NOT hijack the keystroke to
+			// bump text size. The browser's native zoom remains
+			// available via Ctrl++ (different key) outside the app's
+			// text-size shortcut namespace. Behaviour is otherwise
+			// preserved (same min/max bounds, same `set_config` IPC).
+			zoomIn: (e) => {
+				if (isTyping(e)) return;
+				e.preventDefault();
+				bumpTextSize(1);
+			},
+			zoomOut: (e) => {
+				if (isTyping(e)) return;
+				e.preventDefault();
+				bumpTextSize(-1);
+			},
+		};
+
 		const keyHandler = (e: KeyboardEvent) => {
-			if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-				// Modal-open guard: when a Radix Dialog / AlertDialog
-				// is open (e.g. ConfirmDialog, the help overlay, the
-				// hotkey picker's modal), Ctrl+B and Ctrl+, would
-				// race the dialog's own keyboard handling and could
-				// navigate the user away from a context they're
-				// actively in (e.g. confirming a destructive action).
-				// The "?" key handler in App.tsx already uses this
-				// same querySelector gate; mirror it here for
-				// consistency. The zoom shortcuts (Ctrl+= / Ctrl+-)
-				// are intentionally NOT gated — they're page-zoom
-				// semantics that apply regardless of modal state,
-				// and a user adjusting zoom while a dialog is open
-				// is a legitimate action.
-				const modalOpen = document.querySelector(
-					'[role="dialog"][data-state="open"]',
-				);
-				const target = e.target as HTMLElement | null;
-				const tag = target?.tagName?.toLowerCase() ?? "";
-				const typing =
-					tag === "input" ||
-					tag === "textarea" ||
-					target?.isContentEditable === true;
-
-				if (e.key === "b" && !typing && !modalOpen) {
-					e.preventDefault();
-					setSidebarCollapsed((c) => !c);
-					return;
-				}
-				if (e.key === "," && !typing && !modalOpen) {
-					e.preventDefault();
-					navigate("settings");
-					return;
-				}
-				if (e.key === "h" && !typing && !modalOpen) {
-					e.preventDefault();
-					navigate("home");
-					return;
-				}
-
-				// Zoom shortcuts (Ctrl+= / Ctrl+-) moved
-				// inside the `!typing` guard so Ctrl+=/Ctrl+- pressed
-				// while focus is inside an <input>/<textarea>/
-				// contentEditable (e.g. the Settings search field) does
-				// NOT hijack the keystroke to bump text size. The
-				// browser's native zoom remains available via Ctrl++
-				// (different key) outside the app's text-size shortcut
-				// namespace. Behaviour is otherwise preserved (same
-				// min/max bounds, same `set_config` IPC).
-				if ((e.key === "=" || e.key === "+") && !typing) {
-					e.preventDefault();
-					const current = textSize ?? 14;
-					const next = Math.min(current + 1, 20);
-					if (next !== current) {
-						setTextSize(next);
-						call("set_config", { text_size: next }).catch((err) => {
-							console.warn(
-								"[renderer:useGlobalKeyboardShortcuts] set_config failed:",
-								err,
-							);
-							toast.error(t("errorBoundary.unknownError"));
-						});
-					}
-					return;
-				}
-
-				if (e.key === "-" && !typing) {
-					e.preventDefault();
-					const current = textSize ?? 14;
-					const next = Math.max(current - 1, 10);
-					if (next !== current) {
-						setTextSize(next);
-						call("set_config", { text_size: next }).catch((err) => {
-							console.warn(
-								"[renderer:useGlobalKeyboardShortcuts] set_config failed:",
-								err,
-							);
-							toast.error(t("errorBoundary.unknownError"));
-						});
-					}
-					return;
-				}
-			}
+			// The modifier guard comes from the CATALOG: the binding's
+			// `modifier` profile maps to the event guard that must pass.
+			// The key axis (eventKeys) and the modifier axis (modifier →
+			// MODIFIER_GUARDS) are both catalog-driven, so a binding can
+			// only fire when BOTH halves of its catalog descriptor match.
+			const binding = IN_APP_BINDINGS.find((b) => b.eventKeys.includes(e.key));
+			if (!binding) return;
+			// The Record is exhaustive over the catalog's modifier
+			// profiles, so the guard always exists at runtime — the
+			// optional call is only for noUncheckedIndexedAccess.
+			const guard = MODIFIER_GUARDS[binding.modifier];
+			if (!guard?.(e)) return;
+			handlers[binding.id](e);
 		};
 
 		const wheelHandler = (e: WheelEvent) => {
 			if (!e.ctrlKey && !e.metaKey) return;
 			e.preventDefault();
-			const current = textSize ?? 14;
 			if (e.deltaY < 0) {
-				const next = Math.min(current + 1, 20);
-				if (next !== current) {
-					setTextSize(next);
-					call("set_config", { text_size: next }).catch(() => {});
-				}
+				bumpTextSize(1, { silentOnError: true });
 			} else if (e.deltaY > 0) {
-				const next = Math.max(current - 1, 10);
-				if (next !== current) {
-					setTextSize(next);
-					call("set_config", { text_size: next }).catch(() => {});
-				}
+				bumpTextSize(-1, { silentOnError: true });
 			}
 		};
 
@@ -215,5 +243,5 @@ export function useGlobalKeyboardShortcuts({
 			window.removeEventListener("keydown", keyHandler);
 			window.removeEventListener("wheel", wheelHandler);
 		};
-	}, [navigate, textSize, call, setTextSize, t, setSidebarCollapsed]);
+	}, [navigate, textSize, setTextSize, t, setSidebarCollapsed]);
 }

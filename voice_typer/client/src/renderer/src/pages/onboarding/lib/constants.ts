@@ -15,7 +15,12 @@ export const STEP_TITLE_KEY: Record<string, string> = {
 
 // Fix 17: renderer default must match `OnboardingController.selected_hotkey`
 // (`<caps_lock>`) — previously `<f2>`, which silently overrode the backend.
-export const HOTKEY_DEFAULT = "<caps_lock>";
+// The constant itself now lives in `components/hotkey/hotkey-utils.ts`
+// (next to `formatHotkey` and `configHotkeyLabels`, so config-driven
+// hotkey defaults and their label computation share one module);
+// re-exported here so existing importers (App, Home, the wizard) and
+// the lockstep comment history stay intact.
+export { HOTKEY_DEFAULT } from "@/components/hotkey/hotkey-utils";
 
 // Renderer default model must match the backend's canonical default
 // `DEFAULT_MODEL_SIZE` (`voice_typer/server/model_registry.py`) so the

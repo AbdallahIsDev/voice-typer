@@ -16,17 +16,18 @@
  * config — the overlay itself doesn't read config so it stays a pure
  * presentational component.
  *
- * In-app shortcuts (Ctrl+B, Ctrl+,, Ctrl+H, Ctrl+=, Ctrl+-) are rendered
- * from the `IN_APP_SHORTCUTS` constant exported by
- * `useGlobalKeyboardShortcuts` so the overlay always reflects the
- * bindings the hook actually handles — closing the loophole where the
- * overlay's text drifted from the implementation.
+ * All static key strings (Esc, Tab / Shift+Tab, Space, Enter, ?, the
+ * Alt+←/Alt+→ nav pair, and the in-app Ctrl+* shortcuts) come from the
+ * `SHORTCUTS` catalog in `components/hotkey/shortcuts.ts` — the single
+ * source of truth shared with TitleBar and Sidebar — so the overlay
+ * always reflects the bindings the hooks actually handle and can never
+ * drift from the tooltips.
  */
 import { memo } from "react";
 import { Modal } from "@/components/common/Modal";
 import { PunctuationCheatSheet } from "@/components/help/PunctuationCheatSheet";
 import { HotkeyChips } from "@/components/hotkey/HotkeyChips";
-import { IN_APP_SHORTCUTS } from "@/hooks/useGlobalKeyboardShortcuts";
+import { IN_APP_SHORTCUTS, SHORTCUTS } from "@/components/hotkey/shortcuts";
 import { useT } from "@/i18n/i18n";
 
 interface HelpOverlayProps {
@@ -84,13 +85,31 @@ function HelpOverlayInner({
 				<ul className="space-y-2 text-sm">
 					{[
 						{ keys: dictationLabel, desc: t("help.dictation") },
-						{ keys: t("help.keys.cancel"), desc: t("help.cancel") },
+						{
+							keys: SHORTCUTS.cancel.keys,
+							desc: t(SHORTCUTS.cancel.labelKey),
+						},
 						{ keys: repasteLabel, desc: t("help.repaste") },
-						{ keys: t("help.keys.navigate"), desc: t("help.navigate") },
-						{ keys: t("help.keys.toggle"), desc: t("help.toggle") },
-						{ keys: t("help.keys.activate"), desc: t("help.activate") },
-						{ keys: t("help.keys.openHelp"), desc: t("help.openHelp") },
-						{ keys: t("help.keys.navBack"), desc: t("help.navBack") },
+						{
+							keys: SHORTCUTS.navigate.keys,
+							desc: t(SHORTCUTS.navigate.labelKey),
+						},
+						{ keys: SHORTCUTS.toggle.keys, desc: t(SHORTCUTS.toggle.labelKey) },
+						{
+							keys: SHORTCUTS.activate.keys,
+							desc: t(SHORTCUTS.activate.labelKey),
+						},
+						{
+							keys: SHORTCUTS.openHelp.keys,
+							desc: t(SHORTCUTS.openHelp.labelKey),
+						},
+						{
+							// Combined back/forward row — built from the two
+							// catalog entries so it can't drift from the
+							// TitleBar tooltips.
+							keys: `${SHORTCUTS.navBack.keys} / ${SHORTCUTS.navForward.keys}`,
+							desc: t(SHORTCUTS.navBack.labelKey),
+						},
 					].map((shortcut) => (
 						<li
 							key={shortcut.keys}
@@ -103,10 +122,10 @@ function HelpOverlayInner({
 				</ul>
 
 				{/* In-app keyboard shortcuts — sourced from the
-				`IN_APP_SHORTCUTS` constant exported by
-				`useGlobalKeyboardShortcuts` (the hook that implements
-				them). Rendering from the same array keeps the overlay
-				in lock-step with the actual key bindings. */}
+				`IN_APP_SHORTCUTS` array in `components/hotkey/shortcuts.ts`
+				(the same catalog TitleBar and Sidebar render from).
+				Rendering from the same array keeps the overlay in
+				lock-step with the actual key bindings. */}
 				<h3 className="mt-4 text-sm font-medium text-(--text-primary)">
 					{t("help.shortcuts.title")}
 				</h3>
@@ -126,7 +145,7 @@ function HelpOverlayInner({
 
 				<PunctuationCheatSheet />
 				<p className="text-xs text-(--text-muted)">
-					{t("help.closeHint", { key: "Esc" })}
+					{t("help.closeHint", { key: SHORTCUTS.cancel.keys })}
 				</p>
 			</div>
 		</Modal>

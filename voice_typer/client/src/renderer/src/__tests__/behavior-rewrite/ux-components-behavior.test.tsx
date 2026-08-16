@@ -122,6 +122,19 @@ if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
 }
 
 // ── Mock state hoisted before vi.mock factories run ─────────────────
+// Stable identities for hook-returned callbacks (render-loop guard —
+// see a11y/axe-core.test.tsx). A fresh vi.fn() per render would re-fire
+// any effect listing these in its deps; these singletons match the real
+// hooks' useCallback([])-stable behaviour.
+const stable = vi.hoisted(() => ({
+	replace: vi.fn(),
+	goBack: vi.fn(),
+	goForward: vi.fn(),
+	handleThemeChange: vi.fn(),
+	reloadThemeFromConfig: vi.fn(),
+	setTextSize: vi.fn(),
+}));
+
 const {
 	mockCall,
 	mockPythonEvent,
@@ -150,9 +163,9 @@ vi.mock("@/hooks/useNavigation", () => ({
 	useNavigation: () => ({
 		navigate: mockNavigate,
 		currentPage: mockNavState.page,
-		replace: vi.fn(),
-		goBack: vi.fn(),
-		goForward: vi.fn(),
+		replace: stable.replace,
+		goBack: stable.goBack,
+		goForward: stable.goForward,
 		canGoBack: false,
 		canGoForward: false,
 	}),
@@ -216,10 +229,10 @@ vi.mock("@/hooks/useConnection", () => ({
 vi.mock("@/hooks/useTheme", () => ({
 	useTheme: () => ({
 		themeMode: "system" as const,
-		handleThemeChange: vi.fn(),
-		reloadThemeFromConfig: vi.fn(),
+		handleThemeChange: stable.handleThemeChange,
+		reloadThemeFromConfig: stable.reloadThemeFromConfig,
 		textSize: 14,
-		setTextSize: vi.fn(),
+		setTextSize: stable.setTextSize,
 	}),
 }));
 
@@ -236,6 +249,7 @@ vi.mock("@/components/ui/sonner", () => ({
 // Settings' Troubleshooting section don't try to spawn a real browser.
 const originalWindowOpen = window.open;
 beforeEach(() => {
+	vi.clearAllMocks();
 	window.open = vi.fn(() => null);
 	mockNavState.page = "home";
 	// Restore the default "connected" useConnection state for every
@@ -260,6 +274,7 @@ afterEach(() => {
 // "skip on !resp.ok" path is exercised.
 const originalFetch = global.fetch;
 beforeEach(() => {
+	vi.clearAllMocks();
 	global.fetch = vi.fn(() =>
 		Promise.resolve({
 			ok: false,
@@ -429,6 +444,7 @@ const baseConfig: VoiceTyperConfig = {
 
 describe("Settings — silent auto-save (no status bar) + save toasts", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(baseConfig);
@@ -570,6 +586,7 @@ describe("Settings onNavigate prop — rewrite of Page-type tests", () => {
 	// would fail here.
 
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(baseConfig);
@@ -769,6 +786,7 @@ import { beforeAll } from "vitest";
 
 describe("useNavigation — rewrite of localStorage persistence tests", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		localStorage.clear();
 		// Shared store: reset the module-level nav state so the
 		// previous test's navigation can't leak into this one.
@@ -919,7 +937,9 @@ describe("Sidebar — rewrite of About-nav tests", () => {
 		// with the literal "about".
 		const { Sidebar } = await import("@/components/layout/Sidebar");
 		const onNavigate: (page: Page) => void = vi.fn();
-		render(
+		// Sidebar mounts Radix Tooltips (HotkeyTooltip) → needs the
+		// TooltipProvider wrapper (same as the app shell).
+		renderWithProviders(
 			<Sidebar
 				currentPage="home"
 				onNavigate={onNavigate}
@@ -942,6 +962,7 @@ describe("Sidebar — rewrite of About-nav tests", () => {
 
 describe("About — rewrite of loaded_via tests", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 	});
 
@@ -1037,6 +1058,7 @@ describe("About — rewrite of loaded_via tests", () => {
 
 describe("Vocabulary — rewrite of help-text tests", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_vocabulary") {
@@ -1102,6 +1124,7 @@ describe("Vocabulary — rewrite of help-text tests", () => {
 
 describe("Templates — rewrite of help-text + variable-tooltip tests", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_templates") {
@@ -1233,7 +1256,7 @@ describe("TitleBar — rewrite of isMaximized prop tests", () => {
 		// the maximize/restore button's aria-label is "Restore" (the
 		// i18n value of t("titleBar.restore")).
 		const { TitleBar } = await import("@/components/layout/TitleBar");
-		render(<TitleBar isMaximized={true} />);
+		renderWithProviders(<TitleBar isMaximized={true} />);
 
 		const restoreBtn = screen.getByRole("button", { name: "Restore" });
 		expect(restoreBtn).toBeTruthy();
@@ -1244,7 +1267,7 @@ describe("TitleBar — rewrite of isMaximized prop tests", () => {
 		// the isMaximized ternary so a future refactor can't silently
 		// break it.
 		const { TitleBar } = await import("@/components/layout/TitleBar");
-		render(<TitleBar isMaximized={false} />);
+		renderWithProviders(<TitleBar isMaximized={false} />);
 
 		const maximizeBtn = screen.getByRole("button", { name: "Maximize" });
 		expect(maximizeBtn).toBeTruthy();
@@ -1275,7 +1298,7 @@ describe("TitleBar — rewrite of isMaximized prop tests", () => {
 
 		try {
 			const { TitleBar } = await import("@/components/layout/TitleBar");
-			render(<TitleBar isMaximized={true} />);
+			renderWithProviders(<TitleBar isMaximized={true} />);
 
 			// Neither the one-shot isMaximized() probe nor the
 			// onMaximizedChanged subscription should fire — the prop
@@ -1378,6 +1401,7 @@ async function registerAppPageStubs() {
 
 describe("App routing + chrome — rewrite of routing + ErrorBoundary tests", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		localStorage.clear();
@@ -1490,6 +1514,7 @@ describe("App routing + chrome — rewrite of routing + ErrorBoundary tests", ()
 
 describe("App help overlay content — rewrite of shortcut-list + input-gate tests", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		localStorage.clear();

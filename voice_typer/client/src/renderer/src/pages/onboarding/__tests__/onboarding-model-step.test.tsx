@@ -28,39 +28,31 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module. Variants here:
+// usePythonEvent captures handlers into the pythonEventHandlers map
+// (tests drive download_progress etc. directly), and the Radix Select
+// mock below is file-specific and stays inline.
+import {
+	hugeiconsCoreMock,
+	hugeiconsReactMock,
+	pythonMock,
+	snackbarMock,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
 
-// ── Hoisted mocks ────────────────────────────────────────────────────
+const {
+	mockCall,
+	showSnack: mockShowSnack,
+	pythonEventHandlers: eventHandlers,
+} = stableMocks;
 
-const { mockCall, mockShowSnack, eventHandlers } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	mockShowSnack: vi.fn(),
-	eventHandlers: {} as Record<string, (data: unknown) => void>,
-}));
-
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-	usePythonEvent: (name: string, cb: (data: unknown) => void) => {
-		eventHandlers[name] = cb;
-	},
-}));
-
-vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({ showSnack: mockShowSnack }),
-}));
-
-vi.mock("@hugeicons/react", () => ({
-	HugeiconsIcon: ({
-		children,
-		icon,
-	}: {
-		children?: React.ReactNode;
-		icon?: { name?: string };
-	}) => (
-		<span data-testid="hugeicon" data-name={icon?.name}>
-			{children}
-		</span>
-	),
-}));
+vi.mock("@/hooks/usePython", () =>
+	pythonMock({ captureEvents: stableMocks.pythonEventHandlers }),
+);
+vi.mock("@/hooks/useSnackbar", () => snackbarMock());
+vi.mock("@hugeicons/react", () => hugeiconsReactMock());
+vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
 
 //mock the Radix Select wrapper so options render inline (same as the
 // sibling Onboarding tests — these tests don't drive pointer-capture

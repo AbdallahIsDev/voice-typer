@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 describe("ER-20: t() caches interpolation RegExp by key", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		vi.resetModules();
 		localStorage.clear();
 		// The cache lives at module scope, so a fresh module load
@@ -104,6 +105,7 @@ describe("ER-23: formatBytes caches Intl.NumberFormat", () => {
 	let originalNumberFormat: typeof Intl.NumberFormat;
 
 	beforeEach(() => {
+		vi.clearAllMocks();
 		vi.resetModules();
 		originalNumberFormat = Intl.NumberFormat;
 	});
@@ -167,6 +169,7 @@ describe("ER-28: closeAudioContext nulls the shared AudioContext", () => {
 	let mockCtor: ReturnType<typeof vi.fn>;
 
 	beforeEach(() => {
+		vi.clearAllMocks();
 		vi.resetModules();
 		localStorage.clear();
 
@@ -265,6 +268,12 @@ const { mockCall, mockPythonEvent } = vi.hoisted(() => ({
 	mockPythonEvent: vi.fn(),
 }));
 
+const stable = vi.hoisted(() => ({
+	navigate: vi.fn(),
+	goBack: vi.fn(),
+	goForward: vi.fn(),
+}));
+
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({ call: mockCall }),
 	usePythonEvent: mockPythonEvent,
@@ -294,9 +303,9 @@ vi.mock("@/stores/appStore", () => ({
 vi.mock("@/hooks/useNavigation", () => ({
 	useNavigation: () => ({
 		currentPage: "home" as const,
-		navigate: vi.fn(),
-		goBack: vi.fn(),
-		goForward: vi.fn(),
+		navigate: stable.navigate,
+		goBack: stable.goBack,
+		goForward: stable.goForward,
 		canGoBack: false,
 		canGoForward: false,
 	}),
@@ -304,6 +313,7 @@ vi.mock("@/hooks/useNavigation", () => ({
 
 describe("ER-61: useConnection probes only after 5-minute event gap", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		vi.useFakeTimers({
 			shouldAdvanceTime: false,
 			now: new Date("2026-01-01T00:00:00Z"),

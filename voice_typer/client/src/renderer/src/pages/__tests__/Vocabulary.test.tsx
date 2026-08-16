@@ -51,59 +51,24 @@ const renderWithProviders = (ui: React.ReactElement) => {
 
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module.
+import {
+	hugeiconsCoreMock,
+	hugeiconsReactMock,
+	nextThemesMock,
+	pythonMock,
+	sonnerMock,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
 
-// Hoist the mock call handler so it's available inside vi.mock factories.
-const { mockCall } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-}));
+const { mockCall, toastSuccess, toastError, toastWarning } = stableMocks;
 
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-}));
-
-// Stub the hugeicons runtime wrapper so the trash/edit icons render
-// without pulling in the full @hugeicons/react renderer.
-vi.mock("@hugeicons/react", () => ({
-	HugeiconsIcon: ({
-		children,
-		icon,
-	}: {
-		children?: React.ReactNode;
-		icon?: { name?: string };
-	}) => (
-		<span data-testid="hugeicon" data-name={icon?.name}>
-			{children}
-		</span>
-	),
-}));
-
-vi.mock("@hugeicons/core-free-icons", async () => {
-	const { createHugeiconsMock } = await import(
-		"@/__tests__/helpers/hugeicons-mock"
-	);
-	return createHugeiconsMock();
-});
-
-// sonner: capture toast.warning / toast.success calls so the test can
-// invoke the Undo callback (passed as `action.onClick` in the warning
-// toast's options).  Each mock is a fresh vi.fn() per test run.
-const toastWarning = vi.fn();
-const toastSuccess = vi.fn();
-const toastError = vi.fn();
-vi.mock("sonner", () => ({
-	toast: {
-		success: (...args: unknown[]) => toastSuccess(...args),
-		error: (...args: unknown[]) => toastError(...args),
-		warning: (...args: unknown[]) => toastWarning(...args),
-		info: vi.fn(),
-		dismiss: vi.fn(),
-	},
-	Toaster: () => null,
-}));
-
-vi.mock("next-themes", () => ({
-	useTheme: () => ({ theme: "light" as const }),
-}));
+vi.mock("@/hooks/usePython", () => pythonMock());
+vi.mock("@hugeicons/react", () => hugeiconsReactMock());
+vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
+vi.mock("sonner", () => sonnerMock());
+vi.mock("next-themes", () => nextThemesMock());
 
 import type { VocabularyData } from "@/types/ipc";
 

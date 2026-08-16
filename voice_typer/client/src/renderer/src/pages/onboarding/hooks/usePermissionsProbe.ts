@@ -29,6 +29,14 @@ export function usePermissionsProbe(
 	selectedHotkey: string,
 ): UsePermissionsProbeResult {
 	const { call } = usePython();
+	// callRef mirror (Home.tsx pattern): the probe effect below must not
+	// depend on the `call` identity — a test mock handing out a fresh
+	// `call` per render would re-fire the permission probe on every
+	// render (OOM loop class). ``callRef.current`` is read instead.
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
 
 	const [permissionsResult, setPermissionsResult] =
 		useState<PermissionsResult | null>(null);
@@ -83,7 +91,8 @@ export function usePermissionsProbe(
 		setPermissionsLoading(true);
 		setPermissionsResult(null);
 		setPermissionsTest({ kind: "idle" });
-		call<PermissionsResult>("onboarding_check_permissions")
+		callRef
+			.current<PermissionsResult>("onboarding_check_permissions")
 			.then((result) => {
 				if (!cancelled) setPermissionsResult(result);
 			})
@@ -120,7 +129,7 @@ export function usePermissionsProbe(
 				permissionsTestKeydownRef.current = null;
 			}
 		};
-	}, [call, stepName]);
+	}, [stepName]);
 
 	const normalizeHotkey = useCallback((raw: string): string => {
 		return raw.replace(/[<>]/g, "").replace(/_/g, "").toLowerCase();

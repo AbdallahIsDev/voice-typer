@@ -33,11 +33,19 @@ import {
 	UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { APP_NAME } from "@/branding";
 import PageHeading from "@/components/common/PageHeading";
 import { ReadonlyRow } from "@/components/common/ReadonlyRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
+import { HotkeyChips } from "@/components/hotkey/HotkeyChips";
+import { formatHotkey } from "@/components/hotkey/hotkey-utils";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
@@ -280,6 +288,14 @@ export function formatRelativeTime(iso: string | null): string {
 
 export default function AboutPage() {
 	const { call } = usePython();
+	// callRef mirror (Home.tsx pattern): the mount probe effect below
+	// reads ``callRef.current`` so its deps stay identity-free — a
+	// test mock handing out a fresh `call` per render must not re-fire
+	// the get_status/get_config probe (OOM loop class).
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
 	const { showSnack } = useSnackbar();
 	// Re-render on locale switch so all t() calls re-resolve.
 	useT();
@@ -303,7 +319,7 @@ export default function AboutPage() {
 			// Python backend is down (or the bridge isn't installed), the
 			// call rejects and we mark the backend as disconnected.
 			try {
-				const status = await call<{
+				const status = await callRef.current<{
 					config_dir?: string;
 					status?: string;
 					loaded_via?: string;
@@ -328,7 +344,7 @@ export default function AboutPage() {
 			// Best-effort config fetch. Will also fail if the backend is
 			// down — the UI falls back to "—" placeholders in that case.
 			try {
-				const cfg = await call<VoiceTyperConfig>("get_config");
+				const cfg = await callRef.current<VoiceTyperConfig>("get_config");
 				if (!cancelled) setConfig(cfg);
 			} catch (e) {
 				// intentionally leave config as null — diagnostics simply
@@ -341,7 +357,7 @@ export default function AboutPage() {
 		return () => {
 			cancelled = true;
 		};
-	}, [call]);
+	}, []);
 
 	const asrBackend = config
 		? `${config.asr_backend} (${config.model_size})`
@@ -526,7 +542,10 @@ export default function AboutPage() {
 						<ReadonlyRow
 							variant="label-emphasized"
 							label={t("about.hotkey")}
-							value={hotkey}
+							// Render the configured hotkey as design-system Kbd
+							// chips (same primitive as Home / the Help overlay),
+							// normalized + platform-formatted via formatHotkey.
+							value={<HotkeyChips keys={formatHotkey(hotkey)} />}
 						/>
 						<ReadonlyRow
 							variant="label-emphasized"

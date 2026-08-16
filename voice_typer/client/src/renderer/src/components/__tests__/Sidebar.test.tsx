@@ -31,6 +31,19 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 });
 
 import { Sidebar } from "@/components/layout/Sidebar";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+// Sidebar renders real Radix Tooltips (via HotkeyTooltip on the nav
+// items), which REQUIRE a TooltipProvider ancestor — the app shell
+// provides one (App.tsx:475). Same props as App.tsx so tooltip timing
+// in tests mirrors production.
+function renderWithProviders(ui: React.ReactElement) {
+	return render(
+		<TooltipProvider delayDuration={200} skipDelayDuration={500}>
+			{ui}
+		</TooltipProvider>,
+	);
+}
 
 describe("Sidebar", () => {
 	afterEach(() => {
@@ -45,7 +58,7 @@ describe("Sidebar", () => {
 	};
 
 	it("renders all 9 navigation items with their labels", () => {
-		render(<Sidebar {...baseProps} />);
+		renderWithProviders(<Sidebar {...baseProps} />);
 		const labels = [
 			"Home",
 			"History",
@@ -63,7 +76,7 @@ describe("Sidebar", () => {
 	});
 
 	it("renders the nav landmark with an accessible name", () => {
-		render(<Sidebar {...baseProps} />);
+		renderWithProviders(<Sidebar {...baseProps} />);
 		const nav = screen.getByRole("navigation", {
 			name: "Main navigation",
 		});
@@ -72,40 +85,40 @@ describe("Sidebar", () => {
 
 	it("calls onNavigate with 'home' when the Home item is clicked", () => {
 		const onNavigate = vi.fn();
-		render(<Sidebar {...baseProps} onNavigate={onNavigate} />);
+		renderWithProviders(<Sidebar {...baseProps} onNavigate={onNavigate} />);
 		fireEvent.click(screen.getByText("Home"));
 		expect(onNavigate).toHaveBeenCalledWith("home");
 	});
 
 	it("calls onNavigate with 'microphone' when the Microphone item is clicked", () => {
 		const onNavigate = vi.fn();
-		render(<Sidebar {...baseProps} onNavigate={onNavigate} />);
+		renderWithProviders(<Sidebar {...baseProps} onNavigate={onNavigate} />);
 		fireEvent.click(screen.getByText("Microphone"));
 		expect(onNavigate).toHaveBeenCalledWith("microphone");
 	});
 
 	it("calls onNavigate with 'about' when the About item is clicked", () => {
 		const onNavigate = vi.fn();
-		render(<Sidebar {...baseProps} onNavigate={onNavigate} />);
+		renderWithProviders(<Sidebar {...baseProps} onNavigate={onNavigate} />);
 		fireEvent.click(screen.getByText("About"));
 		expect(onNavigate).toHaveBeenCalledWith("about");
 	});
 
 	it("marks the active page with aria-current='page'", () => {
-		render(<Sidebar {...baseProps} currentPage="vocabulary" />);
+		renderWithProviders(<Sidebar {...baseProps} currentPage="vocabulary" />);
 		const activeItem = screen.getByText("Vocabulary").closest("button");
 		expect(activeItem?.getAttribute("aria-current")).toBe("page");
 	});
 
 	it("does not set aria-current on inactive items", () => {
-		render(<Sidebar {...baseProps} currentPage="home" />);
+		renderWithProviders(<Sidebar {...baseProps} currentPage="home" />);
 		const inactiveItem = screen.getByText("Settings").closest("button");
 		expect(inactiveItem?.getAttribute("aria-current")).toBeNull();
 	});
 
 	it("renders the ThemeSwitch and forwards onThemeChange when clicked", () => {
 		const onThemeChange = vi.fn();
-		render(
+		renderWithProviders(
 			<Sidebar
 				{...baseProps}
 				themeMode="light"

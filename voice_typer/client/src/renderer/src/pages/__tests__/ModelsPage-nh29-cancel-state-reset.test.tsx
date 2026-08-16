@@ -37,54 +37,25 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module.
+import {
+	hugeiconsCoreMock,
+	hugeiconsReactMock,
+	modelsConfigMock,
+	pythonMock,
+	snackbarMock,
+	sonnerMock,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
 
-const { mockCall, showSnack, mockToastError } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	showSnack: vi.fn(),
-	mockToastError: vi.fn(),
-}));
+const { mockCall, showSnack, mockToastError } = stableMocks;
 
-vi.mock("@hugeicons/react", () => ({
-	HugeiconsIcon: ({
-		children,
-		icon,
-		...props
-	}: {
-		children?: React.ReactNode;
-		icon?: { name?: string };
-	}) => (
-		<span data-testid="hugeicon" data-name={icon?.name} {...props}>
-			{children}
-		</span>
-	),
-}));
-
-vi.mock("@hugeicons/core-free-icons", async () => {
-	const { createHugeiconsMock } = await import(
-		"@/__tests__/helpers/hugeicons-mock"
-	);
-	return createHugeiconsMock();
-});
-
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-	usePythonEvent: () => {},
-}));
-
-vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({ showSnack }),
-}));
-
-vi.mock("sonner", () => ({
-	toast: {
-		success: vi.fn(),
-		error: (...args: unknown[]) => mockToastError(...args),
-		warning: vi.fn(),
-		info: vi.fn(),
-		dismiss: vi.fn(),
-	},
-	Toaster: () => null,
-}));
+vi.mock("@/hooks/usePython", () => pythonMock({ noopEvent: true }));
+vi.mock("@/hooks/useSnackbar", () => snackbarMock());
+vi.mock("@hugeicons/react", () => hugeiconsReactMock({ spreadProps: true }));
+vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
+vi.mock("sonner", () => sonnerMock({ errorTo: "mockToastError" }));
 
 import en from "@/i18n/translations/en.json";
 import ModelsPage from "@/pages/Models";
@@ -111,17 +82,7 @@ function t(key: string): string {
 	return EN_KEYS.get(key) ?? key;
 }
 
-const MOCK_CONFIG = {
-	asr_backend: "whisper",
-	model_size: "tiny",
-	huggingface_consent: true,
-	openai_api_key: "",
-	groq_api_key: "",
-	deepgram_api_key: "",
-	cloud_openai_consent: false,
-	cloud_groq_consent: false,
-	cloud_deepgram_consent: false,
-};
+const MOCK_CONFIG = modelsConfigMock();
 
 async function renderPage() {
 	mockCall.mockImplementation((type: string) => {

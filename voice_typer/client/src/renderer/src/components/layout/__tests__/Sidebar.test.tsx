@@ -16,7 +16,13 @@
  * basic nav-label + aria-current behavior; this suite focuses on the
  * new fixes only and avoids duplicating those assertions.
  */
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@hugeicons/react", () => ({
@@ -47,6 +53,19 @@ vi.mock("@/components/layout/ThemeSwitch", () => ({
 
 import { APP_NAME } from "@/branding";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+// Sidebar renders real Radix Tooltips (via HotkeyTooltip on the nav
+// items), which REQUIRE a TooltipProvider ancestor — the app shell
+// provides one (App.tsx:475). Same props as App.tsx so tooltip timing
+// in tests mirrors production.
+function renderWithProviders(ui: React.ReactElement) {
+	return render(
+		<TooltipProvider delayDuration={200} skipDelayDuration={500}>
+			{ui}
+		</TooltipProvider>,
+	);
+}
 
 // Helper: find a nav-item button by its visible label. The Sidebar sets
 // `title` on each nav button (either the bare label for items without a
@@ -80,7 +99,7 @@ describe("Sidebar", () => {
 	//active nav item visual hierarchy ───────────────────────
 
 	it("UX-16: active nav item blends with the page (--bg background, no accent bar, no accent tint)", () => {
-		render(<Sidebar {...baseProps} currentPage="settings" />);
+		renderWithProviders(<Sidebar {...baseProps} currentPage="settings" />);
 		const activeButton = findNavButton("Settings");
 		expect(activeButton).toBeTruthy();
 		const cls = activeButton?.className ?? "";
@@ -100,7 +119,7 @@ describe("Sidebar", () => {
 	});
 
 	it("UX-16: inactive nav items do NOT carry the accent border/background", () => {
-		render(<Sidebar {...baseProps} currentPage="home" />);
+		renderWithProviders(<Sidebar {...baseProps} currentPage="home" />);
 		const inactiveButton = findNavButton("Settings");
 		expect(inactiveButton).toBeTruthy();
 		const cls = inactiveButton?.className ?? "";
@@ -119,14 +138,14 @@ describe("Sidebar", () => {
 	//nav grouping ──────────────────────────────────────────
 
 	it("PROD-7: renders three group labels (Main, Power features, System)", () => {
-		render(<Sidebar {...baseProps} />);
+		renderWithProviders(<Sidebar {...baseProps} />);
 		expect(screen.getByText("Main")).toBeTruthy();
 		expect(screen.getByText("Power features")).toBeTruthy();
 		expect(screen.getByText("System")).toBeTruthy();
 	});
 
 	it("PROD-7: groups are rendered as <section> elements with aria-label matching the group label", () => {
-		render(<Sidebar {...baseProps} />);
+		renderWithProviders(<Sidebar {...baseProps} />);
 		const mainSection = findNavButton("Home").closest("section");
 		const powerSection = findNavButton("Templates").closest("section");
 		const systemSection = findNavButton("Settings").closest("section");
@@ -136,7 +155,7 @@ describe("Sidebar", () => {
 	});
 
 	it("PROD-7: Home/History/Analytics are in the Main group; Templates/Vocabulary/Models/Microphone in Power features; Settings/About in System", () => {
-		render(<Sidebar {...baseProps} />);
+		renderWithProviders(<Sidebar {...baseProps} />);
 		const groupOf = (label: string) =>
 			findNavButton(label).closest("section")?.getAttribute("aria-label");
 
@@ -154,14 +173,14 @@ describe("Sidebar", () => {
 	});
 
 	it("PROD-7: renders exactly 2 <hr> dividers between the 3 groups", () => {
-		render(<Sidebar {...baseProps} />);
+		renderWithProviders(<Sidebar {...baseProps} />);
 		const nav = screen.getByRole("navigation", { name: "Main navigation" });
 		const dividers = nav.querySelectorAll("hr");
 		expect(dividers.length).toBe(2);
 	});
 
 	it("PROD-7: still renders all 9 nav item labels (grouping does not drop items)", () => {
-		render(<Sidebar {...baseProps} />);
+		renderWithProviders(<Sidebar {...baseProps} />);
 		const labels = [
 			"Home",
 			"History",
@@ -181,19 +200,39 @@ describe("Sidebar", () => {
 	//aria-keyshortcuts on nav items ────────────────────────
 
 	it("PROD-9: Home nav item exposes aria-keyshortcuts='Control+h' (App.tsx binds Ctrl+H)", () => {
-		render(<Sidebar {...baseProps} />);
+		renderWithProviders(<Sidebar {...baseProps} />);
 		const homeButton = findNavButton("Home");
 		expect(homeButton.getAttribute("aria-keyshortcuts")).toBe("Control+h");
 	});
 
 	it("PROD-9: Settings nav item exposes aria-keyshortcuts='Control+,' (App.tsx binds Ctrl+,)", () => {
-		render(<Sidebar {...baseProps} />);
+		renderWithProviders(<Sidebar {...baseProps} />);
 		const settingsButton = findNavButton("Settings");
 		expect(settingsButton.getAttribute("aria-keyshortcuts")).toBe("Control+,");
 	});
 
+	it("renders the nav shortcut as Kbd chips in the tooltip, keeping the accessible label", async () => {
+		renderWithProviders(<Sidebar {...baseProps} currentPage="home" />);
+		const home = findNavButton("Home");
+		// The plain-text `title` is gone — the shortcut moved into the
+		// Radix tooltip as Kbd chips.
+		expect(home.hasAttribute("title")).toBe(false);
+		// Focusing the trigger opens the tooltip (Radix opens on focus).
+		home.focus();
+		const tooltip = await screen.findByRole("tooltip");
+		// Label + one <kbd> chip per key of the combo. formatHotkey("<ctrl>+<h>")
+		// resolves to "Ctrl" + "H" chips on non-macOS (KbdGroup wraps the
+		// combo in an outer <kbd>, so assert chip texts, not element count).
+		expect(within(tooltip).getByText("Home")).toBeTruthy();
+		const kbdTexts = Array.from(tooltip.querySelectorAll("kbd")).map(
+			(k) => k.textContent,
+		);
+		expect(kbdTexts).toContain("Ctrl");
+		expect(kbdTexts).toContain("H");
+	});
+
 	it("PROD-9: nav items without a keyboard shortcut omit aria-keyshortcuts entirely", () => {
-		render(<Sidebar {...baseProps} />);
+		renderWithProviders(<Sidebar {...baseProps} />);
 		// History, Templates, Vocabulary, Models, Microphone, About —
 		// none have shortcuts bound in App.tsx.
 		const noShortcutItems = [
@@ -213,13 +252,13 @@ describe("Sidebar", () => {
 	//collapsed-state logo accessibility ───────────────────
 
 	it("PROD-14: when collapsed, the Logo is wrapped in a <button> with aria-label={APP_NAME}", () => {
-		render(<Sidebar {...baseProps} collapsed />);
+		renderWithProviders(<Sidebar {...baseProps} collapsed />);
 		const logoButton = screen.getByLabelText(APP_NAME);
 		expect(logoButton.tagName).toBe("BUTTON");
 	});
 
 	it("PROD-14: when expanded, the Logo is NOT wrapped in a <button> (the visible <span> already carries the name)", () => {
-		render(<Sidebar {...baseProps} collapsed={false} />);
+		renderWithProviders(<Sidebar {...baseProps} collapsed={false} />);
 		// APP_NAME appears once as the visible <span>{APP_NAME}</span>
 		// (text content), but should NOT be the aria-label of a button.
 		const buttons = document.querySelectorAll("button");
@@ -233,7 +272,7 @@ describe("Sidebar", () => {
 
 	it("ZU-42: clicking the collapsed logo button calls onNavigate('home') (was a focusable non-action button)", () => {
 		const onNavigate = vi.fn();
-		render(
+		renderWithProviders(
 			<Sidebar
 				{...baseProps}
 				collapsed
@@ -254,7 +293,7 @@ describe("Sidebar", () => {
 	});
 
 	it("ZU-42: collapsed logo button is keyboard-focusable and has cursor-pointer (signals interactivity)", () => {
-		render(<Sidebar {...baseProps} collapsed />);
+		renderWithProviders(<Sidebar {...baseProps} collapsed />);
 		const logoButton = screen.getByLabelText(APP_NAME);
 		// The button is in the tab order (type="button", no tabIndex
 		// override) so keyboard users can Tab to it.
@@ -264,7 +303,7 @@ describe("Sidebar", () => {
 	});
 
 	it("ZU-42: expanded sidebar still does NOT wrap the logo in a button (no regression)", () => {
-		render(<Sidebar {...baseProps} collapsed={false} />);
+		renderWithProviders(<Sidebar {...baseProps} collapsed={false} />);
 		// The collapsed-logo button does NOT exist in expanded mode.
 		const labeledButtons = Array.from(
 			document.querySelectorAll("button"),

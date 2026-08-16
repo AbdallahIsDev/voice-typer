@@ -25,49 +25,24 @@ const renderWithProviders = (ui: React.ReactElement) =>
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@hugeicons/react", () => ({
-	HugeiconsIcon: ({
-		children,
-		icon,
-	}: {
-		children?: React.ReactNode;
-		icon?: { name?: string };
-	}) => (
-		<span data-testid="hugeicon" data-name={icon?.name}>
-			{children}
-		</span>
-	),
-}));
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module.
+import {
+	hugeiconsCoreMock,
+	hugeiconsReactMock,
+	nextThemesMock,
+	pythonMock,
+	resetStableMocks,
+	snackbarMock,
+	sonnerMock,
+} from "@/__tests__/helpers/stableMocks";
 
-vi.mock("@hugeicons/core-free-icons", async () => {
-	const { createHugeiconsMock } = await import(
-		"@/__tests__/helpers/hugeicons-mock"
-	);
-	return createHugeiconsMock();
-});
-
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: vi.fn() }),
-}));
-
-vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({ showSnack: vi.fn() }),
-}));
-
-vi.mock("sonner", () => ({
-	toast: {
-		success: vi.fn(),
-		error: vi.fn(),
-		warning: vi.fn(),
-		info: vi.fn(),
-		dismiss: vi.fn(),
-	},
-	Toaster: () => null,
-}));
-
-vi.mock("next-themes", () => ({
-	useTheme: () => ({ theme: "light" as const }),
-}));
+vi.mock("@hugeicons/react", () => hugeiconsReactMock());
+vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
+vi.mock("@/hooks/usePython", () => pythonMock());
+vi.mock("@/hooks/useSnackbar", () => snackbarMock());
+vi.mock("sonner", () => sonnerMock());
+vi.mock("next-themes", () => nextThemesMock());
 
 import { ModelSettingsSection } from "@/components/settings/ModelSettingsSection";
 import { PrivacySettingsSection } from "@/components/settings/PrivacySettingsSection";
@@ -209,10 +184,12 @@ function filterByLabel(q: string): SettingsSectionSharedProps["isVisible"] {
 
 afterEach(() => {
 	cleanup();
+	resetStableMocks();
 });
 
 describe("BG-16: PrivacySettingsSection Agree-to-All ConfirmDialog uses i18n keys", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		cleanup();
 	});
 
@@ -252,6 +229,7 @@ describe("BG-16: PrivacySettingsSection Agree-to-All ConfirmDialog uses i18n key
 
 describe("BG-55: per-row search filtering in Settings sections", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		cleanup();
 	});
 
@@ -325,6 +303,7 @@ describe("BG-55: per-row search filtering in Settings sections", () => {
 
 describe("BG-98: ModelSettingsSection uses i18n key for redacted API key placeholder", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		cleanup();
 	});
 

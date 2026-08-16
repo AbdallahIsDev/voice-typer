@@ -39,6 +39,13 @@ const { mockCall, mockPythonEvent } = vi.hoisted(() => ({
 	mockPythonEvent: vi.fn(),
 }));
 
+const stable = vi.hoisted(() => ({
+	handleRetryConnection: vi.fn(),
+	handleThemeChange: vi.fn(),
+	reloadThemeFromConfig: vi.fn(),
+	setTextSize: vi.fn(),
+}));
+
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({ call: mockCall }),
 	usePythonEvent: mockPythonEvent,
@@ -49,17 +56,17 @@ vi.mock("@/hooks/useConnection", () => ({
 		recordingState: "idle" as const,
 		connectionStatus: "connected" as const,
 		lastError: null,
-		handleRetryConnection: vi.fn(),
+		handleRetryConnection: stable.handleRetryConnection,
 	}),
 }));
 
 vi.mock("@/hooks/useTheme", () => ({
 	useTheme: () => ({
 		themeMode: "system" as const,
-		handleThemeChange: vi.fn(),
-		reloadThemeFromConfig: vi.fn(),
+		handleThemeChange: stable.handleThemeChange,
+		reloadThemeFromConfig: stable.reloadThemeFromConfig,
 		textSize: 14,
-		setTextSize: vi.fn(),
+		setTextSize: stable.setTextSize,
 	}),
 }));
 
@@ -169,6 +176,7 @@ function dispatchKey(
 
 describe("App help overlay — RW-0 rewrite of test_app_has_question_mark_keydown_handler", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		localStorage.clear();
@@ -242,6 +250,7 @@ describe("App help overlay — RW-0 rewrite of test_app_has_question_mark_keydow
 
 describe("App help overlay — RW-0 rewrite of test_help_overlay_closes_on_escape", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		localStorage.clear();

@@ -27,40 +27,22 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Hoist the mock handlers so they're available inside vi.mock factories.
-const { mockCall, mockShowSnack } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	mockShowSnack: vi.fn(),
-}));
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module.
+import {
+	hugeiconsCoreMock,
+	hugeiconsReactMock,
+	pythonMock,
+	snackbarMock,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
 
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-}));
+const { mockCall, showSnack: mockShowSnack } = stableMocks;
 
-vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({ showSnack: mockShowSnack }),
-}));
-
-vi.mock("@hugeicons/react", () => ({
-	HugeiconsIcon: ({
-		children,
-		icon,
-	}: {
-		children?: React.ReactNode;
-		icon?: { name?: string };
-	}) => (
-		<span data-testid="hugeicon" data-name={icon?.name}>
-			{children}
-		</span>
-	),
-}));
-
-vi.mock("@hugeicons/core-free-icons", async () => {
-	const { createHugeiconsMock } = await import(
-		"@/__tests__/helpers/hugeicons-mock"
-	);
-	return createHugeiconsMock();
-});
+vi.mock("@/hooks/usePython", () => pythonMock());
+vi.mock("@/hooks/useSnackbar", () => snackbarMock());
+vi.mock("@hugeicons/react", () => hugeiconsReactMock());
+vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
 
 import PrewarmAndUpdates from "@/components/settings/PrewarmAndUpdates";
 

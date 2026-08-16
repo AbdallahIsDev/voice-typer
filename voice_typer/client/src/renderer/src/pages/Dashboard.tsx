@@ -22,6 +22,7 @@ import {
 	AiBrain03Icon,
 	AlertCircleIcon,
 	Calendar01Icon,
+	CheckmarkCircle02Icon,
 	File02Icon,
 	LayoutGridIcon,
 	Mic02Icon,
@@ -112,6 +113,7 @@ export default function DashboardPage() {
 		setRange,
 		period,
 		activity,
+		correctionStats,
 	} = useDashboardData({ call });
 	const {
 		imageRef,
@@ -232,7 +234,7 @@ export default function DashboardPage() {
 				/>
 			) : (
 				<div className="space-y-6">
-					<div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+					<div className="grid grid-cols-2 gap-3 md:grid-cols-5">
 						<DashboardStatCard
 							label={t("analytics.dictations")}
 							value={String(period.count)}
@@ -278,6 +280,24 @@ export default function DashboardPage() {
 										})
 									: t("analytics.noStreak")
 							}
+						/>
+						<DashboardStatCard
+							label={t("analytics.corrections")}
+							value={compactNumber(correctionStats.corrections)}
+							icon={CheckmarkCircle02Icon}
+							tooltip={t("analytics.correctionsTooltip")}
+							sublabel={
+								correctionStats.rate !== null
+									? t("analytics.correctionsRate", {
+											pct: String(Math.round(correctionStats.rate * 100)),
+											dictations: String(correctionStats.dictations),
+										})
+									: undefined
+							}
+							trend={computeTrend(
+								correctionStats.corrections,
+								correctionStats.prevCorrections,
+							)}
 						/>
 					</div>
 

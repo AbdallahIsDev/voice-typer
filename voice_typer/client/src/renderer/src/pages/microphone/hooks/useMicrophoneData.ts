@@ -21,6 +21,7 @@ import {
 	type SetStateAction,
 	useCallback,
 	useEffect,
+	useRef,
 	useState,
 } from "react";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
@@ -66,6 +67,23 @@ export function useMicrophoneData({
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
 	const { agoLabel, markUpdated } = useLastUpdated();
+
+	// callRef / markUpdatedRef mirrors (Home.tsx pattern): `loadData`
+	// must keep a STABLE identity ([] deps) so the mount effect below
+	// (and the event-handler callbacks that depend on it) don't re-fire
+	// on an identity change. Both are useCallback-stable in production,
+	// but test mocks return FRESH functions per render — depending on
+	// them re-fires the mount load (get_microphones/get_config →
+	// setState → re-render → new call → loop → worker OOM). The mirrors
+	// keep the refs fresh; the effect deps stay identity-free.
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
+	const markUpdatedRef = useRef(markUpdated);
+	useEffect(() => {
+		markUpdatedRef.current = markUpdated;
+	}, [markUpdated]);
 
 	const [microphones, setMicrophones] =
 		useState<MicrophoneDevice[]>(_cachedMicrophones);
@@ -117,8 +135,8 @@ export function useMicrophoneData({
 			setLoadError(null);
 			try {
 				const [mics, cfg] = await Promise.all([
-					call<MicrophoneDevice[]>("get_microphones"),
-					call<VoiceTyperConfig>("get_config"),
+					callRef.current<MicrophoneDevice[]>("get_microphones"),
+					callRef.current<VoiceTyperConfig>("get_config"),
 				]);
 				if (isCancelled()) return;
 				_cachedMicrophones = Array.isArray(mics) ? mics : [];
@@ -146,10 +164,10 @@ export function useMicrophoneData({
 			} finally {
 				if (!isCancelled()) setLoading(false);
 				// F4: bump the "last updated" timestamp after each load attempt.
-				markUpdated();
+				markUpdatedRef.current();
 			}
 		},
-		[call, markUpdated],
+		[],
 	);
 
 	//(session 5): guard the mount-time load against

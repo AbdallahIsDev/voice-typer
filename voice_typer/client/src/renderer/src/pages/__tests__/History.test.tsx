@@ -37,69 +37,33 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockCall, mockPythonEvent } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	mockPythonEvent: vi.fn(),
-}));
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module. useLastUpdated
+// carries the withRefresh runner (the export tests exercise it via
+// renderHook).
+import {
+	hugeiconsCoreMock,
+	hugeiconsReactMock,
+	lastUpdatedMock,
+	navigationMock,
+	nextThemesMock,
+	pythonMock,
+	resetStableMocks,
+	snackbarMock,
+	sonnerMock,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
 
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-	usePythonEvent: mockPythonEvent,
-}));
+const { mockCall } = stableMocks;
 
-vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({ showSnack: vi.fn() }),
-	showUndoableToast: vi.fn(),
-}));
-
-vi.mock("@/hooks/useLastUpdated", () => ({
-	useLastUpdated: () => ({
-		agoLabel: "",
-		markUpdated: vi.fn(),
-		refreshing: false,
-		withRefresh: async <T,>(op: () => Promise<T>): Promise<T> => op(),
-	}),
-}));
-
-vi.mock("@/hooks/useNavigation", () => ({
-	useNavigation: () => ({ navigate: vi.fn() }),
-}));
-
-vi.mock("@hugeicons/react", () => ({
-	HugeiconsIcon: ({
-		children,
-		icon,
-	}: {
-		children?: React.ReactNode;
-		icon?: { name?: string };
-	}) => (
-		<span data-testid="hugeicon" data-name={icon?.name}>
-			{children}
-		</span>
-	),
-}));
-
-vi.mock("@hugeicons/core-free-icons", async () => {
-	const { createHugeiconsMock } = await import(
-		"@/__tests__/helpers/hugeicons-mock"
-	);
-	return createHugeiconsMock();
-});
-
-vi.mock("sonner", () => ({
-	toast: {
-		success: vi.fn(),
-		error: vi.fn(),
-		warning: vi.fn(),
-		info: vi.fn(),
-		dismiss: vi.fn(),
-	},
-	Toaster: () => null,
-}));
-
-vi.mock("next-themes", () => ({
-	useTheme: () => ({ theme: "light" as const }),
-}));
+vi.mock("@/hooks/usePython", () => pythonMock());
+vi.mock("@/hooks/useSnackbar", () => snackbarMock());
+vi.mock("@/hooks/useLastUpdated", () => lastUpdatedMock({ withRefresh: true }));
+vi.mock("@/hooks/useNavigation", () => navigationMock());
+vi.mock("@hugeicons/react", () => hugeiconsReactMock());
+vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
+vi.mock("sonner", () => sonnerMock());
+vi.mock("next-themes", () => nextThemesMock());
 
 import { toast } from "sonner";
 import { t } from "@/i18n/i18n";
@@ -127,10 +91,10 @@ const zeroStats: TodayStats = {
 	word_count: 0,
 	duration: 0,
 };
-
 beforeEach(() => {
-	mockCall.mockReset();
-	mockPythonEvent.mockReset();
+	// Reset the shared singletons (mockCall, mockPythonEvent, toast,
+	// showSnack, …) — replaces the old clearAllMocks + per-fn resets.
+	resetStableMocks();
 	localStorage.clear();
 	vi.resetModules();
 	// Reset the module-level cache so tests don't leak state.

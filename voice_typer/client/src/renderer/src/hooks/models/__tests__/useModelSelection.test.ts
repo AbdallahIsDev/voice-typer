@@ -370,7 +370,9 @@ describe("useModelSelection — requestDeleteModel + confirmDelete", () => {
 			makeModel({ name: "large-v3-turbo", downloaded: true }),
 		];
 		const next = updater(prev);
-		expect(next.find((m) => m.name === "large-v3-turbo")?.downloaded).toBe(false);
+		expect(next.find((m) => m.name === "large-v3-turbo")?.downloaded).toBe(
+			false,
+		);
 		expect(next.find((m) => m.name === "large-v3-turbo")?.isActive).toBe(false);
 
 		// Success snack + target cleared in the finally block.

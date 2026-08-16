@@ -44,6 +44,23 @@
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// usePython / useSnackbar / useLastUpdated singletons the facade
+// forwards to its sub-hooks.
+import {
+	lastUpdatedMock,
+	pythonMock,
+	snackbarMock,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
+
+const { mockCall, showSnack: mockShowSnack, markUpdated: mockMarkUpdated } =
+	stableMocks;
+
+vi.mock("@/hooks/usePython", () => pythonMock());
+vi.mock("@/hooks/useSnackbar", () => snackbarMock());
+vi.mock("@/hooks/useLastUpdated", () => lastUpdatedMock());
+
 // ── Hoisted mock state ────────────────────────────────────────────────
 // vi.mock factories are hoisted to the top of the file by vitest and run
 // before any other code, so any variable they close over must itself be
@@ -55,10 +72,6 @@ const {
 	selectionHookReturn,
 	cloudHookReturn,
 	folderHookReturn,
-	mockCall,
-	mockShowSnack,
-	mockAgoLabel,
-	mockMarkUpdated,
 	mockCLOUD_PROVIDERS,
 } = vi.hoisted(() => {
 	const order: string[] = [];
@@ -130,10 +143,6 @@ const {
 			handleImportModel: vi.fn(),
 			handleOpenModelsFolder: vi.fn(),
 		},
-		mockCall: vi.fn(),
-		mockShowSnack: vi.fn(),
-		mockAgoLabel: "just now",
-		mockMarkUpdated: vi.fn(),
 		mockCLOUD_PROVIDERS: [
 			{ id: "openai", label: "OpenAI" },
 			{ id: "groq", label: "Groq" },
@@ -142,21 +151,6 @@ const {
 });
 
 // ── Mocks ─────────────────────────────────────────────────────────────
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-}));
-
-vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({ showSnack: mockShowSnack }),
-}));
-
-vi.mock("@/hooks/useLastUpdated", () => ({
-	useLastUpdated: () => ({
-		agoLabel: mockAgoLabel,
-		markUpdated: mockMarkUpdated,
-	}),
-}));
-
 vi.mock("@/hooks/models/useModelConfig", () => ({
 	useModelConfig: vi.fn((args: unknown) => {
 		callOrder.push("useModelConfig");
@@ -270,8 +264,9 @@ describe("useModelLifecycle — facade composition ", () => {
 				markUpdated?: unknown;
 			};
 			expect(cfgArgs.markUpdated).toBe(mockMarkUpdated);
-			// agoLabel is in the public return shape.
-			expect(result.current.agoLabel).toBe(mockAgoLabel);
+			// agoLabel is in the public return shape (the shared
+			// lastUpdatedMock returns an empty placeholder label).
+			expect(result.current.agoLabel).toBe("");
 		});
 	});
 
@@ -442,8 +437,8 @@ describe("useModelLifecycle — facade composition ", () => {
 			expect(r.diskInfo).toBe(folderHookReturn.diskInfo);
 			expect(r.handleImportModel).toBe(folderHookReturn.handleImportModel);
 
-			// From useLastUpdated:
-			expect(r.agoLabel).toBe(mockAgoLabel);
+			// From useLastUpdated (the shared lastUpdatedMock):
+			expect(r.agoLabel).toBe("");
 
 			// Static CLOUD_PROVIDERS re-export:
 			expect(r.cloudProviders).toBe(mockCLOUD_PROVIDERS);

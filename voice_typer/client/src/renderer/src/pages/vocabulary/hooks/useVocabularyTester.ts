@@ -13,15 +13,14 @@
 // mirror is a faithful port and the authoritative pass still runs
 // server-side during dictation.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { VocabularyEntry } from "@/types/ipc";
 import { applyCorrections } from "../lib/testCorrection";
-
-type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
+import { testPhraseOnServer, type VocabCallFn } from "../lib/testServer";
 
 interface UseVocabularyTesterArgs {
-	call: CallFn;
+	call: VocabCallFn;
 	entries: ReadonlyArray<VocabularyEntry>;
 	query: string;
 }
@@ -38,7 +37,6 @@ interface UseVocabularyTesterResult {
 }
 
 const DEBOUNCE_MS = 180;
-
 export function useVocabularyTester({
 	call,
 	entries,
@@ -51,10 +49,27 @@ export function useVocabularyTester({
 	const [pending, setPending] = useState(false);
 	const [usingFallback, setUsingFallback] = useState(false);
 
+	// Ref mirror of `call` — test mocks (e.g. axe-core.test.tsx) hand
+	// usePython a FRESH `call` on every render. Depending the effect on
+	// it made the effect re-run per render; combined with the idle
+	// setResult below allocating a NEW object each time, that was an
+	// unbounded render loop (FATAL ERROR: heap limit in the axe suite).
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
+
 	useEffect(() => {
 		const trimmed = query.trim();
 		if (!trimmed) {
-			setResult({ output: "", applied: false });
+			// Idempotent idle reset: only set when the state actually
+			// differs, so re-running this effect can't re-render the
+			// page (a fresh object every time + unstable deps = loop).
+			setResult((prev) =>
+				prev.output === "" && !prev.applied
+					? prev
+					: { output: "", applied: false },
+			);
 			setPending(false);
 			return;
 		}
@@ -62,15 +77,12 @@ export function useVocabularyTester({
 		let cancelled = false;
 		const timer = setTimeout(async () => {
 			try {
-				const data = await call<{
-					output?: unknown;
-					applied?: unknown;
-				}>("test_vocabulary_correction", { text: trimmed });
+				const { output, applied } = await testPhraseOnServer(
+					callRef.current,
+					trimmed,
+				);
 				if (cancelled) return;
-				setResult({
-					output: typeof data?.output === "string" ? data.output : trimmed,
-					applied: data?.applied === true,
-				});
+				setResult({ output, applied });
 				setUsingFallback(false);
 			} catch (err) {
 				console.warn(
@@ -89,7 +101,7 @@ export function useVocabularyTester({
 			cancelled = true;
 			clearTimeout(timer);
 		};
-	}, [query, call, entries]);
+	}, [query, entries]);
 
 	// The fallback path is silent in the UI (the mirror output is
 	// correct in practice); the flag is exposed for tests/diagnostics.

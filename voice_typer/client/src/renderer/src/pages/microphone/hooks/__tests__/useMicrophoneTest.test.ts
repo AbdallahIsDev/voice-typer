@@ -27,6 +27,10 @@ const { callMock, usePythonEventMock, showSnackMock } = vi.hoisted(() => ({
 	showSnackMock: vi.fn(),
 }));
 
+const stable = vi.hoisted(() => ({
+	clearSnack: vi.fn(),
+}));
+
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({
 		call: callMock,
@@ -37,7 +41,10 @@ vi.mock("@/hooks/usePython", () => ({
 }));
 
 vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({ showSnack: showSnackMock, clearSnack: vi.fn() }),
+	useSnackbar: () => ({
+		showSnack: showSnackMock,
+		clearSnack: stable.clearSnack,
+	}),
 }));
 
 vi.mock("@/i18n/i18n", () => ({
@@ -75,6 +82,7 @@ interface AudioStub {
 const audioInstances: AudioStub[] = [];
 
 beforeEach(() => {
+	vi.clearAllMocks();
 	audioInstances.length = 0;
 	vi.stubGlobal(
 		"Audio",

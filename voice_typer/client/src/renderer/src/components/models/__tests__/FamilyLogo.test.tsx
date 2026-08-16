@@ -64,9 +64,7 @@ describe("FamilyLogo — one logo per family", () => {
 		cleanup();
 
 		const qwen = render(<FamilyLogo family="qwen" />);
-		expect(getImg(qwen.container).getAttribute("src")).toContain(
-			"Qwen%20icon",
-		);
+		expect(getImg(qwen.container).getAttribute("src")).toContain("Qwen%20icon");
 		qwen.unmount();
 		cleanup();
 
@@ -77,11 +75,10 @@ describe("FamilyLogo — one logo per family", () => {
 	});
 
 	it("keeps qwen blue and nvidia green in every theme (baked-in brand colors)", () => {
-	// The `#` in the hex is URL-encoded in the data URI, so assert
-	// on the hex digits alone.
-	const qwen = render(<FamilyLogo family="qwen" />);
-	const qwenSrc = getImg(qwen.container).getAttribute("src")!;
-	expect(qwenSrc).toContain("082DFF");
+		// The `#` in the hex is URL-encoded in the data URI, so assert
+		// on the hex digits alone.
+		const qwen = render(<FamilyLogo family="qwen" />);
+		expect(getImg(qwen.container).getAttribute("src")).toContain("082DFF");
 		expect(getImg(qwen.container).className).not.toContain("invert");
 		qwen.unmount();
 		cleanup();

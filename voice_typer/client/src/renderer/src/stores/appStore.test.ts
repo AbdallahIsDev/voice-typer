@@ -92,9 +92,7 @@ describe("appStore", () => {
 		});
 
 		it("setConfig replaces the entire config", () => {
-			useAppStore
-				.getState()
-				.setConfig({ hotkey: "<f2>", model_size: "tiny" });
+			useAppStore.getState().setConfig({ hotkey: "<f2>", model_size: "tiny" });
 			expect(useAppStore.getState().config).toEqual({
 				hotkey: "<f2>",
 				model_size: "tiny",
@@ -102,9 +100,7 @@ describe("appStore", () => {
 		});
 
 		it("mergeConfig merges partial updates into existing config", () => {
-			useAppStore
-				.getState()
-				.setConfig({ hotkey: "<f2>", model_size: "tiny" });
+			useAppStore.getState().setConfig({ hotkey: "<f2>", model_size: "tiny" });
 			useAppStore.getState().mergeConfig({ model_size: "large-v3-turbo" });
 			expect(useAppStore.getState().config).toEqual({
 				hotkey: "<f2>",

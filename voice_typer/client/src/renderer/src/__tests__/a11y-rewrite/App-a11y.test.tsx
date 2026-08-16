@@ -39,6 +39,13 @@ const { mockCall, mockPythonEvent, mockRecordingState } = vi.hoisted(() => ({
 	},
 }));
 
+const stable = vi.hoisted(() => ({
+	handleRetryConnection: vi.fn(),
+	handleThemeChange: vi.fn(),
+	reloadThemeFromConfig: vi.fn(),
+	setTextSize: vi.fn(),
+}));
+
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({ call: mockCall }),
 	usePythonEvent: mockPythonEvent,
@@ -49,17 +56,17 @@ vi.mock("@/hooks/useConnection", () => ({
 		recordingState: mockRecordingState.current,
 		connectionStatus: "connected" as const,
 		lastError: null,
-		handleRetryConnection: vi.fn(),
+		handleRetryConnection: stable.handleRetryConnection,
 	}),
 }));
 
 vi.mock("@/hooks/useTheme", () => ({
 	useTheme: () => ({
 		themeMode: "system" as const,
-		handleThemeChange: vi.fn(),
-		reloadThemeFromConfig: vi.fn(),
+		handleThemeChange: stable.handleThemeChange,
+		reloadThemeFromConfig: stable.reloadThemeFromConfig,
 		textSize: 14,
-		setTextSize: vi.fn(),
+		setTextSize: stable.setTextSize,
 	}),
 }));
 
@@ -141,8 +148,18 @@ vi.mock("@/pages/Settings", () => ({
 	default: () => <div data-testid="settings-page">Settings</div>,
 }));
 
+import { _resetNavigationForTest } from "@/hooks/useNavigation";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
+
+/** Seed the shared nav store to a known page and re-read it into the store. */
+function seedNavPage(page: string): void {
+	localStorage.setItem(
+		"vt_nav_state",
+		JSON.stringify({ page, history: [page], index: 0 }),
+	);
+	_resetNavigationForTest();
+}
 
 const completedConfig: Partial<VoiceTyperConfig> = {
 	onboarding_completed: true,
@@ -150,6 +167,7 @@ const completedConfig: Partial<VoiceTyperConfig> = {
 
 describe("App skip-to-main-content link — RW-0 rewrite of test_app_has_skip_link", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		localStorage.clear();
@@ -202,6 +220,7 @@ describe("App skip-to-main-content link — RW-0 rewrite of test_app_has_skip_li
 
 describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		// PVT-fix #6 (Sub-agent 16): reset the per-test
@@ -209,6 +228,10 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 		// so the previous test's value doesn't leak in.
 		mockRecordingState.current = "idle";
 		localStorage.clear();
+		// Re-read the (now empty) nav storage so a previous test's
+		// seeded page can't leak into this one — tests that need a
+		// non-Home page seed `vt_nav_state` BEFORE this call.
+		_resetNavigationForTest();
 		useAppStore.setState({
 			connectionStatus: "connected",
 			recordingState: "idle",
@@ -252,6 +275,16 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 	//   loading       → t("a11y.loadingModel")      = "Loading model…"
 	//   cancelling    → t("a11y.cancelling")        = "Cancelling…"
 	//
+	// Double-announce trim: on the HOME page the coarse
+	// transcribing/loading strings are SUPPRESSED — Home's dynamic
+	// status line (its single specific live region) already
+	// announces "Transcribing… please wait" / "Downloading model…".
+	// The suppression is gated on `currentPage === "home"`, so the
+	// coarse announcements still fire on every other page (where the
+	// dynamic line isn't mounted). The transcribing/loading tests
+	// below cover BOTH branches: non-Home keeps the coarse text,
+	// Home omits it.
+	//
 	// Each test below mocks one `recordingState` value, renders
 	// App, and asserts the FIRST polite live region's textContent
 	// includes the expected translated string.  This catches
@@ -278,8 +311,24 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 		expect(liveRegions[0]?.textContent ?? "").toContain("Recording started.");
 	});
 
-	it("announces 'Transcribing audio…' when recordingState is 'transcribing'", async () => {
+	it("announces 'Transcribing audio…' on NON-Home pages (coarse coverage kept)", async () => {
 		mockRecordingState.current = "transcribing";
+		seedNavPage("settings");
+		const { default: App } = await import("@/App");
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByTestId("settings-page")).toBeTruthy();
+		});
+
+		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
+		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
+		expect(liveRegions[0]?.textContent ?? "").toContain("Transcribing audio…");
+	});
+
+	it("does NOT double-announce 'Transcribing audio…' on the Home page (dynamic line covers it)", async () => {
+		mockRecordingState.current = "transcribing";
+		seedNavPage("home");
 		const { default: App } = await import("@/App");
 		render(<App />);
 
@@ -289,7 +338,9 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 
 		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
 		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
-		expect(liveRegions[0]?.textContent ?? "").toContain("Transcribing audio…");
+		expect(liveRegions[0]?.textContent ?? "").not.toContain(
+			"Transcribing audio…",
+		);
 	});
 
 	it("announces 'Ready.' when recordingState is 'idle'", async () => {
@@ -320,8 +371,24 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 		expect(liveRegions[0]?.textContent ?? "").toContain("Error occurred.");
 	});
 
-	it("announces 'Loading model…' when recordingState is 'loading'", async () => {
+	it("announces 'Loading model…' on NON-Home pages (coarse coverage kept)", async () => {
 		mockRecordingState.current = "loading";
+		seedNavPage("models");
+		const { default: App } = await import("@/App");
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByTestId("models-page")).toBeTruthy();
+		});
+
+		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
+		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
+		expect(liveRegions[0]?.textContent ?? "").toContain("Loading model…");
+	});
+
+	it("does NOT double-announce 'Loading model…' on the Home page (dynamic line covers it)", async () => {
+		mockRecordingState.current = "loading";
+		seedNavPage("home");
 		const { default: App } = await import("@/App");
 		render(<App />);
 
@@ -331,7 +398,7 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 
 		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
 		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
-		expect(liveRegions[0]?.textContent ?? "").toContain("Loading model…");
+		expect(liveRegions[0]?.textContent ?? "").not.toContain("Loading model…");
 	});
 
 	it("announces 'Cancelling…' when recordingState is 'cancelling'", async () => {

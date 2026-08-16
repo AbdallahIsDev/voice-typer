@@ -64,6 +64,12 @@ const { mockCall, mockUseConnection, toastMock } = vi.hoisted(() => ({
 
 // Mock useConnection so App.tsx tests can control recordingState
 // without spinning up the real backend-connection lifecycle.
+const stable = vi.hoisted(() => ({
+	handleThemeChange: vi.fn(),
+	reloadThemeFromConfig: vi.fn(),
+	setTextSize: vi.fn(),
+}));
+
 vi.mock("@/hooks/useConnection", () => ({
 	useConnection: mockUseConnection,
 }));
@@ -73,10 +79,10 @@ vi.mock("@/hooks/useConnection", () => ({
 vi.mock("@/hooks/useTheme", () => ({
 	useTheme: () => ({
 		themeMode: "system" as const,
-		handleThemeChange: vi.fn(),
-		reloadThemeFromConfig: vi.fn(),
+		handleThemeChange: stable.handleThemeChange,
+		reloadThemeFromConfig: stable.reloadThemeFromConfig,
 		textSize: 14,
-		setTextSize: vi.fn(),
+		setTextSize: stable.setTextSize,
 	}),
 }));
 
@@ -168,6 +174,7 @@ vi.mock("@/pages/Onboarding", () => ({
 // Real hook imports (we deliberately do NOT mock @/hooks/usePython or
 // @/hooks/useSnackbar — the hook return-type tests below call the real
 // hooks so they observe the real runtime API contract).
+import { _resetNavigationForTest } from "@/hooks/useNavigation";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import type { VoiceTyperConfig } from "@/types/config";
@@ -362,6 +369,7 @@ function removePythonBridgeMock() {
 
 describe("usePython — rewrite of test_use_python_does_not_return_is_ready", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		installPythonBridgeMock();
 	});
@@ -447,6 +455,7 @@ describe("Settings — rewrite of test_settings_uses_shared_hook", () => {
 	let originalWindow_: unknown;
 
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		installPythonBridgeMock();
 		// Stub window.window_.openLogs to simulate the Electron main
@@ -522,6 +531,7 @@ describe("Settings — rewrite of test_settings_uses_shared_hook", () => {
 
 describe("Microphone — rewrite of test_microphone_uses_shared_snackbar_hook", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		installPythonBridgeMock();
 		mockCall.mockImplementation((arg: unknown) => {
@@ -599,6 +609,7 @@ describe("Microphone — rewrite of test_microphone_uses_shared_snackbar_hook", 
 
 describe("App — rewrite of test_app_does_not_use_is_ready", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		installPythonBridgeMock();
 		mockUseConnection.mockReturnValue({
@@ -639,6 +650,7 @@ describe("App — rewrite of test_app_does_not_use_is_ready", () => {
 
 describe("App recording state — rewrite of test_no_unvalidated_as_recording_state_cast + test_runtime_validator_exists", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		installPythonBridgeMock();
 		localStorage.clear();
@@ -647,6 +659,11 @@ describe("App recording state — rewrite of test_no_unvalidated_as_recording_st
 	afterEach(() => {
 		removePythonBridgeMock();
 		cleanup();
+		// Undo the non-Home page seed below so later describes that
+		// render App on the default Home page aren't affected by the
+		// shared nav store.
+		localStorage.clear();
+		_resetNavigationForTest();
 	});
 
 	// Type-level: App.tsx compiles, which means it doesn't need
@@ -680,11 +697,24 @@ describe("App recording state — rewrite of test_no_unvalidated_as_recording_st
 			handleRetryConnection: vi.fn(),
 		});
 
+		// Assert the COARSE app-level announcement for every state, so
+		// render on a NON-Home page: on Home the coarse
+		// transcribing/loading strings are suppressed (Home's dynamic
+		// status line covers them), which would make the
+		// transcribing/loading cases fail for the wrong reason.
+		// "about" is stubbed above (about-page testid) so App mounts
+		// the lightweight stub rather than the real Settings page.
+		localStorage.setItem(
+			"vt_nav_state",
+			JSON.stringify({ page: "about", history: ["about"], index: 0 }),
+		);
+		_resetNavigationForTest();
+
 		const { default: App } = await import("@/App");
 		render(<App />);
 
 		await waitFor(() => {
-			expect(screen.getByTestId("home-page")).toBeTruthy();
+			expect(screen.getByTestId("about-page")).toBeTruthy();
 		});
 
 		// The aria-live region must announce the state.  This proves

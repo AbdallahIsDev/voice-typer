@@ -9,7 +9,7 @@
 // status fetch (now done via this section's own `usePython` call so the
 // parent doesn't need to know about it).
 
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { AudioFilterChain } from "@/components/audio/AudioFilterChain";
 import { RangeSlider } from "@/components/common/RangeSlider";
 import { SettingRow } from "@/components/common/SettingRow";
@@ -64,12 +64,23 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 		is_windows: boolean;
 	} | null>(null);
 
+	// callRef mirror (Home.tsx pattern): the mount effect below must not
+	// depend on the `call` identity — stable in production, but a test
+	// mock handing out a fresh `call` per render would re-fire the load
+	// effect every render (get_volume_backend_status → setState →
+	// re-render → new call → loop → worker OOM). The mirror keeps the
+	// ref fresh; the effect deps stay identity-free.
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
+
 	// Best-effort: if the call fails we leave `volumeBackend` as null and
 	// the toggle stays enabled-but-server-validated (the Python side also
 	// gates on `supports_per_session`).
 	const loadVolumeBackend = useCallback(async () => {
 		try {
-			const result = await call<{
+			const result = await callRef.current<{
 				available: boolean;
 				name: string;
 				supports_per_session: boolean;
@@ -82,7 +93,7 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 				err,
 			);
 		}
-	}, [call]);
+	}, []);
 
 	useEffect(() => {
 		loadVolumeBackend();

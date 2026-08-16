@@ -7,8 +7,8 @@
 //   - `./home/lib/status.ts`       — normalizeHotkey, statusLabelFor, statusKeyFor
 //   - `./home/lib/cache.ts`        — loadCachedRecent/Stats, persistRecent/Stats
 //   - `./home/hooks/useFirstRecordingCelebration.ts` — first-run celebration
-//   - `./home/components/RecordingStatusPill.tsx`     — status pill
 //   - `./home/components/MicToggleButton.tsx`         — mic toggle button
+//   - `./home/components/RecordingStatusPill.tsx`     — status pill
 //   - `./home/components/LastTranscriptionPreview.tsx` — last transcription card
 //
 // Status is kept minimal: the coloured status pill + a live MM:SS
@@ -84,6 +84,17 @@ export default function Home() {
 	// instead of receiving it as an `onNavigate` prop from App.tsx.
 	const { navigate } = useNavigation();
 	const { call } = usePython();
+
+	// Ref mirrors of `call` / `markUpdated` so the mount-load effect
+	// keeps `[]` deps. Both are useCallback-stable in production, but
+	// test mocks return FRESH functions per render — depending on them
+	// re-fires the initial load (get_config/get_today_stats/get_history
+	// → setState → re-render → new call → loop → worker OOM). Same
+	// pattern as useVocabulary.ts.
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
 	const celebrateFirstRecording = useFirstRecordingCelebration(call);
 
 	const [hotkey, setHotkey] = useState("F2");
@@ -127,6 +138,12 @@ export default function Home() {
 	const [toggling, setToggling] = useState(false);
 	const [cfg, setCfg] = useState<VoiceTyperConfig | null>(null);
 	const { agoLabel, markUpdated } = useLastUpdated();
+	// Ref mirror of `markUpdated` (declared above via useLastUpdated) so
+	// the mount-load effect keeps `[]` deps — see the callRef comment.
+	const markUpdatedRef = useRef(markUpdated);
+	useEffect(() => {
+		markUpdatedRef.current = markUpdated;
+	}, [markUpdated]);
 	const [refreshing, setRefreshing] = useState(false);
 
 	// Runtime-pack readiness — drives the "Preparing offline engine…"
@@ -204,9 +221,14 @@ export default function Home() {
 		if (refreshTimer.current) clearTimeout(refreshTimer.current);
 		refreshTimer.current = setTimeout(async () => {
 			try {
+				// Read the freshest bridge via the callRef mirror above —
+				// keeps this callback's identity STABLE ([] deps) so the
+				// visibilitychange effect below (deps
+				// [debouncedRefreshFromEvent]) doesn't re-attach its
+				// listener on every render under unstable test mocks.
 				const [newRecent, newStats] = await Promise.all([
-					call<HistoryRecord[]>("get_history", { limit: 5 }),
-					call<TodayStats>("get_today_stats"),
+					callRef.current<HistoryRecord[]>("get_history", { limit: 5 }),
+					callRef.current<TodayStats>("get_today_stats"),
 				]);
 				if (newRecent) {
 					persistRecent(cachedRecentRef, newRecent);
@@ -225,7 +247,7 @@ export default function Home() {
 			}
 		}, 500);
 		return undefined;
-	}, [call]);
+	}, []);
 
 	// refresh on focus when stale. When the window regains
 	// visibility AND a stale flag was set by a background event, fire
@@ -256,7 +278,8 @@ export default function Home() {
 	// mirroring the parallel-fetch pattern in `handleManualRefresh`.
 	useEffect(() => {
 		let cancelled = false;
-		const cfgSettled = call<VoiceTyperConfig>("get_config")
+		const cfgSettled = callRef
+			.current<VoiceTyperConfig>("get_config")
 			.then((cfg) => {
 				if (cancelled) return;
 				setCfg(cfg);
@@ -265,7 +288,8 @@ export default function Home() {
 			.catch((e) =>
 				console.warn("[renderer:Home] initial get_config failed:", e),
 			);
-		const statsSettled = call<TodayStats>("get_today_stats")
+		const statsSettled = callRef
+			.current<TodayStats>("get_today_stats")
 			.then((s) => {
 				if (cancelled) return;
 				if (s) {
@@ -276,7 +300,10 @@ export default function Home() {
 			.catch((e) =>
 				console.warn("[renderer:Home] initial get_today_stats failed:", e),
 			);
-		const historySettled = call<HistoryRecord[]>("get_history", { limit: 4 })
+		const historySettled = callRef
+			.current<HistoryRecord[]>("get_history", {
+				limit: 4,
+			})
 			.then((h) => {
 				if (cancelled) return;
 				const recs = h ?? [];
@@ -289,12 +316,12 @@ export default function Home() {
 		Promise.allSettled([cfgSettled, statsSettled, historySettled]).then(() => {
 			if (cancelled) return;
 			setInitialLoading(false);
-			markUpdated();
+			markUpdatedRef.current();
 		});
 		return () => {
 			cancelled = true;
 		};
-	}, [call, markUpdated]);
+	}, []);
 
 	// F4: manual refresh handler for the LastUpdatedIndicator button.
 	const handleManualRefresh = useCallback(async () => {
@@ -591,15 +618,6 @@ export default function Home() {
 		recordingState === "transcribing";
 	// `toggling` already shows the spinner overlay inside the button,
 	// so only `loading` / `transcribing` need a textual reason.
-	const key = statusKeyFor(recordingState, !!lastError);
-	// noUncheckedIndexedAccess: `STATUS_COLORS[key]` is `string | undefined`.
-	// `statusKeyFor` always returns a known key, but the index access still
-	// widens to `string | undefined` under strict TS; fall back to a literal
-	// sentinel that matches `STATUS_COLORS.idle` so we never pass `undefined`
-	// to the `RecordingStatusPill` `statusColor` prop.
-	const statusColor = STATUS_COLORS[key] ?? "#787878";
-	const statusLabel = statusLabelFor(key) ?? t("home.ready");
-
 	const micDisabledReason = micDisabled && !toggling ? inlineStatus : undefined;
 
 	// Single dynamic status line under the mic button — ONE element that
@@ -628,6 +646,21 @@ export default function Home() {
 	} else if (preparingOffline) {
 		hint = { variant: "status", text: t("pack.preparingOfflineEngine") };
 	}
+
+	// Status pill — computed AFTER the dynamic line so the pill always
+	// agrees with it: when the line below the button is showing an error
+	// (no model selected, or a recording error with a message), the pill
+	// flips to the `error` state instead of staying in the underlying
+	// state (e.g. "Ready" while the page is actually broken).
+	const baseKey = statusKeyFor(recordingState, !!lastError);
+	const key = hint?.variant === "error" ? "error" : baseKey;
+	// noUncheckedIndexedAccess: `STATUS_COLORS[key]` is `string | undefined`.
+	// `statusKeyFor` always returns a known key, but the index access still
+	// widens to `string | undefined` under strict TS; fall back to a literal
+	// sentinel that matches `STATUS_COLORS.idle` so we never pass `undefined`
+	// to the `RecordingStatusPill` `statusColor` prop.
+	const statusColor = STATUS_COLORS[key] ?? "#787878";
+	const statusLabel = statusLabelFor(key) ?? t("home.ready");
 
 	return (
 		<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col items-center justify-center gap-5 px-6 py-4">
@@ -669,8 +702,10 @@ export default function Home() {
 						className="font-mono text-sm tabular-nums text-(--text-muted)"
 						// QV-49(a): accessible live timer while recording. role="timer"
 						// gives the span a role that supports aria-label (plain
-						// spans don't accept aria-label) and is the semantically
-						// correct ARIA role for a live count-up timer.
+						// spans don't accept aria-label). NOTE: `timer` is a
+						// live-region role with implicit aria-live="off" — the
+						// per-second tick is NEVER announced, so it doesn't
+						// compete with the single status live region below.
 						role="timer"
 						aria-label={t("home.timerAria", {
 							duration: `${String(Math.floor(elapsedSec / 60)).padStart(2, "0")}:${String(elapsedSec % 60).padStart(2, "0")}`,
@@ -693,11 +728,14 @@ export default function Home() {
 
 			{/* Single dynamic status line under the mic button — see the
 				`hint` computation above for the state → content mapping.
-				The <output> element maps to the implicit `status` role, so
-				screen readers treat this as a live region (announced on
-				change) without forcing a duplicate `aria-live` that would
-				compete with App.tsx's sr-only live region. Errors switch
-				to `role="alert"` so they're announced as alerts. */}
+				This is Home's ONE status live region: the pill above is a
+				plain <div> (no implicit `status` role) and the recording
+				timer is role="timer" (implicit aria-live="off"), so a state
+				change announces exactly once here — no double
+				announcements. Coarse transitions ("Recording started." /
+				"Ready." / …) are additionally covered by App.tsx's sr-only
+				region (app-level, visible on every page). Errors switch to
+				`role="alert"` so they're announced as alerts. */}
 			<output
 				aria-live="polite"
 				role={hint?.variant === "error" ? "alert" : undefined}
@@ -706,7 +744,17 @@ export default function Home() {
 				}`}
 			>
 				{hint ? (
-					hint.text
+					noModelSelected && hint.variant === "error" ? (
+						<button
+							type="button"
+							onClick={() => navigate("models")}
+							className="inline-flex items-center gap-1 text-destructive underline decoration-destructive/50 underline-offset-4 transition-colors hover:decoration-destructive cursor-pointer"
+						>
+							{hint.text}
+						</button>
+					) : (
+						hint.text
+					)
 				) : (
 					<>
 						<span>{t("home.press")}</span>

@@ -221,6 +221,12 @@
 		"testNoChange": "कोई सुधार लागू नहीं हुआ",
 		"testPlaceholder": "सुधार देखने के लिए एक वाक्यांश टाइप करें…",
 		"testTitle": "सुधारों का परीक्षण",
+		"testEntry": "इस प्रविष्टि का परीक्षण करें",
+		"testEntryAria": "इस प्रविष्टि का परीक्षण करें: {name}",
+		"testEntryFailed": "इंजन तक पहुंच नहीं हो सकी — कनेक्शन जांचें और फिर से प्रयास करें",
+		"testEntryNoChange": "कोई बदलाव नहीं — इंजन इस वाक्यांश से मेल नहीं खाया",
+		"testEntryPending": "लाइव इंजन से परीक्षण हो रहा है…",
+		"testFallbackNote": "बैकएंड ऑफ़लाइन है — पूर्वावलोकन का अनुमानित परिणाम दिखाया जा रहा है",
 		"fillBothFields": "कृपया दोनों फ़ील्ड भरें",
 		"updatedEntry": "अपडेट किया गया: {original} → {correction}",
 		"addedEntry": "जोड़ा गया: {original} → {correction}",
@@ -237,6 +243,8 @@
 		"whatYouSay": "आप क्या बोलते हैं",
 		"triggerHelp": "शब्द(ों) को ठीक वैसे ही टाइप करें जैसे वाक् पहचानकर्ता गलत सुनता है।",
 		"whatGetsTyped": "इसके बजाय क्या टाइप होता है",
+		"usedCount": "{count}× उपयोग हुआ",
+		"lastUsed": "अंतिम उपयोग {date}",
 		"replacementHelp": "सुधारा गया टेक्स्ट जो पेस्ट किया जाएगा। केस मायने रखता है — जो आप यहां टाइप करते हैं वही आउटपुट मिलता है।",
 		"deleteEntryTitle": "शब्दावली प्रविष्टि हटाएं",
 		"deleteEntryMessage": "क्या आप वाकई \"{name}\" हटाना चाहते हैं? इस क्रिया को पूर्ववत नहीं किया जा सकता।",
@@ -374,6 +382,9 @@
 		"peakWeekday": "पीक दिन: {day}",
 		"rangeAria": "विश्लेषण समय सीमा",
 		"sampledNote": "पिछले {count} डिक्टेशन पर आधारित",
+		"corrections": "सुधार",
+		"correctionsTooltip": "डिक्टेशन के दौरान इंजन द्वारा लागू किए गए शब्दावली सुधार",
+		"correctionsRate": "{pct}% डिक्टेशन",
 		"shareTooltip": "साझा करने योग्य सारांश छवि निर्यात करता है",
 		"totalDictations": "कुल डिक्टेशन",
 		"totalDictationsTooltip": "अब तक रिकॉर्ड किए गए सभी डिक्टेशन। वर्ण योग पिछले 500 पर आधारित है।",
@@ -470,11 +481,8 @@
 		"viewChangelog": "बदलाव लॉग देखें",
 		"offlineUpdatesMessage": "{appName} एक ऑफ़लाइन एप्लिकेशन है। अपडेट की जाँच करने के लिए, अपने ब्राउज़र में GitHub रिलीज़ पेज पर जाएँ।",
 		"startStopDictation": "डिक्टेशन शुरू / रोकें",
-		"startStopDictationValue": "F2 (या आपका कॉन्फ़िगर किया गया हॉटकी)",
 		"cancelRecording": "रिकॉर्डिंग रद्द करें",
-		"cancelRecordingValue": "Esc (यदि सेटिंग्स में सक्षम है)",
 		"repasteTranscription": "अंतिम ट्रांसक्रिप्शन पुनः पेस्ट करें",
-		"repasteTranscriptionValue": "Ctrl+Alt+V (डिफ़ॉल्ट)",
 		"toggleSidebar": "साइडबार टॉगल करें",
 		"navigateFields": "फ़ील्ड नेविगेट करें",
 		"toggleSwitches": "टॉगल स्विच",
@@ -490,11 +498,6 @@
 		"newVersionAvailable": "नया संस्करण उपलब्ध: {version}",
 		"installedNewer": "इंस्टॉल किया गया संस्करण ({installed}) नवीनतम रिलीज़ ({latest}) से नया है",
 		"updateCheckFailed": "अपडेट जांचने में विफल: {error}",
-		"toggleSidebarValue": "Ctrl+B",
-		"navigateFieldsValue": "Tab / Shift+Tab",
-		"toggleSwitchesValue": "Space",
-		"closeDialogsValue": "Esc",
-		"openDropdownsValue": "Enter or Space",
 		"cacheTitle": "कैच स्थिति",
 		"cacheDescription": "वॉयिस मॉडल के लिए ओवर फ़ाइल कैच की लाइव स्थिति। प्रीवार्म बूट पर चलता है ताकि मॉडल फ़ाइलें तेज शुरूआत के लिए RAM में रहें।",
 		"prewarmStatus": "प्रीवार्म स्थिति",
@@ -1365,19 +1368,6 @@
 		"navBack": "पीछे / आगे नेविगेट करें",
 		"closeHint": "बंद करने के लिए {key} दबाएं या बाहर क्लिक करें।",
 		"zoomTextSize": "टेक्स्ट आकार",
-		"keys": {
-			"cancel": "Esc",
-			"repaste": "Ctrl+Alt+V",
-			"toggleSidebar": "Ctrl+B",
-			"openSettings": "Ctrl+,",
-			"goHome": "Ctrl+H",
-			"navigate": "Tab / Shift+Tab",
-			"toggle": "Space",
-			"activate": "Enter",
-			"zoomTextSize": "Ctrl+Plus / Ctrl+Minus",
-			"openHelp": "?",
-			"navBack": "Alt+Left / Alt+Right"
-		},
 		"punctuationTitle": "विराम चिह्न संदर्भ पत्र",
 		"punctuationHint": "डिक्टेशन के दौरान इन शब्दों को बोलें ताकि संबंधित विराम चिह्न डाले जा सकें। {appName} इन्हें स्पीच मॉडल के माध्यम से पहचानता है और टेक्स्ट क्लीनअप के दौरान इन्हें बनाए रखता है।",
 		"punctuation": {
@@ -1943,19 +1933,58 @@
 			"mic_permission_revoked_title": "{appName}",
 			"mic_permission_revoked_body": "माइक्रोफ़ोन अनुमति रद्द कर दी गई।",
 			"xrun_warning_title": "{appName}",
-			"xrun_warning_body": "ऑडियो बफ़र ओवरफ़्लो पाया गया। बड़े बफ़र आकार के साथ प्रयास करें।"
+			"xrun_warning_body": "ऑडियो बफ़र ओवरफ़्लो पाया गया। बड़े बफ़र आकार के साथ प्रयास करें।",
+			"cancelled_timeout": "ट्रांसक्रिप्शन में बहुत समय लगा और इसे रद्द कर दिया गया।\nपुनः प्रयास के लिए {hotkey} दबाएँ।",
+			"start_failed": "रिकॉर्डिंग शुरू नहीं हो सकी।\nट्रेसबैक के लिए voice-typer.log देखें।",
+			"stop_failed": "रिकॉर्डिंग रोकी नहीं जा सकी।",
+			"silence_warning": "कोई ऑडियो नहीं मिला। जाँचें कि आपका माइक्रोफ़ोन कनेक्ट है और काम कर रहा है।",
+			"consent_required": "रिकॉर्डिंग शुरू करने के लिए वॉइस बायोमेट्रिक सहमति आवश्यक है।\nइसे सेटिंग्स > गोपनीयता > वॉइस बायोमेट्रिक सहमति में सक्षम करें।",
+			"max_duration_auto_stop": "रिकॉर्डिंग रुकी: अधिकतम रिकॉर्डिंग अवधि तक पहुँच गई।",
+			"mic_disconnected": "माइक्रोफ़ोन डिस्कनेक्ट हो गया। रिकॉर्डिंग रुक गई। फिर से शुरू करने के लिए माइक्रोफ़ोन दोबारा कनेक्ट करें।",
+			"mic_permission_revoked": "माइक्रोफ़ोन अनुमति रद्द कर दी गई। रिकॉर्डिंग रुक गई। फिर से शुरू करने के लिए अपने OS गोपनीयता सेटिंग्स में माइक्रोफ़ोन एक्सेस फिर से दें।",
+			"silence_auto_stop": "रिकॉर्डिंग रुकी: लंबे समय तक कोई ऑडियो नहीं मिला।",
+			"load_failed": "वॉइस मॉडल लोड नहीं हो सका।\n{error}\n\nऐप चलता रहेगा। पुनः लोड करने के लिए {hotkey} दबाएँ।"
 		},
 		"model_manager": {
 			"backend_init_failed_title": "{appName}",
 			"backend_init_failed_body": "{backend} बैकएंड शुरू नहीं किया जा सका। विवरण के लिए लॉग देखें।",
 			"backend_change_deferred_title": "{appName}",
-			"backend_change_deferred_body": "वर्तमान रिकॉर्डिंग के बाद बैकएंड {backend} में बदल जाएगा।"
+			"backend_change_deferred_body": "वर्तमान रिकॉर्डिंग के बाद बैकएंड {backend} में बदल जाएगा।",
+			"change_deferred": "वर्तमान रिकॉर्डिंग के बाद मॉडल {model} में बदल जाएगा",
+			"load_failed": "वॉइस मॉडल लोड नहीं हो सका।\n{error}\n\nऐप चलता रहेगा। पुनः लोड करने के लिए {hotkey} दबाएँ।",
+			"backend_change_deferred": "वर्तमान रिकॉर्डिंग के बाद बैकएंड {backend} में बदल जाएगा।",
+			"backend_init_failed": "{backend} बैकएंड प्रारंभ नहीं किया जा सका।{hint}",
+			"last_resort_unloaded": "मॉडल लोड नहीं है।\nमॉडल डाउनलोड करने के लिए मॉडल पेज खोलें।",
+			"model_not_downloaded": "कोई मॉडल उपलब्ध नहीं है।\nमॉडल डाउनलोड करने के लिए मॉडल पेज खोलें।",
+			"no_model_selected": "कोई मॉडल चयनित नहीं है।\nमॉडल चुनने के लिए मॉडल पेज पर जाएँ।",
+			"load_failed_critical": "वॉइस मॉडल लोड नहीं हो सका।\nऐप चलता रहेगा। पुनः लोड करने के लिए {hotkey} दबाएँ।"
 		},
 		"settings_controller": {
 			"autostart_toggle_failed_title": "{appName}",
 			"autostart_toggle_failed_body": "ऑटोस्टार्ट सेटिंग बदली नहीं जा सकी।\n{error}",
 			"microphone_selection_failed_title": "{appName}",
-			"microphone_selection_failed_body": "माइक्रोफ़ोन बदला नहीं जा सका।"
+			"microphone_selection_failed_body": "माइक्रोफ़ोन बदला नहीं जा सका।",
+			"mic_changed": "माइक्रोफ़ोन: {label}",
+			"mic_next_recording": "अगली रिकॉर्डिंग के लिए माइक्रोफ़ोन: {label}",
+			"autostart_failed": "ऑटोस्टार्ट सेटिंग बदली नहीं जा सकी।\n{error}",
+			"mic_save_failed": "माइक्रोफ़ोन चयन सहेजा नहीं जा सका। डिस्क स्थान या अनुमतियाँ जाँचें।"
+		},
+		"app": {
+			"repaste_no_previous": "फिर से पेस्ट करने के लिए कोई पिछला ट्रांसक्रिप्शन नहीं है।",
+			"repaste_copy_failed": "ट्रांसक्रिप्शन को क्लिपबोर्ड पर कॉपी नहीं किया जा सका। हो सकता है कि कोई अन्य ऐप क्लिपबोर्ड लॉक रख रहा हो।",
+			"repaste_done": "अंतिम ट्रांसक्रिप्शन फिर से पेस्ट किया गया",
+			"repaste_blocked": "फिर से पेस्ट करना अवरुद्ध किया गया (असुरक्षित लक्ष्य या दर-सीमित)। आपका पिछला क्लिपबोर्ड सुरक्षित रखा गया। प्रयास करने के लिए फिर से पेस्ट हॉटकी दबाएँ।",
+			"undo_nothing": "पूर्ववत करने के लिए कुछ नहीं है।",
+			"undo_done": "अंतिम ट्रांसक्रिप्शन पूर्ववत किया गया ({char_count} अक्षर)",
+			"undo_no_pynput": "पूर्ववत उपलब्ध नहीं (pynput अनुपलब्ध)",
+			"undo_failed": "अंतिम ट्रांसक्रिप्शन पूर्ववत नहीं किया जा सका। विवरण के लिए लॉग देखें।"
+		},
+		"permissions": {
+			"macos_title": "{appName} को अनुमति चाहिए",
+			"macos_body": "सिस्टम सेटिंग्स → एक्सेसिबिलिटी खोलने के लिए क्लिक करें। सूची में {appName} (और उसका की-लिसनर हेल्पर) जोड़ें।",
+			"macos_body_with_command": "सिस्टम सेटिंग्स → एक्सेसिबिलिटी खोलने के लिए क्लिक करें। सूची में {appName} (और उसका की-लिसनर हेल्पर) जोड़ें। फिर चलाएँ: {command}",
+			"linux_title": "{appName} को कीबोर्ड अनुमति चाहिए",
+			"linux_body": "एक्सेस देने के लिए क्लिक करें। कीबोर्ड अनुमति स्थापित करने के लिए आपका सिस्टम पासवर्ड माँगेगा (udev नियम + इनपुट समूह)। अनुमति देने के बाद, परिवर्तन प्रभावी होने के लिए लॉग आउट करके फिर से लॉग इन करें।"
 		}
 	},
 	"error": {
@@ -1988,6 +2017,50 @@
 			"cloud_deepgram_consent": "क्लाउड ट्रांसक्रिप्शन आपका ऑडियो Deepgram को भेजता है। भेजे गए ऑडियो पर Deepgram की गोपनीयता नीति लागू होती है। अनुमति दें?",
 			"llm_polish_consent": "LLM पॉलिश आपके ट्रांसक्राइब किए गए टेक्स्ट को व्याकरण और विराम चिह्न सुधार के लिए कॉन्फ़िगर LLM प्रदाता को भेजता है। अनुमति दें?",
 			"offline_pack_consent": "ऑफ़लाइन इंजन पैक (~180 MB) रिलीज़ सर्वर से एक बार डाउनलोड होता है और पूरी तरह स्थानीय ट्रांसक्रिप्शन सक्षम करता है। डाउनलोड की अनुमति दें?"
+		}
+	},
+	"trayState": {
+		"idle": "निष्क्रिय",
+		"recording": "रिकॉर्डिंग",
+		"transcribing": "लिप्यंतरण",
+		"loading": "लोड हो रहा है",
+		"error": "त्रुटि",
+		"cancelling": "रद्द हो रहा है",
+		"recordingController": {
+			"loadingQueued": "मॉडल लोड हो रहा है — आपका डिक्टेशन अपने आप शुरू होगा…",
+			"startingUp": "शुरू हो रहा है — कृपया प्रतीक्षा करें...",
+			"consentRequired": "वॉइस बायोमेट्रिक सहमति आवश्यक है",
+			"modelFailedRetry": "मॉडल लोड नहीं हो सका — पुनः प्रयास के लिए अपनी हॉटकी दबाएँ",
+			"recording": "रिकॉर्ड हो रहा है...",
+			"recordingFailed": "रिकॉर्डिंग विफल",
+			"recordingFailedPermission": "रिकॉर्डिंग विफल — माइक्रोफ़ोन अनुमति अस्वीकृत। सिस्टम सेटिंग्स में माइक एक्सेस की अनुमति दें।",
+			"recordingFailedNoDevice": "रिकॉर्डिंग विफल — कोई माइक्रोफ़ोन नहीं मिला। माइक्रोफ़ोन कनेक्ट करके पुनः प्रयास करें।",
+			"stopFailed": "रोकना विफल",
+			"tooShort": "बहुत छोटा — अनदेखा किया गया",
+			"transcribing": "लिप्यंतरण हो रहा है...",
+			"cancelling": "रद्द हो रहा है...",
+			"cancelled": "रद्द कर दिया गया",
+			"recovered": "पुनर्प्राप्त — लिप्यंतरण समय समाप्त",
+			"stillTranscribing": "अभी भी लिप्यंतरण हो रहा है..."
+		},
+		"modelManager": {
+			"loading": "मॉडल लोड हो रहा है — कतार में लाने के लिए अपनी हॉटकी दबाएँ...",
+			"readyWhisper": "तैयार — {device_info}",
+			"readyOther": "तैयार — {name} ASR",
+			"loadFailedRetry": "मॉडल लोड विफल — पुनः प्रयास के लिए अपनी हॉटकी दबाएँ",
+			"backendFailed": "{backend} मॉडल लोड नहीं हो सका",
+			"modelFailed": "मॉडल विफल: {error}",
+			"modelNotDownloaded": "कोई मॉडल उपलब्ध नहीं है। मॉडल डाउनलोड करने के लिए मॉडल पेज खोलें।",
+			"modelIntegrityFailed": "{backend} मॉडल अखंडता सत्यापन में विफल रहा। इसे हटाकर मॉडल पेज से दोबारा डाउनलोड करें।"
+		},
+		"pipeline": {
+			"clipboardUnavailable": "पूर्ण — क्लिपबोर्ड अनुपलब्ध",
+			"noSpeechDetected": "कोई वाणी नहीं मिली",
+			"noSpeechCheckMic": "कोई वाणी नहीं — माइक्रोफ़ोन जाँचें",
+			"transcriptionEmpty": "लिप्यंतरण खाली है",
+			"donePasted": "पूर्ण — {count} अक्षर (पेस्ट किया गया)",
+			"doneInDb": "पूर्ण — {count} अक्षर (डेटाबेस में, फिर से पेस्ट हॉटकी का उपयोग करें)",
+			"doneInClipboard": "पूर्ण — {count} अक्षर (क्लिपबोर्ड में)"
 		}
 	}
 }

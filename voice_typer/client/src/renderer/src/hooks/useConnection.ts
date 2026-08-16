@@ -122,6 +122,18 @@ export function useConnection({
 		lastEventReceivedAtRef.current = Date.now();
 	}, []);
 
+	// Ref mirror of `call` so the lifecycle effects keep stable deps.
+	// `call` is useCallback-stable in production, but test mocks return
+	// a FRESH call per render — an effect dep on it re-fires the probe
+	// (get_config → setConfig → re-render → new call → loop → worker
+	// OOM). Same pattern as useVocabulary.ts. Event-handler callbacks
+	// (usePythonEvent) are unaffected — their identity churn is already
+	// absorbed by the handlerRef indirection.
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
+
 	// ── Connection lifecycle ──────────────────────────────────────
 
 	useEffect(() => {
@@ -133,7 +145,7 @@ export function useConnection({
 		const checkConnection = async () => {
 			if (cancelled) return;
 			try {
-				const cfg = await call<VoiceTyperConfig>("get_config");
+				const cfg = await callRef.current<VoiceTyperConfig>("get_config");
 				if (!cancelled) {
 					setConnectionStatus("connected");
 					// Cache the config snapshot in the store so other
@@ -142,7 +154,8 @@ export function useConnection({
 					setConfig(cfg);
 					// Sync current state from backend (status_change events sent before
 					// the React app mounted are lost — this ensures we catch up)
-					call<{ status: string }>("get_status")
+					callRef
+						.current<{ status: string }>("get_status")
 						.then((s) => {
 							if (!cancelled && s?.status) {
 								const validated = asRecordingState(s.status);
@@ -194,7 +207,7 @@ export function useConnection({
 					// so back/forward navigation continues to work.
 					if (!cancelled) {
 						try {
-							const fr = await call<{ is_first_run: boolean }>(
+							const fr = await callRef.current<{ is_first_run: boolean }>(
 								"onboarding_is_first_run",
 							);
 							if (!cancelled && fr?.is_first_run) {
@@ -240,7 +253,7 @@ export function useConnection({
 			cancelled = true;
 			clearTimeout(timer);
 		};
-	}, [call, navigate, setConnectionStatus, setRecordingState, setConfig]);
+	}, [navigate, setConnectionStatus, setRecordingState, setConfig]);
 
 	// Periodic health check while connected
 	//use ``get_status`` (lightweight — returns only state +
@@ -317,7 +330,7 @@ export function useConnection({
 				return;
 			}
 			try {
-				await call("get_status");
+				await callRef.current("get_status");
 				failureCount = 0;
 			} catch {
 				if (cancelled) return;
@@ -342,7 +355,7 @@ export function useConnection({
 			clearInterval(interval);
 			if (retryTimer) clearTimeout(retryTimer);
 		};
-	}, [connectionStatus, call, setConnectionStatus]);
+	}, [connectionStatus, setConnectionStatus]);
 
 	// ── Background reconnect poll ─────────────────────────
 	//
@@ -382,7 +395,7 @@ export function useConnection({
 			if (attempts >= MAX_BACKGROUND_RECONNECTS) return;
 			attempts++;
 			try {
-				await call<VoiceTyperConfig>("get_config");
+				await callRef.current<VoiceTyperConfig>("get_config");
 				if (!cancelled) {
 					// Success — flip to "connected". The
 					// connection-lifecycle effect above
@@ -395,7 +408,8 @@ export function useConnection({
 					// push.
 					setConnectionStatus("connected");
 					setLastError(null);
-					call<{ status: string }>("get_status")
+					callRef
+						.current<{ status: string }>("get_status")
 						.then((s) => {
 							if (!cancelled && s?.status) {
 								const validated = asRecordingState(s.status);
@@ -430,13 +444,7 @@ export function useConnection({
 			cancelled = true;
 			if (timer) clearTimeout(timer);
 		};
-	}, [
-		connectionStatus,
-		call,
-		setConnectionStatus,
-		setLastError,
-		setRecordingState,
-	]);
+	}, [connectionStatus, setConnectionStatus, setLastError, setRecordingState]);
 
 	// ── App-level event subscriptions ─────────────────────────────
 
@@ -461,11 +469,11 @@ export function useConnection({
 						// The backend forwards the `set_state` message (the
 						// tray-tooltip reason) with every status_change.
 						// Surface it for the error state so the Home page
-						// RecordingErrorCard explains what happened (e.g.
+						// status line explains what happened (e.g.
 						// "No models are available…") instead of leaving
-						// lastError null and showing only the bare
-						// "ERROR" pill. Non-error transitions keep
-						// clearing lastError exactly as before.
+						// lastError null and showing no error at all.
+						// Non-error transitions keep clearing lastError
+						// exactly as before.
 						setLastError(
 							validated === "error" && data.message ? data.message : null,
 						);

@@ -35,6 +35,7 @@
  * the D1 fix.
  */
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -57,6 +58,14 @@ const { mockCall, mockPythonEvent, store } = vi.hoisted(() => ({
 }));
 
 // ── Mock the Python bridge + event hook ─────────────────────────────────
+const stable = vi.hoisted(() => ({
+	handleRetryConnection: vi.fn(),
+	handleThemeChange: vi.fn(),
+	reloadThemeFromConfig: vi.fn(),
+	setTextSize: vi.fn(),
+	toastError: vi.fn(),
+}));
+
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({ call: mockCall }),
 	usePythonEvent: mockPythonEvent,
@@ -70,7 +79,7 @@ vi.mock("@/hooks/useConnection", () => ({
 		recordingState: "idle" as const,
 		connectionStatus: "connected" as const,
 		lastError: null,
-		handleRetryConnection: vi.fn(),
+		handleRetryConnection: stable.handleRetryConnection,
 	}),
 }));
 
@@ -78,10 +87,10 @@ vi.mock("@/hooks/useConnection", () => ({
 vi.mock("@/hooks/useTheme", () => ({
 	useTheme: () => ({
 		themeMode: "system" as const,
-		handleThemeChange: vi.fn(),
-		reloadThemeFromConfig: vi.fn(),
+		handleThemeChange: stable.handleThemeChange,
+		reloadThemeFromConfig: stable.reloadThemeFromConfig,
 		textSize: 14,
-		setTextSize: vi.fn(),
+		setTextSize: stable.setTextSize,
 	}),
 }));
 
@@ -161,7 +170,7 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 vi.mock("sonner", () => ({
 	toast: {
 		success: vi.fn(),
-		error: vi.fn(),
+		error: stable.toastError,
 		warning: vi.fn(),
 		info: vi.fn(),
 		dismiss: vi.fn(),
@@ -264,6 +273,7 @@ const completedConfig: Partial<VoiceTyperConfig> = {
 
 describe("App route guard — D1-FIX wizard re-run bounce", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		localStorage.clear();
@@ -356,5 +366,115 @@ describe("App route guard — D1-FIX wizard re-run bounce", () => {
 		// The appStore must still hold the original true value
 		// (nothing flipped it).
 		expect(useAppStore.getState().config?.onboarding_completed).toBe(true);
+	});
+});
+
+describe("App-wide shortcuts — zoom via the mounted App (keydown + wheel)", () => {
+	// Same harness as the route-guard suite: mockCall resolves, store is
+	// seeded to the connected/idle state, nav state is reset so a
+	// previous test's navigation can't leak.
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockCall.mockReset();
+		mockPythonEvent.mockReset();
+		localStorage.clear();
+		_resetNavigationForTest();
+		useAppStore.setState({
+			connectionStatus: "connected",
+			recordingState: "idle",
+			lastError: null,
+			config: completedConfig,
+		});
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	async function mountApp() {
+		const { default: App } = await import("@/App");
+		render(<App />);
+		await waitFor(() => {
+			expect(screen.getByTestId("home-page")).toBeTruthy();
+		});
+	}
+
+	function dispatchKey(key: string, opts: KeyboardEventInit = {}) {
+		window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...opts, key }));
+	}
+
+	function dispatchWheel(deltaY: number, opts: WheelEventInit = {}) {
+		window.dispatchEvent(
+			new WheelEvent("wheel", {
+				bubbles: true,
+				cancelable: true,
+				...opts,
+				deltaY,
+			}),
+		);
+	}
+
+	it("Ctrl+= keydown bumps text size and persists via set_config through the mounted App", async () => {
+		mockCall.mockResolvedValue({});
+		await mountApp();
+
+		dispatchKey("=", { ctrlKey: true });
+
+		await waitFor(() => {
+			expect(stable.setTextSize).toHaveBeenCalledWith(15);
+		});
+		expect(mockCall).toHaveBeenCalledWith("set_config", { text_size: 15 });
+	});
+
+	it("Ctrl+wheel (deltaY<0) zooms in and Ctrl+wheel (deltaY>0) zooms out", async () => {
+		mockCall.mockResolvedValue({});
+		await mountApp();
+
+		dispatchWheel(-100, { ctrlKey: true });
+		await waitFor(() => {
+			expect(stable.setTextSize).toHaveBeenCalledWith(15);
+		});
+		expect(mockCall).toHaveBeenCalledWith("set_config", { text_size: 15 });
+
+		// Zoom out: the mocked useTheme keeps textSize at 14, so a
+		// deltaY>0 wheel computes 14 → 13 (independent of the earlier
+		// zoom-in event).
+		dispatchWheel(100, { ctrlKey: true });
+		await waitFor(() => {
+			expect(stable.setTextSize).toHaveBeenCalledWith(13);
+		});
+		expect(mockCall).toHaveBeenCalledWith("set_config", { text_size: 13 });
+	});
+
+	it("plain wheel without Ctrl does NOT zoom (modifier guard applies)", async () => {
+		mockCall.mockResolvedValue({});
+		await mountApp();
+
+		dispatchWheel(-100);
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+
+		expect(stable.setTextSize).not.toHaveBeenCalled();
+		expect(mockCall).not.toHaveBeenCalled();
+	});
+
+	it("Ctrl+wheel set_config failure stays silent (no toast) through the mounted App", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "set_config") return Promise.reject(new Error("backend down"));
+			return Promise.resolve({});
+		});
+		await mountApp();
+
+		dispatchWheel(-100, { ctrlKey: true });
+		await waitFor(() => {
+			expect(stable.setTextSize).toHaveBeenCalledWith(15);
+		});
+		// The rejected set_config must be swallowed by the wheel path's
+		// silentOnError contract — the loud toast path is key-shortcut-only.
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+		expect(stable.toastError).not.toHaveBeenCalled();
 	});
 });

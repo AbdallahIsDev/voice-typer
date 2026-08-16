@@ -276,9 +276,8 @@ export function LocalModelsPanel({
 															{meta?.display_name ?? model.name}
 														</h4>
 														{badge && (
-															<output
+															<span
 																className="shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold border"
-																aria-live="polite"
 																style={{
 																	backgroundColor: badge.bg,
 																	color: badge.color,
@@ -286,12 +285,11 @@ export function LocalModelsPanel({
 																}}
 															>
 																{badge.label}
-															</output>
+															</span>
 														)}
 														{insufficientSpace && (
-															<output
+															<span
 																className="shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold border"
-																aria-live="polite"
 																style={{
 																	backgroundColor:
 																		"color-mix(in srgb, #ef4444 15%, transparent)",
@@ -300,7 +298,7 @@ export function LocalModelsPanel({
 																}}
 															>
 																{t("models.status.insufficientDisk")}
-															</output>
+															</span>
 														)}
 													</div>
 													<p className="text-xs text-(--text-muted) mt-0.5">

@@ -36,7 +36,7 @@
 
 import { RefreshIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ReadonlyRow } from "@/components/common/ReadonlyRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
@@ -150,6 +150,15 @@ export default function PrewarmAndUpdates({
 	isVisible = ALWAYS_VISIBLE,
 }: PrewarmAndUpdatesProps = {}) {
 	const { call } = usePython();
+
+	// Ref mirror of `call` so the mount-load effect keeps `[]` deps.
+	// Test mocks may return a fresh `call` per render — depending on it
+	// would re-fire the load (get_prewarm_status → setPrewarmStatus →
+	// re-render → new call → loop). Same pattern as useVocabulary.ts.
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
 	const { showSnack } = useSnackbar();
 
 	// ADR-0009 Issue 3: prewarm cache status. null = not fetched yet.
@@ -243,7 +252,7 @@ export default function PrewarmAndUpdates({
 		let cancelled = false;
 		const load = async () => {
 			try {
-				const ps = await call<PrewarmStatus>("get_prewarm_status");
+				const ps = await callRef.current<PrewarmStatus>("get_prewarm_status");
 				if (!cancelled) setPrewarmStatus(ps);
 			} catch (e) {
 				// leave prewarmStatus as null; card renders "Unknown"
@@ -257,7 +266,7 @@ export default function PrewarmAndUpdates({
 		return () => {
 			cancelled = true;
 		};
-	}, [call]);
+	}, []);
 
 	return (
 		<>

@@ -228,6 +228,12 @@
 		"testNoChange": "No corrections applied",
 		"testPlaceholder": "Type a phrase to see corrections…",
 		"testTitle": "Test corrections",
+		"testEntry": "Test this entry",
+		"testEntryAria": "Test this entry: {name}",
+		"testEntryFailed": "Couldn't reach the engine — check the connection and try again",
+		"testEntryNoChange": "No change — the engine didn't match this phrase",
+		"testEntryPending": "Testing with the live engine…",
+		"testFallbackNote": "Backend offline — showing a preview approximation",
 		"fillBothFields": "Please fill in both fields",
 		"updatedEntry": "Updated: {original} → {correction}",
 		"addedEntry": "Added: {original} → {correction}",
@@ -244,6 +250,8 @@
 		"whatYouSay": "What you say",
 		"triggerHelp": "Type the word(s) exactly as the speech recognizer mishears them.",
 		"whatGetsTyped": "What gets typed instead",
+		"usedCount": "Used {count}×",
+		"lastUsed": "last used {date}",
 		"replacementHelp": "The corrected text that will be pasted. Case matters — what you type here is exactly what gets output.",
 		"deleteEntryTitle": "Delete Vocabulary Entry",
 		"deleteEntryMessage": "Are you sure you want to delete \"{name}\"? This action cannot be undone.",
@@ -381,6 +389,9 @@
 		"peakWeekday": "Peak day: {day}",
 		"rangeAria": "Analytics time range",
 		"sampledNote": "Based on the last {count} dictations",
+		"corrections": "Corrections",
+		"correctionsTooltip": "Vocabulary corrections the engine applied during dictation",
+		"correctionsRate": "{pct}% of dictations",
 		"shareTooltip": "Exports a shareable summary image",
 		"totalDictations": "Total Dictations",
 		"totalDictationsTooltip": "All dictations ever recorded. Character totals are sampled from the most recent 500.",
@@ -477,11 +488,8 @@
 		"viewChangelog": "View Changelog",
 		"offlineUpdatesMessage": "{appName} is an offline application. To check for updates, visit the GitHub releases page in your browser.",
 		"startStopDictation": "Start / Stop dictation",
-		"startStopDictationValue": "F2 (or your configured hotkey)",
 		"cancelRecording": "Cancel recording",
-		"cancelRecordingValue": "Esc (if enabled in Settings)",
 		"repasteTranscription": "Re-paste last transcription",
-		"repasteTranscriptionValue": "Ctrl+Alt+V (default)",
 		"toggleSidebar": "Toggle sidebar",
 		"navigateFields": "Navigate fields",
 		"toggleSwitches": "Toggle switches",
@@ -498,11 +506,6 @@
 		"installedNewer": "Installed version ({installed}) is newer than latest release ({latest})",
 		"updateCheckFailed": "Failed to check for updates: {error}",
 		"httpError": "HTTP {status}",
-		"toggleSidebarValue": "Ctrl+B",
-		"navigateFieldsValue": "Tab / Shift+Tab",
-		"toggleSwitchesValue": "Space",
-		"closeDialogsValue": "Esc",
-		"openDropdownsValue": "Enter or Space",
 		"cacheTitle": "Cache Status",
 		"cacheDescription": "Live state of the OS file cache for the speech model. Prewarm runs at boot to keep the model files in RAM for fast startup.",
 		"prewarmStatus": "Prewarm Status",
@@ -1393,19 +1396,6 @@
 		"searchPlaceholder": "Search commands…",
 		"searchNoMatch": "No commands match \"{query}\"",
 		"openCheatSheet": "Open punctuation cheat sheet",
-		"keys": {
-			"cancel": "Esc",
-			"repaste": "Ctrl+Alt+V",
-			"toggleSidebar": "Ctrl+B",
-			"openSettings": "Ctrl+,",
-			"goHome": "Ctrl+H",
-			"navigate": "Tab / Shift+Tab",
-			"toggle": "Space",
-			"activate": "Enter",
-			"zoomTextSize": "Ctrl+Plus / Ctrl+Minus",
-			"openHelp": "?",
-			"navBack": "Alt+Left / Alt+Right"
-		},
 		"punctuation": {
 			"comma": "Comma",
 			"period": "Period",
@@ -1943,19 +1933,58 @@
 			"mic_permission_revoked_title": "{appName}",
 			"mic_permission_revoked_body": "Microphone permission revoked.",
 			"xrun_warning_title": "{appName}",
-			"xrun_warning_body": "Audio buffer overflow detected. Try a higher buffer size."
+			"xrun_warning_body": "Audio buffer overflow detected. Try a higher buffer size.",
+			"cancelled_timeout": "Transcription took too long and was cancelled.\nPress {hotkey} to try again.",
+			"start_failed": "Could not start recording.\nCheck voice-typer.log for traceback.",
+			"stop_failed": "Could not stop recording.",
+			"silence_warning": "No audio detected. Check your microphone is connected and working.",
+			"consent_required": "Voice biometric consent is required to start recording.\nEnable it in Settings > Privacy > Voice Biometric Consent.",
+			"max_duration_auto_stop": "Recording stopped: maximum recording duration reached.",
+			"mic_disconnected": "Microphone disconnected. Recording stopped. Reconnect the microphone to resume.",
+			"mic_permission_revoked": "Microphone permission was revoked. Recording stopped. Re-grant microphone access in your OS privacy settings to resume.",
+			"silence_auto_stop": "Recording stopped: no audio detected for an extended period.",
+			"load_failed": "Could not load the speech model.\n{error}\n\nThe app will keep running. Press {hotkey} to retry loading."
 		},
 		"model_manager": {
 			"backend_init_failed_title": "{appName}",
 			"backend_init_failed_body": "Could not initialize the {backend} backend. Check the logs for details.",
 			"backend_change_deferred_title": "{appName}",
-			"backend_change_deferred_body": "Backend will change to {backend} after current recording."
+			"backend_change_deferred_body": "Backend will change to {backend} after current recording.",
+			"change_deferred": "Model will change to {model} after current recording",
+			"load_failed": "Could not load the speech model.\n{error}\n\nThe app will keep running. Press {hotkey} to retry loading.",
+			"backend_change_deferred": "Backend will change to {backend} after current recording.",
+			"backend_init_failed": "Could not initialize the {backend} backend.{hint}",
+			"last_resort_unloaded": "The model is not loaded.\nOpen the models page to download a model.",
+			"model_not_downloaded": "No models are available.\nOpen the models page to download a model.",
+			"no_model_selected": "No model selected.\nGo to the models page to select a model.",
+			"load_failed_critical": "Could not load the speech model.\nThe app will keep running. Press {hotkey} to retry loading."
 		},
 		"settings_controller": {
 			"autostart_toggle_failed_title": "{appName}",
 			"autostart_toggle_failed_body": "Could not change autostart setting.\n{error}",
 			"microphone_selection_failed_title": "{appName}",
-			"microphone_selection_failed_body": "Could not change microphone."
+			"microphone_selection_failed_body": "Could not change microphone.",
+			"mic_changed": "Microphone: {label}",
+			"mic_next_recording": "Microphone next recording: {label}",
+			"autostart_failed": "Could not change autostart setting.\n{error}",
+			"mic_save_failed": "Failed to save microphone selection. Check disk space or permissions."
+		},
+		"app": {
+			"repaste_no_previous": "No previous transcription to re-paste.",
+			"repaste_copy_failed": "Could not copy the transcription to the clipboard. Another app may be holding the clipboard lock.",
+			"repaste_done": "Last transcription re-pasted",
+			"repaste_blocked": "Re-paste was blocked (unsafe target or rate-limited). Your previous clipboard was preserved. Use the repaste hotkey again to try pasting.",
+			"undo_nothing": "Nothing to undo.",
+			"undo_done": "Undid last transcription ({char_count} chars)",
+			"undo_no_pynput": "Undo not available (pynput missing)",
+			"undo_failed": "Could not undo the last transcription. See logs for details."
+		},
+		"permissions": {
+			"macos_title": "{appName} needs permission",
+			"macos_body": "Click to open System Settings → Accessibility. Add {appName} (and its key-listener helper) to the list.",
+			"macos_body_with_command": "Click to open System Settings → Accessibility. Add {appName} (and its key-listener helper) to the list. Then run: {command}",
+			"linux_title": "{appName} needs keyboard permission",
+			"linux_body": "Click to grant access. Your system will ask for your password to install the keyboard permission (udev rule + input group). After granting, log out and back in for the change to take effect."
 		}
 	},
 	"error": {
@@ -1988,6 +2017,50 @@
 			"cloud_deepgram_consent": "Cloud transcription sends your audio to Deepgram for transcription. Deepgram's privacy policy applies to the audio sent. Allow?",
 			"llm_polish_consent": "LLM polish sends your transcribed text to the configured LLM provider for grammar and punctuation cleanup. Allow?",
 			"offline_pack_consent": "The offline engine pack (~180 MB) is downloaded once from the release server and enables fully local transcription. Allow the download?"
+		}
+	},
+	"trayState": {
+		"idle": "idle",
+		"recording": "recording",
+		"transcribing": "transcribing",
+		"loading": "loading",
+		"error": "error",
+		"cancelling": "cancelling",
+		"recordingController": {
+			"loadingQueued": "Loading model -- your dictation will start automatically…",
+			"startingUp": "Starting up -- please wait...",
+			"consentRequired": "Voice biometric consent required",
+			"modelFailedRetry": "Model failed to load -- press your hotkey to retry",
+			"recording": "Recording...",
+			"recordingFailed": "Recording failed",
+			"recordingFailedPermission": "Recording failed -- microphone permission denied. Allow mic access in system settings.",
+			"recordingFailedNoDevice": "Recording failed -- no microphone found. Connect a microphone and try again.",
+			"stopFailed": "Stop failed",
+			"tooShort": "Too short -- ignored",
+			"transcribing": "Transcribing...",
+			"cancelling": "Cancelling...",
+			"cancelled": "Cancelled",
+			"recovered": "Recovered -- transcription timed out",
+			"stillTranscribing": "Still transcribing..."
+		},
+		"modelManager": {
+			"loading": "Loading model -- press your hotkey to queue...",
+			"readyWhisper": "Ready -- {device_info}",
+			"readyOther": "Ready -- {name} ASR",
+			"loadFailedRetry": "Model load failed -- press your hotkey to retry",
+			"backendFailed": "{backend} model failed to load",
+			"modelFailed": "Model failed: {error}",
+			"modelNotDownloaded": "No models are available. Open the models page to download a model.",
+			"modelIntegrityFailed": "{backend} model failed integrity verification. Delete and re-download it from the Models page."
+		},
+		"pipeline": {
+			"clipboardUnavailable": "Done -- clipboard unavailable",
+			"noSpeechDetected": "No speech detected",
+			"noSpeechCheckMic": "No speech -- check microphone",
+			"transcriptionEmpty": "Transcription returned empty",
+			"donePasted": "Done -- {count} chars (pasted)",
+			"doneInDb": "Done -- {count} chars (in DB, use repaste hotkey)",
+			"doneInClipboard": "Done -- {count} chars (in clipboard)"
 		}
 	}
 }

@@ -352,6 +352,81 @@ export function computePeriodStats(
 	};
 }
 
+// ── Correction usage (per-range, from the server usage snapshot) ────
+
+/**
+ * Shape of the server's ``get_correction_usage`` snapshot
+ * (``voice_typer/server/correction_usage.py``).
+ *
+ * ``corrections_by_day`` / ``dictations_by_day`` are keyed by the
+ * LOCAL calendar day (``YYYY-MM-DD``) — the same bucketing as
+ * ``localDateKey`` — so the range window math here joins cleanly.
+ */
+export interface CorrectionUsageSnapshot {
+	version?: number;
+	entries?: Record<string, Record<string, { count: number; last_ts: number }>>;
+	corrections_by_day?: Record<string, number>;
+	dictations_by_day?: Record<string, number>;
+}
+
+/** Range-aware corrections-applied totals from the usage snapshot. */
+export interface CorrectionStats {
+	/** Vocabulary corrections the engine applied inside the window. */
+	corrections: number;
+	/** Completed dictations inside the window (the rate's denominator). */
+	dictations: number;
+	/** corrections ÷ dictations (0..1), or null when the window has no dictations. */
+	rate: number | null;
+	/** Corrections in the PREVIOUS same-length window, or null for "all". */
+	prevCorrections: number | null;
+}
+
+/**
+ * Sum the correction/dictation day maps over the same window the
+ * period stats use, so the corrections card can never contradict the
+ * dictation cards (both are computed from the same range window).
+ */
+export function computeCorrectionStats(
+	usage: CorrectionUsageSnapshot | null,
+	range: RangeId,
+	now: Date = new Date(),
+): CorrectionStats {
+	if (!usage)
+		return { corrections: 0, dictations: 0, rate: null, prevCorrections: null };
+
+	const correctionsByDay = usage.corrections_by_day ?? {};
+	const dictationsByDay = usage.dictations_by_day ?? {};
+	const todayKey = localDateKey(now);
+	const span = rangeDaySpan(range);
+	const windowStart =
+		span === null ? "0000-00-00" : localDateKey(addDays(now, -(span - 1)));
+	const prevWindowStart =
+		span === null ? null : localDateKey(addDays(now, -(span * 2 - 1)));
+	const prevWindowEnd =
+		span === null ? null : localDateKey(addDays(now, -span));
+
+	let corrections = 0;
+	let dictations = 0;
+	let prevCorrections = 0;
+	for (const [day, n] of Object.entries(correctionsByDay)) {
+		if (day >= windowStart && day <= todayKey) corrections += n ?? 0;
+		if (prevWindowStart !== null && prevWindowEnd !== null) {
+			if (day >= prevWindowStart && day <= prevWindowEnd)
+				prevCorrections += n ?? 0;
+		}
+	}
+	for (const [day, n] of Object.entries(dictationsByDay)) {
+		if (day >= windowStart && day <= todayKey) dictations += n ?? 0;
+	}
+
+	return {
+		corrections,
+		dictations,
+		rate: dictations > 0 ? corrections / dictations : null,
+		prevCorrections: prevWindowStart === null ? null : prevCorrections,
+	};
+}
+
 // ── Chart bars (per-range, with zero-vs-missing distinction) ─────────
 
 /** One bar in the activity chart. */

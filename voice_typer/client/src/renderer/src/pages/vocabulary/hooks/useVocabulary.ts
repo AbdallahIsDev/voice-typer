@@ -32,6 +32,23 @@ import {
 	withEntryIds,
 } from "../lib/transform";
 
+/** Per-entry usage from the server's `get_correction_usage` snapshot. */
+export interface EntryUsage {
+	count: number;
+	last_ts: number;
+}
+
+/**
+ * Map key ``${category}::${original}`` → usage stats. Keyed by the
+ * pair (not just the original) because the same wrong phrase can exist
+ * in multiple categories.
+ */
+export type UsageByKey = Map<string, EntryUsage>;
+
+export function usageKey(category: string, original: string): string {
+	return `${category}::${original}`;
+}
+
 type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
 
 interface UseVocabularyArgs {
@@ -52,6 +69,8 @@ interface UseVocabularyResult {
 	persistVocabulary: (updated: VocabRow[]) => Promise<void>;
 	instantDeleteEntry: (entry: VocabRow) => Promise<void>;
 	setEntries: (entries: VocabRow[]) => void;
+	/** Per-entry usage map ("used N×"), refreshed on load + after saves. */
+	usageByKey: UsageByKey;
 	// Search + filter + sort (client-side, applied via useMemo).
 	searchQuery: string;
 	setSearchQuery: (q: string) => void;
@@ -73,6 +92,12 @@ export function useVocabulary({
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [sortOrder, setSortOrder] = useState<VocabSortOrder>("newest");
+
+	// Per-correction usage snapshot (``get_correction_usage``) — powers
+	// the per-row "Used N×" indicator. Fetched alongside the vocabulary
+	// and re-fetched after every save (the server prunes usage records
+	// for deleted corrections, so the map must track the live entries).
+	const [usageByKey, setUsageByKey] = useState<UsageByKey>(new Map());
 
 	// D2-FIX (b-review Finding 4): ref mirror of `entries` so the
 	// `instantDeleteEntry` undo callback can read the LATEST list at
@@ -100,7 +125,7 @@ export function useVocabulary({
 	}, [entries]);
 
 	// Ref mirror of `showSnack` so `loadVocabulary` keeps a STABLE
-	// identity ([call] deps). `showSnack` from useSnackbar is stable in
+	// identity ([] deps). `showSnack` from useSnackbar is stable in
 	// the real app, but tests mock it with a fresh function per render —
 	// a dependency on it would re-create loadVocabulary every render and
 	// re-trigger the mount-time load effect in an endless loop (spinner
@@ -110,6 +135,53 @@ export function useVocabulary({
 		showSnackRef.current = showSnack;
 	}, [showSnack]);
 
+	// Ref mirror of `call` for the same reason as showSnack: some test
+	// mocks (e.g. axe-core.test.tsx) return a FRESH `call` from
+	// usePython on every render. Depending the mount-load effect on it
+	// made loadVocabulary change identity per render → the effect
+	// re-fired forever, re-fetching + re-rendering until the worker
+	// OOM'd (FATAL ERROR: heap limit, killed the whole axe-core suite).
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
+
+	// Per-correction usage snapshot (``get_correction_usage``) — powers
+	// the per-row "Used N×" indicator. Fetched alongside the vocabulary
+	// and re-fetched after every save (the server prunes usage records
+	// for deleted corrections, so the map must track the live entries).
+	const loadUsage = useCallback(async () => {
+		try {
+			const snapshot = await callRef.current<{
+				entries?: Record<
+					string,
+					Record<string, { count: number; last_ts: number }>
+				>;
+			}>("get_correction_usage");
+			const map = new Map<string, EntryUsage>();
+			for (const [cat, catEntries] of Object.entries(snapshot?.entries ?? {})) {
+				for (const [original, usage] of Object.entries(catEntries ?? {})) {
+					if (usage && typeof usage.count === "number" && usage.count > 0) {
+						map.set(usageKey(cat, original), {
+							count: usage.count,
+							last_ts: usage.last_ts ?? 0,
+						});
+					}
+				}
+			}
+			setUsageByKey(map);
+		} catch (err) {
+			// Usage is a progressive enhancement — a failure to load it
+			// must not break the vocabulary list (entries still render
+			// without the "used N×" line).
+			console.error(
+				"[renderer:useVocabulary] Failed to load correction usage:",
+				err,
+			);
+			setUsageByKey(new Map());
+		}
+	}, []);
+
 	const loadVocabulary = useCallback(async () => {
 		setLoading(true);
 		// Clear any prior load error before retrying so the EmptyState
@@ -117,7 +189,7 @@ export function useVocabulary({
 		// the History/Templates retry pattern).
 		setLoadError(null);
 		try {
-			const data = await call<VocabularyData>("get_vocabulary");
+			const data = await callRef.current<VocabularyData>("get_vocabulary");
 			const flat = flattenEntries(data ?? {});
 			// Merge exact duplicates (same original+correction+category)
 			// on load — the add dialog blocks new ones and import
@@ -155,11 +227,14 @@ export function useVocabulary({
 		} finally {
 			setLoading(false);
 		}
-	}, [call]);
+	}, []);
 
+	// Mount-only load: `loadVocabulary` / `loadUsage` have stable
+	// identities (read `call` via a ref), so this effect runs exactly once.
 	useEffect(() => {
 		loadVocabulary();
-	}, [loadVocabulary]);
+		loadUsage();
+	}, [loadVocabulary, loadUsage]);
 
 	const persistVocabulary = useCallback(
 		async (updated: VocabRow[]) => {
@@ -176,10 +251,13 @@ export function useVocabulary({
 			const data = rebuildData(stripped);
 			setSaving(true);
 			try {
-				await call(
+				await callRef.current(
 					"save_vocabulary",
 					data as unknown as Record<string, unknown>,
 				);
+				// The save path prunes usage records for deleted corrections
+				// — refresh the map so removed entries stop showing counts.
+				await loadUsage();
 			} catch (err) {
 				console.error(
 					"[renderer:useVocabulary] Failed to save vocabulary:",
@@ -190,7 +268,7 @@ export function useVocabulary({
 				setSaving(false);
 			}
 		},
-		[call],
+		[loadUsage],
 	);
 
 	//instant-delete + Undo toast.  Triggered by the trash
@@ -299,6 +377,7 @@ export function useVocabulary({
 		persistVocabulary,
 		instantDeleteEntry,
 		setEntries,
+		usageByKey,
 		searchQuery,
 		setSearchQuery,
 		sortOrder,

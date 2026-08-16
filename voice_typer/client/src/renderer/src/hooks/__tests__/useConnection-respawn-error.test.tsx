@@ -31,25 +31,22 @@
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useConnection } from "@/hooks/useConnection";
-import { _resetNavigationForTest, useNavigation } from "@/hooks/useNavigation";
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + the usePython mock factory binding.
+import { pythonMock, resetStableMocks, stableMocks } from "@/__tests__/helpers/stableMocks";
 
-// Hoist the mock call/event handlers so they're available inside the
-// vi.mock factory (which is hoisted to the top of the file by vitest
-// and runs before any other code). Same pattern as the existing
-// `useConnection.test.tsx`.
-const { mockCall, mockPythonEvent, mockT } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	// usePythonEvent is spied on so a test can dispatch a fake
-	// event by invoking the registered callback with a payload.
-	mockPythonEvent: vi.fn(),
+const { mockCall, mockPythonEvent } = stableMocks;
+
+// The i18n `t` spy is file-local (not one of the stableMocks
+// singletons).
+const { mockT } = vi.hoisted(() => ({
 	mockT: vi.fn(),
 }));
 
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-	usePythonEvent: mockPythonEvent,
-}));
+vi.mock("@/hooks/usePython", () => pythonMock());
+
+import { useConnection } from "@/hooks/useConnection";
+import { _resetNavigationForTest, useNavigation } from "@/hooks/useNavigation";
 
 // Stub localStorage so useNavigation's persisted-nav-state restore
 // (and the beforeEach `clear()` below) doesn't blow up in the jsdom
@@ -124,8 +121,7 @@ function dispatchEvent(eventType: string, data: unknown): void {
 
 describe("ZU-17: useConnection error handler — typed respawn_exhausted code + localized message", () => {
 	beforeEach(() => {
-		mockCall.mockReset();
-		mockPythonEvent.mockReset();
+		resetStableMocks();
 		mockT.mockReset();
 		// `t` returns its key by default — the test asserts the
 		// `connection.respawnFailed` key was the one passed in.

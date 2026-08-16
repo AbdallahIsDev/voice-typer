@@ -95,9 +95,7 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 		// STALE-ACTIVE: NO Delete icon on an in-use model — the backend
 		// refuses to delete it ("Cannot delete the active model"), so a
 		// Delete button here would always error. Users switch first.
-		expect(
-			screen.queryByRole("button", { name: /Delete tiny/i }),
-		).toBeNull();
+		expect(screen.queryByRole("button", { name: /Delete tiny/i })).toBeNull();
 	});
 
 	it("Branch 2 (Active + missing from disk): renders ONLY Download — no Delete for a not-installed model", () => {
@@ -129,13 +127,9 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 		);
 		expect(dlBtn).not.toHaveTextContent("Download");
 		// No disabled "Active" tick anymore.
-		expect(
-			screen.queryByRole("button", { name: /Active: tiny/i }),
-		).toBeNull();
+		expect(screen.queryByRole("button", { name: /Active: tiny/i })).toBeNull();
 		// NO Delete affordance for a not-downloaded model.
-		expect(
-			screen.queryByRole("button", { name: /Delete tiny/i }),
-		).toBeNull();
+		expect(screen.queryByRole("button", { name: /Delete tiny/i })).toBeNull();
 	});
 
 	it("Branch 1 (Active + downloaded): hides Delete icon (in-use model can't be deleted)", () => {
@@ -150,9 +144,7 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 				onDelete={noop}
 			/>,
 		);
-		expect(
-			screen.queryByRole("button", { name: /Delete tiny/i }),
-		).toBeNull();
+		expect(screen.queryByRole("button", { name: /Delete tiny/i })).toBeNull();
 	});
 
 	it("Branch 4 (Deps-installable): renders 'Download Deps' button with depsAria label", () => {
@@ -178,9 +170,7 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 		expect(depsBtn).toHaveTextContent("Download Deps");
 		expect(depsBtn).not.toHaveAttribute("aria-busy", "true");
 		// Not downloaded → no Delete icon (nothing to remove).
-		expect(
-			screen.queryByRole("button", { name: /Delete tiny/i }),
-		).toBeNull();
+		expect(screen.queryByRole("button", { name: /Delete tiny/i })).toBeNull();
 	});
 
 	it("Branch 2 (Not downloaded): renders 'Download' button with downloadAria label", () => {
@@ -510,9 +500,7 @@ describe("ModelCardActions — DeleteButton rendering", () => {
 				onDelete={noop}
 			/>,
 		);
-		expect(
-			screen.queryByRole("button", { name: /Delete tiny/i }),
-		).toBeNull();
+		expect(screen.queryByRole("button", { name: /Delete tiny/i })).toBeNull();
 	});
 
 	it("Branch 3 (downloaded): Delete button IS rendered for a downloaded model (the trash affordance = installed + removable)", () => {

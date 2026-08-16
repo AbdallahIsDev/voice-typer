@@ -96,6 +96,16 @@ export function useOnboardingWizard(
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
 
+	// Ref mirror of `call` so the init effect depends only on
+	// `retryCounter`. Test mocks may return a FRESH call per render — an
+	// effect dep on it re-fires init() (onboarding_start/get_config/… →
+	// setState → re-render → new call → loop → worker OOM). Same
+	// pattern as useVocabulary.ts.
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
+
 	const [loading, setLoading] = useState(true);
 	const [initError, setInitError] = useState<string | null>(null);
 	const [step, setStep] = useState<StepInfo | null>(null);
@@ -185,7 +195,7 @@ export function useOnboardingWizard(
 		let cancelled = false;
 		async function init() {
 			try {
-				const started = await call<StepInfo>("onboarding_start");
+				const started = await callRef.current<StepInfo>("onboarding_start");
 				if (cancelled) return;
 				setStep(started);
 				// Pre-fill the selections from the saved config on
@@ -206,7 +216,7 @@ export function useOnboardingWizard(
 				// values (HOTKEY_DEFAULT / MODEL_DEFAULT / "") are still
 				// used when config.json has no saved value.
 				try {
-					const cfg = await call<VoiceTyperConfig>("get_config");
+					const cfg = await callRef.current<VoiceTyperConfig>("get_config");
 					if (cancelled) return;
 					if (cfg) {
 						const cfgHotkey = cfg.hotkey ?? HOTKEY_DEFAULT;
@@ -234,7 +244,7 @@ export function useOnboardingWizard(
 						e,
 					);
 				}
-				const mics = await call<{
+				const mics = await callRef.current<{
 					microphones: MicrophoneOption[];
 				}>("onboarding_get_microphones");
 				if (cancelled) return;
@@ -254,12 +264,12 @@ export function useOnboardingWizard(
 						return (defaultMic ?? fallback)?.id ?? prev;
 					});
 				}
-				const presets = await call<{ presets: string[] }>(
+				const presets = await callRef.current<{ presets: string[] }>(
 					"onboarding_get_hotkey_presets",
 				);
 				if (cancelled) return;
 				setHotkeyPresets(presets.presets || []);
-				const models = await call<{ models: ModelOption[] }>(
+				const models = await callRef.current<{ models: ModelOption[] }>(
 					"onboarding_get_model_options",
 				);
 				if (cancelled) return;
@@ -279,7 +289,7 @@ export function useOnboardingWizard(
 		return () => {
 			cancelled = true;
 		};
-	}, [call, retryCounter]);
+	}, [retryCounter]);
 
 	useEffect(() => {
 		if (!step) return;

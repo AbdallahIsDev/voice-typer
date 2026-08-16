@@ -16,19 +16,19 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockCall, mockShowSnack } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	mockShowSnack: vi.fn(),
-}));
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module.
+import {
+	pythonMock,
+	resetStableMocks,
+	snackbarMock,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
 
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-	usePythonEvent: vi.fn(),
-}));
+const { mockCall, showSnack: mockShowSnack } = stableMocks;
 
-vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({ showSnack: mockShowSnack }),
-}));
+vi.mock("@/hooks/usePython", () => pythonMock());
+vi.mock("@/hooks/useSnackbar", () => snackbarMock());
 
 vi.mock("@/i18n/i18n", () => ({
 	t: (key: string) => key,
@@ -185,8 +185,7 @@ function lastSetConfigPayload(): Record<string, unknown> | null {
 
 describe("useSettingsConfig — XA-14 fixes", () => {
 	beforeEach(() => {
-		mockCall.mockReset();
-		mockShowSnack.mockReset();
+		resetStableMocks();
 		vi.resetModules();
 	});
 

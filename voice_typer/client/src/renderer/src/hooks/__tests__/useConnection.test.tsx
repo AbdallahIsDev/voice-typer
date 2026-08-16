@@ -18,22 +18,17 @@
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + the usePython mock factory binding.
+import { pythonMock, resetStableMocks, stableMocks } from "@/__tests__/helpers/stableMocks";
+
+const { mockCall, mockPythonEvent } = stableMocks;
+
+vi.mock("@/hooks/usePython", () => pythonMock());
+
 import { useConnection } from "@/hooks/useConnection";
 import { _resetNavigationForTest, useNavigation } from "@/hooks/useNavigation";
 import { useAppStore } from "@/stores/appStore";
-
-// Hoist the mock call/event handlers so they're available inside the
-// vi.mock factory (which is hoisted to the top of the file by vitest
-// and runs before any other code).
-const { mockCall, mockPythonEvent } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	mockPythonEvent: vi.fn(),
-}));
-
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-	usePythonEvent: mockPythonEvent,
-}));
 
 // Stub localStorage so useNavigation's persisted-nav-state restore
 // (and the beforeEach `clear()` below) doesn't blow up in the jsdom
@@ -84,8 +79,7 @@ function Harness() {
 
 describe("useConnection — F1: first-run auto-route ignores persisted page", () => {
 	beforeEach(() => {
-		mockCall.mockReset();
-		mockPythonEvent.mockReset();
+		resetStableMocks();
 		localStorage.clear();
 		// Reset the module registry so useNavigation's
 		// loadNavState runs fresh on each test (it caches the
@@ -198,13 +192,12 @@ describe("useConnection — F1: first-run auto-route ignores persisted page", ()
 
 	describe("status_change — error message surfacing", () => {
 		beforeEach(() => {
-			mockCall.mockReset();
-			mockPythonEvent.mockReset();
+			resetStableMocks();
 			vi.resetModules();
 			useAppStore.setState({ recordingState: "idle", lastError: null });
 		});
 
-		it("sets lastError from data.message on the error state (so the Home RecordingErrorCard shows the reason)", () => {
+		it("sets lastError from data.message on the error state (so the Home status line shows the reason)", () => {
 			render(<Harness />);
 
 			// Capture the status_change subscription registered by
@@ -213,7 +206,10 @@ describe("useConnection — F1: first-run auto-route ignores persisted page", ()
 				(c) => c[0] === "status_change",
 			);
 			expect(statusChangeCall).toBeTruthy();
-			const handler = statusChangeCall![1] as (data: {
+			if (!statusChangeCall) {
+				throw new Error("expected a status_change subscription");
+			}
+			const handler = statusChangeCall[1] as (data: {
 				status: string;
 				message?: string;
 			}) => void;
@@ -236,7 +232,10 @@ describe("useConnection — F1: first-run auto-route ignores persisted page", ()
 			const statusChangeCall = mockPythonEvent.mock.calls.find(
 				(c) => c[0] === "status_change",
 			);
-			const handler = statusChangeCall![1] as (data: {
+			if (!statusChangeCall) {
+				throw new Error("expected a status_change subscription");
+			}
+			const handler = statusChangeCall[1] as (data: {
 				status: string;
 				message?: string;
 			}) => void;

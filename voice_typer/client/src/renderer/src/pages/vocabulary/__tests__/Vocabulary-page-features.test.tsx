@@ -10,6 +10,9 @@
  *   - inline quick-add row (replaces the disconnected Add modal),
  *     duplicate wrong→correct pairs refused
  *   - live "Test corrections" panel
+ *   - per-entry "Test this entry" action → inline live-engine result
+ *     (applied / no-change / error+retry), plus the panel's
+ *     backend-offline fallback notice
  *   - load-time dedupe of duplicate pairs (merged toast)
  *
  * Mock strategy mirrors Vocabulary-page-improvements.test.tsx: stub
@@ -30,63 +33,29 @@ const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module. Variants here:
+// the snackbar routes through the toast singletons by type
+// (snackbarMock({ routeToSonner: true }) — the real useSnackbar
+// delegates to sonner), so tests assert on toastSuccess / toastError.
+import {
+	hugeiconsCoreMock,
+	hugeiconsReactMock,
+	nextThemesMock,
+	pythonMock,
+	snackbarMock,
+	sonnerMock,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
 
-const { mockCall, showSnack } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	showSnack: vi.fn(),
-}));
+const { mockCall, showSnack, toastSuccess, toastError } = stableMocks;
 
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-}));
-
-vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({
-		showSnack: (message: string, type?: string) => {
-			if (type === "error") toastError(message);
-			else toastSuccess(message);
-		},
-	}),
-	showUndoableToast: vi.fn(),
-}));
-
-vi.mock("@hugeicons/react", () => ({
-	HugeiconsIcon: ({
-		children,
-		icon,
-	}: {
-		children?: React.ReactNode;
-		icon?: { name?: string };
-	}) => (
-		<span data-testid="hugeicon" data-name={icon?.name}>
-			{children}
-		</span>
-	),
-}));
-
-vi.mock("@hugeicons/core-free-icons", async () => {
-	const { createHugeiconsMock } = await import(
-		"@/__tests__/helpers/hugeicons-mock"
-	);
-	return createHugeiconsMock();
-});
-
-const toastSuccess = vi.fn();
-const toastError = vi.fn();
-vi.mock("sonner", () => ({
-	toast: {
-		success: (...args: unknown[]) => toastSuccess(...args),
-		error: (...args: unknown[]) => toastError(...args),
-		warning: vi.fn(),
-		info: vi.fn(),
-		dismiss: vi.fn(),
-	},
-	Toaster: () => null,
-}));
-
-vi.mock("next-themes", () => ({
-	useTheme: () => ({ theme: "light" as const }),
-}));
+vi.mock("@/hooks/usePython", () => pythonMock());
+vi.mock("@/hooks/useSnackbar", () => snackbarMock({ routeToSonner: true }));
+vi.mock("@hugeicons/react", () => hugeiconsReactMock());
+vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
+vi.mock("sonner", () => sonnerMock());
+vi.mock("next-themes", () => nextThemesMock());
 
 import type { VocabularyData } from "@/types/ipc";
 
@@ -210,6 +179,77 @@ describe("Vocabulary page — flat two-column list", () => {
 			expect(screen.getByDisplayValue("recieve")).toBeTruthy();
 			expect(screen.getByDisplayValue("receive")).toBeTruthy();
 		});
+	});
+});
+
+describe("Vocabulary page — per-entry usage", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		showSnack.mockReset();
+		toastSuccess.mockClear();
+		toastError.mockClear();
+		localStorage.clear();
+		vi.resetModules();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("shows 'Used N×' + last-used for entries with server-tracked usage", async () => {
+		// seedWith covers get_vocabulary; layer the usage snapshot on top.
+		seedWith(seedData);
+		const base = mockCall.getMockImplementation();
+		mockCall.mockImplementation((type: unknown, arg?: unknown) => {
+			const cmd =
+				typeof type === "string"
+					? type
+					: ((type as { type?: string })?.type ?? "");
+			if (cmd === "get_correction_usage")
+				return Promise.resolve({
+					version: 1,
+					entries: {
+						misspellings: {
+							recieve: { count: 12, last_ts: 1723651200 },
+							teh: { count: 1, last_ts: 1723651200 },
+						},
+					},
+				});
+			return base?.(type, arg) ?? Promise.resolve({});
+		});
+
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("recieve")).toBeTruthy();
+		});
+
+		// Both entries with usage show the meta line; the phrase
+		// correction (no usage record) does not.
+		const usageLines = screen.getAllByTestId("vocab-entry-usage");
+		expect(usageLines.length).toBe(2);
+		const recieveRow = screen
+			.getByText("recieve")
+			.closest('[data-testid="vocab-list-row"]') as HTMLElement;
+		expect(within(recieveRow).getByText(/Used 12×/)).toBeTruthy();
+		expect(within(recieveRow).getByText(/last used/)).toBeTruthy();
+		const tehRow = screen
+			.getByText("teh")
+			.closest('[data-testid="vocab-list-row"]') as HTMLElement;
+		expect(within(tehRow).getByText(/Used 1×/)).toBeTruthy();
+	});
+
+	it("omits the usage line when there is no usage data", async () => {
+		seedWith(seedData);
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("recieve")).toBeTruthy();
+		});
+
+		expect(screen.queryAllByTestId("vocab-entry-usage").length).toBe(0);
 	});
 });
 
@@ -481,6 +521,174 @@ describe("Vocabulary page — live test panel", () => {
 		fireEvent.change(input, { target: { value: "nothing matches here" } });
 
 		expect(await screen.findByText("No corrections applied")).toBeTruthy();
+	});
+});
+
+describe("Vocabulary page — test this entry", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		showSnack.mockReset();
+		toastSuccess.mockClear();
+		toastError.mockClear();
+		localStorage.clear();
+		vi.resetModules();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("renders a Test-this-entry button with a descriptive aria-label on each row", async () => {
+		seedWith(seedData);
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("recieve")).toBeTruthy();
+		});
+
+		const row = screen
+			.getByText("recieve")
+			.closest('[data-testid="vocab-list-row"]') as HTMLElement;
+		expect(within(row).getByLabelText("Test this entry: recieve")).toBeTruthy();
+	});
+
+	it("runs the entry through the live engine and shows the corrected output inline", async () => {
+		seedWith(seedData);
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("recieve")).toBeTruthy();
+		});
+
+		const row = screen
+			.getByText("recieve")
+			.closest('[data-testid="vocab-list-row"]') as HTMLElement;
+		fireEvent.click(within(row).getByLabelText("Test this entry: recieve"));
+
+		// Inline result appears below the row, fed by the server pass.
+		const result = await screen.findByTestId("vocab-entry-test-result");
+		expect(within(result).getByText("Corrected:")).toBeTruthy();
+		expect(within(result).getByText("receive")).toBeTruthy();
+
+		// Exactly one engine call, with the entry's exact wrong phrase.
+		const testCalls = mockCall.mock.calls.filter(
+			(args: unknown[]) => args[0] === "test_vocabulary_correction",
+		);
+		expect(testCalls.length).toBe(1);
+		expect(testCalls[0]?.[1]).toEqual({ text: "recieve" });
+	});
+
+	it("shows the no-change state when the engine does not match the entry", async () => {
+		// A misspelling key containing a space can never fire: the
+		// engine tokenizes on spaces, so "to 2" never matches a token.
+		seedWith({ misspellings: { "to 2": "to" } });
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("to 2")).toBeTruthy();
+		});
+
+		const row = screen
+			.getByText("to 2")
+			.closest('[data-testid="vocab-list-row"]') as HTMLElement;
+		fireEvent.click(within(row).getByLabelText("Test this entry: to 2"));
+
+		expect(
+			await screen.findByText(
+				"No change — the engine didn't match this phrase",
+			),
+		).toBeTruthy();
+	});
+
+	it("shows an error with Retry when the engine call fails, and Retry recovers", async () => {
+		let engineCalls = 0;
+		mockCall.mockImplementation((type: unknown, arg?: unknown) => {
+			const cmd =
+				typeof type === "string"
+					? type
+					: ((type as { type?: string })?.type ?? "");
+			if (cmd === "get_vocabulary") return Promise.resolve(seedData);
+			if (cmd === "test_vocabulary_correction") {
+				engineCalls += 1;
+				if (engineCalls === 1) {
+					return Promise.reject(new Error("engine offline"));
+				}
+				const text =
+					typeof arg === "object" && arg !== null
+						? String((arg as { text?: unknown })?.text ?? "")
+						: "";
+				return Promise.resolve({
+					input: text,
+					output: "receive",
+					applied: true,
+				});
+			}
+			return Promise.resolve({});
+		});
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("recieve")).toBeTruthy();
+		});
+
+		const row = screen
+			.getByText("recieve")
+			.closest('[data-testid="vocab-list-row"]') as HTMLElement;
+		fireEvent.click(within(row).getByLabelText("Test this entry: recieve"));
+
+		// First attempt fails → error + Retry (no silent mirror).
+		expect(
+			await screen.findByText(
+				"Couldn't reach the engine — check the connection and try again",
+			),
+		).toBeTruthy();
+
+		// Retry re-runs the live engine and succeeds.
+		fireEvent.click(screen.getByText("Retry"));
+		const result = await screen.findByTestId("vocab-entry-test-result");
+		await waitFor(() => {
+			expect(within(result).getByText("receive")).toBeTruthy();
+		});
+		expect(engineCalls).toBe(2);
+	});
+
+	it("warns when the backend is offline and the panel falls back to the preview mirror", async () => {
+		mockCall.mockImplementation((type: unknown) => {
+			const cmd =
+				typeof type === "string"
+					? type
+					: ((type as { type?: string })?.type ?? "");
+			if (cmd === "get_vocabulary") return Promise.resolve(seedData);
+			if (cmd === "test_vocabulary_correction") {
+				return Promise.reject(new Error("backend offline"));
+			}
+			return Promise.resolve({});
+		});
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("recieve")).toBeTruthy();
+		});
+
+		fireEvent.click(screen.getByLabelText("Test corrections"));
+		const input = await screen.findByPlaceholderText(
+			"Type a phrase to see corrections…",
+		);
+		fireEvent.change(input, {
+			target: { value: "recieve teh" },
+		});
+
+		// The mirror output is shown BUT explicitly labeled as a
+		// preview approximation — never presented as the engine result.
+		expect(await screen.findByTestId("vocab-test-fallback")).toBeTruthy();
+		expect(
+			screen.getByText("Backend offline — showing a preview approximation"),
+		).toBeTruthy();
 	});
 });
 

@@ -468,6 +468,89 @@ export function formatHotkey(hotkey: string): string {
 export const formatHotkeyLabel = formatHotkey;
 
 /**
+ * Default dictation hotkey (pynput form). Must match the backend's
+ * canonical default — see `OnboardingController.selected_hotkey` and the
+ * comment history in `pages/onboarding/lib/constants.ts` (which
+ * re-exports this constant) for the lockstep contract.
+ */
+export const HOTKEY_DEFAULT = "<caps_lock>";
+
+/**
+ * Default repaste-last-transcription hotkey (pynput form). Previously a
+ * magic literal inside App.tsx; named here so every config-driven hotkey
+ * default lives in the hotkey module with the formatter.
+ */
+export const REPASTE_HOTKEY_DEFAULT = "<ctrl>+<alt>+v";
+
+/**
+ * Config fields consumed by {@link configHotkeyLabels} — the renderer
+ * config shape (`VoiceTyperConfig`), narrowed to just the hotkeys.
+ */
+export interface ConfigHotkeys {
+	hotkey?: string | null;
+	repaste_hotkey?: string | null;
+}
+
+/**
+ * Compute the user-facing dictation + repaste hotkey labels from the
+ * app config, falling back to the canonical defaults when a field is
+ * unset. Single place App, the Help overlay, and any future surface
+ * derive these labels from, so the config→label computation can't
+ * drift between call sites.
+ */
+export function configHotkeyLabels(config: ConfigHotkeys): {
+	dictationLabel: string;
+	repasteLabel: string;
+} {
+	return {
+		dictationLabel: formatHotkey(config.hotkey ?? HOTKEY_DEFAULT),
+		repasteLabel: formatHotkey(config.repaste_hotkey ?? REPASTE_HOTKEY_DEFAULT),
+	};
+}
+
+/**
+ * Platform-aware variant for a DISPLAY-FORM hotkey string (e.g. the
+ * `SHORTCUTS` catalog's canonical "Ctrl+B").
+ *
+ * On macOS the modifier labels are mapped to their platform-native
+ * glyphs (Ctrl→⌃, Alt→⌥, Shift→⇧, Cmd→⌘) and the combo parts are
+ * joined WITHOUT "+" separators — the exact output `formatHotkey`
+ * produces from the pynput form (e.g. "⌃B" for "<ctrl>+<b>"), so
+ * tooltip chips match the Sidebar's `formatHotkey`-driven rendering.
+ * On Windows/Linux the string is returned unchanged (the canonical
+ * display form is already what those platforms render). " / "
+ * alternative separators are preserved.
+ *
+ * Idempotent for already-formatted input: glyph output contains no
+ * modifier labels, so re-applying is a no-op. `HotkeyChips` runs every
+ * input through this, whether the caller passed catalog `keys` or
+ * `formatHotkey` output.
+ */
+export function formatHotkeyForPlatform(keys: string): string {
+	if (!keys) return keys;
+	// Re-detect on every call (same rationale as ``formatHotkey``: a
+	// stale module-level detection from Electron UA spoofing / headless
+	// mode must not render the wrong glyphs).
+	if (detectPlatform() !== "darwin") return keys;
+	return keys
+		.split(" / ")
+		.map((alt) =>
+			alt
+				.split("+")
+				.map((part) => {
+					const trimmed = part.trim();
+					// Reuse the pynput-modifier glyph table via a
+					// lowercased lookup ("Ctrl" → "ctrl" → ⌃). Keys not
+					// in the table (letters, Tab, Space, win/super/fn —
+					// not native to macOS) fall through unchanged.
+					return MAC_MODIFIER_GLYPHS[trimmed.toLowerCase()] ?? trimmed;
+				})
+				.join(""),
+		)
+		.join(" / ");
+}
+
+/**
  * Validate a hotkey for the UI, with an additional mode parameter
  * for single-key vs. combo constraints.
  *

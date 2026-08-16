@@ -43,9 +43,13 @@ const mocks = vi.hoisted(() => ({
 	usePythonEventMock: vi.fn(),
 }));
 
+const stable = vi.hoisted(() => ({
+	pythonCall: vi.fn(),
+}));
+
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({
-		call: vi.fn(),
+		call: stable.pythonCall,
 		status: "connected",
 		connectionStatus: "connected",
 	}),
@@ -83,6 +87,7 @@ Object.defineProperty(window, "localStorage", {
 // ── Test setup ───────────────────────────────────────────────────────
 
 beforeEach(() => {
+	vi.clearAllMocks();
 	mocks.usePythonEventMock.mockReset();
 	lsMock.clear();
 });

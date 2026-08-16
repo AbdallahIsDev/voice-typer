@@ -25,50 +25,24 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + one vi.mock line per module.
+import {
+	hugeiconsCoreMock,
+	hugeiconsReactMock,
+	nextThemesMock,
+	pythonMock,
+	sonnerMock,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
 
-// Hoist the mock call handler so it's available inside vi.mock factories.
-const { mockCall } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-}));
+const { mockCall, toastSuccess, toastError } = stableMocks;
 
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-}));
-
-// Stub hugeicons (About.tsx doesn't use icons directly, but the import
-// chain via SettingsSection may pull them in).
-vi.mock("@hugeicons/react", () => ({
-	HugeiconsIcon: ({ children }: { children?: React.ReactNode }) => (
-		<span data-testid="hugeicon">{children}</span>
-	),
-}));
-
-vi.mock("@hugeicons/core-free-icons", async () => {
-	const { createHugeiconsMock } = await import(
-		"@/__tests__/helpers/hugeicons-mock"
-	);
-	return createHugeiconsMock();
-});
-
-// sonner is imported by About.tsx for toast notifications. Capture
-// the calls so tests can assert on the "Copied!" confirmation toast.
-const toastSuccess = vi.fn();
-const toastError = vi.fn();
-vi.mock("sonner", () => ({
-	toast: {
-		success: (...args: unknown[]) => toastSuccess(...args),
-		error: (...args: unknown[]) => toastError(...args),
-		warning: vi.fn(),
-		info: vi.fn(),
-		dismiss: vi.fn(),
-	},
-	Toaster: () => null,
-}));
-
-// next-themes is imported transitively.
-vi.mock("next-themes", () => ({
-	useTheme: () => ({ theme: "light" as const }),
-}));
+vi.mock("@/hooks/usePython", () => pythonMock());
+vi.mock("@hugeicons/react", () => hugeiconsReactMock());
+vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
+vi.mock("sonner", () => sonnerMock());
+vi.mock("next-themes", () => nextThemesMock());
 
 import { formatBytes, formatRelativeTime } from "@/pages/About";
 

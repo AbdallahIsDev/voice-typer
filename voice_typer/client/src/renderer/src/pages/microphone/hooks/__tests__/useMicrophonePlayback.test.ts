@@ -26,8 +26,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // ── Mocks ───────────────────────────────────────────────────────────
 const showSnackMock = vi.fn();
 
+const stable = vi.hoisted(() => ({
+	clearSnack: vi.fn(),
+}));
+
 vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({ showSnack: showSnackMock, clearSnack: vi.fn() }),
+	useSnackbar: () => ({
+		showSnack: showSnackMock,
+		clearSnack: stable.clearSnack,
+	}),
 }));
 
 vi.mock("@/i18n/i18n", () => ({
@@ -74,6 +81,7 @@ function makeAudioStub(src: string): AudioStub {
 }
 
 beforeEach(() => {
+	vi.clearAllMocks();
 	audioInstances.length = 0;
 	// Replace the global `Audio` constructor with our stub factory.
 	// `vi.stubGlobal` is the recommended way to override globals in vitest.

@@ -35,19 +35,17 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
+// assertable singletons + the usePython mock factory binding.
+import { pythonMock, resetStableMocks, stableMocks } from "@/__tests__/helpers/stableMocks";
+
+const { mockCall } = stableMocks;
+
+vi.mock("@/hooks/usePython", () => pythonMock());
+
 import { useConnection } from "@/hooks/useConnection";
 import { _resetNavigationForTest, useNavigation } from "@/hooks/useNavigation";
 import { useAppStore } from "@/stores/appStore";
-
-const { mockCall, mockPythonEvent } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	mockPythonEvent: vi.fn(),
-}));
-
-vi.mock("@/hooks/usePython", () => ({
-	usePython: () => ({ call: mockCall }),
-	usePythonEvent: mockPythonEvent,
-}));
 
 // Stub localStorage so useNavigation's persisted-nav-state restore
 // (and the beforeEach `clear()` below) doesn't blow up in the jsdom
@@ -100,8 +98,7 @@ function readStatus(): string {
 
 describe("useConnection — NH-30 background reconnect poll", () => {
 	beforeEach(() => {
-		mockCall.mockReset();
-		mockPythonEvent.mockReset();
+		resetStableMocks();
 		localStorage.clear();
 		// Shared store: reset the module-level nav state so a previous
 		// test's navigation can't leak into this one.

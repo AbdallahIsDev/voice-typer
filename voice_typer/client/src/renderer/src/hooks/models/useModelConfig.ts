@@ -74,6 +74,21 @@ export function useModelConfig({
 	call,
 	markUpdated,
 }: UseModelConfigArgs): UseModelConfigResult {
+	// Ref mirrors of `call` / `markUpdated` so `loadConfig` keeps a
+	// STABLE identity ([] deps). Both are useCallback-stable in
+	// production, but test mocks return FRESH functions per render — an
+	// identity churn would re-fire the mount-load effect (loadConfig →
+	// setModels/setConfig → re-render → new call → loop → worker OOM).
+	// Same pattern as useVocabulary.ts.
+	const callRef = useRef(call);
+	useEffect(() => {
+		callRef.current = call;
+	}, [call]);
+	const markUpdatedRef = useRef(markUpdated);
+	useEffect(() => {
+		markUpdatedRef.current = markUpdated;
+	}, [markUpdated]);
+
 	const [refreshing, setRefreshing] = useState(false);
 	const [config, setConfig] = useState<VoiceTyperConfig | null>(null);
 	const [models, setModels] = useState<ModelInfo[]>([]);
@@ -106,7 +121,7 @@ export function useModelConfig({
 	// disabled "Active" tick.
 	const refreshModelStatus = useCallback(async (): Promise<void> => {
 		try {
-			const status = await call<ModelStatusMap>("get_model_status");
+			const status = await callRef.current<ModelStatusMap>("get_model_status");
 			if (status && typeof status === "object") {
 				setModels((prev) =>
 					prev.map((m) => {
@@ -127,7 +142,7 @@ export function useModelConfig({
 				err,
 			);
 		}
-	}, [call]);
+	}, []);
 
 	//fix #4: parallelized loadConfig ─────────────────────
 	//
@@ -143,9 +158,9 @@ export function useModelConfig({
 	const loadConfig = useCallback(async (): Promise<void> => {
 		try {
 			const results = await Promise.allSettled([
-				call<VoiceTyperConfig>("get_config"),
-				call<ModelStatusMap>("get_model_status"),
-				call<{ models: ModelMetadata[] }>("get_model_catalog"),
+				callRef.current<VoiceTyperConfig>("get_config"),
+				callRef.current<ModelStatusMap>("get_model_status"),
+				callRef.current<{ models: ModelMetadata[] }>("get_model_catalog"),
 			]);
 
 			const cfgResult = results[0];
@@ -218,9 +233,9 @@ export function useModelConfig({
 				);
 			}
 		} finally {
-			markUpdated();
+			markUpdatedRef.current();
 		}
-	}, [call, markUpdated]);
+	}, []);
 
 	// Fire loadConfig on mount.
 	useEffect(() => {

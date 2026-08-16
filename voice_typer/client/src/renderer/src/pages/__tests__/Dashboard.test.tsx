@@ -405,10 +405,15 @@ describe("Dashboard dataPath uses {path} interpolation fed by get_status config_
 		// is a local IPC probe (C-DATA-1, offline) — no network. A `.catch`
 		// fallback keeps the Promise.all alive if the backend doesn't expose
 		// `get_status` or the field is missing (older sidecar).
+		// The hook reads `call` through a ref (callRef.current) so the
+		// mount-load effect keeps a stable identity — the get_status
+		// probe is still part of the refreshData Promise.all.
 		expect(HOOK_SRC).toMatch(
-			/call<.*config_dir\?:\s*string.*>.*\("get_status"/,
+			/current<\{ config_dir\?:\s*string[^>]*>\s*\("get_status"/,
 		);
-		expect(HOOK_SRC).toMatch(/get_status.*\.catch\(\(\)\s*=>\s*null\)/);
+		expect(HOOK_SRC).toMatch(
+			/get_status[\s\S]*?\.catch\(\s*\(\)\s*=>\s*null\)/,
+		);
 	});
 
 	it("useDashboardData.ts exposes configDir on its result + populates it from status.config_dir", () => {
@@ -466,5 +471,38 @@ describe("SevenDayActivityChart migrates binary plural to tChoice", () => {
 		expect(EN_JSON.analytics.dayCountTooltip_other).toBeDefined();
 		// The legacy binary-plural keys can stay (other agents may still
 		// reference them) — we only assert the new CLDR keys are present.
+	});
+});
+
+describe("Corrections-applied card (server-side usage tracking)", () => {
+	it("Dashboard.tsx renders a Corrections card driven by correctionStats", () => {
+		// The 5th stat card reads the range-aware correction totals
+		// from the hook (not a hardcoded number) and localises through
+		// the analytics.* keys.
+		expect(DASHBOARD_SRC).toMatch(/correctionStats/);
+		expect(DASHBOARD_SRC).toMatch(/t\("analytics\.corrections"\)/);
+		expect(DASHBOARD_SRC).toMatch(/t\("analytics\.correctionsTooltip"\)/);
+		expect(DASHBOARD_SRC).toMatch(/t\("analytics\.correctionsRate"/);
+		expect(DASHBOARD_SRC).toMatch(/correctionStats\.corrections/);
+		expect(DASHBOARD_SRC).toMatch(/correctionStats\.rate/);
+		// Trend compares the current window vs the previous same-length one.
+		expect(DASHBOARD_SRC).toMatch(/correctionStats\.prevCorrections/);
+	});
+
+	it("useDashboardData.ts fetches get_correction_usage in the Promise.all", () => {
+		// The hook must fetch the usage snapshot alongside the other
+		// dashboard data and derive the range-aware correction stats
+		// from it (single fetch, consistent windows).
+		// The fetch is multi-line (`call<...>(\n  "get_correction_usage",\n)`),
+		// so match the bare command literal rather than an open-paren form.
+		expect(HOOK_SRC).toMatch(/"get_correction_usage"/);
+		expect(HOOK_SRC).toMatch(/computeCorrectionStats/);
+		expect(HOOK_SRC).toMatch(/correctionStats/);
+	});
+
+	it("en.json defines the corrections card keys", () => {
+		expect(EN_JSON.analytics.corrections).toBeDefined();
+		expect(EN_JSON.analytics.correctionsTooltip).toBeDefined();
+		expect(EN_JSON.analytics.correctionsRate).toContain("{pct}");
 	});
 });

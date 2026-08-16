@@ -221,6 +221,12 @@
 		"testNoChange": "لم تُطبق أي تصحيحات",
 		"testPlaceholder": "اكتب عبارة لرؤية التصحيحات…",
 		"testTitle": "اختبار التصحيحات",
+		"testEntry": "اختبر هذا الإدخال",
+		"testEntryAria": "اختبر هذا الإدخال: {name}",
+		"testEntryFailed": "تعذّر الوصول إلى المحرك — تحقق من الاتصال وحاول مجددًا",
+		"testEntryNoChange": "لا تغيير — لم يطابق المحرك هذه العبارة",
+		"testEntryPending": "جارٍ الاختبار عبر المحرك المباشر…",
+		"testFallbackNote": "الخادم غير متصل — يتم عرض نتيجة تقريبية للمعاينة",
 		"fillBothFields": "يرجى ملء كلا الحقلين",
 		"updatedEntry": "تم التحديث: {original} ← {correction}",
 		"addedEntry": "تمت الإضافة: {original} ← {correction}",
@@ -237,6 +243,8 @@
 		"whatYouSay": "ما تقوله",
 		"triggerHelp": "اكتب الكلمة (الكلمات) تمامًا كما يُسيئ معرّف الكلام فهمها.",
 		"whatGetsTyped": "ما يتم كتابته بدلاً من ذلك",
+		"usedCount": "استُخدم {count}×",
+		"lastUsed": "آخر استخدام {date}",
 		"replacementHelp": "النص المصحح الذي سيتم لصقه. الأحرف الكبيرة/الصغيرة مهمة — ما تكتبه هنا هو تمامًا ما سيتم إخراجه.",
 		"deleteEntryTitle": "حذف مدخل المفردات",
 		"deleteEntryMessage": "هل أنت متأكد أنك تريد حذف \"{name}\"؟ لا يمكن التراجع عن هذا الإجراء.",
@@ -374,6 +382,9 @@
 		"peakWeekday": "يوم الذروة: {day}",
 		"rangeAria": "النطاق الزمني للتحليلات",
 		"sampledNote": "استنادًا إلى آخر {count} إملاء",
+		"corrections": "التصحيحات",
+		"correctionsTooltip": "تصحيحات المفردات التي طبّقها المحرّك أثناء الإملاء",
+		"correctionsRate": "{pct}% من الإملاءات",
 		"shareTooltip": "يصدّر صورة ملخص قابلة للمشاركة",
 		"totalDictations": "إجمالي الإملاءات",
 		"totalDictationsTooltip": "جميع الإملاءات المسجلة على الإطلاق. إجماليات الأحرف مأخوذة من آخر ٥٠٠ إملاء.",
@@ -470,11 +481,8 @@
 		"viewChangelog": "عرض سجل التغييرات",
 		"offlineUpdatesMessage": "{appName} هو تطبيق يعمل دون اتصال بالإنترنت. للتحقق من وجود تحديثات، تفضل بزيارة صفحة إصدارات GitHub في متصفحك.",
 		"startStopDictation": "بدء / إيقاف الإملاء",
-		"startStopDictationValue": "F2 (أو مفتاح الاختصار المهيأ)",
 		"cancelRecording": "إلغاء التسجيل",
-		"cancelRecordingValue": "Esc (إذا كان مُفعَّلًا في الإعدادات)",
 		"repasteTranscription": "إعادة لصق آخر تفريغ",
-		"repasteTranscriptionValue": "Ctrl+Alt+V (افتراضي)",
 		"toggleSidebar": "تبديل الشريط الجانبي",
 		"navigateFields": "التنقل بين الحقول",
 		"toggleSwitches": "تبديل المفاتيح",
@@ -490,11 +498,6 @@
 		"newVersionAvailable": "يتوفر إصدار جديد: {version}",
 		"installedNewer": "الإصدار المُثبَّت ({installed}) أحدث من أحدث إصدار منشور ({latest})",
 		"updateCheckFailed": "فشل التحقق من التحديثات: {error}",
-		"toggleSidebarValue": "Ctrl+B",
-		"navigateFieldsValue": "Tab / Shift+Tab",
-		"toggleSwitchesValue": "مسافة",
-		"closeDialogsValue": "Esc",
-		"openDropdownsValue": "Enter أو مسافة",
 		"cacheTitle": "حالة الذاكرة المخبأة",
 		"cacheDescription": "الحالة الحالية لذاكرة المخبأة لنظام التشغيل للنموذج. يعمل التسخين المسبق عند التشغيل لإبقاء ملفات النموذج في الذاكرة لبدء سريع.",
 		"prewarmStatus": "حالة التسخين المسبق",
@@ -1365,19 +1368,6 @@
 		"navBack": "التنقل للخلف / للأمام",
 		"closeHint": "اضغط {key} أو انقر خارجًا للإغلاق.",
 		"zoomTextSize": "حجم النص",
-		"keys": {
-			"cancel": "Esc",
-			"repaste": "Ctrl+Alt+V",
-			"toggleSidebar": "Ctrl+B",
-			"openSettings": "Ctrl+,",
-			"goHome": "Ctrl+H",
-			"navigate": "Tab / Shift+Tab",
-			"toggle": "Space",
-			"activate": "Enter",
-			"zoomTextSize": "Ctrl+Plus / Ctrl+Minus",
-			"openHelp": "?",
-			"navBack": "Alt+Left / Alt+Right"
-		},
 		"punctuationTitle": "ورقة مرجعية لعلامات الترقيم",
 		"punctuationHint": "انطق هذه الكلمات أثناء الإملاء لإدراج علامة الترقيم المقابلة. يتعرّف عليها {appName} عبر نموذج الكلام ويحافظ عليها عبر تنظيف النص.",
 		"punctuation": {
@@ -1943,19 +1933,58 @@
 			"mic_permission_revoked_title": "{appName}",
 			"mic_permission_revoked_body": "تم إبطال إذن الميكروفون.",
 			"xrun_warning_title": "{appName}",
-			"xrun_warning_body": "تم اكتشاف فيض في الذاكرة المؤقتة للصوت. جرّب حجمًا أكبر للذاكرة المؤقتة."
+			"xrun_warning_body": "تم اكتشاف فيض في الذاكرة المؤقتة للصوت. جرّب حجمًا أكبر للذاكرة المؤقتة.",
+			"cancelled_timeout": "استغرق التفريغ الصوتي وقتًا طويلًا وتم إلغاؤه.\nاضغط {hotkey} لإعادة المحاولة.",
+			"start_failed": "تعذّر بدء التسجيل.\nتحقق من voice-typer.log لمعرفة التتبع.",
+			"stop_failed": "تعذّر إيقاف التسجيل.",
+			"silence_warning": "لم يتم اكتشاف أي صوت. تأكد من توصيل الميكروفون وأنه يعمل.",
+			"consent_required": "يلزم الحصول على موافقة القياسات الصوتية البيومترية لبدء التسجيل.\nفعّلها من الإعدادات > الخصوصية > موافقة القياسات الصوتية البيومترية.",
+			"max_duration_auto_stop": "تم إيقاف التسجيل: تم بلوغ الحد الأقصى لمدة التسجيل.",
+			"mic_disconnected": "تم فصل الميكروفون. تم إيقاف التسجيل. أعد توصيل الميكروفون للمتابعة.",
+			"mic_permission_revoked": "تم إبطال إذن الميكروفون. تم إيقاف التسجيل. أعد منح إذن الوصول إلى الميكروفون في إعدادات الخصوصية بنظام التشغيل للمتابعة.",
+			"silence_auto_stop": "تم إيقاف التسجيل: لم يتم اكتشاف أي صوت لفترة طويلة.",
+			"load_failed": "تعذّر تحميل نموذج الكلام.\n{error}\n\nسيستمر التطبيق في العمل. اضغط {hotkey} لإعادة محاولة التحميل."
 		},
 		"model_manager": {
 			"backend_init_failed_title": "{appName}",
 			"backend_init_failed_body": "تعذّر تهيئة الواجهة الخلفية {backend}. تحقق من السجلات لمزيد من التفاصيل.",
 			"backend_change_deferred_title": "{appName}",
-			"backend_change_deferred_body": "ستتغير الواجهة الخلفية إلى {backend} بعد التسجيل الحالي."
+			"backend_change_deferred_body": "ستتغير الواجهة الخلفية إلى {backend} بعد التسجيل الحالي.",
+			"change_deferred": "سيتغير النموذج إلى {model} بعد التسجيل الحالي",
+			"load_failed": "تعذّر تحميل نموذج الكلام.\n{error}\n\nسيستمر التطبيق في العمل. اضغط {hotkey} لإعادة محاولة التحميل.",
+			"backend_change_deferred": "ستتغير الواجهة الخلفية إلى {backend} بعد التسجيل الحالي.",
+			"backend_init_failed": "تعذّر تهيئة الواجهة الخلفية {backend}.{hint}",
+			"last_resort_unloaded": "النموذج غير محمّل.\nافتح صفحة النماذج لتنزيل نموذج.",
+			"model_not_downloaded": "لا توجد نماذج متاحة.\nافتح صفحة النماذج لتنزيل نموذج.",
+			"no_model_selected": "لم يتم تحديد نموذج.\nانتقل إلى صفحة النماذج لتحديد نموذج.",
+			"load_failed_critical": "تعذّر تحميل نموذج الكلام.\nسيستمر التطبيق في العمل. اضغط {hotkey} لإعادة محاولة التحميل."
 		},
 		"settings_controller": {
 			"autostart_toggle_failed_title": "{appName}",
 			"autostart_toggle_failed_body": "تعذّر تغيير إعداد التشغيل التلقائي.\n{error}",
 			"microphone_selection_failed_title": "{appName}",
-			"microphone_selection_failed_body": "تعذّر تغيير الميكروفون."
+			"microphone_selection_failed_body": "تعذّر تغيير الميكروفون.",
+			"mic_changed": "الميكروفون: {label}",
+			"mic_next_recording": "الميكروفون للتسجيل التالي: {label}",
+			"autostart_failed": "تعذّر تغيير إعداد التشغيل التلقائي.\n{error}",
+			"mic_save_failed": "تعذّر حفظ تحديد الميكروفون. تحقق من مساحة القرص أو الأذونات."
+		},
+		"app": {
+			"repaste_no_previous": "لا يوجد نص سابق لإعادة لصقه.",
+			"repaste_copy_failed": "تعذّر نسخ النص إلى الحافظة. قد يكون تطبيق آخر يحتفظ بقفل الحافظة.",
+			"repaste_done": "تمت إعادة لصق آخر نص",
+			"repaste_blocked": "تم حظر إعادة اللصق (هدف غير آمن أو تجاوز حد المعدل). تم الحفاظ على محتوى الحافظة السابق. اضغط مفتاح إعادة اللصق مرة أخرى للمحاولة.",
+			"undo_nothing": "لا يوجد شيء للتراجع عنه.",
+			"undo_done": "تم التراجع عن آخر نص ({char_count} حرفًا)",
+			"undo_no_pynput": "التراجع غير متاح (pynput غير موجود)",
+			"undo_failed": "تعذّر التراجع عن آخر نص. راجع السجلات للحصول على التفاصيل."
+		},
+		"permissions": {
+			"macos_title": "{appName} يحتاج إلى إذن",
+			"macos_body": "انقر لفتح إعدادات النظام ← إمكانية الوصول. أضف {appName} (ومساعد استماع المفاتيح الخاص به) إلى القائمة.",
+			"macos_body_with_command": "انقر لفتح إعدادات النظام ← إمكانية الوصول. أضف {appName} (ومساعد استماع المفاتيح الخاص به) إلى القائمة. ثم شغّل: {command}",
+			"linux_title": "{appName} يحتاج إلى إذن لوحة المفاتيح",
+			"linux_body": "انقر لمنح الوصول. سيطلب نظامك كلمة المرور لتثبيت إذن لوحة المفاتيح (قاعدة udev + مجموعة الإدخال). بعد المنح، سجّل الخروج ثم الدخول لتفعيل التغيير."
 		}
 	},
 	"error": {
@@ -1988,6 +2017,50 @@
 			"cloud_deepgram_consent": "النسخ السحابي يرسل صوتك إلى Deepgram للنسخ. تنطبق سياسة خصوصية Deepgram على الصوت المرسل. هل تسمح؟",
 			"llm_polish_consent": "تحسين النص بالذكاء الاصطناعي يرسل نصك المنسوخ إلى موفر LLM المكوّن لتصحيح القواعد وعلامات الترقيم. هل تسمح؟",
 			"offline_pack_consent": "يتم تنزيل حزمة المحرك دون اتصال (~180 م.ب.) مرة واحدة من خادم الإصدارات وتمكّن النسخ المحلي بالكامل. هل تسمح بالتنزيل؟"
+		}
+	},
+	"trayState": {
+		"idle": "خامل",
+		"recording": "تسجيل",
+		"transcribing": "نسخ",
+		"loading": "تحميل",
+		"error": "خطأ",
+		"cancelling": "إلغاء",
+		"recordingController": {
+			"loadingQueued": "جارٍ تحميل النموذج — سيبدأ الإملاء تلقائيًا…",
+			"startingUp": "جارٍ التشغيل — يرجى الانتظار...",
+			"consentRequired": "مطلوب موافقة القياسات الحيوية الصوتية",
+			"modelFailedRetry": "تعذّر تحميل النموذج — اضغط مفتاح الاختصار لإعادة المحاولة",
+			"recording": "جارٍ التسجيل...",
+			"recordingFailed": "فشل التسجيل",
+			"recordingFailedPermission": "فشل التسجيل — تم رفض إذن الميكروفون. اسمح بالوصول إلى الميكروفون في إعدادات النظام.",
+			"recordingFailedNoDevice": "فشل التسجيل — لم يتم العثور على ميكروفون. قم بتوصيل ميكروفون وحاول مرة أخرى.",
+			"stopFailed": "فشل الإيقاف",
+			"tooShort": "قصير جدًا — تم التجاهل",
+			"transcribing": "جارٍ النسخ...",
+			"cancelling": "جارٍ الإلغاء...",
+			"cancelled": "تم الإلغاء",
+			"recovered": "تم الاسترداد — انتهت مهلة النسخ",
+			"stillTranscribing": "لا يزال النسخ جاريًا..."
+		},
+		"modelManager": {
+			"loading": "جارٍ تحميل النموذج — اضغط مفتاح الاختصار للانتظار في قائمة الانتظار...",
+			"readyWhisper": "جاهز — {device_info}",
+			"readyOther": "جاهز — {name} ASR",
+			"loadFailedRetry": "فشل تحميل النموذج — اضغط مفتاح الاختصار لإعادة المحاولة",
+			"backendFailed": "تعذّر تحميل نموذج {backend}",
+			"modelFailed": "فشل النموذج: {error}",
+			"modelNotDownloaded": "لا توجد نماذج متاحة. افتح صفحة النماذج لتنزيل نموذج.",
+			"modelIntegrityFailed": "فشل نموذج {backend} في التحقق من السلامة. احذفه وأعد تنزيله من صفحة النماذج."
+		},
+		"pipeline": {
+			"clipboardUnavailable": "تم — الحافظة غير متاحة",
+			"noSpeechDetected": "لم يتم اكتشاف كلام",
+			"noSpeechCheckMic": "لا يوجد كلام — تحقق من الميكروفون",
+			"transcriptionEmpty": "النسخ فارغ",
+			"donePasted": "تم — {count} حرفًا (تم اللصق)",
+			"doneInDb": "تم — {count} حرفًا (في قاعدة البيانات، استخدم مفتاح إعادة اللصق)",
+			"doneInClipboard": "تم — {count} حرفًا (في الحافظة)"
 		}
 	}
 }

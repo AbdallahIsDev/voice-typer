@@ -22,6 +22,8 @@ import type { HistoryRecord } from "@/types/ipc";
 import {
 	type ActivityBar,
 	buildActivityBars,
+	type CorrectionUsageSnapshot,
+	computeCorrectionStats,
 	computePeriodStats,
 	computeStreaks,
 	dateKey,
@@ -235,5 +237,74 @@ describe("rangeDaySpan", () => {
 		expect(rangeDaySpan("7d")).toBe(7);
 		expect(rangeDaySpan("30d")).toBe(30);
 		expect(rangeDaySpan("all")).toBeNull();
+	});
+});
+
+describe("computeCorrectionStats", () => {
+	// Fixed NOW (Aug 16 2026 local): 7d window = Aug 10..16, prev 7d
+	// window = Aug 3..9. Keys are LOCAL calendar days — the same
+	// bucketing `localDateKey` produces for the period stats.
+	const NOW = new Date(2026, 7, 16, 15, 0, 0);
+
+	const usage: CorrectionUsageSnapshot = {
+		version: 1,
+		entries: {},
+		corrections_by_day: {
+			"2026-08-14": 3, // inside 7d window
+			"2026-08-16": 1, // today
+			"2026-08-07": 5, // inside PREVIOUS 7d window (Aug 3..9)
+			"2026-07-01": 9, // outside both
+		},
+		dictations_by_day: {
+			"2026-08-14": 2,
+			"2026-08-16": 1,
+		},
+	};
+
+	it("sums corrections + dictations inside the 7-day window and computes the rate", () => {
+		const stats = computeCorrectionStats(usage, "7d", NOW);
+		expect(stats.corrections).toBe(4); // 3 (14th) + 1 (today)
+		expect(stats.dictations).toBe(3); // 2 (14th) + 1 (today)
+		expect(stats.rate).toBeCloseTo(4 / 3);
+		expect(stats.prevCorrections).toBe(5);
+	});
+
+	it("scopes to the Today range (single local day)", () => {
+		const stats = computeCorrectionStats(usage, "today", NOW);
+		expect(stats.corrections).toBe(1);
+		expect(stats.dictations).toBe(1);
+		expect(stats.rate).toBe(1);
+		expect(stats.prevCorrections).toBe(0); // yesterday had none
+	});
+
+	it("all-time sums every day and has no previous window", () => {
+		const stats = computeCorrectionStats(usage, "all", NOW);
+		expect(stats.corrections).toBe(18);
+		expect(stats.dictations).toBe(3);
+		expect(stats.prevCorrections).toBeNull();
+	});
+
+	it("returns zeros + null rate when the usage snapshot is absent", () => {
+		const stats = computeCorrectionStats(null, "7d", NOW);
+		expect(stats.corrections).toBe(0);
+		expect(stats.dictations).toBe(0);
+		expect(stats.rate).toBeNull();
+		expect(stats.prevCorrections).toBeNull();
+	});
+
+	it("returns null rate when the window has dictations but no corrections", () => {
+		const stats = computeCorrectionStats(
+			{
+				version: 1,
+				entries: {},
+				corrections_by_day: { "2026-08-01": 2 },
+				dictations_by_day: { "2026-08-14": 2 },
+			},
+			"7d",
+			NOW,
+		);
+		expect(stats.corrections).toBe(0);
+		expect(stats.dictations).toBe(2);
+		expect(stats.rate).toBe(0);
 	});
 });

@@ -106,55 +106,99 @@ const STUB_CONFIG = {
 };
 
 // ── Helper: mock the usePython hook ──────────────────────────────────
+// Module-scope STABLE mocks. The real hooks return `useCallback([])`-
+// wrapped identities (`call` in usePython, `markUpdated` in
+// useLastUpdated) that keep the SAME reference across renders — the
+// mocks MUST mirror that stability. The previous inline shape
+// (`call: vi.fn(...)` inside the factory) handed out a FRESH `call` on
+// every render; effects keyed on `call` re-ran each render,
+// re-fetching + re-storing state with fresh arrays → render → new
+// `call` → … — the page-level infinite render loop that OOM'd this
+// very suite (FATAL heap OOM in the Vocabulary scan; the hooks were
+// fixed with the `callRef` mirror in hooks/useVocabulary.ts +
+// useVocabularyTester.ts). With a stable mock, a page that renders
+// fine in production renders fine here too — and the mock can never
+// be the trigger of that loop class again.
+const { mockCall, mockMarkUpdated } = vi.hoisted(() => ({
+	mockCall: vi.fn(),
+	mockMarkUpdated: vi.fn(),
+}));
+
+// Command-appropriate shapes so async page init (e.g. Onboarding)
+// settles instead of crashing on `undefined.<field>`.
+mockCall.mockImplementation(async (cmd: string) => {
+	switch (cmd) {
+		case "onboarding_start":
+			return { step: 1, total_steps: 4, step_name: "microphone" };
+		case "onboarding_get_microphones":
+			return { microphones: [] };
+		case "onboarding_get_hotkey_presets":
+			return { presets: [] };
+		case "onboarding_get_model_options":
+			return { models: [] };
+		case "get_config":
+			return STUB_CONFIG;
+		case "get_today_stats":
+			return {
+				count: 0,
+				chars: 0,
+				duration_sec: 0,
+				model: "tiny",
+				device: "cpu",
+			};
+		case "get_history":
+			return [];
+		case "get_dashboard":
+			return {
+				todayCount: 0,
+				todayChars: 0,
+				todayWordCount: 0,
+				todayDuration: 0,
+				totalCount: 0,
+				totalChars: 0,
+				totalDuration: 0,
+				favoritesCount: 0,
+				activeDays: 0,
+				currentStreak: 0,
+				longestStreak: 0,
+				dailyActivity: [],
+				topModels: [],
+				topWords: [],
+			};
+		case "get_microphones":
+			return { microphones: [] };
+		default:
+			return undefined;
+	}
+});
+
+const stable = vi.hoisted(() => ({
+	snackbarSuccess: vi.fn(),
+	snackbarError: vi.fn(),
+	snackbarWarning: vi.fn(),
+	snackbarInfo: vi.fn(),
+	handleRetryConnection: vi.fn(),
+	handleThemeChange: vi.fn(),
+	reloadThemeFromConfig: vi.fn(),
+	setTextSize: vi.fn(),
+	captureImage: vi.fn(),
+	downloadImage: vi.fn(),
+	saveImageAs: vi.fn(),
+	copyImageToClipboard: vi.fn(),
+	revealInFolder: vi.fn(),
+	refresh: vi.fn(),
+	downloadModel: vi.fn(),
+	deleteModel: vi.fn(),
+	setCloudApiKey: vi.fn(),
+	testCloudConnection: vi.fn(),
+}));
+
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({
-		// Return command-appropriate shapes so async page init (e.g.
-		// Onboarding) settles instead of crashing on `undefined.<field>`.
-		call: vi.fn(async (cmd: string) => {
-			switch (cmd) {
-				case "onboarding_start":
-					return { step: 1, total_steps: 4, step_name: "microphone" };
-				case "onboarding_get_microphones":
-					return { microphones: [] };
-				case "onboarding_get_hotkey_presets":
-					return { presets: [] };
-				case "onboarding_get_model_options":
-					return { models: [] };
-				case "get_config":
-					return STUB_CONFIG;
-				case "get_today_stats":
-					return {
-						count: 0,
-						chars: 0,
-						duration_sec: 0,
-						model: "tiny",
-						device: "cpu",
-					};
-				case "get_history":
-					return [];
-				case "get_dashboard":
-					return {
-						todayCount: 0,
-						todayChars: 0,
-						todayWordCount: 0,
-						todayDuration: 0,
-						totalCount: 0,
-						totalChars: 0,
-						totalDuration: 0,
-						favoritesCount: 0,
-						activeDays: 0,
-						currentStreak: 0,
-						longestStreak: 0,
-						dailyActivity: [],
-						topModels: [],
-						topWords: [],
-					};
-				case "get_microphones":
-					return { microphones: [] };
-				default:
-					return undefined;
-			}
-		}),
+		// Stable `call` — identical reference on every render (see the
+		// stability comment above; mirrors the real hook's
+		// `useCallback([])`).
+		call: mockCall,
 		pythonPort: 9999,
 	}),
 	usePythonEvent: vi.fn(),
@@ -178,17 +222,17 @@ vi.mock("@/hooks/useConnection", () => ({
 		recordingState: "idle" as const,
 		connectionStatus: "connected" as const,
 		lastError: null,
-		handleRetryConnection: vi.fn(),
+		handleRetryConnection: stable.handleRetryConnection,
 	}),
 }));
 
 vi.mock("@/hooks/useTheme", () => ({
 	useTheme: () => ({
 		themeMode: "system" as const,
-		handleThemeChange: vi.fn(),
-		reloadThemeFromConfig: vi.fn(),
+		handleThemeChange: stable.handleThemeChange,
+		reloadThemeFromConfig: stable.reloadThemeFromConfig,
 		textSize: 14,
-		setTextSize: vi.fn(),
+		setTextSize: stable.setTextSize,
 	}),
 }));
 
@@ -199,18 +243,22 @@ vi.mock("@/hooks/useSoundFeedback", () => ({
 vi.mock("@/hooks/useLastUpdated", () => ({
 	useLastUpdated: () => ({
 		agoLabel: "",
-		markUpdated: vi.fn(),
+		// Stable identity — the real hook's `markUpdated` is a
+		// `useCallback([])`; a fresh fn per render would re-fire Home's
+		// mount effect (`[call, markUpdated]` deps) the same way an
+		// unstable `call` does (see the usePython mock comment above).
+		markUpdated: mockMarkUpdated,
 	}),
 }));
 
 vi.mock("@/hooks/useStatsShare", () => ({
 	useStatsShare: () => ({
 		imageRef: { current: null },
-		captureImage: vi.fn(),
-		downloadImage: vi.fn(),
-		saveImageAs: vi.fn(),
-		copyImageToClipboard: vi.fn(),
-		revealInFolder: vi.fn(),
+		captureImage: stable.captureImage,
+		downloadImage: stable.downloadImage,
+		saveImageAs: stable.saveImageAs,
+		copyImageToClipboard: stable.copyImageToClipboard,
+		revealInFolder: stable.revealInFolder,
 	}),
 	computeShareStats: vi.fn(() => ({
 		dictations: 0,
@@ -235,20 +283,20 @@ vi.mock("@/hooks/useModelLifecycle", () => ({
 		downloadingModelId: null,
 		downloadProgress: null,
 		error: null,
-		refresh: vi.fn(),
-		downloadModel: vi.fn(),
-		deleteModel: vi.fn(),
-		setCloudApiKey: vi.fn(),
-		testCloudConnection: vi.fn(),
+		refresh: stable.refresh,
+		downloadModel: stable.downloadModel,
+		deleteModel: stable.deleteModel,
+		setCloudApiKey: stable.setCloudApiKey,
+		testCloudConnection: stable.testCloudConnection,
 	}),
 }));
 
 vi.mock("@/hooks/useSnackbar", () => ({
 	useSnackbar: () => ({
-		success: vi.fn(),
-		error: vi.fn(),
-		warning: vi.fn(),
-		info: vi.fn(),
+		success: stable.snackbarSuccess,
+		error: stable.snackbarError,
+		warning: stable.snackbarWarning,
+		info: stable.snackbarInfo,
 	}),
 }));
 
