@@ -93,7 +93,8 @@ const SINGLETON_NAMES = [
  *     and fabricate offenders);
  *  2. plain binding: `const mockCall = vi.hoisted(() => vi.fn())`.
  */
-const SINGLETON_HOIST_DESTRUCTURE_RE = /const\s*\{([^{}]*)\}\s*=\s*vi\.hoisted/g;
+const SINGLETON_HOIST_DESTRUCTURE_RE =
+	/const\s*\{([^{}]*)\}\s*=\s*vi\.hoisted/g;
 const SINGLETON_HOIST_PLAIN_RE = new RegExp(
 	`const\\s+(${SINGLETON_NAMES.join("|")})\\s*=\\s*vi\\.hoisted`,
 	"g",

@@ -400,7 +400,9 @@ describe("App-wide shortcuts — zoom via the mounted App (keydown + wheel)", ()
 	}
 
 	function dispatchKey(key: string, opts: KeyboardEventInit = {}) {
-		window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...opts, key }));
+		window.dispatchEvent(
+			new KeyboardEvent("keydown", { bubbles: true, ...opts, key }),
+		);
 	}
 
 	function dispatchWheel(deltaY: number, opts: WheelEventInit = {}) {
@@ -461,7 +463,8 @@ describe("App-wide shortcuts — zoom via the mounted App (keydown + wheel)", ()
 
 	it("Ctrl+wheel set_config failure stays silent (no toast) through the mounted App", async () => {
 		mockCall.mockImplementation((type: string) => {
-			if (type === "set_config") return Promise.reject(new Error("backend down"));
+			if (type === "set_config")
+				return Promise.reject(new Error("backend down"));
 			return Promise.resolve({});
 		});
 		await mountApp();

@@ -54,8 +54,11 @@ import {
 	stableMocks,
 } from "@/__tests__/helpers/stableMocks";
 
-const { mockCall, showSnack: mockShowSnack, markUpdated: mockMarkUpdated } =
-	stableMocks;
+const {
+	mockCall,
+	showSnack: mockShowSnack,
+	markUpdated: mockMarkUpdated,
+} = stableMocks;
 
 vi.mock("@/hooks/usePython", () => pythonMock());
 vi.mock("@/hooks/useSnackbar", () => snackbarMock());

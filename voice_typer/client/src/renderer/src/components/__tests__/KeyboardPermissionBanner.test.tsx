@@ -26,9 +26,6 @@
  */
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import type { PermissionsResult } from "@/types/ipc";
-
 // Shared stable-mocks preamble (see helpers/stableMocks.tsx):
 // `usePython` is mocked so the `useKeyboardPermission()` hook's
 // `call("onboarding_check_permissions")` is a no-op that never resolves
@@ -36,7 +33,12 @@ import type { PermissionsResult } from "@/types/ipc";
 // test, and the `permissionResult` prop injection is what drives the
 // rendered output. This keeps the tests deterministic without fake
 // timers.
-import { pythonMock, resetStableMocks, stableMocks } from "@/__tests__/helpers/stableMocks";
+import {
+	pythonMock,
+	resetStableMocks,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
+import type { PermissionsResult } from "@/types/ipc";
 
 const { mockCall } = stableMocks;
 

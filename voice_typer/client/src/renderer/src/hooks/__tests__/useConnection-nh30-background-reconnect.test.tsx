@@ -37,7 +37,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
 // assertable singletons + the usePython mock factory binding.
-import { pythonMock, resetStableMocks, stableMocks } from "@/__tests__/helpers/stableMocks";
+import {
+	pythonMock,
+	resetStableMocks,
+	stableMocks,
+} from "@/__tests__/helpers/stableMocks";
 
 const { mockCall } = stableMocks;
 
