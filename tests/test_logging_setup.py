@@ -494,13 +494,18 @@ class TestStartupBanner:  # noqa: N801
         )
 
     def test_banner_includes_level_name(self, config_dir, clean_env, stub_side_effects):
-        """The banner includes the root logger level NAME (``DEBUG``,
-        ``WARNING``, etc.) — not the numeric value — so it's human-readable.
+        """The banner reports the FILE HANDLER level NAME (``INFO``,
+        ``DEBUG``, ``WARNING``, etc.) — the level that actually gates what
+        lands in the log file — not the numeric value, so it's
+        human-readable. Under the default config (debug=False) the file
+        handler sits at INFO, so the banner shows ``level=INFO``
+        (consistent with ``debug=False``; the ``voice_typer`` logger
+        itself is always pinned at DEBUG internally).
         """
         logging_setup._setup_logging()
         _flush_all()
         banner = self._banner_lines(config_dir)
-        assert "level=DEBUG" in banner, f"GT-B1-15: banner missing/incorrect level; got: {banner!r}"
+        assert "level=INFO" in banner, f"GT-B1-15: banner missing/incorrect level; got: {banner!r}"
 
     def test_banner_reflects_quiet_flag(self, config_dir, clean_env, stub_side_effects, monkeypatch):
         """When VOICE_TYPER_QUIET=1, the banner shows level=WARNING and quiet=True."""

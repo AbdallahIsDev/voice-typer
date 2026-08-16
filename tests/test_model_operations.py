@@ -32,7 +32,7 @@ class TestBuildModelsSubmenuConfigProvider:
         from voice_typer.server.tray_models import build_models_submenu_data
 
         config = MagicMock()
-        config.model_size = "small.en"
+        config.model_size = "tiny"
         config.asr_backend = "whisper"
 
         result = build_models_submenu_data(
@@ -41,7 +41,7 @@ class TestBuildModelsSubmenuConfigProvider:
             config_provider=config,
         )
         active_models = [name for name, _, is_active, _ in result if is_active]
-        assert "small.en" in active_models
+        assert "tiny" in active_models
 
     def test_corrupt_config_json_falls_back_to_defaults_and_logs(self, tmp_path, caplog):
         """PI-19 regression: a corrupt ``config.json`` must NOT silently
@@ -68,7 +68,7 @@ class TestBuildModelsSubmenuConfigProvider:
 
         # Defaults must be returned so the tray menu is still usable.
         active_models = [name for name, _, is_active, _ in result if is_active]
-        assert "tiny.en" in active_models
+        assert "tiny" in active_models
 
         # The corrupt-config log line must be present.
         corrupt_log_lines = [r.message for r in caplog.records if "failed to read config.json" in r.message]
@@ -154,7 +154,7 @@ class TestDeleteModelUsesRegistryUnconditionally:
             config = type(
                 "FakeConfig",
                 (),
-                {"asr_backend": "whisper", "model_size": "small.en"},
+                {"asr_backend": "whisper", "model_size": "tiny"},
             )()
 
         return VoiceTyperService(FakeApp())
@@ -218,7 +218,7 @@ class TestGetModelStatusCache:
             config = type(
                 "FakeConfig",
                 (),
-                {"asr_backend": "whisper", "model_size": "tiny.en"},
+                {"asr_backend": "whisper", "model_size": "tiny"},
             )()
 
         return VoiceTyperService(FakeApp())
@@ -372,31 +372,31 @@ class TestDeleteStaleActiveModel:
         return cache_dir
 
     def test_active_missing_clears_config_to_downloaded_fallback(self, tmp_config_dir):
-        """tiny.en is active but its files are gone; small.en IS on disk.
-        delete_model('tiny.en') succeeds AND switches the active model to
-        small.en so no phantom 'Active' state remains."""
+        """tiny is active but its files are gone; large-v3-turbo IS on
+        disk. delete_model('tiny') succeeds AND switches the active model
+        to large-v3-turbo so no phantom 'Active' state remains."""
         from voice_typer.server.model_registry import get_model_metadata
         from voice_typer.server.service import VoiceTyperService
 
         cache_dir = self._make_cache_dir(tmp_config_dir)
-        small_meta = get_model_metadata("small.en")
-        assert small_meta is not None
-        small_dir = cache_dir / f"models--{small_meta.repo_id.replace('/', '--')}"
-        small_dir.mkdir(parents=True)
+        fallback_meta = get_model_metadata("large-v3-turbo")
+        assert fallback_meta is not None
+        fallback_dir = cache_dir / f"models--{fallback_meta.repo_id.replace('/', '--')}"
+        fallback_dir.mkdir(parents=True)
 
-        app = self._make_app(model_size="tiny.en")
+        app = self._make_app(model_size="tiny")
         service = VoiceTyperService(app)
 
-        result = service.delete_model("tiny.en")
+        result = service.delete_model("tiny")
         assert result["success"] is True, f"Expected success, got: {result}"
-        assert "tiny.en" in result["message"]
+        assert "tiny" in result["message"]
         # The message reports the switch (truthful — apply_config committed).
         assert "switched to" in result["message"], (
             f"stale-clear success must report the switch, got: {result}"
         )
         # The stale selection was cleared: active model switched to the
         # downloaded fallback via apply_config.
-        assert app.config.model_size == "small.en", (
+        assert app.config.model_size == "large-v3-turbo", (
             f"delete_model must clear the stale active config to the "
             f"downloaded fallback, got model_size={app.config.model_size!r}"
         )
@@ -416,48 +416,53 @@ class TestDeleteStaleActiveModel:
         from voice_typer.server.service import VoiceTyperService
 
         cache_dir = self._make_cache_dir(tmp_config_dir)
-        small_meta = get_model_metadata("small.en")
-        assert small_meta is not None
-        (cache_dir / f"models--{small_meta.repo_id.replace('/', '--')}").mkdir(
+        fallback_meta = get_model_metadata("large-v3-turbo")
+        assert fallback_meta is not None
+        (cache_dir / f"models--{fallback_meta.repo_id.replace('/', '--')}").mkdir(
             parents=True
         )
 
-        app = self._make_app(model_size="tiny.en")
+        app = self._make_app(model_size="tiny")
         # save_strict raises -> apply_config rolls the in-memory config back
         # and re-raises; _clear_stale_active_model catches it.
         app.config.save_strict = Mock(side_effect=RuntimeError("disk full"))
         service = VoiceTyperService(app)
 
-        result = service.delete_model("tiny.en")
+        result = service.delete_model("tiny")
         assert result["success"] is True, f"delete must still succeed, got: {result}"
         # The switch did NOT commit (rolled back) — message must not claim it.
         assert "switched to" not in result["message"], (
             f"message must not claim a switch that rolled back, got: {result}"
         )
-        assert app.config.model_size == "tiny.en", (
+        assert app.config.model_size == "tiny", (
             "apply_config rollback must leave the config pointing at the "
             "old (phantom) model after a save_strict failure"
         )
 
-    def test_active_missing_no_fallback_keeps_config(self, tmp_config_dir):
+    def test_active_missing_no_fallback_enters_no_model_state(self, tmp_config_dir):
         """No model is downloaded at all — there is no valid replacement.
-        The delete still succeeds and the config is left at its value (the
-        UI shows the missing model with a Download affordance instead of a
-        dead-end disabled tick)."""
+        The delete still succeeds and the config enters the genuine
+        "no model selected" state (``model_size == ""``, the
+        ``NO_MODEL_SIZE`` sentinel) instead of keeping a phantom model
+        that the app would otherwise try to load."""
+        from voice_typer.server.model_registry import NO_MODEL_SIZE
         from voice_typer.server.service import VoiceTyperService
 
         self._make_cache_dir(tmp_config_dir)  # empty hub
-        app = self._make_app(model_size="tiny.en")
+        app = self._make_app(model_size="tiny")
         service = VoiceTyperService(app)
 
-        result = service.delete_model("tiny.en")
+        result = service.delete_model("tiny")
         assert result["success"] is True, f"Expected success, got: {result}"
-        assert "tiny.en" in result["message"]
+        assert "no model selected" in result["message"], (
+            f"message must say no model is selected, got: {result}"
+        )
         assert "switched to" not in result["message"], (
             f"no fallback -> message must not claim a switch, got: {result}"
         )
-        assert app.config.model_size == "tiny.en", (
-            "config must stay unchanged when no downloaded fallback exists"
+        assert app.config.model_size == NO_MODEL_SIZE, (
+            "config must enter the 'no model selected' state when no "
+            f"downloaded fallback exists, got model_size={app.config.model_size!r}"
         )
         assert app.config.asr_backend == "whisper"
 
@@ -469,15 +474,15 @@ class TestDeleteStaleActiveModel:
         from voice_typer.server.service import VoiceTyperService
 
         cache_dir = self._make_cache_dir(tmp_config_dir)
-        tiny_meta = get_model_metadata("tiny.en")
+        tiny_meta = get_model_metadata("tiny")
         assert tiny_meta is not None
         tiny_dir = cache_dir / f"models--{tiny_meta.repo_id.replace('/', '--')}"
         tiny_dir.mkdir(parents=True)
 
-        app = self._make_app(model_size="tiny.en")
+        app = self._make_app(model_size="tiny")
         service = VoiceTyperService(app)
 
-        result = service.delete_model("tiny.en")
+        result = service.delete_model("tiny")
         assert result["success"] is False
         assert "Cannot delete the active model" in result["message"], (
             f"active model on disk must still be refused, got: {result}"

@@ -29,7 +29,7 @@ class TestGetConfig:
         dict through.  We assert the handler doesn't add or strip any
         keys.
         """
-        sanitized = {"hotkey": "<f2>", "model_size": "small.en", "openai_api_key": "<redacted>"}
+        sanitized = {"hotkey": "<f2>", "model_size": "tiny", "openai_api_key": "<redacted>"}
         fake_service.get_config.return_value = sanitized
 
         resp = ipc_server._handle_get_config({}, {})
@@ -50,10 +50,10 @@ class TestGetDefaults:
     """``_handle_get_defaults`` — returns the default Config() values."""
 
     def test_happy_path_returns_defaults_type(self, ipc_server, fake_service):
-        fake_service.get_defaults.return_value = {"hotkey": "<f2>", "model_size": "small.en"}
+        fake_service.get_defaults.return_value = {"hotkey": "<f2>", "model_size": "tiny"}
         resp = ipc_server._handle_get_defaults({}, {})
         assert resp["type"] == "defaults"
-        assert resp["data"] == {"hotkey": "<f2>", "model_size": "small.en"}
+        assert resp["data"] == {"hotkey": "<f2>", "model_size": "tiny"}
         fake_service.get_defaults.assert_called_once_with()
 
     def test_service_raises_returns_error(self, ipc_server, fake_service):
@@ -135,9 +135,9 @@ class TestSetConfig:
         # Configure the fake app's current model_size so the
         # "differs from current" branch is taken.
         fake_app.config.model_size = "tiny"
-        resp = ipc_server._handle_set_config({"model_size": "small.en"}, {})
+        resp = ipc_server._handle_set_config({"model_size": "large-v3-turbo"}, {})
         assert resp["type"] == "ack"
-        fake_service.change_model.assert_called_once_with("small.en")
+        fake_service.change_model.assert_called_once_with("large-v3-turbo")
 
     def test_change_model_failure_does_not_abort_set_config(self, ipc_server, fake_app, fake_service):
         """If ``service.change_model()`` raises, the handler logs and
@@ -150,7 +150,7 @@ class TestSetConfig:
         """
         fake_app.config.model_size = "tiny"
         fake_service.change_model.side_effect = RuntimeError("engine busy")
-        resp = ipc_server._handle_set_config({"model_size": "small.en"}, {})
+        resp = ipc_server._handle_set_config({"model_size": "large-v3-turbo"}, {})
         # Still ack — the model swap failure is non-fatal.
         assert resp["type"] == "ack"
         # The rest of the payload was still applied.

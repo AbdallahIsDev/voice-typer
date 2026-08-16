@@ -496,7 +496,13 @@ class ShutdownController:
                 ", ".join(_shutdown_skipped),
             )
 
-        log.info("[SHUTDOWN] Shutdown complete, exiting")
+        if _shutdown_skipped:
+            log.info(
+                "[SHUTDOWN] Shutdown complete, exiting with %d teardown(s) skipped",
+                len(_shutdown_skipped),
+            )
+        else:
+            log.info("[SHUTDOWN] Shutdown complete, exiting successfully")
 
         # ── Late bookend (sequential) ────────────────────────────────
         # ``tray.stop()`` MUST be the LAST step in ``_do_cleanup()``.

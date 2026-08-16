@@ -42,6 +42,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from voice_typer.server.duration import format_duration
+
 if TYPE_CHECKING:
     from voice_typer.server.asr_registry import AsrBackendRegistry
 
@@ -206,9 +208,9 @@ class WorkerTranscriber:
             # single client and serialized requests).
             text = str(engine.transcribe_with_fallback(audio) or "").strip()
             log.info(
-                "[WORKER] offline transcription complete (len=%d chars)_%s",
+                "[WORKER] offline transcription complete (len=%d chars)%s",
                 len(text),
-                f"{time.perf_counter() - t0:.1f}s",
+                format_duration(time.perf_counter() - t0),
             )
             return _done({"text": text, "error": None})
         except Exception as exc:  # noqa: BLE001 — structured error result

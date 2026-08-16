@@ -66,7 +66,7 @@ class TestFailedModelConfigNotPersisted:
         fake_app.config.model_size = "tiny"
         fake_service.change_model.side_effect = RuntimeError("engine busy")
 
-        ipc_server._handle_set_config({"model_size": "small.en"}, {})
+        ipc_server._handle_set_config({"model_size": "large-v3-turbo"}, {})
 
         fake_service.apply_config.assert_called_once()
         applied_arg = fake_service.apply_config.call_args[0][0]
@@ -85,7 +85,7 @@ class TestFailedModelConfigNotPersisted:
         fake_app.config.model_size = "tiny"
         fake_service.change_model.side_effect = RuntimeError("engine busy")
 
-        resp = ipc_server._handle_set_config({"model_size": "small.en"}, {})
+        resp = ipc_server._handle_set_config({"model_size": "large-v3-turbo"}, {})
 
         assert resp["type"] == "ack"
         assert resp["data"]["status"] == "partial"
@@ -105,7 +105,7 @@ class TestFailedModelConfigNotPersisted:
 
         # ``hotkey`` is an allowlisted key that does NOT trigger a
         # model/backend swap, so it must survive the failed_keys filter.
-        ipc_server._handle_set_config({"model_size": "small.en", "hotkey": "<f3>"}, {})
+        ipc_server._handle_set_config({"model_size": "large-v3-turbo", "hotkey": "<f3>"}, {})
 
         fake_service.apply_config.assert_called_once()
         applied_arg = fake_service.apply_config.call_args[0][0]
@@ -146,7 +146,7 @@ class TestFailedModelConfigNotPersisted:
 
         monkeypatch.setattr(ch_mod.event_bus, "publish", fake_publish)
 
-        ipc_server._handle_set_config({"model_size": "small.en", "hotkey": "<f3>"}, {})
+        ipc_server._handle_set_config({"model_size": "large-v3-turbo", "hotkey": "<f3>"}, {})
 
         config_changed_events = [e for e in published_events if e.get("type") == "config_changed"]
         assert config_changed_events, "config_changed event must be published"

@@ -990,6 +990,27 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
         return None
 
 
+def _prewarm_would_help() -> bool:
+    """Return True when the prewarm delay is worth taking.
+
+    The fixed ``--delay`` exists so the prewarm task (which fires at
+    logon with low I/O priority) can page the ACTIVE model's weights
+    into the OS file cache before the app's cold imports run. When no
+    model is installed there are no weights to warm, so the sleep would
+    be pure startup latency (the package-file warm-up still runs inside
+    the worker regardless). Defaults to True (keep the delay) on any
+    failure so a probe error can never make autostart race the prewarm.
+    """
+    try:
+        from voice_typer.server.config import Config
+        from voice_typer.server.tray_models import is_active_model_downloaded
+
+        return is_active_model_downloaded(Config.load())
+    except Exception:
+        log.debug("[AUTOSTART] prewarm-delay probe failed; keeping delay", exc_info=True)
+        return True
+
+
 def _parse_delay(argv: list[str]) -> float:
     """STARTUP-2: parse --delay <seconds> from argv.
 
@@ -1059,14 +1080,22 @@ def launch() -> int:
     # STARTUP-2: sleep before doing anything so prewarm (which fires at
     # logon+0s with low I/O priority) has a head start on warming the
     # OS file cache. The app's cold imports of torch/transformers then
-    # hit RAM instead of disk. Skipped when focusing an existing instance
-    # or when delay is 0.
-    if delay_seconds > 0:
+    # hit RAM instead of disk. Skipped when focusing an existing instance,
+    # when delay is 0, or when there is nothing meaningful to warm.
+    if delay_seconds > 0 and _prewarm_would_help():
         log.info(
             "[AUTOSTART] delaying %.1fs before launch to let prewarm warm the cache",
             delay_seconds,
         )
         time.sleep(delay_seconds)
+    elif delay_seconds > 0:
+        # No installed model (or an unreadable config) — prewarm has no
+        # weights to page into the OS cache, so the fixed delay would be
+        # pure startup latency. Log once at INFO so the skip is traceable.
+        log.info(
+            "[AUTOSTART] skipping %.1fs prewarm delay — no installed model to warm",
+            delay_seconds,
+        )
 
     # 1) App already running — wake it via single-instance lock.
     # Check if a VoiceTyper backend is already running via the
@@ -1171,14 +1200,15 @@ def main() -> int:
     Wraps :func:`launch` so EVERY autostart attempt leaves a single
     greppable outcome line in the app log:
 
-        [AUTOSTART] RESULT success exit=0_2.3s
-        [AUTOSTART] RESULT failure exit=1_1.4s
+        [AUTOSTART] RESULT success exit=0 2.3s
+        [AUTOSTART] RESULT failure exit=1 1.4s
 
     plus, on an unhandled exception, ``[AUTOSTART] RESULT failure
     unhandled-exception`` with the traceback. Without this, a pythonw
     launch that crashes mid-way would exit with a traceback written to a
     non-existent console — invisible. The duration suffix follows the
-    canonical ``_<duration>`` performance-marker convention (C-LOG-2).
+    canonical space-separated ``<duration>`` performance-marker
+    convention (C-LOG-2).
     """
     from voice_typer.server.duration import format_duration
 

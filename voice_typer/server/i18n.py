@@ -71,6 +71,12 @@ _INITIAL_LABELS: dict[str, str] = {
     "state.recording_controller.model_failed_retry": "Model failed to load -- press F2 to retry",
     "state.recording_controller.recording": "Recording...",
     "state.recording_controller.recording_failed": "Recording failed",
+    "state.recording_controller.recording_failed_permission": (
+        "Recording failed -- microphone permission denied. Allow mic access in system settings."
+    ),
+    "state.recording_controller.recording_failed_no_device": (
+        "Recording failed -- no microphone found. Connect a microphone and try again."
+    ),
     "state.recording_controller.stop_failed": "Stop failed",
     "state.recording_controller.too_short": "Too short -- ignored",
     "state.recording_controller.transcribing": "Transcribing...",
@@ -86,7 +92,7 @@ _INITIAL_LABELS: dict[str, str] = {
     "state.model_manager.backend_failed": "{backend} model failed to load",
     "state.model_manager.model_failed": "Model failed: {error}",
     "state.model_manager.model_not_downloaded": (
-        "The model is not downloaded yet. Open the Models page to download a model."
+        "No models are available. Open the models page to download a model."
     ),
     "state.model_manager.model_integrity_failed": (
         "{backend} model failed integrity verification. Delete and re-download it from the Models page."
@@ -244,7 +250,7 @@ _INITIAL_LABELS: dict[str, str] = {
     "notify.model_manager.change_deferred": "Model will change to {model} after current recording",
     "notify.model_manager.backend_change_deferred": "Backend will change to {backend} after current recording.",
     "notify.model_manager.model_not_downloaded": (
-        "The model is not downloaded yet.\nOpen the Models page to download a model."
+        "No models are available.\nOpen the models page to download a model."
     ),
     # last_resort_unloaded: fired by get_active()'s last-resort branch
     # when NO ready backend exists and the configured backend is returned
@@ -253,7 +259,7 @@ _INITIAL_LABELS: dict[str, str] = {
     # never auto-downloads models, so the user must go there to install /
     # repair the model.
     "notify.model_manager.last_resort_unloaded": (
-        "The model is not loaded.\nOpen the Models page to download a model."
+        "The model is not loaded.\nOpen the models page to download a model."
     ),
     # tray.py update-check notification () ─────────────────────
     "notify.update_available_body": "{app} {version} is available (you have {current})",

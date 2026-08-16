@@ -30,7 +30,7 @@ class TestDispatchGetConfig:
         assert result["id"] == 1
         data = result["data"]
         assert data["hotkey"] == "<f2>"
-        assert data["model_size"] == "small.en"
+        assert data["model_size"] == "tiny"
 
 
 class TestDispatchSetConfig:
@@ -39,12 +39,12 @@ class TestDispatchSetConfig:
             {
                 "id": 1,
                 "type": "set_config",
-                "data": {"hotkey": "<f3>", "model_size": "medium.en"},
+                "data": {"hotkey": "<f3>", "model_size": "large-v3-turbo"},
             }
         )
         assert result["type"] == "ack"  # may include data field
         assert mock_app.config.hotkey == "<f3>"
-        assert mock_app.config.model_size == "medium.en"
+        assert mock_app.config.model_size == "large-v3-turbo"
         assert mock_app.config._saved is True
 
     def test_empty_data_acks_without_saving(self, server, mock_app):
@@ -475,11 +475,11 @@ class TestDispatchSetConfigAllowlist:
             {
                 "id": 1,
                 "type": "set_config",
-                "data": {"model_size": "tiny.en"},
+                "data": {"model_size": "large-v3-turbo"},
             }
         )
         assert result["type"] == "ack"  # may include data field
-        assert real_config.model_size == "tiny.en"
+        assert real_config.model_size == "large-v3-turbo"
 
     def test_rejects_invalid_asr_backend(self, real_server, real_config):
         original = real_config.asr_backend

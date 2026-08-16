@@ -83,13 +83,13 @@ class TestWhisperBranchConsentGate:
         monkeypatch.setattr("huggingface_hub.snapshot_download", fake_snapshot)
 
         service = _build_service(consent=False)
-        result = service.download_model("tiny.en")
+        result = service.download_model("tiny")
 
         # Consent-gate return shape.
         assert result["success"] is False
         assert result["consent_required"] is True
         assert "consent" in result["error"].lower()
-        assert result["model"] == "tiny.en"
+        assert result["model"] == "tiny"
         # snapshot_download must NOT have been invoked — not even the
         # local_files_only cache probe.
         assert sd_calls == [], f"snapshot_download must not be called when consent=False; got: {sd_calls}"
@@ -98,7 +98,7 @@ class TestWhisperBranchConsentGate:
         consent_events = [e for e in captured_events if e.get("type") == "consent_required"]
         assert consent_events, f"Expected at least one consent_required event; got: {captured_events}"
         assert consent_events[0]["data"]["provider"] == "huggingface"
-        assert consent_events[0]["data"]["model"] == "tiny.en"
+        assert consent_events[0]["data"]["model"] == "tiny"
         # No download_progress events should fire on the blocked path
         # (the consent gate returns before _push_progress is reached).
         progress_events = [e for e in captured_events if e.get("type") == "download_progress"]
@@ -124,11 +124,11 @@ class TestWhisperBranchConsentGate:
         monkeypatch.setattr("huggingface_hub.snapshot_download", fake_snapshot)
 
         service = _build_service(consent=True)
-        result = service.download_model("tiny.en")
+        result = service.download_model("tiny")
 
         # Existing flow preserved.
         assert result["success"] is True
-        assert result["model"] == "tiny.en"
+        assert result["model"] == "tiny"
         # snapshot_download MUST have been invoked at least once (the
         # local_files_only cache probe is the first call).
         assert sd_calls, "snapshot_download must be invoked when consent=True (existing flow preserved)"
@@ -270,7 +270,7 @@ class TestConsentGateDefensive:
         app.tray.notify = MagicMock()
         service = VoiceTyperService(app)
 
-        result = service.download_model("tiny.en")
+        result = service.download_model("tiny")
         assert result["success"] is False
         assert result["consent_required"] is True
         assert sd_calls == []

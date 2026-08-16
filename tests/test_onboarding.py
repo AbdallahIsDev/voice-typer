@@ -145,26 +145,26 @@ class TestOnboardingSelections:
         assert ctrl.HOTKEY_PRESETS[0] == "<caps_lock>"  # first = recommended default
 
     def test_set_model(self, ctrl):
-        ctrl.set_model("tiny.en")
-        assert ctrl.selected_model == "tiny.en"
+        ctrl.set_model("tiny")
+        assert ctrl.selected_model == "tiny"
 
     def test_model_options(self, ctrl):
-        # list now includes multilingual variants (tiny, small,
-        # medium without .en) and Parakeet, in addition to the original
-        # 3 English-only Whisper variants.
-        assert len(ctrl.MODEL_OPTIONS) == 7
+        # Catalog pruned 2026-08-15 to the kept Whisper variants
+        # (tiny default, large-v3, large-v3-turbo) plus Parakeet
+        # (large-v3 restored at the user's request the same day).
+        assert len(ctrl.MODEL_OPTIONS) == 4
 
 
 class TestOnboardingApplySettings:
     def test_apply_settings(self, ctrl, onboarding_dir):
         ctrl.set_microphone("mic-1")
         ctrl.set_hotkey("<f4>")
-        ctrl.set_model("tiny.en")
+        ctrl.set_model("tiny")
 
         class MockConfig:
             microphone = None
             hotkey = "<f2>"
-            model_size = "small.en"
+            model_size = "tiny"
 
             def save(self):
                 pass
@@ -173,7 +173,7 @@ class TestOnboardingApplySettings:
         ctrl.apply_settings(config)
         assert config.microphone == "mic-1"
         assert config.hotkey == "<f4>"
-        assert config.model_size == "tiny.en"
+        assert config.model_size == "tiny"
 
     def test_apply_settings_no_mic(self, ctrl):
         ctrl.set_microphone(None)
@@ -183,7 +183,7 @@ class TestOnboardingApplySettings:
         class MockConfig:
             microphone = "old-mic"
             hotkey = "<f2>"
-            model_size = "small.en"
+            model_size = "tiny"
 
             def save(self):
                 pass
@@ -238,8 +238,8 @@ class TestOnboardingWizard:
 
         # 6) Step 4: select model
         ctrl.next_step()
-        ctrl.set_model("tiny.en")
-        assert ctrl.selected_model == "tiny.en"
+        ctrl.set_model("tiny")
+        assert ctrl.selected_model == "tiny"
 
         # 7) Step 5: apply settings (final step before Done)
         ctrl.next_step()
@@ -253,7 +253,7 @@ class TestOnboardingWizard:
         cfg = Config()
         cfg.microphone = None
         cfg.hotkey = "<f2>"
-        cfg.model_size = "small.en"
+        cfg.model_size = "tiny"
         ctrl.apply_settings(cfg)
         ctrl.mark_complete()
         cfg.onboarding_completed = True
@@ -267,7 +267,7 @@ class TestOnboardingWizard:
         cfg2 = Config.load()
         assert cfg2.microphone == "mic-usb"
         assert cfg2.hotkey == "<f4>"
-        assert cfg2.model_size == "tiny.en"
+        assert cfg2.model_size == "tiny"
         assert cfg2.onboarding_completed is True
 
     def test_skip_flow(self, onboarding_dir):
@@ -292,7 +292,7 @@ class TestOnboardingWizard:
         from voice_typer.server.config import _default_hotkey_for_platform
 
         assert cfg.hotkey == _default_hotkey_for_platform()
-        assert cfg.model_size == "small.en"  # default
+        assert cfg.model_size == "tiny"  # default
 
 
 # 17-H-: service-layer onboarding_apply side effects ────────────
@@ -452,10 +452,12 @@ class TestOnboardingApplySideEffects:
 
         service.onboarding_start()
         service.onboarding_set_hotkey("<f6>")
-        service.onboarding_set_model("tiny.en")  # non-default
+        service.onboarding_set_model("large-v3-turbo")  # non-default
         service.onboarding_apply()
 
-        assert change_model_calls == ["tiny.en"], f"Expected change_model('tiny.en'), got: {change_model_calls}"
+        assert change_model_calls == ["large-v3-turbo"], (
+            f"Expected change_model('large-v3-turbo'), got: {change_model_calls}"
+        )
 
     def test_model_change_skipped_when_model_unchanged(self, app_with_service, captured_events, monkeypatch):
         """When the user keeps the default model, onboarding_apply
@@ -473,7 +475,7 @@ class TestOnboardingApplySideEffects:
         service.onboarding_start()
         service.onboarding_set_hotkey("<f6>")
         # Don't call onboarding_set_model — OnboardingController's
-        # default is "small.en", which matches Config's default.
+        # default is "tiny", which matches Config's default.
         service.onboarding_apply()
 
         assert change_model_calls == [], (
@@ -501,12 +503,12 @@ class TestApplySettingsMarksComplete:
         """``apply_settings`` writes the marker after ``config.save()``."""
         ctrl.set_microphone("mic-1")
         ctrl.set_hotkey("<f4>")
-        ctrl.set_model("tiny.en")
+        ctrl.set_model("tiny")
 
         class MockConfig:
             microphone = None
             hotkey = "<f2>"
-            model_size = "small.en"
+            model_size = "tiny"
 
             def save(self):
                 pass
@@ -524,12 +526,12 @@ class TestApplySettingsMarksComplete:
         another chance to complete setup."""
         ctrl.set_microphone("mic-1")
         ctrl.set_hotkey("<f4>")
-        ctrl.set_model("tiny.en")
+        ctrl.set_model("tiny")
 
         class FlakyConfig:
             microphone = None
             hotkey = "<f2>"
-            model_size = "small.en"
+            model_size = "tiny"
 
             def save(self):
                 raise OSError("disk full")
@@ -600,14 +602,14 @@ class TestMarkCompleteFailurePropagation:
         even if the marker write later fails."""
         ctrl.set_microphone("mic-1")
         ctrl.set_hotkey("<f4>")
-        ctrl.set_model("tiny.en")
+        ctrl.set_model("tiny")
 
         saved_state = {}
 
         class CapturingConfig:
             microphone = None
             hotkey = "<f2>"
-            model_size = "small.en"
+            model_size = "tiny"
             onboarding_completed = False
 
             def save(self):
@@ -641,12 +643,12 @@ class TestMarkCompleteFailurePropagation:
 
         ctrl.set_microphone("mic-1")
         ctrl.set_hotkey("<f4>")
-        ctrl.set_model("tiny.en")
+        ctrl.set_model("tiny")
 
         class MockConfig:
             microphone = None
             hotkey = "<f2>"
-            model_size = "small.en"
+            model_size = "tiny"
             onboarding_completed = False
 
             def save(self):
@@ -697,12 +699,12 @@ class TestMarkCompleteFailurePropagation:
 
         ctrl.set_microphone("mic-usb")
         ctrl.set_hotkey("<f4>")
-        ctrl.set_model("tiny.en")
+        ctrl.set_model("tiny")
 
         cfg = Config()
         cfg.microphone = None
         cfg.hotkey = "<f2>"
-        cfg.model_size = "small.en"
+        cfg.model_size = "tiny"
         cfg.onboarding_completed = False
 
         # apply_settings sets cfg.onboarding_completed=True, saves (real
@@ -748,20 +750,22 @@ class TestModelOptionsIncludeMultilingualAndParakeet:
     ``.en``) and the NVIDIA Parakeet model, so non-English users had
     no in-wizard path to pick a multilingual model."""
 
-    def test_includes_english_only_variants(self, ctrl):
+    def test_english_only_variants_removed(self, ctrl):
+        """The English-only Whisper variants (tiny.en / small.en /
+        medium.en) were removed by the 2026-08-15 catalog prune — they
+        must NOT appear in the wizard picker."""
         names = {opt["name"] for opt in ctrl.MODEL_OPTIONS}
-        assert "tiny.en" in names
-        assert "small.en" in names
-        assert "medium.en" in names
+        for removed in ("tiny.en", "small.en", "medium.en"):
+            assert removed not in names, f"{removed} was removed from the catalog but is still in MODEL_OPTIONS"
 
-    def test_includes_multilingual_whisper_variants(self, ctrl):
-        """``tiny``, ``small``, ``medium`` (without ``.en``)
-        must be present so non-English users can pick a multilingual
-        model from the wizard."""
+    def test_includes_kept_multilingual_whisper_variants(self, ctrl):
+        """``tiny`` (the default), ``large-v3``, and ``large-v3-turbo``
+        must be present so users can pick a multilingual Whisper model
+        from the wizard."""
         names = {opt["name"] for opt in ctrl.MODEL_OPTIONS}
         assert "tiny" in names
-        assert "small" in names
-        assert "medium" in names
+        assert "large-v3" in names
+        assert "large-v3-turbo" in names
 
     def test_includes_parakeet(self, ctrl):
         """NVIDIA Parakeet must be a first-class wizard option."""

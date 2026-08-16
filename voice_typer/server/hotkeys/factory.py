@@ -9,6 +9,7 @@ import sys
 
 from voice_typer.server import hotkeys as _hotkeys_pkg
 from voice_typer.server.platform_utils import is_wayland_session
+from voice_typer.server.tray_hotkey import format_hotkey_label
 
 from .base import HotkeyBackend, log
 from .native_adapter import _NativeBackendAdapter
@@ -79,9 +80,9 @@ def create_hotkey_backend(hotkey_str: str, role: str | None = None) -> HotkeyBac
             # Wrap the native backend so it satisfies the HotkeyBackend
             # interface expected by HotkeyDispatcher.
             log.info(
-                "[HOTKEY] Using native %s backend for %r (role=%r)",
+                "[HOTKEY] Using native %s backend for %s (role=%s)",
                 type(native).__name__,
-                hotkey_str,
+                format_hotkey_label(hotkey_str),
                 role,
             )
             # pass ``role`` through so the adapter can propagate

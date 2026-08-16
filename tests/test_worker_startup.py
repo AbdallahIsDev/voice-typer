@@ -661,7 +661,7 @@ async def test_shutdown_command_emits_ack_and_closes(monkeypatch) -> None:
         "missing stop_event.set() reproduces the shutdown-hang regression"
     )
     # The shutdown timer MUST be started so the [SHUTDOWN] log line
-    # carries a real _<duration> suffix (C-LOG-2).
+    # carries a real <duration> suffix (C-LOG-2).
     assert shutdown_timer.elapsed() >= 0.0, "shutdown_timer.start() must have been called"
 
 

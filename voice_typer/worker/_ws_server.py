@@ -17,7 +17,7 @@ per E3 (no spaghetti entry files). It owns:
 - The SIGTERM handler :func:`_install_sigterm_handler` (POSIX) — also
   sets ``stop_event`` on signal.
 - The :class:`_ShutdownTimer` that measures the wall-clock duration of
-  graceful shutdown for the ``[SHUTDOWN] worker shutdown complete_<duration>``
+  graceful shutdown for the ``[SHUTDOWN] worker shutdown complete <duration>``
   log line per C-LOG-2.
 - Stdout helpers (:func:`_force_line_buffered_stdout`,
   :func:`_emit_worker_started`) and the prewarm phase
@@ -121,7 +121,7 @@ def _run_prewarm_phase() -> float:
     Cache Status card can show "last run + seconds".
 
     Returns the elapsed wall-clock seconds (used for the
-    ``[STARTUP]`` log line's ``_<duration>`` suffix per C-LOG-2;
+    ``[STARTUP]`` log line's space-separated ``<duration>`` suffix per C-LOG-2;
     ``0.0`` when prewarm was skipped).
     """
     from datetime import datetime
@@ -199,8 +199,8 @@ def _emit_worker_started(port: int, protocol: int = PROTOCOL_VERSION) -> None:
 class _ShutdownTimer:
     """Tracks the wall-clock start time of graceful shutdown.
 
-    Used to compute the ``_<duration>`` suffix on the
-    ``[SHUTDOWN] worker shutdown complete_<duration>`` log line per
+    Used to compute the space-separated ``<duration>`` suffix on the
+    ``[SHUTDOWN] worker shutdown complete <duration>`` log line per
     C-LOG-2. The timer is started ONCE — the first call to
     :meth:`start` wins, so concurrent shutdown triggers (SIGTERM +
     shutdown command arriving simultaneously) do not reset the
@@ -519,7 +519,7 @@ async def run_worker_server(  # noqa: ANN001 - websockets type is imported lazil
         port = first_sock.getsockname()[1]
         _emit_worker_started(port, PROTOCOL_VERSION)
         log.info(
-            "[WORKER] listening on %s:%d (prewarm ran in %s)",
+            "[WORKER] listening on %s:%d (prewarm ran in%s)",
             LOOPBACK_HOST,
             port,
             format_duration(prewarm_elapsed),

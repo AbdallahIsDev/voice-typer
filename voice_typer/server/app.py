@@ -389,11 +389,33 @@ class VoiceTyperApp:
         except Exception:
             log.debug("[INIT] excepthook install failed", exc_info=True)
 
-        # Startup banner -- first visible log, before any subsystem init
+        # Startup banner -- first visible log, before any subsystem init.
+        # The model field reports INSTALLED state, not just the config
+        # value: a model_size left over in config after its weights were
+        # deleted must not be advertised as active (the root cause of the
+        # misleading ``model=<stale>`` banner). ``is_active_model_downloaded``
+        # is a TTL-cached single-stat probe; on probe failure we fall back
+        # to the configured value so the banner is never blocked.
+        try:
+            from voice_typer.server.tray_models import is_active_model_downloaded
+
+            _model_installed = is_active_model_downloaded(self.config)
+        except Exception:
+            _model_installed = True
+        from voice_typer.server.model_registry import NO_MODEL_SIZE
+
+        _model_desc = str(self.config.model_size)
+        if _model_desc == NO_MODEL_SIZE:
+            # Genuine "no model selected" — report it honestly instead
+            # of ``model= (not installed)`` (the empty selection has no
+            # name to suffix).
+            _model_desc = "none"
+        elif not _model_installed:
+            _model_desc = f"{_model_desc} (not installed)"
         log.info(
             "%s starting -- model=%s, hotkey=%s, mic=%s, sample_rate=%s",
             APP_NAME,
-            self.config.model_size,
+            _model_desc,
             self.config.hotkey,
             self.config.microphone or "default",
             self.config.sample_rate,
@@ -1367,8 +1389,10 @@ class VoiceTyperApp:
         # registrations) is registered here as a safety net.
         atexit.register(self._atexit_cleanup)
 
-        # Enter pystray event loop -- MUST be on the main thread
-        log.info("[TRAY] Entering tray event loop on main thread")
+        # Enter pystray event loop -- MUST be on the main thread. The
+        # run() entry logs ``[TRAY] Tray event loop starting (main thread)``
+        # itself, so this line would duplicate it (two near-identical
+        # lines ~1ms apart in every session log).
         self.tray.run()
 
     def _do_startup(self) -> None:

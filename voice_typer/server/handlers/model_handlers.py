@@ -146,7 +146,7 @@ class ModelHandlersMixin(HandlerBase):
                   - Render model cards with VRAM, language, and speed badges
                   - Show accurate download sizes (matching the backend's
                     ``_MODEL_SIZE_MB`` table)
-                  - Filter by backend (whisper vs distil-whisper)
+                  - Filter by backend (whisper / qwen / parakeet)
 
                 Response shape::
 

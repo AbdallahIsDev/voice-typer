@@ -22,6 +22,7 @@ from voice_typer.server.ipc.validation import (
     _error_response,
     _validate_dict_payload,
 )
+from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
 
 
 def _redact_service_error(result: dict) -> dict:
@@ -338,7 +339,7 @@ class OnboardingHandlersMixin(HandlerBase):
             validated, error = _validate_dict_payload(
                 data,
                 {
-                    "model": {"type": str, "required": False, "default": "small.en"},
+                    "model": {"type": str, "required": False, "default": DEFAULT_MODEL_SIZE},
                 },
             )
             if error:

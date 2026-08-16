@@ -5,10 +5,116 @@ Extracted verbatim from the original ``service.py`` god class
 """
 
 import logging
+import re
 
 from voice_typer.server.service._base import ServiceMixinBase
 
 log = logging.getLogger(__name__)
+
+
+class VocabularyDuplicateError(Exception):
+    """Raised when a vocabulary save would create a duplicate correction.
+
+    ``save_vocabulary_with_diff`` raises this when the incoming data
+    introduces a wrong phrase (normalized case-insensitively, the same
+    way the dictation matcher keys lookups) that already exists in the
+    current merged vocabulary. The IPC handler translates it into a
+    ``client.duplicate_entry`` error envelope so the renderer can
+    surface the localized "This correction already exists" message
+    instead of a generic save failure.
+
+    ``phrase`` is the normalized (casefolded, whitespace-collapsed)
+    wrong phrase; ``count`` is the number of entries that would share
+    it after the save.
+    """
+
+    def __init__(self, phrase: str, count: int):
+        super().__init__(f"duplicate correction: '{phrase}' ({count} entries)")
+        self.phrase = phrase
+        self.count = count
+
+
+def _normalize_wrong_phrase(phrase: str) -> str:
+    """Normalize a wrong phrase the way the matcher treats it.
+
+    Collapses internal whitespace runs to a single space and strips
+    leading/trailing whitespace, then casefolds. This mirrors the
+    case-insensitive lookup semantics of ``VocabularyManager.apply_to_text``
+    (dict categories strip punctuation + lowercase; phrase categories
+    compile with ``re.IGNORECASE``) so two entries the matcher would
+    treat as the same wrong phrase are caught as duplicates.
+    """
+    return re.sub(r"\s+", " ", phrase.strip()).casefold()
+
+
+def _flatten_category_entries(data: dict, cat: str) -> list[tuple[str, str]]:
+    """Flatten one category's payload into (original, correction) pairs.
+
+    Dict-based categories (misspellings, technical_terms, names,
+    products) are ``{original: correction}``; list-based categories
+    (phrase_corrections, extra_word_patterns) are ``[[wrong, correct], ...]``.
+    Malformed entries are skipped (the same normalization the rest of
+    the vocabulary layer applies).
+    """
+    entries: list[tuple[str, str]] = []
+    raw = (data or {}).get(cat)
+    if cat in ("misspellings", "technical_terms", "names", "products"):
+        if isinstance(raw, dict):
+            for k, v in raw.items():
+                entries.append((k if isinstance(k, str) else str(k), v if isinstance(v, str) else str(v)))
+    elif cat in ("phrase_corrections", "extra_word_patterns") and isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, list | tuple) and len(item) >= 2:
+                wrong = item[0] if isinstance(item[0], str) else str(item[0])
+                good = item[1] if isinstance(item[1], str) else str(item[1])
+                entries.append((wrong, good))
+    return entries
+
+
+def _find_new_duplicate(
+    incoming: dict,
+    baseline: dict,
+) -> tuple[str, int] | None:
+    """Return the first duplicate ``(normalized_phrase, count)`` in *incoming*.
+
+    A phrase is a duplicate when it appears in ≥2 incoming entries AND
+    at least one of those occurrences is NOT already present in the
+    baseline (the current merged vocabulary, bundled + user file).
+
+    Baseline occurrences are matched by exact ``(original, correction)``
+    and consumed one-for-one, so a plain echo of pre-existing duplicate
+    entries (e.g. the renderer sending the full merged list back on an
+    unrelated edit) is allowed — the save only rejects when it would
+    CREATE a new duplicate. Returns ``None`` when the save introduces
+    no new duplicates.
+    """
+    baseline_counts: dict[str, list[tuple[str, str]]] = {}
+    for cat in ("misspellings", "technical_terms", "names", "products", "phrase_corrections", "extra_word_patterns"):
+        for entry in _flatten_category_entries(baseline, cat):
+            baseline_counts.setdefault(_normalize_wrong_phrase(entry[0]), []).append(entry)
+
+    incoming_counts: dict[str, list[tuple[str, str]]] = {}
+    for cat in ("misspellings", "technical_terms", "names", "products", "phrase_corrections", "extra_word_patterns"):
+        for entry in _flatten_category_entries(incoming, cat):
+            incoming_counts.setdefault(_normalize_wrong_phrase(entry[0]), []).append(entry)
+
+    for phrase, occs in incoming_counts.items():
+        if len(occs) < 2:
+            continue
+        # every incoming occurrence must be matched by a baseline
+        # occurrence of the same normalized phrase (one-for-one, exact
+        # original+correction) for the duplicate to be pre-existing.
+        unmatched = len(occs)
+        remaining = list(baseline_counts.get(phrase, []))
+        for occ in occs:
+            for i, base_occ in enumerate(remaining):
+                if base_occ == occ:
+                    remaining.pop(i)
+                    unmatched -= 1
+                    break
+        if unmatched > 0:
+            return phrase, len(occs)
+    return None
 
 
 class VocabularyMixin(ServiceMixinBase):
@@ -112,6 +218,23 @@ class VocabularyMixin(ServiceMixinBase):
             mgr = VocabularyManager()
             bundled = mgr._load_bundled()
 
+        # Backend-level duplicate enforcement — the single source of
+        # truth for "does this pair already exist". The renderer sends
+        # the FULL merged list on every save (quick-add, edit dialog,
+        # import, delete, clear), so the authoritative check must live
+        # in this write path, not in any individual UI component.
+        # ``bundled`` here is the CURRENT merged state (bundled defaults
+        # + user file, pre-save); ``data`` is the incoming payload.
+        # ``_find_new_duplicate`` allows a plain echo of pre-existing
+        # duplicates (e.g. the bundled ``to 2`` pair in legacy data) but
+        # rejects any save that would CREATE a new duplicate wrong
+        # phrase (case-insensitive) — the matcher treats two entries
+        # with the same normalized wrong phrase as the same lookup, so
+        # a second one silently overwrites or double-fires.
+        duplicate = _find_new_duplicate(data or {}, bundled)
+        if duplicate is not None:
+            raise VocabularyDuplicateError(duplicate[0], duplicate[1])
+
         user_only: dict[str, object] = {}
         for cat in CATEGORIES:
             incoming = (data or {}).get(cat)
@@ -192,3 +315,20 @@ class VocabularyMixin(ServiceMixinBase):
                 )
 
         return {"imported_categories": len(user_only)}
+
+    def test_vocabulary_correction(self, text: str) -> dict[str, object]:
+        """Apply the LIVE vocabulary rules to a phrase ("Test corrections" panel).
+
+        Runs the actual ``VocabularyManager.apply_to_text`` pass — the
+        same engine dictation uses — so the preview can never drift
+        from production behavior. Falls back to a throwaway manager
+        when the live ``_vocabulary_manager`` is not yet initialized
+        (cold start / test fixtures).
+        """
+        vm = getattr(self._app, "_vocabulary_manager", None)
+        if vm is None or not hasattr(vm, "apply_to_text"):
+            from voice_typer.server.vocabulary import VocabularyManager
+
+            vm = VocabularyManager(config_dir=self._app.config.config_dir)
+        output = vm.apply_to_text(text)
+        return {"input": text, "output": output, "applied": output != text}

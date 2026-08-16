@@ -76,6 +76,8 @@ class StatusResponse(TypedDict):
     status: str
     xruns_since_start: int
     loaded_via: str
+    config_dir: str
+    offline_pack: dict[str, object]
 
 
 # the four ``DownloadXxx`` TypedDicts + ``DownloadResult`` union

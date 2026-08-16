@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from voice_typer.server._secrets import redact_secret, redact_url
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.model_registry import NO_MODEL_SIZE
 from voice_typer.server.service._base import ServiceMixinBase
 from voice_typer.server.service._download_helpers import DownloadOutcome
 from voice_typer.server.service._helpers import _find_symlink_in_tree
@@ -317,7 +318,7 @@ class ModelMixin(ServiceMixinBase):
 
         # Compute whether ``model_name`` is the configured active model.
         current_backend = getattr(self._app.config, "asr_backend", "whisper")
-        current_model = getattr(self._app.config, "model_size", "tiny.en")
+        current_model = getattr(self._app.config, "model_size", "tiny")
         is_active = (
             (model_name == current_model and current_backend in ("whisper", "distil-whisper"))
             or (model_name == "parakeet" and current_backend == "parakeet")
@@ -406,45 +407,68 @@ class ModelMixin(ServiceMixinBase):
                 updates = {"asr_backend": "whisper", "model_size": replacement.name}
             else:
                 updates = {"asr_backend": replacement.backend, "model_size": replacement.name}
-            try:
-                # canonical config-mutation path (SEC-002 allowlisted keys,
-                # config-mutation lock, side-effects, save_strict).
-                self.apply_config(updates)
+        else:
+            # NO downloaded model exists to fall back to — enter the
+            # genuine "no model selected" state (``model_size=""``)
+            # instead of leaving the config pointing at a phantom
+            # model. ``NO_MODEL_SIZE`` is allowlisted for the IPC
+            # ``set_config`` path and preserved by load-time coercion,
+            # so this writes cleanly and survives restarts. The app
+            # reports "No model selected" (tray tooltip, Models page)
+            # until the user picks a model.
+            updates = {"model_size": NO_MODEL_SIZE}
+        try:
+            # canonical config-mutation path (SEC-002 allowlisted keys,
+            # config-mutation lock, side-effects, save_strict).
+            self.apply_config(updates)
+            if replacement is not None:
                 log.info(
                     "[SERVICE] delete_model: stale active model '%s' cleared — "
                     "switched to '%s'",
                     model_name,
                     replacement.name,
                 )
-            except Exception as exc:
-                # Never turn a successful delete into a failure. The files
-                # are gone; the config-clear is best-effort (the status-cache
-                # invalidation below still un-sticks the phantom state on the
-                # next poll). ``apply_config`` rolls the in-memory config back
-                # to the pre-setattr values on ``save_strict`` failure, so
-                # ``updates`` is reset — the message + ``config_changed``
-                # push below must not claim the switch happened.
-                log.warning(
-                    "[SERVICE] delete_model: cleared stale selection for '%s' but "
-                    "failed to persist fallback config %s: %s",
+            else:
+                log.info(
+                    "[SERVICE] delete_model: stale active model '%s' cleared — "
+                    "no other model is downloaded, entering 'no model selected' state",
                     model_name,
-                    updates,
-                    exc,
                 )
-                updates = {}
-            if updates:
-                try:
-                    from voice_typer.server import event_bus
+        except Exception as exc:
+            # Never turn a successful delete into a failure. The files
+            # are gone; the config-clear is best-effort (the status-cache
+            # invalidation below still un-sticks the phantom state on the
+            # next poll). ``apply_config`` rolls the in-memory config back
+            # to the pre-setattr values on ``save_strict`` failure, so
+            # ``updates`` is reset — the message + ``config_changed``
+            # push below must not claim the switch happened.
+            log.warning(
+                "[SERVICE] delete_model: cleared stale selection for '%s' but "
+                "failed to persist config %s: %s",
+                model_name,
+                updates,
+                exc,
+            )
+            updates = {}
+        if updates:
+            try:
+                from voice_typer.server import event_bus
 
-                    event_bus.publish({"type": "config_changed", "data": updates})
-                except Exception:
-                    log.debug("[SERVICE] delete_model: config_changed push failed", exc_info=True)
+                event_bus.publish({"type": "config_changed", "data": updates})
+            except Exception:
+                log.debug("[SERVICE] delete_model: config_changed push failed", exc_info=True)
         self._invalidate_model_status_cache()
         if updates:
-            message = (
-                f"Model '{model_name}' was not on disk — "
-                f"switched to '{updates['model_size']}'."
-            )
+            if updates.get("model_size") == NO_MODEL_SIZE:
+                message = (
+                    f"Model '{model_name}' was not on disk — no model selected. "
+                    "Pick a model on the Models page."
+                )
+            else:
+                message = (
+                    f"Model '{model_name}' was not on disk — "
+                    f"switched to '{updates['model_size']}'."
+                )
         else:
             message = f"Model '{model_name}' was not on disk — nothing to delete."
         log.info("[SERVICE] delete_model: %s", message)
@@ -823,7 +847,7 @@ class ModelMixin(ServiceMixinBase):
     def download_model(self, model_name: str) -> dict[str, object]:
         """Download a model weight file via HuggingFace.
 
-        Downloads the specified model (tiny.en, small.en, medium.en,
+        Downloads the specified model (tiny, large-v3-turbo,
         large-v3, qwen, parakeet) to the local HF cache. Pushes
         ``download_progress`` events to the renderer so the Models page
         can update its progress bar and status text in real time, and

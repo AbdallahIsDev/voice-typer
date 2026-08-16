@@ -17,7 +17,7 @@ Reordering risks:
 (c) Onboarding auto-heal must run before any ``config.save()`` to avoid
     clobbering user settings — the wizard's ``apply_settings()`` overwrites
     the user's hotkey, model, and microphone selections with onboarding
-    defaults (``<caps_lock>``, ``small.en``, ``None``).
+    defaults (``<caps_lock>``, ``tiny``, ``None``).
 
 The class does NOT import ``app.py`` at module load (would create an
 import cycle: ``app`` imports ``startup_sequence`` indirectly via the
@@ -449,7 +449,7 @@ class StartupSequence:
         # True on every restart, the frontend routes to the onboarding
         # wizard, and the wizard's apply_settings() overwrites the
         # user's custom hotkey, model, and microphone settings with
-        # onboarding defaults (<caps_lock>, small.en, None).
+        # onboarding defaults (<caps_lock>, tiny, None).
         if not app.config.onboarding_completed:
             try:
                 from voice_typer.server.onboarding import OnboardingController
@@ -967,12 +967,12 @@ class StartupSequence:
         # prewarm itself runs as a worker startup phase (§6.2 P-1),
         # not as a separate OS-scheduled binary.
         _triggers = (
-            "boot + event (Task Scheduler XML)"
+            "boot + event via Task Scheduler XML"
             if is_windows()
-            else "logon (Run-key fallback) or OnBootSec/RunAtLoad (POSIX)"
+            else "logon via Run-key fallback, or OnBootSec/RunAtLoad on POSIX"
         )
         log.info(
-            "[STARTUP] Syncing prewarm task (triggers: %s)",
+            "[STARTUP] Syncing prewarm task — triggers: %s",
             _triggers,
         )
 

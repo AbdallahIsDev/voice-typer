@@ -46,17 +46,24 @@ def teardown_hotkeys(controller) -> None:
         log.info("[HOTKEY] Stopping hotkey listeners (%s)", _hk_info)
 
         # the three hotkey backends touch disjoint OS resources
-        # and are safe to stop in parallel.
+        # and are safe to stop in parallel. On the pooled backends
+        # (ESC / repaste delegated onto the dictation backend's native
+        # subprocess) ALL THREE attributes reference the SAME object —
+        # stopping it three times logged ``Stopping Windows backend``
+        # three times per quit and re-ran the OS-handle teardown. Dedupe
+        # by object identity so each backend is stopped exactly once.
         parallel_stops: list[tuple[str, object, float]] = []
-        if app.hotkeys._hotkey_backend:
-            parallel_stops.append(("hotkey_backend.stop", app.hotkeys._hotkey_backend.stop, 5.0))
-        # RELIABILITY-003: also stop ESC cancel and repaste hotkey
-        # backends so their RegisterHotKey / GlobalHotKeys registrations
-        # are released before the next instance tries to claim them.
-        if app.hotkeys._esc_backend:
-            parallel_stops.append(("esc_backend.stop", app.hotkeys._esc_backend.stop, 5.0))
-        if app.hotkeys._repaste_backend:
-            parallel_stops.append(("repaste_backend.stop", app.hotkeys._repaste_backend.stop, 5.0))
+        _seen_backends: set[int] = set()
+        for _attr, _desc in (
+            ("_hotkey_backend", "hotkey_backend.stop"),
+            ("_esc_backend", "esc_backend.stop"),
+            ("_repaste_backend", "repaste_backend.stop"),
+        ):
+            _backend = getattr(app.hotkeys, _attr, None)
+            if _backend is None or id(_backend) in _seen_backends:
+                continue
+            _seen_backends.add(id(_backend))
+            parallel_stops.append((_desc, _backend.stop, 5.0))
         # same pattern as the ``_do_cleanup`` parallel batch.
         # Per-helper failures (BaseException) are already logged at
         # WARNING here (each backend's ``stop()`` does its own
@@ -91,7 +98,8 @@ def teardown_hotkeys(controller) -> None:
             with contextlib.suppress(Exception):
                 setattr(app.hotkeys, _attr, None)
 
-        log.info("[HOTKEY] All hotkey listeners stopped")
+        if not _degraded_hotkeys:
+            log.info("[HOTKEY] All hotkey listeners stopped successfully")
     except Exception:
         log.debug("[CLEANUP] hotkey backend stop failed", exc_info=True)
 

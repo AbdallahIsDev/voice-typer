@@ -60,7 +60,7 @@ def test_next_step_writes_progress_marker(config_dir: Path) -> None:
     assert data["current_step"] == 1
     # Defaults are persisted alongside the step.
     assert data["selected_hotkey"] == "<caps_lock>"
-    assert data["selected_model"] == "small.en"
+    assert data["selected_model"] == "tiny"
     assert "selected_microphone" in data
 
 
@@ -76,7 +76,7 @@ def test_new_controller_resumes_from_progress_marker(config_dir: Path) -> None:
     ctrl1.set_hotkey("<f5>")
     ctrl1.next_step()  # → Consent
     ctrl1.next_step()  # → Model
-    ctrl1.set_model("medium.en")
+    ctrl1.set_model("large-v3-turbo")
 
     # Simulate process restart: create a NEW controller in the same dir.
     ctrl2 = _new_controller(config_dir)
@@ -84,7 +84,7 @@ def test_new_controller_resumes_from_progress_marker(config_dir: Path) -> None:
     assert ctrl2.current_step == 5, f"Expected step 5 (Model), got {ctrl2.current_step}"
     assert ctrl2.selected_microphone == "mic-99"
     assert ctrl2.selected_hotkey == "<f5>"
-    assert ctrl2.selected_model == "medium.en"
+    assert ctrl2.selected_model == "large-v3-turbo"
 
 
 def test_prev_step_persists_progress(config_dir: Path) -> None:
@@ -104,12 +104,12 @@ def test_set_methods_persist_selections(config_dir: Path) -> None:
     ctrl1 = _new_controller(config_dir)
     ctrl1.set_microphone("device-A")
     ctrl1.set_hotkey("<f8>")
-    ctrl1.set_model("tiny.en")
+    ctrl1.set_model("tiny")
 
     ctrl2 = _new_controller(config_dir)
     assert ctrl2.selected_microphone == "device-A"
     assert ctrl2.selected_hotkey == "<f8>"
-    assert ctrl2.selected_model == "tiny.en"
+    assert ctrl2.selected_model == "tiny"
 
 
 def test_apply_settings_clears_progress_marker(config_dir: Path) -> None:
@@ -162,7 +162,7 @@ def test_reset_clears_progress_marker(config_dir: Path) -> None:
     assert ctrl.current_step == 0
     assert ctrl.selected_microphone is None
     assert ctrl.selected_hotkey == "<caps_lock>"
-    assert ctrl.selected_model == "small.en"
+    assert ctrl.selected_model == "tiny"
 
 
 def test_corrupt_progress_marker_is_ignored(config_dir: Path) -> None:
@@ -178,7 +178,7 @@ def test_corrupt_progress_marker_is_ignored(config_dir: Path) -> None:
     assert ctrl.current_step == 0
     assert ctrl.selected_microphone is None
     assert ctrl.selected_hotkey == "<caps_lock>"
-    assert ctrl.selected_model == "small.en"
+    assert ctrl.selected_model == "tiny"
 
 
 def test_v1_progress_marker_is_ignored_after_step_insertion(config_dir: Path) -> None:
@@ -204,7 +204,7 @@ def test_v1_progress_marker_is_ignored_after_step_insertion(config_dir: Path) ->
     ctrl = _new_controller(config_dir)
     # v1 marker ignored → fresh start at Welcome with defaults.
     assert ctrl.current_step == 0
-    assert ctrl.selected_model == "small.en"
+    assert ctrl.selected_model == "tiny"
 
 
 def test_v2_progress_marker_restores_consent_step(config_dir: Path) -> None:

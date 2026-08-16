@@ -124,3 +124,70 @@ class TestSaveVocabulary:
         assert resp["type"] == "error"
         assert "too long" in resp["data"]["message"]
         assert "my_list_category" in resp["data"]["message"]
+
+
+class TestSaveVocabularyDuplicateRejection:
+    """``save_vocabulary`` surfaces the backend duplicate enforcement as
+    a structured ``client.duplicate_entry`` envelope so the renderer can
+    show the localized "This correction already exists" message and NOT
+    append the duplicate row."""
+
+    def test_duplicate_entry_returns_structured_envelope(self, ipc_server, fake_service):
+        from voice_typer.server.service.vocabulary import VocabularyDuplicateError
+
+        fake_service.save_vocabulary_with_diff.side_effect = (
+            VocabularyDuplicateError("to 2", 3)
+        )
+        resp = ipc_server._handle_save_vocabulary(
+            {"phrase_corrections": [["to 2", "to"]]},
+            {},
+        )
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.duplicate_entry"
+        assert "to 2" in resp["data"]["message"]
+        assert resp["data"]["message"].startswith("duplicate correction:")
+        fake_service.save_vocabulary_with_diff.assert_called_once()
+
+    def test_other_service_error_uses_generic_envelope(self, ipc_server, fake_service):
+        fake_service.save_vocabulary_with_diff.side_effect = RuntimeError("boom")
+        resp = ipc_server._handle_save_vocabulary({"entries": {}}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "server.internal_error"
+
+
+class TestTestVocabularyCorrection:
+    """``test_vocabulary_correction`` — the "Test corrections" panel
+    preview that runs the LIVE backend engine."""
+
+    def test_happy_path_returns_ack_with_output(self, ipc_server, fake_service):
+        fake_service.test_vocabulary_correction.return_value = {
+            "input": "teh cat",
+            "output": "the cat",
+            "applied": True,
+        }
+        resp = ipc_server._handle_test_vocabulary_correction({"text": "teh cat"}, {})
+        assert resp["type"] == "ack"
+        assert resp["data"] == {
+            "input": "teh cat",
+            "output": "the cat",
+            "applied": True,
+        }
+        fake_service.test_vocabulary_correction.assert_called_once_with("teh cat")
+
+    def test_missing_text_returns_error(self, ipc_server, fake_service):
+        resp = ipc_server._handle_test_vocabulary_correction({}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.missing_field"
+        fake_service.test_vocabulary_correction.assert_not_called()
+
+    def test_text_too_long_returns_error(self, ipc_server, fake_service):
+        resp = ipc_server._handle_test_vocabulary_correction({"text": "x" * 3000}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.invalid_field"
+        fake_service.test_vocabulary_correction.assert_not_called()
+
+    def test_service_raises_returns_error(self, ipc_server, fake_service):
+        fake_service.test_vocabulary_correction.side_effect = RuntimeError("boom")
+        resp = ipc_server._handle_test_vocabulary_correction({"text": "hi"}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "server.internal_error"

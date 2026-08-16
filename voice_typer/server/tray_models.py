@@ -72,6 +72,45 @@ _QWEN_REPO_ID = "andrewleech/qwen3-asr-1.7b-onnx"
 # page's ``get_model_status`` agree on what "downloaded" means.
 _PARAKEET_REPO_ID = "visuall/parakeet-tdt-0.6b-v3-onnx-fp16"
 
+# Native tray menus are text-only: pystray's ``MenuItem`` has no image
+# support (verified against the installed package 2026-08-15), so the
+# family logos shown on the Models page (``src/assets/models/``) cannot
+# be rendered as real images here. The closest faithful equivalent is a
+# per-family Unicode mark prefixed to each model label — the same glyph
+# for every model in a family. The glyphs approximate each brand mark:
+# ``✱`` ≈ OpenAI's knot (Whisper family), ``◉`` ≈ NVIDIA's eye
+# (Parakeet), ``⊙`` ≈ Qwen's ring. All three render in the system
+# fonts (Segoe UI / SF Pro / default GTK) on Windows, macOS, and Linux.
+_FAMILY_MENU_GLYPHS: dict[str, str] = {
+    "whisper": "✱",
+    "parakeet": "◉",
+    "qwen": "⊙",
+}
+
+# model name → backend, mirroring the ``candidates`` list in
+# ``build_models_submenu_data`` (and ultimately ``MODEL_REGISTRY``).
+# Used to attach the family glyph to each tray label. Keep in sync when
+# the catalog changes so a new model degrades gracefully to a bare name
+# (no glyph) rather than crashing the menu build.
+_MODEL_BACKENDS: dict[str, str] = {
+    "tiny": "whisper",
+    "large-v3": "whisper",
+    "large-v3-turbo": "whisper",
+    "parakeet": "parakeet",
+    "qwen": "qwen",
+}
+
+
+def _menu_label(name: str) -> str:
+    """Return the tray submenu label for a model: family glyph + name.
+
+    Unknown model names (not in ``_MODEL_BACKENDS``) fall back to the
+    bare name so a future catalog addition degrades gracefully instead
+    of raising or rendering an empty prefix.
+    """
+    glyph = _FAMILY_MENU_GLYPHS.get(_MODEL_BACKENDS.get(name, ""), "")
+    return f"{glyph} {name}" if glyph else name
+
 
 def _ensure_hf_env_once() -> None:
     """run ``asr_setup.ensure_hf_env()`` exactly once per process.
@@ -187,12 +226,21 @@ def is_active_model_downloaded(config) -> bool:
 
     config_dir = _config_dir()
     backend = getattr(config, "asr_backend", "whisper") or "whisper"
+    from voice_typer.server.model_registry import NO_MODEL_SIZE
+
+    # "No model selected" (``model_size == ""``) — there is nothing to
+    # probe. Return False (definitively absent) so the load path refuses
+    # with a "No model selected" message instead of trying to load a
+    # model for the empty size, and the tray tooltip shows no model
+    # suffix.
+    if getattr(config, "model_size", None) == NO_MODEL_SIZE:
+        return False
     if backend == "qwen":
         return _check_qwen_model_downloaded(config_dir, getattr(config, "qwen_model_path", None))
     if backend == "parakeet":
         return _check_parakeet_model_downloaded(config_dir, getattr(config, "parakeet_model_path", None))
     if backend in ("whisper", "distil-whisper"):
-        model_size = getattr(config, "model_size", "tiny.en") or "tiny.en"
+        model_size = getattr(config, "model_size", "tiny") or "tiny"
         from voice_typer.server.model_registry import get_model_metadata
 
         meta = get_model_metadata(model_size)
@@ -240,11 +288,20 @@ def build_models_submenu_data(
 
     # prefer the in-memory Config object over a disk read.
     # Falls back to disk read when config_provider is None (e.g. tests).
-    current_model = "tiny.en"
+    current_model = "tiny"
     cfg: dict = {}
     qwen_model_path: Any = None
     if config_provider is not None:
-        current_model = getattr(config_provider, "model_size", "tiny.en") or "tiny.en"
+        # ``model_size == ""`` (NO_MODEL_SIZE) must stay ``""`` — the
+        # ``or "tiny"`` fallback only applies when the attribute is
+        # MISSING (None), so a genuine "no model selected" state does
+        # not get relabeled as tiny (which would mark tiny active in
+        # the tray submenu).
+        current_model = (
+            ""
+            if getattr(config_provider, "model_size", None) == ""
+            else (getattr(config_provider, "model_size", "tiny") or "tiny")
+        )
         current_backend = getattr(config_provider, "asr_backend", "whisper") or "whisper"
         qwen_model_path = getattr(config_provider, "qwen_model_path", None)
     else:
@@ -253,7 +310,7 @@ def build_models_submenu_data(
         try:
             with open(config_path) as f:
                 cfg = json.load(f)
-            current_model = cfg.get("model_size", "tiny.en")
+            current_model = cfg.get("model_size", "tiny")
         except Exception as exc:
             # Previously a bare ``except Exception: pass`` —
             # if ``config.json`` is corrupt, missing, or unreadable,
@@ -273,11 +330,13 @@ def build_models_submenu_data(
         current_backend = cfg.get("asr_backend", "whisper") if cfg else "whisper"
         qwen_model_path = cfg.get("qwen_model_path") if cfg else None
 
-    # Models to check
+    # Models to check — mirrors MODEL_REGISTRY (Whisper family:
+    # tiny / large-v3 / large-v3-turbo; ``large-v3`` restored
+    # 2026-08-15 at the user's request).
     candidates = [
-        ("tiny.en", "whisper", "Systran/faster-whisper-tiny.en"),
-        ("small.en", "whisper", "Systran/faster-whisper-small.en"),
-        ("medium.en", "whisper", "Systran/faster-whisper-medium.en"),
+        ("tiny", "whisper", "Systran/faster-whisper-tiny"),
+        ("large-v3", "whisper", "Systran/faster-whisper-large-v3"),
+        ("large-v3-turbo", "whisper", "Systran/faster-whisper-large-v3-turbo"),
         ("parakeet", "parakeet", "nvidia/parakeet-tdt-0.6b-v3"),
         ("qwen", "qwen", None),
     ]
@@ -303,10 +362,18 @@ def build_models_submenu_data(
         else:
             downloaded = False
 
+        # ``no_model``: with ``model_size == ""`` the user has NO active
+        # model — nothing in the submenu may render as active (the
+        # parakeet/qwen branches below are backend-keyed and would
+        # otherwise light up their row).
+        no_model = current_model == ""
         is_active = (
-            (name == current_model and current_backend == backend)
-            or (name == "parakeet" and current_backend == "parakeet")
-            or (name == "qwen" and current_backend == "qwen")
+            not no_model
+            and (
+                (name == current_model and current_backend == backend)
+                or (name == "parakeet" and current_backend == "parakeet")
+                or (name == "qwen" and current_backend == "qwen")
+            )
         )
 
         results.append((name, downloaded, is_active, lambda n=name: controller_change_model_fn(n)))
@@ -391,9 +458,12 @@ def build_models_menu_items(
         # at startup). The menu is rebuilt on every right-click via
         # invalidate_menu_cache, so the captured bool is fresh at
         # display time.
+        # Label = family glyph + name (see ``_menu_label``) — the
+        # text-only stand-in for the family logo, since pystray's
+        # native menus cannot render images.
         items.append(
             menu_item_class(
-                name,
+                _menu_label(name),
                 wrap_fn(change_fn),
                 checked=(lambda _item, _active=is_active: _active),
             )

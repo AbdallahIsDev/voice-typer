@@ -17,7 +17,7 @@ Status handlers (return their own ``onboarding_*`` type):
 Set-style handlers (validate a single field, return ``{type: ack|error, data: <result>}``):
 - ``_handle_onboarding_set_microphone`` — validates ``mic_id: str`` (required).
 - ``_handle_onboarding_set_hotkey`` — validates ``hotkey: str`` (default ``<caps_lock>``).
-- ``_handle_onboarding_set_model`` — validates ``model: str`` (default ``small.en``).
+- ``_handle_onboarding_set_model`` — validates ``model: str`` (default ``tiny``).
 - ``_handle_onboarding_set_backend`` — validates ``backend: str`` (required — the explicit local-vs-cloud choice).
 
 Decision handlers (return ack or error based on whether the service
@@ -160,19 +160,19 @@ class TestOnboardingSetHotkey:
 
 
 class TestOnboardingSetModel:
-    """``_handle_onboarding_set_model`` — validates ``model`` (default ``small.en``)."""
+    """``_handle_onboarding_set_model`` — validates ``model`` (default ``tiny``)."""
 
     def test_happy_path_with_explicit_model(self, ipc_server, fake_service):
         fake_service.onboarding_set_model.return_value = {"ok": True}
-        resp = ipc_server._handle_onboarding_set_model({"model": "tiny.en"}, {})
+        resp = ipc_server._handle_onboarding_set_model({"model": "tiny"}, {})
         assert resp["type"] == "ack"
-        fake_service.onboarding_set_model.assert_called_once_with("tiny.en")
+        fake_service.onboarding_set_model.assert_called_once_with("tiny")
 
-    def test_missing_model_uses_default_small_en(self, ipc_server, fake_service):
+    def test_missing_model_uses_default_tiny(self, ipc_server, fake_service):
         fake_service.onboarding_set_model.return_value = {"ok": True}
         resp = ipc_server._handle_onboarding_set_model({}, {})
         assert resp["type"] == "ack"
-        fake_service.onboarding_set_model.assert_called_once_with("small.en")
+        fake_service.onboarding_set_model.assert_called_once_with("tiny")
 
     def test_non_string_model_returns_invalid_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_onboarding_set_model({"model": ["small"]}, {})
@@ -413,7 +413,7 @@ class TestXzEh002ServiceErrorRedaction:
     def test_set_model_redacts_error(self, ipc_server, fake_service):
         """``onboarding_set_model`` service error is redacted."""
         fake_service.onboarding_set_model.return_value = {"error": f"model unavailable: {self._SECRET_BEARER}"}
-        resp = ipc_server._handle_onboarding_set_model({"model": "small.en"}, {})
+        resp = ipc_server._handle_onboarding_set_model({"model": "tiny"}, {})
         assert resp["type"] == "error"
         assert self._SECRET_BEARER not in resp["data"]["error"]
 

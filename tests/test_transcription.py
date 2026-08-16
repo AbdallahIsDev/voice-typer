@@ -70,10 +70,10 @@ class TestFallbackChain:
         )
 
     def test_chain_includes_float32_last_resort(self):
-        """The fallback chain must include CPU/float32/tiny.en as the last resort."""
+        """The fallback chain must include CPU/float32/tiny as the last resort."""
         from voice_typer.server.transcription import TranscriptionEngine
 
-        engine = TranscriptionEngine(model_size="small.en", device="auto")
+        engine = TranscriptionEngine(model_size="large-v3-turbo", device="auto")
         # Force all WhisperModel calls to fail
         mod_obj = sys.modules.get("faster_whisper")
         # pyrefly: ignore [missing-attribute]
@@ -90,13 +90,13 @@ class TestFallbackChain:
         args, kwargs = last_call[0], last_call[1] if len(last_call) > 1 else {}
         assert kwargs["device"] == "cpu"
         assert kwargs["compute_type"] == "float32"
-        assert args[0] == "tiny.en"
+        assert args[0] == "tiny"
 
     def test_chain_tries_preferred_device_first(self):
         """First attempt should use the configured device/compute type."""
         from voice_typer.server.transcription import TranscriptionEngine
 
-        engine = TranscriptionEngine(model_size="small.en", device="cuda")
+        engine = TranscriptionEngine(model_size="large-v3-turbo", device="cuda")
         mod_obj = sys.modules.get("faster_whisper")
         # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("fail")
@@ -114,7 +114,7 @@ class TestFallbackChain:
         """After CUDA fails, should try CPU/int8 with same model."""
         from voice_typer.server.transcription import TranscriptionEngine
 
-        engine = TranscriptionEngine(model_size="small.en", device="cuda")
+        engine = TranscriptionEngine(model_size="large-v3-turbo", device="cuda")
         mod_obj = sys.modules.get("faster_whisper")
         # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("fail")
@@ -124,18 +124,18 @@ class TestFallbackChain:
 
         # pyrefly: ignore [missing-attribute]
         calls = mod_obj.WhisperModel.call_args_list
-        # Second call should be CPU/int8/small.en
+        # Second call should be CPU/int8/large-v3-turbo
         second = calls[1]
         args, kwargs = second[0], second[1] if len(second) > 1 else {}
         assert kwargs["device"] == "cpu"
         assert kwargs["compute_type"] == "int8"
-        assert args[0] == "small.en"
+        assert args[0] == "large-v3-turbo"
 
-    def test_chain_tries_tiny_en_before_float32(self):
-        """Should try CPU/int8/tiny.en before CPU/float32/tiny.en."""
+    def test_chain_tries_tiny_before_float32(self):
+        """Should try CPU/int8/tiny before CPU/float32/tiny."""
         from voice_typer.server.transcription import TranscriptionEngine
 
-        engine = TranscriptionEngine(model_size="medium.en", device="cuda")
+        engine = TranscriptionEngine(model_size="large-v3-turbo", device="cuda")
         mod_obj = sys.modules.get("faster_whisper")
         # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("fail")
@@ -145,20 +145,20 @@ class TestFallbackChain:
 
         # pyrefly: ignore [missing-attribute]
         calls = mod_obj.WhisperModel.call_args_list
-        # Should have 4 calls: cuda/float16/medium.en, cpu/int8/medium.en,
-        # cpu/int8/tiny.en, cpu/float32/tiny.en
+        # Should have 4 calls: cuda/float16/large-v3-turbo,
+        # cpu/int8/large-v3-turbo, cpu/int8/tiny, cpu/float32/tiny
         assert len(calls) == 4
         third = calls[2]
         args, kwargs = third[0], third[1] if len(third) > 1 else {}
         assert kwargs["device"] == "cpu"
         assert kwargs["compute_type"] == "int8"
-        assert args[0] == "tiny.en"
+        assert args[0] == "tiny"
 
     def test_succeeds_on_fallback(self):
         """If preferred fails but fallback succeeds, load() should succeed."""
         from voice_typer.server.transcription import TranscriptionEngine
 
-        engine = TranscriptionEngine(model_size="small.en", device="cuda")
+        engine = TranscriptionEngine(model_size="large-v3-turbo", device="cuda")
         mock_model = MagicMock()
         mod_obj = sys.modules.get("faster_whisper")
 
@@ -174,17 +174,17 @@ class TestFallbackChain:
         assert engine.is_loaded
         assert engine._device == "cpu"
         assert engine._compute_type == "int8"
-        assert engine.model_size == "small.en"
+        assert engine.model_size == "large-v3-turbo"
 
     def test_float32_success_updates_device_info(self):
         """If only float32 succeeds, device_info should reflect that."""
         from voice_typer.server.transcription import TranscriptionEngine
 
-        engine = TranscriptionEngine(model_size="small.en", device="cuda")
+        engine = TranscriptionEngine(model_size="large-v3-turbo", device="cuda")
         mock_model = MagicMock()
         mod_obj = sys.modules.get("faster_whisper")
 
-        # All fail except the last (float32/tiny.en)
+        # All fail except the last (float32/tiny)
         # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = [
             RuntimeError("CUDA fail"),
@@ -198,15 +198,15 @@ class TestFallbackChain:
         assert engine.is_loaded
         assert engine._device == "cpu"
         assert engine._compute_type == "float32"
-        assert engine.model_size == "small.en"
-        assert engine._loaded_model_size == "tiny.en"
+        assert engine.model_size == "large-v3-turbo"
+        assert engine._loaded_model_size == "tiny"
         assert "float32" in engine.device_info
 
     def test_loaded_via_reflects_actual_path(self):
         """loaded_via should show which fallback path was used."""
         from voice_typer.server.transcription import TranscriptionEngine
 
-        engine = TranscriptionEngine(model_size="small.en", device="auto")
+        engine = TranscriptionEngine(model_size="large-v3-turbo", device="auto")
         mock_model = MagicMock()
         mod_obj = sys.modules.get("faster_whisper")
 
@@ -215,13 +215,13 @@ class TestFallbackChain:
         engine._compute_type = "int8"
         engine._requested_device = None  # prevent _resolve_device_once() from re-detecting CUDA
 
-        # First try (cpu/int8/small.en) succeeds
+        # First try (cpu/int8/large-v3-turbo) succeeds
         # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.return_value = mock_model
 
         engine.load()
 
-        assert engine.loaded_via == "cpu/int8/small.en"
+        assert engine.loaded_via == "cpu/int8/large-v3-turbo"
 
 
 class TestNvidiaDllPaths:

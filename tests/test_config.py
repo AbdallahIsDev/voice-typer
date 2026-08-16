@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from voice_typer.server.config import _CURRENT_SCHEMA_VERSION, Config, _default_hotkey_for_platform
+from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
 
 # the default hotkey is now platform-aware
 # (Fn on macOS, Caps Lock on Windows/Linux, F2 on unknown platforms).
@@ -21,7 +22,7 @@ class TestConfigDefaults:
         assert c.hotkey == EXPECTED_DEFAULT_HOTKEY
         assert c.sample_rate == 16000
         assert c.microphone is None
-        assert c.model_size == "small.en"
+        assert c.model_size == DEFAULT_MODEL_SIZE
         assert c.language == "en"
         assert c.device == "cuda"
         assert c.beam_size == 1
@@ -119,31 +120,36 @@ class TestConfigLoadSave:
         assert c.streaming_left_overlap_seconds == 3.0
         assert c.streaming_right_guard_seconds == 1.5
 
-    @pytest.mark.parametrize("unsupported_model", ["large-v4", "mega.en", "nonexistent-model"])
-    def test_load_normalizes_legacy_or_unsupported_model_to_small_en(self, tmp_path, tmp_config_dir, unsupported_model):
+    @pytest.mark.parametrize(
+        "unsupported_model",
+        ["large-v4", "mega.en", "nonexistent-model", "small.en", "base.en", "medium.en", "turbo", "distil-large-v3"],
+    )
+    def test_load_normalizes_legacy_or_unsupported_model_to_default(self, tmp_path, tmp_config_dir, unsupported_model):
+        """Models not in the (pruned) allowlist — stale legacy entries
+        AND the variants removed by the 2026-08-15 catalog prune — are
+        reset to the canonical ``DEFAULT_MODEL_SIZE``."""
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"model_size": unsupported_model}))
 
         c = Config.load()
-        assert c.model_size == "small.en"
+        assert c.model_size == DEFAULT_MODEL_SIZE
 
-    @pytest.mark.parametrize("valid_model", ["large-v3", "base.en"])
-    def test_load_keeps_now_supported_models_unchanged(self, tmp_path, tmp_config_dir, valid_model):
-        """Models that were once rejected but are now in MODEL_REGISTRY must
-        round-trip unchanged instead of being normalized to small.en.
-        """
+    @pytest.mark.parametrize("valid_model", ["tiny", "large-v3-turbo"])
+    def test_load_keeps_supported_models_unchanged(self, tmp_path, tmp_config_dir, valid_model):
+        """Models in MODEL_REGISTRY must round-trip unchanged instead of
+        being normalized to the default."""
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"model_size": valid_model}))
 
         c = Config.load()
         assert c.model_size == valid_model
 
-    def test_load_keeps_medium_en_model(self, tmp_path, tmp_config_dir):
+    def test_load_keeps_large_v3_turbo_model(self, tmp_path, tmp_config_dir):
         config_file = tmp_path / "config.json"
-        config_file.write_text(json.dumps({"model_size": "medium.en"}))
+        config_file.write_text(json.dumps({"model_size": "large-v3-turbo"}))
 
         c = Config.load()
-        assert c.model_size == "medium.en"
+        assert c.model_size == "large-v3-turbo"
 
     def test_load_ignores_unknown_keys(self, tmp_path, tmp_config_dir):
         config_file = tmp_path / "config.json"
@@ -191,7 +197,7 @@ class TestConfigLoadSave:
         c1 = Config(
             hotkey="<f7>",
             microphone="Blue Yeti",
-            model_size="medium.en",
+            model_size="large-v3-turbo",
             device="cpu",
             beam_size=3,
             best_of=2,
@@ -495,7 +501,7 @@ class TestConfigSchemaVersion:
         from voice_typer.server.config import Config
 
         config_file = tmp_path / "config.json"
-        config_file.write_text(json.dumps({"hotkey": "<f3>", "model_size": "small.en"}))
+        config_file.write_text(json.dumps({"hotkey": "<f3>", "model_size": "tiny"}))
         loaded = Config.load()
         assert loaded.schema_version == _CURRENT_SCHEMA_VERSION
         assert loaded.hotkey == "<f3>"
@@ -600,7 +606,7 @@ class TestConfigParametrized:
             ("hotkey", "<caps_lock>"),
             ("language", "fr"),
             ("language", "zh"),
-            ("model_size", "medium.en"),
+            ("model_size", "large-v3-turbo"),
             ("device", "cpu"),
             ("device", "cuda"),
         ],

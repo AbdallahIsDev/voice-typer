@@ -519,7 +519,7 @@ class TrayIcon:
         except Exception:
             log.debug("[TRAY] could not unsubscribe parakeet_cpu_fallback", exc_info=True)
 
-        log.info("[SHUTDOWN] Tray icon stopped")
+        log.info("[SHUTDOWN] Tray icon stopped successfully")
 
     # ─── Notifications (delegates to tray_notifications.py) ────────────
 

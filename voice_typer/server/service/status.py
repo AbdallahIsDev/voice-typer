@@ -137,10 +137,21 @@ class StatusMixin(ServiceMixinBase):
                 loaded_via = str(active.loaded_via)
         except Exception:
             log.debug("[SERVICE] could not read loaded_via", exc_info=True)
+        # expose the resolved config directory so the About page's
+        # "Config Directory" diagnostic resolves to a real path. The
+        # renderer previously expected a ``config_dir`` field here that
+        # the backend never sent, so the About page showed a permanent
+        # "Loading…" placeholder.
+        config_dir = ""
+        try:
+            config_dir = str(app.config.config_dir)
+        except Exception:
+            log.debug("[SERVICE] could not read config_dir", exc_info=True)
         return {
             "status": status_str,
             "xruns_since_start": xruns,
             "loaded_via": loaded_via,
+            "config_dir": config_dir,
             "offline_pack": self._get_offline_pack_status(),
         }
 

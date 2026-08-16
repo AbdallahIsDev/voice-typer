@@ -340,3 +340,115 @@ class TestGQ27FastF2ReturnDuringModelReload:
         event = getattr(controller, "_start_complete_event", None)
         assert event is not None
         assert event.wait(timeout=1.0), "Worker should complete quickly on fast path"
+
+
+# ── Recording-start failure reasons (tray tooltip) ─────────────────────
+
+
+class TestRecordingStartFailureReason:
+    """The tray tooltip for a failed recording start must show the
+    backend's reason (permission denied / no input device) instead of
+    the bare "Recording failed" label, without leaking raw exception
+    text for unknown errors."""
+
+    def test_permission_denied_surfaces_reason(self) -> None:
+        """A ``MicrophonePermissionDeniedError`` from ``recorder.start()``
+        surfaces the permission message in the ERROR tooltip."""
+        from voice_typer.server.asr_errors import MicrophonePermissionDeniedError
+        from voice_typer.server.tray_types import AppState
+
+        app = _make_app_with_mock_recorder()
+        controller = _make_controller_with_lifecycle(app)
+        app.recorder.start = MagicMock(
+            side_effect=MicrophonePermissionDeniedError(
+                "PortAudio reports microphone permission denied", state="denied"
+            )
+        )
+
+        with controller._toggle_lock:
+            controller._lifecycle._start_impl(controller)
+
+        app.tray.set_state.assert_called_with(
+            AppState.ERROR,
+            "Recording failed -- microphone permission denied. Allow mic access in system settings.",
+        )
+        # The OS notification must carry the same actionable reason.
+        notify_msg = str(app.tray.notify.call_args.args[1])
+        assert "microphone permission denied" in notify_msg, (
+            f"notification must carry the permission reason, got: {notify_msg!r}"
+        )
+
+    def test_no_input_device_surfaces_reason(self) -> None:
+        """The "No input device could be opened" RuntimeError surfaces
+        the no-microphone message in the ERROR tooltip."""
+        from voice_typer.server.tray_types import AppState
+
+        app = _make_app_with_mock_recorder()
+        controller = _make_controller_with_lifecycle(app)
+        app.recorder.start = MagicMock(
+            side_effect=RuntimeError("No input device could be opened")
+        )
+
+        with controller._toggle_lock:
+            controller._lifecycle._start_impl(controller)
+
+        app.tray.set_state.assert_called_with(
+            AppState.ERROR,
+            "Recording failed -- no microphone found. Connect a microphone and try again.",
+        )
+        # The OS notification must carry the same actionable reason.
+        notify_msg = str(app.tray.notify.call_args.args[1])
+        assert "no microphone found" in notify_msg, (
+            f"notification must carry the no-device reason, got: {notify_msg!r}"
+        )
+
+    def test_unknown_error_keeps_generic_label(self) -> None:
+        """An unknown start failure falls back to the generic
+        "Recording failed" label — raw exception text (which can leak
+        paths / device names) must never reach the tray."""
+        from voice_typer.server.tray_types import AppState
+
+        app = _make_app_with_mock_recorder()
+        controller = _make_controller_with_lifecycle(app)
+        app.recorder.start = MagicMock(
+            side_effect=RuntimeError("PortAudio stream open failed with code -9999 (device busy)")
+        )
+
+        with controller._toggle_lock:
+            controller._lifecycle._start_impl(controller)
+
+        app.tray.set_state.assert_called_with(
+            AppState.ERROR,
+            "Recording failed",
+        )
+        # Unknown failure: the notification keeps the "check the log"
+        # guidance and must NOT contain the raw exception text.
+        notify_msg = str(app.tray.notify.call_args.args[1])
+        assert "check voice-typer.log" in notify_msg.lower(), (
+            f"unknown failure notification should point at the log, got: {notify_msg!r}"
+        )
+        assert "device busy" not in notify_msg
+
+    def test_message_mapper_isolated(self) -> None:
+        """Unit-level check of ``_recording_start_failure_message``
+        across the three categories (permission / no device / generic),
+        including the leaked-path case staying generic."""
+        from voice_typer.server.asr_errors import MicrophonePermissionDeniedError
+        from voice_typer.server.recording_lifecycle import (
+            _recording_start_failure_message,
+        )
+
+        assert _recording_start_failure_message(
+            MicrophonePermissionDeniedError(state="denied")
+        ) == "Recording failed -- microphone permission denied. Allow mic access in system settings."
+        assert _recording_start_failure_message(
+            RuntimeError("No input device could be opened")
+        ) == "Recording failed -- no microphone found. Connect a microphone and try again."
+        # A message that merely CONTAINS the marker maps to no-device.
+        assert _recording_start_failure_message(
+            RuntimeError("No input device could be opened (all candidates failed)")
+        ) == "Recording failed -- no microphone found. Connect a microphone and try again."
+        # Raw/leaky text must stay generic.
+        assert _recording_start_failure_message(
+            RuntimeError("C:\\Users\\joe\\AppData: open failed")
+        ) == "Recording failed"

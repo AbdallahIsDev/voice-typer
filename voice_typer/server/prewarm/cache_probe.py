@@ -101,10 +101,10 @@ _CACHE_RATIO_PAGE_BYTES = 4096
 _CACHE_RATIO_HIT_THRESHOLD_US = 50.0
 
 # STARTUP-4: Whisper model sizes that are valid fallback targets.
-# AsrBackendRegistry.load_with_fallback() falls back to whisper/tiny.en
-# when the active backend fails to load, so we always warm tiny.en as
+# AsrBackendRegistry.load_with_fallback() falls back to whisper/tiny
+# when the active backend fails to load, so we always warm tiny as
 # the declared fallback (in addition to the active backend's model).
-_WHISPER_FALLBACK_MODEL_SIZE = "tiny.en"
+_WHISPER_FALLBACK_MODEL_SIZE = "tiny"
 
 
 def _iter_warmable_files(root: Path) -> Iterator[Path]:
@@ -246,8 +246,9 @@ def _warm_package_files(pkg_name: str) -> int:
     # Defensive: file warmup must never have imported the package.
     assert pkg_name not in sys.modules, f"{pkg_name} was imported during file warmup — must stay unimported"
     # C-LOG-2: lifecycle-completion log line carries the canonical
-    # ``_<duration>`` suffix from ``format_duration()`` (not an ad-hoc
-    # ``%.1fs``) so the perf marker is greppable project-wide.
+    # space-separated ``<duration>`` suffix from ``format_duration()``
+    # (not an ad-hoc ``%.1fs``) so the perf marker is greppable
+    # project-wide.
     log.info(
         "[PREWARM] file-warmed %s: %.0f MB%s",
         pkg_name,
@@ -352,8 +353,9 @@ def _warm_imports() -> None:
             warmed.append(pkg)
     elapsed = time.perf_counter() - t0
     # C-LOG-2: lifecycle-completion log line carries the canonical
-    # ``_<duration>`` suffix from ``format_duration()`` (not an ad-hoc
-    # ``%.2fs``) so the perf marker is greppable project-wide.
+    # space-separated ``<duration>`` suffix from ``format_duration()``
+    # (not an ad-hoc ``%.2fs``) so the perf marker is greppable
+    # project-wide.
     log.info(
         "[PREWARM] worker warm-imports complete: %d packages (%s)%s",
         len(warmed),
@@ -576,7 +578,7 @@ def _active_model_cache_dirs() -> list[Path]:
         Walks the HF cache only for the model directories that the app would
         actually use at runtime:
           - The active backend's model (parakeet / qwen / whisper-<model_size>)
-          - The Whisper fallback (tiny.en) that AsrBackendRegistry falls
+          - The Whisper fallback (tiny) that AsrBackendRegistry falls
             back to when the active backend fails to load.
 
         Previously this walked ALL models--* dirs in the cache, warming ~2.1 GB
@@ -600,7 +602,7 @@ def _active_model_cache_dirs() -> list[Path]:
             return dirs
 
         active_backend = getattr(cfg, "asr_backend", "whisper")
-        active_model_size = getattr(cfg, "model_size", "small.en")
+        active_model_size = getattr(cfg, "model_size", "tiny")
 
         # Build the set of HF repo IDs whose cache dirs we want to warm.
         target_repo_ids: set[str] = set()
@@ -634,9 +636,9 @@ def _active_model_cache_dirs() -> list[Path]:
             if active_model_size and active_model_size not in ("parakeet", "qwen"):
                 target_repo_ids.add(f"Systran/faster-whisper-{active_model_size}")
 
-        # Always include the declared Whisper fallback (tiny.en) so the
+        # Always include the declared Whisper fallback (tiny) so the
         # AsrBackendRegistry's fallback path is warm too — UNLESS the
-        # active backend is whisper with model_size=tiny.en (already covered).
+        # active backend is whisper with model_size=tiny (already covered).
         if not (active_backend == "whisper" and active_model_size == _WHISPER_FALLBACK_MODEL_SIZE):
             target_repo_ids.add(f"Systran/faster-whisper-{_WHISPER_FALLBACK_MODEL_SIZE}")
 

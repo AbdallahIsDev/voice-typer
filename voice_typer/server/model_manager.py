@@ -42,6 +42,7 @@ from voice_typer.server import i18n
 from voice_typer.server.asr_errors import ModelIntegrityError, ModelNotDownloadedError
 from voice_typer.server.asr_registry import AsrBackendRegistry
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.model_registry import NO_MODEL_SIZE
 from voice_typer.server.tray_types import AppState
 
 log = logging.getLogger(__name__)
@@ -792,20 +793,38 @@ class ModelManager:
             # unknown model sizes return True from the probe (nothing to
             # gate); the probe is TTL-cached and costs one stat.
             if not self._model_downloaded_precheck():
-                log.warning(
-                    "[MODEL] %s model not downloaded — refusing load before heavy import (model=%s)",
-                    backend_name,
-                    model_size,
-                )
-                self._notify_model_load_refused(
-                    ModelNotDownloadedError(
-                        f"The configured {backend_name} model is not downloaded. "
-                        "Open the Models page to download a model.",
-                        model_size=model_size,
+                if model_size == NO_MODEL_SIZE:
+                    # Genuine "no model selected" state — nothing to
+                    # load, and no phantom model to claim is missing.
+                    log.warning(
+                        "[MODEL] no model selected — refusing load before heavy "
+                        "import; open the Models page to pick a model",
+                    )
+                    self._notify_model_load_refused(
+                        ModelNotDownloadedError(
+                            "No model selected. Open the Models page to pick a model.",
+                            model_size=NO_MODEL_SIZE,
+                            backend=backend_name,
+                        ),
                         backend=backend_name,
-                    ),
-                    backend=backend_name,
-                )
+                    )
+                else:
+                    log.warning(
+                        "[MODEL] %s model not downloaded (model=%s) — refusing load "
+                        "before heavy import; open the Models page to download it "
+                        "or pick another model",
+                        backend_name,
+                        model_size,
+                    )
+                    self._notify_model_load_refused(
+                        ModelNotDownloadedError(
+                            f"The configured {backend_name} model is not downloaded. "
+                            "Open the Models page to download a model.",
+                            model_size=model_size,
+                            backend=backend_name,
+                        ),
+                        backend=backend_name,
+                    )
                 self._pending_dictation = False
                 return
             self._ensure_engine(backend_name)
@@ -972,14 +991,16 @@ class ModelManager:
             )
 
     def fallback_to_whisper(self, notify_on_failure: bool = False) -> None:
-        """Fallback to Whisper tiny.en after Parakeet/Qwen backend failed.
+        """Fallback to Whisper tiny after Parakeet/Qwen backend failed.
 
         008: Uses the registry to reconfigure and reload.
-        Switches config to whisper/tiny.en, ensures the whisper backend
-        is registered, and delegates loading to
-        AsrBackendRegistry.load_with_fallback().
+        Switches config to whisper/tiny (the smallest Whisper model —
+        deliberately a LITERAL, not ``DEFAULT_MODEL_SIZE``: the
+        fallback must stay small/fast even if the config default
+        changes), ensures the whisper backend is registered, and
+        delegates loading to AsrBackendRegistry.load_with_fallback().
         """
-        self._app.config.model_size = "tiny.en"
+        self._app.config.model_size = "tiny"
         self._app.config.asr_backend = "whisper"
         #  persist the fallback so the next boot
         # doesn't re-try the failed backend and repeat the failure
@@ -1001,7 +1022,7 @@ class ModelManager:
             self._registry.create(
                 "whisper",
                 whisper_kwargs=dict(
-                    model_size="tiny.en",
+                    model_size="tiny",
                     device=self._app.config.device,
                     language=self._app.config.language,
                     beam_size=self._app.config.beam_size,
@@ -1012,8 +1033,8 @@ class ModelManager:
                 ),
             )
         else:
-            existing.model_size = "tiny.en"
-            existing._configured_model_size = "tiny.en"
+            existing.model_size = "tiny"
+            existing._configured_model_size = "tiny"
             # also backfill the config reference on the
             # existing engine in case it was constructed without one
             # (e.g. by an older code path or a test).  No-op if the
@@ -1027,7 +1048,7 @@ class ModelManager:
         try:
             success = self._registry.load_with_fallback(progress_callback=on_progress)
         except (ModelNotDownloadedError, ModelIntegrityError) as exc:
-            # Whisper tiny.en isn't downloaded either — surface the
+            # Whisper tiny isn't downloaded either — surface the
             # actionable message instead of crashing the hotkey thread.
             self._notify_model_load_refused(exc, backend="whisper")
             return
@@ -1271,8 +1292,16 @@ class ModelManager:
             # _config_mutation_lock released here. _model_change_lock
             # still held — concurrent IPC set_config calls can proceed.
             # Phase 2: construct + load the new engine OUTSIDE the
-            # config lock (see above).
-            failure_reason = self._change_model_load_phase(new_backend, model_size)
+            # config lock (see above). ``NO_MODEL_SIZE`` ("") means the
+            # user has no active model — the unload above is the whole
+            # change; do NOT construct/load an engine for the empty
+            # size (there is no repo for it). The renderer sees
+            # ``asr_backend_ready`` with an empty model and shows
+            # "No model selected".
+            if model_size == NO_MODEL_SIZE:
+                failure_reason = None
+            else:
+                failure_reason = self._change_model_load_phase(new_backend, model_size)
         # Publish asr_backend_ready ONLY on success. On failure, publish
         # asr_backend_load_failed so the renderer can show an error
         # instead of silently dismissing the loading spinner. Published

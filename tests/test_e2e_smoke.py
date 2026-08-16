@@ -51,15 +51,15 @@ class TestEndToEndSmoke:
     # logon delay to pin.
 
     def test_startup4_prewarm_filters_to_active_model(self, temp_config, monkeypatch):
-        """STARTUP-4: prewarm only warms active model + tiny.en fallback."""
+        """STARTUP-4: prewarm only warms active model + tiny fallback."""
         from voice_typer.server import prewarm
 
         # Set up HF cache with multiple model dirs
         hf_cache = temp_config / "huggingface" / "hub"
         hf_cache.mkdir(parents=True)
         (hf_cache / "models--nvidia--parakeet-tdt-0.6b-v3" / "snapshots" / "abc").mkdir(parents=True)
-        (hf_cache / "models--Systran--faster-whisper-tiny.en" / "snapshots" / "def").mkdir(parents=True)
-        # Inactive Whisper variants
+        (hf_cache / "models--Systran--faster-whisper-tiny" / "snapshots" / "def").mkdir(parents=True)
+        # Inactive Whisper variants (removed from the catalog)
         (hf_cache / "models--Systran--faster-whisper-small.en" / "snapshots" / "ghi").mkdir(parents=True)
         (hf_cache / "models--Systran--faster-whisper-medium.en" / "snapshots" / "jkl").mkdir(parents=True)
         fake_cfg = MagicMock(asr_backend="parakeet", model_size="small.en")
@@ -70,7 +70,7 @@ class TestEndToEndSmoke:
         dirs = prewarm._active_model_cache_dirs()
         names = [d.name for d in dirs]
         assert "models--nvidia--parakeet-tdt-0.6b-v3" in names
-        assert "models--Systran--faster-whisper-tiny.en" in names
+        assert "models--Systran--faster-whisper-tiny" in names
         assert "models--Systran--faster-whisper-small.en" not in names
         assert "models--Systran--faster-whisper-medium.en" not in names
 

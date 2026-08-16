@@ -47,30 +47,17 @@ log = logging.getLogger(__name__)
 
 # Approximate model sizes (MB) for disk-space pre-check.
 # These are the uncompressed sizes of the faster-whisper models.
+# Matches MODEL_REGISTRY (Whisper family: tiny / large-v3 /
+# large-v3-turbo) — see ``voice_typer/server/model_registry.py`` for
+# the canonical catalog. ``large-v3`` was restored 2026-08-15 at the
+# user's request.
 _MODEL_SIZE_MB = {
-    "tiny.en": 75,
     "tiny": 75,
-    "base.en": 150,
-    "base": 150,
-    "small.en": 500,
-    "small": 500,
-    "medium.en": 1500,
-    "medium": 1500,
-    "large-v1": 3000,
-    "large-v2": 3000,
+    # ``large-v3`` — highest-accuracy multilingual Whisper (~3 GB).
     "large-v3": 3000,
-    "large": 3000,
-    # added turbo + distilled variants.
-    # ``large-v3-turbo`` (a.k.a. "turbo") is the fast multilingual model
-    # released by OpenAI in 2024 — near-large-v3 accuracy at ~8x speed.
-    # ``distil-large-v3`` and ``distil-medium.en`` are distilled variants
-    # from the Distil-Whisper project: smaller, faster, slightly lower
-    # accuracy.  See ``voice_typer/server/model_registry.py`` for full
-    # metadata (VRAM, supported languages, repo IDs, speed ratings).
+    # ``large-v3-turbo`` is the fast multilingual model released by
+    # OpenAI in 2024 — near-large-v3 accuracy at ~8x speed.
     "large-v3-turbo": 809,
-    "turbo": 809,  # alias for large-v3-turbo
-    "distil-large-v3": 1500,
-    "distil-medium.en": 780,
     # Parakeet TDT 0.6b v3 — ONNX fp16 export (visuall repo, 2026-08-15)
     # is ~1.28 GB uncompressed (the engine is ONNX-only post-migration;
     # the old torch/safetensors 2.5 GB estimate is obsolete). Pre-fix the
@@ -319,7 +306,7 @@ def cleanup_hf_cache_dir(repo_id: str, log_prefix: str = "") -> None:
         ----------
         repo_id : str
             HuggingFace repository identifier (e.g.
-            ``"Systran/faster-whisper-small.en"`` or
+            ``"Systran/faster-whisper-tiny"`` or
             ``"nvidia/parakeet-tdt-0.6b-v3"``).
         log_prefix : str
             Prefix tag for log messages so each calling module's logs are
@@ -446,7 +433,7 @@ def _require_huggingface_consent(
         engine is constructed without a Config.
     model_identifier : str
         Human-readable label for the model being downloaded
-        (e.g. ``"small.en"`` for Whisper, ``"nvidia/parakeet-tdt-0.6b-v3"``
+        (e.g. ``"tiny"`` for Whisper, ``"nvidia/parakeet-tdt-0.6b-v3"``
         for Parakeet). Used in the log warning, the progress message,
         AND the raised exception message so the user / operator can
         identify which download was blocked.

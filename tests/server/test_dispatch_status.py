@@ -27,6 +27,9 @@ class TestDispatchGetStatus:
         assert result["type"] == "status"
         assert result["data"]["status"] == "recording"
         assert "xruns_since_start" in result["data"]
+        # the About page's "Config Directory" diagnostic reads this —
+        # the key must always be present (may be "" if unavailable).
+        assert "config_dir" in result["data"]
 
     def test_idle_state(self, server):
         result = server._dispatch({"id": 2, "type": "get_status"})
@@ -97,7 +100,7 @@ class TestGetDefaultsIpc:
         from voice_typer.server.config import _default_hotkey_for_platform
 
         assert data["hotkey"] == _default_hotkey_for_platform()
-        assert data["model_size"] == "small.en"
+        assert data["model_size"] == "tiny"
         assert data["language"] == "en"
         assert data["autostart"] is True
         assert data["paste_on_stop"] is True

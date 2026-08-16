@@ -109,9 +109,9 @@ class TestWhisperDownloadWithProgressEvents:
             lambda **kw: fake_engine,
         )
 
-        result = service.download_model("tiny.en")
+        result = service.download_model("tiny")
         assert result["success"] is True
-        assert result["model"] == "tiny.en"
+        assert result["model"] == "tiny"
 
         # Verify progress events were pushed
         progress_events = [e for e in captured_events if e.get("type") == "download_progress"]
@@ -124,7 +124,7 @@ class TestWhisperDownloadWithProgressEvents:
         # Tray notification should fire on success
         assert service._app.tray.notify.called
         notify_args = service._app.tray.notify.call_args
-        assert "tiny.en" in notify_args[0][1]
+        assert "tiny" in notify_args[0][1]
 
     def test_whisper_download_failure_pushes_error_progress_and_notifies(
         self,
@@ -152,7 +152,7 @@ class TestWhisperDownloadWithProgressEvents:
         # the timing of the backoff.
         monkeypatch.setattr("time.sleep", lambda *a, **kw: None)
 
-        result = service.download_model("small.en")
+        result = service.download_model("tiny")
         assert result["success"] is False
         assert "network error" in result["error"]
 

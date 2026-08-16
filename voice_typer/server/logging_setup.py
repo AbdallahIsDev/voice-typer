@@ -75,11 +75,22 @@ def _setup_logging():
         "true",
         "yes",
     )
-    # read the voice_typer logger level (which setup_logging
-    # actually configures) instead of the true root logger level (which is
-    # always WARNING=30 and never modified by setup_logging). Pre-fix, the
-    # banner always reported level=WARNING regardless of debug/quiet flags.
-    _root_level = logging.getLogger("voice_typer").level
+    # Report the level that actually gates what lands in the log file —
+    # the rotating file handler's level — not the ``voice_typer`` logger
+    # level, which ``setup_logging`` pins at DEBUG unconditionally (the
+    # handler is the real gate; the logger stays at DEBUG so child
+    # loggers can emit DEBUG records when ``VOICE_TYPER_DEBUG=1`` is
+    # set). Pre-fix the banner read the logger level, so every default
+    # run printed ``level=DEBUG, debug=False`` — accurate internals but
+    # contradictory-looking, and it implied DEBUG records were being
+    # written when the file handler was actually filtering them to INFO.
+    # The file handler is added to the ``voice_typer`` logger first
+    # (log/setup_logging), so the first handler with a level is it.
+    _root_level = logging.WARNING
+    for _handler in logging.getLogger("voice_typer").handlers:
+        if _handler.level != logging.NOTSET:
+            _root_level = _handler.level
+            break
     # in quiet mode, the voice_typer logger is at WARNING. The banner
     # is logged at INFO, which is BELOW WARNING — the logger-level filter
     # would drop it before any handler is consulted. Log at WARNING when

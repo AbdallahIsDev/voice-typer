@@ -323,12 +323,12 @@ class RegistryCore:
             whisper = self._backends.get("whisper")
         if whisper is None:
             # Cold boot with a non-whisper primary — construct whisper
-            # with tiny.en so the fallback has something to load.
-            log.info("[ASR_REGISTRY] whisper backend not registered — constructing with tiny.en for fallback")
+            # with tiny so the fallback has something to load.
+            log.info("[ASR_REGISTRY] whisper backend not registered — constructing with tiny for fallback")
             whisper = self.create(
                 "whisper",
                 whisper_kwargs=dict(
-                    model_size="tiny.en",
+                    model_size="tiny",
                     device=self._config.device,
                     language=self._config.language,
                     beam_size=self._config.beam_size,

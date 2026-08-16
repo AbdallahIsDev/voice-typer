@@ -34,7 +34,7 @@ Example::
 
     validated, error = _validate_dict_payload(data, {
         "hotkey": {"type": str, "required": True},
-        "model": {"type": str, "required": False, "default": "small.en"},
+        "model": {"type": str, "required": False, "default": "tiny"},
     })
     if error:
         return error
@@ -105,6 +105,14 @@ class ErrorCodes:
     MISSING_FIELD = "client.missing_field"
     INVALID_PAYLOAD = "client.invalid_payload"
     PAYLOAD_TOO_LARGE = "client.payload_too_large"
+    # ``duplicate_entry`` is emitted by ``save_vocabulary`` when the
+    # incoming data would create a duplicate vocabulary correction
+    # (same wrong phrase, case-insensitive) that does not already
+    # exist in the current state. Client-originated: the user can fix
+    # the entry (or the imported file) and retry. The renderer
+    # surfaces the localized "This correction already exists" message
+    # instead of a generic save failure.
+    DUPLICATE_ENTRY = "client.duplicate_entry"
     RATE_LIMITED = "client.rate_limited"
     PATH_NOT_ALLOWED = "client.path_not_allowed"
     NOT_FOUND = "client.not_found"

@@ -143,6 +143,7 @@ from voice_typer.server.config_validators import (  # noqa: F401 — backward-co
     _validate_hotkey,
     cross_platform_hotkey_warnings,
 )
+from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
 
 # ``is_macos`` is re-exported (not used directly in this module) so
 # ``config_internals.paths._is_macos()`` can look it up via
@@ -740,7 +741,9 @@ class Config:
     microphone: str | None = None  # None = system default
 
     # Transcription
-    model_size: str = "small.en"
+    # Default comes from the canonical ``DEFAULT_MODEL_SIZE`` constant
+    # in ``model_registry.py`` — change the default in ONE place there.
+    model_size: str = DEFAULT_MODEL_SIZE
     language: str = "en"
     device: str = "cuda"  # cuda, cpu
     beam_size: int = 1  # 1 = fastest greedy decoding; higher values trade speed for accuracy

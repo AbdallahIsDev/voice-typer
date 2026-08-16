@@ -107,29 +107,29 @@ class TestModelStatusCache:
         """
         from voice_typer.server.service import VoiceTyperService
 
-        # Pre-create the HF cache directory with a "tiny.en" model
-        # (repo_id = Systran/faster-whisper-tiny.en → cache subdir
-        # models--Systran--faster-whisper-tiny.en).
+        # Pre-create the HF cache directory with a "tiny" model
+        # (repo_id = Systran/faster-whisper-tiny → cache subdir
+        # models--Systran--faster-whisper-tiny).
         cache_dir = tmp_config_dir / "huggingface" / "hub"
         cache_dir.mkdir(parents=True, exist_ok=True)
-        repo_dir = cache_dir / "models--Systran--faster-whisper-tiny.en"
+        repo_dir = cache_dir / "models--Systran--faster-whisper-tiny"
         repo_dir.mkdir(parents=True, exist_ok=True)
 
-        # Active model is set to small.en (NOT tiny.en) so delete_model
+        # Active model is set to large-v3-turbo (NOT tiny) so delete_model
         # doesn't refuse on the "cannot delete active model" guard.
         app = MagicMock()
         app.config.qwen_model_path = None
         app.config.parakeet_model_path = None
         app.config.asr_backend = "whisper"
-        app.config.model_size = "small.en"
+        app.config.model_size = "large-v3-turbo"
 
         service = VoiceTyperService(app)
 
-        # First call: populates the cache.  tiny.en should be reported
+        # First call: populates the cache.  tiny should be reported
         # as downloaded because we created the cache subdir above.
         first_status = service.get_model_status()
-        assert first_status["tiny.en"]["downloaded"] is True, (
-            "Pre-condition: tiny.en should be downloaded before delete"
+        assert first_status["tiny"]["downloaded"] is True, (
+            "Pre-condition: tiny should be downloaded before delete"
         )
 
         # Now wrap os.path.isdir with a counting proxy so we can
@@ -144,7 +144,7 @@ class TestModelStatusCache:
         monkeypatch.setattr("os.path.isdir", _counting_isdir)
 
         # Delete the model — must invalidate the cache.
-        result = service.delete_model("tiny.en")
+        result = service.delete_model("tiny")
         assert result["success"] is True, f"delete_model should succeed, got: {result}"
         # Sanity: the on-disk directory was actually removed.
         assert not repo_dir.exists(), "shutil.rmtree should have removed the dir"
@@ -158,8 +158,8 @@ class TestModelStatusCache:
             f"(expected >0 os.path.isdir calls, got {isdir_calls['n']})"
         )
         # And the new status must reflect the deletion.
-        assert second_status["tiny.en"]["downloaded"] is False, (
-            "After delete_model, get_model_status should report tiny.en as not downloaded (stale cache would say True)"
+        assert second_status["tiny"]["downloaded"] is False, (
+            "After delete_model, get_model_status should report tiny as not downloaded (stale cache would say True)"
         )
 
     def test_cache_expires_after_ttl(self, tmp_config_dir, monkeypatch):

@@ -55,6 +55,7 @@ from voice_typer.server.asr_utils import (  # noqa: F401
 )
 from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
 from voice_typer.server.i18n import DEFAULT_LOCALE
+from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
 
 np = lazy_module("numpy")
 
@@ -131,7 +132,8 @@ class TranscriptionEngine:
 
     def __init__(
         self,
-        model_size: str = "small.en",
+        # Canonical default — see ``model_registry.DEFAULT_MODEL_SIZE``.
+        model_size: str = DEFAULT_MODEL_SIZE,
         device: str = "auto",
         language: str = DEFAULT_LOCALE,
         # Speed-biased default of 1 — ~2x faster than beam_size=3-5 at
@@ -332,8 +334,8 @@ class TranscriptionEngine:
         Fallback chain:
           1. Configured device (e.g. CUDA/float16)
           2. CPU / int8 with original model size
-          3. CPU / int8 with tiny.en
-          4. CPU / float32 with tiny.en (last resort — avoids MKL int8 path)
+          3. CPU / int8 with tiny
+          4. CPU / float32 with tiny (last resort — avoids MKL int8 path)
         Fallback entries whose model is not cached locally are skipped
         (never auto-downloaded).
 
@@ -506,9 +508,9 @@ class TranscriptionEngine:
         chain.append((self._device, self._compute_type, self.model_size))
         if self._device != "cpu" or self._compute_type != "int8":
             chain.append(("cpu", "int8", self.model_size))
-        if self.model_size != "tiny.en":
-            chain.append(("cpu", "int8", "tiny.en"))
-        chain.append(("cpu", "float32", "tiny.en"))
+        if self.model_size != "tiny":
+            chain.append(("cpu", "int8", "tiny"))
+        chain.append(("cpu", "float32", "tiny"))
         return chain
 
     def _reload_under_lock(self):

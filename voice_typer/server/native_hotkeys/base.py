@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from voice_typer.server import native_hotkeys as _native_hotkeys_pkg
+from voice_typer.server.tray_hotkey import format_hotkey_label
 
 from .binary_path import get_native_binary_path
 from .modifiers import _canonical_modifier, _canonical_modifier_name_for_token
@@ -445,10 +446,10 @@ class SubprocessHotkeyBackend(ABC):
             )
 
         log.info(
-            "[NATIVE-HOTKEY] Starting %s backend (binary=%s, hotkey=%r)",
+            "[NATIVE-HOTKEY] Starting %s backend (binary=%s, hotkey=%s)",
             self.platform_name,
             self._binary_path,
-            self.hotkey_str,
+            format_hotkey_label(self.hotkey_str),
         )
 
         self._callback = callback

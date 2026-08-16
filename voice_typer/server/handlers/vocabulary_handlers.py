@@ -7,7 +7,8 @@ access ``self.app`` / ``self.service`` as before.
 
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
+from voice_typer.server.ipc.validation import ErrorCodes, _error_response, _validate_dict_payload
+from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 
 
 class VocabularyHandlersMixin(HandlerBase):
@@ -138,7 +139,58 @@ class VocabularyHandlersMixin(HandlerBase):
             result = self.service.save_vocabulary_with_diff(data)
             resp["type"] = "ack"
             resp["data"] = result
+        except VocabularyDuplicateError as exc:
+            # Backend duplicate enforcement (see
+            # ``save_vocabulary_with_diff``) — reject the write with a
+            # structured ``client.duplicate_entry`` envelope so the
+            # renderer can surface the localized "This correction
+            # already exists" message and NOT add the duplicate row.
+            # The duplicate phrase is exposed to help the user fix the
+            # entry (it is the user's own vocabulary text, not a
+            # secret or path).
+            log.info(
+                "[IPC] save_vocabulary rejected (duplicate '%s', %d occurrences): %s",
+                exc.phrase,
+                exc.count,
+                exc,
+            )
+            return _error_response(
+                resp,
+                f"duplicate correction: '{exc.phrase}' ({exc.count} entries)",
+                code=ErrorCodes.DUPLICATE_ENTRY,
+            )
         except Exception as exc:
-            # generic WS-path envelope (no ``str(exc)`` leak).
+            # generic WS-path envelope (no ``str(e)`` leak).
             self._respond_with_error(resp, exc, "save_vocabulary")
+        return resp
+
+    def _handle_test_vocabulary_correction(self, data: dict | None, resp: dict) -> dict | None:
+        """Handle the ``test_vocabulary_correction`` IPC command.
+
+        Applies the LIVE vocabulary rules to a phrase so the "Test
+        corrections" panel on the Vocabulary page previews the exact
+        engine dictation uses (``VocabularyManager.apply_to_text``)
+        instead of a client-side mirror that can drift.
+        """
+        try:
+            _validated, error = _validate_dict_payload(
+                data,
+                {
+                    "text": {
+                        "type": str,
+                        "required": True,
+                        "max_value_len": 2000,
+                    },
+                },
+            )
+            if error:
+                resp["type"] = "error"
+                resp["data"] = error["data"]
+                return resp
+            text = str(_validated.get("text", "") or "")
+            result = self.service.test_vocabulary_correction(text)
+            resp["type"] = "ack"
+            resp["data"] = result
+        except Exception as exc:
+            self._respond_with_error(resp, exc, "test_vocabulary_correction")
         return resp

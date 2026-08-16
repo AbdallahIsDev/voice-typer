@@ -412,11 +412,13 @@ class _OrchestratorMixin:
                 self._app._schedule_timer(3.0, _bubble_error_to_idle)
             except Exception:
                 log.debug("[PIPELINE] bubble set_state('error') on failure failed", exc_info=True)
-            self._app.tray.set_state(AppState.ERROR, "Transcription failed")
-            # do NOT leak raw exception text into tray
-            # notifications — ctranslate2 / torch errors often contain
-            # file paths, CUDA version strings, and internal stack
-            # details. Map to a user-friendly message instead.
+            # The tooltip shows the same user-friendly reason as the
+            # notification (NOT raw exception text — ctranslate2 / torch
+            # errors often contain file paths, CUDA version strings, and
+            # internal stack details). The bare "Transcription failed"
+            # label told the user nothing; the mapped message says what
+            # went wrong and what to do about it.
+            self._app.tray.set_state(AppState.ERROR, _friendly_transcription_error(e))
             self._app.tray.notify(
                 APP_NAME,
                 _friendly_transcription_error(e),

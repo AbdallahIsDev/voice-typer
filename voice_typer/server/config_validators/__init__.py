@@ -114,6 +114,7 @@ from voice_typer.server.config_validators.scalar import (
 )
 from voice_typer.server.model_registry import (
     MODEL_REGISTRY as _MODEL_REGISTRY_FOR_ALLOWLIST,
+    NO_MODEL_SIZE as _NO_MODEL_SIZE,
 )
 
 log = logging.getLogger("voice_typer.server.config_validators")
@@ -143,23 +144,14 @@ STREAMING_LEFT_OVERLAP_SECONDS_MIN: float = 3.0
 STREAMING_RIGHT_GUARD_SECONDS_MIN: float = 1.5
 
 
-# extended to include the multilingual variants (tiny/small/medium,
-# no .en suffix) that OnboardingController.MODEL_OPTIONS offers to users.
-# Without these, non-English users who pick a multilingual model in
-# onboarding silently get English-only Whisper after the first restart
-# (Config.load() resets model_size to "small.en" because the multilingual
-# name is not in the allowlist).
-#
-# ALLOWED_USER_MODELS is now DERIVED from
+# ALLOWED_USER_MODELS is DERIVED from
 # :data:`model_registry.MODEL_REGISTRY` at import time so the two cannot
-# drift (the previous hand-maintained set had 8 entries while
-# MODEL_REGISTRY had 12 — `base`, `base.en`, `large`, and `turbo` were
-# silently reset to "small.en" on every Config.load()). ``large-v3``
-# remains unsupported because it is NOT in MODEL_REGISTRY (only the
-# unversioned ``large`` is) — the existing
-# ``test_load_normalizes_legacy_or_unsupported_model_to_small_en``
-# regression test was updated to drop ``base.en`` from its parametrize
-# list (``base.en`` is now a valid model).
+# drift. The catalog was pruned 2026-08-15 to `tiny`, `large-v3`,
+# `large-v3-turbo`, `parakeet`, and `qwen` (`large-v3` was restored the
+# same day at the user's request); any other value (stale configs,
+# removed models like `small.en` / `base` / `turbo` / distil-*) is
+# reset to ``DEFAULT_MODEL_SIZE`` (currently `tiny`) on Config.load()
+# by ``_validate_model_path`` in ``config/coercion.py``.
 
 ALLOWED_USER_MODELS: frozenset[str] = frozenset(_MODEL_REGISTRY_FOR_ALLOWLIST.keys())
 
@@ -255,7 +247,12 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # ── Recording ─────────────────────────────────────────────────────
     "microphone": ((str, type(None)), _VALIDATOR_MICROPHONE),
     # ── Transcription ─────────────────────────────────────────────────
-    "model_size": (str, _make_enum_validator(ALLOWED_USER_MODELS)),
+    # ``model_size`` additionally accepts ``NO_MODEL_SIZE`` ("") — the
+    # genuine "no model selected" state (see
+    # ``model_registry.NO_MODEL_SIZE``). The server enters it when a
+    # stale selection is cleared with no downloaded fallback; the
+    # renderer may also write it (a future "deselect" affordance).
+    "model_size": (str, _make_enum_validator(ALLOWED_USER_MODELS | {_NO_MODEL_SIZE})),
     "language": (str, _VALIDATOR_LANGUAGE),
     "device": (str, _make_enum_validator(frozenset({"cuda", "cpu"}))),
     "beam_size": (int, _make_int_validator(lo=1, hi=10)),

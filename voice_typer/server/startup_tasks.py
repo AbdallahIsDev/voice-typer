@@ -397,7 +397,7 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
         # Routine polls where nothing changed log nothing — the
         # microphones_changed IPC event handles UI updates.
         if not old_ids:
-            log.info("[RECORDING] Found %d microphone(s)", len(mics))
+            log.info("[RECORDING] Found %d microphones", len(mics))
         elif len(mics) != len(old_ids):
             log.info("[RECORDING] Microphone count changed: %d -> %d", len(old_ids), len(mics))
         # AUDIO-MIC: push a device-change IPC event if the device

@@ -28,7 +28,7 @@ def _make_mm_with_failing_registry() -> tuple[ModelManager, MagicMock]:
     # and load_background read.
     app = MagicMock(name="app")
     app.config.asr_backend = "whisper"
-    app.config.model_size = "tiny.en"
+    app.config.model_size = "tiny"
     app.config.device = "cpu"
     app.config.language = "en"
     app.config.beam_size = 1
@@ -182,7 +182,7 @@ def _make_mm_with_mock_registry():
 
     app = MagicMock(name="app")
     app.config.asr_backend = "whisper"
-    app.config.model_size = "tiny.en"
+    app.config.model_size = "tiny"
     app.config.device = "cpu"
     app.config.language = "en"
     app.config.beam_size = 1
@@ -233,7 +233,7 @@ class TestInitWiring:
 
         app = MagicMock()
         app.config.asr_backend = "whisper"
-        app.config.model_size = "tiny.en"
+        app.config.model_size = "tiny"
         app.config.device = "cpu"
         app.config.language = "en"
         app.config.beam_size = 1
@@ -263,7 +263,7 @@ class TestInitWiring:
 
         app = MagicMock()
         app.config.asr_backend = "whisper"
-        app.config.model_size = "tiny.en"
+        app.config.model_size = "tiny"
         app.config.device = "cpu"
         app.config.language = "en"
         app.config.beam_size = 1
@@ -297,9 +297,9 @@ class TestFallbackToWhisper:
 
         mm.fallback_to_whisper(notify_on_failure=False)
 
-        # Config mutated to whisper/tiny.en and persisted.
+        # Config mutated to whisper/tiny and persisted.
         assert app.config.asr_backend == "whisper"
-        assert app.config.model_size == "tiny.en"
+        assert app.config.model_size == "tiny"
         app.config.save.assert_called_once()
         # Whisper backend was missing -> registry.create invoked.
         mm._registry.create.assert_called_once()
@@ -328,7 +328,7 @@ class TestFallbackToWhisper:
 
         # No create when backend already exists — just model_size backfill.
         mm._registry.create.assert_not_called()
-        assert existing.model_size == "tiny.en"
+        assert existing.model_size == "tiny"
         # Tray transitioned to ERROR on failure.
         tray_states = [c.args[0] for c in app.tray.set_state.call_args_list]
         assert AppState.ERROR in tray_states, f"fallback_to_whisper failure must set tray to ERROR; got {tray_states}"
@@ -424,7 +424,7 @@ class TestChangeModelAckShape:
     def test_returns_loading_ack_with_previous_and_pending(self):
         mm, app = _make_mm_with_mock_registry()
         app.config.asr_backend = "whisper"
-        app.config.model_size = "tiny.en"
+        app.config.model_size = "tiny"
         mm.cancel_idle_unload_timer = MagicMock()
 
         # Swap _change_model_background for a no-op so we don't spawn a
@@ -434,7 +434,7 @@ class TestChangeModelAckShape:
         ack = mm.change_model("parakeet")
 
         assert ack["status"] == "loading"
-        assert ack["previous"] == {"backend": "whisper", "model_size": "tiny.en"}
+        assert ack["previous"] == {"backend": "whisper", "model_size": "tiny"}
         assert ack["pending"] == {"backend": "parakeet", "model_size": "parakeet"}
         # Background spawn invoked exactly once.
         mm._change_model_background.assert_called_once_with("parakeet")

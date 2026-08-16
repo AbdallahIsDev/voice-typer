@@ -71,6 +71,14 @@ ALLOWED_UNTRANSLATED = {
     "settings.audioEnhancement.limiterAria",  # "Limiter"
     # "Variables: {vars}" — "Variables" is identical in EN/ES (cognate).
     "templates.variablesTooltip",  # "Variables: {vars}"
+    # Vocabulary table column headers: "Original" is the identical
+    # cognate in de/es/fr (the standard word for an input-to-correction
+    # mapping column in all three languages), and French UI convention
+    # for an actions column is literally "Actions" (same word). Forcing
+    # a different word would create a fake distinction that confuses
+    # native speakers — same rationale as the Equalizer/Limiter entries.
+    "vocabulary.columnOriginal",  # "Original"
+    "vocabulary.columnActions",  # "Actions"
     # keyboard shortcut values that are universal key-combo notation
     # (no natural translation — "Ctrl+B", "Tab / Shift+Tab", "Esc" stay
     # identical across locales that use the Latin keyboard layout).

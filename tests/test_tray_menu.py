@@ -339,12 +339,13 @@ class TestBuildModelsSubmenuUsesCache:
 
     def test_two_consecutive_builds_return_five_candidates(self, tmp_path):
         """Two consecutive ``build_models_submenu_data`` calls must both
-        return the 5 candidates (tiny.en / small.en / medium.en /
-        parakeet / qwen). No qwen_asr pip gate exists anymore — Qwen is
-        a built-in ONNX backend (2026-08-15)."""
+        return the 5 candidates (tiny / large-v3 / large-v3-turbo /
+        parakeet / qwen — the catalog; ``large-v3`` was restored
+        2026-08-15 at the user's request). No qwen_asr pip gate exists
+        anymore — Qwen is a built-in ONNX backend (2026-08-15)."""
         # Provide a Config-like object so we skip the disk read.
         config_provider = MagicMock()
-        config_provider.model_size = "tiny.en"
+        config_provider.model_size = "tiny"
         config_provider.asr_backend = "whisper"
 
         # Mock ensure_hf_env to no-op.
@@ -386,7 +387,7 @@ class TestQwenTrayAvailabilityAlignsWithModelsPage:
 
     def _make_config(self, qwen_model_path=None):
         config = MagicMock()
-        config.model_size = "tiny.en"
+        config.model_size = "tiny"
         config.asr_backend = "whisper"
         config.qwen_model_path = qwen_model_path
         return config

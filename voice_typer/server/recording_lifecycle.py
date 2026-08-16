@@ -54,6 +54,34 @@ log = logging.getLogger(__name__)
 VOICE_BIOMETRIC_CONSENT_FIELD = "voice_biometric_consent"
 
 
+#: The exact RuntimeError message raised by the recording pipeline when
+#: no input device could be opened at all (``_recorder_split.py``,
+#: ``start_recording`` — "No input device could be opened"). Matched by
+#: substring so a future message tweak that appends context still maps.
+_NO_INPUT_DEVICE_MARKER = "No input device could be opened"
+
+
+def _recording_start_failure_message(exc: BaseException) -> str:
+    """Map a ``recorder.start()`` failure to a safe, user-friendly message.
+
+    The typed exceptions the recording pipeline raises carry the backend's
+    reason (microphone permission denied, no input device); map those to
+    specific messages so the tray tooltip / ``status_change`` push shows
+    WHY recording failed instead of the bare "Recording failed" label.
+    Everything else falls back to the generic label — raw exception text
+    is deliberately NOT surfaced (it can leak absolute paths, device
+    names, hostnames; same policy as the ``notify.recording_controller.*``
+    keys).
+    """
+    from voice_typer.server.asr_errors import MicrophonePermissionDeniedError
+
+    if isinstance(exc, MicrophonePermissionDeniedError):
+        return i18n.t("state.recording_controller.recording_failed_permission")
+    if isinstance(exc, RuntimeError) and _NO_INPUT_DEVICE_MARKER in str(exc):
+        return i18n.t("state.recording_controller.recording_failed_no_device")
+    return i18n.t("state.recording_controller.recording_failed")
+
+
 def _notify_consent_gate(title: str, message: str) -> bool:
     """Prefer a CLICKABLE host notification over the pystray balloon.
 
@@ -633,14 +661,23 @@ class RecordingLifecycle:
             # best-effort guard above) or if a subclass overrode
             # ``discard()`` to skip the flag reset.
             app.recorder.recording = False
-            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed"))
-            # Use the i18n key (no {error} interpolation — exception
-            # text can leak absolute paths, device names, hostnames). The
-            # full exception is logged above via ``log.exception()``.
-            app.tray.notify(
-                APP_NAME,
-                i18n.t("notify.recording_controller.start_failed"),
-            )
+            # Surface the backend's reason when the pipeline raised a
+            # typed error (permission denied / no input device); raw
+            # exception text stays out of the tray (paths, device names).
+            _start_fail_msg = _recording_start_failure_message(e)
+            app.tray.set_state(AppState.ERROR, _start_fail_msg)
+            # Notification mirrors the tooltip: for typed failures the
+            # reason IS the actionable message (permission / no device);
+            # for unknown failures keep the "check the log" guidance.
+            # Raw exception text never reaches the user (paths, device
+            # names, hostnames) — the full traceback is logged above.
+            if _start_fail_msg != i18n.t("state.recording_controller.recording_failed"):
+                app.tray.notify(APP_NAME, f"Could not start recording.\n{_start_fail_msg}")
+            else:
+                app.tray.notify(
+                    APP_NAME,
+                    i18n.t("notify.recording_controller.start_failed"),
+                )
             try:
                 from voice_typer.server import event_bus
 
@@ -786,14 +823,19 @@ class RecordingLifecycle:
                     exc_info=True,
                 )
             app.recorder.recording = False
-            app.tray.set_state(
-                AppState.ERROR,
-                i18n.t("state.recording_controller.recording_failed"),
-            )
-            app.tray.notify(
-                APP_NAME,
-                i18n.t("notify.recording_controller.start_failed"),
-            )
+            # Same typed-reason mapping as the ``_start_impl`` failure
+            # path — the worker can fail on recorder-start-upstream
+            # errors too (permission / no device), and the tooltip must
+            # show why, not a bare "Recording failed".
+            _start_fail_msg = _recording_start_failure_message(e)
+            app.tray.set_state(AppState.ERROR, _start_fail_msg)
+            if _start_fail_msg != i18n.t("state.recording_controller.recording_failed"):
+                app.tray.notify(APP_NAME, f"Could not start recording.\n{_start_fail_msg}")
+            else:
+                app.tray.notify(
+                    APP_NAME,
+                    i18n.t("notify.recording_controller.start_failed"),
+                )
             try:
                 from voice_typer.server import event_bus
 
@@ -1095,7 +1137,7 @@ class RecordingLifecycle:
             except Exception:
                 log.debug("[AUDIO_QUALITY] finalize failed", exc_info=True)
         log.info(
-            "[DICTATION] Recording stopped %s of audio, recorded_rms=%.4f, busy=True (cycle=%s)",
+            "[DICTATION] Recording stopped%s of audio, recorded_rms=%.4f, busy=True (cycle=%s)",
             format_duration(duration),
             recorded_rms,
             cycle_id,

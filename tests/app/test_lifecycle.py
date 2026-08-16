@@ -209,8 +209,15 @@ class TestAppStateTransitions:
         # verify the ERROR tray state was actually entered (the
         # dictation pipeline's except handler must call
         # tray.set_state(AppState.ERROR, ...) — previously this test
-        # never checked that the ERROR state was reached).
-        app.tray.set_state.assert_called_with(AppState.ERROR, "Transcription failed")
+        # never checked that the ERROR state was reached). The tooltip
+        # must carry the mapped reason (generic exceptions fall back to
+        # "Transcription failed (…)…"), not the bare state label.
+        error_calls = [c.args for c in app.tray.set_state.call_args_list if c.args[0] == AppState.ERROR]
+        assert error_calls, "dictation failure must enter the ERROR tray state"
+        assert any("Transcription failed" in str(args[1]) for args in error_calls), (
+            "ERROR tooltip must carry the transcription-failure reason. "
+            f"Got set_state calls: {app.tray.set_state.call_args_list}"
+        )
 
     def test_transcribe_cuda_fallback_clears_busy(self, app):
         """When GPU transcription fails with CUDA error, fallback to CPU succeeds

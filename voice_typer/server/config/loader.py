@@ -123,6 +123,26 @@ def _read_raw_json_impl(config_file) -> dict | None:
     return parsed
 
 
+# Keys written into ``config.json`` by subsystems that are NOT Config
+# dataclass fields. They are private migration/state flags owned by
+# their writer (``credential_store``), not user settings, so they must
+# never appear in the ``Config`` model — but they are also NOT
+# "unrecognized": excluding them here stops the spurious
+# ``[CONFIG] ignoring N unrecognized setting(s)`` warning that fired on
+# EVERY launch for the keyring service-name flag
+# (``service_name_migrated_com_voicetyper_keyring``), which the
+# migration writes back on every run. Keep this list in sync with
+# ``credential_store.py`` (search for ``data[\"...\"] = True``).
+_KNOWN_EXTERNAL_CONFIG_KEYS: frozenset[str] = frozenset(
+    {
+        # credential_store legacy-keyring-service-name cutover flag
+        "service_name_migrated_com_voicetyper_keyring",
+        # credential_store keyring-unavailable diagnostic flag
+        "secrets_migrated_keyring_was_unavailable",
+    }
+)
+
+
 def _filter_unknown_keys_impl(cls, parsed: dict, config_file) -> dict:
     """Filter unknown keys from ``parsed``; log a WARNING for each dropped key.
 
@@ -138,7 +158,9 @@ def _filter_unknown_keys_impl(cls, parsed: dict, config_file) -> dict:
     # log a WARNING if the on-disk config contains
     # keys this build doesn't recognize.  These keys are
     # silently dropped by the filter below.
-    unknown_keys = set(parsed) - set(cls.__dataclass_fields__)
+    unknown_keys = (
+        set(parsed) - set(cls.__dataclass_fields__) - _KNOWN_EXTERNAL_CONFIG_KEYS
+    )
     if unknown_keys:
         dedupe_key = (str(config_file), frozenset(unknown_keys))
         with _unknown_key_warnings_lock:
@@ -146,14 +168,67 @@ def _filter_unknown_keys_impl(cls, parsed: dict, config_file) -> dict:
             if first_time:
                 _unknown_key_warnings.add(dedupe_key)
         if first_time:
-            log.warning(
-                "[CONFIG] ignoring %d unrecognized setting(s) in %s "
-                "(possibly from a newer app version); they will be removed "
-                "on the next save.",
-                len(unknown_keys),
-                config_file,
-            )
+            # NOTE: key names are deliberately NOT included here — the PII
+            # redaction filter masks any token >= 20 chars (its generic
+            # secret pattern), so long key names would render as ``***``
+            # and defeat the point of naming them. The names are logged at
+            # DEBUG inside ``_remove_unknown_keys_from_disk`` instead.
+            # Distinguish "config written by a NEWER build" (preserve the
+            # keys for that future build; they only disappear on the next
+            # real save) from "stale keys from an older build" (remove
+            # them NOW so the warning stops recurring on every launch).
+            _schema = parsed.get("schema_version", 0)
+            _newer_config = isinstance(_schema, int) and _schema > _CURRENT_SCHEMA_VERSION
+            if _newer_config:
+                log.warning(
+                    "[CONFIG] ignoring %d unrecognized setting(s) in %s (config "
+                    "schema %s is newer than this build supports); they will be "
+                    "removed on the next save.",
+                    len(unknown_keys),
+                    config_file,
+                    _schema,
+                )
+            else:
+                log.warning(
+                    "[CONFIG] ignoring %d unrecognized setting(s) in %s (unknown "
+                    "to this build); removing them from the file now.",
+                    len(unknown_keys),
+                    config_file,
+                )
+                _remove_unknown_keys_from_disk(config_file, unknown_keys)
     return {k: v for k, v in parsed.items() if k in cls.__dataclass_fields__}
+
+
+def _remove_unknown_keys_from_disk(config_file, unknown_keys) -> None:
+    """Best-effort removal of unknown keys from the on-disk config.
+
+    Runs at most once per (file, key-set) per process (the caller
+    dedupes) and ONLY when the file's ``schema_version`` is not newer
+    than this build — for genuinely newer-version configs the keys are
+    preserved for the build that knows them. Re-reads the file fresh so
+    a concurrent ``Config.save()`` (another process, or the IPC server)
+    is not clobbered, then rewrites atomically with the same
+    ``json.dumps(..., indent=2)`` format ``Config.save()`` uses.
+    Best-effort: any failure only costs the cleanup, never the load.
+    """
+    try:
+        from voice_typer.server.config import _secure_atomic_write, _secure_read_text
+
+        raw = _secure_read_text(config_file)
+        fresh = json.loads(raw)
+        if not isinstance(fresh, dict):
+            return
+        pruned = {k: v for k, v in fresh.items() if k not in unknown_keys}
+        _secure_atomic_write(config_file, json.dumps(pruned, indent=2), durability=False)
+        log.debug(
+            "[CONFIG] removed unrecognized setting(s) from %s: %s",
+            config_file,
+            ", ".join(sorted(unknown_keys)),
+        )
+    except Exception:
+        # The load must never fail because the cleanup did. Log at DEBUG
+        # so a persistent failure is diagnosable without spamming.
+        log.debug("[CONFIG] could not remove unrecognized setting(s) from %s", config_file, exc_info=True)
 
 
 def _load_config(cls) -> "Config":

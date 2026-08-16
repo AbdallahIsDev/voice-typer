@@ -750,14 +750,15 @@ def test_dynamic_model_submenu_data_builder_present(
 
     The data builder returns tuples of (name, downloaded, is_active,
     change_fn) for the candidate models. The candidate list MUST
-    include the 5 models the app supports: tiny.en, small.en,
-    medium.en, parakeet, qwen.
+    include the 5 models the app supports after the 2026-08-15
+    catalog prune (with large-v3 restored that same day at the user's
+    request): tiny, large-v3, large-v3-turbo, parakeet, qwen.
     """
     assert "def build_models_submenu_data(" in tray_models_py_source, (
         "tray_models.py must define build_models_submenu_data — the data-gathering function for the Models submenu."
     )
     # All 5 candidate models must be enumerated.
-    for model_name in ["tiny.en", "small.en", "medium.en", "parakeet", "qwen"]:
+    for model_name in ["tiny", "large-v3", "large-v3-turbo", "parakeet", "qwen"]:
         assert f'"{model_name}"' in tray_models_py_source, (
             f"tray_models.py must enumerate the {model_name!r} model as "
             f"a candidate — the Models submenu shows each downloaded "

@@ -385,7 +385,7 @@ def build_fallback_chain(engine) -> list[tuple[str, str, str]]:
     chain.append((engine._device, engine._compute_type, engine.model_size))
     if engine._device != "cpu" or engine._compute_type != "int8":
         chain.append(("cpu", "int8", engine.model_size))
-    if engine.model_size != "tiny.en":
-        chain.append(("cpu", "int8", "tiny.en"))
-    chain.append(("cpu", "float32", "tiny.en"))
+    if engine.model_size != "tiny":
+        chain.append(("cpu", "int8", "tiny"))
+    chain.append(("cpu", "float32", "tiny"))
     return chain

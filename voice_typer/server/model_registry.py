@@ -78,6 +78,13 @@ class ModelMetadata:
     # download must override explicitly so the catalog cannot silently
     # misrepresent a download as offline.
     network_behavior: str = "local-only"
+    # User-facing display name shown on the model card. ``None`` means
+    # the renderer falls back to the bare ``name`` (e.g. whisper
+    # variants render as ``tiny`` / ``large-v3`` / ``large-v3-turbo``).
+    # Detailed names are set for parakeet ("Parakeet-v3-TDT") and
+    # qwen ("Qwen-3") so the Models page shows the full model name
+    # under the family header.
+    display_name: str | None = None
 
     def to_dict(self) -> dict:
         """Serialize to a JSON-safe dict for IPC transport.
@@ -95,21 +102,30 @@ class ModelMetadata:
 # the catalog.  Group by size (tiny → large → turbo → distil) so the
 # user sees the most relevant models first.
 
+# The canonical DEFAULT model size — the single source of truth for
+# the model that fresh installs / config resets fall back to (config
+# dataclass default, load-time coercion reset target, onboarding
+# pre-selection, IPC payload defaults, and the renderer's fallback).
+# Changing the default later is a ONE-LINE change here (plus the
+# client mirror ``MODEL_DEFAULT`` in
+# ``client/src/renderer/src/pages/onboarding/lib/constants.ts`` — the
+# parity test ``tests/test_default_model_sync.py`` keeps them in
+# lockstep). MUST reference an entry that stays in ``MODEL_REGISTRY``.
+DEFAULT_MODEL_SIZE: str = "tiny"
+
+# Sentinel for "no model selected": the config's ``model_size`` can be
+# the empty string, meaning the user has genuinely not picked a model
+# yet (or their previous selection was cleared because the model's
+# weights were removed and no other model was on disk). The app must
+# NOT try to load a model in this state — it reports "No model
+# selected" in the tray tooltip / Models page and waits for the user
+# to pick one. ``""`` is used instead of ``None`` so ``model_size``
+# stays a plain ``str`` end-to-end (JSON round-trip, IPC types, the
+# renderer's ``ModelSize`` union).
+NO_MODEL_SIZE: str = ""
+
 MODEL_REGISTRY: dict[str, ModelMetadata] = {
     # ── Standard Whisper variants (Systran/faster-whisper-*) ──────
-    "tiny.en": ModelMetadata(
-        name="tiny.en",
-        download_size_mb=75,
-        required_vram_mb=512,
-        backend="whisper",
-        multilingual=False,
-        supported_languages=["en"],
-        description="Fastest English-only model. Low accuracy, good for testing.",
-        network_behavior="downloads-on-first-use-consent-gated",
-        repo_id="Systran/faster-whisper-tiny.en",
-        speed_rating="fast",
-        accuracy_rating="low",
-    ),
     "tiny": ModelMetadata(
         name="tiny",
         download_size_mb=75,
@@ -123,110 +139,9 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         speed_rating="fast",
         accuracy_rating="low",
     ),
-    "base.en": ModelMetadata(
-        name="base.en",
-        download_size_mb=150,
-        required_vram_mb=512,
-        backend="whisper",
-        multilingual=False,
-        supported_languages=["en"],
-        description="Fast English-only model. Reasonable accuracy for short dictation.",
-        network_behavior="downloads-on-first-use-consent-gated",
-        repo_id="Systran/faster-whisper-base.en",
-        speed_rating="fast",
-        accuracy_rating="medium",
-    ),
-    "base": ModelMetadata(
-        name="base",
-        download_size_mb=150,
-        required_vram_mb=512,
-        backend="whisper",
-        multilingual=True,
-        supported_languages=None,
-        description="Fast multilingual model. Reasonable accuracy for short dictation.",
-        network_behavior="downloads-on-first-use-consent-gated",
-        repo_id="Systran/faster-whisper-base",
-        speed_rating="fast",
-        accuracy_rating="medium",
-    ),
-    "small.en": ModelMetadata(
-        name="small.en",
-        download_size_mb=500,
-        required_vram_mb=1024,
-        backend="whisper",
-        multilingual=False,
-        supported_languages=["en"],
-        description="Balanced English-only model. Recommended default for English.",
-        network_behavior="downloads-on-first-use-consent-gated",
-        repo_id="Systran/faster-whisper-small.en",
-        speed_rating="medium",
-        accuracy_rating="high",
-    ),
-    "small": ModelMetadata(
-        name="small",
-        download_size_mb=500,
-        required_vram_mb=1024,
-        backend="whisper",
-        multilingual=True,
-        supported_languages=None,
-        description="Balanced multilingual model. Good accuracy for most languages.",
-        network_behavior="downloads-on-first-use-consent-gated",
-        repo_id="Systran/faster-whisper-small",
-        speed_rating="medium",
-        accuracy_rating="high",
-    ),
-    "medium.en": ModelMetadata(
-        name="medium.en",
-        download_size_mb=1500,
-        required_vram_mb=2048,
-        backend="whisper",
-        multilingual=False,
-        supported_languages=["en"],
-        description="High-accuracy English-only model. Slower; benefits from GPU.",
-        network_behavior="downloads-on-first-use-consent-gated",
-        repo_id="Systran/faster-whisper-medium.en",
-        speed_rating="slow",
-        accuracy_rating="high",
-    ),
-    "medium": ModelMetadata(
-        name="medium",
-        download_size_mb=1500,
-        required_vram_mb=2048,
-        backend="whisper",
-        multilingual=True,
-        supported_languages=None,
-        description="High-accuracy multilingual model. Slower; benefits from GPU.",
-        network_behavior="downloads-on-first-use-consent-gated",
-        repo_id="Systran/faster-whisper-medium",
-        speed_rating="slow",
-        accuracy_rating="high",
-    ),
-    "large-v1": ModelMetadata(
-        name="large-v1",
-        download_size_mb=3000,
-        required_vram_mb=4096,
-        backend="whisper",
-        multilingual=True,
-        supported_languages=None,
-        description="Original large-v1 model. Superseded by large-v3; kept for reproducibility.",
-        network_behavior="downloads-on-first-use-consent-gated",
-        repo_id="Systran/faster-whisper-large-v1",
-        speed_rating="slow",
-        accuracy_rating="high",
-    ),
-    "large-v2": ModelMetadata(
-        name="large-v2",
-        download_size_mb=3000,
-        required_vram_mb=4096,
-        backend="whisper",
-        multilingual=True,
-        supported_languages=None,
-        description="Large-v2 model. Superseded by large-v3; kept for reproducibility.",
-        network_behavior="downloads-on-first-use-consent-gated",
-        repo_id="Systran/faster-whisper-large-v2",
-        speed_rating="slow",
-        accuracy_rating="high",
-    ),
+    # ``large-v3`` — highest-accuracy multilingual Whisper. Restored
+    # to the catalog 2026-08-15 at the user's request (the initial
+    # catalog prune kept only tiny + large-v3-turbo).
     "large-v3": ModelMetadata(
         name="large-v3",
         download_size_mb=3000,
@@ -240,23 +155,9 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         speed_rating="slow",
         accuracy_rating="high",
     ),
-    "large": ModelMetadata(
-        name="large",
-        download_size_mb=3000,
-        required_vram_mb=4096,
-        backend="whisper",
-        multilingual=True,
-        supported_languages=None,
-        description="Alias for the latest large model (currently large-v3).",
-        network_behavior="downloads-on-first-use-consent-gated",
-        repo_id="Systran/faster-whisper-large",
-        speed_rating="slow",
-        accuracy_rating="high",
-    ),
     # Turbo () ─────────────────────────────────────
     # ``large-v3-turbo`` is OpenAI's 2024 fast multilingual model:
-    # near-large-v3 accuracy at ~8x speed.  ``turbo`` is an alias
-    # that resolves to the same HuggingFace repo.
+    # near-large-v3 accuracy at ~8x speed.
     "large-v3-turbo": ModelMetadata(
         name="large-v3-turbo",
         download_size_mb=809,
@@ -270,51 +171,6 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         speed_rating="fast",
         accuracy_rating="high",
     ),
-    "turbo": ModelMetadata(
-        name="turbo",
-        download_size_mb=809,
-        required_vram_mb=2000,
-        backend="whisper",
-        multilingual=True,
-        supported_languages=None,
-        description="Alias for large-v3-turbo. Same model, friendlier name.",
-        network_behavior="downloads-on-first-use-consent-gated",
-        repo_id="Systran/faster-whisper-large-v3-turbo",
-        speed_rating="fast",
-        accuracy_rating="high",
-    ),
-    # Distil-Whisper variants () ──────────────────
-    # Distilled models from the Distil-Whisper project: 2-4x faster
-    # inference, ~50% smaller, slightly lower accuracy.  Use when
-    # speed matters more than edge-case accuracy.
-    "distil-large-v3": ModelMetadata(
-        name="distil-large-v3",
-        download_size_mb=1500,
-        required_vram_mb=3000,
-        backend="distil-whisper",
-        multilingual=True,
-        supported_languages=None,
-        description="Distilled large-v3. ~2x faster, ~50% smaller; minor accuracy loss.",
-        network_behavior="downloads-on-first-use-consent-gated",
-        repo_id="Systran/faster-distil-whisper-large-v3",
-        is_distilled=True,
-        speed_rating="fast",
-        accuracy_rating="high",
-    ),
-    "distil-medium.en": ModelMetadata(
-        name="distil-medium.en",
-        download_size_mb=780,
-        required_vram_mb=2048,
-        backend="distil-whisper",
-        multilingual=False,
-        supported_languages=["en"],
-        description="Distilled English-only medium. Fast and compact; great for laptops.",
-        network_behavior="downloads-on-first-use-consent-gated",
-        repo_id="Systran/faster-distil-whisper-medium.en",
-        is_distilled=True,
-        speed_rating="fast",
-        accuracy_rating="medium",
-    ),
     # ── Parakeet (by NVIDIA) ──────────────────────────────────────
     # added to registry so get_model_status() can resolve the
     # repo_id and check HF cache download status. Previously the model
@@ -323,6 +179,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     # model was fully cached).
     "parakeet": ModelMetadata(
         name="parakeet",
+        display_name="Parakeet-v3-TDT",
         download_size_mb=1275,
         required_vram_mb=3072,
         backend="parakeet",
@@ -349,6 +206,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     # expecting a transparent first-use download.
     "qwen": ModelMetadata(
         name="qwen",
+        display_name="Qwen-3",
         download_size_mb=0,  # local-only — size depends on user-supplied snapshot
         required_vram_mb=4096,
         backend="qwen",
@@ -376,6 +234,15 @@ def get_model_metadata(model_size: str) -> ModelMetadata | None:
     without hard-coding a separate name→repo map.
     """
     return MODEL_REGISTRY.get(model_size)
+
+
+def get_default_model_size() -> str:
+    """Return the canonical default model size.
+
+    Single indirection over :data:`DEFAULT_MODEL_SIZE` so callers that
+    want to swap the default later can do so in one place.
+    """
+    return DEFAULT_MODEL_SIZE
 
 
 def get_all_models() -> list[ModelMetadata]:
@@ -439,6 +306,9 @@ def get_user_selectable_model_names() -> frozenset[str]:
 __all__ = [
     "ModelMetadata",
     "MODEL_REGISTRY",
+    "DEFAULT_MODEL_SIZE",
+    "NO_MODEL_SIZE",
+    "get_default_model_size",
     "get_model_metadata",
     "get_all_models",
     "get_models_by_backend",

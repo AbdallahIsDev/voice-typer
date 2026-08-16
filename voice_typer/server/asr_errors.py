@@ -57,7 +57,7 @@ class ConsentRequiredError(RuntimeError):
       ``"openai_consent"``). Used by the renderer to deep-link to the
       exact toggle in Settings.
     - ``model_id``: optional model identifier (e.g.
-      ``"nvidia/parakeet-tdt-0.6b-v3"`` or ``"tiny.en"``) when the
+      ``"nvidia/parakeet-tdt-0.6b-v3"`` or ``"tiny"``) when the
       consent gate fired on a specific model. ``None`` for cloud
       engines that gate on provider rather than model.
     - ``timestamp``: ISO-8601 UTC timestamp when the error was raised

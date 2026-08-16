@@ -77,7 +77,7 @@ class MockConfig:
     """
 
     hotkey: str = "<f2>"
-    model_size: str = "small.en"
+    model_size: str = "tiny"
     device: str = "cuda"
     language: str = "en"
     # Secret/credential + path fields the sanitizer redacts — declared

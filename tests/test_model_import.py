@@ -10,6 +10,10 @@ Covers:
 - Selected directory IS a model cache dir
 - Overwrite when model already exists in cache
 - Mixed success/failure
+
+The catalog was pruned 2026-08-15 to `tiny` + `large-v3-turbo` (Whisper)
+plus `parakeet` / `qwen`, so the tests use those repos. Import only
+recognizes models in MODEL_REGISTRY.
 """
 
 from __future__ import annotations
@@ -21,13 +25,19 @@ from unittest.mock import MagicMock
 
 import pytest
 
+# ── Kept-catalog repos ────────────────────────────────────────────────
+_REPO_TINY = "Systran/faster-whisper-tiny"
+_REPO_TURBO = "Systran/faster-whisper-large-v3-turbo"
+_REPO_PARKEET = "visuall/parakeet-tdt-0.6b-v3-onnx-fp16"
+
+
 # ── Helpers ─────────────────────────────────────────────────────────────
 
 
 def _hf_cache_dir_name(repo_id: str) -> str:
     """Convert a HuggingFace repo ID to the cache directory name.
 
-    Example: ``Systran/faster-whisper-tiny.en`` → ``models--Systran--faster-whisper-tiny.en``
+    Example: ``Systran/faster-whisper-tiny`` → ``models--Systran--faster-whisper-tiny``
     """
     return f"models--{repo_id.replace('/', '--')}"
 
@@ -64,9 +74,6 @@ def service():
     from voice_typer.server.service import VoiceTyperService
 
     mock_app = MagicMock()
-    # The service doesn't call app methods during import_model; it only
-    # needs the app reference for construction and the tray cache
-    # invalidation path.
     return VoiceTyperService(mock_app)
 
 
@@ -77,23 +84,20 @@ class TestImportModelHappyPath:
     """Core scenario: scanning a directory with HF cache subfolders."""
 
     def test_imports_recognized_models(self, service, tmp_path, monkeypatch):
-        """Create a source dir with tiny.en + small.en HF cache subdirs;
+        """Create a source dir with tiny + large-v3-turbo HF cache subdirs;
         call import_model; verify both are copied to the app's HF cache."""
-        # Point the app's HF cache to tmp_path / app_hf
         app_hf = tmp_path / "app_hf" / "huggingface" / "hub"
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
             lambda: tmp_path / "app_hf",
         )
 
-        # Create source directory with two model cache subdirs
         src_dir = tmp_path / "source"
         src_dir.mkdir()
 
-        tiny_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny.en")
-        small_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-small.en")
+        tiny_dir = _make_model_cache_dir(src_dir, _REPO_TINY)
+        turbo_dir = _make_model_cache_dir(src_dir, _REPO_TURBO)
 
-        # Mock tray cache invalidation so it doesn't fail
         monkeypatch.setattr(
             "voice_typer.server.tray_models.invalidate_model_availability_cache",
             lambda: None,
@@ -102,18 +106,18 @@ class TestImportModelHappyPath:
         result = service.import_model(str(src_dir))
 
         assert result["success"] is True
-        assert "tiny.en" in result["imported"], f"Expected tiny.en to be imported, got {result['imported']}"
-        assert "small.en" in result["imported"], f"Expected small.en to be imported, got {result['imported']}"
+        assert "tiny" in result["imported"], f"Expected tiny to be imported, got {result['imported']}"
+        assert "large-v3-turbo" in result["imported"], (
+            f"Expected large-v3-turbo to be imported, got {result['imported']}"
+        )
         assert len(result["errors"]) == 0, f"Expected no errors, got {result['errors']}"
 
-        # Verify the files were actually copied
-        assert (app_hf / tiny_dir.name).exists(), f"tiny.en cache dir not found at {app_hf / tiny_dir.name}"
-        assert (app_hf / small_dir.name).exists(), f"small.en cache dir not found at {app_hf / small_dir.name}"
-        # Verify content was copied (the .no_exist placeholder)
+        assert (app_hf / tiny_dir.name).exists(), f"tiny cache dir not found at {app_hf / tiny_dir.name}"
+        assert (app_hf / turbo_dir.name).exists(), f"large-v3-turbo cache dir not found at {app_hf / turbo_dir.name}"
         assert (app_hf / tiny_dir.name / ".no_exist").read_text() == "placeholder"
 
     def test_imports_multiple_models_from_registry(self, service, tmp_path, monkeypatch):
-        """Import multiple models of different types (whisper + distil)."""
+        """Import multiple models of different backends (whisper + parakeet)."""
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
             lambda: tmp_path / "app_hf",
@@ -122,9 +126,8 @@ class TestImportModelHappyPath:
         src_dir = tmp_path / "source"
         src_dir.mkdir()
 
-        # Create medium.en (whisper) + distil-large-v3 (distil-whisper)
-        _make_model_cache_dir(src_dir, "Systran/faster-whisper-medium.en")
-        _make_model_cache_dir(src_dir, "Systran/faster-distil-whisper-large-v3")
+        _make_model_cache_dir(src_dir, _REPO_TURBO)
+        _make_model_cache_dir(src_dir, _REPO_PARKEET)
 
         monkeypatch.setattr(
             "voice_typer.server.tray_models.invalidate_model_availability_cache",
@@ -133,8 +136,8 @@ class TestImportModelHappyPath:
 
         result = service.import_model(str(src_dir))
 
-        assert "medium.en" in result["imported"]
-        assert "distil-large-v3" in result["imported"]
+        assert "large-v3-turbo" in result["imported"]
+        assert "parakeet" in result["imported"]
         assert len(result["errors"]) == 0
 
 
@@ -168,10 +171,11 @@ class TestImportModelEdgeCases:
         src_dir = tmp_path / "source"
         src_dir.mkdir()
 
-        # Create non-model subdirectories
         (src_dir / "my_models").mkdir()
         (src_dir / "random_data").mkdir()
         (src_dir / "models--Unknown--Model").mkdir()  # unknown model
+        # Removed-from-catalog repos are NOT recognized either.
+        (src_dir / "models--Systran--faster-whisper-small.en").mkdir()
 
         result = service.import_model(str(src_dir))
 
@@ -181,7 +185,7 @@ class TestImportModelEdgeCases:
         assert result["errors"] == []
 
     def test_selected_dir_is_itself_a_model_cache_dir(self, service, tmp_path, monkeypatch):
-        """User selects a ``models--Systran--faster-whisper-tiny.en`` directory
+        """User selects a ``models--Systran--faster-whisper-tiny`` directory
         directly (not its parent)."""
         app_hf = tmp_path / "app_hf" / "huggingface" / "hub"
         monkeypatch.setattr(
@@ -189,22 +193,19 @@ class TestImportModelEdgeCases:
             lambda: tmp_path / "app_hf",
         )
 
-        # Create a model cache dir outside the app's cache
         src_parent = tmp_path / "portable_models"
         src_parent.mkdir()
-        model_dir = _make_model_cache_dir(src_parent, "Systran/faster-whisper-tiny.en")
+        model_dir = _make_model_cache_dir(src_parent, _REPO_TINY)
 
         monkeypatch.setattr(
             "voice_typer.server.tray_models.invalidate_model_availability_cache",
             lambda: None,
         )
 
-        # Point import_model at the model cache dir itself
         result = service.import_model(str(model_dir))
 
         assert result["success"] is True
-        assert "tiny.en" in result["imported"]
-        # Verify it was copied to the app's HF cache
+        assert "tiny" in result["imported"]
         assert (app_hf / model_dir.name).exists()
 
     def test_overwrite_existing_model(self, service, tmp_path, monkeypatch):
@@ -216,18 +217,14 @@ class TestImportModelEdgeCases:
             lambda: tmp_path / "app_hf",
         )
 
-        # Create an old version of tiny.en in the app cache with
-        # a distinguishing marker file.
-        old_cache = app_hf / _hf_cache_dir_name("Systran/faster-whisper-tiny.en")
+        old_cache = app_hf / _hf_cache_dir_name(_REPO_TINY)
         old_cache.mkdir(parents=True)
         (old_cache / "old_version_marker.txt").write_text("this is the old version")
 
-        # Create a source with a fresh copy
         src_dir = tmp_path / "source"
         src_dir.mkdir()
-        _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny.en")
-        # Overwrite the placeholder with a new marker
-        (src_dir / _hf_cache_dir_name("Systran/faster-whisper-tiny.en") / "new_version.txt").write_text(
+        _make_model_cache_dir(src_dir, _REPO_TINY)
+        (src_dir / _hf_cache_dir_name(_REPO_TINY) / "new_version.txt").write_text(
             "this is the new version"
         )
 
@@ -239,12 +236,10 @@ class TestImportModelEdgeCases:
         result = service.import_model(str(src_dir))
 
         assert result["success"] is True
-        assert "tiny.en" in result["imported"]
-        # The old marker should be gone
-        assert not (app_hf / _hf_cache_dir_name("Systran/faster-whisper-tiny.en") / "old_version_marker.txt").exists()
-        # The new content should be present
+        assert "tiny" in result["imported"]
+        assert not (app_hf / _hf_cache_dir_name(_REPO_TINY) / "old_version_marker.txt").exists()
         assert (
-            app_hf / _hf_cache_dir_name("Systran/faster-whisper-tiny.en") / "new_version.txt"
+            app_hf / _hf_cache_dir_name(_REPO_TINY) / "new_version.txt"
         ).read_text() == "this is the new version"
 
     def test_permission_denied_on_scan(self, service, tmp_path, monkeypatch):
@@ -257,7 +252,6 @@ class TestImportModelEdgeCases:
         src_dir = tmp_path / "restricted"
         src_dir.mkdir()
 
-        # Monkeypatch os.listdir to raise PermissionError
         original_listdir = os.listdir
 
         def _restricted_listdir(path):
@@ -286,20 +280,16 @@ class TestImportModelEdgeCases:
         src_dir = tmp_path / "source"
         src_dir.mkdir()
 
-        # Create tiny.en (will succeed)
-        _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny.en")
-        # Create small.en (will fail — simulate by making the dest unwritable
-        # or monkeypatching copytree)
-        _make_model_cache_dir(src_dir, "Systran/faster-whisper-small.en")
+        # tiny will succeed
+        _make_model_cache_dir(src_dir, _REPO_TINY)
+        # large-v3-turbo will fail (monkeypatched copytree)
+        _make_model_cache_dir(src_dir, _REPO_TURBO)
 
-        # Monkeypatch shutil.copytree to fail for small.en
         original_copytree = shutil.copytree
 
-        # Use *args because shutil.copytree recursively calls itself
-        # with 7 positional arguments internally.
         def _failing_copytree(*args, **kwargs):
             dst = args[1]  # second positional arg is the destination
-            if "small" in str(dst):
+            if "large-v3-turbo" in str(dst):
                 raise OSError(f"Disk full writing to {dst}")
             return original_copytree(*args, **kwargs)
 
@@ -312,16 +302,15 @@ class TestImportModelEdgeCases:
         result = service.import_model(str(src_dir))
 
         assert result["success"] is True
-        assert "tiny.en" in result["imported"]
-        assert "small.en" not in result["imported"]
+        assert "tiny" in result["imported"]
+        assert "large-v3-turbo" not in result["imported"]
         assert len(result["errors"]) == 1
-        assert result["errors"][0]["model"] == "small.en"
+        assert result["errors"][0]["model"] == "large-v3-turbo"
         assert "Disk full" in result["errors"][0]["error"]
 
     def test_tray_cache_invalidated_on_success(self, service, tmp_path, monkeypatch):
         """When at least one model is imported, the tray models cache
         must be invalidated."""
-        # Track whether invalidate was called
         invalidate_called = [False]
 
         def _mock_invalidate():
@@ -338,12 +327,12 @@ class TestImportModelEdgeCases:
 
         src_dir = tmp_path / "source"
         src_dir.mkdir()
-        _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny.en")
+        _make_model_cache_dir(src_dir, _REPO_TINY)
 
         result = service.import_model(str(src_dir))
 
         assert result["success"] is True
-        assert "tiny.en" in result["imported"]
+        assert "tiny" in result["imported"]
         assert invalidate_called[0], "tray cache invalidation should have been called"
 
     def test_tray_cache_not_invalidated_on_no_imports(self, service, tmp_path, monkeypatch):
@@ -386,12 +375,11 @@ class TestImportModelIntegration:
             lambda: tmp_path / "app_hf",
         )
 
-        # Ensure the cache dir does NOT exist
         assert not app_hf.exists()
 
         src_dir = tmp_path / "source"
         src_dir.mkdir()
-        _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny.en")
+        _make_model_cache_dir(src_dir, _REPO_TINY)
 
         monkeypatch.setattr(
             "voice_typer.server.tray_models.invalidate_model_availability_cache",
@@ -401,8 +389,7 @@ class TestImportModelIntegration:
         result = service.import_model(str(src_dir))
 
         assert result["success"] is True
-        assert "tiny.en" in result["imported"]
-        # The app cache dir should have been created
+        assert "tiny" in result["imported"]
         assert app_hf.exists(), "import_model should create the app's HF cache dir if missing"
 
     def test_found_includes_all_matched_models(self, service, tmp_path, monkeypatch):
@@ -415,18 +402,16 @@ class TestImportModelIntegration:
 
         src_dir = tmp_path / "source"
         src_dir.mkdir()
-        _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny.en")
-        _make_model_cache_dir(src_dir, "Systran/faster-whisper-small.en")
-        _make_model_cache_dir(src_dir, "Systran/faster-whisper-medium.en")
+        _make_model_cache_dir(src_dir, _REPO_TINY)
+        _make_model_cache_dir(src_dir, _REPO_TURBO)
+        _make_model_cache_dir(src_dir, _REPO_PARKEET)
 
-        # Make small.en fail
+        # Make large-v3-turbo fail
         original_copytree = shutil.copytree
 
-        # Use *args because shutil.copytree recursively calls itself
-        # with 7 positional arguments internally.
         def _failing_copytree(*args, **kwargs):
             dst = args[1]  # second positional arg is the destination
-            if "small" in str(dst):
+            if "large-v3-turbo" in str(dst):
                 raise OSError(f"Disk full writing to {dst}")
             return original_copytree(*args, **kwargs)
 
@@ -439,13 +424,13 @@ class TestImportModelIntegration:
         result = service.import_model(str(src_dir))
 
         # All three should be in 'found'
-        assert set(result["found"]) == {"tiny.en", "small.en", "medium.en"}, (
+        assert set(result["found"]) == {"tiny", "large-v3-turbo", "parakeet"}, (
             f"Expected all 3 models in found, got {result['found']}"
         )
-        # Only 2 should be imported (small.en failed)
-        assert set(result["imported"]) == {"tiny.en", "medium.en"}
+        # Only 2 should be imported (large-v3-turbo failed)
+        assert set(result["imported"]) == {"tiny", "parakeet"}
         assert len(result["errors"]) == 1
-        assert result["errors"][0]["model"] == "small.en"
+        assert result["errors"][0]["model"] == "large-v3-turbo"
 
 
 class TestImportModelProtocolDrift:

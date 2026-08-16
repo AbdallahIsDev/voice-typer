@@ -40,6 +40,7 @@ from voice_typer.server.config_validators import (
     STREAMING_LEFT_OVERLAP_SECONDS_MIN,
     STREAMING_RIGHT_GUARD_SECONDS_MIN,
 )
+from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE, NO_MODEL_SIZE
 
 log = logging.getLogger("voice_typer.server.config")
 
@@ -260,7 +261,16 @@ def _validate_model_path(data: dict[str, Any]) -> None:
 
     Extracted verbatim from ``load()``. If the on-disk
     ``model_size`` is not in the allowlist (e.g. a stale entry from
-    a previous build), reset to ``"small.en"`` (the default).
+    a previous build, or a model that was removed from the catalog),
+    reset to ``DEFAULT_MODEL_SIZE`` (the canonical default — see
+    ``voice_typer/server/model_registry.py``; change the default in
+    that ONE place).
+
+    ``NO_MODEL_SIZE`` (the empty string) is a REAL value, not a
+    correction: it means the user has genuinely not selected a model
+    (see ``model_registry.NO_MODEL_SIZE``). It is preserved as-is —
+    the app reports "No model selected" and waits for the user to pick
+    one instead of silently resetting to the default.
 
     the reset is now logged at WARNING and appended to
     ``data["_load_warnings"]`` so the renderer can surface a
@@ -279,15 +289,19 @@ def _validate_model_path(data: dict[str, Any]) -> None:
     if "model_size" not in data:
         return
     _model_size = data.get("model_size")
+    if _model_size == NO_MODEL_SIZE:
+        # Genuine "no model selected" state — valid, nothing to reset.
+        return
     if _model_size not in ALLOWED_USER_MODELS:
         log.warning(
-            "[CONFIG] model_size=%r not in allowlist %s; resetting to default 'small.en'",
+            "[CONFIG] model_size=%r not in allowlist %s; resetting to default %r",
             _model_size,
             sorted(ALLOWED_USER_MODELS),
+            DEFAULT_MODEL_SIZE,
         )
-        data["model_size"] = "small.en"
+        data["model_size"] = DEFAULT_MODEL_SIZE
         data.setdefault("_load_warnings", []).append(
-            f"model_size={_model_size!r} not in allowlist, reset to 'small.en'"
+            f"model_size={_model_size!r} not in allowlist, reset to {DEFAULT_MODEL_SIZE!r}"
         )
 
 

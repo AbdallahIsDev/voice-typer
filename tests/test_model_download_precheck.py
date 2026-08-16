@@ -4,11 +4,11 @@
 configured model actually EXISTS before entering the "Loading model"
 state. When it is missing:
 
-- the tray tooltip must NOT advertise the stale ``[small.en]`` suffix
+- the tray tooltip must NOT advertise the stale ``[tiny]`` suffix
   (the name comes from ``model_size`` in config, which survives the
   model being deleted / never downloaded);
 - the tray state message and the Windows notification must be GENERIC
-  ("Open the Models page to download a model") with NO model/backend
+  ("Open the models page to download a model") with NO model/backend
   name;
 - ``load_background`` must refuse BEFORE the heavy engine import /
   LOADING state (the load path would raise ``ModelNotDownloadedError``
@@ -93,18 +93,18 @@ class TestIsActiveModelDownloaded:
         HF cache — return True so no pre-check / tooltip gate misfires."""
         from voice_typer.server.tray_models import is_active_model_downloaded
 
-        cfg = SimpleNamespace(asr_backend="whisper", model_size="small.en")
+        cfg = SimpleNamespace(asr_backend="whisper", model_size="tiny")
         assert is_active_model_downloaded(cfg) is True
 
     def test_whisper_missing_model_false(self, tmp_config_dir):
-        cfg = Config(asr_backend="whisper", model_size="small.en")
+        cfg = Config(asr_backend="whisper", model_size="tiny")
         from voice_typer.server.tray_models import is_active_model_downloaded
 
         assert is_active_model_downloaded(cfg) is False
 
     def test_whisper_downloaded_true(self, tmp_config_dir):
-        _make_whisper_repo_dir(tmp_config_dir, "small.en")
-        cfg = Config(asr_backend="whisper", model_size="small.en")
+        _make_whisper_repo_dir(tmp_config_dir, "tiny")
+        cfg = Config(asr_backend="whisper", model_size="tiny")
         from voice_typer.server.tray_models import is_active_model_downloaded
 
         assert is_active_model_downloaded(cfg) is True
@@ -113,7 +113,7 @@ class TestIsActiveModelDownloaded:
         """Cloud backends have no local model — nothing to gate."""
         from voice_typer.server.tray_models import is_active_model_downloaded
 
-        assert is_active_model_downloaded(Config(asr_backend="groq", model_size="small.en")) is True
+        assert is_active_model_downloaded(Config(asr_backend="groq", model_size="tiny")) is True
 
     def test_qwen_path_dir_true(self, tmp_config_dir):
         """Configured qwen_model_path pointing at an existing dir counts
@@ -152,26 +152,26 @@ class TestComputeTooltipModelSuffix:
     def test_missing_model_hides_suffix(self, tmp_config_dir):
         tray = TrayIcon(
             controller=_MockController(),
-            config=Config(asr_backend="whisper", model_size="small.en"),
+            config=Config(asr_backend="whisper", model_size="tiny"),
         )
         tooltip = tray._compute_tooltip(
             AppState.ERROR,
-            "The model is not downloaded yet. Open the Models page to download a model.",
+            "No models are available. Open the models page to download a model.",
         )
-        assert "[small.en]" not in tooltip, (
+        assert "[tiny]" not in tooltip, (
             f"A model that is NOT downloaded must not be advertised in the tooltip. Got: {tooltip!r}"
         )
         # The generic message survives.
-        assert "Open the Models page to download a model" in tooltip
+        assert "Open the models page to download a model" in tooltip
 
     def test_downloaded_model_shows_suffix(self, tmp_config_dir):
-        _make_whisper_repo_dir(tmp_config_dir, "small.en")
+        _make_whisper_repo_dir(tmp_config_dir, "tiny")
         tray = TrayIcon(
             controller=_MockController(),
-            config=Config(asr_backend="whisper", model_size="small.en"),
+            config=Config(asr_backend="whisper", model_size="tiny"),
         )
         tooltip = tray._compute_tooltip(AppState.IDLE, "")
-        assert "[small.en]" in tooltip, (
+        assert "[tiny]" in tooltip, (
             f"A downloaded model SHOULD be named in the tooltip. Got: {tooltip!r}"
         )
 
@@ -211,7 +211,7 @@ class TestLoadBackgroundPrecheck:
     """``load_background`` refuses early when the model is missing."""
 
     def test_missing_model_refuses_before_heavy_import(self, tmp_config_dir):
-        mm, app = _make_mm(Config(asr_backend="whisper", model_size="small.en"))
+        mm, app = _make_mm(Config(asr_backend="whisper", model_size="tiny"))
 
         mm.load_background()
 
@@ -222,20 +222,20 @@ class TestLoadBackgroundPrecheck:
         states = [c.args[0] for c in app.tray.set_state.call_args_list]
         assert any("ERROR" in str(s) for s in states), f"expected ERROR state, got {states}"
         msgs = [c.args[1] for c in app.tray.set_state.call_args_list if len(c.args) > 1]
-        assert any("Open the Models page to download a model" in (m or "") for m in msgs), msgs
-        assert all("small.en" not in (m or "") for m in msgs), (
+        assert any("Open the models page to download a model" in (m or "") for m in msgs), msgs
+        assert all("tiny" not in (m or "") for m in msgs), (
             "refusal message must NOT name the missing model"
         )
         # Windows notification is generic too — no backend name.
         notified = [c.args[1] for c in app.tray.notify.call_args_list]
-        assert any("Open the Models page to download a model" in (m or "") for m in notified), notified
+        assert any("Open the models page to download a model" in (m or "") for m in notified), notified
         assert all("Whisper" not in (m or "") for m in notified), notified
         # A pending dictation must be cleared (no auto-start loop).
         assert app._pending_dictation is False
 
     def test_downloaded_model_proceeds_to_load(self, tmp_config_dir):
-        _make_whisper_repo_dir(tmp_config_dir, "small.en")
-        mm, app = _make_mm(Config(asr_backend="whisper", model_size="small.en"))
+        _make_whisper_repo_dir(tmp_config_dir, "tiny")
+        mm, app = _make_mm(Config(asr_backend="whisper", model_size="tiny"))
 
         mm.load_background()
 
@@ -254,14 +254,14 @@ class TestGenericNotDownloadedMessages:
         from voice_typer.server import i18n
 
         s = i18n.t("state.model_manager.model_not_downloaded")
-        assert "Open the Models page to download a model." in s
+        assert "Open the models page to download a model." in s
         assert "{backend}" not in s
-        assert "model is not downloaded yet" in s
+        assert "No models are available" in s
 
     def test_notify_message_generic(self):
         from voice_typer.server import i18n
 
         s = i18n.t("notify.model_manager.model_not_downloaded")
-        assert "Open the Models page to download a model." in s
+        assert "Open the models page to download a model." in s
         assert "{backend}" not in s
-        assert "model is not downloaded yet" in s
+        assert "No models are available" in s

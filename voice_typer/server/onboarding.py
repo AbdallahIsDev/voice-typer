@@ -15,9 +15,8 @@ Step 5: Consent — consolidated grant of every consent flag (voice
         convenience; the renderer persists each toggle immediately via
         the allowlisted set_config fields, so no backend-side
         collection is needed.
-Step 6: Model selection — tiny.en (fastest), small.en (recommended),
-        medium.en (best accuracy), plus multilingual variants and
-        Parakeet ( / )
+Step 6: Model selection — tiny (default), large-v3, large-v3-turbo
+        (multilingual Whisper variants), plus Parakeet ( / )
 Step 7: Done — app starts loading the model
 """
 
@@ -27,6 +26,7 @@ from pathlib import Path
 
 from voice_typer.server import onboarding_status
 from voice_typer.server.config import DEFAULT_HOTKEY
+from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
 from voice_typer.server.server_platform.macos_bundle_id import resolve_host_bundle_id
 
 log = logging.getLogger(__name__)
@@ -81,7 +81,8 @@ class OnboardingController:
         self.selected_microphone: str | None = None
         # NATIVE-001: default hotkey is Caps Lock on all platforms
         self.selected_hotkey: str = DEFAULT_HOTKEY
-        self.selected_model: str = "small.en"
+        # Canonical default — see ``model_registry.DEFAULT_MODEL_SIZE``.
+        self.selected_model: str = DEFAULT_MODEL_SIZE
         # The Model step's local-vs-cloud choice. "local" downloads and
         # runs a local AI model (the user clicks Download explicitly —
         # the app NEVER auto-downloads); "cloud" connects a cloud
@@ -370,7 +371,7 @@ class OnboardingController:
         self._current_step = 0
         self.selected_microphone = None
         self.selected_hotkey = DEFAULT_HOTKEY
-        self.selected_model = "small.en"
+        self.selected_model = DEFAULT_MODEL_SIZE
         self.selected_backend = "local"
         log.info("[ONBOARDING] Reset (markers removed)")
 
@@ -662,41 +663,15 @@ class OnboardingController:
     # a list like ``["en"]`` means English-only). The renderer
     # renders these as badges on each model card.
     #
-    # previously this list only contained the three English-
-    # only Whisper variants (tiny.en / small.en / medium.en). The
-    # multilingual Whisper variants (tiny / small / medium without
-    # the ``.en`` suffix) and the NVIDIA Parakeet model were
-    # excluded, so non-English users had no in-wizard path to pick
-    # a multilingual model. They're now first-class entries.
+    # The catalog was pruned 2026-08-15 to the Whisper variants the
+    # user kept (``tiny`` default, ``large-v3``, ``large-v3-turbo``)
+    # plus Parakeet — see ``MODEL_REGISTRY`` in ``model_registry.py``
+    # for the canonical list. ``DEFAULT_MODEL_SIZE`` is the default
+    # pre-selection; the wizard shows a "Default: <name>" hint when the
+    # user keeps it. ``languages: None`` means "all languages" — the
+    # renderer renders a "Multilingual" badge for these entries.
     MODEL_OPTIONS = [
-        # ── English-only Whisper variants ───────────────────────────
-        {
-            "name": "tiny.en",
-            "size": "~75MB",
-            "speed": "Fastest",
-            "description": "Best for quick notes",
-            "vram_gb": 0.5,
-            "languages": ["en"],
-        },
-        {
-            "name": "small.en",
-            "size": "~466MB",
-            "speed": "Fast",
-            "description": "Recommended for most users",
-            "vram_gb": 1.0,
-            "languages": ["en"],
-        },
-        {
-            "name": "medium.en",
-            "size": "~1.5GB",
-            "speed": "Slow",
-            "description": "Best accuracy",
-            "vram_gb": 2.0,
-            "languages": ["en"],
-        },
-        # ── Multilingual Whisper variants () ──────────────────
-        # ``languages: None`` means "all languages" — the renderer
-        # should render a "Multilingual" badge for these entries.
+        # ── Multilingual Whisper variants ───────────────────────────
         {
             "name": "tiny",
             "size": "~75MB",
@@ -706,18 +681,18 @@ class OnboardingController:
             "languages": None,
         },
         {
-            "name": "small",
-            "size": "~466MB",
-            "speed": "Fast",
-            "description": "Multilingual — recommended for most users",
-            "vram_gb": 1.0,
+            "name": "large-v3",
+            "size": "~3GB",
+            "speed": "Slow",
+            "description": "Multilingual — highest accuracy, GPU recommended",
+            "vram_gb": 4.0,
             "languages": None,
         },
         {
-            "name": "medium",
-            "size": "~1.5GB",
-            "speed": "Slow",
-            "description": "Multilingual — best accuracy",
+            "name": "large-v3-turbo",
+            "size": "~809MB",
+            "speed": "Fast",
+            "description": "Multilingual — near-large-v3 accuracy at 8x speed",
             "vram_gb": 2.0,
             "languages": None,
         },

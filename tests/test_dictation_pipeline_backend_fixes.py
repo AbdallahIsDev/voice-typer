@@ -62,6 +62,7 @@ from voice_typer.server.dictation_pipeline import (
     DictationPipeline,
     _friendly_transcription_error,
 )
+from voice_typer.server.tray_types import AppState
 
 # ─── Test helpers ───────────────────────────────────────────────────────
 
@@ -834,12 +835,17 @@ class TestRunCatchesBackendNotLoadedError:
         # Tray must have been set to ERROR state.
         set_state_calls = [c.args for c in app.tray.set_state.call_args_list]
         # AppState.ERROR is the first arg of the failure-path call.
-        # We just check that "Transcription failed" appears in the
-        # status text of some set_state call.
-        assert any("Transcription failed" in str(args) for args in set_state_calls), (
+        # The tooltip must carry the mapped friendly reason (the same
+        # text the notification shows) instead of a bare
+        # "Transcription failed" label — so check the "model was not
+        # loaded" hint appears in the ERROR-state message.
+        assert any(
+            args[0] == AppState.ERROR and "model was not loaded" in str(args[1])
+            for args in set_state_calls
+        ), (
             "UE-47: run()'s except Exception block must set tray to ERROR "
-            "state with 'Transcription failed' status. Got set_state "
-            f"calls: {[str(args) for args in set_state_calls]}"
+            "state with the friendly 'model was not loaded' reason. Got "
+            f"set_state calls: {[str(args) for args in set_state_calls]}"
         )
 
     def test_run_does_not_call_handle_empty_transcription_when_backend_unloaded(self):

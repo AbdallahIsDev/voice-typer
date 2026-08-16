@@ -31,7 +31,6 @@
 	},
 	"phrase_corrections": [
 		["to 2 ", "to "],
-		[" to 2", " to"],
 		["they working", "it's working"],
 		["this me either", "I'm also"],
 		["treat 3", "treat this"],

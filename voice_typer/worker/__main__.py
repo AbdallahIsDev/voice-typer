@@ -25,7 +25,7 @@ Shutdown (master plan §7.2):
   and closes the WS. The asyncio loop drains, ``run()`` returns
   ``EXIT_OK``, and the lock file is released in the ``finally`` block.
   The shutdown timer captures the wall-clock duration for the
-  ``[SHUTDOWN] worker shutdown complete_<duration>`` log line (C-LOG-2).
+  ``[SHUTDOWN] worker shutdown complete <duration>`` log line (C-LOG-2).
 - **Forceful**: SIGTERM (POSIX) / ``taskkill`` (Windows) from the host's
   kill-children backstop. The SIGTERM handler also calls
   ``stop_event.set()`` (POSIX) so the same graceful code path runs; on

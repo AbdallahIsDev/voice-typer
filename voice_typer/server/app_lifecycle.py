@@ -78,6 +78,14 @@ if TYPE_CHECKING:
 # see module docstring.
 log = logging.getLogger("voice_typer.server.app")
 
+# The ``[QUIT] Quitting ...`` line must appear ONCE per process. A quit
+# can be triggered twice back-to-back (tray Quit + Electron's quit IPC,
+# or SIGTERM racing the tray quit) and the re-entry guard in
+# ``quit_app`` sits AFTER this log line (deliberately — the event push
+# must run first, F-06), so without this flag both calls logged the
+# identical line within the same second.
+_quit_line_logged = False
+
 
 class LifecycleController:
     """owns restart / quit / relaunch-ack lifecycle.
@@ -150,7 +158,10 @@ class LifecycleController:
                 one-line delegate.
         """
         app = self._app
-        log.info("[QUIT] Quitting %s", APP_NAME)
+        global _quit_line_logged
+        if not _quit_line_logged:
+            _quit_line_logged = True
+            log.info("[QUIT] Quitting %s", APP_NAME)
 
         # Item 12: If recording, discard the recording before quitting
         # so we don't leave the mic open or lose the in-flight audio.
