@@ -242,6 +242,24 @@ jobs:
             echo '#!/bin/sh' > "bin/python-sidecar-${t}"
             chmod +x "bin/python-sidecar-${t}"
           done
+          # 1b. Runtime-pack ML worker binary (externalBin entry
+          # `bin/voice-typer-worker`, same triple-appending rule — added
+          # by the runtime-pack split, plan-runtime-pack-split §6.2).
+          # Without this stub the tauri-build build script fails cargo
+          # check with: `resource path bin/voice-typer-worker-<triple>
+          # doesn't exist`.
+          echo '#!/bin/sh' > "bin/voice-typer-worker-${TRIPLE}"
+          chmod +x "bin/voice-typer-worker-${TRIPLE}"
+          for t in \
+            x86_64-pc-windows-msvc \
+            aarch64-pc-windows-msvc \
+            x86_64-apple-darwin \
+            aarch64-apple-darwin \
+            x86_64-unknown-linux-gnu \
+            aarch64-unknown-linux-gnu; do
+            echo '#!/bin/sh' > "bin/voice-typer-worker-${t}"
+            chmod +x "bin/voice-typer-worker-${t}"
+          done
           # 2. Native key-listener binaries (one per OS).
           echo 'placeholder' > resources/native/windows-key-listener.exe
           echo 'placeholder' > resources/native/macos-key-listener

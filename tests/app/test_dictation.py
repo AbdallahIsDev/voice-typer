@@ -133,6 +133,7 @@ class TestStreamingIntegration:
         app.config.streaming_transcription = True
         app.recorder = MagicMock()
         app.recorder.recording = False
+
         # ``RecordingLifecycle._start_impl`` spawns a daemon worker that
         # re-checks ``app.recorder.recording`` AFTER ``app.recorder.start()``
         # returns (the re-check guards against a concurrent stop/cancel
@@ -523,4 +524,3 @@ class TestTryLoadModel:
         app.models.try_load()
         # pyrefly: ignore [unnecessary-comparison]
         assert app.models._model_load_attempted is True
-

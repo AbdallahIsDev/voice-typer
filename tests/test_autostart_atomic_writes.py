@@ -322,4 +322,3 @@ class TestOnboardingFailCountAtomicWrite:
 # pinned by ``tests/handlers/test_status_handlers.py``
 # (``TestOpenPrewarmLog``). The placeholder-atomic-write contract
 # still does not apply (no file is written).
-
