@@ -67,7 +67,7 @@ def _probe_ort_device() -> str | None:
     on Windows raises ``RuntimeError`` during ``import onnxruntime``).
     """
     try:
-        import onnxruntime as ort
+        import onnxruntime as ort  # type: ignore[import-untyped]
 
         return str(ort.get_device())
     except Exception:
@@ -84,7 +84,7 @@ def _probe_gpu_memory_via_pynvml() -> tuple[float | None, float | None]:
     best-effort probe, not a hard dependency.
     """
     try:
-        import pynvml  # type: ignore[import-untyped]
+        import pynvml  # type: ignore[import-untyped, import-not-found]
     except ImportError:
         return (None, None)
     try:

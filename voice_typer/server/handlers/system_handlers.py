@@ -20,6 +20,7 @@ reference shape the Rust host mirrors.
 import contextlib
 import subprocess
 import unicodedata
+from typing import cast
 
 from voice_typer.server import event_bus
 from voice_typer.server.branding import APP_NAME
@@ -670,8 +671,14 @@ class SystemHandlersMixin(HandlerBase):
             if error:
                 return error
             assert validated is not None  # narrowed by the error guard above
-            locale = validated["locale"]
-            labels = validated["labels"]
+            # The schema above enforces ``locale: str`` and ``labels:
+            # dict`` — cast from the generic ``dict[str, object]``
+            # envelope so the tray-i18n helpers get their declared
+            # types. The label-key/value loop below still validates the
+            # dict's contents (defense-in-depth against a future schema
+            # widening).
+            locale = cast(str, validated["locale"])
+            labels = cast(dict[str, str] | None, validated["labels"])
             # validate label dict contents. Keys must be
             # strings <=64 chars (tray label keys like "app_name",
             # "toggle_dictation" are all <=32 chars today); values must

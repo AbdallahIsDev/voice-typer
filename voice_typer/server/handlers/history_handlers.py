@@ -112,7 +112,12 @@ class HistoryHandlersMixin(HandlerBase):
             before_timestamp = validated.get("before_timestamp")
             before_id_raw = validated.get("before_id")
             before_id = None
-            if before_id_raw is not None and not isinstance(before_id_raw, bool):
+            # Schema: ``(int, str)`` with ``reject_bool``. Narrow so the
+            # ``int()`` conversion type-checks; the explicit bool check
+            # is kept as defense-in-depth (bool subclasses int).
+            if before_id_raw is not None and isinstance(
+                before_id_raw, (int, str)
+            ) and not isinstance(before_id_raw, bool):
                 before_id = int(before_id_raw)
                 if before_id < 0:
                     resp["type"] = "error"
@@ -402,7 +407,12 @@ class HistoryHandlersMixin(HandlerBase):
             before_timestamp = validated.get("before_timestamp")
             before_id_raw = validated.get("before_id")
             before_id = None
-            if before_id_raw is not None and not isinstance(before_id_raw, bool):
+            # Schema: ``(int, str)`` with ``reject_bool``. Narrow so the
+            # ``int()`` conversion type-checks; the explicit bool check
+            # is kept as defense-in-depth (bool subclasses int).
+            if before_id_raw is not None and isinstance(
+                before_id_raw, (int, str)
+            ) and not isinstance(before_id_raw, bool):
                 before_id = int(before_id_raw)
                 if before_id < 0:
                     resp["type"] = "error"
@@ -466,7 +476,12 @@ class HistoryHandlersMixin(HandlerBase):
             before_timestamp = validated.get("before_timestamp")
             before_id_raw = validated.get("before_id")
             before_id = None
-            if before_id_raw is not None and not isinstance(before_id_raw, bool):
+            # Schema: ``(int, str)`` with ``reject_bool``. Narrow so the
+            # ``int()`` conversion type-checks; the explicit bool check
+            # is kept as defense-in-depth (bool subclasses int).
+            if before_id_raw is not None and isinstance(
+                before_id_raw, (int, str)
+            ) and not isinstance(before_id_raw, bool):
                 before_id = int(before_id_raw)
                 if before_id < 0:
                     resp["type"] = "error"

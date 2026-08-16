@@ -314,7 +314,29 @@ class VocabularyMixin(ServiceMixinBase):
                     exc_info=True,
                 )
 
+        # Drop usage records for corrections that no longer exist —
+        # ``data`` is the FULL merged payload the renderer sent, so
+        # deleting a correction also removes its counter (the usage
+        # file can't grow with dead entries). Best-effort: a failure
+        # here must not fail the vocabulary save.
+        try:
+            self._app.correction_usage.prune_entries(data or {})
+        except Exception:
+            log.debug(
+                "[SERVICE] correction-usage prune after save failed",
+                exc_info=True,
+            )
+
         return {"imported_categories": len(user_only)}
+
+    def get_correction_usage(self) -> dict[str, object]:
+        """Return the per-correction usage snapshot.
+
+        Feeds the Vocabulary page's "used Nx / last triggered" per
+        entry and the Analytics page's corrections-applied rate
+        (corrections ÷ dictations, from the ``*_by_day`` maps).
+        """
+        return self._app.correction_usage.get_snapshot()
 
     def test_vocabulary_correction(self, text: str) -> dict[str, object]:
         """Apply the LIVE vocabulary rules to a phrase ("Test corrections" panel).
@@ -330,5 +352,8 @@ class VocabularyMixin(ServiceMixinBase):
             from voice_typer.server.vocabulary import VocabularyManager
 
             vm = VocabularyManager(config_dir=self._app.config.config_dir)
-        output = vm.apply_to_text(text)
+        # track_usage=False: the "Test corrections" panel is a
+        # PREVIEW — firing it must not inflate the real usage numbers
+        # that the Vocabulary/Analytics pages report.
+        output = vm.apply_to_text(text, track_usage=False)
         return {"input": text, "output": output, "applied": output != text}

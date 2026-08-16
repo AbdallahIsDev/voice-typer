@@ -189,7 +189,7 @@ def _log_mel_spectrogram(audio: np.ndarray) -> np.ndarray:
     if audio.ndim != 1:
         audio = audio.reshape(-1)
 
-    from faster_whisper.feature_extractor import FeatureExtractor
+    from faster_whisper.feature_extractor import FeatureExtractor  # type: ignore[import-untyped]
 
     # feature_size=128 + Whisper defaults gives exactly the Qwen3-ASR
     # mel params (16 kHz, 128 bins, n_fft=400, hop=160, 0-8 kHz).
@@ -298,7 +298,7 @@ class QwenOnnxModel:
         point in ``QwenEngine.load()`` stays one line. Raises on any
         missing required file (fail-closed).
         """
-        import onnxruntime as ort
+        import onnxruntime as ort  # type: ignore[import-untyped]
 
         if model_path is not None:
             self.model_path = Path(model_path)
@@ -332,7 +332,7 @@ class QwenOnnxModel:
         tok_path = base / "tokenizer.json"
         if not tok_path.is_file():
             raise FileNotFoundError(f"Qwen3-ASR ONNX model missing tokenizer.json in {base}")
-        from tokenizers import Tokenizer
+        from tokenizers import Tokenizer  # type: ignore[import-untyped]
 
         self._tokenizer = Tokenizer.from_file(str(tok_path))
 

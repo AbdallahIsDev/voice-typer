@@ -55,6 +55,7 @@ def _make_controller() -> RecordingController:
     app = MagicMock()
     # ``threading.Event`` for the busy flag — MagicMock's auto-event
     # would not implement is_set/clear/set semantics correctly.
+    app.config.hotkey = "<f2>"
     app._busy_event = threading.Event()
     app._busy_event.set()  # not busy = set (per the project's convention)
     app._cycle_counter = 0

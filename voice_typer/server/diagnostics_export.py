@@ -384,7 +384,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 # available) provides the GPU name + total VRAM, since
                 # ORT's ``get_device()`` returns only "cuda" or "cpu".
                 try:
-                    import onnxruntime as ort
+                    import onnxruntime as ort  # type: ignore[import-untyped]
 
                     sys_info.append(f"onnxruntime version: {ort.__version__}")
                     sys_info.append(

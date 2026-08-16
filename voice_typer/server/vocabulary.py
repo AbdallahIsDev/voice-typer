@@ -15,12 +15,18 @@ The vocabulary is applied after text cleanup and before template matching
 in the pipeline: transcribe → text cleanup → vocabulary → templates → auto-punctuate → paste
 """
 
+from __future__ import annotations
+
 import contextlib
 import json
 import logging
+import re
 import threading
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from voice_typer.server.correction_usage import CorrectionUsageTracker
 
 log = logging.getLogger(__name__)
 
@@ -51,12 +57,26 @@ MAX_REPLACEMENT_LENGTH = 500
 class VocabularyManager:
     """Manages custom vocabulary entries across 6 categories."""
 
-    def __init__(self, config_dir: Path | None = None, bundled_path: Path | None = None):
+    def __init__(
+        self,
+        config_dir: Path | None = None,
+        bundled_path: Path | None = None,
+        usage_tracker: CorrectionUsageTracker | None = None,
+    ):
+        """
+        ``usage_tracker`` — optional shared
+        :class:`~voice_typer.server.correction_usage.CorrectionUsageTracker`
+        injected by the app so dictation records hits into ONE
+        app-wide counter. When None (standalone / tests / cold-start
+        fallback), a tracker is lazily created over the same
+        config dir on first use.
+        """
         if config_dir is None:
             from voice_typer.server.config import _config_dir
 
             config_dir = _config_dir()
         self._config_dir = config_dir
+        self._usage_tracker: CorrectionUsageTracker | None = usage_tracker
         self._user_path = config_dir / VOCAB_FILENAME
 
         if bundled_path is None:
@@ -83,7 +103,7 @@ class VocabularyManager:
         # (add_entry/remove_entry/import_json/_load_and_merge). Rebuilt on
         # first apply_to_text() call after invalidation. At 5000 entries this
         # saves ~50ms per dictation cycle (was recompiling per phrase per call).
-        self._compiled_patterns: dict[str, list[tuple[object, str]]] | None = None
+        self._compiled_patterns: dict[str, list[tuple[re.Pattern[str], str, str]]] | None = None
         self._load_and_merge()
 
     def _invalidate_pattern_cache(self) -> None:
@@ -101,13 +121,16 @@ class VocabularyManager:
         """
         self._compiled_patterns = None
 
-    def _get_compiled_patterns(self, category: str) -> list[tuple[object, str]]:
-        """return cached compiled patterns for a phrase category, rebuilding if needed."""
+    def _get_compiled_patterns(self, category: str) -> list[tuple[re.Pattern[str], str, str]]:
+        """return cached compiled patterns for a phrase category, rebuilding if needed.
+
+        Each cached entry is ``(compiled_pattern, good, original)`` —
+        ``original`` is kept so ``apply_to_text`` can report WHICH
+        correction fired to the usage tracker.
+        """
         if self._compiled_patterns is None:
             self._compiled_patterns = {}
         if category not in self._compiled_patterns:
-            import re as _re
-
             with self._lock:
                 entries = self._data.get(category, [])
                 if not isinstance(entries, list):
@@ -119,7 +142,7 @@ class VocabularyManager:
                     reverse=True,
                 )
             self._compiled_patterns[category] = [
-                (_re.compile(_re.escape(entry[0]), _re.IGNORECASE), entry[1])
+                (re.compile(re.escape(entry[0]), re.IGNORECASE), entry[1], entry[0])
                 for entry in sorted_entries
                 if isinstance(entry, list | tuple) and len(entry) >= 2
             ]
@@ -675,7 +698,21 @@ class VocabularyManager:
 
     # ── Apply vocabulary to text ─────────────────────────────────────
 
-    def apply_to_text(self, text: str) -> str:
+    @property
+    def usage_tracker(self) -> CorrectionUsageTracker:
+        """The shared per-correction usage tracker (see correction_usage.py).
+
+        Lazily created over the same config dir when the app didn't
+        inject one (standalone / tests / cold-start fallback), so
+        ``apply_to_text`` can always report firings.
+        """
+        if self._usage_tracker is None:
+            from voice_typer.server.correction_usage import CorrectionUsageTracker
+
+            self._usage_tracker = CorrectionUsageTracker(self._config_dir)
+        return self._usage_tracker
+
+    def apply_to_text(self, text: str, *, track_usage: bool = True) -> str:
         """Apply vocabulary corrections to transcribed text.
 
         Processes categories in order:
@@ -685,6 +722,12 @@ class VocabularyManager:
         4. technical_terms (word-level)
         5. names (word-level)
         6. products (word-level)
+
+        When ``track_usage`` is True (the dictation path), every
+        correction that fires is reported to the usage tracker
+        (per-correction counts + per-day totals for the Analytics
+        rate). The "Test corrections" panel passes False so previewing
+        a phrase never inflates real usage numbers.
         """
         # Pre-compiled regexes shared with text_cleanup — avoids the
         # 200 re-cache lookups per dictation (50 words × 4 categories)
@@ -692,20 +735,27 @@ class VocabularyManager:
         # incurred.
         from voice_typer.server.text_cleanup import _RE_MISSPELL_WRAP, _RE_TOKEN_KEY
 
+        # (category, original, count) hits for the usage tracker.
+        hits: list[tuple[str, str, int]] = []
+
         # Phrase-level corrections first (longer matches first)
         # use cached compiled patterns instead of recompiling per
         # phrase per call. Cache is invalidated on any mutation.
         for cat in ("phrase_corrections", "extra_word_patterns"):
             compiled = self._get_compiled_patterns(cat)
-            for pattern, good in compiled:
+            for pattern, good, original in compiled:
                 # use a callable replacement to prevent
                 # regex backref interpretation. Previously `pattern.sub(good, text)`
                 # interpreted `\1`, `\g<0>`, `\9` etc. in the user-supplied
                 # `good` string. A malicious or accidental entry like
                 # `["x", "\\9"]` raises `re.error` on every dictation
                 # cycle (DoS). The lambda treats `good` as a literal
-                # string with no backref processing.
-                text = pattern.sub(lambda _m, _g=good: _g, text)
+                # string with no backref processing. ``subn`` also
+                # returns the substitution count, which drives the
+                # usage tracker.
+                text, count = pattern.subn(lambda _m, _g=good: _g, text)
+                if count:
+                    hits.append((cat, original, count))
 
         # Word-level corrections — single tokenization pass shared
         # across all 4 dict-based categories (previously the loop
@@ -722,10 +772,13 @@ class VocabularyManager:
         # dictation cycle (~30K ref-copies); post-fix only the 4 dict
         # references are captured (no entry copies).
         with self._lock:
-            word_cats = [self._data.get(cat) for cat in ("misspellings", "technical_terms", "names", "products")]
+            word_cats = [
+                (cat, self._data.get(cat))
+                for cat in ("misspellings", "technical_terms", "names", "products")
+            ]
 
         tokens = text.split(" ")
-        for entries in word_cats:
+        for cat, entries in word_cats:
             # Skip non-dicts and empty categories — avoids the per-token
             # ``key in entries`` lookup cost when the category has no
             # entries (common for the bundled defaults where names and
@@ -738,6 +791,14 @@ class VocabularyManager:
                 if correction is not None:
                     match = _RE_MISSPELL_WRAP.match(token)
                     tokens[i] = f"{match.group(1)}{correction}{match.group(3)}" if match else correction
+                    hits.append((cat, key, 1))
         text = " ".join(tokens)
+
+        if track_usage and hits:
+            try:
+                self.usage_tracker.record_corrections(hits)
+            except Exception:
+                # Usage tracking must NEVER break the dictation path.
+                log.warning("[VOCAB] Failed to record correction usage", exc_info=True)
 
         return text

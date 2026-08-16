@@ -164,6 +164,22 @@ class VocabularyHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "save_vocabulary")
         return resp
 
+    def _handle_get_correction_usage(self, data: dict | None, resp: dict) -> dict | None:
+        """Handle the ``get_correction_usage`` IPC command.
+
+        Returns the per-correction usage snapshot (counts + last-trigger
+        timestamps per entry, plus per-day correction/dictation totals)
+        so the Vocabulary page can show "used Nx" and the Analytics
+        page can show a corrections-applied rate.
+        """
+        try:
+            result = self.service.get_correction_usage()
+            resp["type"] = "correction_usage"
+            resp["data"] = result
+        except Exception as exc:
+            self._respond_with_error(resp, exc, "get_correction_usage")
+        return resp
+
     def _handle_test_vocabulary_correction(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``test_vocabulary_correction`` IPC command.
 
@@ -187,6 +203,7 @@ class VocabularyHandlersMixin(HandlerBase):
                 resp["type"] = "error"
                 resp["data"] = error["data"]
                 return resp
+            assert _validated is not None  # narrowed by the error guard above
             text = str(_validated.get("text", "") or "")
             result = self.service.test_vocabulary_correction(text)
             resp["type"] = "ack"

@@ -144,7 +144,7 @@ def is_available() -> bool:
     can be constructed without a network round-trip.
     """
     try:
-        import onnxruntime  # noqa: F401
+        import onnxruntime  # type: ignore[import-untyped]  # noqa: F401
     except ImportError:
         return False
     return _VAD_MODEL_PATH.exists()
@@ -347,6 +347,11 @@ def _run_one_inference(audio_1d: np.ndarray, sr: int) -> float:
         failure so the RMS fallback fires.
     """
     global _state
+    # ``_load_model`` sets these names before returning a non-None
+    # session; ``compute_vad_prob`` returns None (RMS fallback) when the
+    # model isn't loaded, so they are guaranteed set at every call site.
+    assert _input_name is not None
+    assert _state_name is not None
     # Silero v4 ONNX expects shape (1, N) — batch dim of 1.
     audio_batched = np.asarray(audio_1d, dtype=np.float32).reshape(1, -1)
     feed: dict[str, np.ndarray] = {

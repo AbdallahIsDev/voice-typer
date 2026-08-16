@@ -723,7 +723,14 @@ class LifecycleMixin:
         ``transcribe_offline_result``).
         """
         resp["type"] = "ack"
-        data = resp.setdefault("data", {})
+        # ResponseEnvelope is dict[str, object], so setdefault's static
+        # return type is `object` — cast to the dict it actually is at
+        # runtime so the resp_data["queued"] writes type-check. Named
+        # resp_data (not `data`) because the handler's REQUEST parameter
+        # is already `data`.
+        resp_data = typing.cast(
+            dict[str, object], resp.setdefault("data", {})
+        )
         # Cheap existence check — no hashing (§8.10).
         pack_missing = True
         try:
@@ -733,16 +740,16 @@ class LifecycleMixin:
         except Exception:  # noqa: BLE001 — fail-safe: assume missing (degrade, don't queue silently)
             log.debug("[PACK] transcribe_offline pack check failed", exc_info=True)
         if pack_missing:
-            data["queued"] = False
-            data["degraded"] = True
-            data["reason"] = "offline_pack_missing"
+            resp_data["queued"] = False
+            resp_data["degraded"] = True
+            resp_data["reason"] = "offline_pack_missing"
         else:
             # Minimal ack so the renderer's call() resolves instead of
             # timing out. The actual transcription comes back via the
             # transcribe_offline_result push event (see
             # ALLOWED_EVENT_TYPES in
             # src-tauri/src/sidecar/ws/event_protocol.rs).
-            data["queued"] = True
+            resp_data["queued"] = True
         return resp
 
     def _handle_check_offline_pack_update(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope:

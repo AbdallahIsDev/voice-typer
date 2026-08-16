@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from typing import Any
 
 from voice_typer.server.branding import APP_NAME
 
@@ -34,6 +35,11 @@ log = logging.getLogger(__name__)
 
 class _StorageStepMixin:
     """Mixin: history DB + crash-recovery storage step."""
+
+    # Set by ``DictationPipeline.__init__`` (``app: Any``). Declared on
+    # the mixin so pyrefly doesn't flag every ``self._app.*`` access —
+    # the attribute is provided by the composed parent class at runtime.
+    _app: Any
 
     def _store_result(self, text: str) -> None:
         """Step 8: Store in history DB and crash recovery.
@@ -132,6 +138,18 @@ class _StorageStepMixin:
                             "Could not save the transcription to the crash-recovery "
                             "buffer. Check the log file for details.",
                         )
+
+        # Per-correction usage tracking: count this completed dictation
+        # (denominator for the Analytics corrections-applied rate). Runs
+        # regardless of ``history_enabled`` — the vocabulary corrections
+        # fire even in incognito mode, so the rate's denominator must
+        # count every dictation. The tracker lives on the shared
+        # ``_vocabulary_manager`` (same config dir) and swallows its own
+        # errors, so this can never break the dictation path.
+        try:
+            self._app.correction_usage.record_dictation()
+        except Exception:
+            log.warning("[PIPELINE] Failed to record dictation usage", exc_info=True)
 
         # Save for repaste / undo
         self._app._last_transcription = text

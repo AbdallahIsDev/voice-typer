@@ -110,6 +110,11 @@ def make_fake_app() -> MagicMock:
     app.hotkeys = MagicMock(name="fake_app.hotkeys")
     app.recorder = MagicMock(name="fake_app.recorder")
     app.tray = MagicMock(name="fake_app.tray")
+    # Per-correction usage tracker (``correction_usage.py``) — read by
+    # the vocabulary service (``get_correction_usage`` IPC + the
+    # prune-after-save path). Child mock so handlers can stub
+    # ``record_dictation`` / ``get_snapshot`` / ``prune_entries``.
+    app.correction_usage = MagicMock(name="fake_app.correction_usage")
 
     # Private attributes still accessed by ipc_server / handlers.
     # _ipc_server is set by IPCServer.start(); pre-None to match real app.

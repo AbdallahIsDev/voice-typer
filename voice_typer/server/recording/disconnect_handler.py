@@ -523,9 +523,13 @@ class DisconnectHandler:
                 if callable(_device_lost_cb):
                     with contextlib.suppress(Exception):
                         _device_lost_cb()
-                elif getattr(recorder, "on_silence_auto_stop", None) is not None:
-                    with contextlib.suppress(Exception):
-                        recorder.on_silence_auto_stop()  # type: ignore[attr-defined]
+                else:
+                    _silence_stop_cb = getattr(
+                        recorder, "on_silence_auto_stop", None
+                    )
+                    if callable(_silence_stop_cb):
+                        with contextlib.suppress(Exception):
+                            _silence_stop_cb()
         except (AttributeError, TypeError, KeyError):
             # Programming bugs (missing attribute, wrong type, missing
             # dict key) must NOT be masked as "transient device

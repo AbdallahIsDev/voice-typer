@@ -64,6 +64,7 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
     # ``@runtime_checkable`` Protocol structurally (the check inspects
     # attribute NAMES via ``getattr_static``, not types).
     from voice_typer.server.config import Config
+    from voice_typer.server.correction_usage import CorrectionUsageTracker
     from voice_typer.server.history_db import HistoryDB
     from voice_typer.server.hotkey_dispatcher import HotkeyDispatcher
     from voice_typer.server.ipc_server import IPCServer
@@ -147,6 +148,22 @@ class AppProtocol(Protocol):
 
     tray: TrayIcon
     """Tray icon controller (``voice_typer.server.tray.TrayIcon``)."""
+
+    @property
+    def correction_usage(self) -> CorrectionUsageTracker:
+        """Per-correction usage tracker (``voice_typer.server.correction_usage.CorrectionUsageTracker``).
+
+        Shared with the live ``VocabularyManager`` so dictation records
+        corrections + dictations into ONE counter; the vocabulary service
+        reads it for the ``get_correction_usage`` IPC path and calls
+        ``prune_entries`` after a vocabulary save.
+
+        Declared as a read-only property to match ``VoiceTyperApp``'s
+        ``@property`` accessor — a settable-attribute declaration makes
+        the concrete app fail structural assignability (mypy: "expected
+        settable variable, got read-only attribute").
+        """
+        ...
 
     # ── Private attributes still accessed by ipc_server / handlers ─
     # These are private on VoiceTyperApp (leading underscore) but are
@@ -457,6 +474,7 @@ class ServiceProtocol(Protocol):
     # ── Vocabulary / Templates ─────────────────────────────────────
     def get_vocabulary(self) -> dict[str, object]: ...
     def save_vocabulary_with_diff(self, data: dict) -> dict[str, object]: ...
+    def get_correction_usage(self) -> dict[str, object]: ...
     def test_vocabulary_correction(self, text: str) -> dict[str, object]: ...
     def get_templates(self) -> list: ...
     def save_templates(self, templates: list) -> bool: ...

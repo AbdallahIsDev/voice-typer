@@ -533,18 +533,18 @@ class TestRegistryExtraction:
         # — 2026-08-14) brought it to 70.
         # run_prewarm (plan §6.3 addendum 2nd half, 2026-08-14 —
         # re-implemented to re-run the warm phase in-process instead of
-        # spawning the deleted subprocess) brought it to 71.
-        # The count is deliberately pinned here and in SECURITY.md —
-        # update all sources of truth together.
-        assert len(registry._COMMAND_REGISTRY) == 71, (
-            f"registry._COMMAND_REGISTRY must contain 71 entries "
-            f"(64 baseline + test_cloud_connection + "
-            f"add_trusted_endpoint + onboarding_set_backend + "
-            f"reset_macos_accessibility + reset_linux_permissions + "
-            f"check_accessibility + transcribe_offline + check_offline_pack_update "
-            f"+ 3 restored prewarm commands "
-            f"(get_prewarm_status, open_prewarm_log, run_prewarm - plan §6.3 "
-            f"addendum)); got "
+        # The registry holds ALL commands: the 71 forwarded ones (the
+        # allowlist in allowed-commands.ts — pinned in SECURITY.md) plus
+        # the 2 python-only commands (shutdown, tray_click) that never
+        # cross the Electron bridge. The count is deliberately pinned
+        # here and in SECURITY.md — update all sources of truth
+        # together. Adding a command to the registry WITHOUT the TS
+        # allowlist fails the parity test
+        # (test_electron_ipc_and_build.py::test_allowlist_matches_server_commands).
+        assert len(registry._COMMAND_REGISTRY) == 73, (
+            f"registry._COMMAND_REGISTRY must contain 73 entries "
+            f"(71 forwarded in allowed-commands.ts + shutdown + "
+            f"tray_click python-only); got "
             f"{len(registry._COMMAND_REGISTRY)}. "
             f"If the count drifted, update this test together with the "
             f"registry + the TS/Rust allowlists."

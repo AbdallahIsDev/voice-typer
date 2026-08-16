@@ -78,6 +78,20 @@ _FKEY_RE = re.compile(r"^f\d{1,2}$")
 _STRIP_BRACKETS_RE = re.compile(r"[<>]")
 
 
+def notification_hotkey_label(hotkey: object) -> str:
+    """Display label for a notification message's hotkey hint.
+
+    Returns ``format_hotkey_label`` output for a configured hotkey
+    (e.g. ``"Caps Lock"`` for ``<caps_lock>``), or the generic
+    ``"your hotkey"`` when nothing is configured. Notification paths
+    are safety nets — they must never crash or render a raw "None"
+    just because the config has no hotkey yet.
+    """
+    if not hotkey:
+        return "your hotkey"
+    return format_hotkey_label(str(hotkey))
+
+
 def format_hotkey_label(hotkey: str) -> str:
     """Format a hotkey string like '<ctrl>+<shift>+f2' into 'Ctrl+Shift+F2'.
 

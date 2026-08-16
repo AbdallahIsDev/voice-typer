@@ -17,8 +17,8 @@
 //aligned with the Python ``AppState`` enum in
 // ``voice_typer/server/tray_types.py``.  The previous type union
 // included 7 dead values (``listening``, ``processing``, ``warming_up``,
-// ``downloading``, ``paused``, ``setup``, ``not_configured``) that the
-// Python backend never emits.  ``Home.tsx::statusKeyFor`` had to
+// ``downloading``, ``paused``, ``setup``, ``not_configured``) that the	// Python backend never emits.  The old Home status-pill helper
+// (``statusKeyFor``, removed with RecordingStatusPill) had to
 // normalize ``listening`` → ``idle`` to paper over the mismatch;
 // other dead values silently fell through to the default "READY"
 // label, hiding real state changes from the user.

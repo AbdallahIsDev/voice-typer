@@ -213,6 +213,20 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # vocabulary_handlers
         "get_vocabulary",
         "save_vocabulary",
+        # §16 addendum 2026-08-16 (vocabulary usage tracking + live test
+        # panel): ``get_correction_usage`` returns the per-correction
+        # usage snapshot (counts + last-trigger timestamps + per-day
+        # totals) for the Vocabulary page's "used Nx" and the Analytics
+        # page's corrections-applied rate; ``test_vocabulary_correction``
+        # applies the LIVE vocabulary rules to a phrase so the "Test
+        # corrections" panel previews the exact engine dictation uses
+        # (not a client-side mirror). Both have real ``_handle_*``
+        # mixins in ``handlers/vocabulary_handlers.py`` + handler tests
+        # in ``tests/handlers/test_vocabulary_handlers.py`` +
+        # ``tests/test_correction_usage.py``. The ADR-0020 §16 addendum
+        # is recorded in ``docs/adr/0020-desktop-runtime-migration-analysis.md``.
+        "get_correction_usage",
+        "test_vocabulary_correction",
         # vocabulary_automation_handlers — REMOVED from _COMMAND_REGISTRY:
         # ``get_vocabulary_suggestions``, ``apply_vocabulary_suggestion``,
         # ``dismiss_vocabulary_suggestion`` were deferred pending UX
@@ -351,8 +365,8 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "shutdown",
     }
 )
-assert len(EXPECTED_COMMANDS) == 67, (
-    "ADR-0020 §2 freezes the command table. 67 = post-cleanup baseline "
+assert len(EXPECTED_COMMANDS) == 69, (
+    "ADR-0020 §2 freezes the command table. 69 = post-cleanup baseline "
     "after ZR-45 + the Tauri/Rust allowlist narrowing (+ ``onboarding_set_backend``, "
     "§16 addendum 2026-08-06; + ``reset_macos_accessibility``, "
     "§16 addendum 2026-08-09; + ``reset_linux_permissions``, "
@@ -362,7 +376,9 @@ assert len(EXPECTED_COMMANDS) == 67, (
     "§16 addendum 2026-08-14 auto-update feature docs/auto-update-feature.md; + 3 "
     "``get_prewarm_status`` / ``open_prewarm_log`` / ``run_prewarm`` §16 addendum 2026-08-14 "
     "plan §6.3 addendum — Cache Status card restored verbatim from 5a319872; ``run_prewarm`` "
-    "re-implemented (in-process warm pass, no deleted-subprocess spawn)). The prior 76-command "
+    "re-implemented (in-process warm pass, no deleted-subprocess spawn); + 2 "
+    "``get_correction_usage`` / ``test_vocabulary_correction`` §16 addendum 2026-08-16 "
+    "— vocabulary usage tracking + live correction test panel). The prior 76-command "
     "list was stale — it included 17 commands that had been deliberately "
     "REMOVED from ``_COMMAND_REGISTRY`` to match the Tauri host's Rust "
     "allowlist narrowing (see ``test_dead_code_stays_removed.py`` for the "

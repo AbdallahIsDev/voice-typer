@@ -233,6 +233,28 @@ class TestLoadBackgroundPrecheck:
         # A pending dictation must be cleared (no auto-start loop).
         assert app._pending_dictation is False
 
+    def test_no_model_selected_refusal_uses_select_message(self, tmp_config_dir):
+        """Empty model_size (NO_MODEL_SIZE) → the "No model selected"
+        message — the SAME text the renderer's Home status pill hint
+        shows — NOT the "No models are available" download message (the
+        tray tooltip must agree with the Home pill for this state)."""
+        mm, app = _make_mm(Config(asr_backend="whisper", model_size=""))
+
+        mm.load_background()
+
+        msgs = [
+            c.args[1] for c in app.tray.set_state.call_args_list if len(c.args) > 1
+        ]
+        assert any(
+            "No model selected. Go to the models page to select a model." in (m or "")
+            for m in msgs
+        ), msgs
+        assert all("No models are available" not in (m or "") for m in msgs), msgs
+        # The Windows notification matches the tooltip wording too.
+        notified = [c.args[1] for c in app.tray.notify.call_args_list]
+        assert any("No model selected" in (m or "") for m in notified), notified
+        assert all("No models are available" not in (m or "") for m in notified), notified
+
     def test_downloaded_model_proceeds_to_load(self, tmp_config_dir):
         _make_whisper_repo_dir(tmp_config_dir, "tiny")
         mm, app = _make_mm(Config(asr_backend="whisper", model_size="tiny"))
@@ -265,3 +287,23 @@ class TestGenericNotDownloadedMessages:
         assert "Open the models page to download a model." in s
         assert "{backend}" not in s
         assert "No models are available" in s
+
+    def test_no_model_selected_state_matches_home_hint(self):
+        """The no-model-selected state message must read the SAME as the
+        renderer's ``home.noModelSelectedHint`` (en.json) so the tray
+        tooltip and the Home status pill agree verbatim."""
+        from voice_typer.server import i18n
+
+        s = i18n.t("state.model_manager.no_model_selected")
+        assert (
+            "No model selected. Go to the models page to select a model." in s
+        ), s
+        assert "{backend}" not in s
+
+    def test_no_model_selected_notify_matches_home_hint(self):
+        from voice_typer.server import i18n
+
+        s = i18n.t("notify.model_manager.no_model_selected")
+        assert "No model selected" in s
+        assert "Go to the models page to select a model" in s
+        assert "{backend}" not in s

@@ -108,6 +108,7 @@ COMMAND_COSTS: dict[str, int] = {
     "get_status": 1,
     "get_templates": 1,
     "get_today_stats": 1,
+    "get_correction_usage": 1,  # cheap read — per-correction usage snapshot
     "get_transcription_text": 1,
     "get_vocabulary": 1,
     "get_volume_backend_status": 1,
@@ -137,6 +138,7 @@ COMMAND_COSTS: dict[str, int] = {
     "set_config": 2,  # writes config file
     "set_esc_cancel_paused": 1,
     "set_tray_locale": 1,
+    "test_vocabulary_correction": 3,  # compute — runs the correction engine pass on user text
     "toggle_dictation": 1,
     "toggle_favorite": 2,  # writes to db
     "tray_click": 1,

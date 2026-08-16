@@ -34,6 +34,7 @@ def _make_mm_with_failing_registry() -> tuple[ModelManager, MagicMock]:
     app.config.beam_size = 1
     app.config.best_of = 1
     app.config.condition_on_previous_text = False
+    app.config.hotkey = "<f2>"
     app._shutting_down = False
     app._pending_dictation = False
     app._thread_registry = MagicMock()
@@ -188,6 +189,7 @@ def _make_mm_with_mock_registry():
     app.config.beam_size = 1
     app.config.best_of = 1
     app.config.condition_on_previous_text = False
+    app.config.hotkey = "<f2>"
     app._shutting_down = False
     app._pending_dictation = False
     app._thread_registry = MagicMock()

@@ -50,6 +50,7 @@ import weakref
 
 from voice_typer.server import i18n
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.tray_hotkey import notification_hotkey_label
 from voice_typer.server.tray_types import AppState
 
 log = logging.getLogger(__name__)
@@ -287,9 +288,15 @@ class TranscriptionWatchdog:
             )
         app._busy_event.set()  # busy = False
         app.tray.set_state(AppState.IDLE, i18n.t("state.recording_controller.recovered"))
+        # HOTKEY-THREAD: name the user's ACTUAL configured hotkey in the
+        # recovery hint (e.g. "Press Caps Lock to try again") instead of
+        # the generic "your hotkey".
         app.tray.notify(
             APP_NAME,
-            "Transcription took too long and was cancelled.\nPress F2 to try again.",
+            i18n.t(
+                "notify.recording_controller.cancelled_timeout",
+                hotkey=notification_hotkey_label(app.config.hotkey),
+            ),
         )
         app._schedule_timer(5.0, lambda: app.tray.set_state(AppState.IDLE))
         # Privacy: clear the shared audio slot so the raw voice bytes can

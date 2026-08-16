@@ -435,7 +435,7 @@ invocations on the GNU target.) These files are gitignored on purpose
 | `src-tauri/tauri.conf.json` | Per-arch `externalBin` (6 target triples) + `resources` (3 native hotkey binaries; the prewarm binaries were dropped with the prewarm retirement, master plan §6.2 P-1) + Tauri v2 capabilities. `withGlobalTauri: true` exposes `window.__TAURI__`. |
 | `src-tauri/capabilities/main-runtime.json` + `bubble-runtime.json` | Least-privilege capability split (CR-5 / SEC-026): `main-runtime` grants the privileged main window scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `single-instance`, `dialog`, and `core:tray:*`; `bubble-runtime` is minimal (`core:event:default` + `core:window:allow-start-dragging`) so a compromised bubble renderer cannot spawn, write clipboard, or touch the tray. (The legacy `migrate-runtime.json` file was split into these two scopes.) |
 | `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` | React ↔ Tauri bridge. Auto-installs `window.python` / `window.bubble` / `window.window_` using Tauri's global API when Tauri is detected; no-op under Electron (the preload already installed the namespaces). |
-| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs bearer-token auth handshake (ZR-56 reconciliation 2026-07-24: the implementation has always been a constant-time bearer-token literal match via `hmac.compare_digest`, not a keyed HMAC — historical "HMAC" wording has been reconciled across docs), dispatches WS frames via `IPCServer._dispatch` (reuses the 71-command registry unchanged — CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 S4-CR-18; +1 2026-08-13 for `transcribe_offline` per master plan §7.4; −3 2026-08-14 for the prewarm retirements `get_prewarm_status` / `run_prewarm` / `open_prewarm_log` per master plan §6.2 P-1; +2 2026-08-14: `get_prewarm_status` / `open_prewarm_log` restored for the Settings → About Cache Status card per plan §6.3 addendum — registered verbatim from 5a319872; +1 2026-08-14: `run_prewarm` restored (plan §6.3 addendum 2nd half — re-implemented: re-runs the worker's warm phase in-process via `prewarm.status.run_prewarm_now`, no deleted-subprocess spawn); +1 2026-08-14: `check_pack_update` added by the auto-update feature, docs/auto-update-feature.md; see `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py` for the +2 host-only delta), handles `{"type":"shutdown"}` cooperative shutdown. |
+| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs bearer-token auth handshake (ZR-56 reconciliation 2026-07-24: the implementation has always been a constant-time bearer-token literal match via `hmac.compare_digest`, not a keyed HMAC — historical "HMAC" wording has been reconciled across docs), dispatches WS frames via `IPCServer._dispatch` (reuses the 73-command registry unchanged — CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 S4-CR-18; +1 2026-08-13 for `transcribe_offline` per master plan §7.4; −3 2026-08-14 for the prewarm retirements `get_prewarm_status` / `run_prewarm` / `open_prewarm_log` per master plan §6.2 P-1; +2 2026-08-14: `get_prewarm_status` / `open_prewarm_log` restored for the Settings → About Cache Status card per plan §6.3 addendum — registered verbatim from 5a319872; +1 2026-08-14: `run_prewarm` restored (plan §6.3 addendum 2nd half — re-implemented: re-runs the worker's warm phase in-process via `prewarm.status.run_prewarm_now`, no deleted-subprocess spawn); +1 2026-08-14: `check_pack_update` added by the auto-update feature, docs/auto-update-feature.md; +2 2026-08-16: `get_correction_usage` + `test_vocabulary_correction` added by the vocabulary usage-tracking + live-correction-test feature (ADR-0020 §16 addendum 2026-08-16); see `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py` for the +2 host-only delta), handles `{"type":"shutdown"}` cooperative shutdown. |
 | `voice_typer/server/ipc_server.py` | `--ws` CLI flag + `TAURI_SIDECAR=1` env gate. Under `TAURI_SIDECAR=1`: heartbeat thread is NOT started; Win32 single-instance mutex is NOT acquired. Electron path unchanged. |
 
 #### Cutover status
@@ -564,7 +564,10 @@ npm run test:watch     # vitest in watch mode during development
 # Lint + format + typecheck (run all three before pushing)
 npx biome check        # formatter (tabs + double quotes) + linter
 npm run lint           # biome check (formatter + linter)
-npm run typecheck      # tsc --noEmit × 3 configs (root, web, node)
+npm run typecheck      # tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json
+                       #   --noEmit. NEVER a bare root `tsc --noEmit`: the root
+                       #   tsconfig.json is solution-style (files: []) so plain
+                       #   --noEmit checks nothing — use tsc -b / the -p forms.
 npm run build          # electron-vite build (full production bundle)
 ```
 
@@ -780,9 +783,14 @@ subscription. See `docs/ARCHITECTURE.md` for the full diagram and
   `npx biome check` (no `--write`) and fails if files are dirty.
 - **Linter:** Biome (`biome check`). The config lives at
   `voice_typer/client/biome.json`.
-- **Type checker:** `tsc --noEmit` across three configs (`tsconfig.json`,
-  `tsconfig.web.json`, `tsconfig.node.json`). `npm run typecheck` runs
-  all three; use `npm run typecheck:web` to scope to the renderer only.
+- **Type checker:** the root `tsconfig.json` is solution-style
+  (`files: []`), so a bare `tsc --noEmit` at the repo root checks
+  NOTHING and must never be used as a pass/fail gate — it prints a
+  false "clean". Use the project forms: `npm run typecheck` runs
+  `tsc -p tsconfig.web.json --noEmit` then `tsc -p tsconfig.node.json
+  --noEmit`; `npm run typecheck:root` runs `tsc -b --noEmit`; CI runs
+  `npm run typecheck:ci` (`tsc -b --force`, cache-busting). Use
+  `npm run typecheck:web` to scope to the renderer only.
 - **Path aliases:** `#ui/*` → `./src/renderer/src/components/ui/*`,
   `#utils` → `./src/renderer/src/lib/utils.ts` (declared in
   `package.json#imports` and mirrored in the tsconfigs). Prefer these

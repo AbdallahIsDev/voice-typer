@@ -250,6 +250,7 @@ _COMMAND_REGISTRY: dict[str, str] = {
     "run_prewarm": "_handle_run_prewarm",
     "get_vocabulary": "_handle_get_vocabulary",
     "save_vocabulary": "_handle_save_vocabulary",
+    "get_correction_usage": "_handle_get_correction_usage",
     "test_vocabulary_correction": "_handle_test_vocabulary_correction",
     "get_templates": "_handle_get_templates",
     "save_templates": "_handle_save_templates",

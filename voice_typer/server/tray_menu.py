@@ -48,11 +48,16 @@ pystray = lazy_module("pystray")
 log = logging.getLogger("voice_typer.server.tray_menu")
 
 
-def display_hotkey(hotkey: str, fallback: str = "<f2>") -> str:
+def display_hotkey(hotkey: str, fallback: str = "<caps_lock>") -> str:
     """Return the configured hotkey in user-facing form.
 
     #13: extracted from TrayIcon._display_hotkey so the formatting
     logic is testable without a TrayIcon instance.
+
+    The fallback mirrors ``config.DEFAULT_HOTKEY`` ("<caps_lock>") —
+    the canonical platform-independent default. The legacy "<f2>"
+    fallback would display "F2" in tray tooltips/menus while the app
+    actually bound Caps Lock.
     """
     h = hotkey or fallback
     return format_hotkey_label(h)
@@ -531,7 +536,11 @@ def build_menu_for_tray(tray) -> tuple:
         if tray._menu_cache_valid and tray._cached_menu is not None:
             return tray._cached_menu
 
-        hotkey_str = tray._hotkey or getattr(tray._config, "hotkey", "<f2>") or "<f2>"
+        hotkey_str = (
+            tray._hotkey
+            or getattr(tray._config, "hotkey", "<caps_lock>")
+            or "<caps_lock>"
+        )
         hotkey_label = display_hotkey(hotkey_str)
         left_click = getattr(tray._config, "tray_left_click_action", "open_app") or "open_app"
         dictation_default = left_click == "toggle_dictation"
@@ -787,7 +796,7 @@ def maybe_publish_tray_menu(tray) -> bool:
     if controller is None:
         return False
 
-    hotkey = tray._hotkey or getattr(tray._config, "hotkey", "<f2>") or "<f2>"
+    hotkey = tray._hotkey or getattr(tray._config, "hotkey", "<caps_lock>") or "<caps_lock>"
     left_click = getattr(tray._config, "tray_left_click_action", "open_app") or "open_app"
 
     # detect attribute drift on the TrayController Protocol.

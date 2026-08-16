@@ -28,6 +28,7 @@ from voice_typer.server.dictation_pipeline.helpers import (
     BackendNotLoadedError,
     _lookup_local_whisper,
 )
+from voice_typer.server.i18n import t as _i18n_t
 from voice_typer.server.tray_types import AppState
 
 # NOTE: ``_AbortWatcher`` is intentionally NOT imported at module level
@@ -60,6 +61,13 @@ class _TranscribeStepMixin:
       * :meth:`_handle_empty_transcription` — Step 2: handle the "no
         speech detected" case with the UX-silence-grace logic.
     """
+
+    # Declared here so the standalone mixin type-checks (mypy cannot
+    # see the ``_OrchestratorMixin.__init__`` assignments through the
+    # composed MRO). ``_OrchestratorMixin.__init__`` still owns the
+    # runtime initialization.
+    _last_resources_check_ts: float
+    _resources_check_interval: float
 
     # ── Pipeline steps ────────────────────────────────────────────
 
@@ -428,7 +436,9 @@ class _TranscribeStepMixin:
                 _grace_period,
                 self._recorded_rms,
             )
-            self._app.tray.set_state(AppState.IDLE, "No speech detected")
+            self._app.tray.set_state(
+                AppState.IDLE, _i18n_t("state.dictation_pipeline.no_speech_detected")
+            )
             #  (observability): publish a ``dictation_suppressed``
             # event so the renderer can show a subtle inline bubble
             # ("recording too short — try again") instead of giving the
@@ -476,9 +486,15 @@ class _TranscribeStepMixin:
                 _silence_rms_threshold,
                 self._cycle_id,
             )
-            self._app.tray.set_state(AppState.IDLE, "Transcription returned empty")
+            self._app.tray.set_state(
+                AppState.IDLE,
+                _i18n_t("state.dictation_pipeline.transcription_empty"),
+            )
         elif self._recorded_rms < _silence_rms_threshold:
-            self._app.tray.set_state(AppState.IDLE, "No speech -- check microphone")
+            self._app.tray.set_state(
+                AppState.IDLE,
+                _i18n_t("state.dictation_pipeline.no_speech_check_mic"),
+            )
             self._app.tray.notify(
                 APP_NAME,
                 "No speech was detected and audio was near-silence.\n"
@@ -499,7 +515,10 @@ class _TranscribeStepMixin:
                 self._recorded_rms,
                 self._cycle_id,
             )
-            self._app.tray.set_state(AppState.IDLE, "Transcription returned empty")
+            self._app.tray.set_state(
+                AppState.IDLE,
+                _i18n_t("state.dictation_pipeline.transcription_empty"),
+            )
             self._app.tray.notify(
                 APP_NAME,
                 "Audio was recorded but no transcription was produced.\n"

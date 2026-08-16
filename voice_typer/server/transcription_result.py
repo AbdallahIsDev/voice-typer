@@ -152,7 +152,7 @@ def transcribe_unlocked(
     )
 
     # Collect segments and log VAD info
-    text_parts = []
+    text_parts: list[str] = []
     segment_count = 0
     first_segment_start = None
     last_segment_end = None

@@ -41,6 +41,27 @@ class TestGetVocabulary:
         assert resp["data"]["message"] == "internal error"
 
 
+class TestGetCorrectionUsage:
+    """``_handle_get_correction_usage`` — per-correction usage snapshot."""
+
+    def test_happy_path_returns_correction_usage_type(self, ipc_server, fake_service):
+        fake_service.get_correction_usage.return_value = {
+            "entries": {"misspellings": {"recieve": {"count": 3, "last_ts": 1723800000.0}}},
+            "corrections_by_day": {"2026-08-16": 3},
+            "dictations_by_day": {"2026-08-16": 1},
+        }
+        resp = ipc_server._handle_get_correction_usage({}, {})
+        assert resp["type"] == "correction_usage"
+        assert resp["data"]["entries"]["misspellings"]["recieve"]["count"] == 3
+        fake_service.get_correction_usage.assert_called_once_with()
+
+    def test_service_raises_returns_error(self, ipc_server, fake_service):
+        fake_service.get_correction_usage.side_effect = RuntimeError("corrupt file")
+        resp = ipc_server._handle_get_correction_usage({}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "server.internal_error"
+
+
 class TestSaveVocabulary:
     """``_handle_save_vocabulary`` — payload size + value length validation."""
 

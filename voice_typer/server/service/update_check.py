@@ -76,7 +76,9 @@ import logging
 import os as _os
 import threading
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
 from typing import TYPE_CHECKING, Any, TypedDict
 from urllib.parse import urlparse
 
@@ -92,7 +94,6 @@ from voice_typer.server.service.offline_pack import (
 )
 
 if TYPE_CHECKING:
-    from voice_typer.server import event_bus as event_bus_module
     from voice_typer.server.config import Config
 
 log = logging.getLogger(__name__)
@@ -384,7 +385,7 @@ def _http_get_manifest(url: str, *, max_bytes: int = MAX_MANIFEST_BYTES) -> str:
 def fetch_remote_manifest(
     url: str,
     *,
-    http_get: callable | None = None,
+    http_get: Callable[..., str] | None = None,
     max_bytes: int = MAX_MANIFEST_BYTES,
 ) -> OfflinePackManifest | None:
     """Fetch + validate the remote ``pack-manifest.json``.
@@ -527,9 +528,9 @@ def _trigger_background_download(
     manifest: OfflinePackManifest,
     manifest_url: str,
     config: Config | None,
-    event_bus: event_bus_module | None,
+    event_bus: ModuleType | None,
     root: Path | None,
-    http_get: callable | None,
+    http_get: Callable[..., Any] | None,
 ) -> bool:
     """Trigger a background download of the pack via :mod:`pack`.
 
@@ -645,9 +646,9 @@ def _trigger_background_download(
 
 def check_offline_pack_update(
     config: Config | None,
-    event_bus: event_bus_module | None,
+    event_bus: ModuleType | None,
     *,
-    http_get: callable | None = None,
+    http_get: Callable[..., Any] | None = None,
     manifest_url: str | None = None,
     local_version: str | None = None,
     root: Path | None = None,
@@ -790,7 +791,7 @@ def handle_check_offline_pack_update_ipc(
     app: Any,
     data: dict | None,
     *,
-    http_get: callable | None = None,
+    http_get: Callable[..., Any] | None = None,
     manifest_url: str | None = None,
     local_version: str | None = None,
     root: Path | None = None,

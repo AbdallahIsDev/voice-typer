@@ -118,7 +118,7 @@ def _local_is_cuda_error(exc: Exception) -> bool:
     err_str = str(exc).lower()
     # Layer 1: ORT RuntimeException with cuda/gpu in message.
     try:
-        import onnxruntime as _ort
+        import onnxruntime as _ort  # type: ignore[import-untyped]
 
         if isinstance(exc, _ort.RuntimeException) and ("cuda" in err_str or "gpu" in err_str):
             return True
@@ -439,8 +439,8 @@ class ParakeetEngine:
                 return True
             _t0 = time.perf_counter()
             try:
-                import onnx_asr  # type: ignore[import-untyped]
-                import onnxruntime as ort
+                import onnx_asr  # type: ignore[import-untyped, import-not-found]
+                import onnxruntime as ort  # type: ignore[import-untyped]
 
                 cls._onnx_asr = onnx_asr
                 cls._ort = ort

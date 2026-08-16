@@ -28,6 +28,7 @@ import logging
 
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.clipboard import ClipboardCopyError
+from voice_typer.server.i18n import t as _i18n_t
 from voice_typer.server.tray_types import AppState
 
 log = logging.getLogger(__name__)
@@ -35,6 +36,11 @@ log = logging.getLogger(__name__)
 
 class _PasteStepMixin:
     """Mixin: clipboard copy + paste step."""
+
+    # Set by the composing orchestrator (``orchestrator.py:92``); declared
+    # here so pyrefly resolves ``self._device_info`` inside the mixin's
+    # methods (used for the "Ready -- {device_info}" tooltip).
+    _device_info: str = ""
 
     def _copy_and_paste(self, text: str) -> None:
         """Step 9: Copy to clipboard and attempt paste.
@@ -93,7 +99,10 @@ class _PasteStepMixin:
                 # NEW-BUBBLE-TRANSCRIBING: Hide the bubble since the
                 # transcription is done (even though paste failed).
                 self._hide_or_idle_bubble("bubble hide on clipboard fail")
-                self._app.tray.set_state(AppState.IDLE, "Done -- clipboard unavailable")
+                self._app.tray.set_state(
+                    AppState.IDLE,
+                    _i18n_t("state.dictation_pipeline.clipboard_unavailable"),
+                )
                 notice = (
                     "Transcription complete, but the clipboard was unavailable.\n"
                     "Your text was saved to the crash-recovery file so it is not lost."
@@ -132,7 +141,13 @@ class _PasteStepMixin:
                 self._app._busy_event.set()
                 self._app._schedule_timer(
                     3.0,
-                    lambda: self._app.tray.set_state(AppState.IDLE, f"Ready -- {self._device_info}"),
+                    lambda: self._app.tray.set_state(
+                        AppState.IDLE,
+                        _i18n_t(
+                            "state.model_manager.ready_whisper",
+                            device_info=self._device_info,
+                        ),
+                    ),
                 )
                 return
             # ② PASTE (if enabled) — paste() schedules the restore thread
@@ -161,14 +176,26 @@ class _PasteStepMixin:
             with contextlib.suppress(Exception):
                 self._app._crash_recovery.mark_latest_pasted()
 
-        # ④ Status + tray + bubble (existing lines 675–692, unchanged)
+        # ④ Status + tray + bubble — localized via the
+        #    ``state.dictation_pipeline.done_*`` templates (the renderer
+        #    pushes translated text through ``set_tray_locale``; the
+        #    server formats ``{count}`` at call time).
         if pasted:
-            status = f"Done -- {len(text)} chars (pasted)"
+            status = _i18n_t(
+                "state.dictation_pipeline.done_pasted",
+                count=len(text),
+            )
         elif skip_clipboard:
-            status = f"Done -- {len(text)} chars (in DB, use repaste hotkey)"
+            status = _i18n_t(
+                "state.dictation_pipeline.done_in_db",
+                count=len(text),
+            )
         else:
             # paste_on_stop=False + save/restore off: legacy "left on clipboard"
-            status = f"Done -- {len(text)} chars (in clipboard)"
+            status = _i18n_t(
+                "state.dictation_pipeline.done_in_clipboard",
+                count=len(text),
+            )
 
         # NEW-BUBBLE-TRANSCRIBING: Transcription + paste complete — hide the
         # bubble (or set it to idle for always_visible mode) so the overlay
@@ -178,5 +205,11 @@ class _PasteStepMixin:
         self._app.tray.set_state(AppState.IDLE, status)
         self._app._schedule_timer(
             3.0,
-            lambda: self._app.tray.set_state(AppState.IDLE, f"Ready -- {self._device_info}"),
+            lambda: self._app.tray.set_state(
+                AppState.IDLE,
+                _i18n_t(
+                    "state.model_manager.ready_whisper",
+                    device_info=self._device_info,
+                ),
+            ),
         )

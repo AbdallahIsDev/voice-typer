@@ -1383,6 +1383,103 @@ class TestOpenPageGeneralization:
 # I18N-2 : Tray locale support for all 8 renderer locales ──────
 
 
+class TestTrayStateMessagesLocalized:
+    """Every server tray STATE message follows the renderer locale.
+
+    The renderer pushes ``trayState.*`` translations for ALL ``state.*``
+    server keys via ``set_tray_locale`` (``trayLabelsForLocale`` in
+    push.ts). ``merge_labels`` + ``set_locale`` (the handler's HU-17
+    bridge) must make ``i18n.t`` resolve those keys — for the
+    no-model-selected message AND the rest (recording_failed,
+    model_not_downloaded, dictation-pipeline states, AppState labels).
+    """
+
+    def test_pipeline_state_keys_have_english_fallback(self):
+        """The dictation-pipeline state keys ship English fallbacks so
+        the tooltip is never a raw key before the first renderer push."""
+        from voice_typer.server import i18n
+
+        assert i18n.t("state.dictation_pipeline.clipboard_unavailable") == (
+            "Done -- clipboard unavailable"
+        )
+        assert i18n.t("state.dictation_pipeline.no_speech_detected") == (
+            "No speech detected"
+        )
+        assert i18n.t("state.dictation_pipeline.no_speech_check_mic") == (
+            "No speech -- check microphone"
+        )
+        assert i18n.t("state.dictation_pipeline.transcription_empty") == (
+            "Transcription returned empty"
+        )
+
+    def test_pushed_state_messages_resolve_via_merge(self):
+        """A renderer push (merge_labels + set_locale, the exact HU-17
+        bridge the set_tray_locale handler runs) makes i18n.t return the
+        pushed localized text for the state messages."""
+        from voice_typer.server import i18n
+
+        labels = {
+            # recording_controller
+            "state.recording_controller.recording_failed": "Aufnahme fehlgeschlagen",
+            "state.recording_controller.too_short": "Zu kurz \u2013 ignoriert",
+            # model_manager (placeholder preserved for call-time format)
+            "state.model_manager.model_not_downloaded": (
+                "Keine Modelle verf\u00fcgbar. \u00d6ffnen Sie die Modelle-Seite."
+            ),
+            "state.model_manager.ready_whisper": "Bereit \u2013 {device_info}",
+            # dictation pipeline
+            "state.dictation_pipeline.transcription_empty": "Transkription leer",
+        }
+        try:
+            i18n.merge_labels("zz", labels)
+            i18n.set_locale("zz")
+            assert i18n.t("state.recording_controller.recording_failed") == (
+                "Aufnahme fehlgeschlagen"
+            )
+            assert i18n.t("state.recording_controller.too_short") == (
+                "Zu kurz \u2013 ignoriert"
+            )
+            assert i18n.t("state.model_manager.model_not_downloaded") == (
+                "Keine Modelle verf\u00fcgbar. \u00d6ffnen Sie die Modelle-Seite."
+            )
+            # placeholder still interpolated at call time
+            assert i18n.t(
+                "state.model_manager.ready_whisper", device_info="CUDA"
+            ) == "Bereit \u2013 CUDA"
+            assert i18n.t("state.dictation_pipeline.transcription_empty") == (
+                "Transkription leer"
+            )
+            # untranslated key falls back to English (the F2 reference
+            # was removed 2026-08-16 — the default hotkey is Caps Lock,
+            # so the message is generic: "your hotkey")
+            assert i18n.t("state.model_manager.loading") == (
+                "Loading model -- press your hotkey to queue..."
+            )
+        finally:
+            i18n.set_locale("en")
+
+    def test_tooltip_appstate_fallback_follows_locale(self, tray):
+        """The AppState fallback suffix (``— <state.value>`` when no
+        message is set) localizes via ``state.<value>`` keys pushed from
+        the renderer — not just the per-call messages."""
+        from voice_typer.server import i18n
+        from voice_typer.server.tray import AppState
+
+        try:
+            i18n.merge_labels("zz", {"state.recording": "\u0631\u0642\u0645"})
+            i18n.set_locale("zz")
+            title = tray._compute_tooltip(AppState.RECORDING, "")
+            assert "\u0631\u0642\u0645" in title, title
+            # message wins over the fallback label when present
+            i18n.merge_labels(
+                "zz", {"state.recording_controller.recording": "Aufnahme..."}
+            )
+            title2 = tray._compute_tooltip(AppState.RECORDING, "Aufnahme...")
+            assert "Aufnahme..." in title2
+        finally:
+            i18n.set_locale("en")
+
+
 class TestTrayLocaleFullCoverage:
     """tray i18n now supports all 8 renderer locales
     (ar, de, en, es, fr, hi, ru, zh) — previously only en+es.

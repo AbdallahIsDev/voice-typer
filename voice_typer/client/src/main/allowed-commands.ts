@@ -107,6 +107,10 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// preview uses the real engine, not a client-side mirror. See
 	// server handlers/vocabulary_handlers.py `_handle_test_vocabulary_correction`.
 	"test_vocabulary_correction",
+	// Per-correction usage snapshot (counts + last-trigger timestamps
+	// per entry + per-day correction/dictation totals) powering the
+	// Vocabulary page's "used Nx" and the Analytics corrections rate.
+	"get_correction_usage",
 	"onboarding_is_first_run",
 	"onboarding_start",
 	"onboarding_next_step",

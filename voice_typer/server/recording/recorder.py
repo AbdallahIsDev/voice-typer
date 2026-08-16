@@ -781,12 +781,12 @@ class Recorder(VadShimMixin, RecorderInitMixin):
         # exists when it doesn't.
 
         # H12 callbacks (wired by app.py)
-        self.on_silence_warning = None  # type: Optional[callable]
-        self.on_silence_auto_stop = None  # type: Optional[callable]
-        self.on_max_duration_auto_stop = None  # type: Optional[callable]
+        self.on_silence_warning = None  # type: Callable[..., Any] | None
+        self.on_silence_auto_stop = None  # type: Callable[..., Any] | None
+        self.on_max_duration_auto_stop = None  # type: Callable[..., Any] | None
 
         # Waveform bubble: fired from audio callback on every chunk (wired by app.py)
-        self.on_rms_level = None  # type: Optional[callable]
+        self.on_rms_level = None  # type: Callable[..., Any] | None
         # callback signature is (rms: float, peak: float).
         # The previous 3-arg form (rms, peak, audio_chunk) forwarded the
         # filtered audio chunk so WaveformBubble could run Silero VAD on

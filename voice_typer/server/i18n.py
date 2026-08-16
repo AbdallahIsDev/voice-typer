@@ -68,7 +68,7 @@ _INITIAL_LABELS: dict[str, str] = {
     "state.recording_controller.loading_queued": ("Loading model -- your dictation will start automatically\u2026"),
     "state.recording_controller.starting_up": "Starting up -- please wait...",
     "state.recording_controller.consent_required": "Voice biometric consent required",
-    "state.recording_controller.model_failed_retry": "Model failed to load -- press F2 to retry",
+    "state.recording_controller.model_failed_retry": "Model failed to load -- press your hotkey to retry",
     "state.recording_controller.recording": "Recording...",
     "state.recording_controller.recording_failed": "Recording failed",
     "state.recording_controller.recording_failed_permission": (
@@ -85,17 +85,52 @@ _INITIAL_LABELS: dict[str, str] = {
     "state.recording_controller.recovered": "Recovered -- transcription timed out",
     "state.recording_controller.still_transcribing": "Still transcribing...",
     # ── model_manager set_state messages ────────────────────────────────
-    "state.model_manager.loading": "Loading model -- press F2 to queue...",
+    "state.model_manager.loading": "Loading model -- press your hotkey to queue...",
     "state.model_manager.ready_whisper": "Ready -- {device_info}",
     "state.model_manager.ready_other": "Ready -- {name} ASR",
-    "state.model_manager.load_failed_retry": "Model load failed -- press F2 to retry",
+    "state.model_manager.load_failed_retry": "Model load failed -- press your hotkey to retry",
     "state.model_manager.backend_failed": "{backend} model failed to load",
     "state.model_manager.model_failed": "Model failed: {error}",
     "state.model_manager.model_not_downloaded": (
         "No models are available. Open the models page to download a model."
     ),
+    # no_model_selected: genuine "no model selected" state
+    # (``model_size == NO_MODEL_SIZE``) — distinct from
+    # model_not_downloaded (a concrete model is missing from disk). The
+    # text MUST match the renderer's ``home.noModelSelectedHint``
+    # translation so the tray tooltip and the Home status pill agree;
+    # the renderer pushes its localized value into this key at runtime
+    # via ``set_tray_locale`` (``trayLabelsForLocale`` maps
+    # ``state.model_manager.no_model_selected`` →
+    # ``home.noModelSelectedHint``).
+    "state.model_manager.no_model_selected": (
+        "No model selected. Go to the models page to select a model."
+    ),
     "state.model_manager.model_integrity_failed": (
         "{backend} model failed integrity verification. Delete and re-download it from the Models page."
+    ),
+    # ── dictation pipeline set_state messages ──────────────────────────
+    # Momentary tooltip states published by paste_step / transcribe_step.
+    # The renderer pushes localized values for these keys via
+    # ``set_tray_locale`` (``trayState.pipeline.*``) so the tooltip
+    # follows the renderer locale like every other state message.
+    "state.dictation_pipeline.clipboard_unavailable": "Done -- clipboard unavailable",
+    "state.dictation_pipeline.no_speech_detected": "No speech detected",
+    "state.dictation_pipeline.no_speech_check_mic": "No speech -- check microphone",
+    "state.dictation_pipeline.transcription_empty": "Transcription returned empty",
+    # paste_step "Done -- N chars (mode)" statuses — the character count
+    # is dynamic, so the templates use the ``{count}`` placeholder and
+    # the renderer pushes localized versions via ``set_tray_locale``
+    # (``trayState.pipeline.donePasted`` etc.; ``trayLabelsForLocale``
+    # maps the keys 1:1). The English text here is byte-identical to
+    # the former f-strings so tests that grep for the literal still
+    # match, and ``i18n.t(key, count=N)`` formats it at call time.
+    "state.dictation_pipeline.done_pasted": "Done -- {count} chars (pasted)",
+    "state.dictation_pipeline.done_in_db": (
+        "Done -- {count} chars (in DB, use repaste hotkey)"
+    ),
+    "state.dictation_pipeline.done_in_clipboard": (
+        "Done -- {count} chars (in clipboard)"
     ),
     # ── app.py notifications ────────────────────────────────────────────
     "notify.app.repaste_no_previous": "No previous transcription to re-paste.",
@@ -236,21 +271,33 @@ _INITIAL_LABELS: dict[str, str] = {
     "notify.recording_controller.still_running": (
         "Transcription is still running.\nLong recordings or CPU fallback can take extra time."
     ),
+    # ``{hotkey}`` is the user's CONFIGURED hotkey, formatted via
+    # ``format_hotkey_label`` at the call site (e.g. "Caps Lock" or
+    # "Ctrl+Shift+F2") — never a hardcoded key, so a remapped hotkey is
+    # reflected in the notification.
     "notify.recording_controller.cancelled_timeout": (
-        "Transcription took too long and was cancelled.\nPress F2 to try again."
+        "Transcription took too long and was cancelled.\nPress {hotkey} to try again."
     ),
     # ── model_manager.py notifications ──────────────────────────────────
     "notify.model_manager.backend_init_failed": "Could not initialize the {backend} backend.{hint}",
     "notify.model_manager.load_failed_critical": (
-        "Could not load the speech model.\nThe app will keep running. Press F2 to retry loading."
+        "Could not load the speech model.\nThe app will keep running. Press {hotkey} to retry loading."
     ),
     "notify.model_manager.load_failed": (
-        "Could not load the speech model.\n{error}\n\nThe app will keep running. Press F2 to retry loading."
+        "Could not load the speech model.\n{error}\n\nThe app will keep running. Press {hotkey} to retry loading."
     ),
     "notify.model_manager.change_deferred": "Model will change to {model} after current recording",
     "notify.model_manager.backend_change_deferred": "Backend will change to {backend} after current recording.",
     "notify.model_manager.model_not_downloaded": (
         "No models are available.\nOpen the models page to download a model."
+    ),
+    # no_model_selected: notification twin of the state message above —
+    # same wording as the renderer's Home hint so the tray notification
+    # and the Home status pill stay in sync (user request: tooltip /
+    # notification / status pill must agree on the no-model-selected
+    # error state).
+    "notify.model_manager.no_model_selected": (
+        "No model selected.\nGo to the models page to select a model."
     ),
     # last_resort_unloaded: fired by get_active()'s last-resort branch
     # when NO ready backend exists and the configured backend is returned

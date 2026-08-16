@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 from pathlib import Path
 
 
@@ -309,4 +310,270 @@ class TestRendererLocalesUseAppNamePlaceholder:
         )
         assert "{appName}" in json.dumps(en), (
             "en.json must use the {appName} placeholder somewhere (HU-43)"
+        )
+
+
+class TestNotifyPushCoversServerKeys:
+    """Drift guard for the ``set_tray_locale`` ``notify.*`` push.
+
+    ``trayLabelsForLocale`` (``i18n/push.ts``) maps every live server
+    tray-notification key (a ``notify.*`` literal that appears at a call
+    site in ``voice_typer/server`` AND is defined in the server's
+    ``_INITIAL_LABELS`` fallback) 1:1 to a renderer ``notify.*``
+    translation, so OS notifications follow the renderer locale like the
+    tray tooltip state messages. Two invariants keep that contract from
+    drifting:
+
+    1. Every live server key has a matching renderer ``en.json`` key.
+       A new server notification key without a renderer translation
+       would silently stay English for non-English locales.
+    2. The renderer English value is byte-identical to the server
+       fallback, so the English path is unchanged by the push (the
+       server registry's existing English entries win via
+       ``merge_labels`` setdefault semantics).
+
+    Dead keys (defined in ``_INITIAL_LABELS`` but never referenced, e.g.
+    ``notify.recording_controller.mic_unplugged``) are intentionally not
+    required to have a renderer translation.
+    """
+
+    REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+    TRANSLATIONS_DIR = (
+        REPO_ROOT
+        / "voice_typer"
+        / "client"
+        / "src"
+        / "renderer"
+        / "src"
+        / "i18n"
+        / "translations"
+    )
+    SERVER_DIR = REPO_ROOT / "voice_typer" / "server"
+
+    @classmethod
+    def _live_server_notify_keys(cls) -> set[str]:
+        """Keys referenced as ``"notify.<group>.<key>"`` literals in
+        server code (call sites) that also exist in ``_INITIAL_LABELS``.
+        Comments are stripped so docstring mentions don't count."""
+        from voice_typer.server.i18n import _INITIAL_LABELS
+
+        literals: set[str] = set()
+        for py in cls.SERVER_DIR.rglob("*.py"):
+            if py.name == "i18n.py":
+                continue  # the registry itself — not a call site
+            for line in py.read_text(encoding="utf-8").splitlines():
+                code = line.split("#", 1)[0]
+                for m in re.finditer(r'"notify\.[a-z_]+\.(?:[a-z_]+\.)*[a-z_]+"', code):
+                    literals.add(m.group(0)[1:-1])
+        return {k for k in literals if k in _INITIAL_LABELS}
+
+    @classmethod
+    def _renderer_notify_keys(cls) -> dict[str, str]:
+        en = json.loads(
+            (cls.TRANSLATIONS_DIR / "en.json").read_text(encoding="utf-8")
+        )
+        result: dict[str, str] = {}
+        for group, keys in en["notify"].items():
+            for key, value in keys.items():
+                result[f"notify.{group}.{key}"] = value
+        return result
+
+    def test_live_server_notify_keys_have_renderer_translations(self):
+        live = self._live_server_notify_keys()
+        assert live, "no live notify keys found — extraction may be broken"
+        renderer = set(self._renderer_notify_keys())
+        missing = live - renderer
+        assert not missing, (
+            "server notify keys without a renderer en.json translation "
+            "(they would stay English for non-English locales): "
+            f"{sorted(missing)}"
+        )
+
+    def test_renderer_notify_english_matches_server_fallback(self):
+        """Byte-identical English keeps the en-path notifications
+        unchanged after the push (server's own English wins via
+        ``merge_labels`` setdefault). Brand placeholders are normalized
+        before comparing: the renderer must use ``{appName}``
+        (C-BRAND-1, substituted with APP_NAME at registration) where
+        the server text carries the literal brand or the ``{app}``
+        token (formatted with the same APP_NAME at call time)."""
+        from voice_typer.server.branding import APP_NAME
+        from voice_typer.server.i18n import _INITIAL_LABELS
+
+        def normalize(value: str) -> str:
+            return value.replace("{appName}", APP_NAME).replace(
+                "{app}", APP_NAME
+            )
+
+        renderer = self._renderer_notify_keys()
+        differing = [
+            (key, renderer[key], _INITIAL_LABELS[key])
+            for key in self._live_server_notify_keys()
+            if key in renderer
+            and normalize(renderer[key]) != normalize(_INITIAL_LABELS[key])
+        ]
+        assert not differing, (
+            "renderer notify English drifted from the server fallback: "
+            + "; ".join(f"{k}: {r!r} != {s!r}" for k, r, s in differing)
+        )
+
+
+class TestTrayTooltipHotkeyWordingRoundTrip:
+    """Round-trip guard for the tray tooltip's hotkey wording.
+
+    The tray tooltip state messages that reference the hotkey
+    (``state.recording_controller.model_failed_retry``,
+    ``state.model_manager.loading``,
+    ``state.model_manager.load_failed_retry``) exist on BOTH sides of
+    the IPC boundary: the server's ``_INITIAL_LABELS`` registry (the
+    pre-push English fallback) and the renderer's ``trayState.*``
+    translations, pushed 1:1 via ``trayLabelsForLocale`` in
+    ``i18n/push.ts`` so the tooltip follows the renderer locale. The
+    wording must stay generic ("press your hotkey") because the user
+    can remap the hotkey — a hardcoded "F2" in any locale would show a
+    stale key to a user who changed it.
+
+    Invariants under test:
+
+    1. Every server ``state.*`` message that mentions the hotkey is
+       pushed (has a ``trayState.*`` mapping) and the renderer English
+       says the same thing.
+    2. The English wording agrees VERBATIM between the two sides (same
+       contract as the ``notify.*`` push — the server's English wins
+       via ``merge_labels`` setdefault, so a drift would silently
+       change the English tooltip for everyone).
+    3. No locale's ``trayState`` tooltip hardcodes a concrete key
+       (``F2``, ``Ctrl+B``, …) — "no F2 drift across languages".
+    """
+
+    REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+    TRANSLATIONS_DIR = (
+        REPO_ROOT
+        / "voice_typer"
+        / "client"
+        / "src"
+        / "renderer"
+        / "src"
+        / "i18n"
+        / "translations"
+    )
+    PUSH_TS = (
+        REPO_ROOT
+        / "voice_typer"
+        / "client"
+        / "src"
+        / "renderer"
+        / "src"
+        / "i18n"
+        / "push.ts"
+    )
+    LOCALES = ["en", "ar", "de", "es", "fr", "hi", "ru", "zh"]
+
+    # Concrete key names / glyphs that must never appear in a tooltip
+    # string — the wording must reference "your hotkey", never a
+    # specific key (the user may have remapped it).
+    _CONCRETE_KEY = re.compile(
+        r"(?i)\b(F\d{1,2}|Ctrl|Control|Alt|Shift|Cmd|Command|"
+        r"Super|Win|Meta|Esc|Tab|Space|Enter)\b"
+        r"|<(caps|ctrl|alt|shift|cmd|f\d{1,2})>"
+        r"|[\u2303\u2325\u21e7\u2318\u232b]"
+    )
+
+    @classmethod
+    def _server_state_values(cls) -> dict[str, str]:
+        from voice_typer.server.i18n import _INITIAL_LABELS
+
+        return {
+            key: value
+            for key, value in _INITIAL_LABELS.items()
+            if key.startswith("state.") and isinstance(value, str)
+        }
+
+    @classmethod
+    def _push_state_pairs(cls) -> dict[str, str]:
+        """Server ``state.*`` key → renderer ``trayState.*`` key, parsed
+        out of ``trayLabelsForLocale`` in ``i18n/push.ts``."""
+        src = cls.PUSH_TS.read_text(encoding="utf-8")
+        pat = re.compile(
+            r'\[\s*"(state\.[a-z_]+(?:\.[a-z_]+)*)",\s*'
+            r'"(trayState\.[a-zA-Z.]+)"\s*,?\s*\]',
+            re.S,
+        )
+        return dict(pat.findall(src))
+
+    @classmethod
+    def _en_value(cls, key: str) -> str:
+        """Look up a dotted ``trayState.*`` key in en.json."""
+        en = json.loads(
+            (cls.TRANSLATIONS_DIR / "en.json").read_text(encoding="utf-8")
+        )
+        node: object = en
+        for part in key.split("."):
+            assert isinstance(node, dict), f"{key} resolves to a non-object"
+            node = node[part]
+        assert isinstance(node, str), f"{key} is not a string"
+        return node
+
+    @classmethod
+    def _locale_tray_state_values(cls, locale: str) -> list[str]:
+        """Every ``trayState`` string value in one locale (flat +
+        nested groups)."""
+        data = json.loads(
+            (cls.TRANSLATIONS_DIR / f"{locale}.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        values: list[str] = []
+
+        def walk(node: object) -> None:
+            if isinstance(node, str):
+                values.append(node)
+            elif isinstance(node, dict):
+                for child in node.values():
+                    walk(child)
+
+        walk(data.get("trayState", {}))
+        return values
+
+    def test_every_hotkey_state_key_is_pushed_and_wording_matches(self):
+        pairs = self._push_state_pairs()
+        assert pairs, "no state→trayState push pairs extracted — parser broken"
+        server = self._server_state_values()
+        hotkey_keys = [
+            key
+            for key, value in server.items()
+            if "hotkey" in value.lower()
+        ]
+        assert hotkey_keys, "no hotkey-bearing state.* keys found — extraction broken"
+        for key in hotkey_keys:
+            renderer_key = pairs.get(key)
+            assert renderer_key, (
+                f"server tray state {key!r} mentions the hotkey but has no "
+                "trayState push mapping in i18n/push.ts — non-English "
+                "tooltips would stay on the server's English fallback"
+            )
+            renderer_value = self._en_value(renderer_key)
+            assert "hotkey" in renderer_value.lower(), (
+                f"renderer {renderer_key} no longer mentions the hotkey "
+                f"({renderer_value!r}) while the server {key!r} does"
+            )
+            assert renderer_value == server[key], (
+                f"hotkey wording drifted between the server and the "
+                f"renderer for {key}: server {server[key]!r} != "
+                f"renderer {renderer_value!r}"
+            )
+
+    def test_no_hardcoded_hotkey_in_any_locale_tray_state(self):
+        """No locale's tray tooltip hardcodes a concrete key (F2,
+        Ctrl+B, …) — the wording must stay generic so a remapped
+        hotkey never shows a stale key."""
+        offenders: list[tuple[str, str]] = []
+        for locale in self.LOCALES:
+            for value in self._locale_tray_state_values(locale):
+                if self._CONCRETE_KEY.search(value):
+                    offenders.append((locale, value))
+        assert not offenders, (
+            "tray tooltip strings hardcode a concrete hotkey in some "
+            "locale (F2/Ctrl/… would go stale when the user remaps): "
+            + "; ".join(f"{locale}: {value!r}" for locale, value in offenders)
         )

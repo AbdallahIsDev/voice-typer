@@ -79,10 +79,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   2026-08-13 after the `transcribe_offline` addition by the runtime-pack
   split, master plan §7.4 — slim core → worker offline-transcription
   request):
-  TS allowlist = 69, Rust allowlist = 67, Python registry = 71 (the +2
+  TS allowlist = 71, Rust allowlist = 69, Python registry = 73 (the +2
   are `tray_click` and `shutdown`, which are host-only commands the
   renderer never sends — see the `_HOST_ONLY_COMMANDS` frozenset in
-  `tests/test_security_doc_command_count.py`; 2026-08-14: −3 from the
+  `tests/test_security_doc_command_count.py`; +2 2026-08-16:
+  `get_correction_usage` + `test_vocabulary_correction` added by the
+  vocabulary usage-tracking + live-correction-test feature, ADR-0020
+  §16 addendum; 2026-08-14: −3 from the
   prewarm IPC retirements, `get_prewarm_status` / `run_prewarm` /
   `open_prewarm_log`, as prewarm became a worker startup phase, master
   plan §6.2 P-1; +2 back the same day — `get_prewarm_status` /
@@ -114,6 +117,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   Reconciliation counts now: TS allowlist = 68, Rust allowlist = 66,
   Python registry = 70 (`run_prewarm` still removed; `check_pack_update`
   added by the auto-update feature, docs/auto-update-feature.md).
+  (+2 2026-08-16: `get_correction_usage` + `test_vocabulary_correction`,
+  vocabulary usage tracking + live-correction test panel — see the
+  ADR-0020 §16 addendum 2026-08-16; counts now 71/69/73.)
 
 - **SidecarState struct literal fix** — the Rust host's
   `SidecarState` struct literal was missing a field initializer, breaking

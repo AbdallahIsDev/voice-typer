@@ -419,8 +419,11 @@ class ModelMixin(ServiceMixinBase):
             updates = {"model_size": NO_MODEL_SIZE}
         try:
             # canonical config-mutation path (SEC-002 allowlisted keys,
-            # config-mutation lock, side-effects, save_strict).
-            self.apply_config(updates)
+            # config-mutation lock, side-effects, save_strict). Delegates
+            # via the declared _config_applier: `apply_config` itself is
+            # provided by ConfigMutationMixin on the COMPOSED service,
+            # which this standalone mixin can't see statically.
+            self._config_applier.apply_config(updates)
             if replacement is not None:
                 log.info(
                     "[SERVICE] delete_model: stale active model '%s' cleared — "

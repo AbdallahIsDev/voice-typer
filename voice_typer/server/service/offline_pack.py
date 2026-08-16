@@ -96,7 +96,9 @@ import shutil
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
 from typing import TYPE_CHECKING, BinaryIO, TypedDict
 
 from voice_typer.server._paths import LOOPBACK_HOSTS  # noqa: F401 — re-export for tests
@@ -104,9 +106,8 @@ from voice_typer.server.branding import APP_NAME
 
 if TYPE_CHECKING:
     # TYPE_CHECKING-only imports keep this module decoupled from the
-    # concrete Config / event_bus types at runtime. Forward references
-    # resolve at type-check time only.
-    from voice_typer.server import event_bus as event_bus_module
+    # concrete Config type at runtime. Forward references resolve at
+    # type-check time only.
     from voice_typer.server.config import Config
 
 log = logging.getLogger(__name__)
@@ -803,8 +804,8 @@ def atomic_swap_offline_pack(
     new_dir: Path,
     current_dir: Path,
     *,
-    stop_worker: callable | None = None,
-    start_worker: callable | None = None,
+    stop_worker: Callable[[], None] | None = None,
+    start_worker: Callable[[], None] | None = None,
 ) -> Path | None:
     """Atomically swap ``new_dir`` → ``current_dir`` (§8.3).
 
@@ -885,8 +886,8 @@ def download_offline_pack_with_resume(
     *,
     expected_sha256: str,
     version: str,
-    event_bus: event_bus_module | None = None,
-    http_get: callable | None = None,
+    event_bus: ModuleType | None = None,
+    http_get: Callable[..., dict] | None = None,
     chunk_bytes: int = 1 << 20,
 ) -> bool:
     """Download *url* to *dest*, resuming from a partial file if present.
@@ -1150,7 +1151,7 @@ class BackgroundChecksum:
         self,
         version: str,
         *,
-        event_bus: event_bus_module | None = None,
+        event_bus: ModuleType | None = None,
         root: Path | None = None,
     ) -> None:
         self.version = version
@@ -1228,7 +1229,7 @@ class OfflinePackTranscriptionQueue:
     ``offline_pack_download_progress`` / ``offline_pack_ready`` events).
     """
 
-    def __init__(self, *, event_bus: event_bus_module | None = None) -> None:
+    def __init__(self, *, event_bus: ModuleType | None = None) -> None:
         self._lock = threading.Lock()
         self._queue: list[dict] = []
         self._ready = False
@@ -1466,7 +1467,7 @@ def verify_offline_pack_signature_macos(path: Path) -> bool | None:
 # ── Event publishing (small wrapper for tests) ───────────────────────────
 
 
-def _publish_event(event_bus: event_bus_module | None, event_type: str, payload: dict) -> None:
+def _publish_event(event_bus: ModuleType | None, event_type: str, payload: dict) -> None:
     """Best-effort publish — swallow errors (the bus is best-effort)."""
     if event_bus is None:
         return

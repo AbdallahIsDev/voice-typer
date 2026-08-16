@@ -43,6 +43,7 @@ from voice_typer.server.asr_errors import ModelIntegrityError, ModelNotDownloade
 from voice_typer.server.asr_registry import AsrBackendRegistry
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.model_registry import NO_MODEL_SIZE
+from voice_typer.server.tray_hotkey import notification_hotkey_label
 from voice_typer.server.tray_types import AppState
 
 log = logging.getLogger(__name__)
@@ -458,11 +459,28 @@ class ModelManager:
         callers that publish an ``asr_backend_load_failed`` event.
         """
         backend_name = (backend or getattr(self._app.config, "asr_backend", "unknown")).title()
+        # Distinguish the two load-refusal flavors so the tray surfaces
+        # the message that matches the actual state (and the renderer's
+        # Home status pill):
+        #  1. ``NO_MODEL_SIZE`` (``model_size == ""``) — genuine "no
+        #     model selected": nothing is configured, so tell the user
+        #     to pick a model. Uses ``state.model_manager
+        #     .no_model_selected``, whose text matches the renderer's
+        #     ``home.noModelSelectedHint`` (pushed via ``set_tray_locale``)
+        #     so the tray tooltip and the Home hint agree verbatim.
+        #  2. A concrete model that is missing from disk — "model not
+        #     downloaded": tell the user to download it.
+        no_model_selected = (
+            isinstance(exc, ModelNotDownloadedError)
+            and exc.model_size == NO_MODEL_SIZE
+        )
         if isinstance(exc, ModelIntegrityError):
             reason = i18n.t(
                 "state.model_manager.model_integrity_failed",
                 backend=backend_name,
             )
+        elif no_model_selected:
+            reason = i18n.t("state.model_manager.no_model_selected")
         else:
             reason = i18n.t(
                 "state.model_manager.model_not_downloaded",
@@ -474,7 +492,9 @@ class ModelManager:
             self._app.tray.notify(
                 APP_NAME,
                 i18n.t(
-                    "notify.model_manager.model_not_downloaded",
+                    "notify.model_manager.no_model_selected"
+                    if no_model_selected
+                    else "notify.model_manager.model_not_downloaded",
                     backend=backend_name,
                 ),
             )
@@ -830,7 +850,9 @@ class ModelManager:
             self._ensure_engine(backend_name)
 
             # Set tray state before heavy import so user sees progress
-            self._app.tray.set_state(AppState.LOADING, "Loading model -- press F2 to queue...")
+            self._app.tray.set_state(
+                AppState.LOADING, i18n.t("state.model_manager.loading")
+            )
 
             def on_progress(msg: str):
                 self._app.tray.set_state(AppState.LOADING, msg)
@@ -857,9 +879,20 @@ class ModelManager:
                 active = self._registry.get_active()
                 name = self._registry.active_name
                 if name == "whisper" and active is not None:
-                    self._app.tray.set_state(AppState.IDLE, f"Ready -- {active.device_info}")
+                    self._app.tray.set_state(
+                        AppState.IDLE,
+                        i18n.t(
+                            "state.model_manager.ready_whisper",
+                            device_info=active.device_info,
+                        ),
+                    )
                 else:
-                    self._app.tray.set_state(AppState.IDLE, f"Ready -- {name.title()} ASR")
+                    self._app.tray.set_state(
+                        AppState.IDLE,
+                        i18n.t(
+                            "state.model_manager.ready_other", name=name.title()
+                        ),
+                    )
             else:
                 if self._app._shutting_down:
                     return
@@ -894,12 +927,14 @@ class ModelManager:
                 log.warning(
                     "[STARTUP] All backends failed to load "
                     "(primary=%s, attempted=[%s]). "
-                    "Recovery: press F2 to retry, or change the backend "
+                    "Recovery: press your hotkey to retry, or change the backend "
                     "in Settings -> Models.",
                     _primary,
                     _attempted,
                 )
-                self._app.tray.set_state(AppState.ERROR, "Model load failed -- press F2 to retry")
+                self._app.tray.set_state(
+                    AppState.ERROR, i18n.t("state.model_manager.load_failed_retry")
+                )
                 # Clear the pending-dictation flag so the ``finally``
                 # block does NOT auto-start a dictation that would
                 # immediately fail (no model is loaded). Pre-fix, the
@@ -923,7 +958,9 @@ class ModelManager:
                 backend_name,
                 model_size,
             )
-            self._app.tray.set_state(AppState.ERROR, "Model load failed -- press F2 to retry")
+            self._app.tray.set_state(
+                AppState.ERROR, i18n.t("state.model_manager.load_failed_retry")
+            )
             # Same failure-path guard as above: a crash must NOT trigger
             # the finally's auto-start of a pending dictation (it would
             # crash again on the same root cause).
@@ -1079,10 +1116,14 @@ class ModelManager:
             if notify_on_failure:
                 # critical — bypass toggle (model load failed).
                 # Use the i18n key so the tray tooltip + OS notification
-                # render in the user's selected UI locale.
+                # render in the user's selected UI locale, and name the
+                # user's ACTUAL configured hotkey in the retry hint.
                 self._app.tray.notify_safety(
                     APP_NAME,
-                    i18n.t("notify.model_manager.load_failed"),
+                    i18n.t(
+                        "notify.model_manager.load_failed_critical",
+                        hotkey=notification_hotkey_label(self._app.config.hotkey),
+                    ),
                 )
 
     def try_load(self, notify_on_failure: bool = False) -> None:
@@ -1132,7 +1173,12 @@ class ModelManager:
                 self._deliberately_unloaded.discard(self._registry.active_name)
                 active = self._registry.get_active()
                 info = getattr(active, "device_info", "unknown") if active else "unknown"
-                self._app.tray.set_state(AppState.IDLE, f"Ready -- {info}")
+                self._app.tray.set_state(
+                    AppState.IDLE,
+                    i18n.t(
+                        "state.model_manager.ready_whisper", device_info=info
+                    ),
+                )
                 log.info("[MODEL] Loaded successfully")
             else:
                 raise RuntimeError("All backends failed to load")
@@ -1154,7 +1200,11 @@ class ModelManager:
             if notify_on_failure:
                 self._app.tray.notify(
                     APP_NAME,
-                    i18n.t("notify.model_manager.load_failed", error=str(e)),
+                    i18n.t(
+                        "notify.model_manager.load_failed",
+                        error=str(e),
+                        hotkey=notification_hotkey_label(self._app.config.hotkey),
+                    ),
                 )
 
     def change_model(self, model_size: str) -> dict:
@@ -1464,9 +1514,21 @@ class ModelManager:
                 self._clear_deliberately_unloaded(new_backend)
                 active = self._registry.get_active()
                 if new_backend == "whisper" and active is not None:
-                    self._app.tray.set_state(AppState.IDLE, f"Ready -- {active.device_info}")
+                    self._app.tray.set_state(
+                        AppState.IDLE,
+                        i18n.t(
+                            "state.model_manager.ready_whisper",
+                            device_info=active.device_info,
+                        ),
+                    )
                 else:
-                    self._app.tray.set_state(AppState.IDLE, f"Ready -- {new_backend.title()} ASR")
+                    self._app.tray.set_state(
+                        AppState.IDLE,
+                        i18n.t(
+                            "state.model_manager.ready_other",
+                            name=new_backend.title(),
+                        ),
+                    )
                 self._app.tray.invalidate_menu_cache()
                 return None
             log.warning(
@@ -1474,13 +1536,22 @@ class ModelManager:
                 new_backend.title(),
                 model_size,
             )
-            self._app.tray.set_state(AppState.ERROR, f"{new_backend.title()} model failed to load")
+            self._app.tray.set_state(
+                AppState.ERROR,
+                i18n.t(
+                    "state.model_manager.backend_failed",
+                    backend=new_backend.title(),
+                ),
+            )
             return f"{new_backend.title()} model failed to load"
         except (ModelNotDownloadedError, ModelIntegrityError) as exc:
             return self._notify_model_load_refused(exc, backend=new_backend)
         except Exception as exc:
             log.exception("[MODEL] Model load failed: %s", exc)
-            self._app.tray.set_state(AppState.ERROR, f"Model failed: {exc}")
+            self._app.tray.set_state(
+                AppState.ERROR,
+                i18n.t("state.model_manager.model_failed", error=str(exc)),
+            )
             return f"load_active raised: {exc}"
 
     # set_active_backend — switch ASR backend WITHOUT changing

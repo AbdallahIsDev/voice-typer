@@ -556,3 +556,87 @@ class TestResetLinuxPermissionsDispatchError:
         assert resp2["type"] == "ack", f"Connection did not survive: {resp2}"
         assert resp2.get("id") == 100
         monkeypatch.setattr(server, "_handle_reset_linux_permissions", original)
+
+
+class TestGetCorrectionUsageDispatchError:
+    """ADR-0020 §16 item (4): ``get_correction_usage`` must behave under
+    the dispatch-level exception safety net like every other registered
+    command — a buggy handler yields a structured error response (not a
+    torn-down connection) and the socket survives.
+    """
+
+    def test_handler_exception_returns_error_response(self, authenticated_client, monkeypatch):
+        """A raising ``_handle_get_correction_usage`` must produce the
+        generic ``internal error`` envelope (the safety net does not
+        leak the exception message) without disconnecting the client.
+        """
+        client, server = authenticated_client
+
+        def boom(data, resp):  # noqa: ARG001 — handler signature
+            raise RuntimeError("simulated get_correction_usage crash")
+
+        monkeypatch.setattr(server, "_handle_get_correction_usage", boom)
+
+        _send_line(client, {"id": 99, "type": "get_correction_usage"})
+        resp = _read_response_line(client, timeout=2.0)
+
+        assert resp["type"] == "error", f"Expected error response for raising handler, got: {resp}"
+        assert resp.get("id") == 99
+        assert resp["data"]["message"] == "internal error", f"Expected generic 'internal error' message, got: {resp}"
+
+        # Same socket must survive and serve a normal response afterwards.
+        original = server._handle_get_correction_usage
+
+        def ok_handler(data, resp):
+            resp["type"] = "correction_usage"
+            resp["data"] = {"entries": {}, "totals": {}}
+            return resp
+
+        monkeypatch.setattr(server, "_handle_get_correction_usage", ok_handler)
+        _send_line(client, {"id": 100, "type": "get_correction_usage"})
+        resp2 = _read_response_line(client, timeout=2.0)
+        assert resp2["type"] == "correction_usage", f"Connection did not survive: {resp2}"
+        assert resp2.get("id") == 100
+        monkeypatch.setattr(server, "_handle_get_correction_usage", original)
+
+
+class TestTestVocabularyCorrectionDispatchError:
+    """ADR-0020 §16 item (4): ``test_vocabulary_correction`` must behave
+    under the dispatch-level exception safety net like every other
+    registered command — a buggy handler yields a structured error
+    response (not a torn-down connection) and the socket survives.
+    """
+
+    def test_handler_exception_returns_error_response(self, authenticated_client, monkeypatch):
+        """A raising ``_handle_test_vocabulary_correction`` must produce
+        the generic ``internal error`` envelope (the safety net does not
+        leak the exception message) without disconnecting the client.
+        """
+        client, server = authenticated_client
+
+        def boom(data, resp):  # noqa: ARG001 — handler signature
+            raise RuntimeError("simulated test_vocabulary_correction crash")
+
+        monkeypatch.setattr(server, "_handle_test_vocabulary_correction", boom)
+
+        _send_line(client, {"id": 99, "type": "test_vocabulary_correction"})
+        resp = _read_response_line(client, timeout=2.0)
+
+        assert resp["type"] == "error", f"Expected error response for raising handler, got: {resp}"
+        assert resp.get("id") == 99
+        assert resp["data"]["message"] == "internal error", f"Expected generic 'internal error' message, got: {resp}"
+
+        # Same socket must survive and serve a normal response afterwards.
+        original = server._handle_test_vocabulary_correction
+
+        def ok_handler(data, resp):
+            resp["type"] = "ack"
+            resp["data"] = {"original": "to", "corrected": "too"}
+            return resp
+
+        monkeypatch.setattr(server, "_handle_test_vocabulary_correction", ok_handler)
+        _send_line(client, {"id": 100, "type": "test_vocabulary_correction", "data": {"text": "to"}})
+        resp2 = _read_response_line(client, timeout=2.0)
+        assert resp2["type"] == "ack", f"Connection did not survive: {resp2}"
+        assert resp2.get("id") == 100
+        monkeypatch.setattr(server, "_handle_test_vocabulary_correction", original)

@@ -34,7 +34,7 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from voice_typer.server import crash_handler as _crash_handler, onboarding_status
 from voice_typer.server.branding import APP_NAME
@@ -50,6 +50,7 @@ if TYPE_CHECKING:
     # ``__init__`` (always a ``VoiceTyperApp`` in production, but tests
     # pass mocks that satisfy the same duck-typed surface).
     from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.providers import AppProtocol
 
 log = logging.getLogger(__name__)
 
@@ -1020,7 +1021,17 @@ class StartupSequence:
             # thread (BackgroundChecksum); startup only ever does the
             # cheap check synchronously (§8.16).
             def _pack_check_task() -> None:
-                startup_tasks.check_offline_pack_on_launch(app, _shutdown_event)
+                # The concrete VoiceTyperApp exposes several AppProtocol
+                # members (history_db, recording, recorder, …) as lazy
+                # properties while the protocol declares them as plain
+                # attributes, so the concrete class isn't structurally
+                # assignable to AppProtocol (pyrefly). This function only
+                # reads `config`; the cast is a documented assertion of
+                # that narrow surface (same class of workaround as
+                # startup_tasks.py's `setattr` on a non-protocol member).
+                startup_tasks.check_offline_pack_on_launch(
+                    cast(AppProtocol, app), _shutdown_event
+                )
 
             pack_thread = threading.Thread(
                 target=_pack_check_task,

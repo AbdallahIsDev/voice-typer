@@ -19,7 +19,6 @@ import json
 from unittest.mock import MagicMock
 
 import pytest
-
 from voice_typer.server.service.vocabulary import (
     VocabularyDuplicateError,
     _find_new_duplicate,

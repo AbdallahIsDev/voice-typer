@@ -969,6 +969,25 @@ class VoiceTyperApp:
         self._vocabulary_manager_backing = value
 
     @property
+    def correction_usage(self):
+        """Shared per-correction usage tracker (``correction_usage.py``).
+
+        Delegates to the live ``_vocabulary_manager``'s tracker when one
+        exists (dictation records corrections + dictations through it,
+        so there is exactly ONE writer). When the manager hasn't been
+        constructed yet (cold start / test fixtures), a standalone
+        tracker is built over the same config-dir file — read-only in
+        practice (the ``get_correction_usage`` IPC path), so no
+        cross-instance write interleaving can occur.
+        """
+        vm = self._vocabulary_manager
+        if vm is not None:
+            return vm.usage_tracker
+        from voice_typer.server.correction_usage import CorrectionUsageTracker
+
+        return CorrectionUsageTracker(self.config.config_dir)
+
+    @property
     def clipboard(self):
         backing = self._clipboard_backing
         if backing is None:

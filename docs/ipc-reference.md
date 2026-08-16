@@ -50,7 +50,7 @@ renderer ALLOWED_COMMANDS gate but still routes through
 `_COMMAND_REGISTRY`** — i.e. the handler must be registered or the
 dispatch fails with `unknown_command`).
 
-## Commands (71 total — 69 renderer-reachable + 2 host-only: shutdown, tray_click)
+## Commands (73 total — 71 renderer-reachable + 2 host-only: shutdown, tray_click)
 
 Grouped by namespace. "✓" in the Allowlist column means the command is
 in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
@@ -155,6 +155,8 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 |---------|---------|-----------|-------|
 | `get_vocabulary` | `_handle_get_vocabulary` | ✓ |  |
 | `save_vocabulary` | `_handle_save_vocabulary` | ✓ |  |
+| `get_correction_usage` | `_handle_get_correction_usage` | ✓ |  |
+| `test_vocabulary_correction` | `_handle_test_vocabulary_correction` | ✓ |  |
 
 ### Templates
 

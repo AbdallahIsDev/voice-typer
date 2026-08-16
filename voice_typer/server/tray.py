@@ -46,6 +46,7 @@ from collections.abc import Callable
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server._paths import APP_SLUG
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.i18n import t as _i18n_t
 
 # Re-exports (noqa: F401) for backward compat with tests/code that
 # imports these symbols from voice_typer.server.tray directly.
@@ -157,7 +158,10 @@ class TrayIcon:
         self._icon_lock = threading.RLock()
         self._bg_work_fn: Callable | None = None
         self._bg_thread: threading.Thread | None = None
-        self._hotkey: str = getattr(config, "hotkey", "<f2>") or "<f2>"
+        # ``<caps_lock>`` mirrors ``config.DEFAULT_HOTKEY`` (the
+        # canonical default) — the legacy ``<f2>`` fallback would
+        # display "F2" in tray tooltips while the app bound Caps Lock.
+        self._hotkey: str = getattr(config, "hotkey", "<caps_lock>") or "<caps_lock>"
         self._cached_menu = None  # P4 #30: menu cache
         self._menu_cache_valid = False
         # Tauri-side ``id → callback`` map populated by
@@ -576,7 +580,14 @@ class TrayIcon:
         if message:
             title += f" — {message}"
         elif state != AppState.IDLE:
-            title += f" — {state.value}"
+            # Localized AppState label (``state.recording`` etc.) so the
+            # fallback suffix follows the renderer locale like the
+            # per-call messages do — the renderer pushes localized values
+            # for ``state.<value>`` via ``set_tray_locale``
+            # (``trayLabelsForLocale`` maps them to ``trayState.*``).
+            # English output is byte-identical (en registry value == the
+            # raw enum value).
+            title += f" — {_i18n_t('state.' + state.value)}"
         if self._cpu_fallback_active:
             title += " (CPU fallback)"
         if state == AppState.RECORDING and self._recording_started_at is not None:
@@ -982,7 +993,11 @@ class TrayIcon:
 
     def _display_hotkey(self) -> str:
         """Return the configured hotkey in a user-facing form (delegate)."""
-        hotkey = self._hotkey or getattr(self._config, "hotkey", "<f2>") or "<f2>"
+        hotkey = (
+            self._hotkey
+            or getattr(self._config, "hotkey", "<caps_lock>")
+            or "<caps_lock>"
+        )
         return display_hotkey(hotkey)
 
     # #13: _wrap moved to tray_menu.wrap_callback; kept as static-method

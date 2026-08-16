@@ -199,6 +199,15 @@ export interface TestVocabularyCorrectionRequest {
 	data: { text: string };
 }
 
+// Per-correction usage snapshot — counts + last-trigger timestamps
+// per entry, plus per-day correction/dictation totals. Powers the
+// Vocabulary page's "used Nx / last triggered" and the Analytics
+// corrections-applied rate. Resolves to a `correction_usage` envelope
+// (see `voice_typer/server/correction_usage.py` for the schema).
+export interface GetCorrectionUsageRequest {
+	type: "get_correction_usage";
+}
+
 // ── Additional renderer-called commands ────────────────────────────
 //
 // Widened coverage for commands invoked from the renderer but not yet
@@ -535,6 +544,7 @@ export type PythonRequest =
 	| GetVocabularyRequest
 	| SaveVocabularyRequest
 	| TestVocabularyCorrectionRequest
+	| GetCorrectionUsageRequest
 	// new endpoints — see GetHistoryCountRequest /
 	// GetTranscriptionTextRequest above for the rationale.
 	| GetHistoryCountRequest

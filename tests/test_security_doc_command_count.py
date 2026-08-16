@@ -278,7 +278,8 @@ def test_security_md_allowlist_count_matches_source() -> None:
         f"update the count in the 'Command Allowlist (SEC-019)' section "
         f"(and the surrounding prose about the Python `_COMMAND_REGISTRY` "
         f"handler count, which is now {len(_allowed_commands_rust())} "
-        f"Rust entries ↔ {actual} TS entries ↔ 78 Python handlers)."
+        f"Rust entries ↔ {actual} TS entries ↔ "
+        f"{len(_command_registry_entries())} Python handlers)."
     )
 
 

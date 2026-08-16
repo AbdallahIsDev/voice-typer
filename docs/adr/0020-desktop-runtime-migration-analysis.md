@@ -860,6 +860,10 @@ The 65-command frozen table (§2 — the registry total is 69 with the §16 adde
 
 Do NOT silently add commands/events during implementation — every addition widens the wire contract and must be tracked.
 
+#### §16 addendum 2026-08-16 — vocabulary usage tracking + live correction test
+
+- **Added:** `get_correction_usage` + `test_vocabulary_correction`. `get_correction_usage` returns the per-correction usage snapshot (counts + last-trigger timestamps per entry, plus per-day correction/dictation totals) so the Vocabulary page can show "used Nx" and the Analytics page can show a corrections-applied rate. `test_vocabulary_correction` applies the LIVE vocabulary rules (`VocabularyManager.apply_to_text`) to a user phrase so the Vocabulary page's "Test corrections" panel previews the exact engine dictation uses, instead of a client-side mirror that can drift. Both have `_handle_*` mixins in `handlers/vocabulary_handlers.py`, a `_validate_dict_payload` schema (`test_vocabulary_correction`; `get_correction_usage` is a no-payload read), dispatch-error coverage in `tests/test_ipc_dispatch_errors.py`, and handler tests in `tests/handlers/test_vocabulary_handlers.py` / `tests/test_correction_usage.py`. `EXPECTED_COMMANDS` grew 67 → 69; registry 71 → 73 (TS 71, Rust 69).
+
 #### §16 addendum 2026-08-14 — prewarm IPC surface (retirement + restoration)
 
 - **Retired (plan-runtime-pack-split.md §6.2 P-1):** `run_prewarm` — the standalone-prewarm subprocess (`prewarm-<triple>.exe`, `process_tracker.py`, sentinel/PID machinery) was deleted; start/stop is now the `fast_startup` toggle gating the worker warm phase. `run_prewarm` stays OUT of the registry.
