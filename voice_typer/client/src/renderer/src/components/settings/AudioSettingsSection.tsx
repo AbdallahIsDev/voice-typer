@@ -232,7 +232,7 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
                                 different. */}
 			<div
 				role="note"
-				className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-(--bg-subtle) px-4 py-3 text-sm text-(--text-primary)"
+				className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/10 bg-(--bg-subtle) px-4 py-3 text-sm text-(--text-primary)"
 			>
 				<p className="flex-1 min-w-0">{crossLinkBannerText}</p>
 				<Button
@@ -254,7 +254,7 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
                                 previously the section-level check showed the entire
                                 section (including all rows) when ANY row matched,
                                 which defeated the purpose of in-section search. */}
-				<div className="animate-fade-in space-y-0 divide-y divide-border">
+				<div className="animate-fade-in space-y-0 divide-y divide-border/10">
 					{/* ── Volume Backend status ── */}
 					{isVisible(
 						volumeBackendLabel,

@@ -54,6 +54,9 @@ const _RENDERER_CALLED_COMMANDS = {
 	get_today_stats: true,
 	get_vocabulary: true,
 	save_vocabulary: true,
+	// "Test corrections" panel — useVocabularyTester calls it
+	// (debounced) to preview against the LIVE backend engine.
+	test_vocabulary_correction: true,
 	get_history_count: true,
 	get_transcription_text: true,
 	set_config: true,
@@ -181,6 +184,7 @@ const _SERVER_REGISTRY_MINUS_PYTHON_ONLY = {
 	get_model_status: true,
 	get_vocabulary: true,
 	save_vocabulary: true,
+	test_vocabulary_correction: true,
 	get_templates: true,
 	save_templates: true,
 	restart_app: true,

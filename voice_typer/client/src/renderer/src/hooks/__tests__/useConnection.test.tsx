@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useConnection } from "@/hooks/useConnection";
 import { _resetNavigationForTest, useNavigation } from "@/hooks/useNavigation";
+import { useAppStore } from "@/stores/appStore";
 
 // Hoist the mock call/event handlers so they're available inside the
 // vi.mock factory (which is hoisted to the top of the file by vitest
@@ -121,7 +122,7 @@ describe("useConnection — F1: first-run auto-route ignores persisted page", ()
 					return Promise.resolve({
 						onboarding_completed: false,
 						hotkey: "<f2>",
-						model_size: "small.en",
+						model_size: "tiny",
 						microphone: "",
 					});
 				case "get_status":
@@ -193,6 +194,57 @@ describe("useConnection — F1: first-run auto-route ignores persisted page", ()
 			expect(mockCall).toHaveBeenCalledWith("onboarding_is_first_run");
 		});
 		expect(getByTestId("current-page").textContent).toBe("settings");
+	});
+
+	describe("status_change — error message surfacing", () => {
+		beforeEach(() => {
+			mockCall.mockReset();
+			mockPythonEvent.mockReset();
+			vi.resetModules();
+			useAppStore.setState({ recordingState: "idle", lastError: null });
+		});
+
+		it("sets lastError from data.message on the error state (so the Home RecordingErrorCard shows the reason)", () => {
+			render(<Harness />);
+
+			// Capture the status_change subscription registered by
+			// useConnection during mount.
+			const statusChangeCall = mockPythonEvent.mock.calls.find(
+				(c) => c[0] === "status_change",
+			);
+			expect(statusChangeCall).toBeTruthy();
+			const handler = statusChangeCall![1] as (data: {
+				status: string;
+				message?: string;
+			}) => void;
+
+			// Backend pushed the error state + the tray-tooltip reason.
+			const reason =
+				"No models are available. Open the models page to download a model.";
+			handler({ status: "error", message: reason });
+			expect(useAppStore.getState().recordingState).toBe("error");
+			expect(useAppStore.getState().lastError).toBe(reason);
+
+			// A subsequent non-error transition clears lastError.
+			handler({ status: "idle" });
+			expect(useAppStore.getState().recordingState).toBe("idle");
+			expect(useAppStore.getState().lastError).toBeNull();
+		});
+
+		it("keeps lastError null when an error status_change carries no message", () => {
+			render(<Harness />);
+			const statusChangeCall = mockPythonEvent.mock.calls.find(
+				(c) => c[0] === "status_change",
+			);
+			const handler = statusChangeCall![1] as (data: {
+				status: string;
+				message?: string;
+			}) => void;
+
+			handler({ status: "error" });
+			expect(useAppStore.getState().recordingState).toBe("error");
+			expect(useAppStore.getState().lastError).toBeNull();
+		});
 	});
 
 	it("navigates to onboarding when is_first_run=true and persisted page is home", async () => {

@@ -2,9 +2,10 @@
  * Tests for the Home page.
  *
  * Home is the landing page of the app: a record/stop toggle button, a
- * status pill, the hotkey chip, today's stats (StatCards), and a recent
- * activity list (ActivityList). Data is fetched on mount via usePython
- * and cached in module-level + localStorage so re-visits are instant.
+ * single dynamic status line under it (default hotkey hint / preparing /
+ * red error text), today's stats (StatCards), and a recent activity list
+ * (ActivityList). Data is fetched on mount via usePython and cached in
+ * module-level + localStorage so re-visits are instant.
  *
  * We mock the Python bridge and re-import Home freshly in each test
  * (via vi.resetModules + dynamic import) so the module-level caches
@@ -19,6 +20,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 // Hoist the mock call/event handlers so they're available inside the
 // vi.mock factory (which is hoisted to the top of the file by vitest
@@ -79,10 +81,11 @@ describe("Home page", () => {
 		// to verify the initial render is non-empty.
 		mockCall.mockImplementation(() => new Promise(() => {}));
 		const { default: Home } = await import("@/pages/Home");
-		render(<Home />);
+		render(<TooltipProvider>{<Home />}</TooltipProvider>);
 
-		// The status pill renders "READY" for the idle state.
-		expect(screen.getByText("READY")).toBeTruthy();
+		// The dynamic status line shows the default hotkey hint for the
+		// idle state (config still loading, no error, no preparing state).
+		expect(screen.getByText("or click to dictate")).toBeTruthy();
 		// The hotkey chip renders the default "F2" value.
 		expect(screen.getByText("F2")).toBeTruthy();
 	});
@@ -92,7 +95,7 @@ describe("Home page", () => {
 		// so the spinner sections stay mounted.
 		mockCall.mockImplementation(() => new Promise(() => {}));
 		const { default: Home } = await import("@/pages/Home");
-		render(<Home />);
+		render(<TooltipProvider>{<Home />}</TooltipProvider>);
 
 		// The stats spinner section exposes an aria-label.
 		expect(screen.getByLabelText("Loading today's stats")).toBeTruthy();
@@ -109,7 +112,7 @@ describe("Home page", () => {
 		// the cached stats before we assert.
 		mockCall.mockImplementation(() => new Promise(() => {}));
 		const { default: Home } = await import("@/pages/Home");
-		render(<Home />);
+		render(<TooltipProvider>{<Home />}</TooltipProvider>);
 
 		//StatCards renders three labelled cards. : card labels
 		// are i18n-driven (dashboard.cards.dictations/chars/duration).
@@ -142,7 +145,7 @@ describe("Home page", () => {
 		localStorage.setItem("vt_home_recent_cache", JSON.stringify(recent));
 		mockCall.mockImplementation(() => new Promise(() => {}));
 		const { default: Home } = await import("@/pages/Home");
-		render(<Home />);
+		render(<TooltipProvider>{<Home />}</TooltipProvider>);
 
 		// The "View all" button is rendered by ActivityList.
 		const viewAllButton = screen.getByText("View all");
@@ -160,7 +163,7 @@ describe("Home page", () => {
 		localStorage.setItem("vt_home_stats_cache", JSON.stringify(stats));
 		mockCall.mockImplementation(() => new Promise(() => {}));
 		const { default: Home } = await import("@/pages/Home");
-		render(<Home />);
+		render(<TooltipProvider>{<Home />}</TooltipProvider>);
 
 		// The transcription_final handler was captured by mockPythonEvent
 		// when Home mounted. Find it and invoke it with a fake result.
@@ -200,7 +203,7 @@ describe("Home page", () => {
 		localStorage.setItem("vt_home_stats_cache", JSON.stringify(stats));
 		mockCall.mockImplementation(() => new Promise(() => {}));
 		const { default: Home } = await import("@/pages/Home");
-		render(<Home />);
+		render(<TooltipProvider>{<Home />}</TooltipProvider>);
 
 		// ActivityList's empty-state branch renders both the
 		// "No recent activity" hint AND the "View all" link.
@@ -231,11 +234,11 @@ describe("Home page", () => {
 			return new Promise(() => {});
 		});
 		const { default: Home } = await import("@/pages/Home");
-		render(<Home />);
+		render(<TooltipProvider>{<Home />}</TooltipProvider>);
 
 		// Wait for cfg to load (the button's disabled state depends on it).
 		await waitFor(() => {
-			const shareButton = screen.getByRole("button", { name: "Share Stats" });
+			const shareButton = screen.getByRole("button", { name: "Share stats" });
 			// todayCount=0 AND recent.length=0 → canShareStats returns
 			// false → button must be disabled.
 			expect(shareButton).toBeDisabled();
@@ -269,10 +272,10 @@ describe("Home page", () => {
 			return new Promise(() => {});
 		});
 		const { default: Home } = await import("@/pages/Home");
-		render(<Home />);
+		render(<TooltipProvider>{<Home />}</TooltipProvider>);
 
 		await waitFor(() => {
-			const shareButton = screen.getByRole("button", { name: "Share Stats" });
+			const shareButton = screen.getByRole("button", { name: "Share stats" });
 			// todayCount=0 BUT recent.length > 0 → canShareStats
 			// returns true → button must NOT be disabled. This is
 			// the BG-10 regression fix: previously the button was
@@ -293,10 +296,10 @@ describe("Home page", () => {
 			return new Promise(() => {});
 		});
 		const { default: Home } = await import("@/pages/Home");
-		render(<Home />);
+		render(<TooltipProvider>{<Home />}</TooltipProvider>);
 
 		await waitFor(() => {
-			const shareButton = screen.getByRole("button", { name: "Share Stats" });
+			const shareButton = screen.getByRole("button", { name: "Share stats" });
 			expect(shareButton).not.toBeDisabled();
 		});
 	});

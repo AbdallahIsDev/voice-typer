@@ -8,7 +8,7 @@
 //     ``category`` field in the export payload so re-importing on
 //     another machine preserves the user's category assignments.
 //   - ``handleImportFile`` (parses + de-dupes by
-//     ``original|correction|category`` so double-imports don't create
+//     ``original|correction`` so double-imports don't create
 //     duplicate rows)
 //   - ``handleImportClick`` (delegates to the hidden input's ``.click()``)
 //
@@ -25,6 +25,7 @@ import type { ExportFormat } from "../../../../../shared/export-format";
 
 import { parseImportedVocabulary } from "../lib/importExport";
 import { flattenEntries, type VocabRow, withEntryIds } from "../lib/transform";
+import { isDuplicateEntryError } from "./useVocabularyQuickAdd";
 
 type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
 
@@ -37,7 +38,12 @@ interface UseVocabularyImportExportArgs {
 
 interface UseVocabularyImportExportResult {
 	importInputRef: React.RefObject<HTMLInputElement | null>;
-	doExport: (format: ExportFormat) => Promise<void>;
+	/**
+	 * Export entries. When *entries* is given (bulk "Export selected")
+	 * those exact rows are exported; otherwise the full list is
+	 * fetched from the backend and exported.
+	 */
+	doExport: (format: ExportFormat, entries?: VocabRow[]) => Promise<void>;
 	handleImportFile: (file: File | undefined | null) => Promise<void>;
 	handleImportClick: () => void;
 }
@@ -51,27 +57,43 @@ export function useVocabularyImportExport({
 	const importInputRef = useRef<HTMLInputElement | null>(null);
 
 	const doExport = useCallback(
-		async (format: ExportFormat) => {
+		async (format: ExportFormat, entries?: VocabRow[]) => {
 			try {
-				const data = await call<VocabularyData>("get_vocabulary");
-				// Include ``category`` in the export payload so re-importing
-				// (or importing on another machine) preserves the user's
-				// category assignments.  Previously the export stripped
-				// category, which meant an imported entry lost its
-				// category and fell back to auto-detect — silently
-				// undoing the user's manual categorisation.
-				const flatData = flattenEntries(data ?? {}).map((e) => ({
-					original: e.original,
-					correction: e.correction,
-					category: e.category,
-				}));
+				// Bulk "Export selected" passes the exact rows; the toolbar
+				// export fetches the full list from the backend. Either way
+				// the payload shape is identical.
+				let source: Array<{
+					original: string;
+					correction: string;
+					category: string | undefined;
+				}>;
+				if (entries) {
+					source = entries.map((e) => ({
+						original: e.original,
+						correction: e.correction,
+						category: e.category,
+					}));
+				} else {
+					const data = await call<VocabularyData>("get_vocabulary");
+					// Include ``category`` in the export payload so re-importing
+					// (or importing on another machine) preserves the user's
+					// category assignments.  Previously the export stripped
+					// category, which meant an imported entry lost its
+					// category and fell back to auto-detect — silently
+					// undoing the user's manual categorisation.
+					source = flattenEntries(data ?? {}).map((e) => ({
+						original: e.original,
+						correction: e.correction,
+						category: e.category,
+					}));
+				}
 				const bridge = window.window_;
 				if (!bridge) {
 					toast.error(t("vocabulary.exportNotAvailable"));
 					return;
 				}
 				const result = await bridge.exportVocabulary(
-					{ entries: flatData },
+					{ entries: source },
 					format,
 				);
 				if (result.success) {
@@ -112,8 +134,12 @@ export function useVocabularyImportExport({
 						return rest;
 					},
 				);
+				// Pair-based dedupe (original + correction), matching the
+				// load-time dedupe in useVocabulary — with categories
+				// hidden from the UI, the same wrong→correct pair is a
+				// visual duplicate regardless of its backend bucket.
 				const key = (e: VocabularyEntry) =>
-					`${e.original}\u0000${e.correction}\u0000${e.category}`;
+					`${e.original}\u0000${e.correction}`;
 				const existingKeys = new Set(existing.map(key));
 				const merged = [...existing];
 				let added = 0;
@@ -140,6 +166,14 @@ export function useVocabularyImportExport({
 					"[renderer:useVocabularyImportExport] Vocabulary import failed:",
 					err,
 				);
+				// Backend duplicate enforcement: the merged import contains a
+				// wrong phrase that already exists (case-insensitive) and the
+				// save was rejected. Surface the targeted message instead of
+				// the generic parse/save failure.
+				if (isDuplicateEntryError(err)) {
+					toast.error(t("vocabulary.importDuplicate"));
+					return;
+				}
 				toast.error(
 					t("vocabulary.importFailed", {
 						error: err instanceof Error ? err.message : String(err),

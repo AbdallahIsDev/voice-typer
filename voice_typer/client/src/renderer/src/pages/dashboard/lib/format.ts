@@ -18,6 +18,19 @@ export function barHeight(count: number, max: number): number {
 
 /** Get day-of-week abbreviation for a date string. */
 export function dayAbbr(dateStr: string): string {
+	try {
+		const label = weekdayLabel(new Date(dateStr).getDay());
+		// noUncheckedIndexedAccess: weekdayLabel returns "" for an
+		// out-of-range index — fall back to the original input string so
+		// we never lie about the return type.
+		return label || dateStr;
+	} catch {
+		return dateStr;
+	}
+}
+
+/** Get the localized name for a weekday index (0=Sunday…6=Saturday). */
+export function weekdayLabel(index: number): string {
 	const days = [
 		t("analytics.days.sun"),
 		t("analytics.days.mon"),
@@ -27,16 +40,7 @@ export function dayAbbr(dateStr: string): string {
 		t("analytics.days.fri"),
 		t("analytics.days.sat"),
 	];
-	try {
-		const day = days[new Date(dateStr).getDay()];
-		// noUncheckedIndexedAccess: days is `string[]`, so reads return
-		// `string | undefined`; the index is always in bounds here, but
-		// fall back to the original input string so we never lie about
-		// the return type.
-		return day ?? dateStr;
-	} catch {
-		return dateStr;
-	}
+	return days[index] ?? "";
 }
 
 /** Get a human-friendly label like "Today", "Yesterday", or the date. */

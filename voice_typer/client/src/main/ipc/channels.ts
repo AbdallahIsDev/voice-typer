@@ -46,6 +46,16 @@ export const RendererChannels = {
 	logError: "renderer:log-error",
 } as const;
 
+export const StatsImageChannels = {
+	// Save the share-stats image PNG: instant-save to the OS Downloads
+	// folder (mode: "downloads") or native save dialog (mode: "saveAs").
+	save: "stats-image:save",
+	// Copy the share-stats PNG to the OS clipboard.
+	copy: "stats-image:copy",
+	// Reveal an exported stats-image PNG in the OS file manager.
+	reveal: "stats-image:reveal",
+} as const;
+
 // Backend lifecycle controls (renderer → main only; NOT Python IPC
 // commands, so they stay out of the SEC-002 command allowlist).
 export const BackendChannels = {

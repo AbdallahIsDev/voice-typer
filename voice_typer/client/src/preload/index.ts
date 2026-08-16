@@ -6,6 +6,7 @@ import {
 	ModelChannels,
 	PythonChannels,
 	RendererChannels,
+	StatsImageChannels,
 	WindowChannels,
 } from "../main/ipc/channels";
 import type { ExportFormat } from "../shared/export-format";
@@ -121,5 +122,33 @@ if (!isBubble) {
 				ok: boolean;
 				reason?: string;
 			}>,
+		// Share-stats image platform operations (save to Downloads / Save
+		// As dialog, clipboard copy, reveal in folder). The renderer
+		// captures the PNG itself; the main process owns the filesystem
+		// / clipboard / shell access a sandboxed renderer cannot use.
+		saveStatsImage: (
+			dataUrl: string,
+			defaultName: string,
+			mode: "downloads" | "saveAs",
+		) =>
+			ipcRenderer.invoke(StatsImageChannels.save, {
+				dataUrl,
+				defaultName,
+				mode,
+			}) as Promise<{
+				success: boolean;
+				canceled?: boolean;
+				path?: string;
+				error?: string;
+			}>,
+		copyStatsImage: (dataUrl: string) =>
+			ipcRenderer.invoke(StatsImageChannels.copy, { dataUrl }) as Promise<{
+				success: boolean;
+				error?: string;
+			}>,
+		revealStatsImage: (filePath: string) =>
+			ipcRenderer.invoke(StatsImageChannels.reveal, {
+				path: filePath,
+			}) as Promise<{ success: boolean; error?: string }>,
 	});
 }

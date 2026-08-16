@@ -3,6 +3,7 @@
 	"dialog.criticalError.title": "{appName} — 严重错误",
 	"dialog.export.config": "导出配置",
 	"dialog.export.history": "导出历史记录",
+	"dialog.export.statsImage": "导出统计图像",
 	"dialog.export.templates": "导出模板",
 	"dialog.export.vocabulary": "导出词汇表",
 	"dialog.preloadError.body": "{appName} 启动失败（预加载脚本错误，位于 {file}）。\n\n请重新安装 {appName}。\n\n如果重新安装后问题仍然存在，请联系支持团队。",

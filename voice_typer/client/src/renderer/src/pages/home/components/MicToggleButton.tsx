@@ -68,9 +68,12 @@ export function MicToggleButton({
 				<HugeiconsIcon
 					icon={isRecording ? StopIcon : Mic02Icon}
 					strokeWidth={1.625}
+					// The mic lives on the red (destructive) button, so it
+					// stays white in BOTH themes — `text-(--text-primary)`
+					// turned black in light mode. The stop icon on the
+					// recording state is white too.
 					className={cn(
-						"h-8 w-8 transition-opacity",
-						isRecording ? "text-white" : "text-(--text-primary)",
+						"h-8 w-8 transition-opacity text-white",
 						toggling && "opacity-30",
 					)}
 				/>

@@ -79,16 +79,21 @@ describe("Sidebar", () => {
 
 	//active nav item visual hierarchy ───────────────────────
 
-	it("UX-16: active nav item carries the 2px left accent bar + soft accent background classes", () => {
+	it("UX-16: active nav item blends with the page (--bg background, no accent bar, no accent tint)", () => {
 		render(<Sidebar {...baseProps} currentPage="settings" />);
 		const activeButton = findNavButton("Settings");
 		expect(activeButton).toBeTruthy();
 		const cls = activeButton?.className ?? "";
-		// 2px inline-start accent bar via before:bg-accent pseudo-element.
+		// Transparent 2px inline-start border stays for alignment only
+		// (no layout shift when the active item changes).
 		expect(cls).toContain("border-s-2");
-		expect(cls).toContain("before:bg-accent");
-		// Soft accent background (vs the old solid --bg).
-		expect(cls).toContain("bg-(--accent-soft)");
+		expect(cls).toContain("border-s-transparent");
+		// The old accent dash (before:bg-accent) is gone.
+		expect(cls).not.toContain("before:bg-accent");
+		// Active background matches the page background (--bg), and the
+		// old soft-accent tint is gone.
+		expect(cls).toContain("bg-(--bg)");
+		expect(cls).not.toContain("bg-(--accent-soft)");
 		// Text color + weight bumped to primary/medium.
 		expect(cls).toContain("text-(--text-primary)");
 		expect(cls).toContain("font-medium");
@@ -106,6 +111,8 @@ describe("Sidebar", () => {
 		expect(cls).toContain("border-s-transparent");
 		expect(cls).not.toContain("border-s-(--accent)");
 		expect(cls).not.toContain("bg-(--accent-soft)");
+		expect(cls).not.toContain("bg-(--bg)");
+		expect(cls).not.toContain("before:bg-accent");
 		expect(cls).not.toContain("font-medium");
 	});
 

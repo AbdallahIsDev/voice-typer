@@ -299,7 +299,7 @@ export function SegmentedControl<T extends string>({
 			className={cn(
 				"relative inline-flex items-center",
 				variant === "default" &&
-					"rounded-full border border-border bg-input/50 p-0.75",
+					"rounded-full border border-border/10 bg-input/50 p-0.75",
 				variant === "tabs" && "bg-transparent border-none rounded-none p-1",
 				className,
 			)}

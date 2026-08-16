@@ -191,6 +191,14 @@ export interface SaveVocabularyRequest {
 	data: Record<string, unknown>;
 }
 
+// "Test corrections" panel — applies the LIVE backend vocabulary
+// rules (VocabularyManager.apply_to_text) to a phrase. Resolves to
+// `{ input: string, output: string, applied: boolean }`.
+export interface TestVocabularyCorrectionRequest {
+	type: "test_vocabulary_correction";
+	data: { text: string };
+}
+
 // ── Additional renderer-called commands ────────────────────────────
 //
 // Widened coverage for commands invoked from the renderer but not yet
@@ -526,6 +534,7 @@ export type PythonRequest =
 	| GetTodayStatsRequest
 	| GetVocabularyRequest
 	| SaveVocabularyRequest
+	| TestVocabularyCorrectionRequest
 	// new endpoints — see GetHistoryCountRequest /
 	// GetTranscriptionTextRequest above for the rationale.
 	| GetHistoryCountRequest

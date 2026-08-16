@@ -157,6 +157,18 @@ export default function ModelsPage() {
 							aria-labelledby="models-tab-local"
 							className="space-y-6 scroll-mt-32"
 						>
+							{/* Genuine "no model selected" state (the backend's
+							        NO_MODEL_SIZE sentinel, model_size === "") —
+							        nothing is active and the app will not try to
+							        load a model until the user picks one below. */}
+							{lifecycle.config.model_size === "" && (
+								<div
+									role="status"
+									className="mb-6 rounded-lg border border-border/10 bg-(--bg-subtle) px-4 py-3 text-sm text-(--text-primary)"
+								>
+									{t("models.noModelSelected")}
+								</div>
+							)}
 							<LocalModelsPanel
 								config={lifecycle.config}
 								modelFamilies={modelFamilies}

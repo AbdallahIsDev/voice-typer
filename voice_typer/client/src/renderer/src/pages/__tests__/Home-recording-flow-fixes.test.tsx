@@ -13,10 +13,13 @@
  *   - The MicToggleButton exposes `aria-pressed` so screen readers
  *     announce the toggle state ("pressed" / "not pressed") rather than
  *     just the label.
- *   - When recordingState is "error", the RecordingErrorCard retry
- *     button label is `t("home.startDictation")` (matching the actual
- *     action of `handleToggle`) rather than the misleading "Retry".
- *   - A live MM:SS timer is rendered next to the RecordingStatusPill
+ *   - When recordingState is "error", the error is surfaced as red
+ *     text inside the single dynamic status line below the mic button
+ *     (not a separate error card above it).
+ *   - The single dynamic status line swaps between the default
+ *     "Press <hotkey> or click to dictate" hint, the
+ *     "Preparing offline engine…" message, and red error text.
+ *   - A live MM:SS recording timer is rendered above the mic button
  *     while recording.
  *   - LAST_TEXT_AUTO_CLEAR_MS is bumped to 30_000 in constants.ts.
  *   - No task-ID / session-prefix comments remain in the owned files.
@@ -29,6 +32,7 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useConsentGateStore } from "@/lib/consentGate";
@@ -90,7 +94,7 @@ afterEach(() => {
 
 async function renderHome() {
 	const { default: Home } = await import("@/pages/Home");
-	return render(<Home />);
+	return render(<TooltipProvider>{<Home />}</TooltipProvider>);
 }
 
 //transcription text wrapped in <output aria-live="polite"> ──
@@ -315,6 +319,117 @@ describe("QV-49(a): Home renders a live MM:SS timer while recording", () => {
 
 		// No element should expose the timer aria-label.
 		expect(screen.queryByLabelText(/Recording duration:/i)).toBeNull();
+	});
+});
+
+// Single dynamic status line below the mic button ──
+//
+// All state-driven copy (default hotkey hint, "Preparing offline
+// engine…", red errors) lives in ONE <output aria-live="polite">
+// element under the button. Nothing else renders above the button as a
+// separate status line (only the recording timer while recording).
+
+describe("Home renders the single dynamic status line below the mic button", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		mockPythonEvent.mockReset();
+		mockNavigate.mockReset();
+		localStorage.clear();
+		vi.resetModules();
+		mockCall.mockImplementation(() => new Promise(() => {}));
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("renders the default 'Press <hotkey> or click to dictate' hint when idle", async () => {
+		const { useAppStore } = await import("@/stores/appStore");
+		useAppStore.setState({ recordingState: "idle", lastError: null });
+
+		await renderHome();
+
+		// en.json values for home.press / home.pressOrClick.
+		expect(screen.getByText("Press")).toBeTruthy();
+		expect(screen.getByText("or click to dictate")).toBeTruthy();
+		// No separate preparing/status line is rendered alongside.
+		expect(screen.queryByText("Preparing offline engine…")).toBeNull();
+	});
+
+	it("renders the recording error in red inside the single status line", async () => {
+		const { useAppStore } = await import("@/stores/appStore");
+		useAppStore.setState({
+			recordingState: "error",
+			lastError: "No model selected",
+		});
+
+		await renderHome();
+
+		const line = screen.getByText("No model selected");
+		// The single dynamic line is an <output aria-live="polite">.
+		const output = line.closest("output");
+		expect(output).not.toBeNull();
+		expect(output?.getAttribute("aria-live")).toBe("polite");
+		// Error state renders with the destructive (red) token and is
+		// announced as an alert.
+		expect(output?.className).toContain("text-destructive");
+		expect(output?.getAttribute("role")).toBe("alert");
+		// The default hotkey hint is replaced, not shown alongside.
+		expect(screen.queryByText("or click to dictate")).toBeNull();
+	});
+
+	it("renders the 'No model selected' hint in red when config has no model", async () => {
+		// Resolve get_config with the NO_MODEL_SIZE sentinel ("") so
+		// the no-model branch of the status line activates.
+		mockCall.mockImplementation((cmd: string) => {
+			if (cmd === "get_config") {
+				return Promise.resolve({ hotkey: "<f2>", model_size: "" });
+			}
+			return new Promise(() => {});
+		});
+		const { useAppStore } = await import("@/stores/appStore");
+		useAppStore.setState({ recordingState: "idle", lastError: null });
+
+		await renderHome();
+
+		// en.json value for home.noModelSelectedHint.
+		const line = await screen.findByText(
+			"No model selected. Go to the models page to select a model.",
+		);
+		const output = line.closest("output");
+		expect(output?.className).toContain("text-destructive");
+		expect(screen.queryByText("or click to dictate")).toBeNull();
+	});
+
+	it("renders 'Preparing offline engine…' in the status line after an attempted dictation with the pack not ready", async () => {
+		const { useAppStore } = await import("@/stores/appStore");
+		useAppStore.setState({ recordingState: "idle", lastError: null });
+
+		await renderHome();
+
+		// Fire offline_pack_missing so the pack is not ready, then
+		// simulate a dictation attempt (the same path handleToggle
+		// uses) so the preparing state activates.
+		const missingCall = mockPythonEvent.mock.calls.find(
+			(c) => c[0] === "offline_pack_missing",
+		);
+		expect(missingCall).toBeDefined();
+		await act(async () => {
+			missingCall?.[1]?.({});
+		});
+
+		const micButton = screen.getByRole("button", {
+			name: /start dictation/i,
+		});
+		fireEvent.click(micButton);
+
+		// The single status line now shows the preparing message instead
+		// of the default hotkey hint. en.json value for
+		// pack.preparingOfflineEngine.
+		const line = await screen.findByText("Preparing offline engine…");
+		const output = line.closest("output");
+		expect(output?.className).toContain("text-(--text-muted)");
+		expect(screen.queryByText("or click to dictate")).toBeNull();
 	});
 });
 
@@ -686,9 +801,15 @@ describe("Home gates dictation on voice_biometric_consent (GDPR Art. 9)", () => 
 	});
 });
 
-// ── Home wires onOpenMicSettings to navigate('microphone') ──
+// ── Home no longer mounts the RecordingErrorCard ──
+//
+// Recording errors are surfaced as red text inside the single dynamic
+// status line (see "Home renders the single dynamic status line below
+// the mic button" above); the error card + its secondary CTA are gone
+// from Home. The RecordingErrorCard component itself still exists in
+// ./home/components and is covered by its own tests.
 
-describe("Home wires RecordingErrorCard's onOpenMicSettings to navigate('microphone')", () => {
+describe("Home no longer mounts the RecordingErrorCard above the mic button", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
@@ -702,7 +823,7 @@ describe("Home wires RecordingErrorCard's onOpenMicSettings to navigate('microph
 		cleanup();
 	});
 
-	it("calls navigate('microphone') when the 'Open Microphone settings' CTA is clicked", async () => {
+	it("does not render the 'Open Microphone settings' CTA in the error state", async () => {
 		const { useAppStore } = await import("@/stores/appStore");
 		useAppStore.setState({
 			recordingState: "error",
@@ -711,11 +832,11 @@ describe("Home wires RecordingErrorCard's onOpenMicSettings to navigate('microph
 
 		await renderHome();
 
-		const cta = screen.getByRole("button", {
-			name: /Open Microphone settings/i,
-		});
-		cta.click();
-		expect(mockNavigate).toHaveBeenCalledWith("microphone");
-		expect(mockNavigate).toHaveBeenCalledTimes(1);
+		// The error is shown as red text in the status line — no card,
+		// no secondary CTA.
+		expect(
+			screen.queryByRole("button", { name: /Open Microphone settings/i }),
+		).toBeNull();
+		expect(screen.getByText("Device unavailable")).toBeTruthy();
 	});
 });

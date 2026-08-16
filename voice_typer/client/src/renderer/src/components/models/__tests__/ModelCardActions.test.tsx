@@ -54,7 +54,7 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 });
 
 const baseModel: ModelInfo = {
-	name: "small.en",
+	name: "tiny",
 	size: "~466MB",
 	speed: "Fast",
 	backend: "whisper",
@@ -84,7 +84,7 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 		);
 		// Active button is disabled.
 		const activeBtn = screen.getByRole("button", {
-			name: /Active: small\.en/i,
+			name: /Active: tiny/i,
 		});
 		expect(activeBtn).toBeDisabled();
 		// Uses the Tick02Icon (not PlayIcon — Select/Active are tick affordances).
@@ -96,7 +96,7 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 		// refuses to delete it ("Cannot delete the active model"), so a
 		// Delete button here would always error. Users switch first.
 		expect(
-			screen.queryByRole("button", { name: /Delete small\.en/i }),
+			screen.queryByRole("button", { name: /Delete tiny/i }),
 		).toBeNull();
 	});
 
@@ -118,7 +118,7 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 		// to remove, and a trash icon next to "Download" falsely implies
 		// an installed model.
 		const dlBtn = screen.getByRole("button", {
-			name: /Download small\.en/i,
+			name: /Download tiny/i,
 		});
 		// The Download button is icon-only (2026-08-15 user request):
 		// the download icon + the downloadAria label carry the
@@ -130,11 +130,11 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 		expect(dlBtn).not.toHaveTextContent("Download");
 		// No disabled "Active" tick anymore.
 		expect(
-			screen.queryByRole("button", { name: /Active: small\.en/i }),
+			screen.queryByRole("button", { name: /Active: tiny/i }),
 		).toBeNull();
 		// NO Delete affordance for a not-downloaded model.
 		expect(
-			screen.queryByRole("button", { name: /Delete small\.en/i }),
+			screen.queryByRole("button", { name: /Delete tiny/i }),
 		).toBeNull();
 	});
 
@@ -151,7 +151,7 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 			/>,
 		);
 		expect(
-			screen.queryByRole("button", { name: /Delete small\.en/i }),
+			screen.queryByRole("button", { name: /Delete tiny/i }),
 		).toBeNull();
 	});
 
@@ -173,13 +173,13 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 			/>,
 		);
 		const depsBtn = screen.getByRole("button", {
-			name: /Download dependencies for small\.en/i,
+			name: /Download dependencies for tiny/i,
 		});
 		expect(depsBtn).toHaveTextContent("Download Deps");
 		expect(depsBtn).not.toHaveAttribute("aria-busy", "true");
 		// Not downloaded → no Delete icon (nothing to remove).
 		expect(
-			screen.queryByRole("button", { name: /Delete small\.en/i }),
+			screen.queryByRole("button", { name: /Delete tiny/i }),
 		).toBeNull();
 	});
 
@@ -196,7 +196,7 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 			/>,
 		);
 		const dlBtn = screen.getByRole("button", {
-			name: /Download small\.en/i,
+			name: /Download tiny/i,
 		});
 		// Icon-only: the download icon is present, no visible "Download"
 		// text (2026-08-15 user request).
@@ -221,7 +221,7 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 			/>,
 		);
 		const selectBtn = screen.getByRole("button", {
-			name: /Select small\.en/i,
+			name: /Select tiny/i,
 		});
 		expect(selectBtn).toHaveTextContent("Select");
 		//#9: Select uses Tick02Icon (was PlayIcon — semantically wrong).
@@ -233,7 +233,7 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 		);
 		// Downloaded → Delete button also rendered.
 		expect(
-			screen.getByRole("button", { name: /Delete small\.en/i }),
+			screen.getByRole("button", { name: /Delete tiny/i }),
 		).toBeInTheDocument();
 	});
 });
@@ -265,7 +265,7 @@ describe("ModelCardActions — BG-76 (aria-busy + aria-label swap on async butto
 		);
 		expect(dlBtn).not.toHaveTextContent("Downloading…");
 		// The stale per-model aria-label is NOT used while in-flight.
-		expect(dlBtn.getAttribute("aria-label")).not.toMatch(/Download small\.en/);
+		expect(dlBtn.getAttribute("aria-label")).not.toMatch(/Download tiny/);
 	});
 
 	it("Download Deps button exposes aria-busy=true and swaps aria-label to 'Downloading…' while deps-install in-flight", () => {
@@ -326,7 +326,7 @@ describe("ModelCardActions — BG-R16 #8 (oneAtATimeTitle fallback removed)", ()
 				onDelete={noop}
 			/>,
 		);
-		const dlBtn = screen.getByRole("button", { name: /Download small\.en/i });
+		const dlBtn = screen.getByRole("button", { name: /Download tiny/i });
 		// Catalog value: "Only one download at a time — wait for the current
 		// download to finish or cancel it". Assert the localized sentence is
 		// present (NOT the dead-code English fallback "Only one download at a
@@ -354,7 +354,7 @@ describe("ModelCardActions — BG-R16 #8 (oneAtATimeTitle fallback removed)", ()
 			/>,
 		);
 		const depsBtn = screen.getByRole("button", {
-			name: /Download dependencies for small\.en/i,
+			name: /Download dependencies for tiny/i,
 		});
 		const title = depsBtn.getAttribute("title") ?? "";
 		expect(title).toContain("Only one download at a time");
@@ -511,7 +511,7 @@ describe("ModelCardActions — DeleteButton rendering", () => {
 			/>,
 		);
 		expect(
-			screen.queryByRole("button", { name: /Delete small\.en/i }),
+			screen.queryByRole("button", { name: /Delete tiny/i }),
 		).toBeNull();
 	});
 
@@ -528,7 +528,7 @@ describe("ModelCardActions — DeleteButton rendering", () => {
 			/>,
 		);
 		expect(
-			screen.getByRole("button", { name: /Delete small\.en/i }),
+			screen.getByRole("button", { name: /Delete tiny/i }),
 		).toBeInTheDocument();
 	});
 
@@ -545,7 +545,7 @@ describe("ModelCardActions — DeleteButton rendering", () => {
 				onDelete={onDelete}
 			/>,
 		);
-		screen.getByRole("button", { name: /Delete small\.en/i }).click();
+		screen.getByRole("button", { name: /Delete tiny/i }).click();
 		expect(onDelete).toHaveBeenCalledTimes(1);
 	});
 });

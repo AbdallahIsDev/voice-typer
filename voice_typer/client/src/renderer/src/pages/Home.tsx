@@ -10,7 +10,12 @@
 //   - `./home/components/RecordingStatusPill.tsx`     — status pill
 //   - `./home/components/MicToggleButton.tsx`         — mic toggle button
 //   - `./home/components/LastTranscriptionPreview.tsx` — last transcription card
-//   - `./home/components/RecordingErrorCard.tsx`       — error card
+//
+// Status is kept minimal: the coloured status pill + a live MM:SS
+// timer appear above the mic button, and a single dynamic line below
+// it swaps between the default hotkey hint, the "Preparing offline
+// engine…" message, and red error text (e.g. "No model selected")
+// based on the current state.
 //
 // The `export default function Home` signature is unchanged so App.tsx
 // routing and existing tests (Home.test.tsx, pages-improvements.test.tsx
@@ -23,17 +28,15 @@
 // identity). The regression test greps Home.tsx source for this pattern, so
 // it stays here in the composition root rather than moving into a hook.
 
-import { Share08Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import ActivityList from "@/components/dashboard/ActivityList";
+import { ShareStatsMenu } from "@/components/dashboard/ShareStatsMenu";
 import StatCards from "@/components/dashboard/StatCards";
 import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
-import { OfflinePackPreparingBanner } from "@/components/feedback/OfflinePackPreparingBanner";
 import { Spinner } from "@/components/feedback/Spinner";
-import { Button } from "@/components/ui/button";
+import { HotkeyChips } from "@/components/hotkey/HotkeyChips";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { useNavigation } from "@/hooks/useNavigation";
 import { useOfflinePackDownload } from "@/hooks/useOfflinePackDownload";
@@ -46,13 +49,13 @@ import {
 import { t } from "@/i18n/i18n";
 import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
 import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
+import { useThemePalette } from "@/lib/theme-palette";
 import { HOTKEY_DEFAULT } from "@/pages/onboarding/lib/constants";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { HistoryRecord, TodayStats } from "@/types/ipc";
 import { LastTranscriptionPreview } from "./home/components/LastTranscriptionPreview";
 import { MicToggleButton } from "./home/components/MicToggleButton";
-import { RecordingErrorCard } from "./home/components/RecordingErrorCard";
 import { RecordingStatusPill } from "./home/components/RecordingStatusPill";
 import { useFirstRecordingCelebration } from "./home/hooks/useFirstRecordingCelebration";
 import {
@@ -85,8 +88,8 @@ export default function Home() {
 
 	const [hotkey, setHotkey] = useState("F2");
 	const [lastText, setLastText] = useState("");
-	// QV-49(a): live MM:SS recording timer — elapsed seconds while
-	// recording, reset to 0 when a new recording starts.
+	// Live MM:SS recording timer — elapsed seconds while recording,
+	// reset to 0 when a new recording starts.
 	const [elapsedSec, setElapsedSec] = useState(0);
 	const isRecording = recordingState === "recording";
 	useEffect(() => {
@@ -133,13 +136,22 @@ export default function Home() {
 	// Deepgram) never needs the pack, so we suppress the banner when
 	// the active ASR backend is a cloud one (§4.9: "works — cloud
 	// never needs the pack").
-	const { status: packStatus, isReady: packReady } = useOfflinePackDownload();
+	const { isReady: packReady } = useOfflinePackDownload();
 	// Tracks whether the user has pressed the dictation toggle at least
 	// once. The banner is gated on this so a fresh page load with a
 	// missing pack doesn't surface the "Preparing…" line until the
 	// user actually attempts dictation.
 	const [hasAttemptedDictation, setHasAttemptedDictation] = useState(false);
-	const { imageRef, shareAsImage } = useStatsShare();
+	const {
+		imageRef,
+		downloadImage,
+		saveImageAs,
+		copyImageToClipboard,
+		revealInFolder,
+	} = useStatsShare();
+	// Live theme palette for the share image — re-reads when the theme
+	// changes so the exported PNG always matches the active preset.
+	const themePalette = useThemePalette();
 
 	// Track mount state so async callbacks that
 	// outlive the component (notably `handleManualRefresh` below, which is
@@ -440,10 +452,12 @@ export default function Home() {
 		};
 	}, []);
 
-	const shareStats = useCallback(() => {
-		if (!stats || !cfg) return;
-		shareAsImage("voice-typer-stats");
-	}, [stats, cfg, shareAsImage]);
+	const shareActions = {
+		downloadImage,
+		saveImageAs,
+		copyImageToClipboard,
+		revealInFolder,
+	};
 
 	const handleToggle = useCallback(async () => {
 		// Mark that the user has attempted dictation so the
@@ -538,25 +552,24 @@ export default function Home() {
 	// a fresh `computeShareStats(...)` return value, defeating the
 	// React.memo wrapper on StatsShareImage. Keyed on `stats` and
 	// `cfg?.asr_backend` — the only inputs `computeShareStats` reads.
-	// (Renamed from `shareStats` to avoid colliding with the
-	// `shareStats` click-handler callback declared above.)
+	// Home's share image derives from the today-stats cache + config
+	// (no lifetime aggregates on this page) — `computeShareStats`
+	// defaults the lifetime fields to today's values, and the model /
+	// device come from the config snapshot.
 	const asrBackend = cfg?.asr_backend;
 	const shareImageStats = useMemo(
-		() => (stats && asrBackend ? computeShareStats(stats, asrBackend) : null),
-		[stats, asrBackend],
+		() =>
+			stats && asrBackend
+				? computeShareStats(stats, asrBackend, {
+						model: cfg?.model_size ?? "",
+						device: cfg?.device ?? "",
+					})
+				: null,
+		[stats, asrBackend, cfg?.model_size, cfg?.device],
 	);
 
-	const key = statusKeyFor(recordingState, !!lastError);
-	// noUncheckedIndexedAccess: `STATUS_COLORS[key]` is `string | undefined`.
-	// `statusKeyFor` always returns a known key, but the index access still
-	// widens to `string | undefined` under strict TS; fall back to a literal
-	// sentinel that matches `STATUS_COLORS.idle` so we never pass `undefined`
-	// to the `RecordingStatusPill` `statusColor` prop.
-	const statusColor = STATUS_COLORS[key] ?? "#787878";
-	const statusLabel = statusLabelFor(key) ?? t("home.ready");
-
-	// Inline status text shown between the mic button and the hotkey
-	// hint. The mic button is disabled during `transcribing` and
+	// Inline status text shown in the dynamic status line below the mic
+	// button. The mic button is disabled during `transcribing` and
 	// `loading`, so without an inline hint the user has no visual
 	// explanation for why the button is unresponsive. The hint also
 	// doubles as the `disabledReason` passed to MicToggleButton so
@@ -578,43 +591,46 @@ export default function Home() {
 		recordingState === "transcribing";
 	// `toggling` already shows the spinner overlay inside the button,
 	// so only `loading` / `transcribing` need a textual reason.
+	const key = statusKeyFor(recordingState, !!lastError);
+	// noUncheckedIndexedAccess: `STATUS_COLORS[key]` is `string | undefined`.
+	// `statusKeyFor` always returns a known key, but the index access still
+	// widens to `string | undefined` under strict TS; fall back to a literal
+	// sentinel that matches `STATUS_COLORS.idle` so we never pass `undefined`
+	// to the `RecordingStatusPill` `statusColor` prop.
+	const statusColor = STATUS_COLORS[key] ?? "#787878";
+	const statusLabel = statusLabelFor(key) ?? t("home.ready");
+
 	const micDisabledReason = micDisabled && !toggling ? inlineStatus : undefined;
+
+	// Single dynamic status line under the mic button — ONE element that
+	// swaps its content (and color) based on the current state, instead
+	// of separate hotkey-hint / "Preparing offline engine…" / inline
+	// status lines (or a status pill above the button):
+	//   1. No model selected (the backend's `NO_MODEL_SIZE` sentinel,
+	//      `model_size === ""`) → red "No model selected…" error.
+	//   2. Recording error with a message → red error text.
+	//   3. Transcribing / downloading model → the inline status hint.
+	//   4. Offline engine still preparing (pack not ready AND the user
+	//      attempted dictation) → "Preparing offline engine…".
+	//   5. Otherwise → "Press <hotkey> or click to dictate".
+	const noModelSelected = cfg?.model_size === "";
+	const preparingOffline = !packReady && hasAttemptedDictation;
+	let hint:
+		| { variant: "error"; text: string }
+		| { variant: "status"; text: string }
+		| null = null;
+	if (noModelSelected) {
+		hint = { variant: "error", text: t("home.noModelSelectedHint") };
+	} else if (recordingState === "error" && lastError) {
+		hint = { variant: "error", text: lastError };
+	} else if (inlineStatus) {
+		hint = { variant: "status", text: inlineStatus };
+	} else if (preparingOffline) {
+		hint = { variant: "status", text: t("pack.preparingOfflineEngine") };
+	}
 
 	return (
 		<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col items-center justify-center gap-5 px-6 py-4">
-			<div className="flex items-center gap-3">
-				<RecordingStatusPill
-					statusColor={statusColor}
-					statusLabel={statusLabel}
-					isRecording={isRecording}
-				/>
-				{isRecording && (
-					<span
-						className="font-mono text-sm tabular-nums text-(--text-muted)"
-						// QV-49(a): accessible live timer while recording. role="timer"
-						// gives the span a role that supports aria-label (plain
-						// spans don't accept aria-label) and is the semantically
-						// correct ARIA role for a live count-up timer.
-						role="timer"
-						aria-label={t("home.timerAria", {
-							duration: `${String(Math.floor(elapsedSec / 60)).padStart(2, "0")}:${String(elapsedSec % 60).padStart(2, "0")}`,
-						})}
-					>
-						{String(Math.floor(elapsedSec / 60)).padStart(2, "0")}:
-						{String(elapsedSec % 60).padStart(2, "0")}
-					</span>
-				)}
-			</div>
-
-			{recordingState === "error" && lastError && (
-				<RecordingErrorCard
-					message={lastError}
-					onRetry={handleToggle}
-					retrying={toggling}
-					onOpenMicSettings={() => navigate("microphone")}
-				/>
-			)}
-
 			{downloadPct !== null && (
 				<div
 					className="h-0.5 w-32 rounded-full bg-(--bg-subtle)"
@@ -642,6 +658,30 @@ export default function Home() {
 				</button>
 			)}
 
+			<div className="flex items-center gap-3">
+				<RecordingStatusPill
+					statusColor={statusColor}
+					statusLabel={statusLabel}
+					isRecording={isRecording}
+				/>
+				{isRecording && (
+					<span
+						className="font-mono text-sm tabular-nums text-(--text-muted)"
+						// QV-49(a): accessible live timer while recording. role="timer"
+						// gives the span a role that supports aria-label (plain
+						// spans don't accept aria-label) and is the semantically
+						// correct ARIA role for a live count-up timer.
+						role="timer"
+						aria-label={t("home.timerAria", {
+							duration: `${String(Math.floor(elapsedSec / 60)).padStart(2, "0")}:${String(elapsedSec % 60).padStart(2, "0")}`,
+						})}
+					>
+						{String(Math.floor(elapsedSec / 60)).padStart(2, "0")}:
+						{String(elapsedSec % 60).padStart(2, "0")}
+					</span>
+				)}
+			</div>
+
 			<MicToggleButton
 				isRecording={isRecording}
 				toggling={toggling}
@@ -651,38 +691,30 @@ export default function Home() {
 				disabledReason={micDisabledReason ?? undefined}
 			/>
 
-			{inlineStatus && (
-				// The <output> element maps to the implicit `status` role,
-				// so screen readers treat this as a live region (announced
-				// on change) without forcing a duplicate `aria-live` that
-				// would compete with App.tsx's sr-only live region.
-				<output
-					aria-live="polite"
-					className="block text-[13px] text-(--text-muted) animate-fade-in"
-				>
-					{inlineStatus}
-				</output>
-			)}
-
-			{/* Runtime-pack readiness banner — §4.8 / §4.9. Local
-					whisper / Parakeet transcription degrades silently to
-					"silent download starts, 'Preparing…' line, then works"
-					when the pack isn't ready. Visible only when the pack
-					isn't ready AND the user has pressed the dictation
-					toggle at least once (so a fresh page load with a
-					missing pack doesn't flash the line at idle users). */}
-			<OfflinePackPreparingBanner
-				visible={!packReady && hasAttemptedDictation}
-				status={packStatus}
-			/>
-
-			<p className="flex items-center gap-2 text-[13px] text-(--text-muted)">
-				<span>{t("home.press")}</span>
-				<span className="inline-flex items-center justify-center rounded-md border border-border bg-(--bg-subtle) px-1.75 py-0.75 font-mono text-[11px] font-medium text-(--text-primary) shadow-[0_1px_3px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,0.4)] dark:shadow-[0_1px_3px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.06)] leading-none tracking-tight">
-					{hotkey}
-				</span>
-				<span>{t("home.pressOrClick")}</span>
-			</p>
+			{/* Single dynamic status line under the mic button — see the
+				`hint` computation above for the state → content mapping.
+				The <output> element maps to the implicit `status` role, so
+				screen readers treat this as a live region (announced on
+				change) without forcing a duplicate `aria-live` that would
+				compete with App.tsx's sr-only live region. Errors switch
+				to `role="alert"` so they're announced as alerts. */}
+			<output
+				aria-live="polite"
+				role={hint?.variant === "error" ? "alert" : undefined}
+				className={`flex items-center gap-2 text-[13px] animate-fade-in ${
+					hint?.variant === "error" ? "text-destructive" : "text-(--text-muted)"
+				}`}
+			>
+				{hint ? (
+					hint.text
+				) : (
+					<>
+						<span>{t("home.press")}</span>
+						<HotkeyChips keys={hotkey} />
+						<span>{t("home.pressOrClick")}</span>
+					</>
+				)}
+			</output>
 
 			{lastText && (
 				<output
@@ -712,10 +744,8 @@ export default function Home() {
 								onRefresh={handleManualRefresh}
 								refreshing={refreshing}
 							/>
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={shareStats}
+							<ShareStatsMenu
+								actions={shareActions}
 								disabled={
 									!cfg ||
 									!canShareStats({
@@ -723,15 +753,7 @@ export default function Home() {
 										totalCount: recent.length > 0 ? 1 : 0,
 									})
 								}
-								className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
-							>
-								<HugeiconsIcon
-									icon={Share08Icon}
-									strokeWidth={2}
-									className="h-4 w-4"
-								/>
-								{t("home.shareStats")}
-							</Button>
+							/>
 						</div>
 					</div>
 					<StatCards stats={stats} />
@@ -759,7 +781,9 @@ export default function Home() {
 					clipPath: "inset(50% 50% 50% 50%)",
 				}}
 			>
-				{shareImageStats && <StatsShareImage stats={shareImageStats} />}
+				{shareImageStats && (
+					<StatsShareImage stats={shareImageStats} palette={themePalette} />
+				)}
 			</div>
 
 			{initialLoading && recent.length === 0 ? (

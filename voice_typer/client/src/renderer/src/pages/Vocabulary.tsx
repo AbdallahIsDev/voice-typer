@@ -2,14 +2,17 @@
 //
 // Split from the former monolithic ``pages/Vocabulary.tsx`` (1053 lines)
 // into:
-//   - ``./vocabulary/lib/``        — pure helpers (categories, transform, sort, importExport)
-//   - ``./vocabulary/hooks/``      — state + handlers (useVocabulary, useVocabularyDialog, useVocabularyImportExport)
-//   - ``./vocabulary/components/`` — presentational (VocabToolbar, VocabSearchFilterBar, VocabListRow, VocabDialog)
+//   - ``./vocabulary/lib/``        — pure helpers (categories, transform, sort, importExport, testCorrection)
+//   - ``./vocabulary/hooks/``      — state + handlers (useVocabulary, useVocabularyDialog, useVocabularyImportExport, useVocabularyQuickAdd, useVocabularySelection)
+//   - ``./vocabulary/components/`` — presentational (VocabToolbar, VocabSearchFilterBar, VocabListRow, VocabListHeader, VocabBulkBar, VocabQuickAdd, VocabTestPanel, VocabDialog)
 //
 // This file owns ONLY the page layout (loading / load-error / empty /
 // list / dialog wiring). All state + business logic lives in the hooks;
-// all rendering lives in the components. Behaviour is preserved
-// byte-for-byte — this is a pure structural refactor.
+// all rendering lives in the components.
+//
+// The page is a flat two-column correction list: wrong word/phrase on
+// the left, corrected on the right. Categories are part of the
+// persisted data layer only — they are never surfaced in the UI.
 import { AlertCircleIcon, BookOpen02Icon } from "@hugeicons/core-free-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
@@ -20,31 +23,42 @@ import { Spinner } from "@/components/feedback/Spinner";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
-import { getLocaleSnapshot, t, useT } from "@/i18n/i18n";
+import { t, useT } from "@/i18n/i18n";
 
+import { VocabBulkBar } from "./vocabulary/components/VocabBulkBar";
 import { VocabDialog } from "./vocabulary/components/VocabDialog";
+import { VocabDuplicateBanner } from "./vocabulary/components/VocabDuplicateBanner";
+import { VocabListHeader } from "./vocabulary/components/VocabListHeader";
 import { VocabListRow } from "./vocabulary/components/VocabListRow";
+import { VocabQuickAdd } from "./vocabulary/components/VocabQuickAdd";
 import { VocabSearchFilterBar } from "./vocabulary/components/VocabSearchFilterBar";
+import { VocabTestPanel } from "./vocabulary/components/VocabTestPanel";
 import { VocabToolbar } from "./vocabulary/components/VocabToolbar";
 import { useVocabulary } from "./vocabulary/hooks/useVocabulary";
 import { useVocabularyDialog } from "./vocabulary/hooks/useVocabularyDialog";
 import { useVocabularyImportExport } from "./vocabulary/hooks/useVocabularyImportExport";
-import { getCategoryLabels } from "./vocabulary/lib/categories";
-import type { VocabRow } from "./vocabulary/lib/transform";
+import { useVocabularyQuickAdd } from "./vocabulary/hooks/useVocabularyQuickAdd";
+import { useVocabularySelection } from "./vocabulary/hooks/useVocabularySelection";
+import { useVocabularyTester } from "./vocabulary/hooks/useVocabularyTester";
+import {
+	findDuplicateGroups,
+	normalizeWrongPhrase,
+	type VocabRow,
+} from "./vocabulary/lib/transform";
 
 export default function VocabularyPage() {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
 	const { agoLabel, markUpdated } = useLastUpdated();
 
-	//: soft display cap — the list renders at most this many rows
+	//: soft display cap — the flat list renders at most this many rows
 	// until the user clicks "Show more". Keeps very large vocabularies
 	// (thousands of entries) from mounting thousands of DOM rows.
 	const DISPLAY_CAP = 200;
 	const [displayCount, setDisplayCount] = useState(DISPLAY_CAP);
 
 	//: "Clear All" is gated by a confirmation dialog — granting it
-	// wipes every category (an irreversible privacy-adjacent action).
+	// wipes every entry (an irreversible privacy-adjacent action).
 	const [showClearConfirm, setShowClearConfirm] = useState(false);
 
 	const handleClearAllConfirm = async () => {
@@ -73,15 +87,11 @@ export default function VocabularyPage() {
 		setSearchQuery,
 		sortOrder,
 		setSortOrder,
-		categoryFilter,
-		setCategoryFilter,
 		filteredSorted,
 	} = useVocabulary({ call, showSnack });
 
 	//: mark the data as fresh once the page has finished a load (or an
 	// empty successful load) — the indicator shows "Just now" after load.
-	// Driven by the loading-true→false transition so markUpdated fires
-	// exactly once per load (never during render → no re-render loop).
 	const prevLoadingRef = useRef(true);
 	useEffect(() => {
 		if (!loading && !loadError && prevLoadingRef.current) {
@@ -90,22 +100,42 @@ export default function VocabularyPage() {
 		prevLoadingRef.current = loading;
 	}, [loading, loadError, markUpdated]);
 
+	// Subscribe to locale changes via useT() (a useSyncExternalStore
+	// wrapper) so this component re-renders when the locale switches
+	// and every t() call re-resolves against the new locale.
+	useT();
+
 	const {
 		showDialog,
 		editingEntry,
 		trigger,
 		replacement,
-		category,
-		openAddDialog,
 		openEditDialog,
 		saveEntry,
 		handleTriggerChange,
 		handleReplacementChange,
 		handleCloseDialog,
-		setCategory,
 	} = useVocabularyDialog({
 		entries,
 		setEntries,
+		persistVocabulary,
+		showSnack,
+	});
+
+	// Inline quick-add row (replaces the disconnected Add modal — the
+	// list stays visible while adding).
+	const quickAdd = useVocabularyQuickAdd({
+		entries,
+		setEntries,
+		persistVocabulary,
+		showSnack,
+	});
+
+	// Bulk selection + bulk delete.
+	const selection = useVocabularySelection({
+		entries,
+		setEntries,
+		entriesRef,
 		persistVocabulary,
 		showSnack,
 	});
@@ -118,30 +148,7 @@ export default function VocabularyPage() {
 			setEntries,
 		});
 
-	// Subscribe to locale changes via useT() (a useSyncExternalStore
-	// wrapper) so this component re-renders when the locale switches.
-	// getLocaleSnapshot() returns a locale#revision string that changes
-	// on every locale change (including the post-dynamic-import
-	// notification) — using it as the sole useMemo dependency means
-	// getCategoryLabels() is re-resolved ONLY on locale switch, not on
-	// every keystroke. Previously getCategoryLabels() was called on every
-	// render, creating a fresh object that broke VocabListRow's memo.
-	// (The snapshot value is not read inside the factory — getCategoryLabels()
-	// resolves t() keys against the current locale at call time — so the
-	// dependency is an intentional invalidation key, same pattern as
-	// AudioFilterChain.tsx.)
-	useT();
-	const localeRevision = getLocaleSnapshot();
-	// biome-ignore lint/correctness/useExhaustiveDependencies: localeRevision is the intentional invalidation key — getCategoryLabels() reads the current locale via t() at call time
-	const categoryLabels = useMemo(() => getCategoryLabels(), [localeRevision]);
-
-	// openEditDialog from useVocabularyDialog is a plain function
-	// (recreated every render). Wrap it in a stable useCallback via the
-	// "latest ref" pattern so the memo'd VocabListRow sees a
-	// referentially-stable onEdit prop and skips re-rendering on
-	// unrelated state changes (e.g. search keystrokes). Mirrors the
-	// ActivityListRow stable-callback pattern
-	// (components/dashboard/ActivityList.tsx:74).
+	// Stable callbacks for the memo'd VocabListRow.
 	const openEditDialogRef = useRef(openEditDialog);
 	useEffect(() => {
 		openEditDialogRef.current = openEditDialog;
@@ -149,6 +156,63 @@ export default function VocabularyPage() {
 	const handleEdit = useCallback((entry: VocabRow) => {
 		openEditDialogRef.current(entry);
 	}, []);
+
+	// "Test corrections" panel state.
+	const [testOpen, setTestOpen] = useState(false);
+	const [testQuery, setTestQuery] = useState("");
+
+	// "Test corrections" panel — the preview runs against the LIVE
+	// backend correction engine (debounced) with a client-mirror
+	// fallback; see useVocabularyTester.
+	const tester = useVocabularyTester({ call, entries, query: testQuery });
+
+	// One-time cleanup: surface PRE-EXISTING duplicates (same wrong
+	// phrase, case-insensitive) already in the list so the user can
+	// resolve them. New duplicates are blocked by the backend write
+	// path; this banner covers data that predates that check (e.g.
+	// hand-edited JSON, double-imports). Dismissible per session.
+	const duplicateGroups = useMemo(
+		() => findDuplicateGroups(entries),
+		[entries],
+	);
+	const duplicateCount = duplicateGroups.reduce(
+		(sum, g) => sum + g.entries.length - 1,
+		0,
+	);
+	const [duplicateBannerDismissed, setDuplicateBannerDismissed] =
+		useState(false);
+	const showDuplicateBanner = duplicateCount > 0 && !duplicateBannerDismissed;
+
+	const handleRemoveDuplicates = async () => {
+		try {
+			const keepIds = new Set(
+				duplicateGroups.map((g) => g.entries[0]?._id).filter(Boolean),
+			);
+			const cleaned = entries.filter((e) => {
+				const group = duplicateGroups.find(
+					(g) => normalizeWrongPhrase(e.original) === g.phrase,
+				);
+				return !group || keepIds.has(e._id);
+			});
+			if (cleaned.length === entries.length) return;
+			await persistVocabulary(cleaned);
+			setEntries(cleaned);
+			selection.clearSelection();
+			setDuplicateBannerDismissed(true);
+			showSnack(
+				t("vocabulary.duplicatesRemoved", {
+					count: String(entries.length - cleaned.length),
+				}),
+				"success",
+			);
+		} catch {
+			showSnack(t("vocabulary.saveFailed"), "error");
+		}
+	};
+
+	const handleClearSearch = useCallback(() => {
+		setSearchQuery("");
+	}, [setSearchQuery]);
 
 	if (loading) {
 		return (
@@ -158,10 +222,6 @@ export default function VocabularyPage() {
 		);
 	}
 
-	//fix #8: distinguish "backend failed to load" from
-	// "vocabulary is genuinely empty" so the user knows to retry
-	// instead of being presented with the add-first-word empty state.
-	// Matches the History/Templates retry pattern.
 	if (loadError && entries.length === 0) {
 		return (
 			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
@@ -199,7 +259,7 @@ export default function VocabularyPage() {
 						onImportClick={handleImportClick}
 						onImportFile={handleImportFile}
 						onExport={doExport}
-						onAdd={openAddDialog}
+						onAdd={() => quickAdd.openQuickAdd()}
 						exportDisabled={entries.length === 0}
 						addDisabled={saving}
 						onClearAll={() => setShowClearConfirm(true)}
@@ -207,16 +267,74 @@ export default function VocabularyPage() {
 					/>
 				</PageHeading>
 
+				{/* Live entry count — updates as entries are added/removed
+				    and as the search filter narrows the visible list. */}
+				{entries.length > 0 && (
+					<p
+						data-testid="vocab-entry-count"
+						className="mt-4 text-xs font-medium text-(--text-muted)"
+					>
+						{searchQuery.trim() && filteredSorted.length !== entries.length
+							? t("vocabulary.entryCountFiltered", {
+									shown: String(filteredSorted.length),
+									total: String(entries.length),
+								})
+							: t(
+									entries.length === 1
+										? "vocabulary.entryCountSingular"
+										: "vocabulary.entryCountPlural",
+									{ count: String(entries.length) },
+								)}
+					</p>
+				)}
+
+				{/* Pre-existing duplicates review banner. */}
+				{showDuplicateBanner && (
+					<VocabDuplicateBanner
+						count={duplicateCount}
+						onRemoveDuplicates={handleRemoveDuplicates}
+						onDismiss={() => setDuplicateBannerDismissed(true)}
+					/>
+				)}
+
 				{entries.length > 0 && (
 					<VocabSearchFilterBar
 						searchQuery={searchQuery}
 						onSearchChange={setSearchQuery}
-						categoryFilter={categoryFilter}
-						onCategoryFilterChange={setCategoryFilter}
 						sortOrder={sortOrder}
 						onSortOrderChange={setSortOrder}
-						categoryLabels={categoryLabels}
 					/>
+				)}
+
+				{/* Live correction tester — collapsible, above the list. The
+				    output runs through the backend engine (see
+				    useVocabularyTester). */}
+				{entries.length > 0 && (
+					<VocabTestPanel
+						open={testOpen}
+						onOpenChange={setTestOpen}
+						query={testQuery}
+						onQueryChange={setTestQuery}
+						output={tester.output}
+						applied={tester.applied}
+						pending={tester.pending}
+					/>
+				)}
+
+				{/* Inline quick-add row. NOT gated on entries.length —
+					"Add Word" must work from the empty state too. */}
+				{quickAdd.open && (
+					<div className="mt-4">
+						<VocabQuickAdd
+							trigger={quickAdd.trigger}
+							replacement={quickAdd.replacement}
+							error={quickAdd.error}
+							onTriggerChange={quickAdd.setTrigger}
+							onReplacementChange={quickAdd.setReplacement}
+							onSave={quickAdd.saveQuickAdd}
+							onCancel={quickAdd.closeQuickAdd}
+						/>
+					</div>
 				)}
 
 				<div className="mt-4">
@@ -226,32 +344,44 @@ export default function VocabularyPage() {
 							title={t("vocabulary.emptyTitle")}
 							description={t("vocabulary.emptyDescription")}
 							actionLabel={t("vocabulary.addFirstWord")}
-							onAction={openAddDialog}
+							onAction={() => quickAdd.openQuickAdd()}
 						/>
 					) : filteredSorted.length === 0 ? (
 						<EmptyState
 							icon={BookOpen02Icon}
 							title={t("vocabulary.noResults")}
 							description={t("vocabulary.noResultsDescription")}
+							actionLabel={t("vocabulary.clearFilters")}
+							onAction={handleClearSearch}
 						/>
 					) : (
 						<>
-							<div className="overflow-hidden rounded-xl border border-border bg-(--bg-subtle) divide-y divide-border">
-								{filteredSorted.slice(0, displayCount).map((entry) => (
-									<VocabListRow
-										key={entry._id}
-										entry={entry}
-										categoryLabels={categoryLabels}
-										onEdit={handleEdit}
-										onDelete={instantDeleteEntry}
-									/>
-								))}
+							<div className="rounded-xl border border-border/10 bg-(--bg-subtle)">
+								<VocabListHeader
+									visibleIds={filteredSorted.map((e) => e._id)}
+									selectedIds={selection.selectedIds}
+									onSelectAll={selection.setSelectMany}
+								/>
+								<div className="overflow-hidden rounded-b-xl">
+									<div className="divide-y divide-border/10">
+										{filteredSorted.slice(0, displayCount).map((entry) => (
+											<VocabListRow
+												key={entry._id}
+												entry={entry}
+												selected={selection.selectedIds.has(entry._id)}
+												onToggleSelect={selection.toggleSelect}
+												onEdit={handleEdit}
+												onDelete={instantDeleteEntry}
+											/>
+										))}
+									</div>
+								</div>
 							</div>
 							{filteredSorted.length > displayCount && (
 								<button
 									type="button"
 									onClick={() => setDisplayCount((c) => c + DISPLAY_CAP)}
-									className="mx-auto mt-3 flex items-center gap-1.5 rounded-full border border-border bg-(--bg-subtle) px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5 cursor-pointer"
+									className="mx-auto mt-3 flex items-center gap-1.5 rounded-full border border-border/10 bg-(--bg-subtle) px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5 cursor-pointer"
 								>
 									{t("vocabulary.showMore")}
 								</button>
@@ -260,20 +390,23 @@ export default function VocabularyPage() {
 					)}
 				</div>
 
-				{/* Count footer */}
-				{entries.length > 0 && (
-					<p className="mt-3 text-xs text-(--text-muted) text-center">
-						{t(
-							entries.length === 1
-								? "vocabulary.entryCountSingular"
-								: "vocabulary.entryCountPlural",
-							{ count: String(entries.length) },
-						)}
-					</p>
+				{/* Floating bulk bar — appears when rows are selected. */}
+				{selection.selectedCount > 0 && (
+					<div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center px-6 pb-4">
+						<div className="pointer-events-auto">
+							<VocabBulkBar
+								selectedCount={selection.selectedCount}
+								onDeleteSelected={selection.bulkDeleteSelected}
+								onExportSelected={(format) =>
+									doExport(format, selection.selectedRows)
+								}
+								onClearSelection={selection.clearSelection}
+							/>
+						</div>
+					</div>
 				)}
 			</div>
 
-			{/* Add/Edit Dialog — migrated to shared Modal (F-3) */}
 			<ConfirmDialog
 				open={showClearConfirm}
 				title={t("vocabulary.clearAllTitle")}
@@ -290,13 +423,10 @@ export default function VocabularyPage() {
 				editingEntry={editingEntry}
 				trigger={trigger}
 				replacement={replacement}
-				category={category}
 				onTriggerChange={handleTriggerChange}
 				onReplacementChange={handleReplacementChange}
-				onCategoryChange={setCategory}
 				onClose={handleCloseDialog}
 				onSave={saveEntry}
-				categoryLabels={categoryLabels}
 			/>
 		</>
 	);

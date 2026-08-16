@@ -46,7 +46,7 @@ export function TemplateSearchSortBar({
 				<SelectTrigger
 					size="sm"
 					aria-label={t("common.sortAria")}
-					className="gap-2 h-9 rounded-xl border-border px-3 text-xs text-(--text-muted) hover:text-(--text-primary)"
+					className="gap-2 h-9 rounded-xl border-border/10 px-3 text-xs text-(--text-muted) hover:text-(--text-primary)"
 				>
 					<SelectValue />
 				</SelectTrigger>

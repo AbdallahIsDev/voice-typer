@@ -119,7 +119,14 @@ vi.mock("@/hooks/useLastUpdated", () => ({
 }));
 
 vi.mock("@/hooks/useStatsShare", () => ({
-	useStatsShare: () => ({ imageRef: { current: null }, shareAsImage: vi.fn() }),
+	useStatsShare: () => ({
+		imageRef: { current: null },
+		captureImage: vi.fn(),
+		downloadImage: vi.fn(),
+		saveImageAs: vi.fn(),
+		copyImageToClipboard: vi.fn(),
+		revealInFolder: vi.fn(),
+	}),
 	computeShareStats: vi.fn(() => ({ dictations: 0, chars: 0, durationSec: 0 })),
 	//#7: canShareStats is a pure function used by Home.tsx
 	// to gate the share-image button.  Return false so the share
@@ -349,7 +356,7 @@ function makeStubConfig(): VoiceTyperConfig {
 		hotkey: "F2",
 		sample_rate: 16000,
 		microphone: null,
-		model_size: "small.en",
+		model_size: "tiny",
 		language: "en",
 		device: "cpu",
 		beam_size: 5,
@@ -978,12 +985,12 @@ describe("Item 8: index.css declares user-preference @media blocks", () => {
 // role/label on the container fails the suite.
 describe("Item 9: Dashboard a11y — heatmap role + stat card names", () => {
 	it('Dashboard 7-day activity chart container has role="img" + aria-label', () => {
-		// The 7-day activity chart lives in the extracted
+		// The activity chart lives in the extracted
 		// SevenDayActivityChart.tsx component (split out of
-		// Dashboard.tsx).  The container is the `flex items-end
-		// justify-between gap-2 h-20` block; role="img" + aria-label
-		// appear AFTER className in the JSX opening tag, so inspect
-		// the 400-char window FOLLOWING the className marker.
+		// Dashboard.tsx).  The container carries role="img" with a
+		// descriptive aria-label built from the i18n key; inspect the
+		// 400-char window FOLLOWING the role marker (lastIndexOf skips
+		// the file's docstring, which mentions role="img" in prose).
 		const chartPath = path.resolve(
 			__dirname,
 			"..",
@@ -994,11 +1001,10 @@ describe("Item 9: Dashboard a11y — heatmap role + stat card names", () => {
 		);
 		const src = fs.readFileSync(chartPath, "utf-8");
 
-		const chartIdx = src.indexOf("flex items-end justify-between gap-2 h-20");
+		const chartIdx = src.lastIndexOf('role="img"');
 		expect(chartIdx).toBeGreaterThan(-1);
 
 		const window = src.slice(chartIdx, chartIdx + 400);
-		expect(window).toMatch(/role="img"/);
 		expect(window).toMatch(/aria-label=/);
 	});
 

@@ -3,6 +3,7 @@
 	"dialog.criticalError.title": "{appName} — Kritischer Fehler",
 	"dialog.export.config": "Konfiguration exportieren",
 	"dialog.export.history": "Verlauf exportieren",
+	"dialog.export.statsImage": "Statistikbild exportieren",
 	"dialog.export.templates": "Vorlagen exportieren",
 	"dialog.export.vocabulary": "Vokabular exportieren",
 	"dialog.preloadError.body": "{appName} konnte nicht gestartet werden (Fehler im Preload-Skript in {file}).\n\nBitte installieren Sie {appName} neu.\n\nWenn das Problem nach der Neuinstallation weiterhin besteht, wenden Sie sich an den Support.",

@@ -31,10 +31,10 @@
  */
 import {
 	cleanup,
-	fireEvent,
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -49,6 +49,7 @@ const renderWithProviders = (ui: React.ReactElement) => {
 	};
 };
 
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Hoist the mock call handler so it's available inside vi.mock factories.
@@ -124,6 +125,21 @@ function saveCallCount(): number {
 	).length;
 }
 
+/**
+ * Delete the row showing `original` via its direct per-row Delete
+ * button (aria-label = vocabulary.deleteAria → "Delete: {original}").
+ */
+async function deleteViaMenu(original: string) {
+	const user = userEvent.setup();
+	const row = screen
+		.getByText(original)
+		.closest('[data-testid="vocab-list-row"]');
+	expect(row).not.toBeNull();
+	await user.click(
+		within(row as HTMLElement).getByLabelText(`Delete: ${original}`),
+	);
+}
+
 describe("Vocabulary page — D2-FIX undo duplicates", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
@@ -164,10 +180,8 @@ describe("Vocabulary page — D2-FIX undo duplicates", () => {
 		// Sanity: the list has exactly 3 entries before the delete.
 		expect(screen.getAllByText(/recieve|teh|i am going to/).length).toBe(3);
 
-		// Click the trash icon on the "recieve" entry.  The button's
-		// aria-label is "Delete: recieve" (from the
-		// vocabulary.deleteAria template with {name} interpolated).
-		fireEvent.click(screen.getByLabelText("Delete: recieve"));
+		// Delete the "recieve" entry via its direct Delete button.
+		await deleteViaMenu("recieve");
 
 		// The delete path is async: it calls `save_vocabulary` then
 		// shows the undoable toast.  Wait for the IPC call.
@@ -274,7 +288,7 @@ describe("Vocabulary page — D2-FIX undo duplicates", () => {
 		});
 
 		// Delete "recieve".
-		fireEvent.click(screen.getByLabelText("Delete: recieve"));
+		await deleteViaMenu("recieve");
 		await waitFor(() => {
 			expect(toastWarning).toHaveBeenCalledTimes(1);
 		});
@@ -285,7 +299,7 @@ describe("Vocabulary page — D2-FIX undo duplicates", () => {
 		// Simulate a concurrent edit: delete "teh" too (so the
 		// current state has only "i am going to" left).  This
 		// happens BEFORE the user clicks Undo on "recieve".
-		fireEvent.click(screen.getByLabelText("Delete: teh"));
+		await deleteViaMenu("teh");
 		await waitFor(() => {
 			expect(screen.queryByText("teh")).toBeNull();
 		});

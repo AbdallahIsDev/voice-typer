@@ -17,14 +17,14 @@ export const STEP_TITLE_KEY: Record<string, string> = {
 // (`<caps_lock>`) — previously `<f2>`, which silently overrode the backend.
 export const HOTKEY_DEFAULT = "<caps_lock>";
 
-//renderer default model must match
-// `OnboardingController.selected_model` ("small.en") so the wizard can
-// detect "user is accepting the default" and show a "Default: small.en"
-// hint next to the Continue button — mirroring the HOTKEY_DEFAULT hint
-// pattern. If the backend changes its default, this must be updated in
-// lock-step (the Python test `test_onboarding.py::TestOnboardingSelections`
-// asserts the backend default is "small.en").
-export const MODEL_DEFAULT = "small.en";
+// Renderer default model must match the backend's canonical default
+// `DEFAULT_MODEL_SIZE` (`voice_typer/server/model_registry.py`) so the
+// wizard can detect "user is accepting the default" and show a
+// "Default: <name>" hint next to the Continue button — mirroring the
+// HOTKEY_DEFAULT hint pattern. Change the default in the backend's
+// `DEFAULT_MODEL_SIZE` (ONE place); keep THIS value in lockstep — the
+// Python test `tests/test_default_model_sync.py` asserts the two match.
+export const MODEL_DEFAULT = "tiny";
 
 // Fix 10: 5s → 10s — too short for users still reading the instructions.
 export const TEST_HOTKEY_TIMEOUT_MS = 10_000;

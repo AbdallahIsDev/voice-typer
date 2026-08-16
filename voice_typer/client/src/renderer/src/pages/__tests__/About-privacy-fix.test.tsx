@@ -65,7 +65,7 @@ describe("About page — BG-59 privacy URL fix", () => {
 			if (type === "get_config") {
 				return Promise.resolve({
 					asr_backend: "whisper",
-					model_size: "tiny.en",
+					model_size: "large-v3-turbo",
 					device: "cpu",
 					hotkey: "F2",
 					microphone: null,
@@ -84,7 +84,7 @@ describe("About page — BG-59 privacy URL fix", () => {
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Privacy")).toBeTruthy();
+			expect(screen.getByRole("heading", { name: "Privacy" })).toBeTruthy();
 		});
 
 		// The "Full Privacy Policy" button is gone — the i18n key
@@ -99,7 +99,7 @@ describe("About page — BG-59 privacy URL fix", () => {
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Privacy")).toBeTruthy();
+			expect(screen.getByRole("heading", { name: "Privacy" })).toBeTruthy();
 		});
 
 		// The Privacy section body now includes a "Full policy." label
@@ -117,7 +117,9 @@ describe("About page — BG-59 privacy URL fix", () => {
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Resources & Feedback")).toBeTruthy();
+			expect(
+				screen.getByRole("heading", { name: "Resources & Feedback" }),
+			).toBeTruthy();
 		});
 
 		// The Security Policy button is still rendered in Resources.
@@ -131,7 +133,9 @@ describe("About page — BG-59 privacy URL fix", () => {
 		const { container } = render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Resources & Feedback")).toBeTruthy();
+			expect(
+				screen.getByRole("heading", { name: "Resources & Feedback" }),
+			).toBeTruthy();
 		});
 
 		//Before , two anchors pointed at SECURITY.md (one in the

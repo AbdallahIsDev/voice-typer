@@ -458,7 +458,17 @@ export function useConnection({
 					const validated = asRecordingState(data.status);
 					if (validated) {
 						setRecordingState(validated);
-						setLastError(null);
+						// The backend forwards the `set_state` message (the
+						// tray-tooltip reason) with every status_change.
+						// Surface it for the error state so the Home page
+						// RecordingErrorCard explains what happened (e.g.
+						// "No models are available…") instead of leaving
+						// lastError null and showing only the bare
+						// "ERROR" pill. Non-error transitions keep
+						// clearing lastError exactly as before.
+						setLastError(
+							validated === "error" && data.message ? data.message : null,
+						);
 					}
 				}
 				return undefined;

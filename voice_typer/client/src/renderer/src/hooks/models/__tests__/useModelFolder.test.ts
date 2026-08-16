@@ -230,8 +230,8 @@ describe("useModelFolder — handleImportModel success path", () => {
 		}));
 		callMock.mockResolvedValue({
 			success: true,
-			imported: ["tiny.en", "small.en"],
-			found: ["tiny.en", "small.en"],
+			imported: ["large-v3-turbo", "tiny"],
+			found: ["large-v3-turbo", "tiny"],
 			errors: [],
 		});
 

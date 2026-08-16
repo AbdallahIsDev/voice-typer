@@ -108,7 +108,7 @@ export function TemplateDialog({
 						placeholder={t("templates.outputPlaceholder")}
 						rows={5}
 						className={cn(
-							"w-full resize-y rounded-lg border border-border",
+							"w-full resize-y rounded-lg border border-border/10",
 							"bg-transparent px-3 py-2 text-sm text-(--text-primary)",
 							"placeholder:text-(--text-muted)",
 							"focus:border-accent focus:outline-none",

@@ -102,6 +102,11 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	"run_prewarm",
 	"get_vocabulary",
 	"save_vocabulary",
+	// "Test corrections" panel: applies the LIVE backend vocabulary
+	// rules to a phrase (VocabularyManager.apply_to_text) so the
+	// preview uses the real engine, not a client-side mirror. See
+	// server handlers/vocabulary_handlers.py `_handle_test_vocabulary_correction`.
+	"test_vocabulary_correction",
 	"onboarding_is_first_run",
 	"onboarding_start",
 	"onboarding_next_step",

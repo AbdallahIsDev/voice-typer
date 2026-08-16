@@ -341,7 +341,7 @@ export default function PrewarmAndUpdates({
 							}
 						/>
 					)}
-					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">
+					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border/10">
 						{/* "Run Prewarm Now" button (RESTORED 2026-08-14 §6.3
 						addendum 2nd half). Disabled while the run_prewarm IPC
 						is in flight; the in-process warm pass is fast, so no
@@ -402,7 +402,7 @@ export default function PrewarmAndUpdates({
 							value={t("about.versionValue", { version: APP_VERSION })}
 						/>
 					)}
-					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">
+					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border/10">
 						{/* The "Check for Updates" button was removed because
 						the offline-by-default UX was preferred; if a future
 						iteration wants to add it back (user-initiated GitHub

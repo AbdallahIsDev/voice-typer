@@ -200,19 +200,19 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 					return Promise.resolve({
 						models: [
 							{
-								name: "tiny.en",
+								name: "large-v3-turbo",
 								size: "~75MB",
 								speed: "Fastest",
 								description: "Tiny",
 							},
 							{
-								name: "small.en",
+								name: "tiny",
 								size: "~466MB",
 								speed: "Fast",
 								description: "Small",
 							},
 							{
-								name: "medium.en",
+								name: "large-v3-turbo",
 								size: "~1.5GB",
 								speed: "Slow",
 								description: "Medium",
@@ -235,7 +235,7 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 	it("mounts and pre-selects existing hotkey/model/microphone from get_config", async () => {
 		mockIpc({
 			hotkey: "<f4>",
-			model_size: "tiny.en",
+			model_size: "large-v3-turbo",
 			microphone: "",
 		});
 
@@ -279,7 +279,7 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 		});
 		const summaryText = container.textContent ?? "";
 		expect(summaryText).toContain("F4");
-		expect(summaryText).toContain("tiny.en");
+		expect(summaryText).toContain("large-v3-turbo");
 	});
 
 	it("falls back to defaults when get_config fails (older backend)", async () => {
@@ -313,7 +313,7 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 					return Promise.resolve({
 						models: [
 							{
-								name: "small.en",
+								name: "tiny",
 								size: "~466MB",
 								speed: "Fast",
 								description: "Small",
@@ -360,7 +360,7 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 		// The renderer strips only `<`/`>` (not the underscore), so the
 		// displayed token is `CAPS_LOCK` rather than `CAPS LOCK`.
 		expect(summaryText).toContain("CAPS_LOCK");
-		expect(summaryText).toContain("small.en");
+		expect(summaryText).toContain("tiny");
 	});
 });
 
@@ -401,7 +401,7 @@ describe("Onboarding wizard — Permissions step at index 2", () => {
 				case "get_config":
 					return Promise.resolve({
 						hotkey: "<f2>",
-						model_size: "small.en",
+						model_size: "tiny",
 						microphone: "",
 					});
 				case "onboarding_get_microphones":
@@ -416,7 +416,7 @@ describe("Onboarding wizard — Permissions step at index 2", () => {
 					return Promise.resolve({
 						models: [
 							{
-								name: "small.en",
+								name: "tiny",
 								size: "~466MB",
 								speed: "Fast",
 								description: "Small",
@@ -520,7 +520,7 @@ describe("Onboarding wizard — Permissions step at index 2", () => {
 				case "get_config":
 					return Promise.resolve({
 						hotkey: "<f2>",
-						model_size: "small.en",
+						model_size: "tiny",
 						microphone: "",
 					});
 				case "onboarding_get_microphones":
@@ -562,7 +562,7 @@ describe("Onboarding wizard — Permissions step at index 2", () => {
 				case "get_config":
 					return Promise.resolve({
 						hotkey: "<f2>",
-						model_size: "small.en",
+						model_size: "tiny",
 						microphone: "",
 					});
 				case "onboarding_get_microphones":
@@ -677,7 +677,7 @@ describe("Onboarding wizard — Permissions step at index 2", () => {
 				case "get_config":
 					return Promise.resolve({
 						hotkey: "<f2>",
-						model_size: "small.en",
+						model_size: "tiny",
 						microphone: "",
 					});
 				case "onboarding_get_microphones":
@@ -756,7 +756,7 @@ describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () 
 		stepIndex: number,
 		models: Array<Record<string, unknown>> = [
 			{
-				name: "small.en",
+				name: "tiny",
 				size: "~466MB",
 				speed: "Fast",
 				description: "Small",
@@ -781,7 +781,7 @@ describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () 
 				case "get_config":
 					return Promise.resolve({
 						hotkey: "<f2>",
-						model_size: "small.en",
+						model_size: "tiny",
 						microphone: "",
 					});
 				case "onboarding_get_microphones":
@@ -914,7 +914,7 @@ describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () 
 	it.skip("BG-100: ModelStep renders VRAM + language badges per option", async () => {
 		mockStartAtStepWithModels(4, [
 			{
-				name: "tiny.en",
+				name: "large-v3-turbo",
 				size: "~75MB",
 				speed: "Fastest",
 				description: "Tiny",
@@ -973,7 +973,7 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 	 * available" → mic hint should show).
 	 *
 	 * : the wizard pre-selects HOTKEY_DEFAULT ("<caps_lock>")
-	 * and MODEL_DEFAULT ("small.en") when get_config returns no
+	 * and MODEL_DEFAULT ("tiny") when get_config returns no
 	 * hotkey/model_size. It also auto-selects the OS default mic
 	 * (the one with `default: true`). When any of these defaults
 	 * are active, a "Default: <value>" hint should appear next to
@@ -1021,7 +1021,7 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 					return Promise.resolve({
 						models: opts.models ?? [
 							{
-								name: "small.en",
+								name: "tiny",
 								size: "~466MB",
 								speed: "Fast",
 								description: "Small",
@@ -1096,13 +1096,13 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 		});
 
 		const hint = await screen.findByTestId("onboarding-default-model-hint");
-		expect(hint?.textContent).toContain("small.en");
+		expect(hint?.textContent).toContain("tiny");
 		expect(hint?.textContent).toContain("Default");
 	});
 
 	it("Model step: hint is suppressed when the user picks a non-default model", async () => {
 		// Simulate a user with a previously-saved non-default model.
-		mockStartAtStepWithDefaults(4, { cfg: { model_size: "tiny.en" } });
+		mockStartAtStepWithDefaults(4, { cfg: { model_size: "large-v3-turbo" } });
 
 		render(<OnboardingPage onComplete={() => {}} />);
 
@@ -1168,7 +1168,7 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 			);
 		});
 
-		// selectedModel === "small.en" → Continue should be enabled.
+		// selectedModel === "tiny" → Continue should be enabled.
 		const continueBtn = await screen.findByRole("button", { name: "Continue" });
 		expect(continueBtn.hasAttribute("disabled")).toBe(false);
 	});

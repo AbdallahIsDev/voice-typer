@@ -82,7 +82,9 @@ describe("bubble theme-token parity (no raw zinc/white palette)", () => {
 			render(<Bubble />);
 			// The pill is the inner `<div>` with `rounded-full` — query it
 			// by its border/bg utility classes (which are now semantic).
-			const pill = document.querySelector(".bg-card.border-border");
+			// The border carries the muted /10 opacity modifier, so the
+			// slash must be escaped in the CSS selector.
+			const pill = document.querySelector(".bg-card.border-border\\/10");
 			expect(pill).toBeTruthy();
 			// Negative assertions: no raw zinc/white palette on the pill.
 			expect(pill?.className).not.toMatch(/bg-white/);

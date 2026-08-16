@@ -133,7 +133,7 @@ function t(key: string): string {
 
 const MOCK_CONFIG = {
 	asr_backend: "whisper",
-	model_size: "small.en",
+	model_size: "tiny",
 	huggingface_consent: true,
 	openai_api_key: "",
 	groq_api_key: "",
@@ -208,6 +208,15 @@ describe("ModelsPage — Import Model flow", () => {
 		});
 		expect(button).toBeTruthy();
 		expect(button.textContent).toContain(t("models.import.importModel"));
+	});
+
+	it("shows a 'No model selected' banner when model_size is empty", async () => {
+		// model_size === "" is the backend's NO_MODEL_SIZE sentinel — the
+		// page must surface the genuine no-model state.
+		await renderPage({ ...MOCK_CONFIG, model_size: "" });
+
+		const banner = screen.getByRole("status");
+		expect(banner.textContent).toBe(t("models.noModelSelected"));
 	});
 
 	it("opens the Electron folder dialog when clicked", async () => {
@@ -285,8 +294,8 @@ describe("ModelsPage — Import Model flow", () => {
 		// but only import_model is called after the button click.
 		mockCall.mockResolvedValue({
 			success: true,
-			imported: ["tiny.en"],
-			found: ["tiny.en"],
+			imported: ["large-v3-turbo"],
+			found: ["large-v3-turbo"],
 			errors: [],
 		});
 
@@ -315,8 +324,8 @@ describe("ModelsPage — Import Model flow", () => {
 			if (type === "import_model") {
 				return Promise.resolve({
 					success: true,
-					imported: ["tiny.en", "small.en"],
-					found: ["tiny.en", "small.en"],
+					imported: ["large-v3-turbo", "tiny"],
+					found: ["large-v3-turbo", "tiny"],
 					errors: [],
 				});
 			}
@@ -382,10 +391,10 @@ describe("ModelsPage — Import Model flow", () => {
 				return Promise.resolve({
 					success: true,
 					imported: [],
-					found: ["tiny.en", "small.en"],
+					found: ["large-v3-turbo", "tiny"],
 					errors: [
-						{ model: "tiny.en", error: "Disk full" },
-						{ model: "small.en", error: "Read-only filesystem" },
+						{ model: "large-v3-turbo", error: "Disk full" },
+						{ model: "tiny", error: "Read-only filesystem" },
 					],
 				});
 			}
@@ -446,8 +455,8 @@ describe("ModelsPage — Import Model flow", () => {
 			if (type === "import_model") {
 				return Promise.resolve({
 					success: true,
-					imported: ["tiny.en"],
-					found: ["tiny.en"],
+					imported: ["large-v3-turbo"],
+					found: ["large-v3-turbo"],
 					errors: [],
 				});
 			}
@@ -540,7 +549,7 @@ describe("ModelsPage — MDL-3: cancel produces no duplicate snackbar", () => {
 		// tiny.en is not active (small.en is) and not downloaded, so the
 		// Download button is visible.
 		const downloadButton = screen.getByRole("button", {
-			name: t("models.card.downloadAria").replace("{name}", "tiny.en"),
+			name: t("models.card.downloadAria").replace("{name}", "large-v3-turbo"),
 		});
 		// Resolve download_model with cancelled:true — this simulates
 		// the user clicking Cancel during the download (the cancel
@@ -565,7 +574,7 @@ describe("ModelsPage — MDL-3: cancel produces no duplicate snackbar", () => {
 		// potential snackbar to fire.
 		await waitFor(() => {
 			expect(mockCall).toHaveBeenCalledWith("download_model", {
-				model: "tiny.en",
+				model: "large-v3-turbo",
 			});
 		});
 		// Give React a tick to flush any state updates that might
@@ -581,7 +590,7 @@ describe("ModelsPage — MDL-3: cancel produces no duplicate snackbar", () => {
 	it("shows an error toast with the backend's message when download_model fails (not cancelled)", async () => {
 		await renderPage();
 		const downloadButton = screen.getByRole("button", {
-			name: t("models.card.downloadAria").replace("{name}", "tiny.en"),
+			name: t("models.card.downloadAria").replace("{name}", "large-v3-turbo"),
 		});
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(MOCK_CONFIG);
@@ -694,7 +703,7 @@ describe("ModelsPage — MDL-9: download does not auto-activate in the renderer"
 		expect(initialCount).toBeGreaterThanOrEqual(1);
 
 		const downloadButton = screen.getByRole("button", {
-			name: t("models.card.downloadAria").replace("{name}", "tiny.en"),
+			name: t("models.card.downloadAria").replace("{name}", "large-v3-turbo"),
 		});
 		fireEvent.click(downloadButton);
 
@@ -704,7 +713,7 @@ describe("ModelsPage — MDL-9: download does not auto-activate in the renderer"
 		// was called.
 		await waitFor(() => {
 			expect(mockCall).toHaveBeenCalledWith("download_model", {
-				model: "tiny.en",
+				model: "large-v3-turbo",
 			});
 		});
 		// Give React a tick to flush state updates.
@@ -729,7 +738,7 @@ describe("ModelsPage — MDL-9: download does not auto-activate in the renderer"
 		});
 
 		const downloadButton = screen.getByRole("button", {
-			name: t("models.card.downloadAria").replace("{name}", "tiny.en"),
+			name: t("models.card.downloadAria").replace("{name}", "large-v3-turbo"),
 		});
 		fireEvent.click(downloadButton);
 
@@ -738,7 +747,7 @@ describe("ModelsPage — MDL-9: download does not auto-activate in the renderer"
 		// for tiny.en — small.en is still the active model.
 		await waitFor(() => {
 			expect(mockCall).toHaveBeenCalledWith("download_model", {
-				model: "tiny.en",
+				model: "large-v3-turbo",
 			});
 		});
 		// Give the reconciliation get_config call time to resolve.
@@ -747,13 +756,13 @@ describe("ModelsPage — MDL-9: download does not auto-activate in the renderer"
 		// The Select button for tiny.en should now be visible
 		// (tiny.en is downloaded but not active).
 		const selectButton = screen.queryByRole("button", {
-			name: t("models.card.selectAria").replace("{name}", "tiny.en"),
+			name: t("models.card.selectAria").replace("{name}", "large-v3-turbo"),
 		});
 		expect(selectButton).not.toBeNull();
 		// The Active button (with aria-label "Active: tiny.en")
 		// should NOT exist.
 		const activeButton = screen.queryByRole("button", {
-			name: t("models.card.activeAria").replace("{name}", "tiny.en"),
+			name: t("models.card.activeAria").replace("{name}", "large-v3-turbo"),
 		});
 		expect(activeButton).toBeNull();
 	});
@@ -767,13 +776,17 @@ describe("ModelsPage — MDL-16: Select buttons disabled during download", () =>
 	});
 
 	it("disables Select buttons for downloaded models while a download is in progress", async () => {
-		// Make tiny.en "downloaded" via get_model_status so its
+		// Make tiny "downloaded" via get_model_status so its
 		// Select button is rendered (instead of the Download button).
 		mockCall.mockImplementation((type: string) => {
-			if (type === "get_config") return Promise.resolve(MOCK_CONFIG);
+			// Active model is ``large-v3`` (NOT the downloaded ``tiny``)
+			// so tiny renders a Select button rather than the disabled
+			// Active tick.
+			if (type === "get_config")
+				return Promise.resolve({ ...MOCK_CONFIG, model_size: "large-v3" });
 			if (type === "get_model_status") {
 				return Promise.resolve({
-					"tiny.en": { downloaded: true, deps_ok: true },
+					"tiny": { downloaded: true, deps_ok: true },
 				});
 			}
 			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
@@ -789,28 +802,28 @@ describe("ModelsPage — MDL-16: Select buttons disabled during download", () =>
 			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
 		});
 
-		// Find the Select button for tiny.en (downloaded, not active).
+		// Find the Select button for tiny (downloaded, not active).
 		const selectButton = await waitFor(() =>
 			screen.getByRole("button", {
-				name: t("models.card.selectAria").replace("{name}", "tiny.en"),
+				name: t("models.card.selectAria").replace("{name}", "tiny"),
 			}),
 		);
 		// Initially enabled (no download in progress yet).
 		expect(selectButton.getAttribute("disabled")).toBeNull();
 
-		// Start a download on medium.en (not downloaded, not active).
+		// Start a download on large-v3-turbo (not downloaded, not active).
 		const downloadButton = screen.getByRole("button", {
-			name: t("models.card.downloadAria").replace("{name}", "medium.en"),
+			name: t("models.card.downloadAria").replace("{name}", "large-v3-turbo"),
 		});
 		fireEvent.click(downloadButton);
 
-		// The Select button for tiny.en remains enabled — the actual
+		// The Select button for tiny remains enabled — the actual
 		// source only disables Download buttons (not Select buttons)
 		// while any download is in progress. Assert the Select button
 		// is still enabled (not disabled) to match the source contract.
 		await waitFor(() => {
 			expect(mockCall).toHaveBeenCalledWith("download_model", {
-				model: "medium.en",
+				model: "large-v3-turbo",
 			});
 		});
 		// Give React a tick to flush state updates.

@@ -32,6 +32,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import type React from "react";
 import { KeyringStatusBadge } from "@/components/common/KeyringStatusBadge";
+import { FamilyLogo } from "@/components/models/FamilyLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -142,13 +143,20 @@ function ProviderCard({
 	const saveDisabled = !apiKeyValue.trim();
 
 	return (
-		<div className="rounded-xl border border-border bg-(--bg-subtle) p-6">
+		<div className="rounded-xl border border-border/10 bg-(--bg-subtle) p-6">
 			<div className="flex items-center gap-2.5 mb-4">
-				<HugeiconsIcon
-					icon={Shield01Icon}
-					strokeWidth={2}
-					className="h-4 w-4 text-accent"
-				/>
+				{/* Brand logo for providers that have one (openai/deepgram);
+				    groq has no logo asset, so it keeps the generic shield
+				    glyph. FamilyLogo returns null for unknown keys. */}
+				{provider.key === "groq" ? (
+					<HugeiconsIcon
+						icon={Shield01Icon}
+						strokeWidth={2}
+						className="h-4 w-4 text-accent"
+					/>
+				) : (
+					<FamilyLogo family={provider.key} />
+				)}
 				<h3 className="text-base font-semibold text-(--text-primary)">
 					{t("models.cloud.providerSettings", {
 						provider: getProviderLabel(provider.key),
@@ -242,7 +250,7 @@ function ProviderCard({
 				)}
 			</div>
 			{showConsent && (
-				<div className="mt-4 rounded-lg border border-border bg-(--bg) p-4">
+				<div className="mt-4 rounded-lg border border-border/10 bg-(--bg) p-4">
 					<div className="flex items-start justify-between gap-4">
 						<div className="flex-1">
 							<h4 className="text-sm font-semibold text-(--text-primary)">

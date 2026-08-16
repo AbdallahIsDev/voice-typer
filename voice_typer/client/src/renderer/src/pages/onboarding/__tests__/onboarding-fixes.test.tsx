@@ -191,7 +191,7 @@ function mockStartAtStep(
 			case "get_config":
 				return Promise.resolve({
 					hotkey: "<caps_lock>",
-					model_size: "small.en",
+					model_size: "tiny",
 					microphone: "",
 				});
 			case "onboarding_get_microphones":
@@ -208,7 +208,7 @@ function mockStartAtStep(
 				return Promise.resolve({
 					models: opts.models ?? [
 						{
-							name: "small.en",
+							name: "tiny",
 							size: "~466MB",
 							speed: "Fast",
 							description: "Small",
@@ -258,7 +258,7 @@ describe("Microphone step Refresh button re-fetches mic list", () => {
 				case "get_config":
 					return Promise.resolve({
 						hotkey: "<caps_lock>",
-						model_size: "small.en",
+						model_size: "tiny",
 						microphone: "",
 					});
 				case "onboarding_get_microphones":
@@ -331,7 +331,7 @@ describe("Microphone step Refresh button re-fetches mic list", () => {
 				case "get_config":
 					return Promise.resolve({
 						hotkey: "<caps_lock>",
-						model_size: "small.en",
+						model_size: "tiny",
 						microphone: "",
 					});
 				case "onboarding_get_microphones":
@@ -411,7 +411,7 @@ describe("Done step Get Started does not block on onboarding_apply", () => {
 				case "get_config":
 					return Promise.resolve({
 						hotkey: "<caps_lock>",
-						model_size: "small.en",
+						model_size: "tiny",
 						microphone: "",
 						voice_biometric_consent: true,
 					});
@@ -425,7 +425,7 @@ describe("Done step Get Started does not block on onboarding_apply", () => {
 					return Promise.resolve({
 						models: [
 							{
-								name: "small.en",
+								name: "tiny",
 								size: "~466MB",
 								speed: "Fast",
 								description: "Small",
@@ -503,7 +503,7 @@ describe("Done step Get Started does not block on onboarding_apply", () => {
 				case "get_config":
 					return Promise.resolve({
 						hotkey: "<caps_lock>",
-						model_size: "small.en",
+						model_size: "tiny",
 						microphone: "",
 						voice_biometric_consent: true,
 					});
@@ -517,7 +517,7 @@ describe("Done step Get Started does not block on onboarding_apply", () => {
 					return Promise.resolve({
 						models: [
 							{
-								name: "small.en",
+								name: "tiny",
 								size: "~466MB",
 								speed: "Fast",
 								description: "Small",
@@ -704,7 +704,7 @@ describe("Done step reveals Skip button when apply fails", () => {
 				case "get_config":
 					return Promise.resolve({
 						hotkey: "<caps_lock>",
-						model_size: "small.en",
+						model_size: "tiny",
 						microphone: "",
 						voice_biometric_consent: true,
 					});
@@ -718,7 +718,7 @@ describe("Done step reveals Skip button when apply fails", () => {
 					return Promise.resolve({
 						models: [
 							{
-								name: "small.en",
+								name: "tiny",
 								size: "~466MB",
 								speed: "Fast",
 								description: "Small",
@@ -828,13 +828,13 @@ describe("ModelStep aria-label interpolates the model name", () => {
 
 	const twoOptions = [
 		{
-			name: "small.en",
+			name: "tiny",
 			size: "~466MB",
 			speed: "Fast",
 			description: "Small",
 		},
 		{
-			name: "medium.en",
+			name: "large-v3-turbo",
 			size: "~1.5GB",
 			speed: "Slow",
 			description: "Medium",
@@ -858,7 +858,7 @@ describe("ModelStep aria-label interpolates the model name", () => {
 			<ModelStep
 				{...baseProps}
 				modelOptions={twoOptions}
-				selectedModel="small.en"
+				selectedModel="tiny"
 				setSelectedModel={() => {}}
 			/>,
 		);
@@ -866,7 +866,7 @@ describe("ModelStep aria-label interpolates the model name", () => {
 		// Its aria-label should be the interpolated string
 		// "Select model: small.en" — NOT "Select model: {name}".
 		const label = modelTrigger().getAttribute("aria-label") ?? "";
-		expect(label).toContain("small.en");
+		expect(label).toContain("tiny");
 		expect(label).not.toContain("{name}");
 	});
 
@@ -875,24 +875,24 @@ describe("ModelStep aria-label interpolates the model name", () => {
 			<ModelStep
 				{...baseProps}
 				modelOptions={twoOptions}
-				selectedModel="small.en"
+				selectedModel="tiny"
 				setSelectedModel={() => {}}
 			/>,
 		);
 
-		expect(modelTrigger().getAttribute("aria-label")).toContain("small.en");
+		expect(modelTrigger().getAttribute("aria-label")).toContain("tiny");
 
 		// Re-render with a different selectedModel.
 		rerender(
 			<ModelStep
 				{...baseProps}
 				modelOptions={twoOptions}
-				selectedModel="medium.en"
+				selectedModel="large-v3-turbo"
 				setSelectedModel={() => {}}
 			/>,
 		);
 
-		expect(modelTrigger().getAttribute("aria-label")).toContain("medium.en");
+		expect(modelTrigger().getAttribute("aria-label")).toContain("large-v3-turbo");
 		expect(modelTrigger().getAttribute("aria-label")).not.toContain("{name}");
 	});
 
@@ -902,13 +902,13 @@ describe("ModelStep aria-label interpolates the model name", () => {
 				{...baseProps}
 				modelOptions={[
 					{
-						name: "tiny.en",
+						name: "large-v3-turbo",
 						size: "~75MB",
 						speed: "Fastest",
 						description: "Tiny",
 					},
 				]}
-				selectedModel="tiny.en"
+				selectedModel="large-v3-turbo"
 				setSelectedModel={() => {}}
 			/>,
 		);
@@ -916,7 +916,7 @@ describe("ModelStep aria-label interpolates the model name", () => {
 		// The mocked SelectValue renders the placeholder as text.
 		// The placeholder should contain the interpolated model name.
 		const placeholderText = screen.getByText(/Select model:/);
-		expect(placeholderText.textContent).toContain("tiny.en");
+		expect(placeholderText.textContent).toContain("large-v3-turbo");
 		expect(placeholderText.textContent).not.toContain("{name}");
 	});
 });
@@ -945,7 +945,7 @@ describe("useOnboardingWizard: selections are seeded from the saved config on ev
 				case "get_config":
 					return Promise.resolve({
 						hotkey: "<f5>",
-						model_size: "medium.en",
+						model_size: "large-v3-turbo",
 						microphone: "saved-mic-id",
 					});
 				case "onboarding_get_microphones":
@@ -1004,7 +1004,7 @@ describe("useOnboardingWizard: selections are seeded from the saved config on ev
 					// forgets to skip the override.
 					return Promise.resolve({
 						hotkey: "<f11>",
-						model_size: "medium.en",
+						model_size: "large-v3-turbo",
 						microphone: "should-not-appear",
 					});
 				case "onboarding_get_microphones":

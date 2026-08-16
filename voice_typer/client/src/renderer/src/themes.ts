@@ -138,6 +138,16 @@ export const THEME_VARIABLES: readonly string[] = [
  * @param customVars  Optional custom-theme variable map for the
  *                    current mode (only used when ``presetId === 'custom'``).
  */
+/**
+ * Event name dispatched on `window` after every `applyThemeVars` run.
+ * Subscribers that render from the LIVE CSS variables (e.g. the
+ * share-stats image palette in `lib/theme-palette.ts`) listen for this
+ * to re-read the tokens exactly when they change — the CSS variables
+ * on `document.documentElement` are the single source of truth, and
+ * this event is the change signal.
+ */
+export const THEME_APPLIED_EVENT = "vt:theme-applied";
+
 export function applyThemeVars(
 	presetId: string,
 	isDark: boolean,
@@ -148,25 +158,31 @@ export function applyThemeVars(
 	// Always clear previous overrides first
 	clearThemeVars();
 
-	if (presetId === "default") return;
-
-	// Custom theme — use the passed-in variable map directly
-	if (presetId === CUSTOM_THEME_ID && customVars) {
-		for (const [key, value] of Object.entries(customVars)) {
-			// Only set variables that are in our known list
-			if ((THEME_VARIABLES as readonly string[]).includes(key)) {
-				root.style.setProperty(key, value);
+	if (presetId !== "default") {
+		// Custom theme — use the passed-in variable map directly
+		if (presetId === CUSTOM_THEME_ID && customVars) {
+			for (const [key, value] of Object.entries(customVars)) {
+				// Only set variables that are in our known list
+				if ((THEME_VARIABLES as readonly string[]).includes(key)) {
+					root.style.setProperty(key, value);
+				}
+			}
+		} else {
+			const theme = THEMES.find((t) => t.id === presetId);
+			if (theme) {
+				const vars = isDark ? theme.dark : theme.light;
+				for (const [key, value] of Object.entries(vars)) {
+					root.style.setProperty(key, value);
+				}
 			}
 		}
-		return;
 	}
 
-	const theme = THEMES.find((t) => t.id === presetId);
-	if (!theme) return;
-
-	const vars = isDark ? theme.dark : theme.light;
-	for (const [key, value] of Object.entries(vars)) {
-		root.style.setProperty(key, value);
+	// Notify palette readers (and any future CSS-var subscriber) that
+	// the applied tokens changed — including the "default" clear path,
+	// which also changes what the variables resolve to.
+	if (typeof window !== "undefined") {
+		window.dispatchEvent(new CustomEvent(THEME_APPLIED_EVENT));
 	}
 }
 

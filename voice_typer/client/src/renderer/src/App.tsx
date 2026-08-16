@@ -514,23 +514,23 @@ export default function App() {
 						<main
 							id="main-content"
 							tabIndex={-1}
-							// Visible focus ring so sighted keyboard users see that focus
-							// moved into the main landmark after a navigation event. Pre-fix
-							// this was `focus:outline-none` only — focus was moved
-							// programmatically (see the useEffect above) but the user had no
-							// visual confirmation, leading to confusion about whether the
-							// shortcut had any effect. The ring uses the same `--ring` token
-							// as every other focusable element so it visually matches the
-							// rest of the app's focus indicators. We use `focus:` (not
-							// `focus-visible:`) because the focus move is programmatic —
-							// `focus-visible` only fires for keyboard-initiated focus, so a
-							// mouse-click nav followed by the programmatic focus() call
-							// would NOT show the ring under `focus-visible:`.
+							// Focus is moved programmatically to this landmark after
+							// navigation (see the useEffect above) so screen readers and
+							// keyboard users land at the top of the new page. The element
+							// carries no visible focus decoration: the old focus ring
+							// framed the whole page window whenever it was focused (e.g.
+							// after any click inside the content area) and was reported
+							// as an annoying border around the page — focus is moved
+							// silently instead.
 							// Clean-window: no left/top panel border around the
 							// content area. The bg contrast against the
 							// --bg-subtle wrapper still separates content from
 							// chrome without a hard frame line.
-							className="flex-1 overflow-y-auto bg-(--bg) focus:outline-none focus:ring-2 focus:ring-ring/30 focus:ring-offset-2"
+							// 1px frame around the page window, drawn with the theme's
+							// own --border token at 10% opacity so it reads as a faint
+							// separation line and blends with every theme (light, dark,
+							// and custom palettes all define --border).
+							className="flex-1 overflow-y-auto bg-(--bg) focus:outline-none rounded-l-lg border border-border/10"
 							style={{ scrollbarGutter: "stable" }}
 						>
 							{connectionStatus === "connected" ? (

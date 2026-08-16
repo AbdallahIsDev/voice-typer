@@ -53,6 +53,14 @@ const stats: ShareStats = {
 	modeDisplay: "Cloud",
 	modeDetail: "Cloud ASR (OpenAI)",
 	fasterThanAvg: "100% faster than avg typer",
+	hasTodayActivity: true,
+	dictations: "1,204",
+	activeDays: "87",
+	activeDaysDetail: "5-day streak",
+	chars: "24,510",
+	recordingTime: "9h 40m",
+	model: "parakeet",
+	device: "cpu",
 };
 
 // A second stats object — same field values but a DIFFERENT reference,

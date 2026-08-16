@@ -103,6 +103,42 @@ const baseProps = {
 	onConsentChange: noop,
 };
 
+describe("CloudProvidersPanel — provider brand logos", () => {
+	afterEach(() => cleanup());
+
+	it("renders the brand logo for openai and deepgram; groq keeps the shield fallback", () => {
+		const groqProvider: CloudProvider = {
+			key: "groq",
+			url: "https://api.groq.com/openai/v1/audio/transcriptions",
+			model: "whisper-large-v3",
+		};
+		const deepgramProvider: CloudProvider = {
+			key: "deepgram",
+			url: "https://api.deepgram.com/v1/listen",
+			model: "nova-2",
+		};
+		const { container } = render(
+			<CloudProvidersPanel
+				{...baseProps}
+				cloudProviders={[openaiProvider, groqProvider, deepgramProvider]}
+			/>,
+		);
+
+		// openai + deepgram render an <img> brand logo; groq has none.
+		const imgs = container.querySelectorAll("img");
+		expect(imgs).toHaveLength(2);
+		const srcs = Array.from(imgs).map((i) => i.getAttribute("src") ?? "");
+		expect(srcs.some((s) => s.includes("OpenAI%20icon"))).toBe(true);
+		expect(srcs.some((s) => s.includes("Deepgram%20icon"))).toBe(true);
+
+		// groq keeps the generic shield glyph in its card header.
+		const shields = screen
+			.getAllByTestId("hugeicon")
+			.filter((el) => el.getAttribute("data-name") === "Shield01Icon");
+		expect(shields).toHaveLength(1);
+	});
+});
+
 describe("CloudProvidersPanel — BG-74 (test-result span is a live region)", () => {
 	afterEach(() => cleanup());
 

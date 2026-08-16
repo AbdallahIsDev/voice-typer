@@ -57,7 +57,10 @@ export function SearchField({
 				onChange={handleChange}
 				placeholder={placeholder}
 				aria-label={resolvedAriaLabel}
-				className="ps-9 pe-9 rounded-xl bg-(--bg-subtle) border-border"
+				// Muted 10% frame (same as every other border in the app) —
+				// a bare `border-border` would override the Input's
+				// transparent border with a full-opacity line.
+				className="ps-9 pe-9 rounded-xl bg-(--bg-subtle) border-border/10"
 			/>
 			{value && (
 				<button

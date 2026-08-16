@@ -131,7 +131,7 @@ export const AiEnhancementSettingsSection = memo(
 						title={aiSectionTitle}
 						description={t("settings.aiEnhancement.description")}
 					>
-						<div className="animate-fade-in space-y-0 divide-y divide-border">
+						<div className="animate-fade-in space-y-0 divide-y divide-border/10">
 							{/* ── Master toggle ── */}
 							<SettingRow
 								label={aiEnableLabel}
@@ -190,7 +190,7 @@ export const AiEnhancementSettingsSection = memo(
 						title={vocabSectionTitle}
 						description={t("settings.vocabAutomation.description")}
 					>
-						<div className="animate-fade-in space-y-0 divide-y divide-border">
+						<div className="animate-fade-in space-y-0 divide-y divide-border/10">
 							{/* ── Master toggle ── */}
 							<SettingRow
 								label={vocabEnableLabel}

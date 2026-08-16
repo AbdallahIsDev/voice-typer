@@ -60,7 +60,7 @@ function makeConfig(
 		hotkey: "<f2>",
 		sample_rate: 16000,
 		microphone: null,
-		model_size: "small.en",
+		model_size: "tiny",
 		language: "en",
 		device: "cpu",
 		beam_size: 5,

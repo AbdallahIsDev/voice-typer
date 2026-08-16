@@ -28,7 +28,7 @@ export function Kbd({ children, as: Tag = "kbd", className }: KbdProps) {
 	return (
 		<Tag
 			className={cn(
-				"rounded border border-border bg-(--bg-subtle) px-2 py-0.5 font-mono text-xs text-(--text-primary)",
+				"rounded border border-border/10 bg-(--bg-subtle) px-2 py-0.5 font-mono text-xs text-(--text-primary)",
 				className,
 			)}
 		>

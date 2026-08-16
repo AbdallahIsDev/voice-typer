@@ -109,7 +109,7 @@ const baseConfig = {
 } as unknown as VoiceTyperConfig;
 
 const tinyMeta: ModelMetadata = {
-	name: "tiny.en",
+	name: "tiny",
 	display_name: "Whisper Tiny (EN)",
 	download_size_mb: 75,
 	required_vram_mb: 512,
@@ -124,7 +124,7 @@ const tinyMeta: ModelMetadata = {
 };
 
 const bigMeta: ModelMetadata = {
-	name: "medium.en",
+	name: "large-v3-turbo",
 	display_name: "Whisper Medium (EN)",
 	download_size_mb: 1500, // 1.5 GB — larger than the free space in low-disk fixtures
 	required_vram_mb: 4096,
@@ -145,7 +145,7 @@ const families: ModelFamily[] = [
 		description: null,
 		variants: [
 			{
-				name: "tiny.en",
+				name: "tiny",
 				size: "~75MB",
 				speed: "Fastest",
 				backend: "whisper",
@@ -154,7 +154,7 @@ const families: ModelFamily[] = [
 				isActive: false,
 			},
 			{
-				name: "medium.en",
+				name: "large-v3-turbo",
 				size: "~1.5GB",
 				speed: "Slow",
 				backend: "whisper",
@@ -167,8 +167,8 @@ const families: ModelFamily[] = [
 ];
 
 const catalog: Record<string, ModelMetadata> = {
-	"tiny.en": tinyMeta,
-	"medium.en": bigMeta,
+	"tiny": tinyMeta,
+	"large-v3-turbo": bigMeta,
 };
 
 const baseProps = {
@@ -397,13 +397,13 @@ describe("LocalModelsPanel — ZU-4 (forward error/modelName/onRetry to Download
 		render(
 			<LocalModelsPanel
 				{...baseProps}
-				downloadingModel="tiny.en"
+				downloadingModel="tiny"
 				downloadProgress={50}
 				downloadStatus="downloading"
 			/>,
 		);
 		const bar = screen.getByTestId("download-progress-bar");
-		expect(bar.getAttribute("data-model-name")).toBe("tiny.en");
+		expect(bar.getAttribute("data-model-name")).toBe("tiny");
 		// onRetry is always forwarded (the bar decides whether to
 		// render the Retry button based on the `error` prop).
 		expect(bar.getAttribute("data-has-retry")).toBe("true");
@@ -413,16 +413,16 @@ describe("LocalModelsPanel — ZU-4 (forward error/modelName/onRetry to Download
 		render(
 			<LocalModelsPanel
 				{...baseProps}
-				downloadingModel="tiny.en"
+				downloadingModel="tiny"
 				failedDownload={{
-					modelName: "tiny.en",
+					modelName: "tiny",
 					error: "disk full",
 				}}
 			/>,
 		);
 		const bar = screen.getByTestId("download-progress-bar");
 		expect(bar.getAttribute("data-error")).toBe("disk full");
-		expect(bar.getAttribute("data-model-name")).toBe("tiny.en");
+		expect(bar.getAttribute("data-model-name")).toBe("tiny");
 	});
 
 	it("does NOT forward the error when failedDownload is for a DIFFERENT model", () => {
@@ -433,9 +433,9 @@ describe("LocalModelsPanel — ZU-4 (forward error/modelName/onRetry to Download
 		render(
 			<LocalModelsPanel
 				{...baseProps}
-				downloadingModel="tiny.en"
+				downloadingModel="tiny"
 				failedDownload={{
-					modelName: "medium.en",
+					modelName: "large-v3-turbo",
 					error: "network timeout",
 				}}
 			/>,
@@ -445,18 +445,18 @@ describe("LocalModelsPanel — ZU-4 (forward error/modelName/onRetry to Download
 	});
 
 	it("forwards isInstallingDepsThis to <ModelCardActions> based on installingDepsModel", () => {
-		render(<LocalModelsPanel {...baseProps} installingDepsModel="tiny.en" />);
+		render(<LocalModelsPanel {...baseProps} installingDepsModel="tiny" />);
 		// The panel renders one card per variant; locate the
 		// tiny.en card by its data-model attribute.
 		const cards = screen.getAllByTestId("model-card-actions");
 		const tinyCard = cards.find(
-			(el) => el.getAttribute("data-model") === "tiny.en",
+			(el) => el.getAttribute("data-model") === "tiny",
 		);
 		expect(tinyCard).toBeDefined();
 		expect(tinyCard?.getAttribute("data-installing-deps")).toBe("true");
 		// The medium.en card must NOT be marked as installing.
 		const mediumCard = cards.find(
-			(el) => el.getAttribute("data-model") === "medium.en",
+			(el) => el.getAttribute("data-model") === "large-v3-turbo",
 		);
 		expect(mediumCard?.getAttribute("data-installing-deps")).toBe("false");
 	});

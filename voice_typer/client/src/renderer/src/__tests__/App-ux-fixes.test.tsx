@@ -172,7 +172,7 @@ function makeConfig(
 		hotkey: "F2",
 		sample_rate: 16000,
 		microphone: null,
-		model_size: "small.en",
+		model_size: "tiny",
 		language: "en",
 		device: "cpu",
 		beam_size: 5,
@@ -478,10 +478,14 @@ describe("UX-24: help overlay shows the user's actual configured hotkey", () => 
 		});
 
 		//formatHotkeyLabel("<ctrl>+<shift>+v") returns
-		// "Ctrl+Shift+V". The overlay must show this, not the
-		// hardcoded "Ctrl+Alt+V" default. Use findByText to
-		// tolerate the Radix Dialog portal's async content commit.
-		expect(await screen.findByText("Ctrl+Shift+V")).toBeTruthy();
+		// "Ctrl+Shift+V", rendered as separate design-system Kbd chips
+		// ("Ctrl", "Shift", "V"). "V" appears in no other shortcut, so
+		// its chip proves the configured combo rendered — and the
+		// hardcoded "Ctrl+Alt+V" default must be gone (the combo is no
+		// longer one combined text node). Use findByText to tolerate the
+		// Radix Dialog portal's async content commit.
+		expect(await screen.findByText("V")).toBeTruthy();
+		expect(screen.queryByText("Ctrl+Alt+V")).toBeNull();
 	});
 
 	it("falls back to the Caps Lock default when the config hotkey is empty", async () => {
@@ -537,8 +541,10 @@ describe("UX-24: help overlay shows the user's actual configured hotkey", () => 
 		});
 
 		//when repaste_hotkey is empty, formatHotkeyLabel falls
-		// back to "<ctrl>+<alt>+v" which formats to "Ctrl+Alt+V".
-		expect(screen.getByText("Ctrl+Alt+V")).toBeTruthy();
+		// back to "<ctrl>+<alt>+v" which formats to "Ctrl+Alt+V",
+		// rendered as separate Kbd chips. The "V" chip (unique to the
+		// repaste shortcut) proves the default combo rendered.
+		expect(screen.getByText("V")).toBeTruthy();
 	});
 });
 

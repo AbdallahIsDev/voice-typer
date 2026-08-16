@@ -51,7 +51,7 @@ const STUB_CONFIG = {
 	hotkey: "<capslock>",
 	hotkey_repaste: "<ctrl>+<alt>+v",
 	microphone: null,
-	model_size: "small.en",
+	model_size: "tiny",
 	device: "auto",
 	sample_rate: 16000,
 	autostart: false,
@@ -127,7 +127,7 @@ vi.mock("@/hooks/usePython", () => ({
 						count: 0,
 						chars: 0,
 						duration_sec: 0,
-						model: "small.en",
+						model: "tiny",
 						device: "cpu",
 					};
 				case "get_history":
@@ -206,7 +206,11 @@ vi.mock("@/hooks/useLastUpdated", () => ({
 vi.mock("@/hooks/useStatsShare", () => ({
 	useStatsShare: () => ({
 		imageRef: { current: null },
-		shareAsImage: vi.fn(),
+		captureImage: vi.fn(),
+		downloadImage: vi.fn(),
+		saveImageAs: vi.fn(),
+		copyImageToClipboard: vi.fn(),
+		revealInFolder: vi.fn(),
 	}),
 	computeShareStats: vi.fn(() => ({
 		dictations: 0,

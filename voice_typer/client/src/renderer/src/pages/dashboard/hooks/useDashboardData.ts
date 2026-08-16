@@ -8,21 +8,46 @@
 // state changes. Also owns the cleanup effect that clears the pending
 // debounced-refresh timer on unmount.
 //
-// Behaviour is identical to the pre-split inline implementation. The
-// only structural change is that the dead `loadData` wrapper
-// (`const loadData = useCallback(async () => { await refreshData(); }, ...)`,
-//Finding 10) is removed — `refreshData` is called directly at
-// both former `loadData` call sites (initial mount + manual refresh).
+// SINGLE-SOURCE-OF-TRUTH change (data-consistency fix):
+//   Previously the page pulled "today" stats from the backend's
+//   `get_today_stats` aggregator while the chart/streaks/totals were
+//   derived from a `get_history({limit: 200})` sample — two independent
+//   computations that could disagree (and did: "Dictations Today: 0"
+//   while "Active Days: 7" showed real activity, because the renderer
+//   parsed the DB's UTC timestamps as local time, shifting evening /
+//   early-morning dictations across calendar-day boundaries).
+//   Now EVERY derived stat (today cards, chart bars, streaks, totals,
+//   trends) is computed in one pass from ONE history sample (raised to
+//   the backend's 500-row max), using UTC-correct day bucketing
+//   (`parseUtcTimestamp` / `dateKey` in lib/streaks). The only
+//   independent number is `totalCount`, from the dedicated
+//   `get_history_count` IPC (the true all-time row count).
+//
+// Behaviour is otherwise identical to the pre-split inline
+// implementation. The dead `loadData` wrapper (Finding 10) stays
+// removed — `refreshData` is called directly at both former `loadData`
+// call sites (initial mount + manual refresh).
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePythonEvent } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
-import type { HistoryRecord, TodayStats } from "@/types/ipc";
-import type { DashboardData } from "../lib/streaks";
-import { computeDailyActivity, computeStreaks } from "../lib/streaks";
+import type { HistoryRecord } from "@/types/ipc";
+import {
+	type ActivityChartData,
+	buildActivityBars,
+	computePeriodStats,
+	computeStreaks,
+	type DashboardData,
+	dateKey,
+	type PeriodStats,
+	type RangeId,
+} from "../lib/streaks";
+
+/** History sample size for the dashboard's derived stats. */
+export const DASHBOARD_SAMPLE_LIMIT = 500;
 
 /**
  * Arguments for {@link useDashboardData}.
@@ -44,6 +69,13 @@ export interface UseDashboardDataResult {
 	/** Backend config directory (from get_status) for the data-path display. */
 	configDir: string;
 	refreshing: boolean;
+	/** Selected analytics time range ("Today" / "7 Days" / …). */
+	range: RangeId;
+	setRange: (range: RangeId) => void;
+	/** Range-aware stats (current window + previous window for trends). */
+	period: PeriodStats;
+	/** Range-aware chart bars (hourly for Today, daily otherwise). */
+	activity: ActivityChartData;
 	refreshData: () => Promise<void>;
 	handleManualRefresh: () => Promise<void>;
 	/**
@@ -80,26 +112,27 @@ export function useDashboardData({
 	const [refreshing, setRefreshing] = useState(false);
 	const [fetchError, setFetchError] = useState<string | null>(null);
 
+	// Selected time range — drives the stat cards + chart together.
+	const [range, setRange] = useState<RangeId>("7d");
+
+	// The history sample backing every derived stat (kept so period /
+	// activity memos recompute when the data refreshes).
+	const [sample, setSample] = useState<HistoryRecord[]>([]);
+
 	/** Fetch all dashboard data from the Python backend. */
 	const refreshData = useCallback(async () => {
 		try {
-			const [cfg, todayStats, history, totalCount, status] = await Promise.all([
+			const [cfg, history, totalCount, status] = await Promise.all([
 				call<VoiceTyperConfig>("get_config"),
-				call<TodayStats>("get_today_stats").catch(() => ({
-					count: 0,
-					chars: 0,
-					word_count: 0,
-					duration: 0,
-				})),
-				call<HistoryRecord[]>("get_history", { limit: 200 }).catch(
-					() => [] as HistoryRecord[],
-				), //capped at 200
+				call<HistoryRecord[]>("get_history", {
+					limit: DASHBOARD_SAMPLE_LIMIT,
+				}).catch(() => [] as HistoryRecord[]),
 				// Fetch the TRUE total dictation count via the dedicated
-				// `get_history_count` IPC. The `get_history({limit: 200})`
-				// sample above is still used for daily-activity / streak
-				// computation (where 200 rows is a sufficient sample), but
-				// the "Total Dictations" stat card now reflects the actual
-				// row count instead of capping at 200 forever.
+				// `get_history_count` IPC. The `get_history` sample above
+				// is still used for daily-activity / streak / period
+				// computation (a 500-row sample covers weeks of use), but
+				// the "Total Dictations" stat card reflects the actual
+				// row count instead of capping at the sample forever.
 				call<{ count: number }>("get_history_count").catch(() => ({
 					count: 0,
 				})),
@@ -109,11 +142,13 @@ export function useDashboardData({
 			]);
 
 			const recs = history ?? [];
-			const dailyActivity = computeDailyActivity(recs);
 			const streaks = computeStreaks(recs);
 			const favoritesCount = recs.filter((r) => r.favorite > 0).length;
 
-			// Total all-time stats
+			// Total all-time stats FROM THE SAMPLE — consistent with the
+			// chart and streaks by construction. When the sample is
+			// capped (totalCount > recs.length) the page shows a
+			// "sampled from the last N dictations" footnote.
 			let totalChars = 0,
 				totalDuration = 0;
 			for (const r of recs) {
@@ -121,18 +156,36 @@ export function useDashboardData({
 				totalDuration += r.duration ?? 0;
 			}
 
+			// Today's bucket — computed from the SAME sample with the
+			// same UTC-correct bucketing as the chart/streaks, so the
+			// "Today" cards can never contradict the chart's today bar.
+			// (Today's rows are always the newest, so they're always
+			// inside the DESC-ordered sample.)
+			const todayKey = dateKey(new Date().toISOString());
+			let todayCount = 0,
+				todayChars = 0,
+				todayWordCount = 0,
+				todayDuration = 0;
+			for (const r of recs) {
+				if (dateKey(r.timestamp) === todayKey) {
+					todayCount++;
+					todayChars += r.char_count ?? 0;
+					todayWordCount += r.word_count ?? 0;
+					todayDuration += r.duration ?? 0;
+				}
+			}
+
 			const newData: DashboardData = {
-				todayCount: todayStats?.count ?? 0,
-				todayChars: todayStats?.chars ?? 0,
-				todayWordCount: todayStats?.word_count ?? 0,
-				todayDuration: todayStats?.duration ?? 0,
+				todayCount,
+				todayChars,
+				todayWordCount,
+				todayDuration,
 				// Prefer the dedicated count endpoint; fall back to the
 				// sampled-history length only when the endpoint is
 				// unavailable (e.g. older backend that doesn't expose
 				// `get_history_count` yet). `totalCount?.count` is 0 on
 				// both empty-DB and IPC-failure — the empty-DB case is
-				// correct, and the IPC-failure case surfaces a 0 stat
-				// (better than a stale 200).
+				// correct, and the IPC-failure case surfaces a 0 stat.
 				totalCount: totalCount?.count ?? recs.length,
 				totalChars,
 				totalDuration,
@@ -140,13 +193,14 @@ export function useDashboardData({
 				model: cfg?.model_size ?? t("analytics.unknown"),
 				device: cfg?.device ?? t("analytics.unknown"),
 				language: cfg?.language || t("analytics.auto"),
-				dailyActivity,
 				currentStreak: streaks.current,
 				maxStreak: streaks.max,
 				activeDays: streaks.activeDays,
+				sampleSize: recs.length,
 			};
 			cachedDataRef.current = newData;
 			setData(newData);
+			setSample(recs);
 			setConfigRaw(cfg ?? null);
 			if (status?.config_dir) setConfigDir(status.config_dir);
 			setFetchError(null);
@@ -173,11 +227,15 @@ export function useDashboardData({
 		}
 	}, [call, markUpdated]);
 
-	//Finding 10: dead `loadData` wrapper removed. The pre-split
-	// file wrapped `refreshData` in a no-op `useCallback` named
-	// `loadData` and called `loadData()` at the two sites below —
-	// `handleManualRefresh` and the mount `useEffect`. Both now call
-	// `refreshData` directly.
+	// ── Range-aware derived stats (single source: `sample`) ───────────
+	const period = useMemo(
+		() => computePeriodStats(sample, range),
+		[sample, range],
+	);
+	const activity = useMemo(
+		() => buildActivityBars(sample, range),
+		[sample, range],
+	);
 
 	// F4: manual refresh handler for the LastUpdatedIndicator button.
 	// Wraps `refreshData()` so we can flip a `refreshing` flag for the
@@ -201,9 +259,9 @@ export function useDashboardData({
 	// (document.visibilityState !== "visible"). The visibilitychange
 	// listener below checks this flag on focus and triggers a single
 	// debounced refresh — so background events don't fire 4 IPC calls
-	// each (get_config + get_today_stats + get_history(200) +
-	// get_history_count) while the user isn't looking at the page. The
-	// next focus collapses the backlog into ONE fetch.
+	// each (get_config + get_history + get_history_count + get_status)
+	// while the user isn't looking at the page. The next focus
+	// collapses the backlog into ONE fetch.
 	const staleRef = useRef(false);
 
 	// F11-FIX (b-review Finding 11): invalidate the cached dashboard data
@@ -263,6 +321,10 @@ export function useDashboardData({
 		configRaw,
 		configDir,
 		refreshing,
+		range,
+		setRange,
+		period,
+		activity,
 		refreshData,
 		handleManualRefresh,
 		debouncedRefreshFromEvent,

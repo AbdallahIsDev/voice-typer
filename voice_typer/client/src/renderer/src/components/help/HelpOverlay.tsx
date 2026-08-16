@@ -24,10 +24,8 @@
  */
 import { memo } from "react";
 import { Modal } from "@/components/common/Modal";
-import {
-	PunctuationCheatSheet,
-	PunctuationCheatSheetButton,
-} from "@/components/help/PunctuationCheatSheet";
+import { PunctuationCheatSheet } from "@/components/help/PunctuationCheatSheet";
+import { HotkeyChips } from "@/components/hotkey/HotkeyChips";
 import { IN_APP_SHORTCUTS } from "@/hooks/useGlobalKeyboardShortcuts";
 import { useT } from "@/i18n/i18n";
 
@@ -56,70 +54,81 @@ function HelpOverlayInner({
 			onClose={onClose}
 			title={t("help.title")}
 			description={t("help.description")}
-			size="sm"
-			className="w-110 max-h-[85vh] overflow-y-auto"
+			// Roomier panel — the old `sm` size was clamped to
+			// max-w-xs (320px) at every breakpoint, leaving the
+			// shortcut list + cheat sheet cramped.
+			size="lg"
+			// The PANEL clips (overflow-hidden) instead of scrolling:
+			// an internal scrollbar on a rounded-4xl panel escapes the
+			// corner radius on Windows classic scrollbars (Chromium
+			// "scrollbars escaping border-radius"). The body scrolls
+			// in the inner wrapper below instead. shadow-none: the
+			// popup's drop shadow was removed per user request.
+			className="max-h-[85vh] overflow-hidden shadow-none grid-rows-[auto_minmax(0,1fr)]"
 		>
-			{/*
-			 * Quick-access affordance for the punctuation cheat sheet.
-			 * Mounting PunctuationCheatSheetButton here ensures the
-			 * spoken-punctuation reference is one click away from the
-			 * top of the overlay — no scrolling past the full
-			 * shortcut list to discover it. The button opens its own
-			 * Modal so the cheat sheet's own scroll container kicks
-			 * in for the 19-entry list on small viewports.
-			 */}
-			<div className="flex justify-end pb-2">
-				<PunctuationCheatSheetButton />
-			</div>
-			<ul className="space-y-2 text-sm">
-				{[
-					{ keys: dictationLabel, desc: t("help.dictation") },
-					{ keys: t("help.keys.cancel"), desc: t("help.cancel") },
-					{ keys: repasteLabel, desc: t("help.repaste") },
-					{ keys: t("help.keys.navigate"), desc: t("help.navigate") },
-					{ keys: t("help.keys.toggle"), desc: t("help.toggle") },
-					{ keys: t("help.keys.activate"), desc: t("help.activate") },
-					{ keys: t("help.keys.openHelp"), desc: t("help.openHelp") },
-					{ keys: t("help.keys.navBack"), desc: t("help.navBack") },
-				].map((shortcut) => (
-					<li
-						key={shortcut.keys}
-						className="flex items-center justify-between gap-4"
-					>
-						<span className="text-(--text-muted)">{shortcut.desc}</span>
-						<kbd className="rounded border border-border bg-(--bg-subtle) px-2 py-0.5 font-mono text-xs text-(--text-primary)">
-							{shortcut.keys}
-						</kbd>
-					</li>
-				))}
-			</ul>
+			{/* Scroll wrapper (grid row 2): the title row above stays
+				    pinned. Negative horizontal/bottom margins cancel the
+				    panel padding so the scrollbar sits flush at the panel
+				    edge — where the panel's overflow-hidden + rounded-4xl
+				    clips it to the corner curves (no more scrollbar
+				    escaping the rounded shape). */}
+			<div
+				data-testid="help-overlay-scroll"
+				className="-mx-6 -mb-6 min-h-0 overflow-y-auto px-6 pb-6"
+			>
+				{/* The punctuation cheat sheet lives ONCE in this overlay
+				    (bottom section). The standalone PunctuationCheatSheetButton
+				    (a second `?` that opened its own cheat-sheet popup) is
+				    deliberately NOT mounted here — the only help affordance
+				    is the title-bar `?` which opens exactly this overlay. */}
+				<ul className="space-y-2 text-sm">
+					{[
+						{ keys: dictationLabel, desc: t("help.dictation") },
+						{ keys: t("help.keys.cancel"), desc: t("help.cancel") },
+						{ keys: repasteLabel, desc: t("help.repaste") },
+						{ keys: t("help.keys.navigate"), desc: t("help.navigate") },
+						{ keys: t("help.keys.toggle"), desc: t("help.toggle") },
+						{ keys: t("help.keys.activate"), desc: t("help.activate") },
+						{ keys: t("help.keys.openHelp"), desc: t("help.openHelp") },
+						{ keys: t("help.keys.navBack"), desc: t("help.navBack") },
+					].map((shortcut) => (
+						<li
+							key={shortcut.keys}
+							className="flex items-center justify-between gap-4"
+						>
+							<span className="text-(--text-muted)">{shortcut.desc}</span>
+							<HotkeyChips keys={shortcut.keys} />
+						</li>
+					))}
+				</ul>
 
-			{/* In-app keyboard shortcuts — sourced from the
+				{/* In-app keyboard shortcuts — sourced from the
 				`IN_APP_SHORTCUTS` constant exported by
 				`useGlobalKeyboardShortcuts` (the hook that implements
 				them). Rendering from the same array keeps the overlay
 				in lock-step with the actual key bindings. */}
-			<h3 className="mt-4 text-sm font-medium text-(--text-primary)">
-				{t("help.shortcuts.title")}
-			</h3>
-			<ul className="mt-2 space-y-2 text-sm">
-				{IN_APP_SHORTCUTS.map((shortcut) => (
-					<li
-						key={`${shortcut.category}-${shortcut.keys}`}
-						className="flex items-center justify-between gap-4"
-					>
-						<span className="text-(--text-muted)">{t(shortcut.labelKey)}</span>
-						<kbd className="rounded border border-border bg-(--bg-subtle) px-2 py-0.5 font-mono text-xs text-(--text-primary)">
-							{shortcut.keys}
-						</kbd>
-					</li>
-				))}
-			</ul>
+				<h3 className="mt-4 text-sm font-medium text-(--text-primary)">
+					{t("help.shortcuts.title")}
+				</h3>
+				<ul className="mt-2 space-y-2 text-sm">
+					{IN_APP_SHORTCUTS.map((shortcut) => (
+						<li
+							key={`${shortcut.category}-${shortcut.keys}`}
+							className="flex items-center justify-between gap-4"
+						>
+							<span className="text-(--text-muted)">
+								{t(shortcut.labelKey)}
+							</span>
+							<HotkeyChips keys={shortcut.keys} />
+						</li>
+					))}
+				</ul>
 
-			<PunctuationCheatSheet />
-			<p className="text-xs text-(--text-muted)">
-				{t("help.closeHint", { key: "Esc" })}
-			</p>
+				<PunctuationCheatSheet />
+				<p className="text-xs text-(--text-muted)">
+					{t("help.closeHint", { key: "Esc" })}
+				</p>
+			</div>
 		</Modal>
 	);
 }

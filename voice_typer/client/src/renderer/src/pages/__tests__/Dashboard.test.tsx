@@ -96,72 +96,58 @@ const EN_JSON = JSON.parse(
 
 //
 
-describe("BG-3: Dashboard 7-day chart container role=img + non-interactive bars", () => {
+describe("BG-3: Dashboard activity chart container role=img + non-interactive bars", () => {
 	it('chart container <div> has role="img" and aria-label=', () => {
-		//the chart JSX now lives in SevenDayActivityChart.tsx
-		// (extracted from Dashboard.tsx). The `flex items-end
-		// justify-between gap-2 h-20` class appears exactly once in
-		// that file (the chart container; the loading skeleton lives
-		// in DashboardSkeleton.tsx). The role="img" + aria-label=
-		// attributes appear in the 400-char window AFTER the className
-		// attribute (they're listed after className in the JSX opening
-		// tag).
-		const chartIdx = SEVEN_DAY_SRC.lastIndexOf(
-			"flex items-end justify-between gap-2 h-20",
-		);
+		//the chart JSX lives in SevenDayActivityChart.tsx. The chart
+		// is exposed to AT as a SINGLE role="img" container with a
+		// descriptive aria-label (no dead-end tab stops, one
+		// announcement instead of "button, button, ..."). Use
+		// lastIndexOf so the file's leading docstring (which mentions
+		// role="img" in prose) can't mask the JSX occurrence.
+		const chartIdx = SEVEN_DAY_SRC.lastIndexOf('role="img"');
 		expect(chartIdx).toBeGreaterThan(-1);
 
 		const window = SEVEN_DAY_SRC.slice(chartIdx, chartIdx + 400);
-		expect(window).toMatch(/role="img"/);
 		expect(window).toMatch(/aria-label=/);
 	});
 
-	it("chart container aria-label uses analytics.sevenDayActivityChartAria key", () => {
+	it("chart container aria-label uses analytics.activityChartAria key", () => {
 		//the aria-label is built from the
-		// analytics.sevenDayActivityChartAria i18n key (with a {counts}
-		// interpolation param) rather than a literal English string.
-		expect(SEVEN_DAY_SRC).toContain("analytics.sevenDayActivityChartAria");
-		expect(SEVEN_DAY_SRC).toMatch(/counts:\s*d\.dailyActivity/);
+		// analytics.activityChartAria i18n key (with {range} + {counts}
+		// interpolation params) rather than a literal English string.
+		expect(SEVEN_DAY_SRC).toContain("analytics.activityChartAria");
+		expect(SEVEN_DAY_SRC).toMatch(/counts:\s*ariaCounts/);
 	});
 
 	it("bars are non-interactive <div> elements (not <button>)", () => {
-		// Locate the chart's JSX block and assert no <button> appears
-		// inside it. The chart container starts at the
-		// `flex items-end justify-between gap-2 h-20` div and ends at
-		// the closing `</div>` of the parent chart card. We search the
-		// full source for any `<button` that also has the bar's
-		// className (`bg-accent/`) — those are the bars (now <div>s).
+		// No <button> exists in the chart source at all; the bars are
+		// plain <div>s with the accent fill class.
 		const buttonWithAccentClass = /<button[^>]*bg-accent/.test(SEVEN_DAY_SRC);
 		expect(buttonWithAccentClass).toBe(false);
 
-		// And the bars are <div> with the accent class.
-		const divWithAccentClass = /<div[^>]*bg-accent/.test(SEVEN_DAY_SRC);
-		expect(divWithAccentClass).toBe(true);
+		// And the bars carry the accent fill (high-contrast /90).
+		expect(SEVEN_DAY_SRC).toContain("bg-accent/90");
 	});
 
-	it("bars no longer carry tabIndex or aria-label attributes (informational, not focusable)", () => {
+	it("bars carry no tabIndex and no per-bar aria-label (single-announcement chart)", () => {
 		// The previous implementation gave each bar `tabIndex={0}` and
 		// `aria-label={...}` so the chart produced 7 dead-end tab stops
-		//and an SR announcement of "button, button, ...". After
-		// the chart container owns the role/label and the bars are
-		// plain divs.
-		const chartIdx = SEVEN_DAY_SRC.lastIndexOf(
-			"flex items-end justify-between gap-2 h-20",
-		);
-		expect(chartIdx).toBeGreaterThan(-1);
-
-		// Take a window that covers the entire chart map() block.
-		const blockStart = chartIdx;
-		const blockEnd = SEVEN_DAY_SRC.indexOf("</div>", blockStart + 800);
-		const block = SEVEN_DAY_SRC.slice(blockStart, blockEnd);
-		expect(block).not.toMatch(/tabIndex=\{0\}/);
-		expect(block).not.toMatch(/aria-label=\{ariaLabel\}/);
+		// and an SR announcement of "button, button, ...". After
+		// the fix the chart container owns the role/label and the bars
+		// are plain divs (hover tooltips via title only). Anchor on the
+		// JSX `{bars.map((bar) =>` (the earlier `bars.map` occurrence is
+		// the ariaCounts helper, before the container div).
+		const barBlockStart = SEVEN_DAY_SRC.indexOf("{bars.map((bar)");
+		expect(barBlockStart).toBeGreaterThan(-1);
+		const barBlock = SEVEN_DAY_SRC.slice(barBlockStart);
+		expect(barBlock).not.toMatch(/tabIndex/);
+		expect(barBlock).not.toMatch(/aria-label=/);
 	});
 
-	it("bar opacity is bg-accent/80 (WCAG 1.4.11 contrast, was /60)", () => {
-		// The chart bar is the only element with both `bg-accent/` and
-		//`rounded-sm` in the file.  bumps it from /60 to /80.
-		expect(SEVEN_DAY_SRC).toMatch(/bg-accent\/80/);
+	it("bar fill is bg-accent/90 (WCAG 1.4.11 contrast, was /60)", () => {
+		// The chart bar fill is the only bg-accent/ element; bumped to
+		// /90 for WCAG 1.4.11 contrast against the card background.
+		expect(SEVEN_DAY_SRC).toMatch(/bg-accent\/90/);
 		expect(SEVEN_DAY_SRC).not.toMatch(/bg-accent\/60/);
 	});
 });
@@ -216,9 +202,9 @@ describe("BG-9: formatDuration shared via lib/format.ts + i18n keys", () => {
 		expect(EN_JSON.analytics.durationZero).toBe("0m");
 	});
 
-	it("en.json defines analytics.sevenDayActivityChartAria (BG-8)", () => {
-		expect(EN_JSON.analytics.sevenDayActivityChartAria).toBe(
-			"7-day activity chart: {counts}",
+	it("en.json defines analytics.activityChartAria (BG-8)", () => {
+		expect(EN_JSON.analytics.activityChartAria).toBe(
+			"{range} activity chart: {counts}",
 		);
 	});
 
@@ -450,13 +436,13 @@ describe("SevenDayActivityChart migrates binary plural to tChoice", () => {
 		);
 	});
 
-	it('SevenDayActivityChart.tsx uses tChoice("analytics.dayCountTooltip", day.count, { label })', () => {
+	it('SevenDayActivityChart.tsx uses tChoice("analytics.dayCountTooltip", bar.count, { label })', () => {
 		// The single tChoice call replaces the previous ternary. The
 		// `count` argument drives plural-category selection; `label` is
-		// forwarded as an interpolation param so each day's tooltip shows
-		// its weekday label.
+		// forwarded as an interpolation param so each bar's tooltip
+		// shows its slot label (weekday or hour).
 		expect(SEVEN_DAY_SRC).toMatch(
-			/tChoice\(\s*"analytics\.dayCountTooltip",\s*day\.count,\s*\{\s*label:\s*day\.label,?\s*\}\s*\)/,
+			/tChoice\(\s*"analytics\.dayCountTooltip",\s*bar\.count,\s*\{\s*label:\s*bar\.label,?\s*\}\s*\)/,
 		);
 	});
 

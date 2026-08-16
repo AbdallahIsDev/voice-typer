@@ -10,6 +10,7 @@ import { registerBackendRestartHandler } from "./backend-restart-handler";
 import { registerBubbleHandlers } from "./bubble-handlers";
 import { registerExportHandlers } from "./export-handlers";
 import { registerPythonCallHandler } from "./python-call-handler";
+import { registerStatsImageHandlers } from "./stats-image-handlers";
 import { registerWindowHandlers } from "./window-handlers";
 
 export function registerIpcHandlers(): void {
@@ -17,5 +18,6 @@ export function registerIpcHandlers(): void {
 	registerBubbleHandlers();
 	registerWindowHandlers();
 	registerExportHandlers();
+	registerStatsImageHandlers();
 	registerPythonCallHandler();
 }

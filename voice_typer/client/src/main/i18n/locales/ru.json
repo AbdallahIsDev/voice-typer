@@ -3,6 +3,7 @@
 	"dialog.criticalError.title": "{appName} — Критическая ошибка",
 	"dialog.export.config": "Экспортировать конфигурацию",
 	"dialog.export.history": "Экспортировать историю",
+	"dialog.export.statsImage": "Экспортировать изображение статистики",
 	"dialog.export.templates": "Экспортировать шаблоны",
 	"dialog.export.vocabulary": "Экспортировать словарь",
 	"dialog.preloadError.body": "Не удалось запустить {appName} (ошибка скрипта предварительной загрузки в {file}).\n\nПереустановите {appName}.\n\nЕсли проблема сохраняется после переустановки, обратитесь в службу поддержки.",

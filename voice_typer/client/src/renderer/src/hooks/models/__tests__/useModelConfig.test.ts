@@ -59,7 +59,7 @@ function makeConfig(
 		hotkey: "<f2>",
 		sample_rate: 16000,
 		microphone: null,
-		model_size: "small.en",
+		model_size: "tiny",
 		language: "en",
 		device: "cpu",
 		beam_size: 5,
@@ -119,18 +119,18 @@ afterEach(() => {
 
 describe("useModelConfig — loadConfig (parallelized fetch)", () => {
 	it("fires get_config + get_model_status + get_model_catalog in parallel via Promise.allSettled", async () => {
-		const cfg = makeConfig({ model_size: "small.en" });
+		const cfg = makeConfig({ model_size: "tiny" });
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "get_config") return Promise.resolve(cfg);
 			if (cmd === "get_model_status")
 				return Promise.resolve({
-					"small.en": { downloaded: true, deps_ok: true },
+					"tiny": { downloaded: true, deps_ok: true },
 				});
 			if (cmd === "get_model_catalog")
 				return Promise.resolve({
 					models: [
 						{
-							name: "small.en",
+							name: "tiny",
 							display_name: "Small (EN)",
 							download_size_mb: 466,
 							required_vram_mb: 0,
@@ -162,10 +162,10 @@ describe("useModelConfig — loadConfig (parallelized fetch)", () => {
 		expect(commandsIssued).toContain("get_model_catalog");
 
 		// Config + models + catalog state populated.
-		expect(result.current.config?.model_size).toBe("small.en");
+		expect(result.current.config?.model_size).toBe("tiny");
 		expect(result.current.models.length).toBeGreaterThan(0);
-		expect(result.current.modelCatalog["small.en"]).toBeDefined();
-		expect(result.current.modelCatalog["small.en"]?.download_size_mb).toBe(466);
+		expect(result.current.modelCatalog["tiny"]).toBeDefined();
+		expect(result.current.modelCatalog["tiny"]?.download_size_mb).toBe(466);
 
 		// markUpdated invoked at the end of loadConfig (finally block).
 		expect(args.markUpdated).toHaveBeenCalled();
@@ -221,7 +221,7 @@ describe("useModelConfig — loadConfig (parallelized fetch)", () => {
 
 describe("useModelConfig — config drift detection (config_changed event)", () => {
 	it("merges a partial config_changed payload into the cached config + reapplies active state", async () => {
-		const initial = makeConfig({ model_size: "small.en", openai_api_key: "" });
+		const initial = makeConfig({ model_size: "tiny", openai_api_key: "" });
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "get_config") return Promise.resolve(initial);
 			if (cmd === "get_model_status") return Promise.resolve({});
@@ -234,7 +234,7 @@ describe("useModelConfig — config drift detection (config_changed event)", () 
 
 		// Wait for the initial load to complete so cachedConfigRef is populated.
 		await waitFor(() => {
-			expect(result.current.config?.model_size).toBe("small.en");
+			expect(result.current.config?.model_size).toBe("tiny");
 		});
 
 		// Dispatch a partial config_changed payload that drifts model_size
@@ -244,11 +244,11 @@ describe("useModelConfig — config drift detection (config_changed event)", () 
 		expect(handler).toBeDefined();
 
 		await act(async () => {
-			handler?.({ model_size: "medium.en", openai_api_key: "sk-new" });
+			handler?.({ model_size: "large-v3-turbo", openai_api_key: "sk-new" });
 		});
 
 		// Config reflects the merged partial (no re-fetch).
-		expect(result.current.config?.model_size).toBe("medium.en");
+		expect(result.current.config?.model_size).toBe("large-v3-turbo");
 		expect(result.current.config?.openai_api_key).toBe("sk-new");
 		// Untouched fields preserved (drift detection — not a clobber).
 		expect(result.current.config?.language).toBe("en");
@@ -276,7 +276,7 @@ describe("useModelConfig — config drift detection (config_changed event)", () 
 		expect(handler).toBeDefined();
 
 		await act(async () => {
-			handler?.({ model_size: "medium.en" });
+			handler?.({ model_size: "large-v3-turbo" });
 		});
 
 		// Config is still null (the merge bailed because cachedConfigRef was null).
@@ -284,22 +284,22 @@ describe("useModelConfig — config drift detection (config_changed event)", () 
 
 		// Now resolve get_config — the initial config lands.
 		await act(async () => {
-			resolveGetConfig(makeConfig({ model_size: "small.en" }));
+			resolveGetConfig(makeConfig({ model_size: "tiny" }));
 		});
 		await waitFor(() => {
-			expect(result.current.config?.model_size).toBe("small.en");
+			expect(result.current.config?.model_size).toBe("tiny");
 		});
 	});
 });
 describe("useModelConfig — refreshModelStatus helper", () => {
 	it("invokes get_model_status + reconciles downloaded/depsOk on the local model list", async () => {
-		const initial = makeConfig({ model_size: "small.en" });
+		const initial = makeConfig({ model_size: "tiny" });
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "get_config") return Promise.resolve(initial);
 			if (cmd === "get_model_status")
 				return Promise.resolve({
-					"small.en": { downloaded: true, deps_ok: true },
-					"tiny.en": { downloaded: false, deps_ok: true },
+					"tiny": { downloaded: true, deps_ok: true },
+					"large-v3-turbo": { downloaded: false, deps_ok: true },
 				});
 			if (cmd === "get_model_catalog") return Promise.resolve({ models: [] });
 			return Promise.resolve({});
@@ -316,7 +316,7 @@ describe("useModelConfig — refreshModelStatus helper", () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "get_model_status")
 				return Promise.resolve({
-					"small.en": { downloaded: true, deps_ok: true },
+					"tiny": { downloaded: true, deps_ok: true },
 				});
 			return Promise.resolve({});
 		});
@@ -326,7 +326,7 @@ describe("useModelConfig — refreshModelStatus helper", () => {
 		});
 
 		// The active model matches the backend status (no forced override).
-		const small = result.current.models.find((m) => m.name === "small.en");
+		const small = result.current.models.find((m) => m.name === "tiny");
 		expect(small?.downloaded).toBe(true);
 		expect(small?.depsOk).toBe(true);
 	});
@@ -337,13 +337,13 @@ describe("useModelConfig — refreshModelStatus helper", () => {
 		// downloaded — the model was removed out-of-band. The hook must
 		// preserve that truth so the card can offer a restore/clear
 		// affordance instead of a dead-end disabled "Active" tick.
-		const initial = makeConfig({ model_size: "small.en" });
+		const initial = makeConfig({ model_size: "tiny" });
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "get_config") return Promise.resolve(initial);
 			if (cmd === "get_model_status")
 				return Promise.resolve({
-					"small.en": { downloaded: false, deps_ok: true },
-					"tiny.en": { downloaded: true, deps_ok: true },
+					"tiny": { downloaded: false, deps_ok: true },
+					"large-v3-turbo": { downloaded: true, deps_ok: true },
 				});
 			if (cmd === "get_model_catalog") return Promise.resolve({ models: [] });
 			return Promise.resolve({});
@@ -357,12 +357,12 @@ describe("useModelConfig — refreshModelStatus helper", () => {
 		});
 
 		// The ACTIVE model reported as missing must stay missing.
-		const small = result.current.models.find((m) => m.name === "small.en");
+		const small = result.current.models.find((m) => m.name === "tiny");
 		expect(small?.isActive).toBe(true);
 		expect(small?.downloaded).toBe(false);
 
 		// A non-active downloaded model is untouched.
-		const tiny = result.current.models.find((m) => m.name === "tiny.en");
+		const tiny = result.current.models.find((m) => m.name === "large-v3-turbo");
 		expect(tiny?.downloaded).toBe(true);
 
 		// refreshModelStatus must also preserve the truth (the old code
@@ -370,8 +370,8 @@ describe("useModelConfig — refreshModelStatus helper", () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "get_model_status")
 				return Promise.resolve({
-					"small.en": { downloaded: false, deps_ok: true },
-					"tiny.en": { downloaded: true, deps_ok: true },
+					"tiny": { downloaded: false, deps_ok: true },
+					"large-v3-turbo": { downloaded: true, deps_ok: true },
 				});
 			return Promise.resolve({});
 		});
@@ -380,7 +380,7 @@ describe("useModelConfig — refreshModelStatus helper", () => {
 			await result.current.refreshModelStatus();
 		});
 
-		const after = result.current.models.find((m) => m.name === "small.en");
+		const after = result.current.models.find((m) => m.name === "tiny");
 		expect(after?.downloaded).toBe(false);
 	});
 });
@@ -389,7 +389,7 @@ describe("useModelConfig — handleManualRefresh", () => {
 	it("flips refreshing=true around loadConfig + calls markUpdated", async () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "get_config")
-				return Promise.resolve(makeConfig({ model_size: "small.en" }));
+				return Promise.resolve(makeConfig({ model_size: "tiny" }));
 			if (cmd === "get_model_status") return Promise.resolve({});
 			if (cmd === "get_model_catalog") return Promise.resolve({ models: [] });
 			return Promise.resolve({});
@@ -435,7 +435,7 @@ describe("useModelConfig — updateConfig re-throws on error", () => {
 		});
 
 		await expect(
-			result.current.updateConfig({ model_size: "medium.en" }),
+			result.current.updateConfig({ model_size: "large-v3-turbo" }),
 		).rejects.toThrow("backend rejected update");
 
 		// set_config was actually called with the updates payload.
@@ -443,6 +443,6 @@ describe("useModelConfig — updateConfig re-throws on error", () => {
 			([cmd]) => cmd === "set_config",
 		);
 		expect(setConfigCalls.length).toBe(1);
-		expect(setConfigCalls[0]?.[1]).toEqual({ model_size: "medium.en" });
+		expect(setConfigCalls[0]?.[1]).toEqual({ model_size: "large-v3-turbo" });
 	});
 });

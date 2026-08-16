@@ -7,6 +7,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Kbd } from "@/components/ui/kbd";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import { formatHotkeyLabel, tryCommitHotkey } from "./hotkey-utils";
@@ -144,8 +145,13 @@ export function HotkeyPicker({
 					/>
 					{recording ? (
 						<span className="animate-pulse">{t("hotkeyPicker.pressAKey")}</span>
+					) : value ? (
+						// Render the assigned hotkey as a design-system <Kbd>
+						// chip inside the button (shadcn's documented
+						// "Kbd inside Button" pattern).
+						<Kbd>{formatHotkeyLabel(value)}</Kbd>
 					) : (
-						<span>{formatHotkeyLabel(value) || t("hotkeyPicker.none")}</span>
+						<span>{t("hotkeyPicker.none")}</span>
 					)}
 				</Button>
 

@@ -61,7 +61,7 @@ export function AvailableMicrophonesList({
 			    Tailwind's divide-y and the rounded/border classes apply
 			    identically to <ul>/<li> as they did to the previous
 			    <div>/<div>. */}
-			<ul className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
+			<ul className="rounded-lg border border-border/10 bg-(--bg-subtle) divide-y divide-border/10">
 				{/*(Fix 1): "Use System Default" button — the only
 				    way (other than refreshing and hoping) to revert
 				    from a named microphone back to the OS default.

@@ -41,8 +41,9 @@ interface ModalProps {
 	description?: string;
 	/** Content children — typically the message body + ModalFooter */
 	children: React.ReactNode;
-	/** Optional size override */
-	size?: "default" | "sm";
+	/** Optional size override — `lg` is a roomier panel (max-w-xl on
+	 * desktop) for content-heavy overlays like the help reference. */
+	size?: "default" | "sm" | "lg";
 	/** Optional class name for the content panel */
 	className?: string;
 }

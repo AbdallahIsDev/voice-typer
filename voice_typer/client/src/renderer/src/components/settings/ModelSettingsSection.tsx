@@ -270,7 +270,7 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 					</SettingRow>
 
 					{config.llm_polish && (
-						<div className="animate-fade-in space-y-0 divide-y divide-border">
+						<div className="animate-fade-in space-y-0 divide-y divide-border/10">
 							<SettingRow
 								label={t("settings.apiKey")}
 								info={t("settings.apiKeyInfo")}

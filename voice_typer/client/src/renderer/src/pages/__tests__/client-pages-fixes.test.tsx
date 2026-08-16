@@ -221,7 +221,7 @@ describe("S2-CR-39: Onboarding mic auto-select prefers default-flagged device", 
 					case "get_config":
 						return Promise.resolve({
 							hotkey: "<caps_lock>",
-							model_size: "small.en",
+							model_size: "tiny",
 							microphone: "",
 						});
 					case "onboarding_get_microphones":
@@ -243,7 +243,7 @@ describe("S2-CR-39: Onboarding mic auto-select prefers default-flagged device", 
 						return Promise.resolve({
 							models: [
 								{
-									name: "small.en",
+									name: "tiny",
 									size: "~466MB",
 									speed: "Fast",
 									description: "Small",
@@ -294,7 +294,7 @@ describe("S2-CR-39: Onboarding mic auto-select prefers default-flagged device", 
 				case "get_config":
 					return Promise.resolve({
 						hotkey: "<caps_lock>",
-						model_size: "small.en",
+						model_size: "tiny",
 						microphone: "",
 					});
 				case "onboarding_get_microphones":
@@ -316,7 +316,7 @@ describe("S2-CR-39: Onboarding mic auto-select prefers default-flagged device", 
 					return Promise.resolve({
 						models: [
 							{
-								name: "small.en",
+								name: "tiny",
 								size: "~466MB",
 								speed: "Fast",
 								description: "Small",
@@ -442,14 +442,17 @@ describe("EC-12: Home.tsx extraction (subcomponents moved to ./home/)", () => {
 	it("Home.tsx imports the extracted subcomponents from ./home/", async () => {
 		const fs = await import("node:fs");
 		const src = fs.readFileSync("src/renderer/src/pages/Home.tsx", "utf8");
-		// Each extracted piece must be imported (not inlined).
+		// Each extracted piece still used by Home must be imported (not
+		// inlined). RecordingErrorCard is no longer mounted by Home
+		// (errors now live in the single dynamic status line below the
+		// mic button), so its import is gone by design; the status pill
+		// is back and imported from ./home/components.
 		expect(src).toContain("./home/lib/cache");
 		expect(src).toContain("./home/lib/constants");
 		expect(src).toContain("./home/lib/status");
-		expect(src).toContain("./home/components/RecordingStatusPill");
 		expect(src).toContain("./home/components/MicToggleButton");
+		expect(src).toContain("./home/components/RecordingStatusPill");
 		expect(src).toContain("./home/components/LastTranscriptionPreview");
-		expect(src).toContain("./home/components/RecordingErrorCard");
 		expect(src).toContain("./home/hooks/useFirstRecordingCelebration");
 	});
 

@@ -49,63 +49,66 @@ import type {
 } from "@/types/config";
 
 describe("XZ-CFG-06: TS ModelSize union mirrors Python ALLOWED_USER_MODELS", () => {
-	it("includes all 8 Python-allowed values (tiny.en, small.en, medium.en, tiny, small, medium, qwen, parakeet)", () => {
-		//extended the Python allowlist to include the
-		// multilingual Whisper variants (tiny/small/medium, no `.en`
-		// suffix) that OnboardingController offers to non-English
-		// users, but the TS union was previously stuck at 5 values.
-		// The parity test previously asserted `toHaveLength(5)`,
-		// codifying the bug. Now asserts `toHaveLength(8)` to match
-		// Python `ALLOWED_USER_MODELS` in
-		// `voice_typer/server/config_validators.py:44-55`.
+	it("includes the empty-string no-model sentinel plus all Python-allowed model values", () => {
+		// 2026-08-15: the Whisper catalog was pruned to the
+		// multilingual variants the user kept (tiny + large-v3-turbo)
+		// and `large-v3` was restored at the user's request the same
+		// day; the `.en`-suffixed, small/medium, and other large
+		// sizes were removed. The `""` member is the genuine "no
+		// model selected" state — the backend's `NO_MODEL_SIZE`
+		// sentinel, accepted by `ALLOWED_USER_MODELS`-derived
+		// validation. Python `ALLOWED_USER_MODELS` in
+		// `voice_typer/server/config_validators.py` now allows exactly
+		// these 5 model values plus the empty sentinel, and this union
+		// mirrors it.
 		//
 		// Compile-time guard: each value must be assignable to `ModelSize`.
 		// If a future contributor removes one from the TS union, the
 		// corresponding assignment fails to compile.
 		const values: ModelSize[] = [
-			"tiny.en",
-			"small.en",
-			"medium.en",
+			"",
 			"tiny",
-			"small",
-			"medium",
+			"large-v3",
+			"large-v3-turbo",
 			"qwen",
 			"parakeet",
 		];
-		expect(values).toHaveLength(8);
+		expect(values).toHaveLength(6);
 	});
 
-	it("FR-4: includes the multilingual 'small' variant (positive conditional-type guard)", () => {
-		//positive compile-time guard that the multilingual
+	it("FR-4: includes the multilingual 'tiny' variant (positive conditional-type guard)", () => {
+		// positive compile-time guard that the multilingual
 		// Whisper variants are present in the TS union. The conditional
-		// resolves to `true` while "small" is in `ModelSize`; if a
+		// resolves to `true` while "tiny" is in `ModelSize`; if a
 		// future contributor removes it, the `true` assignment fails
 		// to compile.
-		type HasMultilingualSmall = "small" extends ModelSize ? true : false;
-		const _g: HasMultilingualSmall = true;
+		type HasMultilingualTiny = "tiny" extends ModelSize ? true : false;
+		const _g: HasMultilingualTiny = true;
 		expect(_g).toBe(true);
 	});
 
-	it("FR-4: includes the multilingual 'tiny' and 'medium' variants (positive conditional-type guards)", () => {
-		//additional positive compile-time guards covering the
-		//other two multilingual variants added by  Same
-		// pattern as the 'small' guard above.
-		type HasMultilingualTiny = "tiny" extends ModelSize ? true : false;
+	it("pruned: removed the multilingual 'small' and 'medium' variants (negative conditional-type guards)", () => {
+		// negative compile-time guards: the pruned sizes must NOT be
+		// assignable to `ModelSize`. The conditional resolves to
+		// `false` while the union excludes them; if a future
+		// contributor re-adds one, the `false` assignment fails to
+		// compile.
+		type HasMultilingualSmall = "small" extends ModelSize ? true : false;
 		type HasMultilingualMedium = "medium" extends ModelSize ? true : false;
-		const _tiny: HasMultilingualTiny = true;
-		const _medium: HasMultilingualMedium = true;
-		expect(_tiny).toBe(true);
-		expect(_medium).toBe(true);
+		const _small: HasMultilingualSmall = false;
+		const _medium: HasMultilingualMedium = false;
+		expect(_small).toBe(false);
+		expect(_medium).toBe(false);
 	});
 
-	it("does NOT include the legacy 'large-v3' value (intentionally excluded by Python — see config_validators.py:39-42 comment)", () => {
-		// Compile-time guard: "large-v3" must NOT be assignable to
-		// `ModelSize`. The conditional resolves to `false` while the
-		// union excludes "large-v3"; if a contributor re-adds it, the
-		// `false` assignment fails to compile.
+	it("includes 'large-v3' (restored to the catalog 2026-08-15 at the user's request)", () => {
+		// Compile-time guard: "large-v3" must be assignable to
+		// `ModelSize`. The conditional resolves to `true` while the
+		// union includes "large-v3"; if a future contributor removes
+		// it, the `true` assignment fails to compile.
 		type HasLargeV3 = "large-v3" extends ModelSize ? true : false;
-		const _guard: HasLargeV3 = false;
-		expect(_guard).toBe(false);
+		const _guard: HasLargeV3 = true;
+		expect(_guard).toBe(true);
 	});
 });
 
@@ -273,7 +276,7 @@ describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds 
 			hotkey: "F2",
 			sample_rate: 16000,
 			microphone: null,
-			model_size: "small.en",
+			model_size: "tiny",
 			language: "en",
 			device: "cpu",
 			beam_size: 5,

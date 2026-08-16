@@ -417,7 +417,7 @@ export class ErrorBoundary extends Component<
 					<p className="max-w-2xl text-sm text-(--text-muted)">
 						{t("errorBoundary.configCrashHint")}
 					</p>
-					<pre className="max-w-2xl overflow-auto rounded-lg border border-border bg-(--bg-subtle) p-4 text-left text-xs text-(--text-muted)">
+					<pre className="max-w-2xl overflow-auto rounded-lg border border-border/10 bg-(--bg-subtle) p-4 text-left text-xs text-(--text-muted)">
 						{errorMessage}
 					</pre>
 					{/* sr-only hint wired to the Reset settings button via

@@ -195,6 +195,7 @@ export const MAIN_KEYS = [
 	"dialog.selectModelFolder.title",
 	"dialog.export.config",
 	"dialog.export.history",
+	"dialog.export.statsImage",
 	"dialog.export.templates",
 	"dialog.export.vocabulary",
 	"dialog.preloadError.body",

@@ -385,7 +385,7 @@ export default function HistoryPage() {
 						<SelectTrigger
 							size="sm"
 							aria-label={t("common.sortAria")}
-							className="gap-2 h-8 rounded-lg border-border px-3 text-xs text-(--text-muted) hover:text-(--text-primary)"
+							className="gap-2 h-8 rounded-lg border-border/10 px-3 text-xs text-(--text-muted) hover:text-(--text-primary)"
 						>
 							<SelectValue />
 						</SelectTrigger>

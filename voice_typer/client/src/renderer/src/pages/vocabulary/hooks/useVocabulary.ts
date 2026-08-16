@@ -8,9 +8,8 @@
 // - ``persistVocabulary`` (strips client-side ``_id``, rebuilds the
 // category-bucketed VocabularyData, calls ``save_vocabulary``)
 // - mount-time effect that calls ``loadVocabulary`` once
-// - ``searchQuery`` / ``sortOrder`` / ``categoryFilter`` state +
-// ``filteredSorted`` memo (client-side search+filter+sort — mirrors
-// the History/Templates pattern)
+// - ``searchQuery`` / ``sortOrder`` state + ``filteredSorted`` memo
+// (client-side search+sort — mirrors the History/Templates pattern)
 //``instantDeleteEntry`` ( instant delete + 6-second
 // Undo toast — see D2-FIX comment for the ref-based pattern)
 //
@@ -26,6 +25,7 @@ import { t } from "@/i18n/i18n";
 import type { VocabularyData, VocabularyEntry } from "@/types/ipc";
 import { sortEntries, type VocabSortOrder } from "../lib/sort";
 import {
+	dedupeEntries,
 	flattenEntries,
 	rebuildData,
 	type VocabRow,
@@ -57,8 +57,6 @@ interface UseVocabularyResult {
 	setSearchQuery: (q: string) => void;
 	sortOrder: VocabSortOrder;
 	setSortOrder: (o: VocabSortOrder) => void;
-	categoryFilter: string;
-	setCategoryFilter: (c: string) => void;
 	filteredSorted: VocabRow[];
 }
 
@@ -75,7 +73,6 @@ export function useVocabulary({
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [sortOrder, setSortOrder] = useState<VocabSortOrder>("newest");
-	const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
 	// D2-FIX (b-review Finding 4): ref mirror of `entries` so the
 	// `instantDeleteEntry` undo callback can read the LATEST list at
@@ -102,6 +99,17 @@ export function useVocabulary({
 		entriesRef.current = entries;
 	}, [entries]);
 
+	// Ref mirror of `showSnack` so `loadVocabulary` keeps a STABLE
+	// identity ([call] deps). `showSnack` from useSnackbar is stable in
+	// the real app, but tests mock it with a fresh function per render —
+	// a dependency on it would re-create loadVocabulary every render and
+	// re-trigger the mount-time load effect in an endless loop (spinner
+	// forever). Same pattern as the page's categoryLabelsRef.
+	const showSnackRef = useRef(showSnack);
+	useEffect(() => {
+		showSnackRef.current = showSnack;
+	}, [showSnack]);
+
 	const loadVocabulary = useCallback(async () => {
 		setLoading(true);
 		// Clear any prior load error before retrying so the EmptyState
@@ -110,7 +118,22 @@ export function useVocabulary({
 		setLoadError(null);
 		try {
 			const data = await call<VocabularyData>("get_vocabulary");
-			setEntries(withEntryIds(flattenEntries(data ?? {})));
+			const flat = flattenEntries(data ?? {});
+			// Merge exact duplicates (same original+correction+category)
+			// on load — the add dialog blocks new ones and import
+			// de-dupes, but legacy files / hand-edited JSON can still
+			// contain exact repeats. Keep the first occurrence and tell
+			// the user; the next save persists the merged list.
+			const { entries: unique, mergedCount } = dedupeEntries(flat);
+			setEntries(withEntryIds(unique));
+			if (mergedCount > 0) {
+				showSnackRef.current(
+					t("vocabulary.mergedDuplicates", {
+						count: String(mergedCount),
+					}),
+					"info",
+				);
+			}
 		} catch (err) {
 			console.error("[renderer:useVocabulary] Failed to load vocabulary:", err);
 			setEntries([]);
@@ -263,12 +286,8 @@ export function useVocabulary({
 						e.correction.toLowerCase().includes(q),
 				)
 			: entries;
-		const byCategory =
-			categoryFilter === "all"
-				? bySearch
-				: bySearch.filter((e) => e.category === categoryFilter);
-		return sortEntries(byCategory, sortOrder);
-	}, [entries, searchQuery, categoryFilter, sortOrder]);
+		return sortEntries(bySearch, sortOrder);
+	}, [entries, searchQuery, sortOrder]);
 
 	return {
 		entries,
@@ -284,8 +303,6 @@ export function useVocabulary({
 		setSearchQuery,
 		sortOrder,
 		setSortOrder,
-		categoryFilter,
-		setCategoryFilter,
 		filteredSorted,
 	};
 }

@@ -8,14 +8,18 @@
  * overflowed with no scroll, clipping the lower shortcut entries and
  * the "press Esc to close" hint.
  *
- * Fix: add `max-h-[85vh] overflow-y-auto` to the Modal className so
- * the body scrolls when it exceeds 85% of the viewport height.
+ * Fix: the Modal caps at `max-h-[85vh]` and the panel itself is
+ * `overflow-hidden` so the inner scroll wrapper clips to the rounded
+ * shape; the body scrolls in that wrapper when content exceeds 85%
+ * of the viewport height.
  *
- * Separately: PunctuationCheatSheetButton (the affordance that opens
- * the cheat sheet on its own) had ZERO production callers. The fix
- * mounts it at the top of the HelpOverlay body so the spoken-form
- * reference is one click away without scrolling past the full
- * shortcut list.
+ * The overlay previously mounted PunctuationCheatSheetButton (a
+ * second `?` that opened its OWN cheat-sheet popup) at the top of
+ * the body while ALSO rendering the full PunctuationCheatSheet at
+ * the bottom — two cheat sheets from one help overlay. The button
+ * is removed: the only help affordance is the title-bar `?` which
+ * opens exactly this overlay, and the cheat sheet section renders
+ * once at the bottom.
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -74,26 +78,32 @@ describe("HelpOverlay — ZU-26 (scroll container + PunctuationCheatSheetButton 
 		repasteLabel: "Ctrl+Shift+V",
 	};
 
-	it("ZU-26: Modal className includes max-h-[85vh] overflow-y-auto (scroll container for small viewports)", () => {
+	it("ZU-26: Modal className caps at max-h-[85vh] and clips (overflow-hidden) instead of scrolling internally", () => {
 		render(<HelpOverlay {...baseProps} />);
 		const modal = screen.getByTestId("modal-stub");
 		const cls = modal.getAttribute("data-classname") ?? "";
-		// The fixed 28rem width is preserved...
-		expect(cls).toContain("w-110");
-		// ...and the scroll-container fix is applied so the body
-		// scrolls when content exceeds 85% of the viewport height.
+		// The scroll-container fix caps the panel at 85vh. The panel
+		// itself must NOT scroll (overflow-y-auto on the rounded panel
+		// lets Windows classic scrollbars escape the corner radius) —
+		// it clips instead, and the body scrolls in the inner wrapper.
 		expect(cls).toContain("max-h-[85vh]");
-		expect(cls).toContain("overflow-y-auto");
+		expect(cls).toContain("overflow-hidden");
 	});
 
-	it("ZU-26: mounts a PunctuationCheatSheetButton at the top of the overlay body (quick-access affordance)", () => {
+	it("ZU-26: body scrolls inside the inner wrapper (min-h-0 overflow-y-auto)", () => {
 		render(<HelpOverlay {...baseProps} />);
-		// The PunctuationCheatSheetButton exposes a stable testid
-		// (see components/help/PunctuationCheatSheet.tsx).
-		const cheatSheetButton = screen.getByTestId(
-			"punctuation-cheat-sheet-button",
-		);
-		expect(cheatSheetButton).toBeInTheDocument();
+		const scroll = screen.getByTestId("help-overlay-scroll");
+		const cls = scroll.className ?? "";
+		expect(cls).toContain("overflow-y-auto");
+		expect(cls).toContain("min-h-0");
+	});
+
+	it("no longer mounts a second PunctuationCheatSheetButton (single `?` = title bar only)", () => {
+		render(<HelpOverlay {...baseProps} />);
+		// The duplicate `?` affordance that opened its own cheat-sheet
+		// popup is gone — the overlay renders the cheat sheet section
+		// once at the bottom instead.
+		expect(screen.queryByTestId("punctuation-cheat-sheet-button")).toBeNull();
 	});
 
 	it("ZU-26: still renders the shortcut list + PunctuationCheatSheet body (no regressions)", () => {

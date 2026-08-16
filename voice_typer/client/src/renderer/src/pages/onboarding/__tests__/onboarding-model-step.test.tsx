@@ -25,6 +25,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -117,16 +118,22 @@ const STEP_NAMES = [
 
 const MODEL_OPTIONS = [
 	{
-		name: "small.en",
+		name: "tiny",
 		size: "~466MB",
 		speed: "Fast",
 		description: "Small",
 	},
 	{
-		name: "medium.en",
+		name: "large-v3-turbo",
 		size: "~1.5GB",
 		speed: "Slow",
 		description: "Medium",
+	},
+	{
+		name: "parakeet",
+		size: "~1.2GB",
+		speed: "Fast",
+		description: "NVIDIA Parakeet",
 	},
 ];
 
@@ -155,7 +162,7 @@ function mockStartAtStep(stepIndex: number, cfg: Record<string, unknown> = {}) {
 			case "get_config":
 				return Promise.resolve({
 					hotkey: "<caps_lock>",
-					model_size: "small.en",
+					model_size: "tiny",
 					microphone: "",
 					huggingface_consent: false,
 					cloud_openai_consent: false,
@@ -276,7 +283,7 @@ describe("Onboarding Model step — explicit backend choice, no auto-download", 
 		const downloadArgs = mockCall.mock.calls.find(
 			(c: unknown[]) => c[0] === "download_model",
 		);
-		expect(downloadArgs?.[1]).toEqual({ model: "small.en" });
+		expect(downloadArgs?.[1]).toEqual({ model: "tiny" });
 	});
 
 	it("download_progress push events update the in-wizard progress bar", async () => {
@@ -307,6 +314,41 @@ describe("Onboarding Model step — explicit backend choice, no auto-download", 
 			const bar = screen.getByTestId("onboarding-download-progress");
 			expect(bar.getAttribute("aria-valuenow")).toBe("42");
 			expect(bar.textContent).toContain("42%");
+		});
+	});
+
+	it("shows a family-brand strip above the local model picker (and hides it in the cloud branch)", async () => {
+		mockStartAtStep(4);
+		render(<OnboardingPage onComplete={() => {}} />);
+
+		// The strip appears in the Local branch, listing the brands of
+		// the offered families (Whisper → OpenAI, Parakeet → NVIDIA).
+		await waitFor(() => {
+			expect(screen.getByTestId("onboarding-family-strip")).toBeTruthy();
+		});
+		const strip = screen.getByTestId("onboarding-family-strip");
+
+		// Vitest inlines the SVGs as data URIs — assert on each file's
+		// unique content (same convention as the FamilyLogo tests).
+		const srcs = Array.from(strip.querySelectorAll("img")).map(
+			(i) => i.getAttribute("src") ?? "",
+		);
+		expect(srcs.some((s) => s.includes("OpenAI%20icon"))).toBe(true);
+		expect(srcs.some((s) => s.includes("Nvidia%20icon"))).toBe(true);
+		// No Qwen logo — qwen is not offered in the onboarding catalog.
+		expect(srcs.some((s) => s.includes("Qwen%20icon"))).toBe(false);
+
+		// Brand names + the localized strip label render next to the
+		// logos (the label resolves to "Powered by" in en).
+		expect(within(strip).getByText("Whisper")).toBeTruthy();
+		expect(within(strip).getByText("Nvidia")).toBeTruthy();
+		expect(within(strip).getByText("Powered by")).toBeTruthy();
+
+		// The strip is a local-model affordance — switching to Cloud
+		// removes it.
+		fireEvent.click(screen.getByTestId("onboarding-backend-cloud"));
+		await waitFor(() => {
+			expect(screen.queryByTestId("onboarding-family-strip")).toBeNull();
 		});
 	});
 
@@ -390,6 +432,6 @@ describe("Onboarding Model step — explicit backend choice, no auto-download", 
 		).toBeNull();
 		// The summary includes the backend choice.
 		expect(screen.getByText("Local model")).toBeTruthy();
-		expect(screen.getByText("small.en")).toBeTruthy();
+		expect(screen.getByText("tiny")).toBeTruthy();
 	});
 });

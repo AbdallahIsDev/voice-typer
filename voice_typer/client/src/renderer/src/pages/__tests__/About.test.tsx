@@ -16,7 +16,14 @@
  *   - Negative test: Cache Status section is gone from About (no "Run Prewarm Now" button)
  *   - Negative test: Updates section is gone from About (no "Check for Updates" button)
  */
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Hoist the mock call handler so it's available inside vi.mock factories.
@@ -43,11 +50,14 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 	return createHugeiconsMock();
 });
 
-// sonner is imported by About.tsx for toast notifications.
+// sonner is imported by About.tsx for toast notifications. Capture
+// the calls so tests can assert on the "Copied!" confirmation toast.
+const toastSuccess = vi.fn();
+const toastError = vi.fn();
 vi.mock("sonner", () => ({
 	toast: {
-		success: vi.fn(),
-		error: vi.fn(),
+		success: (...args: unknown[]) => toastSuccess(...args),
+		error: (...args: unknown[]) => toastError(...args),
 		warning: vi.fn(),
 		info: vi.fn(),
 		dismiss: vi.fn(),
@@ -158,7 +168,7 @@ describe("About page — slimmed-down sections (UX-20 / SET-5)", () => {
 			if (type === "get_config") {
 				return Promise.resolve({
 					asr_backend: "whisper",
-					model_size: "tiny.en",
+					model_size: "large-v3-turbo",
 					device: "cpu",
 					hotkey: "F2",
 					microphone: null,
@@ -178,14 +188,16 @@ describe("About page — slimmed-down sections (UX-20 / SET-5)", () => {
 
 		// Diagnostics section heading (i18n key about.diagnosticsTitle).
 		await waitFor(() => {
-			expect(screen.getByText("Diagnostics")).toBeTruthy();
+			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
 		});
 
 		// Privacy section heading.
-		expect(screen.getByText("Privacy")).toBeTruthy();
+		expect(screen.getByRole("heading", { name: "Privacy" })).toBeTruthy();
 
 		// Resources section heading.
-		expect(screen.getByText("Resources & Feedback")).toBeTruthy();
+		expect(
+			screen.getByRole("heading", { name: "Resources & Feedback" }),
+		).toBeTruthy();
 	});
 
 	it("does NOT render the Help section (removed — duplicates `?` overlay)", async () => {
@@ -193,7 +205,7 @@ describe("About page — slimmed-down sections (UX-20 / SET-5)", () => {
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Diagnostics")).toBeTruthy();
+			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
 		});
 
 		// The Help section previously rendered a "Start / Stop dictation"
@@ -209,7 +221,7 @@ describe("About page — slimmed-down sections (UX-20 / SET-5)", () => {
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Diagnostics")).toBeTruthy();
+			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
 		});
 
 		// The Cache Status card previously had a "Run Prewarm Now"
@@ -224,7 +236,7 @@ describe("About page — slimmed-down sections (UX-20 / SET-5)", () => {
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Diagnostics")).toBeTruthy();
+			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
 		});
 
 		// The Updates section previously had a "Check for Updates"
@@ -238,7 +250,7 @@ describe("About page — slimmed-down sections (UX-20 / SET-5)", () => {
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Diagnostics")).toBeTruthy();
+			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
 		});
 
 		// The slimmed-down About page no longer fetches prewarm status —
@@ -247,5 +259,138 @@ describe("About page — slimmed-down sections (UX-20 / SET-5)", () => {
 			(args: unknown[]) => args[0] === "get_prewarm_status",
 		);
 		expect(prewarmCalls.length).toBe(0);
+	});
+});
+
+// ─── Config directory + copy diagnostics + layout ──────────────────────
+
+describe("About page — config dir, copy diagnostics, privacy cards, section nav", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		toastSuccess.mockClear();
+		toastError.mockClear();
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_status") {
+				return Promise.resolve({
+					status: "idle",
+					config_dir: "/tmp/voice-typer",
+					loaded_via: "cpu/int8/tiny.en",
+				});
+			}
+			if (type === "get_config") {
+				return Promise.resolve({
+					asr_backend: "whisper",
+					model_size: "tiny",
+					device: "cpu",
+					hotkey: "F2",
+					microphone: null,
+				});
+			}
+			return Promise.resolve({});
+		});
+	});
+
+	afterEach(() => {
+		cleanup();
+		// Restore a real clipboard for other suites.
+		// @ts-expect-error delete restores the jsdom default
+		delete navigator.clipboard;
+	});
+
+	it("resolves the Config Directory row to the path from get_status (no permanent Loading…)", async () => {
+		const { default: AboutPage } = await import("@/pages/About");
+		render(<AboutPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("/tmp/voice-typer")).toBeTruthy();
+		});
+		// The row resolves — no "Loading…" placeholder remains.
+		expect(screen.queryByText("Loading…")).toBeNull();
+	});
+
+	it("renders the Loaded Via row with a live status dot when get_status reports it", async () => {
+		const { default: AboutPage } = await import("@/pages/About");
+		render(<AboutPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("cpu/int8/tiny.en")).toBeTruthy();
+		});
+		expect(screen.getByText("Loaded Via")).toBeTruthy();
+		// The hint explains what the field means (point 2 of the
+		// simplification request).
+		expect(screen.getByText(/How the speech model was loaded/)).toBeTruthy();
+	});
+
+	it("copies formatted diagnostics to the clipboard and confirms with a toast", async () => {
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, "clipboard", {
+			value: { writeText },
+			configurable: true,
+		});
+
+		const { default: AboutPage } = await import("@/pages/About");
+		render(<AboutPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("/tmp/voice-typer")).toBeTruthy();
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Copy diagnostics" }));
+
+		await waitFor(() => {
+			expect(writeText).toHaveBeenCalledTimes(1);
+		});
+		const text = writeText.mock.calls[0]?.[0] as string;
+		// The copied block contains the labeled diagnostic fields.
+		expect(text).toContain("App Version: v");
+		expect(text).toContain("Python Backend: Connected");
+		expect(text).toContain("Config Directory: /tmp/voice-typer");
+		expect(text).toContain("Speech recognizer: whisper (tiny)");
+		expect(text).toContain("Device: cpu");
+		expect(text).toContain("Loaded Via: cpu/int8/tiny.en");
+		expect(text).toContain("Hotkey: F2");
+
+		// Confirmation toast.
+		expect(toastSuccess).toHaveBeenCalledWith("Copied!", expect.anything());
+	});
+
+	it("renders the five privacy topic cards with their existing copy", async () => {
+		const { default: AboutPage } = await import("@/pages/About");
+		render(<AboutPage />);
+
+		await waitFor(() => {
+			expect(screen.getByRole("heading", { name: "Privacy" })).toBeTruthy();
+		});
+
+		// Five topic blocks — titles + unchanged descriptions.
+		expect(screen.getByText("Audio processing.")).toBeTruthy();
+		expect(screen.getByText("Model weights.")).toBeTruthy();
+		expect(screen.getByText("Cloud speech recognition.")).toBeTruthy();
+		expect(screen.getByText("Voice biometrics.")).toBeTruthy();
+		expect(screen.getByText("Local data.")).toBeTruthy();
+		expect(screen.getByText(/processes all audio locally/)).toBeTruthy();
+		expect(screen.getByText(/downloaded from HuggingFace/)).toBeTruthy();
+	});
+
+	it("renders the sticky in-page section nav with anchors for all five sections", async () => {
+		const { default: AboutPage } = await import("@/pages/About");
+		render(<AboutPage />);
+
+		await waitFor(() => {
+			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
+		});
+
+		const nav = screen.getByRole("navigation", {
+			name: "About page sections",
+		});
+		for (const label of [
+			"About",
+			"Diagnostics",
+			"Privacy",
+			"Resources & Feedback",
+			"Credits & Licenses",
+		]) {
+			expect(within(nav).getByText(label)).toBeTruthy();
+		}
 	});
 });

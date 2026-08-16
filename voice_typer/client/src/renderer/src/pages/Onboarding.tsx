@@ -254,11 +254,11 @@ export default function OnboardingPage({
 	const showDefaultHotkeyHint = step.step_name === "Hotkey" && hotkeyIsDefault;
 	const defaultHotkeyLabel = HOTKEY_DEFAULT.replace(/[<>]/g, "").toUpperCase();
 	//mirror the hotkey hint pattern for the Model step.
-	// The wizard pre-selects "small.en" (MODEL_DEFAULT) so the user
-	// can click Continue without touching the Select — but without
-	// a hint, it's not obvious they're accepting a default rather
-	// than an explicit choice. The hint is suppressed once the user
-	// picks a different model.
+	// The wizard pre-selects MODEL_DEFAULT (currently "tiny") so the
+	// user can click Continue without touching the Select — but
+	// without a hint, it's not obvious they're accepting a default
+	// rather than an explicit choice. The hint is suppressed once the
+	// user picks a different model.
 	const showDefaultModelHint =
 		step.step_name === "Model" && selectedModel === MODEL_DEFAULT;
 	//mirror the hint pattern for the Microphone step.
@@ -341,7 +341,7 @@ export default function OnboardingPage({
 				: {t(srTitleKey)}
 			</div>
 
-			<div className="w-full rounded-xl border border-border bg-(--bg) p-8">
+			<div className="w-full rounded-xl border border-border/10 bg-(--bg) p-8">
 				{step.step_name === "Welcome" && (
 					<WelcomeStep headingRef={headingRef} />
 				)}
@@ -428,7 +428,7 @@ export default function OnboardingPage({
 					automatically). */}
 				{isDoneStep && (
 					<div
-						className="mt-6 rounded-lg border border-border bg-(--bg-subtle) p-4"
+						className="mt-6 rounded-lg border border-border/10 bg-(--bg-subtle) p-4"
 						data-testid="onboarding-consent-section"
 					>
 						<label className="flex items-start gap-3 text-sm">
@@ -487,10 +487,10 @@ export default function OnboardingPage({
 						)}
 						{/*mirror the hotkey hint for the
 							Model step. The wizard pre-selects
-							"small.en" (MODEL_DEFAULT); this hint makes
-							that pre-selection visible so the user
-							knows they're accepting the recommended
-							default rather than explicitly choosing. */}
+							MODEL_DEFAULT ("tiny"); this hint makes that
+							pre-selection visible so the user knows
+							they're accepting the recommended default
+							rather than explicitly choosing. */}
 						{showDefaultModelHint && (
 							<span
 								className="text-xs text-(--text-muted)"

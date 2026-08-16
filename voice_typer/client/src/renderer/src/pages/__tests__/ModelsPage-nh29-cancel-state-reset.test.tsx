@@ -113,7 +113,7 @@ function t(key: string): string {
 
 const MOCK_CONFIG = {
 	asr_backend: "whisper",
-	model_size: "small.en",
+	model_size: "tiny",
 	huggingface_consent: true,
 	openai_api_key: "",
 	groq_api_key: "",
@@ -152,7 +152,7 @@ describe("ModelsPage — NH-29 cancel-download state reset", () => {
 		//    (tiny.en is not active — small.en is — and not downloaded).
 		await renderPage();
 		const downloadButton = screen.getByRole("button", {
-			name: t("models.card.downloadAria").replace("{name}", "tiny.en"),
+			name: t("models.card.downloadAria").replace("{name}", "large-v3-turbo"),
 		});
 
 		// 2. Start a download on tiny.en. download_model never resolves
@@ -215,7 +215,7 @@ describe("ModelsPage — NH-29 cancel-download state reset", () => {
 		// not stuck looking at a half-finished progress bar.
 		await renderPage();
 		const downloadButton = screen.getByRole("button", {
-			name: t("models.card.downloadAria").replace("{name}", "tiny.en"),
+			name: t("models.card.downloadAria").replace("{name}", "large-v3-turbo"),
 		});
 
 		mockCall.mockImplementation((type: string) => {

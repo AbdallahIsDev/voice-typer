@@ -81,6 +81,41 @@ export function rebuildData(entries: VocabularyEntry[]): VocabularyData {
 }
 
 /**
+ * Deduplicate entries with the same (original, correction) pair,
+ * regardless of category. The add path blocks new duplicates and
+ * import de-dupes on the way in, but legacy files / hand-edited JSON
+ * can still contain repeats — collapse them on load (keeping the first
+ * occurrence, and therefore its bucket) so the flat two-column UI
+ * never renders visually-identical rows.
+ *
+ * DATA NOTE: the dedupe key changed from (original, correction,
+ * category) to (original, correction) when categories were hidden from
+ * the UI — an identical wrong→correct pair stored in two backend
+ * buckets is indistinguishable to the user, so one copy is collapsed.
+ * The correction itself is never lost; only the redundant bucket copy.
+ * Returns the deduped list + the number of collapsed rows (so the page
+ * can surface a "merged N duplicates" toast).
+ */
+export function dedupeEntries(entries: VocabularyEntry[]): {
+	entries: VocabularyEntry[];
+	mergedCount: number;
+} {
+	const seen = new Set<string>();
+	const unique: VocabularyEntry[] = [];
+	let mergedCount = 0;
+	for (const e of entries) {
+		const key = `${e.original}\u0000${e.correction}`;
+		if (seen.has(key)) {
+			mergedCount++;
+			continue;
+		}
+		seen.add(key);
+		unique.push(e);
+	}
+	return { entries: unique, mergedCount };
+}
+
+/**
  * Generate a stable UUID for a vocabulary row.  Used as the React key
  * instead of ``${original}-${category}`` (the previous key) which
  * collided when the user added the same trigger word to two different
@@ -89,6 +124,44 @@ export function rebuildData(entries: VocabularyEntry[]): VocabularyData {
  * pseudo-ID when ``crypto.randomUUID`` is unavailable (sandboxed
  * tests).
  */
+/**
+ * Normalize a wrong phrase the way the correction matcher keys
+ * lookups: collapse internal whitespace runs to a single space, trim
+ * leading/trailing whitespace, and lowercase. Mirrors the backend's
+ * ``_normalize_wrong_phrase`` (``server/service/vocabulary.py``) so
+ * the frontend pre-check and the duplicate banner agree with the
+ * authoritative server-side check. Casefolding differences beyond
+ * ``toLowerCase`` (e.g. ``ß``) are intentionally ignored client-side
+ * — the server wins on any divergence.
+ */
+export function normalizeWrongPhrase(phrase: string): string {
+	return phrase.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/**
+ * Group entries by normalized wrong phrase. Returns only the groups
+ * that contain ≥2 entries (i.e. duplicates the flat two-column UI
+ * would render as near-identical rows) — the source for the
+ * "N duplicate corrections found" banner.
+ */
+export function findDuplicateGroups(
+	entries: ReadonlyArray<Pick<VocabRow, "original" | "correction">>,
+): Array<{ phrase: string; entries: Array<VocabRow> }> {
+	const groups = new Map<string, VocabRow[]>();
+	for (const e of entries) {
+		const key = normalizeWrongPhrase(e.original);
+		const list = groups.get(key);
+		if (list) {
+			list.push(e as VocabRow);
+		} else {
+			groups.set(key, [e as VocabRow]);
+		}
+	}
+	return Array.from(groups.entries())
+		.filter(([, list]) => list.length >= 2)
+		.map(([phrase, list]) => ({ phrase, entries: list }));
+}
+
 export function makeEntryId(): string {
 	try {
 		if (

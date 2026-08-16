@@ -275,7 +275,7 @@ function SidebarInner({
 										// ATs — a decorative hr shouldn't be announced.
 										aria-hidden
 										className={cn(
-											"my-1 border-0 border-t border-border",
+											"my-1 border-0 border-t border-border/10",
 											collapsed ? "mx-2" : "mx-3",
 										)}
 									/>
@@ -329,25 +329,23 @@ function SidebarInner({
 												className={cn(
 													"w-full justify-start gap-3 text-sm tracking-wide normal-case font-normal rounded-md",
 													"transition-all duration-200 ease-out",
-													//task-6: a 2px left border is
-													// always present (transparent when
-													// inactive, accent when active) so
-													// activating an item doesn't cause a
-													// layout shift.
+													//task-6: a 2px inline-start border is
+													// always present and transparent (both
+													// active and inactive) so activating an
+													// item doesn't cause a layout shift. No
+													// accent bar is drawn on the active item
+													// (the old before:bg-accent dash was
+													// removed — see UX report).
 													"border-s-2",
 													collapsed ? "px-2" : "px-3",
 													isActive
 														? cn(
-																// task-5: soft accent background
-																// (replaces the old solid --bg)
-																// for a less heavy active state.
-																"border-s-transparent bg-(--accent-soft) hover:bg-(--accent-soft)",
+																// Active item blends with the page
+																// content area: same background as the
+																// page window (--bg), no accent tint and
+																// no accent icon colour.
+																"border-s-transparent bg-(--bg) hover:bg-(--bg)",
 																"text-(--text-primary) font-medium",
-																//use the logical
-																// `start-0` (not physical `left-0`)
-																// so the accent bar flips to the
-																// right edge in RTL locales.
-																"relative before:absolute before:inset-s-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-0.5 before:rounded-full before:bg-accent",
 															)
 														: cn(
 																"border-s-transparent",
@@ -363,13 +361,12 @@ function SidebarInner({
 												<HugeiconsIcon
 													icon={item.icon}
 													strokeWidth={2}
-													// Active item's icon gets the accent tint so the
-													// highlighted state reads at a glance even in
-													// collapsed mode (icon-only); inactive icons inherit
-													// the button's text colour.
+													// Icon inherits the button's text colour in
+													// every state — no accent tint when active,
+													// so the active icon looks like any other
+													// nav icon.
 													className={cn(
 														"h-4 w-4 shrink-0 transition-colors duration-200",
-														isActive && "text-accent",
 													)}
 												/>
 												<span

@@ -4,8 +4,6 @@
  * Covers the following findings (each in its own describe block so a
  * failure pinpoints which contract regressed):
  *
- *   -    Vocabulary.tsx — getCategoryLabels() re-resolves t() on
- *             locale switch (no stale module-level const).
  *   - R7-F8   Onboarding.tsx — `let cancelled = false` guard prevents
  *             setState-after-unmount during the init() effect.
  *   - R7-F9   Models.tsx — dead isBenchmarking / runBenchmark /
@@ -146,7 +144,7 @@ const MINIMAL_CONFIG: VoiceTyperConfig = {
 	hotkey: "F2",
 	sample_rate: 16000,
 	microphone: null,
-	model_size: "small.en",
+	model_size: "tiny",
 	language: "en",
 	device: "cpu",
 	beam_size: 5,
@@ -291,74 +289,6 @@ beforeEach(() => {
 
 afterEach(() => {
 	cleanup();
-});
-
-//
-
-describe("CR-37: Vocabulary categoryLabels re-resolve on locale switch", () => {
-	it("renders German category label after setLocale('de')", async () => {
-		mockCall.mockImplementation((type: string) => {
-			if (type === "get_vocabulary") return Promise.resolve({});
-			if (type === "save_vocabulary") return Promise.resolve({ success: true });
-			return Promise.resolve({});
-		});
-
-		renderWithProviders(<VocabularyPage />);
-
-		// Wait for the page to load — the "Add Word" button renders
-		// once the initial get_vocabulary call resolves.
-		await waitFor(() => {
-			expect(screen.getByText(t("vocabulary.addWord"))).toBeTruthy();
-		});
-
-		// Open the Add dialog so the category Select renders.
-		fireEvent.click(screen.getByText(t("vocabulary.addWord")));
-
-		// Switch locale to German. Because categoryLabels is computed
-		// at render time via getCategoryLabels(), the next render must
-		// reflect the German translation of "Misspellings" →
-		// "Falschschreibungen".
-		setLocale("de");
-
-		// The German translation table loads via an async dynamic import
-		// (ensureLocaleLoaded), so wait for it before asserting t().
-		// The German translation for vocabulary.category.misspellings
-		// is "Falschschreibungen" (see de.json:150).
-		await waitFor(() => {
-			expect(t("vocabulary.category.misspellings")).toBe("Falschschreibungen");
-		});
-
-		// And confirm switching back to English yields the English label.
-		setLocale("en");
-		expect(t("vocabulary.category.misspellings")).toBe("Misspellings");
-	});
-
-	it("getCategoryLabels is a function (not a stale const)", async () => {
-		//Static check: the module exports a function ( specifically
-		// converts a const to a function so the labels are re-resolved
-		// at every render). We verify by importing the module source
-		//and grepping for the function declaration.  moved the
-		// category labels into vocabulary/lib/categories.ts.
-		const fs = await import("node:fs");
-		const src = fs.readFileSync(
-			"src/renderer/src/pages/vocabulary/lib/categories.ts",
-			"utf8",
-		);
-		expect(src).toContain("function getCategoryLabels()");
-		expect(src).not.toContain("const CATEGORY_LABELS");
-		// And the consumers call the function at render time. The
-		// labels are memoised on the locale-revision snapshot so they
-		// re-resolve ONLY on locale switch (not on every keystroke),
-		// while still re-resolving via the function rather than a
-		// frozen module-level const.
-		const vocabSrc = fs.readFileSync(
-			"src/renderer/src/pages/Vocabulary.tsx",
-			"utf8",
-		);
-		expect(vocabSrc).toContain(
-			"const categoryLabels = useMemo(() => getCategoryLabels(), [localeRevision]);",
-		);
-	});
 });
 
 // ── R7-F8 ──────────────────────────────────────────────────────────────
@@ -684,8 +614,9 @@ describe("R7-F15: About.tsx — configDir starts empty and falls back to t('abou
 			.replace(/\/\/.*$/gm, "");
 		expect(stripped).not.toContain('"~/.voice-typer"');
 		// And the fallback uses t("about.loading") (not a hardcoded
-		// "Loading…" string).
-		expect(stripped).toContain('configDir || t("about.loading")');
+		// "Loading…" string) while the backend probe is still pending.
+		expect(stripped).toContain('t("about.loading")');
+		expect(stripped).not.toContain('"Loading…"');
 	});
 
 	it("renders t('about.loading') as the config-directory value before the backend resolves", async () => {
@@ -695,9 +626,12 @@ describe("R7-F15: About.tsx — configDir starts empty and falls back to t('abou
 
 		renderWithProviders(<AboutPage />);
 
-		// Wait for the Diagnostics section to appear.
+		// Wait for the Diagnostics section to appear (heading role — the
+		// same text also appears in the sticky section nav).
 		await waitFor(() => {
-			expect(screen.getByText(t("about.diagnosticsTitle"))).toBeTruthy();
+			expect(
+				screen.getByRole("heading", { name: t("about.diagnosticsTitle") }),
+			).toBeTruthy();
 		});
 
 		// The Config Directory row should show the loading fallback

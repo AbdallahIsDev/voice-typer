@@ -3,6 +3,7 @@
 	"dialog.criticalError.title": "{appName} — Error crítico",
 	"dialog.export.config": "Exportar configuración",
 	"dialog.export.history": "Exportar historial",
+	"dialog.export.statsImage": "Exportar imagen de estadísticas",
 	"dialog.export.templates": "Exportar plantillas",
 	"dialog.export.vocabulary": "Exportar vocabulario",
 	"dialog.preloadError.body": "{appName} no se pudo iniciar (error del script de precarga en {file}).\n\nReinstale {appName}.\n\nSi el problema persiste después de reinstalar, póngase en contacto con soporte.",

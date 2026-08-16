@@ -3,6 +3,7 @@
 	"dialog.criticalError.title": "{appName} — خطأ حرج",
 	"dialog.export.config": "تصدير الإعدادات",
 	"dialog.export.history": "تصدير السجل",
+	"dialog.export.statsImage": "تصدير صورة الإحصائيات",
 	"dialog.export.templates": "تصدير القوالب",
 	"dialog.export.vocabulary": "تصدير المفردات",
 	"dialog.preloadError.body": "فشل بدء تشغيل {appName} (خطأ في سكربت التحميل المسبق في {file}).\n\nيرجى إعادة تثبيت {appName}.\n\nإذا استمرت المشكلة بعد إعادة التثبيت، يرجى الاتصال بالدعم الفني.",

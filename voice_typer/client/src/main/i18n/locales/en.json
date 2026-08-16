@@ -3,6 +3,7 @@
 	"dialog.criticalError.title": "{appName} — Critical Error",
 	"dialog.export.config": "Export Configuration",
 	"dialog.export.history": "Export History",
+	"dialog.export.statsImage": "Export Stats Image",
 	"dialog.export.templates": "Export Templates",
 	"dialog.export.vocabulary": "Export Vocabulary",
 	"dialog.preloadError.body": "{appName} failed to start (preload script error in {file}).\n\nPlease reinstall {appName}.\n\nIf the problem persists after reinstalling, please contact support.",

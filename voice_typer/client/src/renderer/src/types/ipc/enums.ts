@@ -67,6 +67,11 @@ export type ErrorCodes =
 	| "client.not_found"
 	| "client.auth_failed"
 	| "client.consent_required"
+	// Backend duplicate enforcement (save_vocabulary): the write would
+	// create a duplicate correction (same wrong phrase,
+	// case-insensitive). The renderer surfaces the localized "This
+	// correction already exists" message and does NOT add the row.
+	| "client.duplicate_entry"
 	| "server.internal_error"
 	| "server.handler_error"
 	| "server.file_locked"

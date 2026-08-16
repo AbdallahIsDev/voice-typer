@@ -48,7 +48,7 @@ import type { VoiceTyperConfig } from "@/types/config";
 
 function makeModel(overrides: Partial<ModelInfo> = {}): ModelInfo {
 	return {
-		name: "small.en",
+		name: "tiny",
 		size: "~466MB",
 		speed: "Fast",
 		backend: "whisper",
@@ -101,7 +101,7 @@ describe("useModelSelection — selectModel success path", () => {
 		const { result } = renderHook(() => useModelSelection(args));
 
 		const model = makeModel({
-			name: "small.en",
+			name: "tiny",
 			backend: "whisper",
 		});
 
@@ -112,7 +112,7 @@ describe("useModelSelection — selectModel success path", () => {
 		// updateConfig invoked with the backend + model_size pair.
 		expect(args.updateConfig).toHaveBeenCalledWith({
 			asr_backend: "whisper",
-			model_size: "small.en",
+			model_size: "tiny",
 		});
 
 		// setModels invoked with an updater that flips isActive on the
@@ -121,12 +121,12 @@ describe("useModelSelection — selectModel success path", () => {
 		const updater = (args.setModels as unknown as ReturnType<typeof vi.fn>).mock
 			.calls[0]?.[0] as (prev: ModelInfo[]) => ModelInfo[];
 		const prev: ModelInfo[] = [
-			makeModel({ name: "small.en" }),
-			makeModel({ name: "tiny.en", isActive: true }),
+			makeModel({ name: "tiny" }),
+			makeModel({ name: "large-v3-turbo", isActive: true }),
 		];
 		const next = updater(prev);
-		expect(next.find((m) => m.name === "small.en")?.isActive).toBe(true);
-		expect(next.find((m) => m.name === "tiny.en")?.isActive).toBe(false);
+		expect(next.find((m) => m.name === "tiny")?.isActive).toBe(true);
+		expect(next.find((m) => m.name === "large-v3-turbo")?.isActive).toBe(false);
 
 		// refreshModelStatus reconciles the freshly-selected model.
 		expect(args.refreshModelStatus).toHaveBeenCalledTimes(1);
@@ -206,7 +206,7 @@ describe("useModelSelection — model-switch ordering (guards)", () => {
 		const { result } = renderHook(() => useModelSelection(args));
 
 		const model = makeModel({
-			name: "medium.en",
+			name: "large-v3-turbo",
 			backend: "whisper",
 			downloaded: false,
 			depsOk: true,
@@ -260,7 +260,7 @@ describe("useModelSelection — selectModel error path", () => {
 		const args = makeHookArgs({ updateConfig });
 		const { result } = renderHook(() => useModelSelection(args));
 
-		const model = makeModel({ name: "small.en", backend: "whisper" });
+		const model = makeModel({ name: "tiny", backend: "whisper" });
 
 		await act(async () => {
 			await result.current.selectModel(model);
@@ -288,7 +288,7 @@ describe("useModelSelection — requestDeleteModel + confirmDelete", () => {
 		const args = makeHookArgs();
 		const { result } = renderHook(() => useModelSelection(args));
 
-		const active = makeModel({ name: "small.en", isActive: true });
+		const active = makeModel({ name: "tiny", isActive: true });
 
 		act(() => {
 			result.current.requestDeleteModel(active);
@@ -311,7 +311,7 @@ describe("useModelSelection — requestDeleteModel + confirmDelete", () => {
 		// the only way to clear the phantom "Active" state (the backend
 		// switches to another model), so the confirm dialog MUST open.
 		const staleActive = makeModel({
-			name: "small.en",
+			name: "tiny",
 			isActive: true,
 			downloaded: false,
 		});
@@ -328,7 +328,7 @@ describe("useModelSelection — requestDeleteModel + confirmDelete", () => {
 		const args = makeHookArgs();
 		const { result } = renderHook(() => useModelSelection(args));
 
-		const inactive = makeModel({ name: "tiny.en", isActive: false });
+		const inactive = makeModel({ name: "large-v3-turbo", isActive: false });
 
 		act(() => {
 			result.current.requestDeleteModel(inactive);
@@ -348,7 +348,7 @@ describe("useModelSelection — requestDeleteModel + confirmDelete", () => {
 		});
 		const { result } = renderHook(() => useModelSelection(args));
 
-		const target = makeModel({ name: "tiny.en", isActive: false });
+		const target = makeModel({ name: "large-v3-turbo", isActive: false });
 		act(() => {
 			result.current.requestDeleteModel(target);
 		});
@@ -358,7 +358,7 @@ describe("useModelSelection — requestDeleteModel + confirmDelete", () => {
 		});
 
 		expect(callMock).toHaveBeenCalledWith("delete_model", {
-			model: "tiny.en",
+			model: "large-v3-turbo",
 		});
 
 		// setModels updater marks the target as downloaded:false + isActive:false.
@@ -367,11 +367,11 @@ describe("useModelSelection — requestDeleteModel + confirmDelete", () => {
 			prev: ModelInfo[],
 		) => ModelInfo[];
 		const prev: ModelInfo[] = [
-			makeModel({ name: "tiny.en", downloaded: true }),
+			makeModel({ name: "large-v3-turbo", downloaded: true }),
 		];
 		const next = updater(prev);
-		expect(next.find((m) => m.name === "tiny.en")?.downloaded).toBe(false);
-		expect(next.find((m) => m.name === "tiny.en")?.isActive).toBe(false);
+		expect(next.find((m) => m.name === "large-v3-turbo")?.downloaded).toBe(false);
+		expect(next.find((m) => m.name === "large-v3-turbo")?.isActive).toBe(false);
 
 		// Success snack + target cleared in the finally block.
 		expect(args.showSnack).toHaveBeenCalledWith(
@@ -386,7 +386,7 @@ describe("useModelSelection — requestDeleteModel + confirmDelete", () => {
 		const args = makeHookArgs();
 		const { result } = renderHook(() => useModelSelection(args));
 
-		const target = makeModel({ name: "tiny.en" });
+		const target = makeModel({ name: "large-v3-turbo" });
 		act(() => {
 			result.current.requestDeleteModel(target);
 		});

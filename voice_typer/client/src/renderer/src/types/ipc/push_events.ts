@@ -14,7 +14,12 @@ import type { ErrorCodes } from "./enums";
 
 export interface StatusChangeEvent {
 	type: "status_change";
-	data: { status: string };
+	// `message` mirrors the backend's `set_state(state, message)` call —
+	// the human-readable reason the tray shows in its tooltip (e.g. the
+	// "no models available" hint). Always present on the wire (empty
+	// string default), typed optional so the renderer handles legacy /
+	// test emitters that only send `{ status }`.
+	data: { status: string; message?: string };
 }
 
 //(part 4): ErrorEvent now mirrors the actual Python error

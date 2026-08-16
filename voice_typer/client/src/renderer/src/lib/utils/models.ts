@@ -10,6 +10,7 @@
 
 import { t } from "@/i18n/i18n";
 import { formatVram as _formatVram } from "@/lib/format";
+import { MODEL_DEFAULT } from "@/pages/onboarding/lib/constants";
 import type { VoiceTyperConfig } from "@/types/config";
 
 // ── Shared model types ────────────────────────────────────────────────
@@ -78,7 +79,7 @@ export interface ModelFamily {
 // an entry in BOTH places.
 export const INITIAL_MODELS: ModelInfo[] = [
 	{
-		name: "tiny.en",
+		name: "tiny",
 		size: "~75MB",
 		speed: "Fastest",
 		backend: "whisper",
@@ -87,17 +88,8 @@ export const INITIAL_MODELS: ModelInfo[] = [
 		isActive: false,
 	},
 	{
-		name: "small.en",
-		size: "~466MB",
-		speed: "Fast",
-		backend: "whisper",
-		downloaded: false,
-		depsOk: true,
-		isActive: false,
-	},
-	{
-		name: "medium.en",
-		size: "~1.5GB",
+		name: "large-v3",
+		size: "~3GB",
 		speed: "Slow",
 		backend: "whisper",
 		downloaded: false,
@@ -109,24 +101,6 @@ export const INITIAL_MODELS: ModelInfo[] = [
 		size: "~809MB",
 		speed: "Fast",
 		backend: "whisper",
-		downloaded: false,
-		depsOk: true,
-		isActive: false,
-	},
-	{
-		name: "distil-large-v3",
-		size: "~1.5GB",
-		speed: "Fast",
-		backend: "distil-whisper",
-		downloaded: false,
-		depsOk: true,
-		isActive: false,
-	},
-	{
-		name: "distil-medium.en",
-		size: "~780MB",
-		speed: "Fast",
-		backend: "distil-whisper",
 		downloaded: false,
 		depsOk: true,
 		isActive: false,
@@ -303,8 +277,9 @@ export function formatErrorMessage(
 }
 
 // ── Model family grouping ──────────────────────────────────────────────
-// Groups models by their backend family (Whisper, Qwen, Parakeet) so they
-// render inside family cards with shared headers.
+// Groups models by their backend family (Whisper, Qwen, NVIDIA — the
+// Parakeet family is branded under the NVIDIA logo) so they render
+// inside family cards with shared headers.
 export function groupModelsByFamily(models: ModelInfo[]): ModelFamily[] {
 	const whisper = models.filter(
 		(m) => m.backend === "whisper" || m.backend === "distil-whisper",
@@ -331,7 +306,10 @@ export function groupModelsByFamily(models: ModelInfo[]): ModelFamily[] {
 	if (parakeet.length > 0) {
 		families.push({
 			id: "parakeet",
-			name: "Parakeet",
+			// The family is branded under NVIDIA (the model underneath
+			// is Parakeet-v3-TDT — its display_name comes from the
+			// backend catalog).
+			name: "Nvidia",
 			description: null,
 			variants: parakeet,
 		});
@@ -353,6 +331,13 @@ export function isModelActive(
 	activeBackend: string,
 	activeModel: string,
 ): boolean {
+	// An empty active model is the genuine "no model selected" state
+	// (the backend's `NO_MODEL_SIZE` sentinel) — NOTHING is active,
+	// including backend-keyed models (qwen / parakeet) whose active
+	// check below ignores `model_size`.
+	if (!activeModel) {
+		return false;
+	}
 	if (m.backend === "whisper") {
 		return activeBackend === "whisper" && m.name === activeModel;
 	}
@@ -371,7 +356,7 @@ export function applyActiveState(
 ): ModelInfo[] {
 	if (!cfg) return models;
 	const activeBackend = cfg.asr_backend ?? "whisper";
-	const activeModel = cfg.model_size ?? "small.en";
+	const activeModel = cfg.model_size ?? MODEL_DEFAULT;
 	return models.map((m) => ({
 		...m,
 		isActive: isModelActive(m, activeBackend, activeModel),
@@ -390,7 +375,7 @@ export function applyActiveState(
 export function getActiveFamilyId(cfg: VoiceTyperConfig | null): string | null {
 	if (!cfg) return null;
 	const activeBackend = cfg.asr_backend ?? "whisper";
-	const activeModel = cfg.model_size ?? "small.en";
+	const activeModel = cfg.model_size ?? MODEL_DEFAULT;
 	for (const m of INITIAL_MODELS) {
 		if (!isModelActive(m, activeBackend, activeModel)) continue;
 		if (m.backend === "whisper" || m.backend === "distil-whisper")

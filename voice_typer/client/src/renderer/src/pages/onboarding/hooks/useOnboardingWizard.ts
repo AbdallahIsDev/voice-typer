@@ -9,7 +9,7 @@ import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
-import { HOTKEY_DEFAULT } from "../lib/constants";
+import { HOTKEY_DEFAULT, MODEL_DEFAULT } from "../lib/constants";
 import type { MicrophoneOption, ModelOption, StepInfo } from "../lib/types";
 
 // The six consent flags surfaced on the consolidated Consent step
@@ -105,7 +105,7 @@ export function useOnboardingWizard(
 	const [skipConfirmOpen, setSkipConfirmOpen] = useState(false);
 
 	const [selectedHotkey, setSelectedHotkey] = useState(HOTKEY_DEFAULT);
-	const [selectedModel, setSelectedModel] = useState("small.en");
+	const [selectedModel, setSelectedModel] = useState(MODEL_DEFAULT);
 	const [selectedMic, setSelectedMic] = useState("");
 	const [hotkeyPresets, setHotkeyPresets] = useState<string[]>([]);
 	const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
@@ -203,7 +203,7 @@ export function useOnboardingWizard(
 				// restored selections are not exposed by
 				// ``onboarding_start`` regardless of step, so there is
 				// no way for the renderer to prefer them. The default
-				// values (HOTKEY_DEFAULT / "small.en" / "") are still
+				// values (HOTKEY_DEFAULT / MODEL_DEFAULT / "") are still
 				// used when config.json has no saved value.
 				try {
 					const cfg = await call<VoiceTyperConfig>("get_config");
@@ -211,7 +211,7 @@ export function useOnboardingWizard(
 					if (cfg) {
 						const cfgHotkey = cfg.hotkey ?? HOTKEY_DEFAULT;
 						if (cfgHotkey) setSelectedHotkey(cfgHotkey);
-						const cfgModel = cfg.model_size ?? "small.en";
+						const cfgModel = cfg.model_size ?? MODEL_DEFAULT;
 						if (cfgModel) setSelectedModel(cfgModel);
 						setSelectedMic(cfg.microphone ?? "");
 						setHfConsent(cfg.huggingface_consent === true);

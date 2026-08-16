@@ -1,25 +1,28 @@
-// Add/Edit vocabulary dialog state + handlers.
+// Edit vocabulary dialog state + handlers.
+//
+// The ADD path moved to the inline quick-add row
+// (``useVocabularyQuickAdd``) so the list stays visible while adding;
+// this hook owns ONLY the edit dialog.
 //
 // Owns:
 //   - dialog open/close + the row currently being edited
 //   - the form fields (``trigger`` / ``replacement`` / ``category``)
-//   - openAddDialog / openEditDialog / saveEntry / handleCloseDialog
+//   - openEditDialog / saveEntry / handleCloseDialog
 //     / handleTriggerChange / handleReplacementChange
 //
 // ``saveEntry`` reads from the dialog fields + the latest ``entries``
 // (provided by ``useVocabulary``) so it can splice the edited entry in
 // place (preserving its existing ``_id`` — React re-uses the DOM node
-// so input focus / animation state isn't lost) or append a new entry
-// (with a fresh UUID).  After the IPC save lands it calls
-// ``persistVocabulary`` + ``setEntries`` (both provided by
-// ``useVocabulary``) to commit the change.
+// so input focus / animation state isn't lost). After the IPC save
+// lands it calls ``persistVocabulary`` + ``setEntries`` (both provided
+// by ``useVocabulary``) to commit the change.
 
 import { useState } from "react";
 import { t } from "@/i18n/i18n";
-import type { VocabularyEntry } from "@/types/ipc";
 
 import { detectCategory } from "../lib/categories";
-import { makeEntryId, type VocabRow } from "../lib/transform";
+import type { VocabRow } from "../lib/transform";
+import { isDuplicateEntryError } from "./useVocabularyQuickAdd";
 
 interface UseVocabularyDialogArgs {
 	entries: VocabRow[];
@@ -36,9 +39,6 @@ interface UseVocabularyDialogResult {
 	editingEntry: VocabRow | null;
 	trigger: string;
 	replacement: string;
-	category: string;
-	setCategory: (c: string) => void;
-	openAddDialog: () => void;
 	openEditDialog: (entry: VocabRow) => void;
 	saveEntry: () => Promise<void>;
 	handleTriggerChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -56,21 +56,17 @@ export function useVocabularyDialog({
 	const [editingEntry, setEditingEntry] = useState<VocabRow | null>(null);
 	const [trigger, setTrigger] = useState("");
 	const [replacement, setReplacement] = useState("");
-	//explicit category selection.
+	// Category is NOT shown in the edit dialog (the page is a flat
+	// two-column list) — but it must be preserved on save so the
+	// backend bucket never changes behind the user's back. Initialised
+	// from the entry being edited; "auto" resolves via detectCategory.
 	const [category, setCategory] = useState<string>("auto");
-
-	const openAddDialog = () => {
-		setEditingEntry(null);
-		setTrigger("");
-		setReplacement("");
-		setCategory("auto");
-		setShowDialog(true);
-	};
 
 	const openEditDialog = (entry: VocabRow) => {
 		setEditingEntry(entry);
 		setTrigger(entry.original);
-		//pre-select the entry's existing category.
+		// Preserve the entry's existing bucket (don't re-detect — an
+		// edit shouldn't silently re-categorize the entry).
 		setCategory(entry.category || "auto");
 		setReplacement(entry.correction);
 		setShowDialog(true);
@@ -87,63 +83,38 @@ export function useVocabularyDialog({
 		const resolvedCategory =
 			category === "auto" ? detectCategory(trimmedTrigger) : category;
 		try {
-			let updated: VocabRow[];
-			if (editingEntry) {
-				// Preserve the existing ``_id`` so React doesn't remount
-				// the row (which would lose input focus / animation state).
-				updated = entries.map((e) =>
-					e === editingEntry
-						? {
-								_id: e._id,
-								category: resolvedCategory as VocabularyEntry["category"],
-								original: trimmedTrigger,
-								correction: r,
-							}
-						: e,
-				);
-			} else {
-				// Duplicate-detection — refuse to append a new entry
-				// whose (original, category) pair already exists in the
-				// list. Without this, the user could silently accumulate
-				// duplicate triggers (one per category) which the backend
-				// would happily accept but the UI would render as
-				// visually-identical rows. Edits are exempt (the user is
-				// modifying an existing entry, not adding a duplicate).
-				const isDuplicate = entries.some(
-					(it) =>
-						it.original === trimmedTrigger && it.category === resolvedCategory,
-				);
-				if (isDuplicate) {
-					showSnack(t("vocabulary.duplicateOriginal"), "warning");
-					return;
-				}
-				// New entry — generate a fresh UUID.
-				updated = [
-					...entries,
-					{
-						_id: makeEntryId(),
-						category: resolvedCategory as VocabularyEntry["category"],
-						original: trimmedTrigger,
-						correction: r,
-					},
-				];
-			}
+			// Edit path only — splice the edited entry in place, keeping
+			// its ``_id`` so React doesn't remount the row (which would
+			// lose input focus / animation state). An edit that changes
+			// the wrong phrase to one that ALREADY EXISTS is blocked by
+			// the backend (client.duplicate_entry) — the matcher keys on
+			// the wrong phrase, so two entries sharing it would silently
+			// collide.
+			const updated: VocabRow[] = entries.map((e) =>
+				e === editingEntry
+					? {
+							_id: e._id,
+							category: resolvedCategory as VocabRow["category"],
+							original: trimmedTrigger,
+							correction: r,
+						}
+					: e,
+			);
 			await persistVocabulary(updated);
 			setEntries(updated);
 			setShowDialog(false);
 			showSnack(
-				editingEntry
-					? t("vocabulary.updatedEntry", {
-							original: trimmedTrigger,
-							correction: r,
-						})
-					: t("vocabulary.addedEntry", {
-							original: trimmedTrigger,
-							correction: r,
-						}),
+				t("vocabulary.updatedEntry", {
+					original: trimmedTrigger,
+					correction: r,
+				}),
 				"success",
 			);
-		} catch {
+		} catch (err) {
+			if (isDuplicateEntryError(err)) {
+				showSnack(t("vocabulary.duplicateOriginal"), "warning");
+				return;
+			}
 			showSnack(t("vocabulary.saveFailed"), "error");
 		}
 	};
@@ -161,9 +132,6 @@ export function useVocabularyDialog({
 		editingEntry,
 		trigger,
 		replacement,
-		category,
-		setCategory,
-		openAddDialog,
 		openEditDialog,
 		saveEntry,
 		handleTriggerChange,

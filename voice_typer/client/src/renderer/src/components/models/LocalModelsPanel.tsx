@@ -19,6 +19,7 @@ import { Alert02Icon, Folder02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Fragment, useState } from "react";
 import { DownloadProgressBar } from "@/components/models/DownloadProgressBar";
+import { FamilyLogo } from "@/components/models/FamilyLogo";
 import { ModelCardActions } from "@/components/models/ModelCardActions";
 import {
 	Accordion,
@@ -225,18 +226,19 @@ export function LocalModelsPanel({
 					type="multiple"
 					value={accordionValue}
 					onValueChange={setAccordionValue}
-					className="rounded-lg border border-border bg-(--bg-subtle)"
+					className="rounded-lg border border-border/10 bg-(--bg-subtle)"
 				>
 					{modelFamilies.map((family) => (
 						<AccordionItem
 							key={family.id}
 							value={family.id}
-							className="border-border data-open:bg-transparent"
+							className="border-border/10 data-open:bg-transparent"
 						>
-							<AccordionTrigger className="px-3.5 py-2.5 text-sm font-semibold text-(--text-primary) hover:no-underline hover:bg-foreground/5 data-open:bg-transparent">
+							<AccordionTrigger className="gap-2 px-3.5 py-2.5 text-sm font-semibold text-(--text-primary) hover:no-underline hover:bg-foreground/5 data-open:bg-transparent">
+								<FamilyLogo family={family.id} />
 								{family.name}
 							</AccordionTrigger>
-							<AccordionContent className="px-0 pb-0 divide-y divide-border">
+							<AccordionContent className="px-0 pb-0 divide-y divide-border/10">
 								{family.variants.map((model) => {
 									const badge = getStatusBadge(model);
 									const meta = modelCatalog[model.name];

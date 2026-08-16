@@ -263,14 +263,14 @@ describe("TASK-24-FIX-5/6/9/10/11: new IPC contract types exist with the expecte
 
 	it("ModelStatusMap is a Record<string, ModelStatusEntry>", () => {
 		const map: ModelStatusMap = {
-			"tiny.en": { downloaded: true, deps_ok: true },
+			"large-v3-turbo": { downloaded: true, deps_ok: true },
 			qwen: {
 				downloaded: false,
 				deps_ok: false,
 				hash_verified: "mismatch",
 			},
 		};
-		expect(map["tiny.en"]?.downloaded).toBe(true);
+		expect(map["large-v3-turbo"]?.downloaded).toBe(true);
 		expect(map.qwen?.hash_verified).toBe("mismatch");
 	});
 

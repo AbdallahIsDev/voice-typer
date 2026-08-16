@@ -17,7 +17,7 @@
  *      download is in progress; shows a localized "one at a time"
  *      tooltip when disabled). NO Delete icon — a model that isn't on
  *      disk has nothing to delete; showing a trash affordance next to
- *      a not-installed model (e.g. the default `small.en` before the
+ *      a not-installed model (e.g. the default `tiny` before the
  *      user ever downloads anything) misleads the user into thinking
  *      something is installed. The backend would only answer "Model
  *      not downloaded" / "nothing to delete".
@@ -214,7 +214,7 @@ export function ModelCardActions({
 	//
 	// NO Delete icon here: the model isn't installed, so there is
 	// nothing to remove. (Even when this model is the configured active
-	// model — e.g. the default `small.en` before the user downloads
+	// model — e.g. the default `tiny` before the user downloads
 	// anything — a trash affordance next to "Download" falsely implies
 	// an installed model that can be removed.)
 	if (!model.downloaded) {

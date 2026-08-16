@@ -56,7 +56,7 @@
  * contains a search field or other controls that vary by page).
  */
 export const tabPageHeaderClassName =
-	"sticky left-0 right-0 top-0 z-50 bg-(--bg-subtle) border-b border-border";
+	"sticky left-0 right-0 top-0 z-50 bg-(--bg-subtle) border-b border-border/10";
 
 /**
  * Standard SegmentedControl visual overrides for the Settings + Models

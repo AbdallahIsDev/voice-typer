@@ -112,7 +112,7 @@ export function PunctuationCheatSheet() {
 		<section
 			data-testid="punctuation-cheat-sheet"
 			aria-labelledby="punctuation-cheat-sheet-title"
-			className="space-y-2 border-t border-border pt-3"
+			className="space-y-2 border-t border-border/10 pt-3"
 		>
 			<h3
 				id="punctuation-cheat-sheet-title"
@@ -204,12 +204,17 @@ export function PunctuationCheatSheetButton() {
 				title={t("help.punctuationTitle")}
 				description={t("help.punctuationHint")}
 				size="sm"
-				// Keep the cheat sheet scrollable on small viewports
-				// (Bubble window can be ~320×240). Mirrors the help
-				// overlay Modal's own scroll treatment.
-				className="w-110 max-h-[85vh] overflow-y-auto"
+				// Panel clips to the rounded shape; the body scrolls in the
+				// inner wrapper so the scrollbar can't escape the corner
+				// radius (same fix as the help overlay — Windows classic
+				// scrollbars ignore border-radius). shadow removed too.
+				className="w-110 max-h-[85vh] overflow-hidden shadow-none grid-rows-[auto_minmax(0,1fr)]"
 			>
-				<PunctuationCheatSheet />
+				{/* Scroll wrapper — keeps the cheat sheet scrollable on
+				    small viewports (Bubble window can be ~320×240). */}
+				<div className="-mx-6 -mb-6 min-h-0 overflow-y-auto px-6 pb-6">
+					<PunctuationCheatSheet />
+				</div>
 			</Modal>
 		</>
 	);

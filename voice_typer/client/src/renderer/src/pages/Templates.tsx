@@ -167,7 +167,7 @@ export default function TemplatesPage() {
 							description={t("templates.noResultsDescription")}
 						/>
 					) : (
-						<ul className="overflow-hidden rounded-xl border border-border bg-(--bg-subtle) divide-y divide-border">
+						<ul className="overflow-hidden rounded-xl border border-border/10 bg-(--bg-subtle) divide-y divide-border/10">
 							{filteredSortedTemplates.map((row) => (
 								<TemplateListRow
 									key={row.id}

@@ -42,10 +42,6 @@
  *
  *   Vocabulary:
  *   - TestVocabularyAndTemplatesHaveHelpText::test_vocabulary_dialog_has_help_text
- *   - TestVocabularyDialogHasCategoryPicker::test_vocabulary_has_category_state
- *   - TestVocabularyDialogHasCategoryPicker::test_vocabulary_has_category_labels
- *   - TestVocabularyDialogHasCategoryPicker::test_vocabulary_dialog_has_category_select
- *   - TestVocabularyDialogHasCategoryPicker::test_vocabulary_category_has_human_readable_labels
  *
  *   Templates:
  *   - TestVocabularyAndTemplatesHaveHelpText::test_templates_dialog_has_help_text
@@ -97,6 +93,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -291,7 +288,7 @@ const baseConfig: VoiceTyperConfig = {
 	hotkey: "F2",
 	sample_rate: 16000,
 	microphone: null,
-	model_size: "small.en",
+	model_size: "tiny",
 	language: "en",
 	device: "cpu",
 	beam_size: 5,
@@ -974,7 +971,7 @@ describe("About — rewrite of loaded_via tests", () => {
 			if (type === "get_config") {
 				return Promise.resolve({
 					asr_backend: "whisper",
-					model_size: "small.en",
+					model_size: "tiny",
 					device: "cpu",
 					hotkey: "F2",
 					microphone: null,
@@ -996,9 +993,11 @@ describe("About — rewrite of loaded_via tests", () => {
 		expect(screen.getByText("cuda")).toBeTruthy();
 	});
 
-	it("falls back to 'Unknown' when get_status omits loaded_via", async () => {
-		// Extra behavioural coverage — locks down the fallback branch
-		// so a future refactor can't silently break it.
+	it("hides the 'Loaded Via' row entirely when get_status omits loaded_via", async () => {
+		// Extra behavioural coverage — locks down the empty-state branch
+		// so a future refactor can't silently reintroduce a confusing
+		// "—" placeholder. When the backend reports no loaded_via (no
+		// model loaded yet), the row is hidden rather than shown blank.
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_status") {
 				return Promise.resolve({
@@ -1010,7 +1009,7 @@ describe("About — rewrite of loaded_via tests", () => {
 			if (type === "get_config") {
 				return Promise.resolve({
 					asr_backend: "whisper",
-					model_size: "small.en",
+					model_size: "tiny",
 					device: "cpu",
 					hotkey: "F2",
 					microphone: null,
@@ -1022,22 +1021,21 @@ describe("About — rewrite of loaded_via tests", () => {
 		const { default: AboutPage } = await import("@/pages/About");
 		renderWithProviders(<AboutPage />);
 
+		// Wait for the Diagnostics section to render (its heading), then
+		// assert the Loaded Via row is NOT in the DOM.
 		await waitFor(() => {
-			expect(screen.getByText("Loaded Via")).toBeTruthy();
+			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
 		});
 
-		// The fallback is t("about.unknown") → "—" (em-dash) per en.json.
-		// (about.unknown is "—", NOT "Unknown" — the "Unknown" string is
-		// used elsewhere, e.g. about.errorUnknown.)
-		expect(screen.getByText("—")).toBeTruthy();
+		expect(screen.queryByText("Loaded Via")).toBeNull();
 	});
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Vocabulary — help text + category picker
+// Vocabulary — help text
 // ────────────────────────────────────────────────────────────────────
 
-describe("Vocabulary — rewrite of help-text + category-picker tests", () => {
+describe("Vocabulary — rewrite of help-text tests", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockCall.mockImplementation((type: string) => {
@@ -1062,21 +1060,18 @@ describe("Vocabulary — rewrite of help-text + category-picker tests", () => {
 		cleanup();
 	});
 
-	it("renders trigger + replacement help text below the input fields", async () => {
+	it("renders trigger + replacement inputs with i18n placeholders in the inline quick-add row", async () => {
 		// Replaces test_vocabulary_dialog_has_help_text.
 		//
-		// Python invariants:
-		//   - 't("vocabulary.triggerHelp")' in vocab
-		//   - 't("vocabulary.replacementHelp")' in vocab
-		// Behavioral: mount the Vocabulary page, click the "Add Word"
-		// button to open the add-entry dialog (the help text lives
-		// inside the Modal), then assert the i18n-translated help
-		// strings appear in the rendered DOM.
-		// en.json:
-		//   triggerHelp → "Type the word(s) exactly as the speech
-		//                  recognizer mishears them…"
-		//   replacementHelp → "The corrected text that will be
-		//                      pasted…"
+		// Python invariants (unchanged — still satisfied):
+		//   - 't("vocabulary.triggerHelp")' in vocab (VocabDialog edit
+		//     modal)
+		//   - 't("vocabulary.replacementHelp")' in vocab (VocabDialog
+		//     edit modal)
+		// The ADD path moved from the disconnected modal to the inline
+		// quick-add row (the list stays visible while adding), so the
+		// discoverability role is now carried by the i18n placeholders
+		// on the row's two inputs instead of modal help text.
 		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
 		renderWithProviders(<VocabularyPage />);
 
@@ -1086,92 +1081,18 @@ describe("Vocabulary — rewrite of help-text + category-picker tests", () => {
 			expect(screen.getByText("recieve")).toBeTruthy();
 		});
 
-		// Click the "Add Word" toolbar button to open the add-entry
-		// dialog.  The button's visible text is t("vocabulary.addWord")
-		// → "Add Word" (no aria-label on this button).
+		// Click the "Add Word" toolbar button — it opens the inline
+		// quick-add row (no modal).
 		fireEvent.click(screen.getByRole("button", { name: "Add Word" }));
 
-		await waitFor(() => {
-			expect(
-				screen.getByText(
-					/Type the word\(s\) exactly as the speech recognizer mishears them/u,
-				),
-			).toBeTruthy();
-		});
+		const quickAdd = await screen.findByTestId("vocab-quick-add");
+		// The i18n placeholder strings render on the two inputs.
 		expect(
-			screen.getByText(/The corrected text that will be pasted/u),
+			within(quickAdd).getByPlaceholderText("treat three, mynameis"),
 		).toBeTruthy();
-	});
-
-	it("renders a Category select with an 'Auto-detect' option when adding a new entry", async () => {
-		// Replaces test_vocabulary_has_category_state +
-		// test_vocabulary_has_category_labels +
-		// test_vocabulary_dialog_has_category_select +
-		// test_vocabulary_category_has_human_readable_labels.
-		//
-		// Python invariants (source-string):
-		//   - "const [category, setCategory]" in vocab
-		//   - "CATEGORY_LABELS" in vocab
-		//   - for cat in [misspellings, phrase_corrections,
-		//     extra_word_patterns, technical_terms, names, products]:
-		//     assert cat in vocab
-		//   - "Category" in vocab
-		//   - 'value="auto"' in vocab
-		//   - "resolvedCategory" in vocab
-		//   - 't("vocabulary.category.misspellings")' in vocab
-		//   - 't("vocabulary.category.phraseCorrections")' in vocab
-		//   - 't("vocabulary.category.technicalTerms")' in vocab
-		//   - 't("vocabulary.category.names")' in vocab
-		//   - 't("vocabulary.category.products")' in vocab
-		// Behavioral: mount the Vocabulary page, click the "Add" button
-		// to open the add-entry dialog, then assert the Category select
-		// exists and exposes the human-readable labels (Misspellings,
-		// Phrase Corrections, Technical Terms, Names, Products).
-		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
-		renderWithProviders(<VocabularyPage />);
-
-		// Wait for the seeded entry to render (proves get_vocabulary
-		// resolved).
-		await waitFor(() => {
-			expect(screen.getByText("recieve")).toBeTruthy();
-		});
-
-		// Click the "Add Word" toolbar button to open the add-entry dialog.
-		// The button's visible text is t("vocabulary.addWord") → "Add Word"
-		// (no aria-label on this button).
-		fireEvent.click(screen.getByRole("button", { name: "Add Word" }));
-
-		// The dialog renders a "Category" label and a Radix Select
-		// whose trigger is a button with the "Auto-detect" text (the
-		// option value="auto").
-		await waitFor(() => {
-			expect(screen.getByText("Category")).toBeTruthy();
-		});
-		expect(screen.getByText("Auto-detect")).toBeTruthy();
-
-		// Open the Radix Select to expose the options.
-		const selectTrigger = screen.getByRole("combobox");
-		fireEvent.click(selectTrigger);
-
-		// All five human-readable category labels must be present as
-		// options.  These are the en.json values for the i18n keys
-		// the Python test asserted on.  Use getAllByText because the
-		// same label may also appear as a category badge on an
-		// existing list row (the seeded "recieve" entry's badge
-		// renders "Misspellings" too).
-		await waitFor(() => {
-			expect(screen.getAllByText("Misspellings").length).toBeGreaterThanOrEqual(
-				1,
-			);
-		});
 		expect(
-			screen.getAllByText("Phrase Corrections").length,
-		).toBeGreaterThanOrEqual(1);
-		expect(
-			screen.getAllByText("Technical Terms").length,
-		).toBeGreaterThanOrEqual(1);
-		expect(screen.getAllByText("Names").length).toBeGreaterThanOrEqual(1);
-		expect(screen.getAllByText("Products").length).toBeGreaterThanOrEqual(1);
+			within(quickAdd).getByPlaceholderText("treat this, My Name Is"),
+		).toBeTruthy();
 	});
 });
 
@@ -1622,10 +1543,13 @@ describe("App help overlay content — rewrite of shortcut-list + input-gate tes
 			).toBeGreaterThanOrEqual(1);
 		});
 
-		// Each shortcut's keys label is rendered (en.json values).
+		// Each shortcut's keys label is rendered (en.json values) as
+		// design-system Kbd chips ("Tab / Shift+Tab" renders chips
+		// Tab, Shift, Tab; Space and Esc render single chips).
 		// Use getAllByText for "?" because it may appear in multiple
 		// places (shortcut key + close hint).
-		expect(screen.getByText("Tab / Shift+Tab")).toBeTruthy();
+		expect(screen.getAllByText("Tab").length).toBeGreaterThanOrEqual(2);
+		expect(screen.getByText("Shift")).toBeTruthy();
 		expect(screen.getByText("Space")).toBeTruthy();
 		expect(screen.getByText("Esc")).toBeTruthy();
 		expect(screen.getAllByText("?").length).toBeGreaterThanOrEqual(1);

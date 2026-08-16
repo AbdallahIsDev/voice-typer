@@ -492,7 +492,7 @@ export default function SettingsPage() {
 				{showEmptyBanner && (
 					<output
 						aria-live="polite"
-						className="block rounded-lg border border-dashed border-border bg-(--bg-subtle) px-6 py-10 text-center space-y-3"
+						className="block rounded-lg border border-dashed border-border/10 bg-(--bg-subtle) px-6 py-10 text-center space-y-3"
 					>
 						<p className="text-sm font-medium text-(--text-primary)">
 							{t("settings.searchNoMatch", { query: settingsFilter.trim() })}
@@ -503,7 +503,7 @@ export default function SettingsPage() {
 						<button
 							type="button"
 							onClick={() => setSettingsFilter("")}
-							className="inline-flex items-center justify-center rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-(--text-primary) hover:bg-(--bg-subtle) focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+							className="inline-flex items-center justify-center rounded-md border border-border/10 bg-background px-3 py-1.5 text-sm font-medium text-(--text-primary) hover:bg-(--bg-subtle) focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
 						>
 							{t("a11y.clearSearch")}
 						</button>

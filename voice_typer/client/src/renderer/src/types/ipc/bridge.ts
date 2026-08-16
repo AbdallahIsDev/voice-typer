@@ -90,4 +90,31 @@ export interface WindowBridge {
 		ok: boolean;
 		reason?: string;
 	}>;
+	// Share-stats image platform operations. The renderer captures the
+	// PNG data URL itself; these bridge to the Electron main process for
+	// filesystem / clipboard / shell access a sandboxed renderer cannot
+	// use. Optional because the Tauri bridge does not implement them yet
+	// (the renderer falls back to an anchor download there).
+	//   - saveStatsImage: mode "downloads" = instant save to the OS
+	//     Downloads folder (no dialog); mode "saveAs" = native save dialog.
+	//   - copyStatsImage: put the PNG on the OS clipboard.
+	//   - revealStatsImage: reveal a saved PNG in the OS file manager.
+	saveStatsImage?: (
+		dataUrl: string,
+		defaultName: string,
+		mode: "downloads" | "saveAs",
+	) => Promise<{
+		success: boolean;
+		canceled?: boolean;
+		path?: string;
+		error?: string;
+	}>;
+	copyStatsImage?: (dataUrl: string) => Promise<{
+		success: boolean;
+		error?: string;
+	}>;
+	revealStatsImage?: (filePath: string) => Promise<{
+		success: boolean;
+		error?: string;
+	}>;
 }

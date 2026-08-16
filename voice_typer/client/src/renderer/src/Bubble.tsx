@@ -341,7 +341,10 @@ function BubbleInner() {
 				ref={pillRef}
 				className={cn(
 					"inline-flex items-center gap-3 rounded-full",
-					"border border-border",
+					// Muted frame: theme's --border at 10% so the pill floats
+					// subtly over the desktop (same treatment as the page
+					// window frame in App.tsx).
+					"border border-border/10",
 					"bg-card text-card-foreground",
 					"px-4 py-2.5",
 					draggable ? "drag-region" : "no-drag",

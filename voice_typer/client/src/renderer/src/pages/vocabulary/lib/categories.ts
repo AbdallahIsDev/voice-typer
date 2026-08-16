@@ -1,17 +1,17 @@
-// Backend vocabulary categories + locale-aware label resolution.
+// Backend vocabulary categories.
 //
-// Extracted from the former monolithic ``pages/Vocabulary.tsx`` so the
-// search/filter bar, list-row badge, and dialog picker can share one
-// canonical category list (without re-declaring the 6 backend category
-// keys — which previously drifted between the filter dropdown, the
-// dialog picker, and the flatten/rebuild transforms).
+// Categories are part of the persisted data layer ONLY — the UI no
+// longer surfaces them (the Vocabulary page is a flat two-column
+// correction list). This module keeps the canonical category list the
+// flatten/rebuild transforms and the import parser need, plus the
+// auto-detect heuristic that assigns new entries to a sensible bucket
+// so saved data stays well-formed for the backend.
 //
-//``getCategoryLabels`` is a FUNCTION (not a const) so the
-// labels are re-resolved via ``t()`` on every render. If it were a
-// module-level const, a locale switch at runtime would leave the UI
-// showing the OLD locale's labels until the next page mount.
+// ``getCategoryLabels`` / ``CATEGORY_META`` were removed when the
+// category UI (badges, group headers, filter, picker, bulk move) was
+// deleted — see archive/deleted_files.txt.
 
-import { t } from "@/i18n/i18n";
+import { normalizeWrongPhrase, type VocabRow } from "./transform";
 
 // ── Backend categories (kept internally for save-back, hidden from UI) ──
 export const CATEGORIES = [
@@ -25,44 +25,26 @@ export const CATEGORIES = [
 
 export type VocabCategory = (typeof CATEGORIES)[number];
 
-//getCategoryLabels() — called at render time so locale
-// switches re-resolve the t() keys against the new locale.
-export function getCategoryLabels(): Record<
-	string,
-	{ label: string; description: string; example: string }
-> {
-	return {
-		misspellings: {
-			label: t("vocabulary.category.misspellings"),
-			description: t("vocabulary.category.misspellingsDesc"),
-			example: "recieve \u2192 receive",
-		},
-		phrase_corrections: {
-			label: t("vocabulary.category.phraseCorrections"),
-			description: t("vocabulary.category.phraseCorrectionsDesc"),
-			example: "i am going to \u2192 I'm going to",
-		},
-		extra_word_patterns: {
-			label: t("vocabulary.category.extraWordPatterns"),
-			description: t("vocabulary.category.extraWordPatternsDesc"),
-			example: "um, uh, like \u2192 (removed)",
-		},
-		technical_terms: {
-			label: t("vocabulary.category.technicalTerms"),
-			description: t("vocabulary.category.technicalTermsDesc"),
-			example: "kubernetes \u2192 Kubernetes",
-		},
-		names: {
-			label: t("vocabulary.category.names"),
-			description: t("vocabulary.category.namesDesc"),
-			example: "jon \u2192 John",
-		},
-		products: {
-			label: t("vocabulary.category.products"),
-			description: t("vocabulary.category.productsDesc"),
-			example: "ipad \u2192 iPad",
-		},
-	};
+/**
+ * Frontend pre-check for the quick-add row: find an existing entry
+ * whose wrong phrase collides with *original* (case-insensitive,
+ * whitespace-collapsed — the same rule the backend enforces
+ * authoritatively in ``save_vocabulary_with_diff``).
+ *
+ * This is a CONVENIENCE layer only: the authoritative check that
+ * blocks the write lives in the backend write path, so every entry
+ * point (quick-add, edit dialog, import) is covered even if this
+ * pre-check is bypassed. Returns the first colliding entry, or
+ * undefined when the phrase is new.
+ */
+export function findDuplicate(
+	entries: ReadonlyArray<
+		Pick<VocabRow, "original" | "correction" | "category">
+	>,
+	original: string,
+) {
+	const key = normalizeWrongPhrase(original);
+	return entries.find((it) => normalizeWrongPhrase(it.original) === key);
 }
 
 // Auto-detect heuristics (conservative — when in doubt, fall through to

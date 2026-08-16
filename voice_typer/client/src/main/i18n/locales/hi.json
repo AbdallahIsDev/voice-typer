@@ -3,6 +3,7 @@
 	"dialog.criticalError.title": "{appName} — गंभीर त्रुटि",
 	"dialog.export.config": "कॉन्फ़िगरेशन निर्यात करें",
 	"dialog.export.history": "इतिहास निर्यात करें",
+	"dialog.export.statsImage": "आँकड़े छवि निर्यात करें",
 	"dialog.export.templates": "टेम्पलेट निर्यात करें",
 	"dialog.export.vocabulary": "शब्दावली निर्यात करें",
 	"dialog.preloadError.body": "{appName} प्रारंभ करने में विफल ({file} में प्रीलोड स्क्रिप्ट त्रुटि)।\n\nकृपया {appName} पुनः इंस्टॉल करें।\n\nयदि पुनः इंस्टॉल करने के बाद भी समस्या बनी रहती है, तो कृपया सहायता से संपर्क करें।",

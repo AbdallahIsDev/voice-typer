@@ -1,6 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TodayStats } from "@/types/ipc";
 
 vi.mock("html-to-image", () => ({
 	toPng: vi.fn(),
@@ -11,21 +10,36 @@ vi.mock("@/i18n/i18n", () => ({
 }));
 
 import { toPng } from "html-to-image";
-import {
-	canShareStats,
-	computeShareStats,
-	useStatsShare,
-} from "../useStatsShare";
+import { canShareStats, useStatsShare } from "../useStatsShare";
 
 const captureFailedKey = "stats.shareImage.captureFailed";
 
 function makeElement(overrides?: Partial<HTMLDivElement>): HTMLDivElement {
 	return {
-		getBoundingClientRect: () => ({ width: 600, height: 500 }),
-		offsetWidth: 600,
-		offsetHeight: 500,
+		getBoundingClientRect: () => ({ width: 1200, height: 630 }),
+		offsetWidth: 1200,
+		offsetHeight: 630,
 		...overrides,
 	} as unknown as HTMLDivElement;
+}
+
+/** A valid-looking PNG data URL (content is mocked away — only the
+ * string shape matters to the bridge calls). */
+const PNG_DATA_URL = "data:image/png;base64,AA==";
+
+function installWindowBridge(overrides?: {
+	saveStatsImage?: (dataUrl: string, name: string, mode: string) => Promise<unknown>;
+	copyStatsImage?: (dataUrl: string) => Promise<unknown>;
+	revealStatsImage?: (path: string) => Promise<unknown>;
+}) {
+	const bridge = {
+		saveStatsImage: vi.fn().mockResolvedValue({ success: true, path: "/tmp/x.png" }),
+		copyStatsImage: vi.fn().mockResolvedValue({ success: true }),
+		revealStatsImage: vi.fn().mockResolvedValue({ success: true }),
+		...overrides,
+	};
+	(window as unknown as { window_?: unknown }).window_ = bridge;
+	return bridge;
 }
 
 describe("canShareStats", () => {
@@ -42,49 +56,9 @@ describe("canShareStats", () => {
 	});
 });
 
-describe("computeShareStats", () => {
-	it("computes wpm, minutes saved, and faster-than-avg for a dictation", () => {
-		const stats = computeShareStats(
-			{ duration: 60, word_count: 100 } as TodayStats,
-			"openai",
-		);
-		expect(stats.wpm).toBe(100);
-		expect(stats.wpmDisplay).toBe("100");
-		expect(stats.minutesSaved).toBe(2);
-		expect(stats.minutesSavedDisplay).toBe("2");
-		expect(stats.fasterThanAvg).toBe("stats.shareImage.fasterThanAvg");
-		expect(stats.modeDisplay).toBe("stats.shareImage.cloudMode");
-		expect(stats.modeDetail).toBe("stats.shareImage.cloudApi");
-	});
-
-	it("returns zeros when there is no active duration", () => {
-		const stats = computeShareStats(
-			{ duration: 0, word_count: 0 } as TodayStats,
-			"local",
-		);
-		expect(stats.wpm).toBe(0);
-		expect(stats.wpmDisplay).toBe("0");
-		expect(stats.minutesSaved).toBe(0);
-		expect(stats.fasterThanAvg).toBe("stats.shareImage.fasterThanAvg");
-	});
-
-	it("labels offline backends as local-model mode", () => {
-		const stats = computeShareStats(
-			{ duration: 0, word_count: 0 } as TodayStats,
-			"local",
-		);
-		expect(stats.modeDisplay).toBe("stats.shareImage.offlineMode");
-		expect(stats.modeDetail).toBe("stats.shareImage.localModel");
-	});
-});
-
 describe("useStatsShare hook", () => {
 	afterEach(() => {
-		delete (navigator as { canShare?: unknown }).canShare;
-		delete (navigator as { share?: unknown }).share;
-		vi.unstubAllGlobals();
-		// Restores the HTMLAnchorElement.prototype.click spy created in
-		// the anchor-download test so it cannot leak into later tests.
+		delete (window as unknown as { window_?: unknown }).window_;
 		vi.restoreAllMocks();
 		vi.clearAllMocks();
 	});
@@ -94,7 +68,8 @@ describe("useStatsShare hook", () => {
 		const { result } = renderHook(() => useStatsShare({ onError }));
 
 		await act(async () => {
-			await result.current.shareAsImage();
+			const dataUrl = await result.current.captureImage();
+			expect(dataUrl).toBeNull();
 		});
 
 		expect(onError).toHaveBeenCalledWith(captureFailedKey);
@@ -110,56 +85,24 @@ describe("useStatsShare hook", () => {
 		});
 
 		await act(async () => {
-			await result.current.shareAsImage();
+			const dataUrl = await result.current.captureImage();
+			expect(dataUrl).toBeNull();
 		});
 
 		expect(onError).toHaveBeenCalledWith(captureFailedKey);
 		expect(toPng).not.toHaveBeenCalled();
 	});
 
-	it("downloads the PNG via an anchor when native share is unavailable", async () => {
-		vi.mocked(toPng).mockResolvedValue("data:image/png;base64,AA==");
-		const clickSpy = vi
-			.spyOn(HTMLAnchorElement.prototype, "click")
-			.mockImplementation(() => {});
-		const onError = vi.fn();
-		const { result } = renderHook(() => useStatsShare({ onError }));
-		result.current.imageRef.current = makeElement();
-
-		await act(async () => {
-			await result.current.shareAsImage("my-stats");
-		});
-
-		expect(toPng).toHaveBeenCalled();
-		expect(clickSpy).toHaveBeenCalled();
-		expect(onError).not.toHaveBeenCalled();
-	});
-
-	it("uses the native share sheet when navigator.share is available", async () => {
-		vi.mocked(toPng).mockResolvedValue("data:image/png;base64,AA==");
-		vi.stubGlobal(
-			"fetch",
-			vi.fn().mockResolvedValue({ blob: async () => new Blob(["x"]) }),
-		);
-		const canShare = vi.fn(() => true);
-		const share = vi.fn().mockResolvedValue(undefined);
-		Object.defineProperty(navigator, "canShare", {
-			value: canShare,
-			configurable: true,
-		});
-		Object.defineProperty(navigator, "share", {
-			value: share,
-			configurable: true,
-		});
+	it("captureImage returns the PNG data URL on success", async () => {
+		vi.mocked(toPng).mockResolvedValue(PNG_DATA_URL);
 		const { result } = renderHook(() => useStatsShare());
 		result.current.imageRef.current = makeElement();
 
 		await act(async () => {
-			await result.current.shareAsImage("my-stats");
+			const dataUrl = await result.current.captureImage();
+			expect(dataUrl).toBe(PNG_DATA_URL);
 		});
-
-		expect(canShare).toHaveBeenCalled();
-		expect(share).toHaveBeenCalled();
+		expect(toPng).toHaveBeenCalled();
 	});
 
 	it("reports an error when toPng throws", async () => {
@@ -169,9 +112,152 @@ describe("useStatsShare hook", () => {
 		result.current.imageRef.current = makeElement();
 
 		await act(async () => {
-			await result.current.shareAsImage();
+			const dataUrl = await result.current.captureImage();
+			expect(dataUrl).toBeNull();
 		});
 
 		expect(onError).toHaveBeenCalledWith(captureFailedKey);
+	});
+
+	it("downloadImage saves to Downloads via the bridge and returns the path", async () => {
+		vi.mocked(toPng).mockResolvedValue(PNG_DATA_URL);
+		const bridge = installWindowBridge();
+		const onError = vi.fn();
+		const { result } = renderHook(() => useStatsShare({ onError }));
+		result.current.imageRef.current = makeElement();
+
+		await act(async () => {
+			const path = await result.current.downloadImage("my-stats");
+			expect(path).toBe("/tmp/x.png");
+		});
+
+		expect(bridge.saveStatsImage).toHaveBeenCalledWith(
+			PNG_DATA_URL,
+			"my-stats",
+			"downloads",
+		);
+		expect(onError).not.toHaveBeenCalled();
+	});
+
+	it("downloadImage surfaces the bridge error via onError", async () => {
+		vi.mocked(toPng).mockResolvedValue(PNG_DATA_URL);
+		installWindowBridge({
+			saveStatsImage: vi.fn().mockResolvedValue({ success: false, error: "boom" }),
+		});
+		const onError = vi.fn();
+		const { result } = renderHook(() => useStatsShare({ onError }));
+		result.current.imageRef.current = makeElement();
+
+		await act(async () => {
+			const path = await result.current.downloadImage();
+			expect(path).toBeNull();
+		});
+		expect(onError).toHaveBeenCalledWith("boom");
+	});
+
+	it("downloadImage falls back to an anchor download when no bridge exists", async () => {
+		vi.mocked(toPng).mockResolvedValue(PNG_DATA_URL);
+		const clickSpy = vi
+			.spyOn(HTMLAnchorElement.prototype, "click")
+			.mockImplementation(() => {});
+		const { result } = renderHook(() => useStatsShare());
+		result.current.imageRef.current = makeElement();
+
+		await act(async () => {
+			const path = await result.current.downloadImage("my-stats");
+			expect(path).toBeNull();
+		});
+		expect(clickSpy).toHaveBeenCalled();
+	});
+
+	it("saveImageAs opens the native Save As dialog via the bridge", async () => {
+		vi.mocked(toPng).mockResolvedValue(PNG_DATA_URL);
+		const bridge = installWindowBridge({
+			saveStatsImage: vi
+				.fn()
+				.mockResolvedValue({ success: true, path: "/pick/here.png" }),
+		});
+		const { result } = renderHook(() => useStatsShare());
+		result.current.imageRef.current = makeElement();
+
+		await act(async () => {
+			const path = await result.current.saveImageAs();
+			expect(path).toBe("/pick/here.png");
+		});
+		expect(bridge.saveStatsImage).toHaveBeenCalledWith(
+			PNG_DATA_URL,
+			"voice-typer-stats",
+			"saveAs",
+		);
+	});
+
+	it("saveImageAs is silent when the user cancels the dialog", async () => {
+		vi.mocked(toPng).mockResolvedValue(PNG_DATA_URL);
+		installWindowBridge({
+			saveStatsImage: vi.fn().mockResolvedValue({ success: false, canceled: true }),
+		});
+		const onError = vi.fn();
+		const { result } = renderHook(() => useStatsShare({ onError }));
+		result.current.imageRef.current = makeElement();
+
+		await act(async () => {
+			const path = await result.current.saveImageAs();
+			expect(path).toBeNull();
+		});
+		expect(onError).not.toHaveBeenCalled();
+	});
+
+	it("copyImageToClipboard copies via the bridge and returns true", async () => {
+		vi.mocked(toPng).mockResolvedValue(PNG_DATA_URL);
+		const bridge = installWindowBridge();
+		const { result } = renderHook(() => useStatsShare());
+		result.current.imageRef.current = makeElement();
+
+		await act(async () => {
+			const ok = await result.current.copyImageToClipboard();
+			expect(ok).toBe(true);
+		});
+		expect(bridge.copyStatsImage).toHaveBeenCalledWith(PNG_DATA_URL);
+	});
+
+	it("copyImageToClipboard surfaces failures via onError", async () => {
+		vi.mocked(toPng).mockResolvedValue(PNG_DATA_URL);
+		installWindowBridge({
+			copyStatsImage: vi.fn().mockResolvedValue({ success: false, error: "nope" }),
+		});
+		const onError = vi.fn();
+		const { result } = renderHook(() => useStatsShare({ onError }));
+		result.current.imageRef.current = makeElement();
+
+		await act(async () => {
+			const ok = await result.current.copyImageToClipboard();
+			expect(ok).toBe(false);
+		});
+		expect(onError).toHaveBeenCalledWith("nope");
+	});
+
+	it("copyImageToClipboard uses navigator.clipboard when no bridge exists", async () => {
+		vi.mocked(toPng).mockResolvedValue(PNG_DATA_URL);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue({ blob: async () => new Blob(["x"]) }),
+		);
+		class FakeClipboardItem {
+			constructor(public data: Record<string, Blob>) {}
+		}
+		vi.stubGlobal("ClipboardItem", FakeClipboardItem);
+		const write = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, "clipboard", {
+			value: { write },
+			configurable: true,
+		});
+		const { result } = renderHook(() => useStatsShare());
+		result.current.imageRef.current = makeElement();
+
+		await act(async () => {
+			const ok = await result.current.copyImageToClipboard();
+			expect(ok).toBe(true);
+		});
+		expect(write).toHaveBeenCalled();
 	});
 });

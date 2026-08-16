@@ -70,7 +70,7 @@ function StatCards({ stats }: StatCardsProps) {
 				return (
 					<div
 						key={card.labelKey}
-						className="rounded-lg bg-(--bg-subtle) px-4 py-3 flex-1 border border-border"
+						className="rounded-lg bg-(--bg-subtle) px-4 py-3 flex-1 border border-border/10"
 					>
 						<div className="flex items-center gap-2 mb-1.5">
 							<HugeiconsIcon

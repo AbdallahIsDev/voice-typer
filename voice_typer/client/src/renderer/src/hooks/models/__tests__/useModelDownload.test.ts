@@ -68,7 +68,7 @@ import type { ModelInfo } from "@/lib/utils/models";
 
 function makeModel(overrides: Partial<ModelInfo> = {}): ModelInfo {
 	return {
-		name: "small.en",
+		name: "tiny",
 		size: "~466MB",
 		speed: "Fast",
 		backend: "whisper",
@@ -202,7 +202,7 @@ describe("useModelDownload — downloadModel success path", () => {
 		const args = makeHookArgs({ setModels: setModels as never });
 
 		const { result } = renderHook(() => useModelDownload(args));
-		const model = makeModel({ name: "small.en" });
+		const model = makeModel({ name: "tiny" });
 
 		await act(async () => {
 			await result.current.downloadModel(model);
@@ -216,11 +216,11 @@ describe("useModelDownload — downloadModel success path", () => {
 			prev: ModelInfo[],
 		) => ModelInfo[];
 		const prev: ModelInfo[] = [
-			makeModel({ name: "small.en" }),
-			makeModel({ name: "tiny.en" }),
+			makeModel({ name: "tiny" }),
+			makeModel({ name: "large-v3-turbo" }),
 		];
 		const next = updater(prev);
-		const small = next.find((m) => m.name === "small.en");
+		const small = next.find((m) => m.name === "tiny");
 		expect(small?.downloaded).toBe(true);
 		expect(small?.isActive).toBe(true);
 
@@ -239,16 +239,16 @@ describe("useModelDownload — downloadModel failure path (success:false)", () =
 		const args = makeHookArgs();
 
 		const { result } = renderHook(() => useModelDownload(args));
-		const model = makeModel({ name: "small.en" });
+		const model = makeModel({ name: "tiny" });
 
 		await act(async () => {
 			await result.current.downloadModel(model);
 		});
 
 		// downloadingModel stays set so the bar stays mounted.
-		expect(result.current.downloadingModel).toBe("small.en");
+		expect(result.current.downloadingModel).toBe("tiny");
 		expect(result.current.failedDownload).toEqual({
-			modelName: "small.en",
+			modelName: "tiny",
 			error: "disk full",
 		});
 
@@ -268,15 +268,15 @@ describe("useModelDownload — downloadModel thrown-error path", () => {
 		const args = makeHookArgs();
 
 		const { result } = renderHook(() => useModelDownload(args));
-		const model = makeModel({ name: "small.en" });
+		const model = makeModel({ name: "tiny" });
 
 		await act(async () => {
 			await result.current.downloadModel(model);
 		});
 
-		expect(result.current.downloadingModel).toBe("small.en");
+		expect(result.current.downloadingModel).toBe("tiny");
 		expect(result.current.failedDownload).not.toBeNull();
-		expect(result.current.failedDownload?.modelName).toBe("small.en");
+		expect(result.current.failedDownload?.modelName).toBe("tiny");
 		// The formatted message should include "network down" (formatErrorMessage
 		// returns the Error.message on Error instances).
 		expect(result.current.failedDownload?.error).toContain("network down");
@@ -345,7 +345,7 @@ describe("useModelDownload — retryDownload", () => {
 
 		const args = makeHookArgs();
 		const { result } = renderHook(() => useModelDownload(args));
-		const model = makeModel({ name: "small.en" });
+		const model = makeModel({ name: "tiny" });
 
 		await act(async () => {
 			await result.current.downloadModel(model);

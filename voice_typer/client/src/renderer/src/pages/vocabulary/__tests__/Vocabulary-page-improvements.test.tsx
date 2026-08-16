@@ -216,11 +216,14 @@ describe("Vocabulary page — display cap + Show more", () => {
 			expect(screen.getByText("word0")).toBeTruthy();
 		});
 
-		// The count footer is visible with 5 entries.
-		expect(screen.getByText("5 entries")).toBeTruthy();
+		// The entry count near the list header is visible with 5 entries.
+		expect(screen.getByTestId("vocab-entry-count").textContent).toBe(
+			"5 entries",
+		);
 
-		// Type a search query that matches nothing — the count footer
-		// stays visible (the user still wants to know the total).
+		// Type a search query that matches nothing — the count updates
+		// live to reflect the filter ("0 of 5 corrections") so the user
+		// still knows the total behind the empty state.
 		const searchInput = screen.getByPlaceholderText("Search vocabulary…");
 		fireEvent.change(searchInput, { target: { value: "zzzzznomatch" } });
 
@@ -229,8 +232,9 @@ describe("Vocabulary page — display cap + Show more", () => {
 			expect(screen.getByText("No results found")).toBeTruthy();
 		});
 
-		//The total count footer is STILL visible ().
-		expect(screen.getByText("5 entries")).toBeTruthy();
+		expect(screen.getByTestId("vocab-entry-count").textContent).toBe(
+			"0 of 5 corrections",
+		);
 	});
 
 	it("renders the noResults EmptyState with a description", async () => {
@@ -494,11 +498,10 @@ describe("Vocabulary page — duplicate detection on save", () => {
 		cleanup();
 	});
 
-	it("refuses to save a new entry whose (original, category) pair already exists", async () => {
+	it("refuses to save a new entry whose wrong→correct pair already exists", async () => {
 		// Seed with one entry: "recieve" → "receive" in misspellings.
-		// detectCategory("recieve") resolves to misspellings (lowercase
-		// non-tech), so adding a new entry with trigger "recieve" and
-		// category "auto" must be detected as a duplicate.
+		// Re-adding the same pair must be refused — with categories
+		// hidden, an exact pair is a UI-visible duplicate.
 		mockCall.mockImplementation((arg: unknown) => {
 			const type =
 				typeof arg === "string"
@@ -524,10 +527,9 @@ describe("Vocabulary page — duplicate detection on save", () => {
 			(args: unknown[]) => args[0] === "save_vocabulary",
 		).length;
 
-		// Open the Add dialog.
+		// Open the inline quick-add row.
 		fireEvent.click(screen.getByText("Add Word"));
 
-		// Wait for the dialog's trigger input to mount.
 		const triggerInput = await screen.findByPlaceholderText(
 			"treat three, mynameis",
 		);
@@ -535,18 +537,18 @@ describe("Vocabulary page — duplicate detection on save", () => {
 			"treat this, My Name Is",
 		);
 
-		// Type a duplicate trigger + a different correction.
+		// Type the exact existing pair.
 		fireEvent.change(triggerInput, { target: { value: "recieve" } });
-		fireEvent.change(replacementInput, { target: { value: "different" } });
+		fireEvent.change(replacementInput, { target: { value: "receive" } });
 
 		// Click Save.
 		fireEvent.click(screen.getByText("Save"));
 
-		// The warning toast fires with the localised duplicate message.
-		// (The useSnackbar mock routes warning → toastSuccess.)
+		// The inline error fires with the localised duplicate message
+		// (the quick-add row stays open).
 		await waitFor(() => {
-			expect(toastSuccess).toHaveBeenCalledWith(
-				"An entry with the same trigger already exists in this category",
+			expect(screen.getByTestId("vocab-quick-add-error").textContent).toBe(
+				"This correction already exists",
 			);
 		});
 
@@ -562,11 +564,13 @@ describe("Vocabulary page — duplicate detection on save", () => {
 		expect(screen.getAllByText("recieve").length).toBe(1);
 	});
 
-	it("allows saving a duplicate trigger in a DIFFERENT category", async () => {
-		// Same trigger "recieve" but a different category is NOT a
-		// duplicate — the pair (original, category) is unique.
-		// Seed: "recieve" → "receive" in misspellings. Add the same
-		// trigger with category=names → should save successfully.
+	it("refuses the same trigger re-added to the same backend bucket with a different correction", async () => {
+		// Categories are hidden, so a second entry with the same
+		// original that would land in the SAME bucket (auto-detect)
+		// would silently overwrite the first on save — refuse it.
+		// Seed: "recieve" → "receive" in misspellings; adding
+		// "recieve" → "recieved" (also auto-detected as
+		// misspellings) must be blocked.
 		mockCall.mockImplementation((arg: unknown) => {
 			const type =
 				typeof arg === "string"
@@ -587,10 +591,6 @@ describe("Vocabulary page — duplicate detection on save", () => {
 			expect(screen.getByText("recieve")).toBeTruthy();
 		});
 
-		const saveCallsBefore = mockCall.mock.calls.filter(
-			(args: unknown[]) => args[0] === "save_vocabulary",
-		).length;
-
 		fireEvent.click(screen.getByText("Add Word"));
 
 		const triggerInput = await screen.findByPlaceholderText(
@@ -601,23 +601,164 @@ describe("Vocabulary page — duplicate detection on save", () => {
 		);
 
 		fireEvent.change(triggerInput, { target: { value: "recieve" } });
-		fireEvent.change(replacementInput, { target: { value: "different" } });
-
-		// Pick the "names" category via the Select. Radix Select
-		// opens on trigger click; the item is found by its label
-		// text (resolved from t("vocabulary.category.names")).
-		fireEvent.click(screen.getByRole("combobox"));
-		const namesItem = await screen.findByText("Names");
-		fireEvent.click(namesItem);
+		fireEvent.change(replacementInput, { target: { value: "recieved" } });
 
 		fireEvent.click(screen.getByText("Save"));
 
-		// The save succeeds — save_vocabulary is called once.
 		await waitFor(() => {
-			const saveCallsAfter = mockCall.mock.calls.filter(
-				(args: unknown[]) => args[0] === "save_vocabulary",
-			).length;
-			expect(saveCallsAfter).toBe(saveCallsBefore + 1);
+			expect(screen.getByTestId("vocab-quick-add-error").textContent).toBe(
+				"This correction already exists",
+			);
 		});
+
+		// No save happened; the list is unchanged.
+		const saveCalls = mockCall.mock.calls.filter(
+			(args: unknown[]) => args[0] === "save_vocabulary",
+		);
+		expect(saveCalls.length).toBe(0);
+		expect(screen.getAllByText("recieve").length).toBe(1);
+	});
+
+	it("surfaces the backend's authoritative rejection as an inline error", async () => {
+		// The frontend pre-check is a convenience layer — the AUTHORITATIVE
+		// check lives in the backend write path (save_vocabulary_with_diff,
+		// which rejects with client.duplicate_entry). This test seeds a
+		// list WITHOUT the phrase so the pre-check passes, then makes the
+		// backend reject the write — the renderer must surface the inline
+		// "already exists" message and NOT append a row.
+		mockCall.mockImplementation((type: unknown, arg?: unknown) => {
+			const cmd =
+				typeof type === "string"
+					? type
+					: ((type as { type?: string })?.type ?? "");
+			if (cmd === "get_vocabulary")
+				return Promise.resolve({
+					misspellings: { teh: "the" },
+				} as VocabularyData);
+			if (cmd === "save_vocabulary") {
+				void arg;
+				const err = new Error(
+					"duplicate correction: 'recieve' (2 entries)",
+				) as Error & {
+					code?: string;
+				};
+				err.code = "client.duplicate_entry";
+				return Promise.reject(err);
+			}
+			return Promise.resolve({});
+		});
+
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("teh")).toBeTruthy();
+		});
+
+		fireEvent.click(screen.getByText("Add Word"));
+		const triggerInput = await screen.findByPlaceholderText(
+			"treat three, mynameis",
+		);
+		const replacementInput = screen.getByPlaceholderText(
+			"treat this, My Name Is",
+		);
+		fireEvent.change(triggerInput, { target: { value: "recieve" } });
+		fireEvent.change(replacementInput, { target: { value: "receive" } });
+		fireEvent.click(screen.getByText("Save"));
+
+		// The backend rejection surfaces as the inline error and the
+		// row is NOT added locally.
+		await waitFor(() => {
+			expect(screen.getByTestId("vocab-quick-add-error").textContent).toBe(
+				"This correction already exists",
+			);
+		});
+		expect(screen.queryByText("recieve")).toBeNull();
+	});
+});
+
+describe("Vocabulary page — duplicate review banner", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		showSnack.mockReset();
+		toastSuccess.mockClear();
+		toastError.mockClear();
+		localStorage.clear();
+		vi.resetModules();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("surfaces pre-existing duplicates and Remove duplicates collapses them", async () => {
+		// "recieve" + "Recieve" normalize to the same wrong phrase
+		// (case-insensitive) — a pre-existing duplicate from before the
+		// backend check shipped.
+		mockCall.mockImplementation((type: unknown, _arg?: unknown) => {
+			const cmd =
+				typeof type === "string"
+					? type
+					: ((type as { type?: string })?.type ?? "");
+			if (cmd === "get_vocabulary")
+				return Promise.resolve({
+					misspellings: { recieve: "receive", Recieve: "receive" },
+				} as VocabularyData);
+			if (cmd === "save_vocabulary") return Promise.resolve({ success: true });
+			return Promise.resolve({});
+		});
+
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByTestId("vocab-duplicate-banner")).toBeTruthy();
+		});
+
+		// Banner reports the extra (duplicate) entry: 1.
+		expect(screen.getByTestId("vocab-duplicate-banner").textContent).toContain(
+			"1 duplicate corrections found",
+		);
+
+		// Remove duplicates → the collapsed list (first occurrence
+		// kept) is persisted.
+		fireEvent.click(screen.getByRole("button", { name: "Remove duplicates" }));
+
+		await waitFor(() => {
+			expect(screen.queryByTestId("vocab-duplicate-banner")).toBeNull();
+		});
+
+		// Exactly one save; the payload keeps only "recieve".
+		const saveCalls = mockCall.mock.calls.filter(
+			(args: unknown[]) => args[0] === "save_vocabulary",
+		);
+		expect(saveCalls.length).toBe(1);
+		const payload = saveCalls[0]?.[1] as {
+			misspellings?: Record<string, string>;
+		};
+		expect(payload?.misspellings).toEqual({ recieve: "receive" });
+
+		// The collapsed list renders one row.
+		expect(screen.getAllByText("recieve").length).toBe(1);
+	});
+
+	it("does not show the banner for a clean list", async () => {
+		mockCall.mockImplementation((type: unknown) => {
+			const cmd =
+				typeof type === "string"
+					? type
+					: ((type as { type?: string })?.type ?? "");
+			if (cmd === "get_vocabulary")
+				return Promise.resolve(buildSeed(2) as VocabularyData);
+			return Promise.resolve({});
+		});
+
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("word0")).toBeTruthy();
+		});
+		expect(screen.queryByTestId("vocab-duplicate-banner")).toBeNull();
 	});
 });

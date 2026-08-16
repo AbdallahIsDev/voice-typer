@@ -1,19 +1,19 @@
-//must mirror Python `ALLOWED_USER_MODELS` in
-//`voice_typer/server/config_validators.py:44-55`.  extended the
-// Python allowlist to include the multilingual Whisper variants
-// (tiny/small/medium, no `.en` suffix) that OnboardingController offers
-// to non-English users, but the TS union was never updated — TS code
-// that pattern-matches on `ModelSize` silently missed 3 enum branches
-// and the Settings UI <select> couldn't surface multilingual variants
-// post-onboarding. `large-v3` is intentionally NOT included (it
-// normalizes to "small.en" — see config_validators.py:39-43 comment).
+// Must mirror Python `ALLOWED_USER_MODELS` (derived from
+// `voice_typer/server/model_registry.py`'s `MODEL_REGISTRY`). The
+// Whisper catalog (pruned 2026-08-15) is `tiny` / `large-v3` /
+// `large-v3-turbo` — `large-v3` was restored at the user's request
+// the same day — plus `qwen` and `parakeet`; the parity test
+// `types/__tests__/config-parity.test.ts` keeps the union in lockstep.
+// `""` is the genuine "no model selected" state (the backend's
+// `NO_MODEL_SIZE` sentinel) — the user has no active model until they
+// pick one. The default is `MODEL_DEFAULT`
+// (`onboarding/lib/constants.ts`), mirroring the backend's
+// `DEFAULT_MODEL_SIZE`.
 export type ModelSize =
-	| "tiny.en"
-	| "small.en"
-	| "medium.en"
+	| ""
 	| "tiny"
-	| "small"
-	| "medium"
+	| "large-v3"
+	| "large-v3-turbo"
 	| "qwen"
 	| "parakeet";
 

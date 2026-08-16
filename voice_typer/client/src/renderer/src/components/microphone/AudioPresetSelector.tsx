@@ -102,7 +102,7 @@ export function AudioPresetSelector({
 	const panelId = "audio-preset-panel";
 
 	return (
-		<div className="rounded-lg border border-border overflow-hidden">
+		<div className="rounded-lg border border-border/10 overflow-hidden">
 			<button
 				type="button"
 				className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-medium text-(--text-primary) hover:bg-(--accent)/5 transition-colors cursor-pointer"
@@ -140,7 +140,7 @@ export function AudioPresetSelector({
 			{showAdvanced && (
 				<div
 					id={panelId}
-					className="divide-y divide-border border-t border-border"
+					className="divide-y divide-border/10 border-t border-border/10"
 				>
 					{/* Preset selector */}
 					<div className="px-4 py-3 space-y-2">

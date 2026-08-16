@@ -1,4 +1,5 @@
 import type { Ref } from "react";
+import { FamilyLogo } from "@/components/models/FamilyLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -14,6 +15,28 @@ import { formatModelSpeed } from "@/lib/utils/models";
 import type { BackendChoice } from "../hooks/useOnboardingWizard";
 import { HEADING_CLASS } from "../lib/constants";
 import type { ModelOption } from "../lib/types";
+
+// The onboarding wizard only offers the curated MODEL_OPTIONS subset
+// (currently the multilingual Whisper variants + Parakeet), so the
+// brand strip is derived from the options actually present rather than
+// a static list — a future option (e.g. Qwen) shows up automatically.
+// Mirrors the Models page family grouping: whisper → OpenAI, parakeet →
+// NVIDIA, qwen → Qwen.
+function familyForModelName(name: string): string | null {
+	if (name === "qwen") return "qwen";
+	if (name === "parakeet") return "parakeet";
+	if (name === "tiny" || name === "large-v3" || name === "large-v3-turbo")
+		return "whisper";
+	return null;
+}
+
+// Family display labels — brand names (proper nouns, kept literal like
+// the Models page family headers).
+const FAMILY_STRIP_LABELS: Record<string, string> = {
+	whisper: "Whisper",
+	qwen: "Qwen",
+	parakeet: "Nvidia",
+};
 
 export interface ModelStepProps {
 	headingRef: Ref<HTMLHeadingElement>;
@@ -79,7 +102,7 @@ function backendCardClass(active: boolean): string {
 		"transition-colors duration-150",
 		active
 			? "border-accent bg-accent/5"
-			: "border-border bg-(--bg-subtle) hover:border-accent/50",
+			: "border-border/10 bg-(--bg-subtle) hover:border-accent/50",
 	].join(" ");
 }
 
@@ -105,6 +128,17 @@ export function ModelStep({
 }: ModelStepProps) {
 	const isDownloading = downloadingModel !== null;
 	const progressPct = Math.round(downloadProgress);
+	// Families present in the offered local models (whisper → OpenAI,
+	// parakeet → NVIDIA, qwen → Qwen) — drives the brand strip above
+	// the picker. Derived from the options so a catalog change
+	// automatically updates the strip.
+	const localFamilies = Array.from(
+		new Set(
+			modelOptions
+				.map((m) => familyForModelName(m.name))
+				.filter((f): f is string => f !== null),
+		),
+	);
 
 	return (
 		<>
@@ -159,6 +193,34 @@ export function ModelStep({
 
 			{selectedBackend === "local" ? (
 				<div className="mt-5 space-y-4">
+					{/* Brand strip — lets the user see which families the
+					    local models come from BEFORE opening the picker.
+					    Families are derived from the options list so the
+					    strip stays accurate if the catalog changes. */}
+					{localFamilies.length > 0 && (
+						<div
+							className="flex items-center gap-3"
+							data-testid="onboarding-family-strip"
+						>
+							<span className="text-xs text-(--text-muted)">
+								{t("onboarding.familyStripLabel")}
+							</span>
+							<div className="flex items-center gap-4">
+								{localFamilies.map((family) => (
+									<span
+										key={family}
+										className="flex items-center gap-1.5"
+									>
+										<FamilyLogo family={family} />
+										<span className="text-xs font-medium text-(--text-secondary)">
+											{FAMILY_STRIP_LABELS[family] ?? family}
+										</span>
+									</span>
+								))}
+							</div>
+						</div>
+					)}
+
 					<Select value={selectedModel} onValueChange={setSelectedModel}>
 						<SelectTrigger
 							className="w-full"
@@ -209,7 +271,7 @@ export function ModelStep({
 					</Select>
 
 					{/* HuggingFace consent — gates the EXPLICIT download. */}
-					<div className="rounded-lg border border-border bg-(--bg-subtle) p-4">
+					<div className="rounded-lg border border-border/10 bg-(--bg-subtle) p-4">
 						<label className="flex items-start gap-3 text-sm">
 							<input
 								type="checkbox"
@@ -345,7 +407,7 @@ export function ModelStep({
 						/>
 					</div>
 
-					<div className="rounded-lg border border-border bg-(--bg-subtle) p-4">
+					<div className="rounded-lg border border-border/10 bg-(--bg-subtle) p-4">
 						<label className="flex items-start gap-3 text-sm">
 							<input
 								type="checkbox"
