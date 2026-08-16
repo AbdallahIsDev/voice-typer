@@ -58,6 +58,15 @@ LOGO = PROJECT_ROOT / "voice_typer" / "client" / "scripts" / "logo.svg"
 # tests/tauri/test_tray_icons.py).
 PRESERVE_DIRS = {"tray"}
 
+# The @tauri-apps/cli version the icon pipeline is pinned to. The CLI
+# is NOT a package.json dependency — it is fetched on demand via
+# `npx --yes` — so without a pin here every new CLI release silently
+# changes the PNG bytes (2026-08-17: a CLI bump dropped the pHYs chunk
+# the Aug-15 commit had stripped and re-encoded IDAT, failing the
+# `--check` drift gate). Pinning keeps `tauri icon` output
+# deterministic; bump this deliberately + regenerate + commit.
+TAURI_CLI_PIN = "2.11.4"
+
 # The drift-guard tests re-run after every regeneration: the config ↔
 # git lockstep guards PLUS the dimension validation (a ``tauri icon``
 # regen that emits a wrong-sized PNG must fail the refresh immediately).
@@ -94,7 +103,7 @@ def run_tauri_icon(logo: Path = LOGO, icons_dir: Path = ICONS_DIR) -> None:
     npx = shutil.which("npx")
     if npx is None:
         sys.exit("npx not found on PATH — install Node.js (npx) to regenerate icons.")
-    base = [npx, "--yes", "@tauri-apps/cli", "icon", str(logo), "-o", str(icons_dir)]
+    base = [npx, "--yes", f"@tauri-apps/cli@{TAURI_CLI_PIN}", "icon", str(logo), "-o", str(icons_dir)]
     # On Windows `npx` is a .cmd shim that CreateProcess cannot exec
     # directly (WinError 2); route it through cmd.exe there, keep the
     # direct exec on POSIX.
@@ -321,7 +330,16 @@ def main() -> None:
     if problems:
         sys.exit("icon set validation failed after regeneration — " + "; ".join(problems))
     print(f"Icon set OK: exactly {len(keep)} bundle.icon files under src-tauri/icons/.")
+    # Snapshot the fresh regen BEFORE the drift guard: the icons test
+    # module's autouse ``_serialize_and_cleanup`` fixture restores every
+    # committed icon to its git bytes before/after each test, so without
+    # this the guard silently reverts the working tree to the OLD icons
+    # and there is nothing to commit (the ``--check`` gate then keeps
+    # failing against the stale bytes).
+    fresh = {rel.removeprefix("icons/"): (ICONS_DIR / rel.removeprefix("icons/")).read_bytes() for rel in keep}
     refresh_drift_guard()
+    for name, data in fresh.items():
+        (ICONS_DIR / name).write_bytes(data)
     restore_binary_stubs_if_missing()
     print(
         "\nDone. Review `git status` and commit the regenerated icons (same 6 paths — content refreshed from logo.svg)."
