@@ -143,7 +143,7 @@ When the WS reader sees the legacy name, it emits **BOTH** `electron_notificatio
 
 **Validation evidence (this round):**
 - `cargo check` → 0 errors, 0 warnings (Linux, with webkit2gtk/GTK system libs)
-- `npm run typecheck` → 0 errors (tsc --noEmit + tsconfig.web + tsconfig.node)
+- `npm run typecheck` → 0 errors (tsc -p tsconfig.web.json --noEmit + tsc -p tsconfig.node.json --noEmit — never a bare root `tsc --noEmit`, which is a no-op on the solution-style root tsconfig)
 - `npm run lint` → 0 errors (biome check)
 - `npm run build:renderer` → succeeded (5717 modules transformed)
 - `python -m pytest tests/tauri/ tests/test_ipc_dispatch_errors.py tests/test_tray*.py` → 127 passed
