@@ -15,3 +15,11 @@ vocabulary.bulkMoveTo, vocabulary.bulkMoveToast, vocabulary.category.*,
 vocabulary.categoryAria, vocabulary.categoryBadgeAria,
 vocabulary.categoryLabel, vocabulary.columnCategory, vocabulary.duplicate,
 vocabulary.filterByCategoryAria, vocabulary.menuLabel
+
+Removed dead component (Home page — errors are surfaced as red text in the
+single dynamic status line below the mic button; the error card is gone):
+- voice_typer/client/src/renderer/src/pages/home/components/RecordingErrorCard.tsx
+
+(RecordingStatusPill and its helpers statusLabelFor / statusKeyFor /
+STATUS_COLORS were briefly removed alongside it, then restored on user
+request — "get the status pill back".)

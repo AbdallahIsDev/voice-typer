@@ -307,9 +307,15 @@ manually rediscovering what a web search already knows.
 ## Engineering rules (E-rules)
 
 **E1 — Wiring verification — no code ships without it.** `cargo check`,
-`tsc --noEmit` / `npm run typecheck:ci`, `pytest --collect-only` — a missing `mod`
-declaration, unregistered handler, or broken import is "works in the diff, broken
-on run," and `py_compile` alone never catches it. If `src-tauri/tauri.conf.json`
+`npm run typecheck` / `npm run typecheck:ci`, `pytest --collect-only` — a
+missing `mod` declaration, unregistered handler, or broken import is "works
+in the diff, broken on run," and `py_compile` alone never catches it.
+NEVER run a bare `tsc --noEmit` at the repo root as a gate: the root
+`tsconfig.json` is solution-style with `files: []`, so plain `tsc --noEmit`
+checks nothing and prints a false "clean". Use the project forms —
+`tsc -p tsconfig.web.json --noEmit` / `tsc -p tsconfig.node.json --noEmit`
+(`npm run typecheck`) or `tsc -b` (`npm run typecheck:root` /
+`typecheck:ci`). If `src-tauri/tauri.conf.json`
 was touched, grep for the removed v1 keys (`"postInstall"`/`"preRemove"` without
 `Script`) — the correct v2 keys are `postInstallScript`/`preRemoveScript`; `cargo
 check` does not catch this. Splits are create-first: new modules complete and
