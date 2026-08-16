@@ -40,7 +40,12 @@ export function VocabBulkBar({
 	return (
 		<div
 			data-testid="vocab-bulk-bar"
-			className="sticky bottom-4 z-20 mx-auto flex w-fit max-w-full flex-wrap items-center gap-2 rounded-2xl border border-border/10 bg-popover px-3 py-2 shadow-lg ring-1 ring-foreground/5"
+			// Border is exactly 1px — the old `ring-1 ring-foreground/5`
+			// stacked a second outline on top of the border and read as a
+			// thicker/inconsistent stroke. Centering is handled by the
+			// page column's `relative` wrapper (Vocabulary.tsx), so the bar
+			// stays centered on the content area in both sidebar states.
+			className="sticky bottom-4 z-20 mx-auto flex w-fit max-w-full flex-wrap items-center gap-2 rounded-2xl border border-border/10 bg-popover px-3 py-2 shadow-lg"
 		>
 			<span className="px-1 text-xs font-medium text-(--text-muted)">
 				{t("vocabulary.selectedCount", { count: String(selectedCount) })}

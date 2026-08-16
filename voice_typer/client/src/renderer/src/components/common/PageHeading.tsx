@@ -27,7 +27,9 @@ function HeadingContent({
 				{title}
 			</h1>
 			{description !== undefined ? (
-				<p className="text-sm text-(--text-muted)">{description || "\u00A0"}</p>
+				<p className="text-sm text-(--text-muted) text-balance">
+					{description || "\u00A0"}
+				</p>
 			) : null}
 		</>
 	);
@@ -41,11 +43,19 @@ export default function PageHeading({
 	return (
 		<div className="space-y-1 pb-5">
 			{children ? (
-				<div className="flex items-center justify-between gap-4">
-					<div className="min-w-0 space-y-1">
+				// Title + description on the left, action row on the right
+				// with clear separation (gap-6) so a 4-button toolbar never
+				// runs into the heading text. items-start keeps a tall
+				// button group from stretching the heading; flex-wrap lets
+				// the action row drop below on narrow windows instead of
+				// squeezing the title.
+				<div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+					<div className="min-w-0 space-y-1.5">
 						<HeadingContent title={title} description={description} />
 					</div>
-					{children}
+					<div className="flex shrink-0 flex-wrap items-center gap-2">
+						{children}
+					</div>
 				</div>
 			) : (
 				<HeadingContent title={title} description={description} />

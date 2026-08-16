@@ -13,6 +13,7 @@ import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Fragment, memo, useRef } from "react";
 import { APP_NAME } from "@/branding";
+import { HotkeyChips } from "@/components/hotkey/HotkeyChips";
 import { HotkeyTooltip } from "@/components/hotkey/HotkeyTooltip";
 import { formatHotkey } from "@/components/hotkey/hotkey-utils";
 import { SHORTCUTS } from "@/components/hotkey/shortcuts";
@@ -317,81 +318,105 @@ function SidebarInner({
 										const shortcut = navShortcut(item.id);
 										const navLabel = t(`nav.${item.id}`);
 										const keyShortcut = NAV_KEYSHORTCUTS[item.id];
-										return (
+										// Expanded: the label is already visible, so the
+										// tooltip is redundant — the shortcut (if any) is
+										// rendered INLINE at the far right of the row
+										// instead. aria-hidden: the accessible name stays
+										// the label text (aria-keyshortcuts carries the
+										// shortcut for AT users). Collapsed: keep the
+										// right-side tooltip (label + shortcut chips) — the
+										// icon alone isn't self-explanatory.
+										const navButton = (
+											<Button
+												key={item.id}
+												variant="ghost"
+												data-nav-item="true"
+												//aria-keyshortcuts is undefined
+												// for items without a shortcut (omits the
+												// attribute entirely).
+												aria-keyshortcuts={keyShortcut}
+												tabIndex={tabIndex}
+												//aria-current="page" tells
+												// screen readers which nav item represents
+												// the current page.
+												aria-current={isActive ? "page" : undefined}
+												className={cn(
+													"w-full justify-start gap-3 text-sm tracking-wide normal-case font-normal rounded-md",
+													"transition-all duration-200 ease-out",
+													//task-6: a 2px inline-start border is
+													// always present and transparent (both
+													// active and inactive) so activating an
+													// item doesn't cause a layout shift. No
+													// accent bar is drawn on the active item
+													// (the old before:bg-accent dash was
+													// removed — see UX report).
+													"border-s-2",
+													collapsed ? "px-2" : "px-3",
+													isActive
+														? cn(
+																// Active item blends with the page
+																// content area: same background as the
+																// page window (--bg), no accent tint and
+																// no accent icon colour.
+																"border-s-transparent bg-(--bg) hover:bg-(--bg)",
+																"text-(--text-primary) font-medium",
+															)
+														: cn(
+																"border-s-transparent",
+																// task-9: theme-aware hover
+																// (replaces physical black/white
+																// pairing so custom + dark themes
+																// get a consistent wash).
+																"hover:bg-foreground/5",
+															),
+												)}
+												onClick={handleNav}
+											>
+												<HugeiconsIcon
+													icon={item.icon}
+													strokeWidth={2}
+													// Icon inherits the button's text colour in
+													// every state — no accent tint when active,
+													// so the active icon looks like any other
+													// nav icon.
+													className={cn(
+														"h-4 w-4 shrink-0 transition-colors duration-200",
+													)}
+												/>
+												<span
+													className={cn(
+														"overflow-hidden whitespace-nowrap text-sm font-medium dark:font-normal",
+														"transition-all duration-200 ease-out",
+														collapsed
+															? "max-w-0 opacity-0 filter-[blur(4px)]"
+															: "max-w-40 opacity-100 filter-none",
+													)}
+												>
+													{t(`nav.${item.id}`)}
+												</span>
+												{/* Inline shortcut hint (expanded only) — real text
+													    (Kbd chips), right-aligned on the row. */}
+												{!collapsed && shortcut !== undefined && (
+													<span
+														aria-hidden="true"
+														className="ms-auto flex items-center opacity-60"
+													>
+														<HotkeyChips keys={shortcut} />
+													</span>
+												)}
+											</Button>
+										);
+										return collapsed ? (
 											<HotkeyTooltip
 												key={item.id}
 												label={navLabel}
 												keys={shortcut}
 												side="right"
 											>
-												<Button
-													variant="ghost"
-													data-nav-item="true"
-													//aria-keyshortcuts is undefined
-													// for items without a shortcut (omits the
-													// attribute entirely).
-													aria-keyshortcuts={keyShortcut}
-													tabIndex={tabIndex}
-													//aria-current="page" tells
-													// screen readers which nav item represents
-													// the current page.
-													aria-current={isActive ? "page" : undefined}
-													className={cn(
-														"w-full justify-start gap-3 text-sm tracking-wide normal-case font-normal rounded-md",
-														"transition-all duration-200 ease-out",
-														//task-6: a 2px inline-start border is
-														// always present and transparent (both
-														// active and inactive) so activating an
-														// item doesn't cause a layout shift. No
-														// accent bar is drawn on the active item
-														// (the old before:bg-accent dash was
-														// removed — see UX report).
-														"border-s-2",
-														collapsed ? "px-2" : "px-3",
-														isActive
-															? cn(
-																	// Active item blends with the page
-																	// content area: same background as the
-																	// page window (--bg), no accent tint and
-																	// no accent icon colour.
-																	"border-s-transparent bg-(--bg) hover:bg-(--bg)",
-																	"text-(--text-primary) font-medium",
-																)
-															: cn(
-																	"border-s-transparent",
-																	// task-9: theme-aware hover
-																	// (replaces physical black/white
-																	// pairing so custom + dark themes
-																	// get a consistent wash).
-																	"hover:bg-foreground/5",
-																),
-													)}
-													onClick={handleNav}
-												>
-													<HugeiconsIcon
-														icon={item.icon}
-														strokeWidth={2}
-														// Icon inherits the button's text colour in
-														// every state — no accent tint when active,
-														// so the active icon looks like any other
-														// nav icon.
-														className={cn(
-															"h-4 w-4 shrink-0 transition-colors duration-200",
-														)}
-													/>
-													<span
-														className={cn(
-															"overflow-hidden whitespace-nowrap text-sm font-medium dark:font-normal",
-															"transition-all duration-200 ease-out",
-															collapsed
-																? "max-w-0 opacity-0 filter-[blur(4px)]"
-																: "max-w-40 opacity-100 filter-none",
-														)}
-													>
-														{t(`nav.${item.id}`)}
-													</span>
-												</Button>
+												{navButton}
 											</HotkeyTooltip>
+										) : (
+											<Fragment key={item.id}>{navButton}</Fragment>
 										);
 									})}
 								</section>

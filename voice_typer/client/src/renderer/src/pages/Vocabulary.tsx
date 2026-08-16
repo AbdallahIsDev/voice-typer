@@ -2,9 +2,9 @@
 //
 // Split from the former monolithic ``pages/Vocabulary.tsx`` (1053 lines)
 // into:
-//   - ``./vocabulary/lib/``        — pure helpers (categories, transform, sort, importExport, testCorrection)
+//   - ``./vocabulary/lib/``        — pure helpers (categories, transform, sort, importExport)
 //   - ``./vocabulary/hooks/``      — state + handlers (useVocabulary, useVocabularyDialog, useVocabularyImportExport, useVocabularyQuickAdd, useVocabularySelection)
-//   - ``./vocabulary/components/`` — presentational (VocabToolbar, VocabSearchFilterBar, VocabListRow, VocabListHeader, VocabBulkBar, VocabQuickAdd, VocabTestPanel, VocabDialog)
+//   - ``./vocabulary/components/`` — presentational (VocabToolbar, VocabSearchFilterBar, VocabListRow, VocabListHeader, VocabBulkBar, VocabQuickAdd, VocabDialog)
 //
 // This file owns ONLY the page layout (loading / load-error / empty /
 // list / dialog wiring). All state + business logic lives in the hooks;
@@ -16,11 +16,9 @@
 import { AlertCircleIcon, BookOpen02Icon } from "@hugeicons/core-free-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
-import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
-import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t, useT } from "@/i18n/i18n";
@@ -32,14 +30,12 @@ import { VocabListHeader } from "./vocabulary/components/VocabListHeader";
 import { VocabListRow } from "./vocabulary/components/VocabListRow";
 import { VocabQuickAdd } from "./vocabulary/components/VocabQuickAdd";
 import { VocabSearchFilterBar } from "./vocabulary/components/VocabSearchFilterBar";
-import { VocabTestPanel } from "./vocabulary/components/VocabTestPanel";
 import { VocabToolbar } from "./vocabulary/components/VocabToolbar";
 import { usageKey, useVocabulary } from "./vocabulary/hooks/useVocabulary";
 import { useVocabularyDialog } from "./vocabulary/hooks/useVocabularyDialog";
 import { useVocabularyImportExport } from "./vocabulary/hooks/useVocabularyImportExport";
 import { useVocabularyQuickAdd } from "./vocabulary/hooks/useVocabularyQuickAdd";
 import { useVocabularySelection } from "./vocabulary/hooks/useVocabularySelection";
-import { useVocabularyTester } from "./vocabulary/hooks/useVocabularyTester";
 import {
 	type EntryTestResult,
 	testPhraseOnServer,
@@ -53,7 +49,6 @@ import {
 export default function VocabularyPage() {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
-	const { agoLabel, markUpdated } = useLastUpdated();
 
 	//: soft display cap — the flat list renders at most this many rows
 	// until the user clicks "Show more". Keeps very large vocabularies
@@ -94,16 +89,6 @@ export default function VocabularyPage() {
 		filteredSorted,
 		usageByKey,
 	} = useVocabulary({ call, showSnack });
-
-	//: mark the data as fresh once the page has finished a load (or an
-	// empty successful load) — the indicator shows "Just now" after load.
-	const prevLoadingRef = useRef(true);
-	useEffect(() => {
-		if (!loading && !loadError && prevLoadingRef.current) {
-			markUpdated();
-		}
-		prevLoadingRef.current = loading;
-	}, [loading, loadError, markUpdated]);
 
 	// Subscribe to locale changes via useT() (a useSyncExternalStore
 	// wrapper) so this component re-renders when the locale switches
@@ -161,15 +146,6 @@ export default function VocabularyPage() {
 	const handleEdit = useCallback((entry: VocabRow) => {
 		openEditDialogRef.current(entry);
 	}, []);
-
-	// "Test corrections" panel state.
-	const [testOpen, setTestOpen] = useState(false);
-	const [testQuery, setTestQuery] = useState("");
-
-	// "Test corrections" panel — the preview runs against the LIVE
-	// backend correction engine (debounced) with a client-mirror
-	// fallback; see useVocabularyTester.
-	const tester = useVocabularyTester({ call, entries, query: testQuery });
 
 	// Per-entry "Test this entry" — runs the entry's wrong phrase
 	// through the LIVE server engine (no client mirror): the result is
@@ -283,17 +259,16 @@ export default function VocabularyPage() {
 
 	return (
 		<>
-			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
+			{/* `relative` makes the floating bulk bar center against THIS
+			    content column (which is centered in the main area) instead
+			    of the whole window — the old absolute positioning resolved
+			    against the window and drifted off-center whenever the
+			    sidebar was expanded. */}
+			<div className="relative mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
 				<PageHeading
 					title={t("vocabulary.title")}
 					description={t("vocabulary.description")}
 				>
-					<LastUpdatedIndicator
-						agoLabel={agoLabel}
-						onRefresh={loadVocabulary}
-						refreshing={loading}
-						className="mb-2"
-					/>
 					<VocabToolbar
 						importInputRef={importInputRef}
 						onImportClick={handleImportClick}
@@ -306,27 +281,6 @@ export default function VocabularyPage() {
 						clearAllDisabled={entries.length === 0}
 					/>
 				</PageHeading>
-
-				{/* Live entry count — updates as entries are added/removed
-				    and as the search filter narrows the visible list. */}
-				{entries.length > 0 && (
-					<p
-						data-testid="vocab-entry-count"
-						className="mt-4 text-xs font-medium text-(--text-muted)"
-					>
-						{searchQuery.trim() && filteredSorted.length !== entries.length
-							? t("vocabulary.entryCountFiltered", {
-									shown: String(filteredSorted.length),
-									total: String(entries.length),
-								})
-							: t(
-									entries.length === 1
-										? "vocabulary.entryCountSingular"
-										: "vocabulary.entryCountPlural",
-									{ count: String(entries.length) },
-								)}
-					</p>
-				)}
 
 				{/* Pre-existing duplicates review banner. */}
 				{showDuplicateBanner && (
@@ -343,22 +297,23 @@ export default function VocabularyPage() {
 						onSearchChange={setSearchQuery}
 						sortOrder={sortOrder}
 						onSortOrderChange={setSortOrder}
-					/>
-				)}
-
-				{/* Live correction tester — collapsible, above the list. The
-				    output runs through the backend engine (see
-				    useVocabularyTester). */}
-				{entries.length > 0 && (
-					<VocabTestPanel
-						open={testOpen}
-						onOpenChange={setTestOpen}
-						query={testQuery}
-						onQueryChange={setTestQuery}
-						output={tester.output}
-						applied={tester.applied}
-						pending={tester.pending}
-						usingFallback={tester.usingFallback}
+						// Live count — updates as entries are added/removed and
+						// as the search filter narrows the visible list. Kept
+						// in the search/filter row (not a standalone line) so
+						// it doesn't take up its own vertical space.
+						countLabel={
+							searchQuery.trim() && filteredSorted.length !== entries.length
+								? t("vocabulary.entryCountFiltered", {
+										shown: String(filteredSorted.length),
+										total: String(entries.length),
+									})
+								: t(
+										entries.length === 1
+											? "vocabulary.entryCountSingular"
+											: "vocabulary.entryCountPlural",
+										{ count: String(entries.length) },
+									)
+						}
 					/>
 				)}
 
@@ -397,32 +352,30 @@ export default function VocabularyPage() {
 						/>
 					) : (
 						<>
-							<div className="rounded-xl border border-border/10 bg-(--bg-subtle)">
+							<div className="overflow-clip rounded-xl border border-border/10 bg-(--bg-subtle)">
 								<VocabListHeader
 									visibleIds={filteredSorted.map((e) => e._id)}
 									selectedIds={selection.selectedIds}
 									onSelectAll={selection.setSelectMany}
 								/>
-								<div className="overflow-hidden rounded-b-xl">
-									<div className="divide-y divide-border/10">
-										{filteredSorted.slice(0, displayCount).map((entry) => (
-											<VocabListRow
-												key={entry._id}
-												entry={entry}
-												selected={selection.selectedIds.has(entry._id)}
-												onToggleSelect={selection.toggleSelect}
-												onEdit={handleEdit}
-												onDelete={instantDeleteEntry}
-												onTest={handleTestEntry}
-												testResult={
-													entryTest?.id === entry._id ? entryTest.result : null
-												}
-												usage={usageByKey.get(
-													usageKey(entry.category, entry.original),
-												)}
-											/>
-										))}
-									</div>
+								<div className="divide-y divide-border/10">
+									{filteredSorted.slice(0, displayCount).map((entry) => (
+										<VocabListRow
+											key={entry._id}
+											entry={entry}
+											selected={selection.selectedIds.has(entry._id)}
+											onToggleSelect={selection.toggleSelect}
+											onEdit={handleEdit}
+											onDelete={instantDeleteEntry}
+											onTest={handleTestEntry}
+											testResult={
+												entryTest?.id === entry._id ? entryTest.result : null
+											}
+											usage={usageByKey.get(
+												usageKey(entry.category, entry.original),
+											)}
+										/>
+									))}
 								</div>
 							</div>
 							{filteredSorted.length > displayCount && (

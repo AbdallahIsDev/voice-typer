@@ -191,7 +191,7 @@ export interface SaveVocabularyRequest {
 	data: Record<string, unknown>;
 }
 
-// "Test corrections" panel — applies the LIVE backend vocabulary
+// Per-entry "Test this entry" — applies the LIVE backend vocabulary
 // rules (VocabularyManager.apply_to_text) to a phrase. Resolves to
 // `{ input: string, output: string, applied: boolean }`.
 export interface TestVocabularyCorrectionRequest {

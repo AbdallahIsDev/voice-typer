@@ -5,9 +5,11 @@
 // same grid as VocabListRow (checkbox | original | corrected | actions)
 // so headers line up with cells. The leading cell hosts a select-all
 // checkbox (indeterminate when only some of the visible rows are
-// selected).
-import { useEffect, useRef } from "react";
+// selected) — the SAME Checkbox component the rows use, so the header
+// and per-row checkboxes look identical in every state (unchecked,
+// checked, indeterminate dash).
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { t } from "@/i18n/i18n";
 
 interface VocabListHeaderProps {
@@ -25,31 +27,19 @@ export function VocabListHeader({
 		visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
 	const someSelected =
 		!allSelected && visibleIds.some((id) => selectedIds.has(id));
-	const checkboxRef = useRef<HTMLInputElement>(null);
-
-	// Native `indeterminate` can only be set imperatively.
-	useEffect(() => {
-		if (checkboxRef.current) {
-			checkboxRef.current.indeterminate = someSelected;
-		}
-	}, [someSelected]);
 
 	return (
 		<div
 			data-testid="vocab-list-header"
 			className="sticky top-0 z-10 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 border-b border-border/10 bg-(--bg-subtle)/95 px-3.5 py-2 text-[11px] font-semibold uppercase tracking-wider text-(--text-muted) backdrop-blur-sm sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto]"
 		>
-			<label className="flex cursor-pointer items-center">
-				<input
-					ref={checkboxRef}
-					type="checkbox"
-					checked={allSelected}
-					onChange={() => onSelectAll(visibleIds, !allSelected)}
-					aria-label={t("vocabulary.selectAll")}
-					title={t("vocabulary.selectAll")}
-					className="size-4 cursor-pointer accent-[var(--accent)] focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
-				/>
-			</label>
+			{/* Radix Checkbox takes `checked="indeterminate"` for the
+			    partial-selection state (renders the dash). */}
+			<Checkbox
+				checked={someSelected ? "indeterminate" : allSelected}
+				onCheckedChange={() => onSelectAll(visibleIds, !allSelected)}
+				aria-label={t("vocabulary.selectAll")}
+			/>
 			<span className="ps-0.5">{t("vocabulary.columnOriginal")}</span>
 			<span className="ps-0.5">{t("vocabulary.columnCorrected")}</span>
 			<span className="justify-self-end ps-0.5">

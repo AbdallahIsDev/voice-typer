@@ -105,6 +105,32 @@ const ActivityListRow = memo(function ActivityListRow({
 				</span>
 			</div>
 			<div className="flex items-center gap-1">
+				{/* Action order: Copy first (copying a past transcription is
+				    the primary reason a user opens History), then
+				    Star/Favorite, then Delete LAST — destructive actions
+				    never lead the group. */}
+				<Button
+					variant="ghost"
+					size="icon-xs"
+					onClick={() => onCopy(item)}
+					className="shrink-0 text-(--text-muted) hover:text-(--text-primary)"
+					title={t("history.copyText")}
+					aria-label={t("history.copyText")}
+				>
+					{copied ? (
+						<HugeiconsIcon
+							icon={Tick02Icon}
+							strokeWidth={2.5}
+							className="h-4 w-4"
+						/>
+					) : (
+						<HugeiconsIcon
+							icon={Copy01Icon}
+							strokeWidth={2.5}
+							className="h-4 w-4"
+						/>
+					)}
+				</Button>
 				{onToggleFavorite && (
 					<Button
 						variant="ghost"
@@ -129,28 +155,6 @@ const ActivityListRow = memo(function ActivityListRow({
 						/>
 					</Button>
 				)}
-				<Button
-					variant="ghost"
-					size="icon-xs"
-					onClick={() => onCopy(item)}
-					className="shrink-0 text-(--text-muted) hover:text-(--text-primary)"
-					title={t("history.copyText")}
-					aria-label={t("history.copyText")}
-				>
-					{copied ? (
-						<HugeiconsIcon
-							icon={Tick02Icon}
-							strokeWidth={2.5}
-							className="h-4 w-4"
-						/>
-					) : (
-						<HugeiconsIcon
-							icon={Copy01Icon}
-							strokeWidth={2.5}
-							className="h-4 w-4"
-						/>
-					)}
-				</Button>
 				{onDelete && (
 					<Button
 						variant="ghost"

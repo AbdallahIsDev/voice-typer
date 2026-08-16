@@ -2,17 +2,14 @@
  * Tests for the Vocabulary page-level improvements:
  *
  *   - : soft display cap (200 rows) with "Show more" button
- *   - : LastUpdatedIndicator rendered (agoLabel from useVocabulary)
  *   - : "Clear All" button gated by ConfirmDialog
- *   - : count footer stays visible during search
+ *   - : count label stays visible during search (in the search/filter
+ *     row, reworded to "corrections")
  *   - : noResults EmptyState has a description
  *
  * Mock strategy mirrors the existing Vocabulary.test.tsx: we stub
  * ``usePython`` (so ``call`` is a vi.fn we control), ``useSnackbar``,
- * sonner, hugeicons, and next-themes. ``useLastUpdated`` is NOT mocked
- * — the real hook is used so we can verify ``markUpdated`` is wired
- * into ``useVocabulary``'s load path (the ``agoLabel`` shows up after a
- * successful load).
+ * sonner, hugeicons, and next-themes.
  */
 import {
 	cleanup,
@@ -73,29 +70,6 @@ describe("Vocabulary page — display cap + Show more", () => {
 
 	afterEach(() => {
 		cleanup();
-	});
-
-	it("renders the LastUpdatedIndicator after a successful load", async () => {
-		mockCall.mockImplementation((arg: unknown) => {
-			const type =
-				typeof arg === "string"
-					? arg
-					: ((arg as { type?: string })?.type ?? "");
-			if (type === "get_vocabulary")
-				return Promise.resolve(buildSeed(3) as VocabularyData);
-			if (type === "save_vocabulary") return Promise.resolve({ success: true });
-			return Promise.resolve({});
-		});
-
-		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
-		renderWithProviders(<VocabularyPage />);
-
-		await waitFor(() => {
-			expect(screen.getByText("word0")).toBeTruthy();
-		});
-
-		// The LastUpdatedIndicator renders a button with the refresh aria-label.
-		expect(screen.getByTestId("last-updated-indicator")).toBeTruthy();
 	});
 
 	it("caps the visible list at 200 rows and shows a Show more button", async () => {
@@ -178,9 +152,11 @@ describe("Vocabulary page — display cap + Show more", () => {
 			expect(screen.getByText("word0")).toBeTruthy();
 		});
 
-		// The entry count near the list header is visible with 5 entries.
+		// The count label in the search/filter row is visible with 5
+		// corrections (reworded from "entries" — the list counts
+		// corrections).
 		expect(screen.getByTestId("vocab-entry-count").textContent).toBe(
-			"5 entries",
+			"5 corrections",
 		);
 
 		// Type a search query that matches nothing — the count updates

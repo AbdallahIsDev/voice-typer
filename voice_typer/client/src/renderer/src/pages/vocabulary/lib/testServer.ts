@@ -1,13 +1,11 @@
-// Live-engine correction test — single authoritative call site.
-//
-// Both the "Test corrections" panel (free-text, debounced) and the
-// per-entry "Test this entry" row action run the phrase through the
-// SAME server IPC command (``test_vocabulary_correction`` →
+// Live-engine correction test — single authoritative call site for
+// the per-entry "Test this entry" row action. The phrase runs through
+// the SAME server IPC command (``test_vocabulary_correction`` →
 // ``VocabularyManager.apply_to_text``) — the exact engine dictation
-// uses. Centralizing the call here means the two call sites can never
-// drift in what they send or how they parse the response. The
-// client-side mirror (``lib/testCorrection.ts``) is a preview-only
-// fallback; this module is the real engine path.
+// uses. (The standalone free-text "Test corrections" panel — and its
+// client-side mirror fallback, ``lib/testCorrection.ts`` — were
+// removed; the per-row Test action covers the same need with one
+// click.)
 
 export type VocabCallFn = <T>(
 	cmd: string,

@@ -54,8 +54,9 @@ const _RENDERER_CALLED_COMMANDS = {
 	get_today_stats: true,
 	get_vocabulary: true,
 	save_vocabulary: true,
-	// "Test corrections" panel — useVocabularyTester calls it
-	// (debounced) to preview against the LIVE backend engine.
+	// Per-entry "Test this entry" — the row action runs the entry's
+	// wrong phrase through the LIVE backend engine (the standalone
+	// free-text panel was removed).
 	test_vocabulary_correction: true,
 	// per-correction usage snapshot — the Vocabulary page fetches it
 	// to show "used Nx / last triggered" per entry.

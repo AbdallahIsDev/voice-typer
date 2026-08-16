@@ -5,6 +5,8 @@
 // state CTA is the only meaningful action) — the parent decides whether
 // to render this.
 
+import { Sorting01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { SearchField } from "@/components/common/SearchField";
 import {
 	Select,
@@ -43,11 +45,13 @@ export function TemplateSearchSortBar({
 				value={sortOrder}
 				onValueChange={(v) => onSortOrderChange(v as TemplateSortOrder)}
 			>
-				<SelectTrigger
-					size="sm"
-					aria-label={t("common.sortAria")}
-					className="gap-2 h-9 rounded-xl border-border/10 px-3 text-xs text-(--text-muted) hover:text-(--text-primary)"
-				>
+				<SelectTrigger size="sm" aria-label={t("common.sortAria")}>
+					<HugeiconsIcon
+						icon={Sorting01Icon}
+						strokeWidth={2}
+						aria-hidden="true"
+						className="size-4"
+					/>
 					<SelectValue />
 				</SelectTrigger>
 				<SelectContent>

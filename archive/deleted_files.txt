@@ -23,3 +23,9 @@ single dynamic status line below the mic button; the error card is gone):
 (RecordingStatusPill and its helpers statusLabelFor / statusKeyFor /
 STATUS_COLORS were briefly removed alongside it, then restored on user
 request — "get the status pill back".)
+--- Vocabulary UI refinement pass (2026-08-17) ---
+Deleted (standalone "Test corrections" panel removed; per-row Test action covers it):
+- voice_typer/client/src/renderer/src/pages/vocabulary/components/VocabTestPanel.tsx
+- voice_typer/client/src/renderer/src/pages/vocabulary/hooks/useVocabularyTester.ts
+- voice_typer/client/src/renderer/src/pages/vocabulary/lib/testCorrection.ts
+- voice_typer/client/src/renderer/src/pages/vocabulary/__tests__/testCorrection.test.ts

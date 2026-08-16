@@ -9,10 +9,8 @@
  *     "Delete selected"
  *   - inline quick-add row (replaces the disconnected Add modal),
  *     duplicate wrong→correct pairs refused
- *   - live "Test corrections" panel
  *   - per-entry "Test this entry" action → inline live-engine result
- *     (applied / no-change / error+retry), plus the panel's
- *     backend-offline fallback notice
+ *     (applied / no-change / error+retry)
  *   - load-time dedupe of duplicate pairs (merged toast)
  *
  * Mock strategy mirrors Vocabulary-page-improvements.test.tsx: stub
@@ -133,11 +131,11 @@ describe("Vocabulary page — flat two-column list", () => {
 			expect(screen.getByText("recieve")).toBeTruthy();
 		});
 
-		// Column header row: Original | Corrected | Actions — no
+		// Column header row: Heard as | Corrected to | Actions — no
 		// "Category" column.
 		const header = screen.getByTestId("vocab-list-header");
-		expect(within(header).getByText("Original")).toBeTruthy();
-		expect(within(header).getByText("Corrected")).toBeTruthy();
+		expect(within(header).getByText("Heard as")).toBeTruthy();
+		expect(within(header).getByText("Corrected to")).toBeTruthy();
 		expect(within(header).getByText("Actions")).toBeTruthy();
 		expect(within(header).queryByText("Category")).toBeNull();
 
@@ -366,10 +364,12 @@ describe("Vocabulary page — bulk selection", () => {
 
 		fireEvent.click(screen.getByLabelText("Deselect all"));
 		expect(screen.queryByTestId("vocab-bulk-bar")).toBeNull();
-		// No rows selected → the header checkbox is unchecked too.
+		// No rows selected → the header checkbox is unchecked too (the
+		// design-system checkbox is a Radix button exposing aria-checked,
+		// not a native input).
 		expect(
-			(screen.getByLabelText("Select all") as HTMLInputElement).checked,
-		).toBe(false);
+			screen.getByLabelText("Select all").getAttribute("aria-checked"),
+		).toBe("false");
 	});
 });
 
@@ -464,65 +464,9 @@ describe("Vocabulary page — inline quick add", () => {
 	});
 });
 
-describe("Vocabulary page — live test panel", () => {
-	beforeEach(() => {
-		mockCall.mockReset();
-		showSnack.mockReset();
-		toastSuccess.mockClear();
-		toastError.mockClear();
-		localStorage.clear();
-		vi.resetModules();
-	});
-
-	afterEach(() => {
-		cleanup();
-	});
-
-	it("applies corrections to a typed phrase in real time", async () => {
-		seedWith(seedData);
-		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
-		renderWithProviders(<VocabularyPage />);
-
-		await waitFor(() => {
-			expect(screen.getByText("recieve")).toBeTruthy();
-		});
-
-		// Expand the panel.
-		fireEvent.click(screen.getByLabelText("Test corrections"));
-		const input = await screen.findByPlaceholderText(
-			"Type a phrase to see corrections…",
-		);
-
-		fireEvent.change(input, {
-			target: { value: "recieve teh i am going to" },
-		});
-
-		const output = await screen.findByTestId("vocab-test-output");
-		// The output comes from the (mocked) backend engine after the
-		// debounce — wait for it to settle.
-		await waitFor(() => {
-			expect(within(output).getByText(/receive the I'm going to/)).toBeTruthy();
-		});
-	});
-
-	it("shows the no-change hint when the phrase matches nothing", async () => {
-		seedWith(seedData);
-		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
-		renderWithProviders(<VocabularyPage />);
-
-		await waitFor(() => {
-			expect(screen.getByText("recieve")).toBeTruthy();
-		});
-
-		fireEvent.click(screen.getByLabelText("Test corrections"));
-		const input = await screen.findByPlaceholderText(
-			"Type a phrase to see corrections…",
-		);
-		fireEvent.change(input, { target: { value: "nothing matches here" } });
-
-		expect(await screen.findByText("No corrections applied")).toBeTruthy();
-	});
-});
+// NOTE: the standalone free-text "Test corrections" panel was removed
+// (the per-entry Test action covers the same need with one click, no
+// typing) — the panel tests that used to live here are gone.
 
 describe("Vocabulary page — test this entry", () => {
 	beforeEach(() => {
@@ -656,40 +600,9 @@ describe("Vocabulary page — test this entry", () => {
 		expect(engineCalls).toBe(2);
 	});
 
-	it("warns when the backend is offline and the panel falls back to the preview mirror", async () => {
-		mockCall.mockImplementation((type: unknown) => {
-			const cmd =
-				typeof type === "string"
-					? type
-					: ((type as { type?: string })?.type ?? "");
-			if (cmd === "get_vocabulary") return Promise.resolve(seedData);
-			if (cmd === "test_vocabulary_correction") {
-				return Promise.reject(new Error("backend offline"));
-			}
-			return Promise.resolve({});
-		});
-		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
-		renderWithProviders(<VocabularyPage />);
-
-		await waitFor(() => {
-			expect(screen.getByText("recieve")).toBeTruthy();
-		});
-
-		fireEvent.click(screen.getByLabelText("Test corrections"));
-		const input = await screen.findByPlaceholderText(
-			"Type a phrase to see corrections…",
-		);
-		fireEvent.change(input, {
-			target: { value: "recieve teh" },
-		});
-
-		// The mirror output is shown BUT explicitly labeled as a
-		// preview approximation — never presented as the engine result.
-		expect(await screen.findByTestId("vocab-test-fallback")).toBeTruthy();
-		expect(
-			screen.getByText("Backend offline — showing a preview approximation"),
-		).toBeTruthy();
-	});
+	// The standalone free-text panel (and its client-mirror fallback
+	// notice) was removed — the per-entry Test action surfaces engine
+	// errors via the inline error + Retry path above.
 });
 
 describe("Vocabulary page — load-time dedupe", () => {

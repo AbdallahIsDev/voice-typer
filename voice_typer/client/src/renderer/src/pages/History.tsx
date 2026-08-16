@@ -4,6 +4,7 @@ import {
 	Delete01Icon,
 	HistoryIcon,
 	Mic02Icon,
+	Sorting01Icon,
 	StarIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -381,11 +382,13 @@ export default function HistoryPage() {
 						value={sortOrder}
 						onValueChange={(v) => setSortOrder(v as HistorySortOrder)}
 					>
-						<SelectTrigger
-							size="sm"
-							aria-label={t("common.sortAria")}
-							className="gap-2 h-8 rounded-lg border-border/10 px-3 text-xs text-(--text-muted) hover:text-(--text-primary)"
-						>
+						<SelectTrigger size="sm" aria-label={t("common.sortAria")}>
+							<HugeiconsIcon
+								icon={Sorting01Icon}
+								strokeWidth={2}
+								aria-hidden="true"
+								className="size-4"
+							/>
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
