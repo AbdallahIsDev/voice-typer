@@ -211,18 +211,37 @@ describe("Sidebar", () => {
 		expect(settingsButton.getAttribute("aria-keyshortcuts")).toBe("Control+,");
 	});
 
-	it("renders the nav shortcut as Kbd chips in the tooltip, keeping the accessible label", async () => {
+	it("expanded: renders the shortcut INLINE in the nav item (no tooltip)", async () => {
 		renderWithProviders(<Sidebar {...baseProps} currentPage="home" />);
 		const home = findNavButton("Home");
-		// The plain-text `title` is gone — the shortcut moved into the
-		// Radix tooltip as Kbd chips.
+		// No plain-text `title` tooltip attribute.
 		expect(home.hasAttribute("title")).toBe(false);
-		// Focusing the trigger opens the tooltip (Radix opens on focus).
-		home.focus();
-		const tooltip = await screen.findByRole("tooltip");
-		// Label + one <kbd> chip per key of the combo. formatHotkey("<ctrl>+<h>")
+		// The shortcut is real, visible content inside the button — one
+		// <kbd> chip per key of the combo. formatHotkey("<ctrl>+<h>")
 		// resolves to "Ctrl" + "H" chips on non-macOS (KbdGroup wraps the
 		// combo in an outer <kbd>, so assert chip texts, not element count).
+		const kbdTexts = Array.from(home.querySelectorAll("kbd")).map(
+			(k) => k.textContent,
+		);
+		expect(kbdTexts).toContain("Ctrl");
+		expect(kbdTexts).toContain("H");
+		// The expanded label is visible, so NO tooltip is rendered —
+		// focusing the item must not open one (there is no Tooltip
+		// wrapper around the expanded nav items at all).
+		home.focus();
+		expect(screen.queryByRole("tooltip")).toBeNull();
+	});
+
+	it("collapsed: tooltip with label + shortcut chips still appears on hover/focus", async () => {
+		renderWithProviders(
+			<Sidebar {...baseProps} collapsed currentPage="home" />,
+		);
+		const home = findNavButton("Home");
+		expect(home.hasAttribute("title")).toBe(false);
+		// The label is hidden when collapsed — the right-side tooltip
+		// carries the label + shortcut chips (Radix opens on focus).
+		home.focus();
+		const tooltip = await screen.findByRole("tooltip");
 		expect(within(tooltip).getByText("Home")).toBeTruthy();
 		const kbdTexts = Array.from(tooltip.querySelectorAll("kbd")).map(
 			(k) => k.textContent,

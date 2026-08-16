@@ -113,10 +113,9 @@ const STUB_CONFIG = {
 // (`call: vi.fn(...)` inside the factory) handed out a FRESH `call` on
 // every render; effects keyed on `call` re-ran each render,
 // re-fetching + re-storing state with fresh arrays → render → new
-// `call` → … — the page-level infinite render loop that OOM'd this
-// very suite (FATAL heap OOM in the Vocabulary scan; the hooks were
-// fixed with the `callRef` mirror in hooks/useVocabulary.ts +
-// useVocabularyTester.ts). With a stable mock, a page that renders
+// `call` → … — the page-level infinite render loop that OOM'd this	// very suite (FATAL heap OOM in the Vocabulary scan; the hooks were
+// fixed with the `callRef` mirror in hooks/useVocabulary.ts). With
+// a stable mock, a page that renders
 // fine in production renders fine here too — and the mock can never
 // be the trigger of that loop class again.
 const { mockCall, mockMarkUpdated } = vi.hoisted(() => ({

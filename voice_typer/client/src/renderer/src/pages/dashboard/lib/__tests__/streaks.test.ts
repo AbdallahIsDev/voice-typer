@@ -15,7 +15,7 @@
  * All records are built RELATIVE to a fixed `now` so the assertions
  * are deterministic on any machine / timezone.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { HistoryRecord } from "@/types/ipc";
 
@@ -73,10 +73,17 @@ describe("UTC timestamp parsing (data-consistency fix)", () => {
 		expect(fixed.getTime()).toBe(Date.UTC(2026, 7, 16, 3, 0, 0));
 
 		// The naive `new Date(ts)` parse interprets the string as LOCAL
-		// (machine-dependent shift); the fixed parse is UTC — so unless
-		// the machine is at UTC+0 the two instants differ.
+		// (machine-dependent); the fixed parse is UTC. The two instants
+		// must therefore differ by EXACTLY the host's UTC offset at that
+		// wall time — zero on a UTC+0 runner, ±minutes elsewhere.
+		// Asserting the precise relationship (rather than inequality)
+		// keeps the test deterministic on every machine/CI timezone.
+		// (naive − fixed = offset, so no unary minus on the offset —
+		// avoids the -0 vs +0 Object.is trap on UTC+0 hosts.)
 		const naive = new Date("2026-08-16 03:00:00");
-		expect(fixed.getTime()).not.toBe(naive.getTime());
+		expect(naive.getTime() - fixed.getTime()).toBe(
+			naive.getTimezoneOffset() * 60000,
+		);
 	});
 
 	it("buckets an evening-UTC record into the correct LOCAL calendar day", () => {
@@ -105,15 +112,25 @@ describe("UTC timestamp parsing (data-consistency fix)", () => {
 		// wrong day and break the streak anchor. The assertion holds on
 		// every offset: on UTC+ machines the UTC date happens to equal
 		// the local date (vacuous), on UTC- machines it exercises the bug.
-		const late = new Date(NOW);
-		late.setHours(23, 30, 0, 0);
-		// Bare SQLite-style UTC string, no Z marker.
-		const utcBare = late.toISOString().replace("T", " ").slice(0, 19);
-		const records = [rec(0), { ...rec(0), timestamp: utcBare }];
-		const streaks = computeStreaks(records);
-		// Both records are today's LOCAL day → streak of 1, one active day.
-		expect(streaks.current).toBeGreaterThan(0);
-		expect(streaks.activeDays).toBe(1);
+		// computeStreaks anchors on the REAL current day internally, so pin
+		// the system clock to the fixed NOW — otherwise this test silently
+		// flips after local midnight (records built against Aug 16 land on
+		// "yesterday" and the current streak reads 0).
+		vi.useFakeTimers();
+		vi.setSystemTime(NOW);
+		try {
+			const late = new Date(NOW);
+			late.setHours(23, 30, 0, 0);
+			// Bare SQLite-style UTC string, no Z marker.
+			const utcBare = late.toISOString().replace("T", " ").slice(0, 19);
+			const records = [rec(0), { ...rec(0), timestamp: utcBare }];
+			const streaks = computeStreaks(records);
+			// Both records are today's LOCAL day → streak of 1, one active day.
+			expect(streaks.current).toBeGreaterThan(0);
+			expect(streaks.activeDays).toBe(1);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 
