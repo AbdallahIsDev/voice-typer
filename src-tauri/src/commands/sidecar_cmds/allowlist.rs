@@ -176,6 +176,7 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "run_prewarm",
             "get_vocabulary",
             "save_vocabulary",
+            "test_vocabulary_correction",
             "onboarding_is_first_run",
             "onboarding_start",
             "onboarding_next_step",

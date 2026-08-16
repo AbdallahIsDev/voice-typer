@@ -1,1 +1,17 @@
 no files deleted this round
+
+--- Vocabulary page flat-list simplification (2026-08-16) ---
+Deleted:
+- voice_typer/client/src/renderer/src/pages/vocabulary/components/VocabGroupHeader.tsx
+  (collapsible per-category group headers — the Vocabulary page is now a
+  flat two-column list; category UI removed entirely)
+
+Removed exports (dead after category UI removal):
+- CATEGORY_META, getCategoryLabels from
+  voice_typer/client/src/renderer/src/pages/vocabulary/lib/categories.ts
+
+Removed i18n keys (all 8 locale files): vocabulary.allCategories,
+vocabulary.bulkMoveTo, vocabulary.bulkMoveToast, vocabulary.category.*,
+vocabulary.categoryAria, vocabulary.categoryBadgeAria,
+vocabulary.categoryLabel, vocabulary.columnCategory, vocabulary.duplicate,
+vocabulary.filterByCategoryAria, vocabulary.menuLabel

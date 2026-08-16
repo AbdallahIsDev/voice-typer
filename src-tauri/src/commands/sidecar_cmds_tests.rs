@@ -304,6 +304,7 @@ fn test_allowed_commands_exact_snapshot() {
         "save_templates",
         "save_vocabulary",
         "search_history",
+        "test_vocabulary_correction",
         "set_config",
         "set_esc_cancel_paused",
         "set_tray_locale",

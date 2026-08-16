@@ -1,3 +1,19 @@
+## AGENTS.md read confirmation (breadline first)
+
+This file has been read entirely by the agent at session start. When the user gives a task in a fresh session WITHOUT explicitly asking you to read AGENTS.md, your very first reply line MUST be exactly:
+
+`AGENTS.md file has been read successfully.`
+
+Then continue with the normal response to the user's request (status, findings, plan, questions — whatever the task calls for). This one line is the user's proof that you loaded this file on your own, without being told.
+
+If you did NOT read this file (it was not injected/loaded, or you skipped it), say NOTHING about it — never claim you read it, never mention the file at all. The user will know from the absence of the line.
+
+If this file does NOT exist in the repository root / project folder, tell the user exactly:
+
+`AGENTS.md file is not found in this repository. Would you like me to create it with some strict instructions?`
+
+If the user says yes, create it and offer to fill it with strict, binding rules the agent (and every future agent) must follow without deviation — unbreakable rules the user can enforce across sessions (e.g. hard "do nots", allowed/forbidden actions, required behaviors). Nothing in the file may be overridden or bypassed by the agent.
+
 Default response style: caveman full.
 Use terse, token-efficient replies by default: no filler, no pleasantries, fragments OK, technical terms exact.
 Keep code blocks, commands, commit messages, PR text, and exact error quotes normal and precise.
@@ -605,6 +621,13 @@ Rationale: The tray menu is intentionally minimal;
 Applies to: All agents, all modes.
 ```
 
+```
+C-TRAY-2
+Rule: Do NOT add a "Undo Last" button to the tray menu.
+Rationale: The tray menu is intentionally minimal;
+Applies to: All agents, all modes.
+```
+
 ---
 
 ## Category: UI & UX
@@ -689,7 +712,7 @@ Applies to: All agents, all modes, all sub-agents.
 
 ```
 C-CROSS-5
-Rule: Do NOT remove the autostart observability lines from `autostart_launcher.py`: `[AUTOSTART] launcher starting (pid=...)`, the `[AUTOSTART] RESULT success|failure exit=N_<duration>` outcome line (C-LOG-2 duration suffix), and the `[AUTOSTART] RESULT failure unhandled-exception` traceback in `main()`.
+Rule: Do NOT remove the autostart observability lines from `autostart_launcher.py`: `[AUTOSTART] launcher starting (pid=...)`, the `[AUTOSTART] RESULT success|failure exit=N <duration>` outcome line (C-LOG-2 duration suffix), and the `[AUTOSTART] RESULT failure unhandled-exception` traceback in `main()`.
 Rationale: the user relies on these timestamped lines in `voice-typer.log` to know whether autostart fired at logon and succeeded or failed. The failure line carries the reason; the unhandled-exception branch captures tracebacks that would otherwise vanish (pythonw has no console). Removing them reverts to silent autostart.
 Applies to: All agents, all modes, all sub-agents.
 ```
@@ -894,8 +917,8 @@ Applies to: All agents, all modes, all sub-agents.
 
 ```
 C-LOG-2
-Rule: Do NOT remove the `_<duration>` suffix from lifecycle-completion log lines. Every log line that reports the END of a timed operation (startup complete, model/VAD/CUDA-DLL load, warm-up inference, transcription, recording stop, and any future timed load/transaction) MUST carry a duration suffix produced by `format_duration()` in `voice_typer/server/duration.py` (dependency-free; import it rather than inlining ad-hoc `f"..._{x:.1f}s"` strings that drift from the minutes case): `_2.3s` for sub-minute durations, `_1m 2.3s` for anything longer. Never bare `2.3s`, never `took=2.3s`, never `-- 2.3s` — the underscore form is the canonical, greppable performance marker. The suffix is attached to the timed event, normally at line END; the recording line is the one intentional mid-line placement (`Recording stopped _30.0s of audio, ...` reads naturally — the duration IS the subject). Timed lines today: `[STARTUP] Startup complete (model still loading in background)_3.7s`, `[MODEL] Model loaded via ... _1.4s`, `[PERF] Warm-up inference completed — CUDA kernels primed_2.4s`, `[CUDA-DLL] Prepended to PATH: [...]_0.8s`, `[TRANSCRIBE] Transcription complete (len=..., cycle=...)_0.8s`, `[DICTATION] Recording stopped _30.0s of audio, ...`, `[VAD] Silero VAD model preloaded + warmed_1.2s`. The measurement source is always `time.perf_counter()` (monotonic) captured at the start of the operation and diffed at the completion log. Grep anchor: `_\d+(m \d+)?\.\ds`.
-Rationale: Added 2026-08-08 so performance is measurable at a glance in the log file — how long startup took, how long the model/packages took to load, how long transcription took, and how long the user recorded. Prior to this, several completion lines had no duration at all (startup) or used inconsistent ad-hoc formats (`took=%.1fs`, `— %.1fs`, `-- %.1fs of audio`) that could not be grep-summed. Reverting to a duration-less or non-underscore format regresses the performance observability the user explicitly requested.
+Rule: Do NOT remove the space-separated `<duration>` suffix from lifecycle-completion log lines. Every log line that reports the END of a timed operation (startup complete, model/VAD/CUDA-DLL load, warm-up inference, transcription, recording stop, and any future timed load/transaction) MUST carry a duration suffix produced by `format_duration()` in `voice_typer/server/duration.py` (dependency-free; import it rather than inlining ad-hoc `f"... {x:.1f}s"` strings that drift from the minutes case): ` 2.3s` for sub-minute durations, ` 1m 2.3s` for anything longer — `format_duration()` returns the duration WITH a single leading space, so callers splice it directly with a bare `%s` and MUST NOT add their own space before the placeholder (a preceding space would render a double space). Never glue the duration to the text with no separator, never `took=2.3s`, never `-- 2.3s` — the space-separated suffix is the canonical, greppable performance marker. The suffix is attached to the timed event, normally at line END; the recording line is the one intentional mid-line placement (`Recording stopped 30.0s of audio, ...` reads naturally — the duration IS the subject). Timed lines today: `[STARTUP] Startup complete (model still loading in background) 3.7s`, `[MODEL] Model loaded via ... 1.4s`, `[PERF] Warm-up inference completed — CUDA kernels primed 2.4s`, `[CUDA-DLL] Prepended to PATH: [...] 0.8s`, `[TRANSCRIBE] Transcription complete (len=..., cycle=...) 0.8s`, `[DICTATION] Recording stopped 30.0s of audio, ...`, `[VAD] Silero VAD model preloaded + warmed 1.2s`. The measurement source is always `time.perf_counter()` (monotonic) captured at the start of the operation and diffed at the completion log. Grep anchor: `\d+(m \d+)?\.\ds$` at line end.
+Rationale: Added 2026-08-08 so performance is measurable at a glance in the log file — how long startup took, how long the model/packages took to load, how long transcription took, and how long the user recorded. The suffix originally used a leading underscore (`_2.3s`); the user requested the space form (` 2.3s`) on 2026-08-15 and it was changed project-wide, logs and rule together. Prior to the convention, several completion lines had no duration at all (startup) or used inconsistent ad-hoc formats (`took=%.1fs`, `— %.1fs`, `-- %.1fs of audio`) that could not be grep-summed. Reverting to a duration-less or non-space format regresses the performance observability the user explicitly requested.
 Applies to: All agents, all modes, all sub-agents.
 ```
 
