@@ -153,6 +153,7 @@ def test_pi7_chmod_0o600_belt_and_suspenders_in_write_line() -> None:
         f"found {len(chmod_calls)}."
     )
 
+
 def test_pi7_chmod_0o700_on_logs_dir_in_init_file_logger() -> None:
     """``init_file_logger`` must chmod the ``<config_dir>/logs/`` dir to ``0o700``.
 
