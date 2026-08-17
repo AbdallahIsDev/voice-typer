@@ -259,7 +259,7 @@ def _measure_one_worker_startup(*, python: str) -> float:
                 proc.wait(timeout=2.0)
 
 
-class contextlib_suppress:
+class contextlib_suppress:  # noqa: N801 — intentional lowercase, mimics stdlib contextlib.suppress (see docstring)
     """Context manager that suppresses ALL exceptions (cleanup-only).
 
     The bench's ``finally`` block calls ``proc.terminate()`` /
@@ -425,9 +425,7 @@ def main() -> int:
     # so the median reflects steady-state cold-start after a recent
     # launch; the first_run reflects a cold-boot launch.
     target_label = (
-        "Worker startup (prewarm + WS bind)"
-        if args.target == "voice_typer.worker"
-        else f"cold import: {args.target}"
+        "Worker startup (prewarm + WS bind)" if args.target == "voice_typer.worker" else f"cold import: {args.target}"
     )
     print(f"\n## {target_label} (fresh-subprocess per run)\n")
     print(f"  Target         : {stats['target']}")
