@@ -43,6 +43,7 @@ import errno
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -80,6 +81,31 @@ from voice_typer.server.config import (  # noqa: E402,F401 — re-exported for m
 )
 
 log = logging.getLogger(__name__)
+
+
+def _startup_line(level: str, msg: str) -> None:
+    """Emit a startup line BEFORE logging is configured.
+
+    ``_ensure_single_instance`` now runs before ``_setup_logging()``
+    (ipc/entrypoint.py reordered it so a duplicate launch exits without
+    initializing logging, installing the VEH crash handler, or printing
+    the startup banner). At that point the ``log`` logger has no
+    handlers, so ``log.info``/``log.warning`` would be silently dropped
+    (or hit the ugly ``logging.lastResort`` fallback formatter). Write a
+    clean terminal-style line to stderr instead — the same
+    ``HH:MM:SS  [WARN ]msg`` shape the terminal formatter produces
+    (C-LOG-1: time-only on the terminal, INFO level label omitted).
+    Harmless under ``pythonw.exe`` where stderr is devnull — the line is
+    simply invisible there, exactly as before.
+    """
+    try:
+        stamp = time.strftime("%H:%M:%S")
+        if level == "WARN":
+            print(f"{stamp}  WARN {msg}", file=sys.stderr, flush=True)
+        else:
+            print(f"{stamp}  {msg}", file=sys.stderr, flush=True)
+    except Exception:
+        pass
 
 
 class _PosixSingleInstanceHandle(int):
@@ -332,7 +358,12 @@ def _ensure_single_instance(silent: bool = False):
         Parameters
         ----------
         silent : bool
-            If True, skip the MessageBoxW / stderr dialog (caller handles UX).
+            If True, skip the Windows MessageBoxW dialog (the caller, e.g.
+            the Electron frontend, handles the "already running" UX). The
+            stderr line always prints regardless of ``silent`` — it is the
+            single user-facing "already running" diagnostic in a terminal;
+            under ``pythonw.exe`` stderr is devnull so it is invisible
+            there (no packaged-app UX regression).
 
         On duplicate launch on Windows, ``CreateMutexW`` returns
         ``error_already_exists`` (183) — the authoritative signal that
@@ -453,17 +484,17 @@ def _ensure_windows_single_instance(silent: bool = False):
         # the PID file lets us detect the stale state and proceed.
         stale_pid = _read_stale_backend_pid()
         if stale_pid is not None:
-            log.warning(
-                "[STARTUP] mutex reports duplicate, but PID file points to dead "
-                "process %d — clearing stale PID file and proceeding",
-                stale_pid,
+            _startup_line(
+                "WARN",
+                "[STARTUP] Another instance's lock exists, but its PID file "
+                f"points to a dead process ({stale_pid}) — reclaiming the lock "
+                "and proceeding",
             )
             _clear_backend_pid_file()
-        else:
-            log.warning(
-                "[STARTUP] mutex reports duplicate; PID file missing or PID "
-                "still alive — retrying anyway in case mutex was abandoned",
-            )
+        # The probe below (WaitForSingleObject) is the authoritative check
+        # for whether the mutex is genuinely held by a live process or was
+        # abandoned by a crashed one — no pre-probe message needed; the
+        # outcome line (acquired vs. blocked) carries the information.
         # Use WaitForSingleObject with zero timeout to check if the
         # mutex is genuinely owned by another live process or was
         # abandoned (previous process crashed).  This is the correct
@@ -484,14 +515,19 @@ def _ensure_windows_single_instance(silent: bool = False):
             wait_result = ctypes.windll.kernel32.WaitForSingleObject(mutex, 0)
             if wait_result == wait_abandoned:
                 # Previous instance crashed.  The mutex is now OURS.
-                log.warning(
-                    "[STARTUP] Mutex was abandoned (previous instance crashed) — acquired ownership, proceeding"
+                _startup_line(
+                    "WARN",
+                    "[STARTUP] The previous instance's lock was abandoned "
+                    "(it crashed) — acquired ownership, proceeding",
                 )
                 _write_backend_pid_file()
                 return mutex
             elif wait_result == wait_object_0:
                 # Unexpectedly acquired the mutex.  Proceed anyway.
-                log.warning("[STARTUP] Mutex unexpectedly acquired after error_already_exists")
+                _startup_line(
+                    "WARN",
+                    "[STARTUP] Mutex unexpectedly acquired after duplicate signal — proceeding",
+                )
                 _write_backend_pid_file()
                 return mutex
             # WAIT_TIMEOUT (or any other result) → genuine duplicate.
@@ -501,7 +537,15 @@ def _ensure_windows_single_instance(silent: bool = False):
         # process (: the old _another_voice_typer_alive() scan
         # had zero decision power — the mutex already proved a
         # duplicate, and the scan result only affected a log message).
-        log.info("[STARTUP] Duplicate launch blocked (mutex already held)")
+        # The single user-facing line for a duplicate launch — clear copy,
+        # no internal mutex/PID jargon. Always printed (even with
+        # ``silent=True``) so a terminal launch of a second instance shows
+        # exactly one understandable line and nothing else (no banner, no
+        # VEH line — logging was never initialized).
+        _startup_line(
+            "INFO",
+            "[STARTUP] Voice Typer is already running — only one instance is allowed",
+        )
         if not silent:
             msg = "Voice Typer is already running. Only one instance is allowed."
             try:

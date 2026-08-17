@@ -171,12 +171,14 @@ class TestStartupSequenceCrashNotificationEventName:
         to reach the crash-notification publish branch.
 
         The branch is gated on ``crash_summary`` being truthy (returned
-        by ``crash_handler.report_pending_crash``). We patch that
-        function so we don't depend on a real crash file existing on
-        disk. We also stub ``app.tray.notify_safety`` (best-effort tray
-        toast) and ``app._shutting_down`` (so the sequence aborts right
-        after the crash branch — we don't need to run the rest of
-        startup).
+        by ``crash_handler.report_pending_crash``) AND the previous
+        session having ended abnormally (``session_state.
+        was_previous_session_abnormal`` — pinned in ``session_state.py``).
+        We patch those so we don't depend on a real crash file or session
+        marker existing on disk. We also stub ``app.tray.notify_safety``
+        (best-effort tray toast) and ``app._shutting_down`` (so the
+        sequence aborts right after the crash branch — we don't need to
+        run the rest of startup).
         """
         app = MagicMock()
         app._shutting_down = True  # abort run() right after the crash branch
@@ -185,11 +187,13 @@ class TestStartupSequenceCrashNotificationEventName:
         return app
 
     def test_crash_branch_publishes_notification_event(self):
-        """When ``report_pending_crash`` returns a summary,
-        ``StartupSequence.run()`` must publish ``type == "notification"``.
+        """When ``report_pending_crash`` returns a summary AND the previous
+        session ended abnormally (session marker survived),
+        ``StartupSequence.run()`` must publish ``type == "notification"``
+        with calm user-facing copy (no technical crash details).
 
         This pins the rename in the second call site
-        (``startup_sequence.py:115``). The original code published
+        (``startup_sequence.py``). The original code published
         ``electron_notification``; CR-8 renamed it to ``notification``.
         """
         from voice_typer.server import startup_sequence
@@ -205,6 +209,10 @@ class TestStartupSequenceCrashNotificationEventName:
                 "voice_typer.server.crash_handler.report_pending_crash",
                 return_value="heap corruption at 0xdeadbeef",
             ),
+            patch(
+                "voice_typer.server.session_state.was_previous_session_abnormal",
+                return_value=True,
+            ),
         ):
             startup_sequence.StartupSequence(app).run()
 
@@ -217,7 +225,53 @@ class TestStartupSequenceCrashNotificationEventName:
         assert evt["type"] != "electron_notification", "legacy 'electron_notification' name must not be used"
         assert evt["data"]["critical"] is True
         assert evt["data"]["duration_ms"] == 15000
-        assert "heap corruption" in evt["data"]["message"]
+        # CRASH-NOTIFY: the notification carries calm user-facing copy —
+        # never the raw crash summary / technical details.
+        message = evt["data"]["message"]
+        assert "didn't close properly" in message
+        assert "Settings" in message
+        assert "heap corruption" not in message
+        assert "python scripts" not in message
+        # Clicking the toast opens Settings (Diagnostics) — the user's
+        # clear next action, no terminal required.
+        assert evt["data"].get("click_path") == "/settings"
+        # The tray toast gets the same calm copy (title = app name only).
+        app.tray.notify_safety.assert_called_once()
+        tray_title, tray_body = app.tray.notify_safety.call_args.args
+        assert "Crashed" not in tray_title
+        assert tray_body == message
+
+    def test_crash_branch_suppresses_when_previous_session_clean(self):
+        """Crash files + a CLEAN previous shutdown (no session marker)
+        must NOT publish a notification — teardown-noise ``python_crash``
+        markers from a clean quit / backend restart are not crashes.
+        This is the core false-positive fix.
+        """
+        from voice_typer.server import startup_sequence
+
+        app = self._make_app_with_crash_summary("should-not-reach")
+        captured: list[dict] = []
+        with (
+            patch(
+                "voice_typer.server.event_bus.publish",
+                lambda msg: captured.append(dict(msg)),
+            ),
+            patch(
+                "voice_typer.server.crash_handler.report_pending_crash",
+                return_value="heap corruption at 0xdeadbeef",
+            ),
+            patch(
+                "voice_typer.server.session_state.was_previous_session_abnormal",
+                return_value=False,
+            ),
+        ):
+            startup_sequence.StartupSequence(app).run()
+
+        assert captured == [], (
+            "crash files from a cleanly-ended previous session must be "
+            f"archived silently, not notified: {captured!r}"
+        )
+        app.tray.notify_safety.assert_not_called()
 
     def test_crash_branch_does_not_publish_when_no_crash(self):
         """Sanity: if ``report_pending_crash`` returns ``None`` (no prior

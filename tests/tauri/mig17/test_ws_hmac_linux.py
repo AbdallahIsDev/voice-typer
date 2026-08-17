@@ -86,6 +86,7 @@ on the Linux host (see findings in the gate report).
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import re
 import sys
@@ -104,6 +105,14 @@ from tests.fixtures.sidecar_ws_test_helpers import _make_fake_server
 # rather than per-test.
 _SIDECAR_WS_PATH = Path(__file__).resolve().parents[3] / "voice_typer" / "server" / "sidecar_ws.py"
 assert _SIDECAR_WS_PATH.exists(), f"sidecar_ws.py not found at {_SIDECAR_WS_PATH}"
+
+# Path to the shared auth module. Since the IPC-transport refactor the
+# constant-time comparison lives in ``tokens_equal`` here (the Rust WS
+# transport uses the same function), so the source-grep test for the
+# ``hmac.compare_digest`` call shape scans THIS file, while the
+# sidecar_ws.py scan checks the ``tokens_equal`` delegation.
+_AUTH_PY_PATH = Path(__file__).resolve().parents[3] / "voice_typer" / "server" / "ipc" / "auth.py"
+assert _AUTH_PY_PATH.exists(), f"ipc/auth.py not found at {_AUTH_PY_PATH}"
 
 # Path to the Rust WS client source — used by the display-server-agnostic
 # test that asserts the Rust auth-frame construction has no
@@ -140,6 +149,11 @@ def _import_sidecar_ws():
 def _read_sidecar_ws_source() -> str:
     """Read the sidecar_ws.py source as a string (for source-grep tests)."""
     return _SIDECAR_WS_PATH.read_text(encoding="utf-8")
+
+
+def _read_auth_source() -> str:
+    """Read the ipc/auth.py source (home of the ``hmac.compare_digest`` call)."""
+    return _AUTH_PY_PATH.read_text(encoding="utf-8")
 
 
 def _read_ws_rs_source() -> str:
@@ -366,24 +380,41 @@ def test_authenticate_uses_hmac_compare_digest():
     by byte without reading any file. The X11 / Wayland distinction
     is irrelevant here — both expose the loopback WS to local
     processes via the same ``127.0.0.1`` listener.
-    """
-    source = _read_sidecar_ws_source()
 
-    # The source must contain a `hmac.compare_digest(provided, expected_token)`
+    The constant-time comparison lives in ``tokens_equal``
+    (``voice_typer/server/ipc/auth.py``) — used by BOTH the Python WS
+    sidecar and the Rust WS client transport. ``sidecar_ws._authenticate``
+    delegates to it. We therefore scan ipc/auth.py for the actual
+    ``hmac.compare_digest`` call and sidecar_ws.py for the delegation.
+    """
+    auth_source = _read_auth_source()
+
+    # The source must contain a `hmac.compare_digest(provided, expected)`
     # call (or equivalent with swapped args). We look for the literal
     # function call to guard against a regression that switches to `==`.
-    assert "hmac.compare_digest" in source, (
-        "sidecar_ws.py must use hmac.compare_digest for token comparison "
+    assert "hmac.compare_digest" in auth_source, (
+        "ipc/auth.py must use hmac.compare_digest for token comparison "
         "(constant-time). Found neither — possible timing side-channel "
         "regression."
     )
 
     # And it must be called with the provided + expected tokens (not
     # e.g. comparing a hardcoded constant). Look for the call shape.
-    pattern = r"hmac\.compare_digest\s*\(\s*provided\s*,\s*expected_token\s*\)"
-    assert re.search(pattern, source), (
+    pattern = r"hmac\.compare_digest\s*\(\s*provided\s*,\s*expected\s*\)"
+    assert re.search(pattern, auth_source), (
         "hmac.compare_digest must be called as "
-        "hmac.compare_digest(provided, expected_token) — found a different "
+        "hmac.compare_digest(provided, expected) — found a different "
+        "call shape which may indicate the comparison is not actually "
+        "between the user-supplied + env-var tokens."
+    )
+
+    # sidecar_ws must delegate through tokens_equal with the real
+    # provided/expected_token arguments (not compare with `==`).
+    source = _read_sidecar_ws_source()
+    delegate_pattern = r"tokens_equal\s*\(\s*provided\s*,\s*expected_token\s*\)"
+    assert re.search(delegate_pattern, source), (
+        "sidecar_ws.py must delegate the token comparison to "
+        "tokens_equal(provided, expected_token) — found a different "
         "call shape which may indicate the comparison is not actually "
         "between the user-supplied + env-var tokens."
     )
@@ -399,10 +430,13 @@ async def test_authenticate_compare_digest_is_actually_invoked(monkeypatch):
     ws = MagicMock()
     ws.recv = AsyncMock(return_value=json.dumps({"type": "auth", "token": _GOOD_TOKEN}).encode())
 
-    # Spy on hmac.compare_digest without changing its behavior.
-    real_compare = sw.hmac.compare_digest
+    # Spy on hmac.compare_digest without changing its behavior. The
+    # comparison runs inside ``tokens_equal`` (ipc/auth.py), which
+    # resolves ``hmac`` from its own module globals — patching the
+    # stdlib module attribute intercepts it.
+    real_compare = hmac.compare_digest
     spy = MagicMock(side_effect=real_compare)
-    monkeypatch.setattr(sw.hmac, "compare_digest", spy)
+    monkeypatch.setattr(hmac, "compare_digest", spy)
 
     assert await sw._authenticate(ws) is True
     spy.assert_called_once_with(_GOOD_TOKEN, _GOOD_TOKEN)
@@ -1082,9 +1116,9 @@ async def test_auth_protocol_identical_regardless_of_display_server_env(monkeypa
     ws.recv = AsyncMock(return_value=auth_frame)
 
     # Spy on hmac.compare_digest.
-    real_compare = sw.hmac.compare_digest
+    real_compare = hmac.compare_digest
     spy = MagicMock(side_effect=real_compare)
-    monkeypatch.setattr(sw.hmac, "compare_digest", spy)
+    monkeypatch.setattr(hmac, "compare_digest", spy)
 
     # Must accept (token matches) — X11 env vars must not change this.
     assert await sw._authenticate(ws) is True
@@ -1100,7 +1134,7 @@ async def test_auth_protocol_identical_regardless_of_display_server_env(monkeypa
     ws2 = MagicMock()
     ws2.recv = AsyncMock(return_value=auth_frame)
     spy2 = MagicMock(side_effect=real_compare)
-    monkeypatch.setattr(sw.hmac, "compare_digest", spy2)
+    monkeypatch.setattr(hmac, "compare_digest", spy2)
 
     assert await sw._authenticate(ws2) is True
     spy2.assert_called_once_with(_GOOD_TOKEN, _GOOD_TOKEN)

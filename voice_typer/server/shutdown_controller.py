@@ -399,6 +399,13 @@ class ShutdownController:
                 return
             app._cleanup_done = True
 
+        # Session-liveness marker: the session ends HERE. The marker is
+        # cleared by the FIRST sequenced teardown
+        # (``teardown_session_marker``) so a kill mid-teardown (watchdog
+        # ``os._exit(0)``, SIGKILL fallback, Windows logoff force-kill)
+        # still counts as a clean shutdown — the user initiated it, so
+        # the next launch must not report a crash.
+
         #  reset the shared state between ``_teardown_recorder``
         # and ``_teardown_sounddevice`` for THIS cleanup pass. Both helpers
         # run in the parallel batch below; ``_teardown_sounddevice`` waits
@@ -690,6 +697,13 @@ class ShutdownController:
         # ``teardown_crash_recovery`` ALWAYS run — they contain critical
         # flushes.
         sequenced_items: list[tuple[str, object, float, str | None, bool]] = []
+        # SESSION-STATE: clear the session-active marker FIRST so a kill
+        # later in teardown (watchdog ``os._exit(0)``, SIGKILL fallback)
+        # still counts as a clean shutdown. Cheap + idempotent; always
+        # runs regardless of deadline pressure.
+        sequenced_items.append(
+            ("teardown_session_marker", self._teardown_session_marker, 5.0, None, False),
+        )
         if _shutdown_deadline_near(deadline):
             log.warning(
                 "[SHUTDOWN] deadline near (%.1fs remaining) at sequenced "
@@ -948,6 +962,18 @@ class ShutdownController:
         # (the writes are idempotent; running them twice is safe).
         with self._quit_lock:
             app._cleanup_done = True
+
+        # Session-liveness marker: Windows logoff/shutdown is a clean
+        # system-initiated shutdown (the OS force-kills us after ~5s and
+        # ``os._exit(0)`` bypasses atexit). Clear the marker BEFORE the
+        # critical flushes so the next launch (e.g. autostart after
+        # boot) does not report a crash. Best-effort.
+        try:
+            from voice_typer.server import app as _app_module, session_state
+
+            session_state.clear_session_marker(_app_module._config_dir())
+        except Exception:
+            log.debug("[SHUTDOWN] fast-path could not clear session marker", exc_info=True)
 
         log.warning(
             "[SHUTDOWN] XZ-R17-06: fast cleanup path (Windows logoff/shutdown "
@@ -1227,6 +1253,20 @@ class ShutdownController:
         )
 
         teardown_pid_file(self)
+
+    def _teardown_session_marker(self) -> None:
+        """clear the session-active marker so the next launch treats the
+        previous session as clean (no crash notification).
+
+        Runs as the FIRST sequenced teardown (see
+        ``_build_sequenced_plan``). Body lives in
+        :func:`voice_typer.server.shutdown.teardowns.session_marker.teardown_session_marker`.
+        """
+        from voice_typer.server.shutdown.teardowns.session_marker import (
+            teardown_session_marker,
+        )
+
+        teardown_session_marker(self)
 
     def _teardown_mutex_handle(self) -> None:
         """release the single-instance mutex handle.

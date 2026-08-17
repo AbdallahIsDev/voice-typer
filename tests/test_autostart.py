@@ -481,6 +481,12 @@ class TestThreeMechanismIntegration:
         """When the Run key succeeds, the Startup-folder .bat is cleaned up."""
         from voice_typer.server import server_platform
 
+        # Force the Run-key branch deterministically: the enable order is
+        # Task Scheduler -> Startup .bat -> HKCU Run key (AUTOSTART-ORDER-
+        # FIX), so the two preferred mechanisms must fail for the Run key
+        # branch to run at all.
+        monkeypatch.setattr(server_platform, "_register_app_autostart_task", lambda: False)
+        monkeypatch.setattr(server_platform, "_register_app_autostart_startup", lambda: False)
         monkeypatch.setattr(server_platform, "_register_app_autostart_runkey", lambda: True)
         monkeypatch.setattr(server_platform, "_unregister_app_autostart_task", lambda: True)
         # Track if _unregister_app_autostart_startup is called.

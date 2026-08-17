@@ -755,16 +755,30 @@ class TestShutdownConstants:
             f"SHUTDOWN_ACK_TIMEOUT_MS must be 2000 (2s graceful window per ADR-0020 §10), got {m.group(1)}"
         )
 
-    def test_shutdown_poll_interval_is_100ms(self):
-        """SHUTDOWN_POLL_INTERVAL_MS = 100 (dev-mode fallback step)."""
-        src = _read(_UTIL_RS)
-        m = re.search(
-            r"pub\(crate\)\s+const\s+SHUTDOWN_POLL_INTERVAL_MS\s*:\s*u64\s*=\s*(\d+)",
-            src,
+    def test_shutdown_wakeup_is_notify_based_not_polling(self):
+        """Shutdown wakeup is Notify-based, not a 100ms poll loop.
+
+        The pre-migration supervisor polled every ≤100ms to re-check
+        ``shutting_down``. The current design replaces the poll loop
+        with ``Notify``: ``shutdown_sidecar_for_exit`` (state.rs) swaps
+        ``shutting_down`` and immediately calls ``notify_one()``, and
+        the supervisor's backoff loop awaits ``shutdown_notify.notified()``
+        inside a ``tokio::select!`` — sub-ms wakeup latency instead of
+        up to 100ms. This test guards against a regression back to the
+        polling loop (or to a bare ``sleep`` without the notify).
+        """
+        supervisor_src = _read(_SUPERVISOR_RS)
+        state_src = _read(_STATE_RS)
+
+        assert "shutdown_notify.notified()" in supervisor_src, (
+            "supervisor.rs must await shutdown_notify.notified() in the "
+            "backoff loop — the Notify-based wakeup replaced the 100ms "
+            "poll loop."
         )
-        assert m, "SHUTDOWN_POLL_INTERVAL_MS constant not found in util.rs"
-        assert int(m.group(1)) == 100, (
-            f"SHUTDOWN_POLL_INTERVAL_MS must be 100 (dev-mode fallback step), got {m.group(1)}"
+        assert "shutdown_notify.notify_one()" in state_src, (
+            "state.rs must call shutdown_notify.notify_one() right after "
+            "the shutting_down swap — without it a supervisor mid-backoff "
+            "waits out the full sleep before noticing shutdown."
         )
 
     def test_supervisor_backoff_schedule_is_doubling_5_steps(self):

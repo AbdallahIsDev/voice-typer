@@ -187,12 +187,16 @@ _INITIAL_LABELS: dict[str, str] = {
         "After granting, log out and back in for the change to take effect."
     ),
     # ── startup_sequence.py notifications ───────────────────────────────
-    "notify.startup_sequence.crash_title": "{app} — Previous Session Crashed",
+    # CRASH-NOTIFY: the crash toast is calm, user-facing copy — NO
+    # technical details (crash summary, stack traces, python commands)
+    # in the notification. The crash summary stays in the log /
+    # diagnostics surface only.
+    "notify.startup_sequence.crash_title": "{app}",
     "notify.startup_sequence.crash_body": (
-        "The app was restarted automatically after an unexpected shutdown."
-        "\n\n{summary}\n\n"
-        "To prevent this: free up RAM/disk space, or try a smaller model "
-        "in Settings. See voice-typer.log for full diagnostics."
+        "{app} didn't close properly last time. "
+        "We've restarted it and recovered your app.\n\n"
+        "If this happens often, open Settings \u2192 Privacy \u2192 "
+        "Diagnostics for details and help."
     ),
     "notify.startup_sequence.onboarding_failed_critical": (
         "Onboarding setup kept failing. The app will start with default settings. Open Settings to configure manually."

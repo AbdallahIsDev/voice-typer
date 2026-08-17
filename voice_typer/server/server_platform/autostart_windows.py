@@ -145,6 +145,10 @@ def _enable_autostart_windows() -> bool:
         return True
     log.warning("[CONFIG] Startup-folder .bat autostart failed; trying HKCU Run key")
     if _pkg._register_app_autostart_runkey():
+        # Clean up a stale Startup .bat from a previous session (same
+        # hygiene as the task branch above) so autostart can't fire twice.
+        with contextlib.suppress(Exception):
+            _pkg._unregister_app_autostart_startup()
         return True
     log.warning("[CONFIG] All three autostart mechanisms failed")
     return False

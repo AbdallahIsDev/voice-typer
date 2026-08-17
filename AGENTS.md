@@ -539,7 +539,7 @@ moving to the next command; never leak a problem to CI.**
 ruff check voice_typer/ tests/ scripts/ conftest.py --fix
 python -m pytest tests/ --import-mode=importlib --co -q
 pyrefly check voice_typer/ --output-format=json
-pip-audit --strict
+pip-audit --strict --require-hashes -r requirements-lock.txt
 python scripts/build/sync_versions.py --check
 python scripts/check_branding.py
 

@@ -140,7 +140,8 @@ class TestModelHashesManifest:
     """Schema verification for ``model_hashes.json`` (parakeet entry)."""
 
     @pytest.fixture(scope="class")
-    def manifest(self):
+    @classmethod
+    def manifest(cls):
         """Load the model_hashes.json manifest once per test class."""
         with _MANIFEST_PATH.open("r", encoding="utf-8") as f:
             return json.load(f)

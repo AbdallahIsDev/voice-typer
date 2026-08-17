@@ -100,8 +100,13 @@ class TestConfigDirChmod:
         from voice_typer.server import single_instance as si_mod
 
         # Pre-create the config dir with looser perms (simulating a
-        # prior run that didn't have the  fix).
-        isolated_config_dir.mkdir(parents=True, exist_ok=True, mode=0o755)
+        # prior run that didn't have the  fix). Use os.chmod, not
+        # mkdir(mode=0o755): the mkdir mode is masked by the process
+        # umask, which varies per host/CI runner (some runners use a
+        # strict umask that turns 0o755 into 0o700, making the
+        # pre-condition fail spuriously). chmod is umask-independent.
+        isolated_config_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(isolated_config_dir, 0o755)
         # Verify the pre-condition (mode is 0o755, possibly masked by
         # umask — but mkdir with mode=0o755 should produce 0o755 on
         # most systems since umask is typically 0o022 → 0o755 & ~0o022

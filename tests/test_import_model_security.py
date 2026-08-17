@@ -345,7 +345,7 @@ class TestImportModelSymlinkRejection:
 
         src_dir = tmp_path / "source"
         src_dir.mkdir()
-        model_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny.en")
+        model_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny")
 
         # Plant a symlink inside the model cache pointing to a "secret"
         # file outside the source dir.
@@ -362,11 +362,11 @@ class TestImportModelSymlinkRejection:
         # The call itself succeeds (success=True) but the poisoned model
         # is reported in errors and NOT in imported.
         assert result["success"] is True
-        assert "tiny.en" not in result["imported"], (
+        assert "tiny" not in result["imported"], (
             f"Model containing a symlink must NOT be imported — got imported={result['imported']}"
         )
         assert len(result["errors"]) == 1
-        assert result["errors"][0]["model"] == "tiny.en"
+        assert result["errors"][0]["model"] == "tiny"
         assert "symlink" in result["errors"][0]["error"].lower()
 
         # The destination must NOT exist in the app's cache.
@@ -385,7 +385,7 @@ class TestImportModelSymlinkRejection:
 
         src_dir = tmp_path / "source"
         src_dir.mkdir()
-        model_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny.en")
+        model_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny")
 
         # Plant a symlinked subdirectory
         real_dir = tmp_path / "real_dir"
@@ -399,9 +399,9 @@ class TestImportModelSymlinkRejection:
 
         result = service.import_model(str(src_dir))
 
-        assert "tiny.en" not in result["imported"]
+        assert "tiny" not in result["imported"]
         assert len(result["errors"]) == 1
-        assert result["errors"][0]["model"] == "tiny.en"
+        assert result["errors"][0]["model"] == "tiny"
         assert "symlink" in result["errors"][0]["error"].lower()
 
     def test_rejects_symlink_to_etc_hostname(self, service, tmp_path, monkeypatch):
@@ -417,7 +417,7 @@ class TestImportModelSymlinkRejection:
 
         src_dir = tmp_path / "source"
         src_dir.mkdir()
-        model_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny.en")
+        model_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny")
 
         link = model_dir / "hostname_link"
         try:
@@ -436,7 +436,7 @@ class TestImportModelSymlinkRejection:
 
         result = service.import_model(str(src_dir))
 
-        assert "tiny.en" not in result["imported"]
+        assert "tiny" not in result["imported"]
         assert len(result["errors"]) == 1
         assert "symlink" in result["errors"][0]["error"].lower()
 
@@ -458,14 +458,14 @@ class TestImportModelSymlinkRejection:
 
         src_dir = tmp_path / "source"
         src_dir.mkdir()
-        model_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny.en")
+        model_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny")
         # Add a regular (non-symlink) file to make the copy non-trivial.
         (model_dir / "config.json").write_text('{"model_type": "test"}')
 
         result = service.import_model(str(src_dir))
 
         assert result["success"] is True
-        assert "tiny.en" in result["imported"]
+        assert "tiny" in result["imported"]
         assert len(result["errors"]) == 0, f"Expected no errors for legitimate import, got {result['errors']}"
 
         # Verify the files were actually copied.
@@ -488,11 +488,11 @@ class TestImportModelSymlinkRejection:
         src_dir.mkdir()
 
         # Clean model — should import
-        clean_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny.en")
+        clean_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny")
         (clean_dir / "config.json").write_text('{"model_type": "tiny"}')
 
         # Poisoned model — should be rejected
-        poison_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-small.en")
+        poison_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-large-v3-turbo")
         secret = tmp_path / "secret"
         secret.write_text("secret")
         link = poison_dir / "leaked"
@@ -504,10 +504,10 @@ class TestImportModelSymlinkRejection:
         result = service.import_model(str(src_dir))
 
         assert result["success"] is True
-        assert "tiny.en" in result["imported"]
-        assert "small.en" not in result["imported"]
+        assert "tiny" in result["imported"]
+        assert "large-v3-turbo" not in result["imported"]
         assert len(result["errors"]) == 1
-        assert result["errors"][0]["model"] == "small.en"
+        assert result["errors"][0]["model"] == "large-v3-turbo"
         assert "symlink" in result["errors"][0]["error"].lower()
 
         # The clean model's destination should exist; the poisoned one's

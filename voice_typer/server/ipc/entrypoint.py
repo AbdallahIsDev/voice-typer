@@ -251,11 +251,17 @@ def main() -> None:
 
     port, ws_mode = parse_ipc_args()
 
-    _setup_logging()
-
-    # single-instance lock is acquired AFTER args are parsed
-    # but BEFORE app construction (which stores the mutex handle).  The
-    # lock is still taken for real launches (both standalone and --port IPC).
+    # SINGLE-INSTANCE FIRST — before logging setup. A duplicate launch
+    # must exit BEFORE ``_setup_logging()`` runs: otherwise it would
+    # initialize logging, install the VEH crash handler, and print the
+    # startup banner ("logging initialized…" + "Windows VEH
+    # installed…") as if it were starting normally — then die. With the
+    # check up front, a second launch prints exactly one
+    # understandable line ("Voice Typer is already running — only one
+    # instance is allowed") and nothing else, and it never writes into
+    # the running instance's log file. Args are parsed first so
+    # ``--version`` / ``--help`` still work while another instance is
+    # running (the lock is taken for real launches only).
     #
     # ADR-0020 §12: under the Tauri sidecar path (TAURI_SIDECAR=1), the
     # Tauri host's `tauri-plugin-single-instance` plugin already enforces
@@ -265,11 +271,11 @@ def main() -> None:
     # would double-lock on Windows and block the second-instance focus
     # path, so we skip it under Tauri.
     _tauri_sidecar = os.environ.get("TAURI_SIDECAR") == "1"
+    _single_instance_mutex = None if _tauri_sidecar else _ensure_single_instance(silent=True)
+
+    _setup_logging()
     if _tauri_sidecar:
         log.info("[IPC] TAURI_SIDECAR=1 — skipping Python-side single-instance mutex (Tauri host owns it)")
-        _single_instance_mutex = None
-    else:
-        _single_instance_mutex = _ensure_single_instance(silent=True)
 
     # the os._exit monkey-patch that printed a stack trace
     # on every shutdown has been removed.

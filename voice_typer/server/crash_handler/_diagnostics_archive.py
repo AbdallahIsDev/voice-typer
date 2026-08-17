@@ -468,8 +468,11 @@ def report_pending_crash(config_dir: Path) -> str | None:
              later. (Files already in the archive stay there.)
           3. Creates a ``<filename>.reported`` sidecar marker next to the
              archived file so the next startup doesn't re-surface it.
-          4. Returns a human-readable summary for the caller to surface
-             (e.g., as a tray notification).
+          4. Returns a human-readable summary for the caller to LOG /
+             include in diagnostics. CRASH-NOTIFY: the caller no longer
+             embeds this summary in the user-facing notification —
+             technical crash details (including the "Next steps: run
+             python …" hint) stay in the log / diagnostics surface only.
 
         After processing, applies the sweep (30-day mtime cutoff + keep last
         10) to the config_dir root as a safety net for files left behind by
@@ -704,8 +707,7 @@ def report_pending_crash(config_dir: Path) -> str | None:
             # entirely. Pre-fix, the (redacted) ``exc_value`` was
             # interpolated into the summary string at INFO level, which
             # shipped dictated speech and any PII-shaped text that
-            # slipped past the redactor into the diagnostic bundle (and
-            # the tray notification, which embeds the summary verbatim).
+            # slipped past the redactor into the diagnostic bundle.
             # The full (redacted) ``exc_value`` remains in the marker
             # file on disk for support engineers with disk access —
             # surfacing it in the operator-visible summary is the leak.
@@ -768,17 +770,16 @@ def report_pending_crash(config_dir: Path) -> str | None:
         return None
 
     summary = "\n".join(summary_parts)
-    # append a "Next steps" hint so the tray notification
-    # (which embeds ``crash_summary`` verbatim — see
-    # ``startup_sequence._do_startup`` → ``app.tray.notify_safety(...)``)
-    # tells the user exactly how to capture a full diagnostic bundle
-    # for a bug report.  Previously the tray notification pointed at
-    # ``voice-typer.log`` only; the diagnostics-export CLI bundles the
-    # crash archive, config snapshot, OS / app version, and recent log
-    # lines into a single file the user can attach to a report.
-    # Appended to the summary (NOT the per-file ``summary_parts`` list)
-    # so the hint appears EXACTLY ONCE even when multiple crash files
-    # were surfaced in the same startup scan.
+    # append a "Next steps" hint so an OPERATOR reading the log / the
+    # diagnostics bundle knows how to capture a full diagnostic
+    # archive for a bug report. CRASH-NOTIFY: this summary (with the
+    # developer CLI hint) is consumed by ``startup_sequence`` for
+    # logging only — it is NEVER embedded in the user-facing
+    # notification (which carries calm, non-technical copy and points
+    # to Settings → Privacy → Diagnostics). Appended to the summary
+    # (NOT the per-file ``summary_parts`` list) so the hint appears
+    # EXACTLY ONCE even when multiple crash files were surfaced in the
+    # same startup scan.
     summary = summary + (
         "\nNext steps: run `python scripts/diagnostics.py export` to collect a full diagnostic bundle for a bug report."
     )
@@ -787,9 +788,10 @@ def report_pending_crash(config_dir: Path) -> str | None:
     # ``VOICE_TYPER_DEBUG=1``. Pre-fix the summary was logged at INFO,
     # which meant even the reduced (exc_type + thread + timestamp only)
     # summary landed in the default production log — visible to any
-    # operator reading voice-typer.log. The summary text is still
-    # returned to the caller (the tray notification embeds it), so the
-    # user still sees the previous-crash signal; the demotion only
-    # affects the rotating log file.
-    log.debug("[CRASH] Crash summary for user notification:\n%s", summary)
+    # operator reading voice-typer.log. The summary is returned to
+    # the caller for logging only (the user notification carries calm,
+    # non-technical copy — see ``startup_sequence``), so the demotion
+    # keeps the operator-visible signal in the rotating log without
+    # leaking PII-shaped text into the default log level.
+    log.debug("[CRASH] Crash summary (operator log only, not user-facing):\n%s", summary)
     return summary

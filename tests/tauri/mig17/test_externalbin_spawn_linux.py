@@ -170,7 +170,7 @@ def _read_spawn_module() -> str:
     orchestrator (``spawn.rs``) + six concern submodules
     (``spawn/dev_mode.rs``, ``spawn/release_mode.rs``,
     ``spawn/handshake.rs``, ``spawn/env_allowlist.rs``,
-    ``spawn/prewarm.rs``, ``spawn/target_triple.rs``). The gate
+    ``spawn/worker.rs``, ``spawn/target_triple.rs``). The gate
     assertions target the spawn module as a whole, so we read every
     file and join them.
     """
@@ -294,7 +294,7 @@ def test_tauri_conf_shell_scope_allows_python_sidecar(tauri_conf) -> None:
     )
 
 
-# ─── Test 2: Linux native + prewarm resources ──────────────────────────
+# ─── Test 2: Linux native resources + worker externalBin ───────────────
 
 
 def test_tauri_conf_resources_include_linux_native(tauri_conf) -> None:
@@ -327,19 +327,27 @@ def test_tauri_conf_resources_include_linux_native(tauri_conf) -> None:
         "aarch64-unknown-linux-gnu",
     ],
 )
-def test_tauri_conf_resources_include_linux_prewarm(tauri_conf, triple: str) -> None:
-    """ADR-0020 §4.1 + §5: per-arch prewarm binaries for Linux.
+def test_tauri_conf_prewarm_moved_into_worker_exe(tauri_conf) -> None:
+    """plan-runtime-pack-split §6.2 (Option P-1): prewarm lives in the
+    worker exe, not in per-arch prewarm binaries.
 
-    The prewarm binary is launched by the systemd user timer
-    (``voice-typer-prewarm.timer`` → ``voice-typer-prewarm.service``,
-    NOT by Tauri), so it must be a ``bundle.resource`` extracted to
-    ``resourceDir``. Tauri's ``externalBin`` is NOT used for prewarm.
-    One binary per Linux target triple (x86_64 + aarch64).
+    The prewarm binary + its ``resources/prewarm-<triple>`` entries are
+    deleted; the prewarm phase moved INTO the worker exe, which is
+    listed in ``bundle.externalBin`` (``bin/voice-typer-worker``).
+    This test pins the post-split state: the worker is an externalBin
+    and NO ``resources/prewarm-*`` entries remain in the bundle.
     """
     resources = tauri_conf.get("bundle", {}).get("resources", [])
-    expected = f"resources/prewarm-{triple}"
-    assert expected in resources, (
-        f"bundle.resources must include '{expected}' (per-arch prewarm binary for Linux {triple}, ADR-0020 §5)"
+    external_bin = tauri_conf.get("bundle", {}).get("externalBin", [])
+    assert isinstance(resources, list), "bundle.resources must be a list"
+    assert "bin/voice-typer-worker" in external_bin, (
+        "bundle.externalBin must include 'bin/voice-typer-worker' — the "
+        "prewarm phase moved into the worker exe (plan-runtime-pack-split §6.2)"
+    )
+    stale_prewarm = [r for r in resources if "prewarm" in r]
+    assert not stale_prewarm, (
+        f"bundle.resources must NOT contain prewarm binaries "
+        f"(deleted per plan-runtime-pack-split §6.2): {stale_prewarm}"
     )
 
 
@@ -578,10 +586,16 @@ def test_spawn_rs_sets_ipc_token_env_var(spawn_rs_source) -> None:
         r'\.env\s*\(\s*"VOICE_TYPER_NATIVE_DIR"\s*,',
         spawn_rs_source,
     ), "spawn.rs must set VOICE_TYPER_NATIVE_DIR to resourceDir/native"
-    assert re.search(
-        r'\.env\s*\(\s*"VOICE_TYPER_PREWARM_EXE"\s*,',
-        spawn_rs_source,
-    ), "spawn.rs must set VOICE_TYPER_PREWARM_EXE to the per-arch prewarm binary"
+    # Prewarm binary removal (plan-runtime-pack-split §6.2, Option P-1):
+    # VOICE_TYPER_PREWARM_EXE is deliberately NOT set — the prewarm
+    # binary is deleted and the prewarm phase moved INTO the worker
+    # exe (spawn/worker.rs). Asserting the env var here would pin a
+    # removed design.
+    assert "VOICE_TYPER_PREWARM_EXE" not in spawn_rs_source, (
+        "spawn module must NOT set VOICE_TYPER_PREWARM_EXE — the prewarm "
+        "binary was removed (plan-runtime-pack-split §6.2) and the "
+        "prewarm phase moved into the worker exe."
+    )
 
 
 def test_spawn_rs_passes_ws_arg(spawn_rs_source) -> None:

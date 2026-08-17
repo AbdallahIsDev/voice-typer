@@ -193,6 +193,149 @@ class TestStartupSequenceRunOrder:
         assert prewarm_idx < hotkey_idx, "Phase ordering: prewarm sync MUST precede hotkey registration"
         assert mic_idx < hotkey_idx, "Phase ordering: mic enumeration MUST precede hotkey registration"
 
+    def test_run_marks_session_active_after_crash_check(self, app_for_startup, monkeypatch, tmp_config_dir):
+        """SESSION-STATE: once startup passes the crash-check phase, run()
+        records the session-active marker (``session_state.py``) so a crash
+        later in the session is detectable on the next launch — while an
+        aborted startup (``_shutting_down``) must NOT leave a marker."""
+        from voice_typer.server import session_state, startup_tasks
+
+        monkeypatch.setattr(
+            "voice_typer.server.startup_sequence.configure_corrections",
+            lambda config_dir: None,
+        )
+
+        # Abort the sequence right after the first phase — which runs
+        # AFTER the marker write — so the test doesn't need the full
+        # startup surface.
+        def _sync_autostart_abort(app):
+            app._shutting_down = True
+
+        monkeypatch.setattr(startup_tasks, "sync_autostart", _sync_autostart_abort)
+        monkeypatch.setattr(startup_tasks, "sync_prewarm_task", lambda app, evt=None: None)
+        monkeypatch.setattr(startup_tasks, "load_microphones", lambda app, evt=None: None)
+        monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", lambda app: None)
+        monkeypatch.setattr(startup_tasks, "start_accessibility_pulse", lambda app, initial_state: None)
+
+        from voice_typer.server.startup_sequence import StartupSequence
+
+        StartupSequence(app_for_startup).run()
+
+        marker = tmp_config_dir / session_state.SESSION_MARKER_FILENAME
+        assert marker.exists(), (
+            "SESSION-STATE: run() must mark the session active after the crash "
+            "check so a later crash is detectable on the next launch"
+        )
+
+    def test_run_abort_before_marker_does_not_mark_session(self, app_for_startup, monkeypatch, tmp_config_dir):
+        """SESSION-STATE: when ``_shutting_down`` is already set before the
+        crash check completes, run() aborts and must NOT write a fresh
+        session marker (no real session started)."""
+        from voice_typer.server import session_state, startup_tasks
+
+        monkeypatch.setattr(
+            "voice_typer.server.startup_sequence.configure_corrections",
+            lambda config_dir: None,
+        )
+        monkeypatch.setattr(startup_tasks, "sync_autostart", lambda app: None)
+        monkeypatch.setattr(startup_tasks, "sync_prewarm_task", lambda app, evt=None: None)
+        monkeypatch.setattr(startup_tasks, "load_microphones", lambda app, evt=None: None)
+        monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", lambda app: None)
+        monkeypatch.setattr(startup_tasks, "start_accessibility_pulse", lambda app, initial_state: None)
+
+        app_for_startup._shutting_down = True
+
+        from voice_typer.server.startup_sequence import StartupSequence
+
+        StartupSequence(app_for_startup).run()
+
+        marker = tmp_config_dir / session_state.SESSION_MARKER_FILENAME
+        assert not marker.exists(), "aborted startup must not mark a session active"
+
+    def _crash_check_app(self, app_for_startup, monkeypatch):
+        """Configure the app so run() executes the crash-check phase then
+        aborts right after (so the test needs no further startup surface),
+        and record tray/event-bus notifications."""
+        from voice_typer.server import startup_tasks
+
+        monkeypatch.setattr(
+            "voice_typer.server.startup_sequence.configure_corrections",
+            lambda config_dir: None,
+        )
+
+        def _sync_autostart_abort(app):
+            app._shutting_down = True
+
+        monkeypatch.setattr(startup_tasks, "sync_autostart", _sync_autostart_abort)
+        monkeypatch.setattr(startup_tasks, "sync_prewarm_task", lambda app, evt=None: None)
+        monkeypatch.setattr(startup_tasks, "load_microphones", lambda app, evt=None: None)
+        monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", lambda app: None)
+        monkeypatch.setattr(startup_tasks, "start_accessibility_pulse", lambda app, initial_state: None)
+
+        notified: list[tuple] = []
+        events: list[dict] = []
+        app_for_startup.tray.notify_safety = lambda *args: notified.append(args)
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.publish",
+            lambda msg: events.append(dict(msg)),
+        )
+        return notified, events
+
+    def test_crash_file_plus_abnormal_session_notifies(self, app_for_startup, monkeypatch, tmp_config_dir):
+        """SESSION-STATE gate (end-to-end): a real crash file + a survived
+        session marker (previous session ended abnormally) → calm
+        user-facing notification, no technical detail, no python command."""
+        from voice_typer.server import session_state
+        from voice_typer.server.startup_sequence import StartupSequence
+
+        notified, events = self._crash_check_app(app_for_startup, monkeypatch)
+        # Real crash diagnostics file from the "previous" process.
+        (tmp_config_dir / "crash_diagnostics.1234.txt").write_text(
+            "code=0xC0000005 STATUS_ACCESS_VIOLATION: invalid memory access.\r\n",
+            encoding="utf-8",
+        )
+        # Previous session did NOT shut down cleanly (marker survived).
+        session_state.mark_session_active(tmp_config_dir)
+
+        StartupSequence(app_for_startup).run()
+
+        assert len(notified) == 1, f"expected 1 tray notification, got {notified}"
+        title, body = notified[0]
+        assert "Crashed" not in title, "title must not say 'Crashed'"
+        assert "didn't close properly" in body
+        assert "Settings" in body
+        assert "python" not in body, "notification must not mention python/terminal commands"
+        # The event-bus payload mirrors the tray copy + click-through.
+        assert len(events) == 1
+        assert events[0]["data"]["click_path"] == "/settings"
+        assert "Access violation" not in body, "raw crash summary must stay out of the notification"
+
+    def test_crash_file_plus_clean_session_suppressed(self, app_for_startup, monkeypatch, tmp_config_dir):
+        """SESSION-STATE gate (end-to-end): the SAME crash file with NO
+        session marker (previous session shut down cleanly) → NO
+        notification — teardown-noise markers are archived, not reported.
+        This is the core false-positive fix (restart / reload / clean
+        quit must not produce a crash notification)."""
+        from voice_typer.server import session_state
+        from voice_typer.server.startup_sequence import StartupSequence
+
+        notified, events = self._crash_check_app(app_for_startup, monkeypatch)
+        # Real crash file, but NO session marker (clean shutdown recorded).
+        (tmp_config_dir / "crash_diagnostics.1234.txt").write_text(
+            "code=0xC0000005 STATUS_ACCESS_VIOLATION: invalid memory access.\r\n",
+            encoding="utf-8",
+        )
+        assert not session_state.was_previous_session_abnormal(tmp_config_dir)
+
+        StartupSequence(app_for_startup).run()
+
+        assert notified == [], f"clean previous session must NOT notify: {notified}"
+        assert events == [], f"clean previous session must NOT publish: {events}"
+        # The crash file was still archived for support (no re-notification).
+        assert not (tmp_config_dir / "crash_diagnostics.1234.txt").exists(), (
+            "crash file should be archived (moved) even when suppressed"
+        )
+
 
 class TestStartupSequenceRACE020ShutdownGates:
     """RACE-020: ``app._shutting_down`` is checked between each major step

@@ -62,8 +62,20 @@ _AF_UNIX_PATH_TOO_LONG = pytest.mark.skipif(
 
 
 def _make_tmp_xdg(tmp_path: Path) -> str:
-    """Return a tmp dir suitable for ``$XDG_RUNTIME_DIR``."""
-    xdg = tmp_path / "xdg-runtime"
+    """Return a SHORT tmp dir suitable for ``$XDG_RUNTIME_DIR``.
+
+    AF_UNIX sun_path is 108 bytes on Linux. pytest's ``tmp_path``
+    embeds the test name (e.g. ``.../test_no_client_timer_canceled_on_
+    client_connect0/xdg-runtime``) which, combined with the socket
+    filename ``voice-typer-hotkey.sock``, overflows the limit on CI
+    runners (long workspace/user paths) — the socket bind then fails
+    and the backend silently falls back to pynput, making every
+    socket-backend assertion fail. A fixed short dir (per-worker pid)
+    keeps the socket path ~40 bytes.
+    """
+    import tempfile
+
+    xdg = Path(tempfile.gettempdir()) / f"vt-xdg-{os.getpid()}"
     xdg.mkdir(mode=0o700, exist_ok=True)
     return str(xdg)
 

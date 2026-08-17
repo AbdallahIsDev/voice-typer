@@ -64,10 +64,27 @@ jobs:
     # skip the full test matrix on weekly schedule runs —
     # only pip-audit-weekly should run on schedule.
     if: github.event_name != 'schedule'
+    # CHECK-W: `checks: write` lets the mikepenz/action-junit-report step
+    # below actually create the check-run annotations it is supposed to
+    # post — with only `pull-requests: read` it fails every run with
+    # "Resource not accessible by integration", silently defeating the
+    # PR-annotation purpose of the junit step.
+    permissions:
+      contents: read
+      checks: write
     runs-on: ${{ matrix.os }}
     # XS-25: cap test job runtime — a hung pytest leg should not consume a
     # runner for 6h (the GitHub default).
-    timeout-minutes: 30
+    #
+    # 30m proved too tight for the ubuntu-22.04 legs (2 vCPU runners): the
+    # full --cov suite runs ~12-18m on windows/macos but is STILL running
+    # at the 30m cap on ubuntu (observed: ubuntu pytest steps cancelled at
+    # 29.8m on every push for weeks). A cancelled pytest leg writes no
+    # coverage.xml, which then makes the coverage-ratchet and Codecov
+    # steps (both `if: always()`) fail with "coverage data is unavailable"
+    # on the canonical ubuntu x 3.12 leg. 60m gives the slowest legs ~2x
+    # headroom while still capping runaway/hung runs at an hour.
+    timeout-minutes: 60
     strategy:
       # PRs run a reduced matrix (one Python per OS) to save CI
       # minutes; the full 4×3 matrix runs on push (branches/tags) where we
@@ -519,7 +536,16 @@ jobs:
           # justification comment above each. Example:
           #   # requests: low-severity redirect issue, no fix available yet (tracked in #NNN)
           #   --ignore-vuln GHSA-xxxx-xxxx-xxxx
-          pip-audit --strict
+          #
+          # Audit the hash-pinned lock file, NOT the environment: the env
+          # always contains `voice-typer` itself (a local install, never on
+          # PyPI), and pip-audit >=2.10 --strict treats ANY skipped
+          # dependency as a fatal error (pip's editable/local metadata
+          # changed 2026-04, so `--skip-editable` no longer prevents the
+          # failure). `-r requirements-lock.txt` audits exactly the pinned
+          # shipped deps — no self-package, deterministic, and
+          # `--require-hashes` guards against lock drift.
+          pip-audit --strict --require-hashes -r requirements-lock.txt
 
   # ──────────────────────────────────────────────────────────────────────────
   # Icon drift check: the committed src-tauri/icons must match what a
@@ -618,7 +644,10 @@ jobs:
         id: audit
         continue-on-error: true
         run: |
-          pip-audit --strict > /tmp/audit.txt 2>&1
+          # Same lock-file target as the daily gate (see its comment): the
+          # env contains the unpublished `voice-typer` self-package, which
+          # pip-audit >=2.10 --strict treats as a fatal skipped dependency.
+          pip-audit --strict --require-hashes -r requirements-lock.txt > /tmp/audit.txt 2>&1
           echo "findings<<EOF" >> $GITHUB_OUTPUT
           cat /tmp/audit.txt >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT

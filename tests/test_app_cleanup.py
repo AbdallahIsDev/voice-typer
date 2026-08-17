@@ -324,6 +324,24 @@ class TestDoCleanupIdempotency:
         hotkey_backend.stop.assert_called_once()
         app.tray.stop.assert_called_once()
 
+    def test_do_cleanup_clears_session_marker(self, app, monkeypatch, tmp_config_dir):
+        """SESSION-STATE: the shared cleanup body removes the session-active
+        marker — so a quit / restart_app / atexit run makes the NEXT
+        launch treat the previous session as clean (no crash
+        notification), while a crash (no cleanup) leaves the marker."""
+        from voice_typer.server import session_state
+
+        _stub_restart_environment(app, monkeypatch)
+        # Simulate a session that began (marker present).
+        session_state.mark_session_active(tmp_config_dir)
+
+        app._do_cleanup()
+
+        assert not (tmp_config_dir / session_state.SESSION_MARKER_FILENAME).exists(), (
+            "SESSION-STATE: clean shutdown must clear the session marker "
+            "so the next launch is not reported as a crash"
+        )
+
     def test_do_cleanup_idempotent_when_recorder_stop_raises(self, app, monkeypatch):
         """Idempotency must hold even when an inner operation raises.
 
@@ -552,14 +570,23 @@ class TestRelaunchAckEventDriven:
         sleep_calls = []
         monkeypatch.setattr(
             "voice_typer.server.app.time.sleep",
-            lambda s: sleep_calls.append(s),
+            lambda s: sleep_calls.append((s, threading.current_thread().name)),
         )
 
         with contextlib.suppress(SystemExit):
             app.restart_app()
 
-        assert sleep_calls == [], (
-            "restart_app must not call the fixed 300ms sleep when the relaunch_ack event is already set (PERF-005)"
+        # PERF-005 scope: ``restart_app`` runs on the main thread, so
+        # only main-thread sleeps count. ``voice_typer.server.app.time``
+        # IS the global ``time`` module, so this recorder also captures
+        # stray daemon-thread sleeps from other tests in the same
+        # process (e.g. the shutdown watchdog's grace wait) — those are
+        # process noise, not restart_app behavior, and made this test
+        # flaky under the full-suite sweep.
+        main_sleeps = [s for s, _t in sleep_calls if _t == threading.main_thread().name]
+        assert main_sleeps == [], (
+            "restart_app must not call the fixed 300ms sleep when the relaunch_ack "
+            f"event is already set (PERF-005). Main-thread sleeps: {main_sleeps}"
         )
 
     def test_restart_app_falls_back_to_sleep_without_server(self, app, monkeypatch):
@@ -581,19 +608,25 @@ class TestRelaunchAckEventDriven:
         _stub_restart_environment(app, monkeypatch)
         app._ipc_server = None
 
+        import threading
+
         sleep_calls = []
         monkeypatch.setattr(
             "voice_typer.server.app.time.sleep",
-            lambda s: sleep_calls.append(s),
+            lambda s: sleep_calls.append((s, threading.current_thread().name)),
         )
 
         with contextlib.suppress(SystemExit):
             app.restart_app()
 
-        assert sleep_calls == [], (
+        # Same main-thread scoping as the PERF-005 test: only
+        # main-thread sleeps count (stray daemon-thread sleeps from
+        # other tests are process noise, not restart_app behavior).
+        main_sleeps = [s for s, _t in sleep_calls if _t == threading.main_thread().name]
+        assert main_sleeps == [], (
             f"TY-13: restart_app must NOT sleep when no IPC server is "
             f"available — the 300ms fallback was removed (no one is "
-            f"listening for the relaunch_ack). Got sleep_calls: {sleep_calls}"
+            f"listening for the relaunch_ack). Main-thread sleeps: {main_sleeps}"
         )
 
 

@@ -97,7 +97,10 @@ def test_constants_ts_hotkey_default_matches_config_default() -> None:
     # The `@/` alias maps to the renderer source root
     # (src/renderer/src), not the re-exporting file's directory.
     if ts_value.startswith("@/"):
-        rel = ts_value[2:].replace("/", "\\")
+        # Path accepts forward slashes on every OS (including Windows),
+        # so no separator rewriting — a literal backslash here breaks
+        # the lookup on POSIX (backslash is a valid filename char).
+        rel = ts_value[2:]
         renderer_src = CONSTANTS_TS_PATH.parents[3]  # …/src/renderer/src
         target = renderer_src / rel
         target = (target if target.suffix else target.with_suffix(".ts")).resolve()

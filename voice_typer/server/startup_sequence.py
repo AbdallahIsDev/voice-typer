@@ -49,8 +49,12 @@ if TYPE_CHECKING:
     # docstring.  At runtime, ``app`` is whatever object was passed to
     # ``__init__`` (always a ``VoiceTyperApp`` in production, but tests
     # pass mocks that satisfy the same duck-typed surface).
+    # NOTE: ``AppProtocol`` (providers) is deliberately NOT imported
+    # here — ``_pack_check_task`` imports it at runtime (function
+    # scope) because ``typing.cast`` evaluates its type argument at
+    # runtime and a TYPE_CHECKING-only import caused a NameError in the
+    # pack-check thread.
     from voice_typer.server.app import VoiceTyperApp
-    from voice_typer.server.providers import AppProtocol
 
 log = logging.getLogger(__name__)
 
@@ -376,62 +380,118 @@ class StartupSequence:
         # The VEH handler (crash_handler.py) writes crash_diagnostics.<PID>.txt
         # when a previous process was killed by STATUS_HEAP_CORRUPTION or
         # another silent SEH exception.  We read them here, log them to
-        # voice-typer.log, show a notification, and delete them.
+        # voice-typer.log, and — only when the previous session genuinely
+        # ended abnormally — show a calm user-facing notification.
+        #
+        # SESSION-STATE-GATE: the ``session_active`` marker (see
+        # ``session_state.py``) is written at session start and removed
+        # on every clean-shutdown path (``_do_cleanup`` /
+        # ``_do_fast_cleanup``). A leftover ``python_crash.*.txt`` /
+        # ``crash_diagnostics.*.txt`` file is NOT by itself evidence of
+        # a crash: daemon threads that raise during interpreter teardown
+        # (socket close, backend restart/reload kills) write markers
+        # while the session is still exiting cleanly. The notification
+        # therefore only fires when crash files exist AND the previous
+        # session did not shut down cleanly (marker still present).
         try:
+            # Resolve the config dir via ``app`` module attribute so
+            # tests that monkeypatch ``voice_typer.server.app._config_dir``
+            # (the ``tmp_config_dir`` fixture) are honored — mirrors the
+            # lazy lookup pattern in ``single_instance._backend_pid_file``.
+            from voice_typer.server import app as _app_module, session_state
+
+            _startup_config_dir = _app_module._config_dir()
+            _previous_session_abnormal = session_state.was_previous_session_abnormal(_startup_config_dir)
             # Sweep stale corrupt-quarantine and pre-migration backup files
             # (30-day retention). Mirrors the log-rotation and crash-diagnostics
             # sweeps. Best-effort — never aborts startup on a sweep error.
             with contextlib.suppress(Exception):
-                _sweep_stale_backup_files(_config_dir())
-            crash_summary = _crash_handler.report_pending_crash(_config_dir())
+                _sweep_stale_backup_files(_startup_config_dir)
+            crash_summary = _crash_handler.report_pending_crash(_startup_config_dir)
             if crash_summary:
-                # Log at WARNING so it appears prominently in voice-typer.log
-                log.warning("[STARTUP] Previous session crashed! See log lines above for full diagnostics.")
-                # critical — bypass notification toggle so the
-                # user always sees crash alerts.
-                try:
-                    app.tray.notify_safety(
-                        f"{APP_NAME} — Previous Session Crashed",
-                        "The app was restarted automatically after "
-                        "an unexpected shutdown.\n\n"
-                        f"{crash_summary}\n\n"
-                        "To prevent this: free up RAM/disk space, "
-                        "or try a smaller model in Settings. "
-                        "See voice-typer.log for full diagnostics.",
+                if _previous_session_abnormal:
+                    # Log at WARNING so it appears prominently in voice-typer.log
+                    log.warning("[STARTUP] Previous session crashed! See log lines above for full diagnostics.")
+                    # Genuine unexpected termination (no clean shutdown
+                    # was recorded) — surface a calm, user-facing
+                    # recovery toast. CRASH-NOTIFY: technical details
+                    # (crash summary, stack traces, python commands)
+                    # stay in the log/diagnostics only — never in a
+                    # system notification. ``critical`` bypasses the
+                    # show_notifications toggle so the user always sees
+                    # crash alerts.
+                    _crash_body = (
+                        f"{APP_NAME} didn't close properly last time. "
+                        "We've restarted it and recovered your app.\n\n"
+                        "If this happens often, open Settings \u2192 Privacy \u2192 "
+                        "Diagnostics for details and help."
                     )
-                except Exception as exc:
-                    log.debug("[STARTUP] Could not show crash notification: %s", exc)
-                # Also publish an event to the in-process event bus so
-                # the Electron frontend can show an in-app notification
-                # (toast / snackbar) if the UI window is open.
-                # event name was renamed from "electron_notification"
-                # to the platform-agnostic "notification" — the Tauri
-                # Rust host passes the event through unchanged (the old
-                # rename match arm was removed). A Rust-side backward-
-                # compat alias handles old Python sidecars still emitting
-                # the legacy name during rolling upgrades.
-                try:
-                    from voice_typer.server import event_bus
+                    try:
+                        app.tray.notify_safety(APP_NAME, _crash_body)
+                    except Exception as exc:
+                        log.debug("[STARTUP] Could not show crash notification: %s", exc)
+                    # Also publish an event to the in-process event bus so
+                    # the Electron frontend can show an in-app notification
+                    # (toast / snackbar) if the UI window is open.
+                    # event name was renamed from "electron_notification"
+                    # to the platform-agnostic "notification" — the Tauri
+                    # Rust host passes the event through unchanged (the old
+                    # rename match arm was removed). A Rust-side backward-
+                    # compat alias handles old Python sidecars still emitting
+                    # the legacy name during rolling upgrades.
+                    try:
+                        from voice_typer.server import event_bus
 
-                    event_bus.publish(
-                        {
-                            "type": "notification",
-                            "data": {
-                                "title": f"{APP_NAME} — Previous Session Crashed",
-                                "message": crash_summary,
-                                "duration_ms": 15000,
-                                "critical": True,
-                            },
-                        }
+                        event_bus.publish(
+                            {
+                                "type": "notification",
+                                "data": {
+                                    "title": APP_NAME,
+                                    "message": _crash_body,
+                                    "duration_ms": 15000,
+                                    "critical": True,
+                                    # Clicking the toast opens Settings
+                                    # (Diagnostics live in Settings ->
+                                    # Privacy) — the user's clear next
+                                    # action, no terminal required.
+                                    "click_path": "/settings",
+                                },
+                            }
+                        )
+                    except Exception as exc:
+                        log.debug("[STARTUP] Could not publish crash event to frontend: %s", exc)
+                else:
+                    # The previous session shut down cleanly — the
+                    # crash files are teardown noise (daemon-thread
+                    # exceptions during interpreter exit, backend
+                    # restart/reload kills) or stale leftovers, NOT a
+                    # crash. They have already been archived by
+                    # ``report_pending_crash`` for support; do not
+                    # alarm the user and do not log a misleading
+                    # "crashed" WARNING.
+                    log.info(
+                        "[STARTUP] Crash diagnostics found but previous session "
+                        "shut down cleanly — suppressing crash notification "
+                        "(diagnostics archived for support)"
                     )
-                except Exception as exc:
-                    log.debug("[STARTUP] Could not publish crash event to frontend: %s", exc)
         except Exception as exc:
             log.debug("[STARTUP] Crash diagnostic check failed: %s", exc)
 
         if app._shutting_down:
             log.info("[STARTUP] _shutting_down is set, aborting startup")
             return
+
+        # Session begins here: record the session-active marker AFTER
+        # the previous session's crash check consumed its state, so a
+        # crash later in this startup (or any time before a clean
+        # shutdown) is detectable on the next launch. Aborting above
+        # (``_shutting_down``) means no real session started — no marker.
+        try:
+            from voice_typer.server import app as _app_module, session_state
+
+            session_state.mark_session_active(_app_module._config_dir())
+        except Exception as exc:
+            log.debug("[STARTUP] Could not mark session active: %s", exc)
 
         # #8: Onboarding wizard — detect first run and let the React UI
         # show the wizard. Previously this auto-applied defaults and
@@ -1029,8 +1089,22 @@ class StartupSequence:
                 # reads `config`; the cast is a documented assertion of
                 # that narrow surface (same class of workaround as
                 # startup_tasks.py's `setattr` on a non-protocol member).
+                #
+                # RUNTIME-FIX: ``AppProtocol`` is imported under
+                # TYPE_CHECKING at module scope, but ``cast()`` evaluates
+                # its type argument at RUNTIME — without a runtime
+                # binding this thread died with ``NameError`` before ever
+                # calling ``check_offline_pack_on_launch``, silently
+                # disabling the launch-time offline-pack check (observed
+                # as PytestUnhandledThreadExceptionWarning in the suite).
+                # Function-local import (module-level would violate the
+                # import-cycle discipline documented in the module
+                # docstring; ``providers`` is already a runtime
+                # dependency via ``startup_tasks``).
+                from voice_typer.server.providers import AppProtocol as _AppProtocol
+
                 startup_tasks.check_offline_pack_on_launch(
-                    cast(AppProtocol, app), _shutdown_event
+                    cast(_AppProtocol, app), _shutdown_event
                 )
 
             pack_thread = threading.Thread(

@@ -273,7 +273,13 @@ def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
                 "test",
                 "--manifest-path",
                 str(SIDECAR_CARGO_TOML),
-                "--lib",
+                # The crate is a bin-only package (no src/lib.rs), so
+                # ``--lib`` fails with "no library targets found" even
+                # when the test passes. Target the bin's unit tests
+                # explicitly (C-TEST-5: Rust tests live in logging_tests.rs
+                # wired via #[cfg(test)] mod tests;).
+                "--bin",
+                "voice-typer-tauri",
                 "--quiet",
                 "--",
                 "--nocapture",
