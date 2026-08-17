@@ -237,6 +237,18 @@ _skip_no_symlink = pytest.mark.skipif(
 )
 
 
+def _strip_extended_prefix(p: str) -> str:
+    r"""Strip the Win32 extended-length path prefix (``\\?\``) from a path.
+
+    ``Path.resolve()`` emits the prefixed form on Windows, while
+    ``os.readlink`` returns the unprefixed target — comparing the two raw
+    strings fails on Windows CI even though the paths are identical.
+    No-op on POSIX."""
+    if p.startswith("\\\\?\\"):
+        return p[4:]
+    return p
+
+
 class TestSetupPolkitStablePath:
     """``setup_polkit_stable_path()`` behavior."""
 
@@ -299,7 +311,9 @@ class TestSetupPolkitStablePath:
         ip_module.setup_polkit_stable_path()
 
         assert stable_path.is_symlink(), f"Expected symlink at {stable_path}"
-        assert os.readlink(stable_path) == str(real_script)
+        # Normalize both sides: ``Path.resolve()`` yields a \\?\\-prefixed
+        # path on Windows while ``os.readlink`` returns the unprefixed form.
+        assert _strip_extended_prefix(os.readlink(stable_path)) == _strip_extended_prefix(str(real_script))
 
     def test_copies_for_appimage(self, ip_module, monkeypatch, tmp_path):
         """For AppImage runs, copies the script (not symlink) to the polkit-stable path."""
@@ -388,7 +402,9 @@ class TestSetupPolkitStablePath:
 
         # Symlink should still point to the same target.
         assert stable_path.is_symlink()
-        assert os.readlink(stable_path) == str(real_script)
+        # Normalize both sides: ``Path.resolve()`` yields a \\?\\-prefixed
+        # path on Windows while ``os.readlink`` returns the unprefixed form.
+        assert _strip_extended_prefix(os.readlink(stable_path)) == _strip_extended_prefix(str(real_script))
         # _install_polkit_policy should have been called (early return path).
         assert len(polkit_calls) == 1
 

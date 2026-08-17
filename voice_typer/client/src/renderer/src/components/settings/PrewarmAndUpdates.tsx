@@ -39,13 +39,17 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState } from "react";
 import { ReadonlyRow } from "@/components/common/ReadonlyRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
+// Reuse the byte/relative-time formatters exported by the diagnostics
+// section (they moved there with the diagnostics table in the IA split)
+// instead of duplicating them.
+import {
+	formatBytes,
+	formatRelativeTime,
+} from "@/components/settings/DiagnosticsSettingsSection";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
-// Reuse the byte/relative-time formatters already exported by About
-// (kept exported there for unit-test coverage) instead of duplicating them.
-import { formatBytes, formatRelativeTime } from "@/pages/About";
 import pkg from "../../../../../package.json";
 import type { IsVisibleFn } from "./types";
 

@@ -117,10 +117,10 @@ class TestGetModelMetadataReturnsCorrectFields:
 
     def test_display_name_sets_detailed_model_names(self):
         """The Models page shows a detailed name under the family header:
-        parakeet renders as ``Parakeet-v3-TDT`` and qwen as ``Qwen-3``;
+        parakeet renders as ``Parakeet-TDT-0.6b-V3`` and qwen as ``Qwen-3``;
         whisper variants have no display_name and fall back to the bare
         name in the renderer."""
-        assert get_model_metadata("parakeet").display_name == "Parakeet-v3-TDT"
+        assert get_model_metadata("parakeet").display_name == "Parakeet-TDT-0.6b-V3"
         assert get_model_metadata("qwen").display_name == "Qwen-3"
         for name in ("tiny", "large-v3", "large-v3-turbo"):
             assert get_model_metadata(name).display_name is None
@@ -129,7 +129,7 @@ class TestGetModelMetadataReturnsCorrectFields:
         """``to_dict()`` (the ``get_model_catalog`` IPC payload) includes
         ``display_name`` so the renderer can render the detailed name."""
         d = get_model_metadata("parakeet").to_dict()
-        assert d["display_name"] == "Parakeet-v3-TDT"
+        assert d["display_name"] == "Parakeet-TDT-0.6b-V3"
 
     def test_metadata_is_frozen(self):
         """Registry entries are immutable so they can be safely shared
@@ -367,12 +367,10 @@ class TestModelMetadataHasNetworkBehaviorField:
             f"qwen: expected 'local-only' (user supplies the model path manually), got {meta.network_behavior!r}"
         )
         assert "Auto-downloaded" not in meta.description, (
-            "qwen description must not say 'Auto-downloaded'. "
-            f"Got: {meta.description!r}"
+            f"qwen description must not say 'Auto-downloaded'. Got: {meta.description!r}"
         )
         assert "Requires manual model path setup" in meta.description, (
-            "qwen description must say 'Requires manual model path "
-            f"setup in Settings'. Got: {meta.description!r}"
+            f"qwen description must say 'Requires manual model path setup in Settings'. Got: {meta.description!r}"
         )
 
     def test_to_dict_includes_network_behavior(self):

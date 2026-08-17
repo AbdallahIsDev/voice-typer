@@ -154,7 +154,7 @@ describe("Sidebar", () => {
 		expect(systemSection?.getAttribute("aria-label")).toBe("System");
 	});
 
-	it("PROD-7: Home/History/Analytics are in the Main group; Templates/Vocabulary/Models/Microphone in Power features; Settings/About in System", () => {
+	it("PROD-7: Home/History/Analytics are in the Main group; Templates/Vocabulary/Models/Microphone in Power features; Settings/About/Privacy in System", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		const groupOf = (label: string) =>
 			findNavButton(label).closest("section")?.getAttribute("aria-label");
@@ -170,6 +170,7 @@ describe("Sidebar", () => {
 
 		expect(groupOf("Settings")).toBe("System");
 		expect(groupOf("About")).toBe("System");
+		expect(groupOf("Privacy")).toBe("System");
 	});
 
 	it("PROD-7: renders exactly 2 <hr> dividers between the 3 groups", () => {
@@ -179,7 +180,7 @@ describe("Sidebar", () => {
 		expect(dividers.length).toBe(2);
 	});
 
-	it("PROD-7: still renders all 9 nav item labels (grouping does not drop items)", () => {
+	it("PROD-7: still renders all 10 nav item labels (grouping does not drop items)", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		const labels = [
 			"Home",
@@ -191,6 +192,7 @@ describe("Sidebar", () => {
 			"Microphone",
 			"Settings",
 			"About",
+			"Privacy",
 		];
 		for (const label of labels) {
 			expect(findNavButton(label)).toBeTruthy();

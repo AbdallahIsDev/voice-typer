@@ -597,6 +597,175 @@ describe("Vocabulary page — test this entry", () => {
 		expect(testCalls[0]?.[1]).toEqual({ text: "recieve" });
 	});
 
+	it("does not re-run the engine when clicking the Test icon again on an already-open row", async () => {
+		seedWith(seedData);
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("recieve")).toBeTruthy();
+		});
+
+		const row = screen
+			.getByText("recieve")
+			.closest('[data-testid="vocab-list-row"]') as HTMLElement;
+		const testButton = within(row).getByLabelText("Test this entry: recieve");
+		fireEvent.click(testButton);
+
+		const result = await screen.findByTestId("vocab-entry-test-result");
+		expect(within(result).getByText("receive")).toBeTruthy();
+
+		// Second click on the SAME row while its result is open:
+		// no-op — no loading flash, no re-fetch, the completed result
+		// stays exactly as it is.
+		fireEvent.click(testButton);
+
+		expect(within(result).getByText("receive")).toBeTruthy();
+		await waitFor(() => {
+			expect(screen.queryByText("Testing with the live engine…")).toBeNull();
+		});
+
+		const testCalls = mockCall.mock.calls.filter(
+			(args: unknown[]) => args[0] === "test_vocabulary_correction",
+		);
+		expect(testCalls.length).toBe(1);
+	});
+
+	it("does not flash the pending row for fast engine responses (Part F)", async () => {
+		seedWith(seedData);
+		// Hold the engine response pending so we can observe the UI
+		// BEFORE it resolves.
+		let resolveEngine!: (value: unknown) => void;
+		mockCall.mockImplementation((type: unknown, _arg?: unknown) => {
+			const cmd =
+				typeof type === "string"
+					? type
+					: ((type as { type?: string })?.type ?? "");
+			if (cmd === "get_vocabulary") return Promise.resolve(seedData);
+			if (cmd === "test_vocabulary_correction") {
+				return new Promise((resolve) => {
+					resolveEngine = resolve;
+				});
+			}
+			return Promise.resolve({});
+		});
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("recieve")).toBeTruthy();
+		});
+
+		const row = screen
+			.getByText("recieve")
+			.closest('[data-testid="vocab-list-row"]') as HTMLElement;
+		fireEvent.click(within(row).getByLabelText("Test this entry: recieve"));
+
+		// Even though the request is still in flight, the pending row
+		// must NOT be painted (fast responses never flash).
+		expect(screen.queryByText("Testing with the live engine…")).toBeNull();
+
+		// Resolve promptly — well under the 300ms pending threshold.
+		resolveEngine({
+			input: "recieve",
+			output: "receive",
+			applied: true,
+		});
+		const result = await screen.findByTestId("vocab-entry-test-result");
+		await waitFor(() => {
+			expect(within(result).getByText("receive")).toBeTruthy();
+		});
+		expect(screen.queryByText("Testing with the live engine…")).toBeNull();
+	});
+
+	it("shows the pending row only when the engine is genuinely slow (>300ms)", async () => {
+		seedWith(seedData);
+		let resolveEngine!: (value: unknown) => void;
+		mockCall.mockImplementation((type: unknown, _arg?: unknown) => {
+			const cmd =
+				typeof type === "string"
+					? type
+					: ((type as { type?: string })?.type ?? "");
+			if (cmd === "get_vocabulary") return Promise.resolve(seedData);
+			if (cmd === "test_vocabulary_correction") {
+				return new Promise((resolve) => {
+					resolveEngine = resolve;
+				});
+			}
+			return Promise.resolve({});
+		});
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("recieve")).toBeTruthy();
+		});
+
+		const row = screen
+			.getByText("recieve")
+			.closest('[data-testid="vocab-list-row"]') as HTMLElement;
+		fireEvent.click(within(row).getByLabelText("Test this entry: recieve"));
+
+		// Not shown immediately…
+		expect(screen.queryByText("Testing with the live engine…")).toBeNull();
+		// …but appears once the request has been pending >300ms.
+		await waitFor(
+			() => {
+				expect(screen.getByText("Testing with the live engine…")).toBeTruthy();
+			},
+			{ timeout: 2000 },
+		);
+
+		resolveEngine({
+			input: "recieve",
+			output: "receive",
+			applied: true,
+		});
+		await waitFor(() => {
+			expect(screen.queryByText("Testing with the live engine…")).toBeNull();
+		});
+		const result = screen.getByTestId("vocab-entry-test-result");
+		expect(within(result).getByText("receive")).toBeTruthy();
+	});
+
+	it("clicking a different row's Test icon replaces the previous row's result", async () => {
+		seedWith(seedData);
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("recieve")).toBeTruthy();
+		});
+
+		const rowRecieve = screen
+			.getByText("recieve")
+			.closest('[data-testid="vocab-list-row"]') as HTMLElement;
+		const rowTeh = screen
+			.getByText("teh")
+			.closest('[data-testid="vocab-list-row"]') as HTMLElement;
+		fireEvent.click(
+			within(rowRecieve).getByLabelText("Test this entry: recieve"),
+		);
+		await screen.findByTestId("vocab-entry-test-result");
+
+		// A different row's icon is NOT guarded by the already-open
+		// result — it closes the previous result and tests the new row.
+		fireEvent.click(within(rowTeh).getByLabelText("Test this entry: teh"));
+
+		const result = await screen.findByTestId("vocab-entry-test-result");
+		await waitFor(() => {
+			expect(within(result).getByText("the")).toBeTruthy();
+		});
+		// The replaced row's result text is gone.
+		expect(within(result).queryByText("receive")).toBeNull();
+
+		const testCalls = mockCall.mock.calls.filter(
+			(args: unknown[]) => args[0] === "test_vocabulary_correction",
+		);
+		expect(testCalls.length).toBe(2);
+		expect(testCalls[1]?.[1]).toEqual({ text: "teh" });
+	});
+
 	it("shows the no-change state when the engine does not match the entry", async () => {
 		// A misspelling key containing a space can never fire: the
 		// engine tokenizes on spaces, so "to 2" never matches a token.

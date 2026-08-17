@@ -601,7 +601,7 @@ describe("Settings onNavigate prop — rewrite of Page-type tests", () => {
 		cleanup();
 	});
 
-	it("calls navigate('about') when the Diagnostics button is clicked", async () => {
+	it("renders the diagnostics table inside Settings (Privacy tab) — no navigation needed", async () => {
 		const { default: SettingsPage } = await import("@/pages/Settings");
 
 		renderWithProviders(<SettingsPage />);
@@ -610,24 +610,20 @@ describe("Settings onNavigate prop — rewrite of Page-type tests", () => {
 			expect(screen.getByText("Appearance")).toBeTruthy();
 		});
 
-		// Click the Privacy tab so the Troubleshooting section mounts.
+		// Click the Privacy tab so the Troubleshooting section (and the
+		// Diagnostics table that lives alongside it) mounts.
 		fireEvent.click(screen.getByText("Privacy"));
 
-		// The "Diagnostics" button in the Troubleshooting section calls
-		// `onNavigate?.("about")` — the literal "about" is a member of
-		// the Page union, so this is the type-safe call site the
-		// Python tests were trying to lock down.
-		//
-		// The button's aria-label is `t("settings.troubleshooting.diagnosticsAria")`
-		// → "Open Diagnostics" (en.json), so the accessible name is
-		// "Open Diagnostics", not "Diagnostics".  Match on a regex to
-		// stay robust against minor wording changes.
-		const diagBtn = await waitFor(() =>
-			screen.getByRole("button", { name: /open diagnostics/iu }),
-		);
-		fireEvent.click(diagBtn);
-
-		expect(mockNavigate).toHaveBeenCalledWith("about");
+		// IA split: the diagnostics table moved OFF the About page into
+		// Settings → Privacy (support area) — it renders directly in
+		// the tab, so no navigation to "about" is involved. Assert the
+		// section heading is present; the title is
+		// `t("about.diagnosticsTitle")` → "Diagnostics" (en.json).
+		const diagHeading = await waitFor(() => screen.getByText("Diagnostics"));
+		expect(diagHeading).toBeTruthy();
+		// And the old About-page redirect button is gone: nothing in the
+		// Troubleshooting section navigates to "about" anymore.
+		expect(mockNavigate).not.toHaveBeenCalled();
 	});
 });
 
@@ -979,8 +975,10 @@ describe("About — rewrite of loaded_via tests", () => {
 		//   - "loadedVia" in about
 		//   - "loaded_via" in about
 		// Behavioral: mock get_status to return { loaded_via: "cuda" },
-		// mount the About page, assert the "Loaded Via" label and
-		// "cuda" value both appear in the rendered DOM.
+		// mount the DiagnosticsSettingsSection (the Loaded Via row
+		// moved there with the diagnostics table in the IA split),
+		// assert the "Loaded Via" label and "cuda" value both appear
+		// in the rendered DOM.
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_status") {
 				return Promise.resolve({
@@ -1001,8 +999,10 @@ describe("About — rewrite of loaded_via tests", () => {
 			return Promise.resolve({});
 		});
 
-		const { default: AboutPage } = await import("@/pages/About");
-		renderWithProviders(<AboutPage />);
+		const { DiagnosticsSettingsSection } = await import(
+			"@/components/settings/DiagnosticsSettingsSection"
+		);
+		renderWithProviders(<DiagnosticsSettingsSection isVisible={() => true} />);
 
 		// Wait for the Diagnostics section to render (the "Loaded Via"
 		// row is inside it).
@@ -1039,8 +1039,10 @@ describe("About — rewrite of loaded_via tests", () => {
 			return Promise.resolve({});
 		});
 
-		const { default: AboutPage } = await import("@/pages/About");
-		renderWithProviders(<AboutPage />);
+		const { DiagnosticsSettingsSection } = await import(
+			"@/components/settings/DiagnosticsSettingsSection"
+		);
+		renderWithProviders(<DiagnosticsSettingsSection isVisible={() => true} />);
 
 		// Wait for the Diagnostics section to render (its heading), then
 		// assert the Loaded Via row is NOT in the DOM.

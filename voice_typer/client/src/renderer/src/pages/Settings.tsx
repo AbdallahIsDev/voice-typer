@@ -11,6 +11,7 @@ import { Spinner } from "@/components/feedback/Spinner";
 import { KeyboardPermissionBanner } from "@/components/KeyboardPermissionBanner";
 import { AiEnhancementSettingsSection } from "@/components/settings/AiEnhancementSettingsSection";
 import { AudioSettingsSection } from "@/components/settings/AudioSettingsSection";
+import { DiagnosticsSettingsSection } from "@/components/settings/DiagnosticsSettingsSection";
 import { GeneralSettingsSection } from "@/components/settings/GeneralSettingsSection";
 import { ModelSettingsSection } from "@/components/settings/ModelSettingsSection";
 import PrewarmAndUpdates, {
@@ -18,6 +19,7 @@ import PrewarmAndUpdates, {
 } from "@/components/settings/PrewarmAndUpdates";
 import { PrivacySettingsSection } from "@/components/settings/PrivacySettingsSection";
 import { RecordingSettingsSection } from "@/components/settings/RecordingSettingsSection";
+import { ResourcesSettingsSection } from "@/components/settings/ResourcesSettingsSection";
 import {
 	getTabLabels,
 	type SettingsTab,
@@ -553,6 +555,8 @@ export default function SettingsPage() {
 								onNavigate={navigate}
 								onResetClick={() => setShowResetDialog(true)}
 							/>
+							<DiagnosticsSettingsSection isVisible={_filter_settings} />
+							<ResourcesSettingsSection isVisible={_filter_settings} />
 							<PrewarmAndUpdates isVisible={_filter_settings} />
 						</>,
 					)}

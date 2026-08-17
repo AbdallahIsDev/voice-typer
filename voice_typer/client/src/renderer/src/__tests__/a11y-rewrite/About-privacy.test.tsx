@@ -1,5 +1,5 @@
 /**
- *  vitest rewrite — behavioral test for `About.tsx` privacy disclosure.
+ * vitest rewrite — behavioral test for the privacy disclosure.
  *
  * Replaces the following string-pattern Python test from
  * `tests/test_consent_and_privacy.py`:
@@ -11,8 +11,12 @@
  * pass even when the privacy section is conditionally hidden, when
  * the i18n keys are mistyped, or when the disclosure is rendered in
  * a non-user-visible way.  The vitest version below mounts the real
- * About page and asserts each disclosure heading is rendered into
+ * Privacy page and asserts each disclosure heading is rendered into
  * the DOM as visible text.
+ *
+ * IA split: the privacy disclosure moved OUT of the About page (now
+ * product identity) onto its own Privacy destination in the sidebar —
+ * so this test mounts `@/pages/Privacy` rather than `@/pages/About`.
  *
  * The corresponding Python test is skipped via `@pytest.mark.skip`
  * with a pointer back to this file.  It is NOT deleted.
@@ -50,12 +54,12 @@ vi.mock("sonner", () => ({
 	Toaster: () => null,
 }));
 
-import AboutPage from "@/pages/About";
+import PrivacyPage from "@/pages/Privacy";
 
-describe("About privacy disclosure — rewrite of test_about_page_has_privacy_section", () => {
+describe("Privacy disclosure — rewrite of test_about_page_has_privacy_section", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
-		// Make every IPC call return a minimal shape so About
+		// Make every IPC call return a minimal shape so Privacy
 		// doesn't blow up on its optional data fetches.
 		mockCall.mockImplementation((cmd: string) => {
 			switch (cmd) {
@@ -81,7 +85,7 @@ describe("About privacy disclosure — rewrite of test_about_page_has_privacy_se
 	});
 
 	it("renders the privacy disclosure section with all required headings", async () => {
-		render(<AboutPage />);
+		render(<PrivacyPage />);
 
 		// The Python invariant: About.tsx (or en.json)
 		// contains the strings "Audio processing",
@@ -89,11 +93,11 @@ describe("About privacy disclosure — rewrite of test_about_page_has_privacy_se
 		// "Voice biometrics", "BIPA".  Behavioral: each
 		// heading is rendered into the DOM as visible text.
 		//
-		// The About page renders these via i18n keys
+		// The Privacy page renders these via i18n keys
 		// (about.audioProcessingTitle, etc.) whose en.json
-		// values are "Audio processing.", "Model weights.",
-		// "Cloud ASR.", "Voice biometrics." (the trailing
-		// period is part of the heading).
+		// values are "Audio processing", "Model weights",
+		// "Cloud speech recognition", "Voice biometrics"
+		// (no trailing period — the de-punctuation pass).
 		await waitFor(() => {
 			expect(screen.getAllByText(/Audio processing/i).length).toBeGreaterThan(
 				0,
@@ -116,10 +120,10 @@ describe("About privacy disclosure — rewrite of test_about_page_has_privacy_se
 		expect(bodyText).toMatch(/BIPA/);
 	});
 
-	it("renders the privacy disclosure section heading itself", async () => {
-		render(<AboutPage />);
+	it("renders the privacy disclosure heading itself", async () => {
+		render(<PrivacyPage />);
 
-		// The privacy section title is rendered via the
+		// The privacy page heading is rendered via the
 		// i18n key about.privacyTitle ("Privacy" in en.json).
 		await waitFor(() => {
 			expect(screen.getAllByText(/^Privacy$/).length).toBeGreaterThan(0);

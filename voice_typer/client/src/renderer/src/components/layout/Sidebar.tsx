@@ -8,6 +8,7 @@ import {
 	InformationCircleIcon,
 	Mic02Icon,
 	Settings03Icon,
+	Shield01Icon,
 } from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -51,8 +52,10 @@ const POWER_NAV_ITEMS: NavItem[] = [
 
 const SYSTEM_NAV_ITEMS: NavItem[] = [
 	{ id: "settings", icon: Settings03Icon },
-	//About/Diagnostics page with version, config info, privacy, help.
+	// About — product identity (what the app is, version, platforms).
 	{ id: "about", icon: InformationCircleIcon },
+	// Privacy — how audio and data are handled (disclosure, not controls).
+	{ id: "privacy", icon: Shield01Icon },
 ];
 
 interface NavGroup {
@@ -259,7 +262,7 @@ function SidebarInner({
 			</div>
 
 			{/* Navigation. ``min-h-0`` + ``overflow-y-auto`` so a short
-			    window (9 nav items + 3 group headers + theme switch)
+			    window (10 nav items + 3 group headers + theme switch)
 			    scrolls instead of clipping the bottom items — the
 			    ThemeSwitch row below stays pinned. */}
 			<div className="min-h-0 flex-1 overflow-y-auto p-2">

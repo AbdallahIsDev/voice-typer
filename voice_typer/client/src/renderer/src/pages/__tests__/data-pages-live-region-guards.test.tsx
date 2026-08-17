@@ -315,7 +315,7 @@ describe("Dashboard page — live-region guard", () => {
 		// Then let the data land and re-assert the settled view below.
 		await waitFor(
 			() => {
-				expect(screen.getByText("Total Dictations")).toBeTruthy();
+				expect(screen.getByText(/^Total Dictations/)).toBeTruthy();
 			},
 			{ timeout: 3000 },
 		);
@@ -327,7 +327,7 @@ describe("Dashboard page — live-region guard", () => {
 
 		await waitFor(
 			() => {
-				expect(screen.getByText("Total Dictations")).toBeTruthy();
+				expect(screen.getByText(/^Total Dictations/)).toBeTruthy();
 			},
 			{ timeout: 3000 },
 		);

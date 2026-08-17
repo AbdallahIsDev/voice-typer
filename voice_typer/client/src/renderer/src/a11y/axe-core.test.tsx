@@ -383,11 +383,16 @@ async function expectNoAxeViolations(container: HTMLElement): Promise<void> {
  */
 const renderPage = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
-
 describe("F-17: axe-core automated WCAG scan — all pages", () => {
 	it("About page: no axe violations", async () => {
 		const AboutPage = (await import("@/pages/About")).default;
 		const { container } = renderPage(<AboutPage />);
+		await expectNoAxeViolations(container);
+	});
+
+	it("Privacy page: no axe violations", async () => {
+		const PrivacyPage = (await import("@/pages/Privacy")).default;
+		const { container } = renderPage(<PrivacyPage />);
 		await expectNoAxeViolations(container);
 	});
 

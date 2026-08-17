@@ -262,7 +262,7 @@ describe("ShareStatsDialog", () => {
 		);
 	});
 
-	it("preview frame is sized to the scaled image (no dead space, no 1200px overflow)", async () => {
+	it("preview frame matches the image's aspect ratio and scales without dead space", async () => {
 		const user = userEvent.setup();
 		renderDialog(
 			<ShareStatsDialog
@@ -275,23 +275,25 @@ describe("ShareStatsDialog", () => {
 		await user.click(screen.getByRole("button", { name: "Share stats" }));
 		const dialog = await screen.findByRole("dialog");
 
-		// The preview frame gets an EXPLICIT height (the scaled image
-		// height). Regression: previously the unscaled 1200×630 layout
-		// box of the transformed child + a spacer produced a ~2x-tall
-		// frame — the giant blank area — and pushed the sibling
-		// actions column to 1200px wide, stretching the buttons
-		// edge-to-edge past the dialog.
+		// The frame is sized by CSS aspect-ratio (the export's fixed
+		// 1200:630 shape) — its height is correct from the first frame
+		// with no JS measurement, so the preview can never clip or
+		// leave dead space (Part E).
 		const previewFrame = dialog.querySelector(
 			".overflow-hidden.rounded-xl",
 		) as HTMLElement | null;
 		expect(previewFrame).toBeTruthy();
-		expect(previewFrame?.style.height ?? "").not.toBe("");
+		expect(previewFrame?.style.aspectRatio ?? "").toBe("1200 / 630");
 		// The scaled image is taken out of flow (absolute) so its
-		// layout box can never size the dialog.
+		// layout box can never size the dialog; it scales by the
+		// --preview-scale custom property (written on the frame before
+		// first paint) from the top-left, filling the frame exactly.
 		const scaled = previewFrame?.firstElementChild as HTMLElement | null;
 		expect(scaled?.className).toContain("absolute");
-		// No spacer child anymore — the frame's only child is the
-		// absolute preview.
+		expect(scaled?.style.transform ?? "").toContain("--preview-scale");
+		expect(scaled?.style.transformOrigin ?? "").toBe("top left");
+		// No spacer child — the frame's only child is the absolute
+		// preview.
 		expect(previewFrame?.children.length).toBe(1);
 
 		// The action buttons sit in a framed container (rounded +

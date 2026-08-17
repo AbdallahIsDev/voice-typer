@@ -74,5 +74,5 @@ renderLoopGuard({
 	commands,
 	// The analytics view (with the stat cards) settles in place of the
 	// skeleton once the first refresh lands.
-	settle: (s) => s.getByText("Total Dictations") != null,
+	settle: (s) => s.getByText(/^Total Dictations/) != null,
 });

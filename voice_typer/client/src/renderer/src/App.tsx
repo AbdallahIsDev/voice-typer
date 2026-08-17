@@ -47,6 +47,7 @@ import { cn } from "@/lib/utils";
 import Home from "@/pages/Home";
 
 const AboutPage = lazy(() => import("@/pages/About"));
+const PrivacyPage = lazy(() => import("@/pages/Privacy"));
 const DashboardPage = lazy(() => import("@/pages/Dashboard"));
 const HistoryPage = lazy(() => import("@/pages/History"));
 const MicrophonePage = lazy(() => import("@/pages/Microphone"));
@@ -436,6 +437,8 @@ export default function App() {
 				return <SettingsPage />;
 			case "about":
 				return <AboutPage />;
+			case "privacy":
+				return <PrivacyPage />;
 			case "onboarding":
 				return <OnboardingPage onComplete={handleOnboardingComplete} />;
 			default:

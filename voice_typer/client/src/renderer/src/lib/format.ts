@@ -17,9 +17,10 @@
  *     existing Dashboard / StatCards callers. Its legacy ``K`` / ``K+``
  *     suffix behaviour is preserved via the ``plusSuffix`` /
  *     ``localeAware`` options.
- *   - ``About.tsx`` still exports its own ``formatBytes`` /
- *     ``formatRelativeTime`` for the ``About.test.tsx`` unit tests.
- *     Those wrappers remain untouched.
+ *   - The diagnostics section (``DiagnosticsSettingsSection.tsx``,
+ *     formerly exported from ``About.tsx`` before the IA split) keeps
+ *     its own ``formatBytes`` / ``formatRelativeTime`` for the
+ *     ``About.test.tsx`` unit tests. Those wrappers remain untouched.
  *   - ``DownloadProgressBar.tsx`` previously kept its own local
  *     ``formatBytes`` / ``formatSpeed`` —  consolidated them
  *     into the shared exports below (``formatBytes`` already existed;
@@ -36,8 +37,9 @@
  * ``formatDateTime``, and ``formatRelativeTime``. None of those were
  * imported by any production file (verified by grep across
  * ``voice_typer/client/src/renderer``) — every call site
- * (``About.tsx``, ``Dashboard.tsx``, ``StatCards.tsx``,
- * ``DownloadProgressBar.tsx``) keeps its own private local copy that
+ * (``DiagnosticsSettingsSection.tsx``, ``Dashboard.tsx``,
+ * ``StatCards.tsx``, ``DownloadProgressBar.tsx``) keeps its own private
+ * local copy that
  * DOES get called. The shared exports were dead. Deleted to collapse
  * the module.
  *

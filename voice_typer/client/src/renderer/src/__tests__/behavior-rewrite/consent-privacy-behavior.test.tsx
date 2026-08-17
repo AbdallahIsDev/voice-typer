@@ -150,7 +150,6 @@ vi.mock("next-themes", () => ({
 	useTheme: () => ({ theme: "light" as const }),
 }));
 
-import AboutPage from "@/pages/About";
 import ModelsPage from "@/pages/Models";
 // ─── Module imports (after vi.mock — these run with mocks in place) ───
 import type { VoiceTyperConfig } from "@/types/config";
@@ -407,10 +406,15 @@ describe("About page — updates / help / feedback sections", () => {
 		//
 		// Behavioral: anchor links to README.md and CHANGELOG.md
 		// are rendered as <a href="...README.md"> and
-		// <a href="...CHANGELOG.md">.
-		renderWithProviders(<AboutPage />);
+		// <a href="...CHANGELOG.md">. The resources grid moved to
+		// Settings → Troubleshooting (ResourcesSettingsSection) in
+		// the IA split, so that's what we mount here.
+		const { ResourcesSettingsSection } = await import(
+			"@/components/settings/ResourcesSettingsSection"
+		);
+		renderWithProviders(<ResourcesSettingsSection isVisible={() => true} />);
 
-		// Wait for any section to mount.
+		// Wait for the section to mount.
 		await waitFor(() => {
 			expect(screen.getAllByText(/documentation/i).length).toBeGreaterThan(0);
 		});
@@ -429,7 +433,10 @@ describe("About page — updates / help / feedback sections", () => {
 		//
 		// Behavioral: an anchor with visible text matching
 		// /Report a (Bug|Issue)/ points at the GitHub issues URL.
-		renderWithProviders(<AboutPage />);
+		const { ResourcesSettingsSection } = await import(
+			"@/components/settings/ResourcesSettingsSection"
+		);
+		renderWithProviders(<ResourcesSettingsSection isVisible={() => true} />);
 
 		await waitFor(() => {
 			expect(
@@ -491,35 +498,35 @@ describe("Settings page — Troubleshooting section", () => {
 		fireEvent.click(screen.getByText("Privacy"));
 	}
 
-	it("renders Diagnostics, Help & FAQ, Report a Bug, and Open Log Folder buttons", async () => {
+	it("renders the Diagnostics section, Help & FAQ, Report a Bug, and Open Log Folder buttons", async () => {
 		// Python invariant (test_settings_has_diagnostics_button):
 		//   "Diagnostics" in src OR en
 		//   "Help & FAQ" in src OR en
 		//   "Report a Bug" in src OR en
 		//   "Open Log Folder" in src OR en
 		//
-		// Behavioral: each of the four Troubleshooting buttons is
-		// rendered as a visible, screen-reader-accessible button
-		// on the Privacy tab.  The buttons carry aria-labels
-		// (en.json: settings.troubleshooting.*Aria) that differ
-		// from their visible text — we assert BOTH the visible
-		// text (per the Python invariant) and the accessible
-		// name (per WCAG SC 4.1.2) so a regression in either
-		// dimension fails the test.
+		// IA split: the Diagnostics TABLE is no longer a nav button
+		// (it moved OFF the About page INTO Settings as its own
+		// section), so the section heading renders directly. The
+		// Troubleshooting buttons carry aria-labels (en.json:
+		// settings.troubleshooting.*Aria) that differ from their
+		// visible text — we assert BOTH the visible text (per the
+		// Python invariant) and the accessible name (per WCAG SC
+		// 4.1.2) so a regression in either dimension fails the test.
 		await renderSettingsOnPrivacyTab();
 
-		// Visible text content (en.json: settings.troubleshooting.*).
+		// The Diagnostics section heading (about.diagnosticsTitle) —
+		// rendered inline, no navigation involved.
 		await waitFor(() => {
 			expect(screen.getByText("Diagnostics")).toBeTruthy();
 		});
 		expect(screen.getByText("Help & FAQ")).toBeTruthy();
-		expect(screen.getByText("Report a Bug")).toBeTruthy();
+		// "Report a Bug" appears in BOTH the Troubleshooting button
+		// and the Resources grid — accept either occurrence.
+		expect(screen.getAllByText("Report a Bug").length).toBeGreaterThan(0);
 		expect(screen.getByText("Open Log Folder")).toBeTruthy();
 
 		// Accessible names (en.json: settings.troubleshooting.*Aria).
-		expect(
-			screen.getByRole("button", { name: /^open diagnostics$/i }),
-		).toBeTruthy();
 		expect(
 			screen.getByRole("button", { name: /^open documentation$/i }),
 		).toBeTruthy();
@@ -531,11 +538,11 @@ describe("Settings page — Troubleshooting section", () => {
 		).toBeTruthy();
 	});
 
-	it("invokes navigate when the Diagnostics button is clicked", async () => {
-		// Behavioral: clicking the "Diagnostics" button in Settings
-		// calls navigate("about") via useNavigation hook (so the
-		// user is routed to the About page where the full
-		// diagnostics panel lives).
+	it("renders the diagnostics table in Settings without navigating to About", async () => {
+		// Behavioral: the diagnostics panel that previously lived on
+		// the About page now renders INLINE in Settings' Privacy tab
+		// (DiagnosticsSettingsSection) — no navigation to "about" is
+		// involved, and no "Open Diagnostics" button remains.
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(makeConfig());
 			if (type === "set_config") return Promise.resolve({ success: true });
@@ -550,14 +557,14 @@ describe("Settings page — Troubleshooting section", () => {
 		});
 		fireEvent.click(screen.getByText("Privacy"));
 
-		const diagnosticsBtn = await waitFor(() =>
-			screen.getByRole("button", { name: /diagnostics/i }),
-		);
-		fireEvent.click(diagnosticsBtn);
-
+		// The diagnostics section heading renders inline.
 		await waitFor(() => {
-			expect(mockNavigate).toHaveBeenCalledWith("about");
+			expect(
+				screen.getByRole("heading", { name: /diagnostics/i }),
+			).toBeTruthy();
 		});
+		// No navigation fired.
+		expect(mockNavigate).not.toHaveBeenCalled();
 	});
 });
 
@@ -570,14 +577,16 @@ describe("About & Settings — voice biometric consent disclosure", () => {
 		cleanup();
 	});
 
-	it("About page renders the voice biometrics heading + GDPR Article 9 disclosure", async () => {
+	it("Privacy page renders the voice biometrics heading + GDPR Article 9 disclosure", async () => {
 		// Python invariant (test_about_cites_gdpr_article_9):
 		//   't("about.voiceBiometricsDesc")' in src
 		//   't("about.voiceBiometricsTitle")' in src
 		//
-		// Behavioral: the rendered About page contains the
-		// voice-biometrics heading text AND the disclosure body
-		// mentions both "BIPA" and "GDPR Article 9".
+		// IA split: the voice-biometrics disclosure moved OFF the
+		// About page onto the dedicated Privacy page. Behavioral:
+		// the rendered Privacy page contains the voice-biometrics
+		// heading text AND the disclosure body mentions both
+		// "BIPA" and "GDPR Article 9".
 		mockCall.mockReset();
 		mockCall.mockImplementation((cmd: string) => {
 			switch (cmd) {
@@ -608,7 +617,8 @@ describe("About & Settings — voice biometric consent disclosure", () => {
 			}),
 		) as unknown as typeof fetch;
 
-		renderWithProviders(<AboutPage />);
+		const { default: PrivacyPage } = await import("@/pages/Privacy");
+		renderWithProviders(<PrivacyPage />);
 
 		await waitFor(() => {
 			expect(screen.getAllByText(/voice biometrics/i).length).toBeGreaterThan(

@@ -536,34 +536,42 @@ describe("Corrections-applied card (server-side usage tracking)", () => {
 	});
 });
 
-describe("Top stat cards: distinct scoped labels + (?) tooltip affordance", () => {
-	it("card 1 label is range-scoped (dictationsPeriod with the localized range)", () => {
-		// Card 1 counts dictations INSIDE the selected range while
-		// card 3 is the true all-time total — the labels must make
-		// that distinction explicit instead of both reading
-		// "Dictations" / "Total Dictations" as near-duplicates.
-		expect(DASHBOARD_SRC).toMatch(/analytics\.dictationsPeriod/);
+describe("Top stat cards: merged dictation card + range-aware values", () => {
+	it("the single dictation card uses totalDictationsPeriod with the localized range", () => {
+		// The old split — Card 1 "Dictations ({range})" (sample-window
+		// count) vs Card 3 "Total Dictations" (range-blind true
+		// count) — is merged into ONE card whose VALUE respects the
+		// selected range. The label keeps the range so the number is
+		// never read as a conflicting all-time total.
+		expect(DASHBOARD_SRC).toMatch(/analytics\.totalDictationsPeriod/);
 		expect(DASHBOARD_SRC).toMatch(/range: t\(`analytics\.range\.\$\{range}`\)/);
-		// The old ambiguous label is gone.
-		expect(DASHBOARD_SRC).not.toMatch(/t\("analytics\.dictations"\)/);
+		// The old split labels are gone.
+		expect(DASHBOARD_SRC).not.toMatch(/analytics\.dictationsPeriod/);
+		expect(DASHBOARD_SRC).not.toMatch(/t\("analytics\.totalDictations"\)/);
 		// en.json defines the key with the {range} interpolation slot.
-		expect(EN_JSON.analytics.dictationsPeriod).toContain("{range}");
+		expect(EN_JSON.analytics.totalDictationsPeriod).toContain("{range}");
 	});
 
-	it("only the Total Dictations card keeps a tooltip (sampling caveat)", () => {
-		// The Active Days tooltip merely restated the label — removed.
+	it("the dictation value is range-aware and uncapped for All Time", () => {
+		// Under "all", period.count is capped at the 500-row history
+		// sample; the merged card falls back to the TRUE row count
+		// (get_history_count) so it never shows a sample-capped
+		// number while claiming to be the all-time total.
+		expect(DASHBOARD_SRC).toMatch(
+			/range === "all"\s*\?\s*String\(d\.totalCount\)\s*:\s*String\(period\.count\)/,
+		);
+	});
+
+	it("no top stat card keeps a (?) tooltip (the range is in the segmented control)", () => {
+		// The tooltips merely restated the selected range — removed
+		// from every card (Part D).
+		expect(DASHBOARD_SRC).not.toMatch(/totalDictationsTooltip/);
 		expect(DASHBOARD_SRC).not.toMatch(/activeDaysTooltip/);
+		expect(EN_JSON.analytics.totalDictationsTooltip).toBeUndefined();
 		expect(EN_JSON.analytics.activeDaysTooltip).toBeUndefined();
-		// Total Dictations keeps its (reworded) sampling-caveat tooltip.
-		expect(DASHBOARD_SRC).toMatch(/analytics\.totalDictationsTooltip/);
-		expect(EN_JSON.analytics.totalDictationsTooltip).toContain("500");
 	});
 
-	it("the (?) tooltip trigger icon is keyboard-reachable with an aria-label", () => {
-		// The trigger is a focusable button (not hover-only text) with
-		// an accessible name built from the infoTooltipAria key. The
-		// affordance lives in the shared DashboardStatCard, not the
-		// page.
+	it("DashboardStatCard no longer renders the (?) tooltip trigger", () => {
 		const statCardSrc = fs.readFileSync(
 			path.resolve(
 				__dirname,
@@ -575,9 +583,26 @@ describe("Top stat cards: distinct scoped labels + (?) tooltip affordance", () =
 			),
 			"utf8",
 		);
-		expect(statCardSrc).toMatch(/infoTooltipAria/);
-		expect(statCardSrc).toMatch(/CircleQuestionMarkIcon/);
-		expect(EN_JSON.analytics.infoTooltipAria).toContain("{label}");
+		expect(statCardSrc).not.toMatch(/infoTooltipAria/);
+		expect(statCardSrc).not.toMatch(/CircleQuestionMarkIcon/);
+		expect(statCardSrc).not.toMatch(/Tooltip/);
+	});
+
+	it("the Characters card reuses the Home StatCards compact formatter", () => {
+		// Part C: the Analytics Characters card reuses the Home page
+		// Characters card's K-abbreviation formatting (exported from
+		// StatCards) — never a reimplementation.
+		expect(DASHBOARD_SRC).toMatch(
+			/import\s*\{[^}]*formatCompactNumber[^}]*\}\s*from\s*"@\/components\/dashboard\/StatCards"/,
+		);
+		expect(DASHBOARD_SRC).toMatch(
+			/value=\{formatCompactNumber\(period\.chars\)\}/,
+		);
+	});
+
+	it("the top row is a 4-card grid (even division)", () => {
+		// Total Dictations / Recording Time / Active Days / Characters.
+		expect(DASHBOARD_SRC).toMatch(/md:grid-cols-4/);
 	});
 
 	it("Longest Session uses a stopwatch icon, distinct from Recording Time's clock", () => {
@@ -597,5 +622,73 @@ describe("Top stat cards: distinct scoped labels + (?) tooltip affordance", () =
 		expect(DASHBOARD_SRC).toMatch(
 			/icon=\{Globe02Icon\}[\s\S]*?analytics\.language/,
 		);
+	});
+});
+
+describe("Analytics polish: stat-card spacing, sublabel pruning, Activity icon weight", () => {
+	it("Recording Time card no longer renders the 'avg per dictation' sublabel", () => {
+		// POLISH: the "avg 1m each" line added no useful information
+		// and was removed entirely (icon, label, value, trend stay).
+		expect(DASHBOARD_SRC).not.toMatch(/analytics\.avgPerDictation/);
+		// The card itself survives with its duration value + trend.
+		expect(DASHBOARD_SRC).toMatch(/analytics\.recordingTime/);
+		expect(DASHBOARD_SRC).toMatch(
+			/value=\{formatDuration\(period\.duration\)\}/,
+		);
+	});
+
+	it("Active Days card drops 'No streak yet' but keeps the streak line", () => {
+		// POLISH: the empty-streak sublabel is gone; a real streak
+		// still renders its "{count}-day streak" line.
+		expect(DASHBOARD_SRC).not.toMatch(/analytics\.noStreak/);
+		expect(DASHBOARD_SRC).toMatch(/analytics\.dayStreak/);
+		expect(DASHBOARD_SRC).toMatch(
+			/d\.currentStreak\s*>\s*0\s*\?\s*t\("analytics\.dayStreak"/,
+		);
+	});
+
+	it("the dead avgPerDictation / noStreak keys are removed from en.json", () => {
+		expect(EN_JSON.analytics.avgPerDictation).toBeUndefined();
+		expect(EN_JSON.analytics.noStreak).toBeUndefined();
+		// The streak key survives (still rendered by the Active Days card).
+		expect(EN_JSON.analytics.dayStreak).toBeDefined();
+	});
+
+	it("stat cards push the value down with an auto top margin (breathing room)", () => {
+		// POLISH: the value's `mt-auto` pins the icon+label row to the
+		// top of the stretched card and pushes the number to the bottom.
+		const statCardSrc = fs.readFileSync(
+			path.resolve(
+				__dirname,
+				"..",
+				"..",
+				"components",
+				"dashboard",
+				"DashboardStatCard.tsx",
+			),
+			"utf8",
+		);
+		expect(statCardSrc).toMatch(/mt-auto text-2xl font-semibold/);
+		// QuickInfoCard (secondary row + Current Setup) uses the same
+		// bottom-pushed rhythm.
+		const quickInfoSrc = fs.readFileSync(
+			path.resolve(
+				__dirname,
+				"..",
+				"..",
+				"components",
+				"dashboard",
+				"QuickInfoCard.tsx",
+			),
+			"utf8",
+		);
+		expect(quickInfoSrc).toMatch(/flex items-stretch gap-3/);
+		expect(quickInfoSrc).toMatch(/mt-auto truncate font-semibold/);
+	});
+
+	it("Activity icon stroke is reduced to match the stat-card icons' weight", () => {
+		// POLISH: at h-9 w-9 the old 1.625 stroke painted ~2.4px lines
+		// (stat-card icons render ~1.5px); strokeWidth 1 matches them.
+		expect(SEVEN_DAY_SRC).toMatch(/strokeWidth=\{1\}/);
 	});
 });

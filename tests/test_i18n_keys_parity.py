@@ -98,22 +98,21 @@ ZU_FIX_14_NEW_KEYS: dict[str, list[str]] = {
         "dialog.restartLoopBreak.title",
         "dialog.restartLoopBreak.body",
     ],
-    # ICU-style plural forms for 4 key families.
+    # ICU-style plural forms for the analytics day-count tooltip family.
     # All 6 CLDR plural suffixes are present in every locale so that key-parity
     # is satisfied (en/de/es/fr/zh/hi only USE _one/_other at runtime, but the
     # unused _zero/_two/_few/_many leaves are kept in lockstep so the broader
     # structural-parity test stays green).
-    # NOTE: vocabulary.importSuccess_* / templates.importSuccess_* are NOT
-    # catalogued here: the import-success keys use the Singular/Plural suffix
+    # NOTE: the vocabulary entry-count label is NOT an ICU plural family — the
+    # renderer folds the live count into the search placeholder via the plain
+    # {count} interpolation key vocabulary.searchPlaceholderCount (no CLDR
+    # suffixes), so only the analytics tooltip family is pinned here.
+    # vocabulary.importSuccess_* / templates.importSuccess_* are NOT
+    # catalogued either: the import-success keys use the Singular/Plural suffix
     # convention (importSuccessSingular/importSuccessPlural) in en.json and the
     # renderer, so the ICU plural forms for those two families do not exist.
     "ZU-21": [
-        "vocabulary.entryCount_one",
-        "vocabulary.entryCount_other",
-        "vocabulary.entryCount_zero",
-        "vocabulary.entryCount_two",
-        "vocabulary.entryCount_few",
-        "vocabulary.entryCount_many",
+        "vocabulary.searchPlaceholderCount",
         "analytics.dayCountTooltip_one",
         "analytics.dayCountTooltip_other",
         "analytics.dayCountTooltip_zero",
@@ -202,10 +201,7 @@ def test_zu_fix_21_russian_plural_forms_present(locale_flats: dict[str, dict[str
     """
     ru = locale_flats["ru"]
     for form in ("_one", "_few", "_many", "_other"):
-        for family in (
-            "vocabulary.entryCount",
-            "analytics.dayCountTooltip",
-        ):
+        for family in ("analytics.dayCountTooltip",):
             key = f"{family}{form}"
             assert key in ru, f"ru.json missing Russian plural key: {key}"
 
@@ -217,10 +213,7 @@ def test_zu_fix_21_arabic_plural_forms_present(locale_flats: dict[str, dict[str,
     """
     ar = locale_flats["ar"]
     for form in ("_zero", "_one", "_two", "_few", "_many", "_other"):
-        for family in (
-            "vocabulary.entryCount",
-            "analytics.dayCountTooltip",
-        ):
+        for family in ("analytics.dayCountTooltip",):
             key = f"{family}{form}"
             assert key in ar, f"ar.json missing Arabic plural key: {key}"
 

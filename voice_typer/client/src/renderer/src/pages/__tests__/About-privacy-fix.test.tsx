@@ -1,5 +1,6 @@
 /**
- * Tests for the  fix on the About page.
+ * Tests for the BG-59 fix — now living on the two IA destinations the
+ * disclosure was split into.
  *
  * Scenario under test: the previous About page rendered a "Full Privacy
  * Policy" button in the Privacy section footer that pointed at the same
@@ -8,9 +9,13 @@
  * clicked "Full Privacy Policy" expecting a privacy-specific document
  * and landed on the security policy instead.
  *
- *  removes the duplicate button and adds a one-line note in the
- * Privacy section body explaining that the Security Policy (linked in
- * the Resources section below) covers privacy practices too.
+ * BG-59 removed the duplicate button. The IA split since moved the
+ * privacy disclosure to its own Privacy page and the resources grid to
+ * Settings → Troubleshooting (ResourcesSettingsSection), so these tests
+ * now mount those two destinations:
+ *   - Privacy page: no "Full Privacy Policy" button, no trailing note.
+ *   - ResourcesSettingsSection: exactly ONE anchor pointing at
+ *     SECURITY.md (the Security Policy button).
  */
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -24,6 +29,7 @@ import {
 	sonnerMock,
 	stableMocks,
 } from "@/__tests__/helpers/stableMocks";
+import { ResourcesSettingsSection } from "@/components/settings/ResourcesSettingsSection";
 
 const { mockCall } = stableMocks;
 
@@ -33,7 +39,7 @@ vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
 vi.mock("sonner", () => sonnerMock());
 vi.mock("next-themes", () => nextThemesMock());
 
-describe("About page — BG-59 privacy URL fix", () => {
+describe("Privacy page — BG-59 privacy URL fix", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockCall.mockImplementation((type: string) => {
@@ -62,8 +68,8 @@ describe("About page — BG-59 privacy URL fix", () => {
 	});
 
 	it("does NOT render the 'Full Privacy Policy' button (removed — duplicate of Security Policy)", async () => {
-		const { default: AboutPage } = await import("@/pages/About");
-		render(<AboutPage />);
+		const { default: PrivacyPage } = await import("@/pages/Privacy");
+		render(<PrivacyPage />);
 
 		await waitFor(() => {
 			expect(screen.getByRole("heading", { name: "Privacy" })).toBeTruthy();
@@ -77,8 +83,8 @@ describe("About page — BG-59 privacy URL fix", () => {
 	});
 
 	it("does NOT render the 'See the full privacy policy below' note (removed — the full privacy content is already shown inline above it)", async () => {
-		const { default: AboutPage } = await import("@/pages/About");
-		render(<AboutPage />);
+		const { default: PrivacyPage } = await import("@/pages/Privacy");
+		render(<PrivacyPage />);
 
 		await waitFor(() => {
 			expect(screen.getByRole("heading", { name: "Privacy" })).toBeTruthy();
@@ -93,8 +99,7 @@ describe("About page — BG-59 privacy URL fix", () => {
 	});
 
 	it("still renders the Security Policy button in the Resources section", async () => {
-		const { default: AboutPage } = await import("@/pages/About");
-		render(<AboutPage />);
+		render(<ResourcesSettingsSection isVisible={() => true} />);
 
 		await waitFor(() => {
 			expect(
@@ -109,8 +114,9 @@ describe("About page — BG-59 privacy URL fix", () => {
 	});
 
 	it("renders exactly ONE anchor pointing at SECURITY.md (the Resources-section Security Policy button)", async () => {
-		const { default: AboutPage } = await import("@/pages/About");
-		const { container } = render(<AboutPage />);
+		const { container } = render(
+			<ResourcesSettingsSection isVisible={() => true} />,
+		);
 
 		await waitFor(() => {
 			expect(
@@ -118,8 +124,8 @@ describe("About page — BG-59 privacy URL fix", () => {
 			).toBeTruthy();
 		});
 
-		//Before , two anchors pointed at SECURITY.md (one in the
-		//Privacy footer, one in Resources). After , only one
+		// Before BG-59, two anchors pointed at SECURITY.md (one in the
+		// Privacy footer, one in Resources). After BG-59, only one
 		// anchor should — the Resources-section Security Policy link.
 		const securityAnchors = container.querySelectorAll(
 			'a[href*="SECURITY.md"]',

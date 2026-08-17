@@ -164,6 +164,9 @@ vi.mock("@/pages/Models", () => ({
 vi.mock("@/pages/About", () => ({
 	default: () => <div data-testid="about-page">About</div>,
 }));
+vi.mock("@/pages/Privacy", () => ({
+	default: () => <div data-testid="privacy-page">Privacy</div>,
+}));
 vi.mock("@/pages/Dashboard", () => ({
 	default: () => <div data-testid="dashboard-page">Dashboard</div>,
 }));

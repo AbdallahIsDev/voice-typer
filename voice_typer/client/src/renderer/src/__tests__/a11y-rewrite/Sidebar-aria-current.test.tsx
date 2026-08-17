@@ -228,6 +228,7 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 		// System
 		"settings",
 		"about",
+		"privacy",
 	];
 
 	beforeEach(() => {

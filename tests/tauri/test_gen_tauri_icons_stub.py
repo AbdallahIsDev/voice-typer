@@ -232,8 +232,7 @@ def _git_show_bytes(rel: str) -> bytes:
     )
     if res.returncode != 0:
         raise RuntimeError(
-            f"cannot read committed icon {rel} via git show: "
-            f"{res.stderr.decode(errors='replace').strip()}"
+            f"cannot read committed icon {rel} via git show: {res.stderr.decode(errors='replace').strip()}"
         )
     return res.stdout
 
@@ -698,8 +697,8 @@ def test_check_ico_rejects_corrupt_ico():
 
         # Case 2: well-formed header + entry record pointing at a non-PNG blob.
         blob = b"\x00" * 64  # not a PNG
-        _write_with_retry(ico,
-            struct.pack("<HHH", 0, 1, 1) + struct.pack("<BBBBHHII", 32, 32, 0, 0, 1, 32, len(blob), 22) + blob
+        _write_with_retry(
+            ico, struct.pack("<HHH", 0, 1, 1) + struct.pack("<BBBBHHII", 32, 32, 0, 0, 1, 32, len(blob), 22) + blob
         )
         result = _run("--check-icons")
         assert result.returncode != 0
@@ -826,13 +825,14 @@ def test_check_png_rejects_corrupt_png():
         assert "bad magic" in result.stderr or "bad magic" in result.stdout
 
         # Case 2: valid magic + IHDR with a zero dimension.
-        _write_with_retry(png,
+        _write_with_retry(
+            png,
             PNG_MAGIC
             + struct.pack(">I", 13)
             + b"IHDR"
             + struct.pack(">II", 0, 32)
             + bytes([8, 6, 0, 0, 0])
-            + b"\x00" * 4  # CRC placeholder
+            + b"\x00" * 4,  # CRC placeholder
         )
         result = _run("--check-icons")
         assert result.returncode != 0
@@ -882,8 +882,8 @@ def test_check_ico_rejects_missing_expected_size():
         # Header (0/1/1) + a single 32x32 entry pointing at the committed
         # 32x32.png bytes (a real PNG, so the structural checks pass).
         blob = (SRC_TAURI / "icons" / "32x32.png").read_bytes()
-        _write_with_retry(ico,
-            struct.pack("<HHH", 0, 1, 1) + struct.pack("<BBBBHHII", 32, 32, 0, 0, 1, 32, len(blob), 22) + blob
+        _write_with_retry(
+            ico, struct.pack("<HHH", 0, 1, 1) + struct.pack("<BBBBHHII", 32, 32, 0, 0, 1, 32, len(blob), 22) + blob
         )
         result = _run("--check-icons")
         assert result.returncode != 0, "--check-icons should fail on an incomplete size set"
@@ -972,8 +972,9 @@ def test_check_png_rejects_missing_idat():
     png = SRC_TAURI / "icons" / "32x32.png"
     original = png.read_bytes()
     try:
-        _write_with_retry(png,
-            PNG_MAGIC + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", 32, 32, 8, 6, 0, 0, 0)) + _png_chunk(b"IEND", b"")
+        _write_with_retry(
+            png,
+            PNG_MAGIC + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", 32, 32, 8, 6, 0, 0, 0)) + _png_chunk(b"IEND", b""),
         )
         result = _run("--check-icons")
         assert result.returncode != 0, "--check-icons should fail on a header-only PNG"
@@ -993,11 +994,12 @@ def test_check_png_rejects_interlaced():
     original = png.read_bytes()
     try:
         idat = zlib.compress((b"\x00" + b"\x00\x00\x00\x00" * 32) * 32)
-        _write_with_retry(png,
+        _write_with_retry(
+            png,
             PNG_MAGIC
             + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", 32, 32, 8, 6, 0, 0, 1))
             + _png_chunk(b"IDAT", idat)
-            + _png_chunk(b"IEND", b"")
+            + _png_chunk(b"IEND", b""),
         )
         result = _run("--check-icons")
         assert result.returncode != 0, "--check-icons should fail on an interlaced PNG"
@@ -1036,8 +1038,8 @@ def test_check_ico_rejects_blob_dimension_mismatch():
     original = ico.read_bytes()
     try:
         blob = _synthetic_png(16, 16)  # valid PNG, wrong size for the entry
-        _write_with_retry(ico,
-            struct.pack("<HHH", 0, 1, 1) + struct.pack("<BBBBHHII", 32, 32, 0, 0, 1, 32, len(blob), 22) + blob
+        _write_with_retry(
+            ico, struct.pack("<HHH", 0, 1, 1) + struct.pack("<BBBBHHII", 32, 32, 0, 0, 1, 32, len(blob), 22) + blob
         )
         result = _run("--check-icons")
         assert result.returncode != 0, "--check-icons should fail on a blob/entry dimension mismatch"
@@ -1132,7 +1134,11 @@ def test_generate_preserves_existing_real_binary():
     """
     _run("--clean")  # start clean
     # Plant a fake "real" binary at the host-arch sidecar path.
+    # NOTE: recreate the parent dir — ``--clean`` rmdirs the now-empty
+    # ``src-tauri/bin`` (gitignored), so on a fresh checkout it does not
+    # exist and ``write_bytes`` would raise FileNotFoundError.
     real_path = SRC_TAURI / "bin" / "python-sidecar-x86_64-pc-windows-msvc.exe"
+    real_path.parent.mkdir(parents=True, exist_ok=True)
     real_content = b"\x4d\x5a" + b"\x00" * 32768  # MZ header, 32 KB, no marker
     real_path.write_bytes(real_content)
 
@@ -1286,6 +1292,9 @@ def test_generate_heals_truncated_and_empty_stubs():
     """
     _run("--clean")
     p = _windows_sidecar_path()
+    # Recreate the parent dir — ``--clean`` rmdirs the now-empty
+    # ``src-tauri/bin`` (gitignored), so it may not exist on a fresh checkout.
+    p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(b"")  # empty -> corrupt
     q = SRC_TAURI / "bin" / "voice-typer-worker-x86_64-pc-windows-msvc.exe"
     _run()  # generate — must heal p and create q

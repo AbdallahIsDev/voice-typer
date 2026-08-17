@@ -1,20 +1,18 @@
 /**
- * Tests for the About page.
+ * Tests for the About page (product identity) plus the moved-out
+ * surfaces it used to host:
  *
- *  / SET-5: the About page was slimmed down from a 726-line catch-all
- * to a focused ~300-line page with three sections (Diagnostics, Privacy,
- * Resources). The Help section was removed (it duplicates the `?` overlay),
- * and Cache Status + Updates were removed from About — they now live in
- * Settings → Troubleshooting via the PrewarmAndUpdates component (added
- * back after the slim-down incorrectly dropped them from the UI). These
- * tests cover:
- *
- *   - formatBytes(): 0, MB range, GB range
- *   - formatRelativeTime(): null, "never", <1 min, minutes, hours, days, ISO fallback
- *   - Smoke test: Diagnostics + Privacy + Resources render
- *   - Negative test: Help section is gone (no "Start / Stop dictation" row)
- *   - Negative test: Cache Status section is gone from About (no "Run Prewarm Now" button)
- *   - Negative test: Updates section is gone from About (no "Check for Updates" button)
+ *   - formatBytes() / formatRelativeTime() — now exported from the
+ *     DiagnosticsSettingsSection component (they moved there with the
+ *     diagnostics table in the IA split).
+ *   - The diagnostics table itself (config dir, Loaded Via, Copy
+ *     diagnostics, model-truth rows) — now lives in Settings →
+ *     Privacy (support area), covered by mounting
+ *     DiagnosticsSettingsSection directly.
+ *   - The privacy disclosure — now lives on the Privacy page (its own
+ *     sidebar destination), covered by mounting PrivacyPage.
+ *   - About page product-identity smoke tests + the negative tests
+ *     that Help / Cache Status / Updates are gone from About.
  */
 import {
 	cleanup,
@@ -43,15 +41,26 @@ vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
 vi.mock("sonner", () => sonnerMock());
 vi.mock("next-themes", () => nextThemesMock());
 
-import { formatBytes, formatRelativeTime } from "@/pages/About";
+import {
+	DiagnosticsSettingsSection,
+	formatBytes,
+	formatRelativeTime,
+} from "@/components/settings/DiagnosticsSettingsSection";
 
 // Static sources for the shared model-truth assertions (same
 // readFileSync pattern as Dashboard.test.tsx).
 const fs = require("node:fs");
 const nodePath = require("node:path");
 
-const ABOUT_SRC = fs.readFileSync(
-	nodePath.resolve(__dirname, "..", "About.tsx"),
+const DIAG_SRC = fs.readFileSync(
+	nodePath.resolve(
+		__dirname,
+		"..",
+		"..",
+		"components",
+		"settings",
+		"DiagnosticsSettingsSection.tsx",
+	),
 	"utf8",
 );
 const DASH_DATA_SRC = fs.readFileSync(
@@ -129,7 +138,7 @@ describe("formatRelativeTime", () => {
 			Date.now() - 10 * 24 * 60 * 60_000,
 		).toISOString();
 		const result = formatRelativeTime(tenDaysAgo);
-		//>7-day fallback now uses Intl.DateTimeFormat with
+		// >7-day fallback now uses Intl.DateTimeFormat with
 		// dateStyle:"medium" (e.g. "Jul 14, 2026" in en) instead of the
 		// raw ISO 8601 string. Assert it's a non-empty localized date,
 		// NOT the raw ISO and NOT a relative format.
@@ -145,52 +154,67 @@ describe("formatRelativeTime", () => {
 	});
 });
 
-//Slimmed-down About page ( / SET-5) ──────────────────────────
+// ─── About page — product identity ─────────────────────────────────────
 
-describe("About page — slimmed-down sections (UX-20 / SET-5)", () => {
+describe("About page — product identity (IA split)", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
-		mockCall.mockImplementation((type: string) => {
-			if (type === "get_status") {
-				return Promise.resolve({
-					status: "idle",
-					config_dir: "/tmp",
-					loaded_via: "cpu/int8/tiny.en",
-				});
-			}
-			if (type === "get_config") {
-				return Promise.resolve({
-					asr_backend: "whisper",
-					model_size: "large-v3-turbo",
-					device: "cpu",
-					hotkey: "F2",
-					microphone: null,
-				});
-			}
-			return Promise.resolve({});
-		});
+		mockCall.mockImplementation(() => Promise.resolve({}));
 	});
 
 	afterEach(() => {
 		cleanup();
 	});
 
-	it("renders Diagnostics, Privacy, and Resources sections", async () => {
+	it("renders the product identity: name, tagline, description, capabilities", async () => {
 		const { default: AboutPage } = await import("@/pages/About");
 		render(<AboutPage />);
 
-		// Diagnostics section heading (i18n key about.diagnosticsTitle).
+		// Page heading — the About title (i18n key about.title).
 		await waitFor(() => {
-			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
+			expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
 		});
 
-		// Privacy section heading.
-		expect(screen.getByRole("heading", { name: "Privacy" })).toBeTruthy();
+		// Identity row: product tagline under the app name.
+		expect(screen.getByText("Desktop voice-to-text")).toBeTruthy();
+		// Capability split — Local & Offline vs Cloud blocks.
+		expect(screen.getByText("Local & Offline")).toBeTruthy();
+		expect(screen.getByText("Cloud (optional)")).toBeTruthy();
+	});
 
-		// Resources section heading.
+	it("renders the Version and Platforms rows", async () => {
+		const { default: AboutPage } = await import("@/pages/About");
+		render(<AboutPage />);
+
+		await waitFor(() => {
+			expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
+		});
+
+		// Version row (value is v{version} from package.json).
+		expect(screen.getByText("Version")).toBeTruthy();
+		expect(screen.getByText(/^v\d+\.\d+\.\d+/)).toBeTruthy();
+		// Platforms row — the cross-platform claim.
+		expect(screen.getByText("Platforms")).toBeTruthy();
+		expect(screen.getByText("Windows, macOS, and Linux")).toBeTruthy();
+	});
+
+	it("does NOT render Diagnostics, Privacy, or Resources sections (moved out in the IA split)", async () => {
+		const { default: AboutPage } = await import("@/pages/About");
+		render(<AboutPage />);
+
+		await waitFor(() => {
+			expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
+		});
+
+		// The diagnostics table moved to Settings → Privacy (support
+		// area), the privacy disclosure to the Privacy page, and the
+		// resources grid to Settings → Privacy. About is product
+		// identity only.
+		expect(screen.queryByRole("heading", { name: "Diagnostics" })).toBeNull();
+		expect(screen.queryByRole("heading", { name: "Privacy" })).toBeNull();
 		expect(
-			screen.getByRole("heading", { name: "Resources & Feedback" }),
-		).toBeTruthy();
+			screen.queryByRole("heading", { name: "Resources & Feedback" }),
+		).toBeNull();
 	});
 
 	it("does NOT render the Help section (removed — duplicates `?` overlay)", async () => {
@@ -198,11 +222,11 @@ describe("About page — slimmed-down sections (UX-20 / SET-5)", () => {
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
+			expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
 		});
 
 		// The Help section previously rendered a "Start / Stop dictation"
-		//row. After , that row is gone (the help overlay is the
+		// row. After , that row is gone (the help overlay is the
 		// canonical source for shortcut labels).
 		expect(screen.queryByText("Start / Stop dictation")).toBeNull();
 		// The Help section heading itself is also gone.
@@ -214,7 +238,7 @@ describe("About page — slimmed-down sections (UX-20 / SET-5)", () => {
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
+			expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
 		});
 
 		// The Cache Status card previously had a "Run Prewarm Now"
@@ -229,7 +253,7 @@ describe("About page — slimmed-down sections (UX-20 / SET-5)", () => {
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
+			expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
 		});
 
 		// The Updates section previously had a "Check for Updates"
@@ -237,27 +261,11 @@ describe("About page — slimmed-down sections (UX-20 / SET-5)", () => {
 		expect(screen.queryByText("Updates")).toBeNull();
 		expect(screen.queryByText("Check for Updates")).toBeNull();
 	});
-
-	it("does not call get_prewarm_status on mount (Cache Status section is gone)", async () => {
-		const { default: AboutPage } = await import("@/pages/About");
-		render(<AboutPage />);
-
-		await waitFor(() => {
-			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
-		});
-
-		// The slimmed-down About page no longer fetches prewarm status —
-		// only get_status + get_config are called on mount.
-		const prewarmCalls = mockCall.mock.calls.filter(
-			(args: unknown[]) => args[0] === "get_prewarm_status",
-		);
-		expect(prewarmCalls.length).toBe(0);
-	});
 });
 
-// ─── Config directory + copy diagnostics + layout ──────────────────────
+// ─── Diagnostics section (moved: About → Settings) ─────────────────────
 
-describe("About page — config dir, copy diagnostics, privacy cards, section nav", () => {
+describe("Diagnostics section (IA split: Settings → Privacy)", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		toastSuccess.mockClear();
@@ -297,9 +305,11 @@ describe("About page — config dir, copy diagnostics, privacy cards, section na
 		delete navigator.clipboard;
 	});
 
+	const renderDiag = () =>
+		render(<DiagnosticsSettingsSection isVisible={() => true} />);
+
 	it("resolves the Config Directory row to the path from get_status (no permanent Loading…)", async () => {
-		const { default: AboutPage } = await import("@/pages/About");
-		render(<AboutPage />);
+		renderDiag();
 
 		await waitFor(() => {
 			expect(screen.getByText("/tmp/voice-typer")).toBeTruthy();
@@ -309,8 +319,7 @@ describe("About page — config dir, copy diagnostics, privacy cards, section na
 	});
 
 	it("renders the Loaded Via row with a live status dot when get_status reports it", async () => {
-		const { default: AboutPage } = await import("@/pages/About");
-		render(<AboutPage />);
+		renderDiag();
 
 		await waitFor(() => {
 			expect(screen.getByText("cpu/int8/tiny.en")).toBeTruthy();
@@ -328,8 +337,7 @@ describe("About page — config dir, copy diagnostics, privacy cards, section na
 			configurable: true,
 		});
 
-		const { default: AboutPage } = await import("@/pages/About");
-		render(<AboutPage />);
+		renderDiag();
 
 		await waitFor(() => {
 			expect(screen.getByText("/tmp/voice-typer")).toBeTruthy();
@@ -355,27 +363,8 @@ describe("About page — config dir, copy diagnostics, privacy cards, section na
 		expect(toastSuccess).toHaveBeenCalledWith("Copied!", expect.anything());
 	});
 
-	it("renders the five privacy topic cards with their existing copy", async () => {
-		const { default: AboutPage } = await import("@/pages/About");
-		render(<AboutPage />);
-
-		await waitFor(() => {
-			expect(screen.getByRole("heading", { name: "Privacy" })).toBeTruthy();
-		});
-
-		// Five topic blocks — titles + unchanged descriptions.
-		expect(screen.getByText("Audio processing.")).toBeTruthy();
-		expect(screen.getByText("Model weights.")).toBeTruthy();
-		expect(screen.getByText("Cloud speech recognition.")).toBeTruthy();
-		expect(screen.getByText("Voice biometrics.")).toBeTruthy();
-		expect(screen.getByText("Local data.")).toBeTruthy();
-		expect(screen.getByText(/processes all audio locally/)).toBeTruthy();
-		expect(screen.getByText(/downloaded from HuggingFace/)).toBeTruthy();
-	});
-
 	it("does NOT render the sticky section nav (removed — page is short enough to scroll)", async () => {
-		const { default: AboutPage } = await import("@/pages/About");
-		render(<AboutPage />);
+		renderDiag();
 
 		await waitFor(() => {
 			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
@@ -389,13 +378,13 @@ describe("About page — config dir, copy diagnostics, privacy cards, section na
 	});
 });
 
-// ─── Model-install truth (point 10) ────────────────────────────────────
+// ─── Diagnostics model-truth (point 10) ────────────────────────────────
 // The Diagnostics table's Speech recognizer / Device rows must derive
 // from the SAME source of truth as the Analytics page's Current Setup
 // cards (lib/utils/models.ts resolveActiveModel) — never a per-page
 // duplicate check. With no model installed both pages show
 // "Not selected"; with one installed both show the real values.
-describe("About page — Diagnostics model rows share one source of truth with Analytics", () => {
+describe("Diagnostics section — model rows share one source of truth with Analytics", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockCall.mockImplementation((type: string) => {
@@ -424,6 +413,9 @@ describe("About page — Diagnostics model rows share one source of truth with A
 		cleanup();
 	});
 
+	const renderDiag = () =>
+		render(<DiagnosticsSettingsSection isVisible={() => true} />);
+
 	it("shows 'Not selected' for Speech recognizer and Device when no model is installed", async () => {
 		// get_model_status returns {} — the configured "tiny" is NOT on
 		// disk, so the config defaults must NOT leak into the table.
@@ -447,8 +439,7 @@ describe("About page — Diagnostics model rows share one source of truth with A
 			return Promise.resolve({});
 		});
 
-		const { default: AboutPage } = await import("@/pages/About");
-		render(<AboutPage />);
+		renderDiag();
 
 		await waitFor(() => {
 			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
@@ -487,8 +478,7 @@ describe("About page — Diagnostics model rows share one source of truth with A
 			return Promise.resolve({});
 		});
 
-		const { default: AboutPage } = await import("@/pages/About");
-		render(<AboutPage />);
+		renderDiag();
 
 		await waitFor(() => {
 			expect(screen.getByText("whisper (tiny)")).toBeTruthy();
@@ -496,12 +486,12 @@ describe("About page — Diagnostics model rows share one source of truth with A
 		expect(screen.getByText("CPU")).toBeTruthy();
 	});
 
-	it("About and the Analytics data hook both import resolveActiveModel from lib/utils/models (one shared check)", () => {
+	it("Diagnostics and the Analytics data hook both import resolveActiveModel from lib/utils/models (one shared check)", () => {
 		// If either page ever re-implements its own "is it installed"
 		// check inline, the two pages can drift again — the whole point
 		// of this round's fix. Both must route through the shared
 		// helper in lib/utils/models.ts.
-		expect(ABOUT_SRC).toMatch(
+		expect(DIAG_SRC).toMatch(
 			/import \{ resolveActiveModel \} from "@\/lib\/utils\/models"/,
 		);
 		expect(DASH_DATA_SRC).toMatch(

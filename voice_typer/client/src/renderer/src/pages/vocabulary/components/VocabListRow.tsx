@@ -25,10 +25,10 @@
 import {
 	Delete01Icon,
 	PencilEdit02Icon,
-	TestTubeIcon,
+	TestTube01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -83,6 +83,21 @@ export const VocabListRow = memo(function VocabListRow({
 	testResult,
 	usage,
 }: VocabListRowProps) {
+	// The "Testing with the live engine…" pending row is only painted
+	// after ~300ms of continuous "running": the engine usually answers
+	// in a few milliseconds, and painting a spinner that immediately
+	// disappears is a jarring flash-in-flash-out. Only genuinely slow
+	// responses (cold start / busy backend) ever surface the pending
+	// state; fast ones jump straight from nothing to the result.
+	const [pendingVisible, setPendingVisible] = useState(false);
+	useEffect(() => {
+		if (testResult?.status !== "running") {
+			setPendingVisible(false);
+			return;
+		}
+		const timer = window.setTimeout(() => setPendingVisible(true), 300);
+		return () => window.clearTimeout(timer);
+	}, [testResult]);
 	// Grid: [checkbox][original][corrected][actions] on sm+; on narrow
 	// widths the corrected half moves to its own line below the
 	// original (col 2). The sm+ ACTIONS column is FIXED at 6.25rem
@@ -132,7 +147,7 @@ export const VocabListRow = memo(function VocabListRow({
 			<div className="flex min-w-0 flex-col items-start gap-0.5">
 				<span
 					title={entry.original}
-					className="min-w-0 truncate text-sm font-medium text-destructive tracking-wider"
+					className="min-w-0 truncate text-sm font-medium text-destructive tracking-wide"
 				>
 					{entry.original}
 				</span>
@@ -154,7 +169,7 @@ export const VocabListRow = memo(function VocabListRow({
 			<span className="col-start-2 flex min-w-0 items-center sm:col-start-auto">
 				<span
 					title={entry.correction}
-					className="min-w-0 truncate text-sm font-semibold text-(--text-primary)"
+					className="min-w-0 truncate text-sm font-medium text-(--text-primary)"
 				>
 					{entry.correction}
 				</span>
@@ -180,12 +195,18 @@ export const VocabListRow = memo(function VocabListRow({
 					})}
 					onClick={(e) => {
 						e.stopPropagation();
+						// This row's result is already displayed (or still in
+						// flight): clicking the icon again must NOT re-run the
+						// engine — that flashes the loading state over a result
+						// that's already known. No-op; the Retry button inside
+						// the error block is the explicit re-run path.
+						if (testResult) return;
 						onTest(entry);
 					}}
 					className="text-(--text-muted) transition-colors hover:bg-foreground/10 hover:text-accent"
 				>
 					<HugeiconsIcon
-						icon={TestTubeIcon}
+						icon={TestTube01Icon}
 						strokeWidth={2.25}
 						aria-hidden="true"
 						className="size-4"
@@ -235,7 +256,7 @@ export const VocabListRow = memo(function VocabListRow({
 					role="status"
 					className="col-span-full ms-10 -mt-0.5 min-w-0"
 				>
-					{testResult.status === "running" && (
+					{testResult.status === "running" && pendingVisible && (
 						<div className="flex items-center gap-2 text-xs text-(--text-muted)">
 							<Spinner decorative size={12} className="border-current" />
 							{t("vocabulary.testEntryPending")}
@@ -248,10 +269,10 @@ export const VocabListRow = memo(function VocabListRow({
 							// corrected text's green colour, not a
 							// green-bordered box.
 							<div className="rounded-xl border border-border/10 bg-(--bg) px-3 py-2">
-								<p className="text-[11px] font-semibold uppercase tracking-wider text-(--text-muted)">
+								<p className="text-[11px] font-semibold uppercase tracking-wide text-(--text-muted)">
 									{t("vocabulary.testCorrected")}
 								</p>
-								<p className="mt-0.5 whitespace-pre-wrap break-words text-sm font-medium text-emerald-700 dark:text-emerald-400">
+								<p className="mt-0.5 whitespace-pre-wrap wrap-break-word text-sm font-medium text-emerald-700 dark:text-emerald-400">
 									{testResult.output}
 								</p>
 							</div>

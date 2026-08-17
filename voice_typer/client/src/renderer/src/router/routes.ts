@@ -42,6 +42,7 @@ export const ROUTES: Record<Page, RouteDef> = {
 	settings: { page: "settings" },
 	analytics: { page: "analytics" },
 	about: { page: "about" },
+	privacy: { page: "privacy" },
 	onboarding: { page: "onboarding" },
 };
 

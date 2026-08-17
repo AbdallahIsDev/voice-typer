@@ -21,7 +21,6 @@ import {
 	Bug02Icon,
 	Delete02Icon,
 	File02Icon,
-	InformationCircleIcon,
 	ShieldBanIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -73,7 +72,6 @@ export const TroubleshootingSettingsSection = memo(
 		const title = t("settings.troubleshooting.title");
 		const description = t("settings.troubleshooting.description");
 		const openLogFolderLabel = t("settings.troubleshooting.openLogFolder");
-		const diagnosticsLabel = t("settings.troubleshooting.diagnostics");
 		const helpFaqLabel = t("settings.troubleshooting.helpFaq");
 		const reportBugLabel = t("settings.troubleshooting.reportBug");
 		const reRunWizardLabel = t("settings.troubleshooting.reRunWizard");
@@ -137,7 +135,6 @@ export const TroubleshootingSettingsSection = memo(
 			isVisible(title, description, title) ||
 			[
 				openLogFolderLabel,
-				diagnosticsLabel,
 				helpFaqLabel,
 				reportBugLabel,
 				reRunWizardLabel,
@@ -291,20 +288,6 @@ export const TroubleshootingSettingsSection = memo(
 							className="h-4 w-4"
 						/>
 						{openLogFolderLabel}
-					</Button>
-					<Button
-						variant="outline"
-						className="gap-2"
-						onClick={() => onNavigate?.("about")}
-						aria-label={t("settings.troubleshooting.diagnosticsAria")}
-						title={t("settings.troubleshooting.diagnosticsHint")}
-					>
-						<HugeiconsIcon
-							icon={InformationCircleIcon}
-							strokeWidth={2}
-							className="h-4 w-4"
-						/>
-						{diagnosticsLabel}
 					</Button>
 					<Button
 						variant="outline"

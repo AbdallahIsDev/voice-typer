@@ -312,6 +312,7 @@ describe.skip("ER-25: App.tsx uses React.lazy for secondary routes + Suspense fa
 
 	it.each([
 		["AboutPage", "@/pages/About"],
+		["PrivacyPage", "@/pages/Privacy"],
 		["DashboardPage", "@/pages/Dashboard"],
 		["HistoryPage", "@/pages/History"],
 		["MicrophonePage", "@/pages/Microphone"],
@@ -348,6 +349,7 @@ describe.skip("ER-25: App.tsx uses React.lazy for secondary routes + Suspense fa
 		// NOT appear in a plain `import X from "@/pages/Y"` statement.
 		const secondaryPages = [
 			["AboutPage", "@/pages/About"],
+			["PrivacyPage", "@/pages/Privacy"],
 			["DashboardPage", "@/pages/Dashboard"],
 			["HistoryPage", "@/pages/History"],
 			["MicrophonePage", "@/pages/Microphone"],

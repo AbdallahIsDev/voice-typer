@@ -32,9 +32,13 @@ export function QuickInfoCard({
 		// Informational card — no hover interaction. Icon rendered at a
 		// consistent size with the muted icon tone (same family as the
 		// stat-card icons), no inner padding container shrinking it.
+		// The text block stretches to the card height (`items-stretch`)
+		// with the value's `mt-auto` pushing it to the bottom — same
+		// top-pinned label / bottom-pushed number rhythm as the top-row
+		// stat cards.
 		<div
 			className={cn(
-				"flex items-center gap-3 rounded-lg border border-border/10",
+				"flex items-stretch gap-3 rounded-lg border border-border/10",
 				muted ? "bg-(--bg-subtle)/50 p-3" : "bg-(--bg-subtle) p-3.5",
 			)}
 		>
@@ -43,11 +47,11 @@ export function QuickInfoCard({
 				strokeWidth={1.75}
 				className="h-5 w-5 shrink-0 text-(--text-muted)"
 			/>
-			<div className="min-w-0">
+			<div className="flex min-w-0 flex-col">
 				<p className="text-[11px] font-medium text-(--text-muted)">{label}</p>
 				<p
 					className={cn(
-						"truncate font-semibold text-(--text-primary)",
+						"mt-auto truncate font-semibold text-(--text-primary)",
 						muted ? "text-[13px]" : "text-sm",
 					)}
 				>

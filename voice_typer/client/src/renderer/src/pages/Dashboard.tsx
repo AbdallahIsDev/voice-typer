@@ -23,7 +23,6 @@ import {
 	Calendar01Icon,
 	CheckmarkCircle02Icon,
 	CpuIcon,
-	File02Icon,
 	Globe02Icon,
 	Mic02Icon,
 	SpeechToTextIcon,
@@ -41,6 +40,7 @@ import {
 } from "@/components/dashboard/DashboardStatCard";
 import { QuickInfoCard } from "@/components/dashboard/QuickInfoCard";
 import { ShareStatsDialog } from "@/components/dashboard/ShareStatsDialog";
+import { formatCompactNumber } from "@/components/dashboard/StatCards";
 import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
 import { EmptyState } from "@/components/feedback/EmptyState";
 // amber banner shown when the OS has not granted the
@@ -252,40 +252,34 @@ export default function DashboardPage() {
 			) : (
 				<div className="space-y-6">
 					<div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+						{/* Single dictations card — DATA-CONSISTENCY fix: the
+						    old "Dictations" card (window count from the
+						    500-row history sample) and the range-blind
+						    "Total Dictations" card (true all-time row count
+						    from get_history_count) are merged into ONE card
+						    whose VALUE respects the selected range. The two
+						    previously disagreed under "All Time" (500 vs
+						    893): period.count caps at the sample size while
+						    totalCount is the true DB row count. For bounded
+						    ranges the window count is exact (recent rows are
+						    always inside the DESC-ordered sample); for All
+						    Time the true count is used so the card is never
+						    sample-capped. */}
 						<DashboardStatCard
-							label={t("analytics.dictationsPeriod", {
+							label={t("analytics.totalDictationsPeriod", {
 								range: t(`analytics.range.${range}`),
 							})}
-							value={String(period.count)}
+							value={
+								range === "all" ? String(d.totalCount) : String(period.count)
+							}
 							icon={SpeechToTextIcon}
-							sublabel={t("analytics.charsValue", {
-								count: period.chars.toLocaleString(getLocale()),
-							})}
 							trend={computeTrend(period.count, period.prev?.count)}
 						/>
 						<DashboardStatCard
 							label={t("analytics.recordingTime")}
 							value={formatDuration(period.duration)}
 							icon={Time02Icon}
-							sublabel={
-								period.count > 0
-									? t("analytics.avgPerDictation", {
-											duration: formatDuration(
-												Math.round(period.duration / period.count),
-											),
-										})
-									: undefined
-							}
 							trend={computeTrend(period.duration, period.prev?.duration)}
-						/>
-						<DashboardStatCard
-							label={t("analytics.totalDictations")}
-							value={compactNumber(d.totalCount)}
-							icon={File02Icon}
-							tooltip={t("analytics.totalDictationsTooltip")}
-							sublabel={t("analytics.charsValue", {
-								count: d.totalChars.toLocaleString(getLocale()),
-							})}
 						/>
 						<DashboardStatCard
 							label={t("analytics.activeDays")}
@@ -296,8 +290,18 @@ export default function DashboardPage() {
 									? t("analytics.dayStreak", {
 											count: String(d.currentStreak),
 										})
-									: t("analytics.noStreak")
+									: undefined
 							}
+						/>
+						{/* Characters — reuses the Home page Characters card's
+						    formatter (formatCompactNumber from StatCards) so
+						    the K-abbreviation + rounding config carries over
+						    unchanged; wired to the same range-filtered char
+						    count as the rest of the page. */}
+						<DashboardStatCard
+							label={t("analytics.cards.chars")}
+							value={formatCompactNumber(period.chars)}
+							icon={TextIcon}
 						/>
 						{/* Corrections moved to the derived-metrics card row below
 							(so the top row divides evenly into 4 cards). */}

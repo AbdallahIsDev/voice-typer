@@ -58,10 +58,15 @@ export function ActivityChart({ range, activity }: ActivityChartProps) {
 		<div className="rounded-xl border border-border/10 bg-(--bg-subtle) p-4">
 			<div className="mb-4 flex items-center gap-2.5">
 				{/* Icon grouped directly left of the title (was stranded
-					in the top-right corner). */}
+				in the top-right corner). */}
 				<HugeiconsIcon
 					icon={Activity03Icon}
-					strokeWidth={1.625}
+					// Stroke tuned for the larger render size: at h-9 w-9
+					// (36px) the stat-card 1.75 would paint ~2.6px lines,
+					// heavier than every other icon on the page. strokeWidth
+					// 1 renders ~1.5px on screen — the same visual weight as
+					// the h-5 w-5 stat-card icons (1.75 × 20/24 ≈ 1.46px).
+					strokeWidth={1}
 					// Sized to roughly match the stacked title+subtitle block
 					// beside it (was h-4 w-4, disproportionately tiny next
 					// to a two-line text block).

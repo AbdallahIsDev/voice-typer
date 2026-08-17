@@ -64,6 +64,14 @@ ALLOWED_UNTRANSLATED = {
     "about.unknown",  # "—"
     # Version number format — "v{version}" is universally identical.
     "about.versionValue",  # "v{version}"
+    # About page product identity: "Version" is the identical word in
+    # German and French ("Version"), and "Cloud (optional)" is the same
+    # in German — technical cognates, not translation gaps.
+    "about.version",  # "Version"
+    "about.cloudTitle",  # "Cloud (optional)"
+    # About page platform list — OS brand names (Windows/macOS/Linux)
+    # are proper nouns, kept identical across all locales.
+    "about.platformsValue",  # "Windows, macOS, and Linux"
     # audio engineering terms that are genuinely
     # identical cognates in de/es/fr — "Equalizer", "Limiter" are
     # standard technical vocabulary used untranslated in German, Spanish,

@@ -43,7 +43,8 @@ export type Page =
 	| "analytics"
 	| "settings"
 	| "onboarding"
-	| "about";
+	| "about"
+	| "privacy";
 
 // ── Error code union ──────────────────────────────────────────────
 //

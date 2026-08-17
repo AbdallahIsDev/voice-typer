@@ -1,12 +1,6 @@
-import { CircleQuestionMarkIcon } from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 
@@ -26,13 +20,6 @@ interface DashboardStatCardProps {
 	 * (null = no prior period exists, e.g. the All Time total).
 	 */
 	trend?: StatTrend | null;
-	/**
-	 * Optional explanatory tooltip shown via a small (?) info icon
-	 * next to the label. Only pass this when the tooltip adds
-	 * genuinely new information (e.g. a sampling caveat) — a
-	 * restatement of the label is noise.
-	 */
-	tooltip?: string;
 }
 
 function TrendIndicator({ trend }: { trend: StatTrend }) {
@@ -71,57 +58,35 @@ export function DashboardStatCard({
 	icon,
 	sublabel,
 	trend,
-	tooltip,
 }: DashboardStatCardProps) {
-	// Label text — truncated to a single line so a long label can
-	// never wrap and break the card's vertical rhythm.
-	const labelNode = (
-		<p className="min-w-0 max-w-full truncate text-xs leading-tight text-(--text-muted)">
-			{label}
-		</p>
-	);
 	return (
 		// Informational display card — NOT interactive: no hover
-		// lift/border change. Icon rendered at a consistent size with
-		// the muted icon tone (same family as action icons), no inner
-		// padding container shrinking it. Reduced padding + a medium
-		// (not bold) value keep the card airy rather than cramped.
-		<div className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-border/10 bg-(--bg-subtle) p-3 text-center">
-			<HugeiconsIcon
-				icon={icon}
-				strokeWidth={1.75}
-				className="h-5 w-5 text-(--text-muted)"
-			/>
-			<p className="text-2xl font-medium leading-none tracking-tight tabular-nums text-(--text-primary)">
+		// lift/border change. Layout: a single top row of icon +
+		// label (horizontal, left-aligned — not stacked), then the
+		// main number on its own line below. The value is semibold
+		// (one step up from the old medium) so it stays airy rather
+		// than heavy. The value's `mt-auto` pushes it (and any
+		// trailing sublabel/trend) to the bottom of the stretched
+		// card — the icon+label row stays pinned at the top with
+		// breathing room between it and the number.
+		<div className="flex flex-col gap-1.5 rounded-xl border border-border/10 bg-(--bg-subtle) p-3">
+			{/* Label row — icon on the far left, immediately followed
+			    by the card's title. Truncated to a single line so a
+			    long label can never wrap and break the card's
+			    vertical rhythm. */}
+			<div className="flex min-w-0 items-center gap-1.5">
+				<HugeiconsIcon
+					icon={icon}
+					strokeWidth={1.75}
+					className="h-5 w-5 shrink-0 text-(--text-muted)"
+				/>
+				<p className="min-w-0 max-w-full truncate text-xs leading-tight text-(--text-muted)">
+					{label}
+				</p>
+			</div>
+			<p className="mt-auto text-2xl font-semibold leading-none tracking-tight tabular-nums text-(--text-primary)">
 				{value}
 			</p>
-			{tooltip ? (
-				<div className="flex min-w-0 items-center justify-center gap-1">
-					{labelNode}
-					{/* (?) info icon — the tooltip trigger. A focusable
-						button (not the label text) so keyboard users can
-						reach it: Radix Tooltip opens on focus, so Tab →
-						Enter/Space works without hover. */}
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<button
-								type="button"
-								aria-label={t("analytics.infoTooltipAria", { label })}
-								className="inline-flex size-4 shrink-0 cursor-help items-center justify-center rounded-full text-(--text-muted) outline-hidden transition-colors hover:text-(--text-primary) focus-visible:ring-2 focus-visible:ring-ring"
-							>
-								<HugeiconsIcon
-									icon={CircleQuestionMarkIcon}
-									strokeWidth={2}
-									className="size-3.5"
-								/>
-							</button>
-						</TooltipTrigger>
-						<TooltipContent side="bottom">{tooltip}</TooltipContent>
-					</Tooltip>
-				</div>
-			) : (
-				labelNode
-			)}
 			{sublabel && (
 				<p className="max-w-full truncate text-xs leading-tight text-(--text-muted)">
 					{sublabel}

@@ -110,6 +110,7 @@ const hugeiconsMock = {
 	Tag01Icon: make("Tag01Icon"),
 	TelegramIcon: make("TelegramIcon"),
 	TerminalIcon: make("TerminalIcon"),
+	TestTube01Icon: make("TestTube01Icon"),
 	TestTubeIcon: make("TestTubeIcon"),
 	TextIcon: make("TextIcon"),
 	Tick02Icon: make("Tick02Icon"),

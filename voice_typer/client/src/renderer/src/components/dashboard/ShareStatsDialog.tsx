@@ -4,11 +4,14 @@
 // exact image that will be exported (no surprises after the fact),
 // plus the export actions and direct social share targets.
 //
-// Orientation-aware layout: the preview is measured at render time; a
-// landscape image (the current 1200×630 export) stacks the action
-// controls BELOW the preview, a portrait image places them to the SIDE.
-// The measurement is done via ResizeObserver so a future aspect-ratio
-// change reflows automatically.
+// Preview-fit design: the export is a FIXED 1200×630 image, so the
+// preview frame is sized by CSS `aspect-ratio: 1200 / 630` and the
+// image is scaled to the frame width via a `--preview-scale` custom
+// property written directly on the frame at attach time (before the
+// first paint). The preview is therefore fully visible and exactly
+// fitted from the very first frame — no clipping, no dead space, no
+// delayed transform correcting its own layout. The landscape image
+// stacks the action controls BELOW the preview.
 //
 // Social targets (WhatsApp / Telegram / X / Facebook): the platform
 // share-composer URLs do NOT support attaching an image from a desktop
@@ -45,7 +48,6 @@ import {
 import { STATS_IMAGE_FILENAME } from "@/hooks/useStatsShare";
 import { t } from "@/i18n/i18n";
 import type { StatsThemePalette } from "@/lib/theme-palette";
-import { cn } from "@/lib/utils";
 import type { ShareStats } from "@/types/stats";
 import { StatsShareImage } from "./StatsShareImage";
 
@@ -70,8 +72,9 @@ export interface ShareStatsDialogProps {
 	disabled?: boolean;
 }
 
-/** The exported image's fixed capture width (mirrors useStatsShare). */
+/** The exported image's fixed capture dimensions (mirrors useStatsShare). */
 const EXPORT_WIDTH = 1200;
+const EXPORT_HEIGHT = 630;
 
 /** Project repo — the shared link for platforms whose URL schemes
  * require a link (Telegram's t.me/share/url needs the `url` param). */
@@ -130,69 +133,50 @@ export function ShareStatsDialog({
 }: ShareStatsDialogProps) {
 	const [open, setOpen] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
-	const previewRef = useRef<HTMLDivElement>(null);
-	// Preview fit scale (the 1200px-wide image scaled to the dialog).
-	const [scale, setScale] = useState(0.5);
-	const [previewHeight, setPreviewHeight] = useState(630);
-	// True when the measured preview is taller than wide.
-	const [isPortrait, setIsPortrait] = useState(false);
 
-	// Measure the preview's natural aspect ratio + fit the container
-	// width. ResizeObserver keeps both correct across window/dialog
-	// resizes; jsdom lacks ResizeObserver (tests) — the initial
-	// landscape defaults apply there.
-	//
-	// PORTAL-TIMING FIX: Radix's DialogPortal mounts its content via
-	// Presence in a FOLLOW-UP commit (to run the enter animation), so
-	// neither a passive `useEffect` nor a `useLayoutEffect` in this
-	// component can reliably see the portal refs at `open` time — on
-	// some mounts both were still null, `measure()` early-returned,
-	// and the ResizeObserver attached to nothing, freezing the
-	// preview at the initial scale(0.5) forever (the rightmost stat
-	// card clipped by the overflow-hidden frame). The initial measure
-	// is therefore triggered by a CALLBACK REF on the preview element
-	// itself, which fires exactly when the portal node actually
-	// attaches (any commit). The layout effect below only manages the
-	// ResizeObserver for later re-measures (window/dialog resizes,
-	// content height changes).
-	// Memoized so its identity is stable across renders — the
-	// ResizeObserver effect below lists it as a dependency without
-	// re-running the effect on every render (it only reads refs and
-	// writes state via stable setters, so the empty dep array is
-	// sound).
-	const measure = useCallback(() => {
+	// Preview scale = container width ÷ export width. Written as a CSS
+	// custom property DIRECTLY on the frame (not React state) so it is
+	// in place before the first paint: the preview renders fully
+	// visible and exactly fitted from the very first frame — no state
+	// round-trip, no flash, no delayed correction. The frame itself is
+	// sized by CSS `aspect-ratio` (the export's fixed 1200:630 ratio),
+	// so its height is always right regardless of measurement timing.
+	const applyScale = useCallback(() => {
 		const box = containerRef.current;
-		const el = previewRef.current;
-		if (!box || !el) return;
-		const w = el.offsetWidth || EXPORT_WIDTH;
-		const h = el.offsetHeight || 630;
-		setPreviewHeight(h);
-		setIsPortrait(h > w);
-		setScale(Math.min(1, (box.clientWidth - 16) / EXPORT_WIDTH));
+		if (!box) return;
+		// Exact fit — no fudge margin: the scaled image width equals
+		// the frame's content width (a previous `- 16` margin left a
+		// permanent black strip on the right of the frame).
+		box.style.setProperty(
+			"--preview-scale",
+			String(Math.min(1, box.clientWidth / EXPORT_WIDTH)),
+		);
 	}, []);
 
-	// Callback ref: measures when the preview node attaches. `el` is
-	// the node (or null on detach) — the containerRef sibling attaches
-	// in the same commit (parent before child), so containerRef.current
-	// is already set here.
-	const setPreviewRef = (el: HTMLDivElement | null) => {
-		previewRef.current = el;
-		if (el) measure();
+	// Callback ref on the CONTAINER: fires when the portal node
+	// attaches (commit phase, before paint). The container's width is
+	// what determines the scale, so measuring it directly at attach
+	// time guarantees the custom property is set before the first
+	// visible frame — no dependence on a later ResizeObserver
+	// delivery. (Radix mounts dialog content via Presence in a
+	// follow-up commit, so a plain useLayoutEffect on `open` cannot
+	// reliably see the ref; the callback ref fires exactly when the
+	// node attaches.)
+	const setContainerRef = (el: HTMLDivElement | null) => {
+		containerRef.current = el;
+		if (el) applyScale();
 	};
 
+	// Keep the scale correct across window/dialog resizes.
+	// ResizeObserver notifications are delivered before paint, so a
+	// resize never shows an intermediate mis-fitted frame.
 	useLayoutEffect(() => {
 		if (!open) return;
 		if (typeof ResizeObserver === "undefined") return;
-		const ro = new ResizeObserver(measure);
+		const ro = new ResizeObserver(() => applyScale());
 		if (containerRef.current) ro.observe(containerRef.current);
-		if (previewRef.current) ro.observe(previewRef.current);
 		return () => ro.disconnect();
-		// `stats` is intentionally NOT a dep: the ResizeObserver on the
-		// container + preview fires when the preview's scaled height
-		// changes, so content changes while the dialog is open re-measure
-		// without re-running this effect. `measure` IS a dep (stable via
-		// useCallback, so this only re-runs on open toggles).
-	}, [open, measure]);
+	}, [open, applyScale]);
 
 	const handleDownload = async () => {
 		const path = await actions.downloadImage(STATS_IMAGE_FILENAME);
@@ -264,30 +248,30 @@ export function ShareStatsDialog({
 					</DialogDescription>
 				</DialogHeader>
 
-				<div className={cn("flex flex-col gap-4", isPortrait && "sm:flex-row")}>
-					{/* Live preview of the exact exported image. The scaled
+				<div className="flex flex-col gap-4">
+					{/* Live preview of the exact exported image. The frame's
+						CSS aspect-ratio (1200:630 — the export's fixed size)
+						makes its height correct from the first frame with no
+						JS measurement; the image is scaled to the frame width
+						exactly via --preview-scale (set on the frame before
+						first paint), so the whole image is always visible
+						with no cropping and no dead space — and never needs a
+						delayed transform to correct its own layout. The scaled
 						image is position:absolute so its 1200×630 LAYOUT box
-						never stretches the dialog; the frame's height is set
-						explicitly to the scaled height. (Previously the
-						unscaled layout height + a spacer made the frame ~2x
-						as tall as the visible image — a huge blank gap — and
-						pushed the sibling action column to 1200px wide,
-						stretching the buttons edge-to-edge past the dialog.) */}
+						never stretches the dialog. */}
 					<div
-						ref={containerRef}
-						className={cn(
-							"relative w-full overflow-hidden rounded-xl border border-border/10 bg-black/20",
-							isPortrait && "sm:w-1/2",
-						)}
-						style={{ height: Math.round(previewHeight * scale) }}
+						ref={setContainerRef}
+						className="relative w-full overflow-hidden rounded-xl border border-border/10 bg-black/20"
+						style={{
+							aspectRatio: `${EXPORT_WIDTH} / ${EXPORT_HEIGHT}`,
+						}}
 					>
 						{stats && (
 							<div
-								ref={setPreviewRef}
 								className="absolute left-0 top-0"
 								style={{
 									width: EXPORT_WIDTH,
-									transform: `scale(${scale})`,
+									transform: "scale(var(--preview-scale, 0.5))",
 									transformOrigin: "top left",
 								}}
 							>
@@ -299,12 +283,7 @@ export function ShareStatsDialog({
 					{/* Export + social actions — framed (rounded border +
 						padding) so the buttons read as one coherent block
 						tied to the preview, not full-bleed fragments. */}
-					<div
-						className={cn(
-							"flex flex-col gap-2.5 rounded-xl border border-border/10 bg-black/20 p-3",
-							isPortrait ? "sm:w-1/2" : "w-full",
-						)}
-					>
+					<div className="flex w-full flex-col gap-2.5 rounded-xl border border-border/10 bg-black/20 p-3">
 						{/* Neutral/secondary style — Download, Copy, and Save As
 						    are equally valid exports; none is privileged (the
 						    previous accent/primary treatment visually pushed

@@ -90,7 +90,6 @@ import { setLocale, t } from "@/i18n/i18n";
 // Import pages AFTER mocks are declared. Using dynamic import() inside
 // each test would also work, but static imports keep the test file
 // simpler. Vitest hoists vi.mock() before any static import.
-import AboutPage from "@/pages/About";
 import ModelsPage from "@/pages/Models";
 import OnboardingPage from "@/pages/Onboarding";
 import SettingsPage from "@/pages/Settings";
@@ -561,10 +560,13 @@ describe("R7-F13: History + Home — debouncedRefreshFromEvent via useCallback",
 
 // ── R7-F15 ─────────────────────────────────────────────────────────────
 
-describe("R7-F15: About.tsx — configDir starts empty and falls back to t('about.loading')", () => {
+describe("R7-F15: DiagnosticsSettingsSection — configDir starts empty and falls back to t('about.loading')", () => {
 	it("source initialises configDir with empty string", async () => {
 		const fs = await import("node:fs");
-		const src = fs.readFileSync("src/renderer/src/pages/About.tsx", "utf8");
+		const src = fs.readFileSync(
+			"src/renderer/src/components/settings/DiagnosticsSettingsSection.tsx",
+			"utf8",
+		);
 		// The useState<string>("") call is the contract — previously
 		// it was useState<string>("~/.voice-typer").
 		expect(src).toContain('useState<string>("")');
@@ -581,14 +583,16 @@ describe("R7-F15: About.tsx — configDir starts empty and falls back to t('abou
 	});
 
 	it("renders t('about.loading') as the config-directory value before the backend resolves", async () => {
+		const { DiagnosticsSettingsSection } = await import(
+			"@/components/settings/DiagnosticsSettingsSection"
+		);
 		// Make get_status pending so configDir stays "" on the first
 		// render. The fallback should be the about.loading string.
 		mockCall.mockImplementation(() => new Promise(() => {}));
 
-		renderWithProviders(<AboutPage />);
+		renderWithProviders(<DiagnosticsSettingsSection isVisible={() => true} />);
 
-		// Wait for the Diagnostics section to appear (heading role — the
-		// same text also appears in the sticky section nav).
+		// Wait for the Diagnostics section to appear (heading role).
 		await waitFor(() => {
 			expect(
 				screen.getByRole("heading", { name: t("about.diagnosticsTitle") }),

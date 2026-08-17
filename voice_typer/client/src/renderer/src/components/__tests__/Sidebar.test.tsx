@@ -1,9 +1,9 @@
 /**
  * Tests for the Sidebar component.
  *
- * Sidebar renders the primary navigation: 9 nav items (Home, History,
+ * Sidebar renders the primary navigation: 10 nav items (Home, History,
  * Analytics, Templates, Vocabulary, Models, Microphone, Settings,
- * About), the Logo + title, and a ThemeSwitch at the bottom.
+ * About, Privacy), the Logo + title, and a ThemeSwitch at the bottom.
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -57,7 +57,7 @@ describe("Sidebar", () => {
 		onThemeChange: vi.fn(),
 	};
 
-	it("renders all 9 navigation items with their labels", () => {
+	it("renders all 10 navigation items with their labels", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		const labels = [
 			"Home",
@@ -69,6 +69,7 @@ describe("Sidebar", () => {
 			"Microphone",
 			"Settings",
 			"About",
+			"Privacy",
 		];
 		for (const label of labels) {
 			expect(screen.getByText(label)).toBeTruthy();

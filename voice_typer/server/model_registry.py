@@ -81,7 +81,7 @@ class ModelMetadata:
     # User-facing display name shown on the model card. ``None`` means
     # the renderer falls back to the bare ``name`` (e.g. whisper
     # variants render as ``tiny`` / ``large-v3`` / ``large-v3-turbo``).
-    # Detailed names are set for parakeet ("Parakeet-v3-TDT") and
+    # Detailed names are set for parakeet ("Parakeet-TDT-0.6b-V3") and
     # qwen ("Qwen-3") so the Models page shows the full model name
     # under the family header.
     display_name: str | None = None
