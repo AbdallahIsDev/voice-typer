@@ -68,8 +68,10 @@ export function DashboardStatCard({
 		// than heavy. The value's `mt-auto` pushes it (and any
 		// trailing sublabel/trend) to the bottom of the stretched
 		// card — the icon+label row stays pinned at the top with
-		// breathing room between it and the number.
-		<div className="flex flex-col gap-1.5 rounded-xl border border-border/10 bg-(--bg-subtle) p-3">
+		// breathing room between it and the number. `min-h-24`
+		// guarantees that breathing room even when the row's tallest
+		// card is otherwise only as tall as its content.
+		<div className="flex min-h-24 flex-col gap-1.5 rounded-xl border border-border/10 bg-(--bg-subtle) p-3">
 			{/* Label row — icon on the far left, immediately followed
 			    by the card's title. Truncated to a single line so a
 			    long label can never wrap and break the card's

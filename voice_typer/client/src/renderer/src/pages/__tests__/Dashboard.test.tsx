@@ -669,6 +669,10 @@ describe("Analytics polish: stat-card spacing, sublabel pruning, Activity icon w
 			"utf8",
 		);
 		expect(statCardSrc).toMatch(/mt-auto text-2xl font-semibold/);
+		// POLISH round 2: the card carries a minimum height so the
+		// auto-top-margin actually has room to spread (a card only as
+		// tall as its content leaves no breathing space).
+		expect(statCardSrc).toMatch(/min-h-24/);
 		// QuickInfoCard (secondary row + Current Setup) uses the same
 		// bottom-pushed rhythm.
 		const quickInfoSrc = fs.readFileSync(
