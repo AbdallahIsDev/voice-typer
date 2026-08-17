@@ -22,33 +22,34 @@
 // `shell.openExternal`), and toast an instruction to paste the image
 // into the composer. All four platforms use this fallback — there is
 // no desktop-web path that attaches the image directly.
-import {
-	Copy01Icon,
-	Download03Icon,
-	FacebookIcon,
-	FileDownloadIcon,
-	NewTwitterIcon,
-	Share08Icon,
-	TelegramIcon,
-	WhatsappIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+
 import { APP_NAME } from "@/branding";
 import { Button } from "@/components/ui/button";
 import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogHeader,
-	DialogTitle,
-	DialogTrigger,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
 } from "@/components/ui/dialog";
 import { STATS_IMAGE_FILENAME } from "@/hooks/useStatsShare";
 import { t } from "@/i18n/i18n";
 import type { StatsThemePalette } from "@/lib/theme-palette";
 import type { ShareStats } from "@/types/stats";
+import {
+    Copy01Icon,
+    Download03Icon,
+    FacebookIcon,
+    FileDownloadIcon,
+    NewTwitterIcon,
+    Share08Icon,
+    TelegramIcon,
+    WhatsappIcon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { StatsShareImage } from "./StatsShareImage";
 
 /** The three export actions, wired by the page that owns the capture
@@ -239,7 +240,7 @@ export function ShareStatsDialog({
 			</DialogTrigger>
 			<DialogContent
 				size="lg"
-				className="sm:max-w-3xl bg-(--bg-subtle) ring-border/10"
+				className="sm:max-w-4xl bg-(--bg-subtle) ring-border/10"
 			>
 				<DialogHeader>
 					<DialogTitle>{t("stats.shareImage.previewTitle")}</DialogTitle>

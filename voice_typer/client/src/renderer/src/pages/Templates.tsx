@@ -97,7 +97,7 @@ export default function TemplatesPage() {
 	// backend connectivity problem.
 	if (loadError && templates.length === 0) {
 		return (
-			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
+			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
 				<PageHeading
 					title={t("templates.title")}
 					description={t("templates.description")}
@@ -116,7 +116,7 @@ export default function TemplatesPage() {
 
 	return (
 		<>
-			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
+			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
 				<PageHeading
 					title={t("templates.title")}
 					description={t("templates.description")}

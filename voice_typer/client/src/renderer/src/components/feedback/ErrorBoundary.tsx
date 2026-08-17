@@ -40,9 +40,9 @@
 // preserved — ``console.error`` serializes ``errorInfo`` to a string
 // and loses the structured component-tree trace).
 
-import { Component, createRef, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
+import { Component, createRef, type ErrorInfo, type ReactNode } from "react";
 
 interface ErrorBoundaryProps {
 	children: ReactNode;
@@ -414,10 +414,10 @@ export class ErrorBoundary extends Component<
                                             before the raw error message. The raw stack trace below is
                                             preserved for bug-report copy-paste but is no longer the
                                             first thing the user reads. */}
-					<p className="max-w-2xl text-sm text-(--text-muted)">
+					<p className="max-w-4xl text-sm text-(--text-muted)">
 						{t("errorBoundary.configCrashHint")}
 					</p>
-					<pre className="max-w-2xl overflow-auto rounded-lg border border-border/10 bg-(--bg-subtle) p-4 text-left text-xs text-(--text-muted)">
+					<pre className="max-w-4xl overflow-auto rounded-lg border border-border/10 bg-(--bg-subtle) p-4 text-left text-xs text-(--text-muted)">
 						{errorMessage}
 					</pre>
 					{/* sr-only hint wired to the Reset settings button via

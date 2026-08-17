@@ -25,9 +25,7 @@
  * padding. The scroll-mt utility makes deep-links to in-page anchors
  * land below the sticky bar without pixel-tuning.
  */
-import { Folder02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { useMemo, useState } from "react";
+
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
@@ -36,15 +34,18 @@ import { CloudProvidersPanel } from "@/components/models/CloudProvidersPanel";
 import { LocalModelsPanel } from "@/components/models/LocalModelsPanel";
 import { Button } from "@/components/ui/button";
 import {
-	SegmentedControl,
-	type SegmentedControlOption,
+    SegmentedControl,
+    type SegmentedControlOption,
 } from "@/components/ui/segmented-control";
 import { useModelLifecycle } from "@/hooks/useModelLifecycle";
 import { t } from "@/i18n/i18n";
 import { getActiveFamilyId, groupModelsByFamily } from "@/lib/utils/models";
+import { Folder02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { useMemo, useState } from "react";
 import {
-	tabPageHeaderClassName,
-	tabPageIndicatorClassName,
+    tabPageHeaderClassName,
+    tabPageIndicatorClassName,
 } from "./_tabBarStyles";
 
 export default function ModelsPage() {
@@ -91,7 +92,7 @@ export default function ModelsPage() {
                                 bars. Previously Models had no wrapper bg/border and used
                                 a different z-index from Settings. */}
 			<div className={tabPageHeaderClassName}>
-				<div className="mx-auto w-full max-w-2xl px-6 py-1.5">
+				<div className="mx-auto w-full max-w-4xl px-16 py-1.5">
 					<SegmentedControl
 						variant="tabs"
 						options={tabOptions}
@@ -115,7 +116,7 @@ export default function ModelsPage() {
                                 sticky bar at default zoom; the scroll-mt-32 utility on
                                 anchors would handle deep-link scrolling if we add any.
                         */}
-			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-32 pb-6">
+			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-32 pb-6">
 				<PageHeading
 					title={t("models.asrTitle")}
 					description={t("models.asrSubtitle")}

@@ -18,12 +18,7 @@
 // The page is a flat two-column correction list: wrong word/phrase on
 // the left, corrected on the right. Categories are part of the
 // persisted data layer only — they are never surfaced in the UI.
-import {
-	AlertCircleIcon,
-	BookOpen02Icon,
-	PencilEdit02Icon,
-} from "@hugeicons/core-free-icons";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -31,7 +26,12 @@ import { Spinner } from "@/components/feedback/Spinner";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t, useT } from "@/i18n/i18n";
-
+import {
+    AlertCircleIcon,
+    BookOpen02Icon,
+    PencilEdit02Icon,
+} from "@hugeicons/core-free-icons";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VocabBulkBar } from "./vocabulary/components/VocabBulkBar";
 import { VocabDuplicateBanner } from "./vocabulary/components/VocabDuplicateBanner";
 import { VocabInlineForm } from "./vocabulary/components/VocabInlineForm";
@@ -45,13 +45,13 @@ import { useVocabularyImportExport } from "./vocabulary/hooks/useVocabularyImpor
 import { useVocabularyQuickAdd } from "./vocabulary/hooks/useVocabularyQuickAdd";
 import { useVocabularySelection } from "./vocabulary/hooks/useVocabularySelection";
 import {
-	type EntryTestResult,
-	testPhraseOnServer,
+    type EntryTestResult,
+    testPhraseOnServer,
 } from "./vocabulary/lib/testServer";
 import {
-	findDuplicateGroups,
-	normalizeWrongPhrase,
-	type VocabRow,
+    findDuplicateGroups,
+    normalizeWrongPhrase,
+    type VocabRow,
 } from "./vocabulary/lib/transform";
 
 export default function VocabularyPage() {
@@ -256,7 +256,7 @@ export default function VocabularyPage() {
 
 	if (loadError && entries.length === 0) {
 		return (
-			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
+			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
 				<PageHeading
 					title={t("vocabulary.title")}
 					description={t("vocabulary.description")}
@@ -275,12 +275,12 @@ export default function VocabularyPage() {
 
 	return (
 		<>
-			{/* The page column is centered (max-w-2xl mx-auto) in the main
+			{/* The page column is centered (max-w-4xl mx-auto) in the main
 			    content area, so anything sticky/centered inside it (the
 			    floating bulk bar) stays centered relative to the CONTENT
 			    in both sidebar states — the column recenters when the
 			    sidebar expands/collapses. */}
-			<div className="relative mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
+			<div className="relative mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
 				{/* Heading, then the toolbar on its OWN full-width row BELOW
 				    it (not inside PageHeading's children slot).
 				    PageHeading wraps children in a content-sized,
@@ -288,7 +288,7 @@ export default function VocabularyPage() {
 				    `justify-between` had zero free space to distribute
 				    (the wrapper hugs the buttons), so Add Word never
 				    reached the far right across three prior attempts.
-				    As a direct child of the page column (max-w-2xl
+				    As a direct child of the page column (max-w-4xl
 				    w-full) the toolbar spans the full header width and
 				    the left group / right Add Word separation is real. */}
 				<PageHeading
@@ -429,7 +429,7 @@ export default function VocabularyPage() {
 				    bottom while the column (taller than the viewport when
 				    the list is long) stays in view — true floating, it does
 				    NOT scroll away. ``mx-auto w-fit`` centers it on the
-				    column, which is itself centered (max-w-2xl mx-auto) in
+				    column, which is itself centered (max-w-4xl mx-auto) in
 				    the main content area, so the bar stays centered relative
 				    to the CONTENT in both sidebar states (the column
 				    recenters when the sidebar expands/collapses). */}

@@ -14,7 +14,7 @@ import { t } from "@/i18n/i18n";
 export function DashboardSkeleton() {
 	return (
 		<section
-			className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6"
+			className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6"
 			aria-label={t("analytics.loadingAria")}
 			aria-busy="true"
 		>

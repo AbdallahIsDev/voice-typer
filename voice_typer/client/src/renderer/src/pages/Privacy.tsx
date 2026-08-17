@@ -17,18 +17,19 @@
 // section and Analytics data path use), interpolated into the Local
 // data description. On a failed fetch the row falls back to a neutral
 // "—" instead of a permanent "Loading…".
-import {
-	CloudIcon,
-	DatabaseIcon,
-	Layers01Icon,
-	Mic02Icon,
-	Shield01Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useRef, useState } from "react";
+
 import PageHeading from "@/components/common/PageHeading";
 import { usePython } from "@/hooks/usePython";
 import { t, useT } from "@/i18n/i18n";
+import {
+    CloudIcon,
+    DatabaseIcon,
+    Layers01Icon,
+    Mic02Icon,
+    Shield01Icon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { useEffect, useRef, useState } from "react";
 
 /** Privacy topics — icon + existing i18n title/description keys. */
 const PRIVACY_TOPICS = [
@@ -90,7 +91,7 @@ export default function PrivacyPage() {
 	}, []);
 
 	return (
-		<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col space-y-6 px-6 pt-28 pb-6">
+		<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col space-y-6 px-16 pt-28 pb-6">
 			<PageHeading
 				title={t("about.privacyTitle")}
 				description={t("about.privacyDescription")}

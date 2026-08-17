@@ -6,14 +6,14 @@
 //
 // Settings.tsx (old):
 // wrapper: `sticky top-0 left-0 right-0 z-40 bg-(--bg-subtle) border-b border-border`
-// inner:   `mx-auto w-full max-w-2xl px-6 py-1.5`
+// inner:   `mx-auto w-full max-w-4xl px-16 py-1.5`
 // SegmentedControl indicator: `bg-input/50`
 // SegmentedControl label:     `flex-1 text-center`
 // SegmentedControl className:  `w-full`
 //
 // Models.tsx (old):
 // wrapper: `sticky left-0 right-0 top-0 z-50` (no bg, no border)
-// inner:   `mx-auto w-full max-w-2xl px-6 py-1.5`
+// inner:   `mx-auto w-full max-w-4xl px-16 py-1.5`
 // SegmentedControl indicator: `bg-(--bg) border border-border/75`
 // SegmentedControl label:     `flex-1 text-center`
 // SegmentedControl className:  `bg-(--bg-subtle) rounded-lg w-full`
@@ -51,7 +51,7 @@
  *  - `left-0 right-0` — explicit horizontal anchoring (was already on
  *    both pages; kept for clarity).
  *
- * The inner max-w-2xl + px-6 + py-1.5 wrapper is NOT included here —
+ * The inner max-w-4xl + px-16 + py-1.5 wrapper is NOT included here —
  * each page renders it inline (the inner wrapper sometimes also
  * contains a search field or other controls that vary by page).
  */

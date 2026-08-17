@@ -175,7 +175,7 @@ Brainstorm yourself and use the best practices to solve this problem.
 1. Standardize loading pattern: inline per-section `<Spinner />` for pages with cached data; full-page skeleton for first-load-only pages. Migrate History/Microphone/Templates/Vocabulary.
 2. Standardize refresh-failure feedback: `toast.error` for transient refresh failures + in-page EmptyState-retry when entire page is empty.
 3. Fix `pb-1` → `pb-2` in History.tsx:502.
-4. Consolidate About's wrapper to standard `<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6 space-y-8">`.
+4. Consolidate About's wrapper to standard `<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6 space-y-8">`.
 
 ---
 

@@ -14,14 +14,14 @@
 // dynamic value is the installed version, read directly from
 // package.json at build time (VERSION-SOURCE-FIX) so it never drifts
 // from the canonical source of truth on a release bump.
-import { CloudIcon, Mic02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
+
 import { APP_NAME } from "@/branding";
 import PageHeading from "@/components/common/PageHeading";
 import { ReadonlyRow } from "@/components/common/ReadonlyRow";
 import { Logo } from "@/components/layout/Logo";
 import { t, useT } from "@/i18n/i18n";
-
+import { CloudIcon, Mic02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import pkg from "../../../../package.json";
 
 // App version — read directly from package.json (see VERSION-SOURCE-FIX
@@ -34,7 +34,7 @@ export default function AboutPage() {
 	useT();
 
 	return (
-		<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col space-y-6 px-6 pt-28 pb-6">
+		<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col space-y-6 px-16 pt-28 pb-6">
 			<PageHeading
 				title={t("about.title")}
 				description={t("about.description")}
