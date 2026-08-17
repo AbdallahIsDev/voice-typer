@@ -3,17 +3,26 @@
 // Split from the former monolithic ``pages/Vocabulary.tsx`` (1053 lines)
 // into:
 //   - ``./vocabulary/lib/``        — pure helpers (categories, transform, sort, importExport)
-//   - ``./vocabulary/hooks/``      — state + handlers (useVocabulary, useVocabularyDialog, useVocabularyImportExport, useVocabularyQuickAdd, useVocabularySelection)
-//   - ``./vocabulary/components/`` — presentational (VocabToolbar, VocabSearchFilterBar, VocabListRow, VocabListHeader, VocabBulkBar, VocabQuickAdd, VocabDialog)
+//   - ``./vocabulary/hooks/``      — state + handlers (useVocabulary, useVocabularyEdit, useVocabularyImportExport, useVocabularyQuickAdd, useVocabularySelection)
+//   - ``./vocabulary/components/`` — presentational (VocabToolbar, VocabSearchFilterBar, VocabListRow, VocabListHeader, VocabBulkBar, VocabInlineForm)
 //
 // This file owns ONLY the page layout (loading / load-error / empty /
-// list / dialog wiring). All state + business logic lives in the hooks;
-// all rendering lives in the components.
+// list / inline-form wiring). All state + business logic lives in the
+// hooks; all rendering lives in the components.
+//
+// Add and Edit use the SAME inline-row pattern (VocabInlineForm): Add
+// renders the row above the table, Edit replaces the edited row in
+// place — the old edit modal was removed so there is one consistent
+// create/modify flow.
 //
 // The page is a flat two-column correction list: wrong word/phrase on
 // the left, corrected on the right. Categories are part of the
 // persisted data layer only — they are never surfaced in the UI.
-import { AlertCircleIcon, BookOpen02Icon } from "@hugeicons/core-free-icons";
+import {
+	AlertCircleIcon,
+	BookOpen02Icon,
+	PencilEdit02Icon,
+} from "@hugeicons/core-free-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
@@ -24,15 +33,14 @@ import { useSnackbar } from "@/hooks/useSnackbar";
 import { t, useT } from "@/i18n/i18n";
 
 import { VocabBulkBar } from "./vocabulary/components/VocabBulkBar";
-import { VocabDialog } from "./vocabulary/components/VocabDialog";
 import { VocabDuplicateBanner } from "./vocabulary/components/VocabDuplicateBanner";
+import { VocabInlineForm } from "./vocabulary/components/VocabInlineForm";
 import { VocabListHeader } from "./vocabulary/components/VocabListHeader";
 import { VocabListRow } from "./vocabulary/components/VocabListRow";
-import { VocabQuickAdd } from "./vocabulary/components/VocabQuickAdd";
 import { VocabSearchFilterBar } from "./vocabulary/components/VocabSearchFilterBar";
 import { VocabToolbar } from "./vocabulary/components/VocabToolbar";
 import { usageKey, useVocabulary } from "./vocabulary/hooks/useVocabulary";
-import { useVocabularyDialog } from "./vocabulary/hooks/useVocabularyDialog";
+import { useVocabularyEdit } from "./vocabulary/hooks/useVocabularyEdit";
 import { useVocabularyImportExport } from "./vocabulary/hooks/useVocabularyImportExport";
 import { useVocabularyQuickAdd } from "./vocabulary/hooks/useVocabularyQuickAdd";
 import { useVocabularySelection } from "./vocabulary/hooks/useVocabularySelection";
@@ -65,6 +73,11 @@ export default function VocabularyPage() {
 		try {
 			await persistVocabulary([]);
 			setEntries([]);
+			// The list is now empty — any leftover selection (ids of
+			// rows that no longer exist) must be cleared too, otherwise
+			// the floating bulk bar stays visible showing a stale
+			// "N selected" count over an empty list.
+			selection.clearSelection();
 			showSnack(t("vocabulary.clearAllToast"), "success");
 		} catch (err) {
 			console.error("[renderer:Vocabulary] Failed to clear vocabulary:", err);
@@ -95,17 +108,20 @@ export default function VocabularyPage() {
 	// and every t() call re-resolves against the new locale.
 	useT();
 
+	// Inline edit row — same VocabInlineForm treatment as Add, rendered
+	// in place of the row being edited (no modal; the list stays in
+	// view). Save splices the entry in place preserving its _id.
 	const {
-		showDialog,
+		isEditing,
 		editingEntry,
 		trigger,
 		replacement,
-		openEditDialog,
-		saveEntry,
+		openEdit,
+		saveEdit,
 		handleTriggerChange,
 		handleReplacementChange,
-		handleCloseDialog,
-	} = useVocabularyDialog({
+		closeEdit,
+	} = useVocabularyEdit({
 		entries,
 		setEntries,
 		persistVocabulary,
@@ -139,12 +155,12 @@ export default function VocabularyPage() {
 		});
 
 	// Stable callbacks for the memo'd VocabListRow.
-	const openEditDialogRef = useRef(openEditDialog);
+	const openEditRef = useRef(openEdit);
 	useEffect(() => {
-		openEditDialogRef.current = openEditDialog;
+		openEditRef.current = openEdit;
 	});
 	const handleEdit = useCallback((entry: VocabRow) => {
-		openEditDialogRef.current(entry);
+		openEditRef.current(entry);
 	}, []);
 
 	// Per-entry "Test this entry" — runs the entry's wrong phrase
@@ -259,11 +275,11 @@ export default function VocabularyPage() {
 
 	return (
 		<>
-			{/* `relative` makes the floating bulk bar center against THIS
-			    content column (which is centered in the main area) instead
-			    of the whole window — the old absolute positioning resolved
-			    against the window and drifted off-center whenever the
-			    sidebar was expanded. */}
+			{/* The page column is centered (max-w-2xl mx-auto) in the main
+			    content area, so anything sticky/centered inside it (the
+			    floating bulk bar) stays centered relative to the CONTENT
+			    in both sidebar states — the column recenters when the
+			    sidebar expands/collapses. */}
 			<div className="relative mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
 				<PageHeading
 					title={t("vocabulary.title")}
@@ -292,28 +308,16 @@ export default function VocabularyPage() {
 				)}
 
 				{entries.length > 0 && (
+					// Search/sort only render when there are entries —
+					// searching an empty list is meaningless (the empty
+					// state's Add CTA is the only action). The entry count
+					// lives in the search placeholder, not a separate label.
 					<VocabSearchFilterBar
 						searchQuery={searchQuery}
 						onSearchChange={setSearchQuery}
 						sortOrder={sortOrder}
 						onSortOrderChange={setSortOrder}
-						// Live count — updates as entries are added/removed and
-						// as the search filter narrows the visible list. Kept
-						// in the search/filter row (not a standalone line) so
-						// it doesn't take up its own vertical space.
-						countLabel={
-							searchQuery.trim() && filteredSorted.length !== entries.length
-								? t("vocabulary.entryCountFiltered", {
-										shown: String(filteredSorted.length),
-										total: String(entries.length),
-									})
-								: t(
-										entries.length === 1
-											? "vocabulary.entryCountSingular"
-											: "vocabulary.entryCountPlural",
-										{ count: String(entries.length) },
-									)
-						}
+						entryCount={entries.length}
 					/>
 				)}
 
@@ -321,7 +325,7 @@ export default function VocabularyPage() {
 					"Add Word" must work from the empty state too. */}
 				{quickAdd.open && (
 					<div className="mt-4">
-						<VocabQuickAdd
+						<VocabInlineForm
 							trigger={quickAdd.trigger}
 							replacement={quickAdd.replacement}
 							error={quickAdd.error}
@@ -359,23 +363,42 @@ export default function VocabularyPage() {
 									onSelectAll={selection.setSelectMany}
 								/>
 								<div className="divide-y divide-border/10">
-									{filteredSorted.slice(0, displayCount).map((entry) => (
-										<VocabListRow
-											key={entry._id}
-											entry={entry}
-											selected={selection.selectedIds.has(entry._id)}
-											onToggleSelect={selection.toggleSelect}
-											onEdit={handleEdit}
-											onDelete={instantDeleteEntry}
-											onTest={handleTestEntry}
-											testResult={
-												entryTest?.id === entry._id ? entryTest.result : null
-											}
-											usage={usageByKey.get(
-												usageKey(entry.category, entry.original),
-											)}
-										/>
-									))}
+									{filteredSorted.slice(0, displayCount).map((entry) =>
+										isEditing && editingEntry?._id === entry._id ? (
+											// In-place edit row — same inline treatment as
+											// Add (no modal). Pencil icon + no bottom
+											// border (the list's divide-y owns the
+											// separators).
+											<VocabInlineForm
+												key={entry._id}
+												testId="vocab-edit-row"
+												submitIcon={PencilEdit02Icon}
+												withBottomBorder={false}
+												trigger={trigger}
+												replacement={replacement}
+												onTriggerChange={handleTriggerChange}
+												onReplacementChange={handleReplacementChange}
+												onSave={saveEdit}
+												onCancel={closeEdit}
+											/>
+										) : (
+											<VocabListRow
+												key={entry._id}
+												entry={entry}
+												selected={selection.selectedIds.has(entry._id)}
+												onToggleSelect={selection.toggleSelect}
+												onEdit={handleEdit}
+												onDelete={instantDeleteEntry}
+												onTest={handleTestEntry}
+												testResult={
+													entryTest?.id === entry._id ? entryTest.result : null
+												}
+												usage={usageByKey.get(
+													usageKey(entry.category, entry.original),
+												)}
+											/>
+										),
+									)}
 								</div>
 							</div>
 							{filteredSorted.length > displayCount && (
@@ -391,20 +414,25 @@ export default function VocabularyPage() {
 					)}
 				</div>
 
-				{/* Floating bulk bar — appears when rows are selected. */}
+				{/* Floating bulk bar — appears when rows are selected. It is a
+				    DIRECT child of the page column with ``sticky bottom-4``
+				    (no absolute wrapper): sticky pins it near the viewport
+				    bottom while the column (taller than the viewport when
+				    the list is long) stays in view — true floating, it does
+				    NOT scroll away. ``mx-auto w-fit`` centers it on the
+				    column, which is itself centered (max-w-2xl mx-auto) in
+				    the main content area, so the bar stays centered relative
+				    to the CONTENT in both sidebar states (the column
+				    recenters when the sidebar expands/collapses). */}
 				{selection.selectedCount > 0 && (
-					<div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center px-6 pb-4">
-						<div className="pointer-events-auto">
-							<VocabBulkBar
-								selectedCount={selection.selectedCount}
-								onDeleteSelected={selection.bulkDeleteSelected}
-								onExportSelected={(format) =>
-									doExport(format, selection.selectedRows)
-								}
-								onClearSelection={selection.clearSelection}
-							/>
-						</div>
-					</div>
+					<VocabBulkBar
+						selectedCount={selection.selectedCount}
+						onDeleteSelected={selection.bulkDeleteSelected}
+						onExportSelected={(format) =>
+							doExport(format, selection.selectedRows)
+						}
+						onClearSelection={selection.clearSelection}
+					/>
 				)}
 			</div>
 
@@ -417,17 +445,6 @@ export default function VocabularyPage() {
 				variant="destructive"
 				onConfirm={handleClearAllConfirm}
 				onCancel={() => setShowClearConfirm(false)}
-			/>
-
-			<VocabDialog
-				open={showDialog}
-				editingEntry={editingEntry}
-				trigger={trigger}
-				replacement={replacement}
-				onTriggerChange={handleTriggerChange}
-				onReplacementChange={handleReplacementChange}
-				onClose={handleCloseDialog}
-				onSave={saveEntry}
 			/>
 		</>
 	);

@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { APP_NAME } from "@/branding";
 import { getLocale, isRtlLocale, type Locale, t } from "@/i18n/i18n";
+import { mixHexColors } from "@/lib/color-utils";
 import {
 	FALLBACK_THEME_PALETTE,
 	legibleOn,
@@ -232,10 +233,10 @@ function StatsShareImageInner({
 				}}
 			>
 				<div style={{ fontSize: "14px", color: palette.mutedForeground }}>
+					{/* model/device arrive pre-formatted ("Tiny", "GPU") or
+						empty when no model is installed — render as-is. */}
 					{stats.model || stats.device
-						? [stats.model, stats.device.toUpperCase()]
-								.filter(Boolean)
-								.join(" · ")
+						? [stats.model, stats.device].filter(Boolean).join(" · ")
 						: ""}
 				</div>
 				<div
@@ -276,8 +277,18 @@ function StatCard({
 				gap: "6px",
 				padding: "22px 26px",
 				borderRadius: "16px",
-				background: palette.card,
-				border: `1px solid ${palette.border}`,
+				// Card surface lifted slightly toward the foreground so the
+				// card is clearly FRAMED against the image background (the
+				// raw --card token is often nearly identical to --background
+				// in dark themes, making the cards look like floating text).
+				// Both inputs are theme tokens, so the lift stays correct
+				// across every preset.
+				background: mixHexColors(palette.card, palette.foreground, 0.06),
+				border: `1px solid ${mixHexColors(
+					palette.border,
+					palette.foreground,
+					0.25,
+				)}`,
 			}}
 		>
 			<div

@@ -40,9 +40,16 @@ function SelectTrigger({
 	className,
 	size = "default",
 	children,
+	// Opt-in: drop the trailing chevron. Used by triggers that already
+	// carry an icon of their own (e.g. the Vocabulary sort control has a
+	// sort glyph on the left — a second chevron on the right reads as
+	// visually overloaded). Defaults to showing it so generic selects
+	// keep the standard dropdown affordance.
+	hideChevron = false,
 	...props
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
 	size?: "sm" | "default";
+	hideChevron?: boolean;
 }) {
 	// Dev-mode a11y warning: a trigger with no children and no accessible
 	// name is invisible to screen readers. Surfaces the gap during
@@ -76,13 +83,15 @@ function SelectTrigger({
 			{children}
 			{/* Single chevron dropdown affordance (the old up/down double
 			    arrows read as "sort" — wrong for a generic select). */}
-			<SelectPrimitive.Icon asChild>
-				<HugeiconsIcon
-					icon={ChevronDownIcon}
-					strokeWidth={1.625}
-					className="pointer-events-none size-4 text-muted-foreground"
-				/>
-			</SelectPrimitive.Icon>
+			{!hideChevron && (
+				<SelectPrimitive.Icon asChild>
+					<HugeiconsIcon
+						icon={ChevronDownIcon}
+						strokeWidth={1.625}
+						className="pointer-events-none size-4 text-muted-foreground"
+					/>
+				</SelectPrimitive.Icon>
+			)}
 		</SelectPrimitive.Trigger>
 	);
 }

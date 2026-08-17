@@ -94,10 +94,24 @@ class VocabularyManager:
 
         # Active merged data: {category: data}
         self._data: dict[str, Any] = {}
+        # Deletion tombstones: {category: [key | [wrong, correct], ...]}.
+        # Persisted under a reserved ``_deleted`` key in the user file so
+        # removing a BUNDLED default correction actually sticks — the
+        # diff-style user file alone can't express "remove a bundled
+        # entry" and the entry would resurrect on the next merge. Loaded
+        # in ``_load_and_merge``, applied to the merged ``_data``, kept in
+        # sync by the CRUD methods, and written by ``_save_user``.
+        self._deleted: dict[str, list] = {}
         # guards read-modify-write mutations of self._data (add/remove/
         # import) so concurrent callers (UI thread + auto-vocabulary analysis
         # thread) can't corrupt the merge or lose entries.
         self._lock = threading.Lock()
+        # Raw bundled defaults (as loaded by ``_load_bundled``, before any
+        # user merge). Stored so ``save_vocabulary_with_diff`` can diff
+        # incoming payloads against the TRUE defaults — comparing against
+        # the merged ``_data`` drops unchanged user entries on every
+        # subsequent save (the wholesale user-file replace would lose them).
+        self._bundled_raw: dict[str, Any] = {}
         # lazy cache of compiled regex patterns for phrase_corrections
         # and extra_word_patterns. Invalidated (set to None) on any mutation
         # (add_entry/remove_entry/import_json/_load_and_merge). Rebuilt on
@@ -154,7 +168,23 @@ class VocabularyManager:
         """Load bundled corrections then merge user vocabulary on top."""
         # Start with bundled corrections
         bundled = self._load_bundled()
+        # Keep the RAW defaults around so the diff-style save path can
+        # distinguish "user customization" from "unchanged bundled" (see
+        # ``service/vocabulary.py`` — diffing against the merged state
+        # drops unchanged user entries on the next save).
+        self._bundled_raw = bundled
         user = self._load_user()
+
+        # Deletion tombstones (reserved ``_deleted`` key in the user file)
+        # — entries the user removed from the BUNDLED defaults. Kept out
+        # of ``self._data`` and applied to the merged result below so
+        # ``get_all`` / dictation never see the pseudo-category.
+        self._deleted = {}
+        raw_deleted = user.get("_deleted")
+        if isinstance(raw_deleted, dict):
+            self._deleted = {
+                cat: (list(v) if isinstance(v, list) else []) for cat, v in raw_deleted.items() if cat in CATEGORIES
+            }
 
         # Merge: user extends bundled
         for cat in CATEGORIES:
@@ -176,6 +206,30 @@ class VocabularyManager:
             else:
                 # Fallback
                 self._data[cat] = user_cat if user_cat is not None else bundled_cat
+
+        # Apply deletion tombstones: bundled (or previously user-added)
+        # entries the user removed stay removed after reload.
+        for cat in CATEGORIES:
+            removed = self._deleted.get(cat)
+            if not removed:
+                continue
+            if cat in ("misspellings", "technical_terms", "names", "products"):
+                cat_data = self._data.get(cat)
+                if isinstance(cat_data, dict):
+                    for k in removed:
+                        if isinstance(k, str):
+                            cat_data.pop(k, None)
+            else:
+                cat_data = self._data.get(cat)
+                if isinstance(cat_data, list):
+                    removed_pairs = {tuple(r) for r in removed if isinstance(r, (list, tuple)) and len(r) >= 2}
+                    if removed_pairs:
+                        self._data[cat] = [
+                            e
+                            for e in cat_data
+                            if not (isinstance(e, (list, tuple)) and len(e) >= 2 and tuple(e) in removed_pairs)
+                        ]
+
         # invalidate pattern cache after data reload.
         self._invalidate_pattern_cache()
 
@@ -237,6 +291,16 @@ class VocabularyManager:
                 result[cat] = list(val) if isinstance(val, list) else []
             else:
                 result[cat] = val
+        # Carry the reserved ``_deleted`` tombstone key through
+        # normalization (it is not a vocabulary category — merge applies
+        # it, CRUD keeps it in sync, and it is never exposed via
+        # ``get_all``).
+        if isinstance(data.get("_deleted"), dict):
+            result["_deleted"] = {
+                cat: (list(v) if isinstance(v, list) else [])
+                for cat, v in data["_deleted"].items()
+                if cat in CATEGORIES
+            }
         return result
 
     # ── Persistence ──────────────────────────────────────────────────
@@ -283,7 +347,13 @@ class VocabularyManager:
                 # the per-save fsync is dropped. User-vocabulary edits
                 # are frequent (typing in the settings panel) and a
                 # power-loss window of a few seconds is acceptable.
-                self._user_store.save(self._data, durability=False)
+                # The reserved ``_deleted`` tombstone key rides along so
+                # a CRUD remove of a bundled entry survives reload (see
+                # ``_load_and_merge``).
+                payload: dict[str, Any] = dict(self._data)
+                if self._deleted:
+                    payload["_deleted"] = self._deleted
+                self._user_store.save(payload, durability=False)
                 log.debug("[VOCAB] Saved user vocabulary")
                 return
             except PermissionError as exc:
@@ -400,6 +470,11 @@ class VocabularyManager:
             had_key = key in cat_data
             old_value = cat_data.get(key)
             cat_data[key] = value
+            # Re-adding an entry clears its deletion tombstone so the
+            # (bundled or previously-user) entry shows again.
+            self._deleted.setdefault(category, [])
+            if key in self._deleted[category]:
+                self._deleted[category].remove(key)
         try:
             self._save_user()
         except Exception:
@@ -423,20 +498,30 @@ class VocabularyManager:
         removed = False
         old_value: Any = None
         cat_data: Any = None
+        tombstoned = False
         with self._lock:
             cat_data = self._data.get(category)
             if isinstance(cat_data, dict) and key in cat_data:
                 old_value = cat_data[key]
                 del cat_data[key]
+                # Record a deletion tombstone so removing a BUNDLED
+                # default entry persists across reload (the diff-style
+                # user file can't express "remove a bundled entry").
+                self._deleted.setdefault(category, [])
+                if key not in self._deleted[category]:
+                    self._deleted[category].append(key)
+                    tombstoned = True
                 removed = True
         if removed:
             try:
                 self._save_user()
             except Exception:
-                # roll back the in-memory mutation.
+                # roll back the in-memory mutation (and tombstone).
                 with self._lock:
                     if isinstance(cat_data, dict):
                         cat_data[key] = old_value
+                    if tombstoned and key in self._deleted.get(category, []):
+                        self._deleted[category].remove(key)
                 raise
             # invalidate pattern cache on mutation.
             self._invalidate_pattern_cache()
@@ -483,10 +568,15 @@ class VocabularyManager:
                 return False
             new_entry = [wrong, correct]
             cat_data.append(new_entry)
+            # Re-adding a phrase clears its deletion tombstone (mirrors
+            # ``add_entry`` un-tombstoning).
+            self._deleted.setdefault(category, [])
+            with contextlib.suppress(ValueError):
+                self._deleted[category].remove(list(new_entry))
         try:
             self._save_user()
         except Exception:
-            # roll back the in-memory mutation.
+            # roll back the in-memory mutation (and un-tombstone).
             with self._lock, contextlib.suppress(ValueError):
                 cat_data.remove(new_entry)
             raise
@@ -503,19 +593,29 @@ class VocabularyManager:
         removed = False
         old_entry: Any = None
         cat_data: Any = None
+        tombstoned = False
         with self._lock:
             cat_data = self._data.get(category)
             if isinstance(cat_data, list) and 0 <= index < len(cat_data):
                 old_entry = cat_data.pop(index)
+                # Record a deletion tombstone so removing a BUNDLED
+                # phrase persists across reload.
+                self._deleted.setdefault(category, [])
+                tombstone_pair = list(old_entry) if isinstance(old_entry, (list, tuple)) else old_entry
+                if tombstone_pair not in self._deleted[category]:
+                    self._deleted[category].append(tombstone_pair)
+                    tombstoned = True
                 removed = True
         if removed:
             try:
                 self._save_user()
             except Exception:
-                # roll back the in-memory mutation.
+                # roll back the in-memory mutation (and tombstone).
                 with self._lock:
                     if isinstance(cat_data, list):
                         cat_data.insert(index, old_entry)
+                    if tombstoned and tombstone_pair in self._deleted.get(category, []):
+                        self._deleted[category].remove(tombstone_pair)
                 raise
         # invalidate pattern cache on mutation.
         self._invalidate_pattern_cache()
@@ -772,10 +872,7 @@ class VocabularyManager:
         # dictation cycle (~30K ref-copies); post-fix only the 4 dict
         # references are captured (no entry copies).
         with self._lock:
-            word_cats = [
-                (cat, self._data.get(cat))
-                for cat in ("misspellings", "technical_terms", "names", "products")
-            ]
+            word_cats = [(cat, self._data.get(cat)) for cat in ("misspellings", "technical_terms", "names", "products")]
 
         tokens = text.split(" ")
         for cat, entries in word_cats:

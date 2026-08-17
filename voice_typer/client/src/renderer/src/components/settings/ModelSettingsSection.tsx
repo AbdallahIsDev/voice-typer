@@ -23,46 +23,10 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useT } from "@/i18n/i18n";
+import { LANGUAGE_OPTIONS } from "@/lib/utils/languages";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
-
-//dropdown option labels are translated at render time so they
-// follow the user's chosen UI language. No `description` field is set
-// on any entry — earlier versions shipped inconsistent per-language
-// descriptions (only English and Auto-detect had them), which made the
-// dropdown look broken in other languages. Descriptions were removed
-// entirely for consistency.
-const LANGUAGE_OPTIONS = [
-	{ value: "auto", labelKey: "settings.languageAutoDetect" },
-	{ value: "en", labelKey: "settings.languageEnglish" },
-	{ value: "zh", labelKey: "settings.languageChinese" },
-	{ value: "es", labelKey: "settings.languageSpanish" },
-	{ value: "ar", labelKey: "settings.languageArabic" },
-	{ value: "fr", labelKey: "settings.languageFrench" },
-	{ value: "ru", labelKey: "settings.languageRussian" },
-	{ value: "pt", labelKey: "settings.languagePortuguese" },
-	{ value: "de", labelKey: "settings.languageGerman" },
-	{ value: "ja", labelKey: "settings.languageJapanese" },
-	{ value: "ko", labelKey: "settings.languageKorean" },
-	{ value: "it", labelKey: "settings.languageItalian" },
-	{ value: "nl", labelKey: "settings.languageDutch" },
-	{ value: "pl", labelKey: "settings.languagePolish" },
-	{ value: "tr", labelKey: "settings.languageTurkish" },
-	{ value: "vi", labelKey: "settings.languageVietnamese" },
-	{ value: "th", labelKey: "settings.languageThai" },
-	{ value: "hi", labelKey: "settings.languageHindi" },
-	{ value: "id", labelKey: "settings.languageIndonesian" },
-	{ value: "sv", labelKey: "settings.languageSwedish" },
-	{ value: "da", labelKey: "settings.languageDanish" },
-	{ value: "fi", labelKey: "settings.languageFinnish" },
-	{ value: "no", labelKey: "settings.languageNorwegian" },
-	{ value: "cs", labelKey: "settings.languageCzech" },
-	{ value: "ro", labelKey: "settings.languageRomanian" },
-	{ value: "hu", labelKey: "settings.languageHungarian" },
-	{ value: "el", labelKey: "settings.languageGreek" },
-	{ value: "he", labelKey: "settings.languageHebrew" },
-];
 
 const LLM_PRESET_OPTIONS = [
 	{ value: "professional", labelKey: "settings.presetProfessional" },

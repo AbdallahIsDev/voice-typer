@@ -9,6 +9,11 @@ interface QuickInfoCardProps {
 	label: string;
 	value: ReactNode;
 	/**
+	 * Optional secondary line under the value (e.g. the corrections
+	 * rate) — rendered with the same muted style as the label.
+	 */
+	sublabel?: ReactNode;
+	/**
 	 * Quieter styling for system/config info (the "Current Setup"
 	 * section) so it doesn't compete with the usage metrics for
 	 * attention: smaller text, no accent wash behind the icon.
@@ -20,32 +25,24 @@ export function QuickInfoCard({
 	icon,
 	label,
 	value,
+	sublabel,
 	muted,
 }: QuickInfoCardProps) {
 	return (
+		// Informational card — no hover interaction. Icon rendered at a
+		// consistent size with the muted icon tone (same family as the
+		// stat-card icons), no inner padding container shrinking it.
 		<div
 			className={cn(
-				"flex items-center gap-3 rounded-lg border border-border/10 transition-colors duration-200",
-				muted
-					? "bg-(--bg-subtle)/50 p-3"
-					: "bg-(--bg-subtle) p-3.5 hover:border-accent/30",
+				"flex items-center gap-3 rounded-lg border border-border/10",
+				muted ? "bg-(--bg-subtle)/50 p-3" : "bg-(--bg-subtle) p-3.5",
 			)}
 		>
-			<div
-				className={cn(
-					"rounded-lg",
-					muted ? "bg-accent/5 p-1.5" : "bg-accent/10 p-2",
-				)}
-			>
-				<HugeiconsIcon
-					icon={icon}
-					strokeWidth={2}
-					className={cn(
-						"h-4 w-4",
-						muted ? "text-(--text-muted)" : "text-accent",
-					)}
-				/>
-			</div>
+			<HugeiconsIcon
+				icon={icon}
+				strokeWidth={1.75}
+				className="h-5 w-5 shrink-0 text-(--text-muted)"
+			/>
 			<div className="min-w-0">
 				<p className="text-[11px] font-medium text-(--text-muted)">{label}</p>
 				<p
@@ -56,6 +53,9 @@ export function QuickInfoCard({
 				>
 					{value}
 				</p>
+				{sublabel && (
+					<p className="truncate text-[11px] text-(--text-muted)">{sublabel}</p>
+				)}
 			</div>
 		</div>
 	);

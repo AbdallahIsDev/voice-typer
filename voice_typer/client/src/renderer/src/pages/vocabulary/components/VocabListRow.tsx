@@ -7,8 +7,10 @@
 //     removed — the columns are clearly labeled and positioned
 //     left/right)
 //   - direct Edit + Test + Delete icon buttons on the right (larger
-//     touch target, hover states, aria-labels) — no overflow menu;
-//     Delete is LAST (destructive actions never lead the group)
+//     touch target, hover states, aria-labels) — no overflow menu and
+//     NO tooltips (they rendered over the adjacent icons while moving
+//     the cursor); Delete is LAST (destructive actions never lead the
+//     group)
 //   - the WHOLE row toggles selection on click (bulk-select pattern) —
 //     action buttons and the checkbox stop propagation so they keep
 //     working independently
@@ -30,11 +32,6 @@ import { memo } from "react";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { getLocale, t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 
@@ -88,7 +85,12 @@ export const VocabListRow = memo(function VocabListRow({
 }: VocabListRowProps) {
 	// Grid: [checkbox][original][corrected][actions] on sm+; on narrow
 	// widths the corrected half moves to its own line below the
-	// original (col 2).
+	// original (col 2). The sm+ ACTIONS column is FIXED at 6.25rem
+	// (100px — the three icon buttons) so it matches the header's fixed
+	// actions column: with ``auto`` the header's short "Actions" label
+	// would split the 1fr columns differently than the rows' wider icon
+	// cluster and the header's "Corrected to" label would sit to the
+	// right of the row values (see VocabListHeader for the invariant).
 	//
 	// The row is clickable as a whole (toggle selection) — that's what
 	// the hover background implies. Action buttons and the checkbox
@@ -107,7 +109,7 @@ export const VocabListRow = memo(function VocabListRow({
 			data-selected={selected ? "true" : "false"}
 			onClick={() => onToggleSelect(entry._id)}
 			className={cn(
-				"grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-3.5 py-2.5 transition-colors hover:bg-foreground/5 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto]",
+				"grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-3.5 py-2.5 transition-colors hover:bg-foreground/5 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_6.25rem]",
 				selected && "bg-accent/10 hover:bg-accent/10",
 			)}
 		>
@@ -123,7 +125,6 @@ export const VocabListRow = memo(function VocabListRow({
 				aria-label={t("vocabulary.selectEntry", { name: entry.original })}
 				className="self-start pt-0.5 sm:self-center sm:pt-0"
 			/>
-
 			{/* Original (col 2) — what the recognizer mishears, styled
 			    red to signal "incorrect". Below it, the server-tracked
 			    usage line ("Used N× · last used …") when the correction
@@ -148,7 +149,6 @@ export const VocabListRow = memo(function VocabListRow({
 					</span>
 				)}
 			</div>
-
 			{/* Corrected (col 3 on sm+; row 2 on mobile) — bold/primary
 			    to signal "correct". */}
 			<span className="col-start-2 flex min-w-0 items-center sm:col-start-auto">
@@ -159,68 +159,38 @@ export const VocabListRow = memo(function VocabListRow({
 					{entry.correction}
 				</span>
 			</span>
-
 			{/* Actions (col 4 on sm+; col 3 on mobile, same row as the
-			    checkbox): Edit + Test + Delete (delete LAST — the most
-			    destructive action never leads the group). Test is a
-			    diagnostic — it runs the wrong phrase through the LIVE
-			    server engine and shows the authoritative result inline
-			    below the row. */}
+			    checkbox): Test + Delete + Edit (Edit RIGHTMOST — the
+			    app-wide action-icon ordering convention: the edit pencil
+			    is always the last icon in the group, on every page that
+			    uses this pattern). Test is a diagnostic — it runs the
+			    wrong phrase through the LIVE server engine and shows the
+			    authoritative result inline below the row. */}{" "}
 			<div className="flex items-center justify-self-end gap-0.5">
-				<Tooltip>
-					<TooltipTrigger asChild>
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							aria-label={t("vocabulary.editAria", { name: entry.original })}
-							title={t("vocabulary.edit")}
-							onClick={(e) => {
-								e.stopPropagation();
-								onEdit(entry);
-							}}
-							className="text-(--text-muted) transition-colors hover:bg-foreground/10 hover:text-(--text-primary)"
-						>
-							<HugeiconsIcon
-								icon={PencilEdit02Icon}
-								strokeWidth={2.25}
-								aria-hidden="true"
-								className="size-4"
-							/>
-						</Button>
-					</TooltipTrigger>
-					<TooltipContent side="left">{t("vocabulary.edit")}</TooltipContent>
-				</Tooltip>
-				<Tooltip>
-					<TooltipTrigger asChild>
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							aria-label={t("vocabulary.testEntryAria", {
-								name: entry.original,
-							})}
-							title={t("vocabulary.testEntry")}
-							onClick={(e) => {
-								e.stopPropagation();
-								onTest(entry);
-							}}
-							className="text-(--text-muted) transition-colors hover:bg-foreground/10 hover:text-accent"
-						>
-							<HugeiconsIcon
-								icon={TestTubeIcon}
-								strokeWidth={2.25}
-								aria-hidden="true"
-								className="size-4"
-							/>
-						</Button>
-					</TooltipTrigger>
-					<TooltipContent side="left">
-						{t("vocabulary.testEntry")}
-					</TooltipContent>
-				</Tooltip>
-				{/* Delete has NO tooltip — it rendered to the left and
-				    overlapped the edit/test icons while moving the cursor
-				    between them. The trash shape + aria-label carry the
-				    meaning. */}
+				{/* Test → Delete → Edit (Edit rightmost, matching the
+				    app-wide convention). NO tooltips on any of the three:
+				    hover tooltips rendered over the adjacent icons while
+				    moving the cursor between them, and the shapes +
+				    aria-labels carry the meaning. */}
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					aria-label={t("vocabulary.testEntryAria", {
+						name: entry.original,
+					})}
+					onClick={(e) => {
+						e.stopPropagation();
+						onTest(entry);
+					}}
+					className="text-(--text-muted) transition-colors hover:bg-foreground/10 hover:text-accent"
+				>
+					<HugeiconsIcon
+						icon={TestTubeIcon}
+						strokeWidth={2.25}
+						aria-hidden="true"
+						className="size-4"
+					/>
+				</Button>
 				<Button
 					variant="ghost"
 					size="icon-sm"
@@ -238,8 +208,24 @@ export const VocabListRow = memo(function VocabListRow({
 						className="size-4"
 					/>
 				</Button>
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					aria-label={t("vocabulary.editAria", { name: entry.original })}
+					onClick={(e) => {
+						e.stopPropagation();
+						onEdit(entry);
+					}}
+					className="text-(--text-muted) transition-colors hover:bg-foreground/10 hover:text-(--text-primary)"
+				>
+					<HugeiconsIcon
+						icon={PencilEdit02Icon}
+						strokeWidth={2.25}
+						aria-hidden="true"
+						className="size-4"
+					/>
+				</Button>
 			</div>
-
 			{/* Inline live-engine test result — spans the full row width
 			    below the pairing. role="status" announces the transition
 			    (running → result/error) to screen readers. */}

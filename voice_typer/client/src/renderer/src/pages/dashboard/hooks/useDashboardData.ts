@@ -33,8 +33,9 @@ import { toast } from "sonner";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePythonEvent } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
+import { resolveActiveModel } from "@/lib/utils/models";
 import type { VoiceTyperConfig } from "@/types/config";
-import type { HistoryRecord } from "@/types/ipc";
+import type { HistoryRecord, ModelStatusMap } from "@/types/ipc";
 import {
 	type ActivityChartData,
 	buildActivityBars,
@@ -146,7 +147,7 @@ export function useDashboardData({
 	/** Fetch all dashboard data from the Python backend. */
 	const refreshData = useCallback(async () => {
 		try {
-			const [cfg, history, totalCount, status, correctionUsage] =
+			const [cfg, history, totalCount, status, correctionUsage, modelStatus] =
 				await Promise.all([
 					callRef.current<VoiceTyperConfig>("get_config"),
 					callRef
@@ -176,6 +177,18 @@ export function useDashboardData({
 					callRef
 						.current<CorrectionUsageSnapshot | null>("get_correction_usage")
 						.catch(() => null),
+					// MODEL-STATE fix: the "Current Setup" model/device
+					// values must reflect ACTUAL install state, not the
+					// config defaults (``model_size="tiny"``,
+					// ``device="cuda"``). ``get_model_status`` stats the
+					// filesystem — the same truth the Models page and the
+					// backend's startup banner use. A configured model
+					// whose weights are not on disk is reported as "no
+					// model selected", never as a live selection. Empty
+					// map on failure → treated as nothing installed
+					// (fail-safe: never advertise a model we can't
+					// verify).
+					callRef.current<ModelStatusMap>("get_model_status").catch(() => ({})),
 				]);
 
 			const recs = history ?? [];
@@ -212,6 +225,24 @@ export function useDashboardData({
 				}
 			}
 
+			// MODEL-STATE fix (source of the misleading "Model: tiny /
+			// Device: CUDA" on fresh installs): the config carries
+			// defaults (``DEFAULT_MODEL_SIZE="tiny"``, ``device="cuda"``)
+			// that are NOT install state. Only report model/device when
+			// the configured model's weights are actually on disk per
+			// ``get_model_status``; otherwise surface ``null`` so the
+			// display layer renders the localized "Not selected" state
+			// (and the share image omits the setup line entirely). The
+			// check itself lives in the SHARED ``resolveActiveModel``
+			// (lib/utils/models.ts) so the About page's Diagnostics table
+			// derives from the exact same truth.
+			const modelStatusMap: ModelStatusMap = modelStatus ?? {};
+			const { model: activeModel, device: activeDevice } = resolveActiveModel(
+				cfg?.model_size ?? "",
+				modelStatusMap,
+				cfg?.device,
+			);
+
 			const newData: DashboardData = {
 				todayCount,
 				todayChars,
@@ -227,9 +258,9 @@ export function useDashboardData({
 				totalChars,
 				totalDuration,
 				favoritesCount,
-				model: cfg?.model_size ?? t("analytics.unknown"),
-				device: cfg?.device ?? t("analytics.unknown"),
-				language: cfg?.language || t("analytics.auto"),
+				model: activeModel,
+				device: activeDevice,
+				language: cfg?.language ?? "",
 				currentStreak: streaks.current,
 				maxStreak: streaks.max,
 				activeDays: streaks.activeDays,

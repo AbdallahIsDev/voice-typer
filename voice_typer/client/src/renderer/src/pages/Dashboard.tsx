@@ -18,15 +18,17 @@
 //      metrics for attention.
 
 import {
-	Activity03Icon,
 	AiBrain03Icon,
 	AlertCircleIcon,
 	Calendar01Icon,
 	CheckmarkCircle02Icon,
+	CpuIcon,
 	File02Icon,
-	LayoutGridIcon,
+	Globe02Icon,
 	Mic02Icon,
 	SpeechToTextIcon,
+	StopWatchIcon,
+	TextIcon,
 	Time02Icon,
 } from "@hugeicons/core-free-icons";
 import type { CSSProperties } from "react";
@@ -38,7 +40,7 @@ import {
 	type StatTrend,
 } from "@/components/dashboard/DashboardStatCard";
 import { QuickInfoCard } from "@/components/dashboard/QuickInfoCard";
-import { ShareStatsMenu } from "@/components/dashboard/ShareStatsMenu";
+import { ShareStatsDialog } from "@/components/dashboard/ShareStatsDialog";
 import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
 import { EmptyState } from "@/components/feedback/EmptyState";
 // amber banner shown when the OS has not granted the
@@ -55,6 +57,11 @@ import {
 import { getLocale, t } from "@/i18n/i18n";
 import { compactNumber, formatDuration } from "@/lib/format";
 import { useThemePalette } from "@/lib/theme-palette";
+import {
+	formatDevice,
+	formatLanguage,
+	formatModel,
+} from "@/lib/utils/configDisplay";
 import { DashboardSkeleton } from "./dashboard/components/DashboardSkeleton";
 import { ActivityChart } from "./dashboard/components/SevenDayActivityChart";
 import { TimeRangeSelector } from "./dashboard/components/TimeRangeSelector";
@@ -150,8 +157,13 @@ export default function DashboardPage() {
 							totalDuration: data.totalDuration,
 							activeDays: data.activeDays,
 							currentStreak: data.currentStreak,
-							model: data.model,
-							device: data.device,
+							// Only include the setup line when a model is genuinely
+							// installed (data.model/device are null otherwise) —
+							// the share image never claims a model that isn't
+							// there, and the values are pre-formatted for
+							// display ("Tiny", "GPU").
+							model: data.model ? formatModel(data.model) : "",
+							device: data.device ? formatDevice(data.device) : "",
 						},
 					)
 				: null,
@@ -202,7 +214,13 @@ export default function DashboardPage() {
 					canShareStats({
 						todayCount: data.todayCount,
 						totalCount: data.totalCount,
-					}) && <ShareStatsMenu actions={shareActions} />}
+					}) && (
+						<ShareStatsDialog
+							actions={shareActions}
+							stats={shareStats}
+							palette={themePalette}
+						/>
+					)}
 			</PageHeading>
 
 			{/* amber keyboard-permission banner — placed
@@ -234,9 +252,11 @@ export default function DashboardPage() {
 				/>
 			) : (
 				<div className="space-y-6">
-					<div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+					<div className="grid grid-cols-2 gap-3 md:grid-cols-4">
 						<DashboardStatCard
-							label={t("analytics.dictations")}
+							label={t("analytics.dictationsPeriod", {
+								range: t(`analytics.range.${range}`),
+							})}
 							value={String(period.count)}
 							icon={SpeechToTextIcon}
 							sublabel={t("analytics.charsValue", {
@@ -272,7 +292,6 @@ export default function DashboardPage() {
 							label={t("analytics.activeDays")}
 							value={String(period.activeDays)}
 							icon={Calendar01Icon}
-							tooltip={t("analytics.activeDaysTooltip")}
 							sublabel={
 								d.currentStreak > 0
 									? t("analytics.dayStreak", {
@@ -281,34 +300,12 @@ export default function DashboardPage() {
 									: t("analytics.noStreak")
 							}
 						/>
-						<DashboardStatCard
-							label={t("analytics.corrections")}
-							value={compactNumber(correctionStats.corrections)}
-							icon={CheckmarkCircle02Icon}
-							tooltip={t("analytics.correctionsTooltip")}
-							sublabel={
-								correctionStats.rate !== null
-									? t("analytics.correctionsRate", {
-											pct: String(Math.round(correctionStats.rate * 100)),
-											dictations: String(correctionStats.dictations),
-										})
-									: undefined
-							}
-							trend={computeTrend(
-								correctionStats.corrections,
-								correctionStats.prevCorrections,
-							)}
-						/>
+						{/* Corrections moved to the derived-metrics card row below
+							(so the top row divides evenly into 4 cards). */}
 					</div>
 
-					{/* "no activity in this range" note — the cards/chart are
-						zero because the SELECTED period is empty, not because
-						the app is broken (there IS history overall). */}
-					{period.count === 0 && d.totalCount > 0 && (
-						<p className="text-xs text-(--text-muted) text-center">
-							{t("analytics.noActivityInRange")}
-						</p>
-					)}
+					{/* NOTE: no "no dictations in this period" caption here —
+						the empty chart already communicates "no data". */}
 
 					<ActivityChart
 						range={range}
@@ -317,34 +314,43 @@ export default function DashboardPage() {
 						sampleSize={d.sampleSize}
 					/>
 
-					{/* Derived metrics — only ones the data supports. */}
-					<div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-1 text-xs text-(--text-muted)">
-						<span>
-							{t("analytics.avgCharsPerDictation", {
-								count: period.avgCharsPerDictation.toLocaleString(getLocale()),
-							})}
-						</span>
-						<span aria-hidden="true" className="text-border">
-							·
-						</span>
-						<span>
-							{t("analytics.longestSession", {
-								duration: formatDuration(period.longestSession),
-							})}
-						</span>
-						{period.peakWeekday !== null && (
-							<>
-								<span aria-hidden="true" className="text-border">
-									·
-								</span>
-								<span>
-									{t("analytics.peakWeekday", {
-										day: weekdayLabel(period.peakWeekday),
-									})}
-								</span>
-							</>
-						)}
+					{/* Derived metrics — card-styled row directly below the
+						chart (Avg chars / Longest session / Corrections). */}
+					<div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+						<QuickInfoCard
+							icon={TextIcon}
+							label={t("analytics.avgCharsLabel")}
+							value={period.avgCharsPerDictation.toLocaleString(getLocale())}
+						/>
+						<QuickInfoCard
+							// Stopwatch (not a clock) — the top-row Recording
+							// Time card already uses Time02Icon; a stopwatch
+							// reads as "longest single session" at a glance.
+							icon={StopWatchIcon}
+							label={t("analytics.longestLabel")}
+							value={formatDuration(period.longestSession)}
+						/>
+						<QuickInfoCard
+							icon={CheckmarkCircle02Icon}
+							label={t("analytics.corrections")}
+							value={compactNumber(correctionStats.corrections)}
+							sublabel={
+								correctionStats.rate !== null
+									? t("analytics.correctionsRate", {
+											pct: String(Math.round(correctionStats.rate * 100)),
+											dictations: String(correctionStats.dictations),
+										})
+									: undefined
+							}
+						/>
 					</div>
+					{period.peakWeekday !== null && (
+						<p className="text-xs text-(--text-muted)">
+							{t("analytics.peakWeekday", {
+								day: weekdayLabel(period.peakWeekday),
+							})}
+						</p>
+					)}
 
 					{/* Current Setup — system/config info, demoted below the
 						usage analytics so it doesn't compete for attention. */}
@@ -360,19 +366,27 @@ export default function DashboardPage() {
 								muted
 								icon={AiBrain03Icon}
 								label={t("analytics.model")}
-								value={d.model}
+								value={
+									d.model ? formatModel(d.model) : t("analytics.notSelected")
+								}
 							/>
 							<QuickInfoCard
 								muted
-								icon={LayoutGridIcon}
+								// Chip/processor icon — reads as "compute device".
+								icon={CpuIcon}
 								label={t("analytics.device")}
-								value={d.device.toUpperCase()}
+								value={
+									d.device ? formatDevice(d.device) : t("analytics.notSelected")
+								}
 							/>
 							<QuickInfoCard
 								muted
-								icon={Activity03Icon}
+								// Classic globe (meridian + latitude lines) — the
+								// previous circle-with-contours icon read as an
+								// indistinct blob at 20px.
+								icon={Globe02Icon}
 								label={t("analytics.language")}
-								value={d.language}
+								value={formatLanguage(d.language)}
 							/>
 						</div>
 					</section>

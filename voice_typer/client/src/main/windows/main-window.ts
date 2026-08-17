@@ -582,6 +582,27 @@ export function createMainWindow(forceShow = false): void {
 				state.mainWindow?.webContents.toggleDevTools();
 			}
 		}
+
+		// F11 → toggle fullscreen. `Menu.setApplicationMenu(null)` above
+		// strips the default menu's "Toggle Full Screen" F11 accelerator,
+		// so without this F11 is a silent no-op. Match the standard
+		// desktop convention (browser-style full viewport) instead. This
+		// can't conflict with a user-assigned F11 dictation hotkey: the
+		// OS-level global listener consumes the key before it reaches the
+		// app when F11 is bound, so this handler only fires when F11 is
+		// unbound. `isAutoRepeat` is skipped so holding F11 doesn't
+		// thrash the toggle, and only keyDown is handled (keyUp would
+		// double-toggle on a single press).
+		if (
+			input.type === "keyDown" &&
+			!input.isAutoRepeat &&
+			input.key.toLowerCase() === "f11"
+		) {
+			const win = state.mainWindow;
+			if (win && !win.isDestroyed()) {
+				win.setFullScreen(!win.isFullScreen());
+			}
+		}
 	});
 
 	// Window-open hardening: deny every renderer-initiated window.open() /

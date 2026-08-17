@@ -167,19 +167,19 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     // plan §7.4 for the per-event rationale + payload shapes.
     //
     // Pack download lifecycle (push):
-    "offline_pack_download_started",   // user-visible download started
-    "offline_pack_download_progress",  // silent — no UI; logged for diagnostics
+    "offline_pack_download_started",  // user-visible download started
+    "offline_pack_download_progress", // silent — no UI; logged for diagnostics
     "offline_pack_download_completed", // download finished, verification pending
-    "offline_pack_download_failed",    // download failed (network / disk / etc.)
+    "offline_pack_download_failed",   // download failed (network / disk / etc.)
     // Pack integrity (push):
-    "offline_pack_verified",           // SHA256 + signature verified OK
-    "offline_pack_missing",            // pack file absent at expected path
-    "offline_pack_corrupt",            // SHA256 mismatch / signature failure
-    "offline_pack_ready",              // worker started AND prewarmed — ready to transcribe
+    "offline_pack_verified", // SHA256 + signature verified OK
+    "offline_pack_missing",  // pack file absent at expected path
+    "offline_pack_corrupt",  // SHA256 mismatch / signature failure
+    "offline_pack_ready",    // worker started AND prewarmed — ready to transcribe
     // Worker process lifecycle (push):
-    "worker_started",               // worker process spawned + WS handshake done
-    "worker_crashed",               // worker process crashed (exit code in payload)
-    "worker_unloaded",              // worker process unloaded (idle timeout / explicit)
+    "worker_started",  // worker process spawned + WS handshake done
+    "worker_crashed",  // worker process crashed (exit code in payload)
+    "worker_unloaded", // worker process unloaded (idle timeout / explicit)
     // Offline transcription (request + result push):
     // `transcribe_offline` is a REQUEST the slim core forwards to the
     // worker over its dedicated WS hop; it is also registered in the
@@ -192,15 +192,15 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     // so the WS reader doesn't drop the result frame (and so a future
     // server-initiated variant of the request name, if any, also
     // passes through).
-    "transcribe_offline",           // request: slim core → worker (also in command allowlists)
-    "transcribe_offline_result",    // push: worker → slim core → renderer
-    // legacy aliases `relaunch_electron` and
-    // `electron_notification` REMOVED. The Python sidecar has published
-    // the canonical `relaunch_app` and `notification` event names for
-    // more than one release cycle; the rolling-upgrade grace period is
-    // over. Old sidecars that still emit the legacy names will now have
-    // those frames DROPPED by the `ALLOWED_EVENT_TYPES` allowlist
-    // (logged at `[WS-READER] dropping unknown event type:`).
+    "transcribe_offline", // request: slim core → worker (also in command allowlists)
+    "transcribe_offline_result", // push: worker → slim core → renderer
+                          // legacy aliases `relaunch_electron` and
+                          // `electron_notification` REMOVED. The Python sidecar has published
+                          // the canonical `relaunch_app` and `notification` event names for
+                          // more than one release cycle; the rolling-upgrade grace period is
+                          // over. Old sidecars that still emit the legacy names will now have
+                          // those frames DROPPED by the `ALLOWED_EVENT_TYPES` allowlist
+                          // (logged at `[WS-READER] dropping unknown event type:`).
 ];
 
 // O(1) lookup set for the inbound-frame hot path. `bubble_level`

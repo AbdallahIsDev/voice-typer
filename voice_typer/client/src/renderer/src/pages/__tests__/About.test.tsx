@@ -22,7 +22,6 @@ import {
 	render,
 	screen,
 	waitFor,
-	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
@@ -45,6 +44,26 @@ vi.mock("sonner", () => sonnerMock());
 vi.mock("next-themes", () => nextThemesMock());
 
 import { formatBytes, formatRelativeTime } from "@/pages/About";
+
+// Static sources for the shared model-truth assertions (same
+// readFileSync pattern as Dashboard.test.tsx).
+const fs = require("node:fs");
+const nodePath = require("node:path");
+
+const ABOUT_SRC = fs.readFileSync(
+	nodePath.resolve(__dirname, "..", "About.tsx"),
+	"utf8",
+);
+const DASH_DATA_SRC = fs.readFileSync(
+	nodePath.resolve(
+		__dirname,
+		"..",
+		"dashboard",
+		"hooks",
+		"useDashboardData.ts",
+	),
+	"utf8",
+);
 
 // ─── formatBytes ───────────────────────────────────────────────────────
 
@@ -260,6 +279,13 @@ describe("About page — config dir, copy diagnostics, privacy cards, section na
 					microphone: null,
 				});
 			}
+			// The configured model's weights ARE on disk — the
+			// Diagnostics rows surface the real selection.
+			if (type === "get_model_status") {
+				return Promise.resolve({
+					tiny: { downloaded: true, deps_ok: true },
+				});
+			}
 			return Promise.resolve({});
 		});
 	});
@@ -317,10 +343,11 @@ describe("About page — config dir, copy diagnostics, privacy cards, section na
 		const text = writeText.mock.calls[0]?.[0] as string;
 		// The copied block contains the labeled diagnostic fields.
 		expect(text).toContain("App Version: v");
-		expect(text).toContain("Python Backend: Connected");
+		expect(text).toContain("Backend: Connected");
 		expect(text).toContain("Config Directory: /tmp/voice-typer");
 		expect(text).toContain("Speech recognizer: whisper (tiny)");
-		expect(text).toContain("Device: cpu");
+		// Device renders the friendly display name ("cpu" → "CPU").
+		expect(text).toContain("Device: CPU");
 		expect(text).toContain("Loaded Via: cpu/int8/tiny.en");
 		expect(text).toContain("Hotkey: F2");
 
@@ -346,7 +373,7 @@ describe("About page — config dir, copy diagnostics, privacy cards, section na
 		expect(screen.getByText(/downloaded from HuggingFace/)).toBeTruthy();
 	});
 
-	it("renders the sticky in-page section nav with anchors for all five sections", async () => {
+	it("does NOT render the sticky section nav (removed — page is short enough to scroll)", async () => {
 		const { default: AboutPage } = await import("@/pages/About");
 		render(<AboutPage />);
 
@@ -354,17 +381,131 @@ describe("About page — config dir, copy diagnostics, privacy cards, section na
 			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
 		});
 
-		const nav = screen.getByRole("navigation", {
-			name: "About page sections",
+		// The in-page section nav was removed entirely — no
+		// navigation landmark remains.
+		expect(
+			screen.queryByRole("navigation", { name: "About page sections" }),
+		).toBeNull();
+	});
+});
+
+// ─── Model-install truth (point 10) ────────────────────────────────────
+// The Diagnostics table's Speech recognizer / Device rows must derive
+// from the SAME source of truth as the Analytics page's Current Setup
+// cards (lib/utils/models.ts resolveActiveModel) — never a per-page
+// duplicate check. With no model installed both pages show
+// "Not selected"; with one installed both show the real values.
+describe("About page — Diagnostics model rows share one source of truth with Analytics", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_status") {
+				return Promise.resolve({
+					status: "idle",
+					config_dir: "/tmp/voice-typer",
+					loaded_via: "cpu/int8/tiny.en",
+				});
+			}
+			if (type === "get_config") {
+				return Promise.resolve({
+					asr_backend: "whisper",
+					model_size: "tiny",
+					device: "cpu",
+					hotkey: "F2",
+					microphone: null,
+				});
+			}
+			// get_model_status is set per-test below.
+			return Promise.resolve({});
 		});
-		for (const label of [
-			"About",
-			"Diagnostics",
-			"Privacy",
-			"Resources & Feedback",
-			"Credits & Licenses",
-		]) {
-			expect(within(nav).getByText(label)).toBeTruthy();
-		}
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("shows 'Not selected' for Speech recognizer and Device when no model is installed", async () => {
+		// get_model_status returns {} — the configured "tiny" is NOT on
+		// disk, so the config defaults must NOT leak into the table.
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_status") {
+				return Promise.resolve({
+					status: "idle",
+					config_dir: "/tmp/voice-typer",
+					loaded_via: "cpu/int8/tiny.en",
+				});
+			}
+			if (type === "get_config") {
+				return Promise.resolve({
+					asr_backend: "whisper",
+					model_size: "tiny",
+					device: "cuda",
+					hotkey: "F2",
+					microphone: null,
+				});
+			}
+			return Promise.resolve({});
+		});
+
+		const { default: AboutPage } = await import("@/pages/About");
+		render(<AboutPage />);
+
+		await waitFor(() => {
+			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
+		});
+		// Both model rows report the unselected state — the stale
+		// "whisper (tiny)" / "GPU" values from the config defaults
+		// never render (the pre-fix bug this round was reported for).
+		expect(screen.getAllByText("Not selected")).toHaveLength(2);
+		expect(screen.queryByText(/whisper \(tiny\)/)).toBeNull();
+		expect(screen.queryByText("GPU")).toBeNull();
+	});
+
+	it("shows the real model + device when get_model_status confirms the weights are on disk", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_status") {
+				return Promise.resolve({
+					status: "idle",
+					config_dir: "/tmp/voice-typer",
+					loaded_via: "cpu/int8/tiny.en",
+				});
+			}
+			if (type === "get_config") {
+				return Promise.resolve({
+					asr_backend: "whisper",
+					model_size: "tiny",
+					device: "cpu",
+					hotkey: "F2",
+					microphone: null,
+				});
+			}
+			if (type === "get_model_status") {
+				return Promise.resolve({
+					tiny: { downloaded: true, deps_ok: true },
+				});
+			}
+			return Promise.resolve({});
+		});
+
+		const { default: AboutPage } = await import("@/pages/About");
+		render(<AboutPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("whisper (tiny)")).toBeTruthy();
+		});
+		expect(screen.getByText("CPU")).toBeTruthy();
+	});
+
+	it("About and the Analytics data hook both import resolveActiveModel from lib/utils/models (one shared check)", () => {
+		// If either page ever re-implements its own "is it installed"
+		// check inline, the two pages can drift again — the whole point
+		// of this round's fix. Both must route through the shared
+		// helper in lib/utils/models.ts.
+		expect(ABOUT_SRC).toMatch(
+			/import \{ resolveActiveModel \} from "@\/lib\/utils\/models"/,
+		);
+		expect(DASH_DATA_SRC).toMatch(
+			/import \{ resolveActiveModel \} from "@\/lib\/utils\/models"/,
+		);
 	});
 });

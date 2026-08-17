@@ -48,7 +48,12 @@ export function ActivityChart({
 }: ActivityChartProps) {
 	const { bars, kind } = activity;
 	const maxCount = Math.max(1, ...bars.map((b) => b.count));
-	const midCount = Math.max(1, Math.round(maxCount / 2));
+	// Y-axis ticks at max / mid / 0. When the max is 1, the mid tick
+	// would duplicate it (the "1" printed twice at two heights bug) —
+	// drop the mid tick so every label is unique. maxCount=2 →
+	// [2, 1, 0], still unique.
+	const midCount = maxCount > 1 ? Math.max(1, Math.round(maxCount / 2)) : 0;
+	const yTicks = maxCount > 1 ? [maxCount, midCount, 0] : [1, 0];
 	const every = tickEvery(activity);
 
 	// Range label for the subtitle + aria-label.
@@ -65,7 +70,14 @@ export function ActivityChart({
 
 	return (
 		<div className="rounded-xl border border-border/10 bg-(--bg-subtle) p-4">
-			<div className="mb-4 flex items-center justify-between gap-2">
+			<div className="mb-4 flex items-center gap-2.5">
+				{/* Icon grouped directly left of the title (was stranded
+					in the top-right corner). */}
+				<HugeiconsIcon
+					icon={Activity03Icon}
+					strokeWidth={1.625}
+					className="h-4 w-4 shrink-0 text-(--text-muted)"
+				/>
 				<div className="space-y-0.5">
 					<h2 className="font-sans text-sm font-semibold text-(--text-primary)">
 						{t("analytics.activityTitle")}
@@ -74,11 +86,6 @@ export function ActivityChart({
 						{rangeLabel} · {unitLabel}
 					</p>
 				</div>
-				<HugeiconsIcon
-					icon={Activity03Icon}
-					strokeWidth={1.625}
-					className="h-4 w-4 text-(--text-muted)"
-				/>
 			</div>
 
 			<div
@@ -89,22 +96,23 @@ export function ActivityChart({
 				})}
 			>
 				<div className="flex gap-2">
-					{/* Y axis: tick labels at max / mid / 0 */}
+					{/* Y axis: unique tick labels (max / mid / 0; mid is
+						dropped when it would duplicate max). */}
 					<div className="flex h-36 w-7 shrink-0 flex-col justify-between pb-0 text-end text-[10px] tabular-nums text-(--text-muted)">
-						<span>{maxCount}</span>
-						<span>{midCount}</span>
-						<span>0</span>
+						{yTicks.map((tick) => (
+							<span key={tick}>{tick}</span>
+						))}
 					</div>
 
-					{/* Plot with gridlines */}
+					{/* Plot with gridlines (one per tick, same layout) */}
 					<div className="relative min-w-0 flex-1">
 						<div
 							aria-hidden="true"
 							className="pointer-events-none absolute inset-0 flex flex-col justify-between"
 						>
-							<div className="border-t border-border/15" />
-							<div className="border-t border-border/15" />
-							<div className="border-t border-border/15" />
+							{yTicks.map((tick) => (
+								<div key={tick} className="border-t border-border/15" />
+							))}
 						</div>
 						<div className="relative flex h-36 items-end gap-1">
 							{bars.map((bar) => {
@@ -132,7 +140,7 @@ export function ActivityChart({
 										<div
 											title={tooltip}
 											className={cn(
-												"w-full max-w-8 transition-all duration-300",
+												"w-full max-w-8 rounded-t-md transition-all duration-300",
 												bar.count > 0 && "bg-accent/90 hover:bg-accent",
 												bar.count === 0 &&
 													!bar.isMissing &&
@@ -168,15 +176,12 @@ export function ActivityChart({
 				</div>
 			</div>
 
-			{/* Footnote: sampled data / older days omitted */}
-			{(sampled || activity.coveredFromKey) && (
+			{/* Footnote: sampled data note only — the "days before …
+				aren't shown" caption was removed (no value; the empty
+				ticks already read as missing). */}
+			{sampled && (
 				<p className="mt-3 border-t border-border/10 pt-2 text-[11px] text-(--text-muted)">
-					{sampled && t("analytics.sampledNote", { count: String(sampleSize) })}
-					{sampled && activity.coveredFromKey ? " · " : ""}
-					{activity.coveredFromKey &&
-						t("analytics.olderDaysOmitted", {
-							date: activity.coveredFromKey,
-						})}
+					{t("analytics.sampledNote", { count: String(sampleSize) })}
 				</p>
 			)}
 		</div>

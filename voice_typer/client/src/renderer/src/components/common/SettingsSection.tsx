@@ -43,11 +43,13 @@ export function SettingsSection({
 				</div>
 				{action}
 			</div>
-			{/* Clean-card: no hard outer outline. The soft background +
-			    row dividers still group the rows without a boxed frame. */}
+			{/* Section card: soft background + row dividers + a subtle
+			    border so every section reads as a consistent card (About
+			    and Settings share this component, so the border treatment
+			    is uniform across the app). */}
 			<div
 				className={cn(
-					"rounded-lg bg-(--bg-subtle) divide-y divide-border/10",
+					"rounded-lg border border-border/10 bg-(--bg-subtle) divide-y divide-border/10",
 					cardClassName,
 				)}
 			>

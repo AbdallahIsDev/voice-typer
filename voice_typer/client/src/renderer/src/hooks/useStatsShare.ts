@@ -173,7 +173,7 @@ export function triggerAnchorDownload(dataUrl: string, filename: string): void {
  *
  * return (
  *   <>
- *     <ShareStatsMenu actions={{ downloadImage, saveImageAs, copyImageToClipboard }} />
+ *     <ShareStatsDialog actions={{ downloadImage, saveImageAs, copyImageToClipboard }} />
  *     <div ref={imageRef} style={{ position: 'fixed', left: -9999, top: 0 }}>
  *       <StatsShareImage stats={...} />
  *     </div>

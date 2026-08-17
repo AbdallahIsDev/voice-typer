@@ -14,8 +14,20 @@ import {
 	getActiveFamilyId,
 	isModelActive,
 	type ModelInfo,
+	resolveActiveModel,
 } from "@/lib/utils/models";
 import type { VoiceTyperConfig } from "@/types/config";
+import type { ModelStatusMap } from "@/types/ipc";
+
+/**
+ * Backend-shaped install truth for the shared resolver.
+ * ``downloaded: true`` for the configured model = weights on disk.
+ */
+function makeStatus(downloaded: boolean): ModelStatusMap {
+	return {
+		tiny: { downloaded, deps_ok: true },
+	};
+}
 
 function makeModel(backend: string, name = backend): ModelInfo {
 	return {
@@ -56,7 +68,6 @@ describe("isModelActive — empty model_size means nothing is active", () => {
 		);
 	});
 });
-
 describe("applyActiveState / getActiveFamilyId with no model selected", () => {
 	it("clears every active flag when model_size is empty", () => {
 		const models = [
@@ -70,5 +81,44 @@ describe("applyActiveState / getActiveFamilyId with no model selected", () => {
 
 	it("getActiveFamilyId returns null when model_size is empty", () => {
 		expect(getActiveFamilyId(makeConfig(""))).toBeNull();
+	});
+});
+
+describe("resolveActiveModel — shared no-model truth (Analytics + About)", () => {
+	it("returns null/null when the configured model is empty (no model selected)", () => {
+		expect(resolveActiveModel("", makeStatus(true), "cuda")).toEqual({
+			model: null,
+			device: null,
+		});
+	});
+
+	it("returns null/null when the configured model's weights are NOT on disk", () => {
+		// Config defaults to "tiny" / "cuda" even with nothing
+		// installed — the resolver must NOT surface them.
+		expect(resolveActiveModel("tiny", makeStatus(false), "cuda")).toEqual({
+			model: null,
+			device: null,
+		});
+	});
+
+	it("returns null/null when the status map lacks the configured model", () => {
+		expect(resolveActiveModel("tiny", {}, "cuda")).toEqual({
+			model: null,
+			device: null,
+		});
+	});
+
+	it("returns the REAL model + device when the weights are installed", () => {
+		expect(resolveActiveModel("tiny", makeStatus(true), "cuda")).toEqual({
+			model: "tiny",
+			device: "cuda",
+		});
+	});
+
+	it("returns the real model with a null device when the config lacks one", () => {
+		expect(resolveActiveModel("tiny", makeStatus(true), undefined)).toEqual({
+			model: "tiny",
+			device: null,
+		});
 	});
 });

@@ -12,6 +12,7 @@ import { t } from "@/i18n/i18n";
 import { formatVram as _formatVram } from "@/lib/format";
 import { MODEL_DEFAULT } from "@/pages/onboarding/lib/constants";
 import type { VoiceTyperConfig } from "@/types/config";
+import type { ModelStatusMap } from "@/types/ipc";
 
 // ── Shared model types ────────────────────────────────────────────────
 
@@ -401,6 +402,47 @@ export function getActiveFamilyId(cfg: VoiceTyperConfig | null): string | null {
 // in this comment so that `rg '<function-name>' voice_typer/client/src`
 // returns ZERO matches — verifying the function is truly gone. The
 // previous docstring + 6-line function body have been excised.)
+
+// ── Active-model resolution from the backend's install truth ────────
+//
+// SINGLE source of truth for "is a model currently installed and active,
+// and on which device" — shared by the Analytics page (Current Setup
+// cards), the About page (Diagnostics table), and any future surface.
+// "Installed" is determined SOLELY by the backend's `get_model_status`
+// (`downloaded: true` for the configured `model_size`); the config's
+// `model_size` / `device` defaults ("tiny" / "cuda") are NOT install
+// state and must never be surfaced as a live selection when the model's
+// weights aren't on disk. Both consumers call this function (never
+// inline their own check) so the two pages can't drift apart again.
+
+export interface ResolvedActiveModel {
+	/** The installed, active model registry name, or null when the
+	 *  configured model's weights aren't on disk (or none configured). */
+	model: string | null;
+	/** The device the active model runs on (from config), or null. */
+	device: string | null;
+}
+
+/**
+ * Resolve the genuinely-active model from the configured model size +
+ * the backend's `get_model_status` install truth.
+ *
+ * Returns ``{ model: null, device: null }`` when the configured model
+ * is empty or its weights are not downloaded — callers must render
+ * "Not selected" / "Unknown" in that state, never the config defaults.
+ */
+export function resolveActiveModel(
+	configuredModel: string,
+	modelStatusMap: ModelStatusMap,
+	configuredDevice: string | null | undefined,
+): ResolvedActiveModel {
+	const installed =
+		configuredModel !== "" &&
+		modelStatusMap[configuredModel]?.downloaded === true;
+	return installed
+		? { model: configuredModel, device: configuredDevice ?? null }
+		: { model: null, device: null };
+}
 
 //Disk-space pre-flight () ───────────────────────────────────
 //

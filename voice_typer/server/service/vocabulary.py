@@ -212,11 +212,33 @@ class VocabularyMixin(ServiceMixinBase):
         live_vm = getattr(self._app, "_vocabulary_manager", None)
         if live_vm is not None and hasattr(live_vm, "_lock") and hasattr(live_vm, "_data"):
             with live_vm._lock:
-                bundled = {cat: live_vm._data.get(cat) for cat in CATEGORIES}
+                # CURRENT MERGED state (bundled + user file, tombstones
+                # already applied by ``_load_and_merge``) — the baseline
+                # for the duplicate check and for computing deletions.
+                merged = {cat: live_vm._data.get(cat) for cat in CATEGORIES}
+                # RAW bundled defaults — the correct diff baseline. The
+                # user file stores ONLY customizations relative to these
+                # defaults; diffing against the MERGED state instead
+                # would drop unchanged user entries on every subsequent
+                # save (the wholesale user-file replace would lose them).
+                if hasattr(live_vm, "_bundled_raw") and live_vm._bundled_raw:
+                    bundled_defaults = live_vm._bundled_raw
+                else:
+                    # Fallback for managers built before the attribute
+                    # existed (or cold instances that skipped
+                    # ``_load_and_merge``).
+                    bundled_defaults = live_vm._load_bundled()
         else:
             # Cold-start / test-fixture fallback.
             mgr = VocabularyManager()
-            bundled = mgr._load_bundled()
+            _defaults = mgr._load_bundled()
+            merged = {cat: _defaults.get(cat) for cat in CATEGORIES}
+            bundled_defaults = _defaults
+
+        # ``bundled`` (the merged state) is what the duplicate check
+        # compares against — an entry already in the file is not a NEW
+        # duplicate.
+        bundled = merged
 
         # Backend-level duplicate enforcement — the single source of
         # truth for "does this pair already exist". The renderer sends
@@ -238,18 +260,18 @@ class VocabularyMixin(ServiceMixinBase):
         user_only: dict[str, object] = {}
         for cat in CATEGORIES:
             incoming = (data or {}).get(cat)
-            bundled_cat = bundled.get(cat)
+            default_cat = bundled_defaults.get(cat)
 
             if cat in ("misspellings", "technical_terms", "names", "products"):
                 if isinstance(incoming, dict):
-                    bd = bundled_cat if isinstance(bundled_cat, dict) else {}
+                    bd = default_cat if isinstance(default_cat, dict) else {}
                     diff = {k: v for k, v in incoming.items() if bd.get(k) != v}
                     if diff:
                         user_only[cat] = diff
             elif cat in ("phrase_corrections", "extra_word_patterns") and isinstance(incoming, list):
                 bs: set[tuple[str, str]] = set()
-                if isinstance(bundled_cat, list):
-                    for item in bundled_cat:
+                if isinstance(default_cat, list):
+                    for item in default_cat:
                         if isinstance(item, list | tuple) and len(item) >= 2:
                             bs.add((item[0], item[1]))
                 diff = [
@@ -259,6 +281,56 @@ class VocabularyMixin(ServiceMixinBase):
                 ]
                 if diff:
                     user_only[cat] = diff
+
+        # Deletion tombstones. The diff alone can only express ADDITIONS /
+        # VALUE CHANGES relative to the bundled defaults — removing a
+        # BUNDLED default entry leaves no trace in the diff, so the entry
+        # resurrects on the next merge. Persist a reserved ``_deleted``
+        # map (category → list of removed keys / pairs) next to the user
+        # diff; ``VocabularyManager._load_and_merge`` applies it. Entries
+        # present in the CURRENT merged state but absent from the incoming
+        # payload are deletions; previously-tombstoned entries that
+        # reappear in the payload are re-additions (tombstone cleared).
+        prev_deleted: dict[str, list] = {}
+        if live_vm is not None and hasattr(live_vm, "_user_store"):
+            try:
+                _prev_raw = live_vm._user_store.load()
+                if isinstance(_prev_raw, dict) and isinstance(_prev_raw.get("_deleted"), dict):
+                    prev_deleted = _prev_raw["_deleted"]
+            except Exception:
+                # Best-effort: a failed read must not block the save.
+                prev_deleted = {}
+
+        deleted: dict[str, list] = {}
+        for cat in CATEGORIES:
+            incoming = (data or {}).get(cat)
+            merged_cat = merged.get(cat)
+            prev_list = prev_deleted.get(cat)
+            prev_set: set = (
+                {(tuple(p) if isinstance(p, (list, tuple)) else p) for p in prev_list}
+                if isinstance(prev_list, list)
+                else set()
+            )
+            removed: set = set()
+            if cat in ("misspellings", "technical_terms", "names", "products"):
+                if isinstance(merged_cat, dict):
+                    incoming_keys = set(incoming) if isinstance(incoming, dict) else set()
+                    removed = set(merged_cat.keys()) - incoming_keys
+                    # Keep prior tombstones unless the entry was re-added.
+                    removed |= {k for k in prev_set if not isinstance(k, tuple) and k not in incoming_keys}
+            else:
+                if isinstance(merged_cat, list):
+                    incoming_pairs: set = (
+                        {tuple(p) for p in incoming if isinstance(p, (list, tuple)) and len(p) >= 2}
+                        if isinstance(incoming, list)
+                        else set()
+                    )
+                    merged_pairs: set = {tuple(p) for p in merged_cat if isinstance(p, (list, tuple)) and len(p) >= 2}
+                    removed = merged_pairs - incoming_pairs
+                    # Keep prior tombstones unless the pair was re-added.
+                    removed |= {p for p in prev_set if isinstance(p, tuple) and p not in incoming_pairs}
+            if removed:
+                deleted[cat] = sorted(removed, key=str)
 
         # Write only user customizations to the user file.
         #
@@ -282,10 +354,17 @@ class VocabularyMixin(ServiceMixinBase):
         # save → reload cycle).  ``_user_store.save(user_only)`` writes
         # the user-only dict directly through PersistedJSON's atomic
         # path, which is exactly what we want.
+        # The user file carries the diff PLUS the tombstone map under the
+        # reserved ``_deleted`` key (omitted entirely when empty so clean
+        # files stay clean).
+        payload: dict[str, object] = dict(user_only)
+        if deleted:
+            payload["_deleted"] = deleted
+
         if live_vm is not None and hasattr(live_vm, "_user_store"):
             try:
                 with live_vm._lock:
-                    live_vm._user_store.save(user_only, durability=False)
+                    live_vm._user_store.save(payload, durability=False)
             except Exception:
                 log.error(
                     "[SERVICE] save_vocabulary_with_diff: PersistedJSON.save via live VocabularyManager failed",
@@ -300,7 +379,7 @@ class VocabularyMixin(ServiceMixinBase):
             # bundled+user load), but cold-start is rare and the
             # safety parity is worth it.
             fallback_vm = VocabularyManager()
-            fallback_vm._user_store.save(user_only, durability=False)
+            fallback_vm._user_store.save(payload, durability=False)
 
         # reload the live VocabularyManager so its in-memory
         # ``_data`` reflects the just-written user file.

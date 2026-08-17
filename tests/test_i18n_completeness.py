@@ -83,13 +83,15 @@ ALLOWED_UNTRANSLATED = {
     # native speakers — same rationale as the Equalizer/Limiter entries.
     "vocabulary.columnOriginal",  # "Original"
     "vocabulary.columnActions",  # "Actions"
+    # About Diagnostics row label: "Backend" is the standard technical
+    # term used untranslated in German, Spanish, and French ("das
+    # Backend" / "el backend" / "le backend") — same rationale as the
+    # Equalizer/Limiter and Microphone/Overlay/Preset entries above.
+    "about.backend",  # "Backend"
     # "Corrections" — the Analytics corrections card label. The word is
     # genuinely identical in English and French ("les corrections"), so
     # fr.json's value matches English by cognate, not by a translation gap.
     "analytics.corrections",  # "Corrections"
-    # "Auto" is a universal abbreviation for automatic mode — kept
-    # identical across Latin-script locales.
-    "analytics.auto",  # "Auto"
     # Theme switch labels: "System" in German is the standard German word for
     # the system-following theme mode — identical to English by coincidence,
     # not a translation gap.
@@ -141,6 +143,12 @@ ALLOWED_UNTRANSLATED = {
     # Universal abbreviations.
     "stats.shareImage.min",  # "min"
     "stats.shareImage.wpm",  # "WPM"
+    # Social share targets are brand names — kept identical across all
+    # locales (same rationale as the model-provider labels above).
+    "stats.shareImage.socialWhatsapp",  # "WhatsApp"
+    "stats.shareImage.socialTelegram",  # "Telegram"
+    "stats.shareImage.socialX",  # "X"
+    "stats.shareImage.socialFacebook",  # "Facebook"
     # Theme preset names are brand/proper nouns — kept identical.
     "theme.preset.ayu",  # "Ayu"
     "theme.preset.catppuccin",  # "Catppuccin"
@@ -430,8 +438,10 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     # about (2 keys)
     "about.documentationLink",  # "Documentation"
     "about.versionValue",  # "v{version}"
-    # analytics (1 key)
-    "analytics.auto",  # "Auto"
+    # analytics.auto REMOVED 2026-08-17 — the key became dead when the
+    # Analytics language card switched to formatLanguage
+    # (settings.languageAutoDetect); the key was deleted from en.json,
+    # so it no longer belongs in this set.
     # (client_root_i18n): bubble.idleLabel REMOVED — translated
     # in every non-English locale by commit e4b7d4b. Leaving it here
     # would be flagged as stale by TestBackfillSetIsMinimal.

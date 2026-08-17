@@ -7,7 +7,9 @@
 //! already `pub(crate)`, so no visibility bumps were needed in
 //! `state.rs`.
 
-use crate::state::{shutdown_sidecar_for_exit, PendingMap, SidecarHandle, SidecarState, WorkerState};
+use crate::state::{
+    shutdown_sidecar_for_exit, PendingMap, SidecarHandle, SidecarState, WorkerState,
+};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -246,12 +248,20 @@ async fn test_devmode_drop_does_not_kill_when_kill_on_drop_unset() {
 fn test_worker_state_new_child_is_none() {
     let state = WorkerState::new();
     assert!(
-        state.child.lock().unwrap_or_else(|e| e.into_inner()).is_none(),
+        state
+            .child
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_none(),
         "fresh WorkerState must have child = None"
     );
     let default_state = WorkerState::default();
     assert!(
-        default_state.child.lock().unwrap_or_else(|e| e.into_inner()).is_none(),
+        default_state
+            .child
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_none(),
         "WorkerState::default() must have child = None"
     );
 }
@@ -263,7 +273,11 @@ fn test_worker_state_new_child_is_none() {
 async fn test_worker_state_new_ws_tx_is_none() {
     let state = WorkerState::new();
     assert!(
-        state.ws_tx.lock().unwrap_or_else(|e| e.into_inner()).is_none(),
+        state
+            .ws_tx
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_none(),
         "fresh WorkerState must have ws_tx = None"
     );
 }
@@ -302,7 +316,9 @@ fn test_worker_state_new_next_id_is_one() {
 fn test_worker_state_new_shutting_down_is_false() {
     let state = WorkerState::new();
     assert!(
-        !state.shutting_down.load(std::sync::atomic::Ordering::SeqCst),
+        !state
+            .shutting_down
+            .load(std::sync::atomic::Ordering::SeqCst),
         "fresh WorkerState must have shutting_down = false"
     );
 }
@@ -316,7 +332,9 @@ fn test_worker_state_new_shutting_down_is_false() {
 fn test_worker_state_new_respawn_in_progress_is_false() {
     let state = WorkerState::new();
     assert!(
-        !state.respawn_in_progress.load(std::sync::atomic::Ordering::SeqCst),
+        !state
+            .respawn_in_progress
+            .load(std::sync::atomic::Ordering::SeqCst),
         "fresh WorkerState must have respawn_in_progress = false"
     );
 }
@@ -359,7 +377,9 @@ async fn test_worker_state_new_heartbeat_handle_is_none() {
 fn test_worker_state_new_ws_generation_is_zero() {
     let state = WorkerState::new();
     assert_eq!(
-        state.ws_generation.load(std::sync::atomic::Ordering::SeqCst),
+        state
+            .ws_generation
+            .load(std::sync::atomic::Ordering::SeqCst),
         0,
         "fresh WorkerState must have ws_generation = 0 (never connected)"
     );

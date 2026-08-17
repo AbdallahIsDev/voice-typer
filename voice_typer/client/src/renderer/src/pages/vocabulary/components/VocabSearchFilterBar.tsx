@@ -6,10 +6,10 @@
 // the only meaningful action) — the parent decides whether to render
 // this.
 //
-// The live entry count ("N corrections", or "N of M corrections" while
-// filtering) lives HERE in the search/filter row instead of on its own
-// full-width line — a small muted label between the search field and
-// the sort control.
+// The live entry count is folded into the SEARCH PLACEHOLDER
+// ("Search N corrections…", updated as entries are added/removed) —
+// there is no standalone count element; the floating bulk bar covers
+// the "how many are selected" case.
 
 import { Sorting01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -31,8 +31,8 @@ interface VocabSearchFilterBarProps {
 	onSearchChange: (value: string) => void;
 	sortOrder: VocabSortOrder;
 	onSortOrderChange: (value: VocabSortOrder) => void;
-	/** Pre-localized entry count label (e.g. "36 corrections"). */
-	countLabel: string;
+	/** Total entry count — folded into the search placeholder. */
+	entryCount: number;
 }
 
 export function VocabSearchFilterBar({
@@ -40,7 +40,7 @@ export function VocabSearchFilterBar({
 	onSearchChange,
 	sortOrder,
 	onSortOrderChange,
-	countLabel,
+	entryCount,
 }: VocabSearchFilterBarProps) {
 	return (
 		<div className="mt-4 flex items-center gap-2">
@@ -48,20 +48,28 @@ export function VocabSearchFilterBar({
 				<SearchField
 					value={searchQuery}
 					onChange={onSearchChange}
-					placeholder={t("vocabulary.searchPlaceholder")}
+					placeholder={t("vocabulary.searchPlaceholderCount", {
+						count: String(entryCount),
+					})}
 				/>
 			</div>
-			<span
-				data-testid="vocab-entry-count"
-				className="shrink-0 text-xs font-medium text-(--text-muted)"
-			>
-				{countLabel}
-			</span>
 			<Select
 				value={sortOrder}
 				onValueChange={(v) => onSortOrderChange(v as VocabSortOrder)}
 			>
-				<SelectTrigger size="sm" aria-label={t("common.sortAria")}>
+				{/* hideChevron: the trigger already carries the sort glyph — a
+				    second chevron on the right read as visually overloaded.
+				    Text colour matches the other header buttons: muted at
+				    rest, full-white on hover (with the background change). */}
+				<SelectTrigger
+					size="sm"
+					hideChevron
+					aria-label={t("common.sortAria")}
+					className="text-(--text-muted) transition-[color,box-shadow,background-color] hover:text-(--text-primary)"
+				>
+					{/* No explicit colour — the glyph inherits currentColor
+					    from the trigger, so it follows the muted-at-rest /
+					    white-on-hover text pattern automatically. */}
 					<HugeiconsIcon
 						icon={Sorting01Icon}
 						strokeWidth={2}
@@ -70,7 +78,20 @@ export function VocabSearchFilterBar({
 					/>
 					<SelectValue />
 				</SelectTrigger>
-				<SelectContent>
+				{/* popper + align=start: the dropdown's left edge must line up
+				    with the trigger's left edge. The shared default
+				    (item-aligned, align=center) centers the list over the
+				    trigger, which for a short label like "Newest first"
+				    opened the menu visibly RIGHT of the button. Styling
+				    matches the search input (same border tint, same subtle
+				    surface, same radius) so the popup belongs to the page's
+				    design system instead of reading as a separate floating
+				    element. */}
+				<SelectContent
+					position="popper"
+					align="start"
+					className="rounded-xl border-border/10 bg-(--bg-subtle)"
+				>
 					<SelectItem value="newest">{t("common.sortNewest")}</SelectItem>
 					<SelectItem value="oldest">{t("common.sortOldest")}</SelectItem>
 					<SelectItem value="az">{t("common.sortAZ")}</SelectItem>

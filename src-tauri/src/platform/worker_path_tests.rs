@@ -107,7 +107,9 @@ fn test_pack_dir_windows_missing_localappdata_falls_back_to_cwd() {
     let p = pack_dir_from_env(env);
     assert_eq!(
         p,
-        std::path::PathBuf::from(".").join(APP_SLUG).join(RUNTIME_PACK_DIR),
+        std::path::PathBuf::from(".")
+            .join(APP_SLUG)
+            .join(RUNTIME_PACK_DIR),
         "missing LOCALAPPDATA → CWD fallback ./voice-typer/runtime-pack"
     );
 }
@@ -175,7 +177,9 @@ fn test_pack_dir_linux_missing_home_falls_back_to_cwd() {
     let p = pack_dir_from_env(env);
     assert_eq!(
         p,
-        std::path::PathBuf::from(".").join(APP_SLUG).join(RUNTIME_PACK_DIR),
+        std::path::PathBuf::from(".")
+            .join(APP_SLUG)
+            .join(RUNTIME_PACK_DIR),
         "missing HOME on Linux → CWD fallback ./voice-typer/runtime-pack"
     );
 }
@@ -246,7 +250,9 @@ fn test_pack_dir_windows_empty_localappdata_treated_as_unset() {
     let p = pack_dir_from_env(env);
     assert_eq!(
         p,
-        std::path::PathBuf::from(".").join(APP_SLUG).join(RUNTIME_PACK_DIR),
+        std::path::PathBuf::from(".")
+            .join(APP_SLUG)
+            .join(RUNTIME_PACK_DIR),
         "empty LOCALAPPDATA → treated as unset → CWD fallback"
     );
 }
@@ -290,7 +296,9 @@ fn test_pack_dir_linux_empty_home_and_empty_xdg_treated_as_unset() {
     let p = pack_dir_from_env(env);
     assert_eq!(
         p,
-        std::path::PathBuf::from(".").join(APP_SLUG).join(RUNTIME_PACK_DIR),
+        std::path::PathBuf::from(".")
+            .join(APP_SLUG)
+            .join(RUNTIME_PACK_DIR),
         "empty HOME + empty XDG_DATA_HOME → both treated as unset → CWD fallback"
     );
 }
@@ -322,7 +330,9 @@ fn test_worker_exe_path_windows_full_path() {
         "worker exe file name must be voice-typer-worker-<triple>.exe"
     );
     assert_eq!(
-        p.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()),
+        p.parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str()),
         Some("v1.2.0"),
         "version leaf must be interpolated into the path"
     );
@@ -462,12 +472,16 @@ fn test_worker_exe_path_version_interpolated() {
     );
     // The version leaf must be the parent dir of the exe.
     assert_eq!(
-        p_v1.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()),
+        p_v1.parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str()),
         Some("v1"),
         "version 'v1' must appear as the parent dir of the exe"
     );
     assert_eq!(
-        p_v2.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()),
+        p_v2.parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str()),
         Some("v2"),
         "version 'v2' must appear as the parent dir of the exe"
     );
@@ -580,5 +594,8 @@ fn test_worker_path_env_is_copy_clone_debug_eq() {
         "WorkerPathEnv must impl Debug (derive) — got empty debug string"
     );
     // PartialEq + Eq: == comparison compiles.
-    assert_eq!(env, env_copy, "WorkerPathEnv must impl PartialEq + Eq (derive)");
+    assert_eq!(
+        env, env_copy,
+        "WorkerPathEnv must impl PartialEq + Eq (derive)"
+    );
 }

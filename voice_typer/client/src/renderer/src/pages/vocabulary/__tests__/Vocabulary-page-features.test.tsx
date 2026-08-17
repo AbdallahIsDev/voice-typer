@@ -4,7 +4,7 @@
  *   - flat two-column list: no category badges, no group headers, no
  *     Category column in the header
  *   - direct Edit / Delete icon buttons on each row (aria-labels,
- *     tooltips)
+ *     no tooltips)
  *   - bulk selection: row checkboxes → floating bulk bar with count,
  *     "Delete selected"
  *   - inline quick-add row (replaces the disconnected Add modal),
@@ -171,11 +171,84 @@ describe("Vocabulary page — flat two-column list", () => {
 		// No overflow "Entry actions" menu button anymore.
 		expect(within(row).queryByLabelText("Entry actions")).toBeNull();
 
-		// Clicking Edit opens the edit dialog pre-filled with the entry.
+		// Clicking Edit swaps the row for the inline edit form (the SAME
+		// inline treatment as Add — no modal), pre-filled with the entry.
 		fireEvent.click(within(row).getByLabelText("Edit: recieve"));
 		await waitFor(() => {
+			expect(screen.getByTestId("vocab-edit-row")).toBeTruthy();
 			expect(screen.getByDisplayValue("recieve")).toBeTruthy();
 			expect(screen.getByDisplayValue("receive")).toBeTruthy();
+		});
+	});
+
+	it("renders the row actions in Test → Delete → Edit order with NO tooltips", async () => {
+		seedWith(seedData);
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("recieve")).toBeTruthy();
+		});
+
+		const row = screen
+			.getByText("recieve")
+			.closest('[data-testid="vocab-list-row"]') as HTMLElement;
+		const actions = within(row)
+			.getAllByRole("button")
+			.filter((b) =>
+				/^(Edit:|Test this entry:|Delete:)/.test(
+					b.getAttribute("aria-label") ?? "",
+				),
+			);
+		// Edit is RIGHTMOST (the app-wide convention — the pencil sits
+		// at the far edge of every action group). Left to right:
+		// Test → Delete → Edit.
+		expect(
+			actions.map((b) => b.getAttribute("aria-label")?.split(":")[0]),
+		).toEqual(["Test this entry", "Delete", "Edit"]);
+		// No native tooltips on any action icon (hover tooltips were
+		// removed — the shapes + aria-labels carry the meaning).
+		for (const b of actions) {
+			expect(b.getAttribute("title")).toBeNull();
+		}
+	});
+});
+
+describe("Vocabulary page — empty state", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		showSnack.mockReset();
+		toastSuccess.mockClear();
+		toastError.mockClear();
+		localStorage.clear();
+		vi.resetModules();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("renders the empty state with an Add CTA and hides search/sort when there are no entries", async () => {
+		seedWith({ misspellings: {}, phrase_corrections: [] });
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		// Empty-state copy + primary CTA replace the table.
+		await waitFor(() => {
+			expect(screen.getByText("No corrections yet")).toBeTruthy();
+		});
+		expect(screen.getByText("Add your first word")).toBeTruthy();
+		// No table, no rows.
+		expect(screen.queryByTestId("vocab-list-row")).toBeNull();
+
+		// Search + sort are NOT rendered for an empty list.
+		expect(screen.queryByPlaceholderText(/Search \d+ corrections/)).toBeNull();
+		expect(screen.queryByLabelText("Sort order")).toBeNull();
+
+		// The CTA starts the add flow (inline quick-add row appears).
+		fireEvent.click(screen.getByText("Add your first word"));
+		await waitFor(() => {
+			expect(screen.getByTestId("vocab-quick-add")).toBeTruthy();
 		});
 	});
 });
@@ -603,6 +676,83 @@ describe("Vocabulary page — test this entry", () => {
 	// The standalone free-text panel (and its client-mirror fallback
 	// notice) was removed — the per-entry Test action surfaces engine
 	// errors via the inline error + Retry path above.
+});
+describe("Vocabulary page — search + sort interactions", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		showSnack.mockReset();
+		toastSuccess.mockClear();
+		toastError.mockClear();
+		localStorage.clear();
+		vi.resetModules();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("typing in search filters the visible rows to matching entries", async () => {
+		seedWith(seedData);
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("recieve")).toBeTruthy();
+		});
+
+		const searchInput = screen.getByPlaceholderText("Search 3 corrections");
+		fireEvent.change(searchInput, { target: { value: "teh" } });
+
+		// Only the matching row remains — the other two are filtered
+		// out client-side (no reload, no save).
+		await waitFor(() => {
+			expect(screen.queryByText("recieve")).toBeNull();
+		});
+		expect(screen.getByText("teh")).toBeTruthy();
+		expect(screen.queryByText("i am going to")).toBeNull();
+		expect(screen.getAllByTestId("vocab-list-row").length).toBe(1);
+	});
+
+	it("sort reorders rows (A→Z vs Z→A) without a reload", async () => {
+		seedWith(seedData);
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("recieve")).toBeTruthy();
+		});
+
+		const rowOriginals = () =>
+			Array.from(
+				document.querySelectorAll('[data-testid="vocab-list-row"]'),
+			).map((r) => (r.querySelector("span") as HTMLElement)?.textContent ?? "");
+
+		// Open the sort select via keyboard (Radix Select opens on
+		// ArrowDown when the trigger is focused; pointer events are
+		// unreliable in jsdom — hasPointerCapture isn't implemented).
+		const sortTrigger = screen.getByLabelText("Sort order");
+		sortTrigger.focus();
+		fireEvent.keyDown(sortTrigger, { key: "ArrowDown" });
+		const az = await screen.findByText("A → Z");
+		fireEvent.click(az);
+
+		// The flat list is sorted by original, ascending.
+		await waitFor(() => {
+			const order = rowOriginals();
+			expect(order).toEqual(["i am going to", "recieve", "teh"]);
+		});
+
+		// Flip to Z → A — the order reverses.
+		const sortTrigger2 = screen.getByLabelText("Sort order");
+		sortTrigger2.focus();
+		fireEvent.keyDown(sortTrigger2, { key: "ArrowDown" });
+		const za = await screen.findByText("Z → A");
+		fireEvent.click(za);
+		await waitFor(() => {
+			const order = rowOriginals();
+			expect(order).toEqual(["teh", "recieve", "i am going to"]);
+		});
+	});
 });
 
 describe("Vocabulary page — load-time dedupe", () => {

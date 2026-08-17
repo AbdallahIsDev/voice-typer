@@ -83,6 +83,13 @@ const HOOK_SRC = fs.readFileSync(
 	path.resolve(__dirname, "..", "dashboard", "hooks", "useDashboardData.ts"),
 	"utf8",
 );
+// the SHARED model-install truth (lib/utils/models.ts) — its source is
+// read here so the point-10 assertions can verify the `downloaded`
+// check lives in ONE place (the shared helper), not in the hook.
+const MODELS_SRC = fs.readFileSync(
+	path.resolve(__dirname, "..", "..", "lib", "utils", "models.ts"),
+	"utf8",
+);
 const FORMAT_SRC = fs.readFileSync(
 	path.resolve(__dirname, "..", "..", "lib", "format.ts"),
 	"utf8",
@@ -475,18 +482,22 @@ describe("SevenDayActivityChart migrates binary plural to tChoice", () => {
 });
 
 describe("Corrections-applied card (server-side usage tracking)", () => {
-	it("Dashboard.tsx renders a Corrections card driven by correctionStats", () => {
-		// The 5th stat card reads the range-aware correction totals
-		// from the hook (not a hardcoded number) and localises through
-		// the analytics.* keys.
+	it("Dashboard.tsx renders the Corrections card in the derived-metrics row", () => {
+		// The Corrections card moved out of the top stat row (which now
+		// divides evenly into 4 cards) into the derived-metrics row
+		// below the chart. It reads the range-aware correction totals
+		// from the hook and localises through the analytics.* keys.
 		expect(DASHBOARD_SRC).toMatch(/correctionStats/);
 		expect(DASHBOARD_SRC).toMatch(/t\("analytics\.corrections"\)/);
-		expect(DASHBOARD_SRC).toMatch(/t\("analytics\.correctionsTooltip"\)/);
+		// The rate survives as the card sublabel; the tooltip + trend
+		// are gone (informational card, no tooltip affordance).
+		expect(DASHBOARD_SRC).not.toMatch(/t\("analytics\.correctionsTooltip"\)/);
 		expect(DASHBOARD_SRC).toMatch(/t\("analytics\.correctionsRate"/);
 		expect(DASHBOARD_SRC).toMatch(/correctionStats\.corrections/);
 		expect(DASHBOARD_SRC).toMatch(/correctionStats\.rate/);
-		// Trend compares the current window vs the previous same-length one.
-		expect(DASHBOARD_SRC).toMatch(/correctionStats\.prevCorrections/);
+		expect(DASHBOARD_SRC).not.toMatch(/correctionStats\.prevCorrections/);
+		// The top row is a 4-card grid (even division).
+		expect(DASHBOARD_SRC).toMatch(/md:grid-cols-4/);
 	});
 
 	it("useDashboardData.ts fetches get_correction_usage in the Promise.all", () => {
@@ -500,9 +511,91 @@ describe("Corrections-applied card (server-side usage tracking)", () => {
 		expect(HOOK_SRC).toMatch(/correctionStats/);
 	});
 
+	it("useDashboardData.ts derives model/device from install state via the SHARED helper", () => {
+		// MODEL-STATE fix: the hook must fetch get_model_status and
+		// only surface model/device when the configured model's weights
+		// are actually on disk (config defaults like "tiny"/"cuda"
+		// must not be advertised as a live selection). The `downloaded`
+		// check lives in ONE shared place — resolveActiveModel in
+		// lib/utils/models.ts (the same helper the About page uses) —
+		// never an inline duplicate in the hook.
+		expect(HOOK_SRC).toMatch(/"get_model_status"/);
+		expect(HOOK_SRC).toMatch(/modelStatusMap/);
+		expect(HOOK_SRC).toMatch(/resolveActiveModel\(/);
+		// The install check itself is NOT in the hook anymore.
+		expect(HOOK_SRC).not.toMatch(/downloaded === true/);
+		// …it lives in the shared helper, which both the Analytics
+		// data hook and the About page import.
+		expect(MODELS_SRC).toMatch(/downloaded === true/);
+	});
+
 	it("en.json defines the corrections card keys", () => {
 		expect(EN_JSON.analytics.corrections).toBeDefined();
 		expect(EN_JSON.analytics.correctionsTooltip).toBeDefined();
 		expect(EN_JSON.analytics.correctionsRate).toContain("{pct}");
+	});
+});
+
+describe("Top stat cards: distinct scoped labels + (?) tooltip affordance", () => {
+	it("card 1 label is range-scoped (dictationsPeriod with the localized range)", () => {
+		// Card 1 counts dictations INSIDE the selected range while
+		// card 3 is the true all-time total — the labels must make
+		// that distinction explicit instead of both reading
+		// "Dictations" / "Total Dictations" as near-duplicates.
+		expect(DASHBOARD_SRC).toMatch(/analytics\.dictationsPeriod/);
+		expect(DASHBOARD_SRC).toMatch(/range: t\(`analytics\.range\.\$\{range}`\)/);
+		// The old ambiguous label is gone.
+		expect(DASHBOARD_SRC).not.toMatch(/t\("analytics\.dictations"\)/);
+		// en.json defines the key with the {range} interpolation slot.
+		expect(EN_JSON.analytics.dictationsPeriod).toContain("{range}");
+	});
+
+	it("only the Total Dictations card keeps a tooltip (sampling caveat)", () => {
+		// The Active Days tooltip merely restated the label — removed.
+		expect(DASHBOARD_SRC).not.toMatch(/activeDaysTooltip/);
+		expect(EN_JSON.analytics.activeDaysTooltip).toBeUndefined();
+		// Total Dictations keeps its (reworded) sampling-caveat tooltip.
+		expect(DASHBOARD_SRC).toMatch(/analytics\.totalDictationsTooltip/);
+		expect(EN_JSON.analytics.totalDictationsTooltip).toContain("500");
+	});
+
+	it("the (?) tooltip trigger icon is keyboard-reachable with an aria-label", () => {
+		// The trigger is a focusable button (not hover-only text) with
+		// an accessible name built from the infoTooltipAria key. The
+		// affordance lives in the shared DashboardStatCard, not the
+		// page.
+		const statCardSrc = fs.readFileSync(
+			path.resolve(
+				__dirname,
+				"..",
+				"..",
+				"components",
+				"dashboard",
+				"DashboardStatCard.tsx",
+			),
+			"utf8",
+		);
+		expect(statCardSrc).toMatch(/infoTooltipAria/);
+		expect(statCardSrc).toMatch(/CircleQuestionMarkIcon/);
+		expect(EN_JSON.analytics.infoTooltipAria).toContain("{label}");
+	});
+
+	it("Longest Session uses a stopwatch icon, distinct from Recording Time's clock", () => {
+		// Both cards previously used Time02Icon (a clock). Longest
+		// Session now uses StopWatchIcon so the two durations are
+		// visually distinguishable at a glance.
+		expect(DASHBOARD_SRC).toContain("StopWatchIcon");
+		expect(DASHBOARD_SRC).toMatch(
+			/icon=\{StopWatchIcon\}[\s\S]*?analytics\.longestLabel/,
+		);
+	});
+
+	it("Language card uses the classic globe (Globe02Icon)", () => {
+		// The previous circle-with-contours icon read as an indistinct
+		// blob at 20px; the meridian + latitude globe reads clearly.
+		expect(DASHBOARD_SRC).toContain("Globe02Icon");
+		expect(DASHBOARD_SRC).toMatch(
+			/icon=\{Globe02Icon\}[\s\S]*?analytics\.language/,
+		);
 	});
 });

@@ -305,17 +305,25 @@ export function useVocabulary({
 	// `instantDeleteTemplate` pattern (deps: [call, loadRows, showSnack]).
 	const instantDeleteEntry = useCallback(
 		async (entry: VocabRow) => {
+			// Capture the PRE-DELETE snapshot up front. This is the list
+			// the failure path must restore — NOT `entriesRef.current`
+			// at catch time: the ref-sync effect (declared near the
+			// state) advances entriesRef to `updated` on the very next
+			// render after setEntries(updated), so by the time a slow
+			// or failed save settles, entriesRef no longer holds the
+			// pre-delete list and restoring from it silently keeps the
+			// entry deleted (a false-success state).
+			const currentEntries = entriesRef.current;
+			const originalIndex = currentEntries.indexOf(entry);
+			const updated = currentEntries.filter((e) => e !== entry);
 			try {
-				const currentEntries = entriesRef.current;
-				const originalIndex = currentEntries.indexOf(entry);
-				const updated = currentEntries.filter((e) => e !== entry);
 				// make the delete ACTUALLY instant.
 				// Previously the entry stayed visible during the entire
 				// persistVocabulary IPC round-trip (100-500ms+) because
 				// setEntries(updated) ran AFTER the await. Felt sluggish
 				// and could trigger duplicate-delete clicks. Now we update
-				// the UI first, then persist; on failure we restore from
-				// the ref (which still holds the pre-delete list).
+				// the UI first, then persist; on failure we restore the
+				// captured pre-delete snapshot.
 				setEntries(updated);
 				await persistVocabulary(updated);
 				showUndoableToast(
@@ -339,10 +347,9 @@ export function useVocabulary({
 					{ undoLabel: t("common.undo"), type: "warning", timeoutMs: 6000 },
 				);
 			} catch {
-				// Restore the pre-delete list on failure — entriesRef still
-				// holds the original list because persistVocabulary threw
-				// before any successful save.
-				setEntries(entriesRef.current);
+				// Restore the pre-delete list on failure — from the
+				// captured snapshot, not the (already-advanced) ref.
+				setEntries(currentEntries);
 				showSnack(t("vocabulary.deleteFailed"), "error");
 			}
 		},

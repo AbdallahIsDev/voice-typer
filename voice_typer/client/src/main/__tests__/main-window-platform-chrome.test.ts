@@ -29,6 +29,10 @@ const mocks = vi.hoisted(() => {
 	// closure so the leave-full-screen test can simulate the macOS
 	// zoom-then-fullscreen flow (window still maximized on return).
 	let isMaximizedValue = false;
+	// Mutable per-test value — the window's isFullScreen reads it through
+	// a closure; setFullScreen writes it back, so a second F11 press
+	// toggles off (the F11 handler reads current state at call time).
+	let isFullScreenValue = false;
 
 	const showMock = vi.fn();
 
@@ -51,6 +55,10 @@ const mocks = vi.hoisted(() => {
 			isVisible: () => true,
 			isMinimized: () => false,
 			isMaximized: () => isMaximizedValue,
+			isFullScreen: () => isFullScreenValue,
+			setFullScreen: vi.fn((v: boolean) => {
+				isFullScreenValue = v;
+			}),
 			show: showMock,
 			focus: vi.fn(),
 			hide: vi.fn(),
@@ -76,9 +84,13 @@ const mocks = vi.hoisted(() => {
 			capturedBrowserWindowOptions = null;
 			capturedWindow = null;
 			isMaximizedValue = false;
+			isFullScreenValue = false;
 		},
 		setIsMaximized: (v: boolean) => {
 			isMaximizedValue = v;
+		},
+		setIsFullScreen: (v: boolean) => {
+			isFullScreenValue = v;
 		},
 		showMock,
 	};
@@ -214,5 +226,74 @@ describe("main-window cross-platform window chrome", () => {
 			}
 		).webContents.send;
 		expect(sendMock).toHaveBeenLastCalledWith("window:maximized-changed", true);
+	});
+
+	describe("F11 fullscreen toggle (before-input-event)", () => {
+		async function getF11Handler() {
+			await createWindowWithPlatform("win32");
+			const win = mocks.getCapturedWindow();
+			expect(win).not.toBeNull();
+			// Same cast pattern as the macOS fullscreen tests above.
+			const webContentsOn = (
+				win as { webContents: { on: ReturnType<typeof vi.fn> } }
+			).webContents.on;
+			const registrations = webContentsOn.mock.calls as
+				| [
+						event: string,
+						handler: (event: unknown, input: Record<string, unknown>) => void,
+				  ][]
+				| undefined;
+			const handler = registrations?.find(
+				([e]) => e === "before-input-event",
+			)?.[1];
+			expect(handler).toBeTypeOf("function");
+			return { win, handler };
+		}
+
+		it("F11 keyDown toggles fullscreen on", async () => {
+			const { win, handler } = await getF11Handler();
+			handler?.({}, { type: "keyDown", key: "F11", isAutoRepeat: false });
+			const winRecord = win as {
+				setFullScreen: ReturnType<typeof vi.fn>;
+			};
+			expect(winRecord.setFullScreen).toHaveBeenCalledWith(true);
+		});
+
+		it("F11 keyDown toggles fullscreen off when already fullscreen", async () => {
+			mocks.setIsFullScreen(true);
+			const { win, handler } = await getF11Handler();
+			handler?.({}, { type: "keyDown", key: "F11", isAutoRepeat: false });
+			const winRecord = win as {
+				setFullScreen: ReturnType<typeof vi.fn>;
+			};
+			expect(winRecord.setFullScreen).toHaveBeenCalledWith(false);
+		});
+
+		it("F11 keyUp does not toggle (keyDown only)", async () => {
+			const { win, handler } = await getF11Handler();
+			handler?.({}, { type: "keyUp", key: "F11", isAutoRepeat: false });
+			const winRecord = win as {
+				setFullScreen: ReturnType<typeof vi.fn>;
+			};
+			expect(winRecord.setFullScreen).not.toHaveBeenCalled();
+		});
+
+		it("auto-repeat keyDown does not thrash the toggle", async () => {
+			const { win, handler } = await getF11Handler();
+			handler?.({}, { type: "keyDown", key: "F11", isAutoRepeat: true });
+			const winRecord = win as {
+				setFullScreen: ReturnType<typeof vi.fn>;
+			};
+			expect(winRecord.setFullScreen).not.toHaveBeenCalled();
+		});
+
+		it("other keys pass through untouched", async () => {
+			const { win, handler } = await getF11Handler();
+			handler?.({}, { type: "keyDown", key: "F12", isAutoRepeat: false });
+			const winRecord = win as {
+				setFullScreen: ReturnType<typeof vi.fn>;
+			};
+			expect(winRecord.setFullScreen).not.toHaveBeenCalled();
+		});
 	});
 });

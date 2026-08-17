@@ -1,16 +1,18 @@
-// Edit vocabulary dialog state + handlers.
+// Inline vocabulary EDIT state + handlers.
 //
-// The ADD path moved to the inline quick-add row
-// (``useVocabularyQuickAdd``) so the list stays visible while adding;
-// this hook owns ONLY the edit dialog.
+// The ADD path lives in the inline quick-add row
+// (``useVocabularyQuickAdd``) and the EDIT path uses the SAME inline
+// row treatment (``VocabInlineForm`` rendered in place of the edited
+// row) — the old edit MODAL (VocabDialog) was removed so create and
+// modify are one consistent pattern.
 //
 // Owns:
-//   - dialog open/close + the row currently being edited
+//   - the row currently being edited (``editingEntry``)
 //   - the form fields (``trigger`` / ``replacement`` / ``category``)
-//   - openEditDialog / saveEntry / handleCloseDialog
-//     / handleTriggerChange / handleReplacementChange
+//   - openEdit / saveEdit / closeEdit / handleTriggerChange
+//     / handleReplacementChange
 //
-// ``saveEntry`` reads from the dialog fields + the latest ``entries``
+// ``saveEdit`` reads from the form fields + the latest ``entries``
 // (provided by ``useVocabulary``) so it can splice the edited entry in
 // place (preserving its existing ``_id`` — React re-uses the DOM node
 // so input focus / animation state isn't lost). After the IPC save
@@ -24,7 +26,7 @@ import { detectCategory } from "../lib/categories";
 import type { VocabRow } from "../lib/transform";
 import { isDuplicateEntryError } from "./useVocabularyQuickAdd";
 
-interface UseVocabularyDialogArgs {
+interface UseVocabularyEditArgs {
 	entries: VocabRow[];
 	setEntries: (entries: VocabRow[]) => void;
 	persistVocabulary: (updated: VocabRow[]) => Promise<void>;
@@ -34,45 +36,45 @@ interface UseVocabularyDialogArgs {
 	) => void;
 }
 
-interface UseVocabularyDialogResult {
-	showDialog: boolean;
+interface UseVocabularyEditResult {
+	/** True while an entry is being edited inline. */
+	isEditing: boolean;
+	/** The row currently being edited (renders the inline form in its place). */
 	editingEntry: VocabRow | null;
 	trigger: string;
 	replacement: string;
-	openEditDialog: (entry: VocabRow) => void;
-	saveEntry: () => Promise<void>;
-	handleTriggerChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-	handleReplacementChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-	handleCloseDialog: () => void;
+	openEdit: (entry: VocabRow) => void;
+	saveEdit: () => Promise<void>;
+	handleTriggerChange: (v: string) => void;
+	handleReplacementChange: (v: string) => void;
+	closeEdit: () => void;
 }
 
-export function useVocabularyDialog({
+export function useVocabularyEdit({
 	entries,
 	setEntries,
 	persistVocabulary,
 	showSnack,
-}: UseVocabularyDialogArgs): UseVocabularyDialogResult {
-	const [showDialog, setShowDialog] = useState(false);
+}: UseVocabularyEditArgs): UseVocabularyEditResult {
 	const [editingEntry, setEditingEntry] = useState<VocabRow | null>(null);
 	const [trigger, setTrigger] = useState("");
 	const [replacement, setReplacement] = useState("");
-	// Category is NOT shown in the edit dialog (the page is a flat
-	// two-column list) — but it must be preserved on save so the
-	// backend bucket never changes behind the user's back. Initialised
-	// from the entry being edited; "auto" resolves via detectCategory.
+	// Category is NOT shown in the form (the page is a flat two-column
+	// list) — but it must be preserved on save so the backend bucket
+	// never changes behind the user's back. Initialised from the entry
+	// being edited; "auto" resolves via detectCategory.
 	const [category, setCategory] = useState<string>("auto");
 
-	const openEditDialog = (entry: VocabRow) => {
+	const openEdit = (entry: VocabRow) => {
 		setEditingEntry(entry);
 		setTrigger(entry.original);
 		// Preserve the entry's existing bucket (don't re-detect — an
 		// edit shouldn't silently re-categorize the entry).
 		setCategory(entry.category || "auto");
 		setReplacement(entry.correction);
-		setShowDialog(true);
 	};
 
-	const saveEntry = async () => {
+	const saveEdit = async () => {
 		const trimmedTrigger = trigger.trim();
 		const r = replacement.trim();
 		if (!trimmedTrigger || !r) {
@@ -102,7 +104,7 @@ export function useVocabularyDialog({
 			);
 			await persistVocabulary(updated);
 			setEntries(updated);
-			setShowDialog(false);
+			setEditingEntry(null);
 			showSnack(
 				t("vocabulary.updatedEntry", {
 					original: trimmedTrigger,
@@ -119,23 +121,21 @@ export function useVocabularyDialog({
 		}
 	};
 
-	const handleTriggerChange = (e: React.ChangeEvent<HTMLInputElement>) =>
-		setTrigger(e.target.value);
+	const handleTriggerChange = (v: string) => setTrigger(v);
 
-	const handleReplacementChange = (e: React.ChangeEvent<HTMLInputElement>) =>
-		setReplacement(e.target.value);
+	const handleReplacementChange = (v: string) => setReplacement(v);
 
-	const handleCloseDialog = () => setShowDialog(false);
+	const closeEdit = () => setEditingEntry(null);
 
 	return {
-		showDialog,
+		isEditing: editingEntry !== null,
 		editingEntry,
 		trigger,
 		replacement,
-		openEditDialog,
-		saveEntry,
+		openEdit,
+		saveEdit,
 		handleTriggerChange,
 		handleReplacementChange,
-		handleCloseDialog,
+		closeEdit,
 	};
 }

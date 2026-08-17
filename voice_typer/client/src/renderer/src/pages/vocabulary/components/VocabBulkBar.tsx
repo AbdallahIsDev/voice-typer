@@ -1,12 +1,19 @@
 // Bulk action bar — appears when 1+ rows are selected.
 //
-// Sticky at the bottom of the viewport so the actions stay reachable
-// while the user works through a long list. Contains the selected
-// count, "Delete selected", "Export selected" (JSON/CSV format menu),
-// and an explicit "Deselect all" (X) button — clicking the header
-// checkbox again also clears the selection. The "Move to category"
-// dropdown was removed with the flat-list redesign (categories are no
-// longer part of the UI).
+// Sticky at the bottom of the viewport (position: sticky, rendered as
+// a DIRECT child of the page column in Vocabulary.tsx — NOT wrapped in
+// an absolute container, which used to anchor it to the bottom of the
+// content and made it scroll away with the page). sticky bottom-4 pins
+// it near the viewport bottom while the column is in view, and
+// ``mx-auto w-fit`` centers it on the column — which is itself
+// centered (max-w-2xl mx-auto) in the main content area — so it stays
+// centered relative to the CONTENT in both sidebar states.
+//
+// Contains the selected count, "Delete selected", "Export selected"
+// (JSON/CSV format menu), and an explicit "Deselect all" (X) button —
+// clicking the header checkbox again also clears the selection. The
+// "Move to category" dropdown was removed with the flat-list redesign
+// (categories are no longer part of the UI).
 import {
 	Cancel01Icon,
 	Delete01Icon,
@@ -42,9 +49,11 @@ export function VocabBulkBar({
 			data-testid="vocab-bulk-bar"
 			// Border is exactly 1px — the old `ring-1 ring-foreground/5`
 			// stacked a second outline on top of the border and read as a
-			// thicker/inconsistent stroke. Centering is handled by the
-			// page column's `relative` wrapper (Vocabulary.tsx), so the bar
-			// stays centered on the content area in both sidebar states.
+			// thicker/inconsistent stroke. sticky bottom-4 (as a direct
+			// child of the page column, which is centered in the main
+			// content area) keeps the bar pinned near the viewport bottom
+			// AND centered on the content in both sidebar states — see the
+			// module docstring.
 			className="sticky bottom-4 z-20 mx-auto flex w-fit max-w-full flex-wrap items-center gap-2 rounded-2xl border border-border/10 bg-popover px-3 py-2 shadow-lg"
 		>
 			<span className="px-1 text-xs font-medium text-(--text-muted)">

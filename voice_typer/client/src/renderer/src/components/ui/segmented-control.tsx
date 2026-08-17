@@ -27,7 +27,9 @@ import { getLocale, isRtlLocale } from "@/i18n/i18n";
  * Two variants:
  * - ``"default"`` (``rounded-full`` pill container with a sliding accent
  *   pill indicator).  Used for inline setting options (recording mode,
- *   bubble position, tray click, etc.).
+ *   bubble position, tray click, etc.). Set ``radius="sm"`` for a
+ *   subtle ~4px corner rounding instead of the pill (used by the
+ *   Analytics range selector).
  * - ``"tabs"`` (no container background/border, labels sit flush with
  *   the page edge).  Used for page-level tab switches (Settings tabs).
  *   The indicator becomes a bottom-aligned bar rather than a pill.
@@ -69,6 +71,14 @@ export interface SegmentedControlProps<T extends string> {
 	variant?: "default" | "tabs";
 	/** Optional ``aria-label`` for the radiogroup container. */
 	ariaLabel?: string;
+	/**
+	 * Corner treatment of the ``"default"`` variant. ``"pill"`` (the
+	 * default) is fully rounded; ``"sm"`` is a subtle ~4px rounding on
+	 * all four corners (rectangle, not a pill). Ignored for
+	 * ``variant="tabs"`` (which has no container rounding).
+	 * @default "pill"
+	 */
+	radius?: "pill" | "sm";
 	/** Optional wrapper className. */
 	className?: string;
 	/**
@@ -111,12 +121,12 @@ export interface SegmentedControlProps<T extends string> {
 	 */
 	getPanelId?: (value: T) => string;
 }
-
 export function SegmentedControl<T extends string>({
 	options,
 	value,
 	onChange,
 	variant = "default",
+	radius = "pill",
 	ariaLabel,
 	className,
 	indicatorClassName,
@@ -299,7 +309,13 @@ export function SegmentedControl<T extends string>({
 			className={cn(
 				"relative inline-flex items-center",
 				variant === "default" &&
-					"rounded-full border border-border/10 bg-input/50 p-0.75",
+					// SURFACE-FIX: use the standard card/surface token
+					// (bg-(--bg-subtle)) instead of bg-input/50 — the input
+					// wash rendered visibly different from the stat cards
+					// on the Analytics page.
+					(radius === "sm"
+						? "rounded-[4px] border border-border/10 bg-(--bg-subtle) p-0.5"
+						: "rounded-full border border-border/10 bg-(--bg-subtle) p-0.75"),
 				variant === "tabs" && "bg-transparent border-none rounded-none p-1",
 				className,
 			)}
@@ -310,7 +326,9 @@ export function SegmentedControl<T extends string>({
 					className={cn(
 						"pointer-events-none absolute z-0 transition-all duration-200 ease-out",
 						variant === "default" &&
-							"inset-y-0.75 rounded-full bg-primary shadow-xs",
+							(radius === "sm"
+								? "inset-y-0.5 rounded-[4px] bg-primary shadow-xs"
+								: "inset-y-0.75 rounded-full bg-primary shadow-xs"),
 						variant === "tabs" && "inset-y-1 rounded-md bg-input",
 						indicatorClassName,
 					)}
@@ -407,7 +425,9 @@ export function SegmentedControl<T extends string>({
 							// has-[:focus-visible] to style the parent label).
 							"has-focus-visible:ring-3 has-focus-visible:ring-ring has-focus-visible:outline-hidden",
 							variant === "default" &&
-								"rounded-full px-2 py-1 text-[11px] tracking-wider",
+								(radius === "sm"
+									? "rounded-[4px] px-2.5 py-1 text-[11px] tracking-wider"
+									: "rounded-full px-2 py-1 text-[11px] tracking-wider"),
 							labelClassName,
 							active && ["text-primary-foreground", activeClassName],
 							!active && "text-(--text-muted) hover:text-(--text-primary)",

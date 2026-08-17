@@ -44,8 +44,10 @@ export interface DashboardData {
 	totalChars: number;
 	totalDuration: number;
 	favoritesCount: number;
-	model: string;
-	device: string;
+	/** Active ASR model name, or null when no model is installed/selected. */
+	model: string | null;
+	/** Active compute device, or null when no model is installed/selected. */
+	device: string | null;
 	language: string;
 	currentStreak: number;
 	maxStreak: number;

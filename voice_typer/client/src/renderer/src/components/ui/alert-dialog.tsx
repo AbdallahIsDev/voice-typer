@@ -158,12 +158,17 @@ function AlertDialogAction({
 }: React.ComponentProps<typeof AlertDialogPrimitive.Action> &
 	Pick<React.ComponentProps<typeof Button>, "variant" | "size">) {
 	return (
-		<Button variant={variant} size={size} asChild>
-			<AlertDialogPrimitive.Action
-				data-slot="alert-dialog-action"
-				className={cn(className)}
-				{...props}
-			/>
+		// className routes through Button's OWN className prop (not the
+		// slotted Action element): Button applies `cn(buttonVariants(...),
+		// className)` — tailwind-merge — so a caller className that
+		// conflicts with a variant utility (e.g. overriding
+		// `text-destructive` on the destructive variant) resolves in the
+		// caller's favour deterministically. Putting it on the Action
+		// element instead made Radix Slot concatenate it AFTER Button's
+		// already-merged classes, where plain stylesheet order (not
+		// tailwind-merge) decided the winner.
+		<Button variant={variant} size={size} className={className} asChild>
+			<AlertDialogPrimitive.Action data-slot="alert-dialog-action" {...props} />
 		</Button>
 	);
 }
@@ -176,12 +181,11 @@ function AlertDialogCancel({
 }: React.ComponentProps<typeof AlertDialogPrimitive.Cancel> &
 	Pick<React.ComponentProps<typeof Button>, "variant" | "size">) {
 	return (
-		<Button variant={variant} size={size} asChild>
-			<AlertDialogPrimitive.Cancel
-				data-slot="alert-dialog-cancel"
-				className={cn(className)}
-				{...props}
-			/>
+		// See AlertDialogAction — className routes through Button's own
+		// className prop so tailwind-merge resolves variant conflicts
+		// (e.g. overriding the outline variant's border / text colour).
+		<Button variant={variant} size={size} className={className} asChild>
+			<AlertDialogPrimitive.Cancel data-slot="alert-dialog-cancel" {...props} />
 		</Button>
 	);
 }

@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
+import { cn } from "@/lib/utils";
 
 interface ConfirmDialogProps {
 	open: boolean;
@@ -77,7 +78,20 @@ export default function ConfirmDialog({
 					{/* Cancel button has NO onClick — handleOpenChange
                                             calls onCancel when the dialog closes. Letting Radix
                                             trigger onOpenChange(false) is the single close signal. */}
-					<AlertDialogCancel>{cancelLabel}</AlertDialogCancel>
+					{/* Tertiary treatment (ghost + muted-until-hover), NOT the
+					    default outline variant: no border, no fill, muted
+					    text at rest, brightening to the primary text colour
+					    (with a subtle background) on hover — consistent with
+					    the app's secondary buttons (e.g. the header Import /
+					    Export controls). The old outline styling kept a
+					    visible border + solid white text at all times, which
+					    competed with the destructive action for prominence. */}
+					<AlertDialogCancel
+						variant="ghost"
+						className="text-(--text-muted) hover:bg-foreground/5 hover:text-(--text-primary)"
+					>
+						{cancelLabel}
+					</AlertDialogCancel>
 					<AlertDialogAction
 						// map variant through to the button's
 						// cva variant. destructive → destructive, warning →
@@ -89,6 +103,20 @@ export default function ConfirmDialog({
 						// safe primary action.
 						variant={variant}
 						onClick={handleConfirm}
+						// Destructive/warning actions render on a tinted
+						// background (bg-destructive/10 / bg-warning/15). The
+						// variant's own tinted text (text-destructive /
+						// text-warning) sits on that same-colour wash and reads
+						// poorly (red-on-red). Override the label to the
+						// primary text colour — white on the dark theme's
+						// maroon wash, near-black on the light theme's pink
+						// wash — keeping the tinted background as the
+						// destructive signal while making the label legible at
+						// rest, not just on hover.
+						className={cn(
+							(variant === "destructive" || variant === "warning") &&
+								"text-(--text-primary)",
+						)}
 					>
 						{confirmLabel}
 					</AlertDialogAction>

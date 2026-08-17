@@ -145,9 +145,7 @@ pub(crate) async fn spawn_worker_release(
         {
             Ok(Some(event)) => {
                 let line = match event {
-                    CommandEvent::Stdout(bytes) => {
-                        String::from_utf8_lossy(&bytes).into_owned()
-                    }
+                    CommandEvent::Stdout(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
                     CommandEvent::Stderr(bytes) => {
                         let s = String::from_utf8_lossy(&bytes).into_owned();
                         log::debug!("[WORKER] stderr: {}", s.trim());

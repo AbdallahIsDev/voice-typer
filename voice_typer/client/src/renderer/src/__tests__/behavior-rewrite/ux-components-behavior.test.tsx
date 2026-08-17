@@ -1085,15 +1085,12 @@ describe("Vocabulary — rewrite of help-text tests", () => {
 	it("renders trigger + replacement inputs with i18n placeholders in the inline quick-add row", async () => {
 		// Replaces test_vocabulary_dialog_has_help_text.
 		//
-		// Python invariants (unchanged — still satisfied):
-		//   - 't("vocabulary.triggerHelp")' in vocab (VocabDialog edit
-		//     modal)
-		//   - 't("vocabulary.replacementHelp")' in vocab (VocabDialog
-		//     edit modal)
-		// The ADD path moved from the disconnected modal to the inline
-		// quick-add row (the list stays visible while adding), so the
-		// discoverability role is now carried by the i18n placeholders
-		// on the row's two inputs instead of modal help text.
+		// The EDIT modal (VocabDialog) was removed entirely — BOTH add
+		// and edit use the same inline-row treatment (VocabInlineForm),
+		// so no modal help text exists anymore: the discoverability
+		// role is carried by the i18n placeholders on the row's two
+		// inputs (the old triggerHelp/replacementHelp sentences were
+		// dropped with the dialog — see the vocabulary i18n keys).
 		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
 		renderWithProviders(<VocabularyPage />);
 

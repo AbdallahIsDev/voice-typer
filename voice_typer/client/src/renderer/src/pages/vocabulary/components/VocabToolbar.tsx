@@ -1,12 +1,25 @@
-// Toolbar (Import / Export / Add buttons) for the Vocabulary page.
+// Toolbar (Import / Export / Add / Clear All buttons) for the
+// Vocabulary page.
 //
 // Extracted from the former monolithic ``pages/Vocabulary.tsx``. The
 // hidden ``<input type="file">`` for Import is rendered once here and
 // re-used — its ``value`` is reset after each ``onChange`` so re-
 // selecting the same file fires the event again (otherwise the OS
 // picker suppresses the event if the path is unchanged).
+//
+// Hierarchy (all four buttons carry an icon + label): Import / Export /
+// Clear All are grouped as secondary outline actions in their own flex
+// container; "Add Word" sits OUTSIDE that group as a sibling, and the
+// parent row uses ``justify-between`` so Add Word (the PRIMARY action,
+// filled accent button) is pushed to the far right while the other
+// three stay grouped together on the left. No divider pipes between
+// buttons — spacing + the primary/secondary split carry the grouping.
 
-import { Add01Icon } from "@hugeicons/core-free-icons";
+import {
+	Add01Icon,
+	Delete01Icon,
+	Upload01Icon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { RefObject } from "react";
 
@@ -40,70 +53,81 @@ export function VocabToolbar({
 	clearAllDisabled,
 }: VocabToolbarProps) {
 	return (
-		<div className="flex flex-wrap items-center gap-2">
-			{/* Hidden file input for the Import button (mirrors
-		the Templates pattern). */}
-			<input
-				ref={importInputRef}
-				type="file"
-				accept="application/json,.json,.csv,text/csv"
-				className="sr-only"
-				onChange={(e) => {
-					const file = e.target.files?.[0];
-					onImportFile(file);
-				}}
-				aria-hidden="true"
-				tabIndex={-1}
-			/>
+		<div className="flex flex-wrap items-center justify-between gap-2">
+			{/* Secondary-action group (Import / Export / Clear All) — one
+			    flex container so the three stay clustered on the left
+			    while the primary Add Word action is pushed to the far
+			    right by the parent's justify-between. */}
+			<div className="flex flex-wrap items-center gap-2">
+				{/* Hidden file input for the Import button (mirrors
+			the Templates pattern). */}
+				<input
+					ref={importInputRef}
+					type="file"
+					accept="application/json,.json,.csv,text/csv"
+					className="sr-only"
+					onChange={(e) => {
+						const file = e.target.files?.[0];
+						onImportFile(file);
+					}}
+					aria-hidden="true"
+					tabIndex={-1}
+				/>
+				<Button
+					variant="outline"
+					size="sm"
+					onClick={onImportClick}
+					aria-label={t("common.importAria")}
+					className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
+				>
+					<HugeiconsIcon
+						icon={Upload01Icon}
+						strokeWidth={2}
+						aria-hidden="true"
+						className="size-4"
+					/>
+					{t("common.import")}
+				</Button>
+				<ExportFormatMenu onExport={onExport} disabled={exportDisabled} />
+				<Button
+					variant="outline"
+					size="sm"
+					onClick={onClearAll}
+					disabled={clearAllDisabled}
+					// Destructive-tinted affordance for the destructive
+					// "clear every entry" action (mirrors the
+					// Troubleshooting section's destructive styling).
+					className="gap-2 text-(--text-muted) hover:text-destructive hover:border-destructive/40"
+					aria-label={t("vocabulary.clearAllAria")}
+					title={t("vocabulary.clearAllAria")}
+				>
+					<HugeiconsIcon
+						icon={Delete01Icon}
+						strokeWidth={2}
+						aria-hidden="true"
+						className="size-4"
+					/>
+					{t("vocabulary.clearAll")}
+				</Button>
+			</div>
+			{/* Primary action — filled accent button, pushed to the far end
+			    of the row (justify-between) so it reads as THE action on
+			    this page, distinct from the Import/Export/Clear All
+			    cluster on the left. */}
 			<Button
-				variant="outline"
-				size="sm"
-				onClick={onImportClick}
-				aria-label={t("common.importAria")}
-				className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
-			>
-				{/* Import icon omitted — label is sufficient. */}
-				{t("common.import")}
-			</Button>
-			<ExportFormatMenu onExport={onExport} disabled={exportDisabled} />
-			{/* Vertical divider separating the read/import actions from
-			    the destructive Clear All affordance — the destructive
-			    button gets pushed to the far end of the toolbar so the
-			    destructive zone is visually distinct from the create
-			    action (mirrors the History action row). ``hidden sm:block``
-			    keeps the divider from dangling at the start of a wrapped
-			    line when the toolbar wraps on very narrow windows. */}
-			<Button
-				variant="outline"
+				variant="default"
 				size="sm"
 				onClick={onAdd}
 				disabled={addDisabled}
-				// FIX: muted text/icon by default, white on hover —
-				// matches the sibling Export button (also fixed in
-				// ExportFormatMenu) and the outline-button style
-				// used across other pages.
-				className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
+				className="gap-2"
 			>
-				<HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="h-4 w-4" />
+				<HugeiconsIcon
+					icon={Add01Icon}
+					strokeWidth={2}
+					aria-hidden="true"
+					className="size-4"
+				/>
 				{t("vocabulary.addWord")}
-			</Button>
-			<div
-				aria-hidden="true"
-				className="mx-0.5 hidden h-4 w-px bg-border sm:block"
-			/>
-			<Button
-				variant="outline"
-				size="sm"
-				onClick={onClearAll}
-				disabled={clearAllDisabled}
-				// Destructive-tinted affordance for the destructive
-				// "clear every entry" action (mirrors the
-				// Troubleshooting section's destructive styling).
-				className="gap-2 text-(--text-muted) hover:text-destructive hover:border-destructive/40"
-				aria-label={t("vocabulary.clearAllAria")}
-				title={t("vocabulary.clearAllAria")}
-			>
-				{t("vocabulary.clearAll")}
 			</Button>
 		</div>
 	);

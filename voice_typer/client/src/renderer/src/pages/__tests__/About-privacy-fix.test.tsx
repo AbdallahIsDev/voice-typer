@@ -70,13 +70,13 @@ describe("About page — BG-59 privacy URL fix", () => {
 		});
 
 		// The "Full Privacy Policy" button is gone — the i18n key
-		// (about.fullPrivacyPolicy) is still in en.json for
-		// backwards-compat with other locales, but the UI no longer
-		// renders it.
+		// (about.fullPrivacyPolicy) was removed from every locale
+		// (unused dead key, cleaned up with the note removal), and
+		// the UI renders no "Full Privacy Policy" surface at all.
 		expect(screen.queryByText("Full Privacy Policy")).toBeNull();
 	});
 
-	it("renders the explanatory note pointing users to the Security Policy in Resources", async () => {
+	it("does NOT render the 'See the full privacy policy below' note (removed — the full privacy content is already shown inline above it)", async () => {
 		const { default: AboutPage } = await import("@/pages/About");
 		render(<AboutPage />);
 
@@ -84,14 +84,12 @@ describe("About page — BG-59 privacy URL fix", () => {
 			expect(screen.getByRole("heading", { name: "Privacy" })).toBeTruthy();
 		});
 
-		// The Privacy section body now includes a "Full policy." label
-		// followed by the explanatory note. The note explicitly mentions
-		// the Security Policy so users know where to find the full
-		// document.
-		expect(screen.getByText("Privacy policy")).toBeTruthy();
-		const note = screen.getByText(/See the full privacy policy below/);
-		expect(note).toBeTruthy();
-		expect(note.textContent).toContain("privacy policy");
+		// The trailing "Privacy policy — See the full privacy policy
+		// below…" line pointed at nothing (the full disclosure is
+		// rendered in the rows above it). Both the label and the note
+		// are gone; the Security Policy link lives in Resources.
+		expect(screen.queryByText("Privacy policy")).toBeNull();
+		expect(screen.queryByText(/See the full privacy policy below/)).toBeNull();
 	});
 
 	it("still renders the Security Policy button in the Resources section", async () => {

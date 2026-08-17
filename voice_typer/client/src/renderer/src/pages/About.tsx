@@ -9,18 +9,19 @@
 // and the prewarm/update features are available from Settings →
 // Troubleshooting (which already links back here for Diagnostics).
 //
-// Layout: page heading + sticky in-page section nav, then Diagnostics,
-// Privacy (icon cards), Resources & Feedback (icon links), and Credits &
-// Licenses. Diagnostics rows carry live status dots; Credits is framed
-// differently so the static attribution reads as a different surface.
+// Layout: page heading, then Diagnostics (live status rows), Privacy
+// (topic rows with thin dividers), and Resources & Feedback (a tidy
+// 2-column button grid). All section cards carry the same border
+// treatment (see SettingsSection) so the page reads consistently.
 //
 // Config Directory fix: the backend's get_status now returns `config_dir`
 // (see voice_typer/server/service/status.py). Previously the renderer
 // expected a field the backend never sent, so the row stuck on "Loading…".
 import {
-	Alert02Icon,
 	ArrowUpRight01Icon,
 	Book01Icon,
+	Bug02Icon,
+	BulbIcon,
 	Clock01Icon,
 	CloudIcon,
 	CodeIcon,
@@ -51,7 +52,10 @@ import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { getLocale, t, useT } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
+import { formatDevice } from "@/lib/utils/configDisplay";
+import { resolveActiveModel } from "@/lib/utils/models";
 import type { VoiceTyperConfig } from "@/types/config";
+import type { ModelStatusMap } from "@/types/ipc";
 
 // VERSION-SOURCE-FIX: import the version directly from package.json so
 // it stays in sync with the single source of truth. Previously this
@@ -92,15 +96,6 @@ const DOCUMENTATION_URL =
 // We now render only the Security Policy button (in Resources) and add
 // a one-line note in the Privacy section body explaining that
 // SECURITY.md covers privacy practices too.
-
-/** In-page section anchors (sticky sub-nav targets). */
-const SECTIONS = [
-	{ id: "about-top", labelKey: "about.title" },
-	{ id: "about-diagnostics", labelKey: "about.diagnosticsTitle" },
-	{ id: "about-privacy", labelKey: "about.privacyTitle" },
-	{ id: "about-resources", labelKey: "about.resourcesTitle" },
-	{ id: "about-credits", labelKey: "about.creditsTitle" },
-] as const;
 
 function StatusDot({ connected }: { connected: boolean }) {
 	return (
@@ -191,7 +186,20 @@ const RESOURCE_LINKS = [
 	},
 	{ href: CHANGELOG_URL, icon: Clock01Icon, label: "about.viewChangelog" },
 	{ href: GITHUB_REPO, icon: CodeIcon, label: "about.githubRepository" },
-	{ href: GITHUB_ISSUES, icon: Alert02Icon, label: "about.reportBug" },
+	// Report a Bug / Request a Feature are split into two intent-specific
+	// buttons with label-based GitHub issue links (?labels=… works on any
+	// repo without depending on template filenames) and matching icons:
+	// a bug for reports, a lightbulb for feature ideas.
+	{
+		href: `${GITHUB_ISSUES}/new?labels=bug`,
+		icon: Bug02Icon,
+		label: "about.reportBug",
+	},
+	{
+		href: `${GITHUB_ISSUES}/new?labels=enhancement`,
+		icon: BulbIcon,
+		label: "about.requestFeature",
+	},
 	{ href: SECURITY_URL, icon: LockIcon, label: "about.securityPolicy" },
 	{ href: CONTRIBUTING_URL, icon: UserGroupIcon, label: "about.contributing" },
 ] as const;
@@ -310,6 +318,10 @@ export default function AboutPage() {
 	// the active model's loaded_via string (e.g.
 	// "cuda/float16/small.en" or "cpu/int8/tiny.en").
 	const [loadedVia, setLoadedVia] = useState<string>("");
+	// get_model_status install truth — the SHARED source (with the
+	// Analytics page) for whether a model is actually on disk. null
+	// until resolved; treated as "nothing installed" on failure.
+	const [modelStatus, setModelStatus] = useState<ModelStatusMap | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -351,6 +363,17 @@ export default function AboutPage() {
 				// show "—" until the backend comes back online.
 				console.warn("[renderer:About] get_config failed:", e);
 			}
+
+			// Best-effort model-install truth (the same IPC the
+			// Analytics / Models pages use). On failure treat as
+			// nothing installed — fail-safe: never advertise a model
+			// whose weights we can't verify on disk.
+			try {
+				const ms = await callRef.current<ModelStatusMap>("get_model_status");
+				if (!cancelled) setModelStatus(ms ?? {});
+			} catch {
+				if (!cancelled) setModelStatus({});
+			}
 		};
 
 		load();
@@ -359,10 +382,30 @@ export default function AboutPage() {
 		};
 	}, []);
 
-	const asrBackend = config
-		? `${config.asr_backend} (${config.model_size})`
-		: t("about.unknown");
-	const device = config?.device ?? t("about.unknown");
+	// SHARED model-install truth (lib/utils/models.ts): the config's
+	// model_size / device defaults ("tiny" / "cuda") are NOT install
+	// state — only surface a real value when get_model_status says the
+	// configured model's weights are on disk. This is the SAME function
+	// the Analytics page's Current Setup cards use, so both pages
+	// derive from one source of truth and can't disagree.
+	const activeModel = resolveActiveModel(
+		config?.model_size ?? "",
+		modelStatus ?? {},
+		config?.device,
+	);
+	// Speech-recognizer row: "<backend> (<model>)" only when a model is
+	// genuinely installed; "Not selected" otherwise (matches Analytics).
+	const asrBackend = !config
+		? t("about.unknown")
+		: activeModel.model
+			? `${config.asr_backend} (${activeModel.model})`
+			: t("about.notSelected");
+	// Display name ("cuda" → "GPU") — the config value stays as-is.
+	const device = !config
+		? t("about.unknown")
+		: activeModel.device
+			? formatDevice(activeModel.device)
+			: t("about.notSelected");
 	const hotkey = config?.hotkey ?? t("about.unknown");
 	const microphone = config?.microphone ?? t("microphone.systemDefault");
 
@@ -401,7 +444,7 @@ export default function AboutPage() {
 			`${APP_NAME} ${t("about.versionValue", { version: APP_VERSION })} — ${t("about.diagnosticsTitle")}`,
 			"=".repeat(28),
 			`${t("about.appVersion")}: ${t("about.versionValue", { version: APP_VERSION })}`,
-			`${t("about.pythonBackend")}: ${backendLabel}`,
+			`${t("about.backend")}: ${backendLabel}`,
 			`${t("about.configDirectory")}: ${configDir || t("about.unknown")}`,
 			`${t("about.asrBackend")}: ${asrBackend}`,
 			`${t("about.device")}: ${device}`,
@@ -449,244 +492,170 @@ export default function AboutPage() {
 				Microphone, Dashboard. Previously About dropped the flex
 				wrapper, leaving an empty gap below short content. */}
 			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col space-y-8 px-6 pt-28 pb-6">
-				<div id="about-top" className="scroll-mt-28">
-					<PageHeading
-						title={t("about.title")}
-						description={t("about.description")}
-					/>
-				</div>
-
-				{/* Sticky in-page section nav — jump to a section without
-				    scrolling the whole long page. */}
-				<nav
-					aria-label={t("about.sectionNavLabel")}
-					className="sticky top-0 z-20 rounded-lg border border-border/10 bg-(--bg-subtle)/90 backdrop-blur-sm"
-				>
-					<ul className="flex flex-wrap items-center gap-0.5 px-1.5 py-1.5">
-						{SECTIONS.map((section) => (
-							<li key={section.id}>
-								<a
-									href={`#${section.id}`}
-									className="inline-flex cursor-pointer items-center rounded-full px-2.5 py-1 text-xs font-medium text-(--text-muted) transition-colors hover:bg-foreground/5 hover:text-(--text-primary) focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
-								>
-									{t(section.labelKey)}
-								</a>
-							</li>
-						))}
-					</ul>
-				</nav>
+				<PageHeading
+					title={t("about.title")}
+					description={t("about.description")}
+				/>
 
 				{/* ── Diagnostics ───────────────────────────────────────── */}
-				<div id="about-diagnostics" className="scroll-mt-28">
-					<SettingsSection
-						title={t("about.diagnosticsTitle")}
-						description={t("about.diagnosticsDescription")}
-						action={
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={copyDiagnostics}
-								className="shrink-0 gap-1.5 text-(--text-muted) hover:text-(--text-primary)"
-							>
-								<HugeiconsIcon
-									icon={Copy01Icon}
-									strokeWidth={2}
-									aria-hidden="true"
-									className="size-4"
-								/>
-								{t("about.copyDiagnostics")}
-							</Button>
-						}
-					>
-						<ReadonlyRow
-							variant="label-emphasized"
-							label={t("about.appVersion")}
-							value={t("about.versionValue", { version: APP_VERSION })}
-						/>
-						<ReadonlyRow
-							variant="label-emphasized"
-							label={t("about.pythonBackend")}
-							value={backendStatus}
-						/>
-						<ReadonlyRow
-							variant="label-emphasized"
-							label={t("about.configDirectory")}
-							value={configDirValue}
-						/>
-						<ReadonlyRow
-							variant="label-emphasized"
-							label={t("about.asrBackend")}
-							value={asrBackend}
-						/>
-						<ReadonlyRow
-							variant="label-emphasized"
-							label={t("about.device")}
-							value={device}
-						/>
-						{/* show which device/compute_type the model
+				<SettingsSection
+					title={t("about.diagnosticsTitle")}
+					description={t("about.diagnosticsDescription")}
+					action={
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={copyDiagnostics}
+							className="shrink-0 gap-1.5 text-(--text-muted) hover:text-(--text-primary)"
+						>
+							<HugeiconsIcon
+								icon={Copy01Icon}
+								strokeWidth={2}
+								aria-hidden="true"
+								className="size-4"
+							/>
+							{t("about.copyDiagnostics")}
+						</Button>
+					}
+				>
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={t("about.appVersion")}
+						value={t("about.versionValue", { version: APP_VERSION })}
+					/>
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={t("about.backend")}
+						value={backendStatus}
+					/>
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={t("about.configDirectory")}
+						value={configDirValue}
+					/>
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={t("about.asrBackend")}
+						value={asrBackend}
+					/>
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={t("about.device")}
+						value={device}
+					/>
+					{/* show which device/compute_type the model
 							actually loaded via. Hidden entirely when the
 							backend reported nothing (no model loaded yet) —
 							a bare "—" would be confusing. */}
-						{loadedVia && (
-							<>
-								<ReadonlyRow
-									variant="label-emphasized"
-									label={t("about.loadedVia")}
-									value={<LiveValue present>{loadedVia}</LiveValue>}
-								/>
-								<p className="px-3.5 pb-2.5 text-xs text-(--text-muted)">
-									{t("about.loadedViaHint")}
-								</p>
-							</>
-						)}
-						<ReadonlyRow
-							variant="label-emphasized"
-							label={t("about.hotkey")}
-							// Render the configured hotkey as design-system Kbd
-							// chips (same primitive as Home / the Help overlay),
-							// normalized + platform-formatted via formatHotkey.
-							value={<HotkeyChips keys={formatHotkey(hotkey)} />}
-						/>
-						<ReadonlyRow
-							variant="label-emphasized"
-							label={t("about.microphone")}
-							value={microphone}
-						/>
-					</SettingsSection>
-				</div>
+					{loadedVia && (
+						<>
+							<ReadonlyRow
+								variant="label-emphasized"
+								label={t("about.loadedVia")}
+								value={<LiveValue present>{loadedVia}</LiveValue>}
+							/>
+							<p className="px-3.5 pb-2.5 text-xs text-(--text-muted)">
+								{t("about.loadedViaHint")}
+							</p>
+						</>
+					)}
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={t("about.hotkey")}
+						// Render the configured hotkey as design-system Kbd
+						// chips (same primitive as Home / the Help overlay),
+						// normalized + platform-formatted via formatHotkey.
+						value={<HotkeyChips keys={formatHotkey(hotkey)} />}
+					/>
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={t("about.microphone")}
+						value={microphone}
+					/>
+				</SettingsSection>
 
 				{/* ── Privacy ──────────────────────────────────────────── */}
 				{/* expanded privacy disclosure. */}
-				<div id="about-privacy" className="scroll-mt-28">
-					<SettingsSection
-						title={t("about.privacyTitle")}
-						description={t("about.privacyDescription")}
-					>
-						{/* Five distinct topic blocks, each with a small icon —
-						    layout-only restructure; the legal copy itself is
-						    untouched (same i18n strings, verbatim). */}
-						<div className="space-y-3 px-3.5 py-3.5">
-							{PRIVACY_TOPICS.map((topic) => (
-								<div
-									key={topic.title}
-									className="flex gap-3 rounded-lg border border-border/10 bg-(--bg-subtle) p-3"
-								>
-									<span
-										aria-hidden="true"
-										className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent"
-									>
-										<HugeiconsIcon
-											icon={topic.icon}
-											strokeWidth={2}
-											className="size-4"
-										/>
-									</span>
-									<div className="min-w-0 text-sm leading-relaxed text-(--text-muted)">
-										<p className="font-medium text-(--text-primary)">
-											{t(topic.title)}
-										</p>
-										{/* max-w-prose: keep paragraph line length
-										    readable; the cards can stay full width. */}
-										<p className="mt-1 max-w-prose">
-											{t(topic.desc, {
-												// R7-F15: fall back to "Loading…" while configDir is empty.
-												configDir: configDir || t("about.loading"),
-											})}
-										</p>
-									</div>
-								</div>
-							))}
-							{/* SECURITY.md is the canonical privacy +
-							 * security policy doc in this repo (there is no
-							 * separate PRIVACY.md). Previously this section
-							 * had a "Full Privacy Policy" button that pointed
-							 * at the same SECURITY.md as the Resources section's
-							 * "Security Policy" button — confusing UX. We now
-							 * point users to the Security Policy button below
-							 * instead of rendering a duplicate. */}
-							<p className="max-w-prose text-sm leading-relaxed text-(--text-muted)">
-								<span className="font-medium text-(--text-primary)">
-									{t("about.privacyPolicyNoteLabel")}
-								</span>{" "}
-								{t("about.privacyPolicyNote")}
-							</p>
+				<SettingsSection
+					title={t("about.privacyTitle")}
+					description={t("about.privacyDescription")}
+				>
+					{/* Five topics as plain rows — the section card's divide-y
+					    supplies the thin dividers; no per-topic box or
+					    background. Icons render directly (no chip), slightly
+					    larger, in the standard muted icon tone. The legal
+					    copy is untouched (same i18n strings, verbatim). */}
+					{PRIVACY_TOPICS.map((topic) => (
+						<div key={topic.title} className="flex gap-3 px-3.5 py-3.5">
+							<HugeiconsIcon
+								icon={topic.icon}
+								strokeWidth={1.75}
+								aria-hidden="true"
+								className="mt-0.5 size-5 shrink-0 text-(--text-muted)"
+							/>
+							<div className="min-w-0 text-sm leading-relaxed text-(--text-muted)">
+								<p className="font-medium text-(--text-primary)">
+									{t(topic.title)}
+								</p>
+								{/* max-w-prose: keep paragraph line length
+								    readable; the rows can stay full width. */}
+								<p className="mt-1 max-w-prose">
+									{t(topic.desc, {
+										// R7-F15: fall back to "Loading…" while configDir is empty.
+										configDir: configDir || t("about.loading"),
+									})}
+								</p>
+							</div>
 						</div>
-					</SettingsSection>
-				</div>
+					))}
+				</SettingsSection>
 
 				{/* ── Resources ────────────────────────────────────────── */}
-				{/* feedback channels. */}
-				<div id="about-resources" className="scroll-mt-28">
-					<SettingsSection
-						title={t("about.resourcesTitle")}
-						description={t("about.resourcesDescription")}
-					>
-						<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5">
-							{RESOURCE_LINKS.map((link) => (
-								<Button
-									key={link.href}
-									asChild
-									variant="outline"
-									size="sm"
-									className="gap-1.5 text-(--text-muted) hover:text-(--text-primary)"
-								>
-									<a href={link.href} target="_blank" rel="noreferrer noopener">
-										<HugeiconsIcon
-											icon={link.icon}
-											strokeWidth={2}
-											aria-hidden="true"
-											className="size-4"
-										/>
-										{t(link.label)}
-										{/* external-link indicator — all of these
-										    navigate away from the app. */}
-										<HugeiconsIcon
-											icon={ArrowUpRight01Icon}
-											strokeWidth={2.25}
-											aria-hidden="true"
-											className="size-3 opacity-60"
-										/>
-									</a>
-								</Button>
-							))}
-						</div>
-					</SettingsSection>
-				</div>
-
-				{/* ── Credits & Licenses ───────────────────────────────── */}
-				{/* surface authors, third-party
-				 * libraries, fonts, and icons so users can see what
-				 * Voice Typer is built on without leaving the app. Framed
-				 * differently from the Diagnostics card so the static
-				 * attribution reads as a distinct surface. */}
-				<div id="about-credits" className="scroll-mt-28">
-					<SettingsSection
-						title={t("about.creditsTitle")}
-						description={t("about.creditsDescription")}
-						cardClassName="border border-border/10 bg-(--bg-subtle)/60"
-					>
-						<ReadonlyRow
-							variant="label-emphasized"
-							label={t("about.creditsAuthorsLabel")}
-							value={t("about.creditsAuthorsValue")}
-						/>
-						<ReadonlyRow
-							variant="label-emphasized"
-							label={t("about.creditsLibrariesLabel")}
-							value={t("about.creditsLibrariesValue")}
-						/>
-						<ReadonlyRow
-							variant="label-emphasized"
-							label={t("about.creditsFontsLabel")}
-							value={t("about.creditsFontsValue")}
-						/>
-						<ReadonlyRow
-							variant="label-emphasized"
-							label={t("about.creditsIconsLabel")}
-							value={t("about.creditsIconsValue")}
-						/>
-					</SettingsSection>
-				</div>
+				{/* feedback channels — a tidy 2-column grid with each
+				   button at equal width. 7 links after the bug/feature
+				   split: 3 rows of 2, then the last link (Contributing)
+				   spans the full row so nothing orphans at half width. */}
+				<SettingsSection
+					title={t("about.resourcesTitle")}
+					description={t("about.resourcesDescription")}
+				>
+					<div className="grid grid-cols-2 gap-2 px-3.5 py-3.5">
+						{RESOURCE_LINKS.map((link, index) => (
+							<Button
+								key={link.href}
+								asChild
+								variant="outline"
+								size="sm"
+								className={cn(
+									// 7 links after the bug/feature split: 3
+									// tidy rows of 2, plus the last link
+									// (Contributing) spanning the full row so
+									// nothing orphans at half width.
+									index === RESOURCE_LINKS.length - 1 ? "col-span-2" : "",
+									"w-full justify-start gap-1.5 text-(--text-muted) hover:text-(--text-primary)",
+								)}
+							>
+								<a href={link.href} target="_blank" rel="noreferrer noopener">
+									<HugeiconsIcon
+										icon={link.icon}
+										strokeWidth={2}
+										aria-hidden="true"
+										className="size-4 shrink-0"
+									/>
+									<span className="min-w-0 truncate">{t(link.label)}</span>
+									{/* external-link indicator — all of these
+									    navigate away from the app. */}
+									<HugeiconsIcon
+										icon={ArrowUpRight01Icon}
+										strokeWidth={2.25}
+										aria-hidden="true"
+										className="size-3 shrink-0 opacity-60"
+									/>
+								</a>
+							</Button>
+						))}
+					</div>
+				</SettingsSection>
 			</div>
 		</div>
 	);

@@ -133,7 +133,7 @@ describe("Vocabulary page — display cap + Show more", () => {
 		expect(screen.queryByText("Show more")).toBeNull();
 	});
 
-	it("keeps the total entry count visible during search", async () => {
+	it("folds the total entry count into the search placeholder", async () => {
 		mockCall.mockImplementation((arg: unknown) => {
 			const type =
 				typeof arg === "string"
@@ -152,17 +152,16 @@ describe("Vocabulary page — display cap + Show more", () => {
 			expect(screen.getByText("word0")).toBeTruthy();
 		});
 
-		// The count label in the search/filter row is visible with 5
-		// corrections (reworded from "entries" — the list counts
-		// corrections).
-		expect(screen.getByTestId("vocab-entry-count").textContent).toBe(
-			"5 corrections",
-		);
+		// No standalone count label — the total is folded into the
+		// search placeholder ("Search 5 corrections…"), updated live as
+		// entries are added/removed.
+		expect(screen.queryByTestId("vocab-entry-count")).toBeNull();
+		expect(screen.getByPlaceholderText("Search 5 corrections")).toBeTruthy();
 
-		// Type a search query that matches nothing — the count updates
-		// live to reflect the filter ("0 of 5 corrections") so the user
-		// still knows the total behind the empty state.
-		const searchInput = screen.getByPlaceholderText("Search vocabulary…");
+		// Type a search query that matches nothing — the placeholder
+		// still shows the total (the no-results empty state explains the
+		// filter); there is no filtered-count element anymore.
+		const searchInput = screen.getByPlaceholderText("Search 5 corrections");
 		fireEvent.change(searchInput, { target: { value: "zzzzznomatch" } });
 
 		// No results empty state appears.
@@ -170,9 +169,7 @@ describe("Vocabulary page — display cap + Show more", () => {
 			expect(screen.getByText("No results found")).toBeTruthy();
 		});
 
-		expect(screen.getByTestId("vocab-entry-count").textContent).toBe(
-			"0 of 5 corrections",
-		);
+		expect(screen.queryByTestId("vocab-entry-count")).toBeNull();
 	});
 
 	it("renders the noResults EmptyState with a description", async () => {
@@ -194,7 +191,7 @@ describe("Vocabulary page — display cap + Show more", () => {
 			expect(screen.getByText("word0")).toBeTruthy();
 		});
 
-		const searchInput = screen.getByPlaceholderText("Search vocabulary…");
+		const searchInput = screen.getByPlaceholderText("Search 5 corrections");
 		fireEvent.change(searchInput, { target: { value: "zzzzznomatch" } });
 
 		await waitFor(() => {
@@ -352,6 +349,49 @@ describe("Vocabulary page — Clear All + ConfirmDialog", () => {
 
 		// The success toast fired.
 		expect(toastSuccess).toHaveBeenCalledWith("Vocabulary cleared");
+	});
+
+	it("Clear All also clears the bulk selection so the floating bar disappears", async () => {
+		mockCall.mockImplementation((arg: unknown) => {
+			const type =
+				typeof arg === "string"
+					? arg
+					: ((arg as { type?: string })?.type ?? "");
+			if (type === "get_vocabulary")
+				return Promise.resolve(buildSeed(3) as VocabularyData);
+			if (type === "save_vocabulary") return Promise.resolve({ success: true });
+			return Promise.resolve({});
+		});
+
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("word0")).toBeTruthy();
+		});
+
+		// Select every row → the floating bulk bar appears.
+		fireEvent.click(screen.getByLabelText("Select all"));
+		expect(screen.queryByTestId("vocab-bulk-bar")).toBeTruthy();
+
+		// Open Clear All + confirm.
+		fireEvent.click(screen.getByLabelText("Clear all vocabulary entries"));
+		await waitFor(() => {
+			expect(screen.getByText("Clear All Vocabulary")).toBeTruthy();
+		});
+		const dialogConfirm = screen
+			.getByRole("alertdialog")
+			.querySelector("button:last-of-type");
+		expect(dialogConfirm).toBeTruthy();
+		fireEvent.click(dialogConfirm as HTMLElement);
+
+		// The list is empty AND the bulk bar is gone — a stale
+		// "N selected" bar floating over an empty list was the bug
+		// (Clear All never cleared the selection state).
+		await waitFor(() => {
+			expect(screen.queryByText("word0")).toBeNull();
+		});
+		expect(screen.queryByTestId("vocab-bulk-bar")).toBeNull();
 	});
 });
 

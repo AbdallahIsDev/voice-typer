@@ -132,6 +132,32 @@ export function contrastRatio(fg: string, bg: string): number {
 }
 
 /**
+ * Mix two hex colours (``#rgb`` / ``#rrggbb``) towards each other.
+ *
+ * ``weight`` is the fraction of ``b`` in the result: ``0`` returns
+ * ``a`` unchanged, ``1`` returns ``b``, ``0.5`` is the exact midpoint.
+ * Used to derive subtly-lighter surfaces / more-visible borders from
+ * theme tokens (e.g. framing the share-image stat cards) without
+ * hardcoding a colour — the result stays theme-driven because both
+ * inputs come from the resolved palette.
+ *
+ * Invalid inputs are treated as black (``#000000``), matching the
+ * defensive contract of the other helpers here.
+ */
+export function mixHexColors(a: string, b: string, weight: number): string {
+	const [ar, ag, ab] = _parseHex(a);
+	const [br, bg2, bb] = _parseHex(b);
+	const w = Math.min(1, Math.max(0, weight));
+	const mix = (x: number, y: number): number => Math.round(x + (y - x) * w);
+	return (
+		"#" +
+		[mix(ar, br), mix(ag, bg2), mix(ab, bb)]
+			.map((c) => c.toString(16).padStart(2, "0"))
+			.join("")
+	);
+}
+
+/**
  * Apply the sRGB transfer function (gamma encoding) to a linear value
  * in [0, 1].  Returns the gamma-encoded value in [0, 1].
  *

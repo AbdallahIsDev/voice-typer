@@ -94,10 +94,7 @@ pub(crate) const WORKER_BIN_BASE_NAME: &str = "voice-typer-worker";
 /// when they only need to read.
 pub(crate) fn worker_exe_path() -> &'static std::path::Path {
     static CACHED: OnceLock<std::path::PathBuf> = OnceLock::new();
-    CACHED.get_or_init(|| worker_exe_path_from_env(
-        worker_exe_path_env_args(),
-        &pack_version(),
-    ))
+    CACHED.get_or_init(|| worker_exe_path_from_env(worker_exe_path_env_args(), &pack_version()))
 }
 
 /// Returns the active pack version (the directory leaf name under the
@@ -141,9 +138,7 @@ pub(crate) fn worker_exe_path_from_env(
     let triple = crate::sidecar::spawn::target_triple::current_target_triple();
     let suffix = if cfg!(windows) { ".exe" } else { "" };
     let name = format!("{}-{}{}", WORKER_BIN_BASE_NAME, triple, suffix);
-    pack_dir_from_env(env)
-        .join(pack_version)
-        .join(name)
+    pack_dir_from_env(env).join(pack_version).join(name)
 }
 
 /// Per-platform runtime-pack directory (the parent of the versioned
@@ -238,7 +233,9 @@ pub(crate) fn pack_dir_from_env(env: WorkerPathEnv) -> std::path::PathBuf {
             );
             eprintln!("{}", warn_msg);
             log::warn!("{}", warn_msg);
-            return std::path::PathBuf::from(".").join(APP_SLUG).join(RUNTIME_PACK_DIR);
+            return std::path::PathBuf::from(".")
+                .join(APP_SLUG)
+                .join(RUNTIME_PACK_DIR);
         };
         std::path::PathBuf::from(home)
             .join(".local")
@@ -249,7 +246,9 @@ pub(crate) fn pack_dir_from_env(env: WorkerPathEnv) -> std::path::PathBuf {
     #[cfg(not(any(target_os = "windows", target_os = "macos", unix)))]
     {
         let _ = (home, local_appdata, xdg_data_home);
-        std::path::PathBuf::from(".").join(APP_SLUG).join(RUNTIME_PACK_DIR)
+        std::path::PathBuf::from(".")
+            .join(APP_SLUG)
+            .join(RUNTIME_PACK_DIR)
     }
 }
 

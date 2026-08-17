@@ -32,7 +32,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import ActivityList from "@/components/dashboard/ActivityList";
-import { ShareStatsMenu } from "@/components/dashboard/ShareStatsMenu";
+import { ShareStatsDialog } from "@/components/dashboard/ShareStatsDialog";
 import StatCards from "@/components/dashboard/StatCards";
 import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
 import { Spinner } from "@/components/feedback/Spinner";
@@ -50,6 +50,7 @@ import { t } from "@/i18n/i18n";
 import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
 import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import { useThemePalette } from "@/lib/theme-palette";
+import { formatDevice, formatModel } from "@/lib/utils/configDisplay";
 import { HOTKEY_DEFAULT } from "@/pages/onboarding/lib/constants";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
@@ -588,8 +589,10 @@ export default function Home() {
 		() =>
 			stats && asrBackend
 				? computeShareStats(stats, asrBackend, {
-						model: cfg?.model_size ?? "",
-						device: cfg?.device ?? "",
+						// Pre-formatted display values ("Tiny", "GPU") — the
+						// share image renders them as-is.
+						model: cfg?.model_size ? formatModel(cfg.model_size) : "",
+						device: cfg?.device ? formatDevice(cfg.device) : "",
 					})
 				: null,
 		[stats, asrBackend, cfg?.model_size, cfg?.device],
@@ -792,8 +795,10 @@ export default function Home() {
 								onRefresh={handleManualRefresh}
 								refreshing={refreshing}
 							/>
-							<ShareStatsMenu
+							<ShareStatsDialog
 								actions={shareActions}
+								stats={shareImageStats}
+								palette={themePalette}
 								disabled={
 									!cfg ||
 									!canShareStats({

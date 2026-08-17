@@ -86,20 +86,10 @@ export const TemplateListRow = memo(function TemplateListRow({
 				</div>
 			</div>
 			<div className="flex shrink-0 items-center gap-0.5">
-				<Button
-					variant="ghost"
-					size="icon-xs"
-					onClick={() => onEdit(row)}
-					className="text-(--text-muted) hover:text-(--text-secondary)"
-					title={t("templates.editTemplate")}
-					aria-label={t("templates.editAria", { name: row.trigger })}
-				>
-					<HugeiconsIcon
-						icon={PencilEdit02Icon}
-						strokeWidth={2.5}
-						className="h-4 w-4"
-					/>
-				</Button>
+				{/* Delete → Edit: the app-wide action-icon convention puts the
+				    edit pencil RIGHTMOST in the group (same rule as the
+				    Vocabulary rows) so the edit affordance sits consistently
+				    at the far edge of every row across pages. */}
 				<Button
 					variant="ghost"
 					size="icon-xs"
@@ -110,6 +100,20 @@ export const TemplateListRow = memo(function TemplateListRow({
 				>
 					<HugeiconsIcon
 						icon={Delete01Icon}
+						strokeWidth={2.5}
+						className="h-4 w-4"
+					/>
+				</Button>
+				<Button
+					variant="ghost"
+					size="icon-xs"
+					onClick={() => onEdit(row)}
+					className="text-(--text-muted) hover:text-(--text-secondary)"
+					title={t("templates.editTemplate")}
+					aria-label={t("templates.editAria", { name: row.trigger })}
+				>
+					<HugeiconsIcon
+						icon={PencilEdit02Icon}
 						strokeWidth={2.5}
 						className="h-4 w-4"
 					/>

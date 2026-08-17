@@ -29,3 +29,22 @@ Deleted (standalone "Test corrections" panel removed; per-row Test action covers
 - voice_typer/client/src/renderer/src/pages/vocabulary/hooks/useVocabularyTester.ts
 - voice_typer/client/src/renderer/src/pages/vocabulary/lib/testCorrection.ts
 - voice_typer/client/src/renderer/src/pages/vocabulary/__tests__/testCorrection.test.ts
+--- Vocabulary UI refinement pass #3 (2026-08-17) ---
+Deleted (edit MODAL removed; Add and Edit now share the inline-row pattern):
+- voice_typer/client/src/renderer/src/pages/vocabulary/components/VocabDialog.tsx
+- voice_typer/client/src/renderer/src/pages/vocabulary/hooks/useVocabularyDialog.ts
+Renamed (quick-add presentational row generalized into the shared add/edit form):
+- voice_typer/client/src/renderer/src/pages/vocabulary/components/VocabQuickAdd.tsx
+  -> VocabInlineForm.tsx (same component + testid "vocab-quick-add"; edit row uses
+     testid "vocab-edit-row", pencil submit icon, no bottom border)
+- voice_typer/client/src/renderer/src/pages/vocabulary/hooks/useVocabularyDialog.ts
+  -> useVocabularyEdit.ts (string-based handlers, editingEntry state)
+
+Analytics share upgrade (2026-08-17) — dropdown replaced by the preview popup:
+- voice_typer/client/src/renderer/src/components/dashboard/ShareStatsMenu.tsx
+  -> ShareStatsDialog.tsx (same trigger; dialog shows a live preview of the
+     exported image, orientation-aware action layout, social share targets
+     with clipboard+composer fallback). Importers updated: Dashboard.tsx,
+     Home.tsx.
+- voice_typer/client/src/renderer/src/components/dashboard/__tests__/ShareStatsMenu.test.tsx
+  -> ShareStatsDialog.test.tsx (dialog-based assertions incl. social fallback)
