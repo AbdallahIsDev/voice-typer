@@ -90,7 +90,7 @@ export function VocabSearchFilterBar({
 				<SelectContent
 					position="popper"
 					align="start"
-					className="rounded-xl border-border/10 bg-(--bg-subtle)"
+					className="rounded-xl border border-border/10 bg-(--bg-subtle)"
 				>
 					<SelectItem value="newest">{t("common.sortNewest")}</SelectItem>
 					<SelectItem value="oldest">{t("common.sortOldest")}</SelectItem>
