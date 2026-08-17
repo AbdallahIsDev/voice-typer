@@ -17,32 +17,32 @@
 //      Language) so system/config info doesn't compete with usage
 //      metrics for attention.
 
+import {
+	AiBrain03Icon,
+	AlertCircleIcon,
+	Calendar01Icon,
+	CheckmarkCircle02Icon,
+	CpuIcon,
+	Globe02Icon,
+	Mic02Icon,
+	SpeechToTextIcon,
+	StopWatchIcon,
+	TextIcon,
+	Time02Icon,
+} from "@hugeicons/core-free-icons";
+import type { CSSProperties } from "react";
+import { useMemo } from "react";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import {
-    DashboardStatCard,
-    type StatTrend,
+	DashboardStatCard,
+	type StatTrend,
 } from "@/components/dashboard/DashboardStatCard";
 import { QuickInfoCard } from "@/components/dashboard/QuickInfoCard";
 import { ShareStatsDialog } from "@/components/dashboard/ShareStatsDialog";
 import { formatCompactNumber } from "@/components/dashboard/StatCards";
 import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
 import { EmptyState } from "@/components/feedback/EmptyState";
-import {
-    AiBrain03Icon,
-    AlertCircleIcon,
-    Calendar01Icon,
-    CheckmarkCircle02Icon,
-    CpuIcon,
-    Globe02Icon,
-    Mic02Icon,
-    SpeechToTextIcon,
-    StopWatchIcon,
-    TextIcon,
-    Time02Icon,
-} from "@hugeicons/core-free-icons";
-import type { CSSProperties } from "react";
-import { useMemo } from "react";
 // amber banner shown when the OS has not granted the
 // keyboard-monitoring (Accessibility / input-group) permission. Mirrors
 // the MicrophonePermissionBanner placement on the Microphone page.
@@ -50,17 +50,17 @@ import { KeyboardPermissionBanner } from "@/components/KeyboardPermissionBanner"
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython } from "@/hooks/usePython";
 import {
-    canShareStats,
-    computeShareStats,
-    useStatsShare,
+	canShareStats,
+	computeShareStats,
+	useStatsShare,
 } from "@/hooks/useStatsShare";
 import { getLocale, t } from "@/i18n/i18n";
 import { compactNumber, formatDuration } from "@/lib/format";
 import { useThemePalette } from "@/lib/theme-palette";
 import {
-    formatDevice,
-    formatLanguage,
-    formatModel,
+	formatDevice,
+	formatLanguage,
+	formatModel,
 } from "@/lib/utils/configDisplay";
 import { DashboardSkeleton } from "./dashboard/components/DashboardSkeleton";
 import { ActivityChart } from "./dashboard/components/SevenDayActivityChart";

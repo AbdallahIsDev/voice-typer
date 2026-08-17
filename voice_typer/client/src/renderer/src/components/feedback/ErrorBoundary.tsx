@@ -40,9 +40,9 @@
 // preserved — ``console.error`` serializes ``errorInfo`` to a string
 // and loses the structured component-tree trace).
 
+import { Component, createRef, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
-import { Component, createRef, type ErrorInfo, type ReactNode } from "react";
 
 interface ErrorBoundaryProps {
 	children: ReactNode;

@@ -26,6 +26,9 @@
  * land below the sticky bar without pixel-tuning.
  */
 
+import { Folder02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { useMemo, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
@@ -34,18 +37,15 @@ import { CloudProvidersPanel } from "@/components/models/CloudProvidersPanel";
 import { LocalModelsPanel } from "@/components/models/LocalModelsPanel";
 import { Button } from "@/components/ui/button";
 import {
-    SegmentedControl,
-    type SegmentedControlOption,
+	SegmentedControl,
+	type SegmentedControlOption,
 } from "@/components/ui/segmented-control";
 import { useModelLifecycle } from "@/hooks/useModelLifecycle";
 import { t } from "@/i18n/i18n";
 import { getActiveFamilyId, groupModelsByFamily } from "@/lib/utils/models";
-import { Folder02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { useMemo, useState } from "react";
 import {
-    tabPageHeaderClassName,
-    tabPageIndicatorClassName,
+	tabPageHeaderClassName,
+	tabPageIndicatorClassName,
 } from "./_tabBarStyles";
 
 export default function ModelsPage() {

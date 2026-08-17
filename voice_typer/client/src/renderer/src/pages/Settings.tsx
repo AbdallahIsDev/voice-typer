@@ -1,10 +1,10 @@
+import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { SearchField } from "@/components/common/SearchField";
 import { Spinner } from "@/components/feedback/Spinner";
-import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // amber banner shown when the OS has not granted the
 // keyboard-monitoring (Accessibility / input-group) permission. Mirrors
 // the MicrophonePermissionBanner placement on the Microphone page.
@@ -15,14 +15,14 @@ import { DiagnosticsSettingsSection } from "@/components/settings/DiagnosticsSet
 import { GeneralSettingsSection } from "@/components/settings/GeneralSettingsSection";
 import { ModelSettingsSection } from "@/components/settings/ModelSettingsSection";
 import PrewarmAndUpdates, {
-    getPrewarmAndUpdatesLabels,
+	getPrewarmAndUpdatesLabels,
 } from "@/components/settings/PrewarmAndUpdates";
 import { PrivacySettingsSection } from "@/components/settings/PrivacySettingsSection";
 import { RecordingSettingsSection } from "@/components/settings/RecordingSettingsSection";
 import { ResourcesSettingsSection } from "@/components/settings/ResourcesSettingsSection";
 import {
-    getTabLabels,
-    type SettingsTab,
+	getTabLabels,
+	type SettingsTab,
 } from "@/components/settings/settingsTabLabels";
 import { ThemeSettingsSection } from "@/components/settings/ThemeSettingsSection";
 import { TroubleshootingSettingsSection } from "@/components/settings/TroubleshootingSettingsSection";
@@ -36,8 +36,8 @@ import { useTheme } from "@/hooks/useTheme";
 import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 import {
-    tabPageHeaderClassName,
-    tabPageIndicatorClassName,
+	tabPageHeaderClassName,
+	tabPageIndicatorClassName,
 } from "./_tabBarStyles";
 
 const LS_KEY = "voice-typer-settings-tab";

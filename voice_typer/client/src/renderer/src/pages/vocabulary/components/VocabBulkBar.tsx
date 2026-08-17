@@ -15,18 +15,18 @@
 // "Move to category" dropdown was removed with the flat-list redesign
 // (categories are no longer part of the UI).
 import {
-    Cancel01Icon,
-    Delete01Icon,
-    Download01Icon,
+	Cancel01Icon,
+	Delete01Icon,
+	Download01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
 import { Button } from "@/components/ui/button";
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { t } from "@/i18n/i18n";
 import type { ExportFormat } from "../../../../../shared/export-format";

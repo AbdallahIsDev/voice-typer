@@ -18,18 +18,18 @@
 // data description. On a failed fetch the row falls back to a neutral
 // "—" instead of a permanent "Loading…".
 
-import PageHeading from "@/components/common/PageHeading";
-import { usePython } from "@/hooks/usePython";
-import { t, useT } from "@/i18n/i18n";
 import {
-    CloudIcon,
-    DatabaseIcon,
-    Layers01Icon,
-    Mic02Icon,
-    Shield01Icon,
+	CloudIcon,
+	DatabaseIcon,
+	Layers01Icon,
+	Mic02Icon,
+	Shield01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState } from "react";
+import PageHeading from "@/components/common/PageHeading";
+import { usePython } from "@/hooks/usePython";
+import { t, useT } from "@/i18n/i18n";
 
 /** Privacy topics — icon + existing i18n title/description keys. */
 const PRIVACY_TOPICS = [

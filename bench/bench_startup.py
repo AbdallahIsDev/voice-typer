@@ -275,7 +275,7 @@ class contextlib_suppress:
     custom class rather than ``contextlib.suppress(BaseException)``.
     """
 
-    def __enter__(self) -> "contextlib_suppress":
+    def __enter__(self) -> contextlib_suppress:
         return self
 
     def __exit__(self, *exc_info: object) -> bool:

@@ -1,3 +1,15 @@
+import {
+	AlertCircleIcon,
+	ArrowDown01Icon,
+	Delete01Icon,
+	HistoryIcon,
+	Mic02Icon,
+	Sorting01Icon,
+	StarIcon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import ExportFormatMenu from "@/components/common/ExportFormatMenu";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
@@ -8,33 +20,21 @@ import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
 } from "@/components/ui/select";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { showUndoableToast } from "@/hooks/useSnackbar";
 import { getLocale, t } from "@/i18n/i18n";
-import {
-    AlertCircleIcon,
-    ArrowDown01Icon,
-    Delete01Icon,
-    HistoryIcon,
-    Mic02Icon,
-    Sorting01Icon,
-    StarIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 import { useHistoryCache } from "./history/hooks/useHistoryCache";
 import { useHistoryExport } from "./history/hooks/useHistoryExport";
 import {
-    type HistorySortOrder,
-    sortRecords,
+	type HistorySortOrder,
+	sortRecords,
 } from "./history/utils/historySort";
 
 //NOTE: App.tsx prop passing will be removed by

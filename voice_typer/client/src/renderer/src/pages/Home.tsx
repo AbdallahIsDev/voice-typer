@@ -28,6 +28,8 @@
 // identity). The regression test greps Home.tsx source for this pattern, so
 // it stays here in the composition root rather than moving into a hook.
 
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import ActivityList from "@/components/dashboard/ActivityList";
 import { ShareStatsDialog } from "@/components/dashboard/ShareStatsDialog";
@@ -40,9 +42,9 @@ import { useNavigation } from "@/hooks/useNavigation";
 import { useOfflinePackDownload } from "@/hooks/useOfflinePackDownload";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import {
-    canShareStats,
-    computeShareStats,
-    useStatsShare,
+	canShareStats,
+	computeShareStats,
+	useStatsShare,
 } from "@/hooks/useStatsShare";
 import { t } from "@/i18n/i18n";
 import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
@@ -53,27 +55,25 @@ import { HOTKEY_DEFAULT } from "@/pages/onboarding/lib/constants";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { HistoryRecord, TodayStats } from "@/types/ipc";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 import { LastTranscriptionPreview } from "./home/components/LastTranscriptionPreview";
 import { MicToggleButton } from "./home/components/MicToggleButton";
 import { RecordingStatusPill } from "./home/components/RecordingStatusPill";
 import { useFirstRecordingCelebration } from "./home/hooks/useFirstRecordingCelebration";
 import {
-    loadCachedRecent,
-    loadCachedStats,
-    persistRecent,
-    persistStats,
+	loadCachedRecent,
+	loadCachedStats,
+	persistRecent,
+	persistStats,
 } from "./home/lib/cache";
 import {
-    FORCE_CANCEL_DELAY_MS,
-    LAST_TEXT_AUTO_CLEAR_MS,
-    STATUS_COLORS,
+	FORCE_CANCEL_DELAY_MS,
+	LAST_TEXT_AUTO_CLEAR_MS,
+	STATUS_COLORS,
 } from "./home/lib/constants";
 import {
-    normalizeHotkey,
-    statusKeyFor,
-    statusLabelFor,
+	normalizeHotkey,
+	statusKeyFor,
+	statusLabelFor,
 } from "./home/lib/status";
 
 export default function Home() {

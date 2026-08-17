@@ -19,6 +19,12 @@
 // the left, corrected on the right. Categories are part of the
 // persisted data layer only — they are never surfaced in the UI.
 
+import {
+	AlertCircleIcon,
+	BookOpen02Icon,
+	PencilEdit02Icon,
+} from "@hugeicons/core-free-icons";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -26,12 +32,6 @@ import { Spinner } from "@/components/feedback/Spinner";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t, useT } from "@/i18n/i18n";
-import {
-    AlertCircleIcon,
-    BookOpen02Icon,
-    PencilEdit02Icon,
-} from "@hugeicons/core-free-icons";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VocabBulkBar } from "./vocabulary/components/VocabBulkBar";
 import { VocabDuplicateBanner } from "./vocabulary/components/VocabDuplicateBanner";
 import { VocabInlineForm } from "./vocabulary/components/VocabInlineForm";
@@ -45,13 +45,13 @@ import { useVocabularyImportExport } from "./vocabulary/hooks/useVocabularyImpor
 import { useVocabularyQuickAdd } from "./vocabulary/hooks/useVocabularyQuickAdd";
 import { useVocabularySelection } from "./vocabulary/hooks/useVocabularySelection";
 import {
-    type EntryTestResult,
-    testPhraseOnServer,
+	type EntryTestResult,
+	testPhraseOnServer,
 } from "./vocabulary/lib/testServer";
 import {
-    findDuplicateGroups,
-    normalizeWrongPhrase,
-    type VocabRow,
+	findDuplicateGroups,
+	normalizeWrongPhrase,
+	type VocabRow,
 } from "./vocabulary/lib/transform";
 
 export default function VocabularyPage() {

@@ -11,6 +11,8 @@
 // The default export signature is preserved so ``App.tsx`` routing is
 // unaffected.
 
+import { AlertCircleIcon } from "@hugeicons/core-free-icons";
+import { useCallback, useRef, useState } from "react";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -18,8 +20,6 @@ import { OfflinePackPreparingBanner } from "@/components/feedback/OfflinePackPre
 import { Spinner } from "@/components/feedback/Spinner";
 import { useOfflinePackDownload } from "@/hooks/useOfflinePackDownload";
 import { t } from "@/i18n/i18n";
-import { AlertCircleIcon } from "@hugeicons/core-free-icons";
-import { useCallback, useRef, useState } from "react";
 import { ActiveMicrophoneCard } from "./microphone/components/ActiveMicrophoneCard";
 import { AvailableMicrophonesList } from "./microphone/components/AvailableMicrophonesList";
 import { MicrophonePermissionBanner } from "./microphone/components/MicrophonePermissionBanner";
