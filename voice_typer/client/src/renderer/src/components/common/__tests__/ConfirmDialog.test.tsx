@@ -21,7 +21,13 @@
  * props were removed — the visible text content provides the accessible
  * name, so the buttons should NOT carry a duplicate aria-label.
  */
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -231,6 +237,62 @@ describe("ConfirmDialog — BG-R11 (confirmedRef discriminates Confirm vs Cancel
 		// session was a Cancel, not a Confirm.
 		expect(onConfirm).toHaveBeenCalledTimes(1);
 	});
+	it("with dismissOnBackdrop, clicking the backdrop closes the dialog via onCancel (not onConfirm)", async () => {
+		const onConfirm = vi.fn();
+		const onCancel = vi.fn();
+		render(
+			<ConfirmDialog
+				open={true}
+				title="Clear All?"
+				message="Are you sure?"
+				confirmLabel="Clear All"
+				cancelLabel="Cancel"
+				dismissOnBackdrop
+				onConfirm={onConfirm}
+				onCancel={onCancel}
+			/>,
+		);
+		await screen.findByRole("alertdialog");
+
+		// A pointerdown anywhere outside the dialog content (the
+		// dimmed backdrop). Radix AlertDialog hard-replaces any caller
+		// onPointerDownOutside with preventDefault, so ConfirmDialog's
+		// opt-in backdrop dismissal is its own document-level pointerdown
+		// listener (containment-checked) — firing on body exercises it.
+		fireEvent.pointerDown(document.body, { button: 0 });
+
+		await waitFor(() => {
+			expect(onCancel).toHaveBeenCalledTimes(1);
+		});
+		expect(onConfirm).not.toHaveBeenCalled();
+	});
+
+	it("without dismissOnBackdrop, a backdrop click does NOT close (AlertDialog contract preserved)", async () => {
+		const onConfirm = vi.fn();
+		const onCancel = vi.fn();
+		render(
+			<ConfirmDialog
+				open={true}
+				title="Delete?"
+				message="Are you sure?"
+				confirmLabel="Delete"
+				cancelLabel="Cancel"
+				onConfirm={onConfirm}
+				onCancel={onCancel}
+			/>,
+		);
+		await screen.findByRole("alertdialog");
+
+		fireEvent.pointerDown(document.body, { button: 0 });
+
+		// No dismiss path (the opt-in listener is absent) — the dialog
+		// stays open and neither callback fires (the user must
+		// explicitly acknowledge).
+		expect(screen.getByRole("alertdialog")).toBeTruthy();
+		expect(onCancel).not.toHaveBeenCalled();
+		expect(onConfirm).not.toHaveBeenCalled();
+	});
+
 	it("accepts any Button variant (e.g. outline) — widened from the original destructive|warning union", async () => {
 		render(
 			<ConfirmDialog

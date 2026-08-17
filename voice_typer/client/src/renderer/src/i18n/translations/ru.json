@@ -357,9 +357,7 @@
 		"dictationsPeriod": "Диктовки ({range})",
 		"longestSession": "Самая длинная {duration}",
 		"noDataBar": "{label}: нет данных",
-		"peakWeekday": "Пиковый день: {day}",
 		"rangeAria": "Период аналитики",
-		"sampledNote": "На основе последних {count} диктовок",
 		"corrections": "Исправления",
 		"correctionsTooltip": "Исправления словаря, применённые движком во время диктовки",
 		"correctionsRate": "{pct}% диктовок",
@@ -1765,7 +1763,7 @@
 			"socialCaption": "Моя статистика голосового набора из {appName}",
 			"socialWhatsapp": "WhatsApp",
 			"socialTelegram": "Telegram",
-			"socialX": "X",
+			"socialTwitter": "Twitter",
 			"socialFacebook": "Facebook"
 		}
 	},

@@ -66,7 +66,6 @@ import { DashboardSkeleton } from "./dashboard/components/DashboardSkeleton";
 import { ActivityChart } from "./dashboard/components/SevenDayActivityChart";
 import { TimeRangeSelector } from "./dashboard/components/TimeRangeSelector";
 import { useDashboardData } from "./dashboard/hooks/useDashboardData";
-import { weekdayLabel } from "./dashboard/lib/format";
 
 // Hidden share-image capture target container style.
 //
@@ -307,12 +306,7 @@ export default function DashboardPage() {
 					{/* NOTE: no "no dictations in this period" caption here —
 						the empty chart already communicates "no data". */}
 
-					<ActivityChart
-						range={range}
-						activity={activity}
-						totalCount={d.totalCount}
-						sampleSize={d.sampleSize}
-					/>
+					<ActivityChart range={range} activity={activity} />
 
 					{/* Derived metrics — card-styled row directly below the
 						chart (Avg chars / Longest session / Corrections). */}
@@ -344,13 +338,6 @@ export default function DashboardPage() {
 							}
 						/>
 					</div>
-					{period.peakWeekday !== null && (
-						<p className="text-xs text-(--text-muted)">
-							{t("analytics.peakWeekday", {
-								day: weekdayLabel(period.peakWeekday),
-							})}
-						</p>
-					)}
 
 					{/* Current Setup — system/config info, demoted below the
 						usage analytics so it doesn't compete for attention. */}

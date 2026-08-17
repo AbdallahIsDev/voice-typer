@@ -364,9 +364,7 @@
 		"dictationsPeriod": "Dictations ({range})",
 		"longestSession": "Longest {duration}",
 		"noDataBar": "{label}: no data",
-		"peakWeekday": "Peak day: {day}",
 		"rangeAria": "Analytics time range",
-		"sampledNote": "Based on the last {count} dictations",
 		"corrections": "Corrections",
 		"correctionsTooltip": "Vocabulary corrections the engine applied during dictation",
 		"correctionsRate": "{pct}% of dictations",
@@ -1765,7 +1763,7 @@
 			"socialCaption": "My voice typing stats from {appName}",
 			"socialWhatsapp": "WhatsApp",
 			"socialTelegram": "Telegram",
-			"socialX": "X",
+			"socialTwitter": "Twitter",
 			"socialFacebook": "Facebook"
 		}
 	},

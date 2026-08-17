@@ -1253,9 +1253,7 @@
 		"dictationsPeriod": "Dictées ({range})",
 		"longestSession": "Plus longue {duration}",
 		"noDataBar": "{label} : aucune donnée",
-		"peakWeekday": "Jour de pointe : {day}",
 		"rangeAria": "Période des statistiques",
-		"sampledNote": "Basé sur les {count} dernières dictées",
 		"corrections": "Corrections",
 		"correctionsTooltip": "Corrections de vocabulaire appliquées par le moteur pendant la dictée",
 		"correctionsRate": "{pct}% des dictées",
@@ -1765,7 +1763,7 @@
 			"socialCaption": "Mes statistiques de dictée vocale depuis {appName}",
 			"socialWhatsapp": "WhatsApp",
 			"socialTelegram": "Telegram",
-			"socialX": "X",
+			"socialTwitter": "Twitter",
 			"socialFacebook": "Facebook"
 		}
 	},

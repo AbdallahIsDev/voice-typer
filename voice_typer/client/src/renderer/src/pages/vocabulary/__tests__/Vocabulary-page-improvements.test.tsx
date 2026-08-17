@@ -285,6 +285,48 @@ describe("Vocabulary page — Clear All + ConfirmDialog", () => {
 		expect(screen.getByRole("alertdialog")).toBeTruthy();
 	});
 
+	it("backdrop click closes the Clear All dialog exactly like Cancel (no data change)", async () => {
+		mockCall.mockImplementation((arg: unknown) => {
+			const type =
+				typeof arg === "string"
+					? arg
+					: ((arg as { type?: string })?.type ?? "");
+			if (type === "get_vocabulary")
+				return Promise.resolve(buildSeed(3) as VocabularyData);
+			if (type === "save_vocabulary") return Promise.resolve({ success: true });
+			return Promise.resolve({});
+		});
+
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("word0")).toBeTruthy();
+		});
+
+		// Open the confirm dialog.
+		fireEvent.click(screen.getByLabelText("Clear all vocabulary entries"));
+		await waitFor(() => {
+			expect(screen.getByText("Clear All Vocabulary")).toBeTruthy();
+		});
+
+		// Click the dimmed backdrop (outside the dialog content) — a
+		// document-level pointerdown is how ConfirmDialog's opt-in
+		// backdrop dismissal is implemented (Radix AlertDialog itself
+		// forbids outside dismissal).
+		fireEvent.pointerDown(document.body, { button: 0 });
+
+		// Dialog dismissed without any data write — entries intact.
+		await waitFor(() => {
+			expect(screen.queryByRole("alertdialog")).toBeNull();
+		});
+		expect(screen.getByText("word0")).toBeTruthy();
+		const saveCalls = mockCall.mock.calls.filter(
+			(args: unknown[]) => args[0] === "save_vocabulary",
+		);
+		expect(saveCalls.length).toBe(0);
+	});
+
 	it("clears all entries + persists empty VocabularyData when the user confirms", async () => {
 		mockCall.mockImplementation((arg: unknown) => {
 			const type =

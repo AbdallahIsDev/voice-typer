@@ -557,9 +557,6 @@ async fn test_worker_state_shutdown_notify_wakes_waiter() {
 fn test_worker_state_is_send_sync_and_arcable() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<WorkerState>();
-    fn assert_arc<T: Send + Sync>() -> Arc<T> {
-        unreachable!()
-    }
     let _ = |state: WorkerState| {
         let _: Arc<WorkerState> = Arc::new(state);
     };

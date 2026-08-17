@@ -357,9 +357,7 @@
 		"dictationsPeriod": "डिक्टेशन ({range})",
 		"longestSession": "सबसे लंबा {duration}",
 		"noDataBar": "{label}: कोई डेटा नहीं",
-		"peakWeekday": "पीक दिन: {day}",
 		"rangeAria": "विश्लेषण समय सीमा",
-		"sampledNote": "पिछले {count} डिक्टेशन पर आधारित",
 		"corrections": "सुधार",
 		"correctionsTooltip": "डिक्टेशन के दौरान इंजन द्वारा लागू किए गए शब्दावली सुधार",
 		"correctionsRate": "{pct}% डिक्टेशन",
@@ -1765,7 +1763,7 @@
 			"socialCaption": "{appName} से मेरे वॉइस टाइपिंग आँकड़े",
 			"socialWhatsapp": "WhatsApp",
 			"socialTelegram": "Telegram",
-			"socialX": "X",
+			"socialTwitter": "Twitter",
 			"socialFacebook": "Facebook"
 		}
 	},

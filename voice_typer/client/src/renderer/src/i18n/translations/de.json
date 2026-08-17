@@ -357,9 +357,7 @@
 		"dictationsPeriod": "Diktate ({range})",
 		"longestSession": "Längstes {duration}",
 		"noDataBar": "{label}: keine Daten",
-		"peakWeekday": "Spitzentag: {day}",
 		"rangeAria": "Analyse-Zeitraum",
-		"sampledNote": "Basierend auf den letzten {count} Diktaten",
 		"corrections": "Korrekturen",
 		"correctionsTooltip": "Vokabelkorrekturen, die der Motor während der Diktate angewendet hat",
 		"correctionsRate": "{pct}% der Diktate",
@@ -1765,7 +1763,7 @@
 			"socialCaption": "Meine Sprachtipp-Statistiken von {appName}",
 			"socialWhatsapp": "WhatsApp",
 			"socialTelegram": "Telegram",
-			"socialX": "X",
+			"socialTwitter": "Twitter",
 			"socialFacebook": "Facebook"
 		}
 	},

@@ -54,12 +54,15 @@ export function VocabBulkBar({
 			// content area) keeps the bar pinned near the viewport bottom
 			// AND centered on the content in both sidebar states — see the
 			// module docstring.
-			className="sticky bottom-4 z-20 mx-auto flex w-fit max-w-full flex-wrap items-center gap-2 rounded-2xl border border-border/10 bg-popover px-3 py-2 shadow-lg"
+			// Background matches the search input / table container
+			// surface (--bg-subtle) so the bar reads as part of the same
+			// design system — bg-popover was a separate, floating-element
+			// tone that didn't belong to any other surface on this page.
+			className="sticky bottom-4 z-20 mx-auto flex w-fit max-w-full flex-wrap items-center gap-2 rounded-2xl border border-border/10 bg-(--bg-subtle) px-3 py-2 shadow-lg"
 		>
 			<span className="px-1 text-xs font-medium text-(--text-muted)">
 				{t("vocabulary.selectedCount", { count: String(selectedCount) })}
 			</span>
-			<span aria-hidden="true" className="h-4 w-px bg-border" />
 			<Button
 				variant="outline"
 				size="sm"

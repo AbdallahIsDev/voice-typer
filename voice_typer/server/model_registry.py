@@ -179,7 +179,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     # model was fully cached).
     "parakeet": ModelMetadata(
         name="parakeet",
-        display_name="Parakeet-v3-TDT",
+        display_name="Parakeet-v3-TDTxxxx",
         download_size_mb=1275,
         required_vram_mb=3072,
         backend="parakeet",

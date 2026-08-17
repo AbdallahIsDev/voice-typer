@@ -28,10 +28,10 @@ export function TimeRangeSelector({ value, onChange }: TimeRangeSelectorProps) {
 			value={value}
 			onChange={onChange}
 			ariaLabel={t("analytics.rangeAria")}
-			// Rectangle with a subtle ~4px rounding — matches the stat
-			// cards' corners instead of a pill (see SegmentedControl
-			// `radius` prop).
-			radius="sm"
+			// Fully rounded (pill) — container AND active segment use
+			// full radius so the control reads as one soft capsule
+			// (SegmentedControl `radius` prop default).
+			radius="pill"
 		/>
 	);
 }

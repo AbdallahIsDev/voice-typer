@@ -357,9 +357,7 @@
 		"dictationsPeriod": "الإملاءات ({range})",
 		"longestSession": "الأطول {duration}",
 		"noDataBar": "{label}: لا توجد بيانات",
-		"peakWeekday": "يوم الذروة: {day}",
 		"rangeAria": "النطاق الزمني للتحليلات",
-		"sampledNote": "استنادًا إلى آخر {count} إملاء",
 		"corrections": "التصحيحات",
 		"correctionsTooltip": "تصحيحات المفردات التي طبّقها المحرّك أثناء الإملاء",
 		"correctionsRate": "{pct}% من الإملاءات",
@@ -1765,7 +1763,7 @@
 			"socialCaption": "إحصائيات الإملاء الصوتي من {appName}",
 			"socialWhatsapp": "WhatsApp",
 			"socialTelegram": "Telegram",
-			"socialX": "X",
+			"socialTwitter": "Twitter",
 			"socialFacebook": "Facebook"
 		}
 	},

@@ -30,7 +30,7 @@ import {
 	WhatsappIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { APP_NAME } from "@/branding";
 import { Button } from "@/components/ui/button";
@@ -73,6 +73,10 @@ export interface ShareStatsDialogProps {
 /** The exported image's fixed capture width (mirrors useStatsShare). */
 const EXPORT_WIDTH = 1200;
 
+/** Project repo — the shared link for platforms whose URL schemes
+ * require a link (Telegram's t.me/share/url needs the `url` param). */
+const GITHUB_REPO = "https://github.com/AbdallahIsDev/voice-typer";
+
 /** Social share intents. Web intents are text/URL-only — the image is
  * attached via the clipboard fallback (see header comment). */
 const SOCIAL_TARGETS: {
@@ -91,11 +95,20 @@ const SOCIAL_TARGETS: {
 		key: "telegram",
 		labelKey: "stats.shareImage.socialTelegram",
 		icon: TelegramIcon,
-		url: (c) => `https://t.me/share/url?text=${encodeURIComponent(c)}`,
+		// The official share format is t.me/share/url?url=<url>&text=<text>
+		// — the `url` param is REQUIRED. Without it Telegram's web
+		// handler redirects to telegram.org (its homepage) instead of
+		// opening the app's share/forward picker. Since the stats image
+		// itself can't be attached via URL, we share the project repo as
+		// the link (the caption carries the stats text).
+		url: (c) =>
+			`https://t.me/share/url?url=${encodeURIComponent(
+				GITHUB_REPO,
+			)}&text=${encodeURIComponent(c)}`,
 	},
 	{
 		key: "x",
-		labelKey: "stats.shareImage.socialX",
+		labelKey: "stats.shareImage.socialTwitter",
 		icon: NewTwitterIcon,
 		url: (c) =>
 			`https://twitter.com/intent/tweet?text=${encodeURIComponent(c)}`,
@@ -128,28 +141,58 @@ export function ShareStatsDialog({
 	// width. ResizeObserver keeps both correct across window/dialog
 	// resizes; jsdom lacks ResizeObserver (tests) — the initial
 	// landscape defaults apply there.
-	useEffect(() => {
+	//
+	// PORTAL-TIMING FIX: Radix's DialogPortal mounts its content via
+	// Presence in a FOLLOW-UP commit (to run the enter animation), so
+	// neither a passive `useEffect` nor a `useLayoutEffect` in this
+	// component can reliably see the portal refs at `open` time — on
+	// some mounts both were still null, `measure()` early-returned,
+	// and the ResizeObserver attached to nothing, freezing the
+	// preview at the initial scale(0.5) forever (the rightmost stat
+	// card clipped by the overflow-hidden frame). The initial measure
+	// is therefore triggered by a CALLBACK REF on the preview element
+	// itself, which fires exactly when the portal node actually
+	// attaches (any commit). The layout effect below only manages the
+	// ResizeObserver for later re-measures (window/dialog resizes,
+	// content height changes).
+	// Memoized so its identity is stable across renders — the
+	// ResizeObserver effect below lists it as a dependency without
+	// re-running the effect on every render (it only reads refs and
+	// writes state via stable setters, so the empty dep array is
+	// sound).
+	const measure = useCallback(() => {
+		const box = containerRef.current;
+		const el = previewRef.current;
+		if (!box || !el) return;
+		const w = el.offsetWidth || EXPORT_WIDTH;
+		const h = el.offsetHeight || 630;
+		setPreviewHeight(h);
+		setIsPortrait(h > w);
+		setScale(Math.min(1, (box.clientWidth - 16) / EXPORT_WIDTH));
+	}, []);
+
+	// Callback ref: measures when the preview node attaches. `el` is
+	// the node (or null on detach) — the containerRef sibling attaches
+	// in the same commit (parent before child), so containerRef.current
+	// is already set here.
+	const setPreviewRef = (el: HTMLDivElement | null) => {
+		previewRef.current = el;
+		if (el) measure();
+	};
+
+	useLayoutEffect(() => {
 		if (!open) return;
-		const measure = () => {
-			const box = containerRef.current;
-			const el = previewRef.current;
-			if (!box || !el) return;
-			const w = el.offsetWidth || EXPORT_WIDTH;
-			const h = el.offsetHeight || 630;
-			setPreviewHeight(h);
-			setIsPortrait(h > w);
-			setScale(Math.min(1, (box.clientWidth - 16) / EXPORT_WIDTH));
-		};
-		measure();
 		if (typeof ResizeObserver === "undefined") return;
 		const ro = new ResizeObserver(measure);
 		if (containerRef.current) ro.observe(containerRef.current);
+		if (previewRef.current) ro.observe(previewRef.current);
 		return () => ro.disconnect();
 		// `stats` is intentionally NOT a dep: the ResizeObserver on the
-		// container fires when the preview's scaled height changes, so
-		// content changes while the dialog is open re-measure without
-		// re-running this effect.
-	}, [open]);
+		// container + preview fires when the preview's scaled height
+		// changes, so content changes while the dialog is open re-measure
+		// without re-running this effect. `measure` IS a dep (stable via
+		// useCallback, so this only re-runs on open toggles).
+	}, [open, measure]);
 
 	const handleDownload = async () => {
 		const path = await actions.downloadImage(STATS_IMAGE_FILENAME);
@@ -240,7 +283,7 @@ export function ShareStatsDialog({
 					>
 						{stats && (
 							<div
-								ref={previewRef}
+								ref={setPreviewRef}
 								className="absolute left-0 top-0"
 								style={{
 									width: EXPORT_WIDTH,
@@ -262,7 +305,15 @@ export function ShareStatsDialog({
 							isPortrait ? "sm:w-1/2" : "w-full",
 						)}
 					>
-						<Button onClick={handleDownload} className="w-full justify-start">
+						{/* Neutral/secondary style — Download, Copy, and Save As
+						    are equally valid exports; none is privileged (the
+						    previous accent/primary treatment visually pushed
+						    users toward Download specifically). */}
+						<Button
+							variant="outline"
+							onClick={handleDownload}
+							className="w-full justify-start"
+						>
 							<HugeiconsIcon
 								icon={Download03Icon}
 								className="h-4 w-4 shrink-0"
@@ -300,7 +351,10 @@ export function ShareStatsDialog({
 									variant="outline"
 									size="sm"
 									onClick={() => void handleSocial(target)}
-									className="justify-start"
+									// Same icon→label gap as the local action buttons
+									// (sm size defaults to gap-1; the local buttons
+									// use the default gap-2).
+									className="justify-start gap-2"
 								>
 									<HugeiconsIcon
 										icon={target.icon}

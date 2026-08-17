@@ -357,9 +357,7 @@
 		"dictationsPeriod": "Dictados ({range})",
 		"longestSession": "Más largo {duration}",
 		"noDataBar": "{label}: sin datos",
-		"peakWeekday": "Día pico: {day}",
 		"rangeAria": "Rango de tiempo de las estadísticas",
-		"sampledNote": "Basado en las últimas {count} dictados",
 		"corrections": "Correcciones",
 		"correctionsTooltip": "Correcciones de vocabulario que el motor aplicó durante el dictado",
 		"correctionsRate": "{pct}% de los dictados",
@@ -1758,7 +1756,7 @@
 			"socialCaption": "Mis estadísticas de dictado por voz de {appName}",
 			"socialWhatsapp": "WhatsApp",
 			"socialTelegram": "Telegram",
-			"socialX": "X",
+			"socialTwitter": "Twitter",
 			"socialFacebook": "Facebook"
 		}
 	},

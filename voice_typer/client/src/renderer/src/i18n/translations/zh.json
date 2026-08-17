@@ -357,9 +357,7 @@
 		"dictationsPeriod": "听写次数 ({range})",
 		"longestSession": "最长 {duration}",
 		"noDataBar": "{label}：无数据",
-		"peakWeekday": "高峰日：{day}",
 		"rangeAria": "分析时间范围",
-		"sampledNote": "基于最近 {count} 次听写",
 		"corrections": "修正",
 		"correctionsTooltip": "听写时引擎应用的词汇修正",
 		"correctionsRate": "占听写的 {pct}%",
@@ -1765,7 +1763,7 @@
 			"socialCaption": "来自{appName}的语音输入统计",
 			"socialWhatsapp": "WhatsApp",
 			"socialTelegram": "Telegram",
-			"socialX": "X",
+			"socialTwitter": "Twitter",
 			"socialFacebook": "Facebook"
 		}
 	},

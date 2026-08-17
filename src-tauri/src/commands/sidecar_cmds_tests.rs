@@ -179,26 +179,46 @@ fn test_allowed_commands_count_matches_ts_parity() {
     // worker's warm phase in-process via `prewarm.status.run_prewarm_now`,
     // no deleted-subprocess spawn) → 66. `check_offline_pack_update`
     // (auto-update feature) was added the same day → 67.
+    //
+    // (2026-08-16): `test_vocabulary_correction` was added to the
+    // Rust literal + snapshot (the Vocabulary page "Test corrections"
+    // panel — the count-only tests below were missed in that commit;
+    // they are corrected here) → 68. (2026-08-17): `get_correction_usage`
+    // (per-correction usage snapshots powering the Vocabulary page's
+    // "used Nx" + the Analytics corrections rate) was added to the
+    // literal + TS + Python registry in lockstep; the snapshot and
+    // count tests were missed in that commit and are corrected here
+    // → 69.
+    //
+    // The TS allowlist is the canonical declaration
+    // (`voice_typer/client/src/main/allowed-commands.ts`): 71 entries
+    // total = 69 shared + `heartbeat` + `relaunch_ack` (both sent by
+    // the host, never routed through this dispatch gate — see the
+    // cmds literal doc comment). The Python `_COMMAND_REGISTRY` has 73
+    // (71 renderer-reachable + `tray_click` + `shutdown`, both
+    // host-supervised and excluded from the TS allowlist).
     assert_eq!(
         allowed_commands().len(),
-        67,
-        "must match TS allowlist (69 entries) minus heartbeat/relaunch_ack (67 entries)"
+        69,
+        "must match TS allowlist (71 entries) minus heartbeat/relaunch_ack (69 entries)"
     );
 }
 
 #[test]
 fn test_allowed_commands_set_contains_no_duplicates() {
     let set = allowed_commands();
-    // 67 entries — must match the cmds literal below (single
+    // 69 entries — must match the cmds literal below (single
     // source of truth). A duplicate in the literal would make
-    // set.len() < 67.
+    // set.len() < 69.
     // 66 → 67: `run_prewarm` restored 2026-08-14 (§6.3 addendum
     // second half — re-implemented to re-run the warm phase
     // in-process instead of spawning the deleted subprocess).
+    // 67 → 68: `test_vocabulary_correction` (2026-08-16).
+    // 68 → 69: `get_correction_usage` (2026-08-17).
     assert_eq!(
         set.len(),
-        67,
-        "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (67). \
+        69,
+        "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (69). \
          Check the constructor log for the duplicate name.",
         set.len()
     );
@@ -240,8 +260,10 @@ fn test_allowed_commands_exact_snapshot() {
     // restoration site in the `cmds` literal below. Count went from
     // 63 to 65. `run_prewarm` was restored the same day (second
     // half of the §6.3 addendum) → 66, and `check_offline_pack_update`
-    // (auto-update feature) was added → 67. This snapshot is the
-    // current 67-entry set.
+    // (auto-update feature) was added → 67.
+    // (2026-08-16): `test_vocabulary_correction` → 68.
+    // (2026-08-17): `get_correction_usage` → 69. This snapshot is
+    // the current 69-entry set.
     let mut actual: Vec<&str> = allowed_commands().iter().copied().collect();
     actual.sort();
     let expected: &[&str] = &[
@@ -255,6 +277,7 @@ fn test_allowed_commands_exact_snapshot() {
         "download_model",
         "force_cancel_transcription",
         "get_config",
+        "get_correction_usage",
         "get_defaults",
         "get_favorites",
         "get_history",
@@ -304,11 +327,11 @@ fn test_allowed_commands_exact_snapshot() {
         "save_templates",
         "save_vocabulary",
         "search_history",
-        "test_vocabulary_correction",
         "set_config",
         "set_esc_cancel_paused",
         "set_tray_locale",
         "test_cloud_connection",
+        "test_vocabulary_correction",
         "toggle_dictation",
         "toggle_favorite",
         "transcribe_offline",
@@ -326,7 +349,7 @@ fn test_allowed_commands_exact_snapshot() {
     assert_eq!(
         actual, expected,
         "ALLOWED_COMMANDS snapshot drift — the Rust literal no longer matches the pinned \
-         65-entry snapshot. Diff the actual vs expected Vec above. If the change is \
+         69-entry snapshot. Diff the actual vs expected Vec above. If the change is \
          intentional, update this snapshot in lockstep with the cmds literal AND the TS \
          allowlist (see MAINTENANCE note above)."
     );

@@ -128,7 +128,7 @@ describe("ShareStatsDialog", () => {
 			for (const key of [
 				"stats.shareImage.socialWhatsapp",
 				"stats.shareImage.socialTelegram",
-				"stats.shareImage.socialX",
+				"stats.shareImage.socialTwitter",
 				"stats.shareImage.socialFacebook",
 			]) {
 				expect(screen.getByText(t(key))).toBeTruthy();
@@ -302,6 +302,36 @@ describe("ShareStatsDialog", () => {
 		const actionsFrame = downloadButton.closest("div.rounded-xl");
 		expect(actionsFrame).toBeTruthy();
 		expect(actionsFrame?.className).toContain("p-3");
+	});
+
+	it("Telegram share URL includes the required url param (t.me/share/url?url=...&text=...)", async () => {
+		const user = userEvent.setup();
+		const actions = makeActions();
+		const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+		renderDialog(
+			<ShareStatsDialog
+				actions={actions}
+				stats={TEST_STATS}
+				palette={FALLBACK_THEME_PALETTE}
+			/>,
+		);
+
+		await user.click(screen.getByRole("button", { name: "Share stats" }));
+		await user.click(
+			await screen.findByText(t("stats.shareImage.socialTelegram")),
+		);
+
+		await waitFor(() => {
+			expect(actions.copyImageToClipboard).toHaveBeenCalled();
+		});
+		// Regression: the URL previously omitted the `url` param
+		// (t.me/share/url?text=...) — Telegram's web handler redirects
+		// to telegram.org instead of the share picker. The `url` param
+		// is required for the app/forward flow to open.
+		const opened = openSpy.mock.calls[0]?.[0] as string;
+		expect(opened).toMatch(/^https:\/\/t\.me\/share\/url\?url=/);
+		expect(opened).toContain("&text=");
+		expect(opened).toContain(encodeURIComponent("github.com/AbdallahIsDev"));
 	});
 
 	it("social share copies the image, opens the composer, and tells the user to paste", async () => {

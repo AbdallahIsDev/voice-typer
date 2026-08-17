@@ -25,10 +25,6 @@ import type { ActivityChartData, RangeId } from "../lib/streaks";
 export interface ActivityChartProps {
 	range: RangeId;
 	activity: ActivityChartData;
-	/** All-time total row count (from get_history_count). */
-	totalCount: number;
-	/** Size of the history sample the bars are computed from. */
-	sampleSize: number;
 }
 
 /** Show an x tick label every N bars (crowding control for wide ranges). */
@@ -40,12 +36,7 @@ function tickEvery(activity: ActivityChartData): number {
 	return 5;
 }
 
-export function ActivityChart({
-	range,
-	activity,
-	totalCount,
-	sampleSize,
-}: ActivityChartProps) {
+export function ActivityChart({ range, activity }: ActivityChartProps) {
 	const { bars, kind } = activity;
 	const maxCount = Math.max(1, ...bars.map((b) => b.count));
 	// Y-axis ticks at max / mid / 0. When the max is 1, the mid tick
@@ -63,11 +54,6 @@ export function ActivityChart({
 
 	const ariaCounts = bars.map((b) => `${b.label}: ${b.count}`).join(", ");
 
-	// Footnote when the sample is capped: totals/bars reflect only the
-	// most recent `sampleSize` dictations, so days older than the oldest
-	// sampled record are unknown (rendered as missing ticks).
-	const sampled = range === "all" && totalCount > sampleSize && sampleSize > 0;
-
 	return (
 		<div className="rounded-xl border border-border/10 bg-(--bg-subtle) p-4">
 			<div className="mb-4 flex items-center gap-2.5">
@@ -76,7 +62,10 @@ export function ActivityChart({
 				<HugeiconsIcon
 					icon={Activity03Icon}
 					strokeWidth={1.625}
-					className="h-4 w-4 shrink-0 text-(--text-muted)"
+					// Sized to roughly match the stacked title+subtitle block
+					// beside it (was h-4 w-4, disproportionately tiny next
+					// to a two-line text block).
+					className="h-9 w-9 shrink-0 text-(--text-muted)"
 				/>
 				<div className="space-y-0.5">
 					<h2 className="font-sans text-sm font-semibold text-(--text-primary)">
@@ -140,7 +129,10 @@ export function ActivityChart({
 										<div
 											title={tooltip}
 											className={cn(
-												"w-full max-w-8 rounded-t-md transition-all duration-300",
+												// ~4px top corners (this theme's --radius-sm resolves
+												// to 6px — use an explicit value for the requested
+												// small rounding).
+												"w-full max-w-8 rounded-t-[4px] transition-all duration-300",
 												bar.count > 0 && "bg-accent/90 hover:bg-accent",
 												bar.count === 0 &&
 													!bar.isMissing &&
@@ -175,15 +167,6 @@ export function ActivityChart({
 					</div>
 				</div>
 			</div>
-
-			{/* Footnote: sampled data note only — the "days before …
-				aren't shown" caption was removed (no value; the empty
-				ticks already read as missing). */}
-			{sampled && (
-				<p className="mt-3 border-t border-border/10 pt-2 text-[11px] text-(--text-muted)">
-					{t("analytics.sampledNote", { count: String(sampleSize) })}
-				</p>
-			)}
 		</div>
 	);
 }

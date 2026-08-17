@@ -281,22 +281,31 @@ export default function VocabularyPage() {
 			    in both sidebar states — the column recenters when the
 			    sidebar expands/collapses. */}
 			<div className="relative mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
+				{/* Heading, then the toolbar on its OWN full-width row BELOW
+				    it (not inside PageHeading's children slot).
+				    PageHeading wraps children in a content-sized,
+				    shrink-0 flex wrapper — inside it, the toolbar's
+				    `justify-between` had zero free space to distribute
+				    (the wrapper hugs the buttons), so Add Word never
+				    reached the far right across three prior attempts.
+				    As a direct child of the page column (max-w-2xl
+				    w-full) the toolbar spans the full header width and
+				    the left group / right Add Word separation is real. */}
 				<PageHeading
 					title={t("vocabulary.title")}
 					description={t("vocabulary.description")}
-				>
-					<VocabToolbar
-						importInputRef={importInputRef}
-						onImportClick={handleImportClick}
-						onImportFile={handleImportFile}
-						onExport={doExport}
-						onAdd={() => quickAdd.openQuickAdd()}
-						exportDisabled={entries.length === 0}
-						addDisabled={saving}
-						onClearAll={() => setShowClearConfirm(true)}
-						clearAllDisabled={entries.length === 0}
-					/>
-				</PageHeading>
+				/>
+				<VocabToolbar
+					importInputRef={importInputRef}
+					onImportClick={handleImportClick}
+					onImportFile={handleImportFile}
+					onExport={doExport}
+					onAdd={() => quickAdd.openQuickAdd()}
+					exportDisabled={entries.length === 0}
+					addDisabled={saving}
+					onClearAll={() => setShowClearConfirm(true)}
+					clearAllDisabled={entries.length === 0}
+				/>
 
 				{/* Pre-existing duplicates review banner. */}
 				{showDuplicateBanner && (
@@ -436,6 +445,11 @@ export default function VocabularyPage() {
 				)}
 			</div>
 
+			{/* Backdrop click = Cancel (dismiss without data change),
+			    matching standard modal behavior. Escape still closes via
+			    the same onCancel path. Opt-in per dialog — the
+			    ConfirmDialog default keeps the strict AlertDialog
+			    contract (explicit acknowledge only). */}
 			<ConfirmDialog
 				open={showClearConfirm}
 				title={t("vocabulary.clearAllTitle")}
@@ -443,6 +457,7 @@ export default function VocabularyPage() {
 				confirmLabel={t("vocabulary.clearAllConfirm")}
 				cancelLabel={t("common.cancel")}
 				variant="destructive"
+				dismissOnBackdrop
 				onConfirm={handleClearAllConfirm}
 				onCancel={() => setShowClearConfirm(false)}
 			/>

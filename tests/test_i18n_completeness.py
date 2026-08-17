@@ -147,7 +147,7 @@ ALLOWED_UNTRANSLATED = {
     # locales (same rationale as the model-provider labels above).
     "stats.shareImage.socialWhatsapp",  # "WhatsApp"
     "stats.shareImage.socialTelegram",  # "Telegram"
-    "stats.shareImage.socialX",  # "X"
+    "stats.shareImage.socialTwitter",  # "Twitter"
     "stats.shareImage.socialFacebook",  # "Facebook"
     # Theme preset names are brand/proper nouns — kept identical.
     "theme.preset.ayu",  # "Ayu"
