@@ -705,11 +705,15 @@ export default function Home() {
 						className="font-mono text-sm tabular-nums text-(--text-muted)"
 						// QV-49(a): accessible live timer while recording. role="timer"
 						// gives the span a role that supports aria-label (plain
-						// spans don't accept aria-label). NOTE: `timer` is a
-						// live-region role with implicit aria-live="off" — the
-						// per-second tick is NEVER announced, so it doesn't
+						// spans don't accept aria-label). aria-live="off" is
+						// EXPLICIT, not relied on implicitly: per WAI-ARIA,
+						// `timer` has an implicit aria-live="off", but some
+						// screen readers announce role="timer" content changes
+						// anyway — the explicit attribute is what guarantees the
+						// per-second tick is NEVER announced, so it can't
 						// compete with the single status live region below.
 						role="timer"
+						aria-live="off"
 						aria-label={t("home.timerAria", {
 							duration: `${String(Math.floor(elapsedSec / 60)).padStart(2, "0")}:${String(elapsedSec % 60).padStart(2, "0")}`,
 						})}
@@ -733,8 +737,8 @@ export default function Home() {
 				`hint` computation above for the state → content mapping.
 				This is Home's ONE status live region: the pill above is a
 				plain <div> (no implicit `status` role) and the recording
-				timer is role="timer" (implicit aria-live="off"), so a state
-				change announces exactly once here — no double
+				timer is role="timer" with explicit aria-live="off", so a
+				state change announces exactly once here — no double
 				announcements. Coarse transitions ("Recording started." /
 				"Ready." / …) are additionally covered by App.tsx's sr-only
 				region (app-level, visible on every page). Errors switch to

@@ -343,20 +343,28 @@ jobs:
           # checkout's baseline keeps the ratchet intact: a PR that adds
           # errors without updating the baseline fails (live > floor), and
           # shrinking the floor without fixing errors fails too.
+          #
+          # All python reads here MUST pass encoding='utf-8' (or
+          # reconfigure stdin): the baseline's `_comment` field contains
+          # non-ASCII, and Windows Python defaults to cp1252 —
+          # json.load(open(...)) then throws UnicodeDecodeError, the
+          # `|| echo 0` fallback reads the floor as 0, and the gate fails
+          # spuriously (observed: live 384 vs floor 0) on the
+          # windows-2022 matrix leg.
           if [ -f pyrefly-baseline.json ]; then
-            OLD_COUNT=$(python -c "import json; d=json.load(open('pyrefly-baseline.json')); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null || echo 0)
+            OLD_COUNT=$(python -c "import json; d=json.load(open('pyrefly-baseline.json', encoding='utf-8')); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null || echo 0)
           else
-            OLD_COUNT=$(git show "$BASE_REF:pyrefly-baseline.json" 2>/dev/null | python -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null || echo 0)
+            OLD_COUNT=$(git show "$BASE_REF:pyrefly-baseline.json" 2>/dev/null | python -c "import sys,json; sys.stdin.reconfigure(encoding='utf-8'); d=json.load(sys.stdin); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null || echo 0)
           fi
           # Read the LIVE pyrefly output (not the committed
           # baseline) so newly-introduced errors actually trip the gate.
-          NEW_COUNT=$(python -c "import json; d=json.load(open('pyrefly-current.json')); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null || echo 0)
+          NEW_COUNT=$(python -c "import json; d=json.load(open('pyrefly-current.json', encoding='utf-8')); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null || echo 0)
           echo "Pyrefly: baseline floor = $OLD_COUNT errors, live current = $NEW_COUNT errors"
           # Surface a floor RAISE in the checks UI (non-blocking). A PR
           # may legitimately raise the floor with justification (the
           # gate's documented remedy), but reviewers should see it
           # without digging through the baseline diff.
-          BASE_FLOOR=$(git show "$BASE_REF:pyrefly-baseline.json" 2>/dev/null | python -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null || echo 0)
+          BASE_FLOOR=$(git show "$BASE_REF:pyrefly-baseline.json" 2>/dev/null | python -c "import sys,json; sys.stdin.reconfigure(encoding='utf-8'); d=json.load(sys.stdin); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null || echo 0)
           if [ "$OLD_COUNT" -gt "$BASE_FLOOR" ]; then
             echo "::warning::Pyrefly baseline floor raised from $BASE_FLOOR (base ref) to $OLD_COUNT (this checkout) — confirm the justification in pyrefly-baseline.json _comment."
           fi
@@ -366,12 +374,18 @@ jobs:
             echo "with justification (platform-only false positive, missing optional dep, etc.)."
             echo ""
             echo "Added entries (in live output, not in base-ref baseline):"
+            # Workspace-relative snapshot path (not /tmp): on the
+            # windows-2022 leg, Git Bash's /tmp and Windows Python's
+            # /tmp are DIFFERENT directories, so the diff python would
+            # fail to find the snapshot and print "(could not diff)"
+            # instead of the added entries. A relative path resolves
+            # identically for both on every OS.
             if [ -f pyrefly-baseline.json ]; then
-              cp pyrefly-baseline.json /tmp/old_baseline.json
+              cp pyrefly-baseline.json pyrefly-old-baseline.json
             else
-              git show "$BASE_REF:pyrefly-baseline.json" > /tmp/old_baseline.json 2>/dev/null || echo '[]' > /tmp/old_baseline.json
+              git show "$BASE_REF:pyrefly-baseline.json" > pyrefly-old-baseline.json 2>/dev/null || echo '[]' > pyrefly-old-baseline.json
             fi
-            python -c "import json;o=json.load(open('/tmp/old_baseline.json'));n=json.load(open('pyrefly-current.json'));os_={(d.get('path',''),d.get('line',0),d.get('code','')) for d in (o if isinstance(o,list) else o.get('errors',[]))};ns_={(d.get('path',''),d.get('line',0),d.get('code','')) for d in (n if isinstance(n,list) else n.get('errors',[]))};[print(f'  {e[0]}:{e[1]} [{e[2]}]') for e in sorted(ns_-os_)]" 2>/dev/null || echo "  (could not diff)"
+            python -c "import json;o=json.load(open('pyrefly-old-baseline.json', encoding='utf-8'));n=json.load(open('pyrefly-current.json', encoding='utf-8'));os_={(d.get('path',''),d.get('line',0),d.get('code','')) for d in (o if isinstance(o,list) else o.get('errors',[]))};ns_={(d.get('path',''),d.get('line',0),d.get('code','')) for d in (n if isinstance(n,list) else n.get('errors',[]))};[print(f'  {e[0]}:{e[1]} [{e[2]}]') for e in sorted(ns_-os_)]" 2>/dev/null || echo "  (could not diff)"
             exit 1
           fi
           echo "Baseline audit passed: $NEW_COUNT live errors ≤ $OLD_COUNT baseline floor"

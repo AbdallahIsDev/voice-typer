@@ -451,10 +451,12 @@ describe("Home renders the single dynamic status line below the mic button", () 
 // The pill, the recording timer, and the dynamic status line all
 // derive from the same recordingState store. Only the dynamic line
 // may be a live region: the pill is a plain <div> (no implicit
-// `status` role) and the timer is role="timer" (implicit
-// aria-live="off"). This guard asserts the invariant so a future
-// <output> swap or stray aria-live can't silently double-announce
-// every state change.
+// `status` role) and the timer is role="timer" with EXPLICIT
+// aria-live="off" (per WAI-ARIA the `timer` role only carries the
+// value implicitly, and some screen readers announce role="timer"
+// content anyway — the explicit attribute is the hardening). This
+// guard asserts the invariant so a future <output> swap or stray
+// aria-live can't silently double-announce every state change.
 
 describe("Home keeps exactly ONE live region across pill / timer / dynamic line", () => {
 	beforeEach(() => {
@@ -484,15 +486,23 @@ describe("Home keeps exactly ONE live region across pill / timer / dynamic line"
 		expect(pillLabel.closest("output")).toBeNull();
 		expect(pillLabel.closest("div")).not.toBeNull();
 
-		// The timer is role="timer" with NO aria-live attribute (its
-		// implicit live value is "off" — the tick is never announced).
+		// The timer is role="timer" with EXPLICIT aria-live="off" — the
+		// tick is never announced by any screen reader (the implicit
+		// off value is not reliably honored by all of them).
 		const timer = screen.getByLabelText(/Recording duration:/i);
 		expect(timer.getAttribute("role")).toBe("timer");
-		expect(timer.hasAttribute("aria-live")).toBe(false);
+		expect(timer.getAttribute("aria-live")).toBe("off");
 
-		// Exactly ONE live region in the whole Home tree, and it is the
-		// dynamic status line below the mic button.
-		const liveRegions = document.querySelectorAll("[aria-live]");
+		// Exactly ONE ANNOUNCEABLE live region in the whole Home tree,
+		// and it is the dynamic status line below the mic button. The
+		// bare `[aria-live]` selector would also match the timer's
+		// explicit aria-live="off" (present but non-announcing), so
+		// count only regions that can actually announce: polite /
+		// assertive live regions plus the implicit-live status/alert
+		// roles.
+		const liveRegions = document.querySelectorAll(
+			'[aria-live="polite"], [aria-live="assertive"], [role="status"], [role="alert"]',
+		);
 		expect(liveRegions.length).toBe(1);
 		expect(liveRegions[0]?.getAttribute("aria-live")).toBe("polite");
 		expect(liveRegions[0]?.tagName).toBe("OUTPUT");
