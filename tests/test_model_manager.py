@@ -128,8 +128,7 @@ class TestAvailableBackendsPropertyNoParens:
         # (mocked) ``available_backends`` property.
         warning_msg = diagnostic_warnings[0].getMessage()
         assert "whisper" in warning_msg and "parakeet" in warning_msg, (
-            f"the diagnostic log.warning must list the attempted "
-            f"backends (whisper, parakeet). Got: {warning_msg!r}"
+            f"the diagnostic log.warning must list the attempted backends (whisper, parakeet). Got: {warning_msg!r}"
         )
         # The primary backend name must also be present.
         assert "primary=whisper" in warning_msg, (
@@ -370,14 +369,22 @@ class TestChangeModelBlocking:
         assert app.config.model_size == "parakeet"
         app.config.save.assert_called_once()
         # unload phase: registry.unload + unregister for the OLD backend ("whisper").
-        # ``unregister`` is called twice for the whisper branch — once
-        # directly in ``_change_model_unload_phase`` and once via the
-        # ``self.transcriber = None`` setter (which delegates to
-        # ``registry.unregister("whisper")``). Both calls are correct.
+        # ``unregister`` is called once — directly in
+        # ``_change_model_unload_phase``. The legacy
+        # ``self.transcriber = None`` setter call that previously ran
+        # here was dead code: by the time the elif was reached,
+        # ``self._registry.unregister("whisper")`` above had already
+        # cleared the registry entry, so ``self.transcriber`` (which
+        # delegates to ``registry.get("whisper")``) was always ``None``
+        # in production and the elif branch was never taken. The dead
+        # elif was removed; this assertion was tightened from
+        # ``["whisper", "whisper"]`` to ``["whisper"]`` to reflect
+        # the real production call count.
         mm._registry.unload.assert_called_once_with("whisper")
         unregister_calls = [c.args[0] for c in mm._registry.unregister.call_args_list]
-        assert unregister_calls == ["whisper", "whisper"], (
-            f"Expected unregister('whisper') twice (direct + via setter); got {unregister_calls}"
+        assert unregister_calls == ["whisper"], (
+            f"Expected unregister('whisper') once (direct only — the legacy "
+            f"setter-call branch was dead code, removed); got {unregister_calls}"
         )
         # load phase: _ensure_engine called with the NEW backend ("parakeet").
         mm._ensure_engine.assert_called_once_with("parakeet")

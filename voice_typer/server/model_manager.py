@@ -33,7 +33,6 @@ All of those now delegate to ModelManager.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import threading
 from typing import Any
@@ -135,9 +134,7 @@ class ModelManager:
         # BEFORE the subscribers fire, so a suppressed window skips the
         # tray path too (which would self-suppress anyway — no behavior
         # change there).
-        self._registry.set_last_resort_event_gate(
-            self._should_suppress_last_resort_notification
-        )
+        self._registry.set_last_resort_event_gate(self._should_suppress_last_resort_notification)
 
         # Gate the ``asr_backend_disabled`` event_bus publish the SAME
         # way: during deliberate-unload windows (idle-unload /
@@ -149,9 +146,7 @@ class ModelManager:
         # window checks with the last-resort gate but NOT the cooldown
         # (the disabled event fires at most once per trip — the breaker
         # skips already-disabled backends — so no rate limit is needed).
-        self._registry.set_backend_disabled_event_gate(
-            self._should_suppress_backend_disabled_notification
-        )
+        self._registry.set_backend_disabled_event_gate(self._should_suppress_backend_disabled_notification)
 
         # The three legacy engine attributes (``transcriber`` /
         # ``_qwen_engine`` / ``_parakeet_engine``) are now ``@property``
@@ -470,10 +465,7 @@ class ModelManager:
         #     so the tray tooltip and the Home hint agree verbatim.
         #  2. A concrete model that is missing from disk — "model not
         #     downloaded": tell the user to download it.
-        no_model_selected = (
-            isinstance(exc, ModelNotDownloadedError)
-            and exc.model_size == NO_MODEL_SIZE
-        )
+        no_model_selected = isinstance(exc, ModelNotDownloadedError) and exc.model_size == NO_MODEL_SIZE
         if isinstance(exc, ModelIntegrityError):
             reason = i18n.t(
                 "state.model_manager.model_integrity_failed",
@@ -670,10 +662,7 @@ class ModelManager:
         # ``__init__``) that somehow reaches this helper doesn't raise
         # AttributeError inside the subscriber/gate path.
         last = getattr(self, "_last_resort_notified_at", {}).get(backend_name)
-        return (
-            last is not None
-            and now - last < self._LAST_RESORT_NOTIFY_COOLDOWN_SECS
-        )
+        return last is not None and now - last < self._LAST_RESORT_NOTIFY_COOLDOWN_SECS
 
     def _on_last_resort_unloaded(self, backend_name: str) -> None:
         """Show a tray notification when ``get_active()`` falls through
@@ -850,9 +839,7 @@ class ModelManager:
             self._ensure_engine(backend_name)
 
             # Set tray state before heavy import so user sees progress
-            self._app.tray.set_state(
-                AppState.LOADING, i18n.t("state.model_manager.loading")
-            )
+            self._app.tray.set_state(AppState.LOADING, i18n.t("state.model_manager.loading"))
 
             def on_progress(msg: str):
                 self._app.tray.set_state(AppState.LOADING, msg)
@@ -889,9 +876,7 @@ class ModelManager:
                 else:
                     self._app.tray.set_state(
                         AppState.IDLE,
-                        i18n.t(
-                            "state.model_manager.ready_other", name=name.title()
-                        ),
+                        i18n.t("state.model_manager.ready_other", name=name.title()),
                     )
             else:
                 if self._app._shutting_down:
@@ -932,9 +917,7 @@ class ModelManager:
                     _primary,
                     _attempted,
                 )
-                self._app.tray.set_state(
-                    AppState.ERROR, i18n.t("state.model_manager.load_failed_retry")
-                )
+                self._app.tray.set_state(AppState.ERROR, i18n.t("state.model_manager.load_failed_retry"))
                 # Clear the pending-dictation flag so the ``finally``
                 # block does NOT auto-start a dictation that would
                 # immediately fail (no model is loaded). Pre-fix, the
@@ -958,9 +941,7 @@ class ModelManager:
                 backend_name,
                 model_size,
             )
-            self._app.tray.set_state(
-                AppState.ERROR, i18n.t("state.model_manager.load_failed_retry")
-            )
+            self._app.tray.set_state(AppState.ERROR, i18n.t("state.model_manager.load_failed_retry"))
             # Same failure-path guard as above: a crash must NOT trigger
             # the finally's auto-start of a pending dictation (it would
             # crash again on the same root cause).
@@ -1175,9 +1156,7 @@ class ModelManager:
                 info = getattr(active, "device_info", "unknown") if active else "unknown"
                 self._app.tray.set_state(
                     AppState.IDLE,
-                    i18n.t(
-                        "state.model_manager.ready_whisper", device_info=info
-                    ),
+                    i18n.t("state.model_manager.ready_whisper", device_info=info),
                 )
                 log.info("[MODEL] Loaded successfully")
             else:
@@ -1453,15 +1432,18 @@ class ModelManager:
         self._registry.unregister(old_backend)
         self._model_load_attempted = False
 
-        # Clear old engine fields
+        # Clear old engine fields. The old ``whisper`` case
+        # (``elif self.transcriber is not None: self.transcriber.unload()``)
+        # was removed: by the time we reach here,
+        # ``self._registry.unregister(old_backend)`` above already
+        # cleared ``registry.get("whisper")`` (which ``self.transcriber``
+        # delegates to), so the elif condition was always False; and
+        # ``self._registry.unload(old_backend)`` above already performed
+        # the whisper ``unload()`` call.
         if old_backend == "parakeet":
             self._parakeet_engine = None
         elif old_backend == "qwen":
             self._qwen_engine = None
-        elif self.transcriber is not None:
-            with contextlib.suppress(Exception):
-                self.transcriber.unload()
-            self.transcriber = None
 
     def _change_model_load_phase(self, new_backend: str, model_size: str) -> str | None:
         """Phase 2: construct + load the new engine.

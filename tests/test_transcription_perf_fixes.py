@@ -530,8 +530,9 @@ class TestSetActiveBackendBlockingRechecksBusy:
         # Config was persisted.
         assert app.config.asr_backend == "qwen"
         # The OLD backend was NOT unloaded (the whole point of the
-        # re-check deferral).
-        whisper_engine.unload.assert_not_called()
+        # re-check deferral) — the unload phase never ran, so the
+        # registry was never told to unload it.
+        mm._registry.unload.assert_not_called()
         # No load was attempted.
         mm._registry.load_active.assert_not_called()
 
@@ -549,7 +550,7 @@ class TestSetActiveBackendBlockingRechecksBusy:
         assert mm._pending_backend_change == "parakeet", (
             "IN-7: _set_active_backend_blocking must re-check _busy_event INSIDE the locks and defer when busy."
         )
-        whisper_engine.unload.assert_not_called()
+        mm._registry.unload.assert_not_called()
         mm._registry.load_active.assert_not_called()
 
     def test_blocking_proceeds_when_not_busy(self):
@@ -572,8 +573,11 @@ class TestSetActiveBackendBlockingRechecksBusy:
         )
         # Config was set.
         assert app.config.asr_backend == "qwen"
-        # Whisper engine WAS unloaded (the unload phase ran).
-        whisper_engine.unload.assert_called()
+        # The registry WAS told to unload the old backend (the unload
+        # phase ran). In production ``registry.unload`` invokes the
+        # engine's ``unload()``; with the registry mocked here we assert
+        # the production entry point was reached.
+        mm._registry.unload.assert_called()
         # Load was attempted.
         mm._registry.load_active.assert_called()
 
