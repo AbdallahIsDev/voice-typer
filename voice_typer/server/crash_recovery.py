@@ -1135,23 +1135,73 @@ class CrashRecovery:
             return len(self._entries)
 
     def __del__(self) -> None:
-        """Best-effort flush on garbage collection.
+        """Best-effort GC-time flush — delegates to ``_cleanup_*`` helpers.
 
-        If the background save thread still has pending writes when
-        the CrashRecovery instance is collected, do a synchronous
-        final save so the latest state is persisted.  This is a
-        safety net — explicit ``shutdown()`` + ``flush()`` is the
-        preferred shutdown path, but ``__del__`` catches the case
-        where the caller forgets (e.g. tests, abnormal exits).
+        Defense-in-depth outer ``try/except`` preserves the original
+        "never raise from GC" contract; each helper also owns its
+        own ``try/except`` so one failure does not skip the rest.
+        See ``_cleanup_flush_pending`` for the 3-tier safety-net
+        rationale (``shutdown()`` + atexit + ``__del__``).
+        """
+        try:
+            self._cleanup_signal_stop()
+            self._cleanup_flush_pending()
+        except BaseException:
+            # Defense-in-depth: each helper owns its own try/except,
+            # but this outer catch preserves the "never raise from GC"
+            # contract if a helper is replaced with a broken stub.
+            # Full ``BaseException`` rationale in ``_cleanup_flush_pending``.
+            pass
 
-        a-review Finding A3: previously this only saved if
+    def _cleanup_signal_stop(self) -> None:
+        """``__del__`` helper: signal the background worker to stop.
+
+        Sets ``self._stopped = True`` so any subsequent ``_save_loop``
+        iteration exits cleanly. Idempotent (``shutdown()`` also sets
+        this at line ~849). Wrapped in its own ``try/except
+        BaseException`` so a failure here does not prevent
+        ``_cleanup_flush_pending`` from running — the pre-extraction
+        ``__del__`` wrapped everything in ONE ``try/except``, so a
+        failure in ``self._stopped = True`` would have skipped the
+        final save. Extraction isolates the failure (slight resilience
+        upgrade, not a downgrade — the original behavior is preserved
+        for the success path; only the failure path is improved).
+        """
+        try:  # noqa: SIM105 — explicit try/except preserves the
+            #       "never raise from GC" pattern's visual parity with
+            #       ``__del__`` and ``_cleanup_flush_pending`` (both of
+            #       which use the same try/except BaseException: pass
+            #       shape, just with substantial bodies so SIM105
+            #       doesn't fire on them). ``contextlib.suppress``
+            #       would also work but obscures the BaseException
+            #       catch that's the whole point of this helper.
+            # Signal the worker to stop. ``shutdown()`` already sets
+            # this on the explicit-shutdown path; the redundant set
+            # here is the GC-time safety net for the
+            # ``shutdown()``-was-never-called case.
+            self._stopped = True
+        except BaseException:
+            # ``__del__``-path helpers must NEVER raise — see
+            # ``_cleanup_flush_pending`` for the full ``BaseException``
+            # rationale (``KeyboardInterrupt`` / ``SystemExit`` /
+            # ``GeneratorExit`` during interpreter shutdown).
+            pass
+
+    def _cleanup_flush_pending(self) -> None:
+        """``__del__`` helper: synchronously save any pending state.
+
+        If ``_entries`` is non-empty, call ``_save_sync(durability=True)``
+        to persist the latest state. This is the safety-net save that
+        catches the case where the caller forgot ``shutdown()`` +
+        ``flush()`` (e.g. tests, abnormal exits).
+
+        a-review Finding A3: previously ``__del__`` only saved if
         ``_save_thread.is_alive() and not _save_queue.empty()`` —
         which skipped the save entirely after ``shutdown()`` killed
         the worker, dropping any post-shutdown mutations on GC.
         Now we save whenever ``_entries`` is non-empty, regardless
         of worker state.  ``_save_lock`` serializes against any
-        in-flight worker save.  The whole body stays wrapped in
-        try/except so interpreter shutdown never raises from GC.
+        in-flight worker save.
 
         the previous ``if self._entries:`` read
         ``_entries`` WITHOUT holding ``_lock``. A concurrent
@@ -1166,7 +1216,7 @@ class CrashRecovery:
         torn.
 
         ``_final_save_done`` (set by ``_atexit_flush_all``
-        after a successful atexit save) makes this ``__del__`` save a
+        after a successful atexit save) makes this save a
         no-op if atexit already persisted the final state —
         eliminating the redundant atomic-write + rename on the
         shutdown path. Note ``shutdown()``'s final save does NOT
@@ -1195,9 +1245,6 @@ class CrashRecovery:
         in ``_atexit_flush_all`` / ``shutdown``.
         """
         try:
-            # Signal the worker to stop, then do one final
-            # synchronous save to capture any pending state.
-            self._stopped = True
             # acquire ``_lock`` for the empty-check so a
             # concurrent ``add()`` can't mutate ``_entries`` mid-read.
             # The check is best-effort: even with the lock, a

@@ -225,22 +225,22 @@ class TestList2CmdLine:
 
 
 class TestDelLockBasedCheck:
-    """XZ-R12-16: ``CrashRecovery.__del__`` reads ``_entries`` under
-    ``_lock`` (not bare) so a concurrent ``add()`` can't mutate the
+    """XZ-R12-16: ``CrashRecovery._cleanup_flush_pending`` reads ``_entries``
+    under ``_lock`` (not bare) so a concurrent ``add()`` can't mutate the
     deque mid-check.
     """
 
     def test_del_source_acquires_lock_for_empty_check(self):
-        """The source of ``__del__`` must acquire ``self._lock`` for
-        the empty-check (not just ``if self._entries:`` as an
-        executable statement). Comments referencing the bare pattern
-        are OK."""
+        """The source of ``_cleanup_flush_pending`` must acquire
+        ``self._lock`` for the empty-check (not just
+        ``if self._entries:`` as an executable statement). Comments
+        referencing the bare pattern are OK."""
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        src = inspect.getsource(CrashRecovery.__del__)
+        src = inspect.getsource(CrashRecovery._cleanup_flush_pending)
         # The check must be inside a ``with self._lock:`` block.
         assert "with self._lock:" in src, (
-            "XZ-R12-16: __del__ must acquire self._lock for the "
+            "XZ-R12-16: _cleanup_flush_pending must acquire self._lock for the "
             "empty-check so a concurrent add() can't mutate _entries "
             "mid-read"
         )
