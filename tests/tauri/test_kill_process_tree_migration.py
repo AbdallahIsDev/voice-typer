@@ -28,6 +28,7 @@ from pathlib import Path
 
 _SRC_TAURI = Path(__file__).resolve().parents[2] / "src-tauri"
 _STATE_RS = _SRC_TAURI / "src" / "state.rs"
+_HANDLE_RS = _SRC_TAURI / "src" / "sidecar" / "handle.rs"
 _SPAWN_RS = _SRC_TAURI / "src" / "sidecar" / "spawn.rs"
 _SPAWN_DIR = _SRC_TAURI / "src" / "sidecar" / "spawn"
 
@@ -84,13 +85,13 @@ def test_state_rs_kill_tree_routes_to_platform_module() -> None:
     method must use the fully-qualified ``crate::platform::process::kill_process_tree``
     path so the build doesn't break.
     """
-    body = _read(_STATE_RS)
+    body = _read(_HANDLE_RS)
     # Locate the kill_tree method body.
     kt_match = re.search(
         r"async\s+fn\s+kill_tree\s*\([^)]*\)\s*->\s*[^{]*\{",
         body,
     )
-    assert kt_match, "state.rs must define `async fn kill_tree`"
+    assert kt_match, "handle.rs must define `async fn kill_tree`"
     # Take the slice from the method opening brace to the closing brace of
     # the method body (the first balanced `{ ... }` after kt_match.end()-1).
     start = kt_match.end() - 1

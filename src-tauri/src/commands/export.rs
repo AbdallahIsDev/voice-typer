@@ -135,8 +135,26 @@ pub(crate) async fn export_data(
     // path — see the migrate.rs cross-language "3 variants of
     // atomic-write" finding, which this fix consolidates on the
     // Rust side).
-    crate::util::atomic_write_bytes(&path, content.as_bytes())
-        .map_err(|e| format!("write failed: {e}"))?;
+    //
+    // The atomic-write helper is synchronous I/O (file create,
+    // write, fsync, rename, parent-dir fsync). On slow destinations
+    // (HDD fsync, network drives, USB sticks) a single call can
+    // block for 100ms+; with Tauri's default 2-N async worker
+    // pool that stalls every concurrent `dispatch` call (heartbeat,
+    // status polling) queued behind the blocked worker. Wrapping in
+    // `tauri::async_runtime::spawn_blocking` dispatches the closure
+    // onto the Tokio blocking thread pool — the same pattern used in
+    // `tray.rs` (rebuild_tray_menu) — so the worker thread stays
+    // free. The closure owns `path_for_blocking` (a clone of `path`,
+    // since `path` is still needed below for the success envelope)
+    // and `content` (which is not used after this point).
+    let path_for_blocking = path.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::util::atomic_write_bytes(&path_for_blocking, content.as_bytes())
+    })
+    .await
+    .map_err(|e| format!("write task join failed: {e}"))?
+    .map_err(|e| format!("write failed: {e}"))?;
     Ok(json!({"success": true, "path": path.to_string_lossy().to_string()}))
 }
 
