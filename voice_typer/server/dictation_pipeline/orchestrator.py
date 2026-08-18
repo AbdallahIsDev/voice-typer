@@ -444,190 +444,21 @@ class _OrchestratorMixin:
                     self._app._crash_recovery.flush(timeout=0.5)
 
         finally:
-            # Each cleanup step below is wrapped in an explicit
-            # try/except with log.debug (NOT contextlib.suppress) so a
-            # stuck-busy state is diagnosable from the log. The
+            # Each cleanup step below is delegated to a named helper that
+            # owns its own try/except with log.debug (NOT contextlib.suppress)
+            # so a stuck-busy state is diagnosable from the log. The
             # original exception from the try block above is preserved
             # — the finally block must NOT raise (log.debug, not
             # log.error, to avoid log noise on the normal cleanup path).
-            # Clear the in-flight sentinel — dictation completed (success,
-            # cancel, or handled exception). Only a hard process crash
-            # leaves the sentinel behind for crash_recovery to detect.
-            try:
-                from voice_typer.server._paths import config_dir as _config_dir
-
-                _sentinel = _config_dir() / ".dictation-in-flight"
-                if _sentinel.exists():
-                    _sentinel.unlink()
-            except Exception:
-                log.debug(
-                    "[PIPELINE] finally cleanup step sentinel_unlink failed",
-                    exc_info=True,
-                )
-            # SEC-audit-008: Zero the audio array after transcription
-            # completes to prevent forensic recovery of voice data
-            # from process memory.  The audio buffer contains potentially
-            # sensitive biometric data (voice recordings) that should not
-            # linger in memory longer than necessary.
-            try:
-                if self._audio is not None and isinstance(self._audio, np.ndarray):
-                    self._audio.fill(0)
-                    self._audio = None
-            except Exception:
-                log.debug(
-                    "[PIPELINE] finally cleanup step audio_zero failed",
-                    exc_info=True,
-                )
-            # RACE-013: reset the persistent watchdog thread (signal
-            # that transcription completed normally). Old code used
-            # watchdog.cancel() for Timer-based watchdogs; now we
-            # signal the Event-based persistent watchdog thread.
-            # RACE-016: wrap daemon thread finally block with
-            # try/except to prevent exceptions during shutdown.
-            try:
-                #  Phase 2: fixed typo — was `_recording_controller`
-                # (doesn't exist on VoiceTyperApp). The attribute is `recording`
-                # (a RecordingController). Previously the watchdog reset never
-                # fired from this finally block — see worklog.md bug note.
-                recording = getattr(self._app, "recording", None)
-                if recording is not None:
-                    recording._reset_watchdog()
-                    recording._stop_watchdog_thread()
-                    # discard this cycle from the cancelled set so
-                    # the set doesn't grow unboundedly across cycles. ``discard``
-                    # is a no-op if the cycle wasn't cancelled (the normal path).
-                    _cancelled_lock = getattr(recording, "_cancelled_cycle_ids_lock", None)
-                    _cancelled_set = getattr(recording, "_cancelled_cycle_ids", None)
-                    if _cancelled_lock is not None and _cancelled_set is not None:
-                        with _cancelled_lock:
-                            _cancelled_set.discard(self._cycle_id)
-            except Exception:
-                log.debug(
-                    "[PIPELINE] finally cleanup step watchdog_reset failed",
-                    exc_info=True,
-                )
-            try:
-                #  ( family): use
-                # ``pop_streaming_session()`` (atomic get-and-clear
-                # under the recording controller's
-                # ``_streaming_session_lock``) instead of the racy
-                # get-then-set pair. Pre-fix, between
-                # ``get_streaming_session()`` (lock #1) and
-                # ``set_streaming_session(None)`` (lock #2), a
-                # concurrent ``_start_streaming_session_if_enabled``
-                # could install a NEW session that the subsequent
-                # ``set_streaming_session(None)`` would clobber —
-                # silently killing an active streaming worker thread.
-                # After rapid stop→start (user double-tap hotkey, or
-                # auto-stop Timer immediately followed by hotkey),
-                # the new recording's streaming session was killed
-                # silently and streaming transcriptions stopped
-                # appearing until the next restart.
-                #
-                # ``pop_streaming_session()`` owns the session AND
-                # clears the slot under a SINGLE lock acquisition —
-                # we never write back to the slot. If a new session
-                # is installed concurrently, it lands AFTER our pop
-                # and is preserved. Mirrors the  path in
-                # ``shutdown_controller._do_cleanup`` and the
-                #  path in
-                # ``recording_controller._cancel_streaming_session``.
-                #
-                # If we popped a non-None session AND the recorder
-                # is no longer recording (i.e. this session belongs
-                # to a dictation cycle that has now ended — not to
-                # a fresh recording that started during the run),
-                # signal its cancel event so the background
-                # streaming worker thread exits cleanly instead of
-                # leaking until the next process shutdown.
-                # ``session.cancel()`` is non-blocking by default
-                # () — it sets the cancel event and returns
-                # immediately, matching the finally-block's
-                # bounded-latency contract.
-                session = self._app.recording.pop_streaming_session()
-                if session is not None and not self._app.recorder.recording:
-                    try:
-                        session.cancel()
-                    except Exception:
-                        log.debug(
-                            "[PIPELINE] finally cleanup step streaming_session_cancel failed",
-                            exc_info=True,
-                        )
-            except Exception:
-                log.debug("[TRANSCRIBE] finally: session cleanup failed", exc_info=True)
-            try:
-                self._app._busy_event.set()  # busy = False
-            except Exception:
-                log.debug(
-                    "[PIPELINE] finally cleanup step busy_event_clear failed",
-                    exc_info=True,
-                )
-            #  H-17: clear ``_transcription_thread`` under
-            # ``RecordingController._watchdog_lock`` — the SAME lock
-            # that guards the field's write (``RecordingController._stop_impl``
-            # assigns ``self._transcription_thread = threading.Thread(...)``
-            # under ``_watchdog_lock``) and read
-            # (``_force_recover_from_stuck_transcription`` snapshots
-            # ``self._transcription_thread`` under ``_watchdog_lock``).
-            #
-            # Pre-H-17 this clear used ``self._app._lock`` — a DIFFERENT
-            # lock — which provided ZERO mutual exclusion against the
-            # write/read in recording_controller.py. The torn-read hazard
-            # was real: a concurrent ``_stop_impl`` could be mid-assignment
-            # of ``self._transcription_thread`` (Thread object → None or
-            # vice versa) when this clear ran, and the watchdog could
-            # observe a stale or partially-constructed reference.
-            #
-            # write directly to RecordingController (was a
-            # @property delegate previously).
-            #
-            # Defensive fallback: if the lock is unavailable (e.g. the
-            # recording controller was torn down or a stub app lacks
-            # ``_watchdog_lock``), we still want to clear the field —
-            # but log the race so the torn-read hazard is observable.
-            _recording = getattr(self._app, "recording", None)
-            _watchdog_lock = getattr(_recording, "_watchdog_lock", None) if _recording is not None else None
-            try:
-                if _watchdog_lock is not None:
-                    with _watchdog_lock:
-                        _recording._transcription_thread = None
-                else:
-                    # Defensive: very old or stub app without
-                    # ``recording._watchdog_lock`` — clear without the
-                    # lock and log so the gap is visible.
-                    raise AttributeError("recording._watchdog_lock not present")
-            except Exception:
-                # Defensive: if the lock is unavailable we still want
-                # to clear the field — but log the race.
-                log.debug(
-                    "[TRANSCRIBE] could not acquire recording._watchdog_lock "
-                    "to clear _transcription_thread; assigning without lock",
-                    exc_info=True,
-                )
-                try:
-                    if _recording is not None:
-                        _recording._transcription_thread = None
-                except Exception:
-                    log.debug(
-                        "[PIPELINE] finally cleanup step transcription_thread_clear_unsafe failed",
-                        exc_info=True,
-                    )
-            # Downgrade from full gc.collect() to gc.collect(0).
-            # Full GC scans the entire Python heap (gen 0+1+2) — with a
-            # loaded Whisper model (500MB-3GB of tensors → millions of
-            # wrapper objects), a full pass takes 50-500ms, paid on every
-            # single transcription cycle. Generation-0 only (~1-5ms)
-            # catches the per-cycle allocations (audio buffers, segment
-            # lists, IPC dicts) without scanning long-lived model objects.
-            try:
-                import gc
-
-                gc.collect(0)
-            except Exception:
-                log.debug(
-                    "[PIPELINE] finally cleanup step gc_collect failed",
-                    exc_info=True,
-                )
+            # Per-step rationale (RACE-013, SEC-audit-008, H-17, ...) lives
+            # on the helpers below.
+            self._cleanup_sentinel_unlink()
+            self._cleanup_audio_zero()
+            self._cleanup_watchdog_reset()
+            self._cleanup_streaming_session_cancel()
+            self._cleanup_busy_event_clear()
+            self._cleanup_transcription_thread_clear()
+            self._cleanup_gc_collect()
             log.debug("[TRANSCRIBE] busy reset to False (cycle=%s)", self._cycle_id)
             # clear the correlation id published at the top of run().
             # This runs in the finally block so it executes on both the
@@ -639,3 +470,216 @@ class _OrchestratorMixin:
                 from voice_typer.server.log import reset_correlation_id
 
                 reset_correlation_id(_corr_token)
+
+    # ── finally-block cleanup helpers ───────────────────────────────────
+    #
+    # Each helper below owns one of the 7 cleanup steps that ``run()``'s
+    # finally block used to inline. Each helper carries its own
+    # ``try/except Exception`` with ``log.debug(..., exc_info=True)`` —
+    # byte-identical log line TEXT vs the pre-refactor inline blocks
+    # (per C-LOG-1). The finally block now reads as 7 sequential calls
+    # instead of 7 nested try/except blocks. A failure in helper N is
+    # logged and swallowed so helper N+1 still runs.
+
+    def _cleanup_sentinel_unlink(self) -> None:
+        """Finally-block step 1: clear the in-flight sentinel.
+
+        Dictation completed (success, cancel, or handled exception).
+        Only a hard process crash leaves the sentinel behind for
+        crash_recovery to detect.
+        """
+        try:
+            from voice_typer.server._paths import config_dir as _config_dir
+
+            _sentinel = _config_dir() / ".dictation-in-flight"
+            if _sentinel.exists():
+                _sentinel.unlink()
+        except Exception:
+            log.debug(
+                "[PIPELINE] finally cleanup step sentinel_unlink failed",
+                exc_info=True,
+            )
+
+    def _cleanup_audio_zero(self) -> None:
+        """Finally-block step 2: zero the audio array after transcription.
+
+        SEC-audit-008: Zero the audio array after transcription completes
+        to prevent forensic recovery of voice data from process memory.
+        The audio buffer contains potentially sensitive biometric data
+        (voice recordings) that should not linger in memory longer than
+        necessary.
+        """
+        try:
+            if self._audio is not None and isinstance(self._audio, np.ndarray):
+                self._audio.fill(0)
+                self._audio = None
+        except Exception:
+            log.debug(
+                "[PIPELINE] finally cleanup step audio_zero failed",
+                exc_info=True,
+            )
+
+    def _cleanup_watchdog_reset(self) -> None:
+        """Finally-block step 3: reset the persistent watchdog thread.
+
+        RACE-013: reset the persistent watchdog thread (signal that
+        transcription completed normally). Old code used
+        ``watchdog.cancel()`` for Timer-based watchdogs; now we signal
+        the Event-based persistent watchdog thread.
+        RACE-016: wrap daemon thread finally block with try/except to
+        prevent exceptions during shutdown.
+        """
+        try:
+            #  Phase 2: fixed typo — was `_recording_controller`
+            # (doesn't exist on VoiceTyperApp). The attribute is `recording`
+            # (a RecordingController). Previously the watchdog reset never
+            # fired from this finally block — see worklog.md bug note.
+            recording = getattr(self._app, "recording", None)
+            if recording is not None:
+                recording._reset_watchdog()
+                recording._stop_watchdog_thread()
+                # discard this cycle from the cancelled set so
+                # the set doesn't grow unboundedly across cycles. ``discard``
+                # is a no-op if the cycle wasn't cancelled (the normal path).
+                _cancelled_lock = getattr(recording, "_cancelled_cycle_ids_lock", None)
+                _cancelled_set = getattr(recording, "_cancelled_cycle_ids", None)
+                if _cancelled_lock is not None and _cancelled_set is not None:
+                    with _cancelled_lock:
+                        _cancelled_set.discard(self._cycle_id)
+        except Exception:
+            log.debug(
+                "[PIPELINE] finally cleanup step watchdog_reset failed",
+                exc_info=True,
+            )
+
+    def _cleanup_streaming_session_cancel(self) -> None:
+        """Finally-block step 4: cancel any active streaming session.
+
+         ( family): use
+        ``pop_streaming_session()`` (atomic get-and-clear under the
+        recording controller's ``_streaming_session_lock``) instead of
+        the racy get-then-set pair. Pre-fix, between
+        ``get_streaming_session()`` (lock #1) and
+        ``set_streaming_session(None)`` (lock #2), a concurrent
+        ``_start_streaming_session_if_enabled`` could install a NEW
+        session that the subsequent ``set_streaming_session(None)``
+        would clobber — silently killing an active streaming worker
+        thread. After rapid stop→start (user double-tap hotkey, or
+        auto-stop Timer immediately followed by hotkey), the new
+        recording's streaming session was killed silently and streaming
+        transcriptions stopped appearing until the next restart.
+
+        ``pop_streaming_session()`` owns the session AND clears the
+        slot under a SINGLE lock acquisition — we never write back to
+        the slot. If a new session is installed concurrently, it lands
+        AFTER our pop and is preserved. Mirrors the  path in
+        ``shutdown_controller._do_cleanup`` and the  path in
+        ``recording_controller._cancel_streaming_session``.
+
+        If we popped a non-None session AND the recorder is no longer
+        recording (i.e. this session belongs to a dictation cycle that
+        has now ended — not to a fresh recording that started during
+        the run), signal its cancel event so the background streaming
+        worker thread exits cleanly instead of leaking until the next
+        process shutdown. ``session.cancel()`` is non-blocking by
+        default — it sets the cancel event and returns immediately,
+        matching the finally-block's bounded-latency contract.
+        """
+        try:
+            session = self._app.recording.pop_streaming_session()
+            if session is not None and not self._app.recorder.recording:
+                try:
+                    session.cancel()
+                except Exception:
+                    log.debug(
+                        "[PIPELINE] finally cleanup step streaming_session_cancel failed",
+                        exc_info=True,
+                    )
+        except Exception:
+            log.debug("[TRANSCRIBE] finally: session cleanup failed", exc_info=True)
+
+    def _cleanup_busy_event_clear(self) -> None:
+        """Finally-block step 5: clear the busy event (busy = False)."""
+        try:
+            self._app._busy_event.set()  # busy = False
+        except Exception:
+            log.debug(
+                "[PIPELINE] finally cleanup step busy_event_clear failed",
+                exc_info=True,
+            )
+
+    def _cleanup_transcription_thread_clear(self) -> None:
+        """Finally-block step 6: clear ``_transcription_thread``.
+
+         H-17: clear ``_transcription_thread`` under
+        ``RecordingController._watchdog_lock`` — the SAME lock that
+        guards the field's write (``RecordingController._stop_impl``
+        assigns ``self._transcription_thread = threading.Thread(...)``
+        under ``_watchdog_lock``) and read
+        (``_force_recover_from_stuck_transcription`` snapshots
+        ``self._transcription_thread`` under ``_watchdog_lock``).
+
+        Pre-H-17 this clear used ``self._app._lock`` — a DIFFERENT lock
+        — which provided ZERO mutual exclusion against the write/read
+        in recording_controller.py. The torn-read hazard was real: a
+        concurrent ``_stop_impl`` could be mid-assignment of
+        ``self._transcription_thread`` (Thread object → None or vice
+        versa) when this clear ran, and the watchdog could observe a
+        stale or partially-constructed reference.
+
+         write directly to RecordingController (was a
+        @property delegate previously).
+
+        Defensive fallback: if the lock is unavailable (e.g. the
+        recording controller was torn down or a stub app lacks
+        ``_watchdog_lock``), we still want to clear the field — but
+        log the race so the torn-read hazard is observable.
+        """
+        _recording = getattr(self._app, "recording", None)
+        _watchdog_lock = getattr(_recording, "_watchdog_lock", None) if _recording is not None else None
+        try:
+            if _watchdog_lock is not None:
+                with _watchdog_lock:
+                    _recording._transcription_thread = None
+            else:
+                # Defensive: very old or stub app without
+                # ``recording._watchdog_lock`` — clear without the
+                # lock and log so the gap is visible.
+                raise AttributeError("recording._watchdog_lock not present")
+        except Exception:
+            # Defensive: if the lock is unavailable we still want
+            # to clear the field — but log the race.
+            log.debug(
+                "[TRANSCRIBE] could not acquire recording._watchdog_lock "
+                "to clear _transcription_thread; assigning without lock",
+                exc_info=True,
+            )
+            try:
+                if _recording is not None:
+                    _recording._transcription_thread = None
+            except Exception:
+                log.debug(
+                    "[PIPELINE] finally cleanup step transcription_thread_clear_unsafe failed",
+                    exc_info=True,
+                )
+
+    def _cleanup_gc_collect(self) -> None:
+        """Finally-block step 7: generation-0 GC pass.
+
+        Downgrade from full gc.collect() to gc.collect(0). Full GC scans
+        the entire Python heap (gen 0+1+2) — with a loaded Whisper model
+        (500MB-3GB of tensors → millions of wrapper objects), a full pass
+        takes 50-500ms, paid on every single transcription cycle.
+        Generation-0 only (~1-5ms) catches the per-cycle allocations
+        (audio buffers, segment lists, IPC dicts) without scanning
+        long-lived model objects.
+        """
+        try:
+            import gc
+
+            gc.collect(0)
+        except Exception:
+            log.debug(
+                "[PIPELINE] finally cleanup step gc_collect failed",
+                exc_info=True,
+            )

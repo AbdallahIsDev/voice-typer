@@ -309,13 +309,8 @@ def take_snapshot(recorder: Recorder) -> np.ndarray:
                 # The compaction cost (O(total-samples) memcpy) is
                 # amortized over N snapshots — a one-shot paid every
                 # N snapshots instead of the previous unbounded growth.
-                if (
-                    len(recorder._cached_resampled_segments)
-                    > _SEGMENT_LIST_COMPACTION_THRESHOLD
-                ):
-                    recorder._cached_resampled_segments = [
-                        np.concatenate(recorder._cached_resampled_segments)
-                    ]
+                if len(recorder._cached_resampled_segments) > _SEGMENT_LIST_COMPACTION_THRESHOLD:
+                    recorder._cached_resampled_segments = [np.concatenate(recorder._cached_resampled_segments)]
             # materialize the lazy concat if the segment list
             # changed since the last call. No-op when no new chunks
             # arrived -- the existing cached_resampled stays valid and
@@ -402,13 +397,8 @@ def take_snapshot(recorder: Recorder) -> np.ndarray:
                     # this list is the primary storage for the dictated
                     # prefix — without compaction it grows unbounded for
                     # the entire session.
-                    if (
-                        len(recorder._cached_no_resample_segments)
-                        > _SEGMENT_LIST_COMPACTION_THRESHOLD
-                    ):
-                        recorder._cached_no_resample_segments = [
-                            np.concatenate(recorder._cached_no_resample_segments)
-                        ]
+                    if len(recorder._cached_no_resample_segments) > _SEGMENT_LIST_COMPACTION_THRESHOLD:
+                        recorder._cached_no_resample_segments = [np.concatenate(recorder._cached_no_resample_segments)]
             recorder._cached_no_resample_len = buf_len
             # materialize the lazy concat if the segment list changed
             # since the last call. No-op when no new chunks arrived --
@@ -887,6 +877,24 @@ def start_recording(recorder: Recorder) -> None:
     # worker) so device-disconnect detection doesn't block the hot path.
     recorder._start_device_health_checker()
 
+    # Wire the idle-recording gate. ``Recorder.start`` is the
+    # production caller that toggles
+    # ``MicrophoneDeviceWatcher.set_idle`` — pre-fix, ``set_idle`` was
+    # defined and consumed by the macOS/Linux polling paths but had
+    # ZERO production callers, so ``_is_idle`` stayed ``True`` forever
+    # and the active 3 s poll cadence never engaged during recording
+    # (the watcher idled at 12 s always). The call is placed at the
+    # very end of ``start_recording`` so any earlier failure (stream-open,
+    # worker spawn, retune) prevents the toggle — matching the
+    # ``stop_recording`` contract that ``set_idle(True)`` only runs after
+    # a successful stop. The ``None`` guard covers the
+    # macOS-without-pyobjc fall-back (``_mic_watcher`` is ``None`` when
+    # the watcher failed to start — see ``DeviceManager.__init__``) so
+    # this branch is a no-op on hosts where the watcher never came up.
+    _mic_watcher = recorder._mic_watcher
+    if _mic_watcher is not None:
+        _mic_watcher.set_idle(False)
+
 
 def stop_recording(recorder: Recorder) -> np.ndarray:
     """Stop recording and return the complete audio array.
@@ -1064,6 +1072,16 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
             # would otherwise retain the previous session's total until
             # the next ``start()`` reset).
             recorder._total_buffered_samples = 0
+            # idle-recording gate — return to the 12 s idle
+            # cadence even on the empty-buffer early-return path so the
+            # watcher doesn't stay in the active 3 s mode after a
+            # successful stop with no audio captured. Mirrors the
+            # ``set_idle(True)`` call before the normal ``return audio``
+            # at the end of this function. ``None`` guard for hosts
+            # where the watcher never came up.
+            _mic_watcher = recorder._mic_watcher
+            if _mic_watcher is not None:
+                _mic_watcher.set_idle(True)
             return np.array([], dtype=np.float32)
         # capture the chunk list and swap in a fresh deque
         # INSIDE the lock (the swap is O(1) -- just a deque
@@ -1262,6 +1280,19 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     else:
         # Warning already emitted above when len(audio) == 0
         pass
+
+    # idle-recording gate — return to the 12 s idle cadence
+    # now that the recording has been stopped (stream torn down,
+    # workers joined, buffer snapshotted). Mirrors the
+    # ``set_idle(False)`` call at the end of ``start_recording`` so
+    # the watcher's macOS/Linux poll cadence widens from the active
+    # 3 s back to the idle 12 s between recordings — saving the
+    # 10–50 ms CoreAudio round trip per poll when no recording is
+    # in flight. The ``None`` guard covers hosts where the watcher
+    # never came up (macOS-without-pyobjc fall-back).
+    _mic_watcher = recorder._mic_watcher
+    if _mic_watcher is not None:
+        _mic_watcher.set_idle(True)
 
     return audio
 
