@@ -242,7 +242,7 @@ class TestInstallerHooksNshSection:
         # The Section line uses the canonical name + section index var.
         # Match the literal Section declaration so a rename fails this test.
         assert 'Section "Include offline engine pack" SecIncludePack' in text, (
-            "installer-hooks.nsh must define `Section \"Include offline engine pack\" "
+            'installer-hooks.nsh must define `Section "Include offline engine pack" '
             "SecIncludePack` — Tauri v2's bundle.windows.nsis has NO checkbox option, "
             "so a custom NSIS Section is the only way to surface the per-feature "
             "checkbox on the Components page (plan §4.8 / §9)."
@@ -329,7 +329,7 @@ class TestInstallerHooksCustomInstallMacro:
         text = INSTALLER_HOOKS_NSH.read_text(encoding="utf-8")
         # The path is $LOCALAPPDATA\voice-typer\installer-state.json —
         # NSIS literal. Match the FileOpen line so a path rename fails.
-        assert r'$LOCALAPPDATA\voice-typer\installer-state.json' in text, (
+        assert r"$LOCALAPPDATA\voice-typer\installer-state.json" in text, (
             "installer-hooks.nsh must write installer-state.json to "
             "%LOCALAPPDATA%\\voice-typer\\ — the SAME per-user data root the "
             "Python backend uses (voice_typer/server/_paths.py). A different "
@@ -391,23 +391,20 @@ class TestArtifactNames:
         mod = _load_artifact_names_module()
         name = mod.slim_core_installer_name("1.0.0", "x86_64-pc-windows-msvc")
         assert name == "voice-typer-slim-core-1.0.0-x86_64-pc-windows-msvc.exe", (
-            "slim-core installer name must match §11.9: "
-            "voice-typer-slim-core-<version>-<triple>.exe"
+            "slim-core installer name must match §11.9: voice-typer-slim-core-<version>-<triple>.exe"
         )
 
     def test_runtime_pack_name_format(self) -> None:
         mod = _load_artifact_names_module()
         name = mod.runtime_pack_name("3", "x86_64-pc-windows-msvc")
         assert name == "voice-typer-runtime-pack-3-x86_64-pc-windows-msvc.zip", (
-            "runtime-pack name must match §11.9: "
-            "voice-typer-runtime-pack-<pack-version>-<triple>.zip"
+            "runtime-pack name must match §11.9: voice-typer-runtime-pack-<pack-version>-<triple>.zip"
         )
 
     def test_pack_manifest_name(self) -> None:
         mod = _load_artifact_names_module()
         assert mod.pack_manifest_name() == "pack-manifest.json", (
-            "pack-manifest.json is the §11.9 manifest release-asset filename "
-            "(platform-AGNOSTIC — no triple suffix)."
+            "pack-manifest.json is the §11.9 manifest release-asset filename (platform-AGNOSTIC — no triple suffix)."
         )
 
     def test_full_offline_installer_name_format(self) -> None:
@@ -452,7 +449,7 @@ class TestArtifactNames:
             mod.slim_core_installer_name("not-a-version", "x86_64-pc-windows-msvc")
 
 
-class TestCCCI13NoRenameOfExistingArtifacts:
+class TestNoRenameOfExistingArtifacts:
     """C-CI-13: never rename EXISTING artifacts.
 
     The new names introduced by §11.9 must NOT collide with the
@@ -618,8 +615,7 @@ class TestFullOfflineBuildScript:
         if os.name == "posix":
             mode = FULL_OFFLINE_BUILD_SH.stat().st_mode
             assert mode & stat.S_IXUSR, (
-                f"{FULL_OFFLINE_BUILD_SH.name} must be executable (chmod +x) — "
-                "the CI YAML invokes it directly."
+                f"{FULL_OFFLINE_BUILD_SH.name} must be executable (chmod +x) — the CI YAML invokes it directly."
             )
 
     def test_script_requires_all_inputs(self) -> None:
@@ -716,6 +712,6 @@ class TestUninstallerNshNotRegressed:
         text = UNINSTALLER_NSH.read_text(encoding="utf-8")
         # The path is quoted in the .nsh (NSIS literal: `"$APPDATA\voice-typer"`).
         assert r'RMDir /r "$APPDATA\voice-typer"' in text, (
-            "uninstaller.nsh must still RMDir /r \"%APPDATA%\\voice-typer\" — CR-70 "
+            'uninstaller.nsh must still RMDir /r "%APPDATA%\\voice-typer" — CR-70 '
             "per-user data dir cleanup (settings JSON, history DB, vocabularies)."
         )

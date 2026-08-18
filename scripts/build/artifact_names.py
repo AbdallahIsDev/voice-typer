@@ -20,7 +20,7 @@ script fails loudly instead of producing an un-canonical artifact name.
 C-CI-13 guard: the NEW names above must never collide with the
 EXISTING protected artifact names (``EXISTING_PROTECTED_NAMES``) — the
 new artifacts are ADDITIVE. The disjointness is asserted by
-``tests/tauri/test_installer_naming.py::TestCCCI13NoRenameOfExistingArtifacts``.
+``tests/tauri/test_installer_naming.py::TestNoRenameOfExistingArtifacts``.
 
 ``SUPPORTED_TRIPLES`` is the canonical build-triple list and must stay
 in lockstep with ``scripts/gen_tauri_icons_stub.py::SIDECAR_TRIPLES``
@@ -46,9 +46,7 @@ SUPPORTED_TRIPLES: tuple[str, ...] = (
     "aarch64-unknown-linux-gnu",
 )
 
-WINDOWS_TRIPLES: frozenset[str] = frozenset(
-    {"x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"}
-)
+WINDOWS_TRIPLES: frozenset[str] = frozenset({"x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"})
 
 # C-CI-13: existing release artifacts that must NEVER be renamed. New
 # §11.9 names are additive — the disjoint guard in the installer-naming
@@ -77,26 +75,19 @@ _PACK_VERSION_RE = re.compile(r"^\d+$")
 def _check_triple(triple: str) -> None:
     """Raise ``ValueError`` for any triple outside the canonical 6."""
     if triple not in SUPPORTED_TRIPLES:
-        raise ValueError(
-            f"unsupported target triple: {triple!r} "
-            f"(supported: {', '.join(SUPPORTED_TRIPLES)})"
-        )
+        raise ValueError(f"unsupported target triple: {triple!r} (supported: {', '.join(SUPPORTED_TRIPLES)})")
 
 
 def _check_app_version(version: str) -> None:
     """Raise ``ValueError`` for a malformed ``X.Y.Z`` app version."""
     if not _APP_VERSION_RE.match(version):
-        raise ValueError(
-            f"malformed app-version: {version!r} (expected X.Y.Z, e.g. 1.0.0)"
-        )
+        raise ValueError(f"malformed app-version: {version!r} (expected X.Y.Z, e.g. 1.0.0)")
 
 
 def _check_pack_version(version: str) -> None:
     """Raise ``ValueError`` for a malformed integer pack version."""
     if not _PACK_VERSION_RE.match(version):
-        raise ValueError(
-            f"malformed pack-version: {version!r} (expected an integer, e.g. 3)"
-        )
+        raise ValueError(f"malformed pack-version: {version!r} (expected an integer, e.g. 3)")
 
 
 def _exe_suffix(triple: str) -> str:

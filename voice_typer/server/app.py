@@ -294,6 +294,27 @@ with i18n._LOCK:
 # sentinel distinguishes "not built yet" from "explicitly None".
 _RECORDER_MISSING: object = object()
 
+# Sentinel + TTL for the lazy ``@property`` accessors that wrap controller
+# construction in ``try/except Exception`` (``undo``, ``audio_quality``,
+# ``_duck_crash_recovery``, ``_volume_ducker``, ``history_db``).
+#
+# ``None`` is the *initial* state ("not yet attempted construction"), so it
+# cannot also represent "construction already failed" — without a distinct
+# sentinel, every subsequent access would re-enter the ``try`` block and
+# re-attempt construction + re-log the WARNING (the ``audio_quality``
+# property is on a ~94 Hz hot path; a single failure spams ~94 warnings/sec
+# for the entire recording session). ``_LAZY_FAILED`` is cached in the
+# backing on failure alongside a ``_<prop>_failed_at`` monotonic
+# timestamp; the getter returns ``None`` silently (no log, no construction
+# re-attempt) until ``RETRY_TTL_SECONDS`` elapses, then clears the sentinel
+# and retries construction (transient failures can recover). This is the
+# canonical E8 exception-clause case ("Define a sentinel only when None is
+# itself a meaningful value") — ``None`` IS meaningful (initial state), so
+# the failure state needs a distinct marker. Mirrors the existing
+# ``_RECORDER_MISSING`` precedent in the same module.
+_LAZY_FAILED: object = object()
+RETRY_TTL_SECONDS: float = 30.0
+
 
 class VoiceTyperApp:
     """The main application."""
@@ -650,6 +671,15 @@ class VoiceTyperApp:
         # repaste hotkey). The lazy property transparently constructs on
         # first access.
         self._undo_backing: Any = None
+        # Monotonic-clock timestamp of the most recent lazy-init failure
+        # for the ``undo`` property (see ``_LAZY_FAILED`` sentinel at
+        # module top). When ``_undo_backing`` is ``_LAZY_FAILED``, the
+        # getter reads this to decide whether to retry construction
+        # (after ``RETRY_TTL_SECONDS``) or return ``None`` silently
+        # (within TTL — avoids 94 Hz log spam on the hot path). ``None``
+        # means "no failure recorded" (either never failed, or the last
+        # attempt succeeded and cleared the timestamp).
+        self._undo_failed_at: Any = None
 
         #  Phase 7: audio-quality side-effects extracted to
         # AudioQualityController. The app keeps thin delegate methods so
@@ -668,6 +698,12 @@ class VoiceTyperApp:
         # self._on_audio_quality_chunk)``) delegates through the property
         # so the first chunk triggers construction.
         self._audio_quality_backing: Any = None
+        # Monotonic-clock timestamp of the most recent lazy-init failure
+        # for the ``audio_quality`` property — see ``_undo_failed_at``
+        # above for the full rationale. The ``audio_quality`` property is
+        # on the per-chunk audio callback hot path (~94 Hz at 48 kHz/512),
+        # so this sentinel is the critical fix for the 94 Hz log spam.
+        self._audio_quality_failed_at: Any = None
 
         # config-editor controller extracted to a focused
         # ``controllers/`` package. It holds a reference to the owning
@@ -846,6 +882,10 @@ class VoiceTyperApp:
         # so a never-dictated session doesn't pay the 30s writer-ready
         # wait on quit.
         self._history_db_backing: Any = None
+        # Monotonic-clock timestamp of the most recent lazy-init failure
+        # for the ``history_db`` property — see ``_undo_failed_at`` above
+        # for the full rationale.
+        self._history_db_failed_at: Any = None
         self._crash_recovery = CrashRecovery(
             thread_registry=self._thread_registry,
         )
@@ -864,6 +904,10 @@ class VoiceTyperApp:
         # on first access (e.g. when ``VolumeController._duck_volume``
         # runs at the start of the first dictation).
         self._duck_crash_recovery_backing: Any = None
+        # Monotonic-clock timestamp of the most recent lazy-init failure
+        # for the ``_duck_crash_recovery`` property — see
+        # ``_undo_failed_at`` above for the full rationale.
+        self._duck_crash_recovery_failed_at: Any = None
         #  Phase 7: VolumeController owns duck/restore side effects.
         # Kept eager because it's just a back-reference holder
         # (``self._app = app``) and the ``_on_volume_crash_restore``
@@ -874,6 +918,10 @@ class VoiceTyperApp:
 
         self.volume: VolumeController = VolumeController(self)
         self._volume_ducker_backing: Any = None
+        # Monotonic-clock timestamp of the most recent lazy-init failure
+        # for the ``_volume_ducker`` property — see ``_undo_failed_at``
+        # above for the full rationale.
+        self._volume_ducker_failed_at: Any = None
         # NOTE: AudioQualityAnalyzer is now instantiated earlier in
         # __init__ (next to AudioProcessor) and wired to the processor's
         # per-chunk quality callback.  See self._audio_quality /
@@ -932,9 +980,21 @@ class VoiceTyperApp:
     #
     # Construction failures (e.g. a corrupt ``templates.json``) are
     # logged at WARNING level with ``exc_info=True`` (mirrors the
-    # pre- eager-init failure-logging contract) and the backing
-    # is left as ``None`` so the next access retries (mirrors the
-    # dictation_pipeline.py lazy-fallback retry semantics).
+    # pre- eager-init failure-logging contract). The backing is then
+    # set to the ``_LAZY_FAILED`` sentinel (NOT ``None``) plus a
+    # ``_<prop>_failed_at`` monotonic timestamp — subsequent accesses
+    # within ``RETRY_TTL_SECONDS`` (30s) return ``None`` silently (no
+    # log, no construction re-attempt) so the per-chunk hot path
+    # (``audio_quality`` at ~94 Hz) does not spam ~94 warnings/sec for
+    # the entire recording session. After the TTL elapses the sentinel
+    # is cleared and construction is retried (transient failures can
+    # recover). The WARNING fires exactly once per fresh failure
+    # (per TTL window), not on every access. ``None`` IS a meaningful
+    # value here (the initial "not yet attempted" state, and the value
+    # returned by the getter to callers while the sentinel is in TTL),
+    # so the sentinel qualifies for the E8 exception clause ("Define a
+    # sentinel only when None is itself a meaningful value") — mirrors
+    # the existing ``_RECORDER_MISSING`` precedent in this module.
 
     @property
     def _template_manager(self):
@@ -1129,6 +1189,19 @@ class VoiceTyperApp:
     @property
     def undo(self):
         backing = self._undo_backing
+        if backing is _LAZY_FAILED:
+            # Previous construction attempt failed. Within the retry TTL
+            # return ``None`` silently (no construction re-attempt, no
+            # WARNING log) so the hot path does not spam 94 failures/sec.
+            # After TTL elapses, clear the sentinel and fall through to
+            # retry construction (transient failures may recover).
+            failed_at = self._undo_failed_at
+            if failed_at is None or time.monotonic() - failed_at >= RETRY_TTL_SECONDS:
+                self._undo_backing = None
+                self._undo_failed_at = None
+                backing = None
+            else:
+                return None
         if backing is None:
             try:
                 from voice_typer.server.app_undo import UndoRepasteController
@@ -1136,8 +1209,11 @@ class VoiceTyperApp:
                 backing = UndoRepasteController(self)
             except Exception:
                 log.warning("[INIT] UndoRepasteController lazy-init failed", exc_info=True)
+                self._undo_backing = _LAZY_FAILED
+                self._undo_failed_at = time.monotonic()
                 return None
             self._undo_backing = backing
+            self._undo_failed_at = None
         return backing
 
     @undo.setter
@@ -1147,6 +1223,20 @@ class VoiceTyperApp:
     @property
     def audio_quality(self):
         backing = self._audio_quality_backing
+        if backing is _LAZY_FAILED:
+            # Sentinel: previous construction attempt failed. Return
+            # ``None`` silently within the retry TTL (this is the hot
+            # path at ~94 Hz — without this guard a single failure
+            # spams ~94 WARNING logs/sec + ~94 construction re-attempts
+            # per second for the entire recording session). After TTL
+            # elapses, clear the sentinel and retry construction.
+            failed_at = self._audio_quality_failed_at
+            if failed_at is None or time.monotonic() - failed_at >= RETRY_TTL_SECONDS:
+                self._audio_quality_backing = None
+                self._audio_quality_failed_at = None
+                backing = None
+            else:
+                return None
         if backing is None:
             try:
                 from voice_typer.server.audio_quality_controller import (
@@ -1156,8 +1246,11 @@ class VoiceTyperApp:
                 backing = AudioQualityController(self)
             except Exception:
                 log.warning("[INIT] AudioQualityController lazy-init failed", exc_info=True)
+                self._audio_quality_backing = _LAZY_FAILED
+                self._audio_quality_failed_at = time.monotonic()
                 return None
             self._audio_quality_backing = backing
+            self._audio_quality_failed_at = None
         return backing
 
     @audio_quality.setter
@@ -1167,6 +1260,16 @@ class VoiceTyperApp:
     @property
     def _duck_crash_recovery(self):
         backing = self._duck_crash_recovery_backing
+        if backing is _LAZY_FAILED:
+            # Sentinel: previous construction attempt failed. See the
+            # ``undo`` property above for the full TTL-retry rationale.
+            failed_at = self._duck_crash_recovery_failed_at
+            if failed_at is None or time.monotonic() - failed_at >= RETRY_TTL_SECONDS:
+                self._duck_crash_recovery_backing = None
+                self._duck_crash_recovery_failed_at = None
+                backing = None
+            else:
+                return None
         if backing is None:
             try:
                 # Deferred import — duck_crash_recovery pulls in
@@ -1178,8 +1281,11 @@ class VoiceTyperApp:
                 backing = DuckCrashRecovery(config_dir=_config_dir())
             except Exception:
                 log.warning("[INIT] DuckCrashRecovery lazy-init failed", exc_info=True)
+                self._duck_crash_recovery_backing = _LAZY_FAILED
+                self._duck_crash_recovery_failed_at = time.monotonic()
                 return None
             self._duck_crash_recovery_backing = backing
+            self._duck_crash_recovery_failed_at = None
         return backing
 
     @_duck_crash_recovery.setter
@@ -1189,6 +1295,16 @@ class VoiceTyperApp:
     @property
     def _volume_ducker(self):
         backing = self._volume_ducker_backing
+        if backing is _LAZY_FAILED:
+            # Sentinel: previous construction attempt failed. See the
+            # ``undo`` property above for the full TTL-retry rationale.
+            failed_at = self._volume_ducker_failed_at
+            if failed_at is None or time.monotonic() - failed_at >= RETRY_TTL_SECONDS:
+                self._volume_ducker_backing = None
+                self._volume_ducker_failed_at = None
+                backing = None
+            else:
+                return None
         if backing is None:
             try:
                 # Deferred import — ``volume_ducker`` pulls in
@@ -1203,8 +1319,11 @@ class VoiceTyperApp:
                 )
             except Exception:
                 log.warning("[INIT] VolumeDucker lazy-init failed", exc_info=True)
+                self._volume_ducker_backing = _LAZY_FAILED
+                self._volume_ducker_failed_at = time.monotonic()
                 return None
             self._volume_ducker_backing = backing
+            self._volume_ducker_failed_at = None
         return backing
 
     @_volume_ducker.setter
@@ -1244,7 +1363,10 @@ class VoiceTyperApp:
     # thread's schema-init to complete. The lazy property mirrors the
     # existing pattern (clipboard, undo, audio_quality) — construction
     # failure is logged at WARNING with ``exc_info=True`` and the
-    # backing is left as ``None`` to retry on next access.
+    # backing is set to the ``_LAZY_FAILED`` sentinel + a monotonic
+    # timestamp; subsequent accesses within ``RETRY_TTL_SECONDS`` (30s)
+    # return ``None`` silently, then retry construction after the TTL
+    # elapses.
     #
     # The ``_shutting_down_event`` guard prevents the shutdown teardown
     # path (``shutdown/teardowns/history_db.py``) from triggering lazy
@@ -1255,6 +1377,20 @@ class VoiceTyperApp:
     @property
     def history_db(self):
         backing = self._history_db_backing
+        if backing is _LAZY_FAILED:
+            # Sentinel: previous construction attempt failed. See the
+            # ``undo`` property above for the full TTL-retry rationale.
+            # Don't lazy-retry during shutdown — return ``None`` silently
+            # (mirrors the None-backing shutdown guard below).
+            if self._shutting_down_event.is_set():
+                return None
+            failed_at = self._history_db_failed_at
+            if failed_at is None or time.monotonic() - failed_at >= RETRY_TTL_SECONDS:
+                self._history_db_backing = None
+                self._history_db_failed_at = None
+                backing = None
+            else:
+                return None
         if backing is None:
             # Don't lazy-construct during shutdown — the teardown path
             # checks ``app.history_db is not None`` to decide whether
@@ -1266,8 +1402,11 @@ class VoiceTyperApp:
                 backing = HistoryDB()
             except Exception:
                 log.warning("[INIT] HistoryDB lazy-init failed", exc_info=True)
+                self._history_db_backing = _LAZY_FAILED
+                self._history_db_failed_at = time.monotonic()
                 return None
             self._history_db_backing = backing
+            self._history_db_failed_at = None
         return backing
 
     @history_db.setter
