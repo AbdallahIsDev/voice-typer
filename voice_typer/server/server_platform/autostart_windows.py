@@ -785,7 +785,7 @@ def _validate_runkey_command(value: str) -> bool:
     # the caller cleans it up and re-registers with correct quoting.
     # UNC paths (``\\server\share``) legitimately start with a doubled
     # separator and are exempt.
-    if sys.platform == "win32" and "\\\\" in exe_path and not exe_path.startswith("\\\\"):
+    if _pkg.is_windows() and "\\\\" in exe_path and not exe_path.startswith("\\\\"):
         return False
     was_quoted = exe_token.startswith('"')
     has_multiple_tokens = len(tokens) > 1
@@ -1378,7 +1378,7 @@ def _register_app_autostart_startup() -> bool:
     resolved). Non-Windows platforms return ``False`` (the Startup
     folder concept doesn't apply).
     """
-    if sys.platform != "win32":
+    if not _pkg.is_windows():
         return False
     try:
         cmd = _pkg._autostart_command()

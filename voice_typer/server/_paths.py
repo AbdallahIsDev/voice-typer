@@ -28,8 +28,10 @@ this module also owns shared network + LLM default constants
 
 from __future__ import annotations
 
-import sys
+import sys  # noqa: F401  # kept for test patches (tests monkeypatch `_paths.sys.platform`)
 from pathlib import Path
+
+from voice_typer.server.platform_utils import is_windows
 
 # shared network + LLM constants ─────────────────────────────
 # These constants are the single source of truth for values that were
@@ -176,7 +178,7 @@ def venv_pythonw() -> Path:
     consume the POSIX path, but it's still returned for symmetry and
     so tests that pin ``sys.platform = "win32"`` continue to work.
     """
-    if sys.platform == "win32":
+    if is_windows():
         return _resolve_config_dir()() / "venv" / "Scripts" / "pythonw.exe"
     return _resolve_config_dir()() / "venv" / "bin" / "python"
 
@@ -184,14 +186,14 @@ def venv_pythonw() -> Path:
 def legacy_hf_cache_dir() -> Path:
     """Path to the legacy ``~/.voice-typer/huggingface`` directory.
 
-        Used as a defensive last-resort fallback in
-        :func:`voice_typer.server.prewarm._resolve_hf_cache_dir` when
-        ``_config_dir()`` itself raises (e.g. the BootTrigger scenario
-        where ``$HOME`` / ``%USERPROFILE%`` are unset and the platform
-        detection chain can't resolve a config dir). The literal
-        ``Path.home() / ".voice-typer"`` lives here (rather than inline
-        in :mod:`voice_typer.server.prewarm`) so the regression test
-        can allow it in a single, well-documented location.
+    Used as a defensive last-resort fallback in
+    :func:`voice_typer.server.prewarm._resolve_hf_cache_dir` when
+    ``_config_dir()`` itself raises (e.g. the BootTrigger scenario
+    where ``$HOME`` / ``%USERPROFILE%`` are unset and the platform
+    detection chain can't resolve a config dir). The literal
+    ``Path.home() / ".voice-typer"`` lives here (rather than inline
+    in :mod:`voice_typer.server.prewarm`) so the regression test
+    can allow it in a single, well-documented location.
     """
     return Path.home() / ".voice-typer" / "huggingface"
 
