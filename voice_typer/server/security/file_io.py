@@ -362,11 +362,16 @@ _QUARANTINE_SUFFIX_SEQ: "itertools.count" = itertools.count()
 # holds open raises PermissionError (WinError 5). ``_secure_atomic_write``
 # retries up to ``_OS_REPLACE_MAX_ATTEMPTS`` times with a short sleep so
 # concurrent Config.save() calls (CR-40) don't spuriously fail. The window
-# is tiny (the other writer holds the lock only during its own
-# write-and-rename), so 10 x 50ms = 500ms covers it with huge margin while
-# keeping the retry invisible to callers.
-_OS_REPLACE_MAX_ATTEMPTS = 10
-_OS_REPLACE_RETRY_DELAY_S = 0.05
+# is tiny for a single racing writer, but SUSTAINED contention (4+ threads
+# hammering the same target without the mutation lock — the
+# ``test_concurrent_saves_no_false_return`` stress test — or Defender's
+# real-time scan briefly pinning config.json) can hold the destination for
+# well over 500ms; 10 x 50ms was empirically exhausted on CI
+# (windows-2022/3.11: 2 of 80 saves returned False). 20 x 100ms = 2s covers
+# the contended case while staying invisible to callers (the loop only
+# runs when a replace actually collides).
+_OS_REPLACE_MAX_ATTEMPTS = 20
+_OS_REPLACE_RETRY_DELAY_S = 0.1
 
 
 def _read_with_byte_limit(f, max_bytes: int | None) -> str:

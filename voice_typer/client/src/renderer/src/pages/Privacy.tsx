@@ -23,7 +23,7 @@ import {
 	DatabaseIcon,
 	Layers01Icon,
 	Mic02Icon,
-	Shield01Icon,
+	VoiceIdIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState } from "react";
@@ -45,7 +45,7 @@ const PRIVACY_TOPICS = [
 	},
 	{ icon: CloudIcon, title: "about.cloudAsrTitle", desc: "about.cloudAsrDesc" },
 	{
-		icon: Shield01Icon,
+		icon: VoiceIdIcon,
 		title: "about.voiceBiometricsTitle",
 		desc: "about.voiceBiometricsDesc",
 	},
@@ -114,8 +114,10 @@ export default function PrivacyPage() {
 								{t(topic.title)}
 							</p>
 							{/* max-w-prose: keep paragraph line length
-							    readable; the rows can stay full width. */}
-							<p className="mt-1 max-w-prose">
+							    readable; the rows can stay full width.
+							    text-balance: even out the final line of
+							    the description when it wraps. */}
+							<p className="mt-1 max-w-prose text-balance">
 								{t(topic.desc, {
 									configDir: configDir || t("about.unknown"),
 								})}

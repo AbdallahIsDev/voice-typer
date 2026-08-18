@@ -119,12 +119,21 @@ def stub_side_effects(monkeypatch):
         "voice_typer.server.container_detect.warn_if_in_container",
         spies["container_warn"],
     )
+    # ``logging_setup`` binds ``crash_handler`` at ITS import time
+    # (``from voice_typer.server import crash_handler as _crash_handler``),
+    # so patch the BOUND module object, not the ``sys.modules`` name —
+    # a purge+re-import in test_crash_handler_split can otherwise give
+    # the module a NEW identity, making this monkeypatch hit a different
+    # object than the one ``_setup_logging`` actually calls (the real
+    # function then runs and the spy is never called).
     monkeypatch.setattr(
-        "voice_typer.server.crash_handler.install_crash_handler",
+        logging_setup._crash_handler,
+        "install_crash_handler",
         spies["crash_install"],
     )
     monkeypatch.setattr(
-        "voice_typer.server.crash_handler.set_crash_handler_config_dir",
+        logging_setup._crash_handler,
+        "set_crash_handler_config_dir",
         spies["crash_set_dir"],
     )
     return spies

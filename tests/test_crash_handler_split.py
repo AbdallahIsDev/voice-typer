@@ -285,6 +285,21 @@ class TestPerPlatformGuard:
             for k in list(sys.modules)
             if k == "voice_typer.server.crash_handler" or k.startswith("voice_typer.server.crash_handler.")
         ]
+        # Save the ORIGINAL module objects so they can be restored after
+        # the re-import below. Purging + re-importing gives
+        # ``sys.modules`` a module object with a NEW identity, while
+        # modules imported BEFORE the purge (e.g. ``logging_setup.py``
+        # binds ``from voice_typer.server import crash_handler`` at its
+        # own import time) still reference the OLD object. If the purge
+        # is not undone, every later ``monkeypatch.setattr(
+        # "voice_typer.server.crash_handler.<fn>", ...)`` in the same
+        # worker patches the NEW object while production code calls the
+        # OLD one — the real function runs and the test fails with
+        # "Expected 'mock' to be called once. Called 0 times." (observed
+        # intermittently on CI for ``test_logging_setup.py``'s crash
+        # handler tests; scheduling-dependent because it needs this test
+        # and the logging tests to share one xdist worker).
+        saved_modules = {k: sys.modules[k] for k in mods_to_remove}
         for k in mods_to_remove:
             del sys.modules[k]
         # Also remove ctypes.wintypes if it was loaded by a prior test.
@@ -300,6 +315,12 @@ class TestPerPlatformGuard:
             "must be guarded by ``if sys.platform == 'win32':`` at module-load "
             "time inside _win32_structs.py / _veh_kernel32.py / _veh_callback.py."
         )
+        # Restore the ORIGINAL module identities so pre-existing
+        # bindings (``logging_setup._crash_handler`` etc.) keep pointing
+        # at the objects they were imported with — otherwise the module
+        # graph stays fractured for every later test in this worker.
+        for k, mod in saved_modules.items():
+            sys.modules[k] = mod
 
     @pytest.mark.skipif(
         sys.platform == "win32",

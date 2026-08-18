@@ -48,6 +48,7 @@ subprocess, no real Win32 handles.
 from __future__ import annotations
 
 import io
+import os
 import socket
 import sys
 import time
@@ -374,7 +375,23 @@ class TestPortBindingFallback:
         # REUSEADDR blocker would not make the port busy for the probe.
         # A plain (exclusive) listening socket blocks the probe on BOTH
         # platforms.
+        #
+        # POSIX exception: a prior test in this worker may have left a
+        # TIME_WAIT socket on ``IPC_PORT`` (e.g. another test bound and
+        # closed it). Without SO_REUSEADDR the blocker's ``bind()`` then
+        # fails with EADDRINUSE, the blocker is dropped (``blocker =
+        # None``), and the probe — which DOES set SO_REUSEADDR on POSIX
+        # (``transport._pick_available_port`` skips TIME_WAIT rebinds) —
+        # binds 9876 successfully and returns it, failing the "must skip
+        # the busy port" assertion. Setting SO_REUSEADDR on the blocker
+        # (POSIX only) lets it claim the port over TIME_WAIT and hold it
+        # with an active listener, which the probe's REUSEADDR cannot
+        # override (that needs SO_REUSEPORT, which the probe never
+        # sets). Windows keeps the exclusive bind: TIME_WAIT does not
+        # block a plain rebind there.
         blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if os.name != "nt":
+            blocker.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             blocker.bind(("127.0.0.1", IPC_PORT))
             blocker.listen(1)

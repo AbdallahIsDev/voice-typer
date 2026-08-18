@@ -320,13 +320,6 @@ def test_tauri_conf_resources_include_linux_native(tauri_conf) -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "triple",
-    [
-        "x86_64-unknown-linux-gnu",
-        "aarch64-unknown-linux-gnu",
-    ],
-)
 def test_tauri_conf_prewarm_moved_into_worker_exe(tauri_conf) -> None:
     """plan-runtime-pack-split §6.2 (Option P-1): prewarm lives in the
     worker exe, not in per-arch prewarm binaries.

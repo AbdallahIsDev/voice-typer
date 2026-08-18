@@ -95,7 +95,23 @@ _TEST_TOKEN = "test-worker-token-12345"
 # log, and the prewarm status file — and keeps the user's real config
 # untouched.
 _worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
-_TEST_CONFIG_DIR = Path(tempfile.mkdtemp(prefix=f"voice-typer-worker-test-{_worker_id}-"))
+# The worker validates ``VOICE_TYPER_CONFIG_DIR`` via the SEC-005
+# path-safety check (``_validate_path_safety(custom, Path.home())``)
+# and DISCARDS values that resolve outside the user's home directory.
+# ``tempfile.mkdtemp()`` defaults to the system temp dir, which on
+# Linux (``/tmp``) and macOS (``/var/folders/...`` — a symlink to
+# ``/private/var/folders``) resolves OUTSIDE home, so the worker would
+# silently fall back to the shared default config dir — and concurrent
+# worker tests on other xdist workers (all legs of the same CI job run
+# in parallel on one machine) would then contend on a SINGLE
+# ``worker.lock``; the loser exits immediately (single instance) and
+# never emits ``worker_started``, failing this test intermittently.
+# Creating the dir UNDER home makes the env var pass validation on
+# every platform (Windows' %TEMP% happens to be under home, which is
+# why this only ever failed on Linux/macOS legs).
+_TEST_CONFIG_DIR = Path(
+    tempfile.mkdtemp(prefix=f"voice-typer-worker-test-{_worker_id}-", dir=Path.home())
+)
 atexit.register(lambda: shutil.rmtree(_TEST_CONFIG_DIR, ignore_errors=True))
 
 # Hard deadline for the worker subprocess to emit ``worker_started``

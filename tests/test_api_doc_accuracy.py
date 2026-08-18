@@ -385,6 +385,20 @@ class TestWindowsOpenConfigFile:
         startfile_calls: list = []
         monkeypatch.setattr("os.startfile", lambda p: startfile_calls.append(p), raising=False)
 
+        # Isolate the launcher-fallback invariant from the config-save
+        # path (Phase 1 of ``ConfigEditorLauncher.launch``). The save is
+        # environment-dependent (ACL/icacls handling, keyring probing)
+        # and on windows-2022 CI it raised once — the launcher's
+        # suppress-non-timeout filter then swallowed the exception and
+        # the fallback never ran, failing this test with "Got: []" even
+        # though the SUT behaved per contract. This test pins the
+        # SEC-audit-011 FALLBACK invariant (SystemRoot-validated
+        # Notepad, never a bare PATH-resolved ``notepad``), which the
+        # save path does not participate in; config-save behavior has
+        # its own dedicated suite. ``save`` is mocked so the fallback
+        # observation is deterministic on every platform.
+        monkeypatch.setattr(app.config, "save", lambda: True)
+
         app._open_config_file()
 
         config_file = app.config.config_dir / "config.json"

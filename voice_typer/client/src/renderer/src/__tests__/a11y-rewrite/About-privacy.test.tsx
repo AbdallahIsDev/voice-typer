@@ -111,12 +111,12 @@ describe("Privacy disclosure — rewrite of test_about_page_has_privacy_section"
 		).toBeGreaterThan(0);
 		expect(screen.getAllByText(/Voice biometrics/i).length).toBeGreaterThan(0);
 
-		// HuggingFace and BIPA appear in the descriptive
+		// Hugging Face and BIPA appear in the descriptive
 		// body text under the headings (en.json values:
-		// modelWeightsDesc mentions "HuggingFace";
+		// modelWeightsDesc mentions "Hugging Face";
 		// voiceBiometricsDesc mentions "BIPA").
 		const bodyText = document.body.textContent ?? "";
-		expect(bodyText).toMatch(/HuggingFace/);
+		expect(bodyText).toMatch(/Hugging Face/);
 		expect(bodyText).toMatch(/BIPA/);
 	});
 

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -413,6 +414,15 @@ class TestWin32RoutingFastCleanup:  # noqa: N801
             controller._do_fast_cleanup.reset_mock()
             result = win32_console_handler(controller, ctrl_type)
             assert result is True, f"win32_console_handler must return True for ctrl_type={ctrl_type}"
+            # ``win32_console_handler`` dispatches ``controller.quit`` on a
+            # daemon thread (RACE-016), so the call may not have landed
+            # yet when the handler returns. Poll instead of asserting
+            # synchronously — the immediate assertion is a scheduling
+            # race that fails on loaded CI workers ("Expected 'mock' to
+            # be called once. Called 0 times.").
+            deadline = time.monotonic() + 2.0
+            while controller.quit.call_count == 0 and time.monotonic() < deadline:
+                time.sleep(0.01)
             (
                 controller.quit.assert_called_once_with(),
                 (f"ctrl_type={ctrl_type} must route to controller.quit (unchanged)"),

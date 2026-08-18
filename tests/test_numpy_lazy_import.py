@@ -65,12 +65,6 @@ TARGET_MODULES: list[tuple[str, str]] = [
 ]
 
 
-# Platforms where numpy's C extension cannot be unloaded and re-imported
-# in the same process (numpy >= 2.4 re-init guard, PR #29030 — observed
-# on Windows and macOS; Linux tolerates the re-import).
-_NUMPY_UNLOADABLE_PLATFORMS = ("win32", "darwin")
-
-
 def _purge_numpy_and_targets() -> bool:
     """Remove ``numpy`` and the target modules from ``sys.modules``.
 
@@ -83,38 +77,45 @@ def _purge_numpy_and_targets() -> bool:
     Returns ``True`` when a clean numpy baseline was achieved (numpy
     was NOT already loaded), ``False`` when numpy was already loaded.
 
-    NOTE (Windows / macOS): numpy's C extension cannot be imported more
+    NOTE (ALL platforms): numpy's C extension cannot be imported more
     than once per process — numpy >= 2.4 added a re-initialization
-    guard (numpy PR #29030) that raises
+    guard (numpy PR #29030, PEP 489 multi-phase init) that raises
     ``ImportError: cannot load module more than once per process`` on
-    re-import, observed on both Windows and macOS (Darwin). If numpy
-    was already loaded (e.g. by an earlier test or by pytest's own
-    collection of other test modules that ``import numpy`` at their
-    top), removing it from ``sys.modules`` and re-importing it later
-    raises that ImportError and poisons every subsequent numpy import
-    in the session — the lazy ``_LazyModule`` proxy caches the first
-    failure and fails every later attribute access. On those platforms
-    we therefore leave a loaded numpy in place AND we do NOT purge the
-    target modules either — re-importing e.g. ``voice_typer.server.
-    recording`` would give its submodules fresh identities while other
-    already-imported module references still point at the old objects,
-    fracturing the module graph for every later test. When we return
-    ``False`` the caller simply verifies the already-imported ``np``
-    attribute is a ``_LazyModule`` (the lazy-proxy contract), which is
-    exactly what the source-level checks in this file pin too.
+    re-import. This is CROSS-PLATFORM: numpy 2.4.0 release notes state
+    "deleting ``numpy`` from ``sys.modules`` and re-importing it will
+    now fail with an ``ImportError``" with no platform qualifier. The
+    earlier assumption that Linux tolerates the re-import was
+    DISPROVEN by CI (2026-08-17): on ubuntu legs the purge + later
+    re-import poisoned the whole worker with 1887/391 such ImportErrors
+    (numpy 2.5.1 in requirements-lock.txt). If numpy was already loaded
+    (e.g. by an earlier test or by pytest's own collection of other
+    test modules that ``import numpy`` at their top), removing it from
+    ``sys.modules`` and re-importing it later raises that ImportError
+    and poisons every subsequent numpy import in the session — the lazy
+    ``_LazyModule`` proxy caches the first failure and fails every
+    later attribute access. We therefore NEVER purge a loaded numpy
+    (any platform), and we do NOT purge the target modules either when
+    numpy is already resident — re-importing e.g.
+    ``voice_typer.server.recording`` would give its submodules fresh
+    identities while other already-imported module references still
+    point at the old objects, fracturing the module graph for every
+    later test. When we return ``False`` the caller simply verifies the
+    already-imported ``np`` attribute is a ``_LazyModule`` (the
+    lazy-proxy contract), which is exactly what the source-level checks
+    in this file pin too.
     """
-    if sys.platform in _NUMPY_UNLOADABLE_PLATFORMS and "numpy" in sys.modules:
+    if "numpy" in sys.modules:
         return False
     # Re-importing a target module whose OLD identity is still referenced
     # elsewhere (e.g. a prior test imported it) fractures the module
     # graph: sys.modules now holds the new submodule objects while other
-    # already-imported code still references the old ones. On Windows
-    # and macOS (no clean numpy baseline anyway) we bail out whenever a
-    # target is already resident and let the caller verify the
-    # lazy-proxy contract on the imported module plus the source-level
-    # checks below.
+    # already-imported code still references the old ones. Without a
+    # clean numpy baseline there is nothing to gain from the purge, so
+    # we bail out whenever a target is already resident and let the
+    # caller verify the lazy-proxy contract on the imported module plus
+    # the source-level checks below.
     for mod_path, _ in TARGET_MODULES:
-        if mod_path in sys.modules and sys.platform in _NUMPY_UNLOADABLE_PLATFORMS:
+        if mod_path in sys.modules:
             return False
     # Drop the target modules first so a fresh ``import`` re-executes
     # the module body (otherwise the cached module from a prior test
