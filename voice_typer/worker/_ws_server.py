@@ -50,6 +50,7 @@ from typing import TYPE_CHECKING
 
 from voice_typer.server._paths import LOOPBACK_HOST
 from voice_typer.server.duration import format_duration
+from voice_typer.server.ipc.protocol_version import PROTOCOL_VERSION
 from voice_typer.worker._auth import _authenticate, _send_auth_failed_and_close
 
 if TYPE_CHECKING:
@@ -68,11 +69,13 @@ _MAX_FRAME_BYTES = 1 * 1024 * 1024
 # sidecar's respawn window (master plan §7.2 "Respawn scheduler").
 _MAX_WS_CONNECTIONS = 4
 
-# Protocol version (mirrors ``sidecar_ws.PROTOCOL_VERSION``). The
-# slim-core sidecar's WS client checks this on the ``worker_started``
-# line so a version-skewed worker is rejected at handshake time rather
-# than failing on the first ``transcribe_offline`` request.
-PROTOCOL_VERSION: int = 1
+# Protocol version — imported from the shared
+# ``voice_typer.server.ipc.protocol_version`` module (single source of
+# truth, kept in lockstep with the TCP/WS transports and the Rust/TS
+# constants). The slim-core sidecar's WS client checks this on the
+# ``worker_started`` line so a version-skewed worker is rejected at
+# handshake time rather than failing on the first ``transcribe_offline``
+# request.
 
 # Stdout event name. Distinct from the slim-core sidecar's
 # ``server_started`` (which the host already listens for) so the host's
@@ -400,7 +403,9 @@ async def _handle_connection(  # noqa: ANN001 - websockets type is imported lazi
                 language = data.get("language")
                 log.info(
                     "[WORKER] transcribe_offline request (path=%s, sr=%s, lang=%s) — running in thread",
-                    audio_path, sample_rate, language,
+                    audio_path,
+                    sample_rate,
+                    language,
                 )
                 import asyncio as _asyncio
 
@@ -427,9 +432,7 @@ async def _handle_connection(  # noqa: ANN001 - websockets type is imported lazi
                     log.exception("[WORKER] transcribe_offline thread raised: %s", exc)
                     result = {"text": "", "error": f"internal error: {exc}"}
                 with contextlib.suppress(Exception):
-                    await websocket.send(
-                        json.dumps({"type": "transcribe_offline_result", "data": result})
-                    )
+                    await websocket.send(json.dumps({"type": "transcribe_offline_result", "data": result}))
                 continue
             # Unknown command.
             log.debug("[WORKER] unknown command %r", cmd)

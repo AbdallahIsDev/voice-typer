@@ -68,7 +68,17 @@ def _app_is_shutting_down(app: typing.Any) -> bool:
 # explicit mismatch is rejected. This makes the change fully backward
 # compatible — new senders opt in by sending ``"protocol_version": 1``
 # and get a structured rejection on mismatch.
-IPC_PROTOCOL_VERSION: int = 1
+# Canonical source of truth: ``voice_typer/server/ipc/protocol_version.py``.
+# Importing (rather than redefining) prevents drift between the WS and
+# TCP transports — see ``tests/test_protocol_version_consolidated.py``.
+# The local ``IPC_PROTOCOL_VERSION`` name is kept as a backward-compat
+# alias so existing tests/imports continue to resolve.
+from voice_typer.server.ipc.protocol_version import PROTOCOL_VERSION as IPC_PROTOCOL_VERSION  # noqa: E402
+
+# Backward-compat alias so callers can reference either name; tests
+# verify both transports share the same object identity (see
+# ``tests/test_protocol_version_consolidated.py``).
+PROTOCOL_VERSION = IPC_PROTOCOL_VERSION  # noqa: F811
 # Error code emitted on the version-mismatch path. Registered in
 # the central ``ErrorCodes`` registry (``ipc/validation.py``) so the
 # renderer's TS ``ErrorCodes`` union and the cross-language parity test

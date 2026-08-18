@@ -1,4 +1,4 @@
-"""DR-21 (S1-CR-78): cross-language parity for the IPC protocol version.
+"""Cross-language parity for the IPC protocol version.
 
 The IPC wire protocol version is a single integer that MUST be kept in
 lockstep across three language surfaces:
@@ -46,7 +46,12 @@ TESTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TESTS_DIR.parent
 
 RUST_WS_PATH = REPO_ROOT / "src-tauri" / "src" / "sidecar" / "ws.rs"
-PYTHON_WS_PATH = REPO_ROOT / "voice_typer" / "server" / "sidecar_ws.py"
+# After the consolidation, the Python WS receiver's ``PROTOCOL_VERSION``
+# is defined ONCE in ``voice_typer/server/ipc/protocol_version.py`` and
+# imported by both ``sidecar_ws.py`` and ``transport_tcp.py``. This test
+# scans the canonical module's source so a future bump that touches only
+# one transport's import line still fails this parity guard.
+PYTHON_WS_PATH = REPO_ROOT / "voice_typer" / "server" / "ipc" / "protocol_version.py"
 TS_PUSH_EVENTS_PATH = (
     REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "types" / "ipc" / "push_events.ts"
 )
@@ -63,7 +68,11 @@ _PYTHON_TCP_RE = re.compile(
     re.MULTILINE,
 )
 
-# Python (sidecar_ws.py): ``PROTOCOL_VERSION: int = 1``
+# Python (canonical source of truth — ``ipc/protocol_version.py``):
+# ``PROTOCOL_VERSION: int = 1``. Both ``sidecar_ws.py`` and
+# ``transport_tcp.py`` import this constant; the source-scan below
+# catches any future drift introduced by re-defining the literal in
+# either transport module.
 _PYTHON_WS_RE = re.compile(
     r"^PROTOCOL_VERSION\s*:\s*int\s*=\s*(\d+)\s*$",
     re.MULTILINE,
@@ -115,20 +124,20 @@ def test_python_tcp_protocol_version_constant_exists() -> None:
 
 
 def test_python_ws_protocol_version_matches_tcp() -> None:
-    """The Python WS receiver's ``PROTOCOL_VERSION`` (sidecar_ws.py)
-    MUST equal the TCP receiver's ``IPC_PROTOCOL_VERSION``
-    (transport_tcp.py). Both surfaces implement the same auth-frame
-    contract — a drift would mean the same client is accepted on one
-    transport but rejected (or warned) on the other.
+    """The canonical Python WS-receiver ``PROTOCOL_VERSION``
+    (``ipc/protocol_version.py``) MUST equal the TCP receiver's
+    ``IPC_PROTOCOL_VERSION`` (which imports it). Both surfaces implement
+    the same auth-frame contract — a drift would mean the same client
+    is accepted on one transport but rejected (or warned) on the other.
     """
     assert PYTHON_WS_PATH.is_file(), (
-        f"sidecar_ws.py not found at {PYTHON_WS_PATH} — the file may have "
+        f"protocol_version.py not found at {PYTHON_WS_PATH} — the file may have "
         "been renamed or moved; update the path in this test."
     )
     text = PYTHON_WS_PATH.read_text(encoding="utf-8")
     ws_version = _extract_int(_PYTHON_WS_RE, text, str(PYTHON_WS_PATH))
     assert ws_version == IPC_PROTOCOL_VERSION, (
-        f"sidecar_ws.py:PROTOCOL_VERSION={ws_version} does not match "
+        f"protocol_version.py:PROTOCOL_VERSION={ws_version} does not match "
         f"transport_tcp.py:IPC_PROTOCOL_VERSION={IPC_PROTOCOL_VERSION}. "
         "Both Python receivers MUST agree on the protocol version."
     )
@@ -178,15 +187,16 @@ def test_ts_push_events_protocol_version_matches_python() -> None:
 
 def test_all_four_constants_agree() -> None:
     """Belt-and-suspenders: all four language surfaces agree on the
-    same integer. This is the core DR-21 cross-language parity guard —
+    same integer. This is the core cross-language parity guard —
     if any future bump touches only one file, this test fails before
     the change can be merged.
 
     Bumping the protocol version is a deliberate, multi-file change:
-      1. ``voice_typer/server/ipc/transport_tcp.py:IPC_PROTOCOL_VERSION``
-      2. ``voice_typer/server/sidecar_ws.py:PROTOCOL_VERSION``
-      3. ``src-tauri/src/sidecar/ws.rs:EXPECTED_PROTOCOL_VERSION``
-      4. ``voice_typer/client/src/renderer/src/types/ipc/push_events.ts:
+      1. ``voice_typer/server/ipc/protocol_version.py:PROTOCOL_VERSION``
+         (canonical — imported by both ``sidecar_ws.py`` and
+         ``transport_tcp.py``)
+      2. ``src-tauri/src/sidecar/ws.rs:EXPECTED_PROTOCOL_VERSION``
+      3. ``voice_typer/client/src/renderer/src/types/ipc/push_events.ts:
          IPC_PROTOCOL_VERSION``
     """
     python_tcp = IPC_PROTOCOL_VERSION
@@ -201,8 +211,8 @@ def test_all_four_constants_agree() -> None:
     ts = _extract_int(_TS_RE, ts_text, str(TS_PUSH_EVENTS_PATH))
 
     versions = {
+        "python_canonical (protocol_version.py:PROTOCOL_VERSION)": python_ws,
         "python_tcp (transport_tcp.py:IPC_PROTOCOL_VERSION)": python_tcp,
-        "python_ws (sidecar_ws.py:PROTOCOL_VERSION)": python_ws,
         "rust (ws.rs:EXPECTED_PROTOCOL_VERSION)": rust,
         "ts (push_events.ts:IPC_PROTOCOL_VERSION)": ts,
     }
@@ -210,7 +220,7 @@ def test_all_four_constants_agree() -> None:
     assert len(distinct) == 1, (
         "Protocol version constants have drifted across languages. "
         f"Current values: {versions}. Bumping the protocol version "
-        "requires updating ALL FOUR constants in lockstep — see the "
+        "requires updating ALL constants in lockstep — see the "
         "docstring at the top of this test file."
     )
 
@@ -244,7 +254,7 @@ def test_auth_frame_interface_declares_optional_protocol_version() -> None:
 
 
 def test_protocol_version_mismatch_registered_in_error_codes() -> None:
-    """DR-21: the ``server.protocol_version_mismatch`` error code MUST
+    """The ``server.protocol_version_mismatch`` error code MUST
     be registered in the central :class:`ErrorCodes` registry in
     ``voice_typer/server/ipc/validation.py``. The transport_tcp.py
     module references this via ``ErrorCodes.PROTOCOL_VERSION_MISMATCH``

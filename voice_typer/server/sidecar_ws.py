@@ -746,7 +746,11 @@ def _attach_ws_graceful_shutdown(server: IPCServer) -> None:
 #     pre-negotiation sidecar emitted only ``{"event":"server_started",
 #     "port":<n>}``; old hosts that don't yet parse the ``protocol``
 #     field continue to function (the field is additive).
-PROTOCOL_VERSION: int = 1
+#
+# Canonical source of truth: ``voice_typer/server/ipc/protocol_version.py``.
+# Importing (rather than redefining) prevents drift between the WS and
+# TCP transports — see ``tests/test_protocol_version_consolidated.py``.
+from voice_typer.server.ipc.protocol_version import PROTOCOL_VERSION  # noqa: E402
 
 
 def _force_line_buffered_stdout() -> None:
