@@ -79,6 +79,7 @@
           "libxtst6",
           "libwebkit2gtk-4.1-0",
           "wl-clipboard",
+          "wtype",
           "xclip",
           "python3"
         ],
@@ -90,8 +91,9 @@
         "depends": [
           "libnotify",
           "libXtst",
-          "webkit2gtk3",
+          "webkit2gtk4.1",
           "wl-clipboard",
+          "wtype",
           "xclip",
           "python3"
         ],
