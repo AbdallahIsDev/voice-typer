@@ -567,9 +567,7 @@ class TestStartupBanner:  # noqa: N801
         )
         # ...and nowhere else in the entire file (one mention per
         # session — no per-line ids, no duplication in later banners).
-        assert content.count("session=") == 1, (
-            f"GT-B1-15: session= must appear exactly once; got:\n{content}"
-        )
+        assert content.count("session=") == 1, f"GT-B1-15: session= must appear exactly once; got:\n{content}"
 
     def test_session_id_prefers_host_env_var(self, config_dir, clean_env, stub_side_effects, monkeypatch):
         """GT-68: when the Rust host passes ``VOICE_TYPER_SESSION_ID``,

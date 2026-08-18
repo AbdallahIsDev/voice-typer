@@ -109,9 +109,7 @@ _worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
 # Creating the dir UNDER home makes the env var pass validation on
 # every platform (Windows' %TEMP% happens to be under home, which is
 # why this only ever failed on Linux/macOS legs).
-_TEST_CONFIG_DIR = Path(
-    tempfile.mkdtemp(prefix=f"voice-typer-worker-test-{_worker_id}-", dir=Path.home())
-)
+_TEST_CONFIG_DIR = Path(tempfile.mkdtemp(prefix=f"voice-typer-worker-test-{_worker_id}-", dir=Path.home()))
 atexit.register(lambda: shutil.rmtree(_TEST_CONFIG_DIR, ignore_errors=True))
 
 # Hard deadline for the worker subprocess to emit ``worker_started``
@@ -504,9 +502,7 @@ async def test_wrong_token_emits_auth_failed_before_close(monkeypatch) -> None:
 
     stop_event = asyncio.Event()
     shutdown_timer = worker_main._ShutdownTimer()
-    await worker_main._handle_connection(
-        ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer
-    )
+    await worker_main._handle_connection(ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer)
 
     assert len(ws._sent_frames) == 1, f"expected exactly one auth_failed frame, got {ws._sent_frames}"
     frame = json.loads(ws._sent_frames[0])
@@ -529,9 +525,7 @@ async def test_non_auth_first_frame_emits_auth_failed(monkeypatch) -> None:
 
     stop_event = asyncio.Event()
     shutdown_timer = worker_main._ShutdownTimer()
-    await worker_main._handle_connection(
-        ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer
-    )
+    await worker_main._handle_connection(ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer)
 
     assert len(ws._sent_frames) == 1
     frame = json.loads(ws._sent_frames[0])
@@ -549,9 +543,7 @@ async def test_invalid_json_auth_frame_emits_auth_failed(monkeypatch) -> None:
 
     stop_event = asyncio.Event()
     shutdown_timer = worker_main._ShutdownTimer()
-    await worker_main._handle_connection(
-        ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer
-    )
+    await worker_main._handle_connection(ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer)
 
     assert len(ws._sent_frames) == 1
     frame = json.loads(ws._sent_frames[0])
@@ -575,9 +567,7 @@ async def test_missing_token_env_rejects_connection(monkeypatch) -> None:
 
     stop_event = asyncio.Event()
     shutdown_timer = worker_main._ShutdownTimer()
-    await worker_main._handle_connection(
-        ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer
-    )
+    await worker_main._handle_connection(ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer)
 
     assert len(ws._sent_frames) == 1
     frame = json.loads(ws._sent_frames[0])
@@ -660,9 +650,7 @@ async def test_shutdown_command_emits_ack_and_closes(monkeypatch) -> None:
 
     stop_event = asyncio.Event()
     shutdown_timer = worker_main._ShutdownTimer()
-    await worker_main._handle_connection(
-        ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer
-    )
+    await worker_main._handle_connection(ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer)
 
     # The shutdown_ack frame must be sent BEFORE the close.
     assert any(json.loads(f).get("type") == "shutdown_ack" for f in sent_frames), (
@@ -696,9 +684,7 @@ def test_shutdown_command_exits_worker() -> None:
     the lockfile is released.
     """
     if not hasattr(signal, "SIGTERM") or os.name != "posix":
-        pytest.skip(
-            "Integration test uses POSIX-only subprocess patterns (SIGTERM fallback in cleanup)"
-        )
+        pytest.skip("Integration test uses POSIX-only subprocess patterns (SIGTERM fallback in cleanup)")
 
     _kill_stale_worker()
     env = {
@@ -739,8 +725,7 @@ def test_shutdown_command_exits_worker() -> None:
             proc.wait(timeout=2.0)
             stderr = proc.stderr.read() if proc.stderr else "<no stderr>"
             pytest.fail(
-                f"worker did not exit within 3s of `shutdown` command — "
-                f"stop_event.set() not called? stderr: {stderr}"
+                f"worker did not exit within 3s of `shutdown` command — stop_event.set() not called? stderr: {stderr}"
             )
         assert exit_code == worker_main.EXIT_OK, (
             f"expected EXIT_OK ({worker_main.EXIT_OK}) after shutdown command, got {exit_code}"
@@ -754,9 +739,7 @@ def test_shutdown_command_exits_worker() -> None:
     # The single-instance lockfile MUST be released on clean exit
     # (verifies the finally:lock_handle.release() block ran).
     lock = _find_worker_lock()
-    assert lock is None, (
-        f"worker.lock still exists after shutdown command — release() did not run: {lock}"
-    )
+    assert lock is None, f"worker.lock still exists after shutdown command — release() did not run: {lock}"
 
 
 def test_sigterm_clean_exit() -> None:

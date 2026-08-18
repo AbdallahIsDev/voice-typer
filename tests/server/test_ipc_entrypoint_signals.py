@@ -234,9 +234,7 @@ class TestSignalHandlerWiring:
         entrypoint.main()
 
         # The SIGUSR1 handler was registered.
-        assert signal.SIGUSR1 in registered_handlers, (
-            "main() must register a handler for SIGUSR1 on POSIX"
-        )
+        assert signal.SIGUSR1 in registered_handlers, "main() must register a handler for SIGUSR1 on POSIX"
         handler = registered_handlers[signal.SIGUSR1]
         assert callable(handler), "SIGUSR1 handler must be callable"
 
@@ -245,12 +243,10 @@ class TestSignalHandlerWiring:
 
         # faulthandler.dump_traceback_later was called with timeout=1.0.
         assert len(dump_calls) >= 1, (
-            "the SIGUSR1 handler must invoke "
-            "faulthandler.dump_traceback_later on signal delivery"
+            "the SIGUSR1 handler must invoke faulthandler.dump_traceback_later on signal delivery"
         )
         assert dump_calls[-1].get("timeout") == 1.0, (
-            f"dump_traceback_later must be called with timeout=1.0; "
-            f"got {dump_calls[-1]}"
+            f"dump_traceback_later must be called with timeout=1.0; got {dump_calls[-1]}"
         )
 
 
@@ -278,13 +274,13 @@ class TestStdinEofTriggersShutdown:
     def test_stdin_eof_triggers_shutdown(self, server) -> None:
         """Close stdin (empty StringIO → immediate EOF) and assert:
 
-          1. ``_run`` exits cleanly (no exception).
-          2. ``_on_ipc_client_disconnect`` is called exactly once with
-             a reason string mentioning "stdin EOF" — the shutdown hook
-             that resets keyboard ownership so a crashed CLI client
-             doesn't leave the backend stuck.
-          3. No output was written (no commands processed — EOF was
-             immediate).
+        1. ``_run`` exits cleanly (no exception).
+        2. ``_on_ipc_client_disconnect`` is called exactly once with
+           a reason string mentioning "stdin EOF" — the shutdown hook
+           that resets keyboard ownership so a crashed CLI client
+           doesn't leave the backend stuck.
+        3. No output was written (no commands processed — EOF was
+           immediate).
         """
         stdin = io.StringIO("")  # EOF immediately
         stdout = io.StringIO()
@@ -296,16 +292,13 @@ class TestStdinEofTriggersShutdown:
         server._run(_stdin=stdin, _stdout=stdout)
 
         # No output (no commands processed).
-        assert stdout.getvalue() == "", (
-            "stdin EOF before any command must produce no stdout output"
-        )
+        assert stdout.getvalue() == "", "stdin EOF before any command must produce no stdout output"
 
         # The shutdown hook (disconnect) was called once.
         server._on_ipc_client_disconnect.assert_called_once()
         args, _ = server._on_ipc_client_disconnect.call_args
         assert "stdin EOF" in args[0], (
-            f"_on_ipc_client_disconnect reason must mention "
-            f"'stdin EOF' (the shutdown trigger); got {args[0]!r}"
+            f"_on_ipc_client_disconnect reason must mention 'stdin EOF' (the shutdown trigger); got {args[0]!r}"
         )
 
     def test_stdin_eof_after_commands_still_triggers_shutdown(self, server) -> None:
@@ -407,21 +400,16 @@ class TestPortBindingFallback:
             try:
                 # 1. The returned port is NOT the busy IPC_PORT.
                 assert port != IPC_PORT, (
-                    f"_pick_available_port must skip the busy port "
-                    f"{IPC_PORT} and return a different port; got {port}"
+                    f"_pick_available_port must skip the busy port {IPC_PORT} and return a different port; got {port}"
                 )
 
                 # 2. The returned port is non-zero (a real port).
-                assert port > 0, (
-                    f"returned port must be a real non-zero port; "
-                    f"got {port}"
-                )
+                assert port > 0, f"returned port must be a real non-zero port; got {port}"
 
                 # 3. The returned socket is bound to the returned port.
                 bound_port = sock.getsockname()[1]
                 assert bound_port == port, (
-                    f"returned socket must be bound to the returned "
-                    f"port {port}; got {bound_port}"
+                    f"returned socket must be bound to the returned port {port}; got {bound_port}"
                 )
 
                 # 4. The socket is usable (listen succeeds — the
@@ -492,10 +480,7 @@ class TestPortBindingFallback:
                 port, sock = _pick_available_port(IPC_PORT, max_tries=max_tries)
                 try:
                     # The returned port is non-zero (ephemeral fallback).
-                    assert port > 0, (
-                        f"ephemeral fallback must return a real non-zero "
-                        f"port; got {port}"
-                    )
+                    assert port > 0, f"ephemeral fallback must return a real non-zero port; got {port}"
                     # The returned port is NOT in the busy range (the
                     # helper skipped all of them and asked the OS for an
                     # ephemeral).
