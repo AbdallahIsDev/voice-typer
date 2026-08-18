@@ -221,7 +221,7 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 			? "already relaunching"
 			: "triggering relaunch";
 		log.info(`[RESTART] received relaunch_app from Python (${_relaunchDbg})`);
-		// WM-C1-09: surface the ack-write failure at debug level
+		// surface the ack-write failure at debug level
 		// instead of silently swallowing. The ack is best-effort
 		// (the backend proceeds to sys.exit(0) regardless), but a
 		// failure here is worth logging for diagnostics — the

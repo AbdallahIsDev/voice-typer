@@ -639,8 +639,8 @@ def apply_retention(
                 if secure_delete_toggled:
                     with contextlib.suppress(sqlite3.Error):
                         cursor.execute("PRAGMA secure_delete=ON")
-                # cursor-close contract (DJ-18): close the long-lived
-                # cursor opened at the top of ``_do_retention``.
+                # close the long-lived cursor opened at the top of
+                # ``_do_retention``.
                 # ``_rebuild_fts`` opens/closes its OWN cursor, so on
                 # the rebuild/optimize path this ``finally`` is the
                 # only place the long-lived cursor is closed.

@@ -331,12 +331,12 @@ def init_schema(
 
     cursor = conn.cursor()
 
-    # cursor-close contract (DJ-18): ``init_schema`` has three exit
+    # ``init_schema`` has three exit
     # paths (migration failure, corruption-recovery recursion, normal
     # return) — each closes ``cursor`` before returning so no cursor
     # is leaked even when a fresh connection is substituted mid-init.
 
-    # review.md finding JB-41: opt new DBs into
+    # New DBs opt into
     # ``PRAGMA auto_vacuum=INCREMENTAL`` so subsequent
     # ``PRAGMA incremental_vacuum(N)`` calls (in ``apply_retention``
     # and ``clear_all``) can reclaim free pages incrementally —
