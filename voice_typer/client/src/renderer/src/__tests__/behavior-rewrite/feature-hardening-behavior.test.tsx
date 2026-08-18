@@ -683,44 +683,45 @@ describe("App recording state — rewrite of test_no_unvalidated_as_recording_st
 		["loading", /loading model/i],
 		["cancelling", /cancelling/i],
 		["error", /error/i],
-	] satisfies Array<
-		[RecordingState, RegExp]
-	>)("renders the a11y announcement for recordingState=%s without crashing (no as-cast needed)", async (state, expected) => {
-		mockUseConnection.mockReturnValue({
-			recordingState: state,
-			connectionStatus: "connected" as const,
-			lastError: null,
-			handleRetryConnection: vi.fn(),
-		});
+	] satisfies Array<[RecordingState, RegExp]>)(
+		"renders the a11y announcement for recordingState=%s without crashing (no as-cast needed)",
+		async (state, expected) => {
+			mockUseConnection.mockReturnValue({
+				recordingState: state,
+				connectionStatus: "connected" as const,
+				lastError: null,
+				handleRetryConnection: vi.fn(),
+			});
 
-		// Assert the COARSE app-level announcement for every state, so
-		// render on a NON-Home page: on Home the coarse
-		// transcribing/loading strings are suppressed (Home's dynamic
-		// status line covers them), which would make the
-		// transcribing/loading cases fail for the wrong reason.
-		// "about" is stubbed above (about-page testid) so App mounts
-		// the lightweight stub rather than the real Settings page.
-		localStorage.setItem(
-			"vt_nav_state",
-			JSON.stringify({ page: "about", history: ["about"], index: 0 }),
-		);
-		_resetNavigationForTest();
+			// Assert the COARSE app-level announcement for every state, so
+			// render on a NON-Home page: on Home the coarse
+			// transcribing/loading strings are suppressed (Home's dynamic
+			// status line covers them), which would make the
+			// transcribing/loading cases fail for the wrong reason.
+			// "about" is stubbed above (about-page testid) so App mounts
+			// the lightweight stub rather than the real Settings page.
+			localStorage.setItem(
+				"vt_nav_state",
+				JSON.stringify({ page: "about", history: ["about"], index: 0 }),
+			);
+			_resetNavigationForTest();
 
-		const { default: App } = await import("@/App");
-		render(<App />);
+			const { default: App } = await import("@/App");
+			render(<App />);
 
-		await waitFor(() => {
-			expect(screen.getByTestId("about-page")).toBeTruthy();
-		});
+			await waitFor(() => {
+				expect(screen.getByTestId("about-page")).toBeTruthy();
+			});
 
-		// The aria-live region must announce the state.  This proves
-		// App consumes the typed RecordingState value directly (no
-		// cast) and renders the correct announcement.
-		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
-		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
-		const announced = Array.from(liveRegions).some((r) =>
-			expected.test(r.textContent ?? ""),
-		);
-		expect(announced).toBe(true);
-	});
+			// The aria-live region must announce the state.  This proves
+			// App consumes the typed RecordingState value directly (no
+			// cast) and renders the correct announcement.
+			const liveRegions = document.querySelectorAll('[aria-live="polite"]');
+			expect(liveRegions.length).toBeGreaterThanOrEqual(1);
+			const announced = Array.from(liveRegions).some((r) =>
+				expected.test(r.textContent ?? ""),
+			);
+			expect(announced).toBe(true);
+		},
+	);
 });

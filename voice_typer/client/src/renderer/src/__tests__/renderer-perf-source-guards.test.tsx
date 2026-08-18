@@ -150,21 +150,24 @@ describe.skip("ER-56: Home.tsx subcomponents are wrapped in React.memo", () => {
 		"MicToggleButton",
 		"LastTranscriptionPreview",
 		"RecordingErrorCard",
-	] as const)("wraps %s in React.memo (memo(function %s(...) {...}))", (name: string) => {
-		const src = readSrc("pages/Home.tsx");
-		// Match `const <Name> = memo(function <Name>(` — the
-		// named-function form (rather than `memo((props) => ...)`)
-		// preserves the displayName for React DevTools.
-		const pattern = new RegExp(
-			`const\\s+${name}\\s*=\\s*memo\\(function\\s+${name}\\s*\\(`,
-		);
-		expect(
-			pattern.test(src),
-			`Expected ${name} to be wrapped in memo(function ${name}(...)). ` +
-				"Either it's not wrapped in memo, or the wrapping uses an " +
-				"anonymous arrow form (use the named-function form for DevTools).",
-		).toBe(true);
-	});
+	] as const)(
+		"wraps %s in React.memo (memo(function %s(...) {...}))",
+		(name: string) => {
+			const src = readSrc("pages/Home.tsx");
+			// Match `const <Name> = memo(function <Name>(` — the
+			// named-function form (rather than `memo((props) => ...)`)
+			// preserves the displayName for React DevTools.
+			const pattern = new RegExp(
+				`const\\s+${name}\\s*=\\s*memo\\(function\\s+${name}\\s*\\(`,
+			);
+			expect(
+				pattern.test(src),
+				`Expected ${name} to be wrapped in memo(function ${name}(...)). ` +
+					"Either it's not wrapped in memo, or the wrapping uses an " +
+					"anonymous arrow form (use the named-function form for DevTools).",
+			).toBe(true);
+		},
+	);
 
 	it("wraps the usePythonEvent handlers in useCallback (status_change, download_progress, transcription_final, recording_started)", () => {
 		const src = readSrc("pages/Home.tsx");
@@ -321,19 +324,22 @@ describe.skip("ER-25: App.tsx uses React.lazy for secondary routes + Suspense fa
 		["SettingsPage", "@/pages/Settings"],
 		["TemplatesPage", "@/pages/Templates"],
 		["VocabularyPage", "@/pages/Vocabulary"],
-	] as const)("converts %s to React.lazy(() => import(%s))", (varName: string, importPath: string) => {
-		const src = readSrc("App.tsx");
-		// Escape the import path for use in a regex (paths with
-		// slashes are safe in JS regex but be defensive).
-		const escaped = importPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-		const pattern = new RegExp(
-			`const\\s+${varName}\\s*=\\s*lazy\\(\\s*\\(\\)\\s*=>\\s*import\\(["']${escaped}["']\\)\\s*\\)`,
-		);
-		expect(
-			pattern.test(src),
-			`Expected: const ${varName} = lazy(() => import("${importPath}"))`,
-		).toBe(true);
-	});
+	] as const)(
+		"converts %s to React.lazy(() => import(%s))",
+		(varName: string, importPath: string) => {
+			const src = readSrc("App.tsx");
+			// Escape the import path for use in a regex (paths with
+			// slashes are safe in JS regex but be defensive).
+			const escaped = importPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+			const pattern = new RegExp(
+				`const\\s+${varName}\\s*=\\s*lazy\\(\\s*\\(\\)\\s*=>\\s*import\\(["']${escaped}["']\\)\\s*\\)`,
+			);
+			expect(
+				pattern.test(src),
+				`Expected: const ${varName} = lazy(() => import("${importPath}"))`,
+			).toBe(true);
+		},
+	);
 
 	it("wraps the renderPage() switch in <Suspense> with a <Spinner> fallback", () => {
 		const src = readSrc("App.tsx");

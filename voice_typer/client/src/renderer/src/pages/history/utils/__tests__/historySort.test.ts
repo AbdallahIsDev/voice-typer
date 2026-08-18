@@ -118,23 +118,17 @@ describe("sortRecords", () => {
 });
 
 describe("parseHistorySortOrder", () => {
-	it.each([
-		"newest",
-		"oldest",
-		"az",
-		"za",
-	] as HistorySortOrder[])("returns the value verbatim when it is a valid sort order (%s)", (value) => {
-		expect(parseHistorySortOrder(value)).toBe(value);
-	});
+	it.each(["newest", "oldest", "az", "za"] as HistorySortOrder[])(
+		"returns the value verbatim when it is a valid sort order (%s)",
+		(value) => {
+			expect(parseHistorySortOrder(value)).toBe(value);
+		},
+	);
 
-	it.each([
-		"",
-		"unknown",
-		"NEWEST",
-		"newest ",
-		"az ",
-		"random",
-	])("falls back to 'newest' for unrecognised value %j", (value) => {
-		expect(parseHistorySortOrder(value)).toBe("newest");
-	});
+	it.each(["", "unknown", "NEWEST", "newest ", "az ", "random"])(
+		"falls back to 'newest' for unrecognised value %j",
+		(value) => {
+			expect(parseHistorySortOrder(value)).toBe("newest");
+		},
+	);
 });

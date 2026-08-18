@@ -162,14 +162,14 @@ describe("DownloadProgressBar — XA-13-M2 (aria-valuenow throttle boundaries)",
 		{ progress: 94.9, expected: 90 },
 		{ progress: 95, expected: 100 },
 		{ progress: 100, expected: 100 },
-	])("progress=$progress throttles aria-valuenow to $expected", ({
-		progress,
-		expected,
-	}) => {
-		render(<DownloadProgressBar {...baseProps} progress={progress} />);
-		const bar = screen.getByRole("progressbar");
-		expect(bar).toHaveAttribute("aria-valuenow", String(expected));
-	});
+	])(
+		"progress=$progress throttles aria-valuenow to $expected",
+		({ progress, expected }) => {
+			render(<DownloadProgressBar {...baseProps} progress={progress} />);
+			const bar = screen.getByRole("progressbar");
+			expect(bar).toHaveAttribute("aria-valuenow", String(expected));
+		},
+	);
 });
 
 // ─────────────────────────────────────────────────────────────────────

@@ -556,15 +556,16 @@ describe("QV-25: owned files contain no task-ID / session-prefix comments", () =
 		"GG-",
 	];
 
-	it.each(
-		OWNED_FILES,
-	)("%s contains no forbidden task-ID tokens", async (path) => {
-		const fs = await import("node:fs");
-		const src = fs.readFileSync(path, "utf8");
-		for (const token of FORBIDDEN_TOKENS) {
-			expect(src).not.toContain(token);
-		}
-	});
+	it.each(OWNED_FILES)(
+		"%s contains no forbidden task-ID tokens",
+		async (path) => {
+			const fs = await import("node:fs");
+			const src = fs.readFileSync(path, "utf8");
+			for (const token of FORBIDDEN_TOKENS) {
+				expect(src).not.toContain(token);
+			}
+		},
+	);
 });
 
 // ── inline transcribing / downloading-model status hint ──

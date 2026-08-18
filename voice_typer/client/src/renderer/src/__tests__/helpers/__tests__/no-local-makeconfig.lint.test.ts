@@ -137,24 +137,26 @@ describe("lint: Settings test files use shared makeConfig (XA-15-2 regression)",
 		),
 	];
 
-	it.each(
-		SETTINGS_TEST_FILES,
-	)("%s imports makeConfig from helpers/fixtures", (file) => {
-		const src = readFileSync(file, "utf8");
-		expect(src).toMatch(
-			/import\s+\{\s*makeConfig\s*\}\s+from\s+["']@\/__tests__\/helpers\/fixtures["']/,
-		);
-	});
+	it.each(SETTINGS_TEST_FILES)(
+		"%s imports makeConfig from helpers/fixtures",
+		(file) => {
+			const src = readFileSync(file, "utf8");
+			expect(src).toMatch(
+				/import\s+\{\s*makeConfig\s*\}\s+from\s+["']@\/__tests__\/helpers\/fixtures["']/,
+			);
+		},
+	);
 
-	it.each(
-		SETTINGS_TEST_FILES,
-	)("%s does NOT declare a local baseConfig object literal (must use makeConfig factory)", (file) => {
-		const src = readFileSync(file, "utf8");
-		// Matches `const baseConfig ... = {` — i.e. an inline object
-		// literal assigned to `baseConfig`. The factory form
-		// `const baseConfig = makeConfig({...})` does NOT match because
-		// the RHS starts with `makeConfig(`, not `{`.
-		const localLiteralRe = /const\s+baseConfig\b[^=]*=\s*\{/;
-		expect(localLiteralRe.test(src)).toBe(false);
-	});
+	it.each(SETTINGS_TEST_FILES)(
+		"%s does NOT declare a local baseConfig object literal (must use makeConfig factory)",
+		(file) => {
+			const src = readFileSync(file, "utf8");
+			// Matches `const baseConfig ... = {` — i.e. an inline object
+			// literal assigned to `baseConfig`. The factory form
+			// `const baseConfig = makeConfig({...})` does NOT match because
+			// the RHS starts with `makeConfig(`, not `{`.
+			const localLiteralRe = /const\s+baseConfig\b[^=]*=\s*\{/;
+			expect(localLiteralRe.test(src)).toBe(false);
+		},
+	);
 });
