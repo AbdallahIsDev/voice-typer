@@ -79,7 +79,7 @@ def fake_win32_empty():
         yield mock_user32
 
 
-class TestAP27Win32EmptyNarrowedException:
+class TestWin32EmptyNarrowedException:
     """AP-27: ``empty()`` narrows to ``(OSError, AttributeError)`` + DEBUG log."""
 
     def test_empty_returns_false_and_logs_debug_on_oserror(self, fake_win32_empty):
@@ -148,7 +148,7 @@ class TestAP27Win32EmptyNarrowedException:
 # ===========================================================================
 
 
-class TestAP28VerifyLoopNarrowedException:
+class TestVerifyLoopNarrowedException:
     """AP-28: verify loop narrows to
     ``(ImportError, AttributeError, NotImplementedError, OSError)`` +
     DEBUG log (was bare ``except Exception: pass``).
@@ -296,7 +296,7 @@ class TestAP28VerifyLoopNarrowedException:
 # ===========================================================================
 
 
-class TestAP29SignalRegistrationBroadExceptLogs:
+class TestSignalRegistrationBroadExceptLogs:
     """AP-29: the second broad ``except Exception:`` in the
     signal-handler registration block (clipboard/__init__.py) now logs
     at DEBUG instead of silently passing.
@@ -401,7 +401,7 @@ class TestAP29SignalRegistrationBroadExceptLogs:
 # ===========================================================================
 
 
-class TestAP31LinuxTimeoutExpiredReraise:
+class TestLinuxTimeoutExpiredReraise:
     """AP-31: ``_linux_wayland_copy`` / ``_linux_wayland_paste`` /
     ``_linux_paste_via_wtype`` re-raise ``subprocess.TimeoutExpired``
     directly instead of wrapping it in a ``RuntimeError``.
