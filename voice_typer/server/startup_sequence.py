@@ -33,6 +33,7 @@ import logging
 import os
 import threading
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -305,6 +306,30 @@ def _reset_onboarding_fail_count() -> None:
         )
 
 
+@dataclass
+class StageResult:
+    """Outcome of a single startup phase.
+
+    success=True means the phase completed normally and the next phase
+    should run. success=False means the phase short-circuited the
+    startup (currently only happens when ``app._shutting_down`` is set
+    mid-startup — the phase already emitted the canonical
+    "Interrupted after ..." / "_shutting_down is set, aborting startup"
+    log line per the original monolithic ``run()`` body, so the
+    orchestrator just returns without further logging).
+
+    ``error`` carries a short description when the phase failed for a
+    non-shutdown reason (currently unused — every phase swallows its
+    own exceptions and logs them at debug/warning, matching the
+    pre-refactor behavior). ``data`` is reserved for structured
+    payloads (e.g. ``{"shutdown": True}``).
+    """
+
+    success: bool
+    error: str | None = None
+    data: dict | None = field(default=None)
+
+
 class StartupSequence:
     """Orchestrates the multi-phase background startup of VoiceTyperApp.
 
@@ -313,6 +338,14 @@ class StartupSequence:
     so the sequence can read/write the app's state (config, tray, models,
     hotkeys, etc.) — same attribute surface as before, just renamed
     from ``self.X`` to ``self._app.X``.
+
+    Phase decomposition: ``run`` is now a <40-line orchestrator
+    that calls 8 phased sub-runs in order. Each phase returns a
+    :class:`StageResult`; ``success=False`` short-circuits the rest (the
+    phase has already emitted its own canonical shutdown log line).
+    Every log line, exception swallow, and shutdown check from the
+    pre-refactor ``run`` body is preserved verbatim in the
+    corresponding phase method (C-LOG-1 / C-LOG-2 / RACE-020).
     """
 
     def __init__(self, app: VoiceTyperApp) -> None:
@@ -325,12 +358,60 @@ class StartupSequence:
         step so that a ``quit()`` call during startup doesn't proceed
         with model downloads or background loads after the app has
         begun shutdown.
+
+        Refactor: the previous 926-LOC monolithic body is now
+        decomposed into 8 phased sub-runs (``_phase_1`` … ``_phase_8``).
+        Each phase returns a :class:`StageResult`; ``success=False``
+        (set when ``app._shutting_down`` is detected mid-phase)
+        short-circuits the rest. Every log line, exception swallow,
+        and RACE-020 shutdown check from the pre-refactor body is
+        preserved verbatim in the corresponding phase method
+        (C-LOG-1 / C-LOG-2).
+        """
+        # C-LOG-2: anchor the total startup duration, reported on the
+        # "Startup complete" line emitted by ``_phase_8_finalize_and_signal``
+        # (model load runs on a background thread and is measured
+        # separately).
+        self._t0 = time.perf_counter()
+        for phase in (
+            self._phase_1_init_and_vad_preload,
+            self._phase_2_crash_diagnostics,
+            self._phase_3_session_and_onboarding,
+            self._phase_4_corrections_and_recovery,
+            self._phase_5_platform_warnings,
+            self._phase_6_autostart_prewarm_mics,
+            self._phase_7_hotkey_and_model_load,
+            self._phase_8_finalize_and_signal,
+        ):
+            result = phase()
+            if not result.success:
+                self._handle_phase_failure(result)
+                return
+
+    def _handle_phase_failure(self, result: StageResult) -> None:
+        """Hook for handling a phase that did not complete normally.
+
+        Currently every ``success=False`` return is a RACE-020 shutdown
+        abort: the phase already emitted the canonical
+        "Interrupted after ..." / "_shutting_down is set, aborting
+        startup" log line per the original monolithic ``run()`` body,
+        so there is nothing more to do here but return. Kept as a
+        dedicated method so future phases that fail for non-shutdown
+        reasons have an obvious place to hook in additional handling
+        (without rewriting the orchestrator).
+        """
+        # Intentionally a no-op for shutdown aborts (the phase logged).
+        return
+
+    def _phase_1_init_and_vad_preload(self) -> StageResult:
+        """Phase 1 — anchor the startup duration + preload Silero VAD.
+
+        Emits the canonical ``[STARTUP] Initializing: ...`` banner and
+        spawns the eager VAD preload daemon thread (fire-and-forget,
+        registered with the app's ThreadRegistry when available) so the
+        VAD model is hot by the time the user first presses F2.
         """
         app = self._app
-        # C-LOG-2: anchor the total startup duration, reported on the
-        # "Startup complete" line (model load runs on a background
-        # thread and is measured separately).
-        _t0 = time.perf_counter()
         log.info("[STARTUP] Initializing: autostart, microphones, hotkey, model...")
 
         # eagerly preload + warm the Silero VAD model on a
@@ -376,6 +457,21 @@ class StartupSequence:
         except Exception:
             log.debug("[STARTUP] could not spawn vad-preload thread", exc_info=True)
 
+        return StageResult(success=True)
+
+    def _phase_2_crash_diagnostics(self) -> StageResult:
+        """Phase 2 — detect leftover crash reports from a prior session.
+
+        Reads ``crash_diagnostics.<PID>.txt`` written by the VEH
+        handler on silent SEH exceptions, archives them for support,
+        and — only when the previous session genuinely ended
+        abnormally (the ``session_active`` marker is still present) —
+        surfaces a calm user-facing recovery toast + Electron
+        notification. Also sweeps stale corrupt-quarantine /
+        pre-migration backup files (30-day retention) and stale
+        ``.tmp`` atomic-write leftovers (5-min retention).
+        """
+        app = self._app
         # ── CRASH DIAGNOSTICS: check for leftover crash reports ──────
         # The VEH handler (crash_handler.py) writes crash_diagnostics.<PID>.txt
         # when a previous process was killed by STATUS_HEAP_CORRUPTION or
@@ -477,9 +573,29 @@ class StartupSequence:
         except Exception as exc:
             log.debug("[STARTUP] Crash diagnostic check failed: %s", exc)
 
+        return StageResult(success=True)
+
+    def _phase_3_session_and_onboarding(self) -> StageResult:
+        """Phase 3 — record session-active marker + run onboarding wizard check.
+
+        RACE-020: aborts startup (returns ``success=False``) if
+        ``app._shutting_down`` is set; the canonical
+        ``_shutting_down is set, aborting startup`` INFO line is
+        emitted before returning. On a normal path, records the
+        session-active marker (so a later crash is detectable on the
+        next launch), then either auto-heals stale onboarding state
+        (config.json exists but onboarding_completed is False and the
+        ``.onboarding_started`` marker is missing) or saves the
+        default config so the frontend's first-run IPC route can
+        detect a genuine first run. Onboarding failures are persisted
+        (with TTL-stale reset) and a 3-failure circuit breaker marks
+        onboarding completed with a failure flag so the app stays
+        usable.
+        """
+        app = self._app
         if app._shutting_down:
             log.info("[STARTUP] _shutting_down is set, aborting startup")
-            return
+            return StageResult(success=False, data={"shutdown": True})
 
         # Session begins here: record the session-active marker AFTER
         # the previous session's crash check consumed its state, so a
@@ -509,8 +625,8 @@ class StartupSequence:
         # auto-heal the state. Without this fix, is_first_run() returns
         # True on every restart, the frontend routes to the onboarding
         # wizard, and the wizard's apply_settings() overwrites the
-        # user's custom hotkey, model, and microphone settings with
-        # onboarding defaults (<caps_lock>, tiny, None).
+        # user's hotkey, model, and microphone settings with onboarding
+        # defaults (<caps_lock>, tiny, None).
         if not app.config.onboarding_completed:
             try:
                 from voice_typer.server.onboarding import OnboardingController
@@ -624,6 +740,20 @@ class StartupSequence:
                 except Exception:
                     log.exception("[STARTUP] Onboarding failure-handler itself failed")
 
+        return StageResult(success=True)
+
+    def _phase_4_corrections_and_recovery(self) -> StageResult:
+        """Phase 4 — load corrections + crash recovery + history retention.
+
+        Loads external text corrections (surfacing load errors via a
+        tray notification), checks for unpasted transcriptions from a
+        prior crashed session, applies the history retention policy
+        on a daemon thread (so the SQLite DELETEs don't block the
+        hotkey-registration critical path), and schedules the periodic
+        retention sweep so the DB doesn't grow monotonically during
+        long sessions.
+        """
+        app = self._app
         # Load external text corrections (if available) before any transcription
         # surface load errors to the user via tray notification
         # so they know why their corrections aren't taking effect.
@@ -754,6 +884,26 @@ class StartupSequence:
                 exc_info=True,
             )
 
+        return StageResult(success=True)
+
+    def _phase_5_platform_warnings(self) -> StageResult:
+        """Phase 5 — emit Wayland + macOS accessibility platform warnings.
+
+        Wayland: warn if global hotkeys may not work, suggest
+        wtype/ydotool as fallback. The structured warning state
+        (module-level ``_MODULE_STATE.wayland_warning_state``)
+        re-emits whenever session type, wtype availability, or
+        ydotool availability changes — and once per app version
+        upgrade.
+
+        macOS: probe Accessibility permission via the
+        AXIsProcessTrusted() ctypes call (no PyObjC dependency); a
+        load failure is treated as "not granted" and the A11yPulse
+        periodic task re-probes within 60s. A missing-grant surfaces
+        a tray notification (critical — bypasses the toggle because
+        hotkeys are broken without Accessibility permission).
+        """
+        app = self._app
         # PLAT-WAYLAND: Warn if running on Wayland and
         # suggest wtype/ydotool as fallback for global hotkeys.
         #
@@ -949,6 +1099,22 @@ class StartupSequence:
 
             startup_tasks.start_accessibility_pulse(app, _has_accessibility)
 
+        return StageResult(success=True)
+
+    def _phase_6_autostart_prewarm_mics(self) -> StageResult:
+        """Phase 6 — sync autostart + prewarm + mic enumeration + pack check.
+
+        Syncs the OS-level autostart entry (RACE-020 shutdown check
+        immediately after), then dispatches the prewarm task sync +
+        the launch-time offline-pack existence check on
+        fire-and-forget daemon threads (so neither can delay hotkey
+        registration), and runs microphone enumeration in a bounded
+        parallel pool with a 5s timeout. A final RACE-020 shutdown
+        check (``Interrupted before hotkey registration``) aborts
+        before Phase 7 if ``app._shutting_down`` was set during the
+        parallel work.
+        """
+        app = self._app
         # 1. Sync autostart config with platform
         log.debug("[STARTUP] Syncing autostart")
         # Phase 2: invoke startup_tasks directly. The
@@ -980,7 +1146,7 @@ class StartupSequence:
         # RACE-020: check for shutdown after each major step
         if app._shutting_down:
             log.debug("[STARTUP] Interrupted after autostart sync")
-            return
+            return StageResult(success=False, data={"shutdown": True})
 
         # 1b. Sync the OS-level prewarm scheduled task.
         #     fast_startup is always enabled; the prewarm task is registered
@@ -1103,9 +1269,7 @@ class StartupSequence:
                 # dependency via ``startup_tasks``).
                 from voice_typer.server.providers import AppProtocol as _AppProtocol
 
-                startup_tasks.check_offline_pack_on_launch(
-                    cast(_AppProtocol, app), _shutdown_event
-                )
+                startup_tasks.check_offline_pack_on_launch(cast(_AppProtocol, app), _shutdown_event)
 
             pack_thread = threading.Thread(
                 target=_pack_check_task,
@@ -1172,8 +1336,22 @@ class StartupSequence:
         # RACE-020: check for shutdown after parallel work
         if app._shutting_down:
             log.debug("[STARTUP] Interrupted before hotkey registration")
-            return
+            return StageResult(success=False, data={"shutdown": True})
 
+        return StageResult(success=True)
+
+    def _phase_7_hotkey_and_model_load(self) -> StageResult:
+        """Phase 7 — register hotkey + start background model load.
+
+        Hotkey is registered BEFORE model load so F2 works even if the
+        model fails to load (RACE-020 invariant — see module docstring
+        (a)). A RACE-020 shutdown check after each step aborts before
+        the next. The model load itself runs on a daemon thread owned
+        by ``ModelManager`` (the dominant cold-boot cost, ~30-45s on
+        first run after Windows starts); running it in the background
+        lets the app reach "Loading model…" within ~1s of launch.
+        """
+        app = self._app
         # 3. Register hotkey BEFORE model load so F2 works even if model fails
         log.debug("[STARTUP] Registering hotkey")
         # Phase 2: invoke HotkeyDispatcher directly. The
@@ -1184,7 +1362,7 @@ class StartupSequence:
         # RACE-020: check for shutdown after hotkey registration
         if app._shutting_down:
             log.debug("[STARTUP] Interrupted after hotkey registration")
-            return
+            return StageResult(success=False, data={"shutdown": True})
 
         # Warmup handled synchronously in recording.py on first recording start.
 
@@ -1209,8 +1387,26 @@ class StartupSequence:
         # RACE-020: check for shutdown after background model load start
         if app._shutting_down:
             log.debug("[STARTUP] Interrupted after model load start")
-            return
+            return StageResult(success=False, data={"shutdown": True})
 
+        return StageResult(success=True)
+
+    def _phase_8_finalize_and_signal(self) -> StageResult:
+        """Phase 8 — restart detection + bubble show + startup-complete log.
+
+        After-restart: auto-opens the Electron window so it appears
+        fresh once the new instance is fully ready (the
+        ``VOICE_TYPER_RESTART`` env var is set by ``restart_app``
+        before launching the new process). Then, when the user's
+        preference is ``always_visible`` + ``bubble_show_on_startup``,
+        shows the waveform bubble at startup and pushes the
+        bubble-relevant config to the sandboxed bubble renderer.
+
+        Emits the canonical ``[STARTUP] Startup complete (model still
+        loading in background)`` log line with the C-LOG-2 duration
+        suffix (anchored at ``self._t0`` set in :meth:`run`).
+        """
+        app = self._app
         # After restart: auto-open the Electron window so it appears fresh
         # once the new instance is fully ready.  The VOICE_TYPER_RESTART
         # env var is set by restart_app() before launching the new process.
@@ -1242,5 +1438,7 @@ class StartupSequence:
 
         log.info(
             "[STARTUP] Startup complete (model still loading in background)%s",
-            format_duration(time.perf_counter() - _t0),
+            format_duration(time.perf_counter() - self._t0),
         )
+
+        return StageResult(success=True)

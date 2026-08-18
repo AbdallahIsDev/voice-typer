@@ -521,21 +521,22 @@ class TestMacOSAccessibilityCheck:
 
     the body of ``_do_startup`` was extracted into
     :class:`voice_typer.server.startup_sequence.StartupSequence`. The
-    macOS accessibility check now lives in ``StartupSequence.run``, so
-    these source-string checks are retargeted there. Intent unchanged.
+    macOS accessibility check now lives in
+    ``StartupSequence._phase_5_platform_warnings``, so these source-string
+    checks are retargeted there. Intent unchanged.
     """
 
     def test_accessibility_check_in_startup_source(self):
         from voice_typer.server.startup_sequence import StartupSequence
 
-        src = inspect.getsource(StartupSequence.run)
+        src = inspect.getsource(StartupSequence._phase_5_platform_warnings)
         has_macos_guard = "darwin" in src or "is_macos()" in src
         assert has_macos_guard and "accessibility" in src.lower()
 
     def test_accessibility_check_notifies_on_missing(self):
         from voice_typer.server.startup_sequence import StartupSequence
 
-        src = inspect.getsource(StartupSequence.run)
+        src = inspect.getsource(StartupSequence._phase_5_platform_warnings)
         assert "tray.notify" in src
 
 
