@@ -26,7 +26,7 @@
 //!
 //! Prewarm binary removal (Phase 2a, plan-runtime-pack-split §6.2):
 //! the former `prewarm` submodule (which resolved the prewarm exe path
-//! passed to Python via the `VOICE_TYPER_PREWARM_EXE` env var) was
+//! passed to Python via a dedicated env var) was
 //! deleted when prewarm became a startup phase of the worker exe.
 //! See `platform::worker_path` for the worker exe path resolution
 //! that supersedes the prewarm exe path.

@@ -59,12 +59,12 @@ const VocabularyPage = lazy(() => import("@/pages/Vocabulary"));
 
 import { isKnownPage } from "@/router/routes";
 import { useAppStore } from "@/stores/appStore";
-import type { WindowBridge } from "@/types/ipc";
+import type { Page, WindowBridge } from "@/types/ipc";
 
 /**
  * Suspense fallback for the lazy-loaded secondary routes.
  *
- * Inline (not a separate component file) so we don't introduce a new	 * module outside the refactor scope. The spinner matches the visual
+ * Inline (not a separate component file) so we don't introduce a new    * module outside the refactor scope. The spinner matches the visual
  * style already used by ``DoneStep.tsx`` and ``MicToggleButton.tsx``
  * (``animate-spin rounded-full border-2 border-current
  * border-t-transparent``) so the user sees a consistent loading
@@ -287,11 +287,26 @@ export default function App() {
 				// consent_field} when the user clicks the toast; Settings
 				// consumes the ``consentField`` option and scrolls to /
 				// highlights the exact toggle).
+				//
+				// When the legacy "settings" parent literal is sent
+				// WITH a consent_field, the deep-link must land on the
+				// Privacy sub-page (where the consent toggles live), not
+				// the General default. The useNavigation.navigate action
+				// redirects bare "settings" to "settingsGeneral" — so we
+				// override the target here to "settingsPrivacy" when a
+				// consent_field is present (the user's intent is "open the
+				// consent row", not "open Settings General"). The
+				// pendingConsentField transient field carries the row
+				// hint to the Privacy sub-page via the same navigate call.
 				const consentField =
 					typeof navData.consent_field === "string"
 						? navData.consent_field
 						: undefined;
-				navigate(page, consentField ? { consentField } : undefined);
+				const targetPage: Page =
+					consentField && page === "settings"
+						? "settingsPrivacy"
+						: (page as Page);
+				navigate(targetPage, consentField ? { consentField } : undefined);
 			} else {
 				console.warn(`[renderer:App] ignoring unknown page path: "${page}"`);
 			}
@@ -433,8 +448,28 @@ export default function App() {
 				return <MicrophonePage />;
 			case "analytics":
 				return <DashboardPage />;
+			// The Settings page is now a nested-sidebar navigation
+			// target (ADR-0021). The 4 sub-page literals
+			// (settingsGeneral / settingsAiAudio / settingsAppearance /
+			// settingsPrivacy) each render `<SettingsPage page={...} />`
+			// — the page derives the active tab from the prop instead
+			// of owning tab state locally. The legacy "settings"
+			// parent literal is redirected to "settingsGeneral" inside
+			// useNavigation.navigate BEFORE this switch is reached, so
+			// the `case "settings"` below is a defensive fallback
+			// (e.g. for a stale persisted `vt_nav_state` from an older
+			// build that resolves before the redirect fires) — it
+			// renders the General sub-page rather than an empty
+			// parent.
 			case "settings":
-				return <SettingsPage />;
+			case "settingsGeneral":
+				return <SettingsPage page="settingsGeneral" />;
+			case "settingsAiAudio":
+				return <SettingsPage page="settingsAiAudio" />;
+			case "settingsAppearance":
+				return <SettingsPage page="settingsAppearance" />;
+			case "settingsPrivacy":
+				return <SettingsPage page="settingsPrivacy" />;
 			case "about":
 				return <AboutPage />;
 			case "privacy":
@@ -552,7 +587,7 @@ export default function App() {
 				<Toaster />
 
 				{/* Unified point-of-use consent dialog — mounted once;
-				    opened by any consent-gated flow via openConsentGate() */}
+                                    opened by any consent-gated flow via openConsentGate() */}
 				<ConsentGateDialog />
 
 				{/* Help overlay extracted to <HelpOverlay /> */}
@@ -564,24 +599,24 @@ export default function App() {
 				/>
 
 				{/* Split the screen-reader live region
-				    into TWO regions — one for recording state, one for
-				    connection status. Previously a single aria-atomic region
-				    concatenated both streams, so any change in either
-				    re-announced the ENTIRE combined text — meaning a brief
-				    `connectionStatus` flicker caused "Recording started." to
-				    be re-announced even though recording state hadn't
-				    changed. Two regions isolate the two streams so each only
-				    re-announces when ITS OWN content changes. */}
+                                    into TWO regions — one for recording state, one for
+                                    connection status. Previously a single aria-atomic region
+                                    concatenated both streams, so any change in either
+                                    re-announced the ENTIRE combined text — meaning a brief
+                                    `connectionStatus` flicker caused "Recording started." to
+                                    be re-announced even though recording state hadn't
+                                    changed. Two regions isolate the two streams so each only
+                                    re-announces when ITS OWN content changes. */}
 				<div aria-live="polite" aria-atomic="true" className="sr-only">
 					{recordingState === "recording" ? t("a11y.recordingStarted") : ""}
 					{/* Coarse transcribing/loading announcements are suppressed
-					    on the Home page: Home's dynamic status line (its single
-					    specific live region) already announces "Transcribing…
-					    please wait" / "Downloading model…", so this coarse
-					    "Transcribing audio." / "Loading model…" would
-					    double-announce the same transition across the two live
-					    regions. On every OTHER page the coarse announcement is
-					    the only one (Home isn't mounted), so keep it there. */}
+                                            on the Home page: Home's dynamic status line (its single
+                                            specific live region) already announces "Transcribing…
+                                            please wait" / "Downloading model…", so this coarse
+                                            "Transcribing audio." / "Loading model…" would
+                                            double-announce the same transition across the two live
+                                            regions. On every OTHER page the coarse announcement is
+                                            the only one (Home isn't mounted), so keep it there. */}
 					{recordingState === "transcribing" && currentPage !== "home"
 						? t("a11y.transcribingAudio")
 						: ""}
@@ -593,22 +628,22 @@ export default function App() {
 					{recordingState === "cancelling" ? t("a11y.cancelling") : ""}
 				</div>
 				{/* Assertive region for connection ERRORS (disconnected,
-				    restarting) — these interrupt the user since they indicate
-				    a problem requiring attention. Split from the recovery
-				    region below so the recovery announcement stays polite
-				    (non-interrupting) and doesn't yank the user out of what
-				    they were doing. Reuses existing i18n keys
-				    (`app.lostConnection`, `app.restartingBackend`) so no new
-				    translation keys are required. */}
+                                    restarting) — these interrupt the user since they indicate
+                                    a problem requiring attention. Split from the recovery
+                                    region below so the recovery announcement stays polite
+                                    (non-interrupting) and doesn't yank the user out of what
+                                    they were doing. Reuses existing i18n keys
+                                    (`app.lostConnection`, `app.restartingBackend`) so no new
+                                    translation keys are required. */}
 				<div aria-live="assertive" aria-atomic="true" className="sr-only">
 					{connectionStatus === "disconnected" ? t("app.lostConnection") : ""}
 					{connectionStatus === "restarting" ? t("app.restartingBackend") : ""}
 				</div>
 				{/* Polite region for connection RECOVERY (re-connected after
-				    an outage) — non-interrupting so the user hears it but
-				    isn't pulled out of what they were doing. Reuses existing
-				    i18n key (`about.connected`) so no new translation keys
-				    are required. */}
+                                    an outage) — non-interrupting so the user hears it but
+                                    isn't pulled out of what they were doing. Reuses existing
+                                    i18n key (`about.connected`) so no new translation keys
+                                    are required. */}
 				<div aria-live="polite" aria-atomic="true" className="sr-only">
 					{connectionStatus === "connected" &&
 					prevConnectionRef.current !== "connected" &&

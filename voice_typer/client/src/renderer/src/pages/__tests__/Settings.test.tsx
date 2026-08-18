@@ -140,11 +140,16 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage />);
+		renderWithProviders(<SettingsPage page="settingsGeneral" />);
 
-		// The Appearance section heading renders once config loads.
+		// The page heading renders once config loads. The 4-tab
+		// SegmentedControl at the top of Settings has been removed
+		// (ADR-0021 — the tabs now live in the sidebar as a nested
+		// Settings submenu), so the marker that the page has mounted
+		// is now the PageHeading title ("Settings") rather than the
+		// old SegmentedControl's "Appearance" option label.
 		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
+			expect(screen.getByText("Settings")).toBeTruthy();
 		});
 
 		// Loading the config must NOT trigger a save — the
@@ -161,17 +166,16 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage />);
+		// Mount directly on the Appearance sub-page — the
+		// SegmentedControl tab UI has been removed (ADR-0021), so
+		// the test can't click the "Appearance" tab label anymore.
+		renderWithProviders(<SettingsPage page="settingsAppearance" />);
 
-		// Wait for the page to load (the tab labels are always visible).
+		// Wait for the page heading to render (the page is now mounted
+		// directly on Appearance — no tab click needed).
 		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
+			expect(screen.getByText("Settings")).toBeTruthy();
 		});
-
-		// The color pickers live in the ThemeSettingsSection, which is
-		// only rendered when the Appearance tab is active.  Click the
-		// tab label to navigate there.
-		fireEvent.click(screen.getByText("Appearance"));
 
 		// Wait for ThemeSettingsSection to mount and render the color
 		// pickers (it calls setCustomDraft during render which needs an
@@ -221,16 +225,19 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage />);
+		// Mount directly on the Appearance sub-page (ADR-0021 — the
+		// SegmentedControl tab UI has been removed; tests can't click
+		// the "Appearance" tab label anymore).
+		renderWithProviders(<SettingsPage page="settingsAppearance" />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
+			expect(screen.getByText("Settings")).toBeTruthy();
 		});
 
-		// Navigate to the Appearance tab so the color pickers are visible.
-		// The ThemeSettingsSection calls setCustomDraft during render, so we
-		// wait for the color inputs to actually appear before proceeding.
-		fireEvent.click(screen.getByText("Appearance"));
+		// ThemeSettingsSection is rendered directly on the Appearance
+		// sub-page (no tab click needed). It calls setCustomDraft during
+		// render, so wait for the color inputs to actually appear before
+		// proceeding.
 		await waitFor(() => {
 			expect(
 				document.querySelectorAll('input[type="color"]').length,
@@ -318,16 +325,20 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		expect(useAppStore.getState().config?.onboarding_completed).toBe(true);
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage />);
+		// The wizard button lives in the Privacy sub-page's
+		// Troubleshooting section. Mount directly on Privacy
+		// (ADR-0021 — the SegmentedControl tab UI has been removed).
+		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
 
-		// Wait for the page to load (the tab labels are always visible).
+		// Wait for the Privacy sub-page to load. The Privacy
+		// section heading rendered by PrivacySettingsSection is
+		// "Privacy & Consent" (i18n key settings.privacy.privacyTitle);
+		// match on a substring regex so the test still passes if the
+		// exact wording changes (the test only needs to know the
+		// Privacy sub-page has mounted, not assert the heading text).
 		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
+			expect(screen.getByText(/Privacy/)).toBeTruthy();
 		});
-
-		// The wizard button lives in the Privacy tab's Troubleshooting
-		// section.  Click the Privacy tab to mount it.
-		fireEvent.click(screen.getByText("Privacy"));
 
 		// Wait for the wizard button to mount (it's filtered by the
 		// search-visible check, but the default empty filter shows it).
@@ -376,11 +387,19 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		// A consent refusal elsewhere (mic test / level monitor /
 		// dictation gate) navigated here with
 		// ``{ consentField: "voice_biometric_consent" }``.
+		//
+		// After ADR-0021, the consent deep-link lands on the
+		// Privacy sub-page (the nav store sends `settingsPrivacy`
+		// when a consent_field is present — see App.tsx navigate
+		// event handler). The test must mount the page with
+		// `page="settingsPrivacy"` to mirror the runtime routing;
+		// otherwise the consent rows (rendered by
+		// PrivacySettingsSection) are not in the DOM.
 		mockPendingConsentField.mockReturnValue("voice_biometric_consent");
 		mockConsumeConsentField.mockReturnValue("voice_biometric_consent");
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage />);
+		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
 
 		// The deep-link forces the Privacy tab and the Voice Biometric
 		// row renders with the ``data-consent-field`` scroll target +
@@ -422,14 +441,14 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage />);
+		// The Troubleshooting section lives on the Privacy sub-page.
+		// Mount directly on Privacy (ADR-0021 — SegmentedControl tab
+		// UI has been removed).
+		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
+			expect(screen.getByText(/Privacy/)).toBeTruthy();
 		});
-
-		// The Troubleshooting section lives on the Privacy tab.
-		fireEvent.click(screen.getByText("Privacy"));
 
 		// Wait for both buttons to mount.
 		const resetButton = await waitFor(() =>
@@ -486,14 +505,15 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage />);
+		// After ADR-0021, the Privacy tab is rendered by mounting
+		// `<SettingsPage page="settingsPrivacy" />` directly — the
+		// top-of-page SegmentedControl tab UI has been removed (the
+		// tabs now live in the sidebar as a nested submenu).
+		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
+			expect(screen.getByText(/Privacy/)).toBeTruthy();
 		});
-
-		// The Troubleshooting section lives on the Privacy tab.
-		fireEvent.click(screen.getByText("Privacy"));
 	}
 
 	it("renders the Reset Accessibility Permission button on macOS and calls reset_macos_accessibility", async () => {
@@ -552,12 +572,12 @@ describe("Settings page — PERF-002 batched config writes", () => {
 			});
 
 			const { default: SettingsPage } = await import("@/pages/Settings");
-			renderWithProviders(<SettingsPage />);
+			// Mount directly on Privacy (ADR-0021).
+			renderWithProviders(<SettingsPage page="settingsPrivacy" />);
 
 			await waitFor(() => {
-				expect(screen.getByText("Appearance")).toBeTruthy();
+				expect(screen.getByText(/Privacy/)).toBeTruthy();
 			});
-			fireEvent.click(screen.getByText("Privacy"));
 
 			// The suggested command must be rendered as code text.
 			await waitFor(() => {

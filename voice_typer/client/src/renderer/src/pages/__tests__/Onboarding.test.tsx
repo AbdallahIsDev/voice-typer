@@ -96,6 +96,34 @@ vi.mock("@/components/ui/select", () => ({
 	),
 }));
 
+//mock the Radix Checkbox wrapper so the consent checkbox on the
+// Done step renders as a real <input type="checkbox"> in jsdom — the
+// Radix primitive is a <button role="checkbox"> that toggles via pointer
+// + keyboard events jsdom does not simulate uniformly, and the existing
+// wizard tests drive it via fireEvent.click + assert on `.checked`. The
+// mock mirrors the Select mock above (forwards checked + onCheckedChange
+// to a real input).
+vi.mock("@/components/ui/checkbox", () => ({
+	Checkbox: ({
+		checked,
+		onCheckedChange,
+		...props
+	}: {
+		checked?: boolean | "indeterminate";
+		onCheckedChange?: (checked: boolean | "indeterminate") => void;
+	} & Omit<
+		React.InputHTMLAttributes<HTMLInputElement>,
+		"checked" | "onChange"
+	>) => (
+		<input
+			type="checkbox"
+			checked={checked === true}
+			onChange={(e) => onCheckedChange?.(e.target.checked)}
+			{...props}
+		/>
+	),
+}));
+
 import OnboardingPage from "@/pages/Onboarding";
 
 const STEP_NAMES = [

@@ -55,7 +55,11 @@
 			"power": "ميزات متقدمة",
 			"system": "النظام",
 			"main": "الرئيسية"
-		}
+		},
+		"settingsGeneral": "عام",
+		"settingsAiAudio": "الذكاء الاصطناعي والصوت",
+		"settingsAppearance": "المظهر",
+		"settingsPrivacy": "الخصوصية"
 	},
 	"home": {
 		"ready": "جاهز",
@@ -1320,7 +1324,9 @@
 		"transcriptionComplete": "اكتمل التدوين.",
 		"moreInfoAbout": "مزيد من المعلومات حول {label}",
 		"toggleSidebarWithShortcut": "تبديل الشريط الجانبي ({shortcut})",
-		"transcriptionPasted": "تم لصق: {text}"
+		"transcriptionPasted": "تم لصق: {text}",
+		"collapseSubmenu": "طي القائمة الفرعية {label}",
+		"expandSubmenu": "توسيع القائمة الفرعية {label}"
 	},
 	"help": {
 		"title": "اختصارات لوحة المفاتيح",

@@ -39,7 +39,18 @@ export const ROUTES: Record<Page, RouteDef> = {
 	models: { page: "models" },
 	templates: { page: "templates" },
 	vocabulary: { page: "vocabulary" },
+	// Settings is the legacy parent literal — kept as a redirect target
+	// so existing call sites (Ctrl+, shortcut, tray menu, Python
+	// `navigate {path: "/settings"}` IPC event) continue to work.
+	// `useNavigation.navigate("settings")` internally `replace`s it
+	// with "settingsGeneral" (mirrors the onboarding-completed guard
+	// at App.tsx:131-140 — no duplicate history entry, no empty
+	// Settings parent page ever rendered).
 	settings: { page: "settings" },
+	settingsGeneral: { page: "settingsGeneral" },
+	settingsAiAudio: { page: "settingsAiAudio" },
+	settingsAppearance: { page: "settingsAppearance" },
+	settingsPrivacy: { page: "settingsPrivacy" },
 	analytics: { page: "analytics" },
 	about: { page: "about" },
 	privacy: { page: "privacy" },

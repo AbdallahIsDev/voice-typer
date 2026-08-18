@@ -289,28 +289,35 @@ class TestPosixSingleInstanceHandleRelease:
 
 
 class TestStartupSharedBudget:
-    """GT-A1-3: ``startup_sequence._startup_parallel_work`` must enforce
-    a SINGLE shared 10s budget across both the prewarm and mic
-    futures via ``concurrent.futures.wait({f1, f2}, timeout=10)``.
+    """GT-A1-3 → DJ-4: startup parallel work must NOT let a slow
+    ``sync_prewarm_task`` delay startup.
 
-    The old code called ``fut.result(timeout=10)`` sequentially,
-    which summed the timeouts: a stuck ``prewarm`` task could
-    consume 10s, then a stuck ``mic`` task could consume ANOTHER
-    10s — total worst-case 20s, not 10s.
+    The pre-GT-A1-3 code called ``fut.result(timeout=10)`` per future,
+    which summed the timeouts: a stuck ``prewarm`` task could consume
+    10s, then a stuck ``mic`` task could consume ANOTHER 10s — total
+    worst-case 20s. GT-A1-3 originally moved both futures under a
+    single ``concurrent.futures.wait({f1, f2}, timeout=10)`` shared
+    budget; the DJ-4 refactor then went further and removed the wait
+    entirely — ``sync_prewarm_task`` runs on a fire-and-forget daemon
+    thread (no wait, no timeout) and only ``load_microphones`` runs in
+    the bounded parallel pool (5s budget). These tests pin the current
+    DJ-4 design.
     """
 
-    def test_concurrent_futures_wait_called_with_shared_timeout(
+    def test_prewarm_fire_and_forget_and_mic_alone_in_bounded_pool(
         self,
         app_for_startup,  # noqa: F811 - pytest fixture injected by name (imported at module top)
         monkeypatch,
     ):
-        """The parallel work must call ``concurrent.futures.wait`` with
-        ``timeout=10`` and a set containing BOTH futures — NOT
-        ``fut.result(timeout=10)`` per future.
+        """The parallel work must (a) dispatch ``sync_prewarm_task`` on
+        a fire-and-forget daemon thread and (b) run ONLY
+        ``load_microphones`` through ``_run_parallel_with_timeout``
+        with the 5s budget — NOT both futures via
+        ``concurrent.futures.wait``.
         """
-        import concurrent.futures
+        import threading
 
-        from voice_typer.server import startup_tasks
+        from voice_typer.server import _timeout_utils, startup_tasks
 
         # Stub the heavy IO tasks so they complete instantly.
         monkeypatch.setattr(startup_tasks, "sync_prewarm_task", lambda app, evt=None: None)
@@ -319,27 +326,26 @@ class TestStartupSharedBudget:
         monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", lambda app: None)
         monkeypatch.setattr(startup_tasks, "start_accessibility_pulse", lambda app, s: None)
 
-        # Spy on ``concurrent.futures.wait`` to capture the call.
-        # Patch the actual ``concurrent.futures.wait`` function (not
-        # a module-local alias) because startup_sequence.py does
-        # ``import concurrent.futures`` and calls ``concurrent.futures.wait``
-        # — the attribute lookup happens at call time, so patching the
-        # real function in the ``concurrent.futures`` namespace works.
-        wait_calls: list[dict] = []
-        real_wait = concurrent.futures.wait
+        # Spy on ``_run_parallel_with_timeout`` (startup_sequence imports
+        # it function-locally from ``_timeout_utils``, so patch the
+        # source module — the local import resolves at call time).
+        pool_calls: list[list] = []
+        real_run = _timeout_utils._run_parallel_with_timeout
 
-        def spy_wait(futures, timeout=None, return_when=concurrent.futures.ALL_COMPLETED):
-            wait_calls.append(
-                {
-                    "futures": set(futures),
-                    "timeout": timeout,
-                    "return_when": return_when,
-                    "num_futures": len(futures),
-                }
-            )
-            return real_wait(futures, timeout=timeout, return_when=return_when)
+        def spy_run(items):
+            pool_calls.append(items)
+            return real_run(items)
 
-        monkeypatch.setattr(concurrent.futures, "wait", spy_wait)
+        monkeypatch.setattr(_timeout_utils, "_run_parallel_with_timeout", spy_run)
+
+        # Spy on Thread.start to catch the prewarm dispatch.
+        started_threads: list[tuple[str, bool]] = []
+
+        def spy_start(self):
+            started_threads.append((self.name, self.daemon))
+            return threading.Thread.start(self)
+
+        monkeypatch.setattr(threading.Thread, "start", spy_start)
 
         # Run the startup sequence. Configure_corrections would
         # normally load corrections.json; stub it.
@@ -352,34 +358,39 @@ class TestStartupSharedBudget:
 
         StartupSequence(app_for_startup).run()
 
-        # Assert ``wait`` was called exactly once with the shared
-        # 10s timeout and BOTH futures.
-        assert len(wait_calls) == 1, (
-            "GT-A1-3: concurrent.futures.wait must be called exactly once "
-            f"(shared budget). Got {len(wait_calls)} calls."
+        # DJ-4: prewarm sync must be dispatched on a daemon thread...
+        prewarm_spawns = [t for t in started_threads if t[0] == "startup-prewarm-sync"]
+        assert len(prewarm_spawns) == 1, (
+            f"DJ-4: sync_prewarm_task must be dispatched on a fire-and-forget "
+            f"daemon thread named 'startup-prewarm-sync'. Got {started_threads!r}."
         )
-        call = wait_calls[0]
-        assert call["timeout"] == 10, f"GT-A1-3: timeout must be 10 (single shared budget). Got {call['timeout']}."
-        assert call["num_futures"] == 2, (
-            f"GT-A1-3: wait must be called with BOTH futures (prewarm + mic). Got {call['num_futures']} futures."
+        assert prewarm_spawns[0][1] is True, (
+            "DJ-4: the prewarm sync thread must be a daemon (must not block process exit)."
         )
-        assert call["return_when"] == concurrent.futures.ALL_COMPLETED
 
-    def test_shared_budget_does_not_sum_timeouts(self, app_for_startup, monkeypatch):  # noqa: F811 - pytest fixture injected by name (imported at module top)
-        """Behavioral test: with BOTH tasks exceeding the budget, the
-        total wait time is the SINGLE budget (~0.5s, monkeypatched),
-        NOT 2x the budget (~1.0s).
+        # ...and must NOT appear in the bounded parallel pool: only the
+        # mic task runs there, with the 5s budget.
+        assert len(pool_calls) == 1, (
+            f"DJ-4: _run_parallel_with_timeout must be called exactly once (mic only). Got {len(pool_calls)} calls."
+        )
+        items = pool_calls[0]
+        assert len(items) == 1, (
+            f"DJ-4: the bounded pool must contain ONLY the mic task — "
+            f"prewarm is fire-and-forget. Got {len(items)} items."
+        )
+        label, _task, budget = items[0]
+        assert label == "mic", f"DJ-4: pool item label must be 'mic'. Got {label!r}."
+        assert budget == 5.0, f"DJ-4: mic task must use the 5s budget. Got {budget}."
 
-        We monkeypatch ``concurrent.futures.wait`` to use a 0.5s
-        timeout (instead of the hardcoded 10s) so the test runs fast.
-        Both tasks sleep 1.5s — exceeding the 0.5s budget. With the
-        OLD code (per-future ``result(timeout=10)``), this would take
-        ~1.0s. With the NEW code (shared ``wait(timeout=0.5)``), it
-        takes ~0.5s.
+    def test_prewarm_slowness_does_not_delay_startup(self, app_for_startup, monkeypatch):  # noqa: F811 - pytest fixture injected by name (imported at module top)
+        """Behavioral test: with BOTH tasks slow, startup returns within
+        the mic budget (~0.5s, monkeypatched) — the fire-and-forget
+        prewarm thread must not be waited on.
+
+        The old summed design (per-future ``result(timeout=0.5)`` for
+        prewarm THEN mic) took ~1.0s; the DJ-4 design takes ~0.5s.
         """
-        import concurrent.futures
-
-        from voice_typer.server import startup_tasks
+        from voice_typer.server import _timeout_utils, startup_tasks
 
         # Both tasks sleep 1.5s — well over the (patched) 0.5s budget.
         def slow_task(app, evt=None):
@@ -391,16 +402,16 @@ class TestStartupSharedBudget:
         monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", lambda app: None)
         monkeypatch.setattr(startup_tasks, "start_accessibility_pulse", lambda app, s: None)
 
-        # Patch wait to use 0.5s timeout (instead of 10s) so the test
-        # runs fast. The behavior under test (shared budget vs summed)
-        # is identical with any timeout value.
-        real_wait = concurrent.futures.wait
-        patched_budget = 0.5
+        # Patch the pool budget 5.0 → 0.5 so the test runs fast. The
+        # behavior under test (single bounded budget vs summed) is
+        # identical with any budget value.
+        real_run = _timeout_utils._run_parallel_with_timeout
 
-        def fast_wait(futures, timeout=None, return_when=concurrent.futures.ALL_COMPLETED):
-            return real_wait(futures, timeout=patched_budget, return_when=return_when)
+        def fast_run(items):
+            fast_items = [(label, task, 0.5) for label, task, _budget in items]
+            return real_run(fast_items)
 
-        monkeypatch.setattr(concurrent.futures, "wait", fast_wait)
+        monkeypatch.setattr(_timeout_utils, "_run_parallel_with_timeout", fast_run)
 
         monkeypatch.setattr(
             "voice_typer.server.startup_sequence.configure_corrections",
@@ -413,11 +424,12 @@ class TestStartupSharedBudget:
         StartupSequence(app_for_startup).run()
         elapsed = time.monotonic() - start
 
-        # Assert elapsed is close to the single budget (0.5s), not 2x
-        # (1.0s). Allow generous tolerance for CI scheduling jitter.
+        # Assert elapsed is close to the single mic budget (0.5s), not
+        # 2x (1.0s) and not the slow-task duration (1.5s). Allow
+        # generous tolerance for CI scheduling jitter.
         assert elapsed < 1.0, (
-            "GT-A1-3: shared budget must enforce a SINGLE timeout — "
-            f"elapsed {elapsed:.2f}s suggests timeouts were summed "
-            "(old per-future behavior). Expected < 1.0s with patched "
-            "0.5s shared budget."
+            "DJ-4: startup must NOT wait on the fire-and-forget prewarm "
+            "thread — elapsed {elapsed:.2f}s suggests the prewarm task "
+            "was waited on (old per-future behavior). Expected < 1.0s "
+            "with the patched 0.5s mic budget."
         )

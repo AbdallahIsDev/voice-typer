@@ -71,14 +71,14 @@ pub(crate) async fn spawn_sidecar_dev_mode(
             "VOICE_TYPER_NATIVE_DIR",
             native_dir.to_string_lossy().to_string(),
         )
-        // mirror the release-path env-var set so dev mode
+// mirror the release-path env-var set so dev mode
         // doesn't silently diverge. Previously dev mode was missing
-        // `VOICE_TYPER_PREWARM_EXE` (so the prewarm scheduled-task
+        // the prewarm exe env var (so the prewarm scheduled-task
         // integration couldn't be exercised under `cargo tauri dev`).
         //
         // Prewarm binary removal (Phase 2a, plan-runtime-pack-split
-        // §6.2): the `VOICE_TYPER_PREWARM_EXE` env var is no longer
-        // set in either release or dev mode — the prewarm binary is
+        // 6.2): the prewarm exe env var is no longer
+        // set in either release or dev mode - the prewarm binary is
         // deleted (Sub-agent 6), the Rust-side `dev_prewarm_exe` /
         // `prewarm_resource_path` helpers are deleted, and the
         // prewarm phase moved INTO the worker exe (Option P-1).

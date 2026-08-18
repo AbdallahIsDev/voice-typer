@@ -54,7 +54,7 @@ pub(crate) async fn spawn_sidecar_release(
     // skip the Python-side single-instance mutex + heartbeat watchdog.
     //
     // Prewarm binary removal (Phase 2a, plan-runtime-pack-split §6.2):
-    // the `VOICE_TYPER_PREWARM_EXE` env var is no longer set — the
+    // the `prewarm exe env var is no longer set — the
     // prewarm binary is deleted (Sub-agent 6) and the prewarm phase
     // moved INTO the worker exe (Option P-1). The Rust-side
     // `prewarm_resource_path` helper that resolved the prewarm exe

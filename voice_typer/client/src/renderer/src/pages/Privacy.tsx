@@ -1,4 +1,4 @@
-// Privacy page — how Voice Typer handles audio and data.
+// Privacy page — how the app handles audio and data.
 //
 // IA split: the privacy disclosure previously lived inside the About
 // page (which is now genuinely About: product identity, version,
@@ -98,8 +98,8 @@ export default function PrivacyPage() {
 			/>
 
 			{/* The disclosure — five topic rows with thin dividers (the
-			    section card's divide-y supplies them). Icons render
-			    directly (no chip), in the standard muted icon tone. */}
+                            section card's divide-y supplies them). Icons render
+                            directly (no chip), in the standard muted icon tone. */}
 			<div className="divide-y divide-border/10 rounded-xl border border-border/10 bg-(--bg-subtle)">
 				{PRIVACY_TOPICS.map((topic) => (
 					<div key={topic.title} className="flex gap-3 px-4 py-4">

@@ -365,11 +365,20 @@ class TestUnregisterAllVoiceTyperTasks:
     def test_powershell_success_returns_task_names(self, monkeypatch, fake_winreg, win32_platform):
         """When PowerShell succeeds and outputs task names, those names
         are returned in the deleted list."""
+        import voice_typer.server as server_pkg
         from voice_typer.server.server_platform import autostart_windows
 
         fake_task_scheduler = types.ModuleType("task_scheduler")
         fake_task_scheduler.is_supported = lambda: True
         monkeypatch.setitem(sys.modules, "voice_typer.server.task_scheduler", fake_task_scheduler)
+        # ALSO pin the package attribute (see
+        # ``test_no_task_scheduler_returns_empty_list`` for the
+        # rationale): without it, the real task_scheduler module stays
+        # attached to ``voice_typer.server``, ``is_supported()`` returns
+        # False on POSIX CI hosts, and the function returns [] before
+        # ever reaching the PowerShell call — the test then fails on
+        # every non-Windows leg with ``[] == [task names]``.
+        monkeypatch.setattr(server_pkg, "task_scheduler", fake_task_scheduler, raising=False)
 
         # Mock subprocess.run to simulate PowerShell success.
         fake_result = MagicMock()

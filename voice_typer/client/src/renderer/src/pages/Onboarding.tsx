@@ -23,6 +23,7 @@ import { useEffect, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { usePython } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import ConsentStep from "./onboarding/components/ConsentStep";
@@ -192,9 +193,9 @@ export default function OnboardingPage({
 		return (
 			<div className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center justify-center px-6">
 				{/* : use the --destructive design token
-					instead of raw red-400/red-50/red-950 so the error card
-					follows theme overrides (Dracula, Catppuccin, etc.).
-					Matches EmptyState variant="error" styling. */}
+                                        instead of raw red-400/red-50/red-950 so the error card
+                                        follows theme overrides (Dracula, Catppuccin, etc.).
+                                        Matches EmptyState variant="error" styling. */}
 				<div
 					ref={initErrorRef}
 					tabIndex={-1}
@@ -301,7 +302,7 @@ export default function OnboardingPage({
 						})}
 					</span>
 					{/*localize the visible step-name label
-					    (was raw backend enum string like "Permissions"). */}
+                                            (was raw backend enum string like "Permissions"). */}
 					<span>
 						{t(STEP_TITLE_KEY[step.step_name] ?? "onboarding.welcomeTitle")}
 					</span>
@@ -325,10 +326,10 @@ export default function OnboardingPage({
 			</div>
 
 			{/* Fix 14: sr-only page heading. Uses the localized step title
-					(was raw `step.step_name` like "Permissions"). The step-
-					progress prefix keeps this text distinct from the visible
-					per-step heading so `getByText` in tests resolves to a
-					single element, and gives screen readers the step context. */}
+                                        (was raw `step.step_name` like "Permissions"). The step-
+                                        progress prefix keeps this text distinct from the visible
+                                        per-step heading so `getByText` in tests resolves to a
+                                        single element, and gives screen readers the step context. */}
 			<h1 className="sr-only">
 				{t("onboarding.stepProgress", {
 					current: String(step.step + 1),
@@ -337,10 +338,10 @@ export default function OnboardingPage({
 				: {t(srTitleKey)}
 			</h1>
 			{/* : aria-live polite region announces step
-				transitions to screen-reader users. Without this, the focused
-				visible heading only contains the step title ("Choose Your
-				Microphone") — the user never hears "Step 2 of 6". WCAG 4.1.3
-				Status Changes (Level AA). */}
+                                transitions to screen-reader users. Without this, the focused
+                                visible heading only contains the step title ("Choose Your
+                                Microphone") — the user never hears "Step 2 of 6". WCAG 4.1.3
+                                Status Changes (Level AA). */}
 			<div aria-live="polite" className="sr-only">
 				{t("onboarding.stepProgress", {
 					current: String(step.step + 1),
@@ -424,27 +425,30 @@ export default function OnboardingPage({
 				)}
 
 				{/*voice_biometric_consent gate on the
-					Done step. ADR 0016 § specifies the consent
-					UI location as "First-run onboarding". The wizard
-					previously had no consent prompt, so every first-run
-					user who pressed their hotkey was refused by
-					recording_controller () with only a tray
-					notification — leading to massive first-run drop-off.
-					The checkbox persists voice_biometric_consent only;
-					the HuggingFace download consent is granted
-					explicitly on the Model step (nothing is downloaded
-					automatically). */}
+                                        Done step. ADR 0016 § specifies the consent
+                                        UI location as "First-run onboarding". The wizard
+                                        previously had no consent prompt, so every first-run
+                                        user who pressed their hotkey was refused by
+                                        recording_controller () with only a tray
+                                        notification — leading to massive first-run drop-off.
+                                        The checkbox persists voice_biometric_consent only;
+                                        the HuggingFace download consent is granted
+                                        explicitly on the Model step (nothing is downloaded
+                                        automatically). */}
 				{isDoneStep && (
 					<div
 						className="mt-6 rounded-lg border border-border/10 bg-(--bg-subtle) p-4"
 						data-testid="onboarding-consent-section"
 					>
-						<label className="flex items-start gap-3 text-sm">
-							<input
-								type="checkbox"
-								className="mt-0.5 size-4 cursor-pointer accent-accent"
+						<label
+							className="flex items-start gap-3 text-sm"
+							htmlFor="onboarding-consent-checkbox"
+						>
+							<Checkbox
+								id="onboarding-consent-checkbox"
+								className="mt-0.5 cursor-pointer"
 								checked={consentAccepted}
-								onChange={(e) => handleConsentToggle(e.target.checked)}
+								onCheckedChange={(v) => handleConsentToggle(v === true)}
 								disabled={consentPersisting}
 								aria-label={t("settings.voiceBiometricProcessingAria")}
 								data-testid="onboarding-consent-checkbox"
@@ -476,15 +480,15 @@ export default function OnboardingPage({
 					</div>
 					<div className="flex flex-col items-end gap-1">
 						{/*subtle "Default: <hotkey>"
-							hint shown on the Hotkey step when the user
-							hasn't changed the Select. Makes it clear
-							they're accepting a default rather than
-							explicitly choosing — addresses the
-							"Continue button always enabled with no
-							validation" concern without blocking
-							advancement (the default is a valid
-							choice). Reuses the existing
-							`theme.preset.default` key ("Default"). */}
+                                                        hint shown on the Hotkey step when the user
+                                                        hasn't changed the Select. Makes it clear
+                                                        they're accepting a default rather than
+                                                        explicitly choosing — addresses the
+                                                        "Continue button always enabled with no
+                                                        validation" concern without blocking
+                                                        advancement (the default is a valid
+                                                        choice). Reuses the existing
+                                                        `theme.preset.default` key ("Default"). */}
 						{showDefaultHotkeyHint && (
 							<span
 								className="text-xs text-(--text-muted)"
@@ -494,11 +498,11 @@ export default function OnboardingPage({
 							</span>
 						)}
 						{/*mirror the hotkey hint for the
-							Model step. The wizard pre-selects
-							MODEL_DEFAULT ("tiny"); this hint makes that
-							pre-selection visible so the user knows
-							they're accepting the recommended default
-							rather than explicitly choosing. */}
+                                                        Model step. The wizard pre-selects
+                                                        MODEL_DEFAULT ("tiny"); this hint makes that
+                                                        pre-selection visible so the user knows
+                                                        they're accepting the recommended default
+                                                        rather than explicitly choosing. */}
 						{showDefaultModelHint && (
 							<span
 								className="text-xs text-(--text-muted)"
@@ -508,15 +512,15 @@ export default function OnboardingPage({
 							</span>
 						)}
 						{/*mirror the hint for the
-							Microphone step. The wizard auto-selects
-							the OS default input device (mic with
-							`default: true`); this hint surfaces that
-							the pre-selection came from the OS rather
-							than an explicit user choice. Reuses the
-							existing `onboarding.defaultMic` key
-							("Default") for consistency with the
-							per-option "Default" badge in
-							MicrophoneStep.tsx. */}
+                                                        Microphone step. The wizard auto-selects
+                                                        the OS default input device (mic with
+                                                        `default: true`); this hint surfaces that
+                                                        the pre-selection came from the OS rather
+                                                        than an explicit user choice. Reuses the
+                                                        existing `onboarding.defaultMic` key
+                                                        ("Default") for consistency with the
+                                                        per-option "Default" badge in
+                                                        MicrophoneStep.tsx. */}
 						{showDefaultMicHint && (
 							<span
 								className="text-xs text-(--text-muted)"

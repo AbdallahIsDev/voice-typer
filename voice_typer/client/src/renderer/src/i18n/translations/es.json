@@ -55,7 +55,11 @@
 			"power": "Funciones avanzadas",
 			"system": "Sistema",
 			"main": "Principal"
-		}
+		},
+		"settingsGeneral": "General",
+		"settingsAiAudio": "IA y Audio",
+		"settingsAppearance": "Apariencia",
+		"settingsPrivacy": "Privacidad"
 	},
 	"home": {
 		"ready": "LISTO",
@@ -1320,7 +1324,9 @@
 		"importNotAvailableOutsideElectron": "Importación no disponible fuera de Electron",
 		"moreInfoAbout": "Más información sobre {label}",
 		"toggleSidebarWithShortcut": "Alternar barra lateral ({shortcut})",
-		"transcriptionPasted": "Pegado: {text}"
+		"transcriptionPasted": "Pegado: {text}",
+		"collapseSubmenu": "Contraer submenú {label}",
+		"expandSubmenu": "Expandir submenú {label}"
 	},
 	"help": {
 		"title": "Atajos de Teclado",

@@ -27,7 +27,6 @@ import {
 import { ThemeSettingsSection } from "@/components/settings/ThemeSettingsSection";
 import { TroubleshootingSettingsSection } from "@/components/settings/TroubleshootingSettingsSection";
 import { useSettingsConfig } from "@/components/settings/useSettingsConfig";
-import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
@@ -35,12 +34,7 @@ import { useSnackbar } from "@/hooks/useSnackbar";
 import { useTheme } from "@/hooks/useTheme";
 import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
-import {
-	tabPageHeaderClassName,
-	tabPageIndicatorClassName,
-} from "./_tabBarStyles";
-
-const LS_KEY = "voice-typer-settings-tab";
+import type { Page } from "@/types/ipc";
 
 //1-C Finding 11: keys excluded from reset-to-defaults because they
 // encode one-time state (schema version, onboarding flag, OS-specific
@@ -53,29 +47,78 @@ const CONFIG_PROTECTED_KEYS = [
 	"onboarding_completed",
 ] as const;
 
-function getSavedTab(): SettingsTab {
-	try {
-		const saved = localStorage.getItem(LS_KEY);
-		if (
-			saved === "appearance" ||
-			saved === "general" ||
-			saved === "aiAudio" ||
-			saved === "privacy"
-		) {
-			return saved;
-		}
-	} catch (e) {
-		// localStorage may be unavailable (SSR, sandboxed)
-		console.warn("[renderer:Settings] loadActiveTab failed:", e);
+// Map a Settings sub-page literal (the new sidebar nav target) to the
+// SettingsTab union (the section-renderer's internal discriminator).
+// The mapping is the source of truth for "which sub-page shows which
+// sections" — derived from the old `activeTab === "..."` switch that
+// used to live inline in the JSX.
+//
+// The `settings` parent literal is intentionally NOT in the map —
+// `useNavigation.navigate("settings")` redirects it to
+// `settingsGeneral` before this component ever sees it (see
+// useNavigation.ts navigate action). If somehow `settings` reaches
+// here anyway (e.g. a stale persisted nav state from an older build),
+// the fallback in `pageToTab` resolves to `general` so the page
+// renders instead of crashing.
+const PAGE_TO_TAB: Partial<Record<Page, SettingsTab>> = {
+	settingsGeneral: "general",
+	settingsAiAudio: "aiAudio",
+	settingsAppearance: "appearance",
+	settingsPrivacy: "privacy",
+};
+
+function pageToTab(page: Page): SettingsTab {
+	return PAGE_TO_TAB[page] ?? "general";
+}
+
+// Reverse mapping for the search auto-switch: when the search finds
+// a match in another Settings section, it needs to navigate to the
+// right sub-page. Returns the Page literal the navigate action wants.
+function tabToPage(tab: SettingsTab): Page {
+	switch (tab) {
+		case "general":
+			return "settingsGeneral";
+		case "aiAudio":
+			return "settingsAiAudio";
+		case "appearance":
+			return "settingsAppearance";
+		case "privacy":
+			return "settingsPrivacy";
 	}
-	return "general";
+}
+
+interface SettingsPageProps {
+	// The active Settings sub-page literal. The Settings page no
+	// longer owns tab state locally — the navigation store does (so
+	// the sidebar's nested Settings submenu stays in sync with the
+	// page content). Defaults to "settingsGeneral" when not provided
+	// (legacy callers that still pass `<SettingsPage />` without a
+	// prop fall through to General, matching the previous default-tab
+	// behavior).
+	page?: Page;
 }
 
 //NOTE: App.tsx prop passing will be removed by
 //(BACKLOG-004): SettingsPage now obtains `navigate` via
 // useNavigation and theme state via useTheme directly, eliminating the
 // `onNavigate` / `themeMode` / `onThemeChange` prop drills from App.tsx.
-export default function SettingsPage() {
+//
+//The 4-tab SegmentedControl that used to live at the top of the
+// Settings page has been removed — the tab navigation now lives in
+// the application Sidebar as a nested submenu (see Sidebar.tsx
+// NavSubmenu + ADR-0021). This page renders only the active tab's
+// sections + the SearchField (which stays in the sticky header so
+// the user can search across ALL Settings content, not just the
+// current sub-page). The search auto-switch now navigates to the
+// best-matching Settings sub-page (via `navigate(tabToPage(bestTab),
+// { settingsScrollTarget: { rowHint } })`) instead of locally
+// switching `setActiveTab(bestTab)` — the transient
+// `pendingSettingsScrollTarget` field is consumed by this component
+// on mount + tab change to scroll to + briefly highlight the matched
+// row (mirrors the proven consent-deep-link pattern).
+export default function SettingsPage({
+	page = "settingsGeneral",
+}: SettingsPageProps) {
 	const {
 		config,
 		updateConfig,
@@ -93,13 +136,27 @@ export default function SettingsPage() {
 	const { themeMode: themeModeProp, handleThemeChange } = useTheme(call);
 	//obtain `navigate` directly from the navigation hook
 	// instead of receiving it as an `onNavigate` prop from App.tsx.
-	const { navigate } = useNavigation();
+	const {
+		navigate,
+		pendingConsentField,
+		consumeConsentField,
+		pendingSettingsScrollTarget,
+		consumeSettingsScrollTarget,
+	} = useNavigation();
 	const { showSnack } = useSnackbar();
 	const [showResetDialog, setShowResetDialog] = useState(false);
 	const { agoLabel, markUpdated } = useLastUpdated();
 	const [refreshing, setRefreshing] = useState(false);
 	const [settingsFilter, setSettingsFilter] = useState("");
-	const [activeTab, setActiveTab] = useState<SettingsTab>(getSavedTab);
+	// The active tab is DERIVED from the current Settings sub-page
+	// (passed in as `page` prop by App.tsx's renderPage switch). No
+	// more local tab state + localStorage persistence — the nav
+	// store is the single source of truth. The scroll-positions ref
+	// survives across sub-page transitions inside the Settings
+	// surface (all 4 sub-pages share this component instance via the
+	// `page` prop swap), so the per-tab scroll-restore behavior is
+	// preserved.
+	const activeTab = pageToTab(page);
 	const scrollPositionsRef = useRef<Record<SettingsTab, number>>({
 		appearance: 0,
 		general: 0,
@@ -114,21 +171,35 @@ export default function SettingsPage() {
 	// useNavigation.ts); the field is staged in the nav store as
 	// ``pendingConsentField`` and consumed ONCE here. Cleared
 	// highlight state so the ring only shows for the toggle the
-	// refusal actually named.
-	const { pendingConsentField, consumeConsentField } = useNavigation();
+	// refusal actually named. NOTE: consent deep-links always target
+	// the Privacy sub-page — the navigate call now goes through
+	// `navigate("settingsPrivacy", { consentField })` (the nav store
+	// handles routing + the `pendingConsentField` arming), but this
+	// component still consumes the field once the Privacy sub-page
+	// mounts.
 	const [focusedConsentField, setFocusedConsentField] = useState<string | null>(
 		null,
 	);
 	// One-shot scroll guard + ring-lifetime timer for the consent
-	// deep-link highlight (see the scroll effect below).
+	// deep-link highlight (see the scroll effect below). Also reused
+	// for the cross-page Settings search deep-link highlight — both
+	// share the same ring-lifetime mechanism since only one deep-link
+	// target can be active at a time.
 	const scrolledTargetRef = useRef<string | null>(null);
 	const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	// Cross-page search deep-link target hint (consumed on sub-page
+	// mount + on tab change). The Settings search may fire this from
+	// any Settings sub-page — the source page sets it via
+	// `navigate(tabToPage(bestTab), { settingsScrollTarget: { rowHint } })`,
+	// the destination sub-page consumes it here.
+	const [searchScrollHint, setSearchScrollHint] = useState<string | null>(null);
 
-	// Consume the pending deep-link target: jump to the Privacy tab,
-	// clear any active search filter (so the consent row is visible),
-	// and drop the previous Privacy scroll position so the
-	// tab-change scroll-restore effect can't fight the scroll-to-row
-	// below.
+	// Consume the pending consent deep-link target: clear any active
+	// search filter (so the consent row is visible) and arm the
+	// highlight state. The Privacy tab is now routed via the `page`
+	// prop (the nav store sent the user to "settingsPrivacy"), so we
+	// don't need to call setActiveTab("privacy") here anymore — just
+	// arm the highlight.
 	useEffect(() => {
 		if (!pendingConsentField) return;
 		const field = consumeConsentField();
@@ -136,11 +207,24 @@ export default function SettingsPage() {
 		setSettingsFilter("");
 		scrollPositionsRef.current.privacy = 0;
 		setFocusedConsentField(field);
-		setActiveTab("privacy");
 	}, [pendingConsentField, consumeConsentField]);
 
+	// Consume the pending cross-page Settings search deep-link target.
+	// Mirrors the consent-deep-link consumption: clear the search filter
+	// (so the matched row is visible) + arm the highlight state with the
+	// rowHint (the matched label string) so the scroll effect can find
+	// + ring the matching element by visible-text content.
+	useEffect(() => {
+		if (!pendingSettingsScrollTarget) return;
+		const target = consumeSettingsScrollTarget();
+		if (!target) return;
+		setSettingsFilter("");
+		const hint = target.rowHint;
+		if (hint) setSearchScrollHint(hint);
+	}, [pendingSettingsScrollTarget, consumeSettingsScrollTarget]);
+
 	// Scroll the deep-linked consent row into view once it's rendered
-	// (Privacy tab active + config loaded). The row is rendered by
+	// (Privacy sub-page active + config loaded). The row is rendered by
 	// PrivacySettingsSection with a ``data-consent-field`` attribute;
 	// retry until found (bounded) in case the lazy page / config fetch
 	// is still settling. The scroll is ONE-SHOT per deep-link target
@@ -190,17 +274,77 @@ export default function SettingsPage() {
 		};
 	}, [focusedConsentField, config, activeTab]);
 
-	// Max-lifetime safety net: even if the target row never renders
-	// (e.g. an unknown ``consent_field``), the highlight can't linger
-	// indefinitely.
+	// Cross-page Settings search deep-link scroll + highlight. Mirrors
+	// the consent-deep-link scroll logic but matches by VISIBLE TEXT
+	// (the rowHint string) rather than by attribute value — the search
+	// deep-link carries the matched label text (translated at the
+	// moment the user typed), so we walk rendered SettingRow elements
+	// and pick the first whose label text contains the hint. The match
+	// is intentionally substring + case-insensitive so a partial hint
+	// (e.g. trailing whitespace) still resolves.
 	useEffect(() => {
-		if (!focusedConsentField) return;
+		if (!searchScrollHint || !config) return;
+		if (scrolledTargetRef.current === searchScrollHint) return;
+		let attempts = 0;
+		let cancelled = false;
+		const tryScroll = () => {
+			if (cancelled) return;
+			const hint = searchScrollHint.toLowerCase();
+			// SettingRow renders the row label inside a <span> with class
+			// `text-(--text-primary)`. We walk all rows on the page and
+			// pick the first whose label text contains the hint.
+			const candidates = Array.from(
+				document.querySelectorAll<HTMLElement>("[data-settings-row-label]"),
+			);
+			const el = candidates.find((node) =>
+				(node.textContent ?? "").toLowerCase().includes(hint),
+			);
+			if (el) {
+				scrolledTargetRef.current = searchScrollHint;
+				el.scrollIntoView?.({ behavior: "smooth", block: "center" });
+				el.classList.add(
+					"ring-2",
+					"ring-ring",
+					"ring-offset-2",
+					"ring-offset-background",
+				);
+				if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+				highlightTimerRef.current = setTimeout(() => {
+					setSearchScrollHint(null);
+					scrolledTargetRef.current = null;
+					el.classList.remove(
+						"ring-2",
+						"ring-ring",
+						"ring-offset-2",
+						"ring-offset-background",
+					);
+				}, 2600);
+				return;
+			}
+			if (attempts < 60) {
+				attempts += 1;
+				setTimeout(tryScroll, 50);
+			}
+		};
+		const timer = setTimeout(tryScroll, 0);
+		return () => {
+			cancelled = true;
+			clearTimeout(timer);
+		};
+	}, [searchScrollHint, config]);
+
+	// Max-lifetime safety net: even if the target row never renders
+	// (e.g. an unknown ``consent_field`` or a stale search hint), the
+	// highlight can't linger indefinitely.
+	useEffect(() => {
+		if (!focusedConsentField && !searchScrollHint) return;
 		const timer = setTimeout(() => {
 			setFocusedConsentField(null);
+			setSearchScrollHint(null);
 			scrolledTargetRef.current = null;
 		}, 5000);
 		return () => clearTimeout(timer);
-	}, [focusedConsentField]);
+	}, [focusedConsentField, searchScrollHint]);
 
 	// label-based search auto-switch. Score each tab by counting
 	// label matches and switch to the highest-scoring one. Requires
@@ -212,37 +356,53 @@ export default function SettingsPage() {
 	// "cache", "version", "update" to the privacy tab where the
 	// PrewarmAndUpdates component lives. The labels are translated at the
 	// moment the user types via getPrewarmAndUpdatesLabels().
-	const handleSearchChange = useCallback((value: string) => {
-		setSettingsFilter(value);
-		const q = value.toLowerCase().trim();
-		if (!q || q.length < 2) return;
-		let bestTab: SettingsTab | null = null;
-		let bestScore = 0;
-		const tabLabels = getTabLabels();
-		tabLabels.privacy = [...tabLabels.privacy, ...getPrewarmAndUpdatesLabels()];
-		for (const [tab, labels] of Object.entries(tabLabels)) {
-			const score = labels.filter(
-				(label) =>
-					label.toLowerCase().includes(q) || q.includes(label.toLowerCase()),
-			).length;
-			if (score > bestScore) {
-				bestScore = score;
-				bestTab = tab as SettingsTab;
+	//
+	// When the best-matching tab is DIFFERENT from the current sub-page,
+	// navigate to the corresponding sub-page + carry the matched label
+	// as a settingsScrollTarget rowHint so the destination can scroll to
+	// + highlight the matched row. When the best-matching tab IS the
+	// current sub-page, no navigation is needed — the local filter
+	// predicate (`_filter_settings`) handles the in-page filtering.
+	const handleSearchChange = useCallback(
+		(value: string) => {
+			setSettingsFilter(value);
+			const q = value.toLowerCase().trim();
+			if (!q || q.length < 2) return;
+			let bestTab: SettingsTab | null = null;
+			let bestScore = 0;
+			let bestLabel = "";
+			const tabLabels = getTabLabels();
+			tabLabels.privacy = [
+				...tabLabels.privacy,
+				...getPrewarmAndUpdatesLabels(),
+			];
+			for (const [tab, labels] of Object.entries(tabLabels)) {
+				for (const label of labels) {
+					const matches =
+						label.toLowerCase().includes(q) || q.includes(label.toLowerCase());
+					if (matches) {
+						const score = label.length; // prefer the longest (most specific) match
+						if (score > bestScore) {
+							bestScore = score;
+							bestTab = tab as SettingsTab;
+							bestLabel = label;
+						}
+					}
+				}
 			}
-		}
-		if (bestTab && bestScore > 0) setActiveTab(bestTab);
-	}, []);
-
-	const handleTabChange = useCallback(
-		(tab: SettingsTab) => {
-			const mainEl = document.getElementById("main-content");
-			if (mainEl) scrollPositionsRef.current[activeTab] = mainEl.scrollTop;
-			setActiveTab(tab);
+			if (bestTab && bestScore > 0 && bestTab !== activeTab) {
+				// Cross-page navigation — carry the matched label as a
+				// rowHint so the destination sub-page can scroll + ring.
+				navigate(tabToPage(bestTab), {
+					settingsScrollTarget: { rowHint: bestLabel },
+				});
+			}
 		},
-		[activeTab],
+		[activeTab, navigate],
 	);
 
-	// Restore scroll position when the active tab changes.
+	// Restore scroll position when the active tab changes (i.e. the
+	// user navigated between Settings sub-pages via the sidebar).
 	useEffect(() => {
 		if (prevTabRef.current !== activeTab) {
 			prevTabRef.current = activeTab;
@@ -253,15 +413,6 @@ export default function SettingsPage() {
 					if (mainEl) mainEl.scrollTop = saved;
 				});
 			}
-		}
-	}, [activeTab]);
-
-	useEffect(() => {
-		try {
-			localStorage.setItem(LS_KEY, activeTab);
-		} catch (e) {
-			// localStorage may be unavailable
-			console.warn("[renderer:Settings] persistActiveTab failed:", e);
 		}
 	}, [activeTab]);
 
@@ -412,6 +563,13 @@ export default function SettingsPage() {
 
 	const showEmptyBanner = settingsFilter.trim() !== "" && !hasAnyVisibleRow;
 
+	// renderTabPanel wraps the section children in a `role="tabpanel"`
+	// container. The `id` / `aria-labelledby` pair is kept for
+	// backward compat with screen readers that expect the tablist
+	// contract — even though the SegmentedControl tab bar is gone,
+	// each Settings sub-page is still a "panel" that the sidebar
+	// submenu item controls (aria-controls on the sidebar child
+	// button is wired via the `id` here).
 	const renderTabPanel = (tab: SettingsTab, children: ReactNode) => (
 		<div
 			role="tabpanel"
@@ -425,34 +583,18 @@ export default function SettingsPage() {
 
 	return (
 		<div className="flex min-h-full flex-col">
-			{/* Sticky header: tabs + search (SearchField
-				moved inside the sticky header below the tab bar
-				so it stays visible while scrolling settings). */}
-			{/* : use the shared tabPageHeaderClassName /
-				tabPageIndicatorClassName from pages/_tabBarStyles so
-				Settings and Models render visually identical sticky
-				tab bars (same z-index, same wrapper bg + border, same
-				indicator style). */}
-			<div className={tabPageHeaderClassName}>
-				<div className="mx-auto w-full max-w-4xl px-16 py-1.5">
-					<SegmentedControl<SettingsTab>
-						variant="tabs"
-						options={[
-							{ value: "general", label: t("settings.tabs.general") },
-							{ value: "aiAudio", label: t("settings.tabs.aiAudio") },
-							{ value: "appearance", label: t("settings.tabs.appearance") },
-							{ value: "privacy", label: t("settings.tabs.privacy") },
-						]}
-						value={activeTab}
-						onChange={handleTabChange}
-						ariaLabel={t("settings.tabsAria")}
-						indicatorClassName={tabPageIndicatorClassName}
-						labelClassName="flex-1 text-center"
-						className="w-full"
-						getTabId={(v: SettingsTab) => `tab-${v}`}
-						getPanelId={(v: SettingsTab) => `panel-${v}`}
-					/>
-					<div className="flex items-center gap-3 pb-2 pt-1">
+			{/* Sticky header: SearchField only (the 4-tab
+                                 SegmentedControl has been removed — the tabs now live in
+                                 the application Sidebar as a nested Settings submenu, see
+                                 ADR-0021). The SearchField stays inside the Settings
+                                 sticky header so it remains visible while scrolling and
+                                 searches across ALL Settings content (not just the
+                                 current sub-page). When the search finds a match in
+                                 another sub-page, `handleSearchChange` navigates there
+                                 via `navigate(tabToPage(bestTab), { settingsScrollTarget })`. */}
+			<div className="sticky top-0 z-10 border-b border-border/10 bg-(--bg-subtle)/95 backdrop-blur supports-backdrop-filter:bg-(--bg-subtle)/80">
+				<div className="mx-auto w-full max-w-4xl px-16 py-3">
+					<div className="flex items-center gap-3">
 						<div className="flex-1">
 							<SearchField
 								value={settingsFilter}
@@ -470,11 +612,11 @@ export default function SettingsPage() {
 					description={t("settings.description")}
 				/>
 				{/* amber keyboard-permission banner —
-					placed immediately under PageHeading so the user sees the
-					"click to fix" prompt before scrolling into the tab panels.
-					Renders null when permission is granted / not needed, so the
-					layout is unchanged on platforms where the banner doesn't
-					apply (Windows). */}
+                                                placed immediately under PageHeading so the user sees the
+                                                "click to fix" prompt before scrolling into the tab panels.
+                                                Renders null when permission is granted / not needed, so the
+                                                layout is unchanged on platforms where the banner doesn't
+                                                apply (Windows). */}
 				<KeyboardPermissionBanner />
 				<div className="flex justify-end pb-2">
 					<LastUpdatedIndicator
@@ -485,12 +627,12 @@ export default function SettingsPage() {
 				</div>
 
 				{/* Empty-state banner with Clear filter button using
-					the existing searchNoMatch / noResultsMessage / a11y.clearSearch
-					i18n keys. `searchNoMatch` preserves the original "{query}"
-					interpolation so screen readers + sighted users see what they
-					searched for; `noResultsMessage` adds the actionable hint
-					("Try a different search term or clear the filter..."); the
-					button gives a one-click escape hatch. */}
+                                                the existing searchNoMatch / noResultsMessage / a11y.clearSearch
+                                                i18n keys. `searchNoMatch` preserves the original "{query}"
+                                                interpolation so screen readers + sighted users see what they
+                                                searched for; `noResultsMessage` adds the actionable hint
+                                                ("Try a different search term or clear the filter..."); the
+                                                button gives a one-click escape hatch. */}
 				{showEmptyBanner && (
 					<output
 						aria-live="polite"

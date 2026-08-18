@@ -750,9 +750,10 @@ describe('CR-19-F2: Settings.tsx — tab panels wrapped in role="tabpanel"', () 
 			return Promise.resolve({});
 		});
 
-		renderWithProviders(<SettingsPage />);
+		// Default sub-page is settingsGeneral — mounts General's panel.
+		renderWithProviders(<SettingsPage page="settingsGeneral" />);
 
-		// Default tab is "general" — wait for its panel to appear.
+		// Wait for the General panel to appear.
 		await waitFor(() => {
 			const panels = screen.getAllByRole("tabpanel");
 			expect(panels.length).toBe(1);
@@ -761,24 +762,17 @@ describe('CR-19-F2: Settings.tsx — tab panels wrapped in role="tabpanel"', () 
 		});
 	});
 
-	it("switching to the Appearance tab renders the appearance tabpanel", async () => {
+	it("mounting on the Appearance sub-page renders the appearance tabpanel", async () => {
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(MINIMAL_CONFIG);
 			if (type === "set_config") return Promise.resolve({ success: true });
 			return Promise.resolve({});
 		});
 
-		renderWithProviders(<SettingsPage />);
-
-		await waitFor(() => {
-			expect(screen.getAllByRole("tabpanel").length).toBe(1);
-		});
-
-		// Click the Appearance tab (role="tab", name = "Appearance").
-		const appearanceTab = screen.getByRole("tab", {
-			name: t("settings.tabs.appearance"),
-		});
-		fireEvent.click(appearanceTab);
+		// After ADR-0021, the Appearance "tab" is now a sidebar
+		// sub-page — mount directly on settingsAppearance (the
+		// SegmentedControl tab UI has been removed).
+		renderWithProviders(<SettingsPage page="settingsAppearance" />);
 
 		await waitFor(() => {
 			const panels = screen.getAllByRole("tabpanel");

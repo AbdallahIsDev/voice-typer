@@ -40,7 +40,7 @@
 /// — the var is unset in normal Tauri launches).
 ///
 /// Voice-typer-specific vars (`TAURI_SIDECAR`, `VOICE_TYPER_IPC_TOKEN`,
-/// `VOICE_TYPER_NATIVE_DIR`, `VOICE_TYPER_PREWARM_EXE`,
+/// `VOICE_TYPER_NATIVE_DIR`,
 /// `VOICE_TYPER_CONFIG_DIR`, `VOICE_TYPER_DEBUG`, `RUST_LOG`,
 /// `VOICE_TYPER_SESSION_ID` — GT-68 log-correlation join key) are
 /// added explicitly by the spawn callers AFTER this function returns —

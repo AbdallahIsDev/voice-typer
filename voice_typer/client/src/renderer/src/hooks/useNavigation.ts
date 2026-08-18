@@ -136,6 +136,14 @@ export interface NavigateOptions {
 	 * to deep-link to in Settings. Ignored when ``page !== "settings"``.
 	 */
 	consentField?: string;
+	/**
+	 * Cross-page Settings search deep-link target. Carries an
+	 * optional row hint (e.g. the matched label string) so the
+	 * destination Settings sub-page can scroll to + briefly
+	 * highlight the matching row after the page mounts. Mirrors
+	 * {@link consentField} — transient (one-shot, NOT persisted).
+	 */
+	settingsScrollTarget?: { rowHint?: string };
 }
 
 interface NavStore extends NavState {
@@ -151,11 +159,23 @@ interface NavStore extends NavState {
 	 */
 	pendingConsentField: string | null;
 	/**
+	 * Transient cross-page Settings search deep-link target (see
+	 * {@link NavigateOptions.settingsScrollTarget}). NOT persisted.
+	 * Consumed by the Settings sub-page via
+	 * {@link consumeSettingsScrollTarget}.
+	 */
+	pendingSettingsScrollTarget: { rowHint?: string } | null;
+	/**
 	 * Read-and-clear the pending consent deep-link target. Returns the
 	 * field (or ``null``) and resets it to ``null`` so a stale target
 	 * can't re-fire on a later Settings visit.
 	 */
 	consumeConsentField: () => string | null;
+	/**
+	 * Read-and-clear the pending Settings search deep-link target.
+	 * Mirrors {@link consumeConsentField} — one-shot consumption.
+	 */
+	consumeSettingsScrollTarget: () => { rowHint?: string } | null;
 }
 
 const useNavStore = create<NavStore>()((set, get) => {
@@ -168,6 +188,7 @@ const useNavStore = create<NavStore>()((set, get) => {
 	return {
 		...loadNavState(),
 		pendingConsentField: null,
+		pendingSettingsScrollTarget: null,
 		navigate: (page, opts) => {
 			const { page: current, history, index } = get();
 			// Set the transient deep-link target BEFORE the
@@ -178,6 +199,32 @@ const useNavStore = create<NavStore>()((set, get) => {
 			// consume it and scroll to the toggle.
 			if (opts?.consentField) {
 				set({ pendingConsentField: opts.consentField });
+			}
+			// Same pattern for the Settings search deep-link target —
+			// even if the user is already on the destination
+			// Settings sub-page, arm the scroll/hint target so the
+			// mounted page can consume it.
+			if (opts?.settingsScrollTarget) {
+				set({ pendingSettingsScrollTarget: opts.settingsScrollTarget });
+			}
+			// Redirect the legacy "settings" parent literal to
+			// "settingsGeneral" so the user always lands on a real
+			// Settings sub-page (never an empty parent). Mirrors
+			// the onboarding-completed guard at App.tsx:131-140 —
+			// uses `replace` so the history stack doesn't gain a
+			// no-op "settings" entry between the previous page and
+			// the resolved "settingsGeneral" target. Existing
+			// call sites that still send "settings" (Ctrl+,
+			// shortcut, tray menu, Python `navigate {path:
+			// "/settings"}` IPC event) continue to work without
+			// modification.
+			if (page === "settings") {
+				const target: Page = "settingsGeneral";
+				if (target === current) return;
+				const nextHistory = [...history];
+				nextHistory[index] = target;
+				apply({ page: target, history: nextHistory, index });
+				return;
 			}
 			// No-op when navigating to the page we're already
 			// on. Previously this still pushed a duplicate entry onto
@@ -250,6 +297,13 @@ const useNavStore = create<NavStore>()((set, get) => {
 			}
 			return field;
 		},
+		consumeSettingsScrollTarget: () => {
+			const target = get().pendingSettingsScrollTarget;
+			if (target) {
+				set({ pendingSettingsScrollTarget: null });
+			}
+			return target;
+		},
 	};
 });
 
@@ -262,7 +316,11 @@ const useNavStore = create<NavStore>()((set, get) => {
  * picks up the persisted page. @internal
  */
 export function _resetNavigationForTest(): void {
-	useNavStore.setState({ ...loadNavState(), pendingConsentField: null });
+	useNavStore.setState({
+		...loadNavState(),
+		pendingConsentField: null,
+		pendingSettingsScrollTarget: null,
+	});
 	// Also reset the document-listener install flag so a test that
 	// re-mounts App (or calls `useNavigation` again) doesn't skip the
 	// listener install because of a stale `documentListenersInstalled`
@@ -386,16 +444,26 @@ export function useNavigation() {
 	// deep-link navigate), so the extra re-render when it flips is
 	// negligible.
 	const pendingConsentField = useNavStore((s) => s.pendingConsentField);
-	const { navigate, replace, goBack, goForward, consumeConsentField } =
-		useNavStore(
-			useShallow((s) => ({
-				navigate: s.navigate,
-				replace: s.replace,
-				goBack: s.goBack,
-				goForward: s.goForward,
-				consumeConsentField: s.consumeConsentField,
-			})),
-		);
+	const pendingSettingsScrollTarget = useNavStore(
+		(s) => s.pendingSettingsScrollTarget,
+	);
+	const {
+		navigate,
+		replace,
+		goBack,
+		goForward,
+		consumeConsentField,
+		consumeSettingsScrollTarget,
+	} = useNavStore(
+		useShallow((s) => ({
+			navigate: s.navigate,
+			replace: s.replace,
+			goBack: s.goBack,
+			goForward: s.goForward,
+			consumeConsentField: s.consumeConsentField,
+			consumeSettingsScrollTarget: s.consumeSettingsScrollTarget,
+		})),
+	);
 
 	// Install the document-level listeners exactly once per app load.
 	// The empty dep array means this runs on mount for EVERY consumer,
@@ -420,5 +488,7 @@ export function useNavigation() {
 		canGoForward: index < history.length - 1,
 		pendingConsentField,
 		consumeConsentField,
+		pendingSettingsScrollTarget,
+		consumeSettingsScrollTarget,
 	};
 }

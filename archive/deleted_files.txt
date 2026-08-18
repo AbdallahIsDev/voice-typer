@@ -1,7 +1,1 @@
 no files deleted this round
-
---- Vocabulary page flat-list simplification (2026-08-16) ---
-Deleted:
-- voice_typer/client/src/renderer/src/pages/vocabulary/components/VocabGroupHeader.tsx
-  (collapsible per-category group headers — the Vocabulary page is now a
-  flat two-column list; category UI removed entirely)

@@ -149,7 +149,13 @@ describe("useNavigation useShallow consolidation (4 selector runs per update)", 
 			goForward: captures.current?.goForward,
 		};
 
-		// Navigate to a different page.
+		// Navigate to a different page. Note: after ADR-0021,
+		// `navigate("settings")` redirects to "settingsGeneral"
+		// (mirrors the onboarding-completed guard at App.tsx —
+		// `replace` swaps the current history entry, so the
+		// history stack doesn't gain a no-op "settings" entry).
+		// The test verifies the navigation happened by checking
+		// currentPage === "settingsGeneral" (the resolved target).
 		act(() => {
 			captures.current?.navigate("settings");
 		});
@@ -169,8 +175,9 @@ describe("useNavigation useShallow consolidation (4 selector runs per update)", 
 		expect(actionsAfter.goBack).toBe(actionsBefore.goBack);
 		expect(actionsAfter.goForward).toBe(actionsBefore.goForward);
 
-		// The page value should have changed.
-		expect(captures.current?.currentPage).toBe("settings");
+		// The page value should have changed. After ADR-0021,
+		// `navigate("settings")` redirects to "settingsGeneral".
+		expect(captures.current?.currentPage).toBe("settingsGeneral");
 
 		u.unmount();
 	});
@@ -250,11 +257,14 @@ describe("useNavigation consent deep-link channel (pendingConsentField / consume
 		const u = render(<Probe captures={captures} />);
 
 		// Navigate to settings first (no deep-link), then fire a
-		// consent refusal WHILE already on settings.
+		// consent refusal WHILE already on settings. After
+		// ADR-0021, `navigate("settings")` redirects to
+		// "settingsGeneral" — the test asserts against the
+		// resolved target.
 		act(() => {
 			captures.current?.navigate("settings");
 		});
-		expect(captures.current?.currentPage).toBe("settings");
+		expect(captures.current?.currentPage).toBe("settingsGeneral");
 
 		act(() => {
 			captures.current?.navigate("settings", {
@@ -263,6 +273,10 @@ describe("useNavigation consent deep-link channel (pendingConsentField / consume
 		});
 
 		// The same-page early-return must NOT swallow the deep-link.
+		// Note: `navigate("settings", { consentField })` redirects
+		// to "settingsGeneral" but arms the consent field first —
+		// the same-page early-return fires AFTER the consentField
+		// arming so the deep-link is preserved.
 		expect(captures.current?.pendingConsentField).toBe("cloud_openai_consent");
 
 		u.unmount();

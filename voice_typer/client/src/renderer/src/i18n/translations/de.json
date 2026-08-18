@@ -55,7 +55,11 @@
 			"power": "Erweiterte Funktionen",
 			"system": "System",
 			"main": "Haupt"
-		}
+		},
+		"settingsGeneral": "Allgemein",
+		"settingsAiAudio": "KI & Audio",
+		"settingsAppearance": "Darstellung",
+		"settingsPrivacy": "Datenschutz"
 	},
 	"home": {
 		"ready": "BEREIT",
@@ -1320,7 +1324,9 @@
 		"transcriptionComplete": "Transkription abgeschlossen.",
 		"moreInfoAbout": "Weitere Informationen über {label}",
 		"toggleSidebarWithShortcut": "Seitenleiste umschalten ({shortcut})",
-		"transcriptionPasted": "Eingefügt: {text}"
+		"transcriptionPasted": "Eingefügt: {text}",
+		"collapseSubmenu": "Untermenü {label} einklappen",
+		"expandSubmenu": "Untermenü {label} ausklappen"
 	},
 	"help": {
 		"title": "Tastaturkürzel",

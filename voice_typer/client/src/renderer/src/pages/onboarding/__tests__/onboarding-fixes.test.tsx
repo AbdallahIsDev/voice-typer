@@ -122,6 +122,34 @@ vi.mock("@/components/ui/select", () => ({
 	),
 }));
 
+//mock the Radix Checkbox wrapper so the Done-step consent checkbox
+// renders as a real <input type="checkbox"> in jsdom — the Radix
+// primitive is a <button role="checkbox"> whose pointer + keyboard events
+// jsdom does not simulate uniformly, and these tests assert on `.checked`
+// after the consent probe effect flips `consentAccepted`. Mirrors the
+// Onboarding + onboarding-model-step test mocks (forward checked +
+// onCheckedChange to a real input).
+vi.mock("@/components/ui/checkbox", () => ({
+	Checkbox: ({
+		checked,
+		onCheckedChange,
+		...props
+	}: {
+		checked?: boolean | "indeterminate";
+		onCheckedChange?: (checked: boolean | "indeterminate") => void;
+	} & Omit<
+		React.InputHTMLAttributes<HTMLInputElement>,
+		"checked" | "onChange"
+	>) => (
+		<input
+			type="checkbox"
+			checked={checked === true}
+			onChange={(e) => onCheckedChange?.(e.target.checked)}
+			{...props}
+		/>
+	),
+}));
+
 import { getLocale, SUPPORTED_LOCALES, setLocale } from "@/i18n/i18n";
 import OnboardingPage from "@/pages/Onboarding";
 import ModelStep from "@/pages/onboarding/components/ModelStep";

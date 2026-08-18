@@ -34,7 +34,11 @@
 			"power": "Fonctionnalités avancées",
 			"system": "Système",
 			"main": "Principal"
-		}
+		},
+		"settingsGeneral": "Général",
+		"settingsAiAudio": "IA & Audio",
+		"settingsAppearance": "Apparence",
+		"settingsPrivacy": "Confidentialité"
 	},
 	"home": {
 		"ready": "PRÊT",
@@ -938,7 +942,9 @@
 		"transcriptionComplete": "Transcription terminée.",
 		"moreInfoAbout": "Plus d'infos sur {label}",
 		"toggleSidebarWithShortcut": "Basculer la barre latérale ({shortcut})",
-		"transcriptionPasted": "Collé : {text}"
+		"transcriptionPasted": "Collé : {text}",
+		"collapseSubmenu": "Réduire le sous-menu {label}",
+		"expandSubmenu": "Développer le sous-menu {label}"
 	},
 	"help": {
 		"title": "Raccourcis clavier",

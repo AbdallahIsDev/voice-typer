@@ -92,7 +92,7 @@ describe("UX-18: Settings search empty state", () => {
 
 		// Wait for the page to load (the tab labels are always visible).
 		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
+			expect(screen.getByText("Settings")).toBeTruthy();
 		});
 
 		// Type a nonsense query that matches no row label/info/section-title
@@ -126,7 +126,7 @@ describe("UX-18: Settings search empty state", () => {
 		renderWithProviders(<SettingsPage />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
+			expect(screen.getByText("Settings")).toBeTruthy();
 		});
 
 		const searchInput = document.querySelector(
@@ -163,7 +163,7 @@ describe("UX-18: Settings search empty state", () => {
 		renderWithProviders(<SettingsPage />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
+			expect(screen.getByText("Settings")).toBeTruthy();
 		});
 
 		// No banner on initial render (empty query → no search active).
@@ -181,7 +181,7 @@ describe("UX-18: Settings search empty state", () => {
 		renderWithProviders(<SettingsPage />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
+			expect(screen.getByText("Settings")).toBeTruthy();
 		});
 
 		const searchInput = document.querySelector(

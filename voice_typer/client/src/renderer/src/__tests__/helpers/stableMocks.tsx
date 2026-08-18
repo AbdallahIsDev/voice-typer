@@ -66,6 +66,15 @@ export const stableMocks = {
 	/** Consent deep-link channel (useNavigation) — default: no pending field. */
 	mockPendingConsentField: vi.fn<() => string | null>(() => null),
 	mockConsumeConsentField: vi.fn<() => string | null>(() => null),
+	/** Cross-page Settings search deep-link channel (useNavigation) —
+	 *  default: no pending target. Added by ADR-0021 alongside the
+	 *  Settings sidebar nested-submenu redesign. */
+	mockPendingSettingsScrollTarget: vi.fn<() => { rowHint?: string } | null>(
+		() => null,
+	),
+	mockConsumeSettingsScrollTarget: vi.fn<() => { rowHint?: string } | null>(
+		() => null,
+	),
 	/** Event-handler capture map for pages that register usePythonEvent
 	 *  handlers and invoke them from tests (onboarding-model-step). */
 	pythonEventHandlers: {} as Record<string, (data: unknown) => void>,
@@ -89,6 +98,8 @@ export function resetStableMocks() {
 	}
 	stableMocks.mockPendingConsentField.mockReturnValue(null);
 	stableMocks.mockConsumeConsentField.mockReturnValue(null);
+	stableMocks.mockPendingSettingsScrollTarget.mockReturnValue(null);
+	stableMocks.mockConsumeSettingsScrollTarget.mockReturnValue(null);
 }
 
 // ── Shape factories (one per mocked module) ───────────────────────────
@@ -154,12 +165,17 @@ export function lastUpdatedMock(opts: { withRefresh?: boolean } = {}) {
 	};
 }
 
-/** `@/hooks/useNavigation` (navigate + the consent deep-link channel). */ export function navigationMock() {
+/** `@/hooks/useNavigation` (navigate + the consent + Settings-search
+ *  deep-link channels). */
+export function navigationMock() {
 	return {
 		useNavigation: () => ({
 			navigate: stableMocks.mockNavigate,
 			pendingConsentField: stableMocks.mockPendingConsentField(),
 			consumeConsentField: stableMocks.mockConsumeConsentField,
+			pendingSettingsScrollTarget:
+				stableMocks.mockPendingSettingsScrollTarget(),
+			consumeSettingsScrollTarget: stableMocks.mockConsumeSettingsScrollTarget,
 		}),
 	};
 }

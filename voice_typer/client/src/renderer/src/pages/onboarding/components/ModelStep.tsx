@@ -1,6 +1,7 @@
 import type { Ref } from "react";
 import { FamilyLogo } from "@/components/models/FamilyLogo";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
 	Select,
@@ -150,8 +151,8 @@ export function ModelStep({
 			</p>
 
 			{/* Local vs cloud choice. This is the single place where the
-			    user decides how transcription will run — the app never
-			    downloads a model on its own. */}
+                            user decides how transcription will run — the app never
+                            downloads a model on its own. */}
 			<div
 				role="radiogroup"
 				aria-label={t("onboarding.backendAria")}
@@ -194,9 +195,9 @@ export function ModelStep({
 			{selectedBackend === "local" ? (
 				<div className="mt-5 space-y-4">
 					{/* Brand strip — lets the user see which families the
-					    local models come from BEFORE opening the picker.
-					    Families are derived from the options list so the
-					    strip stays accurate if the catalog changes. */}
+                                            local models come from BEFORE opening the picker.
+                                            Families are derived from the options list so the
+                                            strip stays accurate if the catalog changes. */}
 					{localFamilies.length > 0 && (
 						<div
 							className="flex items-center gap-3"
@@ -245,9 +246,9 @@ export function ModelStep({
 												{m.description} — {m.size} ({formatModelSpeed(m.speed)})
 											</span>
 											{/*per-option badge row showing VRAM
-											requirement and language coverage. Both
-											badges are optional — older backends don't
-											return these fields. */}
+                                                                                        requirement and language coverage. Both
+                                                                                        badges are optional — older backends don't
+                                                                                        return these fields. */}
 											{m.vram_gb != null && (
 												<span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-(--text-muted)">
 													{t("onboarding.vramBadge", {
@@ -269,12 +270,15 @@ export function ModelStep({
 
 					{/* HuggingFace consent — gates the EXPLICIT download. */}
 					<div className="rounded-lg border border-border/10 bg-(--bg-subtle) p-4">
-						<label className="flex items-start gap-3 text-sm">
-							<input
-								type="checkbox"
-								className="mt-0.5 size-4 cursor-pointer accent-accent"
+						<label
+							className="flex items-start gap-3 text-sm"
+							htmlFor="onboarding-hf-consent"
+						>
+							<Checkbox
+								id="onboarding-hf-consent"
+								className="mt-0.5 cursor-pointer"
 								checked={hfConsent}
-								onChange={(e) => setHfConsent(e.target.checked)}
+								onCheckedChange={(v) => setHfConsent(v === true)}
 								aria-label={t("onboarding.consentHuggingFace")}
 								data-testid="onboarding-hf-consent"
 							/>
@@ -290,7 +294,7 @@ export function ModelStep({
 					</div>
 
 					{/* Explicit download area — the ONLY way a model is
-					    downloaded from this wizard. */}
+                                            downloaded from this wizard. */}
 					{isDownloading ? (
 						<div
 							role="progressbar"
@@ -359,7 +363,7 @@ export function ModelStep({
 			) : (
 				<div className="mt-5 space-y-4">
 					{/* Cloud provider selection — mirrors the Models page
-					    cloud tab (same config fields). */}
+                                            cloud tab (same config fields). */}
 					<div>
 						<label
 							htmlFor="onboarding-cloud-provider"
@@ -405,12 +409,15 @@ export function ModelStep({
 					</div>
 
 					<div className="rounded-lg border border-border/10 bg-(--bg-subtle) p-4">
-						<label className="flex items-start gap-3 text-sm">
-							<input
-								type="checkbox"
-								className="mt-0.5 size-4 cursor-pointer accent-accent"
+						<label
+							className="flex items-start gap-3 text-sm"
+							htmlFor="onboarding-cloud-consent"
+						>
+							<Checkbox
+								id="onboarding-cloud-consent"
+								className="mt-0.5 cursor-pointer"
 								checked={cloudConsent}
-								onChange={(e) => setCloudConsent(e.target.checked)}
+								onCheckedChange={(v) => setCloudConsent(v === true)}
 								aria-label={t("models.cloud.consentAria", {
 									provider: providerLabel(cloudProvider),
 								})}

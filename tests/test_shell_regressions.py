@@ -344,6 +344,14 @@ class TestTrayWindowShellTrueRemoved:
             "voice_typer.server.autostart_launcher._ensure_built_and_launch",
             lambda hidden=False: False,
         )
+        # 4. EO-16 duplicate-launch gate disabled — these tests exercise
+        #    the dev-fallback path, not the pgrep probe. Without this,
+        #    ``_electron_process_is_running()`` spawns a real
+        #    ``pgrep -f <APP_NAME>`` subprocess on POSIX CI, which trips
+        #    ``test_skips_when_npm_unresolvable``'s strict "no Popen at
+        #    all" assertion. The gate itself has dedicated coverage in
+        #    ``tests/test_tray.py::TestElectronDuplicateLaunchGate``.
+        monkeypatch.setattr(tw, "_electron_process_is_running", lambda: False)
 
     def test_uses_resolved_npm_path_when_available(self, monkeypatch):
         """When ``_npm_command`` returns a list, Popen is called with that list."""

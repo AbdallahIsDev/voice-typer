@@ -158,7 +158,7 @@ export function useMicrophoneData({
 					setLoadError(
 						err instanceof Error
 							? err.message
-							: "Failed to load microphone data",
+							: t("microphone.loadFailedDescription"),
 					);
 				}
 			} finally {

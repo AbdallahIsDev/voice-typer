@@ -397,29 +397,30 @@ class TestElectronTerminationTimeout:
         fake_tray_window.get_electron_pid = lambda: 12345
         monkeypatch.setitem(sys.modules, "voice_typer.server.tray_window", fake_tray_window)
 
-        # Mock os.kill to record the signals sent. Make waitpid return
-        # (0, 0) (process still running) so the SIGKILL escalation
-        # fires.
+        # Mock os.kill to record the signals sent. Make waitpid block
+        # past the 2s grace deadline so the SIGKILL escalation fires.
         signals_sent: list[int] = []
 
         def _mock_kill(pid, sig):
             signals_sent.append(sig)
             # Don't actually kill anything — just record.
 
-        # Mock os.waitpid to always report "still running" so the
-        # 2 s deadline elapses and SIGKILL fires.
+        # ``os.waitpid(electron_pid, 0)`` is the BLOCKING variant, so
+        # "process still running" means the syscall never returns.
+        # Returning ``(0, 0)`` immediately (the WNOHANG-era mock
+        # contract) is treated by the production code as "reaped" —
+        # any non-TIMEOUT waitpid result means the child exited, so no
+        # SIGKILL would fire. Sleeping past the 2s deadline inside the
+        # ``_run_with_timeout`` worker makes the wrapper return TIMEOUT
+        # and the escalation fire, while keeping the real ~2s grace
+        # semantics (the test takes ~2s, which is acceptable).
         def _mock_waitpid(pid, options):
-            return (0, 0)  # 0 = not yet reaped
+            time.sleep(2.1)
+            return (0, 0)  # never reached while the deadline holds
 
         monkeypatch.setattr(os, "kill", _mock_kill)
         monkeypatch.setattr(os, "waitpid", _mock_waitpid)
 
-        # Speed up the test by monkeypatching time.sleep inside the
-        # helper to be a no-op (the 2 s deadline still elapses because
-        # we check time.time(), but we don't actually sleep).
-        # Actually, we can't easily monkeypatch time.sleep just for
-        # this call. Instead, let the real 2 s sleep run — the test
-        # takes ~2 s but that's acceptable.
         start = time.monotonic()
         controller._teardown_electron()
         elapsed = time.monotonic() - start

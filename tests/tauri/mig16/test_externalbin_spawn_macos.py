@@ -482,10 +482,17 @@ def test_spawn_rs_sets_ipc_token_env_var(spawn_rs_source) -> None:
         r'\.env\s*\(\s*"VOICE_TYPER_NATIVE_DIR"\s*,',
         spawn_rs_source,
     ), "spawn.rs must set VOICE_TYPER_NATIVE_DIR to resourceDir/native"
-    assert re.search(
-        r'\.env\s*\(\s*"VOICE_TYPER_PREWARM_EXE"\s*,',
-        spawn_rs_source,
-    ), "spawn.rs must set VOICE_TYPER_PREWARM_EXE to the per-arch prewarm binary"
+    # Prewarm binary removal (plan-runtime-pack-split 6.2, Option P-1):
+    # VOICE_TYPER_PREWARM_EXE is deliberately NOT set — the prewarm
+    # binary is deleted and the prewarm phase moved INTO the worker
+    # exe (spawn/worker.rs). Asserting the env var here would pin a
+    # removed design (mirrors the Linux mig17 contract — macOS uses
+    # the SAME spawn path, no platform branch).
+    assert "VOICE_TYPER_PREWARM_EXE" not in spawn_rs_source, (
+        "spawn module must NOT set VOICE_TYPER_PREWARM_EXE — the prewarm "
+        "binary was removed (plan-runtime-pack-split 6.2) and the "
+        "prewarm phase moved into the worker exe."
+    )
 
 
 def test_spawn_rs_passes_ws_arg(spawn_rs_source) -> None:

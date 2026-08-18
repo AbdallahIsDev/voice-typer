@@ -55,7 +55,11 @@
 			"main": "Main",
 			"power": "Power features",
 			"system": "System"
-		}
+		},
+		"settingsGeneral": "General",
+		"settingsAiAudio": "AI & Audio",
+		"settingsAppearance": "Appearance",
+		"settingsPrivacy": "Privacy"
 	},
 	"home": {
 		"ready": "READY",
@@ -1327,7 +1331,9 @@
 		"noiseSuppressionMethod": "Noise Suppression Method",
 		"importNotAvailableOutsideElectron": "Import not available outside Electron",
 		"toggleSidebarWithShortcut": "Toggle sidebar ({shortcut})",
-		"transcriptionPasted": "Pasted: {text}"
+		"transcriptionPasted": "Pasted: {text}",
+		"collapseSubmenu": "Collapse {label} submenu",
+		"expandSubmenu": "Expand {label} submenu"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "{appName} recording indicator",
