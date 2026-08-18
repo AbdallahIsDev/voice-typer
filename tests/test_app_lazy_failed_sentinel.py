@@ -79,9 +79,7 @@ def _make_failing_constructor(module_path: str, class_name: str, monkeypatch):
 
     def _boom(self_inner, *args, **kwargs):
         _boom.call_count += 1
-        raise RuntimeError(
-            f"simulated {class_name} lazy-init failure (attempt #{_boom.call_count})"
-        )
+        raise RuntimeError(f"simulated {class_name} lazy-init failure (attempt #{_boom.call_count})")
 
     _boom.call_count = 0
     monkeypatch.setattr(f"{module_path}.{class_name}.__init__", _boom)
@@ -101,9 +99,7 @@ def _make_succeed_then_fail_constructor(module_path: str, class_name: str, monke
         if _maybe.call_count == 1:
             # First attempt succeeds — sets the instance.
             return None  # __init__ returns None; the instance is bound already
-        raise RuntimeError(
-            f"simulated {class_name} lazy-init failure on retry #{_maybe.call_count}"
-        )
+        raise RuntimeError(f"simulated {class_name} lazy-init failure on retry #{_maybe.call_count}")
 
     _maybe.call_count = 0
     _maybe.fake_instance = fake_instance
@@ -193,9 +189,7 @@ class TestAudioQualitySentinelTtl:
                 assert app.audio_quality is None
 
         lazy_init_warnings = [
-            rec
-            for rec in caplog.records
-            if "AudioQualityController lazy-init failed" in rec.getMessage()
+            rec for rec in caplog.records if "AudioQualityController lazy-init failed" in rec.getMessage()
         ]
         assert len(lazy_init_warnings) == 1, (
             f"Expected exactly 1 'AudioQualityController lazy-init failed' "
@@ -221,9 +215,7 @@ class TestAudioQualitySentinelTtl:
 
         # Move the failed-at timestamp into the distant past — simulate
         # TTL expiry without sleeping for 30s (keeps the test fast).
-        app._audio_quality_failed_at = (
-            time.monotonic() - 31.0
-        )  # 31s ago > RETRY_TTL_SECONDS (30s)
+        app._audio_quality_failed_at = time.monotonic() - 31.0  # 31s ago > RETRY_TTL_SECONDS (30s)
 
         # Second access — sentinel TTL expired, construction retried.
         # The patched constructor still raises, so this re-caches the
@@ -238,15 +230,12 @@ class TestAudioQualitySentinelTtl:
         # one) — the next access within TTL must NOT re-attempt.
         fresh_failed_at = app._audio_quality_failed_at
         assert fresh_failed_at is not None
-        assert fresh_failed_at != (
-            time.monotonic() - 31.0
-        )  # the old timestamp was overwritten
+        assert fresh_failed_at != (time.monotonic() - 31.0)  # the old timestamp was overwritten
 
         # Third access — fresh sentinel, within TTL, no re-attempt.
         assert app.audio_quality is None
         assert boom.call_count == 2, (
-            "After a fresh failure, the sentinel must again suppress "
-            "re-attempts within the new TTL window."
+            "After a fresh failure, the sentinel must again suppress re-attempts within the new TTL window."
         )
 
     def test_sentinel_cleared_on_construction_success(self, app, monkeypatch):
@@ -295,9 +284,7 @@ class TestAudioQualitySentinelTtl:
             "not the failure sentinel."
         )
         assert app._audio_quality_backing is result
-        assert app._audio_quality_failed_at is None, (
-            "The failure timestamp must be cleared on construction success."
-        )
+        assert app._audio_quality_failed_at is None, "The failure timestamp must be cleared on construction success."
 
         # Subsequent access — returns the cached instance, NO re-construction.
         result2 = app.audio_quality
@@ -407,12 +394,8 @@ class TestSentinelWiredAcrossAllLazyProperties:
 
         # First access — fails, caches sentinel.
         result = getattr(app, prop_name)
-        assert result is None, (
-            f"{prop_name}: construction failure must return ``None`` to callers."
-        )
-        assert boom.call_count == 1, (
-            f"{prop_name}: construction must be attempted exactly once on first access."
-        )
+        assert result is None, f"{prop_name}: construction failure must return ``None`` to callers."
+        assert boom.call_count == 1, f"{prop_name}: construction must be attempted exactly once on first access."
 
         from voice_typer.server.app import _LAZY_FAILED
 
@@ -425,16 +408,13 @@ class TestSentinelWiredAcrossAllLazyProperties:
         )
         failed_at = getattr(app, failed_at_attr)
         assert failed_at is not None, (
-            f"{prop_name}: ``{failed_at_attr}`` must be a monotonic timestamp "
-            f"after construction failure (got None)."
+            f"{prop_name}: ``{failed_at_attr}`` must be a monotonic timestamp after construction failure (got None)."
         )
 
         # 50 more accesses within TTL — no re-attempt.
         for _ in range(50):
             assert getattr(app, prop_name) is None
-        assert boom.call_count == 1, (
-            f"{prop_name}: construction must NOT be re-attempted within the TTL."
-        )
+        assert boom.call_count == 1, f"{prop_name}: construction must NOT be re-attempted within the TTL."
 
     def test_history_db_sentinel_respects_shutdown_guard(self, app, monkeypatch):
         """Edge case for ``history_db``: when ``_shutting_down_event`` is
@@ -484,12 +464,10 @@ class TestModuleLevelConstants:
         from voice_typer.server import app as _app_mod
 
         assert _app_mod._LAZY_FAILED is _app_mod._LAZY_FAILED, (
-            "``_LAZY_FAILED`` must be a stable singleton (identity-stable "
-            "across module attribute accesses)."
+            "``_LAZY_FAILED`` must be a stable singleton (identity-stable across module attribute accesses)."
         )
         assert _app_mod._LAZY_FAILED is not None, (
-            "``_LAZY_FAILED`` must NOT be ``None`` — ``None`` is the "
-            "initial state, distinct from the failure state."
+            "``_LAZY_FAILED`` must NOT be ``None`` — ``None`` is the initial state, distinct from the failure state."
         )
 
     def test_retry_ttl_seconds_is_30(self):
