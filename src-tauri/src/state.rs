@@ -440,14 +440,17 @@ pub(crate) struct WorkerState {
     /// disconnected. The slim-core sidecar (NOT the Tauri host) is the
     /// WS client of the worker; this channel is the writer half of
     /// that connection.
+    #[allow(dead_code)] // wired when the worker WS bridge is managed (Phase 2c)
     pub(crate) ws_tx: Mutex<Option<WsWriterTx>>,
     /// Pending RPC requests to the worker (id → response sender).
     /// Separate from `SidecarState::pending` so a slow worker response
     /// never blocks a sidecar response (and vice versa).
+    #[allow(dead_code)] // wired when the worker RPC dispatcher is managed (Phase 2c)
     pub(crate) pending: PendingMap,
     /// Next worker RPC request id. Independent counter from
     /// `SidecarState::next_id` so worker + sidecar request ids don't
     /// collide on the host's log correlation.
+    #[allow(dead_code)] // wired when the worker RPC dispatcher is managed (Phase 2c)
     pub(crate) next_id: AtomicU64,
     /// Worker shutdown signal — set when the host is quitting so the
     /// worker respawn scheduler doesn't restart the worker during
@@ -458,6 +461,7 @@ pub(crate) struct WorkerState {
     /// `SidecarState::respawn_in_progress` but for the worker
     /// supervisor. Acquired with `compare_exchange(false → true)` on
     /// entry; cleared on exit (both Ok and restart paths).
+    #[allow(dead_code)] // wired when the worker supervisor is managed (Phase 2c)
     pub(crate) respawn_in_progress: AtomicBool,
     /// Event receiver from the worker's `Command::spawn()`. Used by
     /// `shutdown_worker_for_exit` (TBD, parallel to
@@ -467,12 +471,15 @@ pub(crate) struct WorkerState {
     /// Mirrors `SidecarState::heartbeat_handle` — without storing +
     /// aborting the previous handle, each reconnect LEAKS the prior
     /// task.
+    #[allow(dead_code)] // wired when the worker supervisor is managed (Phase 2c)
     pub(crate) heartbeat_handle: AsyncMutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     /// Monotonic generation counter bumped on every successful worker
     /// WS reconnect. Mirrors `SidecarState::ws_generation`.
+    #[allow(dead_code)] // wired when the worker supervisor is managed (Phase 2c)
     pub(crate) ws_generation: AtomicU64,
     /// Cancellation signal for the worker supervisor's backoff sleep.
     /// Mirrors `SidecarState::shutdown_notify`.
+    #[allow(dead_code)] // wired when the worker supervisor is managed (Phase 2c)
     pub(crate) shutdown_notify: Notify,
     /// Per-launch bearer token passed to the worker via the
     /// `VOICE_TYPER_WORKER_TOKEN` env var. Generated ONCE per host
