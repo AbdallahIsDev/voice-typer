@@ -498,17 +498,10 @@ describe("Settings — rewrite of test_settings_uses_shared_hook", () => {
 
 	it("calls showSnack via the shared useSnackbar hook when 'Open Log Folder' succeeds (delegates to sonner.toast.success, not inline state)", async () => {
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage />);
-
-		// Wait for the Settings page to load (the tab labels render once
-		// get_config returns).
-		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
-		});
-
-		// Navigate to the Privacy tab so the Troubleshooting section
-		// (which contains the "Open Log Folder" button) is mounted.
-		fireEvent.click(screen.getByText("Privacy"));
+		// Mount the Privacy sub-page directly (sidebar IA — no tab bar to
+		// click) so the Troubleshooting section that contains the
+		// "Open Log Folder" button is mounted.
+		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
 
 		// Find the "Open Log Folder" button by its aria-label and click it.
 		const openLogBtn = await waitFor(() =>

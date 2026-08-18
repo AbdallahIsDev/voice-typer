@@ -477,21 +477,18 @@ describe("Settings — silent auto-save (no status bar) + save toasts", () => {
 		const successSpy = vi.mocked(toast.success);
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage />);
+		// Mount the Appearance sub-page directly (sidebar IA — no tab bar
+		// to click) so the Theme color pickers are mounted.
+		renderWithProviders(<SettingsPage page="settingsAppearance" />);
 
-		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
-		});
-
-		// Idle state: no status bar text anywhere.
-		expect(screen.queryByText("All changes saved")).toBeNull();
-
-		fireEvent.click(screen.getByText("Appearance"));
 		await waitFor(() => {
 			expect(
 				document.querySelectorAll('input[type="color"]').length,
 			).toBeGreaterThanOrEqual(1);
 		});
+
+		// Idle state: no status bar text anywhere.
+		expect(screen.queryByText("All changes saved")).toBeNull();
 
 		successSpy.mockClear();
 		const colorInput = document.querySelector(
@@ -533,13 +530,10 @@ describe("Settings — silent auto-save (no status bar) + save toasts", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage />);
+		// Mount the Appearance sub-page directly (sidebar IA — no tab bar
+		// to click) so the Theme color pickers are mounted.
+		renderWithProviders(<SettingsPage page="settingsAppearance" />);
 
-		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
-		});
-
-		fireEvent.click(screen.getByText("Appearance"));
 		await waitFor(() => {
 			expect(
 				document.querySelectorAll('input[type="color"]').length,
@@ -604,15 +598,10 @@ describe("Settings onNavigate prop — rewrite of Page-type tests", () => {
 	it("renders the diagnostics table inside Settings (Privacy tab) — no navigation needed", async () => {
 		const { default: SettingsPage } = await import("@/pages/Settings");
 
-		renderWithProviders(<SettingsPage />);
-
-		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
-		});
-
-		// Click the Privacy tab so the Troubleshooting section (and the
-		// Diagnostics table that lives alongside it) mounts.
-		fireEvent.click(screen.getByText("Privacy"));
+		// Mount the Privacy sub-page directly (sidebar IA — no tab bar to
+		// click) so the Troubleshooting section (and the Diagnostics table
+		// that lives alongside it) mounts.
+		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
 
 		// IA split: the diagnostics table moved OFF the About page into
 		// Settings → Privacy (support area) — it renders directly in
@@ -837,8 +826,10 @@ describe("useNavigation — rewrite of localStorage persistence tests", () => {
 		//
 		// Python invariant: `nav.count("saveNavState(page, ...)") >= 3`
 		// (the string appears in navigate, goBack, AND goForward).
-		// Behavioral: navigate("history") then goBack() → localStorage's
-		// `page` is back to "home" (the previous entry on the stack).
+		// Behavioral: navigate("history") then navigate("settings") (which
+		// redirect-replaces → "settingsGeneral") then goBack() →
+		// localStorage's `page` is back to "home" (the previous entry on
+		// the stack).
 		const onReady = vi.fn();
 		render(<NavigationHarness onReady={onReady} />);
 
@@ -857,17 +848,19 @@ describe("useNavigation — rewrite of localStorage persistence tests", () => {
 			api.navigate("settings");
 		});
 
-		// Stack is now [home, history, settings], index=2.
+		// Stack is now [home, settingsGeneral], index=1
+		// (`navigate("settings")` REDIRECT-REPLACES the current entry
+		// in-place with `settingsGeneral` — it never pushes).
 		let raw = JSON.parse(localStorage.getItem("vt_nav_state") as string);
-		expect(raw.page).toBe("settings");
+		expect(raw.page).toBe("settingsGeneral");
 
 		act(() => {
 			api.goBack();
 		});
 
 		raw = JSON.parse(localStorage.getItem("vt_nav_state") as string);
-		expect(raw.page).toBe("history");
-		expect(raw.index).toBe(1);
+		expect(raw.page).toBe("home");
+		expect(raw.index).toBe(0);
 	});
 
 	it("loads the initial page from localStorage on mount", async () => {

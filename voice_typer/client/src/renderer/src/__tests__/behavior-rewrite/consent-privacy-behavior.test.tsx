@@ -485,17 +485,14 @@ describe("Settings page — Troubleshooting section", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage />);
+		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
 
-		// Wait for the page to load — the General tab label is
-		// always visible once config loads.
+		// Wait for the Privacy sub-page to mount — the Diagnostics
+		// heading only renders once the Privacy tab is active (there
+		// is no SegmentedControl tab bar to click in the sidebar IA).
 		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
+			expect(screen.getByText("Diagnostics")).toBeTruthy();
 		});
-
-		// Click the "Privacy" tab label to mount the
-		// Troubleshooting section.
-		fireEvent.click(screen.getByText("Privacy"));
 	}
 
 	it("renders the Diagnostics section, Help & FAQ, Report a Bug, and Open Log Folder buttons", async () => {
@@ -550,12 +547,7 @@ describe("Settings page — Troubleshooting section", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage />);
-
-		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
-		});
-		fireEvent.click(screen.getByText("Privacy"));
+		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
 
 		// The diagnostics section heading renders inline.
 		await waitFor(() => {
@@ -653,12 +645,7 @@ describe("About & Settings — voice biometric consent disclosure", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage />);
-
-		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
-		});
-		fireEvent.click(screen.getByText("Privacy"));
+		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
 
 		// en.json: settings.privacy.privacyTitle = "Privacy & Consent"
 		await waitFor(() => {
@@ -699,12 +686,7 @@ describe("About & Settings — voice biometric consent disclosure", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage />);
-
-		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
-		});
-		fireEvent.click(screen.getByText("Privacy"));
+		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
 
 		// en.json: settings.privacy.voiceBiometricLabel =
 		//   "Voice biometric processing"

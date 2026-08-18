@@ -754,8 +754,9 @@ describe("BG-25: document.title updates on route change", () => {
 			expect(screen.getByTestId("settings-page")).toBeTruthy();
 		});
 
-		//title updated to the Settings page's nav label.
-		expect(document.title).toBe("Settings — Voice Typer");
+		// title updated to the Settings sub-page's nav label
+		// (`navigate("settings")` replace-redirects to `settingsGeneral`).
+		expect(document.title).toBe("General — Voice Typer");
 	});
 });
 
