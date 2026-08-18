@@ -594,6 +594,7 @@ class VocabularyManager:
         old_entry: Any = None
         cat_data: Any = None
         tombstoned = False
+        tombstone_pair: Any = None
         with self._lock:
             cat_data = self._data.get(category)
             if isinstance(cat_data, list) and 0 <= index < len(cat_data):
