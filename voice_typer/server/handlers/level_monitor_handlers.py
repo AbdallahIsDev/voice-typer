@@ -38,6 +38,9 @@ class LevelMonitorHandlersMixin(HandlerBase):
 
     def _handle_level_monitor_start(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``level_monitor_start`` IPC command."""
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (consent-check raises ``ConsentRequiredError`` + ``log.exception``
+        # call + ``self.service.level_monitor_start`` mutates audio state).
         try:
             # enforce voice_biometric_consent BEFORE
             # opening the InputStream. The monitor captures audio

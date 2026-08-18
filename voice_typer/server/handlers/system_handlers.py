@@ -372,6 +372,11 @@ class SystemHandlersMixin(HandlerBase):
                 non-dict payload is rejected with ``invalid_payload`` instead
                 of being silently accepted.
         """
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (ctypes LoadLibrary for AXIsProcessTrusted + macOS bundle-ID
+        # resolution + ``log.warning`` calls + non-standard structure:
+        # validation is OUTSIDE the try block, with multiple early
+        # ``return resp`` paths that don't fit ``_wrap``'s merge contract).
         # empty-schema validation (consistency with siblings).
         validated, error = _validate_dict_payload(data, {})
         if error:
@@ -487,6 +492,12 @@ class SystemHandlersMixin(HandlerBase):
         is worse than no command, so ``command`` is omitted entirely
         when unresolved.
         """
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (``subprocess.run`` for ``tccutil reset`` + macOS bundle-ID
+        # resolution + ``_open_macos_accessibility_settings`` opens
+        # System Settings + non-standard structure: validation is
+        # OUTSIDE the try block with multiple early ``return resp``
+        # paths that don't fit ``_wrap``'s merge contract).
         validated, error = _validate_dict_payload(data, {})
         if error:
             return error
@@ -587,6 +598,12 @@ class SystemHandlersMixin(HandlerBase):
         pkexec fails (incl. the user dismissing the dialog — exit 126),
         or no restart candidate succeeds.
         """
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (multiple ``subprocess.run`` calls for ``pkaction`` /
+        # ``pkexec systemctl restart polkit`` / ``pkcheck`` +
+        # ``_enumerate_polkit_actions`` and ``_polkit_check_authorization``
+        # helpers each spawn subprocesses + non-standard structure:
+        # validation is OUTSIDE the try block).
         validated, error = _validate_dict_payload(data, {})
         if error:
             return error
@@ -631,6 +648,13 @@ class SystemHandlersMixin(HandlerBase):
                 renderer locales, not just the server-hard-coded en/es. The tray
                 menu is rebuilt so the new labels take effect immediately.
         """
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (``register_tray_labels`` / ``set_tray_locale`` mutate global
+        # tray-i18n state + ``_server_i18n.merge_labels`` / ``set_locale``
+        # mutate server i18n state + ``tray.invalidate_menu_cache()``
+        # mutates tray state + per-field validation loop with
+        # ``_error_response`` + ``return resp`` early exits that don't
+        # fit ``_wrap``'s merge contract).
         try:
             from voice_typer.server.tray import (
                 get_tray_locale,
@@ -766,6 +790,10 @@ class SystemHandlersMixin(HandlerBase):
                 The ``data`` dict should contain ``{"paused": true}`` or
                 ``{"paused": false}``.
         """
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (``keyboard_ownership().set_owner`` mutates global ownership
+        # state + ``self.app._esc_cancel_paused = paused`` mutates app
+        # state + ``log.info`` call).
         try:
             if data is None:
                 data = {}
@@ -876,6 +904,12 @@ class SystemHandlersMixin(HandlerBase):
                 macOS (``UNNotificationContent.title`` / ``body``) and
                 Windows (``ToastNotification`` XML payload).
         """
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (``event_bus.publish`` broadcasts a notification event +
+        # multiple ``_error_response`` early returns with ``field`` kwargs
+        # stamped after the helper call (shape doesn't fit ``_wrap``'s
+        # merge contract) + pre-coercion of ``None`` values that ``_wrap``
+        # would handle differently).
         try:
             # pre-check the bool subclass exclusion for
             # ``duration_ms`` BEFORE invoking the helper. ``bool`` is
@@ -1032,16 +1066,8 @@ class SystemHandlersMixin(HandlerBase):
                         "message": message,
                         "duration_ms": duration_ms,
                         "critical": critical,
-                        **(
-                            {"click_path": click_path}
-                            if click_path
-                            else {}
-                        ),
-                        **(
-                            {"click_consent_field": click_consent_field}
-                            if click_consent_field
-                            else {}
-                        ),
+                        **({"click_path": click_path} if click_path else {}),
+                        **({"click_consent_field": click_consent_field} if click_consent_field else {}),
                     },
                 }
             )

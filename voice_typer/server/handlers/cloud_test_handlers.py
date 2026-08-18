@@ -137,6 +137,10 @@ class CloudTestHandlersMixin(HandlerBase):
         WS-path envelope via ``_respond_with_error`` (no ``str(exc)``
         leak).
         """
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (HTTP request via ``_opener.open``, multiple ``log.info`` /
+        # ``log.warning`` calls, multiple early-return error envelopes
+        # with distinct shapes that don't fit ``_wrap``'s merge contract).
         try:
             validated, error = _validate_dict_payload(
                 data,

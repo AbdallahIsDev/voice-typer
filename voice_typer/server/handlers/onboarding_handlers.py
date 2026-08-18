@@ -249,6 +249,10 @@ class OnboardingHandlersMixin(HandlerBase):
                 stores ``None`` verbatim, which :meth:`apply_settings` then
                 skips writing to the config (preserving the default).
         """
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (``log.warning`` call + ``_redact_service_error`` mutates the
+        # result dict + ``self.service.onboarding_set_microphone`` writes
+        # to the OnboardingController state).
         try:
             validated, error = _validate_dict_payload(
                 data,
@@ -299,6 +303,10 @@ class OnboardingHandlersMixin(HandlerBase):
         default was ``<f2>``, which silently overrode the backend's
         Caps Lock default when the renderer sent no explicit value.
         """
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (``log.warning`` call + ``_redact_service_error`` mutates the
+        # result dict + ``self.service.onboarding_set_hotkey`` writes
+        # to the OnboardingController state).
         try:
             validated, error = _validate_dict_payload(
                 data,
@@ -335,6 +343,10 @@ class OnboardingHandlersMixin(HandlerBase):
 
     def _handle_onboarding_set_model(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_set_model`` IPC command."""
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (``log.warning`` call + ``_redact_service_error`` mutates the
+        # result dict + ``self.service.onboarding_set_model`` writes
+        # to the OnboardingController state).
         try:
             validated, error = _validate_dict_payload(
                 data,
@@ -379,6 +391,10 @@ class OnboardingHandlersMixin(HandlerBase):
         + consent the wizard persists through the allowlisted
         ``set_config`` fields, mirroring the Models page).
         """
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (``log.warning`` call + ``_redact_service_error`` mutates the
+        # result dict + ``self.service.onboarding_set_backend`` writes
+        # to the OnboardingController state).
         try:
             validated, error = _validate_dict_payload(
                 data,

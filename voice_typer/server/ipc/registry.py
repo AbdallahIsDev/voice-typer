@@ -170,8 +170,8 @@ _PYTHON_ONLY_COMMANDS: frozenset[str] = frozenset({"shutdown", "tray_click"})
 # Each handler takes (data, resp) and returns resp (to send) or None
 # (for commands that send their response internally, like restart_app).
 #
-# reconciliation (2026-07-18, updated 2026-08-14): the registry
-# contains exactly 69 commands. The 67 "domain" handlers live in
+# reconciliation (2026-07-18, updated 2026-08-16): the registry
+# contains exactly 73 commands. The 71 "domain" handlers live in
 # voice_typer/server/handlers/ (one mixin module per domain). The
 # remaining two — `heartbeat` (, ADR-0018 Electron-alive watchdog)
 # and `relaunch_ack` (PERF-005, ack of `relaunch_electron` so
@@ -198,7 +198,13 @@ _PYTHON_ONLY_COMMANDS: frozenset[str] = frozenset({"shutdown", "tray_click"})
 # `get_prewarm_status` + `open_prewarm_log` came back verbatim
 # from 5a319872 (the Cache Status card is a user-facing feature —
 # plan §6.3 addendum); `run_prewarm` stays removed (its subprocess
-# machinery is gone) — net 69.
+# machinery is gone) — net 69. The 2026-08-14 addendum's 2nd half
+# restored `run_prewarm` (re-implemented in-process via
+# `prewarm.status.run_prewarm_now`, no deleted-subprocess spawn)
+# and added `check_offline_pack_update` (auto-update feature) —
+# net 71. The 2026-08-16 vocabulary usage-tracking feature added
+# `get_correction_usage` + `test_vocabulary_correction`
+# (ADR-0020 §16 addendum 2026-08-16) — net 73.
 _COMMAND_REGISTRY: dict[str, str] = {
     "get_status": "_handle_get_status",
     "toggle_dictation": "_handle_toggle_dictation",

@@ -63,6 +63,9 @@ class MicrophoneTestHandlersMixin(HandlerBase):
         change in  — ``0`` is no longer "use default", it's
                 a clamped value.
         """
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (consent-check raises ``ConsentRequiredError`` + ``log.exception``
+        # call + ``self.service.microphone_test_start`` mutates audio state).
         try:
             # enforce voice_biometric_consent BEFORE
             # capturing any test audio. The mic test returns up to 60s

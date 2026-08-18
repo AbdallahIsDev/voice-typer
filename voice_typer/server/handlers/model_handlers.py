@@ -48,6 +48,11 @@ class ModelHandlersMixin(HandlerBase):
 
     def _handle_download_model(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``download_model`` IPC command."""
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (``log.warning`` / ``log.info`` calls +
+        # ``self.service.download_model`` mutates the local model cache;
+        # also relies on inline ``_error_response`` early-return shape
+        # that doesn't fit ``_wrap``'s merge contract cleanly).
         try:
             # validate the ``model`` field type via the shared
             # ``_validate_dict_payload`` helper so the ADR-0020 §2 claim
@@ -182,6 +187,12 @@ class ModelHandlersMixin(HandlerBase):
                 directory on the filesystem, including ones the user did not
                 pick via the file chooser.
         """
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (``_validate_import_path`` accesses the filesystem; multiple
+        # ``log.warning`` / ``log.info`` calls; ``self.service.import_model``
+        # mutates the HF cache; multiple inline ``_error_response`` early
+        # returns with distinct ``code`` / ``field`` shapes that don't fit
+        # ``_wrap``'s merge contract cleanly).
         try:
             # validate ``dir_path`` is a string via the shared
             # ``_validate_dict_payload`` helper. ``required: False,
@@ -266,6 +277,11 @@ class ModelHandlersMixin(HandlerBase):
         """Handle the ``delete_model`` IPC command."""
         # actually delete the model files from disk,
         # not just remove from the UI list.
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (``log.warning`` / ``log.info`` calls +
+        # ``self.service.delete_model`` deletes files from disk;
+        # also relies on inline ``_error_response`` early-return shape
+        # that doesn't fit ``_wrap``'s merge contract cleanly).
         try:
             # validate the ``model`` field type via the shared
             # ``_validate_dict_payload`` helper. ``required: False,

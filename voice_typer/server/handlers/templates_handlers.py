@@ -50,6 +50,11 @@ class TemplatesHandlersMixin(HandlerBase):
         explicit ``client.invalid_field`` envelope (with the offending
         field name) so the renderer can highlight the bad row.
         """
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (``self.service.save_templates`` writes to the on-disk JSON
+        # store + ``log.warning`` calls + per-field validation loop
+        # with ``_error_response`` + ``return resp`` early exits that
+        # don't fit ``_wrap``'s merge contract).
         try:
             validated, error = _validate_dict_payload(
                 data,

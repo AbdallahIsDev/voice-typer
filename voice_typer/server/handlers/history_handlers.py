@@ -47,11 +47,19 @@ class HistoryHandlersMixin(HandlerBase):
     # the  centralization refactor missed).
 
     def _handle_get_history(self, data: dict | None, resp: dict) -> dict | None:
-        """Handle the ``get_history`` IPC command."""
-        try:
+        """Handle the ``get_history`` IPC command.
+
+        Migrated to :meth:`HandlerBase._wrap` — the helper handles
+        the surrounding ``try/except`` → ``_respond_with_error``
+        catch-all and the non-dict ``data`` pre-coercion (``None`` /
+        list → ``{}``) that the inline ``if not isinstance(data, dict):
+        data = {}`` guard used to do inline.
+        """
+
+        def body(d: dict) -> dict:
             # validate ``limit`` / ``offset`` types via the
             # shared ``_validate_dict_payload`` helper. Non-dict
-            # ``data`` is pre-coerced to ``{}`` so the
+            # ``data`` is pre-coerced to ``{}`` by ``_wrap`` so the
             # ``test_non_dict_data_falls_back_to_defaults`` contract
             # (list → defaults) still holds. ``required: False`` (no
             # default) means absent fields fall through to the
@@ -83,10 +91,8 @@ class HistoryHandlersMixin(HandlerBase):
             # Negative ``before_id`` is also rejected (a negative
             # keyset row id has no meaning in SQLite's auto-increment
             # primary key).
-            if not isinstance(data, dict):
-                data = {}
             validated, error = _validate_dict_payload(
-                data,
+                d,
                 {
                     "limit": {"type": (int, str), "required": False, "default": 50},
                     "offset": {"type": (int, str), "required": False, "default": 0},
@@ -115,18 +121,21 @@ class HistoryHandlersMixin(HandlerBase):
             # Schema: ``(int, str)`` with ``reject_bool``. Narrow so the
             # ``int()`` conversion type-checks; the explicit bool check
             # is kept as defense-in-depth (bool subclasses int).
-            if before_id_raw is not None and isinstance(
-                before_id_raw, (int, str)
-            ) and not isinstance(before_id_raw, bool):
+            if (
+                before_id_raw is not None
+                and isinstance(before_id_raw, (int, str))
+                and not isinstance(before_id_raw, bool)
+            ):
                 before_id = int(before_id_raw)
                 if before_id < 0:
-                    resp["type"] = "error"
-                    resp["data"] = {
-                        "code": "client.invalid_field",
-                        "field": "before_id",
-                        "message": "before_id must be non-negative",
+                    return {
+                        "type": "error",
+                        "data": {
+                            "code": "client.invalid_field",
+                            "field": "before_id",
+                            "message": "before_id must be non-negative",
+                        },
                     }
-                    return resp
             if before_timestamp is not None and before_id is not None:
                 rows = self.service.get_history(limit, offset, before_timestamp=before_timestamp, before_id=before_id)
             else:
@@ -144,12 +153,15 @@ class HistoryHandlersMixin(HandlerBase):
             # forced True on every row that was further truncated so
             # the renderer's "show more" affordance stays accurate.
             rows = self._enforce_history_frame_cap(rows, command="get_history")
-            resp["type"] = "history"
-            resp["data"] = rows
-        except Exception as exc:
-            # generic WS-path envelope (no ``str(exc)`` leak).
-            self._respond_with_error(resp, exc, "get_history")
-        return resp
+            return {"data": rows}
+
+        return self._wrap(
+            cmd_name="get_history",
+            resp_type="history",
+            data=data,
+            resp=resp,
+            body=body,
+        )
 
     def _enforce_history_frame_cap(
         self,
@@ -242,6 +254,9 @@ class HistoryHandlersMixin(HandlerBase):
 
     def _handle_delete_history(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``delete_history`` IPC command."""
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (``self.service.delete_history`` mutates the DB and
+        # ``_publish_history_changed`` broadcasts an event-bus event).
         try:
             validated, error = _validate_dict_payload(
                 data,
@@ -283,6 +298,9 @@ class HistoryHandlersMixin(HandlerBase):
                 the per-field cap catches a caller who stuffs it into
                 ``text`` specifically.
         """
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (``self.service.restore_history`` mutates the DB and
+        # ``_publish_history_changed`` broadcasts an event-bus event).
         try:
             validated, error = _validate_dict_payload(
                 data,
@@ -349,6 +367,9 @@ class HistoryHandlersMixin(HandlerBase):
 
     def _handle_toggle_favorite(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``toggle_favorite`` IPC command."""
+        # TODO: not migrated to ``_wrap`` — has side effects
+        # (``self.service.toggle_favorite`` mutates the DB and
+        # ``_publish_history_changed`` broadcasts an event-bus event).
         try:
             validated, error = _validate_dict_payload(
                 data,
@@ -372,8 +393,16 @@ class HistoryHandlersMixin(HandlerBase):
         return resp
 
     def _handle_get_favorites(self, data: dict | None, resp: dict) -> dict | None:
-        """Handle the ``get_favorites`` IPC command."""
-        try:
+        """Handle the ``get_favorites`` IPC command.
+
+        Migrated to :meth:`HandlerBase._wrap` — the helper handles
+        the surrounding ``try/except`` → ``_respond_with_error``
+        catch-all and the non-dict ``data`` pre-coercion that the
+        inline ``if not isinstance(data, dict): data = {}`` guard
+        used to do inline.
+        """
+
+        def body(d: dict) -> dict:
             # validate ``limit`` / ``offset`` types via the
             # shared ``_validate_dict_payload`` helper. Same pattern as
             # ``_handle_get_history`` (above) — ``(int, str)`` accepts
@@ -381,10 +410,8 @@ class HistoryHandlersMixin(HandlerBase):
             # (``before_timestamp`` / ``before_id``) follows the same
             # rules as ``_handle_get_history`` (both required to
             # enable the cursor; otherwise the OFFSET path fires).
-            if not isinstance(data, dict):
-                data = {}
             validated, error = _validate_dict_payload(
-                data,
+                d,
                 {
                     "limit": {"type": (int, str), "required": False, "default": 50},
                     "offset": {"type": (int, str), "required": False, "default": 0},
@@ -410,18 +437,21 @@ class HistoryHandlersMixin(HandlerBase):
             # Schema: ``(int, str)`` with ``reject_bool``. Narrow so the
             # ``int()`` conversion type-checks; the explicit bool check
             # is kept as defense-in-depth (bool subclasses int).
-            if before_id_raw is not None and isinstance(
-                before_id_raw, (int, str)
-            ) and not isinstance(before_id_raw, bool):
+            if (
+                before_id_raw is not None
+                and isinstance(before_id_raw, (int, str))
+                and not isinstance(before_id_raw, bool)
+            ):
                 before_id = int(before_id_raw)
                 if before_id < 0:
-                    resp["type"] = "error"
-                    resp["data"] = {
-                        "code": "client.invalid_field",
-                        "field": "before_id",
-                        "message": "before_id must be non-negative",
+                    return {
+                        "type": "error",
+                        "data": {
+                            "code": "client.invalid_field",
+                            "field": "before_id",
+                            "message": "before_id must be non-negative",
+                        },
                     }
-                    return resp
             if before_timestamp is not None and before_id is not None:
                 rows = self.service.get_favorites(limit, offset, before_timestamp=before_timestamp, before_id=before_id)
             else:
@@ -429,29 +459,38 @@ class HistoryHandlersMixin(HandlerBase):
             # Same defense-in-depth frame-cap check as
             # ``_handle_get_history`` (see that handler for rationale).
             rows = self._enforce_history_frame_cap(rows, command="get_favorites")
-            resp["type"] = "history"
-            resp["data"] = rows
-        except Exception as exc:
-            # generic WS-path envelope.
-            self._respond_with_error(resp, exc, "get_favorites")
-        return resp
+            return {"data": rows}
+
+        return self._wrap(
+            cmd_name="get_favorites",
+            resp_type="history",
+            data=data,
+            resp=resp,
+            body=body,
+        )
 
     def _handle_search_history(self, data: dict | None, resp: dict) -> dict | None:
-        """Handle the ``search_history`` IPC command."""
-        try:
+        """Handle the ``search_history`` IPC command.
+
+        Migrated to :meth:`HandlerBase._wrap` — the helper handles
+        the surrounding ``try/except`` → ``_respond_with_error``
+        catch-all and the non-dict ``data`` pre-coercion that the
+        inline ``if not isinstance(data, dict): data = {}`` guard
+        used to do inline.
+        """
+
+        def body(d: dict) -> dict:
             # validate ``query`` / ``limit`` / ``offset`` types
             # via the shared ``_validate_dict_payload`` helper. Non-dict
-            # ``data`` is pre-coerced to ``{}`` so the
+            # ``data`` is pre-coerced to ``{}`` by ``_wrap`` so the
             # ``test_non_dict_data_uses_empty_query`` contract (None →
             # empty query, default limit/offset) still holds.
             # ``limit`` / ``offset`` accept ``(int, str)`` for the same
             # form-input coercion reason as ``_handle_get_history``.
             # Keyset cursor (``before_timestamp`` / ``before_id``)
             # follows the same rules as ``_handle_get_history``.
-            if not isinstance(data, dict):
-                data = {}
             validated, error = _validate_dict_payload(
-                data,
+                d,
                 {
                     "query": {"type": str, "required": False, "default": ""},
                     "limit": {"type": (int, str), "required": False, "default": 50},
@@ -479,18 +518,21 @@ class HistoryHandlersMixin(HandlerBase):
             # Schema: ``(int, str)`` with ``reject_bool``. Narrow so the
             # ``int()`` conversion type-checks; the explicit bool check
             # is kept as defense-in-depth (bool subclasses int).
-            if before_id_raw is not None and isinstance(
-                before_id_raw, (int, str)
-            ) and not isinstance(before_id_raw, bool):
+            if (
+                before_id_raw is not None
+                and isinstance(before_id_raw, (int, str))
+                and not isinstance(before_id_raw, bool)
+            ):
                 before_id = int(before_id_raw)
                 if before_id < 0:
-                    resp["type"] = "error"
-                    resp["data"] = {
-                        "code": "client.invalid_field",
-                        "field": "before_id",
-                        "message": "before_id must be non-negative",
+                    return {
+                        "type": "error",
+                        "data": {
+                            "code": "client.invalid_field",
+                            "field": "before_id",
+                            "message": "before_id must be non-negative",
+                        },
                     }
-                    return resp
             if before_timestamp is not None and before_id is not None:
                 rows = self.service.search_history(
                     query,
@@ -504,12 +546,15 @@ class HistoryHandlersMixin(HandlerBase):
             # Same defense-in-depth frame-cap check as
             # ``_handle_get_history`` (see that handler for rationale).
             rows = self._enforce_history_frame_cap(rows, command="search_history")
-            resp["type"] = "history"
-            resp["data"] = rows
-        except Exception as exc:
-            # generic WS-path envelope.
-            self._respond_with_error(resp, exc, "search_history")
-        return resp
+            return {"data": rows}
+
+        return self._wrap(
+            cmd_name="search_history",
+            resp_type="history",
+            data=data,
+            resp=resp,
+            body=body,
+        )
 
     # ──────────────────────────────────────────────────────────────
     # On-demand full-text + total-count handlers
@@ -562,6 +607,11 @@ class HistoryHandlersMixin(HandlerBase):
         (matching the ``HistoryDB.get_transcription_text`` sentinel).
         The renderer treats an empty string as "no text to show".
         """
+        # TODO: not migrated to ``_wrap`` — would change non-dict-data
+        # error code (``client.invalid_payload`` → ``client.missing_field``)
+        # because this handler lacks the inline ``if not isinstance(data,
+        # dict): data = {}`` pre-coercion that ``_wrap`` performs
+        # internally; migrating would be a behavior regression (E14).
         try:
             validated, error = _validate_dict_payload(
                 data,
