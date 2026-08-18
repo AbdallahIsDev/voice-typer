@@ -253,8 +253,8 @@ def test_force_exit_calls_os_exit_with_code_1_after_grace_period(
         # before calling os._exit. Wait long enough for it to fire.
         # Use a real (short) sleep here — we patched the constant down
         # to 50ms, so 1s of polling is plenty.
-        deadline = time.time() + 2.0
-        while time.time() < deadline and not exit_calls:
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not exit_calls:
             time.sleep(0.01)
 
     assert exit_calls == [1], (
@@ -307,8 +307,8 @@ def test_force_exit_thread_does_not_fire_if_quit_exits_process_first(
         fired = server._check_heartbeat_timeout()
         assert fired is True
         # Wait for the thread.
-        deadline = time.time() + 2.0
-        while time.time() < deadline and not exit_calls:
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not exit_calls:
             time.sleep(0.01)
 
     assert exit_calls == [1]
@@ -344,8 +344,8 @@ def test_force_exit_thread_logs_error_before_exiting(server: IPCServer) -> None:
         fired = server._check_heartbeat_timeout()
         assert fired is True
         # Wait for the thread.
-        deadline = time.time() + 2.0
-        while time.time() < deadline and not log_calls:
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not log_calls:
             time.sleep(0.01)
 
     assert any("force-exiting" in m for m in log_calls), (

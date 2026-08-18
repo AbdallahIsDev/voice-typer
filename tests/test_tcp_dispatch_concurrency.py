@@ -111,8 +111,8 @@ def _read_lines(sock: socket.socket, timeout: float = 2.0, max_lines: int = 10) 
     sock.settimeout(timeout)
     lines: list[dict] = []
     buf = b""
-    deadline = time.time() + timeout
-    while len(lines) < max_lines and time.time() < deadline:
+    deadline = time.monotonic() + timeout
+    while len(lines) < max_lines and time.monotonic() < deadline:
         try:
             chunk = sock.recv(4096)
         except (TimeoutError, OSError):
@@ -186,8 +186,8 @@ class TestTCPDispatchConcurrency:
             _send_line(client_sock, {"type": "fast_command", "id": 2})
 
             # Wait for both dispatches to complete (slow sleeps 1s).
-            deadline = time.time() + 5.0
-            while time.time() < deadline:
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
                 with events_lock:
                     starts = [e for e in events if e["event"] == "dispatch_start"]
                     ends = [e for e in events if e["event"] == "dispatch_end"]
@@ -201,8 +201,7 @@ class TestTCPDispatchConcurrency:
 
             # (4) Both messages are eventually dispatched.
             assert len(starts) >= 2, (
-                f"expected both messages to be dispatched, but only got "
-                f"{len(starts)} dispatch_start events: {events!r}"
+                f"expected both messages to be dispatched, but only got {len(starts)} dispatch_start events: {events!r}"
             )
             assert len(ends) >= 2, (
                 f"expected both dispatches to complete, but only got {len(ends)} dispatch_end events: {events!r}"
@@ -381,9 +380,7 @@ class TestTCPDispatchConcurrency:
             assert err["data"]["code"] == "server.internal_error", (
                 f"error code must be 'server.internal_error', got {err!r}"
             )
-            assert err["data"]["message"] == "internal error", (
-                f"error message must be 'internal error', got {err!r}"
-            )
+            assert err["data"]["message"] == "internal error", f"error message must be 'internal error', got {err!r}"
         finally:
             with suppress(OSError):
                 client_sock.close()

@@ -77,7 +77,7 @@ from tests.server.conftest import (  # noqa: F401  (fixture re-export)
 
 
 class TestStdinRateLimiterGate:
-    """ the stdin path (``stdin_runner._run``) now applies the
+    """the stdin path (``stdin_runner._run``) now applies the
     per-process ``_RateLimiter`` BEFORE calling ``self._dispatch(msg)``.
 
     Pre-fix, the stdin path had NO rate limiter — a buggy/loopy stdin
@@ -208,7 +208,7 @@ class TestStdinRateLimiterGate:
 
 
 class TestDispatchDoesNotCallRateLimiter:
-    """ ``DispatcherMixin._dispatch`` source must NOT contain
+    """``DispatcherMixin._dispatch`` source must NOT contain
     a rate-limiter call. The limiter is enforced at the transport
     chokepoints (TCP / WS / stdin), NOT inside ``_dispatch``.
 
@@ -238,8 +238,7 @@ class TestDispatchDoesNotCallRateLimiter:
             "cap in half the expected time."
         )
         assert "rate_limiter.allow" not in code_only, (
-            "_dispatch must NOT call rate_limiter.allow — the "
-            "limiter is enforced at the transport chokepoints."
+            "_dispatch must NOT call rate_limiter.allow — the limiter is enforced at the transport chokepoints."
         )
         assert "RATE_LIMITED" not in code_only, (
             "_dispatch must NOT reference the RATE_LIMITED error "
@@ -298,7 +297,7 @@ class TestDispatchDoesNotCallRateLimiter:
 
 
 class TestWsPathSingleRateLimiterCall:
-    """ the WS path (``sidecar_ws._make_dispatch``) calls the
+    """the WS path (``sidecar_ws._make_dispatch``) calls the
     rate limiter exactly ONCE per dispatched command — at the transport
     chokepoint. Pre-fix, the WS path called the limiter at the
     chokepoint AND ``_dispatch`` called it again (double-call).
@@ -354,8 +353,7 @@ class TestWsPathSingleRateLimiterCall:
 
         # The limiter was consulted exactly once (the chokepoint gate).
         assert limiter.allow.call_count == 1, (
-            "WS path must call rate_limiter.allow exactly once "
-            f"even on rejection (got {limiter.allow.call_count})."
+            f"WS path must call rate_limiter.allow exactly once even on rejection (got {limiter.allow.call_count})."
         )
         # ``_dispatch`` was NOT called (the chokepoint short-circuited).
         ws_server._dispatch.assert_not_called()
@@ -484,8 +482,8 @@ def live_server(tmp_path, monkeypatch):
     srv.start()
     srv.start_tcp(port)
 
-    deadline = time.time() + 2.0
-    while time.time() < deadline:
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
         try:
             test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             test_sock.settimeout(0.25)
@@ -507,8 +505,8 @@ def live_server(tmp_path, monkeypatch):
     with suppress(Exception):
         if hasattr(app, "_crash_recovery") and hasattr(app._crash_recovery, "shutdown"):
             app._crash_recovery.shutdown()
-    deadline = time.time() + 1.0
-    while time.time() < deadline:
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
         if srv._tcp_server_socket is None:
             break
         time.sleep(0.02)
@@ -528,15 +526,13 @@ def authenticated_client(live_server):
 
 
 class TestTcpPathSingleRateLimiterCall:
-    """ the TCP path (``transport_tcp._handle_tcp_connection``)
+    """the TCP path (``transport_tcp._handle_tcp_connection``)
     calls the rate limiter exactly ONCE per dispatched command — at the
     transport chokepoint. Pre-fix, the TCP path called the limiter at
     the chokepoint AND ``_dispatch`` called it again (double-call).
     """
 
-    def test_tcp_dispatch_calls_limiter_once_per_command(
-        self, authenticated_client, monkeypatch
-    ) -> None:
+    def test_tcp_dispatch_calls_limiter_once_per_command(self, authenticated_client, monkeypatch) -> None:
         """A single TCP dispatch must consult ``rate_limiter.allow``
         exactly once. The TCP chokepoint calls it; ``_dispatch`` no
         longer does."""
@@ -564,9 +560,7 @@ class TestTcpPathSingleRateLimiterCall:
         )
         limiter.allow.assert_called_once_with(command="get_status")
 
-    def test_tcp_dispatch_reject_calls_limiter_once(
-        self, authenticated_client, monkeypatch
-    ) -> None:
+    def test_tcp_dispatch_reject_calls_limiter_once(self, authenticated_client, monkeypatch) -> None:
         """When the TCP chokepoint rejects, ``_dispatch`` is NOT called
         — the limiter is consulted exactly once (the chokepoint gate)
         and the command cost is charged exactly once."""
@@ -586,8 +580,7 @@ class TestTcpPathSingleRateLimiterCall:
         assert resp["data"]["message"] == "rate limit exceeded; backing off"
         # The limiter was consulted exactly once (the chokepoint gate).
         assert limiter.allow.call_count == 1, (
-            "TCP path must call rate_limiter.allow exactly once "
-            f"even on rejection (got {limiter.allow.call_count})."
+            f"TCP path must call rate_limiter.allow exactly once even on rejection (got {limiter.allow.call_count})."
         )
 
 

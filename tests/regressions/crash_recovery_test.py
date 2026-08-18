@@ -176,9 +176,9 @@ class TestSidecarCrashDetectionBehavioral:
         )
         try:
             # Wait for the sidecar to bind the port (readiness marker).
-            deadline = time.time() + 5.0
+            deadline = time.monotonic() + 5.0
             ready = False
-            while time.time() < deadline:
+            while time.monotonic() < deadline:
                 if proc.poll() is not None:
                     # Sidecar exited prematurely — fail with stderr.
                     stderr = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
@@ -209,9 +209,9 @@ class TestSidecarCrashDetectionBehavioral:
             # contract: Popen.poll() must return the (negative) signal
             # code within 2s on Linux. If it returns None forever,
             # the parent would never detect the crash.
-            deadline = time.time() + 2.0
+            deadline = time.monotonic() + 2.0
             exit_code = None
-            while time.time() < deadline:
+            while time.monotonic() < deadline:
                 exit_code = proc.poll()
                 if exit_code is not None:
                     break

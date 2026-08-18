@@ -176,10 +176,10 @@ def test_idle_read_timeout_fires_for_authenticated_silent_client(
         # Send NOTHING further. Wait for the idle-read timeout to fire.
         # The handler should close the server-side socket, which the
         # client observes as EOF (recv returns b"").
-        deadline = time.time() + 5.0
+        deadline = time.monotonic() + 5.0
         closed = False
         client_sock.settimeout(0.5)
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             try:
                 chunk = client_sock.recv(4096)
                 if chunk == b"":
@@ -262,9 +262,9 @@ def test_idle_read_timeout_does_not_fire_for_healthy_heartbeat_client(
 
         # Send a heartbeat every 0.3s for ~2.0s (well past the 1.0s
         # idle-read timeout). The connection must stay open.
-        end = time.time() + 2.0
+        end = time.monotonic() + 2.0
         spurious_close = False
-        while time.time() < end:
+        while time.monotonic() < end:
             client_sock.sendall(b'{"type":"heartbeat","id":1}\n')
             # Drain the heartbeat_ack so the kernel buffer doesn't fill.
             client_sock.settimeout(0.05)

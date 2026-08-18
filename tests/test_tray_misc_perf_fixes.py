@@ -333,8 +333,8 @@ class TestElapsedTimerGenerationCounter:
         timer.start()
         try:
             # Wait for at least 2 ticks (>= 2 seconds).
-            deadline = time.time() + 4.0
-            while len(ticks) < 2 and time.time() < deadline:
+            deadline = time.monotonic() + 4.0
+            while len(ticks) < 2 and time.monotonic() < deadline:
                 time.sleep(0.05)
             assert len(ticks) >= 2, f"Expected >= 2 ticks in 4s (normal reschedule path), got {len(ticks)}"
         finally:

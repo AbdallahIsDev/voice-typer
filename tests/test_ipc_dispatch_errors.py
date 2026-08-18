@@ -204,8 +204,8 @@ def live_server(tmp_path, monkeypatch):
     server.start_tcp(port)
 
     # Wait for the server to start listening.
-    deadline = time.time() + 2.0
-    while time.time() < deadline:
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
         try:
             test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             test_sock.settimeout(0.25)
@@ -229,8 +229,8 @@ def live_server(tmp_path, monkeypatch):
     with suppress(Exception):
         if hasattr(app, "_crash_recovery") and hasattr(app._crash_recovery, "shutdown"):
             app._crash_recovery.shutdown()
-    deadline = time.time() + 1.0
-    while time.time() < deadline:
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
         if server._tcp_server_socket is None:
             break
         time.sleep(0.02)

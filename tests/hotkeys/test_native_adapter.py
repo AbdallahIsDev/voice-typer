@@ -265,9 +265,7 @@ class TestSuccessfulSpecHandshake:
 
     def test_successful_spec_handshake(self, monkeypatch, tmp_path):
         fake_popen = _FakePopen(cmd=[], stdout_data=b"READY\n")
-        adapter, native, popen_patch = _build_adapter(
-            monkeypatch, tmp_path, popen_instances=[fake_popen]
-        )
+        adapter, native, popen_patch = _build_adapter(monkeypatch, tmp_path, popen_instances=[fake_popen])
         fired: list[str] = []
         cb = lambda: fired.append("press")  # noqa: E731
 
@@ -299,9 +297,7 @@ class TestMalformedSpecResponseRaises:
         # (write end of the pipe is open) so the reader blocks after the
         # garbage line. start() times out waiting for READY.
         fake_popen = _FakePopen(cmd=[], stdout_data=b"GARBAGE_LINE\n")
-        adapter, native, popen_patch = _build_adapter(
-            monkeypatch, tmp_path, popen_instances=[fake_popen]
-        )
+        adapter, native, popen_patch = _build_adapter(monkeypatch, tmp_path, popen_instances=[fake_popen])
         swap_called: list[bool] = []
 
         def tracking_swap():
@@ -345,9 +341,7 @@ class TestSubprocessEarlyExitTriggersRestart:
     def test_early_exit_increments_restart_attempts(self, monkeypatch, tmp_path):
         # Process exits immediately with returncode 1, no stdout.
         fake_popen = _FakePopen(cmd=[], stdout_data=b"", exit_code=1)
-        adapter, native, popen_patch = _build_adapter(
-            monkeypatch, tmp_path, popen_instances=[fake_popen]
-        )
+        adapter, native, popen_patch = _build_adapter(monkeypatch, tmp_path, popen_instances=[fake_popen])
         # Track permanent-failure callback (wired by the adapter in __init__).
         permanent_failure_called: list[bool] = []
         native._on_permanent_failure_callback = lambda: permanent_failure_called.append(True)
@@ -383,9 +377,7 @@ class TestPipeBrokenPipeOnWriteHandled:
             stdout_data=b"READY\n",
             stdin_fail_on_write=True,
         )
-        adapter, native, popen_patch = _build_adapter(
-            monkeypatch, tmp_path, popen_instances=[fake_popen]
-        )
+        adapter, native, popen_patch = _build_adapter(monkeypatch, tmp_path, popen_instances=[fake_popen])
 
         with popen_patch:
             try:
@@ -432,9 +424,7 @@ class TestRestartAfterCrashRecovers:
             fp.cmd = cmd
             return fp
 
-        adapter, native, _ = _build_adapter(
-            monkeypatch, tmp_path, popen_instances=popen_instances
-        )
+        adapter, native, _ = _build_adapter(monkeypatch, tmp_path, popen_instances=popen_instances)
 
         import logging
 
@@ -449,8 +439,8 @@ class TestRestartAfterCrashRecovers:
 
                 # Wait for the reader thread to detect the crash and
                 # respawn (RESTART_DELAY_BASE_SECONDS patched to 0.01s).
-                deadline = time.time() + 2.0
-                while time.time() < deadline:
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
                     if call_count[0] >= 2:
                         break
                     time.sleep(0.01)
@@ -467,8 +457,7 @@ class TestRestartAfterCrashRecovers:
                 restart_messages = [
                     r.getMessage()
                     for r in caplog.records
-                    if r.levelno >= logging.WARNING
-                    and "restarting" in r.getMessage().lower()
+                    if r.levelno >= logging.WARNING and "restarting" in r.getMessage().lower()
                 ]
                 assert restart_messages, (
                     "reader thread should log a 'restarting' warning when the "
@@ -485,9 +474,7 @@ class TestTeardownWithLiveSubprocessJoins:
 
     def test_teardown_terminates_and_waits(self, monkeypatch, tmp_path):
         fake_popen = _FakePopen(cmd=[], stdout_data=b"READY\n")
-        adapter, native, popen_patch = _build_adapter(
-            monkeypatch, tmp_path, popen_instances=[fake_popen]
-        )
+        adapter, native, popen_patch = _build_adapter(monkeypatch, tmp_path, popen_instances=[fake_popen])
 
         with popen_patch:
             adapter.start(lambda: None)
@@ -504,9 +491,7 @@ class TestTeardownWithLiveSubprocessJoins:
             "stop() must call terminate() or send_signal() on the live subprocess"
         )
         # wait() must have been called (the process is joined).
-        assert len(fake_popen.wait_calls) > 0, (
-            "stop() must call wait() on the subprocess to join it"
-        )
+        assert len(fake_popen.wait_calls) > 0, "stop() must call wait() on the subprocess to join it"
         # The adapter should be in STOPPED state.
         assert adapter._state == adapter._STATE_STOPPED
         # The process reference should be cleared.

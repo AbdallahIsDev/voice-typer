@@ -53,8 +53,8 @@ class TestElapsedTimerSingleThread:
         timer.start()
         try:
             # Wait for at least 3 ticks (3 seconds).
-            deadline = time.time() + 5.0
-            while len(ticks) < 3 and time.time() < deadline:
+            deadline = time.monotonic() + 5.0
+            while len(ticks) < 3 and time.monotonic() < deadline:
                 time.sleep(0.05)
             assert len(ticks) >= 3, (
                 f"Expected at least 3 ticks in 5s, got {len(ticks)} — worker thread may not be ticking"
@@ -149,8 +149,8 @@ class TestElapsedTimerSingleThread:
         )
         timer.start()
         try:
-            deadline = time.time() + 3.5
-            while len(ticks) < 2 and time.time() < deadline:
+            deadline = time.monotonic() + 3.5
+            while len(ticks) < 2 and time.monotonic() < deadline:
                 time.sleep(0.05)
             assert len(ticks) >= 2, f"Expected ≥2 ticks, got {len(ticks)}"
         finally:
@@ -179,8 +179,8 @@ class TestElapsedTimerSingleThread:
         # Flip is_active to False — the worker's next-tick check exits.
         active.clear()
         # Wait up to 2s for the worker to notice + exit on its own.
-        deadline = time.time() + 2.0
-        while worker.is_alive() and time.time() < deadline:
+        deadline = time.monotonic() + 2.0
+        while worker.is_alive() and time.monotonic() < deadline:
             time.sleep(0.02)
         assert not worker.is_alive(), "Worker should exit on its own when is_active() returns False"
         # cancel() is still idempotent + safe.

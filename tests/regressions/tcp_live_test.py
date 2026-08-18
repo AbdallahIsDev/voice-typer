@@ -203,8 +203,8 @@ def live_server(tmp_path, monkeypatch):
     server.start_tcp(port)
 
     # Wait for the server to be ready (listening on the port).
-    deadline = time.time() + 2.0
-    while time.time() < deadline:
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
         try:
             test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             test_sock.settimeout(0.25)
@@ -223,8 +223,8 @@ def live_server(tmp_path, monkeypatch):
     server.stop()
     # Wait briefly for the accept thread to exit so it doesn't leak
     # into the next test.
-    deadline = time.time() + 1.0
-    while time.time() < deadline:
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
         if server._tcp_server_socket is None:
             break
         time.sleep(0.02)
@@ -446,8 +446,8 @@ class TestTcpServerStop:
         server.start_tcp(port)
 
         # Wait for the server to start listening.
-        deadline = time.time() + 2.0
-        while time.time() < deadline:
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.settimeout(0.25)
@@ -498,8 +498,8 @@ class TestTcpServerStop:
         server.start_tcp(port)
 
         # Wait for the server to start.
-        deadline = time.time() + 2.0
-        while time.time() < deadline:
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.settimeout(0.25)
@@ -513,8 +513,8 @@ class TestTcpServerStop:
         assert server._tcp_server_socket is not None
         server.stop()
         # After stop: cleared (or being cleared — give it a moment).
-        deadline = time.time() + 1.0
-        while time.time() < deadline:
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
             if server._tcp_server_socket is None:
                 break
             time.sleep(0.02)
@@ -553,8 +553,8 @@ class TestTcpTokenUnsetFailClosed:
 
             # Wait for the server to be listening (it binds even when
             # the token is unset, so the connect succeeds).
-            deadline = time.time() + 2.0
-            while time.time() < deadline:
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
                 try:
                     probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     probe.settimeout(0.25)
@@ -568,9 +568,9 @@ class TestTcpTokenUnsetFailClosed:
                 pytest.fail(f"IPC server did not start listening on port {port} within 2s")
 
             # The bind-time ERROR must have been logged.
-            assert any(
-                "VOICE_TYPER_IPC_TOKEN not set" in r.getMessage() for r in caplog.records
-            ), "server must log an ERROR when the token env var is unset"
+            assert any("VOICE_TYPER_IPC_TOKEN not set" in r.getMessage() for r in caplog.records), (
+                "server must log an ERROR when the token env var is unset"
+            )
 
             # Connect and send a command WITHOUT any auth line — the
             # connection must be closed with no response.
@@ -582,9 +582,7 @@ class TestTcpTokenUnsetFailClosed:
                 data = client.recv(4096)
             except (TimeoutError, ConnectionError, OSError):
                 data = b""
-            assert data == b"", (
-                f"server must refuse connections when token unset; got response: {data!r}"
-            )
+            assert data == b"", f"server must refuse connections when token unset; got response: {data!r}"
             client.close()
 
         server.stop()
@@ -605,8 +603,8 @@ class TestTcpTokenUnsetFailClosed:
         server.start_tcp(port)
 
         # Wait for listening.
-        deadline = time.time() + 2.0
-        while time.time() < deadline:
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
             try:
                 probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 probe.settimeout(0.25)

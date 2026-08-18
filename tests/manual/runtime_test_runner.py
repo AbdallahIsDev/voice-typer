@@ -42,11 +42,11 @@ def simulate_f2():
 
 def tail_log(log_file, timeout=60, stop_on=None):
     """Tail the log file until stop_on string is found or timeout."""
-    start = time.time()
+    start = time.monotonic()
     seen_lines = []
     offset = 0
 
-    while time.time() - start < timeout:
+    while time.monotonic() - start < timeout:
         if not log_file.exists():
             time.sleep(0.5)
             continue
@@ -72,14 +72,14 @@ def tail_log(log_file, timeout=60, stop_on=None):
 
 def wait_for_log(log_file, pattern, timeout=90):
     """Wait until a specific pattern appears in the log file."""
-    start = time.time()
+    start = time.monotonic()
     offset = 0
     if log_file.exists():
         with open(log_file, encoding="utf-8", errors="replace") as f:
             f.seek(0, 2)  # seek to end
             offset = f.tell()
 
-    while time.time() - start < timeout:
+    while time.monotonic() - start < timeout:
         try:
             with open(log_file, encoding="utf-8", errors="replace") as f:
                 f.seek(offset)

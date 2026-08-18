@@ -325,8 +325,8 @@ class TestShutdownGate:
         assert result2 is not None and result2["data"] == {"ack": True}
 
         # Wait briefly for the cleanup thread to land its call.
-        deadline = time.time() + 2.0
-        while time.time() < deadline and server.service.quit.call_count < 1:
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and server.service.quit.call_count < 1:
             time.sleep(0.005)
         # service.quit is called EXACTLY ONCE — the second
         # invocation's no-op path doesn't spawn a second cleanup thread.
@@ -361,9 +361,9 @@ class TestShutdownGate:
         server._handle_shutdown(data=None, resp={"id": 1})
 
         # Wait briefly for the cleanup thread to be spawned + registered.
-        deadline = time.time() + 2.0
+        deadline = time.monotonic() + 2.0
         registered_names: list[str] = []
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             registered_names = [
                 str(call.kwargs.get("name", "")) for call in server.app._thread_registry.register.call_args_list
             ]

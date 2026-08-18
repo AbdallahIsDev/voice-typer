@@ -243,8 +243,8 @@ def e2e_server(tmp_path, monkeypatch):
     server.start_tcp((port, bound_sock))
 
     # Wait for the TCP server to be ready
-    deadline = time.time() + 5.0
-    while time.time() < deadline:
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
         try:
             test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             test_sock.settimeout(0.5)
@@ -530,8 +530,8 @@ class TestFullPipeline:
         for cmd_id, cmd_type, cmd_data in commands:
             _send_line(sock, {"id": cmd_id, "type": cmd_type, "data": cmd_data})
             # Read responses until we get the one with our id
-            deadline = time.time() + 3.0
-            while time.time() < deadline:
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
                 resp = _read_line(sock, timeout=2.0)
                 if resp.get("id") == cmd_id:
                     assert resp["type"] in ("status", "config", "history"), (

@@ -155,8 +155,8 @@ def sec8_server(tmp_path, monkeypatch):
     server.start_tcp(port)
 
     # Wait for the TCP listener to be ready.
-    deadline = time.time() + 5.0
-    while time.time() < deadline:
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
         try:
             test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             test_sock.settimeout(0.5)

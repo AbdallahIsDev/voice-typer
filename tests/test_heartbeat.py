@@ -567,8 +567,8 @@ def test_heartbeat_over_real_tcp_socket_updates_timestamp(monkeypatch) -> None:
 
     # Wait for the timestamp to be updated (the handler runs on the
     # TCP thread; we poll from the main thread).
-    deadline = time.time() + 2.0
-    while time.time() < deadline:
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
         if server._last_heartbeat_at is not None:
             break
         time.sleep(0.02)
