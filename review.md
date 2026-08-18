@@ -238,14 +238,6 @@ Brainstorm yourself and use the best practices to solve this problem.
 
 ---
 
-### XZ-IPC-012 — `is True` idiom fragility (Low)
-**Status:** ✅ Fixed (verified 2026-08-12) — no `is True` comparisons remain in `ipc_server.py`/`sidecar_ws.py`; all sites use plain truthy `getattr(..., False)` checks (e.g. `sidecar_ws.py:1078,1145,1200`).
-**Description:** `ipc_server.py:1577, 1934` and `sidecar_ws.py:311` use `getattr(self.app, "_shutting_down", False) is True` — accommodates test MagicMock auto-vivification. A real refactor setting `_shutting_down = 1` (truthy int) would bypass the shutdown gate.
-**Related Files:** `voice_typer/server/ipc_server.py`, `voice_typer/server/sidecar_ws.py`**Fix:** Add assertion in `VoiceTyperApp.__init__` that `_shutting_down` is a bool. Change `is True` back to truthiness.
-**Severity:** 🟢 Low
-
----
-
 ### XZ-R11-04 — No encryption at rest for dictated text (Medium)
 **Status:** ⚠️ Partial — threat model + mitigation design documented (docs/adr/XZ-R11-04-at-rest-encryption.md, 609 lines, added 2026-08-03); encryption NOT implemented — `history_db.py` still stores plaintext.
 **Description:** `history_db.py` stores dictated `text` in plaintext. File perms 0o600 / dir 0o700, `secure_delete=ON`, GDPR delete unlinks after checkpoint. But while running (or after unclean shutdown before checkpoint), text recoverable by same-user/root.
@@ -508,18 +500,6 @@ Brainstorm yourself and use the best practices to solve this problem.
 
 ---
 
-### [ER-92] — Prewarm macOS LaunchAgent: every login pays ~500ms-1s Python cold-start CPU before sentinel check short-circuits
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-**Description:** `prewarm_scheduler_posix.py:96-132` — every login causes the full Python prewarm process to start (cold import of voice_typer.server.config + setup_logging + _fast_startup_enabled + _already_warmed) before the sentinel check at `pipeline.py:116-118` short-circuits. On a laptop where the user logs out/in within the same boot, this pays ~500ms-1s of Python cold-start CPU + disk I/O at every login, even though the warming itself is correctly skipped.
-**Root Cause:** Verified — sentinel check happens INSIDE the prewarm Python process, not at the scheduler level.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/prewarm_scheduler_posix.py`
-**Fix:** Either wrap the plist's ProgramArguments in a tiny shell pre-check that exits 0 if the sentinel file's first line matches `sysctl -n kern.boottime`, OR add `--delay 30` to the plist's ProgramArguments so prewarm starts 30s after login (overlaps with the user's normal post-login activity, less perceptible).
-
----
-
 ### [ER-93] — `kill_process_tree` 200ms unconditional grace sleep even when no descendants
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
@@ -757,35 +737,6 @@ The reader task (519-757) and the heartbeat task (758-893) have no shared intern
 - `voice_typer/server/server_platform/__init__.py`**Fix:** Execute CR-67 migration: update ~90-150 test monkeypatch sites to patch the submodule directly (`voice_typer.server.recording.resampling._resample_poly_error` instead of `voice_typer.server.recording._resample_poly_error`). Delete the custom module subclasses. Shrink each `__init__.py` to a single `from .submodule import PublicName` block. Drop every `_`-prefixed name from `__all__`.
 **Severity:** 🟡 Medium
 
-### DT-41 — ALLOWED_COMMANDS 3-layer duplication (67 TS / 68 Rust / 69 Python — claim of 76 each is stale)
-**Status:** ❌ Not Fixed — ALLOWED_COMMANDS still in 3 separate layers; no protocol/commands.json
-**Description:** `ALLOWED_COMMANDS` is declared in 3 separate layers: TS (`allowed-commands.ts`, 67 entries), Rust (`sidecar_cmds.rs`, 68 entries), Python (`_COMMAND_REGISTRY`, 69 entries) — re-audited 2026-08-12: the "76 entries" claim is stale in all three layers. Each layer hardcodes its list; parity enforced after-the-fact by `tests/test_security_doc_command_count.py` and `tests/test_electron_ipc_and_build.py`. Doc comments on both sides admit the duplication ("KEEP IN SYNC").
-**Root Cause:** Pre-existing 3-layer architecture; each layer enforces its own allowlist as defense-in-depth; no shared contract file.
-**Impact:** Every new command requires editing 3 files + manual coordination; 60+ renderer call sites pass names as bare string literals.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/main/allowed-commands.ts:70-206`
-- `src-tauri/src/commands/sidecar_cmds.rs:133-215`
-- `voice_typer/server/ipc_server.py:2016-2188`
-**Fix:** Introduce a single source-of-truth `protocol/commands.json` at repo root. Codegen TS `ALLOWED_COMMANDS` Set + `type CommandName` union, Rust `static ALLOWED_COMMANDS: &[&str]`, Python `_COMMAND_REGISTRY` skeleton. Parity tests assert codegen output matches. (Full codegen is a larger effort; for this session, add a stricter parity test that asserts set equality.)
-**Severity:** 🟡 Medium
-
-### DT-43 — APP_NAME 4-way duplication (branding across 4 files)
-**Status:** ❌ Not Fixed — APP_NAME still declared in 4 separate files; no protocol/branding.json
-**Description:** `APP_NAME = "Voice Typer"` is declared in 4 files: `voice_typer/server/branding.py:31`, `voice_typer/client/src/main/branding.ts:51`, `voice_typer/client/src/renderer/src/branding.ts:52`, `src-tauri/src/branding.rs:41`. Each file's docstring explicitly documents the duplication with multi-paragraph ASCII-art warning boxes begging future agents not to inline the literal. Parity enforced by `branding-sync.test.ts` + `scripts/check_branding.py`.
-**Root Cause:** TS main and renderer tsconfigs include disjoint directory trees; single shared TS module impossible. Rust mirror added when Tauri host landed.
-**Impact:** A product rename requires editing 4 files in 3 languages; the warning boxes themselves are duplicated 3×.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/branding.py:31`
-- `voice_typer/client/src/main/branding.ts:51`
-- `voice_typer/client/src/renderer/src/branding.ts:52`
-- `src-tauri/src/branding.rs:41`
-**Fix:** Add `APP_NAME` (and `APP_DESCRIPTION`, `APP_URL`, `APP_REPO`) to shared `protocol/branding.json`. Codegen all 4 branding modules from it. As a transitional step, extend `check_branding.py` to also read `branding.rs` (it currently doesn't per the `branding.rs:21` comment).
-**Severity:** 🟡 Medium
-
----
-
 ### FZ-8 — 478 `inspect.getsource` source-string tests across 150 Python test files (GREW from 164/30)
 **Status:** ❌ Not Fixed — too large (project-wide migration; deferred to dedicated test-quality sprint)
 **Description:** 478 occurrences of `inspect.getsource` across 150 Python test files (re-verified 2026-08-12; the directive cited "164+ across 30+ files" — the count has GROWN 2.9×, not shrunk). These tests assert on the literal source text of production functions rather than on observable behavior.
@@ -900,16 +851,6 @@ The reader task (519-757) and the heartbeat task (758-893) have no shared intern
 - **FR-S12:** `src-tauri/src/platform/logging.rs` (1737 lines, re-audited 2026-08-12 — was 989, GREW +748; inline tests moved to logging_tests.rs) — Phase 4.5 candidate.
 - **FR-S14:** `voice_typer/server/sidecar_ws.py` (2027 lines, re-verified 2026-08-12 — up from 953) — Phase 4.5 candidate.
 
----
-
-### Verifier-1 — ws.rs G4-H-32 allowlist drift (Low)
-**Status:** ❌ Not Fixed
-**Description:** The `ALLOWED_EVENT_TYPES` list in `src-tauri/src/sidecar/ws.rs` contains ~28 events that are NOT in the G4-H-32 spec comment block (re-audited 2026-08-12 — the "9 events" claim understates): `state_changed`, `error`, `mic_level`, `llm_polish_failed`, `device_lost`, `asr_backend_disabled`, `asr_last_resort_unloaded`, `audio_clip`, `dictation_lost`, plus ~19 more. While each has a code comment explaining why it was added and the allowlist is correct at runtime, the G4-H-32 spec block at lines ~76-89 is now out of date — a future contributor looking at the spec block won't see the full set of allowed events.
-**Root Cause:** Events were added to the allowlist one-by-one as new server features were implemented, without updating the spec block to match.
-**Related Files:**
-- `src-tauri/src/sidecar/ws.rs`
-**Severity:** 🟢 Low
-
 ### AB-49 — `audio_quality.analyze_full_audio` allocates 3 full-length temporary arrays (57 MB spike on 5-min recording)
 **Status:** 🚫 Won't Fix
 **Description:** `audio_quality.py:210,211,231`: `analyze_full_audio` allocates three full-length temporary arrays: `np.sqrt(np.mean(np.square(audio), dtype=np.float64))`, `np.max(np.abs(audio))`, `np.var(audio)`. For a 5-minute @16 kHz recording (4.8M samples ≈ 19 MB), this is ~57 MB of transient peak allocation. The identical metric is computed allocation-free in `AudioProcessor._run_quality_check` (`audio_processor.py:423-425`) using `np.dot(flat, flat)/size` and `max(flat.max(), -flat.min())`.
@@ -983,11 +924,8 @@ The following findings were implemented by sub-agents (test files exist, agents 
 
 ---
 
-## Remaining Work
-
-- **ZU-18 Rust namespacing** (S, P1): `sidecar_cmds.rs` still emits non-namespaced `pending_full`/`data_too_large`. TS union accepts both forms, so no runtime break, but full cross-language parity requires Rust update + cargo check.
-- **ZU-22 remaining ~145 untranslated zh/ru strings** (M, P2): mostly `.models.*` and `.settings.appearance.*`. Not first-launch user-facing.
-- **ZU-19 helper migration** (M, P3): 17 test files still have local `makeConfig()` (per audit 2026-08-12, up from 9; spot-check: 16 local defs outside helpers/) — lint test added to track. Full migration deferred (too many files for one session).
+### ZU-19 helper migration
+(M, P3): 17 test files still have local `makeConfig()` (per audit 2026-08-12, up from 9; spot-check: 16 local defs outside helpers/) — lint test added to track. Full migration deferred (too many files for one session).
 
 ---
 
@@ -1038,9 +976,7 @@ The following findings were implemented by sub-agents (test files exist, agents 
 - **QV-27** — ConnectionStatusScreen raw backend errors
 - **QV-31** — Model download progress in onboarding
 - **QV-32** — First-run probe fallback
-- **QV-33** — Onboarding consent split
 - **QV-35** — DownloadProgressBar error/onRetry wiring
-- **QV-36** — LocalModelsPanel disk space badge (key added, panel change pending)
 - **QV-37** — Templates/Vocabulary LastUpdatedIndicator + Clear All (partial)
 - **QV-40** — Toast durations bypass useSnackbar
 - **QV-41** — Page padding inconsistencies
@@ -1187,12 +1123,10 @@ The following findings are documented in `review.md` as `❌ Not Fixed` — defe
 | AP-12 | Low | VOICE_TYPER_DEBUG=1 PII warning — documentation only | S | P2 |
 | AP-26 | Low | _backup_before_migration ordering — latent, no current migrator writes to disk | S | P2 |
 | AP-32 | Low | container_detect DRY — maintenance hazard, no functional impact | S | P2 |
-| AP-44 | Medium | Whisper-fallback circuit breaker — needs separate counter + state | M | P1 |
 | AP-45 | Medium | load_with_fallback timeout — needs ThreadPoolExecutor + careful design | M | P1 |
 | AP-46 | Medium | Cloud 200-with-empty-body — needs new CloudEmptyResponseError type | M | P1 |
 | AP-47 | Medium | log.error → log.exception across 223 sites in 106 files (re-measured 2026-08-12 with `rg 'log\.error\(' voice_typer/server voice_typer/client/src/main voice_typer/client/src/preload`; the earlier 169/73 count is stale) — dispersed | L | P1 |
 | AP-48 | Medium | Third-party library loggers silenced unevenly — needs expanded list | S | P1 |
-| AP-51 | Medium | Rust session-ID bracket — cross-language correlation gap | S | P1 |
 
 ---
 
@@ -2168,17 +2102,6 @@ The following Low-severity findings were identified during Phase 1 investigation
 **Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
 **Severity:** 🟢 Low
 
-### GQ-L14 — capture.py indata.copy() per chunk (PortAudio contract — required)
-**Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
-**Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
-**User Impact:** Negligible (sub-50ms latency / sub-10MB memory / sub-1% CPU). No measurable user-visible effect; purely a code-quality or micro-perf concern.
-**Root Cause:** See related file:line — typically a copy-paste smell, redundant call, or stale comment.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording/capture.py:230`
-**Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
-**Severity:** 🟢 Low
-
 ### GQ-L15 — microphone_watcher.py 1235 LOC mixing 5 platform/concern splits (was 1170)
 **Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
 **Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
@@ -2220,17 +2143,6 @@ The following Low-severity findings were identified during Phase 1 investigation
 **Progress:** None yet.
 **Related Files:**
 - `voice_typer/server/config/loader.py:246-271`
-**Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
-**Severity:** 🟢 Low
-
-### GQ-L21 — history_db secure_delete=ON doubles single-row delete I/O (intentional privacy)
-**Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
-**Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
-**User Impact:** Negligible (sub-50ms latency / sub-10MB memory / sub-1% CPU). No measurable user-visible effect; purely a code-quality or micro-perf concern.
-**Root Cause:** See related file:line — typically a copy-paste smell, redundant call, or stale comment.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/history_db_internals/schema.py:179`
 **Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
 **Severity:** 🟢 Low
 
@@ -2278,18 +2190,6 @@ The following Low-severity findings were identified during Phase 1 investigation
 **Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
 **Severity:** 🟢 Low
 
-### GQ-L26 — parakeet_engine _transcribe_segment_unlocked duplicates _transcribe_segment
-**Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
-**Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
-**User Impact:** Negligible (sub-50ms latency / sub-10MB memory / sub-1% CPU). No measurable user-visible effect; purely a code-quality or micro-perf concern.
-**Root Cause:** See related file:line — typically a copy-paste smell, redundant call, or stale comment.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/parakeet_engine.py:1413` (`_transcribe_segment_unlocked`; claim 1366-1426 stale)
-- `voice_typer/server/parakeet_engine.py:774` (`_transcribe_segment`; claim 823-892 stale)
-**Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
-**Severity:** 🟢 Low
-
 ### GQ-L27 — sidecar_ws double emit (specific + python-event) + payload.clone per event
 **Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
 **Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
@@ -2298,17 +2198,6 @@ The following Low-severity findings were identified during Phase 1 investigation
 **Progress:** None yet.
 **Related Files:**
 - `src-tauri/src/sidecar/ws.rs:796-825` (double-emit anchors re-verified 2026-08-12: `emit("bubble_level")` + `emit("python-event")` at ~817-818; generic `emit(emit_name)` + `emit("python-event")` at ~823-825; the earlier 783-784/801-802 citations were stale)
-**Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
-**Severity:** 🟢 Low
-
-### GQ-L28 — state.rs pending map unbounded HashMap (bounded by heartbeat 30s)
-**Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
-**Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
-**User Impact:** Negligible (sub-50ms latency / sub-10MB memory / sub-1% CPU). No measurable user-visible effect; purely a code-quality or micro-perf concern.
-**Root Cause:** See related file:line — typically a copy-paste smell, redundant call, or stale comment.
-**Progress:** None yet.
-**Related Files:**
-- `src-tauri/src/state.rs:58` (`PendingMap` type alias), `src-tauri/src/state.rs:289` (`pending` field) — re-audited 2026-08-12; the earlier :265 citation pointed at an unrelated `child.kill()` in the drop impl
 **Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
 **Severity:** 🟢 Low
 
@@ -2378,17 +2267,6 @@ The following Low-severity findings were identified during Phase 1 investigation
 **Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
 **Severity:** 🟢 Low
 
-### GQ-L35 — logging/rotation.ts sync appendFileSync per log line (intentional crash-durability)
-**Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
-**Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
-**User Impact:** Negligible (sub-50ms latency / sub-10MB memory / sub-1% CPU). No measurable user-visible effect; purely a code-quality or micro-perf concern.
-**Root Cause:** See related file:line — typically a copy-paste smell, redundant call, or stale comment.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/main/logging/rotation.ts:419`
-**Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
-**Severity:** 🟢 Low
-
 ### GQ-L36 — tcp-connect.ts Buffer.concat per chunk
 **Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
 **Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
@@ -2419,17 +2297,6 @@ The following Low-severity findings were identified during Phase 1 investigation
 **Progress:** None yet.
 **Related Files:**
 - `voice_typer/client/src/main/ipc/window-handlers.ts:349-357`
-**Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
-**Severity:** 🟢 Low
-
-### GQ-L39 — useStatsShare shareAsImage re-memo on caller render (onError closure)
-**Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
-**Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
-**User Impact:** Negligible (sub-50ms latency / sub-10MB memory / sub-1% CPU). No measurable user-visible effect; purely a code-quality or micro-perf concern.
-**Root Cause:** See related file:line — typically a copy-paste smell, redundant call, or stale comment.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/hooks/useStatsShare.ts:313-315`
 **Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
 **Severity:** 🟢 Low
 
@@ -2545,28 +2412,6 @@ The following Low-severity findings were identified during Phase 1 investigation
 **Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
 **Severity:** 🟢 Low
 
-### GQ-L50 — Cargo.toml fat-LTO release profile (slow local release builds)
-**Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
-**Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
-**User Impact:** Negligible (sub-50ms latency / sub-10MB memory / sub-1% CPU). No measurable user-visible effect; purely a code-quality or micro-perf concern.
-**Root Cause:** See related file:line — typically a copy-paste smell, redundant call, or stale comment.
-**Progress:** None yet.
-**Related Files:**
-- `src-tauri/Cargo.toml:119-125`
-**Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
-**Severity:** 🟢 Low
-
-### GQ-L51 — tauri.conf.json base not directly buildable (needs per-platform override)
-**Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
-**Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
-**User Impact:** Negligible (sub-50ms latency / sub-10MB memory / sub-1% CPU). No measurable user-visible effect; purely a code-quality or micro-perf concern.
-**Root Cause:** See related file:line — typically a copy-paste smell, redundant call, or stale comment.
-**Progress:** None yet.
-**Related Files:**
-- `src-tauri/tauri.conf.json:49-76`
-**Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
-**Severity:** 🟢 Low
-
 ### GQ-L53 — generate_beeps.py per-sample struct.pack loop
 **Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
 **Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
@@ -2619,18 +2464,6 @@ The following Low-severity findings were identified during Phase 1 investigation
 **Progress:** None yet.
 **Related Files:**
 - `voice_typer/server/model_manager.py:1748-1758`
-**Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
-**Severity:** 🟢 Low
-
-### GQ-L59 — app.py dual _audio_quality attributes (analyzer vs controller) — naming collision
-**Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
-**Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
-**User Impact:** Negligible (sub-50ms latency / sub-10MB memory / sub-1% CPU). No measurable user-visible effect; purely a code-quality or micro-perf concern.
-**Root Cause:** See related file:line — typically a copy-paste smell, redundant call, or stale comment.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/app.py:420-421`
-- `voice_typer/server/app.py:972-989`
 **Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
 **Severity:** 🟢 Low
 
