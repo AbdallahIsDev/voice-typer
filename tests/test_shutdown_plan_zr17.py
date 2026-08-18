@@ -398,7 +398,7 @@ class TestDoCleanupCallOrder:
 # ── barrier end-to-end test ──────────────────────────────────────
 
 
-class TestGT70BarrierEndToEnd:
+class TestBarrierEndToEnd:
     """when ``_teardown_recorder`` times out, the barrier
     skips ``_teardown_sounddevice`` (the downstream call that touches
     the same PortAudio resource)."""

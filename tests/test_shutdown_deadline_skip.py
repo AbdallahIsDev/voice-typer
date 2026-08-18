@@ -94,16 +94,14 @@ def controller(fake_app):
 # ── Tests ──────────────────────────────────────────────────────────────
 
 
-class TestGQ10InterStepDeadlineSkip:
+class TestInterStepDeadlineSkip:
     """``run_plan`` skips non-critical sequenced steps when the deadline
     is near, but ALWAYS runs critical flush-bearing steps."""
 
     def test_critical_steps_set_is_correct(self) -> None:
         """The ``CRITICAL_STEPS`` frozenset must contain exactly the
         three flush-bearing sequenced teardowns."""
-        assert frozenset(
-            {"teardown_recorder", "teardown_history_db", "teardown_crash_recovery"}
-        ) == CRITICAL_STEPS
+        assert frozenset({"teardown_recorder", "teardown_history_db", "teardown_crash_recovery"}) == CRITICAL_STEPS
 
     def test_non_critical_step_skipped_when_deadline_near(self, controller) -> None:
         """A non-critical sequenced step is SKIPPED when
@@ -131,14 +129,10 @@ class TestGQ10InterStepDeadlineSkip:
         result = run_plan(controller, plan, frozenset())
 
         # The step was NOT called (skipped).
-        assert called == [], (
-            f"non-critical step must be skipped when deadline is near. "
-            f"Called: {called}"
-        )
+        assert called == [], f"non-critical step must be skipped when deadline is near. Called: {called}"
         # The step name was appended to _shutdown_skipped.
         assert "non_critical_step" in controller._shutdown_skipped, (
-            f"skipped step must be appended to _shutdown_skipped. "
-            f"Got: {controller._shutdown_skipped}"
+            f"skipped step must be appended to _shutdown_skipped. Got: {controller._shutdown_skipped}"
         )
         # The step is NOT in the returned timed_out set (it was skipped,
         # not timed out).
@@ -168,10 +162,7 @@ class TestGQ10InterStepDeadlineSkip:
         )
         run_plan(controller, plan, frozenset())
 
-        assert called == ["teardown_recorder"], (
-            f"critical step must run even when deadline is near. "
-            f"Called: {called}"
-        )
+        assert called == ["teardown_recorder"], f"critical step must run even when deadline is near. Called: {called}"
         # Critical step is NOT in _shutdown_skipped.
         assert "teardown_recorder" not in controller._shutdown_skipped
 
@@ -187,6 +178,7 @@ class TestGQ10InterStepDeadlineSkip:
         def _make_spy(name):
             def _spy():
                 called.append(name)
+
             return _spy
 
         plan = ShutdownPlan(
@@ -222,8 +214,7 @@ class TestGQ10InterStepDeadlineSkip:
         assert "teardown_crash_recovery" in called
         # Non-critical step was skipped.
         assert "teardown_timers_and_recording" not in called, (
-            f"non-critical step must be skipped when deadline is near. "
-            f"Called: {called}"
+            f"non-critical step must be skipped when deadline is near. Called: {called}"
         )
         # Non-critical step in _shutdown_skipped.
         assert "teardown_timers_and_recording" in controller._shutdown_skipped
@@ -241,6 +232,7 @@ class TestGQ10InterStepDeadlineSkip:
         def _make_spy(name):
             def _spy():
                 called.append(name)
+
             return _spy
 
         plan = ShutdownPlan(
@@ -287,9 +279,7 @@ class TestGQ10InterStepDeadlineSkip:
         )
         run_plan(controller, plan, frozenset())
 
-        assert called == ["non_critical_step"], (
-            f"non-critical step must run when deadline is far. Called: {called}"
-        )
+        assert called == ["non_critical_step"], f"non-critical step must run when deadline is far. Called: {called}"
         assert controller._shutdown_skipped == []
 
     def test_skip_logged_at_warning(self, controller, caplog) -> None:
@@ -311,10 +301,7 @@ class TestGQ10InterStepDeadlineSkip:
         with caplog.at_level("WARNING", logger="voice_typer.server.shutdown.plan"):
             run_plan(controller, plan, frozenset())
 
-        skip_logs = [
-            r for r in caplog.records
-            if "skipping non-critical step" in r.message
-        ]
+        skip_logs = [r for r in caplog.records if "skipping non-critical step" in r.message]
         assert skip_logs, (
             "expected a WARNING log mentioning 'skipping non-critical step'. "
             f"Records: {[r.message for r in caplog.records]}"
@@ -333,6 +320,7 @@ class TestGQ10InterStepDeadlineSkip:
         def _make_spy(name):
             def _spy():
                 called.append(name)
+
             return _spy
 
         plan = ShutdownPlan(
@@ -358,10 +346,8 @@ class TestGQ10InterStepDeadlineSkip:
         run_plan(controller, plan, frozenset())
 
         assert set(called) == {"teardown_recorder", "teardown_history_db", "teardown_crash_recovery"}, (
-            f"all three critical steps must run even when deadline is expired. "
-            f"Called: {called}"
+            f"all three critical steps must run even when deadline is expired. Called: {called}"
         )
         assert controller._shutdown_skipped == [], (
-            f"no critical step should be in _shutdown_skipped. "
-            f"Got: {controller._shutdown_skipped}"
+            f"no critical step should be in _shutdown_skipped. Got: {controller._shutdown_skipped}"
         )

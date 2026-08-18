@@ -51,12 +51,8 @@ def _make_app_with_mock_recorder() -> MagicMock:
     app.recorder.recording = False
     # Simulate ``recorder.start()`` flipping ``recording`` to True
     # (the real Recorder does this via ``_recording_event.set()``).
-    app.recorder.start = MagicMock(
-        side_effect=lambda *a, **kw: setattr(app.recorder, "recording", True)
-    )
-    app.recorder.discard = MagicMock(
-        side_effect=lambda *a, **kw: setattr(app.recorder, "recording", False)
-    )
+    app.recorder.start = MagicMock(side_effect=lambda *a, **kw: setattr(app.recorder, "recording", True))
+    app.recorder.discard = MagicMock(side_effect=lambda *a, **kw: setattr(app.recorder, "recording", False))
     app._busy_event = threading.Event()
     app._busy_event.set()  # not busy
     app._cycle_id = "#1"
@@ -115,7 +111,7 @@ def _make_controller_with_lifecycle(app: MagicMock) -> MagicMock:
 # ── Tests ──────────────────────────────────────────────────────────────
 
 
-class TestGQ27FastF2ReturnDuringModelReload:
+class TestFastF2ReturnDuringModelReload:
     """The F2 dispatch thread returns within 200ms even when
     ``ensure_active_engine_loaded()`` is slow (5-30s idle-unload reload)."""
 
@@ -158,9 +154,7 @@ class TestGQ27FastF2ReturnDuringModelReload:
         )
 
         # The model load must have started (on the worker thread).
-        assert load_started.is_set(), (
-            "ensure_active_engine_loaded() must have been called by the worker"
-        )
+        assert load_started.is_set(), "ensure_active_engine_loaded() must have been called by the worker"
         # The model load must NOT have completed yet (it takes 5s, the
         # F2 thread returned in <0.2s).
         assert not load_completed.is_set(), (
@@ -176,9 +170,7 @@ class TestGQ27FastF2ReturnDuringModelReload:
         event = getattr(controller, "_start_complete_event", None)
         if event is not None:
             event.wait(timeout=10.0)
-        assert load_completed.is_set(), (
-            "Worker should eventually complete the model load"
-        )
+        assert load_completed.is_set(), "Worker should eventually complete the model load"
 
     def test_recording_flag_set_synchronously(self) -> None:
         """The ``recorder.recording`` flag is set to True synchronously
@@ -225,17 +217,12 @@ class TestGQ27FastF2ReturnDuringModelReload:
 
         # The event must exist on the controller.
         event = getattr(controller, "_start_complete_event", None)
-        assert event is not None, (
-            "_start_complete_event must be published on the controller"
-        )
+        assert event is not None, "_start_complete_event must be published on the controller"
 
         # Wait for the worker to signal (should be fast — model is
         # already loaded).
         waited = event.wait(timeout=2.0)
-        assert waited, (
-            "Worker must signal _start_complete_event within 2s when "
-            "the model is already loaded (fast path)"
-        )
+        assert waited, "Worker must signal _start_complete_event within 2s when the model is already loaded (fast path)"
 
     def test_start_worker_thread_is_daemon(self) -> None:
         """The worker thread must be a daemon so it doesn't block
@@ -254,13 +241,8 @@ class TestGQ27FastF2ReturnDuringModelReload:
             controller._lifecycle._start_impl(controller)
 
         worker = getattr(controller, "_start_worker_thread", None)
-        assert worker is not None, (
-            "_start_worker_thread must be published on the controller"
-        )
-        assert worker.daemon is True, (
-            "start worker thread must be a daemon so it doesn't block "
-            "process exit"
-        )
+        assert worker is not None, "_start_worker_thread must be published on the controller"
+        assert worker.daemon is True, "start worker thread must be a daemon so it doesn't block process exit"
 
         # Clean up.
         event = getattr(controller, "_start_complete_event", None)
@@ -313,9 +295,7 @@ class TestGQ27FastF2ReturnDuringModelReload:
         # discard was called by the worker.
         app.recorder.discard.assert_called_once()
         # recording was reset to False.
-        assert app.recorder.recording is False, (
-            "recorder.recording must be False after model-fail discard"
-        )
+        assert app.recorder.recording is False, "recorder.recording must be False after model-fail discard"
 
     def test_f2_returns_quickly_when_model_already_loaded(self) -> None:
         """When the model is already loaded (common case), the F2
@@ -332,8 +312,7 @@ class TestGQ27FastF2ReturnDuringModelReload:
 
         # F2 thread returns within 200ms.
         assert elapsed < 0.2, (
-            f"F2 thread took {elapsed:.3f}s — expected < 0.2s when model "
-            f"is already loaded (fast path)"
+            f"F2 thread took {elapsed:.3f}s — expected < 0.2s when model is already loaded (fast path)"
         )
 
         # Worker completed (event signaled).
@@ -385,9 +364,7 @@ class TestRecordingStartFailureReason:
 
         app = _make_app_with_mock_recorder()
         controller = _make_controller_with_lifecycle(app)
-        app.recorder.start = MagicMock(
-            side_effect=RuntimeError("No input device could be opened")
-        )
+        app.recorder.start = MagicMock(side_effect=RuntimeError("No input device could be opened"))
 
         with controller._toggle_lock:
             controller._lifecycle._start_impl(controller)
@@ -398,9 +375,7 @@ class TestRecordingStartFailureReason:
         )
         # The OS notification must carry the same actionable reason.
         notify_msg = str(app.tray.notify.call_args.args[1])
-        assert "no microphone found" in notify_msg, (
-            f"notification must carry the no-device reason, got: {notify_msg!r}"
-        )
+        assert "no microphone found" in notify_msg, f"notification must carry the no-device reason, got: {notify_msg!r}"
 
     def test_unknown_error_keeps_generic_label(self) -> None:
         """An unknown start failure falls back to the generic
@@ -438,17 +413,20 @@ class TestRecordingStartFailureReason:
             _recording_start_failure_message,
         )
 
-        assert _recording_start_failure_message(
-            MicrophonePermissionDeniedError(state="denied")
-        ) == "Recording failed -- microphone permission denied. Allow mic access in system settings."
-        assert _recording_start_failure_message(
-            RuntimeError("No input device could be opened")
-        ) == "Recording failed -- no microphone found. Connect a microphone and try again."
+        assert (
+            _recording_start_failure_message(MicrophonePermissionDeniedError(state="denied"))
+            == "Recording failed -- microphone permission denied. Allow mic access in system settings."
+        )
+        assert (
+            _recording_start_failure_message(RuntimeError("No input device could be opened"))
+            == "Recording failed -- no microphone found. Connect a microphone and try again."
+        )
         # A message that merely CONTAINS the marker maps to no-device.
-        assert _recording_start_failure_message(
-            RuntimeError("No input device could be opened (all candidates failed)")
-        ) == "Recording failed -- no microphone found. Connect a microphone and try again."
+        assert (
+            _recording_start_failure_message(RuntimeError("No input device could be opened (all candidates failed)"))
+            == "Recording failed -- no microphone found. Connect a microphone and try again."
+        )
         # Raw/leaky text must stay generic.
-        assert _recording_start_failure_message(
-            RuntimeError("C:\\Users\\joe\\AppData: open failed")
-        ) == "Recording failed"
+        assert (
+            _recording_start_failure_message(RuntimeError("C:\\Users\\joe\\AppData: open failed")) == "Recording failed"
+        )

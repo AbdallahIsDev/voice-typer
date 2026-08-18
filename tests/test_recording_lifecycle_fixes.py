@@ -115,7 +115,7 @@ def _install_fake_input_stream(module, monkeypatch, *, actual_samplerate=None):
 # ── latency='low' on every sd.InputStream call ────────────────
 
 
-class TestUU13LatencyLow:
+class TestLatencyLow:
     """all three ``sd.InputStream(...)`` call sites pass
     ``latency='low'``. PortAudio silently falls back to the default if
     the requested latency is unavailable — no retry logic needed."""
@@ -219,7 +219,7 @@ class TestUU13LatencyLow:
 # ── ring buffer capacity scales with sample rate ──────────────
 
 
-class TestUU36RingBufferScaling:
+class TestRingBufferScaling:
     """``start_recording`` resizes the SPSC ring buffer to ~2 s
     of headroom at the device's effective sample rate, floored at 64
     chunks. The pre-fix capacity was 1.0 s with floor 16 (sized by
@@ -353,7 +353,7 @@ class TestUU36RingBufferScaling:
 # ── teardown_stream_body force=True uses stream.abort() ────────
 
 
-class TestUU38ForceTeardownUsesAbort:
+class TestForceTeardownUsesAbort:
     """``teardown_stream_body(force=True)`` (the disconnect-recovery
     path) calls ``stream.abort()`` instead of ``stream.stop()`` so a
     dead device can't block the recovery critical path indefinitely.

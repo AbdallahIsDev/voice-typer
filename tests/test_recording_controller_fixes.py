@@ -77,7 +77,7 @@ def _make_controller_for_mic_id_test() -> tuple:
     return ctrl, app
 
 
-class TestUU1MicIdTypeMismatch:
+class TestMicIdTypeMismatch:
     """``_list_active_mic_ids`` returns ints so the watcher's
     membership check (``active_mic_id not in current_ids``) compares
     int-to-int against the int passed to ``set_active_mic_id``."""
@@ -199,7 +199,7 @@ def _make_controller_for_event_test() -> tuple:
     return ctrl, app
 
 
-class TestUU40ActiveMicLostPublishesEvent:
+class TestActiveMicLostPublishesEvent:
     """``on_active_mic_lost`` (fast path) now publishes the
     ``microphone_disconnected`` IPC event, mirroring ``on_device_lost``
     (slow path). Pre-fix only the slow path published."""
@@ -302,7 +302,7 @@ def _make_vad_processor_in_silence_state():
     return vp
 
 
-class TestUU42GreyZonePromote:
+class TestGreyZonePromote:
     """after ``_grey_zone_hold_limit`` (30) consecutive grey
     frames in SILENCE state, the state machine promotes to SPEECH.
 

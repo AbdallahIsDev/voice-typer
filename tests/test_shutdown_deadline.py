@@ -142,7 +142,7 @@ def controller(fake_app):
 # ── overall 20s deadline ─────────────────────────────────────────
 
 
-class TestUU7OverallDeadline:
+class TestOverallDeadline:
     """``_do_cleanup`` enforces a 20s overall deadline. When the
     remaining budget drops below 5s, non-critical teardowns are SKIPPED
     and only critical flushes (history_db, crash_recovery,
@@ -377,7 +377,7 @@ class TestUU7OverallDeadline:
 # ── sequential history_db + crash_recovery ──────────────────────
 
 
-class TestUU23SequentialHistoryAndCrashRecovery:
+class TestSequentialHistoryAndCrashRecovery:
     """``_teardown_history_db`` and ``_teardown_crash_recovery``
     run SEQUENTIALLY in the ``sequenced_items`` phase after
     ``_teardown_recorder`` completes. They are NOT in the parallel
@@ -529,7 +529,7 @@ class TestUU23SequentialHistoryAndCrashRecovery:
 # ── inner-outer timeout slack ───────────────────────────────────
 
 
-class TestUU24InnerOuterTimeoutSlack:
+class TestInnerOuterTimeoutSlack:
     """``teardowns/history_db.py`` inner timeouts
     (``flush=8.0`` + ``close=4.0`` = 12s) are strictly less than the
     outer wrapper budget (15s), leaving 3s of slack."""
