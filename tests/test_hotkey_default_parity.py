@@ -4,7 +4,7 @@ The default hotkey ``<caps_lock>`` is defined ONCE in the Python
 backend as ``voice_typer.server.config.DEFAULT_HOTKEY`` and exposed
 via ``Config().hotkey`` (which calls ``_default_hotkey_for_platform``).
 The renderer's onboarding wizard has a TS-side copy at
-``voice_typer/client/src/renderer/src/pages/onboarding/lib/constants.ts::HOTKEY_DEFAULT``.
+``voice_typer/client/src/renderer/src/components/hotkey/hotkey-format.ts::HOTKEY_DEFAULT``.
 
 The two are independent — the TS file ships in the client bundle and
 cannot import the Python constant at runtime. Drift between the two
@@ -26,7 +26,11 @@ from pathlib import Path
 
 from voice_typer.server.config import Config
 
-# Path to the renderer's onboarding constants module.
+# Path to the renderer's canonical hotkey-default constant.
+# ``HOTKEY_DEFAULT`` was consolidated into ``hotkey-format.ts`` (the
+# onboarding ``constants.ts`` now re-exports it via ``export *``, which
+# the regex below cannot follow) — point the resolver directly at the
+# canonical declaration so the parity check stays exact.
 CONSTANTS_TS_PATH = (
     Path(__file__).resolve().parent.parent
     / "voice_typer"
@@ -34,10 +38,9 @@ CONSTANTS_TS_PATH = (
     / "src"
     / "renderer"
     / "src"
-    / "pages"
-    / "onboarding"
-    / "lib"
-    / "constants.ts"
+    / "components"
+    / "hotkey"
+    / "hotkey-format.ts"
 )
 
 
