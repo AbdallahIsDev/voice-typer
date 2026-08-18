@@ -518,6 +518,7 @@ def _submit_write(
     from voice_typer.server import history_db as _hd
 
     _WRITE_FUTURE_TIMEOUT = _hd._WRITE_FUTURE_TIMEOUT  # noqa: N806
+    _WRITE_FUTURE_TOTAL_TIMEOUT = _hd._WRITE_FUTURE_TOTAL_TIMEOUT  # noqa: N806
     HistoryDBError = _hd.HistoryDBError  # noqa: N806
 
     if db._shutdown.is_set():
@@ -576,7 +577,31 @@ def _submit_write(
     # dies (e.g. disk corruption), the future would never resolve
     # and we'd hang. Loop with a timeout so we can detect a dead
     # writer and raise.
+    #
+    # Hard total deadline: even with the per-retry timeout above,
+    # a writer that is *alive* but never makes progress (e.g. a
+    # multi-batch retention sweep on a huge DB locked by an
+    # external process, antivirus, or a deadlocked SQLite WAL)
+    # would loop forever between the 30s per-retry waits. The
+    # ``_WRITE_FUTURE_TOTAL_TIMEOUT`` (60s = 2x the per-retry
+    # timeout) caps the cumulative wait so the IPC handler thread
+    # surfaces a clear ``HistoryDBError`` instead of hanging
+    # indefinitely. The per-retry timeout is preserved (no
+    # behavior change for successful slow writes < 60s); the
+    # deadline only ADDS an upper bound.
+    loop_start = time.monotonic()
     while True:
+        if time.monotonic() - loop_start >= _WRITE_FUTURE_TOTAL_TIMEOUT:
+            log.warning(
+                "[HISTORY_DB] Write future total deadline exceeded "
+                "(%.0fs); writer is alive but stuck \u2014 aborting wait.",
+                _WRITE_FUTURE_TOTAL_TIMEOUT,
+            )
+            raise HistoryDBError(
+                f"HistoryDB write did not complete within "
+                f"{_WRITE_FUTURE_TOTAL_TIMEOUT:.0f}s total deadline "
+                f"(writer is alive but stuck)"
+            )
         try:
             return future.result(timeout=_WRITE_FUTURE_TIMEOUT)
         except concurrent.futures.TimeoutError:
