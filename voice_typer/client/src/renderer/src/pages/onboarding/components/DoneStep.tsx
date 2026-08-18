@@ -1,4 +1,5 @@
 import type { Ref } from "react";
+import { formatHotkey } from "@/components/hotkey/hotkey-format";
 import { t } from "@/i18n/i18n";
 import type { BackendChoice } from "../hooks/useOnboardingWizard";
 import { HEADING_CLASS } from "../lib/constants";
@@ -44,7 +45,7 @@ export function DoneStep({
 			    (explicit download) or cloud on the Model step. */}
 			<p className="mb-4 text-sm text-(--text-secondary)">
 				{t("onboarding.completeDescription", {
-					hotkey: selectedHotkey.replace(/[<>]/g, "").toUpperCase(),
+					hotkey: formatHotkey(selectedHotkey),
 				})}
 			</p>
 			<div className="mb-6 space-y-2 text-sm text-(--text-secondary)">
@@ -54,7 +55,7 @@ export function DoneStep({
 				</p>
 				<p>
 					{t("onboarding.summaryHotkey")}{" "}
-					<strong>{selectedHotkey.replace(/[<>]/g, "").toUpperCase()}</strong>
+					<strong>{formatHotkey(selectedHotkey)}</strong>
 				</p>
 				<p>
 					{t("onboarding.summaryModel")} <strong>{selectedModel}</strong>

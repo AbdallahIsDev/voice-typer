@@ -22,6 +22,7 @@
 import { useEffect, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { Spinner } from "@/components/feedback/Spinner";
+import { formatHotkey } from "@/components/hotkey/hotkey-format";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { usePython } from "@/hooks/usePython";
@@ -261,7 +262,10 @@ export default function OnboardingPage({
 	// a different hotkey.
 	const hotkeyIsDefault = selectedHotkey === HOTKEY_DEFAULT;
 	const showDefaultHotkeyHint = step.step_name === "Hotkey" && hotkeyIsDefault;
-	const defaultHotkeyLabel = HOTKEY_DEFAULT.replace(/[<>]/g, "").toUpperCase();
+	// Render the default hotkey via the canonical formatter so the
+	// hint shows a localized, human-readable label (e.g. "Caps Lock")
+	// rather than the raw pynput token uppercased ("CAPS_LOCK").
+	const defaultHotkeyLabel = formatHotkey(HOTKEY_DEFAULT);
 	//mirror the hotkey hint pattern for the Model step.
 	// The wizard pre-selects MODEL_DEFAULT (currently "tiny") so the
 	// user can click Continue without touching the Select — but

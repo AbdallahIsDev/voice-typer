@@ -369,11 +369,10 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 			expect(screen.getByRole("button", { name: "Get started" })).toBeTruthy();
 		});
 		const summaryText = container.textContent ?? "";
-		//default hotkey is `<caps_lock>` (not `<f2>`), so the
-		// Done-step summary should display the uppercase-normalized form.
-		// The renderer strips only `<`/`>` (not the underscore), so the
-		// displayed token is `CAPS_LOCK` rather than `CAPS LOCK`.
-		expect(summaryText).toContain("CAPS_LOCK");
+		// The default hotkey is `<caps_lock>` (not `<f2>`). The renderer
+		// renders it through `formatHotkeyLabel`, which produces the
+		// human-readable "Caps Lock" label (not the raw `CAPS_LOCK` token).
+		expect(summaryText).toContain("Caps Lock");
 		expect(summaryText).toContain("tiny");
 	});
 });
@@ -1077,7 +1076,7 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 		// The hint should be visible (selectedHotkey === HOTKEY_DEFAULT
 		// === "<caps_lock>" because get_config returned no hotkey).
 		const hint = await screen.findByTestId("onboarding-default-hotkey-hint");
-		expect(hint?.textContent).toContain("CAPS_LOCK");
+		expect(hint?.textContent).toContain("Caps Lock");
 		expect(hint?.textContent).toContain("Default");
 	});
 

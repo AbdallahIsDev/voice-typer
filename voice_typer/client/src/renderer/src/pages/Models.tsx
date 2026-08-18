@@ -26,12 +26,13 @@
  * land below the sticky bar without pixel-tuning.
  */
 
-import { Folder02Icon } from "@hugeicons/core-free-icons";
+import { AiBrain03Icon, Folder02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useMemo, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
+import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
 import { CloudProvidersPanel } from "@/components/models/CloudProvidersPanel";
 import { LocalModelsPanel } from "@/components/models/LocalModelsPanel";
@@ -161,14 +162,18 @@ export default function ModelsPage() {
 							{/* Genuine "no model selected" state (the backend's
 							        NO_MODEL_SIZE sentinel, model_size === "") —
 							        nothing is active and the app will not try to
-							        load a model until the user picks one below. */}
+							        load a model until the user picks one below.
+							        Rendered via the shared EmptyState component
+							        (variant="info") so the visual treatment matches
+							        Dashboard / Settings / Vocabulary — the title is
+							        wrapped in an <h3> so SR users can navigate by
+							        heading. */}
 							{lifecycle.config.model_size === "" && (
-								<div
-									role="status"
-									className="mb-6 rounded-lg border border-border/10 bg-(--bg-subtle) px-4 py-3 text-sm text-(--text-primary)"
-								>
-									{t("models.noModelSelected")}
-								</div>
+								<EmptyState
+									variant="info"
+									icon={AiBrain03Icon}
+									title={t("models.noModelSelected")}
+								/>
 							)}
 							<LocalModelsPanel
 								config={lifecycle.config}

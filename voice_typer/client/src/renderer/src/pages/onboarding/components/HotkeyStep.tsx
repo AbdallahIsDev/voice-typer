@@ -1,4 +1,5 @@
 import type { Ref } from "react";
+import { formatHotkey } from "@/components/hotkey/hotkey-format";
 import { Button } from "@/components/ui/button";
 import {
 	Select,
@@ -60,7 +61,7 @@ export function HotkeyStep({
 				<SelectContent>
 					{hotkeyPresets.map((hk) => (
 						<SelectItem key={hk} value={hk}>
-							{hk.replace(/[<>]/g, "").toUpperCase()}
+							{formatHotkey(hk)}
 						</SelectItem>
 					))}
 				</SelectContent>

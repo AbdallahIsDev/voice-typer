@@ -1,9 +1,11 @@
+import { Search01Icon } from "@hugeicons/core-free-icons";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { SearchField } from "@/components/common/SearchField";
+import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
 // amber banner shown when the OS has not granted the
 // keyboard-monitoring (Accessibility / input-group) permission. Mirrors
@@ -626,32 +628,28 @@ export default function SettingsPage({
 					/>
 				</div>
 
-				{/* Empty-state banner with Clear filter button using
-                                                the existing searchNoMatch / noResultsMessage / a11y.clearSearch
-                                                i18n keys. `searchNoMatch` preserves the original "{query}"
-                                                interpolation so screen readers + sighted users see what they
-                                                searched for; `noResultsMessage` adds the actionable hint
-                                                ("Try a different search term or clear the filter..."); the
-                                                button gives a one-click escape hatch. */}
+				{/* Empty-state banner rendered via the shared
+                                                EmptyState component (variant="info") so the visual
+                                                treatment matches Dashboard / Models / Vocabulary.
+                                                Reuses the existing searchNoMatch / noResultsMessage /
+                                                a11y.clearSearch i18n keys — `searchNoMatch` preserves
+                                                the "{query}" interpolation so screen readers + sighted
+                                                users see what they searched for; `noResultsMessage`
+                                                adds the actionable hint; the action button gives a
+                                                one-click escape hatch. The EmptyState wraps its title
+                                                in an <h3> so SR users can navigate empty-state cards
+                                                by heading. */}
 				{showEmptyBanner && (
-					<output
-						aria-live="polite"
-						className="block rounded-lg border border-dashed border-border/10 bg-(--bg-subtle) px-6 py-10 text-center space-y-3"
-					>
-						<p className="text-sm font-medium text-(--text-primary)">
-							{t("settings.searchNoMatch", { query: settingsFilter.trim() })}
-						</p>
-						<p className="text-sm text-(--text-muted)">
-							{t("settings.noResultsMessage")}
-						</p>
-						<button
-							type="button"
-							onClick={() => setSettingsFilter("")}
-							className="inline-flex items-center justify-center rounded-md border border-border/10 bg-background px-3 py-1.5 text-sm font-medium text-(--text-primary) hover:bg-(--bg-subtle) focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-						>
-							{t("a11y.clearSearch")}
-						</button>
-					</output>
+					<EmptyState
+						variant="info"
+						icon={Search01Icon}
+						title={t("settings.searchNoMatch", {
+							query: settingsFilter.trim(),
+						})}
+						description={t("settings.noResultsMessage")}
+						actionLabel={t("a11y.clearSearch")}
+						onAction={() => setSettingsFilter("")}
+					/>
 				)}
 
 				{activeTab === "appearance" &&
