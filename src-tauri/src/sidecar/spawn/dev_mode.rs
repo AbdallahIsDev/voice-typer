@@ -71,7 +71,7 @@ pub(crate) async fn spawn_sidecar_dev_mode(
             "VOICE_TYPER_NATIVE_DIR",
             native_dir.to_string_lossy().to_string(),
         )
-// mirror the release-path env-var set so dev mode
+        // mirror the release-path env-var set so dev mode
         // doesn't silently diverge. Previously dev mode was missing
         // the prewarm exe env var (so the prewarm scheduled-task
         // integration couldn't be exercised under `cargo tauri dev`).

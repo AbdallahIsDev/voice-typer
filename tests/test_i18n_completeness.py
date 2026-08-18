@@ -43,6 +43,12 @@ ALLOWED_UNTRANSLATED = {
     # the same word in Spanish (and a universal technical cognate); the
     # es.json value is a genuine translation, not an untranslated copy.
     "trayState.error",
+    # nav.settingsGeneral — "General" is the standard Spanish term for
+    # a settings sub-page (matching Windows/macOS Spanish UIs); the
+    # es.json value is a genuine translation, not an untranslated copy.
+    # (Sibling keys ARE distinct: settingsAppearance "Apariencia",
+    # settingsPrivacy "Privacidad".)
+    "nav.settingsGeneral",
     # (client_root_i18n): "⚠ Error" — universal warning symbol +
     # technical term, identical across all locales (same rationale as
     # home.error). The bubble renders this as a small status badge
