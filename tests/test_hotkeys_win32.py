@@ -139,6 +139,7 @@ class TestRegisterHotKeyFailure:
         backend = WindowsNativeHotkey("<f2>")
         try:
             import time
+
             start_time = time.monotonic()
             backend.start(MagicMock())
             elapsed = time.monotonic() - start_time
@@ -425,9 +426,7 @@ class TestModifierOnlyHotkeys:
             # Phase 1: nothing pressed — callback must not fire. Wait
             # 30ms and verify (wait_for returns True if the predicate
             # became truthy — we expect False here).
-            assert not wait_for(lambda: callback.call_count > 0, timeout=0.03), (
-                "Callback fired before Alt was pressed"
-            )
+            assert not wait_for(lambda: callback.call_count > 0, timeout=0.03), "Callback fired before Alt was pressed"
             # Phase 2: press Alt (held). Toggle mode defers the fire to
             # release, so the callback still must not fire while held.
             state["value"] = 1
@@ -476,8 +475,7 @@ class TestModifierOnlyHotkeys:
             # we expect False (toggle mode defers to release, so the
             # callback must NOT fire while the key is held).
             assert not wait_for(lambda: callback.call_count > 0, timeout=0.2), (
-                f"Callback fired {callback.call_count} times while Alt held — "
-                "toggle mode must defer to release"
+                f"Callback fired {callback.call_count} times while Alt held — toggle mode must defer to release"
             )
         finally:
             backend.stop()
@@ -521,9 +519,7 @@ class TestModifierOnlyHotkeys:
             # no fire (wait_for returns True if predicate became
             # truthy — we expect False here).
             state["value"] = 1
-            assert not wait_for(lambda: callback.call_count > 0, timeout=0.05), (
-                "Callback fired while Alt+Ctrl held"
-            )
+            assert not wait_for(lambda: callback.call_count > 0, timeout=0.05), "Callback fired while Alt+Ctrl held"
             # Phase 2: release Alt but keep Ctrl held.
             state["value"] = 2
             # Per the FIX-HOTKEY-AND-NOTIFICATION behavior, toggle mode
@@ -646,9 +642,7 @@ class TestModifierOnlyHotkeys:
             assert not wait_for(
                 lambda: press_callback.call_count > _press_count_after_hold_start,
                 timeout=0.1,
-            ), (
-                f"PTT press callback fired {press_callback.call_count} times during hold — must fire exactly once"
-            )
+            ), f"PTT press callback fired {press_callback.call_count} times during hold — must fire exactly once"
             # Phase 3: release Alt. PTT fires on_release.
             state["value"] = 0
             _wait_until(
@@ -766,17 +760,17 @@ class TestToggleFiresOnKeyUp:
                 # the loop sees the press.
                 _calls_before_press = mock_user32.GetAsyncKeyState.call_count
                 _wait_until(
-                   lambda _calls=_calls_before_press: mock_user32.GetAsyncKeyState.call_count > _calls,
-                   timeout=0.5,
-                   msg="Polling loop did not observe the press",
-               )
+                    lambda _calls=_calls_before_press: mock_user32.GetAsyncKeyState.call_count > _calls,
+                    timeout=0.5,
+                    msg="Polling loop did not observe the press",
+                )
                 state["value"] = 0
                 # Wait for the callback to fire on release.
                 _wait_until(
-                   lambda _i=i: callback.call_count == _i,
-                   timeout=2.0,
-                   msg=f"Callback did not fire on release (cycle {i})",
-               )
+                    lambda _i=i: callback.call_count == _i,
+                    timeout=2.0,
+                    msg=f"Callback did not fire on release (cycle {i})",
+                )
             assert callback.call_count == 2, f"Expected 2 fires (one per release), got {callback.call_count}"
         finally:
             backend.stop()
@@ -788,12 +782,13 @@ class TestToggleFiresOnKeyUp:
 class TestCapsLockSuppression:
     """FIX-HOTKEY-ARCHITECTURE: when the hotkey is <caps_lock>, the
     polling backend should suppress the OS-level caps-state toggle by
-    sending a synthetic Caps Lock keypress via keybd_event.
+    sending a synthetic Caps Lock keypress via SendInput (modern Win32
+    keyboard-injection API — replaces the deprecated ``keybd_event``).
     """
 
-    def test_caps_lock_hotkey_calls_keybd_event_on_press(self, mock_win32):
+    def test_caps_lock_hotkey_calls_sendinput_on_press(self, mock_win32):
         """When Caps Lock (VK=0x14) is pressed, _suppress_caps_lock_toggle
-        should call keybd_event to undo the OS-level toggle."""
+        should call SendInput to undo the OS-level toggle."""
         mock_user32, _ = mock_win32
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
@@ -822,19 +817,22 @@ class TestCapsLockSuppression:
 
         mock_user32.GetAsyncKeyState.side_effect = fake_get_async_key_state
         mock_user32.GetKeyState.return_value = 1  # toggle bit set
+        # SendInput returns 1 (single event inserted) — the modern
+        # keyboard-injection success path (mirrors production).
+        mock_user32.SendInput.return_value = 1
 
         callback = MagicMock()
         try:
             backend.start(callback)
 
             # Wait for the polling loop to observe the press and call
-            # keybd_event (the suppression path fires on the not-held →
-            # held transition). keybd_event should be called for the
+            # SendInput (the suppression path fires on the not-held →
+            # held transition). SendInput should be called for the
             # synthetic keydown + keyup (2 calls per suppression cycle).
             _wait_until(
-                lambda: mock_user32.keybd_event.call_count >= 2,
+                lambda: mock_user32.SendInput.call_count >= 2,
                 timeout=2.0,
-                msg="keybd_event was not called for caps-lock suppression",
+                msg="SendInput was not called for caps-lock suppression",
             )
         finally:
             backend.stop()

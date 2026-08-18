@@ -11,7 +11,7 @@ the modulus to 25 (25 × 8ms = 200ms), matching the comments.
 These tests mock ``Sleep`` so each iteration is instantaneous and
 count iterations until ``_ensure_caps_lock_off`` is called by the
 periodic backup check (NOT the per-press reactive suppression, which
-goes through ``_suppress_caps_lock_toggle`` → ``keybd_event``).
+goes through ``_suppress_caps_lock_toggle`` → ``SendInput``).
 """
 
 from __future__ import annotations

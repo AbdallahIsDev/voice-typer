@@ -63,10 +63,10 @@ def setup_main_argtypes(user32: Any, kernel32: Any) -> None:
     - ``DWORD GetLastError(void)``
     - ``SHORT GetAsyncKeyState(int)``
     - ``VOID Sleep(DWORD)``
-    - ``VOID keybd_event(BYTE, BYTE, DWORD, ULONG_PTR)`` —
-      ``ULONG_PTR`` isn't exposed by ``ctypes.wintypes`` on non-Windows;
-      ``WPARAM`` (pointer-sized on both 32- and 64-bit Windows) is used
-      as a portable stand-in.
+    - ``UINT SendInput(UINT, LPINPUT, int)`` — modern keyboard-injection
+      API used by the CapsLock suppressor (replaces the deprecated
+      ``keybd_event``). The ``INPUT`` struct payload is defined in
+      :mod:`voice_typer.server.hotkeys.windows._win32_keyboard`.
     - ``SHORT GetKeyState(int)`` — toggle/pressed state.
     """
     from ctypes.wintypes import BOOL, DWORD, HWND, INT, UINT, WPARAM
@@ -100,14 +100,16 @@ def setup_main_argtypes(user32: Any, kernel32: Any) -> None:
     kernel32.Sleep.argtypes = [DWORD]
     kernel32.Sleep.restype = None
 
-    # VOID keybd_event(BYTE bVk, BYTE bScan, DWORD dwFlags, ULONG_PTR dwExtraInfo)
-    user32.keybd_event.argtypes = [
-        ctypes.wintypes.BYTE,
-        ctypes.wintypes.BYTE,
-        DWORD,
-        WPARAM,
-    ]
-    user32.keybd_event.restype = None
+    # UINT SendInput(UINT cInputs, LPINPUT pInputs, int cbSize) — modern
+    # keyboard-injection API. Replaces the deprecated ``keybd_event``;
+    # the INPUT struct payload is defined in
+    # :mod:`voice_typer.server.hotkeys.windows._win32_keyboard`.
+    # ``LPINPUT`` is a pointer-to-INPUT; ``c_void_p`` is a portable
+    # stand-in (the production callsite passes ``ctypes.byref(events)``
+    # where ``events`` is an ``INPUT * N`` array — ctypes accepts a
+    # ``c_void_p`` argtype for any byref/array pointer).
+    user32.SendInput.argtypes = [UINT, ctypes.c_void_p, ctypes.c_int]
+    user32.SendInput.restype = UINT
 
     # SHORT GetKeyState(int nVirtKey)
     user32.GetKeyState.argtypes = [INT]

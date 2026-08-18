@@ -5,12 +5,19 @@ split). When the hotkey is Caps Lock, the OS toggles the caps state
 on every physical press. These helpers undo that toggle (reactive
 suppression) and proactively force caps lock OFF (periodic
 defense-in-depth).
+
+Modernized to use the Win32 ``SendInput`` API instead of the
+deprecated ``keybd_event`` function. ``SendInput`` supersedes
+``keybd_event`` (deprecated since Windows 2000); the behavior is
+preserved 1:1 — the same virtual-key code, scan code, and flag
+values flow through unchanged.
 """
 
 from __future__ import annotations
 
 from ..base import log
 from ..win32_vk import _KEYEVENTF_KEYUP, _VK_CAPITAL
+from ._win32_keyboard import _send_keyboard_event
 
 
 def suppress_caps_lock_toggle(self) -> None:
@@ -24,8 +31,8 @@ def suppress_caps_lock_toggle(self) -> None:
     polling backend can't install a low-level hook from Python without
     significant complexity, so we use a different approach: read the
     current toggle state via ``GetKeyState`` and, if the key is now
-    toggled ON, send a synthetic Caps Lock keypress via
-    ``keybd_event`` to toggle it back OFF.
+    toggled ON, send a synthetic Caps Lock keypress via ``SendInput``
+    to toggle it back OFF.
 
     The ``_caps_lock_suppressing`` flag is set while the synthetic
     keypress is in flight so the polling loop skips processing —
@@ -44,9 +51,14 @@ def suppress_caps_lock_toggle(self) -> None:
             toggle_state = self._user32.GetKeyState(_VK_CAPITAL) & 0x1
             if toggle_state:
                 # Synthetic keydown + keyup toggles the state back.
+                # The 0x45 scan code is the hardware scan code for
+                # Caps Lock — preserved verbatim from the prior
+                # ``keybd_event`` callsite so the synthetic press is
+                # indistinguishable from a real one at the keyboard
+                # driver layer.
 
-                self._user32.keybd_event(_VK_CAPITAL, 0x45, 0, 0)
-                self._user32.keybd_event(_VK_CAPITAL, 0x45, _KEYEVENTF_KEYUP, 0)
+                _send_keyboard_event(self._user32, _VK_CAPITAL, 0x45, 0)
+                _send_keyboard_event(self._user32, _VK_CAPITAL, 0x45, _KEYEVENTF_KEYUP)
                 log.debug("[HOTKEY] Suppressed Caps Lock toggle (toggled back off)")
         finally:
             # Brief sleep to let the OS process the synthetic events
@@ -84,8 +96,8 @@ def ensure_caps_lock_off(self) -> None:
     try:
         toggle_state = self._user32.GetKeyState(_VK_CAPITAL) & 0x1
         if toggle_state:
-            self._user32.keybd_event(_VK_CAPITAL, 0x45, 0, 0)
-            self._user32.keybd_event(_VK_CAPITAL, 0x45, _KEYEVENTF_KEYUP, 0)
+            _send_keyboard_event(self._user32, _VK_CAPITAL, 0x45, 0)
+            _send_keyboard_event(self._user32, _VK_CAPITAL, 0x45, _KEYEVENTF_KEYUP)
             log.info("[HOTKEY] Proactive caps lock toggle-off (was ON, forced OFF)")
     except Exception:
         log.exception("[HOTKEY] Failed to force caps lock off")
