@@ -216,6 +216,16 @@ class TestAudioProcessorLazyConstruction:
         from voice_typer.server.app import VoiceTyperApp, _LazyAudioProcessorProxy
 
         instance = VoiceTyperApp()
+        # STARTUP-9: ``Recorder(...)`` (whose ``audio_processor=`` argument
+        # access materializes the proxy) is constructed on a background
+        # thread. Wait for that build to finish before asserting —
+        # otherwise the assertion races the thread and intermittently
+        # sees ``None`` (observed under full-suite parallel load).
+        assert instance._recorder_build_ready.wait(10.0), (
+            "recorder background build did not finish within 10s"
+        )
+        if instance._recorder_build_error is not None:
+            raise instance._recorder_build_error
         # The backing is the proxy (created lazily by the getter when
         # __init__ passed audio_processor=self._audio_processor to
         # Recorder).
