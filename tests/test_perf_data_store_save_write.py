@@ -428,7 +428,6 @@ class TestHistoryDBMultiRowInsertBatching:
             assert any(sql.count(placeholder_tuple) > 1 for sql in insert_calls), (
                 f"ER-78: expected at least one multi-row INSERT (>1 tuple), got single-row batches only. SQL: {insert_calls}"
             )
-            sql = insert_calls[0]
 
             # Verify all 3 rows actually landed in the DB.
             recent = db.get_recent(limit=10)
