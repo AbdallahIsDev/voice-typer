@@ -474,7 +474,7 @@ jobs:
         with:
           files: ./coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: true
+          fail_ci_if_error: ${{ secrets.CODECOV_TOKEN != '' }}
 
       # coverage ratchet. The fixed --cov-fail-under=65 floor
       # only catches catastrophic drops below 65%; this step catches
