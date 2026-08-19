@@ -235,9 +235,7 @@ class TestSinglePressSingleCallback:
             # Phase 1: nothing pressed. Wait 30ms and verify the
             # callback does NOT fire (wait_for returns True if the
             # predicate became truthy — we expect False here).
-            assert not wait_for(lambda: callback.call_count > 0, timeout=0.03), (
-                "Callback fired before key was pressed"
-            )
+            assert not wait_for(lambda: callback.call_count > 0, timeout=0.03), "Callback fired before key was pressed"
             state["value"] = 1  # phase 2: press
             # Wait for the callback to fire on the not-held → held
             # transition (toggle mode fires on press).
@@ -339,8 +337,20 @@ class TestPressHoldReleaseNoRepeat:
         callback = MagicMock()
         thread = _run_in_thread_and_join(backend._run_polling_loop, args=(callback,))
         try:
-            for _i in range(1, 3):
-                state["value"] = 1
+            # Wait for the loop's HOTKEY-DEFER-001 seed (the first
+            # GetAsyncKeyState call) to read the key state BEFORE the
+            # first press. The key is still UP at this point, so
+            # ``was_pressed`` seeds False and the first press below is
+            # a genuine not-held → held transition. Without this wait,
+            # the seed can race the press on a loaded CI box: the seed
+            # reads the already-held key, suppresses the first press
+            # (HOTKEY-DEFER-001), and the cycle-1 wait times out
+            # ("Callback did not fire on press (cycle 1)").
+            _wait_until(
+                lambda: mock_user32.GetAsyncKeyState.call_count >= 1,
+                timeout=2.0,
+                msg="Polling loop seed did not read the key state",
+            )
             for i in range(1, 3):
                 state["value"] = 1
                 # Wait for the callback to fire on the press transition.
@@ -625,9 +635,7 @@ class TestModifierOnlyPollingLoop:
             assert not wait_for(
                 lambda: press_callback.call_count > _press_count_after_hold_start,
                 timeout=0.15,
-            ), (
-                f"PTT press fired {press_callback.call_count} times during hold — must fire exactly once"
-            )
+            ), f"PTT press fired {press_callback.call_count} times during hold — must fire exactly once"
             assert release_callback.call_count == 0
             state["value"] = 0  # release
             # Wait for the release callback to fire.
