@@ -170,7 +170,14 @@ dependencies = [
     # only — GPU users install `onnxruntime-gpu` separately (see §6.1
     # for why onnxruntime-gpu does NOT bundle NVIDIA DLLs and
     # nvidia_dll_paths.py is still required).
-    "onnxruntime>=1.20",
+    # onnxruntime 1.24+ stopped shipping cp310 wheels (its `requires-python`
+    # metadata still claims >=3.10, which is stale), so the lockfile resolver
+    # must be told the real floor. Without the upper bound, `uv pip compile
+    # --universal` pins a 1.24+ release for the `python_version < '3.11'`
+    # branch (trusting the stale metadata), and `pip install --require-hashes`
+    # then fails on Python 3.10 with "No matching distribution found".
+    "onnxruntime>=1.20,<1.24; python_version < '3.11'",
+    "onnxruntime>=1.20; python_version >= '3.11'",
     # tokenizers is imported directly by the Qwen3-ASR ONNX backend
     # (qwen_onnx_model.py — ``Tokenizer.from_file`` for the ASR prompt
     # decode). It is pulled transitively by the declared

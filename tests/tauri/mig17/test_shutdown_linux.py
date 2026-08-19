@@ -171,10 +171,26 @@ def _read_sidecar_cmds_module() -> str:
 _SUPERVISOR_RS = _REPO_ROOT / "src-tauri" / "src" / "sidecar" / "supervisor.rs"
 _UTIL_RS = _REPO_ROOT / "src-tauri" / "src" / "util.rs"
 _STATE_RS = _REPO_ROOT / "src-tauri" / "src" / "state.rs"
+_HANDLE_RS = _REPO_ROOT / "src-tauri" / "src" / "sidecar" / "handle.rs"
 _CARGO_LOCK = _REPO_ROOT / "src-tauri" / "Cargo.lock"
 _CARGO_TOML = _REPO_ROOT / "src-tauri" / "Cargo.toml"
 _SIDECAR_WS_PY = _REPO_ROOT / "voice_typer" / "server" / "sidecar_ws.py"
 _LINUX_RUNBOOK = _REPO_ROOT / "docs" / "migration" / "linux-validation-runbook.md"
+
+
+def _read_state_combined() -> str:
+    """Read state.rs + sidecar/handle.rs concatenated (post EO-35 split).
+
+    The SidecarHandle enum moved from state.rs to sidecar/handle.rs;
+    state.rs now re-exports it. Tests pinning the variant split must
+    read the combined source so they pass regardless of file location.
+    """
+    parts = []
+    if _STATE_RS.is_file():
+        parts.append(_STATE_RS.read_text(encoding="utf-8"))
+    if _HANDLE_RS.is_file():
+        parts.append(_HANDLE_RS.read_text(encoding="utf-8"))
+    return "\n\n".join(parts)
 
 
 def _read(path: Path) -> str:
@@ -493,7 +509,7 @@ class TestLinuxSignalBehavior:
         both the bare ``CommandChild`` form and the ``Option<CommandChild>``
         wrapper.
         """
-        src = _read(_STATE_RS)
+        src = _read_state_combined()
         assert re.search(
             r"ShellPlugin\s*\(\s*(?:Option\s*<\s*)?CommandChild(?:\s*>\s*)?\s*\)",
             src,
@@ -511,7 +527,7 @@ class TestLinuxSignalBehavior:
         ``std::process::Child::kill`` which sends SIGKILL on Unix.
         This is the dev-mode backstop signal on Linux.
         """
-        src = _read(_STATE_RS)
+        src = _read_state_combined()
         assert re.search(r"DevMode\s*\(\s*tokio::process::Child\s*\)", src), (
             "SidecarHandle must have a DevMode(tokio::process::Child) variant "
             "for dev mode (tokio Child::kill sends SIGKILL on Linux)"
@@ -525,7 +541,7 @@ class TestLinuxSignalBehavior:
         - ShellPlugin arm → ``c.kill()`` (CommandChild::kill → SIGTERM)
         - DevMode arm     → ``c.kill().await`` (tokio Child::kill → SIGKILL)
         """
-        src = _read(_STATE_RS)
+        src = _read_state_combined()
         # The kill method exists and is async (returns io::Result<()>).
         # `self` may be bound as `mut self` (post-refactor — needed so
         # `match &mut self` can borrow the inner Option mutably for
@@ -605,7 +621,7 @@ class TestLinuxSignalBehavior:
         so a future maintainer understands the Linux signal behavior
         (SIGTERM release vs SIGKILL dev) without spelunking through
         tauri-plugin-shell source."""
-        src = _read(_STATE_RS)
+        src = _read_state_combined()
         # The enum docstring (line starting with /// above the enum).
         assert "shell-plugin" in src.lower() or "ShellPlugin" in src, (
             "SidecarHandle enum must be documented with the shell-plugin variant"
@@ -673,7 +689,7 @@ class TestLinuxSignalBehavior:
         validation (``kill -9`` crash test) verifies the SIGKILL
         backstop on a real Linux display host.
         """
-        src = _read(_STATE_RS)
+        src = _read_state_combined()
         # ShellPlugin variant exists (release → SIGTERM on Linux).
         # Post-refactor the variant wraps `Option<CommandChild>` so the
         # Drop impl can take() it; the regex accepts both the bare

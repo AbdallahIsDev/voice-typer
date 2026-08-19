@@ -297,25 +297,33 @@ def test_authenticate_uses_hmac_compare_digest():
     can repeatedly connect to the loopback WS recover the token byte
     by byte without reading any file.
     """
+    # The constant-time comparison lives in the shared auth module
+    # (``voice_typer/server/ipc/auth.py`` ``tokens_equal``), which BOTH
+    # transports route through (VP-8 consolidation). sidecar_ws.py no
+    # longer calls hmac.compare_digest directly.
+    auth_py = Path(__file__).resolve().parents[3] / "voice_typer" / "server" / "ipc" / "auth.py"
+    auth_source = auth_py.read_text(encoding="utf-8")
     source = _read_sidecar_ws_source()
 
-    # The source must contain a `hmac.compare_digest(provided, expected_token)`
-    # call (or equivalent with swapped args). We look for the literal
-    # function call to guard against a regression that switches to `==`.
-    assert "hmac.compare_digest" in source, (
-        "sidecar_ws.py must use hmac.compare_digest for token comparison "
+    # The shared helper must use hmac.compare_digest (constant-time),
+    # not a plain `==`.
+    assert "hmac.compare_digest" in auth_source, (
+        "ipc/auth.py must use hmac.compare_digest for token comparison "
         "(constant-time). Found neither — possible timing side-channel "
         "regression."
     )
-
-    # And it must be called with the provided + expected tokens (not
-    # e.g. comparing a hardcoded constant). Look for the call shape.
-    pattern = r"hmac\.compare_digest\s*\(\s*provided\s*,\s*expected_token\s*\)"
-    assert re.search(pattern, source), (
-        "hmac.compare_digest must be called as "
-        "hmac.compare_digest(provided, expected_token) — found a different "
-        "call shape which may indicate the comparison is not actually "
-        "between the user-supplied + env-var tokens."
+    # sidecar_ws must route its comparison through the shared helper.
+    assert "tokens_equal" in source, (
+        "sidecar_ws.py must route its token comparison through "
+        "ipc.auth.tokens_equal (the shared constant-time helper)."
+    )
+    # And the shared helper must compare the provided + expected tokens
+    # (not a hardcoded constant).
+    pattern = r"hmac\.compare_digest\s*\(\s*provided\s*,\s*expected\s*\)"
+    assert re.search(pattern, auth_source), (
+        "tokens_equal must call hmac.compare_digest(provided, expected) — "
+        "found a different call shape which may indicate the comparison "
+        "is not actually between the user-supplied + env-var tokens."
     )
 
 
@@ -326,13 +334,18 @@ async def test_authenticate_compare_digest_is_actually_invoked(monkeypatch):
     sw = _import_sidecar_ws()
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", _GOOD_TOKEN)
 
+    # The constant-time comparison now lives in ipc/auth.py (VP-8) — spy
+    # on its hmac.compare_digest, which sidecar_ws routes through via
+    # tokens_equal.
+    from voice_typer.server.ipc import auth as _auth
+
     ws = MagicMock()
     ws.recv = AsyncMock(return_value=json.dumps({"type": "auth", "token": _GOOD_TOKEN}).encode())
 
     # Spy on hmac.compare_digest without changing its behavior.
-    real_compare = sw.hmac.compare_digest
+    real_compare = _auth.hmac.compare_digest
     spy = MagicMock(side_effect=real_compare)
-    monkeypatch.setattr(sw.hmac, "compare_digest", spy)
+    monkeypatch.setattr(_auth.hmac, "compare_digest", spy)
 
     assert await sw._authenticate(ws) is True
     spy.assert_called_once_with(_GOOD_TOKEN, _GOOD_TOKEN)
@@ -874,8 +887,14 @@ def test_rust_auth_frame_has_no_arch_branch():
     # The auth frame is constructed at ws.rs:36:
     #   let auth = json!({"type": "auth", "token": token});
     # Verify the auth-frame construction is present and unconditional.
-    assert 'json!({"type": "auth", "token": token})' in source, (
-        'ws.rs must construct the auth frame as json!({"type": "auth", "token": token}) — got a different shape.'
+    assert '"type": "auth"' in source, (
+        'ws.rs must construct the auth frame with "type": "auth" — got a different shape.'
+    )
+    assert '"token": token' in source, (
+        'ws.rs must construct the auth frame with "token": token — got a different shape.'
+    )
+    assert 'protocol_version' in source, (
+        "ws.rs must include the additive protocol_version field in the auth frame."
     )
 
     # Scan for cfg(target_arch) anywhere in ws.rs — the WS client
@@ -946,6 +965,11 @@ async def test_auth_protocol_identical_regardless_of_arch_env(monkeypatch):
     sw = _import_sidecar_ws()
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", _GOOD_TOKEN)
 
+    # The constant-time comparison now lives in ipc/auth.py (VP-8) — spy
+    # on its hmac.compare_digest, which sidecar_ws routes through via
+    # tokens_equal.
+    from voice_typer.server.ipc import auth as _auth
+
     # Set a bunch of arch-related env vars that a regression MIGHT
     # read. _authenticate must ignore all of them.
     monkeypatch.setenv("VOICE_TYPER_ARCH", "aarch64")
@@ -958,9 +982,9 @@ async def test_auth_protocol_identical_regardless_of_arch_env(monkeypatch):
     ws.recv = AsyncMock(return_value=auth_frame)
 
     # Spy on hmac.compare_digest.
-    real_compare = sw.hmac.compare_digest
+    real_compare = _auth.hmac.compare_digest
     spy = MagicMock(side_effect=real_compare)
-    monkeypatch.setattr(sw.hmac, "compare_digest", spy)
+    monkeypatch.setattr(_auth.hmac, "compare_digest", spy)
 
     # Must accept (token matches) — arch env vars must not change this.
     assert await sw._authenticate(ws) is True
@@ -976,7 +1000,7 @@ async def test_auth_protocol_identical_regardless_of_arch_env(monkeypatch):
     ws2 = MagicMock()
     ws2.recv = AsyncMock(return_value=auth_frame)
     spy2 = MagicMock(side_effect=real_compare)
-    monkeypatch.setattr(sw.hmac, "compare_digest", spy2)
+    monkeypatch.setattr(_auth.hmac, "compare_digest", spy2)
 
     assert await sw._authenticate(ws2) is True
     spy2.assert_called_once_with(_GOOD_TOKEN, _GOOD_TOKEN)

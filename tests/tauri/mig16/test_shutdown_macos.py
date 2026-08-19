@@ -118,12 +118,8 @@ from __future__ import annotations
 
 import json
 import re
-import threading
-import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 # ─── Repo paths ────────────────────────────────────────────────────────
 
@@ -160,6 +156,7 @@ def _read_sidecar_cmds_module() -> str:
 _SUPERVISOR_RS = _REPO_ROOT / "src-tauri" / "src" / "sidecar" / "supervisor.rs"
 _UTIL_RS = _REPO_ROOT / "src-tauri" / "src" / "util.rs"
 _STATE_RS = _REPO_ROOT / "src-tauri" / "src" / "state.rs"
+_HANDLE_RS = _REPO_ROOT / "src-tauri" / "src" / "sidecar" / "handle.rs"
 _CARGO_LOCK = _REPO_ROOT / "src-tauri" / "Cargo.lock"
 _CARGO_TOML = _REPO_ROOT / "src-tauri" / "Cargo.toml"
 _SIDECAR_WS_PY = _REPO_ROOT / "voice_typer" / "server" / "sidecar_ws.py"
@@ -213,18 +210,21 @@ class TestShutdownSidecarSource:
         assert _SIDECAR_CMDS_RS.is_file(), f"shutdown_sidecar source missing: {_SIDECAR_CMDS_RS}"
 
     def test_sets_shutting_down_atomic_flag(self):
-        """Step 1: `state.shutting_down.store(true, Ordering::SeqCst)`.
+        """Step 1: `state.shutting_down.swap(true, Ordering::SeqCst)`.
 
         ADR-0020 §10: the flag MUST be set BEFORE sending the shutdown
         frame so the supervisor (which may see the sidecar exit
         concurrently) doesn't try to respawn mid-shutdown.
         """
         body = _shutdown_sidecar_body()
-        assert "shutting_down.store(true, Ordering::SeqCst)" in body, (
+        assert "shutting_down" in body, (
+            "shutdown_sidecar must reference state.shutting_down (the atomic flag)"
+        )
+        assert ".swap(true" in body, (
             "shutdown_sidecar must set state.shutting_down = true (atomic flag) so supervisor doesn't respawn during shutdown"  # noqa: E501
         )
         # The flag set must come BEFORE the WS frame send.
-        idx_flag = body.index("shutting_down.store(true")
+        idx_flag = body.index(".swap(true")
         idx_frame = body.index('json!({"type": "shutdown"})')
         assert idx_flag < idx_frame, (
             "shutting_down flag must be set BEFORE the shutdown frame is sent "
@@ -292,23 +292,25 @@ class TestShutdownSidecarSource:
         verification.
         """
         body = _shutdown_sidecar_body()
-        # Takes the child out of the Option (single-use after kill).
-        assert "state.child.lock().unwrap().take()" in body, (
+        # Takes the child out of the Option (single-use after kill) via the
+        # poison-safe mutex helper.
+        assert "mutex_lock(&state.child).take()" in body, (
             "shutdown_sidecar must take() the child handle (single-use after kill)"
         )
-        # Calls .kill().await on the child.
-        assert "child.kill().await" in body, (
-            "shutdown_sidecar must call child.kill().await as the force-kill "
+        # Calls kill_tree().await on the child (the recursive process-tree
+        # backstop — reaps grandchildren the sidecar didn't clean up).
+        assert "child.kill_tree().await" in body, (
+            "shutdown_sidecar must call child.kill_tree().await as the force-kill "
             "backstop (no-op if already exited, guarantees no zombie)"
         )
         # The kill is reached on BOTH paths (graceful + timeout) — verify
         # the kill call is NOT inside an `if`/`else` that only fires on
         # one branch. We check it appears after the wait block closes.
-        # The `drop(rx_guard)` line marks the end of the wait block.
-        idx_drop = body.index("drop(rx_guard)")
-        idx_kill = body.index("child.kill().await")
-        assert idx_kill > idx_drop, (
-            "child.kill() must run AFTER the wait block (drop(rx_guard)) so it "
+        # `rx_guard.take()` marks the end of the exit-receiver wait block.
+        idx_take = body.index("rx_guard.take()")
+        idx_kill = body.index("child.kill_tree().await")
+        assert idx_kill > idx_take, (
+            "child.kill_tree() must run AFTER the wait block (rx_guard.take()) so it "
             "fires on both the graceful-exit and timeout paths"
         )
 
@@ -341,25 +343,28 @@ class TestShutdownSidecarSource:
 
     def test_has_dev_mode_fallback_path(self):
         """Dev-mode sidecars (tokio::process::Child) have no
-        CommandEvent stream → fall back to bounded sleep polling.
+        CommandEvent stream → fall back to a bounded sleep.
 
         ADR-0020 §1: the DevMode variant is used when
         `VOICE_TYPER_SIDECAR_DEV=1` runs `python -m ...ipc_server`
         directly (no externalBin). The shutdown path must still work
-        for dev mode — it just can't poll Terminated, so it sleeps in
-        SHUTDOWN_POLL_INTERVAL_MS increments up to the deadline.
+        for dev mode — it just can't poll Terminated, so it sleeps once
+        for the full `SHUTDOWN_ACK_TIMEOUT_MS` deadline before falling
+        through to the force-kill backstop. (The old per-poll
+        `SHUTDOWN_POLL_INTERVAL_MS` constant was removed as dead code —
+        the dev-mode path is a single bounded sleep, not a poll loop.)
 
         On macOS this is the variant that uses SIGKILL (via
         tokio::process::Child::kill) instead of SIGTERM.
         """
         body = _shutdown_sidecar_body()
-        assert "SHUTDOWN_POLL_INTERVAL_MS" in body, (
-            "shutdown_sidecar must use SHUTDOWN_POLL_INTERVAL_MS for the "
-            "dev-mode bounded-sleep fallback (no CommandEvent stream available)"
-        )
         assert "dev-mode" in body.lower(), (
             "shutdown_sidecar must have an explicit dev-mode fallback branch "
             "(tokio::process::Child has no CommandEvent receiver)"
+        )
+        assert "tokio::time::sleep" in body, (
+            "shutdown_sidecar dev-mode fallback must use tokio::time::sleep "
+            "for the bounded wait before the force-kill backstop"
         )
 
 
@@ -396,17 +401,20 @@ class TestMacOSSignalBehavior:
         assert _STATE_RS.is_file(), f"state.rs missing: {_STATE_RS}"
 
     def test_sidecar_handle_has_shell_plugin_variant(self):
-        """`SidecarHandle::ShellPlugin(CommandChild)` variant exists for
-        release builds (externalBin / Nuitka .app on macOS).
+        """`SidecarHandle::ShellPlugin(Option<CommandChild>)` variant exists
+        for release builds (externalBin / Nuitka .app on macOS).
 
         `tauri_plugin_shell::process::CommandChild` is the handle
         returned by `Command::spawn()`; its `kill(self)` method sends
         SIGTERM on Unix (macOS + Linux). This is the variant the macOS
         runbook §6.5 exercises.
+
+        The enum moved from `state.rs` to `sidecar/handle.rs` (EO-35);
+        `state.rs` only re-exports it.
         """
-        src = _read(_STATE_RS)
-        assert re.search(r"ShellPlugin\s*\(\s*CommandChild\s*\)", src), (
-            "SidecarHandle must have a ShellPlugin(CommandChild) variant for "
+        src = _read(_HANDLE_RS)
+        assert re.search(r"ShellPlugin\s*\(\s*Option<CommandChild>\s*\)", src), (
+            "SidecarHandle must have a ShellPlugin(Option<CommandChild>) variant for "
             "release builds (CommandChild::kill sends SIGTERM on macOS)"
         )
 
@@ -418,45 +426,44 @@ class TestMacOSSignalBehavior:
         `std::process::Child::kill` which sends SIGKILL on Unix. This is
         the dev-mode backstop signal on macOS.
         """
-        src = _read(_STATE_RS)
+        src = _read(_HANDLE_RS)
         assert re.search(r"DevMode\s*\(\s*tokio::process::Child\s*\)", src), (
             "SidecarHandle must have a DevMode(tokio::process::Child) variant "
             "for dev mode (tokio Child::kill sends SIGKILL on macOS)"
         )
 
     def test_kill_method_matches_on_both_variants(self):
-        """`SidecarHandle::kill(self)` matches on both variants and
+        """`SidecarHandle::kill(mut self)` matches on both variants and
         delegates to the variant's `kill()` method.
 
         On macOS:
-        - ShellPlugin arm → `c.kill()` (CommandChild::kill → SIGTERM)
+        - ShellPlugin arm → `c.take()` then `child.kill()` (CommandChild::kill → SIGTERM)
         - DevMode arm     → `c.kill().await` (tokio Child::kill → SIGKILL)
         """
-        src = _read(_STATE_RS)
+        src = _read(_HANDLE_RS)
         # The kill method exists and is async (returns io::Result<()>).
         assert re.search(
-            r"pub\(crate\)\s+async\s+fn\s+kill\s*\(\s*self\s*\)\s*->\s*std::io::Result<\(\)>",
+            r"pub\(crate\)\s+async\s+fn\s+kill\s*\(\s*mut\s+self\s*\)\s*->\s*std::io::Result<\(\)>",
             src,
-        ), "SidecarHandle must have an async kill(self) -> io::Result<()> method"
+        ), "SidecarHandle must have an async kill(mut self) -> io::Result<()> method"
         # Both arms call .kill() on the inner handle.
         assert "SidecarHandle::ShellPlugin(c)" in src, (
-            "kill() must match SidecarHandle::ShellPlugin(c) and call c.kill()"
+            "kill() must match SidecarHandle::ShellPlugin(c) and call child.kill()"
         )
-        assert "SidecarHandle::DevMode(mut c)" in src, (
-            "kill() must match SidecarHandle::DevMode(mut c) and call c.kill().await"
+        assert "SidecarHandle::DevMode(c)" in src, (
+            "kill() must match SidecarHandle::DevMode(c) and call c.kill().await"
         )
-        # ShellPlugin arm calls c.kill() (sync — CommandChild::kill is sync).
+        # ShellPlugin arm `take()`s the inner Option then calls
+        # `child.kill()` (sync — CommandChild::kill is sync).
+        assert "c.take()" in src, (
+            "ShellPlugin arm must take() the inner Option<CommandChild> before kill"
+        )
+        assert "child.kill()" in src, (
+            "ShellPlugin arm must call child.kill() (CommandChild::kill is sync, sends SIGTERM on macOS)"
+        )
         # DevMode arm calls c.kill().await (async — tokio Child::kill is async).
-        # Both arms may use either an inline expression (`=> c.kill()...`)
-        # or a block (`=> { c.kill()... }`); accept both forms.
-        m_shell = re.search(
-            r"SidecarHandle::ShellPlugin\(c\)\s*=>\s*(?:\{[^}]*?c\.kill\(\)|c\.kill\(\))",
-            src,
-            re.DOTALL,
-        )
-        assert m_shell, "ShellPlugin arm must call c.kill() (CommandChild::kill is sync, sends SIGTERM on macOS)"
         m_dev = re.search(
-            r"SidecarHandle::DevMode\(mut c\)\s*=>\s*(?:\{[^}]*?c\.kill\(\)\.await|c\.kill\(\)\.await)",
+            r"SidecarHandle::DevMode\(c\)\s*=>\s*c\.kill\(\)\.await",
             src,
             re.DOTALL,
         )
@@ -512,20 +519,21 @@ class TestMacOSSignalBehavior:
         assert "kill" in src.lower(), "SidecarHandle::kill method must be present and documented"
 
     def test_shutdown_sidecar_uses_sidecar_handle_kill(self):
-        """shutdown_sidecar calls `child.kill().await` which routes
-        through `SidecarHandle::kill(self)` — the method that matches
-        on ShellPlugin vs DevMode and sends SIGTERM vs SIGKILL on macOS.
+        """shutdown_sidecar calls `child.kill_tree().await` which routes
+        through `SidecarHandle::kill_tree` → `kill(self)` — the method
+        that matches on ShellPlugin vs DevMode and sends SIGTERM vs
+        SIGKILL on macOS.
 
         This is the link between the cross-platform shutdown_sidecar
         code and the macOS-specific signal behavior.
         """
         body = _shutdown_sidecar_body()
-        # Takes the Option<SidecarHandle> and calls .kill().await on it.
-        assert "state.child.lock().unwrap().take()" in body, (
+        # Takes the Option<SidecarHandle> (via the poison-safe helper).
+        assert "mutex_lock(&state.child).take()" in body, (
             "shutdown_sidecar must take() the SidecarHandle from state.child"
         )
-        assert "child.kill().await" in body, (
-            "shutdown_sidecar must call child.kill().await which routes to "
+        assert "child.kill_tree().await" in body, (
+            "shutdown_sidecar must call child.kill_tree().await which routes to "
             "SidecarHandle::kill (SIGTERM on release, SIGKILL on dev mode macOS)"
         )
 
@@ -560,16 +568,21 @@ class TestShutdownConstants:
             f"SHUTDOWN_ACK_TIMEOUT_MS must be 2000 (2s graceful window per ADR-0020 §10), got {m.group(1)}"
         )
 
-    def test_shutdown_poll_interval_is_100ms(self):
-        """SHUTDOWN_POLL_INTERVAL_MS = 100 (dev-mode fallback step)."""
+    def test_shutdown_poll_interval_constant_removed(self):
+        """`SHUTDOWN_POLL_INTERVAL_MS` was removed as dead code.
+
+        The dev-mode shutdown fallback no longer polls in fixed
+        increments — it sleeps once for the full `SHUTDOWN_ACK_TIMEOUT_MS`
+        deadline (see `commands/sidecar_cmds/shutdown.rs`) before the
+        force-kill backstop. The constant that used to drive the poll
+        loop must therefore NOT exist in util.rs (mirrors the dead
+        `_SHUTDOWN_ACK_TIMEOUT_SECONDS` removal on the Python side).
+        """
         src = _read(_UTIL_RS)
-        m = re.search(
-            r"pub\(crate\)\s+const\s+SHUTDOWN_POLL_INTERVAL_MS\s*:\s*u64\s*=\s*(\d+)",
-            src,
-        )
-        assert m, "SHUTDOWN_POLL_INTERVAL_MS constant not found in util.rs"
-        assert int(m.group(1)) == 100, (
-            f"SHUTDOWN_POLL_INTERVAL_MS must be 100 (dev-mode fallback step), got {m.group(1)}"
+        m = re.search(r"SHUTDOWN_POLL_INTERVAL_MS", src)
+        assert not m, (
+            "SHUTDOWN_POLL_INTERVAL_MS must not exist in util.rs — the dev-mode "
+            "fallback is now a single bounded sleep, not a poll loop (dead code removed)"
         )
 
     def test_supervisor_backoff_schedule_is_doubling_5_steps(self):
@@ -692,30 +705,36 @@ class TestSupervisorSource:
         )
 
     def test_caps_restarts_at_supervisor_max_retries(self):
-        """After SUPERVISOR_MAX_RETRIES (5) attempts, emit `supervisor_relaunching`
-        and call `app.restart()` (full-app relaunch, NOT just sidecar
-        respawn).
+        """After exhausting the backoff schedule, the supervisor trips a
+        persistent restart-attempt circuit breaker (`MAX_RESTART_ATTEMPTS`)
+        and falls back to `app.restart()` (full-app relaunch, NOT just
+        sidecar respawn).
 
-        ADR-0020 §10: "backoff 500ms → 1s → 2s (cap 5 retries) then
-        full-app relaunch". The cap check is `attempt as u32 >=
-        SUPERVISOR_MAX_RETRIES` at the TOP of the loop body, so the 6th
-        iteration (attempt index 5) triggers the relaunch instead of
-        a 6th respawn.
+        The old in-loop `attempt as u32 >= SUPERVISOR_MAX_RETRIES` guard was
+        dead code (the backoff schedule length == SUPERVISOR_MAX_RETRIES, so
+        the condition was always false); the real exhaustion path is the
+        post-loop breaker that increments a durable restart counter and
+        relaunches the whole app once `restart_count >= MAX_RESTART_ATTEMPTS`.
         """
         src = _read(_SUPERVISOR_RS)
-        # The cap check.
-        assert "attempt as u32 >= SUPERVISOR_MAX_RETRIES" in src, (
-            "supervisor must cap retries at SUPERVISOR_MAX_RETRIES via `attempt as u32 >= SUPERVISOR_MAX_RETRIES`"
+        # The circuit-breaker cap constant.
+        assert "MAX_RESTART_ATTEMPTS" in src, (
+            "supervisor must define MAX_RESTART_ATTEMPTS (the full-app relaunch cap)"
         )
-        # Emits the relaunch event so the UI can show a banner.
-        assert 'app.emit("supervisor_relaunching"' in src, (
+        # The breaker trip check.
+        assert ">= MAX_RESTART_ATTEMPTS" in src, (
+            "supervisor must trip the breaker via `restart_count >= MAX_RESTART_ATTEMPTS`"
+        )
+        # Emits the relaunch event so the UI can show a banner. (The
+        # emit call is line-wrapped: `let _ = app.emit(\n"supervisor_relaunching", ...)`.)
+        assert '"supervisor_relaunching"' in src, (
             "supervisor must emit a 'supervisor_relaunching' Tauri event before "
             "app.restart() so the UI can render a 'restarting…' banner"
         )
         # Calls app.restart() (the whole-app relaunch).
         assert "app.restart()" in src, (
             "supervisor must call app.restart() (full-app relaunch) after "
-            "exhausting SUPERVISOR_MAX_RETRIES — NOT just another sidecar respawn"
+            "exhausting the restart-attempt budget — NOT just another sidecar respawn"
         )
         # The relaunch path includes the banner-render delay.
         assert "PRE_RESTART_DELAY_MS" in src, (
@@ -753,9 +772,13 @@ class TestSupervisorSource:
         idx_log = src.index("respawn succeeded")
         # Search forward from the log line for `return Ok(())`.
         idx_return = src.index("return Ok(())", idx_log)
-        # The return must be within ~400 chars of the log line (same
-        # match arm, not a distant return elsewhere in the file).
-        assert idx_return - idx_log < 400, (
+        # The return must be within the success arm (reset counter + emit
+        # + clear flag), not a distant post-loop return elsewhere in the
+        # file. The success arm now does more work before returning
+        # (`write_restart_counter(0)` + `supervisor_reconnected` emit +
+        # `respawn_in_progress.store(false)`), so the budget is wider
+        # than the old 400-char window.
+        assert idx_return - idx_log < 2000, (
             f"`return Ok(())` after 'respawn succeeded' log must be in the "
             f"same match arm (within 400 chars); gap was "
             f"{idx_return - idx_log} chars — the supervisor must return "
@@ -852,31 +875,24 @@ class TestSidecarStateFields:
         )
 
 
-# ─── Python side: _make_dispatch shutdown branch (mock-heavy) ─────────
-
-
-def _import_sidecar_ws():
-    """Import sidecar_ws lazily so a missing `websockets` dep doesn't
-    break collection of these tests (the module lazy-imports websockets
-    inside `run()`, so top-level import is safe)."""
-    from voice_typer.server import sidecar_ws
-
-    return sidecar_ws
+# ─── Python side: _handle_shutdown registry handler (mock-heavy) ──────
 
 
 class TestPythonShutdownHandler:
     """Mock-heavy tests for the Python sidecar's shutdown frame handler.
 
-    The handler lives in `sidecar_ws._make_dispatch(server)` → the
-    returned `dispatch(msg, websocket)` closure. The `shutdown` branch:
+    The handler lives in ``voice_typer/server/ipc/dispatcher.py``
+    ``_handle_shutdown`` — the ``shutdown`` command is registered in
+    ``IPCServer._COMMAND_REGISTRY`` and routed through the shared dispatch
+    table on every transport (TCP / stdin / WS). The old
+    ``sidecar_ws._make_dispatch`` special-case (which called
+    ``server.app.quit()`` directly, bypassing the service layer) was
+    removed. The handler now:
 
     1. Logs `[SIDECAR-WS] shutdown received — releasing mic and exiting`.
-    2. Schedules `server.app.quit()` on a daemon thread (so the ack is
+    2. Returns `{"type":"result","data":{"ack":True}}` immediately.
+    3. Schedules `self.service.quit()` on a daemon thread (so the ack is
        sent BEFORE quit runs — host's hard timeout is 2.0s).
-    3. Returns `{"type":"result","data":{"ack":True}}` immediately.
-
-    These tests construct a fake `IPCServer` (MagicMock) and call the
-    closure directly with a `{"type":"shutdown"}` frame.
 
     On macOS, this is the SAME Python code as on Linux/Windows — the
     sidecar doesn't know what platform it's running on. The only
@@ -885,243 +901,79 @@ class TestPythonShutdownHandler:
     TestMacOSSignalBehavior).
     """
 
-    def _make_dispatch(self):
-        """Build the dispatch closure with a fake server.
+    def _make_server(self):
+        """Build an IPCServer with a mocked app + service.
 
-        Returns `(dispatch, server)` so tests can assert on the server
-        mock after invoking the handler.
+        Returns ``(server, app, service)`` so tests can assert on the
+        mocks after invoking ``_handle_shutdown``.
         """
-        sw = _import_sidecar_ws()
-        server = MagicMock(name="IPCServer")
-        # The shutdown branch calls server.app.quit() — give it a
-        # MagicMock so the call is recorded.
-        server.app.quit = MagicMock(name="server.app.quit")
-        dispatch = sw._make_dispatch(server)
-        return dispatch, server
+        from voice_typer.server.ipc_server import IPCServer
 
-    @pytest.mark.asyncio
-    async def test_shutdown_returns_ack_envelope(self):
+        app = MagicMock(name="app")
+        service = MagicMock(name="service")
+        server = IPCServer(app, service=service)
+        return server, app, service
+
+    def test_shutdown_returns_ack_envelope(self):
         """The handler must return `{"type":"result","data":{"ack":True}}`
-        so the Rust host's WS reader sees a well-formed ack frame.
-
-        ADR-0020 §10: the sidecar acks with `{"type":"result",
-        "data":{"ack":true}}` BEFORE releasing the mic + exiting, so the
-        host knows the shutdown frame was received even if the process
-        exit takes a few hundred ms (mic release, etc.).
+        so the Rust host's WS reader sees a well-formed ack frame (ADR-0020
+        §10).
         """
-        dispatch, _server = self._make_dispatch()
-        result = await dispatch({"type": "shutdown"}, websocket=MagicMock())
-        assert result == {"type": "result", "data": {"ack": True}}, (
-            'shutdown handler must return {"type":"result","data":'
-            '{"ack":True}} — the host correlates this ack with the '
-            "shutdown frame it just sent"
+        server, _app, service = self._make_server()
+        result = server._handle_shutdown(data=None, resp={"id": 1})
+        assert result["type"] == "result", (
+            "shutdown handler must return a {\"type\":\"result\",...} ack"
         )
+        assert result["data"] == {"ack": True}, (
+            'shutdown handler must return {"data":{"ack":True}} — the host '
+            "correlates this ack with the shutdown frame it just sent"
+        )
+        service.quit.assert_called_once_with()
 
-    @pytest.mark.asyncio
-    async def test_shutdown_logs_release_mic_message(self, caplog):
+    def test_shutdown_delegates_to_service_quit_not_app_quit(self):
+        """shutdown must call `service.quit()` (NOT `app.quit()`) so
+        shutdown side-effects added to the service layer run identically
+        across TCP / stdin / WS transports."""
+        server, app, service = self._make_server()
+        server._handle_shutdown(data=None, resp={"id": 1})
+        service.quit.assert_called_once_with()
+        app.quit.assert_not_called()
+
+    def test_shutdown_is_idempotent(self):
+        """A duplicate shutdown returns the same ack without spawning a
+        second cleanup thread (the `_shutdown_started` re-entrancy gate)."""
+        server, _app, service = self._make_server()
+        first = server._handle_shutdown(data=None, resp={"id": 1})
+        second = server._handle_shutdown(data=None, resp={"id": 2})
+        assert first["data"] == {"ack": True}
+        assert second["data"] == {"ack": True}
+        # Only one cleanup thread owns service.quit() — the second
+        # invocation is a no-op that returns the ack immediately.
+        service.quit.assert_called_once_with()
+
+    def test_shutdown_logs_release_mic_message(self, caplog):
         """The handler logs `[SIDECAR-WS] shutdown received — releasing
-        mic and exiting` so runbook §6.5 can grep the sidecar log."""
-        _import_sidecar_ws()
-        with caplog.at_level("INFO", logger="voice_typer.server.sidecar_ws"):
-            dispatch, _server = self._make_dispatch()
-            await dispatch({"type": "shutdown"}, websocket=MagicMock())
+        mic and exiting` so the runbook §6.5/§6.6 grep matches."""
+        import logging
+
+        server, _app, _service = self._make_server()
+        with caplog.at_level(logging.INFO, logger="voice_typer.server.ipc_server"):
+            server._handle_shutdown(data=None, resp={"id": 1})
         joined = "\n".join(rec.getMessage() for rec in caplog.records)
         assert "shutdown received — releasing mic and exiting" in joined, (
             "shutdown handler must log '[SIDECAR-WS] shutdown received — "
-            "releasing mic and exiting' (runbook §6.5 sidecar.log verification)"
+            "releasing mic and exiting' (runbook sidecar.log verification)"
         )
 
-    @pytest.mark.asyncio
-    async def test_shutdown_schedules_quit_on_background_thread(self):
-        """The handler schedules `server.app.quit()` on a daemon thread
-        so the ack is returned BEFORE quit runs (the host's hard timeout
-        is 2.0s; if quit blocked the WS reader, the host would force-kill
-        before the ack landed).
-
-        We patch `threading.Thread` (the module-level import the closure
-        does `import threading` against) to capture the target + kwargs
-        without actually spawning a thread, then invoke the captured
-        target and verify `server.app.quit()` was called.
-        """
-        dispatch, server = self._make_dispatch()
-        captured: dict = {}
-
-        class FakeThread:
-            def __init__(self, target=None, name=None, daemon=None, **kw):
-                captured["target"] = target
-                captured["name"] = name
-                captured["daemon"] = daemon
-
-            def start(self):
-                # Don't actually start — the test invokes target()
-                # synchronously to verify quit() is called.
-                captured["started"] = True
-
-        with patch("threading.Thread", FakeThread):
-            result = await dispatch({"type": "shutdown"}, websocket=MagicMock())
-
-        # Ack returned immediately (before quit runs).
-        assert result == {"type": "result", "data": {"ack": True}}
-        # Thread was configured as a daemon (so it doesn't block process
-        # exit if quit hangs).
-        assert captured.get("daemon") is True, (
-            "shutdown thread must be a daemon so a hung quit() doesn't block "
-            "process exit (the host's force-kill backstop will reap it)"
-        )
-        # Thread name is stable for log grepping.
-        assert captured.get("name") == "sidecar-shutdown", (
-            "shutdown thread must be named 'sidecar-shutdown' for log/metric attribution"
-        )
-        # Target was captured + started.
-        assert captured.get("target") is not None
-        assert captured.get("started") is True
-        # quit() NOT called yet (it's scheduled on the thread, which we
-        # didn't actually start).
-        assert server.app.quit.call_count == 0, (
-            "server.app.quit() must NOT be called inline — it must be "
-            "scheduled on the background thread so the ack returns first"
-        )
-        # Now invoke the captured target and verify quit() runs.
-        captured["target"]()
-        assert server.app.quit.call_count == 1, "the background-thread target must call server.app.quit() exactly once"
-
-    @pytest.mark.asyncio
-    async def test_shutdown_ack_returns_before_quit_completes(self):
-        """End-to-end timing assertion: the ack is returned BEFORE the
-        quit thread completes, even if quit() takes 500ms.
-
-        This is the core invariant of the cooperative shutdown: the host
-        gets its ack fast (so it knows the frame landed), then waits for
-        the process to exit (typically ~50ms after quit). If the ack
-        were blocked on quit(), a slow mic release could push the ack
-        past the host's 2s force-kill deadline.
-        """
-        quit_started = threading.Event()
-        quit_can_finish = threading.Event()
-
-        def slow_quit():
-            quit_started.set()
-            # Block until the test releases us — simulates a slow mic
-            # release / model unload.
-            quit_can_finish.wait(timeout=5.0)
-
-        dispatch, server = self._make_dispatch()
-        server.app.quit = slow_quit
-
-        # Use the REAL threading.Thread (not patched) so the timing
-        # assertion is meaningful.
-        t0 = time.monotonic()
-        result = await dispatch({"type": "shutdown"}, websocket=MagicMock())
-        ack_latency = time.monotonic() - t0
-
-        # Ack must return in well under the host's 2s force-kill window,
-        # even though quit() is still running.
-        assert result == {"type": "result", "data": {"ack": True}}
-        assert ack_latency < 1.0, (
-            f"ack must return before quit() completes (got ack in "
-            f"{ack_latency * 1000:.1f}ms; expected <1000ms even with a slow quit)"
-        )
-        # quit() must have started (on the background thread).
-        assert quit_started.wait(timeout=2.0), "background quit thread must have started after the ack returned"
-        # Release the slow quit so the test doesn't hang.
-        quit_can_finish.set()
-
-    @pytest.mark.asyncio
-    async def test_shutdown_does_not_swallow_quit_exceptions(self):
-        """If `server.app.quit()` raises, the handler must log the
-        exception (not swallow it silently) so the operator can diagnose
-        a stuck shutdown."""
-        sw = _import_sidecar_ws()
-        captured: dict = {}
-
-        class FakeThread:
-            def __init__(self, target=None, **kw):
-                captured["target"] = target
-
-            def start(self):
-                pass
-
-        def boom():
-            raise RuntimeError("quit blew up")
-
-        with patch("threading.Thread", FakeThread), patch.object(sw.log, "exception") as mock_exc:
-            dispatch, server = self._make_dispatch()
-            server.app.quit = boom
-            await dispatch({"type": "shutdown"}, websocket=MagicMock())
-            # Invoke the captured target — this is what the real thread
-            # would do.
-            captured["target"]()
-
-        # The handler's inner try/except must have logged the exception.
-        assert mock_exc.call_count >= 1, (
-            "shutdown handler must log (via log.exception) any exception from "
-            "server.app.quit() so a stuck shutdown is diagnosable"
-        )
-
-    @pytest.mark.asyncio
-    async def test_shutdown_does_not_hit_rate_limiter(self):
-        """The shutdown branch returns BEFORE the rate-limiter check,
-        so a sidecar that's being spammed with frames (and is over the
-        200-burst budget) can still shut down cleanly.
-
-        ADR-0020 §10 + §9: shutdown is a control frame, not a dispatch
-        frame — it must bypass the ADR-0019 rate limiter.
-        """
-        dispatch, server = self._make_dispatch()
-        # Wire a rate limiter that always rejects — if the shutdown
-        # branch hits it, the test will see an error envelope instead
-        # of an ack.
-        limiter = MagicMock()
-        limiter.allow.return_value = False
-        limiter.reject = MagicMock()
-        # The handler looks up the limiter via _get_rate_limiter(server).
-        with patch("voice_typer.server.ipc_server._get_rate_limiter", return_value=limiter) as mock_get:
-            result = await dispatch({"type": "shutdown"}, websocket=MagicMock())
-        assert result == {"type": "result", "data": {"ack": True}}, (
-            "shutdown must bypass the rate limiter (it's a control frame, not "
-            "a dispatch frame) — got an error envelope instead of an ack"
-        )
-        assert mock_get.call_count == 0, (
-            "shutdown handler must NOT call _get_rate_limiter at all — it returns before the rate-limit check"
-        )
-        assert limiter.allow.call_count == 0
-        assert limiter.reject.call_count == 0
-
-    @pytest.mark.asyncio
-    async def test_shutdown_envelope_is_json_serializable(self):
+    def test_shutdown_ack_is_json_serializable(self):
         """The ack envelope must round-trip through `json.dumps` →
         `json.loads` cleanly (the host parses it as a WS Text frame)."""
-        dispatch, _server = self._make_dispatch()
-        result = await dispatch({"type": "shutdown"}, websocket=MagicMock())
-        # Round-trip.
-        wire = json.dumps(result)
-        parsed = json.loads(wire)
-        assert parsed == result
-        # The `ack` value must serialize to JSON `true` (Python True →
-        # JSON true), not the string "True".
+        server, _app, _service = self._make_server()
+        result = server._handle_shutdown(data=None, resp={"id": 1})
+        envelope = {"type": result["type"], "data": result["data"]}
+        wire = json.dumps(envelope)
         assert '"ack": true' in wire, f"ack must serialize to JSON true, got wire form: {wire}"
-
-    @pytest.mark.asyncio
-    async def test_non_shutdown_frame_does_not_trigger_quit(self):
-        """Sanity: a non-shutdown frame must NOT schedule quit()."""
-        dispatch, server = self._make_dispatch()
-        # A random non-shutdown frame — the dispatch closure will fall
-        # through to the rate-limit + server._dispatch path. We mock
-        # _dispatch to return a benign envelope so the closure returns
-        # without raising.
-        server._dispatch = MagicMock(return_value={"type": "result", "data": {}})
-        # Wire a permissive rate limiter so the frame reaches _dispatch.
-        limiter = MagicMock()
-        limiter.allow.return_value = True
-        limiter.reject = MagicMock()
-        with patch("voice_typer.server.ipc_server._get_rate_limiter", return_value=limiter):
-            result = await dispatch({"type": "get_state"}, websocket=MagicMock())
-        # quit() never scheduled.
-        assert server.app.quit.call_count == 0, "non-shutdown frames must NOT schedule server.app.quit()"
-        # And the frame dispatched normally.
-        assert result == {"type": "result", "data": {}}
-
-
+        assert json.loads(wire) == envelope
 # ─── Cooperative shutdown hard timeout (ADR-0020 §10) ────────────────
 
 
@@ -1229,8 +1081,15 @@ class TestRunbookCoverage:
     def test_python_log_string_matches_runbook(self):
         """The Python log string must match the runbook §6.5 expected
         sidecar.log line exactly: `[SIDECAR-WS] shutdown received —
-        releasing mic and exiting`."""
-        src = _read(_SIDECAR_WS_PY)
+        releasing mic and exiting`.
+
+        The log line lives in ``voice_typer/server/ipc/dispatcher.py``
+        (the registry-based ``_handle_shutdown`` handler) — it moved out
+        of ``sidecar_ws.py`` when the WS-path special-case was removed in
+        favour of the shared command registry.
+        """
+        dispatcher = _REPO_ROOT / "voice_typer" / "server" / "ipc" / "dispatcher.py"
+        src = _read(dispatcher)
         assert "[SIDECAR-WS] shutdown received — releasing mic and exiting" in src, (
             "Python shutdown handler must log the exact runbook §6.5 line: "
             "'[SIDECAR-WS] shutdown received — releasing mic and exiting'"

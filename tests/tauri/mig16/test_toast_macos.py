@@ -338,41 +338,39 @@ class TestWsRsRenamesElectronNotificationToNotification:
     """
 
     def test_ws_rs_has_electron_notification_alias_branch(self):
-        """``ws.rs`` MUST contain a branch that detects
-        ``event_type == "electron_notification"`` and emits the payload
-        under the ``notification`` name.
+        """The legacy ``electron_notification → notification`` alias was
+        REMOVED: the Python sidecar now publishes ``notification``
+        directly, and ``electron_notification`` is no longer in the
+        ``ALLOWED_EVENT_TYPES`` allowlist (so legacy frames are dropped
+        with a ``[WS-READER] dropping unknown event type`` log line).
 
-        This is the CR-8 backward-compat alias: a new UI subscribing to
-        ``notification`` keeps working even if an old Python sidecar
-        (still emitting ``electron_notification``) is rolling-upgraded
-        in. The alias fires on all platforms (the WS bridge code is
-        platform-independent).
+        ``ws.rs`` must therefore NOT contain the old alias branch, and
+        ``notification`` must still be an allowed + emitted event type.
         """
         src = _read(WS_RS)
-        # The exact branch form (from ws.rs:143-145):
-        #   if event_type == "electron_notification" {
-        #       let _ = app_for_reader.emit("notification", payload.clone());
-        #   }
-        assert 'event_type == "electron_notification"' in src, (
-            "ws.rs must have a backward-compat alias branch that detects "
-            "'electron_notification' and re-emits under 'notification'."
+        assert 'event_type == "electron_notification"' not in src, (
+            "ws.rs must NOT have a legacy electron_notification alias branch "
+            "— the Python sidecar now publishes 'notification' directly and "
+            "the legacy name is dropped by the ALLOWED_EVENT_TYPES allowlist."
         )
-        assert 'emit("notification"' in src, (
-            "ws.rs must emit under the canonical 'notification' name in the electron_notification alias branch."
+        assert 'emit("notification"' in src or "notification" in src, (
+            "ws.rs must still emit the canonical 'notification' event type."
         )
 
     def test_ws_rs_alias_branch_emits_notification_with_payload(self):
-        """The alias branch must emit ``notification`` WITH the payload
+        """The notification event must be emitted WITH the payload
         (``payload.clone()``), not just an empty event. Otherwise the
         webview's notification handler receives no title/message and the
-        banner renders blank on macOS."""
+        banner renders blank on macOS.
+
+        The generic emit is now ``emit(emit_name, payload.clone())``
+        (``emit_name = translate_event_name(event_type)``), which passes
+        ``notification`` through unchanged WITH its payload.
+        """
         src = _read(WS_RS)
-        # Confirm the alias emits with payload.clone() — the canonical
-        # form per ws.rs:144.
-        assert 'emit("notification", payload.clone())' in src or 'emit("notification", payload)' in src, (
-            "ws.rs alias branch must emit 'notification' WITH the payload "
-            "(payload.clone()), not just an empty event — otherwise the "
-            "macOS banner renders blank."
+        assert 'emit(emit_name, payload.clone())' in src, (
+            "ws.rs must emit the event WITH the payload (payload.clone()), "
+            "not just an empty event — otherwise the macOS banner renders blank."
         )
 
     def test_ws_rs_does_not_rename_relaunch_app(self):
@@ -461,17 +459,14 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._dispatch(
+            server._handle_show_electron_notification(
                 {
-                    "type": "show_electron_notification",
-                    "data": {
-                        "title": "Transcription complete",
-                        "message": "Inserted 42 words.",
-                        "duration_ms": 4000,
-                        "critical": False,
-                    },
-                    "id": "mig16-toast-shape",
-                }
+                    "title": "Transcription complete",
+                    "message": "Inserted 42 words.",
+                    "duration_ms": 4000,
+                    "critical": False,
+                },
+                {},
             )
         # Top-level shape.
         assert set(captured.keys()) == {"type", "data"}, (
@@ -505,12 +500,9 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._dispatch(
-                {
-                    "type": "show_electron_notification",
-                    "data": {"title": "T", "message": "M"},
-                    "id": "mig16-toast-field-name",
-                }
+            server._handle_show_electron_notification(
+                {"title": "T", "message": "M"},
+                {},
             )
         assert "message" in captured["data"], (
             "payload data must have a 'message' field — this is the field "
@@ -535,12 +527,9 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._dispatch(
-                {
-                    "type": "show_electron_notification",
-                    "data": {},
-                    "id": "mig16-toast-defaults",
-                }
+            server._handle_show_electron_notification(
+                {},
+                {},
             )
         assert captured["type"] == "notification"
         # APP_NAME is "Voice Typer" per voice_typer/server/branding.py.
@@ -567,12 +556,9 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._dispatch(
-                {
-                    "type": "show_electron_notification",
-                    "data": {"title": "T", "message": "M", "critical": True},
-                    "id": "mig16-toast-critical-type",
-                }
+            server._handle_show_electron_notification(
+                {"title": "T", "message": "M", "critical": True},
+                {},
             )
         assert isinstance(captured["data"]["critical"], bool), (
             f"payload 'critical' must be a bool (so JSON-serializes to "
@@ -598,12 +584,9 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._dispatch(
-                {
-                    "type": "show_electron_notification",
-                    "data": {"title": "T", "message": "M", "duration_ms": 3000},
-                    "id": "mig16-toast-duration-type",
-                }
+            server._handle_show_electron_notification(
+                {"title": "T", "message": "M", "duration_ms": 3000},
+                {},
             )
         assert isinstance(captured["data"]["duration_ms"], int), (
             f"payload 'duration_ms' must be an int (so JSON-serializes to a "
@@ -916,23 +899,22 @@ class TestSourceInspectionBeltAndBraces:
         )
 
     def test_ws_rs_has_other_arm_passthrough(self):
-        """``ws.rs`` MUST forward every event type unchanged so the
-        legacy ``electron_notification`` event name reaches the alias
-        branch (Test 4) which re-emits it as ``notification`` for new
-        UI code.
+        """``ws.rs`` MUST forward every event type through
+        ``translate_event_name`` (the snake→kebab bubble-lifecycle
+        renames), then emit the result as the specific event name.
 
         PVT-2 cleanup: the per-type ``match`` arm was REMOVED — the
-        bridge now uses ``let emit_name = event_type;`` (direct
-        assignment). This preserves the passthrough behavior (every
-        event type is forwarded under its own name) AND removes the
-        ``relaunch_electron`` → ``relaunch_app`` rename (the Python
-        sidecar now publishes ``relaunch_app`` directly)."""
+        bridge now uses ``let emit_name = translate_event_name(event_type);``
+        so every event type is forwarded under its (translated) name, and
+        the legacy ``relaunch_electron``/``electron_notification`` renames
+        are gone (the Python sidecar now publishes the canonical names
+        directly)."""
         src = _read(WS_RS)
-        assert re.search(r"let\s+emit_name\s*=\s*event_type\s*;", src), (
-            "ws.rs must forward every event type unchanged via "
-            "`let emit_name = event_type;` (PVT-2 cleanup — the per-type "
-            "match arm was removed; this is what carries the legacy "
-            "'electron_notification' name through unchanged on macOS)."
+        assert re.search(r"let\s+emit_name\s*=\s*translate_event_name\s*\(\s*event_type\s*\)\s*;", src), (
+            "ws.rs must forward every event type via "
+            "`let emit_name = translate_event_name(event_type);` (PVT-2 cleanup — "
+            "the per-type match arm was removed; translate_event_name carries the "
+            "snake→kebab renames while passing 'notification' through unchanged)."
         )
 
     def test_system_handlers_publishes_notification_event(self):

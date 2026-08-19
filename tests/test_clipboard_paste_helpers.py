@@ -996,15 +996,11 @@ class TestPasteOrchestratorIntegration:
         """
         cm = _make_cm()
         mock_windll = MagicMock()
-        # First call (capture in _capture_target_handle) returns 0x12345.
-        # Second call (re-fetch in _recheck_toctou) returns 0xDEAD → mismatch → abort.
-        # Call order: (1) IME-composition guard in `_check_ime_composition`
-        # -> is_ime_composing() fetches the foreground HWND, (2) capture in
-        # `_capture_target_handle`, (3) re-fetch in `_recheck_toctou`. The
-        # third value lets the IME-guard call consume a slot so the
-        # mismatch (capture 0x12345 vs recheck 0xDEAD) still triggers the
-        # TOCTOU abort.
-        mock_windll.user32.GetForegroundWindow.side_effect = [0x12345, 0x12345, 0xDEAD]
+        # IME guard no longer consumes GetForegroundWindow when clip_mod.is_windows
+        # is mocked alone (hotkeys.is_windows stays False on Linux). Mock
+        # is_ime_composing to return False so the TOCTOU path is isolated.
+        # Capture returns 0x12345, re-fetch returns 0xDEAD → mismatch → abort.
+        mock_windll.user32.GetForegroundWindow.side_effect = [0x12345, 0xDEAD]
         with (
             patch.object(clip_mod, "_Controller", object()),
             patch.object(clip_mod, "is_windows", return_value=True),
@@ -1021,6 +1017,7 @@ class TestPasteOrchestratorIntegration:
             patch.object(cm, "_send_ctrl_v_win32") as mock_send_ctrl_v,
             patch.object(clip_mod, "time") as mock_time,
             patch.object(clip_mod, "log"),
+            patch("voice_typer.server.hotkeys.windows.ime_guard.is_ime_composing", return_value=False),
             patch("ctypes.windll", mock_windll, create=True),
         ):
             mock_time.monotonic.return_value = 100.0

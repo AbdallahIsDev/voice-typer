@@ -160,7 +160,7 @@ class TestQuitApp:
 class TestCheckAccessibility:
     """``_handle_check_accessibility`` — returns ``accessibility_status``."""
 
-    def test_happy_path_non_macos_returns_granted_true(self, ipc_server):
+    def test_happy_path_non_macos_returns_granted_true(self, ipc_server, monkeypatch):
         """On non-macOS (the Linux test env), ``granted`` must be True.
 
         The handler short-circuits the macOS-only AXIsProcessTrusted()
@@ -168,6 +168,16 @@ class TestCheckAccessibility:
         libraries — the result is deterministic.
         """
         import sys as _sys
+
+        # Force the non-macOS path so the test is deterministic on every
+        # host. On the macOS CI leg, ``is_macos()`` is True and the handler
+        # takes the macOS branch, returning ``platform="macos"`` (the
+        # canonical string) instead of ``_sys.platform`` (``"darwin"``) —
+        # which would make the platform assertion below fail spuriously.
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.is_macos",
+            lambda: False,
+        )
 
         resp = ipc_server._handle_check_accessibility({}, {})
         assert resp["type"] == "accessibility_status"
