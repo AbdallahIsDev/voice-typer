@@ -221,9 +221,7 @@ class TestAudioProcessorLazyConstruction:
         # thread. Wait for that build to finish before asserting —
         # otherwise the assertion races the thread and intermittently
         # sees ``None`` (observed under full-suite parallel load).
-        assert instance._recorder_build_ready.wait(10.0), (
-            "recorder background build did not finish within 10s"
-        )
+        assert instance._recorder_build_ready.wait(10.0), "recorder background build did not finish within 10s"
         if instance._recorder_build_error is not None:
             raise instance._recorder_build_error
         # The backing is the proxy (created lazily by the getter when
@@ -485,9 +483,7 @@ class TestRecorderDeferredConstruction:
             fake_controller,
         )
 
-    def test_recorder_backing_is_sentinel_after_init_and_accessible_after_build(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_recorder_backing_is_sentinel_after_init_and_accessible_after_build(self, tmp_config_dir, monkeypatch):
         """Right after ``__init__``, ``_recorder_backing`` is still the
         ``_RECORDER_MISSING`` sentinel and ``_recorder_build_ready`` is
         NOT set — the recorder was NOT built synchronously. The fake
@@ -536,12 +532,8 @@ class TestRecorderDeferredConstruction:
 
             # Release the gate: the build completes and the properties work.
             release.set()
-            assert instance._recorder_build_ready.wait(5), (
-                "background recorder build did not complete after release"
-            )
-            assert instance.recorder is built[0], (
-                "app.recorder must return the recorder built by the background thread"
-            )
+            assert instance._recorder_build_ready.wait(5), "background recorder build did not complete after release"
+            assert instance.recorder is built[0], "app.recorder must return the recorder built by the background thread"
             assert instance.recorder is built[0], "app.recorder must cache (same instance)"
             assert instance.recording is controller_instance, (
                 "app.recording must return the controller built by the background thread"
@@ -581,9 +573,7 @@ class TestRecorderDeferredConstruction:
             injected = MagicMock(name="injected_recorder")
             instance.recorder = injected  # setter while the build is in flight
             release.set()
-            assert instance._recorder_build_ready.wait(5), (
-                "background recorder build did not complete after release"
-            )
+            assert instance._recorder_build_ready.wait(5), "background recorder build did not complete after release"
 
             # The background build must not clobber the injected mock.
             assert instance.recorder is injected, (
