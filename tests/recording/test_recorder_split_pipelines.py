@@ -158,8 +158,7 @@ class TestSegmentListCompaction:
             snap = take_snapshot(rec)
             # The snapshot must reflect the running total.
             assert snap.size == expected_total_samples, (
-                f"snapshot {i}: expected {expected_total_samples} samples, "
-                f"got {snap.size}"
+                f"snapshot {i}: expected {expected_total_samples} samples, got {snap.size}"
             )
 
         # After threshold+1 snapshots, the segment list must be
@@ -204,8 +203,7 @@ class TestSegmentListCompaction:
             expected_total_samples += 2  # 6 samples / 3 = 2 samples
             snap = take_snapshot(rec)
             assert snap.size == expected_total_samples, (
-                f"snapshot {i}: expected {expected_total_samples} samples, "
-                f"got {snap.size}"
+                f"snapshot {i}: expected {expected_total_samples} samples, got {snap.size}"
             )
 
         # After threshold+1 snapshots, the resampled segment list must
@@ -304,7 +302,7 @@ def _make_recorder_for_teardown(*, callback_in_flight: bool) -> MagicMock:
 
 
 class TestTeardownPollSkipFastPath:
-    """ ``teardown_stream_body`` must skip the 300ms callback-
+    """``teardown_stream_body`` must skip the 300ms callback-
     drain poll entirely when ``_is_in_audio_callback`` is already clear
     on the first check. The common case is that the RT callback (~10µs)
     has already returned by the time teardown runs."""
@@ -419,8 +417,7 @@ class TestTeardownPollSkipFastPath:
         lifecycle.teardown_stream_body(rec, force=True)
 
         assert sleep_calls == [], (
-            " regression (force path): time.sleep was called "
-            "even though _is_in_audio_callback was clear."
+            " regression (force path): time.sleep was called even though _is_in_audio_callback was clear."
         )
         stream_ref.abort.assert_called_once()
         stream_ref.close.assert_called_once()
@@ -492,7 +489,7 @@ def _build_mock_recorder_for_stop(
 
 
 class TestStopRecordingPrepareAudioPipelining:
-    """ ``stop_recording`` starts ``_prepare_audio`` on a
+    """``stop_recording`` starts ``_prepare_audio`` on a
     background thread so it overlaps with the RMS / peak / silence_pct
     stats computation. The method-call order contract
     (``secure_clear_caches`` → ``prepare_audio``) is preserved, but
@@ -554,39 +551,69 @@ class TestStopRecordingPrepareAudioPipelining:
             "the thread's result and return it."
         )
 
-    def test_stats_overlap_with_prepare_audio(self):
-        """When ``_prepare_audio`` is slow (simulated with a 100ms
-        sleep), the stats computation must run CONCURRENTLY — the
-        total stop() time should be roughly max(prepare_audio, stats),
-        NOT prepare_audio + stats. Without pipelining, the total
-        would be ~200ms (100ms prepare + 100ms stats). With
-        pipelining, it should be ~100-150ms (the larger of the two
-        plus thread overhead).
+    def test_stats_overlap_with_prepare_audio(self, monkeypatch):
+        """``_prepare_audio`` (on the resample thread) must OVERLAP
+        the stats computation — proven deterministically, without
+        wall-clock thresholds.
 
-        This test uses a generous upper bound (300ms) to avoid
-        flakiness on slow CI runners — the regression it catches is
-        the SEQUENTIAL case (>200ms), not the exact overlap ratio.
+        The previous version asserted total ``stop_recording()`` wall
+        time < 300ms; it flaked under full-suite parallel load
+        (observed 511ms on a loaded host — the simulated 100ms
+        resample alone already exceeds any scheduler guarantee, so the
+        assertion measured machine load, not pipelining). It also
+        could NOT catch its own named regression: stats on a 100K-
+        sample array take ~1ms, so sequential execution totals ~101ms
+        < 300ms on an idle box.
+
+        Instead, three timestamps from the same monotonic clock are
+        compared for ORDER, which load cannot break:
+
+            prepare_started < stats_started < prepare_finished
+
+        ``prepare_started`` is recorded on the resample thread's first
+        line; ``prepare_finished`` after its 2s simulated resample;
+        ``stats_started`` is the main thread's first stats op — the
+        ``np.dot`` RMS call, verified to be the ONLY ``np.dot`` call
+        in the mocked ``stop_recording`` path (probed: 1 call, ~1ms in).
+        Sequential regression → stats precede the thread → first
+        assert fails. Stats-after-resample → second assert fails. The
+        2s simulated resample gives the main thread ~1000x the
+        worst-case scheduler-latency margin, so preemption cannot
+        produce a false failure.
         """
-        # 100ms resample + ~50ms stats on a 100K-sample array.
+        times: dict[str, float] = {}
+
+        def _slow_prepare(audio, effective_sr_in, **kw):
+            times["prepare_started"] = time.perf_counter()
+            time.sleep(2.0)
+            times["prepare_finished"] = time.perf_counter()
+            return audio
+
         rec = _build_mock_recorder_for_stop(
             buffer_chunks=[np.ones(100_000, dtype=np.float32) * 0.5],
-            prepare_audio_delay_s=0.1,
         )
-        start = time.perf_counter()
+        rec._prepare_audio.side_effect = _slow_prepare
+
+        real_dot = np.dot
+
+        def _probing_dot(a, b, out=None):
+            times.setdefault("stats_started", time.perf_counter())
+            return real_dot(a, b) if out is None else real_dot(a, b, out)
+
+        monkeypatch.setattr(np, "dot", _probing_dot)
         stop_recording(rec)
-        elapsed = time.perf_counter() - start
-        # Without pipelining: ~100ms (prepare) + ~5ms (stats) = ~105ms.
-        # With pipelining: ~max(100ms, 5ms) = ~100ms + thread overhead.
-        # The sequential regression would manifest as elapsed > 150ms
-        # (the 100ms prepare + 5ms stats + ~50ms thread overhead would
-        # be ~155ms if the pipelining regressed to sequential).
-        # Use 300ms as the upper bound to avoid CI flakiness.
-        assert elapsed < 0.3, (
-            f" regression: stop_recording took {elapsed * 1000:.0f}ms "
-            f"(expected < 300ms with pipelining). Without pipelining, "
-            f"the 100ms _prepare_audio + stats would run sequentially. "
-            f"If this fires, check that the resample thread is started "
-            f"BEFORE the stats computation."
+
+        assert "prepare_started" in times and "stats_started" in times
+        assert times["prepare_started"] <= times["stats_started"], (
+            " regression: the stats computation started BEFORE the "
+            "resample thread — _prepare_audio is NOT pipelined. The "
+            "resample thread must be started BEFORE the stats "
+            "computation."
+        )
+        assert times["stats_started"] < times["prepare_finished"], (
+            " regression: the stats computation finished after the "
+            "resample — they did NOT overlap. The resample thread "
+            "must be started BEFORE the stats computation."
         )
 
     def test_prepare_audio_exception_propagates(self):
