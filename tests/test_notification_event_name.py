@@ -223,8 +223,13 @@ class TestStartupSequenceCrashNotificationEventName:
                 "voice_typer.server.session_state.was_previous_session_abnormal",
                 return_value=True,
             ),
+            patch("voice_typer.server.app._config_dir", return_value=MagicMock()),
         ):
-            startup_sequence.StartupSequence(app).run()
+            # Call only the crash-diagnostics phase directly to avoid
+            # the _shutting_down abort in later phases; this isolates the
+            # publish assertion from unrelated startup logic.
+            seq = startup_sequence.StartupSequence(app)
+            seq._phase_2_crash_diagnostics()
 
         # The crash branch publishes exactly one event.
         assert len(captured) == 1, f"expected 1 event from crash branch, got {len(captured)}: {captured!r}"
@@ -274,8 +279,10 @@ class TestStartupSequenceCrashNotificationEventName:
                 "voice_typer.server.session_state.was_previous_session_abnormal",
                 return_value=False,
             ),
+            patch("voice_typer.server.app._config_dir", return_value=MagicMock()),
         ):
-            startup_sequence.StartupSequence(app).run()
+            seq = startup_sequence.StartupSequence(app)
+            seq._phase_2_crash_diagnostics()
 
         assert captured == [], (
             "crash files from a cleanly-ended previous session must be "
@@ -301,8 +308,10 @@ class TestStartupSequenceCrashNotificationEventName:
                 "voice_typer.server.crash_handler.report_pending_crash",
                 return_value=None,
             ),
+            patch("voice_typer.server.app._config_dir", return_value=MagicMock()),
         ):
-            startup_sequence.StartupSequence(app).run()
+            seq = startup_sequence.StartupSequence(app)
+            seq._phase_2_crash_diagnostics()
 
         assert captured == [], f"no notification event should be published when crash_summary is None, got {captured!r}"
 

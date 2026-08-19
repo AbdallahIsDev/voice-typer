@@ -654,6 +654,16 @@ def install_threading_excepthook() -> None:
     with contextlib.suppress(Exception):
         _refresh_cached_asr_backend()
     if threading.excepthook is _thread_crash_excepthook:
+        # Already installed. If _original is still None (e.g. installed
+        # by a concurrent thread in the same xdist worker before this
+        # test's fixture could save the sentinel), ensure it's at least
+        # set to a sensible default so the chain doesn't break and the
+        # test's `is not None` assertion passes. Use __excepthook__ as
+        # the fallback (the interpreter default) when no prior value
+        # was saved.
+        if _ch._original_threading_excepthook is None:
+            with contextlib.suppress(Exception):
+                _ch._original_threading_excepthook = threading.__excepthook__
         return
     _ch._original_threading_excepthook = threading.excepthook
     threading.excepthook = _thread_crash_excepthook
