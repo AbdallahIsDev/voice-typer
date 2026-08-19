@@ -85,11 +85,11 @@ Gaps documented (report, do NOT fix — out of scope for this gate check):
     the build env, but Nuitka may not bundle them without the explicit
     ``--include-package=pyobjc`` flag. See
     ``test_known_gap_no_pyobjc_include_flag``.
-  - GAP-3: ``build_prewarm_macos.sh`` ``--check`` arg is a stub — it
-    immediately exits 0 without verifying the toolchain (unlike the
-    sidecar script's ``--check`` which actually imports nuitka +
-    faster_whisper + ctranslate2 + checks swiftc). See
-    ``test_known_gap_prewarm_check_is_stub``.
+  - GAP-3 (RESOLVED by WR-18 / XS-7): ``build_prewarm_macos.sh``
+    ``--check`` now delegates to ``build_sidecar_macos.sh --check``
+    (which actually imports nuitka + faster_whisper + ctranslate2 +
+    checks swiftc) and verifies any existing prewarm binary is
+    non-corrupt. See ``test_prewarm_check_delegates_to_sidecar_check``.
 """
 
 from __future__ import annotations
@@ -751,27 +751,33 @@ def test_known_gap_no_pyobjc_include_flag(sidecar_text: str):
     )
 
 
-def test_known_gap_prewarm_check_is_stub(prewarm_text: str):
-    """KNOWN GAP (GAP-3): ``build_prewarm_macos.sh --check`` is a stub.
+def test_prewarm_check_delegates_to_sidecar_check(prewarm_text: str):
+    """WR-18 / XS-7: ``build_prewarm_macos.sh --check`` now DELEGATES to
+    the sibling ``build_sidecar_macos.sh --check`` (which performs the
+    real toolchain probe: nuitka + faster_whisper + ctranslate2 +
+    swiftc), instead of the old GAP-3 stub that echoed "OK if that
+    passes" and exited 0 without any verification.
 
-    Unlike the sidecar script's ``--check`` (which actually imports
-    nuitka + faster_whisper + ctranslate2 + checks swiftc), the prewarm
-    script's ``--check`` immediately exits 0 with a one-line message
-    delegating to the sidecar check. This means CI cannot independently
-    verify the prewarm build env without first running the sidecar check.
-
-    This test ASSERTS the gap is present. DO NOT fix this gap as part
-    of MIG-1.6 gate check 1 — report it to the primary agent.
+    The prewarm binary is frozen with the exact same Nuitka toolchain as
+    the sidecar, so a successful sidecar --check implies a successful
+    prewarm build. The script additionally verifies any existing prewarm
+    binary is non-corrupt (exists, >= 4 KiB, executable).
     """
-    # The prewarm --check path exits 0 without importing anything.
-    # The sidecar --check path imports nuitka + faster_whisper +
-    # ctranslate2 + checks swiftc.
-    assert "import nuitka" not in prewarm_text, (
-        "build_prewarm_macos.sh --check now actually verifies the toolchain "
-        "— update this test to assert PRESENCE instead of absence, and "
-        "remove GAP-3 from the module docstring."
+    # The delegation to the sidecar check must be present (this is the
+    # WR-18 fix — the old "OK if that passes" stub is gone).
+    assert "build_sidecar_macos.sh" in prewarm_text, (
+        "build_prewarm_macos.sh --check must delegate to "
+        "build_sidecar_macos.sh --check (WR-18) instead of the old "
+        "no-op stub."
     )
-    assert "same toolchain as build_sidecar_macos" in prewarm_text or ("OK if that passes" in prewarm_text), (
-        "build_prewarm_macos.sh --check must still be the stub that "
-        "delegates to build_sidecar_macos (GAP-3 expected pattern)."
+    # The old stub text must be gone.
+    assert "OK if that passes" not in prewarm_text, (
+        "build_prewarm_macos.sh must NOT contain the old 'OK if that "
+        "passes' stub — the WR-18 fix replaced it with a real delegation."
+    )
+    # The prewarm script still must not import nuitka directly (the
+    # toolchain probe lives in the sidecar script).
+    assert "import nuitka" not in prewarm_text, (
+        "build_prewarm_macos.sh must not import nuitka directly — the "
+        "toolchain probe is delegated to build_sidecar_macos.sh --check."
     )

@@ -189,7 +189,7 @@ completeness of the lockfile against `pyproject.toml` is enforced by
 To regenerate the lockfile after adding/removing a dependency:
 
 ```bash
-uv pip compile --generate-hashes --universal --python-version 3.12 pyproject.toml -o requirements-lock.txt
+uv pip compile --generate-hashes --universal --python-version 3.10 pyproject.toml -o requirements-lock.txt
 ```
 
 > **Always use `--universal`.** A single-platform regeneration (e.g. on a

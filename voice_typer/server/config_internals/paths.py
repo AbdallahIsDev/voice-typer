@@ -178,15 +178,28 @@ def _is_path_within(path: Path, root: Path, *, case_sensitive: bool | None = Non
     """
     import os.path
 
+    if case_sensitive is None:
+        case_sensitive = sys.platform not in ("win32", "darwin")
+
     try:
-        p_resolved = str(path.resolve())
-        r_resolved = str(root.resolve())
+        if case_sensitive:
+            # Lexical normalization only. ``Path.resolve()`` follows the
+            # actual filesystem, and on a case-insensitive filesystem
+            # (macOS / Windows) it collapses the case of path components
+            # (e.g. ``/Home/X`` -> ``/home/X``) — which would silently
+            # defeat an explicit ``case_sensitive=True``. Use
+            # ``abspath`` + ``normpath`` to canonicalize ``.``/``..``
+            # segments while preserving case, so ``/Home/X`` stays
+            # distinct from ``/home/X``.
+            p_resolved = os.path.normpath(os.path.abspath(str(path)))
+            r_resolved = os.path.normpath(os.path.abspath(str(root)))
+        else:
+            p_resolved = os.path.normpath(str(path.resolve()))
+            r_resolved = os.path.normpath(str(root.resolve()))
     except (OSError, RuntimeError):
         # Path.resolve() can raise on some platforms if the path is
         # not decodable; treat that as "not within".
         return False
-    if case_sensitive is None:
-        case_sensitive = sys.platform not in ("win32", "darwin")
     if not case_sensitive:
         p_resolved = p_resolved.lower()
         r_resolved = r_resolved.lower()
