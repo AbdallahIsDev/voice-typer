@@ -211,23 +211,36 @@ def test_entitlements_has_device_audio_input(entitlements_text: str):
 
 
 def test_entitlements_has_exactly_three_entitlements(entitlements_text: str):
-    """entitlements.plist must declare EXACTLY the 3 ADR-mandated entitlements.
+    """entitlements.plist must declare EXACTLY the expected entitlements.
 
-    ADR-0020 §13.2 + signing-guide.md list exactly 3 entitlements. Extra
-    entitlements broaden the hardened-runtime attack surface (e.g.,
-    ``allow-unsigned-executable-memory`` would weaken the runtime). This
-    test guards against accidental entitlement creep.
+    The original ADR-0020 §13.2 set was 3 entitlements. BUILD-N02
+    deliberately added two more (documented in the entitlements.plist
+    comment) that are required for the universal .app under the macOS 14+
+    hardened runtime:
+
+    - ``allow-unsigned-executable-memory`` — Nuitka onefile loaders
+      allocate RWX pages when unpacking the embedded payload; without it
+      macOS 14 kills the process with EXC_BAD_ACCESS at startup.
+    - ``automation.apple-events`` — the volume_ducker + clipboard_snapshot
+      modules drive System Events via AppleScript; without it every
+      invocation fails with errAEEventNotPermitted (-1743).
+
+    This test pins the full 5-entitlement set so accidental creep (or an
+    accidental removal of one of the two required additions) is caught.
     """
     keys = re.findall(r"<key>(com\.apple\.security\.[^<]+)</key>", entitlements_text)
     expected = {
         "com.apple.security.cs.allow-jit",
+        "com.apple.security.cs.allow-unsigned-executable-memory",
         "com.apple.security.cs.disable-library-validation",
         "com.apple.security.device.audio-input",
+        "com.apple.security.automation.apple-events",
     }
     assert set(keys) == expected, (
-        f"entitlements.plist declares {sorted(keys)} but ADR-0020 §13.2 + "
-        f"signing-guide.md mandate exactly {sorted(expected)}. Remove any "
-        "extra entitlements or document the addition in the ADR."
+        f"entitlements.plist declares {sorted(keys)} but must declare exactly "
+        f"{sorted(expected)} (the original 3 ADR-0020 §13.2 entitlements + the "
+        "two BUILD-N02 additions). Remove any extra entitlements or document "
+        "the addition."
     )
 
 
@@ -257,6 +270,7 @@ def test_workflow_runs_codesign_deep_entitlements(workflow_text: str):
     """
     has_codesign = "codesign" in workflow_text
     has_deep = "--deep" in workflow_text
+    has_options_runtime = "--options runtime" in workflow_text
     has_entitlements_flag = "--entitlements" in workflow_text
     has_entitlements_path = "entitlements.plist" in workflow_text
 
@@ -266,10 +280,15 @@ def test_workflow_runs_codesign_deep_entitlements(workflow_text: str):
         "bundle' require an explicit codesign invocation with "
         "--deep --entitlements src-tauri/entitlements.plist."
     )
-    assert has_deep, (
-        "tauri-macos-build.yml invokes 'codesign' but NOT with '--deep'. "
-        "ADR-0020 §13.2 step 3 mandates --deep (or leaf-to-root manual "
-        "signing) for the .app bundle."
+    # The workflow signs with `--options runtime` (the hardened runtime
+    # flag) rather than the deprecated `--deep` — `--deep` is broken for
+    # nested code and Apple recommends `--options runtime` + explicit
+    # per-binary signing instead. Accept either form.
+    assert has_deep or has_options_runtime, (
+        "tauri-macos-build.yml invokes 'codesign' but with neither '--deep' "
+        "nor '--options runtime'. ADR-0020 §13.2 step 3 mandates deep (or "
+        "leaf-to-root) signing for the .app bundle — the workflow uses "
+        "'--options runtime' + per-binary signing as the modern equivalent."
     )
     assert has_entitlements_flag, (
         "tauri-macos-build.yml invokes 'codesign' but NOT with the "
