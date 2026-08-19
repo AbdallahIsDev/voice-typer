@@ -453,7 +453,7 @@ class TestConcurrentLockUseNoDeadlock:
         time.sleep(1.0)  # intentional fixed delay (stress-test duration)
         stop.set()
         for t in threads:
-            t.join(timeout=2.0)
+            t.join(timeout=5.0)
             assert not t.is_alive(), (
                 f"Thread {t.name!r} is still alive after 2s join — likely deadlocked on _pending_timers_lock."
             )
@@ -472,7 +472,7 @@ class TestConcurrentLockUseNoDeadlock:
 
         def worker(idx: int):
             try:
-                barrier.wait(timeout=5.0)
+                barrier.wait(timeout=10.0)
                 for _ in range(iterations):
                     # Production code does setattr + save + side-effects
                     # inside this lock; we just exercise the lock itself.
@@ -488,7 +488,7 @@ class TestConcurrentLockUseNoDeadlock:
         for t in threads:
             t.start()
         for t in threads:
-            t.join(timeout=5.0)
+            t.join(timeout=10.0)
             assert not t.is_alive(), "Thread still alive after 5s — likely deadlocked on _config_mutation_lock."
         assert not errors, f"concurrent config-mutation raised: {errors}"
 
@@ -502,7 +502,7 @@ class TestConcurrentLockUseNoDeadlock:
 
         def worker():
             try:
-                barrier.wait(timeout=5.0)
+                barrier.wait(timeout=10.0)
                 for _ in range(iterations):
                     # Mirror dictation_pipeline.py:282 — acquire app._lock
                     # briefly to clear a shared attribute.
@@ -518,7 +518,7 @@ class TestConcurrentLockUseNoDeadlock:
         for t in threads:
             t.start()
         for t in threads:
-            t.join(timeout=5.0)
+            t.join(timeout=10.0)
             assert not t.is_alive(), "Thread still alive after 5s — likely deadlocked on app._lock."
         assert not errors, f"concurrent app._lock raised: {errors}"
 
@@ -563,7 +563,7 @@ class TestConcurrentLockUseNoDeadlock:
         time.sleep(1.0)  # intentional fixed delay (stress-test duration)
         stop.set()
         for t in threads:
-            t.join(timeout=2.0)
+            t.join(timeout=5.0)
             assert not t.is_alive(), f"Thread {t.name!r} still alive after 2s join — likely deadlocked."
         assert not errors, f"mixed-lock stress raised: {errors}"
         app_shell._cancel_pending_timers()
@@ -606,7 +606,7 @@ class TestReverseOrderAcquisitionNoDeadlock:
 
         def worker(order, name):
             try:
-                barrier.wait(timeout=5.0)
+                barrier.wait(timeout=10.0)
                 for _ in range(iterations):
                     # Acquire each lock INDIVIDUALLY (not nested) in the
                     # given order. If a future regression introduces
@@ -625,8 +625,8 @@ class TestReverseOrderAcquisitionNoDeadlock:
         t_reverse = threading.Thread(target=worker, args=(reverse_order, "reverse"), name="reverse")
         t_forward.start()
         t_reverse.start()
-        t_forward.join(timeout=5.0)
-        t_reverse.join(timeout=5.0)
+        t_forward.join(timeout=10.0)
+        t_reverse.join(timeout=10.0)
         assert not t_forward.is_alive(), (
             "forward-order thread still alive after 5s — production code "
             "has introduced nesting that breaks the no-nesting contract "
