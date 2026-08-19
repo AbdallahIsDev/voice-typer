@@ -66,7 +66,9 @@
 	"//overrides_fast-uri": "force-upgrade to ^3.1.5 \u2014 resolves the ReDoS advisory in fast-uri@2, ajv-compiler chain (npm-audit finding).",
 	"//overrides_hono": "force-upgrade to ^4.12.34 \u2014 keeps hono on a patched 4.x aligned with the @hono/node-server override.",
 	"//overrides_postcss": "force-upgrade to ^8.5.23 \u2014 resolves the postcss@8 parser advisories pulled by vite/tailwind build tooling (npm-audit finding).",
+	"//overrides_nanoid": "force-upgrade to ^3.3.18 \u2014 postcss pulls nanoid ^3.3.16 which resolves to 3.3.17, vulnerable to GHSA-2v37-7h3g-55p8 (custom generators loop indefinitely when size is zero).",
 	"overrides": {
+		"nanoid": "^3.3.18",
 		"@electron/asar": "^4.2.1",
 		"@electron/get": "^5.0.0",
 		"@hono/node-server": "^2.0.11",
