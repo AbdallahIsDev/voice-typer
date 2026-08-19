@@ -424,9 +424,10 @@ class TestHistoryDBMultiRowInsertBatching:
             assert total_tuples == 3, (
                 f"ER-78: expected total of 3 placeholder tuples across batches, got {total_tuples}. SQL: {insert_calls}"
             )
-            # At least one batch must be multi-row (proves batching optimization is active).
+            # At least one batch must be multi-row (proves batching is active).
             assert any(sql.count(placeholder_tuple) > 1 for sql in insert_calls), (
-                f"ER-78: expected at least one multi-row INSERT (>1 tuple), got single-row batches only. SQL: {insert_calls}"
+                f"ER-78: expected at least one multi-row INSERT (>1 tuple), "
+                f"got single-row batches only. SQL: {insert_calls}"
             )
 
             # Verify all 3 rows actually landed in the DB.
