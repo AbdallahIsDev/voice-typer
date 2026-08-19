@@ -340,10 +340,11 @@ class TestStartupSharedBudget:
 
         # Spy on Thread.start to catch the prewarm dispatch.
         started_threads: list[tuple[str, bool]] = []
+        _orig_thread_start = threading.Thread.start
 
         def spy_start(self):
             started_threads.append((self.name, self.daemon))
-            return threading.Thread.start(self)
+            return _orig_thread_start(self)
 
         monkeypatch.setattr(threading.Thread, "start", spy_start)
 
