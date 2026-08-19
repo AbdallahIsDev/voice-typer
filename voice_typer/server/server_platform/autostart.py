@@ -232,6 +232,15 @@ def _autostart_command() -> str:
                 python_exe,
             )
 
+    # PLAT-VENV/SILENT-LOGON: the probe above may have replaced
+    # args[0] with the system python.exe (console-subsystem). Re-apply
+    # the pythonw.exe preference to the FINAL interpreter so the
+    # Run-key / Startup-bat entry never flashes a console window.
+    if is_windows() and args:
+        pythonw = Path(args[0]).parent / "pythonw.exe"
+        if pythonw.exists():
+            args[0] = str(pythonw)
+
     # AUTOSTART-CMD-VALIDATE: verify the resolved Python interpreter
     # path actually exists on disk. If the venv was deleted after
     # registration (dev-mode installs), the pythonw.exe path baked

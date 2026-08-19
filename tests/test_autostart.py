@@ -686,5 +686,58 @@ class TestAppAutostartCommandAndArgsValidation:
         assert args == ""
 
 
+# ---------------------------------------------------------------------------
+# SILENT-LOGON: pythonw preference after the PLAT-VENV system-Python swap
+# ---------------------------------------------------------------------------
+
+
+class TestSilentLogonPythonwPreference:
+    """When the venv probe passes, the system python.exe is swapped in —
+    the pythonw.exe sibling of the FINAL interpreter must be preferred so
+    the logon entry never flashes a console window."""
+
+    @pytest.fixture
+    def _fake_env(self, monkeypatch, tmp_path):
+        venv_dir = tmp_path / "venv"
+        venv_dir.mkdir()
+        venv_python = venv_dir / "python.exe"
+        venv_python.write_text("")
+        system_dir = tmp_path / "system"
+        system_dir.mkdir()
+        system_python = system_dir / "python.exe"
+        system_python.write_text("")
+        system_pythonw = system_dir / "pythonw.exe"
+        system_pythonw.write_text("")
+        monkeypatch.setattr(sys, "executable", str(venv_python))
+        monkeypatch.setattr(sys, "prefix", str(venv_dir))
+        monkeypatch.setattr(sys, "base_prefix", str(tmp_path))
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.autostart._system_python_can_import_launcher",
+            lambda python: True,
+        )
+        monkeypatch.setattr("shutil.which", lambda name: str(system_python) if name == "python.exe" else None)
+        return system_pythonw
+
+    def test_autostart_command_prefers_system_pythonw(self, monkeypatch, win32_platform, _fake_env):
+        """``_autostart_command`` swaps in the system pythonw.exe, not
+        python.exe, after the venv probe passes."""
+        from voice_typer.server.server_platform import _autostart_command
+
+        cmd = _autostart_command()
+        assert str(_fake_env) in cmd
+        assert "python.exe" not in cmd
+
+    def test_task_command_prefers_system_pythonw(self, monkeypatch, win32_platform, _fake_env):
+        """``_app_autostart_command_and_args`` resolves the system
+        pythonw.exe as the Task Scheduler action."""
+        from voice_typer.server.server_platform import _app_autostart_command_and_args
+
+        python_bin, args = _app_autostart_command_and_args()
+        assert python_bin == str(_fake_env)
+        assert "python.exe" not in python_bin
+        assert "--hidden" in args
+        assert "--delay" in args
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

@@ -230,6 +230,15 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
                     "venv is deleted, but works for the current user.",
                     sys.executable,
                 )
+    # PLAT-VENV/SILENT-LOGON: the probe above may have swapped the
+    # interpreter to the system python.exe (a console-subsystem binary).
+    # Re-apply the pythonw.exe preference to the FINAL interpreter so
+    # the logon task never flashes a console window (same preference as
+    # the initial pick above, which only covered sys.executable).
+    pythonw = Path(python_bin).parent / "pythonw.exe"
+    if pythonw.exists():
+        python_bin = str(pythonw)
+
     # AUTOSTART-CMD-VALIDATE: verify the resolved Python interpreter
     # path exists. If it doesn't (venv deleted, dev-mode install moved),
     # fall back to the Tauri binary with empty args (the Tauri binary
