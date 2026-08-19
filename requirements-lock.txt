@@ -8,7 +8,7 @@ audiolab==0.5.1 ; (python_full_version < '3.15' and platform_machine != 'arm64')
     --hash=sha256:89e0549083aa78423f9f8ca16963595f7923b51511ff77d32eeb6b48ec388633 \
     --hash=sha256:8f19a7d1cc915c1f9e25fc4f1c61ed3c86ea30147d60e3385ddf027c43cda3e2
     # via pyrnnoise
-av==18.0.0 ; python_full_version < '3.15' \
+av==18.0.0 ; python_full_version >= '3.11' and python_full_version < '3.15' \
     --hash=sha256:0f65518a184613e41536f29e8758c8e3d8293e46bf5bef108f04f925bbfa3f44 \
     --hash=sha256:149289d40e732a6e49c9530bc245b49d9964cfd1c8c9e06778703b7d5bba6b25 \
     --hash=sha256:30404f53ca1ea7f350ac86ff22a2c04f903014758e9b33f398c5a62de34bd84f \
@@ -257,7 +257,7 @@ comtypes==1.4.16 ; python_full_version < '3.15' and sys_platform == 'win32' \
     # via
     #   voice-typer (pyproject.toml)
     #   pycaw
-contourpy==1.3.3 ; (python_full_version < '3.15' and platform_machine != 'arm64') or (python_full_version < '3.15' and sys_platform != 'darwin') \
+contourpy==1.3.3 ; (python_full_version >= '3.11' and python_full_version < '3.15' and platform_machine != 'arm64') or (python_full_version >= '3.11' and python_full_version < '3.15' and sys_platform != 'darwin') \
     --hash=sha256:023b44101dfe49d7d53932be418477dba359649246075c996866106da069af69 \
     --hash=sha256:07ce5ed73ecdc4a03ffe3e1b3e3c1166db35ae7584be76f65dbbe28a7791b0cc \
     --hash=sha256:083e12155b210502d0bca491432bb04d56dc3432f95a979b429f2848c3dbe880 \
@@ -546,6 +546,10 @@ jaraco-context==6.1.2 ; python_full_version < '3.15' \
     --hash=sha256:bf8150b79a2d5d91ae48629d8b427a8f7ba0e1097dd6202a9059f29a36379535 \
     --hash=sha256:f1a6c9d391e661cc5b8d39861ff077a7dc24dc23833ccee564b234b81c82dfe3
     # via keyring
+backports.tarfile==1.2.0 ; python_full_version < '3.12' \
+    --hash=sha256:77e284d754527b01fb1e6fa8a1afe577858ebe4e9dad8919e34c862cb399bc34 \
+    --hash=sha256:d75e02c268746e1b8144c278978b6e98e85de6ad16f8e4b0844a154557eca991
+    # via jaraco-context
 jaraco-functools==4.6.0 ; python_full_version < '3.15' \
     --hash=sha256:880c577ec9720b3a052d5bc611fb9f2269b3d87902ef42440df443b88e443280 \
     --hash=sha256:99e3dc0060c5cbe8fcd1cdb36258e2a65ca40f1566b2033b12abb1bb44dd3c30
@@ -828,7 +832,7 @@ more-itertools==11.1.0 ; python_full_version < '3.15' \
     # via
     #   jaraco-classes
     #   jaraco-functools
-numpy==2.5.1 ; python_full_version < '3.15' \
+numpy==2.5.1 ; python_full_version >= '3.12' and python_full_version < '3.15' \
     --hash=sha256:08d60c810432eb83360958dea0999ac4cfb94531ea8efcbf0b7f277c2068aeb2 \
     --hash=sha256:09e9bfd8d2cf479c7d174804fb3811c53a8e9f20a37444008606b57d6b7a826d \
     --hash=sha256:0bfebd8695f9863592fe744be833a258120b14a9f39da255e8aa8fade2c0ddd1 \
@@ -873,6 +877,23 @@ numpy==2.5.1 ; python_full_version < '3.15' \
     --hash=sha256:f7119ebff1a9829e9f431a4f9d28e703023bb6b9fe7c8f724467dbfc27c94ab3 \
     --hash=sha256:f7d60026c0bdb1380e83bfa7a0419c4577ee4b9a08880afcb6dadeb74c649fa2 \
     --hash=sha256:f7feb014281029e628ba2d5a007407443b06e418b6fe451d1e2adcbc8eba0107
+    # via
+    #   voice-typer (pyproject.toml)
+    #   contourpy
+    #   ctranslate2
+    #   matplotlib
+    #   onnx-asr
+    #   onnxruntime
+    #   pyrnnoise
+    #   scipy
+    #   soundfile
+numpy==2.2.6 ; python_full_version < '3.12' \
+    --hash=sha256:f0fd6321b839904e15c46e0d257fdd101dd7f530fe03fd6359c1ea63738703f3 \
+    --hash=sha256:fc7b73d02efb0e18c000e9ad8b83480dfcd5dfd11065997ed4c6747470ae8915 \
+    --hash=sha256:b412caa66f72040e6d268491a59f2c43bf03eb6c96dd8f0307829feb7fa2b6fb \
+    --hash=sha256:ba10f8411898fc418a521833e014a77d3ca01c15b0c6cdcce6a0d2897e6dbbdf \
+    --hash=sha256:c820a93b0255bc360f53eca31a0e676fd1101f673dda8da93454a12e23fc5f7a \
+    --hash=sha256:e8213002e427c69c45a52bbd94163084025f533a55a59d6f9c5b820774ef3303 \
     # via
     #   voice-typer (pyproject.toml)
     #   contourpy
