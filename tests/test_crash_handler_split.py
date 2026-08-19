@@ -321,6 +321,31 @@ class TestPerPlatformGuard:
         # graph stays fractured for every later test in this worker.
         for k, mod in saved_modules.items():
             sys.modules[k] = mod
+        # Restore the parent-package attribute as well. The re-import
+        # above rebound ``voice_typer.server.crash_handler`` (the
+        # attribute on the parent package) to the NEW module object;
+        # restoring ``sys.modules`` alone does NOT undo that binding.
+        # After this test, every ``from voice_typer.server import
+        # crash_handler`` in this worker would resolve to the new module
+        # while pre-purge bindings (``startup_sequence._crash_handler``,
+        # collection-time bindings in test modules, the facade's own
+        # re-exported function objects) still reference the old one —
+        # ``monkeypatch.setattr("voice_typer.server.crash_handler.<fn>")``
+        # patches the new module while production code calls the old,
+        # and state written through the facade lands on the wrong object
+        # (CI-observed: test_threading_excepthook.py + test_notification
+        # _event_name.py failing intermittently, per-worker, on the
+        # ubuntu legs — exactly when this test shared the worker).
+        import voice_typer.server as _server_pkg
+
+        for k in mods_to_remove:
+            if k == "voice_typer.server.crash_handler":
+                _server_pkg.crash_handler = saved_modules[k]
+        # Belt-and-braces: the package attribute must now agree with
+        # sys.modules — the invariant every later test relies on.
+        assert _server_pkg.crash_handler is sys.modules["voice_typer.server.crash_handler"], (
+            "purge/restore must leave the package attribute consistent with sys.modules"
+        )
 
     @pytest.mark.skipif(
         sys.platform == "win32",
@@ -337,14 +362,43 @@ class TestPerPlatformGuard:
             "voice_typer.server.crash_handler._diagnostics_archive",
             "voice_typer.server.crash_handler._python_excepthook",
         ]
-        for mod_name in submodules:
-            # Remove if already imported.
-            sys.modules.pop(mod_name, None)
-            sys.modules.pop("ctypes.wintypes", None)
-            __import__(mod_name)
-            assert "ctypes.wintypes" not in sys.modules, (
-                f"Importing {mod_name} on Linux loaded ctypes.wintypes — per-platform guard broken in this submodule."
-            )
+        # Snapshot the ORIGINAL submodule objects (sys.modules entries +
+        # facade attributes) so the re-imports below can be fully undone
+        # — otherwise the facade's re-exported function objects keep
+        # referencing the old submodules while sys.modules and the
+        # facade attributes point at fresh ones, fracturing the module
+        # graph for every later test in this worker (same class of bug
+        # as the purge in test_import_does_not_load_wintypes).
+        from voice_typer.server import crash_handler as _facade_mod
+
+        _orig_submods = {m: sys.modules.get(m) for m in submodules}
+        _orig_facade_attrs = {
+            m.rsplit(".", 1)[-1]: getattr(_facade_mod, m.rsplit(".", 1)[-1], None) for m in submodules
+        }
+        try:
+            for mod_name in submodules:
+                # Remove if already imported.
+                sys.modules.pop(mod_name, None)
+                sys.modules.pop("ctypes.wintypes", None)
+                __import__(mod_name)
+                assert "ctypes.wintypes" not in sys.modules, (
+                    f"Importing {mod_name} on Linux loaded ctypes.wintypes — "
+                    "per-platform guard broken in this submodule."
+                )
+        finally:
+            # Undo the re-imports completely: restore the original
+            # sys.modules entries AND the facade attributes.
+            for m, mod in _orig_submods.items():
+                if mod is None:
+                    sys.modules.pop(m, None)
+                else:
+                    sys.modules[m] = mod
+            for attr, mod in _orig_facade_attrs.items():
+                if mod is None:
+                    if hasattr(_facade_mod, attr):
+                        delattr(_facade_mod, attr)
+                else:
+                    setattr(_facade_mod, attr, mod)
 
 
 # ── 3. State proxying: test mutations propagate to submodule functions ──
