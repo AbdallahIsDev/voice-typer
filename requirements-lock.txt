@@ -8,7 +8,7 @@ audiolab==0.5.1 ; (python_full_version < '3.15' and platform_machine != 'arm64')
     --hash=sha256:89e0549083aa78423f9f8ca16963595f7923b51511ff77d32eeb6b48ec388633 \
     --hash=sha256:8f19a7d1cc915c1f9e25fc4f1c61ed3c86ea30147d60e3385ddf027c43cda3e2
     # via pyrnnoise
-av==18.0.0 ; python_full_version < '3.15' \
+av==18.0.0 ; python_full_version >= '3.11' and python_full_version < '3.15' \
     --hash=sha256:0f65518a184613e41536f29e8758c8e3d8293e46bf5bef108f04f925bbfa3f44 \
     --hash=sha256:149289d40e732a6e49c9530bc245b49d9964cfd1c8c9e06778703b7d5bba6b25 \
     --hash=sha256:30404f53ca1ea7f350ac86ff22a2c04f903014758e9b33f398c5a62de34bd84f \
@@ -546,6 +546,10 @@ jaraco-context==6.1.2 ; python_full_version < '3.15' \
     --hash=sha256:bf8150b79a2d5d91ae48629d8b427a8f7ba0e1097dd6202a9059f29a36379535 \
     --hash=sha256:f1a6c9d391e661cc5b8d39861ff077a7dc24dc23833ccee564b234b81c82dfe3
     # via keyring
+backports.tarfile==1.2.0 ; python_full_version < '3.12' \
+    --hash=sha256:77e284d754527b01fb1e6fa8a1afe577858ebe4e9dad8919e34c862cb399bc34 \
+    --hash=sha256:d75e02c268746e1b8144c278978b6e98e85de6ad16f8e4b0844a154557eca991
+    # via jaraco-context
 jaraco-functools==4.6.0 ; python_full_version < '3.15' \
     --hash=sha256:880c577ec9720b3a052d5bc611fb9f2269b3d87902ef42440df443b88e443280 \
     --hash=sha256:99e3dc0060c5cbe8fcd1cdb36258e2a65ca40f1566b2033b12abb1bb44dd3c30
