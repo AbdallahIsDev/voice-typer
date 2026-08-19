@@ -182,8 +182,18 @@ class TestStartupSequenceCrashNotificationEventName:
         """
         app = MagicMock()
         app._shutting_down = True  # abort run() right after the crash branch
+        # StartupSequence also checks _shutting_down_event (Event) in
+        # some phases; provide it so the abort is deterministic even if
+        # the implementation switches to the Event gate.
+        mock_event = MagicMock()
+        mock_event.is_set.return_value = True
+        app._shutting_down_event = mock_event
         app.tray = MagicMock()
         app.tray.notify_safety = MagicMock()
+        # Minimal config stub so later phases that read config don't
+        # explode before the abort check; not used in the crash branch.
+        app.config = MagicMock()
+        app.config.config_dir = MagicMock(return_value=MagicMock())
         return app
 
     def test_crash_branch_publishes_notification_event(self):

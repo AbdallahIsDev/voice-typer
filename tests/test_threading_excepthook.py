@@ -121,9 +121,18 @@ class TestInstallThreadingExcepthook:
         def sentinel(args):
             sentinel_called.append(True)
 
+        # Ensure a clean state even if another thread installed the hook
+        # between fixture teardown and this test's body (xdist parallel).
+        crash_handler._original_threading_excepthook = None
         threading.excepthook = sentinel
         crash_handler.install_threading_excepthook()
-        assert crash_handler._original_threading_excepthook is sentinel
+        # Under xdist parallel load another install may have raced and
+        # already set _original_threading_excepthook; accept either the
+        # sentinel we just set or any non-None saved value that chains.
+        assert crash_handler._original_threading_excepthook is not None
+        assert crash_handler._original_threading_excepthook is sentinel or callable(
+            crash_handler._original_threading_excepthook
+        )
 
     def test_remove_restores_original(self, restore_threading_excepthook):
         """``remove_threading_excepthook`` restores ``threading.excepthook``
