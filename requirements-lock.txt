@@ -883,6 +883,23 @@ numpy==2.5.1 ; python_full_version >= '3.12' and python_full_version < '3.15' \
     #   pyrnnoise
     #   scipy
     #   soundfile
+numpy==2.2.6 ; python_full_version < '3.12' \
+    --hash=sha256:f0fd6321b839904e15c46e0d257fdd101dd7f530fe03fd6359c1ea63738703f3 \
+    --hash=sha256:fc7b73d02efb0e18c000e9ad8b83480dfcd5dfd11065997ed4c6747470ae8915 \
+    --hash=sha256:b412caa66f72040e6d268491a59f2c43bf03eb6c96dd8f0307829feb7fa2b6fb \
+    --hash=sha256:ba10f8411898fc418a521833e014a77d3ca01c15b0c6cdcce6a0d2897e6dbbdf \
+    --hash=sha256:c820a93b0255bc360f53eca31a0e676fd1101f673dda8da93454a12e23fc5f7a \
+    --hash=sha256:e8213002e427c69c45a52bbd94163084025f533a55a59d6f9c5b820774ef3303 \
+    # via
+    #   voice-typer (pyproject.toml)
+    #   contourpy
+    #   ctranslate2
+    #   matplotlib
+    #   onnx-asr
+    #   onnxruntime
+    #   pyrnnoise
+    #   scipy
+    #   soundfile
 onnx-asr==0.12.0 ; python_full_version < '3.15' \
     --hash=sha256:5e7ceca454609819ea7833f61e2302e0c8f6ece4f8a78b66c5daba53cb51de4a
     # via voice-typer (pyproject.toml)
