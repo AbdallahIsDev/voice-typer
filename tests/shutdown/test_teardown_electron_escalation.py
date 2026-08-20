@@ -75,6 +75,68 @@ def _make_controller_with_app():
 # ── Windows TerminateProcess fallback ─────────────────────────────────
 
 
+class TestRestartGuardKeepsElectronAlive:
+    """On a RESTART, ``teardown_electron`` must NOT kill the Electron
+    child Python spawned (Electron received ``relaunch_app`` and will
+    respawn the backend).  This pins the standalone-mode "Restart
+    quits" fix."""
+
+    def test_restart_skips_terminate_and_keeps_pid(self, monkeypatch):
+        controller, app = _make_controller_with_app()
+        app._electron_pid = 12345
+        app._is_restarting = True
+
+        fake_electron_launcher = MagicMock()
+        fake_electron_launcher.terminate_electron = MagicMock(return_value=None)
+        import sys as _sys
+
+        monkeypatch.setitem(
+            _sys.modules,
+            "voice_typer.server.electron_launcher",
+            fake_electron_launcher,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.electron_launcher",
+            fake_electron_launcher,
+            raising=False,
+        )
+
+        teardown_electron(controller)
+
+        fake_electron_launcher.terminate_electron.assert_not_called()
+        assert app._electron_pid == 12345, (
+            "on restart the Electron PID must be left intact (Electron will respawn the backend)"
+        )
+
+    def test_quit_still_terminates_electron(self, monkeypatch):
+        controller, app = _make_controller_with_app()
+        app._electron_pid = 12345
+        app._is_restarting = False  # a normal quit — terminate Electron
+
+        fake_electron_launcher = MagicMock()
+        fake_electron_launcher.terminate_electron = MagicMock(return_value=None)
+        import sys as _sys
+
+        monkeypatch.setitem(
+            _sys.modules,
+            "voice_typer.server.electron_launcher",
+            fake_electron_launcher,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.electron_launcher",
+            fake_electron_launcher,
+            raising=False,
+        )
+
+        teardown_electron(controller)
+
+        fake_electron_launcher.terminate_electron.assert_called_once_with(12345)
+        assert app._electron_pid is None, "on quit the Electron PID must be cleared"
+
+
+# ── Windows TerminateProcess fallback ─────────────────────────────────
+
+
 class TestWindowsTerminateProcessEscalation:
     """when ``terminate_electron`` times out on Windows,
     ``teardown_electron`` MUST fall back to ``OpenProcess`` +
@@ -188,13 +250,11 @@ class TestWindowsTerminateProcessEscalation:
         fake_kernel32.OpenProcess.assert_called_once()
         call_args, _ = fake_kernel32.OpenProcess.call_args
         assert call_args[0] == _PROCESS_TERMINATE, (
-            f"OpenProcess must be called with PROCESS_TERMINATE (0x0001) "
-            f"as the first arg; got {call_args[0]!r}"
+            f"OpenProcess must be called with PROCESS_TERMINATE (0x0001) as the first arg; got {call_args[0]!r}"
         )
         # The PID must be passed as the third positional arg.
         assert call_args[2] == 99999, (
-            f"OpenProcess must be called with the Electron PID (99999) as "
-            f"the third arg; got {call_args[2]!r}"
+            f"OpenProcess must be called with the Electron PID (99999) as the third arg; got {call_args[2]!r}"
         )
 
         # 2. TerminateProcess was called with the handle OpenProcess
@@ -202,17 +262,13 @@ class TestWindowsTerminateProcessEscalation:
         fake_kernel32.TerminateProcess.assert_called_once()
         term_args, _ = fake_kernel32.TerminateProcess.call_args
         assert term_args[0] == 12345, (
-            f"TerminateProcess must be called with the handle returned by "
-            f"OpenProcess (12345); got {term_args[0]!r}"
+            f"TerminateProcess must be called with the handle returned by OpenProcess (12345); got {term_args[0]!r}"
         )
 
         # 3. CloseHandle was called (no handle leak).
         fake_kernel32.CloseHandle.assert_called_once()
         close_args, _ = fake_kernel32.CloseHandle.call_args
-        assert close_args[0] == 12345, (
-            f"CloseHandle must be called with the same handle (12345); "
-            f"got {close_args[0]!r}"
-        )
+        assert close_args[0] == 12345, f"CloseHandle must be called with the same handle (12345); got {close_args[0]!r}"
 
         # 4. The PID was cleared even on the timeout path.
         assert app._electron_pid is None, (
@@ -325,15 +381,11 @@ class TestPosixSigkillEscalation:
 
         # 3. The PID passed to SIGKILL matches the tracked Electron PID.
         assert sigkill_calls[0][0] == 88888, (
-            f"SIGKILL must target the tracked Electron PID (88888); got "
-            f"{sigkill_calls[0][0]}"
+            f"SIGKILL must target the tracked Electron PID (88888); got {sigkill_calls[0][0]}"
         )
 
         # 4. The PID was cleared after teardown.
-        assert app._electron_pid is None, (
-            "app._electron_pid must be cleared after the POSIX "
-            "SIGKILL escalation path"
-        )
+        assert app._electron_pid is None, "app._electron_pid must be cleared after the POSIX SIGKILL escalation path"
 
 
 # ── PID clear invariant ───────────────────────────────────────────────
@@ -387,8 +439,7 @@ class TestElectronPidClearedAfterTeardown:
         teardown_electron(controller)
 
         assert app._electron_pid is None, (
-            "app._electron_pid must be cleared after teardown on "
-            "the happy path (stale PID would block the next launch)"
+            "app._electron_pid must be cleared after teardown on the happy path (stale PID would block the next launch)"
         )
 
     def test_electron_pid_cleared_when_no_pid_tracked(

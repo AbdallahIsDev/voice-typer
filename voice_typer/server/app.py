@@ -543,6 +543,28 @@ class VoiceTyperApp:
             finally:
                 self._recorder_build_ready.set()
 
+        # Eagerly resolve numpy (and the recording package) on the MAIN
+        # thread BEFORE spawning the recorder-init thread below.  The
+        # recorder uses `lazy_module("numpy")` (see `_lazy_import.py`),
+        # so its first numpy access triggers `importlib.import_module`
+        # on the background thread.  If the main thread is concurrently
+        # importing numpy (e.g. the audio-filter chain / scipy path),
+        # Python 3.13+ raises `_DeadlockError: deadlock detected by
+        # _ModuleLock('numpy._core._multiarray_umath')` — the classic
+        # import-lock contention between two threads.  Pre-importing
+        # numpy here (single-threaded, before any background thread
+        # exists) makes the recorder-init thread's lazy resolve a
+        # sys.modules cache hit with zero lock contention.
+        try:
+            import numpy  # noqa: F401
+
+            from voice_typer.server.recording import Recorder as _RecorderType  # noqa: F401
+        except Exception as exc:  # noqa: BLE001 — recorder still retries in its thread
+            log.warning(
+                "[INIT] eager numpy/recorder pre-import failed (%s) — recorder-init thread will retry on demand",
+                type(exc).__name__,
+            )
+
         self._thread_registry.spawn_and_register(
             "recorder-init",
             _build_recorder_subsystem,

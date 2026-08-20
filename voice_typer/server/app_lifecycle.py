@@ -254,6 +254,17 @@ class LifecycleController:
         # pass APP_NAME as the format argument.
         log.info("[RESTART] Restarting %s...", APP_NAME)
 
+        # ── RESTART-FLAG ──────────────────────────────────────────────
+        # Mark this shutdown as a RESTART (not a quit) so the shared
+        # cleanup body can distinguish the two.  In STANDALONE mode
+        # Python spawned Electron as a child (`app._electron_pid` is
+        # set); on a restart the ``relaunch_app`` event has already been
+        # pushed to Electron, which will respawn Python — so the
+        # cleanup MUST NOT kill the Electron child (that would leave
+        # nothing to relaunch).  In dev mode Electron is the parent and
+        # `app._electron_pid` is None, so the flag is inert there.
+        app._is_restarting = True
+
         # ── THEME-RESTART-FIX: save the config before push ───────────
         # Save any pending in-memory config changes (e.g. a theme
         # preset change that was set via `set_config` but whose save

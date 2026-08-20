@@ -54,6 +54,28 @@ def teardown_electron(controller) -> None:
     ``os.kill`` never actually blocks on).
     """
     app = controller._app
+    # ── RESTART guard ─────────────────────────────────────────────────
+    # On a RESTART in standalone mode, Python spawned Electron as a
+    # child and has already pushed ``relaunch_app`` to it — Electron
+    # will respawn the Python backend.  Killing the Electron child here
+    # would leave nothing to relaunch (the app would quit instead of
+    # restarting — the user-visible "Restart quits" bug).  On quit
+    # (``_is_restarting`` False) and in dev mode (no tracked
+    # ``_electron_pid``) the normal teardown runs.
+    #
+    # NOTE: read via ``vars(app)`` (instance dict), NOT ``getattr`` —
+    # a ``MagicMock`` test app auto-creates truthy attributes on any
+    # ``getattr``, which would spuriously trigger the guard.
+    if vars(app).get("_is_restarting", False):
+        with contextlib.suppress(Exception):
+            launched_pid = getattr(app, "_electron_pid", None)
+            if launched_pid:
+                log.info(
+                    "[SHUTDOWN] Restart in progress — leaving Electron subprocess "
+                    "(PID=%s) alive so it can relaunch the backend",
+                    launched_pid,
+                )
+        return
     try:
         from voice_typer.server import electron_launcher
 
