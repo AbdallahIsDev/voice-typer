@@ -36,8 +36,9 @@ from voice_typer.server.crash_handler._constants import (
     _ARCHIVE_RETENTION_KEEP,
     _CODE_TO_INFO,
     _CODE_TO_USER_SUMMARY,
-    _CRASH_DIAGNOSTICS_ARCHIVE,
+    _CRASH_DIAGNOSTICS_DIR,
     _HEADER_MAX_MODULES,
+    _LEGACY_CRASH_DIAGNOSTICS_DIR,
     _MAX_ACTIVE_FILES,
     _MAX_AGE_SECONDS,
     _REPORTED_SIDECAR_SUFFIX,
@@ -207,7 +208,11 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
         # ``report_pending_crash`` now ALSO scans the archive subdir
         # (using a ``.reported`` sidecar marker to prevent re-reporting
         # on every startup) so the user-facing notification still fires.
-        archive_dir = resolved / _CRASH_DIAGNOSTICS_ARCHIVE
+        archive_dir = resolved / _CRASH_DIAGNOSTICS_DIR
+        # O4: migrate a legacy ``crash_diagnostics_archive/`` dir BEFORE
+        # pre-creating the canonical dir (otherwise the mkdir below would
+        # make the migration's ``canonical.exists()`` guard skip forever).
+        _migrate_legacy_archive_dir(resolved)
         # Pre-create the archive dir so the VEH callback (which cannot
         # safely mkdir during heap corruption) can write directly to
         # ``<archive>/crash_diagnostics.<PID>.txt``. Best-effort — a
@@ -267,10 +272,30 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
         _ch._crash_header_bytes = b""
 
 
+def _migrate_legacy_archive_dir(config_dir: Path) -> None:
+    """O4: rename legacy ``crash_diagnostics_archive/`` → ``crash_diagnostics/``.
+
+    Best-effort, one-time: only fires when the legacy dir exists AND the
+    new dir does not. ``os.replace`` is atomic on the same filesystem.
+    Logs a warning on failure.
+    """
+    legacy = Path(config_dir) / _LEGACY_CRASH_DIAGNOSTICS_DIR
+    canonical = Path(config_dir) / _CRASH_DIAGNOSTICS_DIR
+    if not legacy.is_dir():
+        return
+    if canonical.exists():
+        return
+    try:
+        legacy.rename(canonical)
+        log.info("[CRASH] Migrated legacy crash_diagnostics_archive/ -> crash_diagnostics/ (O4)")
+    except OSError as exc:
+        log.warning("[CRASH] Could not migrate legacy crash_diagnostics_archive/ -> crash_diagnostics/: %s", exc)
+
+
 def _archive_crash_file(file_path: Path, config_dir: Path) -> Path | None:
     """Move a crash diagnostics / python_crash file to the archive.
 
-    The archive lives at ``<config_dir>/crash_diagnostics_archive/`` and
+    The archive lives at ``<config_dir>/crash_diagnostics/`` and
     is created with ``0o700`` perms on POSIX so the archived crash
     records (which may include exception addresses, thread IDs, etc.)
     are not world-readable.
@@ -283,7 +308,8 @@ def _archive_crash_file(file_path: Path, config_dir: Path) -> Path | None:
     by appending a millisecond timestamp), or ``None`` if the move
     failed.
     """
-    archive_dir = Path(config_dir) / _CRASH_DIAGNOSTICS_ARCHIVE
+    archive_dir = Path(config_dir) / _CRASH_DIAGNOSTICS_DIR
+    _migrate_legacy_archive_dir(config_dir)
     archive_dir.mkdir(parents=True, exist_ok=True)
     # Tighten archive dir perms on POSIX so crash records (which
     # contain process internals) are not world-readable.
@@ -408,7 +434,8 @@ def _sweep_stale_diagnostics(config_dir: Path) -> None:
         # file and the archive would grow unbounded across crashes.
         # The guard handles the first-run case where the archive subdir
         # doesn't exist yet.
-        archive_dir = diagnostics_dir / _CRASH_DIAGNOSTICS_ARCHIVE
+        archive_dir = diagnostics_dir / _CRASH_DIAGNOSTICS_DIR
+        _migrate_legacy_archive_dir(diagnostics_dir)
         if archive_dir.is_dir():
             files.extend(archive_dir.glob("crash_diagnostics.*.txt"))
             files.extend(archive_dir.glob("python_crash.*.txt"))
@@ -494,7 +521,8 @@ def report_pending_crash(config_dir: Path) -> str | None:
         python_crash_files = sorted(diagnostics_dir.glob("python_crash.*.txt"))
         # also scan the archive subdir — VEH now writes directly
         # there, so legacy root-scanning alone misses all new crashes.
-        archive_dir = diagnostics_dir / _CRASH_DIAGNOSTICS_ARCHIVE
+        archive_dir = diagnostics_dir / _CRASH_DIAGNOSTICS_DIR
+        _migrate_legacy_archive_dir(diagnostics_dir)
         if archive_dir.is_dir():
             # Sort archive files FIRST (root files have priority for the
             # archive move — if a root file and an archive file have the

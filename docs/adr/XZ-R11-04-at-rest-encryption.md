@@ -31,7 +31,7 @@ Voice Typer persists user data on disk under the platform config dir
 | `config.json` | hotkey, model selection, cloud_api_url, `keyring://` reference tokens | POSIX `0o600` via `_secure_atomic_write`; reference tokens instead of secrets when keyring available | No (refs only) |
 | OS keychain entries (`com.voicetyper.keyring` service) | cloud provider API keys (OpenAI / Groq / Deepgram / cloud / llm) | already encrypted at rest by the OS keychain wrapper (DPAPI / Keychain / SecretService). Managed by `voice_typer/server/credentials/`. See [`docs/security/credential-store.md`](../security/credential-store.md). | Yes (already protected) |
 | `vocabulary.json`, `templates.json` | user-defined phrases / templates (may contain personal snippets) | `0o600` via `PersistedJSON`; single-slot `.bak`; corrupt-quarantine | Secondary PII |
-| `crash_diagnostics_archive/*.txt` and `.zip` exports | stack traces; **may include last-N dictated transcriptions** (see `diagnostics_export.py` lines 416–420) | `0o600`; retention sweep | Secondary PII |
+| `crash_diagnostics/*.txt` and `.zip` exports | stack traces; **may include last-N dictated transcriptions** (see `diagnostics_export.py` lines 416–420) | `0o600`; retention sweep | Secondary PII |
 | Audio recordings | **Not persisted to disk.** Audio flows through the in-memory ring buffer in `recording/audio_pipeline.py` and is discarded after transcription. No file is written. | n/a | n/a |
 | Logs (`logs/*.log`) | redacted by `_redact_text` / PII scrubber; rotate | `0o600` | Low (already scrubbed) |
 
@@ -90,7 +90,7 @@ and adds the at-rest-encryption mitigation column:
 | **Same-user process** (another app running as the OS user) | `open("history.db")` and read | POSIX `0o600` blocks other users only; **any same-user process can still read**. On Windows, default ACLs allow same-user read. | Ciphertext requires DEK. DEK lives in keychain; same-user process *can* call `keyring.get_password("com.voicetyper.keyring", "__data_encryption_key__")` and recover DEK. | **Partial mitigation only** — same-user malware that knows to query the keychain still wins. Documented in §10. |
 | **Root / admin** | Read everything regardless of perms | None at app layer | DEK is recoverable by root (keychain grants access to root on most platforms). | None. Filesystem-level encryption (FileVault / BitLocker / LUKS) remains the user's responsibility. |
 | **Malware with same-user privileges, while app is running** | Read `history.db` + read DEK from keychain | n/a | DEK is cached in process memory after first load. A memory dump captures DEK + plaintext-decrypted rows in the read cache. | Out of scope (same threat model as credential store — see `docs/security/credential-store.md` "What RW-01 does NOT protect against"). |
-| **Forensic disk recovery after GDPR delete** | Recover deleted plaintext from free pages / WAL / journal | `secure_delete=ON`; GDPR delete unlinks `history.db*` and `crash_diagnostics_archive/` | After encryption is enabled, deleted rows are ciphertext; even if recovered, they need DEK. | Strengthened. |
+| **Forensic disk recovery after GDPR delete** | Recover deleted plaintext from free pages / WAL / journal | `secure_delete=ON`; GDPR delete unlinks `history.db*` and `crash_diagnostics/` | After encryption is enabled, deleted rows are ciphertext; even if recovered, they need DEK. | Strengthened. |
 | **Backup-tool exposure** (Time Machine, OneDrive, etc.) | Backs up plaintext `history.db` | n/a | Backed-up `history.db` is ciphertext. **However**, if the backup also captures the OS keychain (Time Machine does for macOS Keychain), the DEK travels with the backup. | Strengthened against naive backup; unchanged against keychain-inclusive backups. |
 | **Cold-boot / memory dump** | Read DEK + plaintext cache from RAM | n/a | n/a | Out of scope (physical access). |
 
@@ -715,7 +715,7 @@ Per-OS validation (extends the matrix in
    simple-model rotation completes in acceptable time for the largest
    expected DB (≈100k rows ≈ 30s on AES-NI hardware).
 3. **Crash-archive encryption**: should the DEK also wrap
-   `crash_diagnostics_archive/*.zip` exports? The current archive
+   `crash_diagnostics/*.zip` exports? The current archive
    includes last-N dictated transcriptions (per
    `diagnostics_export.py` line 416). Out of scope for v1; revisit if
    the threat model expands to include shared diagnostic exports

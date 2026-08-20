@@ -484,7 +484,7 @@ def purge_all_user_data(*, remove_models: bool = True) -> dict[str, list[str]]:
     # 1. Wipe the entire config directory via the existing entry point.
     #    ``remove_config_dir=True`` recursively removes every file /
     #    subdir under ``_config_dir()`` (config.json, history.db + WAL,
-    #    logs/, huggingface/, crash_diagnostics_archive/, etc.) and
+    #    logs/, huggingface/, crash_diagnostics/, etc.) and
     #    then the dir itself.
     base_result = purge_user_data(remove_config_dir=True)
     deleted: list[str] = list(base_result.get("removed", []))

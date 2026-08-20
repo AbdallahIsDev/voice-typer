@@ -41,7 +41,7 @@ from voice_typer.server import crash_handler
 from voice_typer.server.crash_handler import _diagnostics_archive, _veh_callback
 from voice_typer.server.crash_handler._constants import (
     _ARCHIVE_RETENTION_KEEP,
-    _CRASH_DIAGNOSTICS_ARCHIVE,
+    _CRASH_DIAGNOSTICS_DIR,
     _MAX_ACTIVE_FILES,
     OPEN_ALWAYS,
 )
@@ -97,7 +97,7 @@ class TestAp39ArchiveRetention:
         the ``_ARCHIVE_RETENTION_KEEP`` cap (5). Direct unit test on the
         retention function.
         """
-        archive_dir = tmp_path / _CRASH_DIAGNOSTICS_ARCHIVE
+        archive_dir = tmp_path / _CRASH_DIAGNOSTICS_DIR
         archive_dir.mkdir()
         # Create 10 crash files with strictly increasing mtimes so the
         # sort order is deterministic.
@@ -129,7 +129,7 @@ class TestAp39ArchiveRetention:
         ROOT-level files moved via ``_archive_crash_file`` —
         archive-subdir files grew unbounded.
         """
-        archive_dir = tmp_path / _CRASH_DIAGNOSTICS_ARCHIVE
+        archive_dir = tmp_path / _CRASH_DIAGNOSTICS_DIR
         archive_dir.mkdir()
         # Create 10 unreported crash files in the archive subdir (the
         # new VEH write path). Each has a distinct PID and an
@@ -184,13 +184,13 @@ class TestAp39ArchiveRetention:
         subdir yet, no crashes recorded) does NOT raise.
         """
         # No archive subdir exists — first run.
-        assert not (tmp_path / _CRASH_DIAGNOSTICS_ARCHIVE).exists()
+        assert not (tmp_path / _CRASH_DIAGNOSTICS_DIR).exists()
 
         # Should return None (nothing to surface) and not raise.
         result = crash_handler.report_pending_crash(tmp_path)
         assert result is None, "AP-39: report_pending_crash must return None when no crash files exist"
         # The archive subdir must still NOT exist (we didn't create it).
-        assert not (tmp_path / _CRASH_DIAGNOSTICS_ARCHIVE).exists(), (
+        assert not (tmp_path / _CRASH_DIAGNOSTICS_DIR).exists(), (
             "AP-39: first-run with no crash files must not create the archive subdir"
         )
 
@@ -202,7 +202,7 @@ class TestAp39ArchiveRetention:
         in the archive subdir (mtime > 30 days ago) and asserts the
         sweep deletes it.
         """
-        archive_dir = tmp_path / _CRASH_DIAGNOSTICS_ARCHIVE
+        archive_dir = tmp_path / _CRASH_DIAGNOSTICS_DIR
         archive_dir.mkdir()
         # Create a stale file (mtime = 31 days ago).
         stale_file = archive_dir / "crash_diagnostics.3000.txt"
@@ -226,7 +226,7 @@ class TestAp39ArchiveRetention:
         the 30-day mtime cutoff). If more than ``_MAX_ACTIVE_FILES``
         fresh files accumulate, the oldest beyond the cap are deleted.
         """
-        archive_dir = tmp_path / _CRASH_DIAGNOSTICS_ARCHIVE
+        archive_dir = tmp_path / _CRASH_DIAGNOSTICS_DIR
         archive_dir.mkdir()
         # Create more files than _MAX_ACTIVE_FILES, all fresh (mtime=now).
         n_files = _MAX_ACTIVE_FILES + 5
@@ -508,7 +508,7 @@ class TestHu9SecureCrashFileRead:
         assert any("Refusing to read diagnostics file" in r.getMessage() for r in caplog.records)
         # The file is still archived + marked reported (finally block),
         # and the next scan does not re-surface it.
-        archive_dir = tmp_path / _CRASH_DIAGNOSTICS_ARCHIVE
+        archive_dir = tmp_path / _CRASH_DIAGNOSTICS_DIR
         archived = list(archive_dir.glob("crash_diagnostics.*.txt"))
         assert len(archived) == 1, "HU-9: refused file must still be archived (finally block)"
         assert crash_handler.report_pending_crash(tmp_path) is None
@@ -528,7 +528,7 @@ class TestHu9SecureCrashFileRead:
         assert result is None
         assert not any("TOP-SECRET-EXC" in r.getMessage() for r in caplog.records)
         assert any("Refusing to read python_crash file" in r.getMessage() for r in caplog.records)
-        archive_dir = tmp_path / _CRASH_DIAGNOSTICS_ARCHIVE
+        archive_dir = tmp_path / _CRASH_DIAGNOSTICS_DIR
         assert len(list(archive_dir.glob("python_crash.*.txt"))) == 1
 
     @pytest.mark.skipif(os.name != "posix", reason="requires POSIX symlink semantics")
@@ -543,3 +543,42 @@ class TestHu9SecureCrashFileRead:
         assert result is None
         assert not any("TOP-SECRET-REAL-SYMLINK-CONTENT" in r.getMessage() for r in caplog.records)
         assert any("Refusing to read diagnostics file" in r.getMessage() for r in caplog.records)
+
+
+class TestLegacyArchiveDirMigration:
+    """O4: legacy ``crash_diagnostics_archive/`` is renamed to ``crash_diagnostics/`` once."""
+
+    def test_legacy_dir_is_migrated(self, tmp_path):
+        from voice_typer.server.crash_handler._diagnostics_archive import _migrate_legacy_archive_dir
+
+        legacy = tmp_path / "crash_diagnostics_archive"
+        legacy.mkdir()
+        (legacy / "crash_diagnostics.1234.txt").write_text("old crash", encoding="utf-8")
+
+        _migrate_legacy_archive_dir(tmp_path)
+
+        assert not legacy.exists(), "legacy dir must be renamed away"
+        canonical = tmp_path / "crash_diagnostics"
+        assert canonical.is_dir()
+        assert (canonical / "crash_diagnostics.1234.txt").read_text(encoding="utf-8") == "old crash"
+
+    def test_noop_when_legacy_missing(self, tmp_path):
+        from voice_typer.server.crash_handler._diagnostics_archive import _migrate_legacy_archive_dir
+
+        _migrate_legacy_archive_dir(tmp_path)  # must not raise
+        assert not (tmp_path / "crash_diagnostics").exists()
+
+    def test_noop_when_canonical_already_exists(self, tmp_path):
+        from voice_typer.server.crash_handler._diagnostics_archive import _migrate_legacy_archive_dir
+
+        legacy = tmp_path / "crash_diagnostics_archive"
+        legacy.mkdir()
+        (legacy / "old.txt").write_text("old", encoding="utf-8")
+        canonical = tmp_path / "crash_diagnostics"
+        canonical.mkdir()
+        (canonical / "new.txt").write_text("new", encoding="utf-8")
+
+        _migrate_legacy_archive_dir(tmp_path)
+
+        assert legacy.exists(), "legacy dir must be left alone when canonical exists"
+        assert (canonical / "new.txt").read_text(encoding="utf-8") == "new"

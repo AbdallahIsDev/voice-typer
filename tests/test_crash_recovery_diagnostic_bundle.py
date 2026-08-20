@@ -267,7 +267,7 @@ class TestDiagnosticBundleArchiveInclusion:
     files so support engineers can see crash records in bug reports."""
 
     def test_bundle_includes_archived_crash_diagnostics(self, recovery_dir):
-        """The bundle zip includes files from ``crash_diagnostics_archive/``.
+        """The bundle zip includes files from ``crash_diagnostics/``.
 
         UE-5-F1: archived files are now redacted line-by-line via
         ``redact_for_export`` (the unified PII + secret pipeline).
@@ -283,7 +283,7 @@ class TestDiagnosticBundleArchiveInclusion:
         from voice_typer.server.crash_recovery import CrashRecovery
 
         # Pre-populate the archive with a crash_diagnostics file.
-        archive_dir = recovery_dir / "crash_diagnostics_archive"
+        archive_dir = recovery_dir / "crash_diagnostics"
         archive_dir.mkdir(parents=True)
         (archive_dir / "crash_diagnostics.1234.txt").write_text("test crash marker: short\n", encoding="utf-8")
 
@@ -294,11 +294,11 @@ class TestDiagnosticBundleArchiveInclusion:
         with zipfile.ZipFile(bundle_path, "r") as zf:
             names = zf.namelist()
             # The archived file must be included under a
-            # ``crash_diagnostics_archive/`` prefix.
-            archived = [n for n in names if n.startswith("crash_diagnostics_archive/")]
+            # ``crash_diagnostics/`` prefix.
+            archived = [n for n in names if n.startswith("crash_diagnostics/")]
             assert len(archived) >= 1, f"G4-M-33: bundle must include archived crash_diagnostics; got names: {names}"
             # The content must be preserved.
-            content = zf.read("crash_diagnostics_archive/crash_diagnostics.1234.txt").decode("utf-8")
+            content = zf.read("crash_diagnostics/crash_diagnostics.1234.txt").decode("utf-8")
             assert "test crash marker" in content
 
     def test_bundle_includes_archived_python_crash_marker(self, recovery_dir):
@@ -307,7 +307,7 @@ class TestDiagnosticBundleArchiveInclusion:
 
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        archive_dir = recovery_dir / "crash_diagnostics_archive"
+        archive_dir = recovery_dir / "crash_diagnostics"
         archive_dir.mkdir(parents=True)
         (archive_dir / "python_crash.5678.txt").write_text(
             "exc_type=RuntimeError\nexc_value=test\nthread=MainThread\n",
@@ -329,15 +329,15 @@ class TestDiagnosticBundleArchiveInclusion:
 
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        # No crash_diagnostics_archive/ directory.
+        # No crash_diagnostics/ directory.
         cr = CrashRecovery(config_dir=recovery_dir)
         bundle_path = cr.create_diagnostic_bundle()
         assert bundle_path is not None
 
         with zipfile.ZipFile(bundle_path, "r") as zf:
             names = zf.namelist()
-            # No crash_diagnostics_archive/ entries.
-            assert not any(n.startswith("crash_diagnostics_archive/") for n in names)
+            # No crash_diagnostics/ entries.
+            assert not any(n.startswith("crash_diagnostics/") for n in names)
 
 
 # extended system_info ──────────────────────────────────────
@@ -449,7 +449,7 @@ class TestDiagnosticBundleExtendedSystemInfo:
 
 
 class TestArchiveRedaction:
-    """UE-5-F1: archived ``crash_diagnostics_archive/*`` files are
+    """UE-5-F1: archived ``crash_diagnostics/*`` files are
     redacted line-by-line via ``redact_for_export`` before being
     written into the diagnostic zip. Pre-fix, ``zf.write(...)`` shipped
     each archived file verbatim — leaking secrets embedded in prior
@@ -465,7 +465,7 @@ class TestArchiveRedaction:
         from voice_typer.server.crash_recovery import CrashRecovery
 
         secret = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
-        archive_dir = recovery_dir / "crash_diagnostics_archive"
+        archive_dir = recovery_dir / "crash_diagnostics"
         archive_dir.mkdir(parents=True)
         (archive_dir / "python_crash.1234.txt").write_text(
             f"Traceback (most recent call last):\n"
@@ -480,7 +480,7 @@ class TestArchiveRedaction:
         assert bundle_path is not None
 
         with zipfile.ZipFile(bundle_path, "r") as zf:
-            content = zf.read("crash_diagnostics_archive/python_crash.1234.txt").decode("utf-8")
+            content = zf.read("crash_diagnostics/python_crash.1234.txt").decode("utf-8")
 
         # The secret MUST NOT appear anywhere in the archived entry.
         assert secret not in content, f"UE-5-F1 regression: secret leaked into archived crash dump:\n{content}"
@@ -498,7 +498,7 @@ class TestArchiveRedaction:
         from voice_typer.server.crash_recovery import CrashRecovery
 
         secret = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
-        archive_dir = recovery_dir / "crash_diagnostics_archive"
+        archive_dir = recovery_dir / "crash_diagnostics"
         archive_dir.mkdir(parents=True)
         (archive_dir / "crash_diagnostics.5678.txt").write_text(
             f"GET https://api.example.com/?key={secret} → 500\n",
@@ -509,7 +509,7 @@ class TestArchiveRedaction:
         bundle_path = cr.create_diagnostic_bundle()
 
         with zipfile.ZipFile(bundle_path, "r") as zf:
-            content = zf.read("crash_diagnostics_archive/crash_diagnostics.5678.txt").decode("utf-8")
+            content = zf.read("crash_diagnostics/crash_diagnostics.5678.txt").decode("utf-8")
 
         assert secret not in content
         # Host is preserved (the URL structure remains useful for
@@ -523,7 +523,7 @@ class TestArchiveRedaction:
 
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        archive_dir = recovery_dir / "crash_diagnostics_archive"
+        archive_dir = recovery_dir / "crash_diagnostics"
         archive_dir.mkdir(parents=True)
         (archive_dir / "python_crash.9999.txt").write_text(
             "user contact: alice@example.com phone: +1 (415) 555-2671\n",
@@ -534,7 +534,7 @@ class TestArchiveRedaction:
         bundle_path = cr.create_diagnostic_bundle()
 
         with zipfile.ZipFile(bundle_path, "r") as zf:
-            content = zf.read("crash_diagnostics_archive/python_crash.9999.txt").decode("utf-8")
+            content = zf.read("crash_diagnostics/python_crash.9999.txt").decode("utf-8")
 
         assert "alice@example.com" not in content
         assert "555-2671" not in content
@@ -551,7 +551,7 @@ class TestArchiveRedaction:
         from voice_typer.server import _secrets as secrets_mod
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        archive_dir = recovery_dir / "crash_diagnostics_archive"
+        archive_dir = recovery_dir / "crash_diagnostics"
         archive_dir.mkdir(parents=True)
         (archive_dir / "crash_diagnostics.fail.txt").write_text("harmless content\n", encoding="utf-8")
 
@@ -579,7 +579,7 @@ class TestArchiveRedaction:
             names = zf.namelist()
             # The archived file MUST NOT be in the zip (it was
             # skipped because redaction failed).
-            assert "crash_diagnostics_archive/crash_diagnostics.fail.txt" not in names, (
+            assert "crash_diagnostics/crash_diagnostics.fail.txt" not in names, (
                 f"UE-5-F1 regression: archived file shipped raw despite redaction failure: {names!r}"
             )
 
@@ -592,7 +592,7 @@ class TestArchiveRedaction:
 
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        archive_dir = recovery_dir / "crash_diagnostics_archive"
+        archive_dir = recovery_dir / "crash_diagnostics"
         archive_dir.mkdir(parents=True)
         # Write a file with invalid UTF-8 bytes mixed with valid text.
         (archive_dir / "crash_diagnostics.binary.txt").write_bytes(
@@ -603,9 +603,7 @@ class TestArchiveRedaction:
         bundle_path = cr.create_diagnostic_bundle()
 
         with zipfile.ZipFile(bundle_path, "r") as zf:
-            content = zf.read("crash_diagnostics_archive/crash_diagnostics.binary.txt").decode(
-                "utf-8", errors="replace"
-            )
+            content = zf.read("crash_diagnostics/crash_diagnostics.binary.txt").decode("utf-8", errors="replace")
 
         # The traceback structure (valid-UTF-8 parts) survives.
         assert "Traceback" in content

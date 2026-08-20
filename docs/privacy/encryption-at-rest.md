@@ -52,7 +52,7 @@ of plaintext-at-rest:
 4. **GDPR Art. 17 delete** (`service.delete_all_personal_data`): unlinks
    `history.db`, `history.db-wal`, `history.db-shm`, AND the corrupt-DB
    snapshots `history.db.corrupt-*` (fixed by commit `a41e8cd`). Also recursively removes
-   `crash_diagnostics_archive/`, `voice-typer-diagnostics-*.zip`, etc.
+   `crash_diagnostics/`, `voice-typer-diagnostics-*.zip`, etc.
 5. **`PRAGMA journal_mode=WAL`**: WAL mode keeps the main DB file
    consistent; the WAL/SHM sidecars are chmod'd 0o600 and unlinked on
    close.

@@ -33,7 +33,7 @@ otherwise noted.
 | Logs (Rust host) | `<config_dir>/logs/` (subdir) | Recursively removed (`shutil.rmtree`) | PI-6: Rust host log (`logs/voice-typer.log` — single-file policy truncates in place; the subdir may hold pre-single-file `.log.1`..`.log.4` leftovers from older builds). Per XZ-LOG-02 the Rust logger has no PII redaction. |
 | Crash dumps (Windows VEH) | `crash_diagnostics.*.txt` | Deleted (glob match) | PI-5: written by `crash_handler.py:722` as `crash_diagnostics.<PID>.txt`. The old `crash-*.dmp` glob was fictional. |
 | Crash dumps (Python excepthook) | `python_crash.*.txt` | Deleted (glob match) | PI-5: written by `crash_handler.py:1190` as `python_crash.<PID>.txt`. |
-| Archived crash diagnostics | `crash_diagnostics_archive/` | Recursively removed | G4-M-33: where `crash_handler` moves processed crash dumps. |
+| Archived crash diagnostics | `crash_diagnostics/` | Recursively removed | G4-M-33: where `crash_handler` moves processed crash dumps. |
 | Model artifacts | `<config_dir>/models/`, `<config_dir>/huggingface/` | **Preserved** | Out of scope — model weights are not personal data. Leaving them in place is correct. |
 | Live-dictation audio | — | — | Not persisted (in-memory only); nothing to delete. |
 

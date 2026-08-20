@@ -434,10 +434,10 @@ def test_export_gdpr_bundle_includes_rust_logs_subdir(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_includes_crash_archive_subdir(tmp_path) -> None:
-    """The zip must include the ``crash_diagnostics_archive/`` subdir.
+    """The zip must include the ``crash_diagnostics/`` subdir.
 
     The crash handler moves processed crash dumps into
-    ``<config_dir>/crash_diagnostics_archive/`` for retention (see
+    ``<config_dir>/crash_diagnostics/`` for retention (see
     ``voice_typer/server/crash_handler/_diagnostics_archive.py``).
     The GDPR delete path rmtree's this directory (see
     ``PrivacyMixin._gdpr_rmtree_crash_archive``), so the export path
@@ -449,7 +449,7 @@ def test_export_gdpr_bundle_includes_crash_archive_subdir(tmp_path) -> None:
         if not hasattr(svc, "export_gdpr_bundle"):
             pytest.skip("Fix-D not yet landed")
         _seed_personal_data(tmp_path)
-        archive_dir = tmp_path / "crash_diagnostics_archive"
+        archive_dir = tmp_path / "crash_diagnostics"
         archive_dir.mkdir(parents=True, exist_ok=True)
         _pid = os.getpid()
         archived_veh = archive_dir / f"crash_diagnostics.{_pid}.txt"
@@ -460,14 +460,14 @@ def test_export_gdpr_bundle_includes_crash_archive_subdir(tmp_path) -> None:
         assert result["success"] is True
         with zipfile.ZipFile(result["path"]) as zf:
             names = zf.namelist()
-            assert any(n.startswith("crash_diagnostics_archive/") and n.endswith(".txt") for n in names), (
-                f"crash_diagnostics_archive/ files not in export: {names}"
+            assert any(n.startswith("crash_diagnostics/") and n.endswith(".txt") for n in names), (
+                f"crash_diagnostics/ files not in export: {names}"
             )
-            assert any(n.startswith(f"crash_diagnostics_archive/crash_diagnostics.{_pid}.") for n in names), (
-                f"crash_diagnostics_archive/crash_diagnostics.<PID>.txt not in export: {names}"
+            assert any(n.startswith(f"crash_diagnostics/crash_diagnostics.{_pid}.") for n in names), (
+                f"crash_diagnostics/crash_diagnostics.<PID>.txt not in export: {names}"
             )
-            assert any(n.startswith(f"crash_diagnostics_archive/python_crash.{_pid}.") for n in names), (
-                f"crash_diagnostics_archive/python_crash.<PID>.txt not in export: {names}"
+            assert any(n.startswith(f"crash_diagnostics/python_crash.{_pid}.") for n in names), (
+                f"crash_diagnostics/python_crash.<PID>.txt not in export: {names}"
             )
     finally:
         mp.undo()
@@ -499,7 +499,7 @@ def test_export_gdpr_bundle_includes_subdir_nested_files(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_no_partial_subdir_walk_when_missing(tmp_path) -> None:
-    """A fresh-install config dir (no ``logs/`` / ``crash_diagnostics_archive/``
+    """A fresh-install config dir (no ``logs/`` / ``crash_diagnostics/``
     subdirs) must not raise — the recursive subdir walk is a silent no-op
     for missing subdirs."""
     svc, mp = _build_service(tmp_path)
@@ -507,7 +507,7 @@ def test_export_gdpr_bundle_no_partial_subdir_walk_when_missing(tmp_path) -> Non
         if not hasattr(svc, "export_gdpr_bundle"):
             pytest.skip("Fix-D not yet landed")
         _seed_personal_data(tmp_path)
-        # NOTE: deliberately NOT creating logs/ or crash_diagnostics_archive/.
+        # NOTE: deliberately NOT creating logs/ or crash_diagnostics/.
         result = svc.export_gdpr_bundle()
         assert result["success"] is True
         with zipfile.ZipFile(result["path"]) as zf:
@@ -517,8 +517,8 @@ def test_export_gdpr_bundle_no_partial_subdir_walk_when_missing(tmp_path) -> Non
             assert not any(n.startswith("logs/") for n in names), (
                 f"logs/ entries leaked into export with no logs/ dir on disk: {names}"
             )
-            assert not any(n.startswith("crash_diagnostics_archive/") for n in names), (
-                f"crash_diagnostics_archive/ entries leaked with no archive dir on disk: {names}"
+            assert not any(n.startswith("crash_diagnostics/") for n in names), (
+                f"crash_diagnostics/ entries leaked with no archive dir on disk: {names}"
             )
     finally:
         mp.undo()

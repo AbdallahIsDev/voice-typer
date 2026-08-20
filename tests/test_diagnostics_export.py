@@ -84,7 +84,7 @@ class TestBundleSchema:
       - ``prewarm.json``        (prewarm probe — ``error`` key on failure)
 
     Optional sections (``voice-typer.log``, ``config.json``,
-    ``model_info.txt``, ``crash_diagnostics_archive/*``) are gated on
+    ``model_info.txt``, ``crash_diagnostics/*``) are gated on
     file existence / subsystem availability and are NOT required by
     the schema.
 
@@ -266,9 +266,7 @@ class TestHomePathRedaction:
         expected_redacted = _redact_home_path(str(bundle_path))
         log_messages = [r.getMessage() for r in caplog.records]
         bundle_log_lines = [m for m in log_messages if "Diagnostic bundle created" in m]
-        assert bundle_log_lines, (
-            f"expected a 'Diagnostic bundle created' INFO log; got messages: {log_messages!r}"
-        )
+        assert bundle_log_lines, f"expected a 'Diagnostic bundle created' INFO log; got messages: {log_messages!r}"
         assert str(recovery_dir) not in bundle_log_lines[0], (
             f"home prefix leaked into the bundle-path log line; got: {bundle_log_lines[0]!r}"
         )
@@ -308,6 +306,7 @@ class TestPartialFailure:
         invariant that must hold for every probe wrapped in a
         ``try/except Exception`` block.
         """
+
         # Make the keyboard permission probe raise. The permissions
         # block calls ``check_keyboard_permission()`` first, so patching
         # that function to raise exercises the partial-failure path.

@@ -149,7 +149,7 @@ _BACKUP_FILE_GLOBS: tuple[str, ...] = (
 # zips, etc.) and should be swept with the same 5-minute age gate as the
 # top-level ``config_dir``. Each entry is a relative directory name; missing
 # subdirs are silently skipped.
-_TMP_SWEEP_SUBDIRS: tuple[str, ...] = ("crash_diagnostics_archive",)
+_TMP_SWEEP_SUBDIRS: tuple[str, ...] = ("crash_diagnostics",)
 
 
 def _sweep_stale_backup_files(config_dir: Path) -> None:
@@ -170,7 +170,7 @@ def _sweep_stale_backup_files(config_dir: Path) -> None:
     app instance) is NOT swept out from under it, short enough
     that crash-leftover ``.tmp`` files don't accumulate across sessions.
     The ``.tmp`` sweep also walks ``_TMP_SWEEP_SUBDIRS`` (e.g.
-    ``crash_diagnostics_archive/``) which receive atomic writes from the
+    ``crash_diagnostics/``) which receive atomic writes from the
     crash-handler archive path and the GDPR-export zip builder.
     """
     if config_dir is None:

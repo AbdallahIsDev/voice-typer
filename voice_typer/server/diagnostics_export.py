@@ -56,7 +56,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
           - Crash recovery entries (metadata only — no transcription text,
     per )
           - Prewarm health + sentinel + PID file contents
-          - Archived ``crash_diagnostics_archive/*`` files
+          - Archived ``crash_diagnostics/*`` files
 
         Returns the path to the created zip file, or ``None`` on failure.
 
@@ -644,10 +644,10 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 # ─── 7. Crash diagnostics archive ────────────────────
                 # ``crash_handler.report_pending_crash`` archives each
                 # processed crash_diagnostics / python_crash file to
-                # ``<config_dir>/crash_diagnostics_archive/`` instead
+                # ``<config_dir>/crash_diagnostics/`` instead
                 # of unlinking it, so the diagnostic bundle can
                 # include it here. Each archived file is added under
-                # a ``crash_diagnostics_archive/`` prefix in the zip
+                # a ``crash_diagnostics/`` prefix in the zip
                 # so support engineers can locate it easily.
                 #
                 # archived files are REDACTED line-by-line
@@ -668,7 +668,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 # On redaction failure (e.g. archive file unreadable,
                 # redactor raises), the file is SKIPPED — defense in
                 # depth, mirroring the live-log skip policy ().
-                archive_dir = config_dir / "crash_diagnostics_archive"
+                archive_dir = config_dir / "crash_diagnostics"
                 if archive_dir.is_dir():
                     from voice_typer.server._secrets import redact_for_export
 
@@ -681,7 +681,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                                 for line in af:
                                     redacted_lines.append(redact_for_export(line))
                             zf.writestr(
-                                f"crash_diagnostics_archive/{archived_file.name}",
+                                f"crash_diagnostics/{archived_file.name}",
                                 "".join(redacted_lines),
                             )
                         except Exception:

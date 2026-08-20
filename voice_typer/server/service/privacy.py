@@ -514,7 +514,7 @@ class PrivacyMixin(ServiceMixinBase):
     def _gdpr_rmtree_crash_archive(config_dir: "os.PathLike[str] | str", erased: list, failed: dict) -> None:
         """remove archived crash diagnostics directory.
 
-        ``crash_diagnostics_archive/`` is where the crash handler moves
+        ``crash_diagnostics/`` is where the crash handler moves
         processed crash dumps (instead of unlinking them so the
         diagnostic bundle can include them).  Best-effort: if the
         directory doesn't exist (fresh install, or older build that
@@ -526,7 +526,7 @@ class PrivacyMixin(ServiceMixinBase):
         import shutil
         from pathlib import Path
 
-        archive_dir = Path(config_dir) / "crash_diagnostics_archive"
+        archive_dir = Path(config_dir) / "crash_diagnostics"
         if not archive_dir.exists():
             return
         try:
@@ -729,7 +729,7 @@ class PrivacyMixin(ServiceMixinBase):
         """Recursively walk ``<config_dir>/<subdir>/`` into the zip.
 
         The GDPR delete path removes the ``logs/`` (Rust host rotating
-        log) and ``crash_diagnostics_archive/`` (archived crash
+        log) and ``crash_diagnostics/`` (archived crash
         diagnostics) subdirectories via :meth:`_gdpr_rmtree_rust_logs`
         and :meth:`_gdpr_rmtree_crash_archive`.  The export path must
         include the *same* files so the user receives an Art. 20
@@ -784,7 +784,7 @@ class PrivacyMixin(ServiceMixinBase):
         a partial zip rather than nothing).
 
         The two personal-data *subdirectories* (``logs/`` and
-        ``crash_diagnostics_archive/``) are walked recursively via
+        ``crash_diagnostics/``) are walked recursively via
         :meth:`_gdpr_zip_directory` because the glob loop above only
         matches files at the ``config_dir`` root.  The delete path
         rmtree's both subdirectories (see
@@ -840,13 +840,13 @@ class PrivacyMixin(ServiceMixinBase):
                     )
         # 3. Recursive subdirectory walks.  ``logs/`` holds the Rust
         # host rotating log (no PII redaction per the Rust logger) and
-        # ``crash_diagnostics_archive/`` holds archived crash dumps the
+        # ``crash_diagnostics/`` holds archived crash dumps the
         # crash handler moves there for retention.  Both subdirs are
         # rmtree'd by the GDPR delete path; the export must include the
         # same files for Art. 20 portability parity.
         PrivacyMixin._gdpr_zip_directory(zf, config_dir, "logs", "logs")
         PrivacyMixin._gdpr_zip_directory(zf, config_dir, "db", "db")
-        PrivacyMixin._gdpr_zip_directory(zf, config_dir, "crash_diagnostics_archive", "crash_diagnostics_archive")
+        PrivacyMixin._gdpr_zip_directory(zf, config_dir, "crash_diagnostics", "crash_diagnostics")
 
     @staticmethod
     def _gdpr_rotate_exports(config_dir: "os.PathLike[str] | str") -> None:

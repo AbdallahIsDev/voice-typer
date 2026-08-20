@@ -194,7 +194,7 @@ class TestCrashHandlerConfigDir:
 
     def test_yj47_crash_file_path_in_archive_subdir(self, tmp_path):
         """YJ-47: the VEH crash file path is INSIDE
-        ``<config_dir>/crash_diagnostics_archive/`` (no longer in the
+        ``<config_dir>/crash_diagnostics/`` (no longer in the
         config_dir root). Pre-fix, the file sat in the root between the
         crash (T0) and the next startup (T1), exposing the 500-module
         fingerprint at the same path the user opens for ``config.toml``.
@@ -204,13 +204,13 @@ class TestCrashHandlerConfigDir:
         assert path, "YJ-47: _crash_file_path must be non-empty after set_crash_handler_config_dir"
         # Strip the trailing NUL terminator for the path checks.
         path_no_nul = path.rstrip("\0")
-        assert "crash_diagnostics_archive" in path_no_nul, (
-            f"YJ-47: VEH crash file path must be inside crash_diagnostics_archive/ (was: {path_no_nul!r})"
+        assert "crash_diagnostics" in path_no_nul, (
+            f"YJ-47: VEH crash file path must be inside crash_diagnostics/ (was: {path_no_nul!r})"
         )
         # The archive subdir must have been pre-created so the VEH
         # callback (which can't safely mkdir during heap corruption)
         # can write directly to its target.
-        archive_dir = tmp_path / "crash_diagnostics_archive"
+        archive_dir = tmp_path / "crash_diagnostics"
         assert archive_dir.is_dir(), "YJ-47: set_crash_handler_config_dir must pre-create the archive dir"
 
     def test_yj47_header_max_modules_is_100(self):
@@ -234,7 +234,7 @@ class TestCrashHandlerConfigDir:
         written directly to the archive — users would never see the
         "previous session crashed" notification.
         """
-        archive_dir = tmp_path / "crash_diagnostics_archive"
+        archive_dir = tmp_path / "crash_diagnostics"
         archive_dir.mkdir(parents=True)
         crash_file = archive_dir / "crash_diagnostics.1234.txt"
         crash_file.write_text(
@@ -259,7 +259,7 @@ class TestCrashHandlerConfigDir:
         this skip, every startup would re-surface the same crash record
         forever (since VEH-written files stay in the archive).
         """
-        archive_dir = tmp_path / "crash_diagnostics_archive"
+        archive_dir = tmp_path / "crash_diagnostics"
         archive_dir.mkdir(parents=True)
         crash_file = archive_dir / "crash_diagnostics.1234.txt"
         crash_file.write_text(
@@ -407,7 +407,7 @@ class TestCrashHandlerReportPending:
         config_dir root (no duplicates on next scan).
 
         G4-M-33: the file is now *archived* (moved to
-        ``crash_diagnostics_archive/``) rather than unlinked, but the
+        ``crash_diagnostics/``) rather than unlinked, but the
         observable behaviour from the caller's perspective is the same:
         the file is no longer at its original location, so a second
         ``report_pending_crash`` call returns None.
@@ -425,9 +425,9 @@ class TestCrashHandlerReportPending:
         # original location.  (Archived files are not re-scanned.)
         assert crash_handler.report_pending_crash(tmp_path) is None
 
-    def test_crash_diagnostics_archived_not_deleted(self, tmp_path):
+    def test_crash_diagnosticsd_not_deleted(self, tmp_path):
         """G4-M-33: a processed crash_diagnostics file is moved to the
-        ``crash_diagnostics_archive/`` subdirectory rather than unlinked,
+        ``crash_diagnostics/`` subdirectory rather than unlinked,
         so the diagnostic bundle can include it later for bug reports.
 
         Regression guard: pre-fix, ``report_pending_crash`` called
@@ -447,8 +447,8 @@ class TestCrashHandlerReportPending:
         assert not crash_file.exists(), "G4-M-33: crash_diagnostics file must be moved out of the config_dir root"
 
         # Archive directory exists.
-        archive_dir = tmp_path / "crash_diagnostics_archive"
-        assert archive_dir.is_dir(), "G4-M-33: crash_diagnostics_archive/ directory must exist after processing"
+        archive_dir = tmp_path / "crash_diagnostics"
+        assert archive_dir.is_dir(), "G4-M-33: crash_diagnostics/ directory must exist after processing"
 
         # Exactly one archived file with the original name and contents.
         archived_files = list(archive_dir.glob("crash_diagnostics.*.txt"))
@@ -495,7 +495,7 @@ class TestCrashHandlerReportPending:
         # Original marker is moved out of config_dir root.
         assert not marker.exists()
         # Archived alongside crash_diagnostics.
-        archive_dir = tmp_path / "crash_diagnostics_archive"
+        archive_dir = tmp_path / "crash_diagnostics"
         archived = list(archive_dir.glob("python_crash.*.txt"))
         assert len(archived) == 1
         # the on-disk marker file RETAINS the full (redacted)
@@ -511,7 +511,7 @@ class TestCrashHandlerReportPending:
     def test_archive_retention_keeps_last_five(self, tmp_path):
         """G4-M-33: the archive enforces a keep-last-5 retention policy
         so it doesn't grow unbounded across many crashes."""
-        archive_dir = tmp_path / "crash_diagnostics_archive"
+        archive_dir = tmp_path / "crash_diagnostics"
         archive_dir.mkdir(parents=True)
         # Pre-populate the archive with 8 files (all older than "now").
         import time as _time
@@ -647,9 +647,7 @@ class TestReportPendingCrashNextStepsHint:
         result = crash_handler.report_pending_crash(tmp_path)
         assert result is not None
         occurrences = result.count("Next steps:")
-        assert occurrences == 1, (
-            f"'Next steps:' must appear exactly once in the summary; got {occurrences}:\n{result}"
-        )
+        assert occurrences == 1, f"'Next steps:' must appear exactly once in the summary; got {occurrences}:\n{result}"
 
     def test_summary_next_steps_appears_exactly_once_for_multiple_crashes(self, tmp_path):
         """When multiple crash files are surfaced in the same scan, the
@@ -672,8 +670,7 @@ class TestReportPendingCrashNextStepsHint:
         # And the Next steps hint must appear exactly once.
         occurrences = result.count("Next steps:")
         assert occurrences == 1, (
-            "'Next steps:' must appear exactly once even with "
-            f"multiple crash files; got {occurrences}:\n{result}"
+            f"'Next steps:' must appear exactly once even with multiple crash files; got {occurrences}:\n{result}"
         )
 
     def test_summary_next_steps_hint_includes_python_command(self, tmp_path):
@@ -701,9 +698,7 @@ class TestReportPendingCrashNextStepsHint:
         appended even when there's no crash to report.
         """
         result = crash_handler.report_pending_crash(tmp_path)
-        assert result is None, (
-            f"report_pending_crash must return None when no crash files exist; got: {result!r}"
-        )
+        assert result is None, f"report_pending_crash must return None when no crash files exist; got: {result!r}"
 
     def test_summary_next_steps_hint_for_python_crash_marker(self, tmp_path):
         """the ``Next steps`` hint is appended for
@@ -1300,9 +1295,7 @@ class TestCrashDiagnosticsHeader:
         """
         crash_handler.set_crash_handler_config_dir(tmp_path)
         header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
-        assert "Reproduction hint:" in header, (
-            f"header must include a 'Reproduction hint:' line; got:\n{header}"
-        )
+        assert "Reproduction hint:" in header, f"header must include a 'Reproduction hint:' line; got:\n{header}"
         assert "python scripts/diagnostics.py export" in header, (
             f"reproduction hint must mention the diagnostics-export CLI command; got:\n{header}"
         )
@@ -1321,8 +1314,7 @@ class TestCrashDiagnosticsHeader:
             f"header must contain both 'Reproduction hint:' and '=== END HEADER ==='; got:\n{header}"
         )
         assert hint_idx < end_idx, (
-            "'Reproduction hint:' must appear BEFORE "
-            f"'=== END HEADER ==='; got hint_idx={hint_idx}, end_idx={end_idx}"
+            f"'Reproduction hint:' must appear BEFORE '=== END HEADER ==='; got hint_idx={hint_idx}, end_idx={end_idx}"
         )
 
     def test_header_includes_windows_version_on_windows(self, monkeypatch, tmp_path):
@@ -1347,14 +1339,12 @@ class TestCrashDiagnosticsHeader:
             crash_handler.set_crash_handler_config_dir(tmp_path)
             header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
             assert "Windows version:" in header, (
-                "header must include 'Windows version:' line when "
-                f"sys.getwindowsversion is available; got:\n{header}"
+                f"header must include 'Windows version:' line when sys.getwindowsversion is available; got:\n{header}"
             )
             # The fake version tuple's build number (22621) must appear in
             # the formatted line.
             assert "22621" in header, (
-                "'Windows version:' line must include the build "
-                f"number from sys.getwindowsversion(); got:\n{header}"
+                f"'Windows version:' line must include the build number from sys.getwindowsversion(); got:\n{header}"
             )
         finally:
             # ``monkeypatch`` restores ``sys.getwindowsversion`` automatically
@@ -1376,8 +1366,7 @@ class TestCrashDiagnosticsHeader:
         crash_handler.set_crash_handler_config_dir(tmp_path)
         header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
         assert "Windows version:" not in header, (
-            "header must NOT include 'Windows version:' line on "
-            f"POSIX (no sys.getwindowsversion); got:\n{header}"
+            f"header must NOT include 'Windows version:' line on POSIX (no sys.getwindowsversion); got:\n{header}"
         )
 
 

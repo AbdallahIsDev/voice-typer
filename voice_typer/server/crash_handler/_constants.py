@@ -23,7 +23,12 @@ the Python excepthook.
 from __future__ import annotations
 
 # Archive + retention constants for crash diagnostics.
-_CRASH_DIAGNOSTICS_ARCHIVE = "crash_diagnostics_archive"
+# The directory was renamed from ``crash_diagnostics_archive`` to
+# ``crash_diagnostics`` (drop the "archive" suffix); the legacy name is
+# kept as the migration source (see
+# ``crash_handler._diagnostics_archive._migrate_legacy_archive_dir``).
+_CRASH_DIAGNOSTICS_DIR = "crash_diagnostics"
+_LEGACY_CRASH_DIAGNOSTICS_DIR = "crash_diagnostics_archive"
 _ARCHIVE_RETENTION_KEEP = 5
 # sidecar marker suffix used by ``report_pending_crash`` to
 # track which archive-subdir files have already been surfaced to the

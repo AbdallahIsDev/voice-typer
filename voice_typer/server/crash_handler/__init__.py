@@ -198,7 +198,7 @@ from voice_typer.server.crash_handler._constants import (  # noqa: F401,E402
     _CODE_TO_INFO,
     _CODE_TO_USER_SUMMARY,
     _CRASH_CODES,
-    _CRASH_DIAGNOSTICS_ARCHIVE,
+    _CRASH_DIAGNOSTICS_DIR,
     _CRASH_LABEL,
     _CRASH_MSG_BUF_SIZE,
     _CRASH_MSG_LAYOUT,

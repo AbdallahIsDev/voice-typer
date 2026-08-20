@@ -240,8 +240,8 @@ def test_rmtree_db_dir_missing_dir_is_noop(tmp_path: Path) -> None:
 
 
 def test_rmtree_crash_archive_removes_directory(tmp_path: Path) -> None:
-    """The ``crash_diagnostics_archive/`` subdir is recursively removed."""
-    archive_dir = tmp_path / "crash_diagnostics_archive"
+    """The ``crash_diagnostics/`` subdir is recursively removed."""
+    archive_dir = tmp_path / "crash_diagnostics"
     archive_dir.mkdir()
     (archive_dir / "dump1.txt").write_text("crash")
     (archive_dir / "dump2.txt").write_text("crash")

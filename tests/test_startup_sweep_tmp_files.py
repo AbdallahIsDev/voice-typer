@@ -20,7 +20,7 @@ Voice Typer instance, a long-running gdpr-export zip build) is NOT
 swept out from under it, short enough that crash-leftover ``.tmp``
 files don't accumulate. The sweep walks the top-level ``config_dir``
 AND each subdir in ``_TMP_SWEEP_SUBDIRS`` (e.g.
-``crash_diagnostics_archive/``).
+``crash_diagnostics/``).
 
 These tests pin the behaviour in isolation — they call
 ``_sweep_stale_backup_files(tmp_path)`` directly.
@@ -147,17 +147,17 @@ class TestSweepMixedTmpDir:
         assert fresh_tmp.exists(), "fresh .tmp must be preserved"
 
 
-# ── (d) subdir sweep — crash_diagnostics_archive ──────────────────────
+# ── (d) subdir sweep — crash_diagnostics ──────────────────────
 
 
 class TestSweepTmpSubdirs:
     """The ``.tmp`` sweep walks ``_TMP_SWEEP_SUBDIRS`` (e.g.
-    ``crash_diagnostics_archive/``) because atomic-write intermediates
+    ``crash_diagnostics/``) because atomic-write intermediates
     can land there too (crash-handler archive path, GDPR-export zip
     builder if its target dir is the archive)."""
 
     def test_stale_tmp_in_subdir_deleted(self, tmp_path: Path) -> None:
-        subdir = tmp_path / "crash_diagnostics_archive"
+        subdir = tmp_path / "crash_diagnostics"
         subdir.mkdir()
         stale = subdir / "crash_diagnostics.12345.txt.tmp"
         _touch_with_age(stale, _STALE_TMP_AGE_SECONDS)
@@ -167,7 +167,7 @@ class TestSweepTmpSubdirs:
         assert not stale.exists(), "stale .tmp in subdir must be purged"
 
     def test_fresh_tmp_in_subdir_preserved(self, tmp_path: Path) -> None:
-        subdir = tmp_path / "crash_diagnostics_archive"
+        subdir = tmp_path / "crash_diagnostics"
         subdir.mkdir()
         fresh = subdir / "crash_diagnostics.12345.txt.tmp"
         _touch_with_age(fresh, _FRESH_TMP_AGE_SECONDS)
@@ -178,9 +178,9 @@ class TestSweepTmpSubdirs:
 
     def test_missing_subdir_is_noop(self, tmp_path: Path) -> None:
         """A missing subdir is silently skipped (no error, no creation)."""
-        # No crash_diagnostics_archive/ created — sweep must not raise.
+        # No crash_diagnostics/ created — sweep must not raise.
         ss_mod._sweep_stale_backup_files(tmp_path)
-        assert not (tmp_path / "crash_diagnostics_archive").exists()
+        assert not (tmp_path / "crash_diagnostics").exists()
 
 
 # ── (e) boundary — exactly 5 min ──────────────────────────────────────
@@ -227,10 +227,10 @@ class TestTmpSweepConstants:
         with no forensic value."""
         assert ss_mod._TMP_RETENTION_MAX_AGE_SECONDS < ss_mod._BACKUP_RETENTION_MAX_AGE_SECONDS / 100
 
-    def test_crash_diagnostics_archive_in_subdirs(self) -> None:
-        """``crash_diagnostics_archive/`` receives atomic writes from the
+    def test_crash_diagnostics_in_subdirs(self) -> None:
+        """``crash_diagnostics/`` receives atomic writes from the
         crash-handler archive path and must be in the subdir sweep list."""
-        assert "crash_diagnostics_archive" in ss_mod._TMP_SWEEP_SUBDIRS
+        assert "crash_diagnostics" in ss_mod._TMP_SWEEP_SUBDIRS
 
 
 # ── (g) per-file error tolerance ──────────────────────────────────────
