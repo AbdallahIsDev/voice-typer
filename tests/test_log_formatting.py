@@ -302,15 +302,10 @@ def test_setup_logging_no_duplicate_stream_handlers_when_reinvoked(tmp_path: Pat
         reset()
 
 
-def test_broken_console_stream_keeps_handler_and_suppresses_noise(tmp_path: Path, monkeypatch) -> None:
-    """A broken console stream (e.g. WinError 1 on a Windows console
-    handle's flush) must NOT spam ``[LOG] emit failed`` on every line,
-    and must NOT detach the handler (which would silently drop all
-    subsequent terminal output).
-
-    The write itself succeeds (the line reaches the stream); only the
-    flush fails.  The handler stays attached so later records still
-    reach the stream, and ONE diagnostic is emitted."""
+def test_broken_console_stream_silently_swallowed(tmp_path: Path, monkeypatch) -> None:
+    """A Windows console flush that raises WinError 1 (ERROR_INVALID_FUNCTION)
+    is a benign, expected quirk — not actual degradation.  The handler must
+    NOT emit a diagnostic, must NOT detach, and must keep writing."""
     written: list[str] = []
     flushed = 0
 
@@ -343,17 +338,16 @@ def test_broken_console_stream_keeps_handler_and_suppresses_noise(tmp_path: Path
         logger = logging.getLogger("voice_typer.server.log_formatting_test")
         logger.info("first line")
 
-        assert stream._flushed_once is True, "handler must emit ONE diagnostic after the first failure"
-        assert stream in root.handlers, "handler must STAY attached (detaching drops all later terminal output)"
-        assert any("console stream" in w for w in written), "one broken-stream diagnostic expected"
+        # The benign flush error produces NO diagnostic (write suceeded,
+        # flush error is swallowed silently).
+        assert not stream._flushed_once, "benign flush error must NOT trip the broken-stream diagnostic"
+        assert stream in root.handlers, "handler must stay attached"
+        assert any("first line" in w for w in written), "line must reach the stream"
 
-        # Second record: handler still writes to the stream (only the
-        # flush fails, which is swallowed) — NO second diagnostic, NO detach.
-        before = list(written)
+        # Second record: still works, no diagnostic.
         logger.info("second line")
-        assert stream in root.handlers, "handler must remain attached after the second record"
-        assert any("second line" in w for w in written), "second record must still reach the stream"
-        assert len(written) - len(before) == 1, "no per-line error spam expected"
+        assert stream in root.handlers
+        assert any("second line" in w for w in written)
     finally:
         reset()
 

@@ -1031,34 +1031,46 @@ class _FlushingStreamHandler(logging.StreamHandler):
     doesn't add duplicate console handlers.
 
     On Windows, ``FlushFileBuffers`` on a console handle returns
-    ``ERROR_INVALID_FUNCTION`` (WinError 1).  When flush fails the
-    write still succeeded (the line is in the buffer), so we swallow
-    the error and keep the handler alive — detaching would silently
-    drop all subsequent terminal output.
+    ``ERROR_INVALID_FUNCTION`` (WinError 1).  That is EXPECTED console
+    behaviour — the write already reached the OS (the stream is
+    configured ``write_through=True``), so a failing flush is not
+    degradation.  ``emit`` swallows flush errors silently and only
+    surfaces a diagnostic when the WRITE itself fails (a genuinely
+    broken stream).
     """
 
+    # One-shot diagnostic guard: a genuinely broken stream (write
+    # failure) is reported once, never per-line.
     _flushed_once: bool = False
 
     def emit(self, record: logging.LogRecord) -> None:  # noqa: D401
         try:
-            super().emit(record)
+            # Write the record directly instead of delegating to the
+            # stock ``StreamHandler.emit``: the stock path calls
+            # ``self.flush()`` inside its own try/except and routes a
+            # flush exception (WinError 1 on Windows consoles) to
+            # ``handleError``, which would emit a spurious "console
+            # degraded" diagnostic on every launch.  We flush ourselves
+            # (best-effort, suppressed) so the benign console quirk
+            # stays silent.
+            self.stream.write(self.format(record) + self.terminator)
+            with contextlib.suppress(Exception):
+                self.flush()
         except Exception:
+            # Only reach here when the WRITE itself failed — a genuinely
+            # broken stream (closed fd, EPIPE, etc.).  Emit one
+            # diagnostic and keep the handler alive so later writes
+            # still reach the buffer.
             self._handle_broken_stream()
-            return
-        # The stock ``StreamHandler.emit`` already calls ``self.flush()``,
-        # but on Windows it may raise ``WinError 1`` (ERROR_INVALID_FUNCTION)
-        # when the underlying stream is a console handle.  Flush again here
-        # so a terminal user sees each line immediately (best-effort).
-        with contextlib.suppress(Exception):
-            self.flush()
 
     def handleError(self, record: logging.LogRecord) -> None:  # noqa: N802 — override of logging.Handler.handleError
+        # Safety net: log once, never detach, never spam.
         self._handle_broken_stream()
 
     def _handle_broken_stream(self) -> None:
-        """Log ONE diagnostic about the broken stream, then keep the handler
-        alive so subsequent writes still reach the buffer (they will be
-        flushed at process exit if not before)."""
+        """Log ONE diagnostic about a genuinely broken write stream, then
+        keep the handler alive so subsequent writes still reach the
+        buffer (they will be flushed at process exit if not before)."""
         if self._flushed_once:
             return
         self._flushed_once = True
