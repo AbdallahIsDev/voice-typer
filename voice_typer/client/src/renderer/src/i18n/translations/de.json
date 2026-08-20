@@ -1083,7 +1083,7 @@
 	},
 	"models": {
 		"asrTitle": "Modelle",
-		"asrSubtitle": "Lokale On-Device-Modelle und Cloud-Spracherkennungs-Anbieter konfigurieren.",
+		"asrSubtitle": "Konfigurieren Sie lokale On-Device-Modelle und cloudbasierte Spracherkennung.",
 		"title": "Modelle",
 		"description": "Konfigurieren Sie Ihre Spracherkennungs-Engines",
 		"active": "Aktiv",
@@ -1161,11 +1161,8 @@
 			"importModelAria": "Modell aus Ordner importieren"
 		},
 		"hfConsent": {
-			"title": "HuggingFace-Download-Zustimmung erforderlich",
-			"description": "Lokale Whisper-Modelle (tiny.en, base.en, etc.) laden Gewichte von huggingface.co bei erster Verwendung herunter. Zustimmung erteilen, um Modell-Downloads zu aktivieren. Es wird kein Audio hochgeladen — nur Modellgewichte werden abgerufen.",
-			"grantAria": "HuggingFace-Download-Zustimmung erteilen",
 			"grant": "Zustimmung erteilen",
-			"blockedHint": "Modell-Downloads sind blockiert, bis Sie Ihre Zustimmung erteilen."
+			"jitMessage": "Für den Download dieses Modells ist die Hugging-Face-Download-Einwilligung erforderlich. Erteilen Sie sie jetzt, um fortzufahren."
 		},
 		"progress": {
 			"eta": "VSL. {time}",
@@ -1190,23 +1187,22 @@
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
-			"size": "Größe: {size}",
-			"vram": "VRAM: ~{vram}",
 			"multilingual": "Mehrsprachig",
 			"englishOnly": "Nur Englisch",
 			"speedSuffix": "{rating} Geschwindigkeit",
-			"distilled": "  ✓  destilliert",
+			"distilled": "Destilliert",
 			"activeAria": "Aktiv: {name}",
 			"useAria": "{name} verwenden",
 			"downloadAria": "{name} herunterladen",
 			"selectAria": "{name} auswählen",
 			"deleteAria": "{name} löschen",
-			"accuracy": "Genauigkeit"
+			"accuracy": "Genauigkeit",
+			"vramLabel": "VRAM",
+			"werLabel": "WER"
 		},
 		"cloud": {
 			"title": "Cloud-Spracherkennungs-Anbieter",
 			"description": "Cloud-basierte Transkriptionsdienste konfigurieren",
-			"providerSettings": "{provider} Einstellungen",
 			"apiKey": "API-Schlüssel",
 			"apiKeyPlaceholder": "Geben Sie Ihren API-Schlüssel ein",
 			"saveKeyAria": "{provider}-API-Schlüssel speichern",
@@ -1218,7 +1214,12 @@
 			"statusLabel": "Status:",
 			"consentGrantedStatus": "Zustimmung erteilt — Audio wird gesendet, wenn dieser Anbieter aktiv ist.",
 			"consentNotGrantedStatus": "Zustimmung nicht erteilt — dieser Anbieter wird die Transkription verweigern.",
-			"consentAria": "Zustimmung zur Audioübertragung für {provider} erteilen"
+			"consentAria": "Zustimmung zur Audioübertragung für {provider} erteilen",
+			"configure": "Konfigurieren",
+			"configureAria": "{provider} konfigurieren",
+			"hideConfigure": "Ausblenden",
+			"hideConfigureAria": "{provider} Einrichtung ausblenden",
+			"tagCloud": "Cloud"
 		},
 		"deleteDialog": {
 			"title": "Modell löschen",
@@ -1228,8 +1229,6 @@
 		"subtitle": "Spracherkennungsmodelle herunterladen und verwalten",
 		"localModels": "Lokale Modelle",
 		"localModelsDescription": "Führen Sie Whisper-Modelle direkt auf Ihrem Gerät aus. Nach dem Download ist keine Internetverbindung erforderlich.",
-		"cloudProviders": "Cloud-Anbieter",
-		"cloudProvidersDescription": "Verwenden Sie cloudbasierte APIs für schnellere Transkription. Erfordert einen API-Schlüssel.",
 		"downloaded": "Heruntergeladen",
 		"dependenciesRequired": "Abhängigkeiten erforderlich",
 		"available": "Verfügbar",
@@ -1277,7 +1276,8 @@
 			"fastest": "Am schnellsten",
 			"variable": "Variabel",
 			"slow": "Langsam",
-			"fast": "Schnell"
+			"fast": "Schnell",
+			"medium": "Mittel"
 		},
 		"openFolderAria": "Das Modellverzeichnis im Dateimanager öffnen",
 		"openFolderFailed": "Ordner öffnen fehlgeschlagen",
@@ -1290,7 +1290,9 @@
 		"openFolder": {
 			"label": "Modellordner öffnen",
 			"aria": "Modellordner im Dateimanager anzeigen"
-		}
+		},
+		"cloudModels": "Cloud-Modelle",
+		"cloudModelsDescription": "Verwenden Sie cloudbasierte APIs für schnellere Transkription. Erfordert einen API-Schlüssel."
 	},
 	"tooltips": {
 		"toggleRecording": "Sprachdiktat starten oder beenden",

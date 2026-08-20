@@ -58,7 +58,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
-import type { ModelInfo } from "@/lib/utils/models";
+import { formatModelSize, type ModelInfo } from "@/lib/utils/models";
 
 export interface ModelCardActionsProps {
 	model: ModelInfo;
@@ -247,10 +247,17 @@ export function ModelCardActions({
 						strokeWidth={2}
 						className={cn("h-4 w-4", isDownloadingThis && "animate-spin")}
 					/>
-					{/* icon-only Download button — the "Download" text was
-					    removed (user request 2026-08-15); the icon + the
-					    downloadAria aria-label carry the affordance, and the
-					    label swaps to "Downloading…" while in-flight. */}
+					{/* (UI/UX overhaul 2026-08-20, point 7): the download
+					    button shows the download icon followed by the model
+					    size ONLY (e.g. "↓ 75MB") — no "Size:" label prefix
+					    (the icon communicates "download"). The size was
+					    moved here from the muted metadata line where it was
+					    easy to overlook. The downloadAria aria-label still
+					    carries the full affordance, and the label swaps to
+					    "Downloading…" while in-flight. */}
+					<span className="text-[11px] font-medium">
+						{formatModelSize(model.size)}
+					</span>
 				</Button>
 			</div>
 		);

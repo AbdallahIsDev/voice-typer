@@ -22,6 +22,11 @@ instance capturing:
 - ``is_distilled`` — ``True`` for distil-* models
 - ``speed_rating`` — ``"fast"`` / ``"medium"`` / ``"slow"``
 - ``accuracy_rating`` — ``"low"`` / ``"medium"`` / ``"high"``
+- ``wer`` — published Word Error Rate (WER, %) on the LibriSpeech
+  ``test-clean`` benchmark (lower is better), sourced from each model's
+  official model card / evaluation.  ``None`` means no reliable
+  published figure is available — the Models page must omit the WER
+  field for that model rather than guessing.
 ``network_behavior`` () — one of ``"local-only"``,
   ``"downloads-on-first-use-consent-gated"``,
   ``"downloads-on-first-use-no-consent"``, or ``"cloud-per-call"``.
@@ -71,6 +76,10 @@ class ModelMetadata:
     is_distilled: bool = False
     speed_rating: str = "medium"  # "fast", "medium", "slow"
     accuracy_rating: str = "high"  # "low", "medium", "high"
+    # Published WER (%) on LibriSpeech test-clean — sourced per entry
+    # (see the comments in MODEL_REGISTRY). ``None`` = no reliable
+    # published figure; the Models page omits the WER field for it.
+    wer: float | None = None
     # declares what network activity the model requires, so the
     # UI/privacy surface can show "downloads on first use (consent gated)"
     # vs. "local-only" vs. "cloud per call" honestly.  Default
@@ -138,6 +147,12 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         repo_id="Systran/faster-whisper-tiny",
         speed_rating="fast",
         accuracy_rating="low",
+        # WER 7.5% on LibriSpeech test-clean — self-reported in the
+        # openai/whisper-tiny model card ("Test WER ... self-reported
+        # 7.540"); Whisper paper Table 9 reports 7.6 (greedy). The
+        # Systran/faster-whisper-tiny weights are the same OpenAI
+        # checkpoints.
+        wer=7.5,
     ),
     # ``large-v3`` — highest-accuracy multilingual Whisper. Restored
     # to the catalog 2026-08-15 at the user's request (the initial
@@ -154,6 +169,13 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         repo_id="Systran/faster-whisper-large-v3",
         speed_rating="slow",
         accuracy_rating="high",
+        # WER 2.0% on LibriSpeech test-clean — published Whisper
+        # benchmark consensus (whisper.cpp benchmark tables / HF Open
+        # ASR Leaderboard; e.g. "Whisper Large-v3 ... 2.0% WER on
+        # LibriSpeech test-clean"). OpenAI does not pin a number in the
+        # large-v3 model card; 2.0% is the standard published figure
+        # for these weights.
+        wer=2.0,
     ),
     # Turbo () ─────────────────────────────────────
     # ``large-v3-turbo`` is OpenAI's 2024 fast multilingual model:
@@ -170,6 +192,11 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         repo_id="Systran/faster-whisper-large-v3-turbo",
         speed_rating="fast",
         accuracy_rating="high",
+        # WER 2.1% on LibriSpeech test-clean — published benchmark
+        # consensus for the pruned turbo checkpoint (slightly above
+        # large-v3's 2.0%; OpenAI's turbo release notes describe it as
+        # "minor quality degradation" vs large-v3).
+        wer=2.1,
     ),
     # ── Parakeet (by NVIDIA) ──────────────────────────────────────
     # added to registry so get_model_status() can resolve the
@@ -190,6 +217,12 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         repo_id="grikdotnet/parakeet-tdt-0.6b-fp16",
         speed_rating="fast",
         accuracy_rating="high",
+        # WER 1.93% on LibriSpeech test-clean — self-reported in the
+        # nvidia/parakeet-tdt-0.6b-v3 model card (model-index:
+        # "LibriSpeech (clean) ... Test WER 1.93"; test-other 3.59).
+        # The app downloads the grikdotnet ONNX fp16 export of the
+        # same checkpoint.
+        wer=1.93,
     ),
     # ── Qwen (by Alibaba) ─────────────────────────────────────────
     # added to registry for status consistency. Qwen uses a
@@ -222,6 +255,12 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         repo_id="andrewleech/qwen3-asr-1.7b-onnx",
         speed_rating="medium",
         accuracy_rating="high",
+        # WER 1.63% on LibriSpeech test-clean — from the official
+        # Qwen/Qwen3-ASR-1.7B model card evaluation table
+        # ("LibriSpeech clean | other ... 1.63 | 3.38", best of the
+        # compared models). The app runs a pre-exported ONNX snapshot
+        # (andrewleech/qwen3-asr-1.7b-onnx) of the same checkpoint.
+        wer=1.63,
     ),
 }
 

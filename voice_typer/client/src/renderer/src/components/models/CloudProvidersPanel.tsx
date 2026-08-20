@@ -1,45 +1,59 @@
 /**
- * CloudProvidersPanel — cloud ASR providers tab content for the Models page.
+ * CloudModelsPanel — cloud ASR providers tab content for the Models page.
  *
- *  fix #1: extracted from `pages/Models.tsx`. Renders the three
- * cloud ASR provider cards (OpenAI / Groq / Deepgram) with:
- *   • API key input (with unique per-provider HTML id, MDL-5).
- *   • "Save Key" + "Test Connection" buttons.
- *   • Audio-transmission consent Switch (only shown when an API key
- *     is set OR consent has been granted — preserving the original
- *     progressive-disclosure behavior).
+ * (UI/UX overhaul 2026-08-20, point 11): rebuilt to follow the SAME
+ * structural pattern as the Local Models tab:
+ *   • Each provider (OpenAI, Groq, Deepgram) is a collapsible group
+ *     header inside the shared `ModelGroupList` accordion primitives
+ *     (same icon, name, spacing, hover behavior as the local-model
+ *     families).
+ *   • Expanding a provider group reveals its API model as a list row
+ *     (name + metadata tags) with a "Configure" action that reveals
+ *     the API key input + Save Key + Test Connection controls —
+ *     the existing API-key-entry UI, now triggered from within the
+ *     consistent group/list pattern instead of being permanently
+ *     visible in a separate card style.
+ *   • Tab renamed "Cloud Providers" → "Cloud Models" (point 12); the
+ *     heading + description below the tab switcher match.
+ *
+ * The visual language (borders, spacing, backgrounds, icons,
+ * typography) is fully unified with Local Models because BOTH tabs
+ * compose the same `ModelGroupList` components — future style updates
+ * happen in one place.
  *
  * Pure presentational — receives all state + handlers as props from
  * `useModelLifecycle`.
- *
- * : the "Save Key" button is disabled when the input is empty
- * (`!apiKeyValue.trim()`). Prevents silently clobbering a stored
- * secret with the empty string that `safeApiKey` substitutes for the
- * `<redacted>` sentinel on every config fetch.
- *
- * : the "Test Connection" button shows a spinner + is disabled
- * while a test is in flight (`testResult?.status === "pending"`).
- * The result is rendered in an `<output>` element (semantic for
- * role="status") with `aria-live="polite"` so SR users hear the
- * outcome. Stale results are cleared via
- * `onClearTestResult` whenever the API-key Input changes.
  */
 import {
 	Loading03Icon,
+	Settings03Icon,
 	Shield01Icon,
 	SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type React from "react";
+import { useState } from "react";
 import { KeyringStatusBadge } from "@/components/common/KeyringStatusBadge";
 import { FamilyLogo } from "@/components/models/FamilyLogo";
+import {
+	MetadataTag,
+	ModelGroupAccordion,
+	ModelGroupContent,
+	ModelGroupItem,
+	ModelGroupTrigger,
+	ModelVariantRow,
+} from "@/components/models/ModelGroupList";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import type { ApiTestResult } from "@/hooks/useModelLifecycle";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
-import { type CloudProvider, getProviderLabel } from "@/lib/utils/models";
+import {
+	type CloudProvider,
+	formatModelDisplayName,
+	getProviderLabel,
+} from "@/lib/utils/models";
 import type { VoiceTyperConfig } from "@/types/config";
 
 export interface CloudProvidersPanelProps {
@@ -70,44 +84,120 @@ export function CloudProvidersPanel({
 	onConsentChange,
 	onClearTestResult,
 }: CloudProvidersPanelProps) {
+	// Which providers' API-key forms are currently revealed (via their
+	// "Configure" action). A SET so multiple provider forms can be open
+	// at once — matching the accordion's `type="multiple"` behavior.
+	// Purely local UI state.
+	const [configuredProviders, setConfiguredProviders] = useState<string[]>([]);
+
+	const toggleConfigured = (key: string) => {
+		setConfiguredProviders((prev) =>
+			prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+		);
+	};
+
 	return (
 		<div className="space-y-4">
 			<h2 className="font-sans text-lg font-semibold text-(--text-primary)">
-				{t("models.cloudProviders")}
+				{t("models.cloudModels")}
 			</h2>
 			<p className="text-sm text-(--text-muted) -mt-3">
-				{t("models.cloudProvidersDescription")}
+				{t("models.cloudModelsDescription")}
 			</p>
-			<div className="space-y-4">
-				{cloudProviders.map((provider) => (
-					<ProviderCard
-						key={provider.key}
-						provider={provider}
-						config={config}
-						apiKeyValue={apiKeys[provider.key] ?? ""}
-						testResult={testResults[provider.key]}
-						onApiKeyChange={(v) => {
-							onApiKeyChange(provider.key, v);
-							//clear the stale test result whenever the
-							// user edits the key — otherwise the previous
-							// "Success" badge stays visible during a re-test.
-							onClearTestResult?.(provider.key);
-						}}
-						onSaveApiKey={() => onSaveApiKey(provider.key)}
-						onTestConnection={() => onTestConnection(provider.key)}
-						onConsentChange={(granted) =>
-							onConsentChange(provider.key, granted)
-						}
-					/>
-				))}
-			</div>
+			<ModelGroupAccordion type="multiple">
+				{cloudProviders.map((provider) => {
+					const isConfigured = configuredProviders.includes(provider.key);
+					return (
+						<ModelGroupItem key={provider.key} value={provider.key}>
+							<ModelGroupTrigger>
+								{provider.key === "groq" ? (
+									<HugeiconsIcon
+										icon={Shield01Icon}
+										strokeWidth={2}
+										className="h-4 w-4 text-accent"
+									/>
+								) : (
+									<FamilyLogo family={provider.key} />
+								)}
+								{getProviderLabel(provider.key)}
+							</ModelGroupTrigger>
+							<ModelGroupContent>
+								{/* One list row per provider: the API model
+								    name + descriptive tags + the Configure
+								    action (point 11). */}
+								<ModelVariantRow
+									name={formatModelDisplayName(provider.model)}
+									meta={
+										<>
+											<MetadataTag>{t("models.cloud.tagCloud")}</MetadataTag>
+											<MetadataTag>{t("models.card.multilingual")}</MetadataTag>
+										</>
+									}
+									actions={
+										<Button
+											variant="outline"
+											size="sm"
+											className="gap-2"
+											onClick={() => toggleConfigured(provider.key)}
+											aria-expanded={isConfigured}
+											aria-label={
+												isConfigured
+													? t("models.cloud.hideConfigureAria", {
+															provider: getProviderLabel(provider.key),
+														})
+													: t("models.cloud.configureAria", {
+															provider: getProviderLabel(provider.key),
+														})
+											}
+										>
+											<HugeiconsIcon
+												icon={Settings03Icon}
+												strokeWidth={2}
+												className="h-4 w-4"
+											/>
+											{isConfigured
+												? t("models.cloud.hideConfigure")
+												: t("models.cloud.configure")}
+										</Button>
+									}
+								/>
+								{isConfigured && (
+									<div className="px-3.5 pb-3.5">
+										<ProviderConfigForm
+											provider={provider}
+											config={config}
+											apiKeyValue={apiKeys[provider.key] ?? ""}
+											testResult={testResults[provider.key]}
+											onApiKeyChange={(v) => {
+												onApiKeyChange(provider.key, v);
+												//clear the stale test result whenever the
+												// user edits the key — otherwise the previous
+												// "Success" badge stays visible during a re-test.
+												onClearTestResult?.(provider.key);
+											}}
+											onSaveApiKey={() => onSaveApiKey(provider.key)}
+											onTestConnection={() => onTestConnection(provider.key)}
+											onConsentChange={(granted) =>
+												onConsentChange(provider.key, granted)
+											}
+										/>
+									</div>
+								)}
+							</ModelGroupContent>
+						</ModelGroupItem>
+					);
+				})}
+			</ModelGroupAccordion>
 		</div>
 	);
 }
 
-// ── Sub-component: single provider card ───────────────────────────────
+// ── Sub-component: API-key entry + test + consent form ────────────────
+//
+// The existing API-key-entry UI (extracted from the pre-overhaul
+// provider card), triggered by the Configure action.
 
-interface ProviderCardProps {
+interface ProviderConfigFormProps {
 	provider: CloudProvider;
 	config: VoiceTyperConfig | null;
 	apiKeyValue: string;
@@ -118,7 +208,7 @@ interface ProviderCardProps {
 	onConsentChange: (granted: boolean) => void;
 }
 
-function ProviderCard({
+function ProviderConfigForm({
 	provider,
 	config,
 	apiKeyValue,
@@ -127,7 +217,7 @@ function ProviderCard({
 	onSaveApiKey,
 	onTestConnection,
 	onConsentChange,
-}: ProviderCardProps) {
+}: ProviderConfigFormProps) {
 	const consentKey = consentKeyFor(provider.key);
 	const consentGranted = Boolean(
 		(config?.[consentKey] as boolean | undefined) ?? false,
@@ -143,26 +233,7 @@ function ProviderCard({
 	const saveDisabled = !apiKeyValue.trim();
 
 	return (
-		<div className="rounded-xl border border-border/10 bg-(--bg-subtle) p-6">
-			<div className="flex items-center gap-2.5 mb-4">
-				{/* Brand logo for providers that have one (openai/deepgram);
-				    groq has no logo asset, so it keeps the generic shield
-				    glyph. FamilyLogo returns null for unknown keys. */}
-				{provider.key === "groq" ? (
-					<HugeiconsIcon
-						icon={Shield01Icon}
-						strokeWidth={2}
-						className="h-4 w-4 text-accent"
-					/>
-				) : (
-					<FamilyLogo family={provider.key} />
-				)}
-				<h3 className="text-base font-semibold text-(--text-primary)">
-					{t("models.cloud.providerSettings", {
-						provider: getProviderLabel(provider.key),
-					})}
-				</h3>
-			</div>
+		<div className="rounded-lg border border-border/10 bg-(--bg) p-4">
 			<div className="mb-4">
 				<div className="mb-1.5 flex items-center gap-2">
 					<label
@@ -184,7 +255,7 @@ function ProviderCard({
 					className="w-full max-w-md"
 				/>
 			</div>
-			<div className="flex items-center gap-3">
+			<div className="flex flex-wrap items-center gap-3">
 				<Button
 					variant="default"
 					size="sm"
@@ -250,7 +321,7 @@ function ProviderCard({
 				)}
 			</div>
 			{showConsent && (
-				<div className="mt-4 rounded-lg border border-border/10 bg-(--bg) p-4">
+				<div className="mt-4 rounded-lg border border-border/10 bg-(--bg-subtle) p-4">
 					<div className="flex items-start justify-between gap-4">
 						<div className="flex-1">
 							<h4 className="text-sm font-semibold text-(--text-primary)">

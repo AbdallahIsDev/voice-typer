@@ -32,9 +32,12 @@ function familyForModelName(name: string): string | null {
 }
 
 // Family display labels — brand names (proper nouns, kept literal like
-// the Models page family headers).
+// the Models page family headers). The whisper family strip shows the
+// COMPANY name (OpenAI) next to the OpenAI logo, matching the Models
+// page group headers (UI/UX overhaul point 5a); each variant name
+// carries the "Whisper" family prefix.
 const FAMILY_STRIP_LABELS: Record<string, string> = {
-	whisper: "Whisper",
+	whisper: "OpenAI",
 	qwen: "Qwen",
 	parakeet: "Nvidia",
 };

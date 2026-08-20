@@ -176,6 +176,16 @@ ALLOWED_UNTRANSLATED = {
     # (the {status} placeholder is replaced with a numeric code like 404).
     # The word "HTTP" is a universal technical acronym across all locales.
     "about.httpError",  # "HTTP {status}"
+    # (UI/UX overhaul 2026-08-20): "VRAM" and "WER" are universal
+    # technical acronyms used identically in every locale (same
+    # rationale as "WPM" above) — they label the label+value pairs on
+    # the Models page metadata line.
+    "models.card.vramLabel",  # "VRAM"
+    "models.card.werLabel",  # "WER"
+    # "Cloud" is the universal loanword for the cloud-model tag on the
+    # Cloud Models tab — de/fr use the English word "Cloud" verbatim
+    # (no native alternative exists in common UI usage).
+    "models.cloud.tagCloud",  # "Cloud"
     # Duration suffix abbreviations — "min" and "s" are SI-standard
     # abbreviations used universally in UI time displays.
     "settings.hotkeySection.minutesSuffix",  # "min"
@@ -355,11 +365,7 @@ PRE_EXISTING_UNTRANSLATED = {
     "models.import.noModelsFound",
     "models.import.failedAll",
     "models.import.failed",
-    "models.hfConsent.title",
-    "models.hfConsent.description",
-    "models.hfConsent.grantAria",
     "models.hfConsent.grant",
-    "models.hfConsent.blockedHint",
     "models.progress.eta",
     "models.progress.paused",
     "models.download.resumeAria",
@@ -370,8 +376,6 @@ PRE_EXISTING_UNTRANSLATED = {
     "models.download.cancel",
     "models.download.depsAria",
     "models.download.deps",
-    "models.card.size",
-    "models.card.vram",
     "models.card.multilingual",
     "models.card.englishOnly",
     "models.card.speedSuffix",
@@ -381,7 +385,6 @@ PRE_EXISTING_UNTRANSLATED = {
     "models.card.deleteAria",
     "models.cloud.title",
     "models.cloud.description",
-    "models.cloud.providerSettings",
     "models.cloud.apiKey",
     "models.cloud.apiKeyPlaceholder",
     "models.cloud.saveKeyAria",

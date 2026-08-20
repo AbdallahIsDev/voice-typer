@@ -1,8 +1,13 @@
 // Shared sticky tab-bar class names.
 //
-// The Settings and Models pages both render a sticky SegmentedControl tab
-// bar at the top of the main content area, but the two had drifted in
-// visual treatment:
+// (UI/UX overhaul 2026-08-20): the Models page tab switcher was moved
+// into the page flow (point 2) and no longer uses the sticky bar;
+// `tabPageHeaderClassName` is now consumed by Settings only. The
+// indicator styling (`tabPageIndicatorClassName`) is still shared by
+// both pages' SegmentedControls.
+//
+// Settings renders a sticky SegmentedControl tab bar at the top of the
+// main content area; both pages had drifted in visual treatment:
 //
 // Settings.tsx (old):
 // wrapper: `sticky top-0 left-0 right-0 z-40 bg-(--bg-subtle) border-b border-border`

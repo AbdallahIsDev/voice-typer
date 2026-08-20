@@ -638,7 +638,7 @@
 	},
 	"models": {
 		"asrTitle": "Modèles",
-		"asrSubtitle": "Configurer les modèles locaux sur l'appareil et les fournisseurs de reconnaissance vocale cloud.",
+		"asrSubtitle": "Configurez les modèles locaux sur l'appareil et la reconnaissance vocale basée sur le cloud.",
 		"title": "Modèles",
 		"download": {
 			"resumeAria": "Reprendre le téléchargement",
@@ -733,11 +733,8 @@
 			"importModelAria": "Importer un modèle depuis un dossier"
 		},
 		"hfConsent": {
-			"title": "Consentement de téléchargement HuggingFace requis",
-			"description": "Les modèles Whisper locaux (tiny.en, base.en, etc.) téléchargent les poids depuis huggingface.co lors de la première utilisation. Accordez votre consentement pour activer les téléchargements. Aucun audio n'est téléchargé — seuls les poids du modèle sont récupérés.",
-			"grantAria": "Accorder le consentement de téléchargement HuggingFace",
 			"grant": "Accorder le consentement",
-			"blockedHint": "Les téléchargements de modèles sont bloqués jusqu'à ce que vous accordiez votre consentement."
+			"jitMessage": "Le consentement de téléchargement Hugging Face est requis avant de télécharger ce modèle. Accordez-le maintenant pour continuer."
 		},
 		"progress": {
 			"eta": "ETA {time}",
@@ -745,23 +742,22 @@
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
-			"size": "Taille : {size}",
-			"vram": "VRAM : ~{vram}",
 			"multilingual": "Multilingue",
-			"englishOnly": "Anglais uniquement",
-			"speedSuffix": "vitesse {rating}",
-			"distilled": "  ·  distillé",
+			"englishOnly": "Anglais Uniquement",
+			"speedSuffix": "Vitesse {rating}",
+			"distilled": "Distillé",
 			"activeAria": "Actif : {name}",
 			"useAria": "Utiliser {name}",
 			"downloadAria": "Télécharger {name}",
 			"selectAria": "Sélectionner {name}",
 			"deleteAria": "Supprimer {name}",
-			"accuracy": "Précision"
+			"accuracy": "Précision",
+			"vramLabel": "VRAM",
+			"werLabel": "WER"
 		},
 		"cloud": {
 			"title": "Fournisseurs de reconnaissance vocale cloud",
 			"description": "Configurer les services de transcription cloud",
-			"providerSettings": "Paramètres {provider}",
 			"apiKey": "Clé API",
 			"apiKeyPlaceholder": "Entrez votre clé API",
 			"saveKeyAria": "Sauvegarder la clé API {provider}",
@@ -773,7 +769,12 @@
 			"statusLabel": "Statut :",
 			"consentGrantedStatus": "Consentement accordé — l'audio sera envoyé lorsque ce fournisseur est actif.",
 			"consentNotGrantedStatus": "Consentement non accordé — ce fournisseur refusera de transcrire.",
-			"consentAria": "Accorder le consentement de transmission audio pour {provider}"
+			"consentAria": "Accorder le consentement de transmission audio pour {provider}",
+			"configure": "Configurer",
+			"configureAria": "Configurer {provider}",
+			"hideConfigure": "Masquer",
+			"hideConfigureAria": "Masquer la configuration de {provider}",
+			"tagCloud": "Cloud"
 		},
 		"deleteDialog": {
 			"title": "Supprimer le Modèle",
@@ -783,8 +784,6 @@
 		"subtitle": "Téléchargez et gérez les modèles de reconnaissance vocale",
 		"localModels": "Modèles Locaux",
 		"localModelsDescription": "Exécutez les modèles Whisper directement sur votre appareil. Aucune connexion internet requise après le téléchargement.",
-		"cloudProviders": "Fournisseurs Cloud",
-		"cloudProvidersDescription": "Utilisez des APIs cloud pour une transcription plus rapide. Clé API requise.",
 		"downloaded": "Téléchargé",
 		"dependenciesRequired": "Dépendances requises",
 		"available": "Disponible",
@@ -832,7 +831,8 @@
 			"fastest": "Le plus rapide",
 			"variable": "Variable",
 			"slow": "Lent",
-			"fast": "Rapide"
+			"fast": "Rapide",
+			"medium": "Moyenne"
 		},
 		"openFolderAria": "Ouvrir le répertoire des modèles dans votre explorateur de fichiers",
 		"openFolderFailed": "Échec de l'ouverture du dossier",
@@ -845,7 +845,9 @@
 		"openFolder": {
 			"label": "Ouvrir le dossier des modèles",
 			"aria": "Révéler le dossier des modèles dans le gestionnaire de fichiers"
-		}
+		},
+		"cloudModels": "Modèles Cloud",
+		"cloudModelsDescription": "Utilisez des APIs cloud pour une transcription plus rapide. Clé API requise."
 	},
 	"history": {
 		"title": "Historique",

@@ -1083,7 +1083,7 @@
 	},
 	"models": {
 		"asrTitle": "मॉडल",
-		"asrSubtitle": "स्थानीय ऑन-डिवाइस मॉडल और क्लाउड वाक् पहचान प्रदाताओं को कॉन्फ़िगर करें.",
+		"asrSubtitle": "स्थानीय ऑन-डिवाइस मॉडल और क्लाउड-आधारित वाक् पहचान कॉन्फ़िगर करें।",
 		"title": "मॉडल",
 		"description": "अपने स्पीच-टू-टेक्स्ट इंजन कॉन्फ़िगर करें",
 		"active": "सक्रिय",
@@ -1161,11 +1161,8 @@
 			"importModelAria": "फ़ोल्डर से मॉडल आयात करें"
 		},
 		"hfConsent": {
-			"title": "HuggingFace डाउनलोड सहमति आवश्यक",
-			"description": "स्थानीय Whisper मॉडल (tiny.en, base.en, आदि) पहली बार उपयोग पर huggingface.co से वेट डाउनलोड करते हैं। मॉडल डाउनलोड सक्षम करने के लिए सहमति दें। कोई ऑडियो अपलोड नहीं होता — केवल मॉडल वेट प्राप्त होते हैं।",
-			"grantAria": "HuggingFace डाउनलोड सहमति प्रदान करें",
 			"grant": "सहमति दें",
-			"blockedHint": "जब तक आप सहमति नहीं देते तब तक मॉडल डाउनलोड अवरुद्ध हैं।"
+			"jitMessage": "इस मॉडल को डाउनलोड करने से पहले Hugging Face डाउनलोड सहमति आवश्यक है। जारी रखने के लिए अभी अनुमति दें।"
 		},
 		"progress": {
 			"eta": "अनुमानित समय {time}",
@@ -1190,23 +1187,22 @@
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
-			"size": "आकार: {size}",
-			"vram": "VRAM: ~{vram}",
 			"multilingual": "बहुभाषी",
 			"englishOnly": "केवल अंग्रेज़ी",
 			"speedSuffix": "{rating} गति",
-			"distilled": "  ·  डिस्टिल्ड",
+			"distilled": "डिस्टिल्ड",
 			"activeAria": "सक्रिय: {name}",
 			"useAria": "{name} का उपयोग करें",
 			"downloadAria": "{name} डाउनलोड करें",
 			"selectAria": "{name} चुनें",
 			"deleteAria": "{name} हटाएँ",
-			"accuracy": "सटीकता"
+			"accuracy": "सटीकता",
+			"vramLabel": "VRAM",
+			"werLabel": "WER"
 		},
 		"cloud": {
 			"title": "क्लाउड वाक् पहचान प्रदाता",
 			"description": "क्लाउड-आधारित ट्रांसक्रिप्शन सेवाएँ कॉन्फ़िगर करें",
-			"providerSettings": "{provider} सेटिंग्स",
 			"apiKey": "API कुंजी",
 			"apiKeyPlaceholder": "अपनी API कुंजी दर्ज करें",
 			"saveKeyAria": "{provider} API कुंजी सहेजें",
@@ -1218,7 +1214,12 @@
 			"statusLabel": "स्थिति:",
 			"consentGrantedStatus": "सहमति प्रदान — जब यह प्रदाता सक्रिय हो तब ऑडियो भेजा जाएगा।",
 			"consentNotGrantedStatus": "सहमति प्रदान नहीं — यह प्रदाता ट्रांसक्राइब करने से इनकार करेगा।",
-			"consentAria": "{provider} के लिए ऑडियो ट्रांसमिशन सहमति प्रदान करें"
+			"consentAria": "{provider} के लिए ऑडियो ट्रांसमिशन सहमति प्रदान करें",
+			"configure": "कॉन्फ़िगर करें",
+			"configureAria": "{provider} कॉन्फ़िगर करें",
+			"hideConfigure": "छिपाएँ",
+			"hideConfigureAria": "{provider} सेटअप छिपाएँ",
+			"tagCloud": "क्लाउड"
 		},
 		"deleteDialog": {
 			"title": "मॉडल हटाएं",
@@ -1228,8 +1229,6 @@
 		"subtitle": "स्पीच रिकग्निशन मॉडल डाउनलोड और प्रबंधित करें",
 		"localModels": "स्थानीय मॉडल",
 		"localModelsDescription": "अपने डिवाइस पर सीधे Whisper मॉडल चलाएँ। डाउनलोड के बाद इंटरनेट की आवश्यकता नहीं।",
-		"cloudProviders": "क्लाउड प्रदाता",
-		"cloudProvidersDescription": "तेज़ ट्रांसक्रिप्शन के लिए क्लाउड-आधारित API का उपयोग करें। API कुंजी आवश्यक है।",
 		"downloaded": "डाउनलोड किया गया",
 		"dependenciesRequired": "निर्भरताएँ आवश्यक हैं",
 		"available": "उपलब्ध",
@@ -1277,7 +1276,8 @@
 			"fastest": "सबसे तेज़",
 			"variable": "परिवर्तनीय",
 			"slow": "धीमा",
-			"fast": "तेज़"
+			"fast": "तेज़",
+			"medium": "मध्यम"
 		},
 		"openFolderAria": "अपने फ़ाइल प्रबंधक में मॉडल निर्देशिका खोलें",
 		"openFolderFailed": "फ़ोल्डर खोलने में विफल",
@@ -1290,7 +1290,9 @@
 		"openFolder": {
 			"label": "मॉडल फ़ोल्डर खोलें",
 			"aria": "फ़ाइल प्रबंधक में मॉडल फ़ोल्डर दिखाएं"
-		}
+		},
+		"cloudModels": "क्लाउड मॉडल",
+		"cloudModelsDescription": "तेज़ ट्रांसक्रिप्शन के लिए क्लाउड-आधारित API का उपयोग करें। API कुंजी आवश्यक है।"
 	},
 	"tooltips": {
 		"toggleRecording": "वॉयस डिक्टेशन शुरू या बंद करें",

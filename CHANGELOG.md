@@ -5,6 +5,58 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased]
 
+### Models page — UI/UX overhaul (2026-08-20)
+
+- **"Last updated / refresh" indicator removed** from the Models page —
+  model availability/install state doesn't change moment-to-moment, so
+  the manual-refresh affordance served no purpose (the pattern remains
+  on History, which has real-time-changing data).
+- **Tab switcher moved into the page flow** — the Local Models / Cloud
+  Models SegmentedControl is no longer pinned to the top of the
+  viewport; it now sits below the page title/description (where the
+  "Last updated" row used to be) and scrolls with the content.
+- **"Import Model" button is Local-Models-only** — it no longer renders
+  on the Cloud Models tab (importing a local model file doesn't apply
+  there).
+- **HuggingFace consent is now just-in-time** — the always-visible
+  consent banner was removed; consent is checked only when the user
+  clicks a model's Download button. If missing, a transient toast with
+  a one-click "Grant consent" action blocks the download, persists the
+  consent, and proceeds — no Settings navigation. The backend's GDPR
+  consent gate is unchanged.
+- **Model family naming fixed** — group headers now show the company
+  ("OpenAI" next to the OpenAI logo) and each version name carries the
+  family prefix via a new display utility (`formatModelDisplayName`:
+  hyphen → space + Title Case, display-layer only — slugs, repo_ids
+  and config keys untouched): "Whisper Tiny", "Whisper Large V3",
+  "Whisper Large V3 Turbo". The onboarding family strip matches.
+- **Metadata line distinguishes label+value pairs from tags** — VRAM
+  and WER render as muted-label + colon + primary-value pairs;
+  Multilingual / English Only / speed / Distilled render as neutral
+  pill tags; all labels follow one Title-Case rule ("Fast Speed",
+  "English Only", …).
+- **Model size moved into the download button** (icon + size, e.g.
+  "↓ 75MB") and out of the muted metadata line.
+- **WER benchmark data added** — published WER (%) on LibriSpeech
+  test-clean for every bundled model (tiny 7.5%, large-v3 2.0%,
+  large-v3-turbo 2.1%, Parakeet-TDT-0.6b-V3 1.93%, Qwen3-ASR-1.7B
+  1.63%), sourced from the official model cards / published benchmarks
+  and stored as a normal field in `ModelMetadata`; models without a
+  reliable figure omit the field rather than guess.
+- **Group expand/collapse glyph changed** — chevrons (FAQ/accordion
+  connotation) replaced with a plus (+) / minus (–) pair; the same
+  pattern applies to every group on both tabs.
+- **Cloud tab rebuilt on the same group/list components as Local
+  Models** — each provider is a collapsible group (same icon, name,
+  spacing, hover behavior) whose expanded row surfaces a "Configure"
+  action that reveals the existing API-key entry + Save Key + Test
+  Connection + consent controls. Both tabs compose the shared
+  `components/models/ModelGroupList.tsx` primitives, so style updates
+  land in one place.
+- **Tab renamed "Cloud Providers" → "Cloud Models"** — tab label,
+  section heading and description aligned; on-page copy no longer
+  mixes "providers" and "models".
+
 ### Architecture — post-2026-06-30 review round
 
 - **Native hotkey architecture (ADR-0008)** — finalized in this round. The

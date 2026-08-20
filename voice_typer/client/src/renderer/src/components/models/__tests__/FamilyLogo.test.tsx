@@ -149,12 +149,15 @@ describe("groupModelsByFamily — family branding", () => {
 		expect(parakeet?.name).toBe("Nvidia");
 	});
 
-	it("keeps whisper and qwen family names", () => {
+	it("brands the whisper family by its company (OpenAI) and keeps qwen", () => {
 		const families = groupModelsByFamily([
 			makeModel("whisper", "tiny"),
 			makeModel("qwen"),
 		]);
-		expect(families.find((f) => f.id === "whisper")?.name).toBe("Whisper");
+		// (UI/UX overhaul point 5a): the group header shows the COMPANY
+		// (OpenAI) next to the OpenAI logo; each variant name carries the
+		// "Whisper" family prefix via getModelVariantDisplayName.
+		expect(families.find((f) => f.id === "whisper")?.name).toBe("OpenAI");
 		expect(families.find((f) => f.id === "qwen")?.name).toBe("Qwen");
 	});
 });

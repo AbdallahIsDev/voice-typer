@@ -43,6 +43,7 @@
  * keep working unchanged.
  */
 
+import { useCallback } from "react";
 import { useCloudProviders } from "@/hooks/models/useCloudProviders";
 import { useModelConfig } from "@/hooks/models/useModelConfig";
 import { useModelDownload } from "@/hooks/models/useModelDownload";
@@ -51,7 +52,13 @@ import { useModelSelection } from "@/hooks/models/useModelSelection";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
-import { CLOUD_PROVIDERS, type CloudProvider } from "@/lib/utils/models";
+import { t } from "@/i18n/i18n";
+import {
+	CLOUD_PROVIDERS,
+	type CloudProvider,
+	type ModelInfo,
+	requiresHuggingFaceConsent,
+} from "@/lib/utils/models";
 
 // Re-export the cloud-provider test-result type so existing imports
 // (`import type { ApiTestResult } from "@/hooks/useModelLifecycle"`)
@@ -126,6 +133,48 @@ export function useModelLifecycle() {
 		loadConfig: configRest.loadConfig,
 	});
 
+	// 6. (UI/UX overhaul 2026-08-20, point 4) — just-in-time
+	//    HuggingFace-consent gate for downloads. The persistent
+	//    consent banner was removed; consent is now checked ONLY at
+	//    the moment the user clicks a model's Download button:
+	//      • consent already granted (or the model doesn't download
+	//        from HuggingFace, e.g. qwen) → proceed immediately;
+	//      • consent missing → block the download and show a
+	//        TRANSIENT warning toast with a "Grant consent" action
+	//        that persists the consent AND proceeds with the download
+	//        in one click (no Settings navigation). The backend's own
+	//        `_require_huggingface_consent` gate remains the GDPR
+	//        enforcement — this only changes when/how the requirement
+	//        is surfaced to the user.
+	const handleDownloadModel = useCallback(
+		(model: ModelInfo) => {
+			if (
+				!requiresHuggingFaceConsent(model) ||
+				configRest.config?.huggingface_consent
+			) {
+				void download.downloadModel(model);
+				return;
+			}
+			showSnack(t("models.hfConsent.jitMessage"), "warning", {
+				action: {
+					label: t("models.hfConsent.grant"),
+					onClick: () => {
+						void (async () => {
+							await cloud.setHuggingFaceConsent(true);
+							await download.downloadModel(model);
+						})();
+					},
+				},
+			});
+		},
+		[
+			configRest.config,
+			download.downloadModel,
+			cloud.setHuggingFaceConsent,
+			showSnack,
+		],
+	);
+
 	return {
 		...configRest,
 		...download,
@@ -133,6 +182,8 @@ export function useModelLifecycle() {
 		...cloud,
 		...folder,
 		agoLabel,
+		// Just-in-time consent-gated download entry point (point 4).
+		handleDownloadModel,
 		// Static data (re-exported for the panels' convenience).
 		cloudProviders: CLOUD_PROVIDERS as readonly CloudProvider[],
 	};

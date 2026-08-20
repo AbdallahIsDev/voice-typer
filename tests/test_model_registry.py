@@ -131,6 +131,38 @@ class TestGetModelMetadataReturnsCorrectFields:
         d = get_model_metadata("parakeet").to_dict()
         assert d["display_name"] == "Parakeet-TDT-0.6b-V3"
 
+    def test_wer_is_published_benchmark_data_for_every_entry(self):
+        """Every registry entry carries a real, sourced WER (%) on
+        LibriSpeech test-clean (lower is better) — see the per-entry
+        comments for the exact source (model card / published
+        benchmark). No placeholder or fabricated figures; if a model
+        had no reliable figure the field would be None and the renderer
+        would omit it."""
+        expected: dict[str, float] = {
+            # openai/whisper-tiny model card (self-reported 7.540)
+            "tiny": 7.5,
+            # published Whisper benchmark consensus (LibriSpeech test-clean)
+            "large-v3": 2.0,
+            "large-v3-turbo": 2.1,
+            # nvidia/parakeet-tdt-0.6b-v3 model card (1.93)
+            "parakeet": 1.93,
+            # Qwen/Qwen3-ASR-1.7B model card evaluation table (1.63)
+            "qwen": 1.63,
+        }
+        for name, wer in expected.items():
+            meta = get_model_metadata(name)
+            assert meta is not None, f"{name} missing from registry"
+            assert meta.wer == wer, (
+                f"{name}: expected wer={wer}, got {meta.wer!r}"
+            )
+            assert meta.wer > 0, f"{name}: WER must be positive"
+
+    def test_to_dict_includes_wer(self):
+        """``to_dict()`` (the ``get_model_catalog`` IPC payload) carries
+        ``wer`` so the Models page can render the benchmark metric."""
+        d = get_model_metadata("tiny").to_dict()
+        assert d["wer"] == 7.5
+
     def test_metadata_is_frozen(self):
         """Registry entries are immutable so they can be safely shared
         across threads (IPC + service layer) without copying."""

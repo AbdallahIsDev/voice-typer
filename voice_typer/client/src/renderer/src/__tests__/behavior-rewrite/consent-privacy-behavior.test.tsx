@@ -62,6 +62,7 @@
  */
 
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -795,12 +796,11 @@ describe("Models page — cloud consent toggles", () => {
 
 	/** Render Models with a given config. Models shows a Spinner
 	 *  until get_config resolves; we wait for the page heading to
-	 *  appear. The cloud consent Switches live on the "Cloud
-	 *  Providers" tab (the default is "Local Models"), so when
+	 *  appear. The cloud consent Switches live on the "Cloud Models"
+	 *  tab (renamed from "Cloud Providers" in the UI/UX overhaul;
+	 *  the default tab is "Local Models"), so when
 	 *  `switchToCloudTab` is true (the default) we click that tab
-	 *  before returning. The HuggingFace consent banner is only
-	 *  rendered on the "Local Models" tab, so callers testing the
-	 *  HF banner pass `switchToCloudTab: false`. */
+	 *  before returning. */
 	async function renderModels(
 		config: Partial<VoiceTyperConfig>,
 		options: { switchToCloudTab?: boolean } = {},
@@ -822,13 +822,26 @@ describe("Models page — cloud consent toggles", () => {
 			).toBeGreaterThan(0);
 		});
 
-		// Switch to the Cloud Providers tab — the cloud consent
+		// Switch to the Cloud Models tab — the cloud consent
 		// Switches (apiKeys[provider.key] gate) only render there.
 		// The SegmentedControl renders each option as a radio with
 		// a clickable label.
 		if (switchToCloudTab) {
-			fireEvent.click(screen.getByText("Cloud Providers"));
+			fireEvent.click(screen.getByText("Cloud Models"));
 		}
+	}
+
+	/** (UI/UX overhaul point 11): each provider is a collapsible
+	 *  group; the API-key form (with the consent Switch) is hidden
+	 *  behind the group's "Configure" action. Expand the group and
+	 *  click Configure to surface the form. `providerLabel` is the
+	 *  localized provider name (en.json models.providers.{key}.label,
+	 *  e.g. "OpenAI Whisper API"). */
+	function openApiKeyForm(providerLabel: string): void {
+		fireEvent.click(screen.getByRole("button", { name: providerLabel }));
+		fireEvent.click(
+			screen.getByRole("button", { name: `Configure ${providerLabel}` }),
+		);
 	}
 
 	it("renders at least one Switch for cloud consent when a provider has an API key", async () => {
@@ -841,6 +854,10 @@ describe("Models page — cloud consent toggles", () => {
 		// localized label (en.json: models.providers.openai.label
 		// = "OpenAI Whisper API").
 		await renderModels({ openai_api_key: "sk-test-key" });
+
+		// (overhaul point 11) the form is hidden behind the group's
+		// Configure action — reveal it first.
+		openApiKeyForm("OpenAI Whisper API");
 
 		// The OpenAI provider consent Switch carries aria-label
 		// "Grant audio transmission consent for OpenAI Whisper API".
@@ -866,6 +883,8 @@ describe("Models page — cloud consent toggles", () => {
 			openai_api_key: "sk-test-key",
 			cloud_openai_consent: false,
 		});
+
+		openApiKeyForm("OpenAI Whisper API");
 
 		const switchBtn = await waitFor(() =>
 			screen.getByRole("switch", {
@@ -899,6 +918,10 @@ describe("Models page — cloud consent toggles", () => {
 			cloud_groq_consent: false,
 			cloud_deepgram_consent: false,
 		});
+
+		// (overhaul point 11) reveal both providers' forms.
+		openApiKeyForm("Groq Whisper API");
+		openApiKeyForm("Deepgram API");
 
 		// Groq
 		const groqSwitch = await waitFor(() =>
@@ -937,6 +960,8 @@ describe("Models page — cloud consent toggles", () => {
 		// DOM when the consent row is shown.
 		await renderModels({ openai_api_key: "sk-test-key" });
 
+		openApiKeyForm("OpenAI Whisper API");
+
 		await waitFor(() => {
 			expect(
 				screen.getAllByText(/audio transmission consent/i).length,
@@ -952,41 +977,81 @@ describe("Models page — cloud consent toggles", () => {
 		);
 	});
 
-	it("renders the HuggingFace consent banner with a Grant button that persists huggingface_consent=true", async () => {
+	it("blocks a download until HF consent is granted, then grants it in one click via the JIT toast", async () => {
 		// Python invariant (test_models_has_hugging_face_consent_banner):
-		//   't("models.hfConsent.title")' in src
+		//   't("models.hfConsent.jitMessage")' in src
 		//   't("models.hfConsent.grant")' in src
 		//   "setHuggingFaceConsent" in src
 		//
-		// Behavioral: when huggingface_consent is false, the
-		// HuggingFace consent banner renders with title +
-		// description + a "Grant" button. Clicking Grant fires
-		// set_config with huggingface_consent=true. The banner
-		// only renders on the "Local Models" tab (the default),
-		// so we DON'T switch to the Cloud Providers tab here.
+		// (UI/UX overhaul point 4): the persistent HuggingFace consent
+		// banner was REMOVED. Consent is now checked only at the moment
+		// the user clicks a model's Download button:
+		//   • no banner on page load;
+		//   • clicking Download with consent missing does NOT fire
+		//     download_model — instead a transient warning toast appears
+		//     with a "Grant consent" action;
+		//   • clicking that action persists huggingface_consent=true
+		//     AND proceeds with the download (single click, no Settings
+		//     navigation).
 		await renderModels(
 			{ huggingface_consent: false },
 			{ switchToCloudTab: false },
 		);
 
-		// en.json: models.hfConsent.title =
-		//   "HuggingFace download consent required"
+		// No persistent banner on the Local Models tab anymore.
+		expect(
+			screen.queryByText(/huggingface download consent required/i),
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", {
+				name: /grant huggingface download consent/i,
+			}),
+		).toBeNull();
+
+		// Click Download on a HuggingFace-downloading model (tiny; the
+		// whisper family accordion is open by default because tiny is
+		// the active model).
+		const downloadButton = screen.getByRole("button", {
+			name: /download tiny/i,
+		});
+		fireEvent.click(downloadButton);
+
+		// The download is BLOCKED — no download_model IPC fired. A
+		// transient toast with a "Grant consent" action is shown
+		// instead (via showSnack → the app's sonner toaster).
 		await waitFor(() => {
-			expect(
-				screen.getByText(/huggingface download consent required/i),
-			).toBeTruthy();
+			expect(stable.showSnack).toHaveBeenCalledWith(
+				expect.stringMatching(/hugging face download consent is required/i),
+				"warning",
+				expect.objectContaining({
+					action: expect.objectContaining({
+						label: "Grant consent",
+					}),
+				}),
+			);
+		});
+		expect(mockCall).not.toHaveBeenCalledWith("download_model", {
+			model: "tiny",
 		});
 
-		// en.json: models.hfConsent.grant = "Grant"
-		// (aria-label = "Grant HuggingFace download consent")
-		const grantBtn = screen.getByRole("button", {
-			name: /grant huggingface download consent/i,
+		// One click on the toast's action resolves everything:
+		// consent is persisted AND the download proceeds.
+		const snackCalls = stable.showSnack.mock.calls;
+		const lastSnackCall = snackCalls[snackCalls.length - 1];
+		const action = lastSnackCall?.[2]?.action;
+		expect(action).toBeDefined();
+		await act(async () => {
+			action?.onClick();
 		});
-		fireEvent.click(grantBtn);
 
 		await waitFor(() => {
 			expect(lastSetConfigPayload()).toMatchObject({
 				huggingface_consent: true,
+			});
+		});
+		await waitFor(() => {
+			expect(mockCall).toHaveBeenCalledWith("download_model", {
+				model: "tiny",
 			});
 		});
 	});
@@ -1009,6 +1074,11 @@ describe("Models page — cloud consent toggles", () => {
 			cloud_deepgram_consent: false,
 		});
 
+		// (overhaul point 11) reveal the OpenAI form (it has a key, so
+		// its consent Switch should render); leave Groq/Deepgram
+		// collapsed.
+		openApiKeyForm("OpenAI Whisper API");
+
 		// OpenAI Switch is rendered.
 		await waitFor(() => {
 			expect(
@@ -1018,7 +1088,8 @@ describe("Models page — cloud consent toggles", () => {
 			).toBeTruthy();
 		});
 
-		// Groq and Deepgram Switches are NOT rendered.
+		// Groq and Deepgram Switches are NOT rendered (their groups are
+		// collapsed and their forms never opened).
 		expect(
 			screen.queryByRole("switch", {
 				name: /grant audio transmission consent for groq whisper api/i,

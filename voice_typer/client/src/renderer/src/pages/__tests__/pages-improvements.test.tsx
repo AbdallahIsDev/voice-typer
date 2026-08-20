@@ -496,22 +496,36 @@ describe("R7-F11: Vocabulary + Templates — i18n placeholders", () => {
 // ── R7-F12 ─────────────────────────────────────────────────────────────
 
 describe("R7-F12: Models.tsx — display_name fallback for variant heading", () => {
-	it("source uses `meta?.display_name ?? model.name` (no hardcoded strings)", async () => {
+	it("variant headings derive from getModelVariantDisplayName (no hardcoded strings)", async () => {
 		const fs = await import("node:fs");
-		// R7-F12: the display_name fallback lives in LocalModelsPanel
-		// (extracted from the former Models.tsx monolith). Read the
-		// actual source file that renders the variant heading.
-		const src = fs.readFileSync(
+		// R7-F12 (UI/UX overhaul point 5): the display-name resolution
+		// now lives in `getModelVariantDisplayName` in
+		// lib/utils/models.ts (display-layer slug formatting + the
+		// Whisper family prefix). LocalModelsPanel consumes it.
+		const panelSrc = fs.readFileSync(
 			"src/renderer/src/components/models/LocalModelsPanel.tsx",
 			"utf8",
 		);
-		const stripped = src
+		const panelStripped = panelSrc
 			.replace(/\/\*[\s\S]*?\*\//g, "")
 			.replace(/\/\/.*$/gm, "");
-		expect(stripped).toContain("meta?.display_name ?? model.name");
+		expect(panelStripped).toContain("getModelVariantDisplayName(");
 		// The old hardcoded ternary must be gone.
-		expect(stripped).not.toContain('"Qwen3-ASR-1.7B"');
-		expect(stripped).not.toContain('"NVIDIA Parakeet TDT v3"');
+		expect(panelStripped).not.toContain("meta?.display_name ?? model.name");
+		expect(panelStripped).not.toContain('"Qwen3-ASR-1.7B"');
+		expect(panelStripped).not.toContain('"NVIDIA Parakeet TDT v3"');
+
+		// The helper keeps the backend `display_name` as the top
+		// priority (parakeet/qwen), with the formatted-slug fallback.
+		const libSrc = fs.readFileSync(
+			"src/renderer/src/lib/utils/models.ts",
+			"utf8",
+		);
+		const libStripped = libSrc
+			.replace(/\/\*[\s\S]*?\*\//g, "")
+			.replace(/\/\/.*$/gm, "");
+		expect(libStripped).toContain("meta?.display_name");
+		expect(libStripped).toContain("formatModelDisplayName(model.name)");
 	});
 
 	it("ModelMetadata interface includes display_name field", async () => {

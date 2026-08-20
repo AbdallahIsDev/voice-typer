@@ -1083,7 +1083,7 @@
 	},
 	"models": {
 		"asrTitle": "Modelos",
-		"asrSubtitle": "Configure modelos locales en el dispositivo y proveedores de reconocimiento de voz en la nube.",
+		"asrSubtitle": "Configura modelos locales en el dispositivo y reconocimiento de voz basado en la nube.",
 		"title": "Modelos",
 		"description": "Configura tus motores de reconocimiento de voz",
 		"active": "Activo",
@@ -1161,11 +1161,8 @@
 			"importModelAria": "Importar modelo desde carpeta"
 		},
 		"hfConsent": {
-			"title": "Se requiere consentimiento de descarga de HuggingFace",
-			"description": "Los modelos Whisper locales (tiny.en, base.en, etc.) descargan pesos desde huggingface.co en el primer uso. Otorga consentimiento para habilitar las descargas de modelos. No se sube audio — solo se obtienen los pesos del modelo.",
-			"grantAria": "Otorgar consentimiento de descarga de HuggingFace",
 			"grant": "Otorgar consentimiento",
-			"blockedHint": "Las descargas de modelos están bloqueadas hasta que otorgues consentimiento."
+			"jitMessage": "Se requiere el consentimiento de descarga de Hugging Face antes de descargar este modelo. Concédelo ahora para continuar."
 		},
 		"progress": {
 			"eta": "Tiempo restante {time}",
@@ -1190,23 +1187,22 @@
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
-			"size": "Tamaño: {size}",
-			"vram": "VRAM: ~{vram} MB",
 			"multilingual": "Multilingüe",
-			"englishOnly": "Solo inglés",
-			"speedSuffix": "{rating} velocidad",
-			"distilled": "  ·  destilado",
+			"englishOnly": "Solo Inglés",
+			"speedSuffix": "Velocidad {rating}",
+			"distilled": "Destilado",
 			"activeAria": "Activo: {name}",
 			"useAria": "Usar {name}",
 			"downloadAria": "Descargar {name}",
 			"selectAria": "Seleccionar {name}",
 			"deleteAria": "Eliminar {name}",
-			"accuracy": "Precisión"
+			"accuracy": "Precisión",
+			"vramLabel": "VRAM",
+			"werLabel": "WER"
 		},
 		"cloud": {
 			"title": "Proveedores de reconocimiento de voz en la nube",
 			"description": "Configura servicios de transcripción basados en la nube",
-			"providerSettings": "Ajustes de {provider}",
 			"apiKey": "Clave API",
 			"apiKeyPlaceholder": "Introduce tu clave API",
 			"saveKeyAria": "Guardar clave API de {provider}",
@@ -1218,7 +1214,12 @@
 			"statusLabel": "Estado:",
 			"consentGrantedStatus": "Consentimiento otorgado — el audio se enviará cuando este proveedor esté activo.",
 			"consentNotGrantedStatus": "Consentimiento no otorgado — este proveedor se negará a transcribir.",
-			"consentAria": "Otorgar consentimiento de transmisión de audio para {provider}"
+			"consentAria": "Otorgar consentimiento de transmisión de audio para {provider}",
+			"configure": "Configurar",
+			"configureAria": "Configurar {provider}",
+			"hideConfigure": "Ocultar",
+			"hideConfigureAria": "Ocultar configuración de {provider}",
+			"tagCloud": "Nube"
 		},
 		"deleteDialog": {
 			"title": "Eliminar Modelo",
@@ -1228,8 +1229,6 @@
 		"subtitle": "Descarga y administra modelos de reconocimiento de voz",
 		"localModels": "Modelos Locales",
 		"localModelsDescription": "Ejecuta modelos Whisper directamente en tu dispositivo. No requiere conexión a internet después de la descarga.",
-		"cloudProviders": "Proveedores en la Nube",
-		"cloudProvidersDescription": "Usa APIs basadas en la nube para una transcripción más rápida. Requiere clave API.",
 		"downloaded": "Descargado",
 		"dependenciesRequired": "Dependencias requeridas",
 		"available": "Disponible",
@@ -1277,7 +1276,8 @@
 			"fastest": "Más rápido",
 			"variable": "Variable",
 			"slow": "Lento",
-			"fast": "Rápido"
+			"fast": "Rápido",
+			"medium": "Media"
 		},
 		"openFolderAria": "Abrir el directorio de modelos en el explorador de archivos",
 		"openFolderFailed": "Error al abrir la carpeta",
@@ -1290,7 +1290,9 @@
 		"openFolder": {
 			"label": "Abrir carpeta de modelos",
 			"aria": "Mostrar carpeta de modelos en el administrador de archivos"
-		}
+		},
+		"cloudModels": "Modelos en la Nube",
+		"cloudModelsDescription": "Usa APIs basadas en la nube para una transcripción más rápida. Requiere clave API."
 	},
 	"tooltips": {
 		"toggleRecording": "Iniciar o detener el dictado por voz",
