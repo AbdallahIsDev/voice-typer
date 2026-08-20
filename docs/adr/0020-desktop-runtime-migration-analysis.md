@@ -867,7 +867,7 @@ Do NOT silently add commands/events during implementation — every addition wid
 #### §16 addendum 2026-08-14 — prewarm IPC surface (retirement + restoration)
 
 - **Retired (plan-runtime-pack-split.md §6.2 P-1):** `run_prewarm` — the standalone-prewarm subprocess (`prewarm-<triple>.exe`, `process_tracker.py`, sentinel/PID machinery) was deleted; start/stop is now the `fast_startup` toggle gating the worker warm phase. `run_prewarm` stays OUT of the registry.
-- **Restored (plan-runtime-pack-split.md §6.3 addendum — user-facing feature re-opened):** `get_prewarm_status` + `open_prewarm_log` restored verbatim from commit 5a319872 (Settings → About "Cache Status" card). Adaptations: status reads the worker status file `prewarm_status.json` (written by the worker warm phase) instead of the deleted sentinel; `open_prewarm_log` opens `worker.log`. `EXPECTED_COMMANDS` grew 63 → 65; registry 67 → 69 (TS 67, Rust 65).
+- **Restored (plan-runtime-pack-split.md §6.3 addendum — user-facing feature re-opened):** `get_prewarm_status` + `open_prewarm_log` restored verbatim from commit 5a319872 (Settings → About "Cache Status" card). Adaptations: status reads the worker status file `prewarm-status.json` (written by the worker warm phase) instead of the deleted sentinel; `open_prewarm_log` opens `worker.log`. `EXPECTED_COMMANDS` grew 63 → 65; registry 67 → 69 (TS 67, Rust 65).
 
 ---
 

@@ -500,7 +500,7 @@ revert any unrelated session work). What was restored:
 
 - `voice_typer/server/prewarm/status.py` — `get_prewarm_status`,
   `_probe_cache_status` + TTL probe cache, file read/write helpers;
-  adapted to read/write the **worker status file** `prewarm_status.json`
+  adapted to read/write the **worker status file** `prewarm-status.json`
   under the config dir (written by the worker warm phase — see
   `voice_typer/worker/_ws_server.py`) instead of the deleted
   sentinel/PID machinery. `prewarm_running` field dropped (no more

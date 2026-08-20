@@ -32,13 +32,9 @@ from voice_typer.server.prewarm.status import (
 class TestGetPrewarmStatus:
     """ADR-0009 Issue 3: get_prewarm_status() returns a UI-ready dict."""
 
-    def test_no_status_file_and_no_model_dirs_returns_unknown(
-        self, monkeypatch, tmp_path
-    ):
+    def test_no_status_file_and_no_model_dirs_returns_unknown(self, monkeypatch, tmp_path):
         """No worker status file + no model dirs → label='unknown'."""
-        monkeypatch.setattr(
-            prewarm_status, "_status_file_path", lambda: tmp_path / "prewarm_status.json"
-        )
+        monkeypatch.setattr(prewarm_status, "_status_file_path", lambda: tmp_path / "prewarm-status.json")
         monkeypatch.setattr(prewarm_status, "_active_model_cache_dirs", lambda: [])
         monkeypatch.setattr(prewarm_status, "_config_fast_startup", lambda: True)
 
@@ -58,14 +54,12 @@ class TestGetPrewarmStatus:
         wall-clock completion time written by the worker, not a boot
         timestamp.)
         """
-        status_file = tmp_path / "prewarm_status.json"
+        status_file = tmp_path / "prewarm-status.json"
         status_file.write_text(
             json.dumps({"last_run": "2026-08-14T09:12:00", "elapsed_s": 20.4}),
             encoding="utf-8",
         )
-        monkeypatch.setattr(
-            prewarm_status, "_status_file_path", lambda: status_file
-        )
+        monkeypatch.setattr(prewarm_status, "_status_file_path", lambda: status_file)
         monkeypatch.setattr(prewarm_status, "_active_model_cache_dirs", lambda: [])
         monkeypatch.setattr(prewarm_status, "_config_fast_startup", lambda: True)
 
@@ -78,11 +72,9 @@ class TestGetPrewarmStatus:
 
     def test_corrupt_status_file_degrades_gracefully(self, monkeypatch, tmp_path):
         """A corrupt/unreadable status file degrades to None, never raises."""
-        status_file = tmp_path / "prewarm_status.json"
+        status_file = tmp_path / "prewarm-status.json"
         status_file.write_text("{not json", encoding="utf-8")
-        monkeypatch.setattr(
-            prewarm_status, "_status_file_path", lambda: status_file
-        )
+        monkeypatch.setattr(prewarm_status, "_status_file_path", lambda: status_file)
         monkeypatch.setattr(prewarm_status, "_active_model_cache_dirs", lambda: [])
         monkeypatch.setattr(prewarm_status, "_config_fast_startup", lambda: True)
 
@@ -93,9 +85,7 @@ class TestGetPrewarmStatus:
 
     def test_enabled_follows_fast_startup_config(self, monkeypatch, tmp_path):
         """``enabled`` mirrors the fast_startup config toggle (start/stop)."""
-        monkeypatch.setattr(
-            prewarm_status, "_status_file_path", lambda: tmp_path / "prewarm_status.json"
-        )
+        monkeypatch.setattr(prewarm_status, "_status_file_path", lambda: tmp_path / "prewarm-status.json")
         monkeypatch.setattr(prewarm_status, "_active_model_cache_dirs", lambda: [])
         monkeypatch.setattr(prewarm_status, "_config_fast_startup", lambda: False)
 
@@ -118,9 +108,7 @@ class TestGetPrewarmStatus:
         weights_b = snap_b / "model.safetensors"
         weights_b.write_bytes(b"\x00" * (1 * 1024 * 1024))  # 1 MB
 
-        monkeypatch.setattr(
-            prewarm_status, "_status_file_path", lambda: tmp_path / "prewarm_status.json"
-        )
+        monkeypatch.setattr(prewarm_status, "_status_file_path", lambda: tmp_path / "prewarm-status.json")
         monkeypatch.setattr(
             prewarm_status,
             "_active_model_cache_dirs",
@@ -152,7 +140,7 @@ class TestWritePrewarmStatusFile:
     """The worker-side writer that feeds the card's last-run row."""
 
     def test_write_then_read_round_trip(self, monkeypatch, tmp_path):
-        status_file = tmp_path / "prewarm_status.json"
+        status_file = tmp_path / "prewarm-status.json"
         monkeypatch.setattr(prewarm_status, "_status_file_path", lambda: status_file)
 
         write_prewarm_status_file(last_run="2026-08-14T10:00:00", elapsed_s=31.7)

@@ -58,7 +58,18 @@ log = logging.getLogger("voice_typer.server.prewarm")
 # Mirrors the deleted ``prewarm/status.json`` sentinel's role: a
 # durability point for "when did the last warm run complete + how long
 # did it take", now owned by the worker exe (which does the warming).
-_STATUS_FILE_NAME = "prewarm_status.json"
+#
+# O4: the prewarm state was consolidated into a single JSON
+# (``prewarm-status.json``) — the legacy 3-line sentinel
+# (``.prewarm-sentinel``) was deleted with the standalone-prewarm
+# machinery (P-1), and the pre-migration ``prewarm_status.json`` name
+# (underscore) is migrated to the hyphenated canonical name on first
+# read/write (see :func:`_migrate_legacy_status_file`).
+_STATUS_FILE_NAME = "prewarm-status.json"
+
+# Legacy pre-O4 filename (underscore). Renamed once to the canonical
+# hyphenated name on first access.
+_LEGACY_STATUS_FILE_NAME = "prewarm_status.json"
 
 # Label thresholds (ADR-0009 Issue 3, unchanged from the original
 # implementation): >= 0.9 resident → "hot", >= 0.1 → "partial",
@@ -71,7 +82,19 @@ def _status_file_path() -> Path:
     """Resolve the worker status file inside the app config dir."""
     from voice_typer.server.config import _config_dir
 
-    return Path(_config_dir()) / _STATUS_FILE_NAME
+    path = Path(_config_dir()) / _STATUS_FILE_NAME
+    # O4: one-time migration of the pre-O4 underscore name. Best-effort —
+    # a failed rename (e.g. the file is momentarily locked) falls back to
+    # the canonical name on the next write, so the legacy file is never
+    # silently clobbered and the migration is idempotent.
+    legacy = Path(_config_dir()) / _LEGACY_STATUS_FILE_NAME
+    if legacy.exists() and not path.exists():
+        try:
+            legacy.rename(path)
+            log.debug("[PREWARM] migrated legacy %s -> %s", _LEGACY_STATUS_FILE_NAME, _STATUS_FILE_NAME)
+        except OSError as exc:
+            log.debug("[PREWARM] legacy status-file migration failed: %s", exc)
+    return path
 
 
 def write_prewarm_status_file(*, last_run: str | None, elapsed_s: float | None) -> None:
@@ -263,8 +286,7 @@ def _prune_stale_cache_probe_entries() -> None:
     """
     if len(_cache_probe_cache) > _CACHE_PROBE_MAX_ENTRIES:
         log.warning(
-            "[PREWARM] _cache_probe_cache exceeded cap "
-            "(%d entries) — clearing",
+            "[PREWARM] _cache_probe_cache exceeded cap (%d entries) — clearing",
             _CACHE_PROBE_MAX_ENTRIES,
         )
         _cache_probe_cache.clear()

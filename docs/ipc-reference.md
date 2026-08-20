@@ -118,7 +118,7 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | `get_model_catalog` | `_handle_get_model_catalog` | ✓ | Models page: VRAM, languages, speed/accuracy ratings. |
 | `get_model_status` | `_handle_get_model_status` | ✓ |  |
 | `get_volume_backend_status` | `_handle_get_volume_backend_status` | ✓ |  |
-| `get_prewarm_status` | `_handle_get_prewarm_status` | ✓ | RESTORED 2026-08-14 (plan §6.3 addendum): Cache Status card probe — reads the worker's cache stats (status file `prewarm_status.json` under the config dir). Response: `{ enabled, cache_ratio, cache_label, cached_bytes, total_bytes, last_run, elapsed_s }`. |
+| `get_prewarm_status` | `_handle_get_prewarm_status` | ✓ | RESTORED 2026-08-14 (plan §6.3 addendum): Cache Status card probe — reads the worker's cache stats (status file `prewarm-status.json` under the config dir). Response: `{ enabled, cache_ratio, cache_label, cached_bytes, total_bytes, last_run, elapsed_s }`. |
 | `open_prewarm_log` | `_handle_open_prewarm_log` | ✓ | RESTORED 2026-08-14 (plan §6.3 addendum): opens the worker log (`worker.log` — the retired `prewarm.log` no longer exists). |
 | `run_prewarm` | `_handle_run_prewarm` | ✓ | RESTORED 2026-08-14 (plan §6.3 addendum 2nd half): re-implemented — the handler re-runs the worker's warm phase in-process via `prewarm.status.run_prewarm_now()` (warm_imports_for_worker on a daemon thread + status-file refresh) instead of spawning the retired standalone-prewarm subprocess. Response: `{ started: bool }`. |
 | `import_model` | `_handle_import_model` | ✓ | MODEL-IMPORT: allows import_model so the Models page can scan and import pre-downloaded model directories. |
@@ -219,7 +219,7 @@ this page find the canonical "this command does not exist" answer:
 > master plan §6.2 P-1) but were RESTORED on 2026-08-14 (plan §6.3
 > addendum — Settings → About Cache Status card, verbatim from
 > 5a319872): they now have live rows in the Models table above and
-> probe the worker's cache via `prewarm_status.json`. `run_prewarm`
+> probe the worker's cache via `prewarm-status.json`. `run_prewarm`
 > was restored the same day (addendum 2nd half) as a RE-IMPLEMENTATION
 > — it re-runs the worker's warm phase in-process via
 > `prewarm.status.run_prewarm_now()` (no deleted-subprocess spawn).

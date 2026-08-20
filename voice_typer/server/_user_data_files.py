@@ -113,6 +113,11 @@ _PREWARM_LOG: str = "prewarm.log"
 _RENDERER_ERRORS_LOG: str = "electron-renderer-errors.log"
 _RUST_LOG: str = "voice-typer-rust.log"
 
+# Prewarm worker status file (O4: consolidated single JSON, canonical
+# hyphenated name + the legacy underscore name for pre-O4 installs).
+_PREWARM_STATUS_FILE: str = "prewarm-status.json"
+_LEGACY_PREWARM_STATUS_FILE: str = "prewarm_status.json"
+
 # Backend PID file — written by ``single_instance.py`` (see
 # ``_backend_pid_path`` / ``backend_pid_path``).
 _BACKEND_PID_FILE: str = "backend.pid"
@@ -146,6 +151,8 @@ _USER_DATA_FILES: tuple[str, ...] = (
     _PREWARM_LOG,
     _RENDERER_ERRORS_LOG,
     _RUST_LOG,
+    _PREWARM_STATUS_FILE,
+    _LEGACY_PREWARM_STATUS_FILE,
     _RESTART_TOKEN,
 )
 
@@ -170,6 +177,8 @@ _GDPR_PERSONAL_FILES: tuple[str, ...] = (
     _PREWARM_LOG,
     _RENDERER_ERRORS_LOG,
     _RUST_LOG,
+    _PREWARM_STATUS_FILE,
+    _LEGACY_PREWARM_STATUS_FILE,
     # config.json.bak retains plaintext API keys
     "config.json.bak",
     # config.json.lock can hold stale PID + username
