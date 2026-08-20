@@ -274,7 +274,7 @@ def _pid_file() -> Path:
     production code never adopted it; this local helper
         remains the single source of truth for the autostart PID file.)
     """
-    return _config_dir() / "autostart.pid"
+    return _config_dir() / "run" / "autostart.pid"
 
 
 def _setup_logging() -> None:
@@ -630,8 +630,7 @@ def verify_tauri_binary_or_skip(path: str | Path) -> bool:
     sha256_dict = entry.get("sha256")
     if not isinstance(sha256_dict, dict):
         log.error(
-            "[AUTOSTART] FAIL CLOSED: manifest entry %s has no per-arch "
-            "sha256 dict.",
+            "[AUTOSTART] FAIL CLOSED: manifest entry %s has no per-arch sha256 dict.",
             binary.name,
         )
         return False
@@ -685,8 +684,7 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
     # env override, which is NOT a bypass) would launch unchecked.
     if not verify_tauri_binary_or_skip(binary):
         log.error(
-            "[AUTOSTART] refusing to spawn Tauri binary %s — integrity "
-            "verification failed (fail-closed).",
+            "[AUTOSTART] refusing to spawn Tauri binary %s — integrity verification failed (fail-closed).",
             binary,
         )
         return None
@@ -777,13 +775,24 @@ def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen |
 
 
 def _write_pid_file(launcher_pid: int, child_pid: int | None) -> None:
-    """Persist our PID + the child's PID for the reaper to find.
+    """Persist our PID + the child's PID in ``autostart.pid``.
 
     SEC-003: Uses _secure_atomic_write to ensure 0o600 permissions
     on POSIX and O_NOFOLLOW symlink protection.
+
+    The child PID is captured at the call sites via
+    ``getattr(child, "pid", None)``; a non-int value (a test-double
+    return, an exotic spawn result) must NEVER be persisted — it would
+    poison the file with a garbage ``child=`` value that no reader can
+    parse. Non-int child PIDs are normalized to ``None``.
     """
+    if not isinstance(launcher_pid, int):
+        launcher_pid = 0
+    if not isinstance(child_pid, int):
+        child_pid = None
     try:
         _config_dir().mkdir(parents=True, exist_ok=True)
+        _pid_file().parent.mkdir(exist_ok=True, mode=0o700)
         from voice_typer.server.config import _secure_atomic_write
 
         _secure_atomic_write(
@@ -865,8 +874,7 @@ def _focus_running_app() -> bool:
         # ``_spawn_tauri_host`` (the focus probe spawns the real binary).
         if not verify_tauri_binary_or_skip(binary):
             log.error(
-                "[AUTOSTART] tauri focus: refusing to spawn %s — integrity "
-                "verification failed (fail-closed).",
+                "[AUTOSTART] tauri focus: refusing to spawn %s — integrity verification failed (fail-closed).",
                 binary,
             )
             return False

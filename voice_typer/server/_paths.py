@@ -140,6 +140,22 @@ def config_dir() -> Path:
     return _resolve_config_dir()()
 
 
+# O3: transient runtime state (pid files, lockfiles, session markers)
+# lives under a dedicated ``run/`` subdir of the config dir, keeping the
+# config-dir root clean (alongside ``logs/``, ``db/``, ``crashes/``…).
+# Legacy root-located pid/lock files are swept / migrated at startup.
+RUN_SUBDIR = "run"
+
+
+def run_dir() -> Path:
+    """Path to the ``run/`` subdir holding transient runtime state (O3).
+
+    Created on demand by the pid/lock writers; callers should not assume
+    it exists before first use.
+    """
+    return config_dir() / RUN_SUBDIR
+
+
 def prewarm_launchagent_log() -> Path:
     """Path to the legacy macOS LaunchAgent's prewarm log file.
 
@@ -282,13 +298,15 @@ def user_data_subpaths_for_purge() -> list[Path]:
         base / "huggingface",  # HF model cache (GBs)
         base / "venv",  # Python venv (hundreds of MB)
         base / "logs",  # rotating log files
+        base / "db",  # history DB + sidecars + backups (O2)
+        base / "run",  # transient runtime state: pids, locks, session markers (O3)
         base / "electron-profile",  # Electron/Chromium profile (caches, Local Storage)
-        base / "history.db",  # SQLite history DB
-        base / "history.db-wal",  # SQLite WAL (may not exist)
-        base / "history.db-shm",  # SQLite SHM (may not exist)
+        base / "history.db",  # legacy SQLite history DB (pre-O2; may survive migration)
+        base / "history.db-wal",  # legacy SQLite WAL (may not exist)
+        base / "history.db-shm",  # legacy SQLite SHM (may not exist)
         base / "crash_recovery.json",  # crash-recovery snapshot
-        base / "backend.lock",  # single-instance POSIX lockfile
-        base / "backend.pid",  # backend PID file (Windows + POSIX)
+        base / "backend.lock",  # legacy single-instance POSIX lockfile (pre-O3)
+        base / "backend.pid",  # legacy backend PID file (pre-O3)
         base / "autostart.log",  # macOS LaunchAgent autostart log
         base / "prewarm-launchagent.log",  # macOS LaunchAgent prewarm log
         base / "onboarding.marker",  # onboarding completion sentinel

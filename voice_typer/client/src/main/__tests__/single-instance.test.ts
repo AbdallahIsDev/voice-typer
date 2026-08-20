@@ -71,6 +71,10 @@ describe("XS-78: single_instance.ts", () => {
 
 	beforeEach(() => {
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-single-instance-"));
+		// O3: electron.pid lives under `<configDir>/run`; pre-create the
+		// subdir so direct fs.writeFileSync in the tests works without
+		// relying on writeElectronPidFile's own mkdirSync.
+		fs.mkdirSync(path.join(tmpDir, "run"), { recursive: true });
 		savedConfigDir = process.env.VOICE_TYPER_CONFIG_DIR;
 		process.env.VOICE_TYPER_CONFIG_DIR = tmpDir;
 	});
@@ -117,9 +121,9 @@ describe("XS-78: single_instance.ts", () => {
 	});
 
 	describe("electronPidFile()", () => {
-		it("returns <configDir>/electron.pid", () => {
+		it("returns <configDir>/run/electron.pid (O3)", () => {
 			const f = electronPidFile();
-			expect(f).toBe(path.join(tmpDir, "electron.pid"));
+			expect(f).toBe(path.join(tmpDir, "run", "electron.pid"));
 		});
 	});
 

@@ -214,8 +214,9 @@ def _backend_pid_file() -> Path:
     # F811 redefinition warning against the module-level binding while
     # preserving the lazy-lookup semantics documented above.
     from voice_typer.server import app as _app_module
+    from voice_typer.server._paths import RUN_SUBDIR
 
-    return _app_module._config_dir() / "backend.pid"
+    return _app_module._config_dir() / RUN_SUBDIR / "backend.pid"
 
 
 def _write_backend_pid_file() -> None:
@@ -626,9 +627,9 @@ def _ensure_single_instance_posix(silent: bool = False):
         # owner-only access (no group/other traversal). Previously
         # ``mkdir(parents=True, exist_ok=True)`` defaulted to 0o777
         # masked by umask → 0o755 on most Linux distros, which let other
-        # non-root users stat ``backend.lock`` (mode 0o600, content is
+        # non-root users stat the lock file (mode 0o600, content is
         # the PID — minor info leak) and pre-create the dir with looser
-        # perms to plant a symlink at ``backend.lock`` (the
+        # perms to plant a symlink at the lock file (the
         # ``os.open(O_CREAT|O_EXCL)`` call below follows symlinks on
         # Linux because ``O_NOFOLLOW`` was not set).
         #
@@ -640,12 +641,18 @@ def _ensure_single_instance_posix(silent: bool = False):
         cdir.mkdir(parents=True, exist_ok=True, mode=0o700)
         with contextlib.suppress(OSError):
             os.chmod(cdir, 0o700)
+        # O3: transient runtime state (pids, locks, session markers)
+        # lives under ``run/`` with the same 0o700 lockdown.
+        run_dir = cdir / "run"
+        run_dir.mkdir(exist_ok=True, mode=0o700)
+        with contextlib.suppress(OSError):
+            os.chmod(run_dir, 0o700)
     except OSError:
         if not silent and sys.stderr is not None:
             print("Voice Typer: cannot create config dir.", file=sys.stderr)
         sys.exit(1)
 
-    lock_path = cdir / "backend.lock"
+    lock_path = run_dir / "backend.lock"
 
     def _try_acquire(path):
         try:

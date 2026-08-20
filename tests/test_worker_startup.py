@@ -131,9 +131,16 @@ def _find_worker_lock() -> Path | None:
     spurious ``EXIT_DUPLICATE_INSTANCE`` failures. Looks in the
     per-pytest-process temp config dir (spawned workers honor
     ``VOICE_TYPER_CONFIG_DIR``), NOT the user's real config dir.
+
+    O3: the lock file now lives under the ``run/`` subdir; the legacy
+    root location is checked too (a worker built before O3 may have
+    left one).
     """
-    lock = _TEST_CONFIG_DIR / "worker.lock"
-    return lock if lock.exists() else None
+    lock = _TEST_CONFIG_DIR / "run" / "worker.lock"
+    if lock.exists():
+        return lock
+    legacy = _TEST_CONFIG_DIR / "worker.lock"
+    return legacy if legacy.exists() else None
 
 
 def _kill_stale_worker() -> None:
@@ -806,7 +813,8 @@ def test_worker_single_instance_lock_rejects_duplicate(monkeypatch, tmp_path) ->
     monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
     # Also patch the worker's lazy import of _config_dir (it imports
     # inside _worker_lock_path each call).
-    lock_path = tmp_path / "worker.lock"
+    lock_path = tmp_path / "run" / "worker.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
 
     if os.name == "posix":
         # Create the lockfile with the current process's PID — the

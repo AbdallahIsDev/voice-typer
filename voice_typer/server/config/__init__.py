@@ -294,6 +294,7 @@ def _default_hotkey_for_platform() -> str:
 
 _USER_DATA_DIRS: tuple[str, ...] = (
     "logs",
+    "db",  # history.db + -wal/-shm sidecars + corrupt/pre-migration backups (O2)
     "huggingface",  # HF model cache (potentially GB-sized)
     "crashes",
     "native_logs",
@@ -1559,9 +1560,8 @@ class Config:
                 # _enforce_windows_owner_only_acl fast path). Skipping
                 # re-verification avoids re-running dir-wide icacls on
                 # an existing dir.
-                if (
-                    str(config_dir) not in _windows_owner_only_acl_verified
-                    and _enforce_windows_owner_only_acl(config_dir)
+                if str(config_dir) not in _windows_owner_only_acl_verified and _enforce_windows_owner_only_acl(
+                    config_dir
                 ):
                     _windows_owner_only_acl_verified.add(str(config_dir))
             except Exception:

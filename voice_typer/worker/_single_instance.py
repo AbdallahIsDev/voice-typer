@@ -35,13 +35,15 @@ def _worker_lock_path() -> Path:
     """Resolve the worker single-instance lock file path.
 
     Uses :func:`voice_typer.server.config._config_dir` (the canonical
-    per-platform app data dir) so the lock file lives next to the
-    slim-core sidecar's ``backend.lock`` — same dir, different file
-    name, so the two processes do not contend on the same lock.
+    per-platform app data dir) so the lock file lives under the same
+    O3 ``run/`` subdir as the slim-core sidecar's ``backend.lock`` —
+    same dir, different file name, so the two processes do not contend
+    on the same lock.
     """
+    from voice_typer.server._paths import RUN_SUBDIR
     from voice_typer.server.config import _config_dir
 
-    return _config_dir() / _WORKER_LOCK_NAME
+    return _config_dir() / RUN_SUBDIR / _WORKER_LOCK_NAME
 
 
 class _WorkerSingleInstanceHandle:

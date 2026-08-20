@@ -207,6 +207,35 @@ def test_rmtree_rust_logs_missing_dir_is_noop(tmp_path: Path) -> None:
     assert failed == {}
 
 
+# ── _gdpr_rmtree_db_dir ─────────────────────────────────────────────────
+
+
+def test_rmtree_db_dir_removes_directory(tmp_path: Path) -> None:
+    """The ``db/`` subdir (O2 history DB) is recursively removed."""
+    db_dir = tmp_path / "db"
+    db_dir.mkdir()
+    (db_dir / "history.db").write_text("history bytes")
+    (db_dir / "history.db-wal").write_text("wal")
+    (db_dir / "history.db.corrupt-123").write_text("quarantined")
+
+    erased: list = []
+    failed: dict = {}
+    PrivacyMixin._gdpr_rmtree_db_dir(tmp_path, erased, failed)
+
+    assert not db_dir.exists()
+    assert str(db_dir) in erased
+    assert failed == {}
+
+
+def test_rmtree_db_dir_missing_dir_is_noop(tmp_path: Path) -> None:
+    """A missing ``db/`` dir is a silent no-op (fresh install / pre-O2)."""
+    erased: list = []
+    failed: dict = {}
+    PrivacyMixin._gdpr_rmtree_db_dir(tmp_path, erased, failed)
+    assert erased == []
+    assert failed == {}
+
+
 # ── _gdpr_rmtree_crash_archive ─────────────────────────────────────────
 
 

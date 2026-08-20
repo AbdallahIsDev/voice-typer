@@ -221,7 +221,7 @@ class TestStartupSequenceRunOrder:
 
         StartupSequence(app_for_startup).run()
 
-        marker = tmp_config_dir / session_state.SESSION_MARKER_FILENAME
+        marker = tmp_config_dir / "run" / session_state.SESSION_MARKER_FILENAME
         assert marker.exists(), (
             "SESSION-STATE: run() must mark the session active after the crash "
             "check so a later crash is detectable on the next launch"
@@ -249,7 +249,7 @@ class TestStartupSequenceRunOrder:
 
         StartupSequence(app_for_startup).run()
 
-        marker = tmp_config_dir / session_state.SESSION_MARKER_FILENAME
+        marker = tmp_config_dir / "run" / session_state.SESSION_MARKER_FILENAME
         assert not marker.exists(), "aborted startup must not mark a session active"
 
     def _crash_check_app(self, app_for_startup, monkeypatch):

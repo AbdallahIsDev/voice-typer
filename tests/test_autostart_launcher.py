@@ -60,7 +60,7 @@ class TestWritePidFile:
             lambda: tmp_path,
         )
         _write_pid_file(1234, 5678)
-        content = (tmp_path / "autostart.pid").read_text()
+        content = (tmp_path / "run" / "autostart.pid").read_text()
         assert "launcher=1234" in content
         assert "child=5678" in content
 
@@ -72,7 +72,7 @@ class TestWritePidFile:
             lambda: config,
         )
         _write_pid_file(100, 200)
-        assert (config / "autostart.pid").exists()
+        assert (config / "run" / "autostart.pid").exists()
 
     def test_child_pid_optional(self, tmp_path, monkeypatch):
         """When child PID is None, the line should still be written."""
@@ -81,9 +81,36 @@ class TestWritePidFile:
             lambda: tmp_path,
         )
         _write_pid_file(100, None)
-        content = (tmp_path / "autostart.pid").read_text()
+        content = (tmp_path / "run" / "autostart.pid").read_text()
         assert "launcher=100" in content
         assert "child=" in content
+
+    def test_non_int_child_pid_normalized_to_empty(self, tmp_path, monkeypatch):
+        """A non-int child PID (e.g. a test double's MagicMock leaking into
+        the call site) must NEVER be persisted — it would poison the pid
+        file with a garbage ``child=`` value no reader can parse."""
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._config_dir",
+            lambda: tmp_path,
+        )
+        _write_pid_file(100, MagicMock())
+        content = (tmp_path / "run" / "autostart.pid").read_text()
+        assert content.strip().splitlines() == ["launcher=100", "child="], (
+            f"non-int child pid must be normalized to empty, got: {content!r}"
+        )
+
+    def test_non_int_launcher_pid_not_persisted(self, tmp_path, monkeypatch):
+        """A non-int launcher PID is normalized to ``0`` — never a garbage
+        string from a test double's ``__str__``."""
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._config_dir",
+            lambda: tmp_path,
+        )
+        _write_pid_file(MagicMock(), 5678)
+        content = (tmp_path / "run" / "autostart.pid").read_text()
+        assert content.strip().splitlines() == ["launcher=0", "child=5678"], (
+            f"non-int launcher pid must be normalized to 0, got: {content!r}"
+        )
 
 
 class TestFocusRunningApp:

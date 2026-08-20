@@ -436,6 +436,45 @@ class PrivacyMixin(ServiceMixinBase):
             failed[str(rust_logs_dir)] = f"{type(exc).__name__}: {exc}"
 
     @staticmethod
+    def _gdpr_rmtree_db_dir(config_dir: "os.PathLike[str] | str", erased: list, failed: dict) -> None:
+        """Recursively remove the history-DB ``db/`` subdirectory (O2).
+
+        ``<config_dir>/db/history.db`` (+ ``-wal``/``-shm`` sidecars,
+        ``history.db.corrupt-*`` quarantine files, and
+        ``history.db.pre-migration-v*.bak`` backups) holds the user's
+        entire dictated history. The flat-file walk in
+        :meth:`_gdpr_unlink_personal_files` still unlinks the *legacy*
+        root-located ``history.db`` (pre-O2 installs that have not run
+        the one-time migration), but the O2 location is a subdir, so
+        the whole tree must be removed here — otherwise dictated text
+        survives GDPR delete.
+
+        Best-effort: missing dir is a silent no-op; a per-file OSError
+        is caught + surfaced in ``failed`` so the renderer can tell the
+        user to delete manually.
+        """
+        import shutil
+        from pathlib import Path
+
+        db_dir = Path(config_dir) / "db"
+        if not db_dir.exists():
+            return
+        try:
+            shutil.rmtree(db_dir, ignore_errors=False)
+            erased.append(str(db_dir))
+            log.debug(
+                "[SERVICE] GDPR delete: removed db/ dir at %s",
+                db_dir,
+            )
+        except OSError as exc:
+            log.warning(
+                "[SERVICE] GDPR delete: could not rmtree db/ dir at %s: %s — user may need to delete it manually",
+                db_dir,
+                exc,
+            )
+            failed[str(db_dir)] = f"{type(exc).__name__}: {exc}"
+
+    @staticmethod
     def _gdpr_rmtree_electron_profile(config_dir: "os.PathLike[str] | str", erased: list, failed: dict) -> None:
         """Remove the Electron/Chromium profile subdirectory.
 
@@ -806,6 +845,7 @@ class PrivacyMixin(ServiceMixinBase):
         # rmtree'd by the GDPR delete path; the export must include the
         # same files for Art. 20 portability parity.
         PrivacyMixin._gdpr_zip_directory(zf, config_dir, "logs", "logs")
+        PrivacyMixin._gdpr_zip_directory(zf, config_dir, "db", "db")
         PrivacyMixin._gdpr_zip_directory(zf, config_dir, "crash_diagnostics_archive", "crash_diagnostics_archive")
 
     @staticmethod
@@ -918,6 +958,7 @@ class PrivacyMixin(ServiceMixinBase):
         # by ``set_config`` / ``onboarding_apply`` (the lock is for
         # config-file mutation serialization, not arbitrary file IO).
         self._gdpr_rmtree_rust_logs(config_dir, erased, failed)
+        self._gdpr_rmtree_db_dir(config_dir, erased, failed)
         self._gdpr_rmtree_electron_profile(config_dir, erased, failed)
 
         # Acquire ``self._app._config_mutation_lock`` for the

@@ -70,6 +70,15 @@ from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
 
+
+# O2: the SQLite history database lives under a dedicated ``db/``
+# subdir of the config dir (alongside ``logs/``, ``crashes/``, etc.),
+# so ``history.db`` + its ``-wal``/``-shm`` sidecars + corrupt-quarantine
+# + pre-migration backups no longer clutter the config-dir root. The
+# legacy root-located file is migrated once (see
+# :func:`_maybe_migrate_legacy_db`).
+DB_SUBDIR = "db"
+
 _MAX_SEARCH_QUERY_CHARS = 200
 
 # hard upper bound on the total time a blocking _submit_write
@@ -467,6 +476,72 @@ def _wrap_read(failure_value, fail_verb):
 _LIVE_INSTANCES: "weakref.WeakSet[HistoryDB]" = weakref.WeakSet()
 
 
+def _maybe_migrate_legacy_db(config_dir: Path) -> None:
+    """O2: move a legacy root-located ``history.db`` into ``db/`` once.
+
+    Before O2 the history DB lived at ``<config_dir>/history.db`` (with
+    ``-wal`` / ``-shm`` sidecars). O2 moves it under
+    ``<config_dir>/db/`` alongside the other data subdirs (``logs/``,
+    ``crashes/``, …). This is a best-effort, idempotent, atomic-ish
+    relocation that runs on the first default-constructed ``HistoryDB``
+    after the upgrade:
+
+    * Only fires when the legacy root file exists AND the new
+      ``db/history.db`` does not — the app never clobbers a newer file.
+    * ``os.replace`` is atomic on the same filesystem (both paths are
+      under the same config dir), so a crash mid-move cannot leave a
+      truncated DB.
+    * The ``-wal`` / ``-shm`` sidecars are moved first (the writer
+      must not open the main file while its WAL still points at the old
+      root location), then the main file. Any failure is logged and
+      swallowed — a stuck legacy file (e.g. antivirus lock on Windows)
+      falls back to opening the legacy path's replacement at ``db/``
+      next launch; the app never crashes on migration failure.
+    """
+    if not config_dir.is_dir():
+        return
+    legacy = config_dir / "history.db"
+    if not legacy.exists():
+        return
+    db_dir = config_dir / DB_SUBDIR
+    db_dir.mkdir(parents=True, exist_ok=True)
+    target = db_dir / "history.db"
+    if target.exists():
+        # New location already populated — nothing to migrate. Leave the
+        # stale legacy file alone (a later purge / GDPR walk removes it).
+        return
+    # Move sidecars first, then the main file. os.replace is atomic on
+    # the same filesystem (both live under config_dir).
+    for suffix in ("-wal", "-shm"):
+        _maybe_move_legacy_sidecar(config_dir, db_dir, suffix)
+    try:
+        os.replace(legacy, target)
+        log.info("[HISTORY_DB] Migrated legacy history.db to db/history.db (O2)")
+    except OSError as e:
+        log.warning(
+            "[HISTORY_DB] Could not migrate legacy history.db to db/ (O2): %s",
+            e,
+        )
+
+
+def _maybe_move_legacy_sidecar(config_dir: Path, db_dir: Path, suffix: str) -> None:
+    """Best-effort move of a legacy ``history.db<suffix>`` sidecar into ``db/``."""
+    src = config_dir / f"history.db{suffix}"
+    dst = db_dir / f"history.db{suffix}"
+    if not src.exists():
+        return
+    if dst.exists():
+        return
+    try:
+        os.replace(src, dst)
+    except OSError as e:
+        log.warning(
+            "[HISTORY_DB] Could not migrate legacy history.db%s to db/ (O2): %s",
+            suffix,
+            e,
+        )
+
+
 class HistoryDB:
     """Thread-safe SQLite database for transcription history.
 
@@ -492,7 +567,13 @@ class HistoryDB:
         if db_path is None:
             from voice_typer.server.config import _config_dir
 
-            db_path = _config_dir() / "history.db"
+            config_dir = _config_dir()
+            # O2: one-time migration of the legacy root-located DB (and
+            # its -wal / -shm sidecars) into ``db/`` BEFORE the new
+            # location is resolved, so the writer thread opens the moved
+            # file (not a freshly-created empty one).
+            _maybe_migrate_legacy_db(config_dir)
+            db_path = config_dir / DB_SUBDIR / "history.db"
 
         self.db_path = db_path
         # Thread-local read-only connections (one per reader thread).

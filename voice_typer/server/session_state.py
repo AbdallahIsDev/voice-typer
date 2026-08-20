@@ -52,8 +52,10 @@ SESSION_MARKER_FILENAME = "session_active"
 
 
 def session_marker_path(config_dir: Path) -> Path:
-    """Path to the session marker inside ``config_dir``."""
-    return Path(config_dir) / SESSION_MARKER_FILENAME
+    """Path to the session marker under the O3 ``run/`` subdir."""
+    from voice_typer.server._paths import RUN_SUBDIR
+
+    return Path(config_dir) / RUN_SUBDIR / SESSION_MARKER_FILENAME
 
 
 def was_previous_session_abnormal(config_dir: Path) -> bool:

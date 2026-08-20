@@ -479,14 +479,15 @@ class TestBackendPidFile:
         # _secure_atomic_write is the production write path.
         # Just call our helper — it should produce the file with our PID.
         app_module._write_backend_pid_file()
-        pid_file = tmp_config_dir / "backend.pid"
+        pid_file = tmp_config_dir / "run" / "backend.pid"
         assert pid_file.exists()
         content = pid_file.read_text().strip()
         assert int(content) == os.getpid()
 
     def test_pid_file_cleared_on_shutdown(self, tmp_config_dir):
         """``_clear_backend_pid_file`` removes the file if it exists."""
-        pid_file = tmp_config_dir / "backend.pid"
+        pid_file = tmp_config_dir / "run" / "backend.pid"
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
         pid_file.write_text(f"{os.getpid()}\n")
         assert pid_file.exists()
         app_module._clear_backend_pid_file()
@@ -502,7 +503,8 @@ class TestBackendPidFile:
         # Write a PID that is extremely unlikely to be alive.
         # Use a very high PID that the OS hasn't handed out yet.
         bogus_pid = 2_000_000
-        pid_file = tmp_config_dir / "backend.pid"
+        pid_file = tmp_config_dir / "run" / "backend.pid"
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
         pid_file.write_text(f"{bogus_pid}\n")
 
         # _is_pid_alive should return False for the bogus PID.
@@ -521,7 +523,8 @@ class TestBackendPidFile:
     def test_alive_pid_file_not_considered_stale(self, tmp_config_dir):
         """When the PID is still alive, ``_read_stale_backend_pid`` returns None."""
         # Write our own PID — we're definitely alive.
-        pid_file = tmp_config_dir / "backend.pid"
+        pid_file = tmp_config_dir / "run" / "backend.pid"
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
         pid_file.write_text(f"{os.getpid()}\n")
         # _is_pid_alive should return True for our own PID.
         # (On Windows this calls OpenProcess on ourselves — should succeed.)
@@ -534,7 +537,8 @@ class TestBackendPidFile:
 
     def test_read_stale_pid_returns_none_on_garbage(self, tmp_config_dir):
         """Garbage in the PID file → None (treated as no stale lock)."""
-        pid_file = tmp_config_dir / "backend.pid"
+        pid_file = tmp_config_dir / "run" / "backend.pid"
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
         pid_file.write_text("not-a-number\n")
         assert app_module._read_stale_backend_pid() is None
 

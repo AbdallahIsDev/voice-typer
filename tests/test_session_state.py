@@ -37,9 +37,9 @@ class TestSessionMarkerLifecycle:
         assert session_state.was_previous_session_abnormal(tmp_path / "does-not-exist") is False
 
     def test_marker_lands_at_specified_path(self, tmp_path: Path) -> None:
-        """The marker file name is stable and lives in the config dir."""
+        """The marker file name is stable and lives in the O3 ``run/`` subdir."""
         session_state.mark_session_active(tmp_path)
-        marker = tmp_path / session_state.SESSION_MARKER_FILENAME
+        marker = tmp_path / "run" / session_state.SESSION_MARKER_FILENAME
         assert marker.exists(), "mark_session_active must create the marker file"
         content = marker.read_text(encoding="utf-8")
         assert "pid=" in content
@@ -48,7 +48,7 @@ class TestSessionMarkerLifecycle:
     def test_marker_content_has_no_pii(self, tmp_path: Path) -> None:
         """Marker content is PID + timestamp only — never paths/speech."""
         session_state.mark_session_active(tmp_path)
-        content = (tmp_path / session_state.SESSION_MARKER_FILENAME).read_text(encoding="utf-8")
+        content = (tmp_path / "run" / session_state.SESSION_MARKER_FILENAME).read_text(encoding="utf-8")
         assert "voice" not in content.lower() or "started=" in content
         assert "=" in content
 

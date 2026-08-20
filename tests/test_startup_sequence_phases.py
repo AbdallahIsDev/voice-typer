@@ -162,7 +162,7 @@ class TestPhasesCallableIndependently:
         result = seq._phase_3_session_and_onboarding()
 
         assert result.success is True, "phase 3 must succeed on a normal path"
-        marker = tmp_config_dir / session_state.SESSION_MARKER_FILENAME
+        marker = tmp_config_dir / "run" / session_state.SESSION_MARKER_FILENAME
         assert marker.exists(), "phase 3 must mark the session active on the normal path"
 
     def test_phase_4_corrections_and_recovery_callable_in_isolation(self, app_for_phases, monkeypatch):
@@ -280,7 +280,7 @@ class TestShutdownShortCircuits:
 
         assert result.success is False
         assert result.data == {"shutdown": True}
-        marker = tmp_config_dir / session_state.SESSION_MARKER_FILENAME
+        marker = tmp_config_dir / "run" / session_state.SESSION_MARKER_FILENAME
         assert not marker.exists(), "shutdown abort must NOT leave a session-active marker"
 
     def test_phase_6_shutdown_after_autostart_sync(self, app_for_phases, monkeypatch):

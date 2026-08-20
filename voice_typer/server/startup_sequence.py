@@ -102,8 +102,12 @@ _MODULE_STATE = _ModuleState()
 
 
 # Stale backup file retention: files older than this are swept at startup.
-# 30 days matches the log-rotation sweep and crash-diagnostics sweep cadence.
-_BACKUP_RETENTION_MAX_AGE_SECONDS: float = 30 * 24 * 60 * 60.0
+# 15 days (user preference 2026-08-20): short enough that corrupt-quarantine
+# / pre-migration backups cannot accumulate across a month of crashes, long
+# enough to preserve forensic value for a real corruption investigation.
+# (The log-rotation and crash-diagnostics sweeps keep their own 30-day
+# cadence — this constant only bounds the backup-file globs below.)
+_BACKUP_RETENTION_MAX_AGE_SECONDS: float = 15 * 24 * 60 * 60.0
 
 # Stale ``.tmp`` file retention: atomic-write temp files
 # (``_secure_atomic_write`` in ``secure_file_io.py`` uses
@@ -127,6 +131,12 @@ _TMP_RETENTION_MAX_AGE_SECONDS: float = 5 * 60.0
 _BACKUP_FILE_GLOBS: tuple[str, ...] = (
     "history.db.pre-migration-v*.bak",
     "history.db.corrupt-*",
+    # O2: since history.db moved under db/, its corrupt-quarantine and
+    # pre-migration backups are created there too. Both locations are
+    # swept (the root patterns above cover pre-O2 installs that have
+    # not yet run the one-time migration).
+    "db/history.db.pre-migration-v*.bak",
+    "db/history.db.corrupt-*",
     "config.json.corrupt-*",
     "config.json.pre-migration-v*.bak",
     "config.json.v*.bak",

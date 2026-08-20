@@ -29,7 +29,9 @@ import { showMainWindow } from "./windows";
 export { computeConfigDir } from "./config-dir";
 
 export function electronPidFile(): string {
-	return path.join(computeConfigDir(), "electron.pid");
+	// O3: transient runtime state (pids, locks, session markers) lives
+	// under a dedicated `run/` subdir of the config dir.
+	return path.join(computeConfigDir(), "run", "electron.pid");
 }
 
 export function writeElectronPidFile(): void {

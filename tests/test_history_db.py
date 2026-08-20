@@ -1044,3 +1044,94 @@ class TestCloseWalCheckpoint:
                 "PI-11 regression: WAL file should be truncated to zero "
                 f"size after close(). Size: {wal_path.stat().st_size}"
             )
+
+
+class TestO2DbSubdirMigration:
+    """O2: ``history.db`` moved from the config-dir root into ``db/``.
+
+    ``HistoryDB.__init__`` (default path) now resolves
+    ``<config_dir>/db/history.db`` and runs a one-time migration of a
+    legacy root-located ``history.db`` (and its ``-wal``/``-shm``
+    sidecars) into ``db/``.
+    """
+
+    def _redirect_config_dir(self, monkeypatch, tmp_path: Path) -> Path:
+        from voice_typer.server import config as cfg_mod
+
+        monkeypatch.setattr(cfg_mod, "_config_dir", lambda: tmp_path)
+        return tmp_path
+
+    def test_default_path_resolves_under_db_subdir(self, monkeypatch, tmp_path):
+        from voice_typer.server.history_db import DB_SUBDIR, HistoryDB
+
+        config_dir = self._redirect_config_dir(monkeypatch, tmp_path)
+        db = HistoryDB()
+        try:
+            assert db.db_path == config_dir / DB_SUBDIR / "history.db"
+            assert db.db_path.parent == config_dir / "db"
+        finally:
+            db.close()
+
+    def test_legacy_root_db_is_migrated_into_db_subdir(self, monkeypatch, tmp_path):
+        from voice_typer.server.history_db import HistoryDB
+
+        config_dir = self._redirect_config_dir(monkeypatch, tmp_path)
+        legacy = config_dir / "history.db"
+        legacy.write_bytes(b"legacy-db-bytes")
+
+        db = HistoryDB()
+        try:
+            # The legacy file moved into db/.
+            assert not legacy.exists(), "legacy root history.db must be migrated away"
+            assert db.db_path == config_dir / "db" / "history.db"
+            assert db.db_path.exists()
+        finally:
+            db.close()
+
+    def test_legacy_wal_and_shm_sidecars_are_migrated(self, monkeypatch, tmp_path):
+        from voice_typer.server.history_db import HistoryDB
+
+        config_dir = self._redirect_config_dir(monkeypatch, tmp_path)
+        (config_dir / "history.db").write_bytes(b"db")
+        (config_dir / "history.db-wal").write_bytes(b"wal")
+        (config_dir / "history.db-shm").write_bytes(b"shm")
+
+        db = HistoryDB()
+        try:
+            assert not (config_dir / "history.db-wal").exists()
+            assert not (config_dir / "history.db-shm").exists()
+            assert (config_dir / "db" / "history.db-wal").exists()
+            assert (config_dir / "db" / "history.db-shm").exists()
+        finally:
+            db.close()
+
+    def test_no_migration_when_new_db_already_exists(self, monkeypatch, tmp_path):
+        from voice_typer.server.history_db import HistoryDB
+
+        config_dir = self._redirect_config_dir(monkeypatch, tmp_path)
+        (config_dir / "db").mkdir()
+        (config_dir / "db" / "history.db").write_bytes(b"newer-db")
+        # A stale legacy file exists too — must NOT be clobbered or moved.
+        legacy = config_dir / "history.db"
+        legacy.write_bytes(b"stale-legacy")
+
+        db = HistoryDB()
+        try:
+            assert (config_dir / "db" / "history.db").read_bytes() == b"newer-db"
+            assert legacy.exists(), "stale legacy file must be left alone when db/ is populated"
+        finally:
+            db.close()
+
+    def test_migration_is_idempotent(self, monkeypatch, tmp_path):
+        from voice_typer.server.history_db import HistoryDB
+
+        config_dir = self._redirect_config_dir(monkeypatch, tmp_path)
+        (config_dir / "history.db").write_bytes(b"db")
+
+        db1 = HistoryDB()
+        db1.close()
+        db2 = HistoryDB()
+        try:
+            assert db2.db_path == config_dir / "db" / "history.db"
+        finally:
+            db2.close()
