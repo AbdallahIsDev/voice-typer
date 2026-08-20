@@ -90,7 +90,7 @@ describe("lint: no local `function makeConfig` outside helpers/", () => {
 			// eslint-disable-next-line no-console
 			console.warn(
 				`[lint] ${violations.length} local \`function makeConfig\` ` +
-					`declaration(s) found outside \`__tests__/helpers/\`. ` +
+					`declarations found outside \`__tests__/helpers/\`. ` +
 					`Import \`makeConfig\` from \`@/__tests__/helpers/fixtures\` ` +
 					`instead. (Non-blocking — see the ZU-19 finding in ` +
 					`review.md for the deferred migration.) Violations:\n` +

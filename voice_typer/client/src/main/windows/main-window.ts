@@ -200,8 +200,7 @@ export function createMainWindow(forceShow = false): void {
 		icon: path.join(
 			__dirname,
 			`../../resources/icon${nativeTheme.shouldUseDarkColors ? "-dark" : ""}.png`,
-		),
-		// Cross-platform window chrome. The app uses a custom title bar
+		), // Cross-platform window chrome. The app uses a custom title bar
 		// everywhere (the OS frame doesn't blend with the app theme), but
 		// the window-control BUTTONS are platform-convention-dependent:
 		//   - macOS: native traffic lights (red/yellow/green) on the LEFT,
@@ -368,8 +367,13 @@ export function createMainWindow(forceShow = false): void {
 	// entry in `send-to-python.ts`'s `_rendererCallTimestamps` Map.
 	// Without this, each destroyed BrowserWindow leaks one Map entry
 	// (keyed by its now-defunct `webContents.id`) forever.
+	//
+	// XV-??: capture the webContents id AT CREATION TIME (not in the
+	// "closed" callback, where the window is already destroyed and
+	// `.webContents` throws "TypeError: Object has been destroyed").
+	const mainWebContentsId = state.mainWindow.webContents.id;
 	state.mainWindow.on("closed", () => {
-		const deadWebContentsId = state.mainWindow?.webContents?.id;
+		const deadWebContentsId = mainWebContentsId;
 		state.mainWindow = null;
 		if (typeof deadWebContentsId === "number") {
 			try {
@@ -614,7 +618,7 @@ export function createMainWindow(forceShow = false): void {
 	// untrusted content.
 	//
 	// Behavior:
-	//   • http(s) URLs → routed to the user's default browser via
+	//   • https URLs → routed to the user's default browser via
 	//     `shell.openExternal` and the in-app window is denied.
 	//   • All other schemes (file://, javascript:, data:, blob:) →
 	//     denied silently with a WARN log so a redirected/typo'd URL
@@ -636,7 +640,7 @@ export function createMainWindow(forceShow = false): void {
 			);
 		} else {
 			log.warn(
-				"[MAIN] setWindowOpenHandler: denied non-http(s) window.open target",
+				"[MAIN] setWindowOpenHandler: denied non-https window.open target",
 				{ url },
 			);
 		}

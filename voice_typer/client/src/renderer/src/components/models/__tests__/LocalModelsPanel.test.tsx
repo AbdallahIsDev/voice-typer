@@ -340,10 +340,12 @@ describe("LocalModelsPanel — UI/UX overhaul: metadata line + display names", (
 		expect(firstVariant).toBeDefined();
 		const slugFamilies: ModelFamily[] = [
 			{
+				// biome-ignore lint/style/noNonNullAssertion: guarded by truthy expect above
 				...families[0]!,
 				name: "OpenAI",
 				variants: [
 					{
+						// biome-ignore lint/style/noNonNullAssertion: guarded by truthy expect above
 						...firstVariant!,
 						backend: "whisper",
 					},
@@ -353,6 +355,7 @@ describe("LocalModelsPanel — UI/UX overhaul: metadata line + display names", (
 		// Use catalog entries WITHOUT display_name so the slug
 		// formatting path runs.
 		const slugCatalog: Record<string, ModelMetadata> = {
+			// biome-ignore lint/style/noNonNullAssertion: catalog fixture is populated in beforeEach
 			tiny: { ...catalog.tiny!, display_name: undefined },
 		};
 		render(
@@ -386,6 +389,7 @@ describe("LocalModelsPanel — UI/UX overhaul: metadata line + display names", (
 
 	it("renders the WER label+value pair when the catalog supplies a published WER", () => {
 		const werCatalog: Record<string, ModelMetadata> = {
+			// biome-ignore lint/style/noNonNullAssertion: catalog fixture is populated in beforeEach
 			tiny: { ...catalog.tiny!, wer: 7.5 },
 		};
 		render(
@@ -394,8 +398,12 @@ describe("LocalModelsPanel — UI/UX overhaul: metadata line + display names", (
 				modelCatalog={werCatalog}
 				modelFamilies={[
 					{
+						// biome-ignore lint/style/noNonNullAssertion: families fixture is populated in beforeEach
 						...families[0]!,
-						variants: [families[0]!.variants[0]!],
+						variants: [
+							// biome-ignore lint/style/noNonNullAssertion: guarded by truthy expect above
+							families[0]!.variants[0]!,
+						],
 					},
 				]}
 			/>,

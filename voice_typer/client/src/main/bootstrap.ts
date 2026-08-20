@@ -280,14 +280,19 @@ const SLIDING_WINDOW_MS = 60_000;
  * Exported so unit tests can target a temp directory without having to
  * mock `app.getPath("userData")`. The path computation itself is pure
  * (no I/O), so testing it directly is safe.
+ *
+ * O1: crash logs live under `<config-dir>/logs/` (the canonical log
+ * folder) — NOT the Electron userData profile dir.  The `logsDir`
+ * parameter is the folder the caller resolves (production:
+ * `computeConfigDir()/logs`).
  */
-export function _crashLogPaths(userDataDir: string): {
+export function _crashLogPaths(logsDir: string): {
 	crashLogPath: string;
 	rejectionLogPath: string;
 } {
 	return {
-		crashLogPath: path.join(userDataDir, "electron-crashes.log"),
-		rejectionLogPath: path.join(userDataDir, "electron-rejections.log"),
+		crashLogPath: path.join(logsDir, "electron-crashes.log"),
+		rejectionLogPath: path.join(logsDir, "electron-rejections.log"),
 	};
 }
 
@@ -543,9 +548,13 @@ export function setupErrorHandlers(): void {
 	if (_errorHandlersDispose) {
 		_errorHandlersDispose();
 	}
-	const userDataDir = app?.getPath("userData") ?? process.cwd();
+	// O1: crash logs live under `<config-dir>/logs/` — the canonical
+	// log folder shared with the structured/printf loggers and the
+	// Python backend.  The Electron userData dir (electron-profile) is
+	// NOT a log location.
+	const logsDir = path.join(computeConfigDir(), "logs");
 	_errorHandlersDispose = _installErrorHandlers({
-		userDataDir,
+		userDataDir: logsDir,
 		exit: _productionExit,
 	}).dispose;
 }
