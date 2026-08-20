@@ -77,7 +77,7 @@ def test_no_inline_get_logger(module_name: str, path: Path) -> None:
     assert not matches, (
         f"{module_name} must import `log` from `voice_typer.server.handlers._log` "
         f"instead of calling `logging.getLogger(...)` inline. "
-        f"Found {len(matches)} inline call(s)."
+        f"Found {len(matches)} inline calls."
     )
 
 

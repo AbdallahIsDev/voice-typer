@@ -119,15 +119,10 @@ def _notify_consent_gate(title: str, message: str) -> bool:
             }
         )
         if ok:
-            log.info(
-                "[DICTATION] published clickable consent notification "
-                "(click -> Settings > Voice Biometric)"
-            )
+            log.info("[DICTATION] published clickable consent notification (click -> Settings > Voice Biometric)")
             return True
     except Exception:
-        log.debug(
-            "[DICTATION] clickable consent notification push failed", exc_info=True
-        )
+        log.debug("[DICTATION] clickable consent notification push failed", exc_info=True)
     return False
 
 
@@ -616,10 +611,7 @@ class RecordingLifecycle:
             # state). The worker's own re-check after the load is the
             # authoritative one.
             _pre_load_active = app.models.active_transcriber()
-            _pre_load_model_loaded = (
-                _pre_load_active is not None
-                and getattr(_pre_load_active, "is_loaded", False)
-            )
+            _pre_load_model_loaded = _pre_load_active is not None and getattr(_pre_load_active, "is_loaded", False)
             _join_timeout = 0.1 if _pre_load_model_loaded else 2.0
             # IN-20: release ``_toggle_lock`` for the duration of the
             # bounded worker join. The worker (model load + post-load)
@@ -773,15 +765,11 @@ class RecordingLifecycle:
             active = app.models.active_transcriber()
             if active is None or not getattr(active, "is_loaded", False):
                 # No engine loaded — try to load Whisper as a fallback.
-                log.warning(
-                    "[DICTATION] No loaded engine found, lazy-loading Whisper as fallback"
-                )
+                log.warning("[DICTATION] No loaded engine found, lazy-loading Whisper as fallback")
                 app.models.fallback_to_whisper(notify_on_failure=True)
                 active = app.models.active_transcriber()
                 if active is None or not getattr(active, "is_loaded", False):
-                    log.error(
-                        "[DICTATION] Whisper fallback also failed, cannot record"
-                    )
+                    log.error("[DICTATION] Whisper fallback also failed, cannot record")
                     # The recorder is already running — discard it so we
                     # don't leak the mic stream or leave the app in a
                     # recording state with no engine to transcribe.
@@ -1110,7 +1098,7 @@ class RecordingLifecycle:
         if dropped:
             log.warning(
                 "[DICTATION] Ring buffer overflow during recording: "
-                "%d chunk(s) dropped (cycle=%s). Audio worker could not "
+                "%d chunks dropped (cycle=%s). Audio worker could not "
                 "keep up; transcription may be incomplete.",
                 dropped,
                 app._cycle_id,

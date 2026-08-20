@@ -104,7 +104,7 @@ class TestRetryBudgetSlidingWindow:
 
             assert device_lost_calls == [], (
                 "Single disconnect+restart must NOT fire on_device_lost. "
-                f"Got {len(device_lost_calls)} call(s). The sliding-window "
+                f"Got {len(device_lost_calls)} calls. The sliding-window "
                 "budget should leave the deque with 1 entry (well below "
                 "the default threshold of 3)."
             )
@@ -161,7 +161,7 @@ class TestRetryBudgetSlidingWindow:
             assert len(device_lost_calls) == 1, (
                 "Cycle 3: on_device_lost MUST fire on the 3rd successful "
                 "restart within the 60s window (flap detected). Got "
-                f"{len(device_lost_calls)} call(s). Pre-fix the per-attempt "
+                f"{len(device_lost_calls)} calls. Pre-fix the per-attempt "
                 "counter was reset on every successful restart so the "
                 "threshold was never reached."
             )

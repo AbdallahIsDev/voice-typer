@@ -96,7 +96,7 @@ class TestRedactSecretFlagForms:
         assert "--TOKEN=***" in redacted
 
     def test_short_input_with_flag_still_redacted(self):
-        """SEC-9: flag patterns must fire even on short inputs.
+        """flag patterns must fire even on short inputs.
 
         ``--token=abc`` is only 12 chars — below the 20-char
         ``_MIN_REDACT_LEN`` guard. Pre-SEC-9 the function returned

@@ -179,7 +179,7 @@ def test_prune_worker_survives_transient_error(db, monkeypatch):
     while time.monotonic() < deadline and call_count["n"] < 2:
         time.sleep(0.05)
 
-    assert call_count["n"] >= 2, f"prune worker died after first tick error; only {call_count['n']} tick(s) ran"
+    assert call_count["n"] >= 2, f"prune worker died after first tick error; only {call_count['n']} ticks ran"
     assert db._read_conn_prune_thread is not None
     assert db._read_conn_prune_thread.is_alive(), "prune worker thread should still be alive after a transient error"
 

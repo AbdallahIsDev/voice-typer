@@ -641,7 +641,7 @@ class TestGdprInvalidatesManagers:
             # The live in-memory manager must NOT still hold the PII.
             assert len(tm.templates) == 0, (
                 f"GDPR delete did not invalidate the live TemplateManager — the live "
-                f"list still has {len(tm.templates)} deleted template(s) that would be "
+                f"list still has {len(tm.templates)} deleted templates that would be "
                 f"matched on the next dictation (IN-33 regression, Art. 17 violation)."
             )
             # The match indexes must also be cleared (no stale matches).

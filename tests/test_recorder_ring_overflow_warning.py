@@ -87,9 +87,7 @@ class TestSourceInspection:
         from voice_typer.server.recording import Recorder
 
         src = inspect.getsource(Recorder.__init__)
-        assert "_last_seen_dropped_ring_chunks" in src, (
-            "Recorder.__init__ must declare _last_seen_dropped_ring_chunks."
-        )
+        assert "_last_seen_dropped_ring_chunks" in src, "Recorder.__init__ must declare _last_seen_dropped_ring_chunks."
         assert "_ring_overflow_warn_ts" in src, "Recorder.__init__ must declare _ring_overflow_warn_ts."
 
 
@@ -123,7 +121,7 @@ class TestRingOverflowWarning:
             recorder._surface_ring_overflow_warning()
         warnings = [r for r in caplog.records if "Ring buffer overflow" in r.message]
         assert len(warnings) == 1, "exactly one WARNING expected on delta increase."
-        assert "5 chunk(s) dropped" in warnings[0].message
+        assert "5 chunks dropped" in warnings[0].message
         assert "total this session: 5" in warnings[0].message
 
     def test_warning_rate_limited_within_interval(self, recorder, caplog):
@@ -165,7 +163,7 @@ class TestRingOverflowWarning:
         assert len(warnings) == 2, "expected 2 WARNINGs (first + after rate-limit window expiry)."
         # The second WARNING reports only the delta since the first
         # WARNING's last_seen update (12 - 10 = 2), NOT 12.
-        assert "2 chunk(s) dropped" in warnings[1].message, (
+        assert "2 chunks dropped" in warnings[1].message, (
             "delta must NOT accumulate across rate-limit windows — "
             "the second WARNING should report only chunks dropped since the "
             "previous WARNING (delta=2), not the session total delta (12)."

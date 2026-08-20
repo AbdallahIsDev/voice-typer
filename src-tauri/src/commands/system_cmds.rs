@@ -409,7 +409,7 @@ pub async fn export_config(
     let redaction_count = redact_config_secrets(&mut data);
     if redaction_count > 0 {
         log::warn!(
-            "[REDACT-DEFENSE] export_config: redacted {} sensitive field(s) at the \
+            "[REDACT-DEFENSE] export_config: redacted {} sensitive fields at the \
              Rust host (Python-side redaction should have caught these)",
             redaction_count
         );

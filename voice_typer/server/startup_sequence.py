@@ -790,7 +790,7 @@ class StartupSequence:
                     # critical — bypass toggle (recovered user data).
                     app.tray.notify_safety(
                         APP_NAME,
-                        f"Recovered {len(unpasted)} transcription(s) from last session. Open History to view.",
+                        f"Recovered {len(unpasted)} transcriptions from last session. Open History to view.",
                     )
             except Exception:
                 # M-67: promote debug→warning so the failure surfaces in

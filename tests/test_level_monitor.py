@@ -751,10 +751,10 @@ class TestDroppedChunksLogging:
 
     @pytest.mark.xfail(
         reason="Worker thread drain timing: cumulative counter is correctly incremented "
-               "in production (worker.py _total_dropped_level_chunks += dropped) but the "
-               "test cannot reliably trigger the worker's 5s-throttled drain cycle. "
-               "The companion test_total_dropped_level_chunks_is_cumulative_across_drains "
-               "covers the same contract via direct worker invocation.",
+        "in production (worker.py _total_dropped_level_chunks += dropped) but the "
+        "test cannot reliably trigger the worker's 5s-throttled drain cycle. "
+        "The companion test_total_dropped_level_chunks_is_cumulative_across_drains "
+        "covers the same contract via direct worker invocation.",
         strict=False,
     )
     def test_dropped_chunks_counter_incremented_on_ring_buffer_overflow(self, monkeypatch):
@@ -818,9 +818,7 @@ class TestDroppedChunksLogging:
         finally:
             lm.stop_monitoring()
 
-    def test_total_dropped_level_chunks_is_cumulative_across_drains(
-        self, monkeypatch, caplog
-    ):
+    def test_total_dropped_level_chunks_is_cumulative_across_drains(self, monkeypatch, caplog):
         """``_total_dropped_level_chunks`` is CUMULATIVE — it
         survives the worker's per-burst drain cycle and keeps
         accumulating across multiple 5s throttle windows.
@@ -851,9 +849,7 @@ class TestDroppedChunksLogging:
 
         # After the first drain, the per-burst delta is 0 but the
         # cumulative counter holds 7.
-        assert lm._dropped_level_chunks == 0, (
-            "Per-burst delta should be drained to 0 after the worker logs."
-        )
+        assert lm._dropped_level_chunks == 0, "Per-burst delta should be drained to 0 after the worker logs."
         assert _lm_worker._total_dropped_level_chunks == 7, (
             "cumulative counter should hold the drained count (7) "
             "after the first drain cycle — it is NEVER reset in production."
@@ -878,9 +874,7 @@ class TestDroppedChunksLogging:
             "cycles (7 + 5 = 12), NOT reset to the latest burst count. "
             f"Got {_lm_worker._total_dropped_level_chunks}."
         )
-        assert lm._dropped_level_chunks == 0, (
-            "Per-burst delta should be drained to 0 after the second log."
-        )
+        assert lm._dropped_level_chunks == 0, "Per-burst delta should be drained to 0 after the second log."
 
         lm._level_worker_stop_event.clear()
 
@@ -906,9 +900,7 @@ class TestDroppedChunksLogging:
             "should reflect the cumulative counter (42), independent of "
             "the per-burst delta."
         )
-        assert diag["dropped_level_chunks"] == 0, (
-            "Per-burst delta should remain 0 (its post-drain state)."
-        )
+        assert diag["dropped_level_chunks"] == 0, "Per-burst delta should remain 0 (its post-drain state)."
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1097,7 +1089,7 @@ class TestCancelTestRecordingLock:
         # worker releases the lock.
         assert len(cancel_timestamps) == 0, (
             f"YJ-50: timer.cancel() was called {len(cancel_timestamps)} "
-            f"time(s) BEFORE the lock was released — the timer-cancel "
+            f"times BEFORE the lock was released — the timer-cancel "
             f"block is NOT inside the with _monitor_lock: wrap (the "
             f"original YJ-50 bug)."
         )

@@ -186,9 +186,7 @@ class QwenEngine:
                 )
                 self._model = None
                 self._onnx_model = None
-                raise RuntimeError(
-                    f"Qwen3-ASR ONNX model load failed: {exc}"
-                ) from exc
+                raise RuntimeError(f"Qwen3-ASR ONNX model load failed: {exc}") from exc
 
             self._onnx_model = onnx_model
             self._model = onnx_model  # self._model drives is_loaded
@@ -199,8 +197,7 @@ class QwenEngine:
             # CUDA-specific logic from applying to the ONNX model.
             self.device = "cpu"
             log.info(
-                "[QWEN] Using ONNX Runtime backend (qwen_onnx_model.QwenOnnxModel) "
-                "for %s — no torch required",
+                "[QWEN] Using ONNX Runtime backend (qwen_onnx_model.QwenOnnxModel) for %s — no torch required",
                 self.model_path,
             )
             return True
@@ -428,7 +425,7 @@ class QwenEngine:
             batch = chunks[i : i + self._INFERENCE_BATCH_SIZE]
             i += len(batch)
             log.info(
-                "[QWEN] Transcribing batch of %d chunk(s) (%d/%d done)",
+                "[QWEN] Transcribing batch of %d chunks (%d/%d done)",
                 len(batch),
                 i - len(batch),
                 len(chunks),

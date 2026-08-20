@@ -72,7 +72,7 @@ class TestNewDead017LegacyConfigDirRemoved:
             if "def _legacy_config_dir" in source:
                 offenders.append(str(path.relative_to(REPO_ROOT)))
         assert not offenders, (
-            "Config module(s) still define _legacy_config_dir — NEW-DEAD-017 "
+            "Config modules still define _legacy_config_dir — NEW-DEAD-017 "
             "should have deleted it (no callers in the repo, no entry "
             f"points in pyproject.toml, no setup.py). Offenders: {offenders}"
         )
@@ -235,7 +235,7 @@ class TestNewPriv003SensitiveEnvRedaction:
         # to be robust to future import-style changes.
         assert occurrences >= 3, (
             f"autostart_launcher.py must call _log_sensitive_env_keys in "
-            f"all 3 spawn paths; found {occurrences} reference(s) "
+            f"all 3 spawn paths; found {occurrences} references "
             f"(expected >= 3)"
         )
 

@@ -202,7 +202,7 @@ def join_leaked_workers(
         remaining = len(_LEAKED_WORKERS)
     if remaining:
         log.warning(
-            "[TIMEOUT-UTILS] join_leaked_workers: %d worker(s) still alive "
+            "[TIMEOUT-UTILS] join_leaked_workers: %d workers still alive "
             "after %.2fs per-worker join — they will be reaped by os._exit(0)",
             remaining,
             timeout,
@@ -271,7 +271,7 @@ def _join_leaked_workers_with_budget(total_budget: float) -> int:
     if remaining_count:
         avg_per_worker = sum(per_worker_used) / len(per_worker_used) if per_worker_used else 0.0
         log.warning(
-            "[TIMEOUT-UTILS] join_leaked_workers: %d worker(s) still alive "
+            "[TIMEOUT-UTILS] join_leaked_workers: %d workers still alive "
             "after shared-deadline join (total_budget=%.2fs, avg_per_worker="
             "%.3fs, capped_at=%d) — they will be reaped by os._exit(0)",
             remaining_count,
@@ -392,7 +392,7 @@ def _run_parallel_with_timeout(
         thread_name_prefix="cleanup-parallel",
     ) as pool:
         future_map: dict = {}
-        for (desc, func, timeout) in items:
+        for desc, func, timeout in items:
             # RACE: ``pool.submit`` can raise ``RuntimeError('cannot
             # schedule new futures after interpreter shutdown')`` when
             # the main thread is tearing down concurrently (e.g. a

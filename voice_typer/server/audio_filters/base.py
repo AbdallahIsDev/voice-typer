@@ -260,7 +260,7 @@ class FilterChain:
 
         Thread-safe: snapshots the filter list under the lock
         (consistent with ``process`` / ``reset``), then sets
-        ``enabled`` on the matching filter object(s) lock-free. The
+        ``enabled`` on the matching filter objects lock-free. The
         ``enabled`` attribute is a plain bool read live by ``process``
         (no snapshot), so the toggle takes effect on the NEXT
         ``process`` call — no lock contention with the audio thread.

@@ -449,7 +449,7 @@ class TestRestartAfterCrashRecovers:
                 # logic spawned a second process after the first crashed.
                 assert call_count[0] >= 2, (
                     f"subprocess.Popen should be called at least twice after the "
-                    f"first crash (restart logic); got {call_count[0]} call(s)"
+                    f"first crash (restart logic); got {call_count[0]} calls"
                 )
 
                 # The restart log message must have been emitted (proves the

@@ -498,14 +498,14 @@ class ShutdownController:
         # teardown that was skipped due to the 20s deadline.
         if _shutdown_skipped:
             log.warning(
-                "[SHUTDOWN] skipped %d teardown(s) due to 20s deadline: %s",
+                "[SHUTDOWN] skipped %d teardowns due to 20s deadline: %s",
                 len(_shutdown_skipped),
                 ", ".join(_shutdown_skipped),
             )
 
         if _shutdown_skipped:
             log.info(
-                "[SHUTDOWN] Shutdown complete, exiting with %d teardown(s) skipped",
+                "[SHUTDOWN] Shutdown complete, exiting with %d teardowns skipped",
                 len(_shutdown_skipped),
             )
         else:
@@ -629,7 +629,7 @@ class ShutdownController:
                             # stall shutdown.
                             log.warning(
                                 "[SHUTDOWN] DJ-9: WS dispatch drain Event did not "
-                                "fire in 2s — %s in-flight handler(s) may race DB "
+                                "fire in 2s — %s in-flight handlers may race DB "
                                 "teardown; proceeding with cleanup (the in-flight "
                                 "write may silently fail)",
                                 in_flight,

@@ -13,7 +13,7 @@
  *     (the in-memory cache stays, so HMR / repeated loads are unaffected).
  *   - `v8-cache-options=none` — disables V8's on-disk script code cache
  *     (`Code Cache/`); production loads via `file://` where code cache is
- *     not used anyway (http(s) URLs only), so nothing is lost.
+ *     not used anyway (https URLs only), so nothing is lost.
  *
  * Both must be appended BEFORE `app.whenReady()` — Chromium parses the
  * switches at browser-process startup. These tests assert the switches

@@ -295,7 +295,7 @@ def _load_external_corrections(
     # replaced the inline parse with the typed-exception path.
     if load_errors:
         raise CorrectionsLoadError(
-            "Corrections file(s) existed but were malformed or could not be loaded: " + "; ".join(load_errors)
+            "Corrections files existed but were malformed or could not be loaded: " + "; ".join(load_errors)
         )
     if not loaded_any:
         return None
@@ -599,7 +599,7 @@ def configure_corrections(
     # ``_active_corrections`` → ``_load_external_corrections`` to raise
     # ``CorrectionsLoadError`` on a malformed file, and we surface that
     # as the returned error message string. The error-message format
-    # changes slightly (``"Corrections file(s) existed but could not be
+    # changes slightly (``"Corrections files existed but could not be
     # loaded: <name>: <reason>"`` instead of the previous ``"Corrections
     # file <name> is malformed: <reason>"``) but the contract — return a
     # descriptive string on failure, ``None`` on success — is preserved.

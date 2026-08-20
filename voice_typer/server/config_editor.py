@@ -408,7 +408,7 @@ class ConfigEditorLauncher:
                     # only fires on the NEXT ``get_config`` poll.
                     # A tray notification here closes the immediate-
                     # feedback gap: the user sees "Config loaded with
-                    # N warning(s)" the moment the editor exits.
+                    # N warnings" the moment the editor exits.
                     #
                     # ``getattr(..., [])`` is defensive against a
                     # Config-like test double that didn't set the

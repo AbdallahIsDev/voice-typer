@@ -236,7 +236,7 @@ def log_rate_limited(
     if evicted_count:
         _log.warning(
             "[rate-limit] counter dict exceeded %d entries; evicted %d "
-            "LRU key(s) -- caller should pass an explicit key= to bucket "
+            "LRU keys -- caller should pass an explicit key= to bucket "
             "dynamic messages",
             _MAX_COUNTERS,
             evicted_count,

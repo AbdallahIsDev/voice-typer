@@ -392,7 +392,7 @@ class TestProtocolDrift:
 
         missing = used_attrs - declared
         assert not missing, (
-            f"AppProtocol is missing {len(missing)} attribute(s) that "
+            f"AppProtocol is missing {len(missing)} attributes that "
             f"handlers/ipc_server access via self.app.<name>: "
             f"{sorted(missing)}.  Either add these to AppProtocol (if "
             f"the access is an accepted part of the IPC layer's "
@@ -429,7 +429,7 @@ class TestProtocolDrift:
 
         missing = public_used - declared
         assert not missing, (
-            f"ServiceProtocol is missing {len(missing)} method(s) that "
+            f"ServiceProtocol is missing {len(missing)} methods that "
             f"handlers/ipc_server call via self.service.<name>: "
             f"{sorted(missing)}.  Add these to ServiceProtocol so the "
             f"contract is explicit and the introspection test catches "

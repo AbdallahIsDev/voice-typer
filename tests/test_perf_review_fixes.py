@@ -180,7 +180,7 @@ class TestCleanTranscribedTextUsesPrecompiledRegex:
         assert len(call_log) == 1, (
             f"CleanupStage.run() must call pipeline._clean_text() exactly "
             f"once per invocation (PERF-004: cleanup runs once per dictation, "
-            f"not per chunk); got {len(call_log)} call(s)."
+            f"not per chunk); got {len(call_log)} calls."
         )
         assert call_log[0] == "hello world", (
             f"CleanupStage must pass the text through to _clean_text unchanged; got {call_log[0]!r}."
@@ -548,9 +548,7 @@ class TestAllLocalEnginesAcceptAudioStats:
         # before RMS recomputation, and (b) ``audio_stats[0]`` is the
         # reused RMS value. A revert that drops the audio_stats guard
         # OR stops reusing ``audio_stats[0]`` fails one of these.
-        assert "if audio_stats is not None" in src, (
-            "_transcribe_segment must guard RMS recomputation with audio_stats"
-        )
+        assert "if audio_stats is not None" in src, "_transcribe_segment must guard RMS recomputation with audio_stats"
         assert "audio_stats[0]" in src, "_transcribe_segment must reuse audio_stats[0] as RMS"
 
     def test_qwen_transcribe_skips_recomputation_when_stats_provided(self):

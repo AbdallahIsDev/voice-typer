@@ -90,7 +90,7 @@ struct TrayMenuPayload {
 /// `"transcribing"`, `"error"`) that the Rust host maps to a bundled
 /// tray icon resource. `tooltip` is the new tooltip string (e.g.
 /// "Voice Typer — Recording (12s)"). Both fields are optional — the
-/// host only updates the field(s) present in the payload.
+/// host only updates the fields present in the payload.
 #[derive(Debug, Clone, Deserialize)]
 struct TrayStatePayload {
     #[serde(default)]

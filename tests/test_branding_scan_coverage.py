@@ -24,9 +24,7 @@ from pathlib import Path
 import pytest
 
 # Resolve the script path relative to the repo root.
-_SCRIPT_PATH = (
-    Path(__file__).resolve().parent.parent / "scripts" / "check_branding.py"
-)
+_SCRIPT_PATH = Path(__file__).resolve().parent.parent / "scripts" / "check_branding.py"
 
 
 def _run_check_branding(cwd: Path) -> subprocess.CompletedProcess:
@@ -52,7 +50,7 @@ def _violation_lines(result: subprocess.CompletedProcess) -> list[str]:
 
     The script prints::
 
-        ERROR: Found N hardcoded reference(s) to 'Voice Typer' ...
+        ERROR: Found N hardcoded references to 'Voice Typer' ...
 
           <abs_path>:<lineno>:  <stripped_line>
 
@@ -87,9 +85,7 @@ def _make_fake_project_root(tmp_path: Path) -> Path:
     """
     root = tmp_path / "fake_root"
     (root / "voice_typer" / "server").mkdir(parents=True)
-    (root / "voice_typer" / "server" / "branding.py").write_text(
-        'APP_NAME = "Voice Typer"\n', encoding="utf-8"
-    )
+    (root / "voice_typer" / "server" / "branding.py").write_text('APP_NAME = "Voice Typer"\n', encoding="utf-8")
     return root
 
 
@@ -104,11 +100,11 @@ def test_tauri_conf_json_is_scanned(tmp_path):
     root = _make_fake_project_root(tmp_path)
     (root / "src-tauri").mkdir(parents=True)
     (root / "src-tauri" / "tauri.conf.json").write_text(
-        '{\n'
+        "{\n"
         '  "productName": "Voice Typer",\n'  # allowlisted
-        '  "title": "Voice Typer",\n'         # allowlisted
-        '  "description": "Voice Typer"\n'    # NOT allowlisted → flagged
-        '}\n',
+        '  "title": "Voice Typer",\n'  # allowlisted
+        '  "description": "Voice Typer"\n'  # NOT allowlisted → flagged
+        "}\n",
         encoding="utf-8",
     )
     result = _run_check_branding(root)
@@ -121,17 +117,12 @@ def test_tauri_conf_json_is_scanned(tmp_path):
     # Exactly ONE violation: the description line. The allowlisted
     # productName / title lines must NOT appear in the violations list.
     assert len(violations) == 1, (
-        f"expected exactly 1 violation (description only); "
-        f"got {len(violations)}:\n{violations}"
+        f"expected exactly 1 violation (description only); got {len(violations)}:\n{violations}"
     )
     assert '"description": "Voice Typer"' in violations[0]
     for v in violations:
-        assert "productName" not in v, (
-            f"productName should be allowlisted but was flagged: {v!r}"
-        )
-        assert '"title":' not in v, (
-            f"title should be allowlisted but was flagged: {v!r}"
-        )
+        assert "productName" not in v, f"productName should be allowlisted but was flagged: {v!r}"
+        assert '"title":' not in v, f"title should be allowlisted but was flagged: {v!r}"
 
 
 def test_electron_builder_yml_is_scanned(tmp_path):
@@ -146,10 +137,10 @@ def test_electron_builder_yml_is_scanned(tmp_path):
     root = _make_fake_project_root(tmp_path)
     (root / "voice_typer" / "client").mkdir(parents=True)
     (root / "voice_typer" / "client" / "electron-builder.yml").write_text(
-        'productName: Voice Typer\n'         # allowlisted (also unquoted → wouldn't match regex anyway)
-        'title: "Voice Typer"\n'             # allowlisted
-        'description: "Voice Typer"\n'       # NOT allowlisted → flagged
-        '# comment: "Voice Typer"\n',        # YAML comment → skipped
+        "productName: Voice Typer\n"  # allowlisted (also unquoted → wouldn't match regex anyway)
+        'title: "Voice Typer"\n'  # allowlisted
+        'description: "Voice Typer"\n'  # NOT allowlisted → flagged
+        '# comment: "Voice Typer"\n',  # YAML comment → skipped
         encoding="utf-8",
     )
     result = _run_check_branding(root)
@@ -160,23 +151,18 @@ def test_electron_builder_yml_is_scanned(tmp_path):
     )
     violations = _violation_lines(result)
     assert len(violations) == 1, (
-        f"expected exactly 1 violation (description only); "
-        f"got {len(violations)}:\n{violations}"
+        f"expected exactly 1 violation (description only); got {len(violations)}:\n{violations}"
     )
     assert 'description: "Voice Typer"' in violations[0]
     # The allowlisted productName / title lines must NOT appear in
     # the violations list. We check for the YAML-key prefixes that
     # would be present if those lines were flagged.
     for v in violations:
-        assert "productName:" not in v, (
-            f"productName should be allowlisted but was flagged: {v!r}"
-        )
+        assert "productName:" not in v, f"productName should be allowlisted but was flagged: {v!r}"
         # Match the YAML key prefix `title:` — careful not to match
         # the substring inside `description:` (which does NOT contain
         # `title:` — verified: "description" has no "title" substring).
-        assert not v.startswith("title:"), (
-            f"title should be allowlisted but was flagged: {v!r}"
-        )
+        assert not v.startswith("title:"), f"title should be allowlisted but was flagged: {v!r}"
 
 
 def test_build_config_allowlist_only_passes(tmp_path):
@@ -190,16 +176,12 @@ def test_build_config_allowlist_only_passes(tmp_path):
     root = _make_fake_project_root(tmp_path)
     (root / "src-tauri").mkdir(parents=True)
     (root / "src-tauri" / "tauri.conf.json").write_text(
-        '{\n'
-        '  "productName": "Voice Typer",\n'
-        '  "title": "Voice Typer"\n'
-        '}\n',
+        '{\n  "productName": "Voice Typer",\n  "title": "Voice Typer"\n}\n',
         encoding="utf-8",
     )
     (root / "voice_typer" / "client").mkdir(parents=True)
     (root / "voice_typer" / "client" / "electron-builder.yml").write_text(
-        'productName: Voice Typer\n'
-        'title: "Voice Typer"\n',
+        'productName: Voice Typer\ntitle: "Voice Typer"\n',
         encoding="utf-8",
     )
     result = _run_check_branding(root)

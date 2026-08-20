@@ -2630,7 +2630,7 @@ class Recorder(VadShimMixin, RecorderInitMixin):
             return
         self._ring_overflow_warn_ts = now
         log.warning(
-            "[RECORDING] Ring buffer overflow: %d chunk(s) dropped since "
+            "[RECORDING] Ring buffer overflow: %d chunks dropped since "
             "last check (total this session: %d). Audio worker cannot keep "
             "up; transcription may be incomplete. Consider disabling audio "
             "filters or using a lighter model.",
@@ -2868,10 +2868,6 @@ class Recorder(VadShimMixin, RecorderInitMixin):
             # discard cleared the event). In that state discard() must
             # still run the full body to stop the worker, otherwise the
             # daemon leaks until process exit.
-            if (
-                not self._recording_event.is_set()
-                and self._worker_thread is None
-                and self._event_worker_thread is None
-            ):
+            if not self._recording_event.is_set() and self._worker_thread is None and self._event_worker_thread is None:
                 return
             _recorder_split.discard_recording(self)

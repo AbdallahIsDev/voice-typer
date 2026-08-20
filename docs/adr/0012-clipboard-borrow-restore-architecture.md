@@ -574,7 +574,7 @@ def capture(cls) -> "ClipboardSnapshot | None":
 
 **Delete the following from `clipboard.py`:**
 
-| Line(s) | Code | Reason |
+| Lines | Code | Reason |
 |---|---|---|
 | 541 | `self._clear_thread = None` | Unused after deleting `schedule_clipboard_clear` |
 | 543 | `self._saved_clipboard: str \| None = None` | Replaced by snapshot return value |
@@ -583,7 +583,7 @@ def capture(cls) -> "ClipboardSnapshot | None":
 
 **Keep the following** (still used for seq-mismatch recovery in `paste()`):
 
-| Line(s) | Code | Reason |
+| Lines | Code | Reason |
 |---|---|---|
 | 540 | `self._last_copied_text: str = ""` | Used at lines 915/919/920 for seq-mismatch re-copy |
 | 548 | `self._clipboard_save_restore_enabled: bool = True` | Now actually consulted (see §5.2) |

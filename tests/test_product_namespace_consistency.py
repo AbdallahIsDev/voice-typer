@@ -188,7 +188,7 @@ class TestProductNamespaceConsistency:
                 violations.append((rel, line, token))
 
         assert not violations, (
-            "Non-canonical product namespace(s) found. The canonical reverse-DNS "
+            "Non-canonical product namespaces found. The canonical reverse-DNS "
             f"root is '{CANONICAL_ROOT}.*' (tauri.conf.json identifier, "
             "electron-builder.yml appId, polkit action, macOS LaunchAgents, "
             "keyring service name).\n" + "\n".join(f"  {rel}:{line}: {token}" for rel, line, token in violations) + "\n"

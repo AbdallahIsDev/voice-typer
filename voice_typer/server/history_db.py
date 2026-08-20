@@ -1431,7 +1431,7 @@ class HistoryDB:
             return 0
         if count > 0:
             log.info(
-                "[HISTORY_DB] iterdump recovery: %d row(s) recovered into fresh DB",
+                "[HISTORY_DB] iterdump recovery: %d rows recovered into fresh DB",
                 count,
             )
         else:
@@ -1459,8 +1459,7 @@ class HistoryDB:
         succeed (the fresh DB has already been created and populated).
         """
         log.warning(
-            "[HISTORY_DB] History database was corrupted and has been "
-            "backed up to %s. Recovered %d row(s) via iterdump.",
+            "[HISTORY_DB] History database was corrupted and has been backed up to %s. Recovered %d rows via iterdump.",
             corrupt_main,
             recovered_count,
         )
@@ -1501,7 +1500,7 @@ class HistoryDB:
         try:
             notify(
                 APP_NAME,
-                f"History database was corrupted and backed up. {recovered_count} row(s) recovered.",
+                f"History database was corrupted and backed up. {recovered_count} rows recovered.",
             )
         except Exception as e:  # noqa: BLE001 — best-effort notification
             log.warning(

@@ -352,9 +352,7 @@ def api_upload_asset(
     url = f"{upload_url}?name={urllib.parse.quote(asset_name)}"
     body = asset.read_bytes()
     # GitHub requires ``application/octet-stream`` for asset uploads.
-    status, resp_body = _api_request(
-        "POST", url, token=token, body=body, content_type="application/octet-stream"
-    )
+    status, resp_body = _api_request("POST", url, token=token, body=body, content_type="application/octet-stream")
     if status not in (200, 201):
         body_snippet = resp_body.decode("utf-8", errors="replace")[:500]
         return False, f"GitHub API returned {status} for {asset_name}: {body_snippet}"
@@ -696,7 +694,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         action="append",
         type=Path,
         default=[],
-        help="Additional asset(s) to upload (repeatable)",
+        help="Additional assets to upload (repeatable)",
     )
     parser.add_argument("--notes", default=None, help="Release notes body (markdown)")
     parser.add_argument(
@@ -726,9 +724,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the result as JSON (for CI parsing)",
     )
-    parser.add_argument(
-        "--verbose", "-v", action="store_true", help="Verbose logging"
-    )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging")
     return parser
 
 

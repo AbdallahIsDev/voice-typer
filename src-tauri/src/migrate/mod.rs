@@ -274,7 +274,7 @@ fn migrate_inner(new_dir: &Path) {
         } else {
             models_copied = copy_missing_files(&old_models, &new_models);
             if models_copied > 0 {
-                log::info!("[MIGRATE] models/ copied {} new file(s)", models_copied);
+                log::info!("[MIGRATE] models/ copied {} new files", models_copied);
             }
         }
     }

@@ -470,7 +470,7 @@ class TestStartupBanner:  # noqa: N801
     """
 
     def _banner_lines(self, config_dir: Path) -> str:
-        """Helper: read the log file and return the banner line(s)."""
+        """Helper: read the log file and return the banner lines."""
         content = (config_dir / "logs" / "voice-typer.log").read_text(encoding="utf-8")
         return "\n".join(line for line in content.splitlines() if "[STARTUP]" in line)
 

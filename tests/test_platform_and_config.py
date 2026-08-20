@@ -123,8 +123,7 @@ class TestTrayWindowUsesShutilWhichNotShellTrue:
                 if kw.arg == "shell" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
                     shell_true_calls.append(node)
         assert not shell_true_calls, (
-            "S-7: tray_window.py must not pass shell=True to any call; "
-            f"found {len(shell_true_calls)} offending call(s)."
+            f"S-7: tray_window.py must not pass shell=True to any call; found {len(shell_true_calls)} offending calls."
         )
         assert "npm not on PATH" in src
 

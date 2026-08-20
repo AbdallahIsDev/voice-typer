@@ -592,7 +592,7 @@ class TestDispatchSetConfigAllowlist:
 
     def test_rejects_llm_api_url_with_javascript_scheme(self, real_server, real_config):
         """A javascript: URL would be a nonsense value but we reject any
-        non-http(s) scheme to make the policy explicit."""
+        non-https scheme to make the policy explicit."""
         result = real_server._dispatch(
             {
                 "id": 1,

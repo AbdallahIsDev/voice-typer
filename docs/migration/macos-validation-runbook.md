@@ -241,7 +241,7 @@ codesign -dv src-tauri/resources/native/macos-key-listener
 #   TeamIdentifier=<TEAM_ID> (Developer ID)
 ```
 
-**Pass criteria**: `file` reports the expected Mach-O arch(s). `codesign -dv` shows a valid signature (ad-hoc or Developer ID). The binary launches and emits `READY` on stdout within 1 second when invoked directly (the full integration test is in §6.8 below):
+**Pass criteria**: `file` reports the expected Mach-O archs. `codesign -dv` shows a valid signature (ad-hoc or Developer ID). The binary launches and emits `READY` on stdout within 1 second when invoked directly (the full integration test is in §6.8 below):
 
 ```bash
 # Smoke-test the native listener in isolation (requires Accessibility

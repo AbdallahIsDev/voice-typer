@@ -72,7 +72,7 @@ if (process.env.npm_lifecycle_event === "dev" || !app.isPackaged) {
 //     (the in-memory cache stays, so HMR / repeated loads are unaffected).
 //   - `v8-cache-options=none` — disables V8's on-disk script code cache
 //     (`Code Cache/`); production loads via `file://` where code cache
-//     is not used anyway (http(s) URLs only), so nothing is lost.
+//     is not used anyway (https URLs only), so nothing is lost.
 // Must be appended before `app.whenReady()` — the switches are parsed
 // by Chromium's browser process at startup.
 app.commandLine.appendSwitch("disable-http-cache");

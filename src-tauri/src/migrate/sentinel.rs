@@ -32,7 +32,7 @@ use std::path::Path;
 pub(crate) fn write_sentinel_if_clean(new_dir: &Path, migration_failed: usize) -> bool {
     if migration_failed > 0 {
         log::warn!(
-            "[MIGRATE] {} critical step(s) failed — NOT writing sentinel marker; \
+            "[MIGRATE] {} critical steps failed — NOT writing sentinel marker; \
              migration will re-attempt on next launch",
             migration_failed
         );

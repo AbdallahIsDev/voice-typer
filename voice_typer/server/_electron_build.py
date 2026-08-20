@@ -302,145 +302,23 @@ def _launcher_child_env() -> dict[str, str]:
 
 
 def _electron_log_files() -> dict:
-    """Open rotating log files for Electron stdout/stderr (best-effort).
+    """Return DEVNULL for Electron's stdout/stderr (O4: no duplicate capture).
 
-    Returns a dict suitable for unpacking into :class:`subprocess.Popen`::
+    The Electron app's own loggers (``structuredLogger`` → ``electron-main.log``,
+    ``printfLogger`` → ``electron-runtime.log``) already capture all warnings,
+    errors, and lifecycle events.  Raw child stdout/stderr capture
+    (``electron-stdout.log`` / ``electron-stderr.log``) duplicated those
+    same lines because ``log.warn``/``log.error`` writes to both
+    ``console.error/warn`` (raw pipe) AND the file tee (``appendLogLine``).
 
-        sk = {}
-        sk.update(_electron_log_files())
-        child = subprocess.Popen([...], **sk)
-
-    RACE-009: pre-fix, Electron launches used :data:`subprocess.DEVNULL`
-    for stdout/stderr, making Electron crashes invisible.  We now
-    redirect to appending log files in the platform-aware config dir so
-    crashes can be diagnosed.  The caller is responsible for keeping
-    the returned file objects alive for the lifetime of the child
-    process (they're closed automatically by GC after the child exits
-    and the file descriptors are inherited by the child).
-
-    On any failure (disk full, permission denied), falls back to
-    :data:`subprocess.DEVNULL` so the launch still succeeds.
+    RACE-009 originally added this raw capture so Electron crashes could
+    be diagnosed — that value is now served by:
+    ``electron-crashes.log`` (uncaughtException handler),
+    ``electron-main.log``/``electron-runtime.log`` (structured logging),
+    and the VEH crash buffer.
     """
-    try:
-        from voice_typer.server.config import _config_dir as _cfg
 
-        log_dir = _cfg() / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        stdout_path = log_dir / "electron-stdout.log"
-        stderr_path = log_dir / "electron-stderr.log"
-        # size-bounded rotation. ``voice-typer.log`` uses a
-        # 5 MiB × 5 RotatingFileHandler; the Electron stdout/stderr logs
-        # were append-only and never rotated, so a chatty Electron build
-        # could grow them unbounded. Mirror the 5 MiB cap with a single
-        # in-place truncate (no numbered backup — Electron crash logs
-        # are typically only useful for the most recent crash).
-        _truncate_if_oversized(stdout_path)
-        _truncate_if_oversized(stderr_path)
-        # one-time scrub: pre-cleanup runs (before ``_launcher_child_env``
-        # force-disabled ANSI colour) could leave escape-code garbage at
-        # the top of these append-only files; new launches are ANSI-free,
-        # so truncate once when escape bytes are detected.
-        _scrub_stale_ansi(stdout_path)
-        _scrub_stale_ansi(stderr_path)
-        # "a" mode so logs accumulate across launches; line-buffered so
-        # the user sees output in near-real-time when tailing.
-        stdout_fd = open(stdout_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
-        stderr_fd = open(stderr_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
-        return {
-            "stdout": stdout_fd,
-            "stderr": stderr_fd,
-            "stdin": subprocess.DEVNULL,
-        }
-    except Exception as exc:
-        log.debug(
-            "[ELECTRON_BUILD] Failed to open Electron log files, using DEVNULL: %s",
-            exc,
-        )
-        return {
-            "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.DEVNULL,
-            "stdin": subprocess.DEVNULL,
-        }
-
-
-# rotation threshold mirroring ``voice-typer.log``'s 5 MiB
-# cap (see ``voice_typer/server/log.py:537``). One backup keeps the most
-# recent crashed session around without growing the logs dir unbounded.
-_ELECTRON_LOG_MAX_BYTES = 5 * 1024 * 1024
-
-
-def _truncate_if_oversized(path: Path) -> None:
-    """Truncate ``path`` in place if it exceeds the cap (single-file policy).
-
-    The file is emptied (truncated to zero bytes) and keeps its single
-    identity — a numbered backup (``.1``) is NEVER created.  Best-effort:
-    any failure (permission, race with another process truncating) is
-    logged at DEBUG and swallowed — the caller proceeds to open the file
-    in append mode, which is still correct (just larger than the cap for
-    one more cycle).
-    """
-    try:
-        if not path.exists():
-            return
-        if path.stat().st_size <= _ELECTRON_LOG_MAX_BYTES:
-            return
-        with open(path, "w", encoding="utf-8"):
-            pass
-        log.debug(
-            "[ELECTRON_BUILD] Truncated %s (> %d bytes)",
-            path.name,
-            _ELECTRON_LOG_MAX_BYTES,
-        )
-    except Exception as exc:
-        log.debug(
-            "[ELECTRON_BUILD] Truncation check failed for %s: %s",
-            path,
-            exc,
-        )
-
-
-# ANSI escape byte (ESC = 0x1B). Presence in a log file means a
-# pre-cleanup run wrote coloured output into it.
-_ANSI_ESC_BYTE = b"\x1b"
-
-
-# marker line written when stale ANSI content is scrubbed, so the first
-# clean run after the scrub is visibly delimited in the file.
-_ANSI_SCRUB_MARKER = "# [scrubbed] pre-cleanup ANSI escape content removed"
-
-
-def _scrub_stale_ansi(path: Path) -> None:
-    """One-time scrub of pre-cleanup ANSI escape garbage from a log file.
-
-    Before :func:`_launcher_child_env` force-disabled ANSI colour
-    (``FORCE_COLOR=0`` / ``NO_COLOR=1`` / ``CLICOLOR=0``) some JS/Rust
-    tooling wrote coloured output into the Electron/Tauri stdout+stderr
-    log files. Those files are append-only, so the escape-code garbage
-    persisted at the top forever (only truncated past the size cap). New
-    launches are ANSI-free; this scrub truncates the file ONCE when an
-    ESC byte is detected and writes a marker line so the clean section is
-    visibly delimited. Best-effort: any failure (permission, race) is
-    logged at DEBUG and swallowed — the caller proceeds to open the file
-    in append mode, which is still correct.
-    """
-    try:
-        if not path.exists():
-            return
-        data = path.read_bytes()
-        if _ANSI_ESC_BYTE not in data:
-            return
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(f"{_ANSI_SCRUB_MARKER} ({path.name})\n")
-        log.debug(
-            "[ELECTRON_BUILD] Scrubbed stale ANSI content from %s",
-            path.name,
-        )
-    except Exception as exc:
-        log.debug(
-            "[ELECTRON_BUILD] ANSI scrub failed for %s: %s",
-            path,
-            exc,
-        )
+    return {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
 
 
 # substring markers for "sensitive" env var names. When a child process
@@ -470,9 +348,7 @@ def _redact_sensitive_env_keys(env: dict[str, str]) -> list[str]:
     sensitive-looking env vars the child will inherit. The list is
     intended for an audit log line — it is NOT a security control.
     """
-    return sorted(
-        key for key in env if any(marker in key.upper() for marker in _SENSITIVE_ENV_MARKERS)
-    )
+    return sorted(key for key in env if any(marker in key.upper() for marker in _SENSITIVE_ENV_MARKERS))
 
 
 def _log_sensitive_env_keys(env: dict[str, str], *, context: str) -> None:

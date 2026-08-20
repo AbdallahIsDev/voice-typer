@@ -27,7 +27,6 @@ import pytest
 # tray tooltip uses time.monotonic() ────────────────────────────
 
 
-
 @pytest.fixture
 def tray_module(monkeypatch):
     """Import (or reload) the tray module with pystray + PIL mocked."""
@@ -193,7 +192,7 @@ class TestTemplatesLazyClipboard:
         assert "{username}" not in out
         assert call_count["n"] == 0, (
             f"_get_clipboard_text should NOT be called when output has no "
-            f"{{clipboard}} placeholder; was called {call_count['n']} time(s)"
+            f"{{clipboard}} placeholder; was called {call_count['n']} times"
         )
 
     def test_clipboard_called_only_when_placeholder_present(self, monkeypatch):
@@ -240,7 +239,7 @@ class TestTemplatesLazyClipboard:
         assert "{username}" not in out
         assert call_count["n"] == 0, (
             f"datetime.now() should NOT be called when no {{today}}/{{now}} "
-            f"placeholders are present; was called {call_count['n']} time(s)"
+            f"placeholders are present; was called {call_count['n']} times"
         )
 
     def test_no_placeholder_fast_path_returns_unchanged(self, monkeypatch):

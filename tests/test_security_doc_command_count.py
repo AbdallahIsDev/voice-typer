@@ -70,6 +70,7 @@ def _read_sidecar_cmds_module() -> str:
     files = [SIDECAR_CMDS_RS] + sorted(SIDECAR_CMDS_DIR.glob("*.rs"))
     return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
 
+
 # (this session): Python backend's ``_COMMAND_REGISTRY`` literal —
 # asserted to match the renderer allowlist PLUS the documented set of
 # host-only commands (routed by the Rust host directly, never via the
@@ -547,7 +548,7 @@ def test_command_registry_count_matches_renderer_allowlist_with_host_only_delta(
     # OR in the host-only set.
     unaccounted = registry - ts - host_only
     assert not unaccounted, (
-        f"_COMMAND_REGISTRY has {len(unaccounted)} command(s) not in "
+        f"_COMMAND_REGISTRY has {len(unaccounted)} commands not in "
         f"the renderer ALLOWED_COMMANDS and not in _HOST_ONLY_COMMANDS: "
         f"{sorted(unaccounted)}. Each registry command must be EITHER "
         f"reachable from the renderer (add to allowed-commands.ts) OR "

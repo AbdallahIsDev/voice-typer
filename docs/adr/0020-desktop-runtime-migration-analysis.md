@@ -315,7 +315,7 @@ Closes the gaps called out in review: port-bind direction, command table, token 
 | `force_cancel_transcription` | dictation_handlers | recover stuck transcription |
 | `get_history` | history_handlers | paginated history |
 | `get_today_stats` | history_handlers | today's stats |
-| `delete_history` | history_handlers | delete record(s) |
+| `delete_history` | history_handlers | delete records |
 | `restore_history` | history_handlers | restore deleted record |
 | `clear_history` | history_handlers | erase all history |
 | `toggle_favorite` | history_handlers | favorite toggle |

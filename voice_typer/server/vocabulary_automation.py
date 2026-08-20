@@ -514,7 +514,7 @@ class VocabularyAutomation:
             if len(self._pending) > MAX_PENDING:
                 overflow = len(self._pending) - MAX_PENDING
                 log.info(
-                    "[VOCAB_AUTO] pending queue exceeded MAX_PENDING=%d; dropping %d oldest suggestion(s)",
+                    "[VOCAB_AUTO] pending queue exceeded MAX_PENDING=%d; dropping %d oldest suggestions",
                     MAX_PENDING,
                     overflow,
                 )
@@ -522,7 +522,7 @@ class VocabularyAutomation:
 
         if suggestions:
             log.info(
-                "[VOCAB_AUTO] Analyzed %d words, found %d suggestion(s)",
+                "[VOCAB_AUTO] Analyzed %d words, found %d suggestions",
                 len(words),
                 len(suggestions),
             )
@@ -701,7 +701,7 @@ class VocabularyAutomation:
 
         if applied_count > 0:
             log.info(
-                "[VOCAB_AUTO] Auto-applied %d suggestion(s) at threshold %.2f",
+                "[VOCAB_AUTO] Auto-applied %d suggestions at threshold %.2f",
                 applied_count,
                 threshold,
             )

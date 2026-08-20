@@ -239,7 +239,7 @@ describe("useModelDownload — single-setState consolidation", () => {
 		expect(result?.installingDepsModel).toBeNull();
 	});
 
-	it("updates only the field(s) present in a partial event (others preserved)", async () => {
+	it("updates only the fields present in a partial event (others preserved)", async () => {
 		const { useModelDownload } = await import(
 			"@/hooks/models/useModelDownload"
 		);

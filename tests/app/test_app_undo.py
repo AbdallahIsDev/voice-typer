@@ -200,7 +200,7 @@ class TestUndoLastGraphemeCount:
         controller.undo_last()
 
         assert len(press_calls) == expected_backspaces, (
-            f"{label}: undo_last must send {expected_backspaces} backspace(s) "
+            f"{label}: undo_last must send {expected_backspaces} backspaces "
             f"(one per grapheme), got {len(press_calls)}. "
             f"Text={text!r}, press_calls={press_calls!r}"
         )

@@ -32,7 +32,7 @@ To avoid cert duplication in CI, the Tauri build reuses the same signing
 identities + env vars as the existing Electron build. Source of truth:
 `voice_typer/client/electron-builder.yml` + `.github/workflows/build.yml`.
 
-| Platform | Env var(s) | Source in repo | Reuse for Tauri |
+| Platform | Env vars | Source in repo | Reuse for Tauri |
 |----------|------------|----------------|-----------------|
 | Windows | `WIN_CSC_LINK` / `CSC_LINK` | `electron-builder.yml` `win.signAndEditExecutable: true` + comment block | Pass to `signtool sign` for the sidecar + prewarm + MSI. |
 | Windows | `WIN_CSC_KEY_PASSWORD` / `CSC_KEY_PASSWORD` | (cert password secret in GitHub) | Same. |

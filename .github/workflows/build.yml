@@ -1753,7 +1753,7 @@ jobs:
       - name: Emit failure annotation
         if: steps.summarize.outputs.failure_count != '0'
         run: |
-          echo "::error::${{ steps.summarize.outputs.failure_count }} upstream job(s) failed in this workflow run. See the Job results table in the run summary for per-job status. To wire Slack/Teams/email notifications, see the S5-CR-72 comment in .github/workflows/build.yml."
+          echo "::error::${{ steps.summarize.outputs.failure_count }} upstream jobs failed in this workflow run. See the Job results table in the run summary for per-job status. To wire Slack/Teams/email notifications, see the S5-CR-72 comment in .github/workflows/build.yml."
           # Exit non-zero so the notify job itself shows as a red X in the
           # GitHub Actions UI — the visual signal maintainers scan for.
           # The build is already failed by the upstream job; this exit code

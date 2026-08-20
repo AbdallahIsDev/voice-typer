@@ -166,7 +166,7 @@ class TestReleaseStuckModifiersGated:
 
         assert result is False, "rate-limited paste must return False"
         assert release_calls == [], (
-            f"_release_stuck_modifiers must NOT run on rate-limited paste; called {len(release_calls)} time(s)"
+            f"_release_stuck_modifiers must NOT run on rate-limited paste; called {len(release_calls)} times"
         )
         # Keyboard controller also must not be touched (the spy above
         # is the strongest signal, but this is a defense-in-depth
@@ -196,7 +196,7 @@ class TestReleaseStuckModifiersGated:
 
         assert result is False, "disabled paste must return False"
         assert release_calls == [], (
-            f"_release_stuck_modifiers must NOT run on disabled paste; called {len(release_calls)} time(s)"
+            f"_release_stuck_modifiers must NOT run on disabled paste; called {len(release_calls)} times"
         )
 
     def test_release_called_on_happy_path(self, monkeypatch) -> None:
@@ -230,7 +230,7 @@ class TestReleaseStuckModifiersGated:
 
         assert result is True, "happy-path paste must return True"
         assert len(release_calls) == 1, (
-            f"_release_stuck_modifiers must run exactly once on a successful paste; called {len(release_calls)} time(s)"
+            f"_release_stuck_modifiers must run exactly once on a successful paste; called {len(release_calls)} times"
         )
 
 
@@ -408,9 +408,7 @@ class TestRunKeyringCallWedgedCooldown:
             wedged_until = credential_store._wedged_until
             now = time.monotonic()
             # Allow a small fudge for test scheduling latency.
-            assert wedged_until > now + 55.0, (
-                f"cooldown must be ~60s; got wedged_until-now={wedged_until - now:.1f}s"
-            )
+            assert wedged_until > now + 55.0, f"cooldown must be ~60s; got wedged_until-now={wedged_until - now:.1f}s"
             assert credential_store._orphaned_thread_count == 2
             assert credential_store._consecutive_timeouts == 2
         finally:
@@ -475,9 +473,7 @@ class TestRunKeyringCallWedgedCooldown:
             )
             # NO new thread must have been spawned — this is the
             # orphan-leak bound.
-            assert spawn_count["n"] == 0, (
-                f"wedge short-circuit must NOT spawn a thread; spawned {spawn_count['n']}"
-            )
+            assert spawn_count["n"] == 0, f"wedge short-circuit must NOT spawn a thread; spawned {spawn_count['n']}"
             # Orphan count stays at 2 (no new orphan from the short-circuit).
             # The two prior orphans are still blocked on `done1`/`done2`
             # (released in the `finally` below), so they haven't
@@ -534,9 +530,7 @@ class TestRunKeyringCallWedgedCooldown:
             with pytest.raises(TimeoutError):
                 credential_store._run_keyring_call(backend.get_password, "svc", "user")
             assert credential_store._consecutive_timeouts == 1
-            assert credential_store._wedged_until == 0.0, (
-                "single timeout after a success must NOT wedge the backend"
-            )
+            assert credential_store._wedged_until == 0.0, "single timeout after a success must NOT wedge the backend"
         finally:
             done.set()
 
@@ -614,8 +608,7 @@ class TestRunKeyringCallWedgedCooldown:
                 credential_store._run_keyring_call(b.get_password, "svc", "user")
             # The wedge short-circuit message must mention "wedged".
             assert "wedged" in str(exc_info.value).lower(), (
-                "backend B's call must short-circuit via the global wedge "
-                "(TimeoutError message must mention 'wedged')"
+                "backend B's call must short-circuit via the global wedge (TimeoutError message must mention 'wedged')"
             )
             # NO thread must have been spawned for backend B — the wedge
             # short-circuited before the Thread() constructor ran.

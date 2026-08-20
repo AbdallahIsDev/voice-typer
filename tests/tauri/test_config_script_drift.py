@@ -277,14 +277,14 @@ class TestTauriBinariesManifestCoverage:
 
         missing = expected - actual
         assert not missing, (
-            "tauri-binaries.json is missing per-arch sha256 key(s) for "
+            "tauri-binaries.json is missing per-arch sha256 keys for "
             "canonical build triples: " + ", ".join(sorted(missing)) + ". "
             "Every SIDECAR_TRIPLES entry must be covered (macOS collapses "
             "both darwin triples into 'macos')."
         )
         extra = actual - expected
         assert not extra, (
-            "tauri-binaries.json declares per-arch sha256 key(s) with no "
+            "tauri-binaries.json declares per-arch sha256 keys with no "
             "matching canonical build triple: " + ", ".join(sorted(extra)) + ". "
             "Either add the triple to SIDECAR_TRIPLES or drop the key."
         )
@@ -435,7 +435,7 @@ class TestNuitkaBuildsIncludeVoiceTyperPackageData:
         nuitka_count = text.count("-m nuitka")
         flag_count = text.count(flag)
         assert flag_count >= nuitka_count, (
-            f"tauri-windows-build.yml has {nuitka_count} Nuitka invocation(s) "
+            f"tauri-windows-build.yml has {nuitka_count} Nuitka invocations "
             f"but only {flag_count} --include-package-data=voice_typer.server "
             "— every Nuitka command bundling voice_typer needs the flag."
         )

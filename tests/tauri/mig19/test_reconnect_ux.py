@@ -750,7 +750,7 @@ def test_supervisor_rs_emits_relaunching_on_exhaustion(supervisor_rs_source: str
     assert len(matches) >= 1, (
         f"supervisor.rs must emit {_TAURI_EVENT_SUPERVISOR_RELAUNCHING!r} on backoff-schedule "
         f"exhaustion (reason='backoff_exhausted') before app.restart(). "
-        f"Found {len(matches)} emit call(s)."
+        f"Found {len(matches)} emit calls."
     )
     assert "backoff_exhausted" in supervisor_rs_source, (
         "supervisor.rs must emit supervisor_relaunching with reason='backoff_exhausted' "

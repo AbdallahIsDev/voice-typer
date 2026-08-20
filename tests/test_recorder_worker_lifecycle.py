@@ -466,7 +466,7 @@ class TestConcurrentStartStopNoLeak:
         # alive — stop() is idempotent, and a REAL leak keeps the
         # threads alive past the deadline, so this assert still fires.
         assert wait_for_workers_stopped(r, stop=r.stop), (
-            f"GT-23 regression: worker thread(s) still alive after "
+            f"GT-23 regression: worker threads still alive after "
             f"concurrent start()/stop(): "
             f"{[(t.name, t.is_alive()) for t in threading.enumerate() if t.name in WORKER_THREAD_NAMES]} "
             f"(refs: worker={r._worker_thread!r}, event={r._event_worker_thread!r})."
@@ -517,7 +517,7 @@ class TestConcurrentStartStopNoLeak:
         r.stop()
         # GT-23 load-flake guard — see test_concurrent_start_stop_no_leak.
         assert wait_for_workers_stopped(r, stop=r.stop), (
-            f"GT-23 regression: worker thread(s) still alive after "
+            f"GT-23 regression: worker threads still alive after "
             f"concurrent start()/discard(): "
             f"{[(t.name, t.is_alive()) for t in threading.enumerate() if t.name in WORKER_THREAD_NAMES]} "
             f"(refs: worker={r._worker_thread!r}, event={r._event_worker_thread!r})."

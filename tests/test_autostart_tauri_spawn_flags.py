@@ -65,6 +65,7 @@ def _bypass_tauri_integrity_gate(monkeypatch):
         lambda path: True,
     )
 
+
 # ``_tauri_log_files()`` opens real log files under the platform config
 # dir.  In tests we don't want that side effect (it would litter the
 # developer's real config dir), so we monkeypatch it to return DEVNULL
@@ -383,10 +384,10 @@ class TestTauriLogFilesHelper:
         assert result["stderr"] is subprocess.DEVNULL
         assert result["stdin"] is subprocess.DEVNULL
 
-    def test_returns_real_file_handles_on_success(self, monkeypatch, tmp_path):
-        """When the config dir is writable, ``_tauri_log_files`` returns
-        real open file handles for stdout/stderr pointing at
-        ``tauri-stdout.log`` / ``tauri-stderr.log``."""
+    def test_returns_devnull_on_success(self, monkeypatch, tmp_path):
+        """O4: ``_tauri_log_files`` returns DEVNULL for stdout/stderr —
+        the Tauri host + Python backend already write structured logs to
+        ``logs/``, so raw child pipe capture would only duplicate lines."""
         from voice_typer.server import autostart_launcher as mod
 
         monkeypatch.setattr(
@@ -394,19 +395,9 @@ class TestTauriLogFilesHelper:
             lambda: tmp_path,
         )
         result = mod._tauri_log_files()
-        try:
-            assert result["stdout"] is not subprocess.DEVNULL
-            assert result["stderr"] is not subprocess.DEVNULL
-            assert result["stdin"] is subprocess.DEVNULL
-            # The log files should exist on disk.
-            assert (tmp_path / "logs" / "tauri-stdout.log").exists()
-            assert (tmp_path / "logs" / "tauri-stderr.log").exists()
-        finally:
-            # Close the handles so the test doesn't leak.
-            for key in ("stdout", "stderr"):
-                fd = result.get(key)
-                if fd is not None and fd is not subprocess.DEVNULL:
-                    fd.close()
+        assert result["stdout"] is subprocess.DEVNULL
+        assert result["stderr"] is subprocess.DEVNULL
+        assert result["stdin"] is subprocess.DEVNULL
 
 
 if __name__ == "__main__":

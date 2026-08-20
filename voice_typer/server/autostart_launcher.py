@@ -113,48 +113,20 @@ log = logging.getLogger("voice_typer.server.autostart_launcher")
 
 
 def _tauri_log_files() -> dict:
-    """Open rotating log files for Tauri host stdout/stderr (best-effort).
+    """Return DEVNULL for the Tauri host's stdout/stderr (O4: no duplicate capture).
 
-    Mirrors :func:`_electron_log_files` but writes to ``tauri-stdout.log``
-    and ``tauri-stderr.log`` so Tauri crashes can be diagnosed separately
-    from Electron crashes. On any failure (disk full, permission denied),
-    falls back to :data:`subprocess.DEVNULL` so the launch still succeeds.
+    Mirrors :func:`voice_typer.server._electron_build._electron_log_files`.
+    The Tauri host + Python backend already write structured logs to
+    ``logs/`` (``voice-typer-rust.log`` on the Rust side, ``voice-typer.log``
+    on the Python side); raw child stdout/stderr capture
+    (``tauri-stdout.log`` / ``tauri-stderr.log``) only duplicated those
+    lines without adding diagnostic value.
     """
-    try:
-        from voice_typer.server._electron_build import (
-            _scrub_stale_ansi,
-            _truncate_if_oversized,
-        )
-        from voice_typer.server.config import _config_dir as _cfg
-
-        log_dir = _cfg() / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        stdout_path = log_dir / "tauri-stdout.log"
-        stderr_path = log_dir / "tauri-stderr.log"
-        _truncate_if_oversized(stdout_path)
-        _truncate_if_oversized(stderr_path)
-        # same one-time ANSI scrub as the Electron log files — pre-cleanup
-        # runs could leave escape-code garbage at the top of these
-        # append-only files (see ``_scrub_stale_ansi``).
-        _scrub_stale_ansi(stdout_path)
-        _scrub_stale_ansi(stderr_path)
-        stdout_fd = open(stdout_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
-        stderr_fd = open(stderr_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
-        return {
-            "stdout": stdout_fd,
-            "stderr": stderr_fd,
-            "stdin": subprocess.DEVNULL,
-        }
-    except Exception as exc:
-        log.debug(
-            "[AUTOSTART] Failed to open Tauri log files, using DEVNULL: %s",
-            exc,
-        )
-        return {
-            "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.DEVNULL,
-            "stdin": subprocess.DEVNULL,
-        }
+    return {
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "stdin": subprocess.DEVNULL,
+    }
 
 
 def _close_log_files(sk: dict) -> None:

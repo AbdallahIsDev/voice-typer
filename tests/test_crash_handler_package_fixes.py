@@ -423,7 +423,7 @@ class TestWriteCrashMarkerHelper:
     def test_dedup_no_inline_redaction_closure_in_either_hook(self):
         """UE-2-F4: neither ``_crash_excepthook`` nor
         ``_thread_crash_excepthook`` should still contain the inlined
-        ``def _redact(s): return redact_secret(redact_pii(s), aggressive=True)``
+        ``def _redact(s): return redact_secret(redact_piis, aggressive=True)``
         closure — that logic now lives in ``_redact_exc_value``.
 
         Guards against a partial refactor where the helper was added

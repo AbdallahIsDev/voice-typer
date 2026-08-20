@@ -160,7 +160,7 @@ def test_download_model_does_not_inline_polling_loop() -> None:
     assert while_count == 0, (
         f"download_model must not contain a ``while`` loop — the "
         f"polling loop was extracted to poll_download_progress. Found "
-        f"{while_count} ``while`` statement(s) in the dispatcher body."
+        f"{while_count} ``while`` statements in the dispatcher body."
     )
 
 
@@ -180,7 +180,7 @@ def test_download_model_does_not_define_nested_closures() -> None:
         f"download_model must not define nested function closures — "
         f"the _push_progress and _notify closures were lifted to "
         f"module-level helpers. Found {nested_func_count} nested "
-        f"FunctionDef(s) in the dispatcher body."
+        f"FunctionDefs in the dispatcher body."
     )
 
 

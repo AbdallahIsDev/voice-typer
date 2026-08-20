@@ -61,6 +61,7 @@ def _read_sidecar_cmds_module() -> str:
     files = [SIDECAR_CMDS_RS] + sorted(SIDECAR_CMDS_DIR.glob("*.rs"))
     return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
 
+
 # commands present in the TS allowlist (and therefore in
 # the Python registry) but intentionally ABSENT from the Rust allowlist
 # because the Rust host dispatches them directly via ``dispatch_inner``
@@ -150,7 +151,7 @@ def test_every_ts_command_is_in_python_registry() -> None:
     ts = _ts_allowed_commands()
     only_ts = ts - py
     assert not only_ts, (
-        f"EC-4 drift: TS ALLOWED_COMMANDS contains command(s) that are "
+        f"EC-4 drift: TS ALLOWED_COMMANDS contains commands that are "
         f"NOT in Python _COMMAND_REGISTRY: {sorted(only_ts)}. The "
         f"renderer would invoke these but the server would reject them "
         f"with 'unknown_command'. Either add the handler to "
@@ -187,7 +188,7 @@ def test_every_python_command_is_in_ts_except_documented_exceptions() -> None:
     expected_in_ts = py - py_only
     missing_from_ts = expected_in_ts - ts
     assert not missing_from_ts, (
-        f"EC-4 drift: Python _COMMAND_REGISTRY contains command(s) that "
+        f"EC-4 drift: Python _COMMAND_REGISTRY contains commands that "
         f"are NOT in TS ALLOWED_COMMANDS and NOT in "
         f"IPCServer._PYTHON_ONLY_COMMANDS: {sorted(missing_from_ts)}. "
         f"Either add the command to "
@@ -215,7 +216,7 @@ def test_every_rust_command_is_in_python_registry() -> None:
     rust = _rust_allowed_commands()
     only_rust = rust - py
     assert not only_rust, (
-        f"EC-4 drift: Rust ALLOWED_COMMANDS contains command(s) that "
+        f"EC-4 drift: Rust ALLOWED_COMMANDS contains commands that "
         f"are NOT in Python _COMMAND_REGISTRY: {sorted(only_rust)}. "
         f"Either add the handler to "
         f"voice_typer/server/ipc_server.py (and the appropriate mixin "
@@ -256,7 +257,7 @@ def test_every_python_command_is_in_rust_except_documented_exceptions() -> None:
     expected_in_rust = py - rust_exempt
     missing_from_rust = expected_in_rust - rust
     assert not missing_from_rust, (
-        f"EC-4 drift: Python _COMMAND_REGISTRY contains command(s) that "
+        f"EC-4 drift: Python _COMMAND_REGISTRY contains commands that "
         f"are NOT in Rust ALLOWED_COMMANDS and NOT in "
         f"IPCServer._PYTHON_ONLY_COMMANDS or _TS_ONLY_EXCEPTIONS: "
         f"{sorted(missing_from_rust)}. Either add the command to "

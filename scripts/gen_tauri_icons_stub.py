@@ -790,7 +790,7 @@ def check() -> int:
         problems.extend(_stub_problems(path, platform, kind))
     if problems:
         print(
-            f"[gen_tauri_icons_stub] {len(problems)}/{len(specs)} stub file(s) missing or structurally invalid:",
+            f"[gen_tauri_icons_stub] {len(problems)}/{len(specs)} stub files missing or structurally invalid:",
             file=sys.stderr,
         )
         for p in problems:
@@ -800,7 +800,7 @@ def check() -> int:
             file=sys.stderr,
         )
         return 1
-    print(f"[gen_tauri_icons_stub] OK: all {len(specs)} stub file(s) present and structurally valid.")
+    print(f"[gen_tauri_icons_stub] OK: all {len(specs)} stub files present and structurally valid.")
     return 0
 
 
@@ -842,7 +842,7 @@ def clean() -> int:
                 # not empty (real artifacts left) — leave it alone
                 d.rmdir()
 
-    print(f"[gen_tauri_icons_stub] Removed {removed} stub file(s); skipped {skipped} real artifact(s).")
+    print(f"[gen_tauri_icons_stub] Removed {removed} stub file(s); skipped {skipped} real artifacts.")
     return 0
 
 

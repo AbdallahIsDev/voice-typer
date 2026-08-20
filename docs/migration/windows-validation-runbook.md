@@ -1313,7 +1313,7 @@ Install + launch the Electron build — it should pick up the same
 ### §8.3 What to report when rolling back
 
 If you roll back, file an issue with:
-- Which gate item(s) failed (§6.1–§6.9).
+- Which gate items failed (§6.1–§6.9).
 - The exact error message + log excerpt.
 - The Windows version + build number.
 - The Nuitka version + python-build-standalone release date.

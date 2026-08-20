@@ -224,7 +224,7 @@ class TestNoRawTranscriptionInLogs:
                 all_unsafe.append(f"{path.relative_to(_REPO_ROOT)}: {desc}")
 
         assert not all_unsafe, (
-            "XZ-LOG-12 regression: found log call(s) that interpolate a raw "
+            "XZ-LOG-12 regression: found log calls that interpolate a raw "
             "transcription variable directly. The PIIRedactionFilter only "
             "catches four structured PII patterns — free-form medical / "
             "financial / address / name content would leak into the log "

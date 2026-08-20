@@ -53,11 +53,7 @@ def _iter_script_files(directory: Path) -> list[Path]:
     """Return all regular files under *directory*, skipping ``__pycache__``."""
     if not directory.is_dir():
         return []
-    return [
-        path
-        for path in sorted(directory.rglob("*"))
-        if path.is_file() and "__pycache__" not in path.parts
-    ]
+    return [path for path in sorted(directory.rglob("*")) if path.is_file() and "__pycache__" not in path.parts]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -105,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
 
     if violations:
-        print(f"linux-scripts LF check: {len(violations)} violation(s) found:")
+        print(f"linux-scripts LF check: {len(violations)} violations found:")
         for violation in violations:
             print(f"  - {violation}")
         print(

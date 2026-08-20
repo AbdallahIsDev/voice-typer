@@ -1036,7 +1036,7 @@ class PrivacyMixin(ServiceMixinBase):
             self._gdpr_recreate_history_db(app)
 
         log.info(
-            "[SERVICE] GDPR Art. 17 delete: erased %d file(s)/dir(s), %d failure(s)",
+            "[SERVICE] GDPR Art. 17 delete: erased %d files/dirs, %d failures",
             len(erased),
             len(failed),
         )

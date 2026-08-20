@@ -294,7 +294,7 @@ describe("ModelsPage — Import Model flow", () => {
 			// The component passes interpolated params to t(), so we
 			// check for the string content rather than the raw key.
 			expect(showSnack).toHaveBeenCalledWith(
-				expect.stringContaining("Imported 2 model(s)"),
+				expect.stringContaining("Imported 2 models"),
 				"success",
 			);
 		});

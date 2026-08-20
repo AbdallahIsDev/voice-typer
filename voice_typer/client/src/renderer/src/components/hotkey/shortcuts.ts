@@ -48,7 +48,7 @@ export interface ShortcutDef extends InAppShortcut {
 	/** pynput combo form for platform-aware rendering via formatHotkey (e.g. "<ctrl>+<b>"). */
 	pynput?: string;
 	/**
-	 * The actual `KeyboardEvent.key` value(s) the binding reacts to in
+	 * The actual `KeyboardEvent.key` values the binding reacts to in
 	 * `useGlobalKeyboardShortcuts` (e.g. "b" for Ctrl+B). Only the five
 	 * in-app bindings carry this — the dictation bindings (Esc, Tab,
 	 * Space, Enter) are handled server-side by the backend's hotkey

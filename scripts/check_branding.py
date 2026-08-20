@@ -231,9 +231,7 @@ def _is_build_config_literal(rel_str: str, line: str) -> bool:
         # the value (JSON or quoted-YAML form). The unquoted YAML form
         # (``productName: Voice Typer``) is also matched because the
         # closing quote / end-of-line both satisfy the optional quote.
-        pattern = (
-            rf'["\']?{re.escape(key)}["\']?\s*:\s*["\']?{re.escape(APP_NAME)}["\']?'
-        )
+        pattern = rf'["\']?{re.escape(key)}["\']?\s*:\s*["\']?{re.escape(APP_NAME)}["\']?'
         if re.search(pattern, line):
             return True
     return False
@@ -260,9 +258,7 @@ def _is_workflow_build_artifact(rel_str: str, line: str) -> bool:
         return False
     if "bundle/" not in line:
         return False
-    return bool(
-        re.search(rf"bundle/(?:[a-z]+/)?{re.escape(APP_NAME)}(?:_[^\"/]*)?\.(?:app|dmg)", line)
-    )
+    return bool(re.search(rf"bundle/(?:[a-z]+/)?{re.escape(APP_NAME)}(?:_[^\"/]*)?\.(?:app|dmg)", line))
 
 
 def check_file(filepath: Path) -> list[tuple[int, str]]:
@@ -412,8 +408,7 @@ def main() -> int:
 
     if all_hits:
         print(
-            f"ERROR: Found {len(all_hits)} hardcoded reference(s) to "
-            f"'{APP_NAME}' that should use the branding constant."
+            f"ERROR: Found {len(all_hits)} hardcoded references to '{APP_NAME}' that should use the branding constant."
         )
         print()
         for filepath, lineno, text in sorted(all_hits):

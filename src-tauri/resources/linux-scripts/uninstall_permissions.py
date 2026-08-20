@@ -154,7 +154,7 @@ def _purge_user_data_for(username: str, data_dir: Path) -> None:
                 if remaining:
                     print(
                         f"[voice-typer-permissions] --purge: {data_dir} still "
-                        f"contains {len(remaining)} item(s) not created by "
+                        f"contains {len(remaining)} items not created by "
                         "Voice Typer — left in place",
                         file=sys.stderr,
                     )
@@ -170,7 +170,7 @@ def _purge_user_data_for(username: str, data_dir: Path) -> None:
 def _purge_user_data() -> None:
     """Remove the per-user Voice Typer data directory.
 
-    (): resolves the user(s) whose data dir should be
+    (): resolves the users whose data dir should be
         purged. When invoked via sudo, ``SUDO_USER`` identifies the user.
         When invoked directly as root (e.g. during prerm), ``SUDO_USER`` is
         unset and we scan ``/home/*`` for any user with a Voice Typer data

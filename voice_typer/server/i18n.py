@@ -199,7 +199,7 @@ _INITIAL_LABELS: dict[str, str] = {
         "{error}\nCorrections will use built-in defaults. Fix the file and restart."
     ),
     "notify.startup_sequence.crash_recovery_body": (
-        "Recovered {count} transcription(s) from last session. Open History to view."
+        "Recovered {count} transcriptions from last session. Open History to view."
     ),
     "notify.startup_sequence.wayland_hotkeys_title": "{app} — Wayland Hotkeys",
     "notify.startup_sequence.wayland_hotkeys_body": (

@@ -1117,7 +1117,7 @@ class ConfigApplier:
                     current_preset = getattr(app.config, "audio_preset", "custom")
                     if current_preset != "custom":
                         log.info(
-                            "[CONFIG] individual filter toggle(s) %s set via "
+                            "[CONFIG] individual filter toggles %s set via "
                             "IPC while audio_preset=%r — auto-switching "
                             "audio_preset to 'custom' so the user's toggle "
                             "survives the next Config.load() (which would "

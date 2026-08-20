@@ -36,7 +36,7 @@
 #   - accept `workflow_call` trigger
 #   - accept input `target` (string, optional — defaults to host triple)
 #   - accept input `sign`   (boolean, optional — default false)
-#   - upload its installer(s) as a workflow artifact named
+#   - upload its installers as a workflow artifact named
 #     `tauri-<platform>-installer` for aggregation below
 # =============================================================================
 name: Tauri Build (all platforms)
@@ -336,7 +336,7 @@ jobs:
               json.dumps(base, indent=2, ensure_ascii=False) + "\n",
               encoding="utf-8",
           )
-          print(f"merged {len(glob.glob('manifests/*/tauri-binaries.json'))} leg manifest(s)"
+          print(f"merged {len(glob.glob('manifests/*/tauri-binaries.json'))} leg manifests"
                 + ("; at least one sha256 overlaid" if merged_any else "; no hashes overlaid"))
           PY
 

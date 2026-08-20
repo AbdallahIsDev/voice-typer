@@ -765,8 +765,7 @@ class TestIpcDeadCodeStaysRemoved:
 
         src = inspect.getsource(_TCPLineIO.close)
         assert "shutdown" in src, (
-            "_TCPLineIO.close must call self.conn.shutdown(SHUT_RDWR) to "
-            "interrupt in-progress reads ( deadlock fix)."
+            "_TCPLineIO.close must call self.conn.shutdown(SHUT_RDWR) to interrupt in-progress reads ( deadlock fix)."
         )
         assert "SHUT_RDWR" in src, (
             "_TCPLineIO.close must use socket.SHUT_RDWR (full duplex shutdown) to interrupt both reads and writes."
@@ -897,9 +896,7 @@ class TestHistoryDbInternalsRecoveryModuleStaysRemoved:
     (e.g. a cherry-pick from an old branch restoring the file).
     """
 
-    _DEAD_MODULES = (
-        "voice_typer.server.history_db_internals.recovery",
-    )
+    _DEAD_MODULES = ("voice_typer.server.history_db_internals.recovery",)
 
     def test_recovery_module_stays_removed(self) -> None:
         """``voice_typer.server.history_db_internals.recovery`` must
@@ -910,9 +907,7 @@ class TestHistoryDbInternalsRecoveryModuleStaysRemoved:
         import importlib
 
         try:
-            importlib.import_module(
-                "voice_typer.server.history_db_internals.recovery"
-            )
+            importlib.import_module("voice_typer.server.history_db_internals.recovery")
         except ModuleNotFoundError:
             return  # expected — the module is gone
         raise AssertionError(
@@ -932,12 +927,7 @@ class TestHistoryDbInternalsRecoveryModuleStaysRemoved:
         the regression from the import test).
         """
         repo_root = Path(__file__).resolve().parent.parent
-        pkg_dir = (
-            repo_root
-            / "voice_typer"
-            / "server"
-            / "history_db_internals"
-        )
+        pkg_dir = repo_root / "voice_typer" / "server" / "history_db_internals"
         recovery_py = pkg_dir / "recovery.py"
         assert not recovery_py.exists(), (
             "regression: voice_typer/server/history_db_internals/"
@@ -975,24 +965,21 @@ class TestHistoryDbInternalsRecoveryModuleStaysRemoved:
                     continue
                 for node in ast.walk(tree):
                     # ``from voice_typer.server.history_db_internals.recovery import ...``
-                    if isinstance(node, ast.ImportFrom) and node.module and (
-                        node.module
-                        == "voice_typer.server.history_db_internals.recovery"
+                    if (
+                        isinstance(node, ast.ImportFrom)
+                        and node.module
+                        and (node.module == "voice_typer.server.history_db_internals.recovery")
                     ):
                         offender_files.add(str(py_file.relative_to(repo_root)))
                     # ``import voice_typer.server.history_db_internals.recovery``
                     # (also catches dotted ``import ... as ...``)
                     if isinstance(node, ast.Import):
                         for alias in node.names:
-                            if alias.name in (
-                                "voice_typer.server.history_db_internals.recovery",
-                            ):
-                                offender_files.add(
-                                    str(py_file.relative_to(repo_root))
-                                )
+                            if alias.name in ("voice_typer.server.history_db_internals.recovery",):
+                                offender_files.add(str(py_file.relative_to(repo_root)))
 
         assert not offender_files, (
-            "regression: the following file(s) import the dead "
+            "regression: the following files import the dead "
             "module `history_db_internals.recovery`. "
             f"Offenders: {sorted(offender_files)!r}. This module was deleted "
             "as dead code; restore the deletion (and re-route any caller to the "

@@ -352,7 +352,7 @@ class ConfigMutationMixin(ServiceMixinBase):
                 setattr(app, "_cloud_engine", None)  # noqa: B010 — attr deliberately not on AppProtocol (ADR-0008-§3.1); direct assignment fails pyrefly
 
             log.info(
-                "[SERVICE] reset_config_to_defaults: reset to defaults, backup at %s, preserved %d API key(s)",
+                "[SERVICE] reset_config_to_defaults: reset to defaults, backup at %s, preserved %d API keys",
                 backup_path,
                 len(preserved_keys),
             )

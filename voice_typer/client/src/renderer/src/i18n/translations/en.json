@@ -1434,7 +1434,7 @@
 		"exportEmpty": "Nothing to export — history is empty",
 		"exportFailed": "Export failed",
 		"exportSaved": "{filename} saved successfully",
-		"transcriptionsToday": "{count} dictation(s) today{chars}",
+		"transcriptionsToday": "{count} dictations today{chars}",
 		"noTranscriptionsToday": "0 dictations today",
 		"undo": "Undo",
 		"clearAllAria": "Clear all history",

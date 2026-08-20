@@ -861,7 +861,7 @@ class TestEdgeCaseParity:
                         offenders.append(f"{py.name}: dict with {len(overlap)} alias-like keys ({sorted(overlap)})")
 
         assert not offenders, (
-            "violation: found spec-parsing alias dict(s) outside "
+            "violation: found spec-parsing alias dicts outside "
             "hotkey_spec.py (the single source of truth): " + "; ".join(offenders)
         )
 

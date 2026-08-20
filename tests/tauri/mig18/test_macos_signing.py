@@ -469,7 +469,7 @@ def test_workflow_notarytool_uses_credentials(workflow_text: str):
     the notarytool invocation in the workflow is actually wired to the
     env vars (not just that the env vars are declared on the job).
     """
-    # The notarytool submit line(s) must reference at least one credential
+    # The notarytool submit lines must reference at least one credential
     # env var. Look for the notarytool submit block + check it has a
     # credential flag.
     notarytool_blocks = re.findall(

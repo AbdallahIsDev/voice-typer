@@ -676,7 +676,7 @@ def compute_overlap_skip(prev_words: list[str], new_words: list[str]) -> int:
     Parameters
     ----------
     prev_words : list[str]
-        The accumulated word list from the previous chunk(s). ``[]`` is
+        The accumulated word list from the previous chunks. ``[]`` is
         valid (returns 0 — first chunk has no overlap).
     new_words : list[str]
         The word list of the new chunk to merge. ``[]`` is valid

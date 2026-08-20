@@ -461,7 +461,7 @@ class _EnhancementStepsMixin:
             )
             applied = automation.auto_apply_high_confidence_suggestions(auto_threshold)
             if applied > 0:
-                log.info("[VOCAB_AUTO] Auto-applied %d high-confidence suggestion(s)", applied)
+                log.info("[VOCAB_AUTO] Auto-applied %d high-confidence suggestions", applied)
 
             # Push any remaining (pending) suggestions to the frontend.
             pending = automation.get_pending_suggestions()

@@ -63,7 +63,7 @@ def _make_user32(toggle_state: int = 0) -> MagicMock:
 
 def _capture_sendinput_events(user32: MagicMock) -> list[INPUT]:
     """Install a side_effect on ``user32.SendInput`` that captures the
-    INPUT struct(s) passed in each call, so tests can inspect the
+    INPUT structs passed in each call, so tests can inspect the
     wVk/wScan/dwFlags fields directly.
 
     Returns the list of captured INPUT structs (one per SendInput call).

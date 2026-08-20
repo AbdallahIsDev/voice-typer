@@ -383,16 +383,16 @@ class TestRequestEventInCommandAllowlists:
         leaked_ts = push_events & ts_cmds
         leaked_rust = push_events & rust_cmds
         assert not leaked_registry, (
-            "§7.4: Python _COMMAND_REGISTRY contains push event(s) "
+            "§7.4: Python _COMMAND_REGISTRY contains push events "
             f"that should NOT be commands: {sorted(leaked_registry)}. "
             "Push events are published via event_bus.publish, not "
             "dispatched as commands."
         )
         assert not leaked_ts, (
-            f"§7.4: TS ALLOWED_COMMANDS contains push event(s) that should NOT be commands: {sorted(leaked_ts)}."
+            f"§7.4: TS ALLOWED_COMMANDS contains push events that should NOT be commands: {sorted(leaked_ts)}."
         )
         assert not leaked_rust, (
-            f"§7.4: Rust allowed_commands() contains push event(s) that should NOT be commands: {sorted(leaked_rust)}."
+            f"§7.4: Rust allowed_commands() contains push events that should NOT be commands: {sorted(leaked_rust)}."
         )
 
 

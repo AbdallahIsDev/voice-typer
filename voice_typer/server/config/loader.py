@@ -158,9 +158,7 @@ def _filter_unknown_keys_impl(cls, parsed: dict, config_file) -> dict:
     # log a WARNING if the on-disk config contains
     # keys this build doesn't recognize.  These keys are
     # silently dropped by the filter below.
-    unknown_keys = (
-        set(parsed) - set(cls.__dataclass_fields__) - _KNOWN_EXTERNAL_CONFIG_KEYS
-    )
+    unknown_keys = set(parsed) - set(cls.__dataclass_fields__) - _KNOWN_EXTERNAL_CONFIG_KEYS
     if unknown_keys:
         dedupe_key = (str(config_file), frozenset(unknown_keys))
         with _unknown_key_warnings_lock:
@@ -181,7 +179,7 @@ def _filter_unknown_keys_impl(cls, parsed: dict, config_file) -> dict:
             _newer_config = isinstance(_schema, int) and _schema > _CURRENT_SCHEMA_VERSION
             if _newer_config:
                 log.warning(
-                    "[CONFIG] ignoring %d unrecognized setting(s) in %s (config "
+                    "[CONFIG] ignoring %d unrecognized settings in %s (config "
                     "schema %s is newer than this build supports); they will be "
                     "removed on the next save.",
                     len(unknown_keys),
@@ -190,7 +188,7 @@ def _filter_unknown_keys_impl(cls, parsed: dict, config_file) -> dict:
                 )
             else:
                 log.warning(
-                    "[CONFIG] ignoring %d unrecognized setting(s) in %s (unknown "
+                    "[CONFIG] ignoring %d unrecognized settings in %s (unknown "
                     "to this build); removing them from the file now.",
                     len(unknown_keys),
                     config_file,
@@ -221,14 +219,14 @@ def _remove_unknown_keys_from_disk(config_file, unknown_keys) -> None:
         pruned = {k: v for k, v in fresh.items() if k not in unknown_keys}
         _secure_atomic_write(config_file, json.dumps(pruned, indent=2), durability=False)
         log.debug(
-            "[CONFIG] removed unrecognized setting(s) from %s: %s",
+            "[CONFIG] removed unrecognized settings from %s: %s",
             config_file,
             ", ".join(sorted(unknown_keys)),
         )
     except Exception:
         # The load must never fail because the cleanup did. Log at DEBUG
         # so a persistent failure is diagnosable without spamming.
-        log.debug("[CONFIG] could not remove unrecognized setting(s) from %s", config_file, exc_info=True)
+        log.debug("[CONFIG] could not remove unrecognized settings from %s", config_file, exc_info=True)
 
 
 def _load_config(cls) -> "Config":
@@ -332,7 +330,7 @@ def _load_config(cls) -> "Config":
                 migrated_count = credential_store.migrate_secrets_to_keyring()
                 if migrated_count > 0:
                     log.info(
-                        "[CONFIG] RW-01: migrated %d plaintext API key(s) to OS keychain",
+                        "[CONFIG] RW-01: migrated %d plaintext API keys to OS keychain",
                         migrated_count,
                     )
                 # re-read the on-disk ``secrets_migrated`` flag
@@ -642,10 +640,7 @@ def _load_config(cls) -> "Config":
             # the previous-behavior overwrite (no corruption,
             # just lost-forensics — strictly better than before).
             _ns = (time.time_ns() % 1_000_000 + next(_CONFIG_QUARANTINE_SUFFIX_SEQ)) % 1_000_000
-            corrupt_backup = (
-                config_file.parent
-                / f"config.json.corrupt-{int(time.time())}-{os.getpid()}-{_ns}"
-            )
+            corrupt_backup = config_file.parent / f"config.json.corrupt-{int(time.time())}-{os.getpid()}-{_ns}"
             config_file.replace(corrupt_backup)
             log.warning(
                 "[CONFIG] moved corrupt config %s -> %s for forensic recovery",

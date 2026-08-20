@@ -735,7 +735,7 @@ def test_known_gap_no_pyobjc_include_flag(sidecar_text: str):
 
     The dev ``pyproject.toml`` declares the pyobjc deps for Darwin, so
     they will be present in the build env, but Nuitka may not bundle
-    them without the explicit ``--include-package=pyobjc`` flag(s).
+    them without the explicit ``--include-package=pyobjc`` flags.
     The macOS validation runbook does NOT explicitly require this flag
     in §1 (it relies on the dev-mode ImportError discovery loop), so
     this gap is a SOFT gap — the build may succeed but produce a

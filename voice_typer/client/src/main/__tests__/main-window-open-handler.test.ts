@@ -6,9 +6,9 @@
  * on the main window's `webContents` that:
  *   • denies every renderer-initiated window.open / target=_blank navigation
  *     (returns `{ action: "deny" }` regardless of URL scheme);
- *   • routes http(s) URLs to the user's default browser via
+ *   • routes https URLs to the user's default browser via
  *     `shell.openExternal` (fire-and-forget);
- *   • does NOT call `shell.openExternal` for non-http(s) schemes
+ *   • does NOT call `shell.openExternal` for non-https schemes
  *     (file://, javascript:, data:, blob:).
  *
  * Regression coverage for main-window-open-handler (main-window half).
@@ -145,7 +145,7 @@ describe("main-window setWindowOpenHandler hardening", () => {
 		expect(result).toEqual({ action: "deny" });
 	});
 
-	it("handler routes http(s) URLs to shell.openExternal", async () => {
+	it("handler routes https URLs to shell.openExternal", async () => {
 		const { createMainWindow } = await import("../windows/main-window");
 		const { state } = await import("../state");
 		(state as { mainWindow: unknown }).mainWindow = null;
@@ -159,7 +159,7 @@ describe("main-window setWindowOpenHandler hardening", () => {
 		);
 	});
 
-	it("handler does NOT call shell.openExternal for non-http(s) schemes", async () => {
+	it("handler does NOT call shell.openExternal for non-https schemes", async () => {
 		const { createMainWindow } = await import("../windows/main-window");
 		const { state } = await import("../state");
 		(state as { mainWindow: unknown }).mainWindow = null;

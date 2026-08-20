@@ -470,7 +470,7 @@ class ThreadRegistry:
             return
 
         log.info(
-            "[THREAD-REGISTRY] shutdown_all: signaling %d registered thread(s): %s",
+            "[THREAD-REGISTRY] shutdown_all: signaling %d registered threads: %s",
             len(entries),
             ", ".join(entry.name for entry in entries),
         )
@@ -528,9 +528,7 @@ class ThreadRegistry:
         else:
             # No caller deadline: bound by the longest per-thread
             # join_timeout (the pre-existing PERF-23 contract).
-            max_join_iterations = (
-                int(max((e.join_timeout for e in entries), default=0.0) / join_slice) + 2
-            )
+            max_join_iterations = int(max((e.join_timeout for e in entries), default=0.0) / join_slice) + 2
         max_join_iterations = max(1, min(max_join_iterations, 1_000_000))
         # work on a mutable ``pending`` list so we can prune
         # dead entries at the start of each slice without losing the
@@ -543,7 +541,7 @@ class ThreadRegistry:
             if join_iterations > max_join_iterations:
                 log.warning(
                     "[THREAD-REGISTRY] shutdown_all: join iteration cap "
-                    "(%d) reached with %d thread(s) still alive — "
+                    "(%d) reached with %d threads still alive — "
                     "giving up (daemons will be reaped on process exit)",
                     max_join_iterations,
                     len([e for e in pending if e.thread.is_alive()]),

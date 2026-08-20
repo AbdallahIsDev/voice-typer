@@ -145,7 +145,7 @@ fi
 
 # ─── Verdict ─────────────────────────────────────────────────────────────────
 if [[ "$SCAN_RC" -ne 0 ]]; then
-    echo "ERROR: bundle is NOT torch-free — forbidden pattern(s) found in $BIN:" >&2
+    echo "ERROR: bundle is NOT torch-free — forbidden patterns found in $BIN:" >&2
     echo "$SCAN_OUTPUT" >&2
     echo "" >&2
     echo "Phase 1c gate (plan §11.3): torch must be removed from the bundle before" >&2

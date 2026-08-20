@@ -170,7 +170,7 @@ def test_ipc_reference_doc_has_row_for_every_registry_command() -> None:
     doc_rows = _doc_command_rows()
     missing_from_doc = registry - doc_rows
     assert not missing_from_doc, (
-        f"_COMMAND_REGISTRY has {len(missing_from_doc)} command(s) with "
+        f"_COMMAND_REGISTRY has {len(missing_from_doc)} commands with "
         f"no row in docs/ipc-reference.md: {sorted(missing_from_doc)}. "
         f"Add a row in the appropriate namespace section of the doc."
     )
@@ -189,7 +189,7 @@ def test_ipc_reference_doc_rows_are_all_in_registry_or_removed_section() -> None
     removed = _doc_removed_commands_section()
     unknown = doc_rows - registry - removed
     assert not unknown, (
-        f"docs/ipc-reference.md lists {len(unknown)} command(s) that are "
+        f"docs/ipc-reference.md lists {len(unknown)} commands that are "
         f"neither in _COMMAND_REGISTRY nor in the 'Removed / never-existed "
         f"commands' section: {sorted(unknown)}. Either add the command to "
         f"the registry or move the row to the removed section."
@@ -229,7 +229,7 @@ def test_ipc_reference_doc_has_row_for_every_push_event_type() -> None:
     doc_rows = _doc_push_event_rows()
     missing_from_doc = source_types - doc_rows
     assert not missing_from_doc, (
-        f"push_events.ts declares {len(missing_from_doc)} event type(s) "
+        f"push_events.ts declares {len(missing_from_doc)} event types "
         f"with no row in docs/ipc-reference.md: {sorted(missing_from_doc)}. "
         f"Add a row in the '## Push events' table."
     )
@@ -241,7 +241,7 @@ def test_ipc_reference_doc_push_event_rows_match_source_types() -> None:
     doc_rows = _doc_push_event_rows()
     unknown = doc_rows - source_types
     assert not unknown, (
-        f"docs/ipc-reference.md lists {len(unknown)} push-event type(s) "
+        f"docs/ipc-reference.md lists {len(unknown)} push-event types "
         f"that are NOT in types/ipc/push_events.ts: {sorted(unknown)}. "
         f"Either add the type to the TS union or remove the row."
     )

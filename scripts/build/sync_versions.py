@@ -357,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.check:
         if drifted:
             print()
-            print(f"ERROR: {len(drifted)} file(s) have a version that", file=sys.stderr)
+            print(f"ERROR: {len(drifted)} files have a version that", file=sys.stderr)
             print(f"differs from pyproject.toml ({source_version}).", file=sys.stderr)
             print("Run `python scripts/build/sync_versions.py --apply` to fix.", file=sys.stderr)
             return 1
@@ -365,7 +365,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if drifted:
         print()
-        print(f"Note: {len(drifted)} file(s) drifted. Run with --apply to sync.")
+        print(f"Note: {len(drifted)} files drifted. Run with --apply to sync.")
     return 0
 
 

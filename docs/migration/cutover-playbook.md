@@ -209,7 +209,7 @@ For the platform being cut over, in the same release tag (`v<version>`):
 
 Per ADR-0020 §"Migration Plan" + §"Phase 5 — Validation & cutover":
 
-| Order | Platform | Why this order | Arch(s) | Phase 0 gate |
+| Order | Platform | Why this order | Archs | Phase 0 gate |
 |-------|----------|----------------|---------|--------------|
 | 1st | Windows | Largest user base; smallest Tauri unknowns (WebView2 = Chromium, no notarization, no Wayland). | x86_64 first; aarch64 follows. | Phase 0-W (9 points) |
 | 2nd | macOS | Apple Silicon + Intel; notarization is the highest-risk unknown (ADR-0020 Risk #5). | aarch64 + x86_64 (two DMGs). | Phase 0-M |

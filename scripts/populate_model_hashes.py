@@ -321,7 +321,7 @@ def populate_manifest(
             removed = set(old_files) - set(new_files)
             changed = {k for k in set(old_files) & set(new_files) if old_files[k] != new_files[k]}
             if added:
-                print(f"        + {len(added)} new file(s)")
+                print(f"        + {len(added)} new files")
             if removed:
                 print(f"        - {len(removed)} removed file(s): {sorted(removed)}")
             if changed:
@@ -368,7 +368,7 @@ def populate_manifest(
 
     if manifest_changed:
         manifest_path.write_text(new_text, encoding="utf-8")
-        print(f"[OK] Wrote {manifest_path} ({changed_repos} repo(s) updated)")
+        print(f"[OK] Wrote {manifest_path} ({changed_repos} repos updated)")
     else:
         print(f"[INFO] {manifest_path} already up to date.")
 

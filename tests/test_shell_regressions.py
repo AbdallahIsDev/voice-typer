@@ -85,7 +85,7 @@ class TestNoShellTrueInSource:
         src = src_path.read_text(encoding="utf-8")
         count = _shell_true_call_count(src)
         assert count == 0, (
-            f"S-7: {src_path.name} still contains {count} call(s) with "
+            f"S-7: {src_path.name} still contains {count} calls with "
             f"shell=True — all such fallbacks must be replaced with "
             f"shutil.which-resolved binary paths."
         )

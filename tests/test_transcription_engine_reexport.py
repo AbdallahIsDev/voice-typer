@@ -107,16 +107,13 @@ class TestTranscriptionEngineReExportRemoved:
         file's own narrative.
         """
         repo_root = Path(__file__).resolve().parent.parent
-        pattern = re.compile(
-            r'monkeypatch\.setattr\(\s*"voice_typer\.server\.app\.TranscriptionEngine"'
-        )
+        pattern = re.compile(r'monkeypatch\.setattr\(\s*"voice_typer\.server\.app\.TranscriptionEngine"')
         hits = []
         for path in sorted((repo_root / "tests").rglob("*.py")):
             text = path.read_text(encoding="utf-8", errors="replace")
             if pattern.search(text):
                 hits.append(str(path.relative_to(repo_root)))
         assert not hits, (
-            "Regression: found test(s) still monkeypatching the "
-            "removed voice_typer.server.app.TranscriptionEngine re-export:\n"
-            + "\n".join(hits)
+            "Regression: found tests still monkeypatching the "
+            "removed voice_typer.server.app.TranscriptionEngine re-export:\n" + "\n".join(hits)
         )

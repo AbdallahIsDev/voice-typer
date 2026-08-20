@@ -168,7 +168,7 @@ class TestWindowsMigrationLockTimeout:
             # No warning should be logged on the success path.
             warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
             assert not warnings, (
-                f"Unexpected warning(s) on successful lock acquire: {[r.getMessage() for r in warnings]!r}"
+                f"Unexpected warnings on successful lock acquire: {[r.getMessage() for r in warnings]!r}"
             )
         finally:
             with contextlib.suppress(OSError):

@@ -199,7 +199,7 @@ if [[ "$SKIP_SIDECAR" -eq 0 ]]; then
         # Parallel mode . Per-build stdout/stderr is redirected
         # to per-build log files under src-tauri/target/build-logs/
         # (already gitignored as part of the cargo target dir). On
-        # failure the failing log(s) are tailed to stderr.
+        # failure the failing logs are tailed to stderr.
         #
         # We do NOT kill siblings on first failure — killing Nuitka
         # mid-build can leave a corrupt .bin artifact in src-tauri/bin/
@@ -380,7 +380,7 @@ if [[ ! -f "$SIDECAR_BIN" ]]; then
     echo "  Phase 1a should have placed python-sidecar-$TARGET_TRIPLE$EXE_SUFFIX in src-tauri/bin/." >&2
     exit 4
 fi
-echo "[build_tauri_all] OK: $BUNDLE_FILE_COUNT bundle file(s) + sidecar binary verified"
+echo "[build_tauri_all] OK: $BUNDLE_FILE_COUNT bundle files + sidecar binary verified"
 echo "::endgroup::"
 
 # ─── Phase 1e: optional signing ──────────────────────────────────────────────

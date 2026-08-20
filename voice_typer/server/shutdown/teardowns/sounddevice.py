@@ -166,7 +166,7 @@ def teardown_sounddevice(controller) -> None:
         if _wait_result is TIMEOUT:
             log.error(
                 "[SHUTDOWN] sd.wait() did not return within 2s — "
-                "PortAudio stream(s) did not drain (potential deadlock "
+                "PortAudio streams did not drain (potential deadlock "
                 "on backends like WASAPI); force-aborting active "
                 "streams to release the audio device"
             )

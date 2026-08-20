@@ -297,7 +297,7 @@ def test_setup_logging_no_duplicate_stream_handlers_when_reinvoked(tmp_path: Pat
         setup_logging(config_dir)
         n2 = sum(1 for h in logging.getLogger("voice_typer").handlers if isinstance(h, _FlushingStreamHandler))
         assert n1 == 1, f"expected exactly 1 _FlushingStreamHandler after first setup, got {n1}"
-        assert n2 == 1, f"GT-13 idempotency broken: {n1} -> {n2} _FlushingStreamHandler(s)"
+        assert n2 == 1, f"GT-13 idempotency broken: {n1} -> {n2} _FlushingStreamHandlers"
     finally:
         reset()
 

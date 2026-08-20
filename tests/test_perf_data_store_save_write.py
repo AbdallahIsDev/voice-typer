@@ -247,7 +247,7 @@ class TestConfigSaveBackupSkip:
         # The backup read should have been skipped (read_count == 0).
         assert read_count["n"] == 0, (
             "ER-53 regression: second identical save still read "
-            f"config.json {read_count['n']} time(s) for the backup "
+            f"config.json {read_count['n']} times for the backup "
             "check. _last_saved_bytes should short-circuit the entire "
             "backup block."
         )
@@ -417,7 +417,7 @@ class TestHistoryDBMultiRowInsertBatching:
             # allow either 1 or 2 INSERTs as long as total tuples == 3 and at least one batch is multi-row.
             assert len(insert_calls) in (1, 2), (
                 f"ER-78: expected 1-2 batched INSERTs for 3 pending rows, "
-                f"got {len(insert_calls)} INSERT call(s). SQL: {insert_calls}"
+                f"got {len(insert_calls)} INSERT calls. SQL: {insert_calls}"
             )
             placeholder_tuple = "(?, ?, ?, ?, ?, ?, ?)"
             total_tuples = sum(sql.count(placeholder_tuple) for sql in insert_calls)
@@ -532,7 +532,7 @@ class TestSecureAtomicWriteDurability:
         secure_file_io._secure_atomic_write(target, '{"hello": "world"}', durability=False)
 
         assert fsync_count["n"] == 0, (
-            f"ER-80: durability=False should skip BOTH fsyncs, but os.fsync was called {fsync_count['n']} time(s)."
+            f"ER-80: durability=False should skip BOTH fsyncs, but os.fsync was called {fsync_count['n']} times."
         )
         # The file should still exist with the right content (the
         # os.replace rename still happens).

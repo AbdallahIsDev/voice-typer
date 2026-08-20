@@ -28,7 +28,7 @@
 
 ## Section map (spec §0–§10 ↔ operational Steps 0–15)
 
-| Spec § | Operational Step(s) | Section heading |
+| Spec § | Operational Steps | Section heading |
 |---|---|---|
 | §0 Prerequisites | Prerequisites + Step 0 | "Prerequisites" + "Step 0 — Environment setup" |
 | §1 Build sidecar (both archs) | Step 1 | "Step 1 — Nuitka Linux sidecar builds from `python-build-standalone` (glibc 2.35 baseline)" |

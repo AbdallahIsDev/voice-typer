@@ -309,7 +309,7 @@ class TemplateManager:
                 dropped += 1
         if dropped:
             log.warning(
-                "[TEMPLATES] Dropped %d malformed template(s) from %s "
+                "[TEMPLATES] Dropped %d malformed templates from %s "
                 "(each must be a dict with both 'trigger' and 'output' keys)",
                 dropped,
                 self._path,

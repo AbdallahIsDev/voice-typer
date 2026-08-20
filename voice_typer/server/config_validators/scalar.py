@@ -276,7 +276,7 @@ def _make_url_validator(
     max_len: int = _MAX_STRING_LEN,
     require_https: bool = True,
 ) -> ValidatorFn:
-    """Validate an HTTP(S) URL.
+    """Validate an HTTPs URL.
 
         Rejects non-string values, oversized values, and any URL whose scheme
         is not ``http`` or ``https``.  Empty string is accepted iff ``allow_empty``

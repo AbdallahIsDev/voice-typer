@@ -450,7 +450,7 @@ class CoreAudioMicrophoneWatcher:
         # Wrap runloop-capture + run + cleanup in try/finally so a
         # runloop-capture failure (plausible under pyobjc when the
         # thread has no run loop yet, or under memory pressure) does
-        # NOT orphan the already-registered listener(s). Pre-fix,
+        # NOT orphan the already-registered listeners. Pre-fix,
         # ``ca.runloop_get_current()`` raising propagated to
         # ``_run``'s top-level except, which logged and exited the
         # thread WITHOUT removing the listener — the orphaned listener
@@ -476,7 +476,7 @@ class CoreAudioMicrophoneWatcher:
             # from another thread (or a run-loop source signals stop).
             ca.runloop_run()
         finally:
-            # Cleanup — remove the listener(s). Best-effort: if this
+            # Cleanup — remove the listeners. Best-effort: if this
             # fails the listener leaks but the watcher thread is
             # dying anyway, and the 30 s TTL cache in ``recording.py``
             # covers missed notifications. Guarded with

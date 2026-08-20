@@ -236,7 +236,7 @@ class PynputHotkey(HotkeyBackend):
                 # Listener is healthy; reset the failure counter.
                 if self._watchdog_failure_count > 0:
                     log.info(
-                        "[HOTKEY] pynput listener recovered after %d failed restart(s)",
+                        "[HOTKEY] pynput listener recovered after %d failed restarts",
                         self._watchdog_failure_count,
                     )
                 self._watchdog_failure_count = 0
