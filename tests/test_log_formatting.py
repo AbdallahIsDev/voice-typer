@@ -302,6 +302,64 @@ def test_setup_logging_no_duplicate_stream_handlers_when_reinvoked(tmp_path: Pat
         reset()
 
 
+def test_winerror1_on_write_is_benign_and_silent(tmp_path: Path, monkeypatch) -> None:
+    """On a Windows console, ``write()`` itself can raise WinError 1
+    (ERROR_INVALID_FUNCTION) even though the data reached the OS — the
+    raise comes from the underlying flush.  This is benign and must be
+    silent: NO diagnostic, handler stays attached, later writes still
+    reach the stream."""
+    import errno
+
+    written: list[str] = []
+
+    class _WinConsoleStderr:
+        def isatty(self) -> bool:
+            return True
+
+        def reconfigure(self, **_kwargs) -> None:  # pragma: no cover - best-effort
+            pass
+
+        def write(self, s: str) -> None:
+            written.append(s)
+            # Mimic a console handle: the data WAS written but the
+            # internal flush raises ERROR_INVALID_FUNCTION.  Python maps
+            # WinError 1 to errno=EINVAL with winerror=1 (verified via
+            # ctypes.WinError(1): errno=22, winerror=1).
+            exc = OSError(errno.EINVAL, "Incorrect function")
+            exc.winerror = 1
+            raise exc
+
+        def flush(self) -> None:
+            exc = OSError(errno.EINVAL, "Incorrect function")
+            exc.winerror = 1
+            raise exc
+
+    broken = _WinConsoleStderr()
+    monkeypatch.setattr(sys, "stderr", broken)
+    reset()
+    config_dir = tmp_path / "cfg"
+    config_dir.mkdir()
+    try:
+        setup_logging(config_dir)
+        root = logging.getLogger("voice_typer")
+        stream = next(h for h in root.handlers if isinstance(h, _FlushingStreamHandler))
+
+        logger = logging.getLogger("voice_typer.server.log_formatting_test")
+        logger.info("first line")
+
+        assert not stream._flushed_once, "WinError 1 on write must NOT trip the broken-stream diagnostic"
+        assert stream in root.handlers, "handler must stay attached"
+        assert any("first line" in w for w in written), "line must reach the stream"
+
+        # Second record: still works, still silent.
+        logger.info("second line")
+        assert not stream._flushed_once
+        assert stream in root.handlers
+        assert any("second line" in w for w in written)
+    finally:
+        reset()
+
+
 def test_broken_console_stream_silently_swallowed(tmp_path: Path, monkeypatch) -> None:
     """A Windows console flush that raises WinError 1 (ERROR_INVALID_FUNCTION)
     is a benign, expected quirk — not actual degradation.  The handler must

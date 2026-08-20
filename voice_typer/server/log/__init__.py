@@ -800,18 +800,22 @@ def setup_logging(
         _ensure_last_resort_redacted(_pii_filter)
 
         # ── 4. Fix stderr encoding + flushing for Unicode ──────────────
-        # ``write_through=True`` guarantees every write immediately
-        # reaches the OS, bypassing Python's block buffering.  Without it,
-        # lines written to a console/pipe can sit in the buffer and only
-        # appear at process exit (a symptom users reported as "logs are
-        # cut / stale lines appear when I close").  ``errors=`` keeps the
-        # Windows console from dying on non-encodable Unicode.
+        # ``line_buffering=True`` flushes on every newline, so each log
+        # line reaches the OS immediately (no "cut logs / stale lines at
+        # exit").  NOTE: do NOT use ``write_through=True`` here — on a
+        # Windows console handle ``TextIOWrapper.write()`` internally
+        # flushes, and that internal flush raises ``ERROR_INVALID_FUNCTION``
+        # (WinError 1) even though the data was written.  That raise would
+        # surface as a spurious "console degraded" diagnostic on every
+        # launch.  ``line_buffering`` gives real-time output without the
+        # raise.  ``errors=`` keeps the Windows console from dying on
+        # non-encodable Unicode.
         if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
             with contextlib.suppress(OSError):
-                sys.stderr.reconfigure(errors="backslashreplace", write_through=True)
+                sys.stderr.reconfigure(errors="backslashreplace", line_buffering=True)
         if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
             with contextlib.suppress(OSError):
-                sys.stdout.reconfigure(errors="backslashreplace", write_through=True)
+                sys.stdout.reconfigure(errors="backslashreplace", line_buffering=True)
 
         # ── 5. Stderr stream handler ─────────────────────────────────────
         # always flush after each emit so terminal log lines appear
@@ -1050,18 +1054,31 @@ class _FlushingStreamHandler(logging.StreamHandler):
             # ``self.flush()`` inside its own try/except and routes a
             # flush exception (WinError 1 on Windows consoles) to
             # ``handleError``, which would emit a spurious "console
-            # degraded" diagnostic on every launch.  We flush ourselves
-            # (best-effort, suppressed) so the benign console quirk
-            # stays silent.
+            # degraded" diagnostic on every launch.
             self.stream.write(self.format(record) + self.terminator)
-            with contextlib.suppress(Exception):
-                self.flush()
+        except OSError as exc:
+            # On Windows, ``write()`` on a console handle with
+            # ``write_through=True`` or ``line_buffering=True`` can raise
+            # ``ERROR_INVALID_FUNCTION`` (WinError 1, winerror=1) even
+            # when the data WAS written — the raise comes from the
+            # underlying flush, not a lost write.  Treat WinError 1
+            # on Windows as benign (silent); any other OSError is a
+            # genuinely broken stream.
+            if os.name == "nt" and getattr(exc, "winerror", None) == 1:
+                return
+            self._handle_broken_stream()
+            return
         except Exception:
             # Only reach here when the WRITE itself failed — a genuinely
             # broken stream (closed fd, EPIPE, etc.).  Emit one
             # diagnostic and keep the handler alive so later writes
             # still reach the buffer.
             self._handle_broken_stream()
+            return
+        # Best-effort: with ``line_buffering=True`` each newline already
+        # flushes; this is belt-and-suspenders and never raised.
+        with contextlib.suppress(Exception):
+            self.flush()
 
     def handleError(self, record: logging.LogRecord) -> None:  # noqa: N802 — override of logging.Handler.handleError
         # Safety net: log once, never detach, never spam.
