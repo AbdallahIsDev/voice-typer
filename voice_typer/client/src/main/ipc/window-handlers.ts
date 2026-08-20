@@ -27,6 +27,7 @@
  * index.
  */
 import fs from "node:fs";
+import path from "node:path";
 import { dialog, ipcMain, shell } from "electron";
 import { mainT } from "../i18n";
 import { appendLogLine, logger, rendererErrorsLogPath } from "../logging";
@@ -148,7 +149,7 @@ export function registerWindowHandlers(): void {
 	// Support/voice-typer on macOS), and (b) called `fs.mkdirSync(logDir,
 	// { recursive: true })` which CREATED a stray `~/.voice-typer`
 	// directory on every fresh install. Now we resolve the log
-	// directory via `computeConfigDir()` (mirrors
+	// directory via `computeConfigDir()` + `/logs` (mirrors
 	// `voice_typer/server/config.py:_config_dir()` and
 	// `bootstrap.ts::setupUserData()`), and we NO LONGER create the
 	// directory — the Python backend creates it on its own startup.
@@ -162,7 +163,8 @@ export function registerWindowHandlers(): void {
 	ipcMain.removeHandler?.(WindowChannels.openLogs);
 	ipcMain.handle(WindowChannels.openLogs, async () => {
 		try {
-			const logDir = computeConfigDir();
+			// O1: the logs live under `<config-dir>/logs`.
+			const logDir = path.join(computeConfigDir(), "logs");
 			const stat = fs.statSync(logDir, { throwIfNoEntry: false });
 			if (!stat?.isDirectory()) {
 				return { success: false, error: "log directory not found" };

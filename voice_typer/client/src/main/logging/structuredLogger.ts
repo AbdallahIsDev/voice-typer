@@ -6,14 +6,14 @@
  *
  *   - `logger` — message-first API:
  *     `logger.info("TCP connected", { port: 7001 })`. Writes to
- *     `<userData>/electron-main.log` with 5 MiB rotation. DEBUG is
+ *     `<config-dir>/logs/electron-main.log` with 5 MiB rotation. DEBUG is
  *     dev-only (gated by `!app.isPackaged`). INFO is dev-only in file
  *     output by default (production writes only WARN/ERROR to file).
  *     Set `VOICE_TYPER_ELECTRON_INFO_LOG=1` to opt in to production INFO
  *     persistence (routes to `electron-lifecycle.log`).
- *   - `mainLogPath()` — resolves `<userData>/electron-main.log`.
+ *   - `mainLogPath()` — resolves `<config-dir>/logs/electron-main.log`.
  *   - `rendererErrorsLogPath()` — resolves
- *     `<userData>/electron-renderer-errors.log` (consumed by the
+ *     `<config-dir>/logs/electron-renderer-errors.log` (consumed by the
  *     main-window `console-message` handler via `window-handlers.ts`).
  *   - `lifecycleLogPath()` + `appendLifecycleLine()` — the opt-in
  *     INFO persistence target (1 MiB × 1 backup).
@@ -23,12 +23,14 @@
  *   - `formatLine` — local helper that renders a file-friendly line
  *     (ISO-8601 timestamp + level tag + JSON-stringified args).
  *
- * Imports: `path`, Electron's `app`, and `appendLogLine` from
- * `./rotation`.
+ * Imports: `path`, Electron's `app` (for `isPackaged` gating),
+ * `computeConfigDir` from `../config-dir`, and
+ * `appendLogLine` from `./rotation`.
  */
 import path from "node:path";
 import { app } from "electron";
 
+import { computeConfigDir } from "../config-dir";
 import { appendLogLine, recordLoggingFailure, redactPii } from "./rotation";
 
 // Opt-in INFO persistence for support/enterprise deployments.
@@ -92,16 +94,16 @@ export function _setSessionIdForTest(id: string | undefined): void {
 	_sessionId = id;
 }
 
-// ─── Memoized `<userData>/<filename>` resolver ────────────────────
+// ─── Memoized `<config-dir>/logs/<filename>` resolver ────────────────────
 //
 // Mirror the `getRuntimeLogPath()` pattern in `./printfLogger.ts`:
-// `app.getPath("userData")` is non-trivial (Electron lazy-loads its
-// `app` module and `getPath` does a platform-specific dir computation),
-// but the result is stable for the process lifetime — `setupUserData()`
-// in `bootstrap.ts` runs exactly once at startup BEFORE any `logger.*`
-// call could fire. Caching the resolved path eliminates the per-
-// `logger.warn` / `logger.error` round-trip (previously every WARN/ERROR
-// line re-resolved `mainLogPath()` via `app.getPath`).
+// `computeConfigDir()` is non-trivial (platform-specific dir computation
+// + legacy `~/.voice-typer` probe), but the result is stable for the
+// process lifetime — the config dir never moves after
+// `bootstrapRuntime()`'s `setupUserData()` step. Caching the resolved
+// path eliminates the per-`logger.warn` / `logger.error` round-trip
+// (previously every WARN/ERROR line re-resolved `mainLogPath()` via
+// `app.getPath`).
 //
 // Previously three near-identical resolvers (`mainLogPath` /
 // `lifecycleLogPath` / `rendererErrorsLogPath`) each carried their own
@@ -111,20 +113,19 @@ export function _setSessionIdForTest(id: string | undefined): void {
 // into a single `Map<string, string>` keyed by filename, with one
 // shared `memoizeUserDataPath(filename)` helper. Per-filename cache
 // keys preserve the test contract that each resolver triggers
-// `app.getPath` exactly once on its first call (independent memoization
+// resolution exactly once on its first call (independent memoization
 // — see `log-path-memoization.test.ts`).
 //
 // The cache uses `undefined` as the "not yet computed" sentinel (via
 // `Map.get` returning `undefined` on miss). On the first call, the
-// path is resolved (with a `process.cwd()` fallback if Electron is
-// unavailable, mirroring `getRuntimeLogPath`'s `?? process.cwd()`
-// nullish-coalesce AND its try/catch — preserving the existing
-// `string` return type so callers like `appendLogLine` don't need to
-// handle `string | null`). Subsequent calls return the cached value
-// without touching `app.getPath` again.
+// path is resolved (with a `process.cwd()` fallback if config-dir
+// resolution fails, mirroring `getRuntimeLogPath`'s try/catch —
+// preserving the existing `string` return type so callers like
+// `appendLogLine` don't need to handle `string | null`). Subsequent
+// calls return the cached value without re-touching `computeConfigDir`.
 //
 // `_resetMainLogPathForTest()` clears the cache so unit tests can
-// re-resolve after swapping the Electron mock (matches the
+// re-resolve after swapping the config-dir mock (matches the
 // `_resetRuntimeLogPathForTest()` convention in printfLogger — same
 // name shape, same "one reset covers the module's memoization state"
 // ergonomics). The legacy name is preserved so existing test imports
@@ -132,29 +133,29 @@ export function _setSessionIdForTest(id: string | undefined): void {
 const _userDataPathCache = new Map<string, string>();
 
 /**
- * Resolve `<userData>/<filename>` with memoization keyed by filename.
+ * Resolve `<config-dir>/logs/<filename>` with memoization keyed by filename.
  * Used by `mainLogPath` / `lifecycleLogPath` / `rendererErrorsLogPath`
  * so the three resolvers share one cache + one resolution body instead
  * of three near-identical copies. Each filename gets its own cache
  * entry, so the three resolvers memoize independently — calling
  * `mainLogPath()` does NOT pre-populate `lifecycleLogPath()`'s slot.
  *
- * First call per filename resolves via `app.getPath("userData")`;
+ * First call per filename resolves via `computeConfigDir()` + `/logs`;
  * subsequent calls return the cached value without re-touching
- * Electron. If `app.getPath` throws (Electron unavailable in a
- * degenerate test environment), the fallback is
- * `path.join(process.cwd(), filename)` — cached so subsequent calls
- * don't re-attempt.
+ * config-dir resolution. If `computeConfigDir` throws (degenerate
+ * environment), the fallback is
+ * `path.join(process.cwd(), "logs", filename)` — cached so subsequent
+ * calls don't re-attempt.
  */
 function memoizeUserDataPath(filename: string): string {
 	const cached = _userDataPathCache.get(filename);
 	if (cached !== undefined) return cached;
 	let resolved: string;
 	try {
-		const userDataDir = app?.getPath?.("userData") ?? process.cwd();
-		resolved = path.join(userDataDir, filename);
+		const logsDir = path.join(computeConfigDir(), "logs");
+		resolved = path.join(logsDir, filename);
 	} catch {
-		resolved = path.join(process.cwd(), filename);
+		resolved = path.join(process.cwd(), "logs", filename);
 	}
 	_userDataPathCache.set(filename, resolved);
 	return resolved;
@@ -163,12 +164,12 @@ function memoizeUserDataPath(filename: string): string {
 /**
  * Test seam: clear the memoized `mainLogPath` / `lifecycleLogPath` /
  * `rendererErrorsLogPath` slots so the next call to each re-resolves
- * via `app.getPath("userData")`. Exported (not in the public barrel)
- * so unit tests can assert memoization behavior — call counts on the
- * `electron` mock's `app.getPath`, cache-hit return values, and the
+ * via `computeConfigDir()` + `/logs`. Exported (not in the public
+ * barrel) so unit tests can assert memoization behavior — call counts
+ * on the `computeConfigDir` mock, cache-hit return values, and the
  * `_resetMainLogPathForTest()` → re-resolve cycle. Production code
  * must NOT call this — the paths are intended to memoize for the
- * process lifetime (the userData dir does not move after
+ * process lifetime (the config dir does not move after
  * `bootstrapRuntime()`'s `setupUserData()` step).
  */
 export function _resetMainLogPathForTest(): void {
@@ -177,9 +178,9 @@ export function _resetMainLogPathForTest(): void {
 
 /**
  * Resolve the path to `electron-lifecycle.log` under the Electron
- * userData dir. Kept separate from `mainLogPath` so the opt-in
- * INFO stream never competes with the WARN/ERROR stream for the 5 MiB
- * `electron-main.log` rotation window.
+ * config-dir `logs/` subdir. Kept separate from `mainLogPath` so the
+ * opt-in INFO stream never competes with the WARN/ERROR stream for the
+ * 5 MiB `electron-main.log` rotation window.
  */
 export function lifecycleLogPath(): string {
 	return memoizeUserDataPath("electron-lifecycle.log");
@@ -309,7 +310,8 @@ function formatLine(level: Level, msg: string, args: unknown[]): string {
 }
 
 /**
- * Resolve the path to `electron-main.log` under the Electron userData dir.
+ * Resolve the path to `electron-main.log` under the config-dir
+ * `logs/` subdir.
  *
  * Originally module-private in `main/logging.ts` ("verified zero external
  * importers — only used internally by `logger.warn` / `logger.error` /
@@ -319,10 +321,10 @@ function formatLine(level: Level, msg: string, args: unknown[]): string {
  *
  * Memoized for the process lifetime (see the block comment on
  * `_mainLogPath` above). The first call resolves via
- * `app.getPath("userData")`; subsequent calls return the cached value
- * without re-touching Electron. If `app.getPath` throws (Electron
- * unavailable in a degenerate test environment), the fallback is
- * `path.join(process.cwd(), "electron-main.log")` — cached so
+ * `computeConfigDir()` + `/logs`; subsequent calls return the cached
+ * value without re-touching config-dir resolution. If resolution throws
+ * (degenerate environment), the fallback is
+ * `path.join(process.cwd(), "logs", "electron-main.log")` — cached so
  * subsequent calls don't re-attempt.
  */
 export function mainLogPath(): string {
@@ -330,18 +332,18 @@ export function mainLogPath(): string {
 }
 
 /**
- * Resolve the path to `electron-renderer-errors.log` under the Electron
- * userData dir. The main-window `console-message` handler
+ * Resolve the path to `electron-renderer-errors.log` under the
+ * config-dir `logs/` subdir. The main-window `console-message` handler
  * appends level>=3 (ERROR) renderer messages to this file so support
  * staff can see renderer crashes without fishing through DevTools.
  *
  * Memoized for the process lifetime (see the block comment on
  * `_mainLogPath` above). The first call resolves via
- * `app.getPath("userData")`; subsequent calls return the cached value
- * without re-touching Electron. If `app.getPath` throws (Electron
- * unavailable in a degenerate test environment), the fallback is
- * `path.join(process.cwd(), "electron-renderer-errors.log")` — cached
- * so subsequent calls don't re-attempt.
+ * `computeConfigDir()` + `/logs`; subsequent calls return the cached
+ * value without re-touching config-dir resolution. If resolution throws
+ * (degenerate environment), the fallback is
+ * `path.join(process.cwd(), "logs", "electron-renderer-errors.log")` —
+ * cached so subsequent calls don't re-attempt.
  */
 export function rendererErrorsLogPath(): string {
 	return memoizeUserDataPath("electron-renderer-errors.log");

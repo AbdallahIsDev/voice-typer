@@ -1919,7 +1919,7 @@
 			"xrun_warning_title": "{appName}",
 			"xrun_warning_body": "检测到音频缓冲区溢出。请尝试更大的缓冲区大小。",
 			"cancelled_timeout": "转录耗时过长，已取消。\n按 {hotkey} 重试。",
-			"start_failed": "无法开始录音。\n请查看 voice-typer.log 中的回溯信息。",
+			"start_failed": "无法开始录音。\n请查看 logs/voice-typer.log 中的回溯信息。",
 			"stop_failed": "无法停止录音。",
 			"silence_warning": "未检测到音频。请检查麦克风是否已连接并正常工作。",
 			"consent_required": "开始录音需要语音生物识别同意。\n请在 设置 > 隐私 > 语音生物识别同意 中启用。",

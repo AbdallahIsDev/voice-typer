@@ -43,20 +43,29 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mock `electron` — `app.getPath` returns a deterministic tmp path so
-// the lifecycle log path is stable across runs; `app.isPackaged` is
-// `false` so the dev-mode `electron-main.log` write fires (this lets
-// the "env unset" test verify that ONLY the lifecycle log is skipped,
-// not the entire file-write path).
+// Mock `electron` — `app.isPackaged` is `false` so the dev-mode
+// `electron-main.log` write fires (this lets the "env unset" test
+// verify that ONLY the lifecycle log is skipped, not the entire
+// file-write path).
 vi.mock("electron", () => ({
 	app: {
-		getPath: () => "/tmp/vt-yj-3-test-userdata",
 		isPackaged: false,
 	},
 }));
 
+// O1: log paths resolve via the dependency-free `computeConfigDir`
+// leaf + `/logs` (NOT `app.getPath("userData")` anymore).
 const MOCK_USERDATA = "/tmp/vt-yj-3-test-userdata";
-const LIFECYCLE_LOG_PATH = path.join(MOCK_USERDATA, "electron-lifecycle.log");
+
+vi.mock("../config-dir", () => ({
+	computeConfigDir: () => MOCK_USERDATA,
+}));
+
+const LIFECYCLE_LOG_PATH = path.join(
+	MOCK_USERDATA,
+	"logs",
+	"electron-lifecycle.log",
+);
 
 /**
  * Dynamically import `logging.ts` AFTER setting the env var, so the

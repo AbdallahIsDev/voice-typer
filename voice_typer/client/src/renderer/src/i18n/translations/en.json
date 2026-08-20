@@ -1919,7 +1919,7 @@
 			"xrun_warning_title": "{appName}",
 			"xrun_warning_body": "Audio buffer overflow detected. Try a higher buffer size.",
 			"cancelled_timeout": "Transcription took too long and was cancelled.\nPress {hotkey} to try again.",
-			"start_failed": "Could not start recording.\nCheck voice-typer.log for traceback.",
+			"start_failed": "Could not start recording.\nCheck logs/voice-typer.log for traceback.",
 			"stop_failed": "Could not stop recording.",
 			"silence_warning": "No audio detected. Check your microphone is connected and working.",
 			"consent_required": "Voice biometric consent is required to start recording.\nEnable it in Settings > Privacy > Voice Biometric Consent.",

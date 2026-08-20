@@ -1919,7 +1919,7 @@
 			"xrun_warning_title": "{appName}",
 			"xrun_warning_body": "Audio-Pufferüberlauf erkannt. Versuche eine höhere Puffergröße.",
 			"cancelled_timeout": "Die Transkription hat zu lange gedauert und wurde abgebrochen.\nDrücken Sie {hotkey}, um es erneut zu versuchen.",
-			"start_failed": "Aufnahme konnte nicht gestartet werden.\nSiehe voice-typer.log für die Fehlermeldung.",
+			"start_failed": "Aufnahme konnte nicht gestartet werden.\nSiehe logs/voice-typer.log für die Fehlermeldung.",
 			"stop_failed": "Aufnahme konnte nicht gestoppt werden.",
 			"silence_warning": "Kein Audio erkannt. Prüfen Sie, ob Ihr Mikrofon angeschlossen und funktionsfähig ist.",
 			"consent_required": "Die Zustimmung zur Stimmbiometrie ist erforderlich, um die Aufnahme zu starten.\nAktiviere sie unter Einstellungen > Datenschutz > Zustimmung zur Stimmbiometrie.",

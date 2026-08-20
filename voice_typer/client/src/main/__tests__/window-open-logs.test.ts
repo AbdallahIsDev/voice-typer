@@ -7,6 +7,7 @@
  * and that it NO LONGER creates the directory as a side effect.
  */
 import fs from "node:fs";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // R6-F10 note: vitest 4 hoists `vi.mock()` above all top-level statements.
@@ -50,19 +51,23 @@ vi.mock("../state", () => ({
 
 const mkdirSpy = vi.spyOn(fs, "mkdirSync");
 // Mock fs.statSync so the handler's directory-validation guard
-// (added in the directory-validation guard) sees a valid directory at COMPUTED_DIR. Without
-// this mock, statSync returns undefined for the fake path and the
-// handler short-circuits with "log directory not found".
+// sees a valid directory at LOGS_DIR (the O1 `<config-dir>/logs`
+// path). Without this mock, statSync returns undefined for the
+// fake path and the handler short-circuits with "log directory
+// not found".
 const statSyncSpy = vi.spyOn(fs, "statSync").mockImplementation(((
 	filePath: fs.PathOrFileDescriptor,
 ) => {
-	if (typeof filePath === "string" && filePath === COMPUTED_DIR) {
+	if (typeof filePath === "string" && filePath === LOGS_DIR) {
 		return { isDirectory: () => true } as fs.Stats;
 	}
 	return { isDirectory: () => false } as fs.Stats;
 }) as unknown as typeof fs.statSync);
 
 const COMPUTED_DIR = "/mock/config/dir/voice-typer";
+// Use path.join so the mock matches whatever separator the handler's
+// `path.join(computeConfigDir(), "logs")` produces on this platform.
+const LOGS_DIR = path.join(COMPUTED_DIR, "logs");
 
 describe("CR-33: window:open-logs handler", () => {
 	let openLogsHandler: () => Promise<unknown>;
@@ -76,7 +81,7 @@ describe("CR-33: window:open-logs handler", () => {
 		// the implementation we set with mockImplementation persists; this is
 		// defensive in case a future vitest version changes that behavior).
 		statSyncSpy.mockImplementation(((filePath: fs.PathOrFileDescriptor) => {
-			if (typeof filePath === "string" && filePath === COMPUTED_DIR) {
+			if (typeof filePath === "string" && filePath === LOGS_DIR) {
 				return { isDirectory: () => true } as fs.Stats;
 			}
 			return { isDirectory: () => false } as fs.Stats;
@@ -92,11 +97,11 @@ describe("CR-33: window:open-logs handler", () => {
 		openLogsHandler = call[1] as () => Promise<unknown>;
 	});
 
-	it("resolves the log dir via computeConfigDir (NOT ~/.voice-typer)", async () => {
+	it("resolves the log dir via computeConfigDir()/logs (NOT ~/.voice-typer)", async () => {
 		await openLogsHandler();
 		expect(mocks.computeConfigDir).toHaveBeenCalledTimes(1);
 		const passedPath = mocks.shellOpenPath.mock.calls[0]?.[0];
-		expect(passedPath).toBe(COMPUTED_DIR);
+		expect(passedPath).toBe(LOGS_DIR);
 		// Sanity: the legacy hardcoded path must NOT appear.
 		expect(passedPath).not.toMatch(/\.voice-typer$/);
 	});

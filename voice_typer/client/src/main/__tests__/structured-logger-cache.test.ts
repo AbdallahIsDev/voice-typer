@@ -43,19 +43,28 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mock `electron` so `app.getPath("userData")` returns a deterministic
-// tmp path and `app.isPackaged` returns `false` so the dev-mode
-// `electron-main.log` write fires (irrelevant to this test, but
-// required for the structuredLogger module to load without error).
+// Mock `electron` so `app.isPackaged` returns `false` (irrelevant to
+// this test, but required for the structuredLogger module to load
+// without error).
 vi.mock("electron", () => ({
 	app: {
-		getPath: () => "/tmp/vt-dj-50-test-userdata",
 		isPackaged: false,
 	},
 }));
 
+// O1: log paths resolve via the dependency-free `computeConfigDir`
+// leaf + `/logs` (NOT `app.getPath("userData")` anymore).
 const MOCK_USERDATA = "/tmp/vt-dj-50-test-userdata";
-const LIFECYCLE_LOG_PATH = path.join(MOCK_USERDATA, "electron-lifecycle.log");
+
+vi.mock("../config-dir", () => ({
+	computeConfigDir: () => MOCK_USERDATA,
+}));
+
+const LIFECYCLE_LOG_PATH = path.join(
+	MOCK_USERDATA,
+	"logs",
+	"electron-lifecycle.log",
+);
 
 // Track calls to the mocked `appendLogLine`. The mock implementation
 // is a no-op (does not touch the filesystem) so the test can assert

@@ -1919,7 +1919,7 @@
 			"xrun_warning_title": "{appName}",
 			"xrun_warning_body": "Se detectó un desbordamiento del búfer de audio. Prueba con un tamaño de búfer mayor.",
 			"cancelled_timeout": "La transcripción tardó demasiado y se canceló.\nPulse {hotkey} para reintentar.",
-			"start_failed": "No se pudo iniciar la grabación.\nConsulte voice-typer.log para ver el rastreo.",
+			"start_failed": "No se pudo iniciar la grabación.\nConsulte logs/voice-typer.log para ver el rastreo.",
 			"stop_failed": "No se pudo detener la grabación.",
 			"silence_warning": "No se detectó audio. Compruebe que el micrófono esté conectado y funcionando.",
 			"consent_required": "Se requiere el consentimiento de biometría de voz para iniciar la grabación.\nActívalo en Configuración > Privacidad > Consentimiento de biometría de voz.",

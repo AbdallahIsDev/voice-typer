@@ -9,6 +9,7 @@
  * Per-path "perms verified" cache + deferred truncation via setImmediate.
  */
 import fs from "node:fs";
+import path from "node:path";
 
 import { ANSI_ENABLED_FLAG, DIM, RESET } from "./colors";
 import {
@@ -415,6 +416,12 @@ export function appendLogLine(
 				}
 			});
 		}
+		// O1: ensure the logs directory exists (the Python backend
+		// creates `<config-dir>/logs` at its startup, but Electron may
+		// write earlier — e.g. crash-loop lines before Python boots).
+		// Best-effort; a failure here falls through to the catch below
+		// which surfaces the append failure instead of masking it.
+		fs.mkdirSync(path.dirname(filePath), { recursive: true });
 		fs.appendFileSync(filePath, line, { flag: "a", mode: 0o600 });
 		// Skip chmod if already verified for this path.
 		if (!_permsVerified.has(filePath)) {

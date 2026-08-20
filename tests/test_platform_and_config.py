@@ -219,15 +219,25 @@ class TestElectronUserDataPathMatchesConfigDir:
 
     def test_main_mirrors_python_config_dir_logic(self):
         # REF-2 split: the config-dir resolver moved to single_instance.ts
-        # (computeConfigDir mirrors Python's _config_dir).
+        # (computeConfigDir mirrors Python's _config_dir), then extracted
+        # into the dependency-free leaf `config-dir.ts` during the O1
+        # logs → logs/ migration (so the logging package can consume it
+        # without a circular import). single_instance.ts still re-exports
+        # it, but the resolver logic + its marker tokens live in the leaf.
+        config_dir_ts = (REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "config-dir.ts").read_text(
+            encoding="utf-8"
+        )
+        assert "VOICE_TYPER_CONFIG_DIR" in config_dir_ts
+        assert ".voice-typer" in config_dir_ts
+        assert "APPDATA" in config_dir_ts
+        assert "Application Support" in config_dir_ts
+        assert "XDG_DATA_HOME" in config_dir_ts
+        # The re-export seam must stay intact so existing importers of
+        # `computeConfigDir` from `./single_instance` keep working.
         single_instance_ts = (REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "single_instance.ts").read_text(
             encoding="utf-8"
         )
-        assert "VOICE_TYPER_CONFIG_DIR" in single_instance_ts
-        assert ".voice-typer" in single_instance_ts
-        assert "APPDATA" in single_instance_ts
-        assert "Application Support" in single_instance_ts
-        assert "XDG_DATA_HOME" in single_instance_ts
+        assert 'export { computeConfigDir } from "./config-dir"' in single_instance_ts
 
     def test_gitignore_does_not_ignore_scripts_build(self):
         gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
@@ -373,6 +383,7 @@ class TestConsoleHandlerPythonw:
         # Must not raise and must not install a console handler.
         signal_handlers.install_win32_console_handler(_FakeController())
         assert not hasattr(_FakeController._app, "_console_handler")
+
     test_skipped_on_pythonw = pytest.mark.skipif(
         sys.platform != "win32",
         reason=(

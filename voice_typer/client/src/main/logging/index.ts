@@ -51,12 +51,17 @@
  * The cross-file imports between the split modules form a DAG
  * (no cycles):
  *
- *     colors ←─────── rotation
- *     constants ←──── rotation
- *     fileSizeCache ← rotation
- *     rotation ←───── structuredLogger
- *     rotation ←───── printfLogger
- *     structuredLogger ← printfLogger  (PERSIST_INFO + appendLifecycleLine)
+ *     colors ������ rotation
+ *     constants ��� rotation
+ *     fileSizeCache  rotation
+ *     rotation ������ structuredLogger
+ *     rotation ������ printfLogger
+ *     structuredLogger  printfLogger  (PERSIST_INFO + appendLifecycleLine)
+ *
+ * The log-path resolvers import `computeConfigDir` from the
+ * dependency-free `../config-dir` leaf (NOT from `../single_instance` —
+ * that would create a cycle, since `single_instance.ts` imports `log`
+ * from this barrel).
  */
 
 // Colors (leaf). Only the colors that have an external importer

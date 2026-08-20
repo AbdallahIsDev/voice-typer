@@ -56,6 +56,12 @@ const electronMocks = vi.hoisted(() => ({
 	),
 }));
 
+const configDirMocks = vi.hoisted(() => ({
+	computeConfigDir: vi.fn(
+		() => "/tmp/vt-bootstrap-error-handler-fixes-userdata",
+	),
+}));
+
 vi.mock("electron", () => ({
 	app: {
 		getPath: electronMocks.electronGetPathSpy,
@@ -90,6 +96,13 @@ vi.mock("../single_instance", () => ({
 	clearElectronPidFile: vi.fn(),
 }));
 
+// Mock the dependency-free `./config-dir` leaf — the logging package
+// resolves log paths via `computeConfigDir` (O1 logs → logs/), so the
+// getRuntimeLogPath memoization tests assert against this mock.
+vi.mock("../config-dir", () => ({
+	computeConfigDir: configDirMocks.computeConfigDir,
+}));
+
 // Mock `./state` — `bootstrap.ts` reads `state.sessionNonce`.
 vi.mock("../state", () => ({
 	state: { sessionNonce: "" },
@@ -115,7 +128,10 @@ describe("ER-63: getRuntimeLogPath is memoized", () => {
 	beforeEach(() => {
 		// Start each test with a clean cache + a fresh spy.
 		_resetRuntimeLogPathForTest();
-		electronMocks.electronGetPathSpy.mockClear();
+		configDirMocks.computeConfigDir.mockClear();
+		configDirMocks.computeConfigDir.mockImplementation(
+			() => "/tmp/vt-bootstrap-error-handler-fixes-userdata",
+		);
 	});
 
 	afterEach(() => {
@@ -132,53 +148,51 @@ describe("ER-63: getRuntimeLogPath is memoized", () => {
 		expect(a).toBe(b);
 		expect(b).toBe(c);
 		// Sanity: the returned path is a real string ending in
-		// `electron-runtime.log` (the file-tee target). Built with
-		// path.join so the expectation matches the platform's
-		// separator (the mocked `app.getPath` returns a POSIX-style
-		// dir, but path.join on Windows emits backslashes).
+		// `electron-runtime.log` (the file-tee target), under the
+		// `<config-dir>/logs/` subdir. Built with path.join so the
+		// expectation matches the platform's separator (the mocked
+		// `computeConfigDir` returns a POSIX-style dir, but path.join
+		// on Windows emits backslashes).
 		expect(a).toBe(
 			path.join(
 				"/tmp/vt-bootstrap-error-handler-fixes-userdata",
+				"logs",
 				"electron-runtime.log",
 			),
 		);
 	});
 
-	it("calls require('electron') (via app.getPath) exactly once across N calls", () => {
+	it("calls computeConfigDir exactly once across N calls", () => {
 		// 5 calls — without memoization each would re-resolve the
-		// path; with memoization only the first hits `app.getPath`.
+		// path; with memoization only the first hits
+		// `computeConfigDir`.
 		_getRuntimeLogPathForTest();
 		_getRuntimeLogPathForTest();
 		_getRuntimeLogPathForTest();
 		_getRuntimeLogPathForTest();
 		_getRuntimeLogPathForTest();
-		expect(electronMocks.electronGetPathSpy).toHaveBeenCalledTimes(1);
+		expect(configDirMocks.computeConfigDir).toHaveBeenCalledTimes(1);
 	});
 
 	it("re-resolves after _resetRuntimeLogPathForTest() clears the cache", () => {
 		_getRuntimeLogPathForTest();
-		expect(electronMocks.electronGetPathSpy).toHaveBeenCalledTimes(1);
+		expect(configDirMocks.computeConfigDir).toHaveBeenCalledTimes(1);
 		_getRuntimeLogPathForTest();
 		// Still cached — no new call.
-		expect(electronMocks.electronGetPathSpy).toHaveBeenCalledTimes(1);
+		expect(configDirMocks.computeConfigDir).toHaveBeenCalledTimes(1);
 		_resetRuntimeLogPathForTest();
 		_getRuntimeLogPathForTest();
 		// Cache cleared → one new call.
-		expect(electronMocks.electronGetPathSpy).toHaveBeenCalledTimes(2);
+		expect(configDirMocks.computeConfigDir).toHaveBeenCalledTimes(2);
 	});
 
-	it("caches `null` when Electron is unavailable (no re-attempt on every call)", () => {
-		// Simulate Electron being unavailable by making
-		// `app.getPath` throw — the lazy `require("electron")`
-		// resolves to our mock, but the spy's throw makes the
-		// `electron?.app?.getPath?.(...)` short-circuit land in
-		// the `catch` branch (because `??` falls back to
-		// process.cwd only when the chain returns nullish, not
-		// when it throws). To exercise the catch branch, we
-		// make the spy throw.
+	it("caches `null` when config-dir resolution fails (no re-attempt on every call)", () => {
+		// Simulate config-dir resolution failing by making
+		// `computeConfigDir` throw — the try/catch branch lands in
+		// the `catch` branch, caching `null`.
 		_resetRuntimeLogPathForTest();
-		electronMocks.electronGetPathSpy.mockImplementationOnce(() => {
-			throw new Error("electron not available in this test");
+		configDirMocks.computeConfigDir.mockImplementationOnce(() => {
+			throw new Error("config-dir resolution failed in this test");
 		});
 		const first = _getRuntimeLogPathForTest();
 		expect(first).toBeNull();
@@ -189,7 +203,7 @@ describe("ER-63: getRuntimeLogPath is memoized", () => {
 		expect(second).toBeNull();
 		expect(third).toBeNull();
 		// The spy was called exactly once (the failed attempt).
-		expect(electronMocks.electronGetPathSpy).toHaveBeenCalledTimes(1);
+		expect(configDirMocks.computeConfigDir).toHaveBeenCalledTimes(1);
 	});
 });
 

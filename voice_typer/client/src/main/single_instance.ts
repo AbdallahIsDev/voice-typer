@@ -2,8 +2,11 @@
  * Single-instance gate + stale-lock recovery.
  *
  * Extracted from `index.ts` (REF-2). Owns:
- *   - `computeConfigDir()` — shared config-directory resolver (mirrors
- *     the Python backend's `_config_dir()` in `voice_typer/server/config.py`).
+ *   - `computeConfigDir()` — re-exported from `./config-dir` (the
+ *     dependency-free leaf it was extracted into during the O1 logs →
+ *     logs/ migration; see its module docstring). Re-exported here so
+ *     all existing `from "../single_instance"` import sites keep
+ *     working without churn.
  *   - `electronPidFile()` / `writeElectronPidFile()` / `clearElectronPidFile()`
  *     / `readStaleElectronPid()` — PID-file management for stale-lock
  *     detection.
@@ -15,52 +18,15 @@
  */
 import { execSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { app } from "electron";
+import { computeConfigDir } from "./config-dir";
 import { log } from "./logging";
 import { showMainWindow } from "./windows";
 
-/**
- * Compute the config dir the same way `app.whenReady()` does so the
- * `electron.pid` file lives alongside the `backend.pid` file written by
- * Python.
- *
- * Mirrors `_config_dir()` in `voice_typer/server/config.py`:
- *   1. `VOICE_TYPER_CONFIG_DIR` env var (if set)
- *   2. Legacy `~/.voice-typer` (if it exists — migration path)
- *   3. Platform-appropriate path (`%APPDATA%/voice-typer` on Windows,
- *      `~/Library/Application Support/voice-typer` on macOS,
- *      `$XDG_DATA_HOME/voice-typer` on Linux)
- */
-export function computeConfigDir(): string {
-	const envOverride = process.env.VOICE_TYPER_CONFIG_DIR;
-	if (envOverride) return envOverride;
-	const legacy = path.join(os.homedir(), ".voice-typer");
-	try {
-		if (fs.existsSync(legacy)) return legacy;
-	} catch (e) {
-		// ignore — fs.existsSync may throw on permission denied or
-		// if the homedir is unreachable. Fall through to the
-		// platform-appropriate default path below.
-		log.warn("[single_instance] legacy config dir probe failed:", e);
-	}
-	if (process.platform === "win32") {
-		return path.join(process.env.APPDATA || os.homedir(), "voice-typer");
-	}
-	if (process.platform === "darwin") {
-		return path.join(
-			os.homedir(),
-			"Library",
-			"Application Support",
-			"voice-typer",
-		);
-	}
-	return path.join(
-		process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"),
-		"voice-typer",
-	);
-}
+// Re-export so existing importers of `computeConfigDir` from
+// `./single_instance` keep working after the O1 extraction.
+export { computeConfigDir } from "./config-dir";
 
 export function electronPidFile(): string {
 	return path.join(computeConfigDir(), "electron.pid");

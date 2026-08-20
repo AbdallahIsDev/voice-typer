@@ -7,11 +7,10 @@
  *   - `log` — printf-style API:
  *     `log.info("[BUBBLE] creating window at", x, y)`. Routes through
  *     colored stdout (ANSI `[INFO]`/`[WARN]`/`[ERROR]` prefixes) and
- *     tees WARN/ERROR to `<userData>/electron-runtime.log` with 5 MiB
- *     rotation. Uses the top-level `import { app } from "electron"`
- *     (the previous lazy-`require` was dead code; the ESM
- *     import already forces the module to resolve at load time, so
- *     tests must mock `electron` via `vi.mock`).
+ *     tees WARN/ERROR to `<config-dir>/logs/electron-runtime.log` with 5 MiB
+ *     rotation. Uses the dependency-free `computeConfigDir()` leaf
+ *     (extracted from `single_instance.ts` so the logging package
+ *     stays cycle-free).
  *   - `LogShape` — the public type of the `log` object (consumed by
  *     tests + type-only importers).
  *   - `getRuntimeLogPath()` — memoized resolver for
@@ -34,16 +33,16 @@
  *     (appends WARN/ERROR to `electron-runtime.log` via
  *     `appendLogLine`). Accepts a pre-formatted args string.
  *
- * Imports: `path`, Electron's `app`, the color constants
- * (`INFO_CLR` / `WARN_CLR` / `ERROR_CLR` / `RESET`), the
+ * Imports: `path`, `computeConfigDir` from `../config-dir`, the color
+ * constants (`INFO_CLR` / `WARN_CLR` / `ERROR_CLR` / `RESET`), the
  * `RUNTIME_LOG_MAX_BYTES` cap, `ts` + `appendLogLine` from
  * `./rotation`, and `PERSIST_INFO` + `appendLifecycleLine` from
  * `./structuredLogger` (so the printf-style `log.info` can mirror the
  * opt-in INFO persistence wired up on `logger.info`).
  */
 import path from "node:path";
-import { app } from "electron";
 
+import { computeConfigDir } from "../config-dir";
 import { DIM, ERROR_CLR, INFO_CLR, RESET, WARN_CLR } from "./colors";
 import { RUNTIME_LOG_MAX_BYTES } from "./constants";
 import { appendLogLine, redactPii, ts } from "./rotation";
@@ -62,65 +61,51 @@ export type LogShape = {
 };
 
 /**
- * Resolve the path to `electron-runtime.log`. Uses the top-level
- * `import { app } from "electron"` directly.
- *
- * The previous implementation lazily `require("electron")`
- * inside a `try/catch` here, claiming it let unit tests import the
- * module without mocking Electron. That was dead code — the top-level
- * ESM `import { app }` already forces the Electron module to resolve
- * at module-load time, so if Electron is unavailable the module never
- * loads and this function is never reached. The lazy `require` was
- * contradictory with the top-level import strategy and is removed.
+ * Resolve the path to `electron-runtime.log` under `<config-dir>/logs`.
  *
  * Memoized. The function is called on every `log.warn` / `log.error`
- * invocation, and the underlying `app.getPath` resolution is non-trivial
- * (Electron lazy-loads its `app` module, and `getPath("userData")` does a
- * platform-specific dir computation). On a hot crash-loop path this added
- * a few microseconds per line — pure overhead since the path is stable for
- * the process lifetime (it changes only if `app.setPath("userData", …)` is
- * called between two log calls, which never happens — `setupUserData()` in
- * `bootstrap.ts` runs exactly once at startup BEFORE any `log.warn` call
- * could fire).
+ * invocation, and the underlying `computeConfigDir` resolution is
+ * non-trivial (platform-specific dir computation + legacy
+ * `~/.voice-typer` probe). On a hot crash-loop path this added a few
+ * microseconds per line — pure overhead since the path is stable for
+ * the process lifetime (the config dir never moves after
+ * `setupUserData()` in `bootstrap.ts` runs once at startup).
  *
  * The cache uses `undefined` as the "not yet computed" sentinel so the
- * cached value can be either a real path string or `null` (Electron
- * unavailable). Subsequent calls return the cached value without touching
- * `app.getPath` again. `_resetRuntimeLogPathForTest()` clears the cache
- * for unit tests that need to re-resolve after swapping the Electron
- * mock.
+ * cached value can be either a real path string or `null` (resolution
+ * failure). Subsequent calls return the cached value without touching
+ * `computeConfigDir` again. `_resetRuntimeLogPathForTest()` clears the
+ * cache for unit tests that need to re-resolve after swapping the
+ * config-dir mock.
  *
  * The previous `_runtimeLogPathOverride` + `_setRuntimeLogPathForTest`
  * test-override pair was removed — no test imported it. Tests that need to
- * assert against the file-tee path now mock `electron`'s `app.getPath` (as
- * `bootstrap.test.ts` already does).
+ * assert against the file-tee path now mock `computeConfigDir` (as
+ * the log-path tests already do).
  */
 // undefined = "not yet computed"; string = cached path;
-// null = computed but Electron was unavailable.
+// null = computed but config-dir resolution failed.
 let _runtimeLogPath: string | null | undefined;
 
 export function getRuntimeLogPath(): string | null {
 	// Cache hit — return the previously resolved path (or null
-	// if a prior call found Electron unavailable). Avoids the
-	// `app.getPath` round-trip on every `log.warn` / `log.error`
-	// invocation.
+	// if a prior call found config-dir resolution failed). Avoids
+	// the `computeConfigDir` round-trip on every `log.warn` /
+	// `log.error` invocation.
 	if (_runtimeLogPath !== undefined) {
 		return _runtimeLogPath;
 	}
 	try {
-		// The top-level `import { app } from "electron"` is the canonical
-		// binding (vitest 4 intercepts static imports but NOT dynamic
-		// `require("electron")` in ESM-transpiled modules — so the previous
-		// lazy-require pattern was opaque to the mock system and untestable).
-		// The `?? process.cwd()` fallback preserves the original behaviour
-		// for non-Electron contexts.
-		const userDataDir = app?.getPath?.("userData") ?? process.cwd();
-		_runtimeLogPath = path.join(userDataDir, "electron-runtime.log");
+		// O1: the Electron logs live under `<config-dir>/logs`,
+		// resolved via the dependency-free `computeConfigDir()` leaf
+		// (extracted from `single_instance.ts` so the logging package
+		// stays cycle-free).
+		const logsDir = path.join(computeConfigDir(), "logs");
+		_runtimeLogPath = path.join(logsDir, "electron-runtime.log");
 	} catch {
-		// Edge case: `app.getPath` can throw if the userData dir
-		// is unset/unavailable (e.g. very early in test setup
-		// where the Electron mock doesn't yet implement getPath).
-		// Return null so `mainRuntimeLogger.write` silently
+		// Edge case: config-dir resolution can throw (e.g. very
+		// early in test setup where the config-dir resolver isn't
+		// available). Return null so `mainRuntimeLogger.write` silently
 		// no-ops — the stdout tee already captured the message.
 		_runtimeLogPath = null;
 	}

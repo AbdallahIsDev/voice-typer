@@ -1919,7 +1919,7 @@
 			"xrun_warning_title": "{appName}",
 			"xrun_warning_body": "Dépassement de tampon audio détecté. Essayez une taille de tampon plus grande.",
 			"cancelled_timeout": "La transcription a pris trop de temps et a été annulée.\nAppuyez sur {hotkey} pour réessayer.",
-			"start_failed": "Impossible de démarrer l'enregistrement.\nConsultez voice-typer.log pour la trace.",
+			"start_failed": "Impossible de démarrer l'enregistrement.\nConsultez logs/voice-typer.log pour la trace.",
 			"stop_failed": "Impossible d'arrêter l'enregistrement.",
 			"silence_warning": "Aucun audio détecté. Vérifiez que votre microphone est connecté et fonctionne.",
 			"consent_required": "Le consentement à la biométrie vocale est requis pour démarrer l'enregistrement.\nActivez-le dans Paramètres > Confidentialité > Consentement à la biométrie vocale.",
