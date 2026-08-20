@@ -133,17 +133,32 @@ class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
     def handle(self, record: logging.LogRecord) -> bool:
         if not self._ensure_pii_filter():
             return False
-        return super().handle(record)
+        # TRUE in-memory ring buffer: append the record, and when the
+        # buffer exceeds capacity DROP the oldest record in memory.
+        # Crucially we do NOT call ``super().handle`` — the stock
+        # ``MemoryHandler`` evicts the oldest by flushing the whole
+        # buffer to the target (writing to disk), which duplicates the
+        # main ``voice-typer.log``.  The crash buffer must keep the
+        # last ``capacity`` records ONLY in memory and write them to
+        # disk solely on the explicit ``flush_memory_handler()`` call
+        # from the VEH callback.
+        self.acquire()
+        try:
+            self.buffer.append(record)
+            if len(self.buffer) > self.capacity:
+                # Discard the oldest (ring-buffer eviction).
+                del self.buffer[0]
+            return True
+        finally:
+            self.release()
 
 
-# capacity of the in-memory ring buffer. ``logging.handlers.MemoryHandler``
-# flushes to its target when the buffer reaches this size, but we set
-# ``target=None`` initially (the target is only attached once the config
-# dir is known so the file path can be resolved). With ``target=None``,
-# an overflow flush is a no-op (``MemoryHandler.shouldFlush`` returns
-# True, but ``MemoryHandler.flush`` exits early when ``self.target is
-# None``). The buffer therefore retains the most-recent 200 records
-# until the VEH callback explicitly calls ``flush_memory_handler``.
+# capacity of the in-memory ring buffer. ``_CrashBufferMemoryHandler``
+# overrides ``handle`` to append + evict in memory (dropping the oldest
+# record past capacity) WITHOUT writing to disk — the target is only
+# written by the explicit ``flush_memory_handler()`` call from the VEH
+# callback.  The buffer therefore retains the most-recent 200 records
+# until a crash triggers the flush.
 #
 # 200 records is roughly 30-60s of normal voice-typer log traffic at
 # the default INFO verbosity (a mix of bubble-level pushes filtered out

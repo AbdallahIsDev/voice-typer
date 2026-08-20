@@ -111,6 +111,35 @@ class TestMemoryBufferFlush:
         assert "crash-buffer test message A" in contents
         assert "crash-buffer test message B" in contents
 
+    def test_records_are_not_written_until_explicit_flush(self, tmp_path: Path):
+        """The crash buffer is a RING buffer for the VEH callback — it
+        must NOT duplicate the main ``voice-typer.log``.  Records stay
+        in memory (even past capacity) and are only written to the
+        crash-buffer file by an explicit ``flush_memory_handler()``."""
+        install_memory_buffer(tmp_path)
+        buffer_path = tmp_path / "logs" / "voice-typer-crash-buffer.log"
+
+        test_log = logging.getLogger("voice_typer.test.crash_buffer")
+        # Exceed the 200-record capacity — the stock MemoryHandler would
+        # auto-flush at 200; our override must NOT.
+        for i in range(250):
+            test_log.warning("pre-flush record %d", i)
+        if _ch._crash_buffer_handler is not None:
+            _ch._crash_buffer_handler.flush()
+
+        assert not buffer_path.exists() or buffer_path.read_text(encoding="utf-8", errors="replace").strip() == "", (
+            "crash buffer must NOT write records to disk before explicit flush (it would duplicate voice-typer.log)"
+        )
+
+        # Explicit flush (the VEH callback) writes the buffered tail.
+        flush_memory_handler()
+        if _ch._crash_buffer_handler is not None:
+            _ch._crash_buffer_handler.flush()
+        contents = buffer_path.read_text(encoding="utf-8", errors="replace")
+        assert "pre-flush record 249" in contents, "explicit flush must write the buffered records"
+        assert "pre-flush record 0" not in contents, "capacity-200 ring buffer must have evicted the oldest records"
+        assert "pre-flush record 49" not in contents, "capacity-200 ring buffer must have evicted record 0..49"
+
     def test_flush_is_noop_when_buffer_not_installed(self, tmp_path: Path):
         """Calling ``flush_memory_handler`` before
         ``install_memory_buffer`` must be a safe no-op (the VEH
