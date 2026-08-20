@@ -46,6 +46,9 @@ vi.mock("electron", () => ({
 		isQuitting: false,
 		on: vi.fn(),
 		getPath: vi.fn(() => "/tmp"),
+		// index.ts appends the disk-cache-prevention switches at module
+		// load (disable-http-cache + v8-cache-options=none).
+		commandLine: { appendSwitch: vi.fn() },
 	},
 	dialog: { showErrorBox: vi.fn() },
 }));

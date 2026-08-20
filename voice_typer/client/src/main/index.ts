@@ -61,6 +61,23 @@ if (process.env.npm_lifecycle_event === "dev" || !app.isPackaged) {
 	process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true";
 }
 
+// Prevent Chromium from persisting its HTTP + V8-code caches into the
+// shared `electron-profile/`. The renderer only ever loads the local
+// bundle (`file://` via `loadFile` in production, `http://localhost:5173`
+// in dev) — it never fetches remote content — yet the disk cache still
+// accumulated ~400 MB of stale entries there (212 MB HTTP `Cache` +
+// 180 MB V8 `Code Cache` from dev-server URLs). Both switches are
+// documented Chromium content-layer switches:
+//   - `disable-http-cache` — disables the DISK cache for HTTP requests
+//     (the in-memory cache stays, so HMR / repeated loads are unaffected).
+//   - `v8-cache-options=none` — disables V8's on-disk script code cache
+//     (`Code Cache/`); production loads via `file://` where code cache
+//     is not used anyway (http(s) URLs only), so nothing is lost.
+// Must be appended before `app.whenReady()` — the switches are parsed
+// by Chromium's browser process at startup.
+app.commandLine.appendSwitch("disable-http-cache");
+app.commandLine.appendSwitch("v8-cache-options", "none");
+
 try {
 	// Best-effort — only matters on Windows 7+.
 	app.setAppUserModelId("VoiceTyper");
