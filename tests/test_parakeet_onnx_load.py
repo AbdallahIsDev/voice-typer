@@ -215,8 +215,8 @@ class TestParakeetOnnxLoad:
         mock_onnx_asr.load_model.assert_called_once()
         call_args, call_kwargs = mock_onnx_asr.load_model.call_args
         # First positional arg is the onnx-asr TYPE name
-        # (``nemo-conformer-tdt`` — the visuall fp16 repo has no
-        # config.json, so the engine cannot load it by repo name).
+        # (``nemo-conformer-tdt`` — the engine loads the verified local
+        # snapshot dir by type name instead of by repo name).
         assert call_args[0] == "nemo-conformer-tdt"
         assert call_kwargs.get("quantization") == "fp16"
         assert call_kwargs.get("providers") == ["CPUExecutionProvider"]
@@ -339,7 +339,7 @@ class TestParakeetOnnxInit:
     def test_loaded_via_includes_model_id(self):
         engine = _make_engine(device="cuda")
         assert "parakeet/cuda/" in engine.loaded_via
-        assert "parakeet-tdt-0.6b-v3" in engine.loaded_via
+        assert "grikdotnet/parakeet-tdt-0.6b-fp16" in engine.loaded_via
 
 
 # ─── _select_providers() ───────────────────────────────────────────────

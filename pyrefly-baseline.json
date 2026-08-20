@@ -133,8 +133,8 @@
       "path": "voice_typer/server/asr_setup.py",
       "code": -2,
       "name": "no-matching-overload",
-      "description": "No matching overload found for function `huggingface_hub._snapshot_download.snapshot_download` called with arguments: (repo_id=Literal['visuall/parakeet-tdt-0.6b-v3-onnx-fp16'], revision=Any, allow_patterns=frozenset[str], local_files_only=Literal[True])\n  Possible overloads:\n    (repo_id: str, *, ..., revision: str | None = None, ..., local_files_only: bool = False, allow_patterns: list[str] | str | None = None, ...) -> str [closest match]\n    (repo_id: str, *, ..., revision: str | None = None, ..., local_files_only: bool = False, allow_patterns: list[str] | str | None = None, ...) -> list[DryRunFileInfo]\n    (repo_id: str, *, ..., revision: str | None = None, ..., local_files_only: bool = False, allow_patterns: list[str] | str | None = None, ...) -> list[DryRunFileInfo] | str\n  Argument `frozenset[str]` is not assignable to parameter `allow_patterns` with type `list[str] | str | None` in function `huggingface_hub._snapshot_download.snapshot_download`",
-      "concise_description": "No matching overload found for function `huggingface_hub._snapshot_download.snapshot_download` called with arguments: (repo_id=Literal['visuall/parakeet-tdt-0.6b-v3-onnx-fp16'], revision=Any, allow_patterns=frozenset[str], local_files_only=Literal[True])",
+      "description": "No matching overload found for function `huggingface_hub._snapshot_download.snapshot_download` called with arguments: (repo_id=Literal['grikdotnet/parakeet-tdt-0.6b-fp16'], revision=Any, allow_patterns=frozenset[str], local_files_only=Literal[True])\n  Possible overloads:\n    (repo_id: str, *, ..., revision: str | None = None, ..., local_files_only: bool = False, allow_patterns: list[str] | str | None = None, ...) -> str [closest match]\n    (repo_id: str, *, ..., revision: str | None = None, ..., local_files_only: bool = False, allow_patterns: list[str] | str | None = None, ...) -> list[DryRunFileInfo]\n    (repo_id: str, *, ..., revision: str | None = None, ..., local_files_only: bool = False, allow_patterns: list[str] | str | None = None, ...) -> list[DryRunFileInfo] | str\n  Argument `frozenset[str]` is not assignable to parameter `allow_patterns` with type `list[str] | str | None` in function `huggingface_hub._snapshot_download.snapshot_download`",
+      "concise_description": "No matching overload found for function `huggingface_hub._snapshot_download.snapshot_download` called with arguments: (repo_id=Literal['grikdotnet/parakeet-tdt-0.6b-fp16'], revision=Any, allow_patterns=frozenset[str], local_files_only=Literal[True])",
       "severity": "error"
     },
     {
@@ -150,9 +150,9 @@
       "severity": "error"
     },
     {
-      "line": 596,
+      "line": 549,
       "column": 16,
-      "stop_line": 596,
+      "stop_line": 549,
       "stop_column": 70,
       "path": "voice_typer/server/asr_setup.py",
       "code": -2,

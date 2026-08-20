@@ -70,7 +70,10 @@ _QWEN_REPO_ID = "andrewleech/qwen3-asr-1.7b-onnx"
 # ``parakeet_model_path`` or in the HF cache under this repo. Mirrors
 # ``ModelMetadata.repo_id`` for "parakeet" so the tray and the Models
 # page's ``get_model_status`` agree on what "downloaded" means.
-_PARAKEET_REPO_ID = "visuall/parakeet-tdt-0.6b-v3-onnx-fp16"
+# ``grikdotnet/parakeet-tdt-0.6b-fp16`` is the upstream original fp16
+# export (switched 2026-08-20; the earlier visuall copy was a re-upload
+# of the same files minus config.json).
+_PARAKEET_REPO_ID = "grikdotnet/parakeet-tdt-0.6b-fp16"
 
 # Native tray menus are text-only: pystray's ``MenuItem`` has no image
 # support (verified against the installed package 2026-08-15), so the
@@ -183,7 +186,7 @@ def _check_parakeet_model_downloaded(config_dir, parakeet_model_path) -> bool:
     Mirrors ``ModelMixin._compute_model_status`` (service/model.py):
     ``downloaded`` means the configured ``parakeet_model_path`` points
     at an existing directory OR the HuggingFace cache holds
-    ``models--visuall--parakeet-tdt-0.6b-v3-onnx-fp16``.
+    ``models--grikdotnet--parakeet-tdt-0.6b-fp16``.
     """
     if isinstance(parakeet_model_path, str) and Path(parakeet_model_path).is_dir():
         return True
@@ -352,9 +355,7 @@ def build_models_submenu_data(
             # ``downloaded`` means an ONNX model dir is on disk
             # (``qwen_model_path`` dir OR HF cache), matching the Models
             # page's ``get_model_status`` semantics.
-            downloaded = _check_qwen_model_downloaded(
-                config_dir, qwen_model_path
-            )
+            downloaded = _check_qwen_model_downloaded(config_dir, qwen_model_path)
         elif repo_id:
             # cached check with 5-second TTL — avoids
             # 5× filesystem exists() per right-click.
@@ -367,13 +368,10 @@ def build_models_submenu_data(
         # parakeet/qwen branches below are backend-keyed and would
         # otherwise light up their row).
         no_model = current_model == ""
-        is_active = (
-            not no_model
-            and (
-                (name == current_model and current_backend == backend)
-                or (name == "parakeet" and current_backend == "parakeet")
-                or (name == "qwen" and current_backend == "qwen")
-            )
+        is_active = not no_model and (
+            (name == current_model and current_backend == backend)
+            or (name == "parakeet" and current_backend == "parakeet")
+            or (name == "qwen" and current_backend == "qwen")
         )
 
         results.append((name, downloaded, is_active, lambda n=name: controller_change_model_fn(n)))

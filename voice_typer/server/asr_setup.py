@@ -32,7 +32,6 @@ Lifecycle:
     ``False``).
 """
 
-import json
 import logging
 import os
 import sys
@@ -319,46 +318,6 @@ def _cleanup_failed_cache(repo_id: str) -> None:
     cleanup_hf_cache_dir(repo_id, log_prefix="[ASR_SETUP]")
 
 
-# The visuall fp16 ONNX export ships NO config.json upstream (that is
-# why the engine loads by TYPE name + local path instead of by repo
-# name — onnx-asr needs config.json to resolve the model type).
-# ``verify_model_integrity`` requires config.json to exist, so the
-# snapshot dir is patched with a synthesized config AFTER each
-# download. The exact bytes are pinned in model_hashes.json
-# (config.json entry under visuall/parakeet-tdt-0.6b-v3-onnx-fp16).
-_PARAKEET_ONNX_CONFIG: dict[str, Any] = {
-    "model_type": "nemo-conformer-tdt",
-    "features_size": 128,
-    "subsampling_factor": 8,
-}
-
-
-def _ensure_parakeet_onnx_config_json(local_dir: str) -> None:
-    """Write the synthesized config.json into a Parakeet ONNX snapshot dir.
-
-    Idempotent: does nothing if config.json already exists (e.g. a
-    future upstream export adds one). Serialization is deterministic
-    (``json.dumps(indent=4)``, no trailing newline) so the SHA-256
-    pinned in ``model_hashes.json`` stays stable across runs.
-    """
-    if not local_dir:
-        return
-    cfg_path = Path(local_dir) / "config.json"
-    if cfg_path.exists():
-        return
-    try:
-        cfg_path.write_text(
-            json.dumps(_PARAKEET_ONNX_CONFIG, indent=4),
-            encoding="utf-8",
-        )
-        log.info("[ASR_SETUP] Synthesized config.json into %s", local_dir)
-    except OSError as exc:
-        # Best-effort patch — a failure surfaces downstream as the
-        # integrity check failing on the missing config.json, which is
-        # already a handled, logged error path.
-        log.warning("[ASR_SETUP] could not synthesize config.json: %s", exc)
-
-
 def download_parakeet_weights(
     progress_callback: Callable[[str], None] | None = None,
     config: Any = None,
@@ -440,18 +399,17 @@ def download_parakeet_weights(
         return (False, "huggingface_hub_missing", None)
 
     # The engine is ONNX-only post-migration (parakeet_engine.py). The
-    # fp16 ONNX export (USER-selected repo, 2026-08-15) is the download
+    # fp16 ONNX export (USER-selected repo, 2026-08-20) is the download
     # target — the torch/safetensors weights (nvidia/parakeet-tdt-0.6b-v3)
-    # are NOT loadable by the engine anymore.
-    repo_id = "visuall/parakeet-tdt-0.6b-v3-onnx-fp16"
-
-    # visuall's fp16 export ships NO config.json upstream (that is why
+    # are NOT loadable by the engine anymore. ``grikdotnet/...`` is the
+    # upstream original of the fp16 export (the earlier
+    # ``visuall/...`` copy shipped NO config.json upstream — that is why
     # the engine loads by TYPE name + local path instead of by repo
-    # name — onnx-asr needs config.json to resolve the model type).
-    # ``verify_model_integrity`` requires config.json to exist, so the
-    # snapshot dir is patched with the synthesized config AFTER each
-    # download below (``_ensure_parakeet_onnx_config_json``). The exact
-    # bytes are pinned in model_hashes.json.
+    # name; onnx-asr needs config.json to resolve the model type).
+    # grikdotnet ships a real config.json (bytes pinned in
+    # model_hashes.json), so the old post-download synthesis hack was
+    # removed — ``verify_model_integrity`` passes on upstream files.
+    repo_id = "grikdotnet/parakeet-tdt-0.6b-fp16"
 
     # SEC-audit-005: Use pinned revision from MODEL_HASHES manifest
     from voice_typer.server.security import MODEL_HASHES
@@ -470,11 +428,6 @@ def download_parakeet_weights(
             allow_patterns=_HF_ALLOW_PATTERNS_PARAKEET_ONNX,
             local_files_only=True,
         )
-        # visuall's fp16 repo has no config.json upstream — patch the
-        # snapshot with the synthesized one so verify_model_integrity
-        # (which requires config.json) can pass.
-        if local_dir:
-            _ensure_parakeet_onnx_config_json(local_dir)
         # allow_patterns is a superset of the pinned manifest files;
         # verify_model_integrity hard-fails if any pinned file is
         # missing, so an incomplete download is caught below.
@@ -594,11 +547,6 @@ def download_parakeet_weights(
         if progress_callback:
             progress_callback(f"Download failed after {_MAX_DOWNLOAD_ATTEMPTS} attempts: {e}")
         return (False, "download_retry_exhausted", captured_exc_info)
-
-    # visuall's fp16 repo has no config.json upstream — patch the
-    # snapshot with the synthesized one so verify_model_integrity
-    # (which requires config.json) can pass.
-    _ensure_parakeet_onnx_config_json(local_dir)
 
     # Verify model integrity after download
     # ``_verify_model_integrity`` now returns ``(ok, details)``.

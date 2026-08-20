@@ -28,7 +28,7 @@ import pytest
 # ── Kept-catalog repos ────────────────────────────────────────────────
 _REPO_TINY = "Systran/faster-whisper-tiny"
 _REPO_TURBO = "Systran/faster-whisper-large-v3-turbo"
-_REPO_PARKEET = "visuall/parakeet-tdt-0.6b-v3-onnx-fp16"
+_REPO_PARKEET = "grikdotnet/parakeet-tdt-0.6b-fp16"
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
@@ -224,9 +224,7 @@ class TestImportModelEdgeCases:
         src_dir = tmp_path / "source"
         src_dir.mkdir()
         _make_model_cache_dir(src_dir, _REPO_TINY)
-        (src_dir / _hf_cache_dir_name(_REPO_TINY) / "new_version.txt").write_text(
-            "this is the new version"
-        )
+        (src_dir / _hf_cache_dir_name(_REPO_TINY) / "new_version.txt").write_text("this is the new version")
 
         monkeypatch.setattr(
             "voice_typer.server.tray_models.invalidate_model_availability_cache",
@@ -238,9 +236,7 @@ class TestImportModelEdgeCases:
         assert result["success"] is True
         assert "tiny" in result["imported"]
         assert not (app_hf / _hf_cache_dir_name(_REPO_TINY) / "old_version_marker.txt").exists()
-        assert (
-            app_hf / _hf_cache_dir_name(_REPO_TINY) / "new_version.txt"
-        ).read_text() == "this is the new version"
+        assert (app_hf / _hf_cache_dir_name(_REPO_TINY) / "new_version.txt").read_text() == "this is the new version"
 
     def test_permission_denied_on_scan(self, service, tmp_path, monkeypatch):
         """Simulate a PermissionError when reading the source directory."""

@@ -167,7 +167,7 @@ class TestDeleteModelUsesRegistryUnconditionally:
         service = self._make_service()
         meta = get_model_metadata("parakeet")
         assert meta is not None, "parakeet must be in MODEL_REGISTRY"
-        assert meta.repo_id == "visuall/parakeet-tdt-0.6b-v3-onnx-fp16"
+        assert meta.repo_id == "grikdotnet/parakeet-tdt-0.6b-fp16"
 
         import voice_typer.server.config as cfg_mod
 
@@ -391,9 +391,7 @@ class TestDeleteStaleActiveModel:
         assert result["success"] is True, f"Expected success, got: {result}"
         assert "tiny" in result["message"]
         # The message reports the switch (truthful — apply_config committed).
-        assert "switched to" in result["message"], (
-            f"stale-clear success must report the switch, got: {result}"
-        )
+        assert "switched to" in result["message"], f"stale-clear success must report the switch, got: {result}"
         # The stale selection was cleared: active model switched to the
         # downloaded fallback via apply_config.
         assert app.config.model_size == "large-v3-turbo", (
@@ -402,9 +400,7 @@ class TestDeleteStaleActiveModel:
         )
         assert app.config.asr_backend == "whisper"
         # Status cache invalidated so the next poll reflects the truth.
-        assert service._model_status_cache is None, (
-            "delete_model must invalidate the get_model_status cache"
-        )
+        assert service._model_status_cache is None, "delete_model must invalidate the get_model_status cache"
 
     def test_active_missing_apply_config_failure_does_not_claim_switch(self, tmp_config_dir):
         """If the config-clear (``apply_config``) fails and rolls back, the
@@ -418,9 +414,7 @@ class TestDeleteStaleActiveModel:
         cache_dir = self._make_cache_dir(tmp_config_dir)
         fallback_meta = get_model_metadata("large-v3-turbo")
         assert fallback_meta is not None
-        (cache_dir / f"models--{fallback_meta.repo_id.replace('/', '--')}").mkdir(
-            parents=True
-        )
+        (cache_dir / f"models--{fallback_meta.repo_id.replace('/', '--')}").mkdir(parents=True)
 
         app = self._make_app(model_size="tiny")
         # save_strict raises -> apply_config rolls the in-memory config back
@@ -454,12 +448,8 @@ class TestDeleteStaleActiveModel:
 
         result = service.delete_model("tiny")
         assert result["success"] is True, f"Expected success, got: {result}"
-        assert "no model selected" in result["message"], (
-            f"message must say no model is selected, got: {result}"
-        )
-        assert "switched to" not in result["message"], (
-            f"no fallback -> message must not claim a switch, got: {result}"
-        )
+        assert "no model selected" in result["message"], f"message must say no model is selected, got: {result}"
+        assert "switched to" not in result["message"], f"no fallback -> message must not claim a switch, got: {result}"
         assert app.config.model_size == NO_MODEL_SIZE, (
             "config must enter the 'no model selected' state when no "
             f"downloaded fallback exists, got model_size={app.config.model_size!r}"

@@ -157,7 +157,7 @@ class TestParakeetEngineInit:
     def test_loaded_via_includes_model_id(self):
         engine = _make_engine(device="cuda")
         assert "parakeet/cuda/" in engine.loaded_via
-        assert "parakeet-tdt-0.6b-v3" in engine.loaded_via
+        assert "grikdotnet/parakeet-tdt-0.6b-fp16" in engine.loaded_via
 
 
 # ─── Module-level helpers ───────────────────────────────────────────────

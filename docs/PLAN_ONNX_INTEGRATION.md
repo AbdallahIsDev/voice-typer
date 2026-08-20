@@ -298,21 +298,23 @@ protects the bundle while torch is still shipped.
   shipped app today** — only in dev. This is the primary motivation for the
   ONNX migration: it makes Parakeet actually shippable.
 - **Model:** NVIDIA Parakeet TDT 0.6B (Token-and-Duration Transducer).
-- **HF repo (current, verified 2026-08-15):** the engine loads
+- **HF repo (final, verified 2026-08-20):** the engine loads
   `onnx_asr.load_model("nemo-conformer-tdt", path=<verified snapshot>, ...)`
   — onnx-asr 0.12.0 exports ONLY `load_model`/`load_vad` (there is NO
   `onnx_asr.Model` class in any release). The weights come from the
-  **fp16 ONNX export `visuall/parakeet-tdt-0.6b-v3-onnx-fp16`**
-  (USER-selected 2026-08-15; converted from istupakov's fp32 export —
-  identical WER at ~1.28 GB vs 2.5 GB). NOTE: the earlier claims that
-  the ONNX variant lives at `istupakov/parakeet-tdt-0.6b-v3-onnx` (fp32
-  base, 2.5 GB, no fp16 variant) or `grikdotnet/parakeet-tdt-0.6b-fp16`
-  are superseded. The visuall repo ships NO `config.json` — that is why
-  the engine loads by TYPE name + local path, and `asr_setup`
-  synthesizes `config.json` (pinned hash in `model_hashes.json`)
-  after download so `verify_model_integrity` passes.
-  `_PARAKERT_QUANTIZATION = None` (the fp16 weights are the base files;
-  the repo has no `.fp16.` glob targets).
+  **fp16 ONNX export `grikdotnet/parakeet-tdt-0.6b-fp16`**
+  (USER-selected 2026-08-20; converted from istupakov's fp32 export —
+  identical WER at ~1.28 GB vs 2.5 GB; created 2025-10-27 for the
+  ai-stenographer project). The earlier pick
+  `visuall/parakeet-tdt-0.6b-v3-onnx-fp16` (2026-08-15) was a re-upload
+  of the same files minus `config.json` (0 downloads, unknown uploader)
+  — re-pinned to the grikdotnet original. The grikdotnet repo ships a
+  real `config.json` (97 bytes, byte-identical to the previously
+  synthesized one; SHA-256 pinned in `model_hashes.json`), so the
+  post-download synthesis hack was removed and `verify_model_integrity`
+  passes on upstream files. The engine still loads by TYPE name + local
+  path so onnx-asr consumes the integrity-verified snapshot.
+  `_PARAKERT_QUANTIZATION = "fp16"` (globs `encoder-model.fp16.onnx`).
 - **torch imports:** `parakeet_engine.py:316`, `:373` (plus `transformers`).
 - **Chunking:** 25 s chunks, 3 s overlap. `asr_utils.split_audio()` already
   used (`parakeet_engine.py:845` delegates).
@@ -365,9 +367,9 @@ class ParakeetEngine:
     def load(self, progress_callback=None) -> bool:
         # onnx-asr 0.12.0 exports ONLY load_model/load_vad — there is NO
         # onnx_asr.Model class in any release. Load by TYPE name
-        # ("nemo-conformer-tdt") + the verified local snapshot dir
-        # because the visuall fp16 repo ships no config.json (onnx-asr
-        # needs config.json to resolve a repo BY NAME).
+        # ("nemo-conformer-tdt") + the verified local snapshot dir so
+        # onnx-asr consumes the integrity-verified files instead of
+        # re-resolving the repo BY NAME.
         providers = self._select_providers(self.device)
         self._model = self._onnx_asr.load_model(
             "nemo-conformer-tdt",
@@ -442,14 +444,14 @@ Update the existing `"parakeet"` entry in `voice_typer/server/model_registry.py`
 ```python
 "parakeet": ModelMetadata(
     name="parakeet",
-    download_size_mb=1275,  # verified 2026-08-15: visuall fp16 ONNX export ≈ 1,275 MB (encoder-model.fp16.onnx 1,239 MB + decoder_joint 26 MB + nemo128 + vocab)
+    download_size_mb=1275,  # verified 2026-08-15: grikdotnet fp16 ONNX export ≈ 1,275 MB (encoder-model.fp16.onnx 1,239 MB + decoder_joint 26 MB + nemo128 + vocab)
     required_vram_mb=3072,  # estimate — verify with real ORT GPU run
     backend="parakeet",
     multilingual=True,
     supported_languages=None,
     description="Parakeet TDT 0.6B FP16 via ONNX Runtime. Fast, efficient, no PyTorch needed.",
     network_behavior="downloads-on-first-use-consent-gated",  # see §3.5.3
-    repo_id="visuall/parakeet-tdt-0.6b-v3-onnx-fp16",
+    repo_id="grikdotnet/parakeet-tdt-0.6b-fp16",
     speed_rating="fast",
     accuracy_rating="high",
 ),
@@ -462,11 +464,14 @@ but the CUDA execution provider allocates arena memory. Verify with a real
 
 #### 3.5.2 `model_hashes.json` repopulation
 
-`model_hashes.json` now carries a `visuall/parakeet-tdt-0.6b-v3-onnx-fp16`
-entry (revision `125d44237abd9a53d291a3104a563fc0ba104ecb`) pinning the 4
-LFS files + the synthesized `config.json`. `scripts/populate_model_hashes.py`
+`model_hashes.json` now carries a `grikdotnet/parakeet-tdt-0.6b-fp16`
+entry (revision `dc9871ec5ad84a420940077e76e8741b3609bf8b`) pinning the 4
+LFS files + the real upstream `config.json` (97 bytes, byte-identical to
+what asr_setup previously synthesized for the visuall copy, so the
+pinned SHA-256 `666903c7…` carried over unchanged; encoder hash refreshed
+to the grikdotnet LFS oid `a2bdeeb9…`). `scripts/populate_model_hashes.py`
 can regenerate the hashes after upstream changes, but the manifest was
-hand-edited 2026-08-15 with hashes pulled from the HF API (the script's
+hand-edited 2026-08-20 with hashes pulled from the HF API (the script's
 ALLOW_PATTERNS filter is not wired for this repo yet — see worklog.md).
 
 `_MODEL_SIZE_MB` in `asr_utils.py` includes `"parakeet": 1275` (parallel to

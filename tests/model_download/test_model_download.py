@@ -107,7 +107,7 @@ class TestDeleteModelUsesRegistryUnconditionally:
         service = self._make_service()
         meta = get_model_metadata("parakeet")
         assert meta is not None, "parakeet must be in MODEL_REGISTRY"
-        assert meta.repo_id == "visuall/parakeet-tdt-0.6b-v3-onnx-fp16"
+        assert meta.repo_id == "grikdotnet/parakeet-tdt-0.6b-fp16"
 
         import voice_typer.server.config as cfg_mod
 

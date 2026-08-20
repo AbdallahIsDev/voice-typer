@@ -58,7 +58,7 @@ _MODEL_SIZE_MB = {
     # ``large-v3-turbo`` is the fast multilingual model released by
     # OpenAI in 2024 — near-large-v3 accuracy at ~8x speed.
     "large-v3-turbo": 809,
-    # Parakeet TDT 0.6b v3 — ONNX fp16 export (visuall repo, 2026-08-15)
+    # Parakeet TDT 0.6b v3 — ONNX fp16 export (grikdotnet repo, 2026-08-20)
     # is ~1.28 GB uncompressed (the engine is ONNX-only post-migration;
     # the old torch/safetensors 2.5 GB estimate is obsolete). Pre-fix the
     # ``"parakeet"`` key was missing and ``_MODEL_SIZE_MB.get("parakeet", 500)``
@@ -100,10 +100,7 @@ def release_gpu_memory() -> None:
     # Intentionally a no-op. ORT's CUDA arena is released on session
     # destroy; the caller's ``del self._session; gc.collect()`` is the
     # equivalent of ``del model; gc.collect(); torch.cuda.empty_cache()``.
-    log.debug(
-        "[GPU] release_gpu_memory() is a no-op for ONNX Runtime "
-        "(ORT frees the CUDA arena on session destroy)"
-    )
+    log.debug("[GPU] release_gpu_memory() is a no-op for ONNX Runtime (ORT frees the CUDA arena on session destroy)")
 
 
 # ─── CUDA / OOM error classifiers (PLAN_ONNX_INTEGRATION.md §5.1) ───────
@@ -175,9 +172,7 @@ def is_cuda_error(exc: Exception) -> bool:
         pass
 
     # Layer 2: RuntimeError + attribute check.
-    if isinstance(exc, RuntimeError) and (
-        getattr(exc, "cuda_error", None) or getattr(exc, "is_cuda_error", False)
-    ):
+    if isinstance(exc, RuntimeError) and (getattr(exc, "cuda_error", None) or getattr(exc, "is_cuda_error", False)):
         return True
 
     # Layer 3: keyword match on the message (3 keywords — no "out of memory").

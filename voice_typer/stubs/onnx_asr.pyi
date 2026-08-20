@@ -30,7 +30,7 @@
 # (offline) and does NOT need `config.json` when a type name is
 # passed. `quantization` selects the variant files inside the repo via
 # a single-char glob (`encoder-model?fp16.onnx` matches
-# `encoder-model.fp16.onnx`); the visuall fp16 export ships
+# `encoder-model.fp16.onnx`); the grikdotnet fp16 export ships
 # `"fp16"` files, istupakov's base export ships no `"fp16"` variant
 # (use `None` there).
 #
@@ -52,8 +52,6 @@ def load_model(
     preprocessor_config: dict[Any, Any] | None = ...,
     resampler_config: dict[Any, Any] | None = ...,
 ) -> Any: ...
-
-
 def load_vad(
     model: str = ...,
     path: str | None = ...,
@@ -63,6 +61,5 @@ def load_vad(
     providers: list[str] | None = ...,
     provider_options: list[dict[Any, Any]] | None = ...,
 ) -> Any: ...
-
 
 __all__: list[str] = ["load_model", "load_vad"]

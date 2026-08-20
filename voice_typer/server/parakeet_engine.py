@@ -65,6 +65,7 @@ try:
         is_likely_english as _asr_is_likely_english,
         merge_chunks as _asr_merge_chunks,
     )
+
     _ASR_UTILS_HELPERS_AVAILABLE = True
 except ImportError:  # pragma: no cover — defensive fallback during parallel refactor
     _ASR_UTILS_HELPERS_AVAILABLE = False
@@ -125,9 +126,7 @@ def _local_is_cuda_error(exc: Exception) -> bool:
     except ImportError:
         pass
     # Layer 2: RuntimeError + attribute check.
-    if isinstance(exc, RuntimeError) and (
-        getattr(exc, "cuda_error", None) or getattr(exc, "is_cuda_error", False)
-    ):
+    if isinstance(exc, RuntimeError) and (getattr(exc, "cuda_error", None) or getattr(exc, "is_cuda_error", False)):
         return True
     # Layer 3: keyword match (3 keywords — OOM handled separately).
     if any(kw in err_str for kw in ("cuda", "cublas", "cudnn")):
@@ -183,9 +182,7 @@ def _local_merge_chunks(texts: list[str]) -> str:
 
 # Resolve the effective helpers: prefer asr_utils, fall back to local.
 _is_latin_char_impl = _asr_is_latin_char if _asr_is_latin_char is not None else _local_is_latin_char
-_is_likely_english_impl = (
-    _asr_is_likely_english if _asr_is_likely_english is not None else _local_is_likely_english
-)
+_is_likely_english_impl = _asr_is_likely_english if _asr_is_likely_english is not None else _local_is_likely_english
 _is_cuda_error_impl = _asr_is_cuda_error if _asr_is_cuda_error is not None else _local_is_cuda_error
 _merge_chunks_impl = _asr_merge_chunks if _asr_merge_chunks is not None else _local_merge_chunks
 _compute_overlap_skip_impl = (
@@ -219,21 +216,25 @@ _NON_LATIN_RATIO_LIMIT = 0.30
 _PARAKERT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
 
 # ONNX Runtime FP16 export of Parakeet TDT v3 (USER-selected repo,
-# 2026-08-15). ``visuall/parakeet-tdt-0.6b-v3-onnx-fp16`` is a
-# half-precision conversion of the fp32 ONNX export published by
-# ``istupakov/parakeet-tdt-0.6b-v3-onnx``; identical WER to fp32 at
-# ~1.28 GB instead of ~2.5 GB (see the repo's README). The repo ships
-# NO ``config.json`` — onnx-asr reads ``model_type`` from it when
-# resolving a repo BY NAME, so the engine loads by TYPE name + a local
-# snapshot dir (see ``load()``).
-_PARAKERT_ONNX_REPO_ID = "visuall/parakeet-tdt-0.6b-v3-onnx-fp16"
+# 2026-08-15, switched to the upstream original 2026-08-20).
+# ``grikdotnet/parakeet-tdt-0.6b-fp16`` is the original half-precision
+# conversion of the fp32 ONNX export published by
+# ``istupakov/parakeet-tdt-0.6b-v3-onnx`` (the earlier
+# ``visuall/parakeet-tdt-0.6b-v3-onnx-fp16`` was a copy of the same
+# files minus config.json); identical WER to fp32 at ~1.28 GB instead
+# of ~2.5 GB (see the repo's README). The repo ships a real
+# ``config.json``, but onnx-asr reads ``model_type`` from it only when
+# resolving a repo BY NAME — the engine still loads by TYPE name + a
+# verified local snapshot dir (see ``load()``).
+_PARAKERT_ONNX_REPO_ID = "grikdotnet/parakeet-tdt-0.6b-fp16"
 _PARAKERT_ONNX_CACHE_DIR = f"models--{_PARAKERT_ONNX_REPO_ID.replace('/', '--')}"
 
 # onnx-asr TYPE name (NOT a repo name). ``nemo-conformer-tdt`` selects
-# the TDT decoder class directly, which is what lets us load a
-# config.json-less repo from a local dir. Do NOT pass the visuall
-# repo_id as the model name — onnx-asr would try to download
-# ``config.json`` from it and fail (404).
+# the TDT decoder class directly, which is what lets us load the
+# verified local snapshot dir (the integrity gate has already pinned
+# every file). Do NOT pass the grikdotnet repo_id as the model name —
+# onnx-asr would try to download from the repo instead of loading the
+# verified local dir.
 _PARAKERT_ONNX_MODEL_NAME = "nemo-conformer-tdt"
 
 # Selects the ``.fp16.`` variant files inside the repo (onnx-asr 0.12.0
@@ -241,7 +242,7 @@ _PARAKERT_ONNX_MODEL_NAME = "nemo-conformer-tdt"
 _PARAKERT_QUANTIZATION = "fp16"
 
 # Approximate ONNX weight size in MB for MB/s read-speed logging.
-# visuall fp16 export: encoder-model.fp16.onnx 1,239 MB +
+# grikdotnet fp16 export: encoder-model.fp16.onnx 1,239 MB +
 # decoder_joint-model.fp16.onnx 36 MB + nemo128.onnx + vocab.txt
 # ≈ 1,275 MB on disk.
 _PARAKERT_WEIGHTS_MB = 1275
@@ -545,7 +546,7 @@ class ParakeetEngine:
         """Quick check if the Parakeet ONNX model is in the HF cache.
 
         Walks the ONNX repo's snapshot dir
-        (``models--visuall--parakeet-tdt-0.6b-v3-onnx-fp16/``) for a
+        (``models--grikdotnet--parakeet-tdt-0.6b-fp16/``) for a
         ``*.onnx`` file. The engine is ONNX-only post-migration — the
         torch/safetensors cache (``nvidia/parakeet-tdt-0.6b-v3``) is no
         longer loadable and does NOT count as cached.
@@ -703,9 +704,7 @@ class ParakeetEngine:
                         model_dir,
                     )
                     if progress_callback:
-                        progress_callback(
-                            "Model integrity check failed; delete and re-download from the Models page."
-                        )
+                        progress_callback("Model integrity check failed; delete and re-download from the Models page.")
                     from voice_typer.server.asr_errors import ModelIntegrityError
 
                     raise ModelIntegrityError(
@@ -736,8 +735,8 @@ class ParakeetEngine:
                 # (verified against 0.12.0 and main; only ``load_model``
                 # + ``load_vad`` are exported). We load by TYPE name
                 # (``nemo-conformer-tdt``) + the verified local snapshot
-                # dir because the visuall fp16 repo ships no config.json
-                # (onnx-asr would need it to resolve the repo BY NAME).
+                # dir so onnx-asr loads the integrity-verified files
+                # instead of re-resolving the repo BY NAME.
                 self._onnx_model_dir = verified_snapshot
                 self._model = self._onnx_asr.load_model(
                     _PARAKERT_ONNX_MODEL_NAME,
@@ -864,11 +863,7 @@ class ParakeetEngine:
             return ""
 
         # PERF-STATS: reuse pre-computed RMS when provided
-        rms = (
-            audio_stats[0]
-            if audio_stats is not None
-            else float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
-        )
+        rms = audio_stats[0] if audio_stats is not None else float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
         if should_reject_low_audio_hallucination(text, rms):
             log_hallucination_rejection(
                 "[PARAKEET]",
@@ -998,9 +993,7 @@ class ParakeetEngine:
                     self._unload_impl()
                     self.device = "cpu"
                     if not self._load_impl(providers=["CPUExecutionProvider"]):
-                        raise TranscriptionBackendError(
-                            f"Parakeet CPU fallback load failed after CUDA error ({exc})"
-                        )
+                        raise TranscriptionBackendError(f"Parakeet CPU fallback load failed after CUDA error ({exc})")
                     # Claim an inference slot so a concurrent ``unload()``
                     # waits for the CPU-fallback transcription to finish
                     # before nulling the model.
