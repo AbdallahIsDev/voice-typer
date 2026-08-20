@@ -152,9 +152,7 @@ class TestGetModelMetadataReturnsCorrectFields:
         for name, wer in expected.items():
             meta = get_model_metadata(name)
             assert meta is not None, f"{name} missing from registry"
-            assert meta.wer == wer, (
-                f"{name}: expected wer={wer}, got {meta.wer!r}"
-            )
+            assert meta.wer == wer, f"{name}: expected wer={wer}, got {meta.wer!r}"
             assert meta.wer > 0, f"{name}: WER must be positive"
 
     def test_to_dict_includes_wer(self):
