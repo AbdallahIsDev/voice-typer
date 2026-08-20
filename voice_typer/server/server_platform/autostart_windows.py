@@ -1089,6 +1089,43 @@ def _sweep_legacy_startup_bats() -> list[str]:
     return deleted
 
 
+def _sweep_v1_marker_files(config_dir: Path) -> list[str]:
+    """Delete leftover v1 legacy-sweep markers (``autostart-sweep-<hash>.done``).
+
+    The v2 sweep marker (``autostart-sweep-v2-<hash>.done``) is
+    version-scoped precisely so installs that already ran the v1 sweep
+    re-run once after the PLAT-RUN rename — but nothing ever removed the
+    v1 marker files themselves, so they linger in ``config_dir`` forever
+    (one per legacy ``python.exe`` / ``pythonw.exe`` install hash). They
+    are tiny but pure clutter once their sweep has been superseded.
+
+    Pure filesystem work (no winreg / PowerShell), so it is safe on every
+    platform and runs before the Windows-only gate in the caller.
+    Best-effort: per-file errors are logged and skipped so one bad file
+    never aborts the sweep.
+
+    Returns the names of deleted marker files.
+    """
+    deleted: list[str] = []
+    try:
+        for marker in config_dir.glob("autostart-sweep-*.done"):
+            if marker.name.startswith("autostart-sweep-v2-"):
+                continue
+            try:
+                marker.unlink()
+                deleted.append(marker.name)
+                log.info("[AUTOSTART] removed legacy v1 sweep marker %s", marker.name)
+            except OSError as exc:
+                log.debug(
+                    "[AUTOSTART] could not remove legacy v1 sweep marker %s: %s",
+                    marker.name,
+                    exc,
+                )
+    except OSError as exc:
+        log.debug("[AUTOSTART] glob error for legacy v1 sweep markers: %s", exc)
+    return deleted
+
+
 def _legacy_sweep_marker_path(config_dir: Path) -> Path:
     """Path to the per-install legacy-sweep completion marker.
 
@@ -1130,13 +1167,21 @@ def sweep_legacy_autostart_entries(config_dir: Path) -> dict:
     anything was removed) a marker file keyed by the install hash is
     written into ``config_dir``, so the expensive Task Scheduler
     enumeration (PowerShell) is paid once and steady-state startup cost
-    is a single ``Path.exists()`` check. Callers invoke it on every
+    is a single ``Path.exists()`` check (plus the tiny v1-marker glob in
+    ``_sweep_v1_marker_files``). Callers invoke it on every
     startup (e.g. from ``sync_autostart``); the marker makes it
     one-time.
 
     Returns ``{"swept": bool, "removed": {"runkeys": [...],
     "tasks": [...], "bats": [...]}}``.
     """
+    # One-time cleanup of v1 sweep markers (``autostart-sweep-<hash>.done``)
+    # left behind by the pre-v2 sweep — see ``_sweep_v1_marker_files``.
+    # Runs BEFORE the marker check so installs whose v2 marker already
+    # exists (written by a pre-fix version) still get their v1 clutter
+    # removed, and before the winreg gate because it is pure filesystem
+    # work.
+    _sweep_v1_marker_files(config_dir)
     marker = _legacy_sweep_marker_path(config_dir)
     if marker.exists():
         return {"swept": False, "removed": {"runkeys": [], "tasks": [], "bats": []}}

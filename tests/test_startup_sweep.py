@@ -17,7 +17,7 @@ The fix mirrors the existing
 ``crash_handler._sweep_stale_diagnostics``
 (``crash_handler/_diagnostics_archive.py:363-425``) patterns: a
 best-effort, per-file-error-tolerant sweep called once per process
-startup that unlinks any matched file older than 30 days (mtime).
+startup that unlinks any matched file older than 15 days (mtime).
 
 These tests pin the behaviour in isolation — they call
 ``_sweep_stale_backup_files(tmp_path)`` directly so they don't depend
@@ -35,10 +35,10 @@ from voice_typer.server import startup_sequence as ss_mod
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
-# 31 days in seconds — comfortably past the 30-day cutoff so the file
+# 16 days in seconds — comfortably past the 15-day cutoff so the file
 # is unconditionally "stale" regardless of test runner clock skew.
-_STALE_AGE_SECONDS = 31 * 24 * 60 * 60
-# 1 day in seconds — comfortably inside the 30-day cutoff so the file
+_STALE_AGE_SECONDS = 16 * 24 * 60 * 60
+# 1 day in seconds — comfortably inside the 15-day cutoff so the file
 # is unconditionally "fresh" (must NOT be deleted — forensic value).
 _FRESH_AGE_SECONDS = 1 * 24 * 60 * 60
 
@@ -59,7 +59,7 @@ def _touch_with_age(path: Path, age_seconds: float) -> None:
 
 
 class TestSweepDeletesStaleBackups:
-    """``_sweep_stale_backup_files`` deletes matched files older than 30 days."""
+    """``_sweep_stale_backup_files`` deletes matched files older than 15 days."""
 
     @pytest.mark.parametrize(
         "filename",
@@ -108,7 +108,7 @@ class TestSweepDeletesStaleBackups:
 
 
 class TestSweepPreservesFreshBackups:
-    """``_sweep_stale_backup_files`` NEVER deletes files newer than 30 days
+    """``_sweep_stale_backup_files`` NEVER deletes files newer than 15 days
     (forensic value — see CONSTRAINT 4 / NEVER DOWNGRADE)."""
 
     @pytest.mark.parametrize(
@@ -239,20 +239,20 @@ class TestSweepErrorTolerance:
 
 
 class TestSweepBoundary:
-    """Edge cases around the 30-day cutoff and idempotency."""
+    """Edge cases around the 15-day cutoff and idempotency."""
 
-    def test_exactly_30_days_preserved(self, tmp_path: Path) -> None:
-        """A file just under the 30-day cutoff is preserved (the check is
-        strict ``>``, so a file at 29d23h is NOT yet stale).
+    def test_exactly_15_days_preserved(self, tmp_path: Path) -> None:
+        """A file just under the 15-day cutoff is preserved (the check is
+        strict ``>``, so a file at 14d23h is NOT yet stale).
         This pins the NEVER-DOWNGRADE boundary."""
         path = tmp_path / "config.json.corrupt-boundary"
-        # 29d 23h — strictly under the 30-day cutoff (``>`` must NOT fire).
-        just_under_30_days = ss_mod._BACKUP_RETENTION_MAX_AGE_SECONDS - 3600.0
-        _touch_with_age(path, just_under_30_days)
+        # 14d 23h — strictly under the 15-day cutoff (``>`` must NOT fire).
+        just_under_15_days = ss_mod._BACKUP_RETENTION_MAX_AGE_SECONDS - 3600.0
+        _touch_with_age(path, just_under_15_days)
 
         ss_mod._sweep_stale_backup_files(tmp_path)
 
-        assert path.exists(), "file just under 30 days must be preserved (strict > comparison)"
+        assert path.exists(), "file just under 15 days must be preserved (strict > comparison)"
 
     def test_sweep_is_idempotent(self, tmp_path: Path) -> None:
         """Calling the sweep twice is a no-op the second time (no files

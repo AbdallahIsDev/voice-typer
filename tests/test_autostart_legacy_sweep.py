@@ -243,6 +243,46 @@ class TestRunKeyLegacySweep:
         assert result["swept"] is False
         assert not list(tmp_path.glob("autostart-sweep-*.done"))
 
+    def test_removes_v1_marker_files_even_when_v2_marker_exists(self, tmp_path, monkeypatch, fake_winreg):
+        """Leftover v1 sweep markers (``autostart-sweep-<hash>.done``) are
+        deleted on every call — even when the v2 marker already exists
+        (a pre-fix install where the sweep short-circuits) — while the v2
+        marker itself and the winreg gate are untouched."""
+        from voice_typer.server import server_platform as _pkg
+        from voice_typer.server.server_platform import sweep_legacy_autostart_entries
+
+        self._make_sweep_inert(monkeypatch)
+        v1_a = tmp_path / "autostart-sweep-3c3067b1.done"
+        v1_b = tmp_path / "autostart-sweep-9ce2ff97.done"
+        v1_a.write_text("", encoding="utf-8")
+        v1_b.write_text("", encoding="utf-8")
+        v2_marker = tmp_path / f"autostart-sweep-v2-{_pkg._install_hash()}.done"
+        v2_marker.write_text("", encoding="utf-8")
+
+        # v2 marker exists → the registry/task sweep short-circuits, but
+        # the v1-marker cleanup must still run (pure filesystem work).
+        result = sweep_legacy_autostart_entries(tmp_path)
+
+        assert result["swept"] is False
+        assert not v1_a.exists(), "v1 marker must be cleaned even when the v2 marker exists"
+        assert not v1_b.exists(), "v1 marker must be cleaned even when the v2 marker exists"
+        assert v2_marker.exists(), "the v2 marker itself must never be deleted"
+        assert list(tmp_path.glob("autostart-sweep-*.done")) == [v2_marker]
+
+    def test_removes_v1_marker_files_without_winreg(self, tmp_path):
+        """The v1-marker cleanup is pure filesystem work — it runs even
+        when winreg is unavailable (non-Windows host / conftest block)."""
+        from voice_typer.server.server_platform import sweep_legacy_autostart_entries
+
+        v1 = tmp_path / "autostart-sweep-e36cc7e3.done"
+        v1.write_text("", encoding="utf-8")
+
+        result = sweep_legacy_autostart_entries(tmp_path)
+
+        assert result["swept"] is False
+        assert not v1.exists(), "v1 marker must be cleaned without winreg"
+        assert not list(tmp_path.glob("autostart-sweep-*.done"))
+
 
 # ---------------------------------------------------------------------------
 # Task Scheduler legacy sweep (unit-level)
