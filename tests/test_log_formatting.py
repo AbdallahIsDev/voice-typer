@@ -302,28 +302,34 @@ def test_setup_logging_no_duplicate_stream_handlers_when_reinvoked(tmp_path: Pat
         reset()
 
 
-def test_broken_console_stream_self_detaches_and_suppresses_noise(tmp_path: Path, monkeypatch) -> None:
-    """A broken console stream (e.g. WinError 1 after the console handle
-    is detached) must NOT spam ``[LOG] emit failed`` on every line.
+def test_broken_console_stream_keeps_handler_and_suppresses_noise(tmp_path: Path, monkeypatch) -> None:
+    """A broken console stream (e.g. WinError 1 on a Windows console
+    handle's flush) must NOT spam ``[LOG] emit failed`` on every line,
+    and must NOT detach the handler (which would silently drop all
+    subsequent terminal output).
 
-    The first failed emit surfaces ONE diagnostic + detaches the handler
-    from the root logger; subsequent records no-op instead of repeating
-    the per-line error."""
+    The write itself succeeds (the line reaches the stream); only the
+    flush fails.  The handler stays attached so later records still
+    reach the stream, and ONE diagnostic is emitted."""
+    written: list[str] = []
+    flushed = 0
 
-    class _BrokenStderr:
+    class _FlakyConsoleStderr:
         def isatty(self) -> bool:
             return True
 
         def reconfigure(self, **_kwargs) -> None:  # pragma: no cover - best-effort
             pass
 
-        def write(self, _s: str) -> None:
-            raise OSError(1, "Incorrect function")
+        def write(self, s: str) -> None:
+            written.append(s)
 
         def flush(self) -> None:
+            nonlocal flushed
+            flushed += 1
             raise OSError(1, "Incorrect function")
 
-    broken = _BrokenStderr()
+    broken = _FlakyConsoleStderr()
     monkeypatch.setattr(sys, "stderr", broken)
     reset()
     config_dir = tmp_path / "cfg"
@@ -332,16 +338,22 @@ def test_broken_console_stream_self_detaches_and_suppresses_noise(tmp_path: Path
         setup_logging(config_dir)
         root = logging.getLogger("voice_typer")
         stream = next(h for h in root.handlers if isinstance(h, _FlushingStreamHandler))
-        assert not stream._stream_broken
+        assert not stream._flushed_once
 
         logger = logging.getLogger("voice_typer.server.log_formatting_test")
-        logger.info("first line should trip the self-deactivation")
+        logger.info("first line")
 
-        assert stream._stream_broken is True, "handler must mark the stream broken after the first failure"
-        assert stream not in root.handlers, "handler must detach itself from the root logger"
+        assert stream._flushed_once is True, "handler must emit ONE diagnostic after the first failure"
+        assert stream in root.handlers, "handler must STAY attached (detaching drops all later terminal output)"
+        assert any("console stream" in w for w in written), "one broken-stream diagnostic expected"
 
-        # Second record must NOT raise or re-attach — a silent no-op.
-        logger.info("second line must not spam the broken-stream error")
+        # Second record: handler still writes to the stream (only the
+        # flush fails, which is swallowed) — NO second diagnostic, NO detach.
+        before = list(written)
+        logger.info("second line")
+        assert stream in root.handlers, "handler must remain attached after the second record"
+        assert any("second line" in w for w in written), "second record must still reach the stream"
+        assert len(written) - len(before) == 1, "no per-line error spam expected"
     finally:
         reset()
 

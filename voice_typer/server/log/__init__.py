@@ -799,10 +799,19 @@ def setup_logging(
         # leak secrets via the fallback stderr path.
         _ensure_last_resort_redacted(_pii_filter)
 
-        # ── 4. Fix stderr encoding for Unicode ─────────────────────────
+        # ── 4. Fix stderr encoding + flushing for Unicode ──────────────
+        # ``write_through=True`` guarantees every write immediately
+        # reaches the OS, bypassing Python's block buffering.  Without it,
+        # lines written to a console/pipe can sit in the buffer and only
+        # appear at process exit (a symptom users reported as "logs are
+        # cut / stale lines appear when I close").  ``errors=`` keeps the
+        # Windows console from dying on non-encodable Unicode.
         if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
             with contextlib.suppress(OSError):
-                sys.stderr.reconfigure(errors="backslashreplace")
+                sys.stderr.reconfigure(errors="backslashreplace", write_through=True)
+        if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+            with contextlib.suppress(OSError):
+                sys.stdout.reconfigure(errors="backslashreplace", write_through=True)
 
         # ── 5. Stderr stream handler ─────────────────────────────────────
         # always flush after each emit so terminal log lines appear
@@ -1021,41 +1030,45 @@ class _FlushingStreamHandler(logging.StreamHandler):
     :func:`setup_logging` so calling ``setup_logging`` multiple times
     doesn't add duplicate console handlers.
 
-    Self-deactivation: if the underlying stream is broken (e.g. the
-    console handle was detached after process start), the first
-    ``emit`` failure is surfaced at WARNING level and the handler
-    is detached from the root logger to suppress the per-line
-    ``[LOG] emit failed`` noise that would otherwise repeat for every
-    subsequent record.
+    On Windows, ``FlushFileBuffers`` on a console handle returns
+    ``ERROR_INVALID_FUNCTION`` (WinError 1).  When flush fails the
+    write still succeeded (the line is in the buffer), so we swallow
+    the error and keep the handler alive — detaching would silently
+    drop all subsequent terminal output.
     """
 
-    _stream_broken: bool = False
+    _flushed_once: bool = False
 
     def emit(self, record: logging.LogRecord) -> None:  # noqa: D401
-        if self._stream_broken:
+        try:
+            super().emit(record)
+        except Exception:
+            self._handle_broken_stream()
             return
-        super().emit(record)
-        # Always flush — the underlying stream may be line-buffered or
-        # block-buffered, and the user wants to see logs in real time.
+        # The stock ``StreamHandler.emit`` already calls ``self.flush()``,
+        # but on Windows it may raise ``WinError 1`` (ERROR_INVALID_FUNCTION)
+        # when the underlying stream is a console handle.  Flush again here
+        # so a terminal user sees each line immediately (best-effort).
         with contextlib.suppress(Exception):
             self.flush()
 
     def handleError(self, record: logging.LogRecord) -> None:  # noqa: N802 — override of logging.Handler.handleError
-        # The stream is broken (WinError 1, closed pipe, etc.) —
-        # ``logging.StreamHandler.emit`` swallows the write exception
-        # and routes it here. Surface ONE diagnostic at WARNING level,
-        # then detach the handler from the root logger so subsequent
-        # records no-op instead of repeating the per-line error.
-        self._stream_broken = True
+        self._handle_broken_stream()
+
+    def _handle_broken_stream(self) -> None:
+        """Log ONE diagnostic about the broken stream, then keep the handler
+        alive so subsequent writes still reach the buffer (they will be
+        flushed at process exit if not before)."""
+        if self._flushed_once:
+            return
+        self._flushed_once = True
         exc = sys.exc_info()[1]
         detail = f"{type(exc).__name__}" if exc is not None else "unknown"
         if exc is not None:
             msg = str(exc)
             if msg:
                 detail = f"{detail}: {msg[:200]}"
-        _stderr_line(f"[LOG] console stream broken — detaching console handler ({detail})")
-        with contextlib.suppress(Exception):
-            logging.getLogger("voice_typer").removeHandler(self)
+        _stderr_line(f"[LOG] console stream may be degraded — terminal output may be delayed ({detail})")
 
 
 class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
