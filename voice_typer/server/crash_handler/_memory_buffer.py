@@ -152,6 +152,28 @@ class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
         finally:
             self.release()
 
+    def close(self) -> None:
+        """Drop the buffer WITHOUT flushing it to the target.
+
+        The stock ``MemoryHandler.close()`` flushes the whole buffer to
+        the target file.  Because the logging framework calls
+        ``close()`` on every handler at interpreter shutdown, that would
+        dump the last ``capacity`` records into
+        ``voice-typer-crash-buffer.log`` on EVERY clean exit — mirroring
+        the tail of ``voice-typer.log`` for a session that never crashed.
+
+        The crash buffer's ONLY writer is the VEH callback's explicit
+        ``flush_memory_handler()`` call (a real crash).  On clean
+        shutdown we discard the ring instead of persisting it.
+        """
+        self.acquire()
+        try:
+            self.buffer.clear()
+            self.target = None
+        finally:
+            self.release()
+        super().close()
+
 
 # capacity of the in-memory ring buffer. ``_CrashBufferMemoryHandler``
 # overrides ``handle`` to append + evict in memory (dropping the oldest

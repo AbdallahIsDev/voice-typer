@@ -148,6 +148,29 @@ class TestMemoryBufferFlush:
         # Must not raise.
         flush_memory_handler()
 
+    def test_close_discards_buffer_without_flushing(self, tmp_path: Path):
+        """On clean shutdown the logging framework calls
+        ``handler.close()`` on every attached handler.  The stock
+        ``MemoryHandler.close()`` flushes the whole ring to the target
+        file — which would dump the session tail into
+        ``voice-typer-crash-buffer.log`` on every clean exit, mirroring
+        ``voice-typer.log``.  Our override must DISCARD the buffer
+        instead (the only writer is the VEH crash callback's explicit
+        ``flush_memory_handler()``)."""
+        install_memory_buffer(tmp_path)
+        buffer_path = tmp_path / "logs" / "voice-typer-crash-buffer.log"
+
+        test_log = logging.getLogger("voice_typer.test.crash_buffer")
+        for i in range(50):
+            test_log.warning("pre-close record %d", i)
+
+        # Simulate interpreter shutdown: the framework closes the handler.
+        _ch._memory_handler.close()
+
+        assert not buffer_path.exists() or buffer_path.read_text(encoding="utf-8", errors="replace").strip() == "", (
+            "close() must NOT flush the buffer to the crash file on clean shutdown"
+        )
+
     def test_flush_does_not_raise_on_target_failure(self, tmp_path: Path, monkeypatch):
         """If the target's ``emit`` raises (e.g. disk full), the flush
         must swallow the error so the VEH callback is not affected."""
