@@ -3,7 +3,7 @@ r"""MIG-1.9 Phase 3 — tray/menu port validation (ADR-0020 §6.5).
 This is the **Phase 3 tray-menu check** for the MIG-1.9 Tauri runtime
 migration. It validates that the **tray menu structure is preserved
 1:1** across the runtime migration — the user must see the same six
-menu items (Open App, Toggle Dictation, Cancel, Models, Restart,
+menu items (Open App, Start Dictation, Cancel, Models, Restart,
 Quit), the same locale toggles (English + Spanish at minimum), and
 the same dynamic items (microphone list, model list) as before the
 migration.
@@ -50,7 +50,7 @@ that computes them, AND the Rust host correctly renders the
 Scope (ADR-0020 §6.5 + MIG-1.9 task brief):
 
 1. **Menu structure preserved 1:1** — the six menu items mandated by
-   ``tray_menu.py::build_menu`` (Open App, Toggle Dictation, Cancel
+   ``tray_menu.py::build_menu`` (Open App, Start Dictation, Cancel
    Transcription [conditional], Models ▸, Restart, Quit) appear in
    the same order with the same separators. Source-inspected on the
    Python sidecar (the renderer of record).
@@ -92,7 +92,7 @@ VALIDATE ON HOST (Linux — after building the Tauri app):
        etc.). RIGHT-click it.
     4. Verify the menu shows these 6 items in this exact order:
            Open App
-           Toggle Dictation (F2)         ← hotkey label in parens
+           Start Dictation (F2)         ← hotkey label in parens
            ─── separator ───
            Models ▸                       ← hover for the submenu
            ─── separator ───
@@ -351,7 +351,7 @@ def test_tray_menu_has_six_required_labels_in_order(tray_menu_py_source) -> None
     assert collapsed == required_keys, (
         f"tray_menu.py menu keys out of order: expected {required_keys}, "
         f"got {seen_order} (the 6 items must appear in the ADR-mandated "
-        f"order: Open App → Toggle Dictation → Cancel → Models → Restart → Quit)"
+        f"order: Open App → Start Dictation → Cancel → Models → Restart → Quit)"
     )
 
 
@@ -377,10 +377,10 @@ def test_tray_menu_open_app_is_default_action(tray_menu_py_source) -> None:
 def test_tray_menu_toggle_dictation_includes_hotkey_label(
     tray_menu_py_source,
 ) -> None:
-    """ADR-0020 §6.5: Toggle Dictation label includes the hotkey hint.
+    """ADR-0020 §6.5: Start Dictation label includes the hotkey hint.
 
-    The tray's "Toggle Dictation" item shows the current hotkey in
-    parentheses (e.g. "Toggle Dictation (F2)") so the user knows
+    The tray's "Start Dictation" item shows the current hotkey in
+    parentheses (e.g. "Start Dictation (F2)") so the user knows
     which key to press without opening Settings. The label is built
     by formatting ``f"{localize('toggle_dictation')} ({hotkey_label})"``.
     """
@@ -388,10 +388,10 @@ def test_tray_menu_toggle_dictation_includes_hotkey_label(
         r"localize\(['\"]toggle_dictation['\"]\)\s*\}\s*\(\{hotkey_label\}\)",
         tray_menu_py_source,
     ), (
-        "Toggle Dictation label must include the hotkey hint in parens — "
+        "Start Dictation label must include the hotkey hint in parens — "
         "expected an f-string like "
         "f\"{localize('toggle_dictation')} ({hotkey_label})\" so the "
-        "user sees e.g. 'Toggle Dictation (F2)' in the tray menu."
+        "user sees e.g. 'Start Dictation (F2)' in the tray menu."
     )
 
 
@@ -442,7 +442,7 @@ def test_tray_menu_separators_present(tray_menu_py_source) -> None:
     """ADR-0020 §6.5: two separators structure the menu into 3 groups.
 
     The tray menu has 3 visual groups separated by 2 horizontal
-    rules: (1) Open App + Toggle Dictation + Cancel, (2) Models ▸,
+    rules: (1) Open App + Start Dictation + Cancel, (2) Models ▸,
     (3) Restart + Quit. The separators MUST be present.
     """
     sep_count = tray_menu_py_source.count("pystray.Menu.SEPARATOR")
@@ -541,8 +541,8 @@ def test_tray_locale_spanish_dict_present(tray_i18n_py_source) -> None:
     assert '"quit": "Salir"' in es_dict_body, (
         "ES quit label must be 'Salir' — this is the user-facing string the host VALIDATE step looks for."
     )
-    assert '"toggle_dictation": "Alternar Dictado"' in es_dict_body, (
-        "ES toggle_dictation label must be 'Alternar Dictado' — this is "
+    assert '"toggle_dictation": "Iniciar Dictado"' in es_dict_body, (
+        "ES toggle_dictation label must be 'Iniciar Dictado' — this is "
         "the user-facing string the host VALIDATE step looks for."
     )
 

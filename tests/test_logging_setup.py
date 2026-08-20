@@ -1,15 +1,10 @@
 """Unit tests for ``voice_typer.server.logging_setup``.
 
-The module exposes a single public function ``_setup_logging`` that:
-
-1. Calls ``log.setup_logging(config_dir, ...)`` to install a
-   :class:`logging.handlers.RotatingFileHandler` and an optional coloured
-   :class:`_FlushingStreamHandler` on the ``voice_typer`` logger.
-2. Sets ``HF_HOME`` under the config directory (so huggingface cache stays
-   inside the user's voice-typer data dir rather than ``~/.cache``).
-3. Validates environment variables (``_validate_env_vars``).
-4. Warns if running inside a container (``warn_if_in_container``).
-5. Installs the Windows VEH crash handler (no-op on POSIX).
+The module exposes ``_setup_logging`` (configures logging, validates env
+vars, warns about containers, stages the startup banner + crash-handler
+install) and ``_emit_startup_banner`` (emits the ``[STARTUP] logging
+initialized`` banner and installs the Windows VEH crash handler; called
+later, after the ``APP starting`` line).
 
 These tests pin every observable side effect of the function.  They use
 ``tmp_path`` for the config dir, ``monkeypatch`` to stub out the non-logging
@@ -316,8 +311,10 @@ def test_calls_container_warn_if_in_container(config_dir, clean_env, stub_side_e
 
 
 def test_calls_install_crash_handler(config_dir, clean_env, stub_side_effects):
-    """_setup_logging installs the crash handler at the end."""
+    """_setup_logging stages the crash-handler install; _emit_startup_banner installs it."""
     logging_setup._setup_logging()
+    stub_side_effects["crash_install"].assert_not_called()
+    logging_setup._emit_startup_banner()
     stub_side_effects["crash_install"].assert_called_once_with()
 
 
@@ -479,9 +476,10 @@ class TestStartupBanner:  # noqa: N801
 
     def test_banner_appears_in_log_file(self, config_dir, clean_env, stub_side_effects):
         """The ``[STARTUP] logging initialized:`` banner is written to
-        ``<config_dir>/voice-typer.log`` after ``_setup_logging`` returns.
+        ``<config_dir>/voice-typer.log`` after ``_emit_startup_banner`` runs.
         """
         logging_setup._setup_logging()
+        logging_setup._emit_startup_banner()
         _flush_all()
         banner = self._banner_lines(config_dir)
         assert "[STARTUP] logging initialized:" in banner, (
@@ -491,6 +489,7 @@ class TestStartupBanner:  # noqa: N801
     def test_banner_includes_file_path(self, config_dir, clean_env, stub_side_effects):
         """The banner includes the resolved log file path."""
         logging_setup._setup_logging()
+        logging_setup._emit_startup_banner()
         _flush_all()
         banner = self._banner_lines(config_dir)
         expected_file = str(config_dir / "logs" / "voice-typer.log")
@@ -512,6 +511,7 @@ class TestStartupBanner:  # noqa: N801
         itself is always pinned at DEBUG internally).
         """
         logging_setup._setup_logging()
+        logging_setup._emit_startup_banner()
         _flush_all()
         banner = self._banner_lines(config_dir)
         assert "level=INFO" in banner, f"GT-B1-15: banner missing/incorrect level; got: {banner!r}"
@@ -520,6 +520,7 @@ class TestStartupBanner:  # noqa: N801
         """When VOICE_TYPER_QUIET=1, the banner shows level=WARNING and quiet=True."""
         monkeypatch.setenv("VOICE_TYPER_QUIET", "1")
         logging_setup._setup_logging()
+        logging_setup._emit_startup_banner()
         _flush_all()
         banner = self._banner_lines(config_dir)
         assert "level=WARNING" in banner, f"GT-B1-15: quiet mode should set level=WARNING; got: {banner!r}"
@@ -529,6 +530,7 @@ class TestStartupBanner:  # noqa: N801
         """When VOICE_TYPER_DEBUG=1, the banner shows debug=True."""
         monkeypatch.setenv("VOICE_TYPER_DEBUG", "1")
         logging_setup._setup_logging()
+        logging_setup._emit_startup_banner()
         _flush_all()
         banner = self._banner_lines(config_dir)
         assert "debug=True" in banner, f"GT-B1-15: banner should show debug=True; got: {banner!r}"
@@ -537,6 +539,7 @@ class TestStartupBanner:  # noqa: N801
         """When VOICE_TYPER_LOG_JSON=1, the banner shows json=True."""
         monkeypatch.setenv("VOICE_TYPER_LOG_JSON", "1")
         logging_setup._setup_logging()
+        logging_setup._emit_startup_banner()
         _flush_all()
         banner = self._banner_lines(config_dir)
         assert "json=True" in banner, (
@@ -552,6 +555,7 @@ class TestStartupBanner:  # noqa: N801
         from voice_typer.server import log as _log_module
 
         logging_setup._setup_logging()
+        logging_setup._emit_startup_banner()
         _flush_all()
         content = (config_dir / "logs" / "voice-typer.log").read_text(encoding="utf-8")
         lines = content.splitlines()
@@ -593,6 +597,7 @@ class TestStartupBanner:  # noqa: N801
     def test_banner_defaults_when_no_flags_set(self, config_dir, clean_env, stub_side_effects):
         """Default config: debug=False, quiet=False, json=False, level=DEBUG."""
         logging_setup._setup_logging()
+        logging_setup._emit_startup_banner()
         _flush_all()
         banner = self._banner_lines(config_dir)
         assert "debug=False" in banner
@@ -600,16 +605,15 @@ class TestStartupBanner:  # noqa: N801
         assert "json=False" in banner
 
     def test_banner_emitted_before_validate_env_vars(self, config_dir, clean_env, stub_side_effects):
-        """GT-B1-15 + PLAT-008 ordering: the banner is emitted AFTER
-        ``_setup_logging_shared`` returns (so the file handler is
-        installed) but BEFORE ``_validate_env_vars`` runs.
-
-        Asserted indirectly: the banner is present in the file (which
-        means the file handler was installed before the banner was
-        emitted), and ``_validate_env_vars`` was still called exactly
-        once (so the banner does not skip validation).
+        """PLAT-008 ordering: ``_validate_env_vars`` runs during
+        ``_setup_logging`` (before the banner), and the banner is emitted by
+        ``_emit_startup_banner`` (called later, after the ``APP starting``
+        line). Asserted indirectly: the banner is present in the file (which
+        means the file handler was installed before the banner was emitted),
+        and ``_validate_env_vars`` was still called exactly once.
         """
         logging_setup._setup_logging()
+        logging_setup._emit_startup_banner()
         _flush_all()
         banner = self._banner_lines(config_dir)
         assert "[STARTUP]" in banner

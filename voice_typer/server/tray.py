@@ -1,6 +1,6 @@
 """System tray icon using pystray, with dynamic state and menu.
 
-Phase 2 minimal right-click menu: Toggle Dictation (hotkey) / Models /
+Phase 2 minimal right-click menu: Start Dictation (hotkey) / Models /
 Restart / Quit. Left-click + "Open App" launches (or focuses) the
 Electron app; all settings / history / templates live in the Electron
 window only.
@@ -993,11 +993,7 @@ class TrayIcon:
 
     def _display_hotkey(self) -> str:
         """Return the configured hotkey in a user-facing form (delegate)."""
-        hotkey = (
-            self._hotkey
-            or getattr(self._config, "hotkey", "<caps_lock>")
-            or "<caps_lock>"
-        )
+        hotkey = self._hotkey or getattr(self._config, "hotkey", "<caps_lock>") or "<caps_lock>"
         return display_hotkey(hotkey)
 
     # #13: _wrap moved to tray_menu.wrap_callback; kept as static-method

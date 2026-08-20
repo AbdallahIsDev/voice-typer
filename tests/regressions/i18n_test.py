@@ -219,11 +219,11 @@ class TestTrayLocaleSwitchingRebuildsMenu:
 
         # Reset to English first
         tray.set_tray_locale("en")
-        assert tray._("toggle_dictation") == "Toggle Dictation"
+        assert tray._("toggle_dictation") == "Start Dictation"
 
         # Switch to Spanish
         tray.set_tray_locale("es")
-        assert tray._("toggle_dictation") == "Alternar Dictado"
+        assert tray._("toggle_dictation") == "Iniciar Dictado"
         assert tray._("quit") == "Salir"
         assert tray._("models") == "Modelos"
 
@@ -236,7 +236,7 @@ class TestTrayLocaleSwitchingRebuildsMenu:
 
         tray.set_tray_locale("zz")  # not supported
         assert tray.get_tray_locale() == "en"  # falls back
-        assert tray._("toggle_dictation") == "Toggle Dictation"
+        assert tray._("toggle_dictation") == "Start Dictation"
 
     def test_unknown_key_falls_back_to_english_then_key(self):
         """An unknown key must fall back to English, then to the key itself."""
@@ -298,19 +298,14 @@ class TestRendererLocalesUseAppNamePlaceholder:
             assert path.exists(), f"{name}.json must exist"
             text = path.read_text(encoding="utf-8")
             assert "Voice Typer" not in text, (
-                f"{name}.json: literal brand string found — must use the "
-                "{appName} placeholder (C-BRAND-1 / HU-43)"
+                f"{name}.json: literal brand string found — must use the {{appName}} placeholder (C-BRAND-1 / HU-43)"
             )
 
     def test_en_uses_appname_placeholder(self):
         """The placeholder pattern must actually be in use (guards
         against a vacuous migration that deleted the brand entirely)."""
-        en = json.loads(
-            (self.TRANSLATIONS_DIR / "en.json").read_text(encoding="utf-8")
-        )
-        assert "{appName}" in json.dumps(en), (
-            "en.json must use the {appName} placeholder somewhere (HU-43)"
-        )
+        en = json.loads((self.TRANSLATIONS_DIR / "en.json").read_text(encoding="utf-8"))
+        assert "{appName}" in json.dumps(en), "en.json must use the {appName} placeholder somewhere (HU-43)"
 
 
 class TestNotifyPushCoversServerKeys:
@@ -338,16 +333,7 @@ class TestNotifyPushCoversServerKeys:
     """
 
     REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-    TRANSLATIONS_DIR = (
-        REPO_ROOT
-        / "voice_typer"
-        / "client"
-        / "src"
-        / "renderer"
-        / "src"
-        / "i18n"
-        / "translations"
-    )
+    TRANSLATIONS_DIR = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "i18n" / "translations"
     SERVER_DIR = REPO_ROOT / "voice_typer" / "server"
 
     @classmethod
@@ -369,9 +355,7 @@ class TestNotifyPushCoversServerKeys:
 
     @classmethod
     def _renderer_notify_keys(cls) -> dict[str, str]:
-        en = json.loads(
-            (cls.TRANSLATIONS_DIR / "en.json").read_text(encoding="utf-8")
-        )
+        en = json.loads((cls.TRANSLATIONS_DIR / "en.json").read_text(encoding="utf-8"))
         result: dict[str, str] = {}
         for group, keys in en["notify"].items():
             for key, value in keys.items():
@@ -401,20 +385,16 @@ class TestNotifyPushCoversServerKeys:
         from voice_typer.server.i18n import _INITIAL_LABELS
 
         def normalize(value: str) -> str:
-            return value.replace("{appName}", APP_NAME).replace(
-                "{app}", APP_NAME
-            )
+            return value.replace("{appName}", APP_NAME).replace("{app}", APP_NAME)
 
         renderer = self._renderer_notify_keys()
         differing = [
             (key, renderer[key], _INITIAL_LABELS[key])
             for key in self._live_server_notify_keys()
-            if key in renderer
-            and normalize(renderer[key]) != normalize(_INITIAL_LABELS[key])
+            if key in renderer and normalize(renderer[key]) != normalize(_INITIAL_LABELS[key])
         ]
-        assert not differing, (
-            "renderer notify English drifted from the server fallback: "
-            + "; ".join(f"{k}: {r!r} != {s!r}" for k, r, s in differing)
+        assert not differing, "renderer notify English drifted from the server fallback: " + "; ".join(
+            f"{k}: {r!r} != {s!r}" for k, r, s in differing
         )
 
 
@@ -447,26 +427,8 @@ class TestTrayTooltipHotkeyWordingRoundTrip:
     """
 
     REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-    TRANSLATIONS_DIR = (
-        REPO_ROOT
-        / "voice_typer"
-        / "client"
-        / "src"
-        / "renderer"
-        / "src"
-        / "i18n"
-        / "translations"
-    )
-    PUSH_TS = (
-        REPO_ROOT
-        / "voice_typer"
-        / "client"
-        / "src"
-        / "renderer"
-        / "src"
-        / "i18n"
-        / "push.ts"
-    )
+    TRANSLATIONS_DIR = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "i18n" / "translations"
+    PUSH_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "i18n" / "push.ts"
     LOCALES = ["en", "ar", "de", "es", "fr", "hi", "ru", "zh"]
 
     # Concrete key names / glyphs that must never appear in a tooltip
@@ -484,9 +446,7 @@ class TestTrayTooltipHotkeyWordingRoundTrip:
         from voice_typer.server.i18n import _INITIAL_LABELS
 
         return {
-            key: value
-            for key, value in _INITIAL_LABELS.items()
-            if key.startswith("state.") and isinstance(value, str)
+            key: value for key, value in _INITIAL_LABELS.items() if key.startswith("state.") and isinstance(value, str)
         }
 
     @classmethod
@@ -504,9 +464,7 @@ class TestTrayTooltipHotkeyWordingRoundTrip:
     @classmethod
     def _en_value(cls, key: str) -> str:
         """Look up a dotted ``trayState.*`` key in en.json."""
-        en = json.loads(
-            (cls.TRANSLATIONS_DIR / "en.json").read_text(encoding="utf-8")
-        )
+        en = json.loads((cls.TRANSLATIONS_DIR / "en.json").read_text(encoding="utf-8"))
         node: object = en
         for part in key.split("."):
             assert isinstance(node, dict), f"{key} resolves to a non-object"
@@ -518,11 +476,7 @@ class TestTrayTooltipHotkeyWordingRoundTrip:
     def _locale_tray_state_values(cls, locale: str) -> list[str]:
         """Every ``trayState`` string value in one locale (flat +
         nested groups)."""
-        data = json.loads(
-            (cls.TRANSLATIONS_DIR / f"{locale}.json").read_text(
-                encoding="utf-8"
-            )
-        )
+        data = json.loads((cls.TRANSLATIONS_DIR / f"{locale}.json").read_text(encoding="utf-8"))
         values: list[str] = []
 
         def walk(node: object) -> None:
@@ -539,11 +493,7 @@ class TestTrayTooltipHotkeyWordingRoundTrip:
         pairs = self._push_state_pairs()
         assert pairs, "no state→trayState push pairs extracted — parser broken"
         server = self._server_state_values()
-        hotkey_keys = [
-            key
-            for key, value in server.items()
-            if "hotkey" in value.lower()
-        ]
+        hotkey_keys = [key for key, value in server.items() if "hotkey" in value.lower()]
         assert hotkey_keys, "no hotkey-bearing state.* keys found — extraction broken"
         for key in hotkey_keys:
             renderer_key = pairs.get(key)

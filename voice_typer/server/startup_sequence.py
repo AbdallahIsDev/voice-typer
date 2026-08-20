@@ -993,7 +993,7 @@ class StartupSequence:
                         f"{APP_NAME} — Wayland Hotkeys",
                         "Global hotkeys may not work on Wayland. "
                         "Install 'wtype' or 'ydotool' for hotkey support, "
-                        "or use the tray menu's Toggle Dictation option.",
+                        "or use the tray menu's Start Dictation option.",
                     )
                 else:
                     log.info(

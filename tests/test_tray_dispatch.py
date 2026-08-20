@@ -401,7 +401,7 @@ class TestMenuSpecParity:
 
     def test_core_top_level_ids_match_pystray(self):
         """Both builders emit the same core top-level ids (Open App,
-        Toggle Dictation, Models, Microphones, Restart, Quit).
+        Start Dictation, Models, Microphones, Restart, Quit).
 
         This is a parity smoke-test focused on the Tauri side (the side
         that was missing items per OI-18). The pystray-side builder is

@@ -520,7 +520,7 @@ def test_set_state_publishes_tray_menu_only_on_transcribing_change(monkeypatch):
         assert len(menu_events) == 1, "TRANSCRIBING→TRANSCRIBING (msg change) must NOT publish tray_menu"
 
         # TRANSCRIBING → IDLE: membership change — menu publish (label
-        # flips back to "Toggle Dictation").
+        # flips back to "Start Dictation").
         tray.set_state(AppState.IDLE)
         assert len(menu_events) == 2, "TRANSCRIBING→IDLE must publish tray_menu (membership change)"
     finally:

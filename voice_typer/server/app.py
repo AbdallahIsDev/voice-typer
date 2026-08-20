@@ -166,7 +166,7 @@ log = logging.getLogger(__name__)
 # voice_typer.server.config to reject attacker-controlled SystemRoot values
 # that could enable DLL injection.  # ruff: noqa: F401
 from voice_typer.server.env_validation import _validate_env_vars  # noqa: F401, E402
-from voice_typer.server.logging_setup import _setup_logging  # noqa: F401, E402
+from voice_typer.server.logging_setup import _emit_startup_banner, _setup_logging  # noqa: F401, E402
 
 
 class _LazyAudioProcessorProxy:
@@ -441,6 +441,12 @@ class VoiceTyperApp:
             self.config.microphone or "default",
             self.config.sample_rate,
         )
+
+        # Emit the ``[STARTUP] logging initialized`` banner + install the
+        # Windows VEH crash handler AFTER the ``APP starting`` line so the
+        # startup log reads: ``APP starting`` → ``[STARTUP] logging
+        # initialized`` → ``[CRASH] Windows VEH installed``.
+        _emit_startup_banner()
 
         # ADR 0007: Audio processor wraps a FilterChain built from config.
         # Rebuilt on every config change via _rebuild_audio_processor()

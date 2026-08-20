@@ -114,7 +114,7 @@ class TestBuildMenu:
         assert "quit" in labels
 
     def test_menu_uses_display_hotkey_for_toggle_label(self):
-        """The 'Toggle Dictation' label must include the formatted hotkey."""
+        """The 'Start Dictation' label must include the formatted hotkey."""
         import voice_typer.server.tray_menu as tray_menu_mod
         from voice_typer.server.tray_menu import build_menu
 
@@ -140,10 +140,10 @@ class TestBuildMenu:
             build_models_submenu=lambda: [],
         )
         toggle_label = next(it.label for it in items_created if "toggle_dictation" in it.label)
-        assert "F5" in toggle_label, f"Toggle Dictation label should include formatted hotkey 'F5', got: {toggle_label}"
+        assert "F5" in toggle_label, f"Start Dictation label should include formatted hotkey 'F5', got: {toggle_label}"
 
     def test_toggle_dictation_is_default_action(self):
-        """The 'Toggle Dictation' menu item must be the default action."""
+        """The 'Start Dictation' menu item must be the default action."""
         import voice_typer.server.tray_menu as tray_menu_mod
         from voice_typer.server.tray_menu import build_menu
 
@@ -326,6 +326,7 @@ class TestInvalidateCache:
         invalidate_model_availability_cache()
 
         assert len(tray_models._hf_download_cache) == 0
+
 
 class TestBuildModelsSubmenuUsesCache:
     """The full submenu builder must use the cached helpers."""

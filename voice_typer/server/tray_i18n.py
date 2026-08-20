@@ -14,7 +14,7 @@ from voice_typer.server.i18n import DEFAULT_LOCALE
 
 _TRAY_LABELS_EN: dict[str, str] = {
     "app_name": APP_NAME,
-    "toggle_dictation": "Toggle Dictation",
+    "toggle_dictation": "Start Dictation",
     "stop_dictation": "Stop Dictation",
     "open_app": "Open App",
     "models": "Models",
@@ -38,7 +38,7 @@ _TRAY_LABELS_EN: dict[str, str] = {
 
 _TRAY_LABELS_ES: dict[str, str] = {
     "app_name": APP_NAME,
-    "toggle_dictation": "Alternar Dictado",
+    "toggle_dictation": "Iniciar Dictado",
     "stop_dictation": "Detener Dictado",
     "open_app": "Abrir Aplicación",
     "models": "Modelos",
@@ -70,7 +70,7 @@ _TRAY_LABELS_ES: dict[str, str] = {
 # the ceiling.
 _TRAY_LABELS_AR: dict[str, str] = {
     "app_name": APP_NAME,
-    "toggle_dictation": "تبديل الإملاء",
+    "toggle_dictation": "بدء الإملاء",
     "stop_dictation": "إيقاف الإملاء",
     "open_app": "فتح التطبيق",
     "models": "النماذج",
@@ -94,7 +94,7 @@ _TRAY_LABELS_AR: dict[str, str] = {
 
 _TRAY_LABELS_DE: dict[str, str] = {
     "app_name": APP_NAME,
-    "toggle_dictation": "Diktat umschalten",
+    "toggle_dictation": "Diktat starten",
     "stop_dictation": "Diktat stoppen",
     "open_app": "App öffnen",
     "models": "Modelle",
@@ -118,7 +118,7 @@ _TRAY_LABELS_DE: dict[str, str] = {
 
 _TRAY_LABELS_FR: dict[str, str] = {
     "app_name": APP_NAME,
-    "toggle_dictation": "Basculer la dictée",
+    "toggle_dictation": "Démarrer la dictée",
     "stop_dictation": "Arrêter la dictée",
     "open_app": "Ouvrir l'application",
     "models": "Modèles",
@@ -142,7 +142,7 @@ _TRAY_LABELS_FR: dict[str, str] = {
 
 _TRAY_LABELS_HI: dict[str, str] = {
     "app_name": APP_NAME,
-    "toggle_dictation": "डिक्टेशन टॉगल करें",
+    "toggle_dictation": "डिक्टेशन शुरू करें",
     "stop_dictation": "डिक्टेशन रोकें",
     "open_app": "ऐप खोलें",
     "models": "मॉडल",
@@ -166,7 +166,7 @@ _TRAY_LABELS_HI: dict[str, str] = {
 
 _TRAY_LABELS_RU: dict[str, str] = {
     "app_name": APP_NAME,
-    "toggle_dictation": "Переключить диктовку",
+    "toggle_dictation": "Начать диктовку",
     "stop_dictation": "Остановить диктовку",
     "open_app": "Открыть приложение",
     "models": "Модели",
@@ -190,7 +190,7 @@ _TRAY_LABELS_RU: dict[str, str] = {
 
 _TRAY_LABELS_ZH: dict[str, str] = {
     "app_name": APP_NAME,
-    "toggle_dictation": "切换听写",
+    "toggle_dictation": "开始听写",
     "stop_dictation": "停止听写",
     "open_app": "打开应用",
     "models": "模型",

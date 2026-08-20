@@ -16,6 +16,16 @@ from voice_typer.server.env_validation import _validate_env_vars
 
 log = logging.getLogger(__name__)
 
+# Deferred startup-banner state. ``_setup_logging()`` stages the banner
+# values (session id, resolved log file, root level, JSON/debug/quiet
+# flags) here, and ``_emit_startup_banner()`` — called later, from
+# ``VoiceTyperApp.__init__`` right AFTER the ``APP starting`` line — emits
+# the ``[STARTUP] logging initialized`` banner and installs the crash
+# handler.  Emitting both AFTER the ``starting`` banner keeps the startup
+# log ordered as: ``APP starting`` → ``[STARTUP] logging initialized`` →
+# ``[CRASH] Windows VEH installed``.
+_startup_banner_state: dict[str, object] | None = None
+
 
 def _setup_logging():
     """Configure logging (delegates to ``log.setup_logging``).
@@ -55,6 +65,50 @@ def _setup_logging():
         quiet=quiet,
         port_mode=port_mode,
     )
+
+    # validate environment variables before consuming them
+    _validate_env_vars()
+
+    # detect container environments and warn about unavailable features
+    from voice_typer.server.container_detect import warn_if_in_container
+
+    warn_if_in_container()
+
+    # Stage the startup-banner state and configure the crash handler's
+    # config dir. The ``[STARTUP] logging initialized`` banner itself and
+    # the crash-handler install are DEFERRED to ``_emit_startup_banner()``,
+    # called from ``VoiceTyperApp.__init__`` right AFTER the ``APP
+    # starting`` line so the startup log reads ``APP starting`` →
+    # ``[STARTUP] logging initialized`` → ``[CRASH] Windows VEH installed``.
+    global _startup_banner_state
+    _startup_banner_state = {
+        "config_dir": config_dir,
+        "debug": debug,
+        "quiet": quiet,
+        "session_id": _session_id,
+    }
+    _crash_handler.set_crash_handler_config_dir(config_dir)
+
+
+def _emit_startup_banner() -> None:
+    """Emit the ``[STARTUP] logging initialized`` banner and install the
+    crash handler.
+
+    Called from ``VoiceTyperApp.__init__`` after the ``APP starting``
+    banner so the startup log is ordered ``APP starting`` → banner → VEH.
+    """
+    global _startup_banner_state
+    state = _startup_banner_state
+    if state is None:
+        # ``_setup_logging()`` has not run (e.g. direct app construction
+        # in a test without the entrypoint). Nothing to emit.
+        return
+    _startup_banner_state = None
+
+    config_dir = state["config_dir"]
+    debug = bool(state["debug"])
+    quiet = bool(state["quiet"])
+    _session_id = state["session_id"]
 
     # emit a startup banner so operators can see at a glance
     # which logging configuration took effect (file path, root level,
@@ -107,16 +161,7 @@ def _setup_logging():
         _session_id,
     )
 
-    # validate environment variables before consuming them
-    _validate_env_vars()
-
-    # detect container environments and warn about unavailable features
-    from voice_typer.server.container_detect import warn_if_in_container
-
-    warn_if_in_container()
-
     # ── Windows VEH + Python excepthook: capture silent crashes ─────
     # Install BEFORE any C extensions load so the handler catches
     # crashes inside ctranslate2 / faster-whisper / sounddevice.
-    _crash_handler.set_crash_handler_config_dir(config_dir)
     _crash_handler.install_crash_handler()

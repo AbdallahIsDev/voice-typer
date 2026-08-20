@@ -7,7 +7,7 @@ the menu-building side; tray.py owns the lifecycle.
 
 The menu structure:
   - Open App (default/bold action)
-  - Toggle Dictation
+  - Start Dictation
   - --- separator ---
   - Models ▸ (submenu built by tray_models.build_models_menu_items)
   - --- separator ---
@@ -117,7 +117,7 @@ def build_menu(
     quit_app: Callable[[], None],
     build_models_submenu: Callable[[], list],
     # BUGFIX: tray_left_click_action was never read from config — the
-    # tray hardcoded ``default=True`` on "Toggle Dictation", so left-click
+    # tray hardcoded ``default=True`` on "Start Dictation", so left-click
     # ALWAYS started recording regardless of the Settings page choice.
     # Now this parameter controls which menu item gets ``default=True``.
     left_click_action: str = "open_app",
@@ -131,7 +131,7 @@ def build_menu(
 
     Menu structure:
       - Open App (default/bold)
-      - Toggle Dictation
+      - Start Dictation
       - --- separator ---
       - Models ▸
       - --- separator ---
@@ -145,7 +145,7 @@ def build_menu(
     ----------
     hotkey : str
         The hotkey string in pynput format (e.g. '<f2>'), used for
-        the "Toggle Dictation" label.
+        the "Start Dictation" label.
     toggle_dictation, open_app, restart_app, quit_app : Callable
         No-arg callbacks for each menu action. They will be wrapped
         with wrap_callback() so pystray's (icon, item) invocation
@@ -178,7 +178,7 @@ def build_menu(
             default=open_app_default,
         )
     )
-    # Toggle Dictation is second
+    # Start Dictation is second
     items.append(
         pystray.MenuItem(
             f"{localize('toggle_dictation')} ({hotkey_label})",
@@ -494,7 +494,7 @@ def build_menu_for_tray(tray) -> tuple:
 
     Menu structure (///):
       - Open App (default/bold when ``tray_left_click_action == "open_app"``)
-      - Toggle Dictation (default/bold when action == "toggle_dictation")
+      - Start Dictation (default/bold when action == "toggle_dictation")
       - Undo Last                                  ()
       - Force Cancel Stuck Transcription           (, only when state == TRANSCRIBING)
       - --- separator ---

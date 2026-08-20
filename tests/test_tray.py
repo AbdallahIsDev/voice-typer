@@ -1,7 +1,7 @@
 """Tests for the tray Phase 2 minimal menu.
 
 Phase 2: Minimal right-click menu:
-- Toggle Dictation (hotkey)
+- Start Dictation (hotkey)
 - Open App (Electron)
 - Models
 - Restart
@@ -191,7 +191,7 @@ class TestTrayMenuHasMinimalOptions:
 
     def test_menu_has_toggle_dictation(self, tray):
         labels = _menu_labels(tray)
-        assert any("Toggle Dictation" in label for label in labels)
+        assert any("Start Dictation" in label for label in labels)
 
     def test_menu_has_restart(self, tray):
         labels = _menu_labels(tray)
@@ -202,13 +202,13 @@ class TestTrayMenuHasMinimalOptions:
         assert "Quit" in labels
 
     def test_menu_has_required_items(self, tray):
-        """Phase 2 menu should have Toggle Dictation, Open App, Models, Restart, Quit."""
+        """Phase 2 menu should have Start Dictation, Open App, Models, Restart, Quit."""
         tray.start(bg_work=None)
         items = _FakeIcon.last_kwargs["menu"]()
         menu_items = [i for i in items if isinstance(i, _FakeMenuItem)]
         labels = [m.args[0] for m in menu_items]
         assert len(menu_items) >= 5
-        assert any("Toggle Dictation" in lb for lb in labels)
+        assert any("Start Dictation" in lb for lb in labels)
         assert any("Open App" in lb for lb in labels)
         assert any("Restart" in lb for lb in labels)
         assert any("Quit" in lb for lb in labels)
@@ -220,7 +220,7 @@ class TestTrayMenuHasMinimalOptions:
             config=SimpleNamespace(hotkey="<f9>", model_size="small.en", autostart=True, show_notifications=True),
         )
         labels = _menu_labels(tray)
-        assert "Toggle Dictation (F9)" in labels
+        assert "Start Dictation (F9)" in labels
 
     def test_models_submenu_in_menu(self, tray):
         """Models submenu is now in the tray menu."""
@@ -1454,7 +1454,7 @@ class TestTrayLocaleFullCoverage:
         assert get_tray_locale() == "xx"
         assert _("open_app") == "Open App XX"
         # Keys not in the pushed dict fall back to English.
-        assert _("toggle_dictation") == "Toggle Dictation"
+        assert _("toggle_dictation") == "Start Dictation"
         # Restore default.
         set_tray_locale("en")
 
