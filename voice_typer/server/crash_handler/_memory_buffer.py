@@ -11,10 +11,10 @@ This module wires a :class:`logging.handlers.MemoryHandler` (capacity
 200 records) to the ``voice_typer`` root logger at ``INFO`` level. The
 handler's target is a dedicated
 :class:`logging.handlers.RotatingFileHandler` writing to
-``<config_dir>/voice-typer-crash-buffer.log``. The MemoryHandler holds
-the most-recent 200 records in a bounded ring buffer; it does NOT
-emit them to the target on every record (the target is only used when
-the buffer is flushed explicitly).
+``<config_dir>/logs/voice-typer-crash-buffer.log`` (O1). The
+MemoryHandler holds the most-recent 200 records in a bounded ring
+buffer; it does NOT emit them to the target on every record (the target
+is only used when the buffer is flushed explicitly).
 
 When the VEH callback fires (after writing the crash-diagnostics body),
 it calls :func:`flush_memory_handler` — a best-effort flush that pushes
@@ -170,9 +170,10 @@ def install_memory_buffer(config_dir: Path) -> None:
     ----------
     config_dir:
         The voice-typer config directory. The crash-buffer log file
-        lives at ``<config_dir>/voice-typer-crash-buffer.log`` —
-        co-located with ``voice-typer.log`` so the support engineer
-        triaging a crash sees both files in the same directory.
+        lives at ``<config_dir>/logs/voice-typer-crash-buffer.log``
+        (O1) — co-located with ``voice-typer.log`` so the support
+        engineer triaging a crash sees both files in the same
+        directory.
     """
     from voice_typer.server import crash_handler as _ch
 
@@ -204,7 +205,11 @@ def install_memory_buffer(config_dir: Path) -> None:
     # to release its file handle.
     try:
         resolved.mkdir(parents=True, exist_ok=True)
-        buffer_path = resolved / "voice-typer-crash-buffer.log"
+        # O1: the crash-buffer log lives under ``logs/`` alongside
+        # ``voice-typer.log`` (both are PII-redacted support files).
+        logs_dir = resolved / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        buffer_path = logs_dir / "voice-typer-crash-buffer.log"
         target_handler = _SecureTruncatingFileHandler(
             buffer_path,
             maxBytes=1 * 1024 * 1024,  # 1 MiB — small buffer file

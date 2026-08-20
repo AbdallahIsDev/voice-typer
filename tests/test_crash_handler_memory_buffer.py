@@ -62,7 +62,7 @@ class TestMemoryBufferInstallation:
         install_memory_buffer(tmp_path)
         # ``RotatingFileHandler.baseFilename`` is the absolute path of
         # the file it writes to.
-        assert _ch._crash_buffer_handler.baseFilename == str(tmp_path / "voice-typer-crash-buffer.log")
+        assert _ch._crash_buffer_handler.baseFilename == str(tmp_path / "logs" / "voice-typer-crash-buffer.log")
 
     def test_install_is_idempotent(self, tmp_path: Path):
         """Calling ``install_memory_buffer`` twice with the same
@@ -105,7 +105,7 @@ class TestMemoryBufferFlush:
         # to flush to disk.
         if _ch._crash_buffer_handler is not None:
             _ch._crash_buffer_handler.flush()
-        buffer_path = tmp_path / "voice-typer-crash-buffer.log"
+        buffer_path = tmp_path / "logs" / "voice-typer-crash-buffer.log"
         assert buffer_path.exists(), "crash-buffer log file must exist after flush"
         contents = buffer_path.read_text(encoding="utf-8", errors="replace")
         assert "crash-buffer test message A" in contents
@@ -224,9 +224,7 @@ class TestHu8PiiFilterFailClosed:
         assert handler.filters == [], "HU-8: filter must NOT be attached at install time"
         assert handler._pii_attached is False
 
-        record = logging.LogRecord(
-            "voice_typer.test.hu8", logging.WARNING, __file__, 1, "hello", (), None
-        )
+        record = logging.LogRecord("voice_typer.test.hu8", logging.WARNING, __file__, 1, "hello", (), None)
         # ``Handler.handle`` returns the filter-chain result (a logging
         # filter may return the record itself) — the fail-closed
         # override returns literal ``False`` ONLY when the record is
@@ -271,17 +269,20 @@ class TestHu8PiiFilterFailClosed:
         # DEBUG only, no second WARNING.
         caplog.clear()
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.crash_handler._memory_buffer"):
-            assert handler.handle(
-                logging.LogRecord(
-                    "voice_typer.test.hu8",
-                    logging.WARNING,
-                    __file__,
-                    1,
-                    "SECRET-UNREDACTED-DATA-2",
-                    (),
-                    None,
+            assert (
+                handler.handle(
+                    logging.LogRecord(
+                        "voice_typer.test.hu8",
+                        logging.WARNING,
+                        __file__,
+                        1,
+                        "SECRET-UNREDACTED-DATA-2",
+                        (),
+                        None,
+                    )
                 )
-            ) is False
+                is False
+            )
         assert not any(
             "PIIRedactionFilter unavailable" in r.getMessage() and "still unavailable" not in r.getMessage()
             for r in caplog.records
@@ -295,16 +296,20 @@ class TestHu8PiiFilterFailClosed:
 
         real_security = sys.modules["voice_typer.server.security"]
         monkeypatch.setitem(sys.modules, "voice_typer.server.security", None)
-        assert handler.handle(
-            logging.LogRecord("voice_typer.test.hu8", logging.WARNING, __file__, 1, "dropped", (), None)
-        ) is False
+        assert (
+            handler.handle(logging.LogRecord("voice_typer.test.hu8", logging.WARNING, __file__, 1, "dropped", (), None))
+            is False
+        )
 
         # Import recovers — the NEXT record must attach the filter and
         # be buffered (self-healing lazy retry).
         monkeypatch.setitem(sys.modules, "voice_typer.server.security", real_security)
-        assert handler.handle(
-            logging.LogRecord("voice_typer.test.hu8", logging.WARNING, __file__, 1, "after-recovery", (), None)
-        ) is not False
+        assert (
+            handler.handle(
+                logging.LogRecord("voice_typer.test.hu8", logging.WARNING, __file__, 1, "after-recovery", (), None)
+            )
+            is not False
+        )
         assert handler._pii_attached is True
         assert len(handler.filters) == 1
         assert type(handler.filters[0]).__name__ == "PIIRedactionFilter"

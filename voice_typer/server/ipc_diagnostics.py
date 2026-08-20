@@ -58,7 +58,7 @@ _log = logging.getLogger("voice_typer.server.ipc_server")
 
 
 def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> None:
-    """Write a startup-error diagnostic to ``<config_dir>/startup-error.log``.
+    """Write a startup-error diagnostic to ``<config_dir>/logs/startup-error.log``.
 
         Encapsulates the io.StringIO → traceback → redact_for_export →
         _secure_atomic_write → /tmp-fallback pattern that was previously
@@ -152,8 +152,13 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
     else:
         traceback.print_exc(file=buf)
 
-    diag_path = _config_dir() / "startup-error.log"
+    diag_path = _config_dir() / "logs" / "startup-error.log"
     try:
+        # O1: the logs live under ``<config_dir>/logs`` — ensure the dir
+        # exists before the atomic write (its mkstemp requires the parent).
+        diag_path.parent.mkdir(parents=True, exist_ok=True)
+        if os.name == "posix":
+            os.chmod(diag_path.parent, 0o700)
         # redact the traceback text too. ``traceback.print_exc``
         # can include ``str(exception)`` which may carry a URL with
         # ``?key=sk-…`` or an env-var dump from a buggy handler —

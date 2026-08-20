@@ -145,7 +145,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 # the redacted bytes into the zip. ``redact_for_export``
                 # passes ``aggressive=True`` to :func:`redact_secret`
                 # () so bare short secrets are caught too.
-                log_path = config_dir / "voice-typer.log"
+                log_path = config_dir / "logs" / "voice-typer.log"
                 if log_path.exists():
                     try:
                         from voice_typer.server._secrets import redact_for_export
@@ -387,9 +387,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                     import onnxruntime as ort  # type: ignore[import-untyped]
 
                     sys_info.append(f"onnxruntime version: {ort.__version__}")
-                    sys_info.append(
-                        f"onnxruntime providers: {ort.get_available_providers()}"
-                    )
+                    sys_info.append(f"onnxruntime providers: {ort.get_available_providers()}")
                     sys_info.append(f"onnxruntime device: {ort.get_device()}")
                 except ImportError:
                     sys_info.append("onnxruntime not installed")
@@ -488,7 +486,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                         onnx_hashes["silero_vad.onnx"] = f"<error: {exc}>"
 
                     # Parakeet ONNX files — live in the HF cache under
-                    # ``models--visuall--parakeet-tdt-0.6b-v3-onnx-fp16/``
+                    # ``models--grikdotnet--parakeet-tdt-0.6b-fp16/``
                     # (the fp16 ONNX export the engine + download path
                     # use; see parakeet_engine.py). We glob for
                     # ``*.onnx`` under the snapshot dir so the hash list
@@ -501,7 +499,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                             _config_dir()
                             / "huggingface"
                             / "hub"
-                            / "models--visuall--parakeet-tdt-0.6b-v3-onnx-fp16"
+                            / "models--grikdotnet--parakeet-tdt-0.6b-fp16"
                             / "snapshots"
                         )
                         if _parakeet_cache.is_dir():
@@ -624,9 +622,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                         # so support engineers can correlate "denied"
                         # (from the permission probe) against the actual
                         # filesystem state without re-running the probe.
-                        permissions_data["dev_input_event0_readable"] = os.access(
-                            "/dev/input/event0", os.R_OK
-                        )
+                        permissions_data["dev_input_event0_readable"] = os.access("/dev/input/event0", os.R_OK)
                     zf.writestr(
                         "permissions.json",
                         _json.dumps(permissions_data, indent=2, default=str),

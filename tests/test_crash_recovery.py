@@ -759,7 +759,9 @@ class TestDiagnosticBundleLogRedaction:
 
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        log_path = recovery_dir / "voice-typer.log"
+        # O1: the log lives under <config_dir>/logs.
+        (recovery_dir / "logs").mkdir()
+        log_path = recovery_dir / "logs" / "voice-typer.log"
         log_path.write_text(
             "2026-07-24 INFO something happened for user@example.com\n",
             encoding="utf-8",
@@ -780,7 +782,9 @@ class TestDiagnosticBundleLogRedaction:
 
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        log_path = recovery_dir / "voice-typer.log"
+        # O1: the log lives under <config_dir>/logs.
+        (recovery_dir / "logs").mkdir()
+        log_path = recovery_dir / "logs" / "voice-typer.log"
         log_path.write_text(
             "2026-07-24 DEBUG http call Authorization: Bearer eyJhbGciOiJIUzI1NiJ9."
             "eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c\n",
@@ -802,7 +806,9 @@ class TestDiagnosticBundleLogRedaction:
 
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        log_path = recovery_dir / "voice-typer.log"
+        # O1: the log lives under <config_dir>/logs.
+        (recovery_dir / "logs").mkdir()
+        log_path = recovery_dir / "logs" / "voice-typer.log"
         log_path.write_text(
             "2026-07-24 INFO model loaded successfully\n2026-07-24 INFO audio device opened\n",
             encoding="utf-8",
@@ -823,7 +829,9 @@ class TestDiagnosticBundleLogRedaction:
         from voice_typer.server import security
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        log_path = recovery_dir / "voice-typer.log"
+        # O1: the log lives under <config_dir>/logs.
+        (recovery_dir / "logs").mkdir()
+        log_path = recovery_dir / "logs" / "voice-typer.log"
         log_path.write_text(
             "2026-07-24 INFO user@example.com leaked\n",
             encoding="utf-8",

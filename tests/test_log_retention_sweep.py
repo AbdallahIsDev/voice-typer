@@ -30,6 +30,13 @@ from pathlib import Path
 from voice_typer.server import log as vt_log
 
 
+def _logs_dir(tmp_path: Path) -> Path:
+    """Create (and return) the ``logs/`` subdir under ``tmp_path`` (O1)."""
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    return logs_dir
+
+
 def _set_mtime_days_ago(path: Path, days: float) -> None:
     """Set a file's mtime to ``days`` days in the past."""
     target = time.time() - days * 24 * 60 * 60
@@ -38,7 +45,7 @@ def _set_mtime_days_ago(path: Path, days: float) -> None:
 
 def test_sweeps_old_rotation_files(tmp_path: Path) -> None:
     """Rotation files older than 30 days are deleted."""
-    old_rotation = tmp_path / "voice-typer.log.1"
+    old_rotation = _logs_dir(tmp_path) / "voice-typer.log.1"
     old_rotation.write_text("ancient log", encoding="utf-8")
     _set_mtime_days_ago(old_rotation, days=45)
 
@@ -49,7 +56,7 @@ def test_sweeps_old_rotation_files(tmp_path: Path) -> None:
 
 def test_keeps_recent_rotation_files(tmp_path: Path) -> None:
     """Rotation files newer than 30 days are kept."""
-    recent_rotation = tmp_path / "voice-typer.log.1"
+    recent_rotation = _logs_dir(tmp_path) / "voice-typer.log.1"
     recent_rotation.write_text("recent log", encoding="utf-8")
     _set_mtime_days_ago(recent_rotation, days=5)
 
@@ -61,7 +68,7 @@ def test_keeps_recent_rotation_files(tmp_path: Path) -> None:
 
 def test_does_not_delete_active_log(tmp_path: Path) -> None:
     """The active ``voice-typer.log`` (no .N suffix) is never deleted."""
-    active = tmp_path / "voice-typer.log"
+    active = _logs_dir(tmp_path) / "voice-typer.log"
     active.write_text("active log", encoding="utf-8")
     _set_mtime_days_ago(active, days=365)  # very old — should still survive
 
@@ -73,7 +80,7 @@ def test_does_not_delete_active_log(tmp_path: Path) -> None:
 
 def test_does_not_delete_rotation_lock_file(tmp_path: Path) -> None:
     """The inter-process rotation lock file is never deleted."""
-    lock_file = tmp_path / "voice-typer.log.rotate.lock"
+    lock_file = _logs_dir(tmp_path) / "voice-typer.log.rotate.lock"
     lock_file.write_text("", encoding="utf-8")
     _set_mtime_days_ago(lock_file, days=365)  # very old — should still survive
 
@@ -84,15 +91,15 @@ def test_does_not_delete_rotation_lock_file(tmp_path: Path) -> None:
 
 def test_mixed_ages_only_deletes_old(tmp_path: Path) -> None:
     """A mix of old and recent rotation files: only old ones are swept."""
-    old1 = tmp_path / "voice-typer.log.1"
+    old1 = _logs_dir(tmp_path) / "voice-typer.log.1"
     old1.write_text("old1", encoding="utf-8")
     _set_mtime_days_ago(old1, days=60)
 
-    recent2 = tmp_path / "voice-typer.log.2"
+    recent2 = _logs_dir(tmp_path) / "voice-typer.log.2"
     recent2.write_text("recent2", encoding="utf-8")
     _set_mtime_days_ago(recent2, days=10)
 
-    old3 = tmp_path / "voice-typer.log.3"
+    old3 = _logs_dir(tmp_path) / "voice-typer.log.3"
     old3.write_text("old3", encoding="utf-8")
     _set_mtime_days_ago(old3, days=31)
 
@@ -135,7 +142,8 @@ def test_setup_logging_invokes_sweep(tmp_path: Path, monkeypatch) -> None:
     # Plant an old rotation file to verify the sweep runs through setup_logging.
     config_dir = tmp_path / "cfg"
     config_dir.mkdir()
-    old_rotation = config_dir / "voice-typer.log.1"
+    (config_dir / "logs").mkdir()
+    old_rotation = config_dir / "logs" / "voice-typer.log.1"
     old_rotation.write_text("ancient", encoding="utf-8")
     _set_mtime_days_ago(old_rotation, days=45)
 

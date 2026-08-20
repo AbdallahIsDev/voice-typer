@@ -214,15 +214,12 @@ class StatusHandlersMixin(HandlerBase):
         from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
         try:
-            # The worker log lives in the app config dir.
-            from voice_typer.server.config import _config_dir
+            # The worker log lives in the app config dir's logs/ subdir
+            # (O1 — every log file lives under ``logs/``).
+            from voice_typer.server import _paths
+            from voice_typer.server.log import get_log_file_path
 
-            log_dir = _config_dir()
-            # RESTORED 2026-08-14: ``prewarm.log`` → ``worker.log`` —
-            # the dedicated prewarm log is now the worker's log (the
-            # worker exe runs the warm phase and is the only prewarm
-            # writer since the standalone prewarm process was removed).
-            log_file = log_dir / "worker.log"
+            log_file = get_log_file_path(config_dir=_paths.config_dir(), process_name="worker")
 
             if not log_file.exists():
                 # File doesn't exist yet (prewarm hasn't run this boot).

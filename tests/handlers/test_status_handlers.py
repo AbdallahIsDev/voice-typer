@@ -217,9 +217,12 @@ class TestOpenPrewarmLog:
         (e.g. permissions issue), the placeholder write fails and
         the handler falls through to the not_found path.
         """
-        # Point _config_dir at a path inside tmp_path that doesn't exist.
+        # Point the config-dir resolver at a path inside tmp_path that
+        # doesn't exist. The handler resolves it via ``_paths.config_dir``
+        # (the documented test seam: ``_paths._config_dir``, see
+        # ``voice_typer/server/_paths.py``).
         nonexistent_dir = tmp_path / "no_such_dir"
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: nonexistent_dir)
+        monkeypatch.setattr("voice_typer.server._paths._config_dir", lambda: nonexistent_dir)
 
         resp = ipc_server._handle_open_prewarm_log({}, {})
         assert resp["type"] == "prewarm_log"
@@ -242,7 +245,10 @@ class TestOpenPrewarmLog:
         log_file = log_dir / "worker.log"
         log_file.write_text("placeholder", encoding="utf-8")
 
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: log_dir)
+        # ``_handle_open_prewarm_log`` resolves ``worker.log`` as
+        # ``<_paths.config_dir()>/logs/worker.log`` (O1), so the resolver
+        # must return ``tmp_path`` (NOT ``log_dir``) here.
+        monkeypatch.setattr("voice_typer.server._paths._config_dir", lambda: tmp_path)
         # Linux/macOS path: handler calls ``subprocess.Popen``.
         monkeypatch.setattr(
             "subprocess.Popen",

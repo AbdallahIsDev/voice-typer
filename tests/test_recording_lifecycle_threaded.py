@@ -399,7 +399,7 @@ class TestRecordingStartFailureReason:
         # Unknown failure: the notification keeps the "check the log"
         # guidance and must NOT contain the raw exception text.
         notify_msg = str(app.tray.notify.call_args.args[1])
-        assert "check voice-typer.log" in notify_msg.lower(), (
+        assert "check logs/voice-typer.log" in notify_msg.lower(), (
             f"unknown failure notification should point at the log, got: {notify_msg!r}"
         )
         assert "device busy" not in notify_msg

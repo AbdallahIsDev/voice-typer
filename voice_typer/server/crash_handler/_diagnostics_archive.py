@@ -248,9 +248,9 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
             _refresh_cached_asr_backend()
         # Install the in-memory log ring buffer (MemoryHandler) so the
         # VEH callback can flush the most-recent ~200 log records to
-        # ``<config_dir>/voice-typer-crash-buffer.log`` after writing
-        # the crash-diagnostics body. Best-effort — a failure here
-        # leaves the buffer uninstalled (the VEH callback's
+        # ``<config_dir>/logs/voice-typer-crash-buffer.log`` (O1) after
+        # writing the crash-diagnostics body. Best-effort — a failure
+        # here leaves the buffer uninstalled (the VEH callback's
         # ``flush_memory_handler`` call is a no-op when the buffer is
         # missing).
         with contextlib.suppress(Exception):
@@ -550,8 +550,7 @@ def report_pending_crash(config_dir: Path) -> str | None:
                 # treat as an empty file — unverifiable content must
                 # never be surfaced, logged, or summarized.
                 log.warning(
-                    "[CRASH] Refusing to read diagnostics file %s (%s) — "
-                    "treating as empty (HU-9 symlink guard)",
+                    "[CRASH] Refusing to read diagnostics file %s (%s) — treating as empty (HU-9 symlink guard)",
                     crash_file.name,
                     secure_exc,
                 )
@@ -673,8 +672,7 @@ def report_pending_crash(config_dir: Path) -> str | None:
                 content = _secure_read_text(py_crash_file).strip()
             except (OSError, ValueError) as secure_exc:
                 log.warning(
-                    "[CRASH] Refusing to read python_crash file %s (%s) — "
-                    "treating as empty (HU-9 symlink guard)",
+                    "[CRASH] Refusing to read python_crash file %s (%s) — treating as empty (HU-9 symlink guard)",
                     py_crash_file.name,
                     secure_exc,
                 )

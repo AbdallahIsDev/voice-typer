@@ -107,12 +107,106 @@ _LOG_ROTATION_GLOBS: tuple[str, ...] = (
     "voice-typer-prewarm.log.*",  # legacy prewarm rotations (file no longer created)
 )
 
+# All log files live under a ``logs/`` subdirectory of the config dir
+# (O1 — the same directory the Rust host already uses for its rotating
+# ``voice-typer-rust.log`` and the host's stdout/stderr redirects).
+# ``get_logs_dir`` is the single source of truth so every writer (main
+# process, worker, crash buffer, startup-error diagnostic) agrees on
+# the location even if it ever changes.
+LOG_SUBDIR = "logs"
+
+# Legacy pre-O1 log files that once lived directly in the config dir.
+# ``_maybe_migrate_legacy_logs`` moves them into ``logs/`` on the first
+# launch of a version that writes to the new location.
+_LEGACY_LOG_NAMES: tuple[str, ...] = (
+    "voice-typer.log",
+    "prewarm.log",
+    "worker.log",
+    "startup-error.log",
+    "voice-typer-crash-buffer.log",
+)
+_LEGACY_LOG_GLOBS: tuple[str, ...] = (
+    "voice-typer.log.*",  # legacy main-process rotations
+    "prewarm.log.*",  # legacy prewarm rotations
+    "voice-typer-prewarm.log.*",  # legacy prewarm rotations (file no longer created)
+)
+
+
+def get_logs_dir(config_dir: Path) -> Path:
+    """Return the directory that holds all log files.
+
+    ``<config_dir>/logs`` — shared by the Python processes (via
+    :func:`get_log_file_path`), the Rust host (``voice-typer-rust.log``,
+    see ``src-tauri/src/platform/logging.rs``), and the Electron /
+    Tauri stdout+stderr redirects. The directory may not exist yet —
+    :func:`setup_logging` creates it.
+    """
+    return Path(config_dir) / LOG_SUBDIR
+
+
+def _maybe_migrate_legacy_logs(config_dir: Path) -> None:
+    """Move pre-``logs/`` log files from the config-dir root into ``logs/``.
+
+    Before the O1 layout change every log file (``voice-typer.log``,
+    ``worker.log``, ``startup-error.log``, ``voice-typer-crash-buffer.log``
+    and their rotations) lived directly in ``config_dir``. This helper
+    moves any still-present legacy file into the canonical ``logs/``
+    subdirectory on the first launch of a version that writes there, so
+    a support engineer looking in ``logs/`` finds the full history.
+
+    Rules:
+    - Only moves when the destination does NOT exist (a fresh log
+      already written at the new location wins — never overwrite).
+    - NEVER moves the per-path inter-process rotation lock files
+      (``*.lock``) — they are flock files tied to their exact path.
+    - Best-effort per file: a locked/read-only file (e.g. another
+      process still writing the old path) is skipped silently and a
+      later launch retries.
+
+    Called from :func:`setup_logging` after the ``logs/`` dir is
+    created and BEFORE the file handler is installed, so the first
+    record written by the new process lands in the migrated file.
+    """
+    try:
+        src_root = Path(config_dir)
+        dst_root = get_logs_dir(config_dir)
+        if not src_root.is_dir():
+            return
+        for name in _LEGACY_LOG_NAMES:
+            _maybe_move_legacy_log_file(src_root, dst_root, name)
+        for pattern in _LEGACY_LOG_GLOBS:
+            for src in src_root.glob(pattern):
+                if not src.is_file() or src.name.endswith(".lock"):
+                    continue
+                _maybe_move_legacy_log_file(src_root, dst_root, src.name)
+    except Exception as exc:  # noqa: BLE001 — best-effort migration
+        log.debug("[LOG-SETUP] legacy log migration failed: %s", exc)
+
+
+def _maybe_move_legacy_log_file(src_root: Path, dst_root: Path, name: str) -> None:
+    """Move one legacy log file from ``src_root`` to ``dst_root`` if safe.
+
+    Best-effort — any error (locked file on Windows, read-only dir,
+    cross-device oddity) is swallowed; the file is simply left in
+    place and a later launch retries.
+    """
+    try:
+        src = src_root / name
+        dst = dst_root / name
+        if not src.is_file() or dst.exists():
+            return
+        dst_root.mkdir(parents=True, exist_ok=True)
+        os.replace(src, dst)
+        log.info("[LOG-SETUP] migrated legacy log file %s -> %s", src, dst)
+    except Exception as exc:  # noqa: BLE001 — best-effort migration
+        log.debug("[LOG-SETUP] legacy log migration skipped %s: %s", name, exc)
+
 
 def _sweep_stale_log_rotations(config_dir: Path) -> None:
     """Delete rotated log files older than 30 days .
 
     Mirrors ``crash_handler._sweep_stale_diagnostics``: enumerate
-    ``voice-typer.log.*`` and ``prewarm.log.*`` in ``config_dir``,
+    ``voice-typer.log.*`` and ``prewarm.log.*`` in ``<config_dir>/logs/``,
     unlink any whose ``st_mtime`` is older than
     ``_LOG_RETENTION_MAX_AGE_SECONDS``. Best-effort — any error is
     logged at DEBUG and swallowed so a single unreadable file does not
@@ -128,7 +222,7 @@ def _sweep_stale_log_rotations(config_dir: Path) -> None:
     if called multiple times (subsequent calls find nothing to delete).
     """
     try:
-        root = Path(config_dir).resolve()
+        root = get_logs_dir(config_dir)
         if not root.is_dir():
             return
         now = time.time()
@@ -532,6 +626,19 @@ def setup_logging(
         if os.name == "posix":
             with contextlib.suppress(OSError):
                 os.chmod(config_dir, 0o700)
+        # ── 3b. Logs subdirectory ────────────────────────────────
+        # All log files (main / prewarm / worker / crash buffer /
+        # startup-error) live under ``<config_dir>/logs/`` — the same
+        # directory the Rust host already uses. Create it with the same
+        # 0o700 hardening as the config dir, then migrate any legacy
+        # pre-``logs/`` files from the config-dir root so the history
+        # is preserved in one place.
+        logs_dir = get_logs_dir(config_dir)
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        if os.name == "posix":
+            with contextlib.suppress(OSError):
+                os.chmod(logs_dir, 0o700)
+        _maybe_migrate_legacy_logs(config_dir)
         # Single-file policy: process_name routes each long-lived
         # process to its OWN file so concurrent writers never share a
         # file descriptor on the same file (the rotation race covered
@@ -830,18 +937,19 @@ def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "ma
     Returns
     -------
     Path
-        ``<config_dir>/voice-typer.log`` / ``<config_dir>/prewarm.log`` /
-        ``<config_dir>/worker.log``.  The path may not yet exist on disk —
+        ``<config_dir>/logs/voice-typer.log`` / ``<config_dir>/logs/prewarm.log`` /
+        ``<config_dir>/logs/worker.log``.  The path may not yet exist on disk —
         callers should check ``.exists()`` before opening.
     """
     if config_dir is None:
         from voice_typer.server import _paths
 
         config_dir = _paths.config_dir()
+    logs_dir = get_logs_dir(config_dir)
     if process_name == "prewarm":
         # Single-file policy: the prewarm process writes to ONE file —
         # ``prewarm.log``.  There is no separate ``voice-typer-prewarm.log``.
-        return config_dir / "prewarm.log"
+        return logs_dir / "prewarm.log"
     if process_name == "worker":
         # Single-file policy: the runtime-pack WebSocket worker
         # (``voice_typer/worker/__main__.py``) writes to its OWN file
@@ -853,8 +961,8 @@ def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "ma
         # the ``prewarm`` case above was added to eliminate.  The
         # worker calls ``setup_logging(config_dir, process_name="worker")``
         # so this branch is exercised on every worker launch.
-        return config_dir / "worker.log"
-    return config_dir / "voice-typer.log"
+        return logs_dir / "worker.log"
+    return logs_dir / "voice-typer.log"
 
 
 def _stderr_line(text: str) -> None:
@@ -974,8 +1082,7 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
                         self.doRollover()
                     except Exception as exc:  # noqa: BLE001 — rotation is best-effort
                         _stderr_line(
-                            "[LOG-SETUP] log rotation failed "
-                            f"({type(exc).__name__}) — appending without rotating"
+                            f"[LOG-SETUP] log rotation failed ({type(exc).__name__}) — appending without rotating"
                         )
             except Exception:
                 # ``shouldRollover`` itself failed (e.g. broken stream) —
@@ -1147,8 +1254,6 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
                     )
         finally:
             self._release_rotation_lock(lock_fd)
-
-
 
 
 def close_devnull_files() -> None:

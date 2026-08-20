@@ -294,7 +294,7 @@ def test_rw6_end_to_end_log_file_no_api_key(tmp_path):
         # Mirrors the real call-site pattern: log.error("...: %s", e, exc_info=True)
         log.error("[IPC] request failed: %s", e, exc_info=True)
 
-    log_file = config_dir / "voice-typer.log"
+    log_file = config_dir / "logs" / "voice-typer.log"
     content = log_file.read_text(encoding="utf-8")
     assert api_key not in content
     assert "sk-abcdef" not in content
@@ -316,7 +316,7 @@ def test_rw6_end_to_end_log_file_pii_still_redacted(tmp_path):
     log = logging.getLogger("voice_typer.server.fake_module")
     log.error("User test@example.com logged in")
 
-    log_file = config_dir / "voice-typer.log"
+    log_file = config_dir / "logs" / "voice-typer.log"
     content = log_file.read_text(encoding="utf-8")
     assert "test@example.com" not in content
     assert "[EMAIL]" in content

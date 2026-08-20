@@ -356,10 +356,10 @@ def _vectored_handler_impl(exception_pointers) -> int:
         # Best-effort flush of the in-memory log ring buffer
         # (MemoryHandler attached to the ``voice_typer`` root logger).
         # This appends the most-recent ~200 log records to
-        # ``<config_dir>/voice-typer-crash-buffer.log`` so a support
-        # engineer can see the log trail that led up to the crash
-        # without reading the rotating file log off disk during the
-        # VEH callback (which is unsafe during heap corruption).
+        # ``<config_dir>/logs/voice-typer-crash-buffer.log`` (O1) so a
+        # support engineer can see the log trail that led up to the
+        # crash without reading the rotating file log off disk during
+        # the VEH callback (which is unsafe during heap corruption).
         #
         # Wrapped in try/except — the VEH callback must NOT raise. For
         # STATUS_HEAP_CORRUPTION the heap is corrupted and this call

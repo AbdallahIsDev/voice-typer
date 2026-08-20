@@ -91,9 +91,7 @@ _INITIAL_LABELS: dict[str, str] = {
     "state.model_manager.load_failed_retry": "Model load failed -- press your hotkey to retry",
     "state.model_manager.backend_failed": "{backend} model failed to load",
     "state.model_manager.model_failed": "Model failed: {error}",
-    "state.model_manager.model_not_downloaded": (
-        "No models are available. Open the models page to download a model."
-    ),
+    "state.model_manager.model_not_downloaded": ("No models are available. Open the models page to download a model."),
     # no_model_selected: genuine "no model selected" state
     # (``model_size == NO_MODEL_SIZE``) — distinct from
     # model_not_downloaded (a concrete model is missing from disk). The
@@ -103,9 +101,7 @@ _INITIAL_LABELS: dict[str, str] = {
     # via ``set_tray_locale`` (``trayLabelsForLocale`` maps
     # ``state.model_manager.no_model_selected`` →
     # ``home.noModelSelectedHint``).
-    "state.model_manager.no_model_selected": (
-        "No model selected. Go to the models page to select a model."
-    ),
+    "state.model_manager.no_model_selected": ("No model selected. Go to the models page to select a model."),
     "state.model_manager.model_integrity_failed": (
         "{backend} model failed integrity verification. Delete and re-download it from the Models page."
     ),
@@ -126,12 +122,8 @@ _INITIAL_LABELS: dict[str, str] = {
     # the former f-strings so tests that grep for the literal still
     # match, and ``i18n.t(key, count=N)`` formats it at call time.
     "state.dictation_pipeline.done_pasted": "Done -- {count} chars (pasted)",
-    "state.dictation_pipeline.done_in_db": (
-        "Done -- {count} chars (in DB, use repaste hotkey)"
-    ),
-    "state.dictation_pipeline.done_in_clipboard": (
-        "Done -- {count} chars (in clipboard)"
-    ),
+    "state.dictation_pipeline.done_in_db": ("Done -- {count} chars (in DB, use repaste hotkey)"),
+    "state.dictation_pipeline.done_in_clipboard": ("Done -- {count} chars (in clipboard)"),
     # ── app.py notifications ────────────────────────────────────────────
     "notify.app.repaste_no_previous": "No previous transcription to re-paste.",
     "notify.app.repaste_copy_failed": (
@@ -261,7 +253,9 @@ _INITIAL_LABELS: dict[str, str] = {
     # exception is still logged via log.exception() above; the tray
     # notification now shows only a generic message + a pointer to the
     # log file.
-    "notify.recording_controller.start_failed": ("Could not start recording.\nCheck voice-typer.log for traceback."),
+    "notify.recording_controller.start_failed": (
+        "Could not start recording.\nCheck logs/voice-typer.log for traceback."
+    ),
     "notify.recording_controller.stop_failed": "Could not stop recording.",
     "notify.recording_controller.silence_warning": (
         "No audio detected. Check your microphone is connected and working."
@@ -300,9 +294,7 @@ _INITIAL_LABELS: dict[str, str] = {
     # and the Home status pill stay in sync (user request: tooltip /
     # notification / status pill must agree on the no-model-selected
     # error state).
-    "notify.model_manager.no_model_selected": (
-        "No model selected.\nGo to the models page to select a model."
-    ),
+    "notify.model_manager.no_model_selected": ("No model selected.\nGo to the models page to select a model."),
     # last_resort_unloaded: fired by get_active()'s last-resort branch
     # when NO ready backend exists and the configured backend is returned
     # unloaded (transcription would silently return empty). Always points

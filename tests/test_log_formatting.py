@@ -174,7 +174,7 @@ def test_exception_log_reaches_file_on_disk(tmp_path: Path) -> None:
         for h in logging.getLogger("voice_typer").handlers:
             with __import__("contextlib").suppress(Exception):
                 h.flush()
-        content = (config_dir / "voice-typer.log").read_text(encoding="utf-8")
+        content = (config_dir / "logs" / "voice-typer.log").read_text(encoding="utf-8")
         assert "Traceback (most recent call last)" in content, (
             f"GT-2 end-to-end regression: no traceback in log file:\n{content}"
         )
@@ -250,8 +250,7 @@ def test_port_mode_with_redirected_stderr_uses_plain_formatter(tmp_path: Path, m
         root = logging.getLogger("voice_typer")
         stream = next(h for h in root.handlers if isinstance(h, _FlushingStreamHandler))
         assert isinstance(stream.formatter, _FileFormatter), (
-            "port mode + non-TTY stderr must use _FileFormatter (no ANSI), "
-            f"got {type(stream.formatter).__name__}"
+            f"port mode + non-TTY stderr must use _FileFormatter (no ANSI), got {type(stream.formatter).__name__}"
         )
     finally:
         reset()
@@ -279,8 +278,7 @@ def test_port_mode_with_tty_stderr_keeps_color_formatter(tmp_path: Path, monkeyp
         root = logging.getLogger("voice_typer")
         stream = next(h for h in root.handlers if isinstance(h, _FlushingStreamHandler))
         assert isinstance(stream.formatter, _ColorFormatter), (
-            "TTY stderr must keep _ColorFormatter, "
-            f"got {type(stream.formatter).__name__}"
+            f"TTY stderr must keep _ColorFormatter, got {type(stream.formatter).__name__}"
         )
     finally:
         reset()
@@ -381,9 +379,7 @@ def test_file_formatter_clean_timestamp_no_millis() -> None:
     )
     record.session_id = "deadbeef"
     line = _FileFormatter().format(record)
-    assert _TS_RE_TEXT.search(line), (
-        f"regression: text timestamp not clean with two-space date/time sep:\n{line!r}"
-    )
+    assert _TS_RE_TEXT.search(line), f"regression: text timestamp not clean with two-space date/time sep:\n{line!r}"
     # No T separator between date and time, no tz offset suffix.
     first = line.split()[0]
     assert "T" not in first, f"no T separator expected: {line!r}"
@@ -410,13 +406,9 @@ def test_color_formatter_clean_timestamp_time_only() -> None:
     line = _ColorFormatter().format(record)
     # Strip ANSI escapes before matching so colour codes don't interfere.
     plain = re.sub(r"\033\[[0-9;]*m", "", line)
-    assert _TS_RE_TERM.search(plain), (
-        f"regression: colour formatter timestamp not time-only HH:MM:SS:\n{plain!r}"
-    )
+    assert _TS_RE_TERM.search(plain), f"regression: colour formatter timestamp not time-only HH:MM:SS:\n{plain!r}"
     # The date must NOT appear in terminal output.
-    assert not re.search(r"\d{4}-\d{2}-\d{2}", plain), (
-        f"date must not appear on terminal lines: {plain!r}"
-    )
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", plain), f"date must not appear on terminal lines: {plain!r}"
     # No millis / tz on the terminal either.
     assert not re.search(r"\.\d{3}", plain), f"no millis expected on terminal: {plain!r}"
 

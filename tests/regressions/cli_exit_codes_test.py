@@ -119,8 +119,8 @@ class TestCrashPathUsesExitCrash:
         assert exc_info.value.code == EXIT_CRASH
 
         # The diagnostic must land in the isolated temp dir, not the
-        # developer's real startup-error.log.
-        diag = tmp_config_dir / "startup-error.log"
+        # developer's real startup-error.log (O1: logs/).
+        diag = tmp_config_dir / "logs" / "startup-error.log"
         assert diag.exists()
         assert "simulated crash" in diag.read_text(encoding="utf-8")
 

@@ -162,14 +162,14 @@ def test_installs_rotating_file_handler(config_dir, clean_env, stub_side_effects
 def test_log_file_created_under_config_dir(config_dir, clean_env, stub_side_effects):
     """The rotating log file lives at <config_dir>/voice-typer.log on disk."""
     logging_setup._setup_logging()
-    assert (config_dir / "voice-typer.log").exists()
+    assert (config_dir / "logs" / "voice-typer.log").exists()
 
 
 def test_handler_baseFilename_points_at_config_dir(config_dir, clean_env, stub_side_effects):  # noqa: N802
     """The RotatingFileHandler's baseFilename is <config_dir>/voice-typer.log."""
     logging_setup._setup_logging()
     rotating = next(h for h in _vt_handlers() if isinstance(h, logging.handlers.RotatingFileHandler))
-    assert Path(rotating.baseFilename) == config_dir / "voice-typer.log"
+    assert Path(rotating.baseFilename) == config_dir / "logs" / "voice-typer.log"
 
 
 def test_rotating_handler_uses_backslashreplace_errors(config_dir, clean_env, stub_side_effects):
@@ -242,7 +242,7 @@ def test_log_message_reaches_file(config_dir, clean_env, stub_side_effects):
     lg = logging.getLogger("voice_typer.server.fake_module")
     lg.info("[HOTKEY] RegisterHotKey succeeded")
     _flush_all()
-    content = (config_dir / "voice-typer.log").read_text(encoding="utf-8")
+    content = (config_dir / "logs" / "voice-typer.log").read_text(encoding="utf-8")
     assert "[HOTKEY] RegisterHotKey succeeded" in content
 
 
@@ -254,7 +254,7 @@ def test_no_session_id_bracket_in_file(config_dir, clean_env, stub_side_effects)
     lg = logging.getLogger("voice_typer.server.fake_module")
     lg.info("[HOTKEY] fired")
     _flush_all()
-    content = (config_dir / "voice-typer.log").read_text(encoding="utf-8")
+    content = (config_dir / "logs" / "voice-typer.log").read_text(encoding="utf-8")
     assert not re.search(r"\[[0-9a-f]{8}\]", content), (
         f"8-char session_id bracket must NOT appear in file log:\n{content}"
     )
@@ -366,7 +366,7 @@ def test_log_file_mode_is_0o600_on_posix(config_dir, clean_env, stub_side_effect
     import stat
 
     logging_setup._setup_logging()
-    log_file = config_dir / "voice-typer.log"
+    log_file = config_dir / "logs" / "voice-typer.log"
     assert log_file.exists(), "log file was not created"
     mode = stat.S_IMODE(os.stat(log_file).st_mode)
     assert mode == 0o600, (
@@ -409,7 +409,7 @@ def test_get_log_file_path_returns_config_dir_voice_typer_log(config_dir):
     from voice_typer.server.log import get_log_file_path
 
     path = get_log_file_path(config_dir)
-    assert path == config_dir / "voice-typer.log"
+    assert path == config_dir / "logs" / "voice-typer.log"
     assert path.name == "voice-typer.log"
 
 
@@ -474,7 +474,7 @@ class TestStartupBanner:  # noqa: N801
 
     def _banner_lines(self, config_dir: Path) -> str:
         """Helper: read the log file and return the banner line(s)."""
-        content = (config_dir / "voice-typer.log").read_text(encoding="utf-8")
+        content = (config_dir / "logs" / "voice-typer.log").read_text(encoding="utf-8")
         return "\n".join(line for line in content.splitlines() if "[STARTUP]" in line)
 
     def test_banner_appears_in_log_file(self, config_dir, clean_env, stub_side_effects):
@@ -493,7 +493,7 @@ class TestStartupBanner:  # noqa: N801
         logging_setup._setup_logging()
         _flush_all()
         banner = self._banner_lines(config_dir)
-        expected_file = str(config_dir / "voice-typer.log")
+        expected_file = str(config_dir / "logs" / "voice-typer.log")
         # SEC-009: the PII log filter replaces the home-dir prefix with
         # ``~`` in rendered messages, so accept both the full path and
         # the home-shortened form.
@@ -553,7 +553,7 @@ class TestStartupBanner:  # noqa: N801
 
         logging_setup._setup_logging()
         _flush_all()
-        content = (config_dir / "voice-typer.log").read_text(encoding="utf-8")
+        content = (config_dir / "logs" / "voice-typer.log").read_text(encoding="utf-8")
         lines = content.splitlines()
         session_id = _log_module._session_id
         assert session_id, "setup_logging did not populate _session_id"

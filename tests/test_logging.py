@@ -64,7 +64,7 @@ def test_file_log_line_is_clean_end_to_end(tmp_path: Path) -> None:
             with __import__("contextlib").suppress(Exception):
                 h.flush()
 
-        log_file = config_dir / "voice-typer.log"
+        log_file = config_dir / "logs" / "voice-typer.log"
         content = log_file.read_text(encoding="utf-8")
         # The message and level must be present…
         assert "INFO" in content
@@ -322,17 +322,17 @@ def test_worker_log_file_is_separate_from_sidecar(tmp_path: Path) -> None:
     main_path = get_log_file_path(config_dir, process_name="main")
 
     # 1) Worker gets its OWN file — not the shared sidecar file.
-    assert worker_path == config_dir / "worker.log", (
+    assert worker_path == config_dir / "logs" / "worker.log", (
         f"regression: process_name='worker' must route to worker.log, got {worker_path}"
     )
     # 2) The sidecar (explicit "voice-typer" or default "main") still
     #    routes to voice-typer.log — the routing fix must not break the
     #    existing sidecar path.
-    assert sidecar_path == config_dir / "voice-typer.log", (
+    assert sidecar_path == config_dir / "logs" / "voice-typer.log", (
         f"regression: process_name='voice-typer' must route to voice-typer.log, got {sidecar_path}"
     )
-    assert default_path == config_dir / "voice-typer.log"
-    assert main_path == config_dir / "voice-typer.log"
+    assert default_path == config_dir / "logs" / "voice-typer.log"
+    assert main_path == config_dir / "logs" / "voice-typer.log"
     # 3) The race-elimination invariant: the two paths MUST differ.
     assert worker_path != sidecar_path, (
         "rotation-race regression: worker and sidecar must NOT share a log file "
@@ -366,12 +366,11 @@ def test_worker_setup_logging_writes_to_worker_log_file(tmp_path: Path) -> None:
             with contextlib.suppress(Exception):
                 h.flush()
 
-        worker_log = config_dir / "worker.log"
-        sidecar_log = config_dir / "voice-typer.log"
+        worker_log = config_dir / "logs" / "worker.log"
+        sidecar_log = config_dir / "logs" / "voice-typer.log"
 
         assert worker_log.exists(), (
-            "regression: worker.log was NOT created — process_name='worker' "
-            "is not routing to worker.log"
+            "regression: worker.log was NOT created — process_name='worker' is not routing to worker.log"
         )
         assert not sidecar_log.exists(), (
             "regression: voice-typer.log WAS created — process_name='worker' "

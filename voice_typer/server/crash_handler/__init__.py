@@ -168,8 +168,8 @@ _vectored_handler: Any = None
 # In-memory log ring buffer (MemoryHandler) + its target
 # RotatingFileHandler. Both None until ``install_memory_buffer`` is
 # called from ``set_crash_handler_config_dir``. The VEH callback
-# flushes the buffer to ``<config_dir>/voice-typer-crash-buffer.log``
-# after writing the crash-diagnostics body. See ``_memory_buffer``.
+# flushes the buffer to ``<config_dir>/logs/voice-typer-crash-buffer.log``
+# (O1) after writing the crash-diagnostics body. See ``_memory_buffer``.
 _memory_handler: logging.handlers.MemoryHandler | None = None
 _crash_buffer_handler: logging.Handler | None = None
 

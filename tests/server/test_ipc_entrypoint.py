@@ -382,7 +382,7 @@ class TestMainEntrypoint:
         assert exc_info.value.code == 1, (
             f"construction failure must exit with EXIT_CRASH (1); got {exc_info.value.code!r}"
         )
-        # The diagnostic landed in the isolated tmp_config_dir.
-        diag = tmp_config_dir / "startup-error.log"
+        # The diagnostic landed in the isolated tmp_config_dir (O1: logs/).
+        diag = tmp_config_dir / "logs" / "startup-error.log"
         assert diag.exists()
         assert "simulated construction failure" in diag.read_text(encoding="utf-8")
