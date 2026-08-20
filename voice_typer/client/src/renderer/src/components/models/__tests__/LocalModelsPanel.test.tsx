@@ -12,10 +12,11 @@
  *   3.  line 261: the per-model insufficient-disk badge uses
  *      models.status.insufficientDisk (not depsRequired).
  *   4. Conditional rendering: open-folder button only renders when
- *      modelsFolderSupported=true; consent banner only when consent is
- *      missing; low-disk banner only when free_bytes < 1GB.
- *   5. HuggingFace consent banner renders title + description + grant
- *      button + blocked-hint span.
+ *      modelsFolderSupported=true; low-disk banner only when
+ *      free_bytes < 1GB.
+ *   5. (UI/UX overhaul point 4) the HuggingFace consent banner is GONE
+ *      — the panel never renders persistent consent UI (consent moved
+ *      to a just-in-time toast at download time).
  *   6. : the panel forwards `modelName`, `error`, and `onRetry` to
  *      <DownloadProgressBar> so the inline error UI + Retry button
  *      render ( priority #3 + #4).
@@ -25,7 +26,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LocalModelsPanel } from "@/components/models/LocalModelsPanel";
 import type { DiskInfo, ModelFamily, ModelMetadata } from "@/lib/utils/models";
-import type { VoiceTyperConfig } from "@/types/config";
 
 // Mock the HugeiconsIcon wrapper so the test doesn't depend on the SVG
 // renderer. The mock exposes the icon's `name` via data-name.
@@ -104,10 +104,6 @@ vi.mock("@/components/models/DownloadProgressBar", () => ({
 
 const noop = vi.fn();
 
-const baseConfig = {
-	huggingface_consent: true,
-} as unknown as VoiceTyperConfig;
-
 const tinyMeta: ModelMetadata = {
 	name: "tiny",
 	display_name: "Whisper Tiny (EN)",
@@ -172,7 +168,6 @@ const catalog: Record<string, ModelMetadata> = {
 };
 
 const baseProps = {
-	config: baseConfig,
 	modelFamilies: families,
 	modelCatalog: catalog,
 	selectingModel: null,
@@ -194,7 +189,6 @@ const baseProps = {
 	onDeleteModel: noop,
 	onInstallDeps: noop,
 	onRetryDownload: noop,
-	onGrantConsent: noop,
 	onTogglePause: noop,
 	onCancelDownload: noop,
 	diskInfo: null,
@@ -266,49 +260,30 @@ describe("LocalModelsPanel — BG-21 (low-disk banner uses correct i18n keys)", 
 	});
 });
 
-describe("LocalModelsPanel — HuggingFace consent banner", () => {
+describe("LocalModelsPanel — HuggingFace consent is NOT a persistent banner", () => {
 	afterEach(() => cleanup());
 
-	it("renders the consent banner when huggingface_consent is false", () => {
-		const config = {
-			huggingface_consent: false,
-		} as unknown as VoiceTyperConfig;
-		render(<LocalModelsPanel {...baseProps} config={config} />);
-		expect(
-			screen.getByText("HuggingFace download consent required"),
-		).toBeInTheDocument();
-		expect(screen.getByText("Grant consent")).toBeInTheDocument();
-		expect(
-			screen.getByRole("button", {
-				name: /Grant HuggingFace download consent/i,
-			}),
-		).toBeInTheDocument();
-	});
-
-	it("hides the consent banner when consent is already granted", () => {
-		const config = { huggingface_consent: true } as unknown as VoiceTyperConfig;
-		render(<LocalModelsPanel {...baseProps} config={config} />);
+	it("never renders the consent banner (consent moved to a just-in-time toast at download time)", () => {
+		// The persistent consent banner was REMOVED (UI/UX overhaul
+		// point 4): consent is now checked only at the moment the user
+		// clicks a model's Download button
+		// (`useModelLifecycle.handleDownloadModel`), which shows a
+		// transient toast with a "Grant consent" action. The panel must
+		// not render any always-visible consent UI.
+		render(<LocalModelsPanel {...baseProps} />);
 		expect(
 			screen.queryByText("HuggingFace download consent required"),
 		).toBeNull();
-	});
-
-	it("clicking 'Grant consent' invokes onGrantConsent", () => {
-		const onGrantConsent = vi.fn();
-		const config = {
-			huggingface_consent: false,
-		} as unknown as VoiceTyperConfig;
-		render(
-			<LocalModelsPanel
-				{...baseProps}
-				config={config}
-				onGrantConsent={onGrantConsent}
-			/>,
-		);
-		screen
-			.getByRole("button", { name: /Grant HuggingFace download consent/i })
-			.click();
-		expect(onGrantConsent).toHaveBeenCalledTimes(1);
+		expect(
+			screen.queryByText(
+				/Model downloads are blocked until you grant consent/i,
+			),
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", {
+				name: /Grant HuggingFace download consent/i,
+			}),
+		).toBeNull();
 	});
 });
 
@@ -351,6 +326,93 @@ describe("LocalModelsPanel — BG-23 (Open models folder button)", () => {
 			})
 			.click();
 		expect(onOpenModelsFolder).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("LocalModelsPanel — UI/UX overhaul: metadata line + display names", () => {
+	afterEach(() => cleanup());
+
+	it("renders the company-name group header (OpenAI) and Whisper-prefixed variant names", () => {
+		// The fixture family name is "Whisper" (set by the test); the
+		// variant without a backend display_name gets the Whisper
+		// family prefix + slug Title-Casing.
+		const firstVariant = families[0]?.variants[0];
+		expect(firstVariant).toBeDefined();
+		const slugFamilies: ModelFamily[] = [
+			{
+				...families[0]!,
+				name: "OpenAI",
+				variants: [
+					{
+						...firstVariant!,
+						backend: "whisper",
+					},
+				],
+			},
+		];
+		// Use catalog entries WITHOUT display_name so the slug
+		// formatting path runs.
+		const slugCatalog: Record<string, ModelMetadata> = {
+			tiny: { ...catalog.tiny!, display_name: undefined },
+		};
+		render(
+			<LocalModelsPanel
+				{...baseProps}
+				modelFamilies={slugFamilies}
+				modelCatalog={slugCatalog}
+			/>,
+		);
+		// The group header (accordion trigger — mocked as a div in this
+		// file) carries the COMPANY name; the variant heading (h4) is
+		// the Whisper-prefixed display name.
+		expect(screen.getByText("OpenAI")).toBeInTheDocument();
+		expect(
+			screen.getByRole("heading", { name: "Whisper Tiny" }),
+		).toBeInTheDocument();
+	});
+
+	it("renders VRAM as a label+value pair and Multilingual as a tag pill", () => {
+		render(<LocalModelsPanel {...baseProps} />);
+		// VRAM label (muted) + colon + value — one pair per variant.
+		const vramLabels = screen.getAllByText("VRAM");
+		expect(vramLabels.length).toBeGreaterThanOrEqual(1);
+		// ~512 MB for tinyMeta.
+		expect(screen.getByText(/: ~512 MB/i)).toBeInTheDocument();
+		// Multilingual / English Only render as tags.
+		expect(screen.getAllByText("English Only").length).toBeGreaterThanOrEqual(
+			1,
+		);
+	});
+
+	it("renders the WER label+value pair when the catalog supplies a published WER", () => {
+		const werCatalog: Record<string, ModelMetadata> = {
+			tiny: { ...catalog.tiny!, wer: 7.5 },
+		};
+		render(
+			<LocalModelsPanel
+				{...baseProps}
+				modelCatalog={werCatalog}
+				modelFamilies={[
+					{
+						...families[0]!,
+						variants: [families[0]!.variants[0]!],
+					},
+				]}
+			/>,
+		);
+		expect(screen.getByText("WER")).toBeInTheDocument();
+		expect(screen.getByText(/: 7.5%/i)).toBeInTheDocument();
+	});
+
+	it("omits the WER pair when no published WER is available (never guess)", () => {
+		// tinyMeta has no `wer` field → no WER label rendered.
+		render(<LocalModelsPanel {...baseProps} />);
+		expect(screen.queryByText("WER")).toBeNull();
+	});
+
+	it("does NOT render a 'Size:' label in the metadata line (size moved to the download button)", () => {
+		render(<LocalModelsPanel {...baseProps} />);
+		expect(screen.queryByText(/Size:/i)).toBeNull();
 	});
 });
 

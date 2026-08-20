@@ -9,7 +9,10 @@
  */
 
 import { t } from "@/i18n/i18n";
-import { formatVram as _formatVram } from "@/lib/format";
+import {
+	formatVram as _formatVram,
+	formatWer as _formatWer,
+} from "@/lib/format";
 import { MODEL_DEFAULT } from "@/pages/onboarding/lib/constants";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { ModelStatusMap } from "@/types/ipc";
@@ -57,6 +60,14 @@ export interface ModelMetadata {
 	is_distilled: boolean;
 	speed_rating: string; // "fast" | "medium" | "slow"
 	accuracy_rating: string; // "low" | "medium" | "high"
+	/**
+	 * Published WER (%) on LibriSpeech test-clean (lower is better),
+	 * sourced from each model's official model card / evaluation.
+	 * `null`/absent = no reliable published figure — the UI must omit
+	 * the WER field for this model (never guess). See
+	 * `voice_typer/server/model_registry.py` for the per-model sources.
+	 */
+	wer?: number | null;
 }
 
 export interface ModelFamily {
@@ -200,13 +211,29 @@ export function formatModelSize(size: string): string {
 const SPEED_I18N_MAP: Record<string, string> = {
 	Fastest: "models.speed.fastest",
 	Fast: "models.speed.fast",
+	Medium: "models.speed.medium",
 	Slow: "models.speed.slow",
 	Variable: "models.speed.variable",
 };
 
+/** Capitalize the first letter of a word ("fast" → "Fast"). */
+function capitalizeFirst(value: string): string {
+	return value.length > 0
+		? value.charAt(0).toUpperCase() + value.slice(1)
+		: value;
+}
+
+/**
+ * Format a speed rating for display. Accepts both the legacy
+ * capitalized source values ("Fast", "Fastest") and the backend
+ * catalog's lowercase `speed_rating` values ("fast", "medium",
+ * "slow") — the latter are Title-Cased before lookup so the metadata
+ * line renders "Fast Speed" / "Medium Speed" / "Slow Speed" (point 5d
+ * of the overhaul: one consistent capitalization rule).
+ */
 export function formatModelSpeed(speed: string): string {
-	const key = SPEED_I18N_MAP[speed];
-	return key ? t(key) : speed;
+	const key = SPEED_I18N_MAP[speed] ?? SPEED_I18N_MAP[capitalizeFirst(speed)];
+	return key ? t(key) : capitalizeFirst(speed);
 }
 
 // MDL-14: model display names are translated via the i18n catalog
@@ -236,6 +263,11 @@ export function formatModelSpeed(speed: string): string {
 // implementation in ``lib/format.ts``.
 export function formatVram(mb: number): string {
 	return _formatVram(mb);
+}
+
+/** Re-export of the locale-aware WER percent formatter (see lib/format.ts). */
+export function formatWer(wer: number): string {
+	return _formatWer(wer);
 }
 
 /**
@@ -277,9 +309,50 @@ export function formatErrorMessage(
 	return fallback;
 }
 
+// ── Model display-name formatting ─────────────────────────────────────
+//
+//  (UI/UX overhaul 2026-08-20): internal model slugs are
+// lowercase hyphen-joined identifiers ("large-v3-turbo"). For DISPLAY
+// only, each hyphen is treated as a word separator: hyphen → space +
+// first-letter capitalization ("Large V3 Turbo"). The internal slug /
+// repo_id / config key is NEVER altered — this is purely the rendered
+// label, so new models get correctly formatted names automatically.
+export function formatModelDisplayName(rawId: string): string {
+	return rawId
+		.split("-")
+		.filter((part) => part.length > 0)
+		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+		.join(" ");
+}
+
+/**
+ * Resolve the user-facing display name for a model variant row.
+ *
+ * Priority:
+ *   1. The backend catalog's `display_name` (set for parakeet
+ *      "Parakeet-TDT-0.6b-V3" and qwen "Qwen-3" — these already carry
+ *      the family name, so no prefix is added).
+ *   2. Otherwise the formatted slug (`formatModelDisplayName`), with
+ *      the Whisper family prefix prepended — the group header shows
+ *      the COMPANY ("OpenAI") while each version name carries the
+ *      FAMILY ("Whisper Tiny", "Whisper Large V3", …), mirroring how
+ *      the OpenAI logo sits next to the company name in the header.
+ */
+export function getModelVariantDisplayName(
+	model: ModelInfo,
+	meta?: ModelMetadata | null,
+): string {
+	if (meta?.display_name) return meta.display_name;
+	const formatted = formatModelDisplayName(model.name);
+	if (model.backend === "whisper" || model.backend === "distil-whisper") {
+		return `Whisper ${formatted}`;
+	}
+	return formatted;
+}
+
 // ── Model family grouping ──────────────────────────────────────────────
-// Groups models by their backend family (Whisper, Qwen, NVIDIA — the
-// Parakeet family is branded under the NVIDIA logo) so they render
+// Groups models by their backend family (OpenAI/Whisper, Qwen, NVIDIA —
+// the Parakeet family is branded under the NVIDIA logo) so they render
 // inside family cards with shared headers.
 export function groupModelsByFamily(models: ModelInfo[]): ModelFamily[] {
 	const whisper = models.filter(
@@ -291,7 +364,11 @@ export function groupModelsByFamily(models: ModelInfo[]): ModelFamily[] {
 	if (whisper.length > 0) {
 		families.push({
 			id: "whisper",
-			name: "Whisper",
+			// The group header shows the COMPANY/PROVIDER name (the
+			// OpenAI logo sits next to it); each variant name carries
+			// the "Whisper" family prefix via
+			// `getModelVariantDisplayName`.
+			name: "OpenAI",
 			description: null,
 			variants: whisper,
 		});
@@ -471,4 +548,21 @@ export function hasInsufficientDiskSpace(
 	if (!disk) return false;
 	const requiredBytes = modelSizeMb * 1024 * 1024 * 1.1;
 	return disk.free_bytes < requiredBytes;
+}
+
+// ── HuggingFace-consent gating ────────────────────────────────────────
+//
+// (UI/UX overhaul 2026-08-20): the persistent HF consent banner was
+// replaced by a just-in-time gate at the point of download. The gate
+// only applies to models whose weights actually download from
+// huggingface.co (whisper variants + parakeet per the backend
+// registry's `network_behavior="downloads-on-first-use-consent-gated"`).
+// Qwen is `network_behavior="local-only"` (user supplies the model
+// path — nothing phones home), so its Download action is NOT gated.
+export function requiresHuggingFaceConsent(model: ModelInfo): boolean {
+	return (
+		model.backend === "whisper" ||
+		model.backend === "distil-whisper" ||
+		model.backend === "parakeet"
+	);
 }

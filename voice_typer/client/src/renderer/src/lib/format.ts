@@ -428,3 +428,17 @@ export function formatVram(mb: number, locale?: Locale): string {
 	};
 	return _getCachedNumberFormat(loc, mbOpts).format(mb);
 }
+
+/**
+ * Format a WER (Word Error Rate) percentage for display, e.g. ``2.0%``,
+ * ``7.5%``, ``1.93%``. Locale-aware number formatting (decimal
+ * separator, digit grouping) with at most 2 fraction digits; the ``%``
+ * suffix is appended after the number.
+ */
+export function formatWer(wer: number, locale?: Locale): string {
+	if (!Number.isFinite(wer) || wer < 0) return "—";
+	const opts: Intl.NumberFormatOptions = {
+		maximumFractionDigits: 2,
+	};
+	return `${_getCachedNumberFormat(resolveLocale(locale), opts).format(wer)}%`;
+}

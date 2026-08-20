@@ -358,8 +358,10 @@ describe("Onboarding Model step — explicit backend choice, no auto-download", 
 		expect(srcs.some((s) => s.includes("Qwen%20icon"))).toBe(false);
 
 		// Brand names + the localized strip label render next to the
-		// logos (the label resolves to "Powered by" in en).
-		expect(within(strip).getByText("Whisper")).toBeTruthy();
+		// logos (the label resolves to "Powered by" in en). The whisper
+		// family shows the COMPANY name (OpenAI) — UI/UX overhaul
+		// point 5a, matching the Models page group headers.
+		expect(within(strip).getByText("OpenAI")).toBeTruthy();
 		expect(within(strip).getByText("Nvidia")).toBeTruthy();
 		expect(within(strip).getByText("Powered by")).toBeTruthy();
 

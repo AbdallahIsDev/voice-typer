@@ -1083,7 +1083,7 @@
 	},
 	"models": {
 		"asrTitle": "Модели",
-		"asrSubtitle": "Настройте локальные модели на устройстве и облачных провайдеров распознавания речи.",
+		"asrSubtitle": "Настройте локальные модели на устройстве и облачное распознавание речи.",
 		"title": "Модели",
 		"description": "Настройте движки преобразования речи в текст",
 		"active": "Активна",
@@ -1161,11 +1161,8 @@
 			"importModelAria": "Импорт модели из папки"
 		},
 		"hfConsent": {
-			"title": "Требуется согласие на загрузку с HuggingFace",
-			"description": "Local Whisper models (tiny.en, base.en, etc.) download weights from huggingface.co on first use. Grant consent to enable model downloads. No audio is uploaded — only model weights are fetched.",
-			"grantAria": "Предоставить согласие на загрузку с HuggingFace",
 			"grant": "Предоставить согласие",
-			"blockedHint": "Загрузка моделей заблокирована до предоставления согласия."
+			"jitMessage": "Для загрузки этой модели требуется согласие на загрузку из Hugging Face. Дайте согласие сейчас, чтобы продолжить."
 		},
 		"progress": {
 			"eta": "ETA {time}",
@@ -1190,23 +1187,22 @@
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
-			"size": "Размер: {size}",
-			"vram": "VRAM: ~{vram}",
 			"multilingual": "Многоязычная",
 			"englishOnly": "Только английский",
-			"speedSuffix": "{rating} скорость",
-			"distilled": "  ·  дистиллированная",
+			"speedSuffix": "Скорость: {rating}",
+			"distilled": "Дистиллированная",
 			"activeAria": "Активная: {name}",
 			"useAria": "Использовать {name}",
 			"downloadAria": "Скачать {name}",
 			"selectAria": "Выбрать {name}",
 			"deleteAria": "Удалить {name}",
-			"accuracy": "Точность"
+			"accuracy": "Точность",
+			"vramLabel": "VRAM",
+			"werLabel": "WER"
 		},
 		"cloud": {
 			"title": "Облачные провайдеры распознавания речи",
 			"description": "Настройка облачных сервисов транскрибации",
-			"providerSettings": "Настройки {provider}",
 			"apiKey": "API-ключ",
 			"apiKeyPlaceholder": "Введите ваш API-ключ",
 			"saveKeyAria": "Сохранить ключ API {provider}",
@@ -1218,7 +1214,12 @@
 			"statusLabel": "Status:",
 			"consentGrantedStatus": "Согласие предоставлено — аудио будет отправляться при активации этого поставщика.",
 			"consentNotGrantedStatus": "Согласие не предоставлено — этот поставщик откажет в транскрибации.",
-			"consentAria": "Предоставить согласие на передачу аудио для {provider}"
+			"consentAria": "Предоставить согласие на передачу аудио для {provider}",
+			"configure": "Настроить",
+			"configureAria": "Настроить {provider}",
+			"hideConfigure": "Скрыть",
+			"hideConfigureAria": "Скрыть настройку {provider}",
+			"tagCloud": "Облако"
 		},
 		"deleteDialog": {
 			"title": "Удалить модель",
@@ -1228,8 +1229,6 @@
 		"subtitle": "Скачивайте и управляйте моделями распознавания речи",
 		"localModels": "Локальные модели",
 		"localModelsDescription": "Запускайте модели Whisper прямо на вашем устройстве. После загрузки подключение к интернету не требуется.",
-		"cloudProviders": "Облачные провайдеры",
-		"cloudProvidersDescription": "Используйте облачные API для более быстрого транскрибирования. Требуется API-ключ.",
 		"downloaded": "Скачано",
 		"dependenciesRequired": "Требуются зависимости",
 		"available": "Доступно",
@@ -1277,7 +1276,8 @@
 			"fastest": "Самая быстрая",
 			"variable": "Переменная",
 			"slow": "Медленная",
-			"fast": "Быстрая"
+			"fast": "Быстрая",
+			"medium": "Средняя"
 		},
 		"openFolderAria": "Открыть каталог моделей в файловом менеджере",
 		"openFolderFailed": "Не удалось открыть папку",
@@ -1290,7 +1290,9 @@
 		"openFolder": {
 			"label": "Открыть папку моделей",
 			"aria": "Показать папку моделей в файловом менеджере"
-		}
+		},
+		"cloudModels": "Облачные модели",
+		"cloudModelsDescription": "Используйте облачные API для более быстрого транскрибирования. Требуется API-ключ."
 	},
 	"tooltips": {
 		"toggleRecording": "Начать или остановить голосовую диктовку",

@@ -1083,7 +1083,7 @@
 	},
 	"models": {
 		"asrTitle": "模型",
-		"asrSubtitle": "配置本地设备模型和云端语音识别提供商。",
+		"asrSubtitle": "配置本地设备模型和基于云端的语音识别。",
 		"title": "模型",
 		"description": "配置您的语音转文本引擎",
 		"active": "活动",
@@ -1161,11 +1161,8 @@
 			"importModelAria": "从文件夹导入模型"
 		},
 		"hfConsent": {
-			"title": "需要 HuggingFace 下载许可",
-			"description": "本地 Whisper 模型（tiny.en、base.en 等）首次使用时从 huggingface.co 下载权重。授予许可即可启用模型下载。不会上传任何音频 — 仅获取模型权重。",
-			"grantAria": "授予 HuggingFace 下载许可",
 			"grant": "授予同意",
-			"blockedHint": "在您授予许可之前，模型下载将被阻止。"
+			"jitMessage": "下载此模型需要 Hugging Face 下载同意。请立即授予同意以继续。"
 		},
 		"progress": {
 			"eta": "ETA {time}",
@@ -1190,23 +1187,22 @@
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
-			"size": "大小：{size}",
-			"vram": "VRAM: ~{vram}",
 			"multilingual": "多语言",
 			"englishOnly": "仅支持英语",
 			"speedSuffix": "{rating} 速度",
-			"distilled": "  ·  蒸馏版",
+			"distilled": "蒸馏版",
 			"activeAria": "当前使用：{name}",
 			"useAria": "使用 {name}",
 			"downloadAria": "下载 {name}",
 			"selectAria": "选择 {name}",
 			"deleteAria": "删除 {name}",
-			"accuracy": "准确率"
+			"accuracy": "准确率",
+			"vramLabel": "VRAM",
+			"werLabel": "WER"
 		},
 		"cloud": {
 			"title": "云端语音识别提供商",
 			"description": "配置云端转写服务",
-			"providerSettings": "{provider} 设置",
 			"apiKey": "API 密钥",
 			"apiKeyPlaceholder": "输入您的 API 密钥",
 			"saveKeyAria": "保存 {provider} API 密钥",
@@ -1218,7 +1214,12 @@
 			"statusLabel": "Status:",
 			"consentGrantedStatus": "已授予许可 — 此提供商激活时将发送音频。",
 			"consentNotGrantedStatus": "未授予许可 — 此提供商将拒绝转写。",
-			"consentAria": "授予 {provider} 的音频传输许可"
+			"consentAria": "授予 {provider} 的音频传输许可",
+			"configure": "配置",
+			"configureAria": "配置{provider}",
+			"hideConfigure": "隐藏",
+			"hideConfigureAria": "隐藏{provider}设置",
+			"tagCloud": "云端"
 		},
 		"deleteDialog": {
 			"title": "删除模型",
@@ -1228,8 +1229,6 @@
 		"subtitle": "下载和管理语音识别模型",
 		"localModels": "本地模型",
 		"localModelsDescription": "直接在您的设备上运行 Whisper 模型。下载后无需联网。",
-		"cloudProviders": "云端提供商",
-		"cloudProvidersDescription": "使用云端 API 进行更快的转录。需要 API 密钥。",
 		"downloaded": "已下载",
 		"dependenciesRequired": "需要依赖项",
 		"available": "可用",
@@ -1277,7 +1276,8 @@
 			"fastest": "最快",
 			"variable": "可变",
 			"slow": "慢速",
-			"fast": "快速"
+			"fast": "快速",
+			"medium": "中等"
 		},
 		"openFolderAria": "在文件管理器中打开模型目录",
 		"openFolderFailed": "打开文件夹失败",
@@ -1290,7 +1290,9 @@
 		"openFolder": {
 			"label": "打开模型文件夹",
 			"aria": "在文件管理器中显示模型文件夹"
-		}
+		},
+		"cloudModels": "云端模型",
+		"cloudModelsDescription": "使用云端 API 进行更快的转录。需要 API 密钥。"
 	},
 	"tooltips": {
 		"toggleRecording": "开始或停止语音听写",

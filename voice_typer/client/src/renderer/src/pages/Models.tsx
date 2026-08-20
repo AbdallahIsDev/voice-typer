@@ -4,33 +4,30 @@
  *  fix #1: previously a 1448-line monolith. After the split:
  *  • `useModelLifecycle` owns all state + IPC actions.
  *  • `LocalModelsPanel` renders the local-models tab (family cards,
- *    consent banner, disk-space warning, open-folder button).
- *  • `CloudProvidersPanel` renders the cloud-providers tab (per-
- *    provider cards with API key + test + consent).
+ *    disk-space warning, open-folder button).
+ *  • `CloudProvidersPanel` renders the cloud-models tab (provider
+ *    groups with API key + test + consent).
  *  • `ModelCardActions` is the pure presentational 4-branch button
  *    row used by each model card.
  *
  * This file is now ~150 lines: it consumes the hook, renders the
- * sticky tab bar + page heading + LastUpdatedIndicator, mounts the
- * active panel, and renders the ConfirmDialog for model deletion.
+ * page heading + in-flow tab switcher, mounts the active panel, and
+ * renders the ConfirmDialog for model deletion.
  *
- *  fix #3: dead `_initialLoading` state + the dead unmount-
- * cleanup `useEffect` were removed (React already discards state on
- * unmount; the cleanup was a no-op that caused spurious state updates
- * during HMR / strict-mode double-mounts).
- *
- *  fix #10: replaced the hardcoded `pt-[156px]` (which was
- * tuned to clear the sticky SegmentedControl bar at a specific zoom
- * level) with `scroll-mt-32` on the panels + the standard page
- * padding. The scroll-mt utility makes deep-links to in-page anchors
- * land below the sticky bar without pixel-tuning.
+ * (UI/UX overhaul 2026-08-20):
+ *  • point 1 — the "Last updated / refresh" indicator was REMOVED.
+ *  • point 2 — the tab switcher is no longer sticky; it sits in the
+ *    page flow below the title/description and scrolls with content.
+ *  • point 3 — "Import Model" renders only on the Local Models tab.
+ *  • point 4 — downloads route through
+ *    `lifecycle.handleDownloadModel`, the just-in-time HuggingFace
+ *    consent gate (toast with a one-click "Grant consent" action).
  */
 
 import { AiBrain03Icon, Folder02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useMemo, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
-import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
@@ -44,10 +41,7 @@ import {
 import { useModelLifecycle } from "@/hooks/useModelLifecycle";
 import { t } from "@/i18n/i18n";
 import { getActiveFamilyId, groupModelsByFamily } from "@/lib/utils/models";
-import {
-	tabPageHeaderClassName,
-	tabPageIndicatorClassName,
-} from "./_tabBarStyles";
+import { tabPageIndicatorClassName } from "./_tabBarStyles";
 
 export default function ModelsPage() {
 	const lifecycle = useModelLifecycle();
@@ -55,7 +49,9 @@ export default function ModelsPage() {
 
 	const tabOptions: SegmentedControlOption<string>[] = [
 		{ value: "local", label: t("models.localModels") },
-		{ value: "cloud", label: t("models.cloudProviders") },
+		//(overhaul point 12): renamed "Cloud Providers" → "Cloud Models"
+		// for naming consistency with "Local Models".
+		{ value: "cloud", label: t("models.cloudModels") },
 	];
 
 	// Memoize the family grouping so we don't re-group on every render.
@@ -86,14 +82,51 @@ export default function ModelsPage() {
 
 	return (
 		<>
-			{/* Full-width sticky tab bar.
-                                : use the shared tabPageHeaderClassName /
-                                tabPageIndicatorClassName from pages/_tabBarStyles so
-                                Settings and Models render visually identical sticky tab
-                                bars. Previously Models had no wrapper bg/border and used
-                                a different z-index from Settings. */}
-			<div className={tabPageHeaderClassName}>
-				<div className="mx-auto w-full max-w-4xl px-16 py-1.5">
+			{/*
+				(UI/UX overhaul 2026-08-20):
+				• points 1+2 — the sticky top-of-viewport tab bar was
+				  REMOVED; the SegmentedControl now sits in the page flow
+				  below the title/description (where the "Last updated"
+				  indicator used to sit) and scrolls with the content.
+				  The "Last updated / refresh" indicator was removed
+				  entirely (model availability/install state doesn't
+				  change moment-to-moment; a manual refresh serves no
+				  purpose here).
+				• point 3 — the "Import Model" button only renders on the
+				  Local Models tab (importing a local model file has no
+				  meaning on the Cloud Models tab).
+			*/}
+			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-8 pb-6">
+				<PageHeading
+					title={t("models.asrTitle")}
+					description={t("models.asrSubtitle")}
+				>
+					{activeTab === "local" && (
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={lifecycle.handleImportModel}
+							disabled={lifecycle.isImporting}
+							title={t("models.import.title")}
+							className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
+							aria-label={t("models.import.title")}
+							aria-busy={lifecycle.isImporting}
+						>
+							<HugeiconsIcon
+								icon={Folder02Icon}
+								strokeWidth={2}
+								className="h-4 w-4"
+							/>
+							{lifecycle.isImporting
+								? t("models.import.importing")
+								: t("models.import.importModel")}
+						</Button>
+					)}
+				</PageHeading>
+
+				{/* Tab switcher — in the page flow (not sticky), below the
+				    page title/description and above the model list. */}
+				<div className="pb-4">
 					<SegmentedControl
 						variant="tabs"
 						options={tabOptions}
@@ -102,52 +135,9 @@ export default function ModelsPage() {
 						ariaLabel={t("models.title")}
 						indicatorClassName={tabPageIndicatorClassName}
 						labelClassName="flex-1 text-center"
-						className="w-full"
+						className="w-full rounded-lg bg-(--bg-subtle)"
 						getTabId={(v) => `models-tab-${v}`}
 						getPanelId={(v) => `models-panel-${v}`}
-					/>
-				</div>
-			</div>
-
-			{/*
-                                 fix #10: replaced `pt-[156px]` with `pt-32`.
-                                The original magic padding was tuned to clear the sticky
-                                bar (SegmentedControl + page heading + LastUpdatedIndicator
-                                row) at a specific zoom level. `pt-32` (128px) clears the
-                                sticky bar at default zoom; the scroll-mt-32 utility on
-                                anchors would handle deep-link scrolling if we add any.
-                        */}
-			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-32 pb-6">
-				<PageHeading
-					title={t("models.asrTitle")}
-					description={t("models.asrSubtitle")}
-				>
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={lifecycle.handleImportModel}
-						disabled={lifecycle.isImporting}
-						title={t("models.import.title")}
-						className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
-						aria-label={t("models.import.title")}
-						aria-busy={lifecycle.isImporting}
-					>
-						<HugeiconsIcon
-							icon={Folder02Icon}
-							strokeWidth={2}
-							className="h-4 w-4"
-						/>
-						{lifecycle.isImporting
-							? t("models.import.importing")
-							: t("models.import.importModel")}
-					</Button>
-				</PageHeading>
-
-				<div className="flex justify-end pb-2">
-					<LastUpdatedIndicator
-						agoLabel={lifecycle.agoLabel}
-						onRefresh={lifecycle.handleManualRefresh}
-						refreshing={lifecycle.refreshing}
 					/>
 				</div>
 
@@ -176,7 +166,6 @@ export default function ModelsPage() {
 								/>
 							)}
 							<LocalModelsPanel
-								config={lifecycle.config}
 								modelFamilies={modelFamilies}
 								modelCatalog={lifecycle.modelCatalog}
 								selectingModel={lifecycle.selectingModel}
@@ -189,10 +178,11 @@ export default function ModelsPage() {
 								speedBps={lifecycle.speedBps}
 								etaSeconds={lifecycle.etaSeconds}
 								onSelectModel={lifecycle.selectModel}
-								onDownloadModel={lifecycle.downloadModel}
+								//(overhaul point 4): route downloads through the
+								// just-in-time HuggingFace-consent gate.
+								onDownloadModel={lifecycle.handleDownloadModel}
 								onDeleteModel={lifecycle.requestDeleteModel}
 								onInstallDeps={lifecycle.installDeps}
-								onGrantConsent={lifecycle.handleGrantConsent}
 								onTogglePause={lifecycle.handleTogglePause}
 								onCancelDownload={lifecycle.handleCancelDownload}
 								diskInfo={lifecycle.diskInfo}

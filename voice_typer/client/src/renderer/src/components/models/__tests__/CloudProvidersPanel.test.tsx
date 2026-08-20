@@ -1,6 +1,15 @@
 /**
  * CloudProvidersPanel unit tests —  /
  *
+ * (UI/UX overhaul 2026-08-20): the panel was rebuilt to match the
+ * Local Models tab's collapsible-group pattern:
+ *   • each provider is a collapsible accordion group header;
+ *   • expanding a group reveals the API model row + a "Configure"
+ *     action that reveals the API-key form (input + Save Key + Test
+ *     Connection + consent Switch).
+ * Tests that exercise the form therefore expand the group AND click
+ * Configure first (`openApiKeyForm` helper).
+ *
  * Coverage:
  *   1. : the test-result <span> exposes role=status + aria-live=polite
  *      so SR users hear the test-connection outcome as it arrives.
@@ -16,6 +25,8 @@
  *   7. : the Test Connection button shows a spinner + is disabled
  *      while a test is in flight; stale results are cleared via
  *      onClearTestResult when the API-key Input changes.
+ *   8. (overhaul point 11): the provider group is collapsible and the
+ *      API-key form is hidden until the Configure action is clicked.
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -103,7 +114,26 @@ const baseProps = {
 	onConsentChange: noop,
 };
 
-describe("CloudProvidersPanel — provider brand logos", () => {
+// ── Helpers ───────────────────────────────────────────────────────────
+//
+// The API-key form lives behind the provider group (accordion trigger)
+// + the "Configure" action (overhaul point 11). These helpers expand
+// the group and reveal the form before the test interacts with it.
+
+function expandProviderGroup(providerLabel: string) {
+	fireEvent.click(screen.getByRole("button", { name: providerLabel }));
+}
+
+function openApiKeyForm(providerLabel = "OpenAI Whisper API") {
+	expandProviderGroup(providerLabel);
+	fireEvent.click(
+		screen.getByRole("button", {
+			name: new RegExp(`Configure ${providerLabel}`, "i"),
+		}),
+	);
+}
+
+describe("CloudProvidersPanel — provider brand logos + collapsible groups", () => {
 	afterEach(() => cleanup());
 
 	it("renders the brand logo for openai and deepgram; groq keeps the shield fallback", () => {
@@ -124,18 +154,58 @@ describe("CloudProvidersPanel — provider brand logos", () => {
 			/>,
 		);
 
-		// openai + deepgram render an <img> brand logo; groq has none.
+		// openai + deepgram render an <img> brand logo in their group
+		// headers; groq has none.
 		const imgs = container.querySelectorAll("img");
 		expect(imgs).toHaveLength(2);
 		const srcs = Array.from(imgs).map((i) => i.getAttribute("src") ?? "");
 		expect(srcs.some((s) => s.includes("OpenAI%20icon"))).toBe(true);
 		expect(srcs.some((s) => s.includes("Deepgram%20icon"))).toBe(true);
 
-		// groq keeps the generic shield glyph in its card header.
+		// groq keeps the generic shield glyph in its group header.
 		const shields = screen
 			.getAllByTestId("hugeicon")
 			.filter((el) => el.getAttribute("data-name") === "Shield01Icon");
 		expect(shields).toHaveLength(1);
+	});
+
+	it("renders each provider as a collapsible group with a Configure action (not an always-open card)", () => {
+		render(<CloudProvidersPanel {...baseProps} />);
+
+		// Group header exists for the provider.
+		expect(
+			screen.getByRole("button", { name: "OpenAI Whisper API" }),
+		).toBeInTheDocument();
+
+		// The API-key form is NOT visible until Configure is clicked
+		// (point 11 — no permanently-visible API-key card).
+		expect(screen.queryByTestId("api-key-input")).toBeNull();
+		expect(
+			screen.queryByRole("button", {
+				name: /Save OpenAI Whisper API API key/i,
+			}),
+		).toBeNull();
+
+		// Expanding the group reveals the model row + Configure action.
+		expandProviderGroup("OpenAI Whisper API");
+		expect(
+			screen.getByRole("button", {
+				name: /Configure OpenAI Whisper API/i,
+			}),
+		).toBeInTheDocument();
+		// The API model name renders as a display-formatted heading.
+		expect(
+			screen.getByRole("heading", { name: "Whisper 1" }),
+		).toBeInTheDocument();
+
+		// Configure reveals the form; the button flips to "Hide".
+		fireEvent.click(
+			screen.getByRole("button", { name: /Configure OpenAI Whisper API/i }),
+		);
+		expect(screen.getByTestId("api-key-input")).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: /Hide OpenAI Whisper API setup/i }),
+		).toBeInTheDocument();
 	});
 });
 
@@ -153,6 +223,7 @@ describe("CloudProvidersPanel — BG-74 (test-result span is a live region)", ()
 				testResults={{ openai: testResult }}
 			/>,
 		);
+		openApiKeyForm();
 		const resultSpan = screen.getByText(
 			"Connection successful — API key is valid.",
 		);
@@ -166,6 +237,7 @@ describe("CloudProvidersPanel — BG-74 (test-result span is a live region)", ()
 
 	it("test-result span is absent when there is no testResult for the provider", () => {
 		render(<CloudProvidersPanel {...baseProps} testResults={{}} />);
+		openApiKeyForm();
 		expect(screen.queryByRole("status")).toBeNull();
 	});
 });
@@ -184,6 +256,7 @@ describe("CloudProvidersPanel — three test-result color branches (BG-77 invali
 				testResults={{ openai: testResult }}
 			/>,
 		);
+		openApiKeyForm();
 		const span = screen.getByText("ok");
 		expect(span.className).toContain("text-primary");
 		expect(span.className).not.toContain("text-[(--text-muted)]");
@@ -200,6 +273,7 @@ describe("CloudProvidersPanel — three test-result color branches (BG-77 invali
 				testResults={{ openai: testResult }}
 			/>,
 		);
+		openApiKeyForm();
 		const span = screen.getByText("bad key");
 		expect(span.className).toContain("text-destructive");
 	});
@@ -215,6 +289,7 @@ describe("CloudProvidersPanel — three test-result color branches (BG-77 invali
 				testResults={{ openai: testResult }}
 			/>,
 		);
+		openApiKeyForm();
 		const span = screen.getByText("testing…");
 		//`text-[(--text-muted)]` is invalid Tailwind v4 syntax.
 		// The canonical form is `text-(--text-muted)` — matches every other
@@ -237,6 +312,7 @@ describe("CloudProvidersPanel — consent progressive disclosure", () => {
 				}
 			/>,
 		);
+		openApiKeyForm();
 		expect(screen.queryByTestId("consent-switch")).toBeNull();
 	});
 
@@ -250,6 +326,7 @@ describe("CloudProvidersPanel — consent progressive disclosure", () => {
 				}
 			/>,
 		);
+		openApiKeyForm();
 		expect(screen.getByTestId("consent-switch")).toBeInTheDocument();
 		expect(screen.getByText(/Consent not granted/i)).toBeInTheDocument();
 	});
@@ -264,6 +341,7 @@ describe("CloudProvidersPanel — consent progressive disclosure", () => {
 				}
 			/>,
 		);
+		openApiKeyForm();
 		expect(screen.getByTestId("consent-switch")).toBeInTheDocument();
 		expect(screen.getByText(/Consent granted/i)).toBeInTheDocument();
 	});
@@ -280,6 +358,7 @@ describe("CloudProvidersPanel — consent progressive disclosure", () => {
 				onConsentChange={onConsentChange}
 			/>,
 		);
+		openApiKeyForm();
 		screen.getByTestId("consent-switch").click();
 		expect(onConsentChange).toHaveBeenCalledWith("openai", true);
 	});
@@ -301,6 +380,7 @@ describe("CloudProvidersPanel — Save / Test buttons", () => {
 				onSaveApiKey={onSaveApiKey}
 			/>,
 		);
+		openApiKeyForm();
 		screen
 			.getByRole("button", { name: /Save OpenAI Whisper API API key/i })
 			.click();
@@ -315,6 +395,7 @@ describe("CloudProvidersPanel — Save / Test buttons", () => {
 				onTestConnection={onTestConnection}
 			/>,
 		);
+		openApiKeyForm();
 		screen
 			.getByRole("button", { name: /Test OpenAI Whisper API connection/i })
 			.click();
@@ -333,6 +414,7 @@ describe("CloudProvidersPanel — ZU-6 (Save Key button disabled guard)", () => 
 
 	it("disables the Save Key button when the API key input is empty", () => {
 		render(<CloudProvidersPanel {...baseProps} apiKeys={{ openai: "" }} />);
+		openApiKeyForm();
 		const saveBtn = screen.getByRole("button", {
 			name: /Save OpenAI Whisper API API key/i,
 		});
@@ -346,6 +428,7 @@ describe("CloudProvidersPanel — ZU-6 (Save Key button disabled guard)", () => 
 				apiKeys={{ openai: "sk-test-key" }}
 			/>,
 		);
+		openApiKeyForm();
 		const saveBtn = screen.getByRole("button", {
 			name: /Save OpenAI Whisper API API key/i,
 		});
@@ -354,6 +437,7 @@ describe("CloudProvidersPanel — ZU-6 (Save Key button disabled guard)", () => 
 
 	it("disables the Save Key button when the input is only whitespace", () => {
 		render(<CloudProvidersPanel {...baseProps} apiKeys={{ openai: "   " }} />);
+		openApiKeyForm();
 		const saveBtn = screen.getByRole("button", {
 			name: /Save OpenAI Whisper API API key/i,
 		});
@@ -380,6 +464,7 @@ describe("CloudProvidersPanel — ZU-23 (Test Connection pending state + clear-o
 				}}
 			/>,
 		);
+		openApiKeyForm();
 		const testBtn = screen.getByRole("button", {
 			name: /Test OpenAI Whisper API connection/i,
 		});
@@ -397,6 +482,7 @@ describe("CloudProvidersPanel — ZU-23 (Test Connection pending state + clear-o
 				}}
 			/>,
 		);
+		openApiKeyForm();
 		const icons = screen.getAllByTestId("hugeicon");
 		const iconNames = icons.map((el) => el.getAttribute("data-name"));
 		expect(iconNames).toContain("Loading03Icon");
@@ -407,6 +493,7 @@ describe("CloudProvidersPanel — ZU-23 (Test Connection pending state + clear-o
 		render(
 			<CloudProvidersPanel {...baseProps} apiKeys={{ openai: "sk-test" }} />,
 		);
+		openApiKeyForm();
 		const testBtn = screen.getByRole("button", {
 			name: /Test OpenAI Whisper API connection/i,
 		});
@@ -434,6 +521,7 @@ describe("CloudProvidersPanel — ZU-23 (Test Connection pending state + clear-o
 				onClearTestResult={onClearTestResult}
 			/>,
 		);
+		openApiKeyForm();
 		const input = screen.getByTestId("api-key-input");
 		fireEvent.change(input, { target: { value: "sk-new-key" } });
 		expect(onApiKeyChange).toHaveBeenCalledWith("openai", "sk-new-key");

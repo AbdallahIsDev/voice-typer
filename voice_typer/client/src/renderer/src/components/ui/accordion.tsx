@@ -1,4 +1,4 @@
-import { ArrowDown01Icon, ArrowUp01Icon } from "@hugeicons/core-free-icons";
+import { MinusSignIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Accordion as AccordionPrimitive } from "radix-ui";
 import type * as React from "react";
@@ -49,15 +49,28 @@ function AccordionTrigger({
 				{...props}
 			>
 				{children}
+				{/*
+					(UI/UX overhaul 2026-08-20): the expand/collapse
+					glyph is a plus (+) / minus (–) pair instead of the
+					chevron-down/up pair. The chevron is strongly
+					associated with FAQ/accordion "reveal an answer"
+					patterns, which implies clicking will reveal
+					explanatory text rather than a list of downloadable
+					items. A plus in the collapsed state signals "there's
+					more to see here" without the FAQ connotation; the
+					minus in the expanded state signals "click to
+					collapse". Both icons are aria-hidden (the Radix
+					trigger carries the accessible name + aria-expanded).
+				*/}
 				<HugeiconsIcon
-					icon={ArrowDown01Icon}
+					icon={PlusSignIcon}
 					strokeWidth={2}
 					data-slot="accordion-trigger-icon"
 					aria-hidden="true"
 					className="pointer-events-none shrink-0 group-aria-expanded/accordion-trigger:hidden"
 				/>
 				<HugeiconsIcon
-					icon={ArrowUp01Icon}
+					icon={MinusSignIcon}
 					strokeWidth={2}
 					data-slot="accordion-trigger-icon"
 					aria-hidden="true"

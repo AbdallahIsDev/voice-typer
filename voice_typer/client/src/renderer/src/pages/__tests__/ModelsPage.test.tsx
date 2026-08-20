@@ -595,13 +595,31 @@ describe("ModelsPage — MDL-5: cloud provider API key inputs have unique HTML i
 			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
 		});
 
-		// Switch to the Cloud Providers tab.
-		const cloudTab = screen.getByText(t("models.cloudProviders"));
+		// Switch to the Cloud Models tab (renamed from "Cloud Providers"
+		// in the UI/UX overhaul, point 12).
+		const cloudTab = screen.getByText(t("models.cloudModels"));
 		fireEvent.click(cloudTab);
 
-		// Verify each provider's input has a unique id and that
-		// each <label> points to the correct one via htmlFor.
+		// (overhaul point 11) each provider is a collapsible group whose
+		// API-key form is hidden behind the "Configure" action — expand
+		// the group + click Configure to reveal each provider's input.
+		const providerLabel = (key: string) =>
+			EN_KEYS.get(`models.providers.${key}.label`) ?? key;
+
 		for (const providerKey of ["openai", "groq", "deepgram"]) {
+			// Expand the provider group.
+			fireEvent.click(
+				screen.getByRole("button", { name: providerLabel(providerKey) }),
+			);
+			// Reveal the API-key form.
+			fireEvent.click(
+				screen.getByRole("button", {
+					name: new RegExp(`Configure ${providerLabel(providerKey)}`, "i"),
+				}),
+			);
+
+			// Verify each provider's input has a unique id and that
+			// each <label> points to the correct one via htmlFor.
 			const input = await waitFor(() =>
 				document.getElementById(`api-key-input-${providerKey}`),
 			);

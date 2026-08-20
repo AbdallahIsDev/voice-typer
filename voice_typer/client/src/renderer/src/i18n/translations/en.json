@@ -1090,7 +1090,7 @@
 	},
 	"models": {
 		"asrTitle": "Models",
-		"asrSubtitle": "Configure local on-device models and cloud speech recognition providers.",
+		"asrSubtitle": "Configure local on-device models and cloud-based speech recognition.",
 		"title": "Models",
 		"description": "Configure your speech-to-text engines",
 		"active": "Active",
@@ -1176,11 +1176,8 @@
 			"importModelAria": "Import model from folder"
 		},
 		"hfConsent": {
-			"title": "HuggingFace download consent required",
-			"description": "Local Whisper models (tiny.en, small.en, medium.en) download weights from huggingface.co on first use. This download reveals your IP address to a US-headquartered third party (Hugging Face, Inc.). Under GDPR Art. 13/44 (Schrems II), we need your explicit consent before initiating the download. Audio itself is never sent — only the model weights are fetched.",
-			"grantAria": "Grant HuggingFace download consent",
 			"grant": "Grant consent",
-			"blockedHint": "Model downloads are blocked until you grant consent."
+			"jitMessage": "Hugging Face download consent is required before downloading this model. Grant it now to continue."
 		},
 		"progress": {
 			"eta": "ETA {time}",
@@ -1205,23 +1202,22 @@
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
-			"size": "Size: {size}",
-			"vram": "VRAM: ~{vram}",
 			"multilingual": "Multilingual",
-			"englishOnly": "English only",
-			"speedSuffix": "{rating} speed",
-			"distilled": "  ·  distilled",
+			"englishOnly": "English Only",
+			"speedSuffix": "{rating} Speed",
+			"distilled": "Distilled",
 			"activeAria": "Active: {name}",
 			"useAria": "Use {name}",
 			"downloadAria": "Download {name}",
 			"selectAria": "Select {name}",
 			"deleteAria": "Delete {name}",
-			"accuracy": "Accuracy"
+			"accuracy": "Accuracy",
+			"vramLabel": "VRAM",
+			"werLabel": "WER"
 		},
 		"cloud": {
 			"title": "Cloud speech recognition providers",
 			"description": "Configure cloud-based transcription services",
-			"providerSettings": "{provider} Settings",
 			"apiKey": "API Key",
 			"apiKeyPlaceholder": "Enter your API key",
 			"saveKeyAria": "Save {provider} API key",
@@ -1233,7 +1229,12 @@
 			"statusLabel": "Status:",
 			"consentGrantedStatus": "Consent granted — audio will be sent when this provider is active.",
 			"consentNotGrantedStatus": "Consent not granted — this provider will refuse to transcribe.",
-			"consentAria": "Grant audio transmission consent for {provider}"
+			"consentAria": "Grant audio transmission consent for {provider}",
+			"configure": "Configure",
+			"configureAria": "Configure {provider}",
+			"hideConfigure": "Hide",
+			"hideConfigureAria": "Hide {provider} setup",
+			"tagCloud": "Cloud"
 		},
 		"deleteDialog": {
 			"title": "Delete Model",
@@ -1243,8 +1244,6 @@
 		"subtitle": "Download and manage speech recognition models",
 		"localModels": "Local Models",
 		"localModelsDescription": "Run Whisper models directly on your device. No internet required after download.",
-		"cloudProviders": "Cloud Providers",
-		"cloudProvidersDescription": "Use cloud-based APIs for faster transcription. Requires API key.",
 		"downloaded": "Downloaded",
 		"dependenciesRequired": "Dependencies required",
 		"available": "Available",
@@ -1272,7 +1271,8 @@
 			"fastest": "Fastest",
 			"fast": "Fast",
 			"slow": "Slow",
-			"variable": "Variable"
+			"variable": "Variable",
+			"medium": "Medium"
 		},
 		"size": "Size",
 		"language": "Language",
@@ -1297,7 +1297,9 @@
 			"lowSpaceBody": "Not enough free space to download models",
 			"freeSpace": "{space} free"
 		},
-		"loading": "Loading models…"
+		"loading": "Loading models…",
+		"cloudModels": "Cloud Models",
+		"cloudModelsDescription": "Use cloud-based APIs for faster transcription. Requires API key."
 	},
 	"tooltips": {
 		"toggleRecording": "Start or stop voice dictation",
