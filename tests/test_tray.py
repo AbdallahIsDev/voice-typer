@@ -157,7 +157,6 @@ def tray():
         "change_model",
         "quit_app",
         "restart_app",
-        "undo_last",
     ]:
         setattr(controller, method_name, MagicMock())
     t = TrayIcon(
@@ -238,15 +237,12 @@ class TestTrayMenuHasMinimalOptions:
         labels = _menu_labels(tray)
         assert any("Microphone" in lb for lb in labels), "UX-2: tray menu should include a 'Microphones' submenu item"
 
-    def test_undo_last_item_in_menu(self, tray):
-        """'Undo Last' item is in the tray menu.
-
-        Previously the ``undo_last`` IPC command was wired but
-        unreachable from any UI. The tray menu's new "Undo Last"
-        item surfaces it.
-        """
+    def test_undo_last_item_not_in_menu(self, tray):
+        """C-TRAY-2: 'Undo Last' must NOT be in the tray menu."""
         labels = _menu_labels(tray)
-        assert any("Undo Last" in lb for lb in labels), "UX-1: tray menu should include an 'Undo Last' item"
+        assert not any("Undo Last" in lb for lb in labels), (
+            "C-TRAY-2 violation: 'Undo Last' must NOT appear in the tray menu"
+        )
 
     def test_settings_history_help_items_in_menu(self, tray):
         """Settings/History/Help quick shortcuts present."""
@@ -530,10 +526,7 @@ class TestDrainPending:
         assert tray._pending_notifications == []
         # Must not raise and must not publish anything.
         tray._drain_pending()
-        assert published == [], (
-            f"_drain_pending with empty queue must not publish events; "
-            f"got: {published}"
-        )
+        assert published == [], f"_drain_pending with empty queue must not publish events; got: {published}"
 
     def test_drain_pending_publishes_each_notification(self, tray, monkeypatch):
         """each queued notification is published as a
@@ -553,8 +546,7 @@ class TestDrainPending:
         tray._drain_pending()
 
         assert len(published) == 2, (
-            f"_drain_pending must publish one event per queued notification; "
-            f"got {len(published)} events"
+            f"_drain_pending must publish one event per queued notification; got {len(published)} events"
         )
         # Each event has the canonical envelope shape.
         assert published[0] == {
@@ -568,9 +560,7 @@ class TestDrainPending:
             "message": "Could not load small.en",
         }, f"second event envelope mismatch; got: {published[1]!r}"
         # The queue was cleared as part of the drain.
-        assert tray._pending_notifications == [], (
-            "_drain_pending must clear the queue after publishing"
-        )
+        assert tray._pending_notifications == [], "_drain_pending must clear the queue after publishing"
 
     def test_drain_pending_swallows_event_bus_failure(self, tray, monkeypatch):
         """a failure inside ``event_bus.publish`` (or the log
@@ -641,25 +631,17 @@ class TestDrainPending:
         tray._drain_pending()
 
         assert len(warning_calls) == 1, (
-            f"_drain_pending must log one WARNING per notification; "
-            f"got {len(warning_calls)}"
+            f"_drain_pending must log one WARNING per notification; got {len(warning_calls)}"
         )
         msg_template, args, _kwargs = warning_calls[0]
         # The log message template mentions the tray fallback path.
         assert "TRAY" in msg_template or "tray" in msg_template.lower(), (
-            f"warning log template should mention the tray fallback path; "
-            f"got: {msg_template!r}"
+            f"warning log template should mention the tray fallback path; got: {msg_template!r}"
         )
         # The title + message are passed as positional args so they
         # appear in the formatted log line.
-        assert "Model Load Error" in args, (
-            f"warning log args should include the notification title; "
-            f"got: {args!r}"
-        )
-        assert "tiny.en not found" in args, (
-            f"warning log args should include the notification message; "
-            f"got: {args!r}"
-        )
+        assert "Model Load Error" in args, f"warning log args should include the notification title; got: {args!r}"
+        assert "tiny.en not found" in args, f"warning log args should include the notification message; got: {args!r}"
 
 
 # ─── Notification safety ────────────────────────────────────────────────
@@ -788,6 +770,7 @@ class TestOpenElectronWindow:
             "voice_typer.server.event_bus.publish",
             lambda msg: True,
         )
+
         # A registered transport whose client is NOT connected.
         def probe() -> bool:
             return False
@@ -803,10 +786,7 @@ class TestOpenElectronWindow:
                 lambda: called.append(True) or True,
             )
             tray.open_electron_window()
-            assert called, (
-                "publish()==True with no live transport client must fall "
-                "through to bring_electron_to_front"
-            )
+            assert called, "publish()==True with no live transport client must fall through to bring_electron_to_front"
         finally:
             unregister_transport_probe(probe)
 
@@ -822,6 +802,7 @@ class TestOpenElectronWindow:
             "voice_typer.server.event_bus.publish",
             lambda msg: True,
         )
+
         def probe() -> bool:
             return True
 
@@ -909,9 +890,7 @@ class TestElectronDuplicateLaunchGate:
             lambda pid: True,
         )
         tray.open_electron_window()
-        assert not launched, (
-            "EO-16: a live Electron PID must block the duplicate launch"
-        )
+        assert not launched, "EO-16: a live Electron PID must block the duplicate launch"
 
     def test_dead_tracked_pid_allows_launch(self, tray, monkeypatch):
         """A tracked PID that is no longer alive must NOT block the
@@ -926,9 +905,7 @@ class TestElectronDuplicateLaunchGate:
             lambda pid: False,
         )
         tray.open_electron_window()
-        assert launched, (
-            "EO-16: a dead Electron PID must NOT block the last-resort launch"
-        )
+        assert launched, "EO-16: a dead Electron PID must NOT block the last-resort launch"
 
     def test_untracked_pid_allows_launch(self, tray, monkeypatch):
         """With no tracked PID (and no pgrep match), the launch proceeds
@@ -1015,33 +992,27 @@ class TestWrapSystemExitHandling:
             wrapper(icon=MagicMock(), item=MagicMock())
 
 
-# : Undo Last tray menu item ───────────────────────────────
+# : Undo Last ABSENT from tray menu (C-TRAY-2) ─────────────
 
 
-class TestUndoLastTrayItem:
-    """the ``undo_last`` IPC command was wired but
-    unreachable from any UI. The tray menu's new "Undo Last" item
-    surfaces it via ``controller.undo_last()``.
+class TestUndoLastAbsentFromTrayMenu:
+    """C-TRAY-2: no 'Undo Last' button in the tray menu.
+
+    The ``undo_last`` IPC command remains wired (the renderer's Undo
+    button + the undo hotkey still call it), but AGENTS.md forbids an
+    'Undo Last' entry in the tray menu.
     """
 
-    def test_undo_last_callback_invokes_controller(self, tray):
-        """Clicking 'Undo Last' should call ``controller.undo_last()``."""
-        tray.start(bg_work=None)
-        items = _FakeIcon.last_kwargs["menu"]()
-        menu_items = [i for i in items if isinstance(i, _FakeMenuItem)]
-        # Find the Undo Last item by label.
-        undo_item = next((m for m in menu_items if "Undo Last" in str(m.args[0])), None)
-        assert undo_item is not None, "Undo Last item not found in menu"
-        # The callback is wrap_callback(undo_last) — args[1].
-        cb = undo_item.args[1]
-        # Invoke the wrapped callback (pystray passes icon+item).
-        cb(icon=MagicMock(), item=MagicMock())
-        # The controller's undo_last should have been called.
-        tray._controller.undo_last.assert_called_once()
+    def test_undo_last_item_not_in_menu(self, tray):
+        """No menu item is labelled 'Undo Last'."""
+        labels = _menu_labels(tray)
+        assert not any("Undo Last" in lb for lb in labels), (
+            "C-TRAY-2 violation: 'Undo Last' must NOT appear in the tray menu"
+        )
 
-    def test_undo_last_is_above_force_cancel(self, tray):
-        """UX-1: 'Undo Last' should appear ABOVE the Force-cancel item in the menu."""
-        # Set state to TRANSCRIBING so the Force cancel item is rendered.
+    def test_undo_last_not_above_force_cancel(self, tray):
+        """With the undo item gone, the Force-cancel item still renders
+        and there is no undo item above it."""
         from voice_typer.server.tray import AppState
 
         tray.set_state(AppState.TRANSCRIBING, "transcribing")
@@ -1050,13 +1021,9 @@ class TestUndoLastTrayItem:
         items = _FakeIcon.last_kwargs["menu"]()
         menu_items = [i for i in items if isinstance(i, _FakeMenuItem)]
         labels = [str(m.args[0]) for m in menu_items]
-        undo_idx = next((i for i, lb in enumerate(labels) if "Undo Last" in lb), None)
-        # canonical label is "Force cancel transcription" (lowercase c).
-        force_idx = next((i for i, lb in enumerate(labels) if "Force cancel transcription" in lb), None)
-        assert undo_idx is not None, "Undo Last item not found"
-        assert force_idx is not None, "Force cancel transcription item not found"
-        assert undo_idx < force_idx, (
-            f"Undo Last (idx={undo_idx}) should appear ABOVE Force cancel transcription (idx={force_idx})"
+        assert not any("Undo Last" in lb for lb in labels), "C-TRAY-2: undo_last must not be in the menu"
+        assert any("Force cancel transcription" in lb for lb in labels), (
+            "Force cancel transcription item must still render while transcribing"
         )
 
 
@@ -1399,18 +1366,10 @@ class TestTrayStateMessagesLocalized:
         the tooltip is never a raw key before the first renderer push."""
         from voice_typer.server import i18n
 
-        assert i18n.t("state.dictation_pipeline.clipboard_unavailable") == (
-            "Done -- clipboard unavailable"
-        )
-        assert i18n.t("state.dictation_pipeline.no_speech_detected") == (
-            "No speech detected"
-        )
-        assert i18n.t("state.dictation_pipeline.no_speech_check_mic") == (
-            "No speech -- check microphone"
-        )
-        assert i18n.t("state.dictation_pipeline.transcription_empty") == (
-            "Transcription returned empty"
-        )
+        assert i18n.t("state.dictation_pipeline.clipboard_unavailable") == ("Done -- clipboard unavailable")
+        assert i18n.t("state.dictation_pipeline.no_speech_detected") == ("No speech detected")
+        assert i18n.t("state.dictation_pipeline.no_speech_check_mic") == ("No speech -- check microphone")
+        assert i18n.t("state.dictation_pipeline.transcription_empty") == ("Transcription returned empty")
 
     def test_pushed_state_messages_resolve_via_merge(self):
         """A renderer push (merge_labels + set_locale, the exact HU-17
@@ -1433,28 +1392,18 @@ class TestTrayStateMessagesLocalized:
         try:
             i18n.merge_labels("zz", labels)
             i18n.set_locale("zz")
-            assert i18n.t("state.recording_controller.recording_failed") == (
-                "Aufnahme fehlgeschlagen"
-            )
-            assert i18n.t("state.recording_controller.too_short") == (
-                "Zu kurz \u2013 ignoriert"
-            )
+            assert i18n.t("state.recording_controller.recording_failed") == ("Aufnahme fehlgeschlagen")
+            assert i18n.t("state.recording_controller.too_short") == ("Zu kurz \u2013 ignoriert")
             assert i18n.t("state.model_manager.model_not_downloaded") == (
                 "Keine Modelle verf\u00fcgbar. \u00d6ffnen Sie die Modelle-Seite."
             )
             # placeholder still interpolated at call time
-            assert i18n.t(
-                "state.model_manager.ready_whisper", device_info="CUDA"
-            ) == "Bereit \u2013 CUDA"
-            assert i18n.t("state.dictation_pipeline.transcription_empty") == (
-                "Transkription leer"
-            )
+            assert i18n.t("state.model_manager.ready_whisper", device_info="CUDA") == "Bereit \u2013 CUDA"
+            assert i18n.t("state.dictation_pipeline.transcription_empty") == ("Transkription leer")
             # untranslated key falls back to English (the F2 reference
             # was removed 2026-08-16 — the default hotkey is Caps Lock,
             # so the message is generic: "your hotkey")
-            assert i18n.t("state.model_manager.loading") == (
-                "Loading model -- press your hotkey to queue..."
-            )
+            assert i18n.t("state.model_manager.loading") == ("Loading model -- press your hotkey to queue...")
         finally:
             i18n.set_locale("en")
 
@@ -1471,9 +1420,7 @@ class TestTrayStateMessagesLocalized:
             title = tray._compute_tooltip(AppState.RECORDING, "")
             assert "\u0631\u0642\u0645" in title, title
             # message wins over the fallback label when present
-            i18n.merge_labels(
-                "zz", {"state.recording_controller.recording": "Aufnahme..."}
-            )
+            i18n.merge_labels("zz", {"state.recording_controller.recording": "Aufnahme..."})
             title2 = tray._compute_tooltip(AppState.RECORDING, "Aufnahme...")
             assert "Aufnahme..." in title2
         finally:

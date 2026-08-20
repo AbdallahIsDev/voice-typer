@@ -235,7 +235,6 @@ def build_tray_menu_model(
     hotkey: str,
     toggle_dictation: Callable[[], None],
     open_app: Callable[[], None],
-    undo_last: Callable[[], None] | None = None,
     force_cancel_transcription: Callable[[], None] | None = None,
     is_transcribing: Callable[[], bool] = lambda: False,
     is_recording: Callable[[], bool] = lambda: False,
@@ -325,12 +324,6 @@ def build_tray_menu_model(
             callback=toggle_dictation,
         )
     )
-
-    # Undo Last — surfaces the previously-unreachable undo_last IPC
-    # (mirrors the pystray-side builder; was previously MISSING on
-    # Tauri, leaving the Undo IPC unreachable from the tray).
-    if undo_last is not None:
-        items.append(_item("undo_last", localize("undo_last"), callback=undo_last))
 
     # force-cancel only while transcribing.
     if force_cancel_transcription is not None and is_transcribing():
@@ -536,11 +529,7 @@ def build_menu_for_tray(tray) -> tuple:
         if tray._menu_cache_valid and tray._cached_menu is not None:
             return tray._cached_menu
 
-        hotkey_str = (
-            tray._hotkey
-            or getattr(tray._config, "hotkey", "<caps_lock>")
-            or "<caps_lock>"
-        )
+        hotkey_str = tray._hotkey or getattr(tray._config, "hotkey", "<caps_lock>") or "<caps_lock>"
         hotkey_label = display_hotkey(hotkey_str)
         left_click = getattr(tray._config, "tray_left_click_action", "open_app") or "open_app"
         dictation_default = left_click == "toggle_dictation"
@@ -573,13 +562,6 @@ def build_menu_for_tray(tray) -> tuple:
                 f"{_(dictation_key)} ({hotkey_label})",
                 wrap_callback(tray._controller.toggle_dictation),
                 default=dictation_default,
-            )
-        )
-        # Undo Last — surfaces the previously-unreachable undo_last IPC.
-        items.append(
-            pystray.MenuItem(
-                _("undo_last"),
-                wrap_callback(tray._controller.undo_last),
             )
         )
         # Force Cancel Stuck Transcription — only rendered while
@@ -823,7 +805,6 @@ def maybe_publish_tray_menu(tray) -> bool:
         hotkey=hotkey,
         toggle_dictation=controller.toggle_dictation,
         open_app=tray.open_electron_window,
-        undo_last=getattr(controller, "undo_last", None),
         force_cancel_transcription=lambda: controller.recording._force_recover_from_stuck_transcription(force=True),
         is_transcribing=lambda: (
             getattr(tray._state, "name", "") == "TRANSCRIBING" or getattr(tray._state, "value", "") == "TRANSCRIBING"

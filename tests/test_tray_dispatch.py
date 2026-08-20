@@ -223,7 +223,6 @@ class TestNoRepasteLastInTauriMenuModel:
             hotkey="<f2>",
             toggle_dictation=lambda: None,
             open_app=lambda: None,
-            undo_last=lambda: None,
             restart_app=lambda: None,
             quit_app=lambda: None,
         )
@@ -242,7 +241,6 @@ class TestNoRepasteLastInTauriMenuModel:
             hotkey="<f2>",
             toggle_dictation=lambda: None,
             open_app=lambda: None,
-            undo_last=lambda: None,
             restart_app=lambda: None,
             quit_app=lambda: None,
         )
@@ -255,7 +253,6 @@ class TestNoRepasteLastInTauriMenuModel:
             hotkey="<f2>",
             toggle_dictation=lambda: None,
             open_app=lambda: None,
-            undo_last=lambda: None,
             restart_app=lambda: None,
             quit_app=lambda: None,
             microphones=[{"id": "0", "name": "Default"}],
@@ -379,15 +376,17 @@ class TestMenuSpecParity:
     parity so the two runtimes stay in sync.
     """
 
-    def test_tauri_model_includes_undo_last_settings_history_help(self):
-        """The Tauri model must include Undo Last / Settings / History /
-        Help — previously these were MISSING on Tauri, leaving the
-        routes unreachable from the tray."""
+    def test_tauri_model_includes_settings_history_help(self):
+        """The Tauri model must include Settings / History / Help —
+        previously these were MISSING on Tauri, leaving the
+        routes unreachable from the tray.
+
+        ``undo_last`` is intentionally absent (C-TRAY-2 forbids an
+        'Undo Last' tray button)."""
         model, _ = build_tray_menu_model(
             hotkey="<f2>",
             toggle_dictation=lambda: None,
             open_app=lambda: None,
-            undo_last=lambda: None,
             restart_app=lambda: None,
             quit_app=lambda: None,
             on_open_settings=lambda: None,
@@ -395,7 +394,7 @@ class TestMenuSpecParity:
             on_open_help=lambda: None,
         )
         ids = {item["id"] for item in model if not item["separator"]}
-        assert "undo_last" in ids, "Tauri menu must include Undo Last (parity with pystray)"
+        assert "undo_last" not in ids, "C-TRAY-2: undo_last must NOT be in the Tauri tray menu"
         assert "settings" in ids, "Tauri menu must include Settings (parity with pystray)"
         assert "history" in ids, "Tauri menu must include History (parity with pystray)"
         assert "help" in ids, "Tauri menu must include Help (parity with pystray)"
@@ -414,7 +413,6 @@ class TestMenuSpecParity:
             hotkey="<f2>",
             toggle_dictation=lambda: None,
             open_app=lambda: None,
-            undo_last=lambda: None,
             restart_app=lambda: None,
             quit_app=lambda: None,
             microphones=[{"id": "0", "name": "Default"}],
@@ -428,12 +426,11 @@ class TestMenuSpecParity:
 
         # The Tauri side emits the same canonical ids the pystray side
         # emits (verified by tests/test_tray.py's _menu_labels helper).
-        # The previously-missing Undo Last / Settings / History / Help
-        # are now present (the OI-18 fix).
+        # The previously-missing Settings / History / Help are now
+        # present (the OI-18 fix). ``undo_last`` is absent (C-TRAY-2).
         for expected in (
             "open_app",
             "toggle_dictation",
-            "undo_last",
             "models",
             "microphones",
             "settings",

@@ -30,7 +30,6 @@ def _make_model(**overrides):
         "hotkey": "<f2>",
         "toggle_dictation": _noop,
         "open_app": _noop,
-        "undo_last": _noop,
         "force_cancel_transcription": _noop,
         "is_transcribing": lambda: False,
         "restart_app": _noop,
@@ -83,6 +82,7 @@ def test_build_tray_menu_model_top_level_ids_present():
     Per C-TRAY-1 in AGENTS.md, ``repaste_last`` MUST NOT appear
     in the tray menu model — the constraint forbids that item on both
     runtimes. This test now asserts its absence (regression guard).
+    Per C-TRAY-2, ``undo_last`` is also forbidden in the tray menu.
     """
     model, id_map = _make_model()
 
@@ -94,6 +94,11 @@ def test_build_tray_menu_model_top_level_ids_present():
         "C-TRAY-1 violation: repaste_last must NOT appear in the tray "
         "menu model — the constraint forbids a 'Repaste Last' button."
     )
+    # C-TRAY-2 guard: undo_last MUST NOT be in the model.
+    assert "undo_last" not in ids, (
+        "C-TRAY-2 violation: undo_last must NOT appear in the tray "
+        "menu model — the constraint forbids an 'Undo Last' button."
+    )
 
     # id_map maps every actionable id to a callable.
     assert "open_app" in id_map
@@ -101,6 +106,8 @@ def test_build_tray_menu_model_top_level_ids_present():
     assert "toggle_dictation" in id_map
     # repaste_last must NOT be in the id_map either.
     assert "repaste_last" not in id_map
+    # undo_last must NOT be in the id_map either.
+    assert "undo_last" not in id_map
 
 
 def test_build_tray_menu_model_force_cancel_only_when_transcribing():
@@ -500,30 +507,22 @@ def test_set_state_publishes_tray_menu_only_on_transcribing_change(monkeypatch):
         # "Stop Dictation" label flips on the host's tray).
         tray.set_state(AppState.RECORDING)
         menu_after_recording = len(menu_events)
-        assert menu_after_recording == 1, (
-            "IDLE→RECORDING must publish tray_menu (Stop Dictation label flips)"
-        )
+        assert menu_after_recording == 1, "IDLE→RECORDING must publish tray_menu (Stop Dictation label flips)"
         assert len(state_events) == 1
 
         # RECORDING → TRANSCRIBING: stays inside {RECORDING, TRANSCRIBING}
         # — no menu publish (membership unchanged).
         tray.set_state(AppState.TRANSCRIBING)
-        assert len(menu_events) == 1, (
-            "RECORDING→TRANSCRIBING must NOT publish tray_menu (stays in membership set)"
-        )
+        assert len(menu_events) == 1, "RECORDING→TRANSCRIBING must NOT publish tray_menu (stays in membership set)"
 
         # TRANSCRIBING → TRANSCRIBING: message-only change — no menu publish.
         tray.set_state(AppState.TRANSCRIBING, "still transcribing")
-        assert len(menu_events) == 1, (
-            "TRANSCRIBING→TRANSCRIBING (msg change) must NOT publish tray_menu"
-        )
+        assert len(menu_events) == 1, "TRANSCRIBING→TRANSCRIBING (msg change) must NOT publish tray_menu"
 
         # TRANSCRIBING → IDLE: membership change — menu publish (label
         # flips back to "Toggle Dictation").
         tray.set_state(AppState.IDLE)
-        assert len(menu_events) == 2, (
-            "TRANSCRIBING→IDLE must publish tray_menu (membership change)"
-        )
+        assert len(menu_events) == 2, "TRANSCRIBING→IDLE must publish tray_menu (membership change)"
     finally:
         event_bus.unsubscribe(_on_event)
         monkeypatch.delenv("TAURI_SIDECAR", raising=False)

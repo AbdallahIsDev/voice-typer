@@ -96,7 +96,7 @@ export default function ModelsPage() {
 				  Local Models tab (importing a local model file has no
 				  meaning on the Cloud Models tab).
 			*/}
-			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-8 pb-6">
+			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
 				<PageHeading
 					title={t("models.asrTitle")}
 					description={t("models.asrSubtitle")}
