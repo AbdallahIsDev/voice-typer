@@ -302,6 +302,50 @@ def test_setup_logging_no_duplicate_stream_handlers_when_reinvoked(tmp_path: Pat
         reset()
 
 
+def test_broken_console_stream_self_detaches_and_suppresses_noise(tmp_path: Path, monkeypatch) -> None:
+    """A broken console stream (e.g. WinError 1 after the console handle
+    is detached) must NOT spam ``[LOG] emit failed`` on every line.
+
+    The first failed emit surfaces ONE diagnostic + detaches the handler
+    from the root logger; subsequent records no-op instead of repeating
+    the per-line error."""
+
+    class _BrokenStderr:
+        def isatty(self) -> bool:
+            return True
+
+        def reconfigure(self, **_kwargs) -> None:  # pragma: no cover - best-effort
+            pass
+
+        def write(self, _s: str) -> None:
+            raise OSError(1, "Incorrect function")
+
+        def flush(self) -> None:
+            raise OSError(1, "Incorrect function")
+
+    broken = _BrokenStderr()
+    monkeypatch.setattr(sys, "stderr", broken)
+    reset()
+    config_dir = tmp_path / "cfg"
+    config_dir.mkdir()
+    try:
+        setup_logging(config_dir)
+        root = logging.getLogger("voice_typer")
+        stream = next(h for h in root.handlers if isinstance(h, _FlushingStreamHandler))
+        assert not stream._stream_broken
+
+        logger = logging.getLogger("voice_typer.server.log_formatting_test")
+        logger.info("first line should trip the self-deactivation")
+
+        assert stream._stream_broken is True, "handler must mark the stream broken after the first failure"
+        assert stream not in root.handlers, "handler must detach itself from the root logger"
+
+        # Second record must NOT raise or re-attach — a silent no-op.
+        logger.info("second line must not spam the broken-stream error")
+    finally:
+        reset()
+
+
 # warn on skipped per-module entries ────────────────────────────
 
 
