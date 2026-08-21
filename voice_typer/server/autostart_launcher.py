@@ -1155,7 +1155,10 @@ def launch() -> int:
 
     # 3a) Build-first: build if needed, then launch with electron .
     if not force_dev:
-        log.info("[AUTOSTART] Trying build-first path...")
+        # DEBUG: the "spawned electron ." + "Build-first launch
+        # succeeded" INFO lines below already tell the story — this
+        # path marker duplicated them.
+        log.debug("[AUTOSTART] Trying build-first path...")
         if _ensure_built_and_launch(hidden=hidden):
             log.info("[AUTOSTART] Build-first launch succeeded")
             _wait_for_ipc_ready()

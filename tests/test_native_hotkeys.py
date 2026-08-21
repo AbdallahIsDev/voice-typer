@@ -1084,8 +1084,7 @@ class TestMultiSpecPooling:
         # for ESC, but the API must handle it).
         b.add_extra_matcher("esc", "<f4>")
         assert len(b._extra_matchers) == 1, (
-            f"add_extra_matcher must not duplicate entries for the same role; "
-            f"got {b._extra_matchers}"
+            f"add_extra_matcher must not duplicate entries for the same role; got {b._extra_matchers}"
         )
         # Callback preserved across the spec replacement.
         assert b._extra_matchers[0]["callback"] is not None
@@ -1250,9 +1249,7 @@ class TestMultiSpecPooling:
         # Primary fires first (it's tried first in _try_match), extra
         # is short-circuited.
         assert primary_fired == ["press"]
-        assert extra_fired == [], (
-            "Extra matcher must NOT fire when primary already matched (short-circuit)"
-        )
+        assert extra_fired == [], "Extra matcher must NOT fire when primary already matched (short-circuit)"
 
     def test_delegated_start_skips_spawn(self, monkeypatch):
         """A delegated backend's ``start()`` records the callback and
@@ -1296,6 +1293,36 @@ class TestMultiSpecPooling:
         b.start(lambda: None)
         # stop() must not raise even though no subprocess exists.
         b.stop()
+        assert b._stop_event.is_set()
+        assert b.is_alive() is False
+
+    def test_delegated_stop_does_not_log_stopping_line(self, monkeypatch, caplog):
+        """A delegated backend's ``stop()`` must NOT emit the
+        ``[NATIVE-HOTKEY] Stopping <platform> backend`` INFO line.
+
+        With ESC + repaste pooled onto the shared dictation backend,
+        shutdown calls ``stop()`` on THREE backend objects that all
+        resolve to ONE native subprocess — three identical INFO lines
+        for a single teardown. Only the real (non-delegated) backend's
+        stop() logs the line."""
+        import logging as _logging
+
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<esc>")
+        b._delegated = True
+        b.start(lambda: None)
+        with caplog.at_level(_logging.INFO):
+            b.stop()
+        stopping = [r for r in caplog.records if "Stopping" in r.getMessage()]
+        assert stopping == []
+        # The stop is still effective (event latched, no longer alive).
         assert b._stop_event.is_set()
         assert b.is_alive() is False
 

@@ -299,10 +299,19 @@ class MicrophoneDeviceWatcher:
                 name="mic-device-watcher",
             )
             self._thread.start()
-            log.info(
-                "[MIC-WATCHER] Started device-change watcher for %s",
-                self._platform,
-            )
+            if self._platform == "windows":
+                # Windows logs the single INFO line when its message
+                # window is created ("... watcher running (hwnd=...)").
+                # Logging here too produced two lines for one event.
+                log.debug(
+                    "[MIC-WATCHER] Starting device-change watcher for %s",
+                    self._platform,
+                )
+            else:
+                log.info(
+                    "[MIC-WATCHER] Started device-change watcher for %s",
+                    self._platform,
+                )
 
     def _try_create_coreaudio_watcher(self) -> Any | None:
         """Attempt to construct a ``CoreAudioMicrophoneWatcher``.
@@ -548,9 +557,7 @@ class MicrophoneDeviceWatcher:
             # recording (mirroring ``_run_macos``'s cadence selection).
             # Best-effort — any exception is logged and skipped.
             now = time.monotonic()
-            sd_query_interval = (
-                self._idle_poll_interval_s if self._is_idle else self._active_poll_interval_s
-            )
+            sd_query_interval = self._idle_poll_interval_s if self._is_idle else self._active_poll_interval_s
             if sd_available and (now - last_sd_query_monotonic) >= sd_query_interval:
                 last_sd_query_monotonic = now
                 try:
@@ -718,9 +725,7 @@ class MicrophoneDeviceWatcher:
         if self._poll_interval < 1.0:
             effective_poll = self._poll_interval
         else:
-            effective_poll = (
-                self._idle_poll_interval_s if self._is_idle else self._active_poll_interval_s
-            )
+            effective_poll = self._idle_poll_interval_s if self._is_idle else self._active_poll_interval_s
         log.debug(
             "[MIC-WATCHER] watching macOS device count (initial=%s, poll=%.1fs, idle=%s)",
             last_count,
@@ -940,7 +945,7 @@ class MicrophoneDeviceWatcher:
                 return
 
             log.info(
-                "[MIC-WATCHER] Windows device-change watcher window created (hwnd=%d)",
+                "[MIC-WATCHER] Windows device-change watcher running (hwnd=%d)",
                 hwnd,
             )
             self._windows_hwnd = hwnd

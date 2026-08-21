@@ -1310,16 +1310,16 @@ class DeviceManager:
                     target_sr,
                 )
                 return native_rate, dev_info_extra
-        except Exception as e:
+        except Exception:
             # log at WARNING (not DEBUG) so the user knows
             # the native-rate detection failed and PortAudio will do
             # internal resampling (which may introduce artifacts).
+            # The exception text is deliberately NOT spliced in — it
+            # repeats "Could not query device info for device ..." and
+            # doubled the line length without adding information.
             log.warning(
-                "[RECORDING] Could not query device info for device %s: %s. "
-                "Falling back to target rate %d Hz (PortAudio will resample "
-                "internally — audio quality may be lower).",
+                "[RECORDING] Device %s info unavailable — falling back to %d Hz (PortAudio resamples)",
                 device,
-                e,
                 target_sr,
             )
             return target_sr, dev_info_extra

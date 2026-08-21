@@ -1832,7 +1832,7 @@ class Recorder(VadShimMixin, RecorderInitMixin):
             return
         if not result["ok"] and result["err"] is not None:
             log.info(
-                "[RECORDING] Input stream prewarm skipped: %s",
+                "[RECORDING] Stream prewarm skipped: %s",
                 result["err"],
             )
 

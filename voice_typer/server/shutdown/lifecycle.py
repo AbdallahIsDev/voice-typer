@@ -125,10 +125,12 @@ def quit(controller: ShutdownController) -> None:  # noqa: A001 — mirrors the 
             return
 
         is_main = threading.current_thread() is threading.main_thread()
-        log.info("[SHUTDOWN] Shutting down")
+        # DEBUG: the caller's "[QUIT] Quitting <app>" line already
+        # announced the quit at INFO — this line duplicated it.
+        log.debug("[SHUTDOWN] Shutting down")
         app._shutting_down = True
         # also set the Event version so executor tasks can check it
-        app._shutting_down_event.set()    # _quit_lock is released here (end of ``with`` block) BEFORE
+        app._shutting_down_event.set()  # _quit_lock is released here (end of ``with`` block) BEFORE
     # ``shutdown_all()`` and ``_do_cleanup()`` run. Both have
     # their own idempotency guards (``_shutting_down`` /
     # ``_cleanup_done``), so a concurrent quit() that arrives

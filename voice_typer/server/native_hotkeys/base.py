@@ -425,7 +425,9 @@ class SubprocessHotkeyBackend(ABC):
             # healthy backend. We do NOT set ``_process`` — the
             # delegated backend owns no subprocess.
             self._ready_event.set()
-            log.info(
+            # DEBUG: the dispatcher's "[HOTKEY] ... pooled into shared
+            # backend" INFO line already covers this event.
+            log.debug(
                 "[NATIVE-HOTKEY] %s backend is delegated (no subprocess); "
                 "matching handled by the shared backend's extra matcher",
                 self.platform_name,
@@ -446,10 +448,10 @@ class SubprocessHotkeyBackend(ABC):
             )
 
         log.info(
-            "[NATIVE-HOTKEY] Starting %s backend (binary=%s, hotkey=%s)",
+            "[NATIVE-HOTKEY] Starting %s backend (hotkey=%s, binary=%s)",
             self.platform_name,
-            self._binary_path,
             format_hotkey_label(self.hotkey_str),
+            Path(self._binary_path).name,
         )
 
         self._callback = callback
@@ -515,14 +517,18 @@ class SubprocessHotkeyBackend(ABC):
             self._shutdown_requested = True
         if self._stop_event.is_set():
             return
-        log.info("[NATIVE-HOTKEY] Stopping %s backend", self.platform_name)
-        self._stop_event.set()
-
         # Delegated backends own no subprocess / reader / watchdog —
         # short-circuit after setting ``_stop_event`` so ``is_alive``
-        # reports False and callers see a clean shutdown.
+        # reports False and callers see a clean shutdown. The check
+        # runs BEFORE the "Stopping" log: with ESC + repaste pooled
+        # onto the shared dictation backend, three delegated stop()
+        # calls otherwise logged ``Stopping <platform> backend`` three
+        # times for ONE real teardown.
         if self._delegated:
+            self._stop_event.set()
             return
+        log.info("[NATIVE-HOTKEY] Stopping %s backend", self.platform_name)
+        self._stop_event.set()
 
         # signal the watchdog to exit BEFORE we kill the
         # process so it doesn't try to write PING to a dead stdin or
@@ -865,8 +871,7 @@ class SubprocessHotkeyBackend(ABC):
                 # No console window on Windows
                 creationflags=(
                     subprocess.CREATE_NO_WINDOW
-                    if _native_hotkeys_pkg.is_windows()
-                    and hasattr(subprocess, "CREATE_NO_WINDOW")
+                    if _native_hotkeys_pkg.is_windows() and hasattr(subprocess, "CREATE_NO_WINDOW")
                     else 0
                 ),
                 # Reset signal handlers in child so SIGTERM works cleanly
@@ -1109,7 +1114,10 @@ class SubprocessHotkeyBackend(ABC):
         """
         self._ready_event.set()
         self._restart_attempts = 0
-        log.info("[NATIVE-HOTKEY] %s binary is READY", self.platform_name)
+        # DEBUG: the dispatcher's "[HOTKEY] Registration OK" INFO line
+        # is emitted right after start() returns — a second INFO here
+        # duplicated the same readiness event.
+        log.debug("[NATIVE-HOTKEY] %s binary is READY", self.platform_name)
 
     def _on_version_event(self, payload: str) -> None:
         """Handle a ``VERSION:<x.y.z>`` wire-protocol line (VERSION reporter).

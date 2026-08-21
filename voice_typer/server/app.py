@@ -441,6 +441,12 @@ class VoiceTyperApp:
             self.config.microphone or "default",
             self.config.sample_rate,
         )
+        # One-line attribution of the spawn→first-log gap (Electron
+        # boot vs backend interpreter + imports). No-op when the
+        # backend wasn't spawned by Electron (standalone / Tauri-WS).
+        from voice_typer.server.startup_timeline import log_launch_timeline
+
+        log_launch_timeline(log)
 
         # Emit the ``[STARTUP] logging initialized`` banner + install the
         # Windows VEH crash handler AFTER the ``APP starting`` line so the
@@ -1583,9 +1589,9 @@ class VoiceTyperApp:
         atexit.register(self._atexit_cleanup)
 
         # Enter pystray event loop -- MUST be on the main thread. The
-        # run() entry logs ``[TRAY] Tray event loop starting (main thread)``
-        # itself, so this line would duplicate it (two near-identical
-        # lines ~1ms apart in every session log).
+        # run() entry logs ``[TRAY] Tray icon created; event loop running
+        # (main thread)`` itself, so this line would duplicate it (two
+        # near-identical lines ~1ms apart in every session log).
         self.tray.run()
 
     def _do_startup(self) -> None:

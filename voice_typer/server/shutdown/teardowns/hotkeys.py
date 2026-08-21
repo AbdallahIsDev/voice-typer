@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import time
 
 # ``_run_parallel_with_timeout`` / ``TIMEOUT`` are looked up DYNAMICALLY from
 # :mod:`voice_typer.server.shutdown_controller` at call time so tests
@@ -16,6 +17,7 @@ import logging
 # still take effect (mirrors the convention documented in
 # ``shutdown_controller.py``'s module docstring).
 from voice_typer.server import shutdown_controller as _sc  # noqa: F401
+from voice_typer.server.duration import format_duration
 
 
 def _run_parallel_with_timeout(*args, **kwargs):
@@ -37,6 +39,9 @@ def teardown_hotkeys(controller) -> None:
     up to 15s (3x5s) worst case; parallel stop() finishes in ≤5s.
     """
     app = controller._app
+    # C-LOG-2: the parallel stop is a timed operation — report its
+    # duration on the completion line.
+    _t0 = time.perf_counter()
     try:
         _hk_info = (
             f"dictation={app.hotkeys._hotkey_backend.hotkey_str if app.hotkeys._hotkey_backend else 'none'}, "
@@ -99,7 +104,10 @@ def teardown_hotkeys(controller) -> None:
                 setattr(app.hotkeys, _attr, None)
 
         if not _degraded_hotkeys:
-            log.info("[HOTKEY] All hotkey listeners stopped successfully")
+            log.info(
+                "[HOTKEY] All hotkey listeners stopped%s",
+                format_duration(time.perf_counter() - _t0),
+            )
     except Exception:
         log.debug("[CLEANUP] hotkey backend stop failed", exc_info=True)
 

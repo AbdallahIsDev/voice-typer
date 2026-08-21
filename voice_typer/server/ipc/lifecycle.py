@@ -300,7 +300,9 @@ class LifecycleMixin:
                     stop_event=None,
                     join_timeout=0.5,
                 )
-        log.info("[IPC] server started; push hook registered")
+        # DEBUG: the entrypoint's "[IPC] TCP server listening on port
+        # ..." line is the single INFO startup marker for the server.
+        log.debug("[IPC] server started; push hook registered")
 
     def stop(self) -> None:
         """Signal the stdin loop and TCP accept loop to stop.
@@ -728,9 +730,7 @@ class LifecycleMixin:
         # runtime so the resp_data["queued"] writes type-check. Named
         # resp_data (not `data`) because the handler's REQUEST parameter
         # is already `data`.
-        resp_data = typing.cast(
-            dict[str, object], resp.setdefault("data", {})
-        )
+        resp_data = typing.cast(dict[str, object], resp.setdefault("data", {}))
         # Cheap existence check — no hashing (§8.10).
         pack_missing = True
         try:

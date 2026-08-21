@@ -399,7 +399,9 @@ class TrayIcon:
 
         self._launch_bg_work()  # shared launch helper
 
-        log.info("[TRAY] Tray icon created, background work started")
+        # DEBUG: the event-loop line below is the single INFO marker —
+        # icon creation + loop start are one event.
+        log.debug("[TRAY] Tray icon created, background work started")
 
     def _launch_bg_work(self) -> None:
         """Launch ``self._bg_work_fn`` on a daemon thread.
@@ -456,7 +458,7 @@ class TrayIcon:
                 self._do_notify(title, message)
             self._pending_notifications.clear()
 
-        log.info("[TRAY] Tray event loop starting (main thread)")
+        log.info("[TRAY] Tray icon created; event loop running (main thread)")
         try:
             self._icon.run()
         except Exception:
@@ -523,7 +525,7 @@ class TrayIcon:
         except Exception:
             log.debug("[TRAY] could not unsubscribe parakeet_cpu_fallback", exc_info=True)
 
-        log.info("[SHUTDOWN] Tray icon stopped successfully")
+        log.info("[TRAY] Tray icon stopped")
 
     # ─── Notifications (delegates to tray_notifications.py) ────────────
 

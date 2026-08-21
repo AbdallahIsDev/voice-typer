@@ -122,6 +122,11 @@ export function startPython() {
 			// send a matching {"type":"auth","token":"..."} message as the
 			// first TCP line.
 			VOICE_TYPER_IPC_TOKEN: IPC_TOKEN,
+			// Startup-timeline marker (see startup_timeline.py): lets the
+			// backend log how long it took from THIS spawn to its first
+			// log line, splitting the launch gap into electron-boot vs
+			// backend-init on every startup.
+			VOICE_TYPER_SPAWN_EPOCH_MS: String(Date.now()),
 		},
 	});
 	state.pythonProcess = proc;

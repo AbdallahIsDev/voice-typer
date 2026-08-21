@@ -428,7 +428,14 @@ def fetch_remote_manifest(
     try:
         body = http_get(url, max_bytes=max_bytes)
     except (OSError, RuntimeError) as exc:
-        log.warning("[UPDATE] failed to fetch remote manifest from %s: %s", url, exc)
+        # Strip the scheme so the line stays short; host + path are the
+        # diagnostic payload. ``exc`` leads because the failure KIND
+        # (404 vs timeout vs DNS) is the first thing to know.
+        log.warning(
+            "[UPDATE] Manifest fetch failed (%s): %s",
+            exc,
+            url.split("://", 1)[-1],
+        )
         return None
 
     # Parse via the shared schema validator (reuses the local manifest

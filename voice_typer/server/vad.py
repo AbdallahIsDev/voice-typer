@@ -63,7 +63,6 @@ _VAD_FAILURE_FIRST_ONLY_EVERY_N: int = 0  # first occurrence only
 _VAD_LOAD_FAILED_EVERY_N: int = 225  # every ~14s at 16 Hz
 
 
-
 # hoisted to module level so every ``compute_vad_prob`` call avoids
 # rebuilding the dict on the hot path (16 Hz audio worker). Silero VAD
 # strictly expects 512 samples at 16 kHz (or 256 at 8 kHz); other rates
@@ -126,11 +125,12 @@ _sr_name: str | None = None
 _output_name: str | None = None
 _state_out_name: str | None = None
 
-#: Guards the one-time ``[VAD] Silero VAD model preloaded + warmed``
-#: INFO line. ``preload()`` is invoked from BOTH the app-startup
-#: background thread (app.py) AND the startup-sequence prewarm task —
-#: without the guard the identical line was logged twice within
-#: milliseconds from two threads, cluttering the log with a duplicate.
+#: Guards the one-time ``[VAD] Silero VAD model loaded from local ONNX,
+#: preloaded + warmed`` INFO line. ``preload()`` is invoked from BOTH the
+#: app-startup background thread (app.py) AND the startup-sequence
+#: prewarm task — without the guard the identical line was logged twice
+#: within milliseconds from two threads, cluttering the log with a
+#: duplicate.
 _preload_warmed_logged: bool = False
 
 
@@ -257,16 +257,18 @@ def _load_model():
         _state_name = "state" if "state" in inputs else next(iter(inputs))
         _sr_name = "sr" if "sr" in inputs else None
         _output_name = "output" if "output" in outputs else next(iter(outputs))
-        _state_out_name = (
-            "stateN" if "stateN" in outputs else next(iter(outputs))
-        )
+        _state_out_name = "stateN" if "stateN" in outputs else next(iter(outputs))
         _model = session
         # Initialize the LSTM hidden state to zeros on first load —
         # see the module docstring's hidden-state threading note.
         # ``_state`` is also re-zeroed by ``reset_states()`` and
         # ``unload()``; this assignment handles the first-load path.
         _state = np.zeros(_VAD_STATE_SHAPE, dtype=np.float32)
-        log.info("[VAD] Silero VAD model loaded from local ONNX file")
+        # DEBUG only: the one-time INFO line is emitted by ``preload()``
+        # as a single merged line ("loaded from local ONNX, preloaded +
+        # warmed <duration>") so a normal startup logs ONE VAD line
+        # instead of two for the same event.
+        log.debug("[VAD] Silero VAD model loaded from local ONNX")
         return _model, (_input_name, _state_name, _sr_name, _output_name, _state_out_name)
     except Exception as local_exc:
         # Rate-limited for the same reason as the other failure paths:
@@ -558,15 +560,21 @@ def preload() -> bool:
         # see companion §2.3.5).
         reset_states()
     except Exception:
+        # Loaded but not warmed — still usable (first chunk pays the
+        # JIT cost), so INFO with an explicit "not warmed" marker
+        # instead of silence; the failure detail stays at DEBUG.
+        log.info("[VAD] Silero VAD model loaded from local ONNX, not warmed")
         log.debug("[VAD] warmup inference failed", exc_info=True)
         return False
     global _preload_warmed_logged
     if not _preload_warmed_logged:
         # Emit the one-time INFO so the log stays clean when both
         # startup paths (app thread + prewarm task) call preload().
+        # Merged with the old "loaded from local ONNX" line — model
+        # load + warmup are one event, so they share one line.
         _preload_warmed_logged = True
         log.info(
-            "[VAD] Silero VAD model preloaded + warmed%s",
+            "[VAD] Silero VAD model loaded from local ONNX, preloaded + warmed%s",
             format_duration(time.perf_counter() - _t0),
         )
     else:

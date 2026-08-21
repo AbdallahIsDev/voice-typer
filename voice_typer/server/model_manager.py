@@ -478,7 +478,7 @@ class ModelManager:
                 "state.model_manager.model_not_downloaded",
                 backend=backend_name,
             )
-        log.warning("[MODEL] %s model load refused: %s", backend_name, exc)
+        log.warning("[MODEL] %s load refused: %s", backend_name, exc)
         try:
             self._app.tray.set_state(AppState.ERROR, reason)
             self._app.tray.notify(
@@ -805,9 +805,10 @@ class ModelManager:
                 if model_size == NO_MODEL_SIZE:
                     # Genuine "no model selected" state — nothing to
                     # load, and no phantom model to claim is missing.
-                    log.warning(
-                        "[MODEL] no model selected — refusing load before heavy "
-                        "import; open the Models page to pick a model",
+                    # DEBUG: ``_notify_model_load_refused`` below logs
+                    # the single WARNING for every refusal path.
+                    log.debug(
+                        "[MODEL] no model selected — refusing load before heavy import",
                     )
                     self._notify_model_load_refused(
                         ModelNotDownloadedError(
@@ -818,17 +819,19 @@ class ModelManager:
                         backend=backend_name,
                     )
                 else:
-                    log.warning(
-                        "[MODEL] %s model not downloaded (model=%s) — refusing load "
-                        "before heavy import; open the Models page to download it "
-                        "or pick another model",
+                    # DEBUG: ``_notify_model_load_refused`` below logs the
+                    # single WARNING for every refusal path — a second
+                    # WARNING here duplicated the same event. The model
+                    # size travels in the exception message instead.
+                    log.debug(
+                        "[MODEL] %s model '%s' not downloaded — refusing load before heavy import",
                         backend_name,
                         model_size,
                     )
                     self._notify_model_load_refused(
                         ModelNotDownloadedError(
-                            f"The configured {backend_name} model is not downloaded. "
-                            "Open the Models page to download a model.",
+                            f"The configured {backend_name} model '{model_size}' "
+                            "is not downloaded. Open the Models page to download it.",
                             model_size=model_size,
                             backend=backend_name,
                         ),

@@ -361,7 +361,8 @@ def _log_sensitive_env_keys(env: dict[str, str], *, context: str) -> None:
     sensitive = _redact_sensitive_env_keys(env)
     if sensitive:
         log.info(
-            "[ENV] %s: child inherits sensitive env keys (names only, values redacted): %s",
+            "[ENV] %s: child inherits %d sensitive env keys (values redacted): %s",
             context,
+            len(sensitive),
             ", ".join(sensitive),
         )

@@ -62,6 +62,8 @@ import threading
 import time
 from typing import TYPE_CHECKING
 
+from voice_typer.server.duration import format_duration
+
 if TYPE_CHECKING:
     # Type-only import to avoid the import cycle (``app`` imports
     # ``shutdown_controller`` indirectly via the ``ShutdownController(self)``
@@ -399,6 +401,10 @@ class ShutdownController:
                 return
             app._cleanup_done = True
 
+        # C-LOG-2: shutdown is a timed operation — the completion line
+        # carries the total cleanup duration.
+        _cleanup_t0 = time.perf_counter()
+
         # Session-liveness marker: the session ends HERE. The marker is
         # cleared by the FIRST sequenced teardown
         # (``teardown_session_marker``) so a kill mid-teardown (watchdog
@@ -505,11 +511,15 @@ class ShutdownController:
 
         if _shutdown_skipped:
             log.info(
-                "[SHUTDOWN] Shutdown complete, exiting with %d teardowns skipped",
+                "[SHUTDOWN] Shutdown complete, exiting with %d teardowns skipped%s",
                 len(_shutdown_skipped),
+                format_duration(time.perf_counter() - _cleanup_t0),
             )
         else:
-            log.info("[SHUTDOWN] Shutdown complete, exiting successfully")
+            log.info(
+                "[SHUTDOWN] Shutdown complete, exiting successfully%s",
+                format_duration(time.perf_counter() - _cleanup_t0),
+            )
 
         # ── Late bookend (sequential) ────────────────────────────────
         # ``tray.stop()`` MUST be the LAST step in ``_do_cleanup()``.

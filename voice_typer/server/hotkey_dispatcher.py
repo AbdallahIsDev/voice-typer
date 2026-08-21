@@ -428,8 +428,7 @@ class HotkeyDispatcher:
         if pooled is not None:
             if pooled.is_alive():
                 log.info(
-                    "[HOTKEY] Reusing pooled backend for %s "
-                    "(active pool size=%d) — no new subprocess spawned",
+                    "[HOTKEY] Reusing pooled backend for %s (active pool size=%d) — no new subprocess spawned",
                     format_hotkey_label(hotkey_str),
                     len(self._shared_backend_pool),
                 )
@@ -446,7 +445,7 @@ class HotkeyDispatcher:
         # selected on a Wayland session) binds a per-backend socket
         # filename instead of colliding with the ESC / repaste backends.
         new_backend = create_hotkey_backend(hotkey_str, role="dictation")
-        log.info("[HOTKEY] Backend created: %s", _backend_kind_label(new_backend))
+        log.debug("[HOTKEY] Backend created: %s", _backend_kind_label(new_backend))
         # give the backend a reference to the tray so
         # it can show permission/fallback/recovery notifications.
         # The _NativeBackendAdapter uses this for its notifications;
@@ -460,7 +459,7 @@ class HotkeyDispatcher:
         with contextlib.suppress(AttributeError, TypeError):
             new_backend._on_state_change_callback = (  # type: ignore[attr-defined]
                 self._handle_shared_native_state_changed
-        )
+            )
         # surface a tray notification when the user binds Caps
         # Lock on Wayland. The ``WaylandHotkey`` backend has no key-
         # suppression mechanism, so the OS will toggle caps state on
@@ -489,9 +488,10 @@ class HotkeyDispatcher:
         if app.config.recording_mode == "push_to_talk":
             new_backend.set_on_release(app._stop_dictation)
         log.info(
-            "[HOTKEY] Registration OK (alive=%s, backend=%s)",
-            new_backend.is_alive(),
+            "[HOTKEY] Registration OK: %s (backend=%s, alive=%s)",
+            format_hotkey_label(hotkey_str),
             _backend_kind_label(new_backend),
+            new_backend.is_alive(),
         )
         # Track in the per-spec pool AFTER start() succeeded so a
         # failed start does not leave a stale entry that would cause
@@ -537,8 +537,7 @@ class HotkeyDispatcher:
             if pooled is backend:
                 del self._shared_backend_pool[spec]
                 log.debug(
-                    "[HOTKEY] Untracked pooled backend for spec %r "
-                    "(remaining pool size=%d)",
+                    "[HOTKEY] Untracked pooled backend for spec %r (remaining pool size=%d)",
                     spec,
                     len(self._shared_backend_pool),
                 )
@@ -643,17 +642,18 @@ class HotkeyDispatcher:
             aux_native = self._native_of(aux_backend)
             if aux_native is not None:
                 aux_native._delegated = True  # type: ignore[attr-defined]
-            log.info(
-                "[HOTKEY] Pooled %s into shared backend — "
-                "separate %s backend is delegated (no subprocess)",
+            # DEBUG: the caller's per-role "[HOTKEY] ... registered"
+            # INFO line appends "(pooled into shared backend)" — a
+            # second INFO here duplicated the same event.
+            log.debug(
+                "[HOTKEY] Pooled %s into shared backend — separate %s backend is delegated (no subprocess)",
                 format_hotkey_label(spec),
                 role,
             )
             return True
         except Exception:
             log.debug(
-                "[HOTKEY] Failed to pool %s into shared backend — "
-                "falling back to per-role subprocess",
+                "[HOTKEY] Failed to pool %s into shared backend — falling back to per-role subprocess",
                 role,
                 exc_info=True,
             )
@@ -703,13 +703,14 @@ class HotkeyDispatcher:
         No-op when the role was never pooled (legacy per-role
         subprocess model, or no shared backend) —
          ``remove_extra_matcher`` is safe to call for an unknown role.
-         """
+        """
 
         shared_native = self._shared_native()
         if shared_native is None:
             return
         with contextlib.suppress(Exception):
             shared_native.remove_extra_matcher(role)
+
     def _handle_shared_native_state_changed(self, state: str) -> None:
         """BROKEN-3: re-sync the aux (ESC / repaste) backends when the
         shared backend's ``_NativeBackendAdapter`` swaps native ↔ legacy.
@@ -1008,14 +1009,17 @@ class HotkeyDispatcher:
             # subprocess. If pooling fails (no shared backend, or the
             # shared backend is a legacy backend without extra-matchers
             # support), fall back to the per-role subprocess model.
-            self._pool_aux_into_shared("esc", "<esc>", _esc_callback, self._esc_backend)
+            _esc_pooled = self._pool_aux_into_shared("esc", "<esc>", _esc_callback, self._esc_backend)
             self._esc_backend.start(_esc_callback)
             self._esc_spec = "<esc>"
             # Track in the per-spec pool AFTER start() succeeded so a
             # failed start does not leave a stale entry. See
             # :meth:`_track_pooled_backend` for the rationale.
             self._track_pooled_backend("<esc>", self._esc_backend)
-            log.info("[HOTKEY] ESC cancel hotkey registered")
+            log.info(
+                "[HOTKEY] ESC cancel registered%s",
+                " (pooled into shared backend)" if _esc_pooled else "",
+            )
         except Exception:
             # null the failed backend reference so a subsequent
             # ``register()`` / ``register_esc()`` doesn't try to ``stop()``
@@ -1175,7 +1179,7 @@ class HotkeyDispatcher:
                 # for all three roles). See :meth:`register_esc` for
                 # the full rationale. Falls back to the per-role
                 # subprocess model when pooling is unavailable.
-                self._pool_aux_into_shared(
+                _repaste_pooled = self._pool_aux_into_shared(
                     "repaste",
                     self._app.config.repaste_hotkey,
                     _repaste_cb,
@@ -1187,8 +1191,9 @@ class HotkeyDispatcher:
                 # (see :meth:`_track_pooled_backend` for the rationale).
                 self._track_pooled_backend(self._app.config.repaste_hotkey, self._repaste_backend)
                 log.info(
-                    "[HOTKEY] Repaste hotkey registered: %s",
+                    "[HOTKEY] Repaste registered: %s%s",
                     format_hotkey_label(self._app.config.repaste_hotkey),
+                    " (pooled into shared backend)" if _repaste_pooled else "",
                 )
             except Exception:
                 # null the failed backend reference so a

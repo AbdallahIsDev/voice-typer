@@ -202,7 +202,7 @@ def sync_autostart(app: AppProtocol) -> dict:
                 "actual_post_sync": bool(actual),
             }
             log.info(
-                "[CONFIG] Autostart sync: already in sync, config=%s, os_state=%s",
+                "[CONFIG] Autostart already in sync (config=%s, os=%s)",
                 bool(app.config.autostart),
                 bool(actual),
             )

@@ -78,8 +78,10 @@ def create_hotkey_backend(hotkey_str: str, role: str | None = None) -> HotkeyBac
         native = create_native_backend(hotkey_str)
         if native is not None:
             # Wrap the native backend so it satisfies the HotkeyBackend
-            # interface expected by HotkeyDispatcher.
-            log.info(
+            # interface expected by HotkeyDispatcher. DEBUG: the
+            # dispatcher's "[HOTKEY] Registration OK" line already
+            # names the backend kind at INFO.
+            log.debug(
                 "[HOTKEY] Using native %s backend for %s (role=%s)",
                 type(native).__name__,
                 format_hotkey_label(hotkey_str),

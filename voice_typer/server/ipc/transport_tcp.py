@@ -260,7 +260,9 @@ class TCPTransportMixin:
             server = bound_sock
             try:
                 server.listen(1)
-                log.info(
+                # DEBUG: the entrypoint's "[IPC] TCP server listening on
+                # port ..." INFO line is the single startup marker.
+                log.debug(
                     "[TCP] listening on 127.0.0.1:%d (pre-bound socket — no race window)",
                     port_num,
                 )
@@ -289,7 +291,9 @@ class TCPTransportMixin:
             try:
                 server.bind(("127.0.0.1", port_num))
                 server.listen(1)
-                log.info("[TCP] listening on 127.0.0.1:%d", port_num)
+                # DEBUG: the entrypoint's "[IPC] TCP server listening on
+                # port ..." INFO line is the single startup marker.
+                log.debug("[TCP] listening on 127.0.0.1:%d", port_num)
             except Exception:
                 log.exception("[TCP] failed to bind on port %d", port_num)
                 # Make sure we don't leak the socket on bind failure.
@@ -316,7 +320,11 @@ class TCPTransportMixin:
         while self._running:
             try:
                 conn, addr = server.accept()
-                log.info("[TCP] client connected from %s:%d", *addr)
+                # DEBUG: pre-auth connects include the launcher's
+                # readiness probe (connect + immediate close) on every
+                # autostart — the INFO line is the post-auth
+                # "client ... connected, auth OK" instead.
+                log.debug("[TCP] client connected from %s:%d", *addr)
                 # SEC: set a defensive blocking budget on the accepted
                 # socket BEFORE submitting it to the worker pool, so a
                 # backlog of queued connections (worker pool saturated
@@ -506,7 +514,14 @@ class TCPTransportMixin:
         try:
             auth_line = auth_client.readline()
             if not auth_line:
-                log.warning("[TCP] client disconnected before sending auth")
+                # DEBUG: covers the launcher's readiness probe (connect +
+                # immediate close, fires on every autostart) as well as a
+                # client that crashes pre-auth — neither warrants INFO.
+                log.debug(
+                    "[TCP] client %s:%d disconnected before auth",
+                    addr[0],
+                    addr[1],
+                )
                 auth_client.close()
                 return
             auth_msg = json.loads(auth_line.strip())
@@ -613,7 +628,7 @@ class TCPTransportMixin:
                     )
                 auth_client.close()
                 return
-            log.info("[TCP] auth OK")
+            log.info("[TCP] client %s:%d connected, auth OK", addr[0], addr[1])
         except json.JSONDecodeError:
             log.warning("[TCP] auth failed — invalid JSON on first line")
             auth_client.close()
