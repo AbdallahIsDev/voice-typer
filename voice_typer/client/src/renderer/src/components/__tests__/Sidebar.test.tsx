@@ -3,7 +3,9 @@
  *
  * Sidebar renders the primary navigation: 10 nav items (Home, History,
  * Analytics, Templates, Vocabulary, Models, Microphone, Settings,
- * About, Privacy), the Logo + title, and a ThemeSwitch at the bottom.
+ * About, Privacy). The branding header + the ThemeSwitch moved OUT of
+ * the sidebar (the theme control now lives in the TitleBar), so the
+ * sidebar is nav-only.
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -30,6 +32,7 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 	return createHugeiconsMock();
 });
 
+import { APP_NAME } from "@/branding";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -53,8 +56,6 @@ describe("Sidebar", () => {
 	const baseProps = {
 		currentPage: "home" as const,
 		onNavigate: vi.fn(),
-		themeMode: "light" as const,
-		onThemeChange: vi.fn(),
 	};
 
 	it("renders all 10 navigation items with their labels", () => {
@@ -117,24 +118,24 @@ describe("Sidebar", () => {
 		expect(inactiveItem?.getAttribute("aria-current")).toBeNull();
 	});
 
-	it("renders the ThemeSwitch and forwards onThemeChange when clicked", () => {
-		const onThemeChange = vi.fn();
-		renderWithProviders(
-			<Sidebar
-				{...baseProps}
-				themeMode="light"
-				onThemeChange={onThemeChange}
-			/>,
-		);
-		// ThemeSwitch exposes its current mode via aria-label.
-		// en.json: theme.switchAriaLabel = "Current theme: {mode}. Click to switch to {next}."
-		// For themeMode="light", next is "dark", so the label is
-		// "Current theme: Light. Click to switch to Dark."
-		const themeButton = screen.getByLabelText(
-			"Current theme: Light. Click to switch to Dark.",
-		);
-		expect(themeButton).toBeTruthy();
-		fireEvent.click(themeButton);
-		expect(onThemeChange).toHaveBeenCalledWith("dark");
+	it("renders NO branding header (no logo, no app-name text in the sidebar)", () => {
+		const { container } = renderWithProviders(<Sidebar {...baseProps} />);
+		// The logo/title header block was removed from the sidebar — the
+		// nav is the sidebar's only content now.
+		const nav = screen.getByRole("navigation", { name: "Main navigation" });
+		expect(nav).toBeTruthy();
+		// No element in the sidebar may carry the app name as a label.
+		expect(
+			[...container.querySelectorAll("[aria-label]")].some((el) =>
+				el.getAttribute("aria-label")?.includes(APP_NAME),
+			),
+		).toBe(false);
+	});
+
+	it("renders NO theme switch inside the sidebar (it moved to the TitleBar)", () => {
+		renderWithProviders(<Sidebar {...baseProps} />);
+		// The ThemeSwitch aria-label pattern ("Current theme: ...") must
+		// NOT appear anywhere in the sidebar.
+		expect(screen.queryByLabelText(/^Current theme:/)).toBeNull();
 	});
 });

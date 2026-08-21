@@ -94,8 +94,6 @@ const wrap = (ui: React.ReactElement) => (
 
 const baseProps = {
 	onNavigate: vi.fn(),
-	themeMode: "system" as const,
-	onThemeChange: vi.fn(),
 };
 
 afterEach(() => {

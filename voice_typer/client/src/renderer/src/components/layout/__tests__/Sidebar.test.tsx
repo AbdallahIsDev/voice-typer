@@ -9,20 +9,16 @@
  * - : aria-keyshortcuts is exposed on Home ("Control+h") and
  *   Settings ("Control+,") since App.tsx binds those shortcuts.
  *   Items without a shortcut omit the attribute entirely.
- * - : when collapsed, the Logo is wrapped in a <button> with
- *   aria-label={APP_NAME} so AT users still get the app name.
+ * - : the sidebar branding header (logo + app-name) was REMOVED —
+ *   the nav is the sidebar's first content, in both collapsed and
+ *   expanded states, and no theme switch renders inside the sidebar
+ *   (the theme control moved to the TitleBar).
  *
  * The existing `components/__tests__/Sidebar.test.tsx` covers the
  * basic nav-label + aria-current behavior; this suite focuses on the
  * new fixes only and avoids duplicating those assertions.
  */
-import {
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-	within,
-} from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@hugeicons/react", () => ({
@@ -45,11 +41,6 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 	);
 	return createHugeiconsMock();
 });
-
-// ThemeSwitch pulls in next-themes; stub it to avoid the dependency.
-vi.mock("@/components/layout/ThemeSwitch", () => ({
-	ThemeSwitch: () => <div data-testid="theme-switch" />,
-}));
 
 import { APP_NAME } from "@/branding";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -92,8 +83,6 @@ describe("Sidebar", () => {
 	const baseProps = {
 		currentPage: "home" as const,
 		onNavigate: vi.fn(),
-		themeMode: "light" as const,
-		onThemeChange: vi.fn(),
 	};
 
 	//active nav item visual hierarchy ───────────────────────
@@ -270,65 +259,35 @@ describe("Sidebar", () => {
 		}
 	});
 
-	//collapsed-state logo accessibility ───────────────────
+	//sidebar branding removed ──────────────────────────
 
-	it("PROD-14: when collapsed, the Logo is wrapped in a <button> with aria-label={APP_NAME}", () => {
-		renderWithProviders(<Sidebar {...baseProps} collapsed />);
-		const logoButton = screen.getByLabelText(APP_NAME);
-		expect(logoButton.tagName).toBe("BUTTON");
-	});
-
-	it("PROD-14: when expanded, the Logo is NOT wrapped in a <button> (the visible <span> already carries the name)", () => {
-		renderWithProviders(<Sidebar {...baseProps} collapsed={false} />);
-		// APP_NAME appears once as the visible <span>{APP_NAME}</span>
-		// (text content), but should NOT be the aria-label of a button.
-		const buttons = document.querySelectorAll("button");
-		const labeledButtons = Array.from(buttons).filter(
-			(b) => b.getAttribute("aria-label") === APP_NAME,
+	it("SIDEBAR-BRANDING: no logo button (collapsed or expanded) — the branding header was removed entirely", () => {
+		const { rerender } = renderWithProviders(
+			<Sidebar {...baseProps} collapsed />,
 		);
-		expect(labeledButtons.length).toBe(0);
-	});
+		// The collapsed logo <button aria-label={APP_NAME}> no longer exists.
+		expect(screen.queryByLabelText(APP_NAME)).toBeNull();
 
-	//collapsed-logo button has a real onClick (go home) ──────
-
-	it("ZU-42: clicking the collapsed logo button calls onNavigate('home') (was a focusable non-action button)", () => {
-		const onNavigate = vi.fn();
-		renderWithProviders(
-			<Sidebar
-				{...baseProps}
-				collapsed
-				currentPage="settings"
-				onNavigate={onNavigate}
-			/>,
+		rerender(
+			<TooltipProvider delayDuration={200} skipDelayDuration={500}>
+				<Sidebar {...baseProps} collapsed={false} />
+			</TooltipProvider>,
 		);
-		// The collapsed logo button is reachable via its aria-label
-		// (APP_NAME). It must now navigate home when clicked.
-		const logoButton = screen.getByLabelText(APP_NAME);
-		expect(logoButton.tagName).toBe("BUTTON");
-		// Use fireEvent so React's synthetic event system dispatches
-		// the click handler (native .click() can miss React handlers
-		// under some configurations).
-		fireEvent.click(logoButton);
-		expect(onNavigate).toHaveBeenCalledTimes(1);
-		expect(onNavigate).toHaveBeenCalledWith("home");
+		expect(screen.queryByLabelText(APP_NAME)).toBeNull();
 	});
 
-	it("ZU-42: collapsed logo button is keyboard-focusable and has cursor-pointer (signals interactivity)", () => {
-		renderWithProviders(<Sidebar {...baseProps} collapsed />);
-		const logoButton = screen.getByLabelText(APP_NAME);
-		// The button is in the tab order (type="button", no tabIndex
-		// override) so keyboard users can Tab to it.
-		expect(logoButton.getAttribute("type")).toBe("button");
-		expect(logoButton.className).toContain("cursor-pointer");
-		expect(logoButton.className).not.toContain("cursor-default");
+	it("SIDEBAR-BRANDING: the nav is the sidebar's first content (nothing sits above it)", () => {
+		renderWithProviders(<Sidebar {...baseProps} />);
+		const nav = screen.getByRole("navigation", { name: "Main navigation" });
+		// The nav's scroll container must be the first child of the
+		// <aside> — no branding header precedes it, so the navigation
+		// fills the space the branding previously occupied.
+		const aside = nav.closest("aside");
+		expect(nav.parentElement).toBe(aside?.children[0]);
 	});
 
-	it("ZU-42: expanded sidebar still does NOT wrap the logo in a button (no regression)", () => {
-		renderWithProviders(<Sidebar {...baseProps} collapsed={false} />);
-		// The collapsed-logo button does NOT exist in expanded mode.
-		const labeledButtons = Array.from(
-			document.querySelectorAll("button"),
-		).filter((b) => b.getAttribute("aria-label") === APP_NAME);
-		expect(labeledButtons.length).toBe(0);
+	it("SIDEBAR-BRANDING: no theme switch renders inside the sidebar (moved to the TitleBar)", () => {
+		renderWithProviders(<Sidebar {...baseProps} />);
+		expect(screen.queryByLabelText(/^Current theme:/)).toBeNull();
 	});
 });

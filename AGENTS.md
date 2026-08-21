@@ -1023,6 +1023,31 @@ Applies to: All agents, all modes, all sub-agents.
 
 ---
 
+## Category: Sidebar & Title Bar
+
+```
+C-SIDEBAR-1
+Rule: Do NOT add application branding (logo/icon + app-name text) back to the sidebar. The sidebar (`voice_typer/client/src/renderer/src/components/layout/Sidebar.tsx`) is NAV-ONLY: its first child is the navigation scroll container (`<nav aria-label="Main navigation">`), and the navigation fills the full sidebar height. The `Logo` component must not be imported/rendered by `Sidebar.tsx`, and no element in the sidebar may carry `APP_NAME` as a label.
+Rationale: The branding header was deliberately removed (2026-08-22) so the `MAIN` / `POWER FEATURES` / `SYSTEM` navigation groups fill the space the header previously occupied. Re-adding a logo/title block reintroduces reserved height above the nav and breaks the layout contract tests (`SIDEBAR-BRANDING` assertions in the Sidebar suites).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-SIDEBAR-2
+Rule: Do NOT render a theme switcher anywhere except the title bar, and render EXACTLY ONE. The icon-only theme control lives in `voice_typer/client/src/renderer/src/components/layout/TitleBar.tsx` inside the window-control cluster (immediately LEFT of minimize/maximize/close on Windows/Linux; anchored at the bar's right edge on macOS). Do NOT leave a second visible copy in the sidebar or anywhere else in the UI, and do NOT move the control out of the title bar.
+Rationale: The theme control was moved from the sidebar's bottom row into the title bar beside the Windows window controls (2026-08-22) so it reads as part of the window's control cluster. A duplicate anywhere else (sidebar, footer, page header) fragments the single source of truth and contradicts the layout contract tests (`SIDEBAR-BRANDING`/`TitleBar — theme control`).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-SIDEBAR-3
+Rule: Do NOT build a second theme implementation for the title-bar control, and do NOT change the theme's Light/Dark/System cycling behavior or the underlying theme state management while modifying its presentation. The title-bar theme control MUST be the shared `ThemeSwitch` component (`voice_typer/client/src/renderer/src/components/layout/ThemeSwitch.tsx`) — icon-only, no visible text label, driven by the SAME `themeMode` + `onThemeChange` values App.tsx derives from `useTheme` and passes as props. The `title` + `aria-label` ("Current theme: {mode}. Click to switch to {next}.") are the ONLY way the current/next modes are exposed (no text in the UI).
+Rationale: The theme control is presentation-only; the cycling logic (`nextMode`), the `useTheme` singleton store, the debounced backend save, and the Light/Dark/System semantics are shared application state that must not be duplicated or re-implemented per-surface. A parallel implementation would drift (different icons, labels, or cycle order) and silently desync the UI from the persisted config.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+---
+
 ## How the adds / edits constraints
 
 1. Add a new constraint block under the appropriate category (or create a new category with a `## Category: <name>` header).

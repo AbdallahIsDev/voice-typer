@@ -928,14 +928,7 @@ describe("Sidebar — rewrite of About-nav tests", () => {
 		const onNavigate: (page: Page) => void = vi.fn();
 		// Sidebar mounts Radix Tooltips (HotkeyTooltip) → needs the
 		// TooltipProvider wrapper (same as the app shell).
-		renderWithProviders(
-			<Sidebar
-				currentPage="home"
-				onNavigate={onNavigate}
-				themeMode="system"
-				onThemeChange={() => {}}
-			/>,
-		);
+		renderWithProviders(<Sidebar currentPage="home" onNavigate={onNavigate} />);
 
 		const aboutBtn = screen.getByRole("button", { name: "About" });
 		expect(aboutBtn).toBeTruthy();
@@ -1248,7 +1241,13 @@ describe("TitleBar — rewrite of isMaximized prop tests", () => {
 		// the maximize/restore button's aria-label is "Restore" (the
 		// i18n value of t("titleBar.restore")).
 		const { TitleBar } = await import("@/components/layout/TitleBar");
-		renderWithProviders(<TitleBar isMaximized={true} />);
+		renderWithProviders(
+			<TitleBar
+				isMaximized={true}
+				themeMode="light"
+				onThemeChange={() => {}}
+			/>,
+		);
 
 		const restoreBtn = screen.getByRole("button", { name: "Restore" });
 		expect(restoreBtn).toBeTruthy();
@@ -1259,7 +1258,13 @@ describe("TitleBar — rewrite of isMaximized prop tests", () => {
 		// the isMaximized ternary so a future refactor can't silently
 		// break it.
 		const { TitleBar } = await import("@/components/layout/TitleBar");
-		renderWithProviders(<TitleBar isMaximized={false} />);
+		renderWithProviders(
+			<TitleBar
+				isMaximized={false}
+				themeMode="light"
+				onThemeChange={() => {}}
+			/>,
+		);
 
 		const maximizeBtn = screen.getByRole("button", { name: "Maximize" });
 		expect(maximizeBtn).toBeTruthy();
@@ -1290,7 +1295,13 @@ describe("TitleBar — rewrite of isMaximized prop tests", () => {
 
 		try {
 			const { TitleBar } = await import("@/components/layout/TitleBar");
-			renderWithProviders(<TitleBar isMaximized={true} />);
+			renderWithProviders(
+				<TitleBar
+					isMaximized={true}
+					themeMode="light"
+					onThemeChange={() => {}}
+				/>,
+			);
 
 			// Neither the one-shot isMaximized() probe nor the
 			// onMaximizedChanged subscription should fire — the prop

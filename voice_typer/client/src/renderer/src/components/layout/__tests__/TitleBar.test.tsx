@@ -169,6 +169,8 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		const closeBtn = screen.getByLabelText("Close");
@@ -187,6 +189,8 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		const closeBtn = screen.getByLabelText("Close");
@@ -226,6 +230,8 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		const closeBtn = screen.getByLabelText("Close");
@@ -249,6 +255,8 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		// Minimize + Maximize + Close icons live inside the three
@@ -275,6 +283,8 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		// Minimize is a SOLID FILLED bar — NO stroke at all (a 0.5px
@@ -312,6 +322,8 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={true}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		// Maximized → the middle button becomes "Restore" and renders
@@ -332,6 +344,8 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		const minBtn = screen.getByLabelText("Minimize");
@@ -361,6 +375,8 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		// --text-primary aliases --foreground, which theme presets
@@ -383,6 +399,8 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		// The dim lives on the bar CONTAINER (opacity scales the
@@ -423,6 +441,8 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		// Dim the window first (container opacity only — the button's
@@ -451,6 +471,8 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		const minBtn = screen.getByLabelText("Minimize");
@@ -466,6 +488,8 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		const toggle = screen.getByLabelText("Toggle sidebar (Ctrl+B)");
@@ -480,6 +504,8 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		const toggle = screen.getByLabelText("Toggle sidebar (Ctrl+B)");
@@ -509,6 +535,8 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		// en.json: help.openHelp = "Open this help overlay"
@@ -526,6 +554,8 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		const closeBtn = screen.getByLabelText("Close");
@@ -566,6 +596,8 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		const closeBtn = screen.getByLabelText("Close");
@@ -586,6 +618,8 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		const closeBtn = screen.getByLabelText("Close");
@@ -615,6 +649,8 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		const minBtn = screen.getByLabelText("Minimize");
@@ -640,6 +676,8 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		// GNOME/Adwaita draws maximize as a square outline and close as
@@ -663,6 +701,8 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		expect(screen.getByLabelText("Minimize")).toBeTruthy();
@@ -679,6 +719,8 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		const closeBtn = screen.getByLabelText("Close");
@@ -710,6 +752,8 @@ describe("TitleBar — macOS native traffic-light mode", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		expect(screen.queryByLabelText("Minimize")).toBeNull();
@@ -727,6 +771,8 @@ describe("TitleBar — macOS native traffic-light mode", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		const gutters = container.querySelectorAll('[aria-hidden="true"]');
@@ -759,6 +805,8 @@ describe("TitleBar — XA-1 (focus-ring parity + sidebar-toggle hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		const toggle = screen.getByLabelText("Toggle sidebar (Ctrl+B)");
@@ -778,6 +826,8 @@ describe("TitleBar — XA-1 (focus-ring parity + sidebar-toggle hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		const toggle = screen.getByLabelText("Toggle sidebar (Ctrl+B)");
@@ -806,6 +856,8 @@ describe("TitleBar — XA-1 (focus-ring parity + sidebar-toggle hover)", () => {
 				onToggleSidebar={() => {}}
 				isMaximized={false}
 				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
 			/>,
 		);
 		const minimize = screen.getByLabelText("Minimize");
@@ -816,5 +868,136 @@ describe("TitleBar — XA-1 (focus-ring parity + sidebar-toggle hover)", () => {
 			expect(cls).toContain("focus-visible:ring-3");
 			expect(cls).not.toContain("focus-visible:ring-2");
 		}
+	});
+});
+
+describe("TitleBar — theme control (icon-only, moved from sidebar)", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.resetModules();
+	});
+
+	it("renders a theme icon button in the title bar (icon-only — no visible text label)", async () => {
+		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
+		renderWithProviders(
+			<WinTitleBar
+				onToggleSidebar={() => {}}
+				isMaximized={false}
+				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
+			/>,
+		);
+		// The theme button is reachable by its aria-label (same wording
+		// as the sidebar ThemeSwitch used: "Current theme: Light. Click
+		// to switch to Dark.").
+		const themeBtn = screen.getByLabelText(
+			"Current theme: Light. Click to switch to Dark.",
+		);
+		expect(themeBtn).toBeTruthy();
+		// No visible text label — the span that used to say "Light",
+		// "Dark", or "System" is gone.
+		expect(themeBtn.textContent).not.toMatch(/Light|Dark|System/);
+	});
+
+	it("theme button aria-label and title update when themeMode changes", async () => {
+		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
+		const { rerender } = renderWithProviders(
+			<WinTitleBar
+				onToggleSidebar={() => {}}
+				isMaximized={false}
+				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
+			/>,
+		);
+		expect(
+			screen.getByLabelText("Current theme: Light. Click to switch to Dark."),
+		).toBeTruthy();
+
+		// rerender replaces the ROOT element, so the TooltipProvider
+		// wrapper must be re-applied (the bar renders real Radix
+		// Tooltips via HotkeyTooltip).
+		rerender(
+			<TooltipProvider delayDuration={200} skipDelayDuration={500}>
+				<WinTitleBar
+					onToggleSidebar={() => {}}
+					isMaximized={false}
+					onOpenHelp={() => {}}
+					themeMode="dark"
+					onThemeChange={() => {}}
+				/>
+			</TooltipProvider>,
+		);
+		expect(
+			screen.getByLabelText("Current theme: Dark. Click to switch to System."),
+		).toBeTruthy();
+	});
+
+	it("clicking the theme button calls onThemeChange with the next mode", async () => {
+		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
+		const onThemeChange = vi.fn();
+		renderWithProviders(
+			<WinTitleBar
+				onToggleSidebar={() => {}}
+				isMaximized={false}
+				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={onThemeChange}
+			/>,
+		);
+		const themeBtn = screen.getByLabelText(
+			"Current theme: Light. Click to switch to Dark.",
+		);
+		themeBtn.click();
+		expect(onThemeChange).toHaveBeenCalledTimes(1);
+		expect(onThemeChange).toHaveBeenCalledWith("dark");
+	});
+
+	it("theme button is positioned before the minimize/close window controls (on Windows)", async () => {
+		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
+		const bridge = makeBridge();
+		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
+		renderWithProviders(
+			<WinTitleBar
+				onToggleSidebar={() => {}}
+				isMaximized={false}
+				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
+			/>,
+		);
+		const themeBtn = screen.getByLabelText(
+			"Current theme: Light. Click to switch to Dark.",
+		);
+		const minimizeBtn = screen.getByLabelText("Minimize");
+		// The theme button must be a previous sibling of the minimize
+		// button (in the same parent container — the drag-region bar).
+		const bar = themeBtn.closest(".drag-region");
+		expect(bar).toBeTruthy();
+		if (bar) {
+			const allButtons = Array.from(bar.querySelectorAll("[aria-label]"));
+			const themeIdx = allButtons.indexOf(themeBtn);
+			const minIdx = allButtons.indexOf(minimizeBtn);
+			expect(themeIdx).toBeGreaterThanOrEqual(0);
+			expect(minIdx).toBeGreaterThan(themeIdx);
+		}
+	});
+
+	it("theme button carries the no-drag class so it does not interfere with window dragging", async () => {
+		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
+		renderWithProviders(
+			<WinTitleBar
+				onToggleSidebar={() => {}}
+				isMaximized={false}
+				onOpenHelp={() => {}}
+				themeMode="light"
+				onThemeChange={() => {}}
+			/>,
+		);
+		const themeBtn = screen.getByLabelText(
+			"Current theme: Light. Click to switch to Dark.",
+		);
+		expect(themeBtn.className).toContain("no-drag");
 	});
 });

@@ -4,9 +4,11 @@ import { memo, useEffect, useState } from "react";
 import { HotkeyTooltip } from "@/components/hotkey/HotkeyTooltip";
 import { IS_LINUX, IS_MAC, IS_WIN } from "@/components/hotkey/hotkey-utils";
 import { SHORTCUTS } from "@/components/hotkey/shortcuts";
+import { ThemeSwitch } from "@/components/layout/ThemeSwitch";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { cn, focusRing } from "@/lib/utils";
+import type { VoiceTyperConfig } from "@/types/config";
 import type { WindowBridge } from "@/types/ipc";
 
 // Focus-aware title bar: native OS title bars DIM their whole bar
@@ -59,6 +61,13 @@ interface TitleBarProps {
 	// who never discover that shortcut. Exposing a TitleBar button
 	// makes the overlay discoverable for mouse + keyboard users alike.
 	onOpenHelp?: () => void;
+	// THEME CONTROL LIVES IN THE TITLE BAR (moved out of the sidebar).
+	// The icon-only theme button sits in the window-control cluster so
+	// it is part of the bar's control language. App.tsx passes the
+	// SAME state + change handler the sidebar's ThemeSwitch used — no
+	// second theme implementation.
+	themeMode: VoiceTyperConfig["theme_mode"];
+	onThemeChange: (mode: VoiceTyperConfig["theme_mode"]) => void;
 }
 
 // Shared window-control glyph style. NOTE: the shared <Button>
@@ -281,6 +290,8 @@ function TitleBarInner({
 	canGoForward,
 	isMaximized,
 	onOpenHelp,
+	themeMode,
+	onThemeChange,
 }: TitleBarProps) {
 	// When the window is unfocused (user clicked another app), the
 	// WHOLE title bar dims like native OS title bars (container
@@ -470,6 +481,25 @@ function TitleBarInner({
 			</HotkeyTooltip>
 
 			<div className="flex-1" />
+
+			{/* Theme control — icon-only, sitting in the window-control
+			    cluster. On Windows/Linux it renders immediately LEFT of
+			    minimize/maximize/close so it reads as part of the same
+			    control group (matching their h-8 height, `no-drag`
+			    exemption, and neutral hover wash). On macOS the native
+			    traffic lights occupy the left gutter and there are no
+			    window controls — the button anchors the bar's right
+			    edge instead, so the theme switcher stays reachable on
+			    every platform. The accessible name + hover title carry
+			    the current→next theme info (no visible text). */}
+			<ThemeSwitch
+				themeMode={themeMode}
+				onThemeChange={onThemeChange}
+				className={cn(
+					"no-drag press-scale h-8 w-8 rounded",
+					"text-(--text-muted) hover:text-(--text-primary)",
+				)}
+			/>
 
 			{/* Window controls — Windows/Linux only. macOS uses the native
 			    traffic lights (titleBarStyle: 'hiddenInset' in the main

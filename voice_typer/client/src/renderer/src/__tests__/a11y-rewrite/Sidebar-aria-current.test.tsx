@@ -32,11 +32,6 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 	return createHugeiconsMock();
 });
 
-// ThemeSwitch pulls in next-themes; stub it to avoid the dependency.
-vi.mock("@/components/layout/ThemeSwitch", () => ({
-	ThemeSwitch: () => <div data-testid="theme-switch" />,
-}));
-
 import { Sidebar } from "@/components/layout/Sidebar";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -53,7 +48,7 @@ function wrap(ui: React.ReactElement) {
 	);
 }
 
-import type { VoiceTyperConfig } from "@/types/config";
+import type { Page } from "@/types/ipc";
 
 describe("Sidebar aria-current — RW-0 rewrite of test_sidebar_has_aria_current", () => {
 	beforeEach(() => {
@@ -65,16 +60,7 @@ describe("Sidebar aria-current — RW-0 rewrite of test_sidebar_has_aria_current
 	});
 
 	it('marks the active nav button with aria-current="page"', () => {
-		render(
-			wrap(
-				<Sidebar
-					currentPage="settings"
-					onNavigate={() => {}}
-					themeMode="system"
-					onThemeChange={() => {}}
-				/>,
-			),
-		);
+		render(wrap(<Sidebar currentPage="settings" onNavigate={() => {}} />));
 
 		// Find the active nav button by its aria-current attribute.
 		const activeButton = document.querySelector('button[aria-current="page"]');
@@ -88,16 +74,7 @@ describe("Sidebar aria-current — RW-0 rewrite of test_sidebar_has_aria_current
 	});
 
 	it("does NOT mark inactive nav buttons with aria-current", () => {
-		render(
-			wrap(
-				<Sidebar
-					currentPage="home"
-					onNavigate={() => {}}
-					themeMode="system"
-					onThemeChange={() => {}}
-				/>,
-			),
-		);
+		render(wrap(<Sidebar currentPage="home" onNavigate={() => {}} />));
 
 		// Exactly one button (the active one) should carry
 		// aria-current="page" — every other nav item must
@@ -117,14 +94,7 @@ describe("Sidebar aria-current — RW-0 rewrite of test_sidebar_has_aria_current
 
 	it("updates aria-current when currentPage changes", () => {
 		const { rerender } = render(
-			wrap(
-				<Sidebar
-					currentPage="home"
-					onNavigate={() => {}}
-					themeMode="system"
-					onThemeChange={() => {}}
-				/>,
-			),
+			wrap(<Sidebar currentPage="home" onNavigate={() => {}} />),
 		);
 
 		let activeButtons = document.querySelectorAll(
@@ -133,41 +103,22 @@ describe("Sidebar aria-current — RW-0 rewrite of test_sidebar_has_aria_current
 		expect(activeButtons.length).toBe(1);
 		expect(activeButtons[0]?.textContent).toContain("Home");
 
-		rerender(
-			wrap(
-				<Sidebar
-					currentPage="history"
-					onNavigate={() => {}}
-					themeMode="system"
-					onThemeChange={() => {}}
-				/>,
-			),
-		);
+		rerender(wrap(<Sidebar currentPage="history" onNavigate={() => {}} />));
 
 		activeButtons = document.querySelectorAll('button[aria-current="page"]');
 		expect(activeButtons.length).toBe(1);
 		expect(activeButtons[0]?.textContent).toContain("History");
 	});
 
-	it("uses VoiceTyperConfig theme_mode type for themeMode prop (TypeScript safety)", () => {
+	it("uses the Page union type for the currentPage prop (TypeScript safety)", () => {
 		// The Python test only checked for the string
 		// "aria-current" in Sidebar.tsx source.  As a bonus
 		// invariant, we verify at compile time that the
-		// themeMode prop accepts the same type as
-		// VoiceTyperConfig["theme_mode"] (the union
-		// "system" | "light" | "dark") — this catches
+		// currentPage prop accepts a member of the Page union
+		// ("home" | "history" | ...) — this catches
 		// regressions where someone narrows the prop type.
-		const themeMode: VoiceTyperConfig["theme_mode"] = "dark";
-		render(
-			wrap(
-				<Sidebar
-					currentPage="home"
-					onNavigate={() => {}}
-					themeMode={themeMode}
-					onThemeChange={() => {}}
-				/>,
-			),
-		);
+		const currentPage: Page = "home";
+		render(wrap(<Sidebar currentPage={currentPage} onNavigate={() => {}} />));
 		expect(document.querySelector('button[aria-current="page"]')).toBeTruthy();
 	});
 });
@@ -256,16 +207,7 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 
 	it("Tab into the nav focuses the active item (roving tabindex entry)", async () => {
 		const user = userEvent.setup();
-		render(
-			wrap(
-				<Sidebar
-					currentPage="history"
-					onNavigate={() => {}}
-					themeMode="system"
-					onThemeChange={() => {}}
-				/>,
-			),
-		);
+		render(wrap(<Sidebar currentPage="history" onNavigate={() => {}} />));
 
 		// The active item ("history") should hold tabIndex=0;
 		// all others should hold tabIndex=-1.
@@ -291,16 +233,7 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 
 	it("ArrowDown cycles through all nav items in flat order (Main → Power → System)", async () => {
 		const user = userEvent.setup();
-		render(
-			wrap(
-				<Sidebar
-					currentPage="home"
-					onNavigate={() => {}}
-					themeMode="system"
-					onThemeChange={() => {}}
-				/>,
-			),
-		);
+		render(wrap(<Sidebar currentPage="home" onNavigate={() => {}} />));
 
 		const buttons = getNavButtons();
 		expect(buttons.length).toBe(EXPECTED_NAV_ORDER.length);
@@ -336,16 +269,7 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 
 	it("ArrowUp cycles in reverse, wrapping from first to last", async () => {
 		const user = userEvent.setup();
-		render(
-			wrap(
-				<Sidebar
-					currentPage="home"
-					onNavigate={() => {}}
-					themeMode="system"
-					onThemeChange={() => {}}
-				/>,
-			),
-		);
+		render(wrap(<Sidebar currentPage="home" onNavigate={() => {}} />));
 
 		const buttons = getNavButtons();
 		const first = buttons[0];
@@ -370,16 +294,7 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 
 	it("Home moves focus to the first nav item; End to the last", async () => {
 		const user = userEvent.setup();
-		render(
-			wrap(
-				<Sidebar
-					currentPage="home"
-					onNavigate={() => {}}
-					themeMode="system"
-					onThemeChange={() => {}}
-				/>,
-			),
-		);
+		render(wrap(<Sidebar currentPage="home" onNavigate={() => {}} />));
 
 		const buttons = getNavButtons();
 		// Start somewhere in the middle.
@@ -402,16 +317,7 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 	});
 
 	it("each nav item's aria-keyshortcuts matches EXPECTED_KEYSHORTCUTS (omitted when no shortcut)", () => {
-		render(
-			wrap(
-				<Sidebar
-					currentPage="home"
-					onNavigate={() => {}}
-					themeMode="system"
-					onThemeChange={() => {}}
-				/>,
-			),
-		);
+		render(wrap(<Sidebar currentPage="home" onNavigate={() => {}} />));
 
 		const buttons = getNavButtons();
 		expect(buttons.length).toBe(EXPECTED_NAV_ORDER.length);
@@ -446,16 +352,7 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 	it("clicking a nav item calls onNavigate with the item's page-id", async () => {
 		const user = userEvent.setup();
 		const onNavigate = vi.fn();
-		render(
-			wrap(
-				<Sidebar
-					currentPage="home"
-					onNavigate={onNavigate}
-					themeMode="system"
-					onThemeChange={() => {}}
-				/>,
-			),
-		);
+		render(wrap(<Sidebar currentPage="home" onNavigate={onNavigate} />));
 
 		const buttons = getNavButtons();
 		// Click the "Settings" button (index 7 in flat order).

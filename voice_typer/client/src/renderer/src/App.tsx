@@ -535,14 +535,18 @@ export default function App() {
 					canGoForward={canGoForward}
 					isMaximized={isMaximized}
 					onOpenHelp={openHelp}
+					// The icon-only theme control lives in the title bar's
+					// window-control cluster (the sidebar no longer carries
+					// it). Same store-backed mode + change handler as
+					// before — single source of theme state.
+					themeMode={themeMode}
+					onThemeChange={handleThemeChange}
 				/>
 
 				<div className="flex min-h-0 flex-1">
 					<Sidebar
 						currentPage={currentPage}
 						onNavigate={navigate}
-						themeMode={themeMode}
-						onThemeChange={handleThemeChange}
 						collapsed={sidebarCollapsed}
 					/>
 

@@ -47,12 +47,18 @@ function nextMode(
 interface ThemeSwitchProps {
 	themeMode: VoiceTyperConfig["theme_mode"];
 	onThemeChange: (mode: VoiceTyperConfig["theme_mode"]) => void;
-	collapsed?: boolean;
+	/**
+	 * Optional className merged over the icon-only button's base
+	 * styling. Lets the host (e.g. the TitleBar) tune size, rounded
+	 * corners, hover wash, and text color to its own button language
+	 * without forking a second theme control.
+	 */
+	className?: string;
 }
 export function ThemeSwitch({
 	themeMode,
 	onThemeChange,
-	collapsed = false,
+	className,
 }: ThemeSwitchProps) {
 	const current =
 		THEME_CYCLE.find((item) => item.mode === themeMode) ??
@@ -82,25 +88,28 @@ export function ThemeSwitch({
 			type="button"
 			onClick={handleClick}
 			className={cn(
-				"inline-flex items-center justify-center gap-2 rounded-md transition-[padding] duration-200 ease-out",
+				// Icon-only by design: the visible UI carries the current
+				// theme's icon and NO text label. The current→next state
+				// is exposed via aria-label (SR) + title (hover tooltip).
+				// Host className (e.g. the TitleBar's button language)
+				// overrides size/rounding/hover/text-color via twMerge.
+				"inline-flex items-center justify-center",
+				"transition-colors duration-150",
 				// Theme-aware hover (replaces the physical
 				// bg-black/5 dark:bg-white/10 pairing so custom + dark
 				// themes get a consistent hover wash).
 				"hover:bg-foreground/5",
 				// Visible focus indicator so keyboard users can see which
-				// theme-switch button is focused. Use the shared focusRing
-				// constant (ring-3 / ring-ring/30) for parity with the design-
-				// system Button instead of the thinner ring-2 / ring-ring/30.
+				// theme button is focused. Use the shared focusRing
+				// constant (ring-3 / ring-ring/30) for parity with the
+				// design-system Button.
 				focusRing,
-				collapsed ? "h-7 w-7 justify-center gap-0" : "h-7 px-2.5 gap-2",
+				"h-7 w-7 rounded-md",
+				className,
 			)}
 			// The title attribute mirrors the aria-label so sighted mouse
 			// users hovering the switch see the same "current → next"
-			// information screen-reader users hear. Previously the title
-			// only showed the current mode, leaving sighted users with
-			// less information than SR users — three clicks to cycle
-			// from System to Light was non-obvious because the tooltip
-			// didn't preview the next state.
+			// information screen-reader users hear.
 			title={t("theme.switchAriaLabel", {
 				mode: label,
 				next: nextLabel,
@@ -115,17 +124,6 @@ export function ThemeSwitch({
 				strokeWidth={2}
 				className="h-4 w-4 shrink-0"
 			/>
-			<span
-				className={cn(
-					"overflow-hidden whitespace-nowrap text-sm font-medium dark:font-normal",
-					"transition-[max-width,opacity,filter] duration-200 ease-out",
-					collapsed
-						? "max-w-0 opacity-0 filter-[blur(4px)]"
-						: "max-w-16 opacity-100",
-				)}
-			>
-				{label}
-			</span>
 		</button>
 	);
 }

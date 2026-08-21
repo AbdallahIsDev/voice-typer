@@ -2,10 +2,9 @@
  *  vitest suite — Sidebar React.memo re-render gating.
  *
  * Sidebar receives only primitive props + stable `useCallback` refs
- * from App.tsx (`navigate`, `handleThemeChange`). Wrapping it in
- * `React.memo` (matching the TitleBar.tsx:324 pattern) lets the
- * default shallow-equal comparator short-circuit re-renders when no
- * prop has changed.
+ * from App.tsx (`navigate`). Wrapping it in `React.memo` (matching the
+ * TitleBar.tsx pattern) lets the default shallow-equal comparator
+ * short-circuit re-renders when no prop has changed.
  *
  * The two tests below verify:
  *   1. Re-rendering the parent with the SAME prop references does
@@ -15,11 +14,12 @@
  *      This guards against an over-aggressive memo that would break
  *      navigation (NEVER DOWNGRADE behaviour).
  *
- * Render counting is done via a mocked `<ThemeSwitch>` child —
- * Sidebar always renders exactly one `<ThemeSwitch>` instance, and
- * ThemeSwitch itself is NOT memo'd, so a Sidebar re-render
- * propagates to ThemeSwitch. Counting ThemeSwitch renders is
- * therefore a faithful proxy for counting Sidebar renders.
+ * Render counting is done via a mocked `<Button>` child (the shared
+ * design-system Button that every nav item/submenu parent renders
+ * through). Sidebar always renders exactly 10 Buttons in the expanded
+ * state; Button itself is NOT memo'd, so a Sidebar re-render
+ * propagates to every Button. Counting Button renders is therefore a
+ * faithful proxy for counting Sidebar renders.
  */
 import { act, cleanup, render } from "@testing-library/react";
 import { useState } from "react";
@@ -36,19 +36,31 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 	return createHugeiconsMock();
 });
 
-//ThemeSwitch mock with a render counter. Sidebar renders exactly
-// one ThemeSwitch; counting its renders counts Sidebar's renders.
-let themeSwitchRenderCount = 0;
-vi.mock("@/components/layout/ThemeSwitch", () => ({
-	ThemeSwitch: () => {
-		themeSwitchRenderCount++;
-		return <div data-testid="theme-switch" />;
+//Button mock with a render counter. Every nav leaf + the Settings
+// submenu parent render through the shared Button; counting Button
+// renders counts Sidebar's renders (Button is not memo'd, so a
+// Sidebar re-render propagates to each Button).
+let buttonRenderCount = 0;
+vi.mock("@/components/ui/button", () => ({
+	Button: ({
+		asChild: _asChild,
+		children,
+		...rest
+	}: {
+		asChild?: boolean;
+		children?: React.ReactNode;
+	} & React.ButtonHTMLAttributes<HTMLButtonElement>) => {
+		buttonRenderCount++;
+		return (
+			<button type="button" {...rest}>
+				{children}
+			</button>
+		);
 	},
 }));
 
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 
 // Sidebar mounts real Radix Tooltips (HotkeyTooltip on the nav items),
@@ -67,8 +79,6 @@ function wrap(ui: React.ReactElement) {
 interface SidebarProps {
 	currentPage: Page;
 	onNavigate: (page: Page) => void;
-	themeMode: VoiceTyperConfig["theme_mode"];
-	onThemeChange: (mode: VoiceTyperConfig["theme_mode"]) => void;
 	collapsed?: boolean;
 }
 
@@ -83,14 +93,11 @@ function TestParent({ props }: { props: SidebarProps }) {
 }
 
 const stableOnNavigate = vi.fn();
-const stableOnThemeChange = vi.fn();
 
 function makeProps(overrides: Partial<SidebarProps> = {}): SidebarProps {
 	return {
 		currentPage: "home",
 		onNavigate: stableOnNavigate,
-		themeMode: "light",
-		onThemeChange: stableOnThemeChange,
 		collapsed: false,
 		...overrides,
 	};
@@ -99,9 +106,8 @@ function makeProps(overrides: Partial<SidebarProps> = {}): SidebarProps {
 describe("Sidebar — React.memo re-render gating", () => {
 	beforeEach(() => {
 		cleanup();
-		themeSwitchRenderCount = 0;
+		buttonRenderCount = 0;
 		stableOnNavigate.mockClear();
-		stableOnThemeChange.mockClear();
 		forceRerender = () => {};
 	});
 
@@ -112,17 +118,18 @@ describe("Sidebar — React.memo re-render gating", () => {
 	it("parent re-render with unchanged props does NOT re-render Sidebar", () => {
 		const props = makeProps();
 		render(wrap(<TestParent props={props} />));
-		expect(themeSwitchRenderCount).toBe(1);
+		const initialButtons = buttonRenderCount;
+		expect(initialButtons).toBeGreaterThan(0);
 
 		// Force an unrelated parent re-render. Sidebar's props are the
 		// SAME object references, so React.memo's shallow compare should
-		// short-circuit and Sidebar (hence ThemeSwitch) should NOT
+		// short-circuit and Sidebar (hence every Button) should NOT
 		// re-render. Wrapped in `act()` so React flushes the state
 		// update synchronously before the assertion runs.
 		act(() => {
 			forceRerender();
 		});
-		expect(themeSwitchRenderCount).toBe(1);
+		expect(buttonRenderCount).toBe(initialButtons);
 	});
 
 	it("NEVER-DOWNGRADE: changing `currentPage` re-renders Sidebar (navigation still works)", () => {
@@ -131,30 +138,24 @@ describe("Sidebar — React.memo re-render gating", () => {
 		const { rerender } = render(
 			wrap(<TestParent props={makeProps({ currentPage: "home" })} />),
 		);
-		expect(themeSwitchRenderCount).toBe(1);
+		const initialButtons = buttonRenderCount;
 
 		// Re-render with a DIFFERENT currentPage. The shallow compare
-		// detects the change and Sidebar re-renders (ThemeSwitch count
+		// detects the change and Sidebar re-renders (Button count
 		// increments). This proves the memo doesn't break navigation.
 		rerender(
 			wrap(<TestParent props={makeProps({ currentPage: "settings" })} />),
 		);
-		expect(themeSwitchRenderCount).toBe(2);
-
-		// And a third navigation flips it again.
-		rerender(
-			wrap(<TestParent props={makeProps({ currentPage: "history" })} />),
-		);
-		expect(themeSwitchRenderCount).toBe(3);
+		expect(buttonRenderCount).toBeGreaterThan(initialButtons);
 	});
 
-	it("NEVER-DOWNGRADE: changing `themeMode` re-renders Sidebar (theme toggle still works)", () => {
+	it("NEVER-DOWNGRADE: changing `collapsed` re-renders Sidebar (sidebar collapse still works)", () => {
 		const { rerender } = render(
-			wrap(<TestParent props={makeProps({ themeMode: "light" })} />),
+			wrap(<TestParent props={makeProps({ collapsed: false })} />),
 		);
-		expect(themeSwitchRenderCount).toBe(1);
+		const initialButtons = buttonRenderCount;
 
-		rerender(wrap(<TestParent props={makeProps({ themeMode: "dark" })} />));
-		expect(themeSwitchRenderCount).toBe(2);
+		rerender(wrap(<TestParent props={makeProps({ collapsed: true })} />));
+		expect(buttonRenderCount).toBeGreaterThan(initialButtons);
 	});
 });

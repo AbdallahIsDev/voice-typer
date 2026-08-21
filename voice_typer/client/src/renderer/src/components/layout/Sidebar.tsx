@@ -36,17 +36,13 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { APP_NAME } from "@/branding";
 import { HotkeyChips } from "@/components/hotkey/HotkeyChips";
 import { HotkeyTooltip } from "@/components/hotkey/HotkeyTooltip";
 import { formatHotkey } from "@/components/hotkey/hotkey-utils";
 import { SHORTCUTS } from "@/components/hotkey/shortcuts";
-import { Logo } from "@/components/layout/Logo";
-import { ThemeSwitch } from "@/components/layout/ThemeSwitch";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { cn, focusRing } from "@/lib/utils";
-import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 
 interface NavItem {
@@ -201,8 +197,6 @@ const SETTINGS_SUBMENU_LS_KEY = "vt_settings_submenu_expanded";
 interface SidebarProps {
 	currentPage: Page;
 	onNavigate: (page: Page) => void;
-	themeMode: VoiceTyperConfig["theme_mode"];
-	onThemeChange: (mode: VoiceTyperConfig["theme_mode"]) => void;
 	collapsed?: boolean;
 }
 
@@ -219,8 +213,6 @@ function isSettingsSubPage(page: Page): boolean {
 function SidebarInner({
 	currentPage,
 	onNavigate,
-	themeMode,
-	onThemeChange,
 	collapsed = false,
 }: SidebarProps) {
 	//(roving tabindex): the nav is a vertical composite
@@ -301,59 +293,11 @@ function SidebarInner({
 				collapsed ? "w-12" : "w-55",
 			)}
 		>
-			{/* Logo + Title */}
-			<div
-				className={cn(
-					"flex shrink-0 items-center gap-2.5",
-					"transition-[padding] duration-200 ease-out",
-					collapsed ? "px-3 py-4" : "px-5 py-4",
-				)}
-			>
-				{/** : when the sidebar is collapsed the visible
-				 * <span>{APP_NAME}</span> is hidden (max-w-0), so the
-				 * Logo's SVG is the only on-screen label. Wrapping it
-				 * in a <button aria-label={APP_NAME}> gives AT users a
-				 * single, focusable, named affordance. The Logo is
-				 * rendered with `decorative` so the inner SVG is
-				 * aria-hidden and the button's aria-label is the
-				 * single source of truth (no double announcement).
-				 * Expanded mode keeps the original self-labeled Logo.
-				 */}
-				{collapsed ? (
-					<button
-						type="button"
-						aria-label={APP_NAME}
-						title={APP_NAME}
-						onClick={() => onNavigate("home")}
-						className={cn(
-							"flex items-center justify-center p-0",
-							"bg-transparent border-0 outline-none",
-							focusRing,
-							"cursor-pointer",
-						)}
-					>
-						<Logo size={24} decorative className="shrink-0" />
-					</button>
-				) : (
-					<Logo size={24} className="shrink-0" />
-				)}
-
-				<span
-					className={cn(
-						"overflow-hidden whitespace-nowrap text-base font-medium tracking-normal text-(--text-primary)",
-						"transition-all duration-200 ease-out",
-						collapsed
-							? "max-w-0 opacity-0 filter-[blur(4px)]"
-							: "max-w-32 opacity-100 filter-none",
-					)}
-				>
-					{APP_NAME}
-				</span>
-			</div>
-
 			{/* Navigation. ``min-h-0`` + ``overflow-y-auto`` so a short
-                            window scrolls instead of clipping the bottom items — the
-                            ThemeSwitch row below stays pinned. */}
+			    window scrolls instead of clipping the bottom items. The
+			    nav is the sidebar's only content — it fills the full
+			    height now that the branding header and the ThemeSwitch
+			    row have moved out of the sidebar. */}
 			<div className="min-h-0 flex-1 overflow-y-auto p-2">
 				<nav
 					ref={navRef}
@@ -422,15 +366,6 @@ function SidebarInner({
 						);
 					})}
 				</nav>
-			</div>
-
-			{/* Theme Toggle */}
-			<div className="flex justify-start items-center p-2">
-				<ThemeSwitch
-					themeMode={themeMode}
-					onThemeChange={onThemeChange}
-					collapsed={collapsed}
-				/>
 			</div>
 		</aside>
 	);
@@ -888,12 +823,10 @@ function NavSubmenu({
 
 //wrap in React.memo so stable callbacks from App.tsx can
 // short-circuit re-renders when no props have changed. All props
-// (`currentPage`, `onNavigate`, `themeMode`, `onThemeChange`,
-// `collapsed`) are primitives or stable `useCallback` refs from
-// App.tsx — `navigate` (useNavigation) and `handleThemeChange`
-// (useTheme) are both `useCallback`-wrapped — so the default
-// shallow-equal comparator (matching the TitleBar.tsx:324 pattern)
-// skips re-renders on unrelated App state changes (e.g. sidebar
-// collapse toggles that don't affect Sidebar's own props, or
-// recordingState transitions).
+// (`currentPage`, `onNavigate`, `collapsed`) are primitives or stable
+// `useCallback` refs from App.tsx (`navigate` from useNavigation) — so
+// the default shallow-equal comparator (matching the TitleBar.tsx
+// pattern) skips re-renders on unrelated App state changes (e.g.
+// themeMode changes that only re-render the TitleBar, or recordingState
+// transitions).
 export const Sidebar = memo(SidebarInner);
