@@ -227,12 +227,15 @@ class TestParallelTeardownBatch:
         ``_teardown_electron`` remain in the parallel batch and are
         independent — no Event dependencies). We make each helper
         sleep 0.3 s by patching the controller's bound methods
-        directly. If they run sequentially, total wall time is ~0.6 s;
-        if concurrently, ~0.3 s.
+        directly and RECORD EACH HELPER'S EXECUTION WINDOW.
 
-        We assert the parallel speedup is at least 1.5x (a conservative
-        threshold that filters out scheduling jitter while still proving
-        concurrency).
+        Concurrency is proven by OVERLAP of the two windows — the
+        machine-independent property — instead of a wall-clock
+        threshold: sequential helpers can never overlap, while truly
+        concurrent ones overlap by ~the full sleep length no matter
+        how slow the runner is (a fixed elapsed-time bound flaked on a
+        loaded macos-14 CI runner: 0.67s vs a <0.5s threshold, even
+        though the batch WAS concurrent).
         """
         import time as _time
 
@@ -240,27 +243,42 @@ class TestParallelTeardownBatch:
         # are now in the sequenced critical phase (run BEFORE the
         # parallel batch). Use two helpers that remain in the parallel
         # batch and have no Event dependencies on the sequenced phase.
-        def _slow_teardown(*args, **kwargs):
-            _time.sleep(0.3)
+        windows: dict[str, tuple[float, float]] = {}
+
+        def _make_slow_teardown(name: str):
+            def _slow_teardown(*args, **kwargs):
+                t0 = _time.monotonic()
+                _time.sleep(0.3)
+                windows[name] = (t0, _time.monotonic())
+
+            return _slow_teardown
 
         # Patch the bound methods on the controller (NOT on fake_app —
         # the parallel batch invokes ``self._teardown_hotkeys`` etc.
         # directly, not via the app).
-        controller._teardown_hotkeys = MagicMock(side_effect=_slow_teardown)
-        controller._teardown_electron = MagicMock(side_effect=_slow_teardown)
+        controller._teardown_hotkeys = MagicMock(side_effect=_make_slow_teardown("hotkeys"))
+        controller._teardown_electron = MagicMock(side_effect=_make_slow_teardown("electron"))
 
-        start = _time.monotonic()
         controller._do_cleanup()
-        elapsed = _time.monotonic() - start
 
-        # Concurrent: ~0.3 s + bookends. Sequential: ~0.6 s + bookends.
-        # Threshold: 0.5 s — comfortably below the sequential 0.6 s,
-        # comfortably above the concurrent 0.3 s.
-        assert elapsed < 0.5, (
-            f"XV-7: parallel teardown took {elapsed:.2f}s — expected "
-            f"<0.5s (concurrent). Sequential would be ~0.6s. If this "
-            f"assertion fires, the ThreadPoolExecutor batch is not "
-            f"running helpers concurrently."
+        # Both instrumented helpers must have run.
+        assert set(windows) == {"hotkeys", "electron"}, (
+            f"XV-7: expected both instrumented teardowns to run; got windows for {sorted(windows)}."
+        )
+
+        # THE concurrency proof: the two execution WINDOWS intersect.
+        # Sequential runs produce overlap <= 0 by construction;
+        # concurrent runs overlap by ~the full sleep length on ANY
+        # hardware, so this cannot flake with runner load.
+        h0, h1 = windows["hotkeys"]
+        e0, e1 = windows["electron"]
+        overlap = min(h1, e1) - max(h0, e0)
+        assert overlap > 0.15, (
+            f"XV-7: teardown helpers did not run concurrently — window "
+            f"overlap {overlap:.3f}s (hotkeys={windows['hotkeys']}, "
+            f"electron={windows['electron']}). Two 0.3s helpers that "
+            f"overlap prove the ThreadPoolExecutor batch is concurrent; "
+            f"sequential execution would show overlap <= 0."
         )
 
     def test_teardown_failure_does_not_propagate(self, controller, fake_app):

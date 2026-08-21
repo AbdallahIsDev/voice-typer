@@ -30,6 +30,7 @@ import functools
 import logging
 import os
 import sys
+import threading
 import time
 from pathlib import Path, PureWindowsPath
 
@@ -57,6 +58,18 @@ log = logging.getLogger("voice_typer.server.config")
 # ``voice_typer.server.config`` module attribute (lazy import) at
 # call time so the monkeypatched value is honoured.
 _CONFIG_LOCK_TIMEOUT_SECONDS = 5
+
+# In-process fairness gate for :func:`_acquire_config_lock`. The
+# OS-level lock poll (msvcrt ``LK_NBLCK`` / flock ``LOCK_NB``) is
+# unfair: under a loaded runner, same-process writers ping-pong
+# re-acquiring between saves and can starve one thread past its OWN
+# deadline (observed on windows-2022 CI: 1 of 80 concurrent
+# ``Config.save()`` calls hit the 5s TimeoutError and returned False).
+# Serializing same-process callers here means only ONE thread contends
+# the OS lock at a time and every hold is a single short save —
+# starvation disappears while the cross-process contract (and its
+# timeout) is unchanged for genuinely external processes.
+_CONFIG_SAVE_PROCESS_LOCK = threading.Lock()
 
 
 def _get_config_dir() -> Path:
@@ -628,6 +641,36 @@ def _migrate_from_legacy():
 
 @contextlib.contextmanager
 def _acquire_config_lock(timeout: float | None = None):
+    """Acquire the config.json save lock (in-process fair queue → OS lock).
+
+    Public entry point used by ``Config.save()``. Resolves the default
+    timeout via the ``voice_typer.server.config`` module attribute (so
+    test monkeypatches keep working), shares ONE deadline across the
+    in-process fairness gate and the cross-process OS lock, then
+    delegates to :func:`_acquire_config_lock_cross_process`.
+    """
+    from voice_typer.server import config as _cfg_module
+
+    effective = timeout if timeout is not None else _cfg_module._CONFIG_LOCK_TIMEOUT_SECONDS
+    deadline = time.monotonic() + effective
+    if not _CONFIG_SAVE_PROCESS_LOCK.acquire(timeout=max(0.0, deadline - time.monotonic())):
+        raise TimeoutError(
+            f"Config.save() could not acquire the in-process config save "
+            f"lock within {effective}s -- aborting save to prevent "
+            f"concurrent-write corruption."
+        )
+    try:
+        # Hand the REMAINING budget to the cross-process lock so the
+        # total wait still honors the caller's single deadline.
+        remaining = max(0.05, deadline - time.monotonic())
+        with _acquire_config_lock_cross_process(timeout=remaining):
+            yield
+    finally:
+        _CONFIG_SAVE_PROCESS_LOCK.release()
+
+
+@contextlib.contextmanager
+def _acquire_config_lock_cross_process(timeout: float):
     """acquire an exclusive cross-process lock on config.json.lock.
 
         Mirrors credential_store._acquire_migration_lock.  POSIX uses
@@ -646,19 +689,6 @@ def _acquire_config_lock(timeout: float | None = None):
         so operators notice.
     """
     import os as _os
-
-    if timeout is None:
-        # Look up via the ``voice_typer.server.config`` module attribute
-        # rather than reading ``_CONFIG_LOCK_TIMEOUT_SECONDS`` from this
-        # module's globals.  ``tests/test_config_save_lock.py`` patches
-        # ``voice_typer.server.config._CONFIG_LOCK_TIMEOUT_SECONDS`` to
-        # shorten the timeout; reading from the config module ensures
-        # the monkeypatched value is honoured.  The lazy import avoids a
-        # circular module-load (config.py imports this module at the
-        # top of the file, before ``config`` itself is fully loaded).
-        from voice_typer.server import config as _cfg_module
-
-        timeout = _cfg_module._CONFIG_LOCK_TIMEOUT_SECONDS
 
     lock_file = _get_config_dir() / "config.json.lock"
     with contextlib.suppress(OSError):
