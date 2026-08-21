@@ -362,8 +362,7 @@ def test_tauri_conf_external_bin_lists_worker(tauri_conf) -> None:
     """
     external_bin = tauri_conf.get("bundle", {}).get("externalBin", [])
     assert EXPECTED_WORKER_BIN_BASENAME in external_bin, (
-        f"bundle.externalBin must contain {EXPECTED_WORKER_BIN_BASENAME!r} "
-        f"(the ML worker exe — master plan §6.2 P-1)"
+        f"bundle.externalBin must contain {EXPECTED_WORKER_BIN_BASENAME!r} (the ML worker exe — master plan §6.2 P-1)"
     )
 
 
@@ -379,8 +378,7 @@ def test_tauri_conf_resources_exclude_prewarm_binaries(tauri_conf) -> None:
     resources = tauri_conf.get("bundle", {}).get("resources", [])
     prewarm_entries = [r for r in resources if "prewarm" in r]
     assert not prewarm_entries, (
-        f"bundle.resources must NOT contain prewarm binaries (retired, "
-        f"master plan §6.2 P-1) — got: {prewarm_entries}"
+        f"bundle.resources must NOT contain prewarm binaries (retired, master plan §6.2 P-1) — got: {prewarm_entries}"
     )
 
 
@@ -509,12 +507,8 @@ def test_worker_exe_path_uses_current_target_triple() -> None:
     ``current_target_triple()`` to resolve the suffix — NOT hardcode a
     single arch (which would silently break on the other 5 triples).
     """
-    worker_path_src = (_SRC_TAURI / "src" / "platform" / "worker_path.rs").read_text(
-        encoding="utf-8"
-    )
-    assert "fn worker_exe_path_from_env" in worker_path_src, (
-        "worker_path.rs must define `worker_exe_path_from_env`"
-    )
+    worker_path_src = (_SRC_TAURI / "src" / "platform" / "worker_path.rs").read_text(encoding="utf-8")
+    assert "fn worker_exe_path_from_env" in worker_path_src, "worker_path.rs must define `worker_exe_path_from_env`"
     assert "current_target_triple" in worker_path_src, (
         "worker_exe_path_from_env must call current_target_triple() to resolve "
         "the per-arch worker exe name (master plan §6.2 P-1)"
@@ -524,10 +518,7 @@ def test_worker_exe_path_uses_current_target_triple() -> None:
     assert re.search(
         r'WORKER_BIN_BASE_NAME\s*:\s*&str\s*=\s*"voice-typer-worker"',
         worker_path_src,
-    ), (
-        "worker_path.rs must define WORKER_BIN_BASE_NAME = \"voice-typer-worker\" "
-        "(master plan §6.2 P-1)"
-    )
+    ), 'worker_path.rs must define WORKER_BIN_BASE_NAME = "voice-typer-worker" (master plan §6.2 P-1)'
     assert re.search(
         r'format!\s*\(\s*"\{\}-\{\}\{\}"\s*,\s*WORKER_BIN_BASE_NAME\s*,\s*triple\s*,\s*suffix',
         worker_path_src,
@@ -547,37 +538,23 @@ def test_worker_exe_path_uses_current_target_triple() -> None:
 # ─── Test 4: shell scope + capabilities grant spawn on the sidecar ─────
 
 
-def test_tauri_conf_shell_scope_allows_python_sidecar(tauri_conf) -> None:
-    """ADR-0020 §7: ``plugins.shell.scope`` must allow ``bin/python-sidecar``.
+def test_tauri_conf_shell_config_is_v2_valid(tauri_conf) -> None:
+    """ADR-0020 §7: ``plugins.shell`` must be v2-valid (``{"open": false}``).
 
-    Tauri v2 rejects an unconstrained ``shell:allow-spawn`` — the
-    ``plugins.shell.scope`` list in ``tauri.conf.json`` must name the
-    sidecar binary by its base name with ``sidecar: true`` so the
-    spawn is scoped to ONLY the python-sidecar (no arbitrary command
-    execution). Tauri enforces this scope at runtime IN ADDITION to the
-    ``shell:allow-spawn`` capability in ``migrate-runtime.json``.
+    tauri-plugin-shell v2 accepts a single ``open`` config key and
+    denies unknown fields. The v1-style ``sidecar`` / ``scope`` keys
+    fail app startup with "unknown field `scope`, expected `open`"
+    (found on the first Windows host run). Both externalBins
+    (python-sidecar + voice-typer-worker) are spawned by the Rust host
+    via ``app.shell().sidecar(...)`` — not ACL-scoped through
+    ``plugins.shell``; the JS-facing ``shell:allow-spawn`` grant keeps
+    its deny-all default scope.
     """
-    shell = tauri_conf.get("plugins", {}).get("shell", {})
-    assert shell.get("sidecar") is True, (
-        "plugins.shell.sidecar must be true to enable the externalBin API (ADR-0020 §7)"
-    )
-    scope = shell.get("scope", [])
-    assert isinstance(scope, list) and scope, "plugins.shell.scope must be a non-empty list (ADR-0020 §7)"
-    matches = [s for s in scope if s.get("name") == EXPECTED_EXTERNAL_BIN_BASENAME and s.get("sidecar") is True]
-    assert matches, (
-        f"plugins.shell.scope must include an entry "
-        f"{{'name': {EXPECTED_EXTERNAL_BIN_BASENAME!r}, 'sidecar': true}} "
-        f"(Tauri v2 requires explicit spawn scoping, ADR-0020 §7)"
-    )
-    # The ML worker exe is the second externalBin — it must be scoped
-    # the same way (master plan §6.2 P-1).
-    worker_matches = [
-        s for s in scope if s.get("name") == EXPECTED_WORKER_BIN_BASENAME and s.get("sidecar") is True
-    ]
-    assert worker_matches, (
-        f"plugins.shell.scope must include an entry "
-        f"{{'name': {EXPECTED_WORKER_BIN_BASENAME!r}, 'sidecar': true}} "
-        f"(the ML worker exe is spawned through externalBin, master plan §6.2 P-1)"
+    shell = tauri_conf.get("plugins", {}).get("shell")
+    assert shell == {"open": False}, (
+        "plugins.shell must be exactly {'open': false} — tauri-plugin-shell "
+        "v2 rejects 'sidecar'/'scope' keys at startup ('unknown field "
+        f"`scope`, expected `open`'); got {shell!r}"
     )
 
 

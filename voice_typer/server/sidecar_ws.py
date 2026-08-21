@@ -1512,27 +1512,13 @@ def _install_subscriber(server: IPCServer, loop: asyncio.AbstractEventLoop, outb
     closure-captured ``loop`` remains the per-connection source of
     truth.
 
-     ( /  parity): after subscribing, emit a
-    ``state_changed`` snapshot on EVERY authenticated connection
-    (not just the first ``ready``). This mirrors the TCP path's
-    connect-time snapshot at ``ipc_server.py:_handle_tcp_connection``
-    (~L1003-1017) so a WS reconnect after a transient drop
-    immediately re-hydrates the renderer's tray state badge instead
-    of leaving it stale until the next state transition. Placement:
-    published AFTER ``_push_to_ws`` is registered so the event flows
-    through the WS writer task's outbound queue to the host. The
-    ``ready`` emit (in :func:`_emit_ready_if_first`) is now ALSO
-    published AFTER ``_push_to_ws`` is registered (per the  fix
-    in :func:`_handle_connection_inner`) so it flows through the WS
-    outbound queue to the host on the first authenticated connection;
-    ``state_changed`` is published here so it is GUARANTEED to reach
-    the WS client on every auth.
-
-    Defensive: the tray may not be initialized yet on the very first
-    connection (the app boots the IPC server before the tray icon is
-    constructed). ``getattr(..., None)`` + the ``is not None`` guard
-    skip the emit in that case — the host will pick up the next state
-    transition via the normal ``status_change`` hook.
+     ( /  parity): the connect-time ``state_changed`` snapshot used to
+    be emitted HERE (right after subscribing). It moved to
+    :func:`_emit_initial_state_snapshot`, which
+    ``_handle_connection_inner`` calls AFTER
+    :func:`_emit_ready_if_first` — see that function for why the
+    order matters (the Tauri host's auth handshake requires ``ready``
+    as the FIRST post-auth frame).
 
     Returns the ``_push_to_ws`` subscriber callable so the caller can
     ``event_bus.unsubscribe`` it in the connection ``finally`` block.
@@ -1579,6 +1565,37 @@ def _install_subscriber(server: IPCServer, loop: asyncio.AbstractEventLoop, outb
 
     event_bus.subscribe(_push_to_ws)
 
+    return _push_to_ws
+
+
+def _emit_initial_state_snapshot(server: IPCServer) -> None:
+    """Emit the connect-time ``state_changed`` snapshot ( / parity).
+
+    Published on EVERY authenticated connection (not just the first
+    ``ready``). This mirrors the TCP path's connect-time snapshot at
+    ``ipc_server.py:_handle_tcp_connection`` (~L1003-1017) so a WS
+    reconnect after a transient drop immediately re-hydrates the
+    renderer's tray state badge instead of leaving it stale until the
+    next state transition.
+
+    ORDERING CONTRACT (do not reorder): this MUST be called AFTER
+    :func:`_emit_ready_if_first` in ``_handle_connection_inner``. The
+    Tauri host's ``wait_for_auth_ok`` requires ``ready`` as the FIRST
+    post-auth frame — any other frame type is treated as a protocol
+    violation and triggers a supervisor respawn loop. This snapshot
+    previously lived inside :func:`_install_subscriber`, so it raced
+    in AHEAD of ``ready`` on the wire and killed every Tauri
+    handshake with "WS auth unexpected frame type: state_changed".
+    Binding rule: AGENTS.md constraint C-WS-1.
+
+    Defensive: the tray may not be initialized yet on the very first
+    connection (the app boots the IPC server before the tray icon is
+    constructed). ``getattr(..., None)`` + the ``is not None`` guard
+    skip the emit in that case — the host will pick up the next state
+    transition via the normal ``status_change`` hook.
+    """
+    from voice_typer.server import event_bus
+
     try:
         current_state = getattr(server.app.tray, "_state", None)
         current_msg = getattr(server.app.tray, "_message", "")
@@ -1597,8 +1614,6 @@ def _install_subscriber(server: IPCServer, loop: asyncio.AbstractEventLoop, outb
             "[SIDECAR-WS] failed to emit initial state_changed on connect",
             exc_info=True,
         )
-
-    return _push_to_ws
 
 
 def _start_writer(websocket, outbound: asyncio.Queue) -> asyncio.Task:
@@ -1871,8 +1886,17 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
     # published to a subscriber set without ``_push_to_ws``, so the WS
     # outbound queue never received ``ready`` and the Tauri host never got
     # it over the WS on first connection (UI stayed un-hydrated).
+    #
+    # The initial ``state_changed`` snapshot MUST come AFTER ``ready``:
+    # the Tauri host's ``wait_for_auth_ok`` accepts ONLY ``auth_ok`` /
+    # ``ready`` as the first post-auth frame and treats anything else as
+    # a protocol violation (supervisor respawn loop). The snapshot used
+    # to live inside ``_install_subscriber`` and raced in ahead of
+    # ``ready``, killing every Tauri handshake with
+    # "WS auth unexpected frame type: state_changed".
     _push_to_ws = _install_subscriber(server, loop, outbound)
     _emit_ready_if_first(server)
+    _emit_initial_state_snapshot(server)
     writer_task = _start_writer(websocket, outbound)
 
     from voice_typer.server import event_bus

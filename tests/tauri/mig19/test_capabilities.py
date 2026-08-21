@@ -374,22 +374,18 @@ def test_grants_shell_allow_spawn_scoped_to_python_sidecar(
     migrate_runtime_capability: dict,
     tauri_conf: dict,
 ) -> None:
-    """ADR-0020 §7: ``shell:allow-spawn`` granted + scoped to sidecar.
+    """ADR-0020 §7: ``shell:allow-spawn`` granted + spawn scoping intact.
 
-    Tauri v2 enforces BOTH the capability permission AND the config
-    scope at runtime — the capability grants the *right* to call
-    ``shell:spawn``, and ``plugins.shell.scope`` in tauri.conf.json
-    restricts *which* binaries may be spawned. An unconstrained
-    ``shell:allow-spawn`` (scope = []) would let any webview
-    ``invoke('shell:spawn', {program: 'cmd'})`` launch arbitrary
-    programs — a privilege escape.
-
-    ADR-0020 §7 lists per-triple scope entries (one per target
-    triple); the implementation uses the base name
-    ``bin/python-sidecar`` with Tauri's sidecar mechanism (Tauri
-    appends the Rust target triple at spawn time — see §4.1). Both
-    forms are acceptable; what matters is that the scope names the
-    sidecar binary ONLY (no ``cmd``, ``sh``, ``bash``, etc.).
+    tauri-plugin-shell v2 deserializes ``plugins.shell`` into a struct
+    whose ONLY field is ``open`` and denies unknown fields — the
+    former v1-style ``plugins.shell.scope`` block crashed app startup
+    with "unknown field `scope`, expected `open`" (found on the first
+    Windows host run). Spawn scoping is therefore owned by the Rust
+    host: it spawns ONLY ``app.shell().sidecar(...)`` binaries
+    (``bin/python-sidecar``, ``bin/voice-typer-worker``), which is not
+    ACL-gated. The JS-facing ``shell:allow-spawn`` grant keeps the
+    plugin-default EMPTY allow scope — a compromised webview cannot
+    ``invoke('shell:spawn', ...)`` anything.
     """
     permissions = migrate_runtime_capability["permissions"]
     assert "shell:allow-spawn" in permissions, (
@@ -397,40 +393,14 @@ def test_grants_shell_allow_spawn_scoped_to_python_sidecar(
         "without it the Rust host cannot spawn the Python sidecar"
     )
 
-    # The shell scope in tauri.conf.json must restrict spawn to the
-    # sidecar binary ONLY.
-    shell_plugin = tauri_conf.get("plugins", {}).get("shell", {})
-    assert "scope" in shell_plugin, (
-        "plugins.shell.scope must exist in tauri.conf.json — without it "
-        "shell:allow-spawn is unconstrained (privilege escape)"
+    # plugins.shell must be exactly {'open': false} — any other shape
+    # (v1-style sidecar/scope keys) fails Tauri startup.
+    shell_plugin = tauri_conf.get("plugins", {}).get("shell")
+    assert shell_plugin == {"open": False}, (
+        "plugins.shell must be exactly {'open': false} — tauri-plugin-shell "
+        "v2 rejects 'sidecar'/'scope' keys at startup "
+        f"('unknown field `scope`, expected `open`'); got {shell_plugin!r}"
     )
-    scope = shell_plugin["scope"]
-    assert isinstance(scope, list) and scope, "plugins.shell.scope must be a non-empty list of allowed binaries"
-
-    # Every scope entry must name one of the first-party binaries
-    # (python-sidecar or voice-typer-worker) — no foreign binaries
-    # (cmd, sh, bash, powershell, etc.) may be in scope.
-    sidecar_in_scope = False
-    for entry in scope:
-        assert isinstance(entry, dict), f"shell.scope entry must be an object — got {type(entry).__name__}"
-        name = entry.get("name", "")
-        cmd = entry.get("cmd", "")
-        # The scope entry must point at the python-sidecar or the
-        # voice-typer-worker binary.
-        assert EXPECTED_SIDECAR_BINARY in (name, cmd) or EXPECTED_WORKER_BINARY in (name, cmd), (
-            f"shell.scope entry names a non-first-party binary: name={name!r} "
-            f"cmd={cmd!r} — only {EXPECTED_SIDECAR_BINARY!r} / "
-            f"{EXPECTED_WORKER_BINARY!r} are permitted "
-            f"(ADR-0020 §7 least-privilege)"
-        )
-        # The sidecar flag must be true (Tauri v2 requires this for
-        # externalBin binaries — gates the per-triple suffix append).
-        assert entry.get("sidecar") is True, (
-            f"shell.scope entry for {name!r} must set sidecar=true (Tauri v2 externalBin contract)"
-        )
-        sidecar_in_scope = True
-
-    assert sidecar_in_scope, f"shell.scope must include an entry for {EXPECTED_SIDECAR_BINARY!r} — got {scope!r}"
 
 
 # ─── Test 5: shell:allow-kill granted for force-kill ──────────────

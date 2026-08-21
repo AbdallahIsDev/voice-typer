@@ -910,6 +910,46 @@ Rationale: The Tauri build process reads tauri.conf.json and fails on unrecogniz
 Applies to: All agents, all modes. Especially relevant to IMPROVE mode targeting Group 1 (Architecture) or Group 6 (Testing & CI).
 ```
 
+```
+C-TAURI-2
+Rule: Do NOT change the `plugins` block of `src-tauri/tauri.conf.json` back to object values for unit-config plugins, and do NOT reintroduce a v1-style shell scope. The ONLY valid shapes (verified against the plugins-workspace v2 sources + tauri issue #8769 on the first successful host launch, 2026-08-21) are: `"single-instance": null`, `"notification": null`, `"dialog": null` (these plugins register NO config type — Tauri deserializes their entry into the serde UNIT type, so `{}` crashes startup with `PluginInitialization("...", "invalid type: map, expected unit")`), and `"shell": {"open": false}` (tauri-plugin-shell v2 accepts exactly ONE config key, `open`; a v1-style `{sidecar: true, scope: [...]}` block crashes startup with `unknown field 'scope', expected 'open'`). Sidecar spawn scoping in v2 is owned by the Rust host via `app.shell().sidecar(...)` (not ACL-gated); the JS-facing `shell:allow-spawn` capability grant in `capabilities/main-runtime.json` keeps its deny-all default scope. Do NOT "restore" scoping by moving sidecar entries into `plugins.shell` or into the capability permission as an allow-list without re-verifying against the plugin's actual Config struct.
+Rationale: These four bugs made the shipped app IMPOSSIBLE to launch on any platform — every startup died on plugin-config deserialization. CI never caught it because CI builds but never RUNS the app (ADR-0020 §15 Phase 0-W host validation was still pending). Each failed startup cost a full diagnose cycle; the evidence tags are in git history (first Windows host run 2026-08-21).
+Applies to: All agents, all modes, all sub-agents. Regression guards: `tests/tauri/mig19/test_final_glue.py::test_tauri_conf_unit_config_plugins_are_null` + the `test_tauri_conf_shell_config_is_v2_valid` tests in `tests/tauri/mig15|16|17|18`.
+```
+
+---
+
+## Category: Rust Async & Tokio Runtime
+
+```
+C-TOKIO-1
+Rule: Do NOT call `block_on` (any form: `tauri::async_runtime::block_on`, `tokio::runtime::Runtime::block_on`, `Handle::block_on`) inside a future that runs ON the tokio runtime — i.e. inside `tauri::async_runtime::spawn(async move { ... })` task bodies, `#[tauri::command]` async fns, or any `.await` chain. Inside async code, use `.await`, `futures_util::future::FutureExt::catch_unwind` for panic capture, or `spawn_blocking` for blocking work. A dedicated `std::thread::spawn` + `block_on` bridge is ONLY legal when the thread is NOT a runtime worker (see the sanctioned bridges in `sidecar/ws/respawn_scheduler.rs`, `sidecar/ws/heartbeat.rs`, `state.rs::on_host_exit` — each documents why the thread bridge is required). In particular, do NOT wrap the `initialize_sidecar` call in `main.rs` back into `std::panic::catch_unwind(|| ... block_on ...)`: that exact shape panicked at every startup with "Cannot start a runtime from within a runtime" until it was replaced with `AssertUnwindSafe(fut).catch_unwind().await` (fixed 2026-08-21).
+Rationale: block_on inside a runtime worker panics instantly ("Cannot start a runtime from within a runtime") and kills the spawned task — the sidecar then never boots. Like C-TAURI-2, CI cannot catch it because CI never launches the app.
+Applies to: All agents, all modes, all sub-agents. Guard comment lives inline at the spawn site in `src-tauri/src/main.rs`.
+```
+
+---
+
+## Category: Sidecar WebSocket Handshake
+
+```
+C-WS-1
+Rule: Do NOT reorder the three post-auth calls in `voice_typer/server/sidecar_ws.py::_handle_connection_inner`: `_install_subscriber` (subscribe only) → `_emit_ready_if_first` (publishes `ready`) → `_emit_initial_state_snapshot` (publishes `state_changed`). The initial `state_changed` snapshot MUST stay OUT of `_install_subscriber` and MUST be emitted AFTER `ready`. Symmetrically, do NOT weaken the Rust-side strictness in `src-tauri/src/sidecar/ws.rs::wait_for_auth_ok` (it accepts ONLY `auth_ok` / `ready` as the first post-auth frame — that strictness is a deliberate SEC decision so a compromised sidecar can't skip auth with an arbitrary first frame like `bubble_level`).
+Rationale: The wire contract is "`ready` is the FIRST post-auth frame". When the snapshot lived inside `_install_subscriber`, it raced in ahead of `ready` and every Tauri handshake died with `WS auth unexpected frame type: state_changed`, triggering an endless supervisor respawn → full-app-relaunch loop. Reordering also risks re-breaking the older CR fix (ready published before the subscriber exists = ready lost entirely, UI never hydrates). Fixed 2026-08-21; guards: `tests/test_sidecar_ws_ready_ordering.py`, `tests/test_sidecar_ws_handle_connection_split.py`, `tests/test_sidecar_ready_emitted.py`.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+---
+
+## Category: Local Tauri Dev (Windows, no MSVC)
+
+```
+C-TDEV-1
+Rule: Do NOT assume `cargo tauri dev` needs MSVC on this machine, and do NOT delete the GNU-toolchain plumbing: `src-tauri/.cargo/config.toml` (rust-lld linker wrapper at `.cargo-tmp/linker-wrap.exe`), the MSYS2 mingw64 dependency (`x86_64-w64-mingw32-gcc-ar.exe` on PATH), the default `stable-x86_64-pc-windows-gnu` rustup toolchain, and the generated binary stubs from `python scripts/gen_tauri_icons_stub.py` (satisfies `bundle.externalBin` + `bundle.resources`; they are FAKE binaries that exit 1 — never ship them). Dev launches MUST set `VOICE_TYPER_SIDECAR_DEV=1` (ADR-0020 §14) — without it the host spawns the frozen-release externalBin path and gets os error 216 from the stub exe, followed by an infinite supervisor respawn loop.
+Rationale: The machine has no Visual Studio C++ Build Tools; the whole GNU setup is what makes local Tauri builds possible (~80s full compile, deps cached). Working dev recipe (from repo root): terminal A `python -m http.server 1420 --bind 127.0.0.1 --directory voice_typer/client/out/renderer` (devUrl); terminal B `npm run build:renderer` after UI edits (Ctrl+R in-app to reload); terminal C `$env:VOICE_TYPER_SIDECAR_DEV="1"; npx @tauri-apps/cli dev --config <override-json-blanking-beforeDevCommand>`. The stock `beforeDevCommand` (`cd voice_typer/client && npm run build:renderer`) currently fails under the tauri CLI with "The system cannot find the path specified" (CLI spawn CWD mismatch — known open follow-up; the pinned literal is asserted by `tests/tauri/mig19/test_final_glue.py`, so fixing it means updating that test in the same commit).
+Applies to: All agents, all modes, all sub-agents.
+```
+
 ---
 
 ## Category: Logging & Observability

@@ -60,6 +60,13 @@ use std::sync::Arc;
 // callback, `WindowEvent` for `.on_window_event`.
 use tauri::{Listener, Manager, RunEvent, WindowEvent};
 
+// `FutureExt::catch_unwind` + `AssertUnwindSafe` — panic capture for the
+// spawned initialize_sidecar task WITHOUT bridging through `block_on`
+// (calling block_on inside a runtime worker panics with "Cannot start a
+// runtime from within a runtime").
+use futures_util::future::FutureExt;
+use std::panic::AssertUnwindSafe;
+
 use commands::bubble::{
     bubble_dismiss, bubble_hide_complete, bubble_move_by, bubble_resize, bubble_set_draggable,
     bubble_set_position, bubble_show, bubble_signal_ready, bubble_toggle_dictation,
@@ -116,6 +123,29 @@ fn main() {
                 }
             }
         }))
+        // PLUGIN CONFIG CONTRACT (src-tauri/tauri.conf.json `plugins` block)
+        // — verified against the plugins-workspace v2 sources + tauri#8769
+        // on the first successful Windows host run (2026-08-21). DO NOT
+        // "restore" the old shapes; they crash the app AT STARTUP and CI
+        // cannot catch it (CI builds but never launches the app):
+        //   - single-instance / notification / dialog: these plugins
+        //     register NO config type (plain `Builder::new(...)` init), so
+        //     Tauri deserializes their config entry into the UNIT type.
+        //     The entry must be `null` (or absent) — an empty map `{}`
+        //     fails with PluginInitialization("...", "invalid type: map,
+        //     expected unit").
+        //   - shell: the ONLY plugin with a real config struct, and it
+        //     accepts exactly ONE key: `open`. The v1-style
+        //     `{sidecar: true, scope: [...]}` block fails with
+        //     "unknown field `scope`, expected `open`". Sidecar scoping
+        //     is NOT done via plugins.shell in v2 — the Rust host spawns
+        //     via `app.shell().sidecar(...)` (not ACL-gated) and the
+        //     JS-facing `shell:allow-spawn` capability grant keeps its
+        //     deny-all default scope.
+        // Regression guards: tests/tauri/mig19/test_final_glue.py::
+        // test_tauri_conf_unit_config_plugins_are_null and the
+        // test_tauri_conf_shell_config_is_v2_valid tests in
+        // tests/tauri/mig15|16|17|18.
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         //dialog plugin for export_history / export_vocabulary
@@ -226,15 +256,24 @@ fn main() {
                 migrate::migrate_electron_userdata_async(&app_handle).await;
                 let state: tauri::State<'_, Arc<SidecarState>> = app_handle.state();
                 let state = state.inner().clone();
-                // Wrap in catch_unwind so a panic in initialize_sidecar
-                // (e.g. a future invariant violation) is logged with
-                // the actual panic message rather than silently lost
-                // (Tauri's runtime does not surface spawned-task panics).
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    tauri::async_runtime::block_on(async {
-                        sidecar::spawn::initialize_sidecar(&app_handle, state).await;
-                    });
-                }));
+                // Capture panics from initialize_sidecar (e.g. a future
+                // invariant violation) via FutureExt::catch_unwind so they
+                // are logged with the actual message instead of being
+                // silently lost (Tauri's runtime does not surface
+                // spawned-task panics). This task ALREADY runs on the
+                // tokio runtime (the async_runtime::spawn above) — the
+                // previous `std::panic::catch_unwind(|| ... block_on ...)`
+                // wrapper panicked at startup with "Cannot start a runtime
+                // from within a runtime": a future awaited inside a
+                // runtime worker must never call block_on.
+                // DO NOT bridge this back through `tauri::async_runtime::
+                // block_on` / std::thread + block_on — see AGENTS.md
+                // constraint C-TOKIO-1.
+                let result = AssertUnwindSafe(sidecar::spawn::initialize_sidecar(
+                    &app_handle, state,
+                ))
+                .catch_unwind()
+                .await;
                 if let Err(payload) = result {
                     let msg = payload
                         .downcast_ref::<&'static str>()

@@ -418,30 +418,22 @@ def test_tauri_conf_external_bin_uses_base_name():
     )
 
 
-def test_tauri_conf_shell_scope_declares_sidecar():
-    """``tauri.conf.json`` must declare the sidecar in ``plugins.shell.scope``.
+def test_tauri_conf_shell_config_is_v2_valid():
+    """``tauri.conf.json`` ``plugins.shell`` must be v2-valid.
 
-    ADR-0020 §7 + Tauri v2 capability model: the sidecar must be
-    explicitly scoped under ``plugins.shell.scope`` with ``sidecar: true``
-    + ``args: true`` so the Rust host can spawn it.
+    tauri-plugin-shell v2 accepts ONLY an ``open`` key and denies
+    unknown fields — the former v1-style ``plugins.shell.scope`` block
+    (sidecar entries + args) crashed app startup with "unknown field
+    `scope`, expected `open`". The ``--ws`` spawn contract is owned by
+    the spawn call sites (``src-tauri/src/sidecar/spawn.rs``), which
+    pass the WebSocket-mode flag explicitly on every spawn path.
     """
     conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
-    scope = conf.get("plugins", {}).get("shell", {}).get("scope", [])
-    sidecar_entries = [e for e in scope if e.get("name") == "bin/python-sidecar" and e.get("sidecar") is True]
-    assert sidecar_entries, (
-        "tauri.conf.json `plugins.shell.scope` must include an entry "
-        "with name=`bin/python-sidecar` + sidecar=true so the Rust host "
-        "can spawn the sidecar."
-    )
-    entry = sidecar_entries[0]
-    assert entry.get("cmd") == "bin/python-sidecar"
-    # #299: changed ``args: true`` → ``args: ["--ws"]`` in
-    # src-tauri/tauri.conf.json so the sidecar is always spawned with
-    # the WebSocket mode flag (the new IPC default). The args list
-    # is no longer a free-form bool — it pins the --ws contract.
-    assert entry.get("args") == ["--ws"], (
-        'sidecar scope entry must have args=["--ws"] so the Rust host '
-        "spawns the Python sidecar in WebSocket mode (FIX-5 #299)."
+    shell = conf.get("plugins", {}).get("shell")
+    assert shell == {"open": False}, (
+        "tauri.conf.json `plugins.shell` must be exactly {'open': false} — "
+        "tauri-plugin-shell v2 rejects 'sidecar'/'scope' keys at startup "
+        f"('unknown field `scope`, expected `open`'); got {shell!r}"
     )
 
 

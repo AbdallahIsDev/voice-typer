@@ -118,29 +118,11 @@
     }
   },
   "plugins": {
-    "notification": {},
-    "single-instance": {},
-    "dialog": {},
+    "notification": null,
+    "single-instance": null,
+    "dialog": null,
     "shell": {
-      "sidecar": true,
-      "scope": [
-        {
-          "name": "bin/python-sidecar",
-          "cmd": "bin/python-sidecar",
-          "sidecar": true,
-          "args": [
-            "--ws"
-          ]
-        },
-        {
-          "name": "bin/voice-typer-worker",
-          "cmd": "bin/voice-typer-worker",
-          "sidecar": true,
-          "args": [
-            "--ws"
-          ]
-        }
-      ]
+      "open": false
     }
   }
 }

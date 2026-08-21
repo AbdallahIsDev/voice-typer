@@ -240,15 +240,16 @@ class TestMainRsRegistersNotificationPlugin:
         )
 
 
-# ─── Test 2: tauri.conf.json declares "notification": {} in plugins ──────
+# ─── Test 2: tauri.conf.json declares "notification": null in plugins ────
 
 
 class TestTauriConfDeclaresNotificationPlugin:
     """Gate 2: tauri.conf.json must list ``notification`` in the plugins section."""
 
     def test_tauri_conf_json_has_notification_in_plugins(self):
-        """``tauri.conf.json`` MUST declare ``"notification": {}`` (or a
-        populated object) under the top-level ``plugins`` key.
+        """``tauri.conf.json`` MUST declare a ``notification`` entry under
+        the top-level ``plugins`` key (value ``null`` — see the sibling
+        unit-compatibility test).
 
         Tauri v2 requires BOTH the Rust plugin registration AND the
         config entry — the config block is what triggers generation of
@@ -267,17 +268,21 @@ class TestTauriConfDeclaresNotificationPlugin:
             "are not generated and the webview's notify() call fails on Linux."
         )
 
-    def test_notification_plugin_config_is_an_object(self):
-        """The ``notification`` plugin config MUST be a JSON object (even
-        if empty — ``{}``). A non-object value (e.g. ``null`` or
-        ``true``) is a config schema violation that breaks
-        ``cargo tauri build`` (which is the Linux build that produces
-        the ``.deb`` + ``.rpm`` + ``.AppImage`` bundles)."""
+    def test_notification_plugin_config_is_unit_compatible(self):
+        """The ``notification`` plugin config MUST be serde-unit compatible
+        (``null``). tauri-plugin-notification v2 registers NO config type
+        (its init is a plain ``Builder::new("notification")``), so the
+        runtime deserializes this entry into ``()`` — an empty map
+        (``{}``) fails app startup with "invalid type: map, expected
+        unit" (found on the first Windows host run; see tauri issue
+        #8769 for the same error class)."""
         src = _read(TAURI_CONF_JSON)
         conf = json.loads(src)
         notif_cfg = conf["plugins"]["notification"]
-        assert isinstance(notif_cfg, dict), (
-            f"tauri.conf.json plugins.notification must be a JSON object, got {type(notif_cfg).__name__}: {notif_cfg!r}"
+        assert notif_cfg is None, (
+            f"tauri.conf.json plugins.notification must be null (serde unit), got "
+            f"{type(notif_cfg).__name__}: {notif_cfg!r} — a non-null value fails "
+            "app startup with 'invalid type: map, expected unit'"
         )
 
 

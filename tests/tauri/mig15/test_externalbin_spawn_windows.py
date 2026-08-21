@@ -205,22 +205,22 @@ def test_tauri_conf_external_bin_lists_python_sidecar(tauri_conf) -> None:
         )
 
 
-def test_tauri_conf_shell_scope_allows_python_sidecar(tauri_conf) -> None:
-    """ADR-0020 §7: the shell capability must scope spawn to the sidecar.
+def test_tauri_conf_shell_config_is_v2_valid(tauri_conf) -> None:
+    """ADR-0020 §7: ``plugins.shell`` must be v2-valid (``{"open": false}``).
 
-    Tauri v2 rejects an unconstrained ``shell:allow-spawn``; the
-    capability must name the sidecar binary by its base name.
+    tauri-plugin-shell v2 accepts a single ``open`` config key and
+    denies unknown fields. The v1-style ``sidecar`` / ``scope`` keys
+    fail app startup with "unknown field `scope`, expected `open`"
+    (found on the first Windows host run — CI builds but never
+    launches the app). Sidecar spawning is owned by the Rust host via
+    ``app.shell().sidecar(...)`` (not ACL-gated); the JS-facing
+    ``shell:allow-spawn`` grant keeps its deny-all default scope.
     """
-    shell = tauri_conf.get("plugins", {}).get("shell", {})
-    assert shell.get("sidecar") is True, "plugins.shell.sidecar must be true to enable the externalBin API"
-    scope = shell.get("scope", [])
-    assert isinstance(scope, list) and scope, "plugins.shell.scope must be a non-empty list"
-    # At least one scope entry must name bin/python-sidecar with sidecar=true.
-    matches = [s for s in scope if s.get("name") == "bin/python-sidecar" and s.get("sidecar") is True]
-    assert matches, (
-        "plugins.shell.scope must include "
-        "{'name': 'bin/python-sidecar', 'sidecar': true} "
-        "(Tauri v2 requires explicit spawn scoping)"
+    shell = tauri_conf.get("plugins", {}).get("shell")
+    assert shell == {"open": False}, (
+        "plugins.shell must be exactly {'open': false} — tauri-plugin-shell "
+        "v2 rejects 'sidecar'/'scope' keys at startup ('unknown field "
+        f"`scope`, expected `open`'); got {shell!r}"
     )
 
 
@@ -736,10 +736,7 @@ def test_spawn_rs_uses_app_handle_not_concrete_process(spawn_rs_source) -> None:
     assert re.search(
         r"fn\s+spawn_sidecar_and_get_port(?:_with_shutdown)?\s*\(\s*app\s*:\s*&tauri::AppHandle",
         spawn_rs_source,
-    ), (
-        "spawn_sidecar_and_get_port(_with_shutdown) must take "
-        "`app: &tauri::AppHandle` (the public entry point)"
-    )
+    ), "spawn_sidecar_and_get_port(_with_shutdown) must take `app: &tauri::AppHandle` (the public entry point)"
 
 
 # ─── Test 8 (bonus): dev-mode fallback path is wired (ADR-0020 §14) ───

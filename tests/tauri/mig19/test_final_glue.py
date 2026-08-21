@@ -553,6 +553,32 @@ def test_tauri_conf_has_no_updater_plugin_entry(tauri_conf) -> None:
 # ─── Test 7: main.rs registers all required plugins ───────────────────
 
 
+def test_tauri_conf_unit_config_plugins_are_null(tauri_conf) -> None:
+    """Unit-config plugins MUST deserialize as serde units (``null``).
+
+    tauri-plugin-single-instance, tauri-plugin-notification, and
+    tauri-plugin-dialog register NO config type (their ``init`` calls
+    are plain ``Builder::new(...)`` in the plugins-workspace sources),
+    so the runtime deserializes their config entries into ``()``. An
+    empty map (``{}``) fails app startup with "invalid type: map,
+    expected unit" — found on the first Windows host run (CI builds
+    but never launches the app); same error class as tauri issue
+    #8769. The KEYS themselves must stay present (the §12 gate tests
+    assert presence), carrying explicit ``null`` values.
+    """
+    plugins = tauri_conf.get("plugins", {})
+    assert isinstance(plugins, dict), f"tauri.conf.json:plugins must be a dict; got {type(plugins).__name__}"
+    for plugin_name in ("single-instance", "notification", "dialog"):
+        assert plugin_name in plugins, (
+            f"tauri.conf.json:plugins must still declare '{plugin_name}' (the gate tests assert key presence)"
+        )
+        assert plugins[plugin_name] is None, (
+            f"tauri.conf.json:plugins.'{plugin_name}' must be null (serde unit) — "
+            f"got {plugins[plugin_name]!r}; any non-null value fails app startup "
+            "with 'invalid type: map, expected unit'"
+        )
+
+
 @pytest.mark.parametrize("plugin_crate", EXPECTED_MAIN_RS_PLUGINS)
 def test_main_rs_registers_required_plugin(main_rs_source, plugin_crate) -> None:
     """ADR-0020 §6 + §6.2 + §12 + MIG-1.1: main.rs must register every required plugin.
