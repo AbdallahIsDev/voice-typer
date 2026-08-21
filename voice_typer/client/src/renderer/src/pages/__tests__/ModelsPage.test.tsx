@@ -804,3 +804,46 @@ describe("ModelsPage — MDL-16: Select buttons disabled during download", () =>
 		expect(selectButton.getAttribute("disabled")).toBeNull();
 	});
 });
+
+describe("ModelsPage — segmented control card border treatment (2026-08-21)", () => {
+	afterEach(() => {
+		cleanup();
+		vi.clearAllMocks();
+		removeDialogMock();
+	});
+
+	it("renders the Local/Cloud tab container with the same border token as the model cards", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(MOCK_CONFIG);
+			if (type === "get_model_status") return Promise.resolve({});
+			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
+			return Promise.resolve(MOCK_CONFIG);
+		});
+		renderWithProviders(<ModelsPage />);
+		await waitFor(() => {
+			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
+		});
+
+		// The tablist is the SegmentedControl container; it must carry
+		// the model-card border treatment (`border border-border/10`
+		// `rounded-lg bg-(--bg-subtle)`) so the control reads as one
+		// card among the model cards — NOT a borderless strip. The tabs
+		// variant's base `border-none` was REMOVED (2026-08-21) because
+		// tailwind-merge treats `border` (width) and `border-none`
+		// (style) as different groups, so `border-style: none` silently
+		// killed the container border — guard against it returning.
+		const tablist = screen.getByRole("tablist");
+		const cls = tablist.className;
+		expect(cls).toContain("border-border/10");
+		expect(cls).toContain("rounded-lg");
+		expect(cls).toContain("bg-(--bg-subtle)");
+		expect(cls).not.toContain("border-none");
+
+		// The active segment indicator carries the SAME border token.
+		const activeTab = screen.getByRole("tab", {
+			name: t("models.localModels"),
+		});
+		// Radix/aria contract: active tab is selected.
+		expect(activeTab.getAttribute("aria-selected")).toBe("true");
+	});
+});

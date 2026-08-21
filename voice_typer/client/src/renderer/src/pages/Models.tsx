@@ -135,7 +135,16 @@ export default function ModelsPage() {
 						ariaLabel={t("models.title")}
 						indicatorClassName={tabPageIndicatorClassName}
 						labelClassName="flex-1 text-center"
-						className="w-full rounded-lg bg-(--bg-subtle)"
+						//(2026-08-21): the outer tab container now carries the
+						// SAME card/surface border treatment as the model
+						// cards below it (`rounded-lg border border-border/10
+						// bg-(--bg-subtle)` — the ModelGroupAccordion token),
+						// so the segmented control reads as one card among
+						// the model cards instead of a borderless strip.
+						// The active segment uses the matching
+						// `border-border/10` treatment via
+						// `tabPageIndicatorClassName`.
+						className="w-full rounded-lg border border-border/10 bg-(--bg-subtle)"
 						getTabId={(v) => `models-tab-${v}`}
 						getPanelId={(v) => `models-panel-${v}`}
 					/>

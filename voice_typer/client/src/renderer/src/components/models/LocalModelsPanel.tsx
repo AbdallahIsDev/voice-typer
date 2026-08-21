@@ -350,19 +350,29 @@ function ModelMetadataLine({ meta }: { meta: ModelMetadata }) {
 					value={formatWer(meta.wer)}
 				/>
 			)}
-			<MetadataTag>
-				{meta.multilingual
-					? t("models.card.multilingual")
-					: t("models.card.englishOnly")}
-			</MetadataTag>
-			<MetadataTag>
-				{t("models.card.speedSuffix", {
-					rating: formatModelSpeed(meta.speed_rating),
-				})}
-			</MetadataTag>
-			{meta.is_distilled && (
-				<MetadataTag>{t("models.card.distilled")}</MetadataTag>
-			)}
+			{/* (2026-08-21): the metadata line is now TWO independent
+			    groups — the information group (VRAM/WER pairs above) and
+			    this label group (all descriptive tags). The outer flex
+			    (`ModelVariantRow`) keeps `gap-x-3` between the last
+			    information pair and this group; the tags WITHIN the group
+			    use the tighter `gap-x-1.5` so "Multilingual" / "Fast
+			    Speed" / "Distilled" read as one cluster instead of being
+			    spaced as far apart as the VRAM/WER metrics. */}
+			<span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1.5">
+				<MetadataTag>
+					{meta.multilingual
+						? t("models.card.multilingual")
+						: t("models.card.englishOnly")}
+				</MetadataTag>
+				<MetadataTag>
+					{t("models.card.speedSuffix", {
+						rating: formatModelSpeed(meta.speed_rating),
+					})}
+				</MetadataTag>
+				{meta.is_distilled && (
+					<MetadataTag>{t("models.card.distilled")}</MetadataTag>
+				)}
+			</span>
 		</>
 	);
 }

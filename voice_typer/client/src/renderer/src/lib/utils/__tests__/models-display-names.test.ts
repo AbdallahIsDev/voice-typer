@@ -12,6 +12,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	formatModelDisplayName,
+	formatModelSize,
 	getModelVariantDisplayName,
 	type ModelInfo,
 	requiresHuggingFaceConsent,
@@ -99,5 +100,34 @@ describe("requiresHuggingFaceConsent — JIT consent gate scope (point 4)", () =
 
 	it("does NOT gate qwen (local-only — nothing phones home)", () => {
 		expect(requiresHuggingFaceConsent(makeModel("qwen", "qwen"))).toBe(false);
+	});
+});
+
+describe("formatModelSize — canonical `<number> <UNIT>` display (2026-08-21)", () => {
+	it("strips the ~ approximation marker and inserts the number/unit space", () => {
+		expect(formatModelSize("~75MB")).toBe("75 MB");
+		expect(formatModelSize("~3GB")).toBe("3 GB");
+		expect(formatModelSize("~809MB")).toBe("809 MB");
+		expect(formatModelSize("~2.5GB")).toBe("2.5 GB");
+	});
+
+	it("normalizes an already-canonical size (no-op) and the ≈ marker", () => {
+		expect(formatModelSize("75 MB")).toBe("75 MB");
+		expect(formatModelSize("≈809MB")).toBe("809 MB");
+	});
+
+	it("uppercases the unit and trims surrounding whitespace", () => {
+		expect(formatModelSize(" 3gb ")).toBe("3 GB");
+		expect(formatModelSize("999TB")).toBe("999 TB");
+		// Generic for arbitrary providers — supports a potential TB size.
+		expect(formatModelSize("~1.2TB")).toBe("1.2 TB");
+	});
+
+	it("keeps the Variable sentinel translated", () => {
+		expect(formatModelSize("Variable")).toBe("Variable");
+	});
+
+	it("passes through unrecognized strings untouched", () => {
+		expect(formatModelSize("custom-path")).toBe("custom-path");
 	});
 });

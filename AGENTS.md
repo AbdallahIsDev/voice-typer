@@ -930,6 +930,38 @@ Applies to: All agents, all modes, all sub-agents.
 
 ---
 
+## Category: Models Page UI
+
+```
+C-MODELS-1
+Rule: Do NOT remove or weaken the bordered card treatment on the Models page segmented control, and do NOT apply it to only one layer. BOTH layers MUST carry the same card/surface border token (`border border-border/10`): (a) the OUTER parent container that directly holds the Local/Cloud options — the `SegmentedControl` root (role="tablist") with `rounded-lg border border-border/10 bg-(--bg-subtle)` in `voice_typer/client/src/renderer/src/pages/Models.tsx` — and (b) the ACTIVE option's indicator (`tabPageIndicatorClassName` = `bg-(--bg) border border-border/10` in `_tabBarStyles.ts`). The tabs variant in `segmented-control.tsx` MUST NOT re-add `border-none` (its `border-style: none` silently cancels the container border — tailwind-merge treats `border` and `border-none` as different groups, so both classes survive). Do NOT introduce a new border color.
+Rationale: The segmented control must read as one bordered card among the model cards — both its outer container and its active option must share the card border. Established 2026-08-21; a border on only the active option left the container looking like a borderless strip.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-MODELS-2
+Rule: Do NOT let model-size download buttons resize to their content, center their content, or use an oversized icon. Every model-size Download button MUST use the shared tokens exported from `voice_typer/client/src/renderer/src/components/models/ModelCardActions.tsx`: fixed width `DOWNLOAD_SIZE_BUTTON_WIDTH` (`w-[88px]`), left alignment `DOWNLOAD_CONTENT_ALIGNMENT` (`justify-start` — icon + size text share one start position across every row, overriding the Button base's `justify-center`), and the compact icon size `DOWNLOAD_ICON_CLASS` (`h-3.5 w-3.5`) so the download icon visually matches the 11px size text. Do NOT hardcode per-model widths, do NOT center the content, do NOT reintroduce the 16px `h-4` icon, and do NOT remove the `~`-stripping / number+unit-spacing normalization in `formatModelSize` (`voice_typer/client/src/renderer/src/lib/utils/models.ts`). Sizes must render as `75 MB` / `3 GB` / `809 MB` — no `~`, space always present. The "Download Deps" button (a label, not a size) is exempt from the fixed width but keeps the same left alignment.
+Rationale: Content-fitted widths and centered content misaligned the download buttons across model rows, and a 16px icon dominated the 11px size text. Fixed identical width + left-aligned content + a balanced 14px icon keep every model's Download button consistent, aligned, and proportional.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-MODELS-3
+Rule: Do NOT flatten the model-card metadata line back into one uniform gap. The metadata must stay two independent groups: the information group (VRAM/WER `MetadataPair`s, spaced `gap-x-3` in `ModelVariantRow`) and the label group (all `MetadataTag` badges, wrapped in a `<span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1.5">` in `LocalModelsPanel`'s `ModelMetadataLine`). Keep `gap-x-3` between the WER pair and the first label; keep `gap-x-1.5` between the labels themselves.
+Rationale: Uniform `gap-x-3` spread the descriptive badges (Multilingual / Fast Speed / Distilled) as far apart as the VRAM/WER metrics, breaking the "two groups" reading. The two-group structure was established 2026-08-21.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-MODELS-4
+Rule: Do NOT replace the provider/family expand/collapse affordance with a minus icon, a chevron, a rotating icon, or any plus-to-other-symbol transition. The accordion trigger icon in `voice_typer/client/src/renderer/src/components/ui/accordion.tsx` MUST be a single persistent `PlusSignIcon` that stays a `+` in BOTH the collapsed and expanded states, with `data-slot="accordion-trigger-icon"` + `aria-hidden="true"` and NO icon-state animation classes (the Radix trigger owns `aria-expanded`). Clicking the icon still expands/collapses the provider — only the icon's appearance is intentionally constant.
+Rationale: A static plus in both states is the user's explicit design decision (2026-08-21). Earlier iterations that swapped `+`→`−` or animated a rotating chevron were reverted; the affordance is deliberately identical whether the group is open or closed.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+---
+
 ## How the adds / edits constraints
 
 1. Add a new constraint block under the appropriate category (or create a new category with a `## Category: <name>` header).

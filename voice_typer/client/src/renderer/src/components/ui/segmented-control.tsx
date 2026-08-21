@@ -316,7 +316,7 @@ export function SegmentedControl<T extends string>({
 					(radius === "sm"
 						? "rounded-[4px] border border-border/10 bg-(--bg-subtle) p-0.5"
 						: "rounded-full border border-border/10 bg-(--bg-subtle) p-0.75"),
-				variant === "tabs" && "bg-transparent border-none rounded-none p-1",
+				variant === "tabs" && "bg-transparent rounded-none p-1",
 				className,
 			)}
 		>

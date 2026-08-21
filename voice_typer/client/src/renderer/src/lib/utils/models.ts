@@ -92,7 +92,7 @@ export interface ModelFamily {
 export const INITIAL_MODELS: ModelInfo[] = [
 	{
 		name: "tiny",
-		size: "~75MB",
+		size: "75 MB",
 		speed: "Fastest",
 		backend: "whisper",
 		downloaded: false,
@@ -101,7 +101,7 @@ export const INITIAL_MODELS: ModelInfo[] = [
 	},
 	{
 		name: "large-v3",
-		size: "~3GB",
+		size: "3 GB",
 		speed: "Slow",
 		backend: "whisper",
 		downloaded: false,
@@ -110,7 +110,7 @@ export const INITIAL_MODELS: ModelInfo[] = [
 	},
 	{
 		name: "large-v3-turbo",
-		size: "~809MB",
+		size: "809 MB",
 		speed: "Fast",
 		backend: "whisper",
 		downloaded: false,
@@ -143,7 +143,7 @@ export const INITIAL_MODELS: ModelInfo[] = [
 	},
 	{
 		name: "parakeet",
-		size: "~2.5GB",
+		size: "2.5 GB",
 		speed: "Fast",
 		backend: "parakeet",
 		downloaded: false,
@@ -204,8 +204,26 @@ export function getProviderLabel(providerKey: string): string {
 
 // I18N-FIX: model size "Variable" is the sentinel used by the Qwen entry.
 // Translate it for display; pass through literal sizes like ~466MB.
+//
+// (2026-08-21): `formatModelSize` now NORMALIZES any size string into
+// the canonical `<number> <UNIT>` shape (e.g. `~466MB` → `466 MB`,
+// `2.5gb` → `2.5 GB`) instead of passing the raw string through. This
+// keeps display consistent for arbitrary model sizes/providers even
+// when the source value carries a `~`/`≈` approximation marker or
+// missing spacing — the renderer seed in `INITIAL_MODELS` is already
+// canonical, and this normalizer guards against any future drift.
+const MODEL_SIZE_NORMALIZER = /^(?:~|≈)?\s*(\d+(?:[.,]\d+)?)\s*([A-Za-z]+)$/;
 export function formatModelSize(size: string): string {
-	return size === "Variable" ? t("models.variable") : size;
+	const trimmed = size.trim();
+	if (trimmed === "Variable") return t("models.variable");
+	const match = MODEL_SIZE_NORMALIZER.exec(trimmed);
+	if (!match) return trimmed;
+	// The regex guarantees both capture groups exist when it matches
+	// (`noUncheckedIndexedAccess` keeps destructured array indices typed
+	// optional, hence the explicit guard before formatting).
+	const [, number, unit] = match;
+	if (number === undefined || unit === undefined) return trimmed;
+	return `${number} ${unit.toUpperCase()}`;
 }
 
 const SPEED_I18N_MAP: Record<string, string> = {

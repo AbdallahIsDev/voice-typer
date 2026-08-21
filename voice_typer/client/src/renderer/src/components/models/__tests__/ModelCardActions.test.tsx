@@ -31,16 +31,19 @@ import { ModelCardActions } from "@/components/models/ModelCardActions";
 import type { ModelInfo } from "@/lib/utils/models";
 
 // Mock the HugeiconsIcon wrapper so we can assert which icon was used via
-// the data-name attribute (without pulling in the SVG renderer).
+// the data-name attribute (without pulling in the SVG renderer). The
+// className is forwarded so tests can assert icon sizing classes.
 vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: ({
 		children,
 		icon,
+		className,
 	}: {
 		children?: React.ReactNode;
 		icon?: { name?: string };
+		className?: string;
 	}) => (
-		<span data-testid="hugeicon" data-name={icon?.name}>
+		<span data-testid="hugeicon" data-name={icon?.name} className={className}>
 			{children}
 		</span>
 	),
@@ -535,5 +538,90 @@ describe("ModelCardActions — DeleteButton rendering", () => {
 		);
 		screen.getByRole("button", { name: /Delete tiny/i }).click();
 		expect(onDelete).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("ModelCardActions — download button size display + fixed width (2026-08-21)", () => {
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("Branch 2 Download button shows the normalized size (no ~, number + space + unit)", () => {
+		render(
+			<ModelCardActions
+				model={{ ...baseModel, size: "~466MB", downloaded: false }}
+				isSelectingThis={false}
+				isDownloadingThis={false}
+				anyDownloading={false}
+				onSelect={noop}
+				onDownload={noop}
+				onDelete={noop}
+			/>,
+		);
+		const dlBtn = screen.getByRole("button", { name: /Download tiny/i });
+		// The visible size is the canonical "466 MB" — the `~` is gone
+		// and a space separates the number from the unit.
+		expect(dlBtn).toHaveTextContent("466 MB");
+		expect(dlBtn).not.toHaveTextContent("~");
+		expect(dlBtn).not.toHaveTextContent("466MB");
+	});
+
+	it("download buttons are left-aligned so icon + text share one start position", () => {
+		render(
+			<ModelCardActions
+				model={{ ...baseModel, size: "75 MB", downloaded: false }}
+				isSelectingThis={false}
+				isDownloadingThis={false}
+				anyDownloading={false}
+				onSelect={noop}
+				onDownload={noop}
+				onDelete={noop}
+			/>,
+		);
+		const dlBtn = screen.getByRole("button", { name: /Download tiny/i });
+		// `justify-start` (the shared DOWNLOAD_CONTENT_ALIGNMENT token)
+		// overrides the Button base's centered `justify-center`.
+		expect(dlBtn.className).toContain("justify-start");
+		// The download icon is the compact 14px size (DOWNLOAD_ICON_CLASS)
+		// so it visually matches the 11px size text instead of dominating.
+		const icon = dlBtn.querySelector('[data-testid="hugeicon"]');
+		expect(icon?.className).toContain("h-3.5");
+		expect(icon?.className).toContain("w-3.5");
+	});
+
+	it("every model-size Download button shares one fixed width, regardless of the size shown", () => {
+		const { rerender } = render(
+			<ModelCardActions
+				model={{ ...baseModel, size: "75 MB", downloaded: false }}
+				isSelectingThis={false}
+				isDownloadingThis={false}
+				anyDownloading={false}
+				onSelect={noop}
+				onDownload={noop}
+				onDelete={noop}
+			/>,
+		);
+		const buttonFor = (size: string) => {
+			rerender(
+				<ModelCardActions
+					model={{ ...baseModel, size, downloaded: false }}
+					isSelectingThis={false}
+					isDownloadingThis={false}
+					anyDownloading={false}
+					onSelect={noop}
+					onDownload={noop}
+					onDelete={noop}
+				/>,
+			);
+			return screen.getByRole("button", { name: /Download tiny/i });
+		};
+
+		// The shared DOWNLOAD_SIZE_BUTTON_WIDTH token must be applied to
+		// every size button so "75 MB" / "809 MB" / "3 GB" render with
+		// identical width + alignment.
+		const widths = ["75 MB", "809 MB", "3 GB", "2.5 GB"].map(
+			(size) => buttonFor(size).className,
+		);
+		expect(widths.every((cls) => cls.includes("w-[88px]"))).toBe(true);
 	});
 });

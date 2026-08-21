@@ -414,7 +414,7 @@ describe("SegmentedControl keyboard navigation", () => {
 // ── Tabs variant ────────────────────────────────────────────────────────────
 
 describe("SegmentedControl tabs variant", () => {
-	it("renders with transparent background and no border-radius", () => {
+	it("renders with transparent background, no border-radius, and no forced border-none", () => {
 		render(
 			<SegmentedControl
 				variant="tabs"
@@ -429,7 +429,13 @@ describe("SegmentedControl tabs variant", () => {
 		// navigation region per the WAI-ARIA Tabs pattern.
 		const group = screen.getByRole("tablist");
 		expect(group.className).toContain("bg-transparent");
-		expect(group.className).toContain("border-none");
+		//(2026-08-21): the tabs base no longer emits `border-none` —
+		// `border-none` sets `border-style: none`, and tailwind-merge
+		// treats it as a DIFFERENT group from the `border` width class,
+		// so a caller's `border border-border/10` (Models page card
+		// treatment) was silently cancelled by `border-style: none`.
+		// Callers now own the border entirely.
+		expect(group.className).not.toContain("border-none");
 		expect(group.className).toContain("rounded-none");
 		expect(group.className).not.toContain("rounded-full");
 		expect(group.className).not.toContain("bg-input/50");

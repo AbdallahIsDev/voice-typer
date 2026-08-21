@@ -64,8 +64,8 @@ export const tabPageHeaderClassName =
 	"sticky left-0 right-0 top-0 z-50 bg-(--bg-subtle) border-b border-border/10";
 
 /**
- * Standard SegmentedControl visual overrides for the Settings + Models
- * tab bars. Apply to the `<SegmentedControl>` component as:
+ * Standard SegmentedControl visual overrides for the Models page tab
+ * bar. Apply to the `<SegmentedControl>` component as:
  *
  *   ```tsx
  *  <SegmentedControl
@@ -77,11 +77,13 @@ export const tabPageHeaderClassName =
  *  />
  *  ```
  *
- * The indicator uses `bg-(--bg) border border-border/75` so the active
- * tab reads as a raised surface above the bg-subtle tab bar (matches
- * the original Models treatment, which had better contrast than the
- * Settings `bg-input/50` approach). The label/className props are kept
- * inline on the call site because they don't differ between pages —
- * only the indicator needed unifying.
+ * The indicator uses `bg-(--bg) border border-border/10` — the SAME
+ * border token as the model cards beneath the tab bar
+ * (`ModelGroupAccordion` uses `rounded-lg border border-border/10
+ * bg-(--bg-subtle)`). The active segment therefore reads as the same
+ * card/surface treatment as the model list it controls, rather than a
+ * darker `border-border/75` outlier. (2026-08-21: previously /75;
+ * changed to the card token so the segmented control and its cards
+ * share one border language.)
  */
-export const tabPageIndicatorClassName = "bg-(--bg) border border-border/75";
+export const tabPageIndicatorClassName = "bg-(--bg) border border-border/10";

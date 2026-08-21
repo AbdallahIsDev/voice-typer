@@ -1,4 +1,4 @@
-import { MinusSignIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
+import { PlusSignIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Accordion as AccordionPrimitive } from "radix-ui";
 import type * as React from "react";
@@ -50,31 +50,24 @@ function AccordionTrigger({
 			>
 				{children}
 				{/*
-					(UI/UX overhaul 2026-08-20): the expand/collapse
-					glyph is a plus (+) / minus (–) pair instead of the
-					chevron-down/up pair. The chevron is strongly
-					associated with FAQ/accordion "reveal an answer"
-					patterns, which implies clicking will reveal
-					explanatory text rather than a list of downloadable
-					items. A plus in the collapsed state signals "there's
-					more to see here" without the FAQ connotation; the
-					minus in the expanded state signals "click to
-					collapse". Both icons are aria-hidden (the Radix
-					trigger carries the accessible name + aria-expanded).
+					(2026-08-21): the expand/collapse glyph is a single
+					PlusSignIcon that stays a `+` in BOTH the collapsed and
+					expanded states — it never swaps to a minus, chevron, or
+					any other symbol, and there is intentionally NO
+					icon-state transition (the affordance is deliberately
+					identical whether the group is open or closed). A
+					previous iteration swapped `+`→`−` and then to a
+					rotating chevron; both were reverted per the user's
+					design decision. The Radix trigger still carries the
+					accessible name + aria-expanded; the icon is
+					aria-hidden.
 				*/}
 				<HugeiconsIcon
 					icon={PlusSignIcon}
 					strokeWidth={2}
 					data-slot="accordion-trigger-icon"
 					aria-hidden="true"
-					className="pointer-events-none shrink-0 group-aria-expanded/accordion-trigger:hidden"
-				/>
-				<HugeiconsIcon
-					icon={MinusSignIcon}
-					strokeWidth={2}
-					data-slot="accordion-trigger-icon"
-					aria-hidden="true"
-					className="pointer-events-none hidden shrink-0 group-aria-expanded/accordion-trigger:inline"
+					className="pointer-events-none shrink-0"
 				/>
 			</AccordionPrimitive.Trigger>
 		</AccordionPrimitive.Header>

@@ -60,6 +60,26 @@ import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import { formatModelSize, type ModelInfo } from "@/lib/utils/models";
 
+// ── Fixed width for model-size download buttons ───────────────────────
+//
+// (2026-08-21): every "Download <size>" button uses ONE shared width so
+// the buttons line up identically across models regardless of the size
+// shown ("75 MB", "3 GB", "809 MB" — all fit). The budget comfortably
+// accommodates the download icon (14px) + gap (4px) + the largest
+// supported display value (up to three digits + space + unit, incl.
+// "TB"). Apply this token to the Download button in Branch 2; the
+// "Download Deps" button (Branch 4) shows a label instead of a size and
+// keeps its intrinsic width. Buttons that display a size also apply
+// `justify-start` so the icon + text begin at the same left position in
+// every row (the Button base centers its content by default).
+export const DOWNLOAD_SIZE_BUTTON_WIDTH = "w-[88px]";
+// Content is left-aligned (icon + size text share one start position
+// across all model rows) instead of centered inside the fixed width.
+export const DOWNLOAD_CONTENT_ALIGNMENT = "justify-start";
+// Compact download icon that visually matches the 11px size text
+// height (16px `h-4` dominated the button; 14px reads proportional).
+export const DOWNLOAD_ICON_CLASS = "h-3.5 w-3.5";
+
 export interface ModelCardActionsProps {
 	model: ModelInfo;
 	/** True while THIS model is being selected (Select button shows spinner). */
@@ -167,7 +187,9 @@ export function ModelCardActions({
 				<Button
 					variant="outline"
 					size="sm"
-					className="gap-1"
+					//(2026-08-21): left-aligned like the size Download
+					// buttons (content shares the same start position).
+					className={cn("gap-1", DOWNLOAD_CONTENT_ALIGNMENT)}
 					onClick={onInstallDeps}
 					disabled={anyDownloading}
 					aria-busy={isInstallingDepsThis}
@@ -223,7 +245,18 @@ export function ModelCardActions({
 				<Button
 					variant="outline"
 					size="sm"
-					className="gap-1"
+					//(2026-08-21): fixed, identical width for every model-size
+					// Download button (see DOWNLOAD_SIZE_BUTTON_WIDTH above) —
+					// "75 MB" / "3 GB" / "809 MB" all render the same button
+					// width + alignment instead of fitting their content. The
+					// content is left-aligned (justify-start) so the icon +
+					// size text begin at the same horizontal position in every
+					// model row instead of being centered.
+					className={cn(
+						"gap-1",
+						DOWNLOAD_SIZE_BUTTON_WIDTH,
+						DOWNLOAD_CONTENT_ALIGNMENT,
+					)}
 					onClick={onDownload}
 					disabled={anyDownloading}
 					aria-busy={isDownloadingThis}
@@ -245,16 +278,24 @@ export function ModelCardActions({
 					<HugeiconsIcon
 						icon={Download01Icon}
 						strokeWidth={2}
-						className={cn("h-4 w-4", isDownloadingThis && "animate-spin")}
+						//(2026-08-21): compact 14px icon so it visually
+						// matches the 11px size text instead of dominating
+						// the button (16px `h-4` was too large).
+						className={cn(
+							DOWNLOAD_ICON_CLASS,
+							isDownloadingThis && "animate-spin",
+						)}
 					/>
 					{/* (UI/UX overhaul 2026-08-20, point 7): the download
 					    button shows the download icon followed by the model
-					    size ONLY (e.g. "↓ 75MB") — no "Size:" label prefix
+					    size ONLY (e.g. "↓ 75 MB") — no "Size:" label prefix
 					    (the icon communicates "download"). The size was
 					    moved here from the muted metadata line where it was
 					    easy to overlook. The downloadAria aria-label still
 					    carries the full affordance, and the label swaps to
-					    "Downloading…" while in-flight. */}
+					    "Downloading…" while in-flight. (2026-08-21:
+					    `formatModelSize` strips `~`/`≈` and inserts the
+					    number/unit space — see lib/utils/models.) */}
 					<span className="text-[11px] font-medium">
 						{formatModelSize(model.size)}
 					</span>

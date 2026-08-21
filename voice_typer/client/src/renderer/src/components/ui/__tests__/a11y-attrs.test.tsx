@@ -216,8 +216,8 @@ describe("AlertDialog — aria-modal={true}", () => {
 	});
 });
 
-describe("Accordion — decorative chevron aria-hidden", () => {
-	it("both chevron icons are marked aria-hidden=true", () => {
+describe("Accordion — decorative plus-icon aria-hidden", () => {
+	it("the persistent plus icon is marked aria-hidden=true", () => {
 		render(
 			<Accordion type="single">
 				<AccordionItem value="item-1">
@@ -229,7 +229,10 @@ describe("Accordion — decorative chevron aria-hidden", () => {
 		const icons = document.querySelectorAll(
 			'[data-slot="accordion-trigger-icon"]',
 		);
-		expect(icons.length).toBe(2);
+		//(2026-08-21): the expand/collapse glyph is a single PlusSignIcon
+		// that stays a `+` in both collapsed AND expanded states — exactly
+		// one decorative icon per trigger, still aria-hidden.
+		expect(icons.length).toBe(1);
 		for (const icon of icons) {
 			expect(icon.getAttribute("aria-hidden")).toBe("true");
 		}
