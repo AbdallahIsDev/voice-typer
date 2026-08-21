@@ -917,6 +917,13 @@ Rationale: These four bugs made the shipped app IMPOSSIBLE to launch on any plat
 Applies to: All agents, all modes, all sub-agents. Regression guards: `tests/tauri/mig19/test_final_glue.py::test_tauri_conf_unit_config_plugins_are_null` + the `test_tauri_conf_shell_config_is_v2_valid` tests in `tests/tauri/mig15|16|17|18`.
 ```
 
+```
+C-TAURI-3
+Rule: Do NOT change the `dispatch` Tauri command's parameter shape away from FLAT `(cmd: String, data: Option<Value>)`, and do NOT introduce struct-typed parameters on ANY `#[tauri::command]` that the renderer invokes. Tauri v2 maps each JS `invoke()` key to a PARAMETER NAME — a single `args: DispatchArgs` param makes the host expect the top-level key `args`, and every renderer call fails with `invalid args 'args' for command 'dispatch': missing required key args`. The renderer contract is exactly `invoke('dispatch', { cmd, data })` (`python-namespace.ts` + allowlist.rs doc comment).
+Rationale: Found on the first Windows host run (2026-08-21): the UI showed "Lost connection to Python backend" while the host↔sidecar WS link was perfectly healthy, because every renderer→host invoke died at arg-name matching. Renderer unit tests stub `invoke()` and can NEVER catch Rust-side arg-name drift — only a real host run (or an integration test driving the real command layer) can.
+Applies to: All agents, all modes, all sub-agents. Guard comment lives inline at `commands/sidecar_cmds/dispatch.rs::dispatch`.
+```
+
 ---
 
 ## Category: Rust Async & Tokio Runtime
@@ -936,6 +943,20 @@ Applies to: All agents, all modes, all sub-agents. Guard comment lives inline at
 C-WS-1
 Rule: Do NOT reorder the three post-auth calls in `voice_typer/server/sidecar_ws.py::_handle_connection_inner`: `_install_subscriber` (subscribe only) → `_emit_ready_if_first` (publishes `ready`) → `_emit_initial_state_snapshot` (publishes `state_changed`). The initial `state_changed` snapshot MUST stay OUT of `_install_subscriber` and MUST be emitted AFTER `ready`. Symmetrically, do NOT weaken the Rust-side strictness in `src-tauri/src/sidecar/ws.rs::wait_for_auth_ok` (it accepts ONLY `auth_ok` / `ready` as the first post-auth frame — that strictness is a deliberate SEC decision so a compromised sidecar can't skip auth with an arbitrary first frame like `bubble_level`).
 Rationale: The wire contract is "`ready` is the FIRST post-auth frame". When the snapshot lived inside `_install_subscriber`, it raced in ahead of `ready` and every Tauri handshake died with `WS auth unexpected frame type: state_changed`, triggering an endless supervisor respawn → full-app-relaunch loop. Reordering also risks re-breaking the older CR fix (ready published before the subscriber exists = ready lost entirely, UI never hydrates). Fixed 2026-08-21; guards: `tests/test_sidecar_ws_ready_ordering.py`, `tests/test_sidecar_ws_handle_connection_split.py`, `tests/test_sidecar_ready_emitted.py`.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-WS-2
+Rule: Do NOT send sidecar→host WS frames as BYTES. `_safe_send` (and every other outbound path in `voice_typer/server/sidecar_ws.py`) MUST hand `websocket.send()` a **`str`** — the `websockets` library maps `str` → TEXT opcode and `bytes` → BINARY opcode, and the Rust host's reader parses TEXT only (binary frames are logged-and-dropped per C-WS-2 on the Rust side). Every dispatch response MUST also carry a numeric top-level `id` echoed from the request. Symmetrically, do NOT remove the host reader's Binary-frame WARN or its numeric-id pending resolution.
+Rationale: Found on the first Windows host run (2026-08-21): `_safe_send` passed UTF-8 bytes to `websocket.send()`, so EVERY dispatch response left as a BINARY frame and was silently discarded inside the host — all renderer commands timed out ("Lost connection to Python backend") while heartbeat acks (sent inline as `str`) kept flowing. A test in `tests/test_sidecar_ws.py` had pinned the WRONG contract (`isinstance(payload, bytes)`); it now pins `str`. Guards: `tests/test_sidecar_ws_safe_send_text_frames.py` + the updated assertion in `tests/test_sidecar_ws.py::TestSafeSendSizeCapRegression`.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-WS-3
+Rule: Do NOT enqueue a supervisor respawn request without carrying the requesting connection's WS generation (`Some(my_generation)` in `trigger_respawn_off_thread`), and do NOT remove the dequeue-time staleness re-check in the supervisor loop / one-shot fallback (`respawn_scheduler.rs`). Only heartbeat-liveness and auth-failure paths may pass `None`.
+Rationale: Reader/writer cleanup blocks decide "connection died → respawn" synchronously but EXECUTE the request asynchronously via the supervisor queue. Without a generation re-check at dequeue time, a stale decision lands AFTER a newer reconnect went live and kills the healthy new connection — observed 2026-08-21 as an infinite kill/restart ping-pong (~1 respawns/sec) started by a single external sidecar kill.
 Applies to: All agents, all modes, all sub-agents.
 ```
 

@@ -228,6 +228,7 @@ pub(super) async fn spawn_heartbeat_task(
                                 super::respawn_scheduler::trigger_respawn_off_thread(
                                     heartbeat_app.clone(),
                                     heartbeat_state_for_task.clone(),
+                                    None,
                                 );
                                 break;
                             }
@@ -248,6 +249,7 @@ pub(super) async fn spawn_heartbeat_task(
                                 super::respawn_scheduler::trigger_respawn_off_thread(
                                     heartbeat_app.clone(),
                                     heartbeat_state_for_task.clone(),
+                                    None,
                                 );
                                 break;
                             }
@@ -275,6 +277,7 @@ pub(super) async fn spawn_heartbeat_task(
                                 super::respawn_scheduler::trigger_respawn_off_thread(
                                     heartbeat_app.clone(),
                                     heartbeat_state_for_task.clone(),
+                                    None,
                                 );
                                 break;
                             }

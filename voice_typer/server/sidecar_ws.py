@@ -488,7 +488,20 @@ async def _safe_send(websocket, event: dict) -> str:
         )
         return "dropped"
     try:
-        await asyncio.wait_for(websocket.send(raw_bytes), timeout=_WS_SEND_TIMEOUT_SECONDS)
+        # WIRE CONTRACT (do not "optimize" this decode away): dispatch
+        # responses MUST go out as WS **TEXT** frames carrying a numeric
+        # top-level ``id``. The Rust host's reader parses
+        # ``Message::Text`` only and silently ignores ``Message::Binary``
+        # — sending the encoded bytes directly produces BINARY frames,
+        # every dispatch response vanishes inside the host, and ALL
+        # renderer commands time out while heartbeat acks (sent inline
+        # as ``str``) keep flowing ("Lost connection to Python backend",
+        # first Windows host run 2026-08-21). Binding rule:
+        # AGENTS.md constraint C-WS-2.
+        await asyncio.wait_for(
+            websocket.send(raw_bytes.decode("utf-8")),
+            timeout=_WS_SEND_TIMEOUT_SECONDS,
+        )
     except asyncio.TimeoutError:
         log.warning(
             "[SIDECAR-WS] send timed out after %.1fs — closing connection",
@@ -1735,6 +1748,14 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
         # correlation (ADR-0020 §7 — the host's dispatch() command
         # assigns a per-request id). Echo it back on the response.
         request_id = msg.get("id")
+        # DEBUG wire-trace (C-TAURI-3 diagnosis aid): one line per
+        # inbound frame so a host↔sidecar frame loss can be bisected
+        # end-to-end against the Rust-side [dispatch] id= lines.
+        log.debug(
+            "[SIDECAR-WS] RX frame type=%s id=%s",
+            msg.get("type"),
+            request_id,
+        )
         # heartbeat fast-path. Handle heartbeat INLINE in
         # the read loop BEFORE awaiting ``dispatch()`` so the
         # heartbeat-ack is not delayed by an in-flight long
@@ -1799,6 +1820,11 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
             # ``json.dumps``, (2) block forever on a wedged peer, and
             # (3) exceed the 1 MiB cap that ADR-0020 §10 mandates.
             send_status = await _safe_send(websocket, result)
+            log.debug(
+                "[SIDECAR-WS] TX response id=%s status=%s",
+                request_id,
+                send_status,
+            )
             if send_status != "sent":
                 # ``"dropped"`` (oversized) or ``"failed"`` (timeout /
                 # send error). For ``"dropped"`` the host is expecting

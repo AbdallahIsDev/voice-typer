@@ -442,7 +442,17 @@ fn spawn_writer_task(
                     log::warn!("[WS-WRITER] failed to emit supervisor_relaunching: {}", e);
                 }
                 log::warn!("[WS-WRITER] write half closed — triggering supervisor respawn");
-                trigger_respawn_off_thread(app_for_cleanup.clone(), state_for_cleanup.clone());
+                // pass `Some(my_generation)`: this decision is made
+                // synchronously but EXECUTED asynchronously (the
+                // supervisor dequeues later). If a newer reconnect went
+                // live in between, the dequeue-time generation re-check
+                // inside the supervisor loop drops this request instead
+                // of killing the healthy newer connection.
+                trigger_respawn_off_thread(
+                    app_for_cleanup.clone(),
+                    state_for_cleanup.clone(),
+                    Some(my_generation),
+                );
             } else {
                 log::info!(
                     "[WS-WRITER] cleanup skipping respawn trigger — generation mismatch \
@@ -727,12 +737,25 @@ fn spawn_reader_task(
                         // time to the HashMap lookup keeps the dispatch
                         // path's `lock().await` contention minimal.
                         if let Some(id) = v.get("id").and_then(|i| i.as_u64()) {
+                            // DEBUG wire-trace: pairs with the Python-side
+                            // "[SIDECAR-WS] RX/TX response" lines so frame
+                            // loss can be bisected end-to-end.
+                            log::debug!(
+                                "[WS-READER] RX response id={} type={}",
+                                id,
+                                v.get("type").and_then(|t| t.as_str()).unwrap_or("?")
+                            );
                             let tx_opt = {
                                 let mut pending = state_for_reader.pending.lock().await;
                                 pending.remove(&id)
                             };
                             if let Some(tx) = tx_opt {
                                 let _ = tx.send(v);
+                            } else {
+                                log::debug!(
+                                    "[WS-READER] RX response id={} had NO pending entry",
+                                    id
+                                );
                             }
                             continue;
                         }
@@ -835,7 +858,21 @@ fn spawn_reader_task(
                         log::info!("[WS-READER] sidecar closed the WS");
                         break;
                     }
-                    Ok(_) => {} // binary/ping/pong — ignore
+                    Ok(Message::Binary(_)) => {
+                        // WIRE CONTRACT: sidecar→host JSON travels as
+                        // UTF-8 TEXT frames only (see
+                        // sidecar_ws.py::_safe_send). A binary frame here
+                        // means a sender is violating the contract — log
+                        // it loudly instead of silently swallowing it
+                        // (pre-fix, binary dispatch responses were
+                        // dropped HERE, so every renderer command timed
+                        // out while heartbeat acks kept flowing).
+                        log::warn!(
+                            "[WS-READER] ignoring BINARY frame — wire contract \
+                             is UTF-8 TEXT frames (AGENTS.md C-WS-2)"
+                        );
+                    }
+                    Ok(_) => {} // ping/pong/control — ignore
                     Err(e) => {
                         log::warn!("[WS-READER] error: {}", e);
                         break;
@@ -928,7 +965,13 @@ fn spawn_reader_task(
                 // documents the failed attempt to use a direct
                 // `tokio::spawn` here. See the helper's doc comment for
                 // the full rationale.
-                trigger_respawn_off_thread(app_for_cleanup.clone(), state_for_cleanup.clone());
+                // pass `Some(my_generation)` — same asynchronous-landing
+                // stale-request rationale as the writer cleanup site.
+                trigger_respawn_off_thread(
+                    app_for_cleanup.clone(),
+                    state_for_cleanup.clone(),
+                    Some(my_generation),
+                );
             }
         } else {
             log::info!(

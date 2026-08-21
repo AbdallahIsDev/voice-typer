@@ -825,13 +825,18 @@ class TestSafeSendSizeCapRegression:
             f"expected exactly one send (the small event); the huge event must be dropped. Got {sent_payloads!r}"
         )
         sent_bytes = sent_payloads[0]
-        assert isinstance(sent_bytes, bytes), (
-            f"_safe_send must pass raw_bytes (bytes) to websocket.send, not a str; got {type(sent_bytes).__name__}"
+        # C-WS-2 wire contract: _safe_send must emit WS TEXT frames —
+        # i.e. ``str`` payloads. The previous assertion here pinned the
+        # OPPOSITE (bytes), which produced BINARY frames the Tauri host's
+        # reader silently drops (every dispatch timed out; first Windows
+        # host run 2026-08-21).
+        assert isinstance(sent_bytes, str), (
+            f"_safe_send must send str (WS TEXT frame) per C-WS-2, not bytes/BINARY; got {type(sent_bytes).__name__}"
         )
         # The sent frame must be the small event (not the huge one).
-        # Decode + parse to verify identity (the small event is the
+        # Parse to verify identity (the small event is the
         # only one that survives the drop).
-        sent_str = sent_bytes.decode("utf-8")
+        sent_str = sent_bytes
         sent_obj = json.loads(sent_str)
         assert sent_obj.get("type") == "test_small", f"expected the small event to be sent; got {sent_obj!r}"
 

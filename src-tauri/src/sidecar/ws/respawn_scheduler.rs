@@ -29,6 +29,7 @@ use crate::state::lock as mutex_lock;
 use crate::state::SidecarState;
 // poison-safe Mutex helper for the cleanup block.
 use serde_json::json;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
 use tauri::Emitter;
 
@@ -44,7 +45,7 @@ use tauri::Emitter;
 // just queue in the channel buffer and no-op when the supervisor
 // gets to them. The supervisor thread lives for the process
 // lifetime (parked on `rx.recv()` when idle, ~8KB stack, zero CPU).
-type RespawnRequest = (tauri::AppHandle, Arc<SidecarState>);
+type RespawnRequest = (tauri::AppHandle, Arc<SidecarState>, Option<u64>);
 
 // the supervisor queue is now a bounded `sync_channel(8)`
 // instead of an unbounded `channel()`. An unbounded channel has no
@@ -115,7 +116,20 @@ static RESPAWN_SUPERVISOR_TX: OnceLock<
 // in `spawn_writer_task` + `spawn_reader_task` cleanup blocks) AND
 // to the sibling `heartbeat` submodule (call site in
 // `spawn_heartbeat_task` miss-#3 arm).
-pub(super) fn trigger_respawn_off_thread(app: tauri::AppHandle, state: Arc<SidecarState>) {
+pub(super) fn trigger_respawn_off_thread(
+    app: tauri::AppHandle,
+    state: Arc<SidecarState>,
+    // WS generation of the connection that observed the failure
+    // (`None` for liveness/heartbeat triggers, which are
+    // generation-agnostic). The supervisor re-checks this at DEQUEUE
+    // time — a request enqueued by a STALE generation (its socket died
+    // while a newer reconnect was already being established) must NOT
+    // kill the newer, healthy connection. Without this re-check the
+    // late landing of a pre-success decision ping-pongs respawns
+    // forever (observed 2026-08-21: one external sidecar kill →
+    // infinite kill/restart loop at ~1 Hz).
+    expected_generation: Option<u64>,
+) {
     // send on the long-lived supervisor channel instead of
     // spawning a new OS thread per call. The supervisor thread is
     // lazily spawned on first use via `respawn_supervisor_sender()`.
@@ -132,9 +146,9 @@ pub(super) fn trigger_respawn_off_thread(app: tauri::AppHandle, state: Arc<Sidec
     // also fall back here — the `OnceLock` holds a dead-but-not-cleared
     // sender, so we keep using the per-trigger fallback. Best-effort.
     match respawn_supervisor_sender() {
-        Some(tx) => match tx.try_send((app, state)) {
+        Some(tx) => match tx.try_send((app, state, expected_generation)) {
             Ok(()) => {}
-            Err(std::sync::mpsc::TrySendError::Full((_app, _state))) => {
+            Err(std::sync::mpsc::TrySendError::Full((_app, _state, _gen))) => {
                 // supervisor queue is full (capacity=8) — the
                 // long-lived supervisor thread is already processing a
                 // respawn (or has stalled mid-respawn). DROP the request:
@@ -152,7 +166,7 @@ pub(super) fn trigger_respawn_off_thread(app: tauri::AppHandle, state: Arc<Sidec
                      dropping request (supervisor already processing; UE-8-F11)"
                 );
             }
-            Err(std::sync::mpsc::TrySendError::Disconnected((app, state))) => {
+            Err(std::sync::mpsc::TrySendError::Disconnected((app, state, _gen))) => {
                 log::error!(
                     "[SUPERVISOR] failed to enqueue respawn request to supervisor \
                      thread (it may have panicked): disconnected — falling back to \
@@ -177,7 +191,7 @@ pub(super) fn trigger_respawn_off_thread(app: tauri::AppHandle, state: Arc<Sidec
                     //via its `poisoned.into_inner()` path ()
                     // and re-attempt the spawn.
                 }
-                spawn_oneshot_respawn_thread(app, state);
+                spawn_oneshot_respawn_thread(app, state, expected_generation);
             }
         },
         None => {
@@ -187,7 +201,7 @@ pub(super) fn trigger_respawn_off_thread(app: tauri::AppHandle, state: Arc<Sidec
                 "[SUPERVISOR] long-lived supervisor thread unavailable — using \
                  one-shot std::thread::spawn fallback (long-lived thread unavailable)"
             );
-            spawn_oneshot_respawn_thread(app, state);
+            spawn_oneshot_respawn_thread(app, state, expected_generation);
         }
     }
 }
@@ -207,11 +221,30 @@ pub(super) fn trigger_respawn_off_thread(app: tauri::AppHandle, state: Arc<Sidec
 /// If even this fallback spawn fails (extreme resource exhaustion),
 /// log loudly and give up; the resilience layer is degraded until the
 /// user manually relaunches the app.
-fn spawn_oneshot_respawn_thread(app: tauri::AppHandle, state: Arc<SidecarState>) {
+fn spawn_oneshot_respawn_thread(
+    app: tauri::AppHandle,
+    state: Arc<SidecarState>,
+    expected_generation: Option<u64>,
+) {
     if let Err(e) = std::thread::Builder::new()
         .name("respawn-oneshot".into())
         .spawn(move || {
             tauri::async_runtime::block_on(async move {
+                // same stale-request guard as the long-lived supervisor
+                // loop below — the fallback path must not bypass it.
+                if let Some(gen) = expected_generation {
+                    let current = state.ws_generation.load(Ordering::SeqCst);
+                    if current != gen {
+                        log::info!(
+                            "[SUPERVISOR] dropping STALE one-shot respawn request \
+                             (request gen={}, current gen={}) — a newer WS connection \
+                             owns the link; killing it would ping-pong respawns",
+                            gen,
+                            current
+                        );
+                        return;
+                    }
+                }
                 if let Err(e) = respawn(&app, &state).await {
                     log::error!(
                         "[WS] supervisor respawn failed: {} — app may be in a degraded state",
@@ -265,7 +298,29 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
     match std::thread::Builder::new()
         .name("respawn-supervisor".into())
         .spawn(move || {
-            for (app, state) in rx {
+            for (app, state, expected_gen) in rx {
+                // STALE-REQUEST GUARD: re-check the requesting
+                // connection's generation at DEQUEUE time. A request
+                // enqueued by generation G is obsolete once ANY newer
+                // reconnect (gen > G) has stored its own `ws_tx` — the
+                // newer connection proved liveness end-to-end, and
+                // killing the sidecar under it would murder a healthy
+                // link and start an infinite kill/restart ping-pong.
+                // (`None` requests — heartbeat liveness + auth-failure
+                // paths — are never skipped.)
+                if let Some(gen) = expected_gen {
+                    let current = state.ws_generation.load(Ordering::SeqCst);
+                    if current != gen {
+                        log::info!(
+                            "[SUPERVISOR] dropping STALE respawn request \
+                             (request gen={}, current gen={}) — a newer WS \
+                             connection owns the link",
+                            gen,
+                            current
+                        );
+                        continue;
+                    }
+                }
                 tauri::async_runtime::block_on(async move {
                     if let Err(e) = respawn(&app, &state).await {
                         log::error!(
@@ -353,5 +408,8 @@ pub(super) async fn cleanup_and_trigger_respawn(app: &tauri::AppHandle, state: &
         "supervisor_relaunching",
         json!({"reason": "auth_failed_or_timeout"}),
     );
-    trigger_respawn_off_thread(app.clone(), state.clone());
+    // `None` generation: the auth-failure path has no connection
+    // generation to compare against — the sidecar must respawn
+    // regardless of which reconnect (if any) is in flight.
+    trigger_respawn_off_thread(app.clone(), state.clone(), None);
 }

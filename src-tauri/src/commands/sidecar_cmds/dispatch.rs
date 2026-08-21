@@ -450,11 +450,25 @@ async fn dispatch_frame(
 
 #[tauri::command]
 pub async fn dispatch(
-    args: DispatchArgs,
+    cmd: String,
+    data: Option<Value>,
     state: tauri::State<'_, Arc<SidecarState>>,
     window: tauri::Window,
 ) -> Result<Value, String> {
-    // bound the command-name length so a buggy or compromised
+    // FLAT-ARGS CONTRACT (do not re-wrap into a struct param): the
+    // renderer invokes `invoke('dispatch', { cmd, data })` — see
+    // `python-namespace.ts` and the allowlist.rs doc comment. Tauri v2
+    // maps each invoke key to a parameter NAME, so the previous single
+    // `args: DispatchArgs` param made the host expect the top-level key
+    // `args`; every renderer call failed with "invalid args `args` for
+    // command `dispatch`: missing required key args" and the UI showed
+    // "Lost connection to Python backend" even though the WS link was
+    // healthy (first Windows host run, 2026-08-21). Renderer unit tests
+    // stub `invoke()` and cannot catch Rust-side arg-name drift.
+    // Binding rule: AGENTS.md constraint C-TAURI-3.
+    let args = DispatchArgs { cmd, data };
+
+    // Bound the command-name length so a buggy or compromised
     // renderer can't DoS the WS writer (or the allowlist lookup, or the
     // JSON serializer) with a multi-MB `cmd` string. The longest
     // legitimate command name in `ALLOWED_COMMANDS` is well under 32
