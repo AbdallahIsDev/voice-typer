@@ -31,6 +31,7 @@ These tests pin the registry-level contract so a future regression
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock
 
 from voice_typer.server.ipc_server import IPCServer
@@ -117,6 +118,14 @@ class TestShutdownCommandRegistry:
         resp: dict = {"id": 1}
         result = server._handle_shutdown(data=None, resp=resp)
 
+        # service.quit() runs on a daemon cleanup thread (the ack is
+        # returned to the host BEFORE the async cleanup starts), so the
+        # delegation is asynchronous. Wait briefly for it to land —
+        # asserting immediately races the thread on a loaded runner
+        # (observed: 0 calls on a busy windows-2022 worker).
+        deadline = time.monotonic() + 5.0
+        while service.quit.call_count == 0 and time.monotonic() < deadline:
+            time.sleep(0.02)
         # the service layer is the canonical shutdown path.
         service.quit.assert_called_once_with()
         # ``self.app.quit()`` must NOT be called — that's the

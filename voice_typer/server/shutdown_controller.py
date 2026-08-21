@@ -584,7 +584,14 @@ class ShutdownController:
                         daemon=True,
                     )
                     join_thread.start()
-                    join_thread.join(timeout=5.0)
+                    # 4.5s — deliberately UNDER this item's 5.0s parallel
+                    # budget: the inner join must expire BEFORE the outer
+                    # ``_run_parallel_with_timeout`` cutoff, otherwise the
+                    # two identical deadlines race and the diagnostic
+                    # WARNING can lose (observed on loaded CI runners:
+                    # outer timeout fired first, the item was abandoned,
+                    # and the WARNING never landed).
+                    join_thread.join(timeout=4.5)
                     if join_thread.is_alive():
                         log.warning("[SHUTDOWN] ws_dispatch_pool did not drain in 5s — proceeding anyway")
 
