@@ -573,17 +573,26 @@ def test_tauri_conf_has_macos_bundle_or_dmg_app_defaults():
 
 
 def test_entitlements_plist_has_three_required_entitlements():
-    """``src-tauri/entitlements.plist`` declares the 3 hardened-runtime
+    """``src-tauri/entitlements.plist`` declares the hardened-runtime
     entitlements required for notarization (per ADR-0020 §13.2 + the
-    signing guide "Hardened runtime entitlements" section):
+    signing guide "Hardened runtime entitlements" section, extended by
+    BUILD-N02 as documented in the plist header):
 
       1. ``com.apple.security.cs.allow-jit``
          CTranslate2 (faster-whisper) may use JIT compilation.
-      2. ``com.apple.security.cs.disable-library-validation``
+      2. ``com.apple.security.cs.allow-unsigned-executable-memory``
+         Nuitka onefile loaders allocate RWX pages when unpacking the
+         embedded payload — without this, macOS 14 kills the sidecar at
+         startup with EXC_BAD_ACCESS.
+      3. ``com.apple.security.cs.disable-library-validation``
          Nuitka onefile extracts unsigned dylibs at runtime — without
          this entitlement, the hardened runtime kills the process.
-      3. ``com.apple.security.device.audio-input``
+      4. ``com.apple.security.device.audio-input``
          Microphone access (sounddevice) — required by TCC on macOS 11+.
+      5. ``com.apple.security.automation.apple-events``
+         AppleScript via NSAppleEventDescriptor (volume ducking +
+         foreground-app detection); without it every AppleScript call
+         fails with errAEEventNotPermitted (-1743).
     """
     assert ENTITLEMENTS_PLIST.exists(), f"entitlements.plist missing at {ENTITLEMENTS_PLIST}"
     with ENTITLEMENTS_PLIST.open("rb") as fh:
@@ -599,21 +608,32 @@ def test_entitlements_plist_has_three_required_entitlements():
         "com.apple.security.device.audio-input must be true (microphone "
         "access via sounddevice — required by TCC on macOS 11+)"
     )
+    assert data.get("com.apple.security.cs.allow-unsigned-executable-memory") is True, (
+        "com.apple.security.cs.allow-unsigned-executable-memory must be true (Nuitka onefile RWX pages — BUILD-N02)"
+    )
+    assert data.get("com.apple.security.automation.apple-events") is True, (
+        "com.apple.security.automation.apple-events must be true (AppleScript "
+        "volume ducking + clipboard foreground detection — BUILD-N02)"
+    )
 
-    # Sanity: no extra entitlements beyond the 3 required (guard against
+    # Sanity: no entitlements beyond the 5 documented ones (guard against
     # accidental broadening of the attack surface).
     expected_keys = {
         "com.apple.security.cs.allow-jit",
+        "com.apple.security.cs.allow-unsigned-executable-memory",
         "com.apple.security.cs.disable-library-validation",
         "com.apple.security.device.audio-input",
+        "com.apple.security.automation.apple-events",
     }
     actual_keys = set(data.keys())
     extra = actual_keys - expected_keys
+    missing = expected_keys - actual_keys
     assert not extra, (
-        f"entitlements.plist has EXTRA entitlements beyond the 3 required: "
+        f"entitlements.plist has EXTRA entitlements beyond the 5 documented: "
         f"{extra}. Each entitlement broadens the hardened-runtime attack "
         f"surface — remove any that aren't strictly required."
     )
+    assert not missing, f"entitlements.plist is MISSING documented entitlements: {missing}"
 
 
 # ─── Test 9: installer bundles sidecar + prewarm + native listener ──────
@@ -621,12 +641,14 @@ def test_entitlements_plist_has_three_required_entitlements():
 
 def test_installer_includes_sidecar_prewarm_native_listener_resources():
     """The installer bundles the sidecar binary (``externalBin``), the
-    macOS prewarm binaries (``resources``), and the native macOS
-    key-listener (``resources``) so the Tauri app can spawn them at
-    runtime without a separate Python install.
+    ML worker exe (``externalBin``, owner of the warm phase since the
+    standalone prewarm binary was retired — plan-runtime-pack-split
+    §6.2), and the native macOS key-listener (``resources``) so the
+    Tauri app can spawn them at runtime without a separate Python
+    install.
 
     macOS arches (per the CI workflow):
-      - x86_64-apple-darwin  (Intel, via Rosetta 2 on Apple Silicon runners)
+      - x86_64-apple-darwin  (Intel, via Rosetta 2 on the macos-14 runner)
       - aarch64-apple-darwin (Apple Silicon, native on macos-14 runners)
     """
     assert TAURI_CONF.exists(), f"tauri.conf.json missing at {TAURI_CONF}"
@@ -640,19 +662,21 @@ def test_installer_includes_sidecar_prewarm_native_listener_resources():
         "externalBin must include bin/python-sidecar (Tauri appends the "
         "target triple to find bin/python-sidecar-{x86_64,aarch64}-apple-darwin)"
     )
+    assert "bin/voice-typer-worker" in external_bin, (
+        "externalBin must include bin/voice-typer-worker (the ML worker "
+        "exe owns the warm phase since the prewarm binary was retired — "
+        "plan-runtime-pack-split §6.2)"
+    )
 
-    # 2. Prewarm + native listener: resources (per-platform binaries).
+    # 2. Native listener + retired-prewarm guard: resources.
     resources = bundle.get("resources", [])
     resources_blob = "\n".join(resources)
 
-    # Prewarm binaries for BOTH macOS arches (Intel + Apple Silicon).
-    assert "prewarm-x86_64-apple-darwin" in resources_blob, (
-        "resources must include prewarm-x86_64-apple-darwin (Intel macOS "
-        "prewarm binary — built via Rosetta 2 on the macos-14 runner)"
-    )
-    assert "prewarm-aarch64-apple-darwin" in resources_blob, (
-        "resources must include prewarm-aarch64-apple-darwin (Apple Silicon "
-        "prewarm binary — built natively on the macos-14 runner)"
+    # The standalone prewarm binaries are RETIRED (plan-runtime-pack-split
+    # §6.2) — their resource entries must NOT come back.
+    stale_prewarm = [r for r in resources if "prewarm" in r]
+    assert not stale_prewarm, (
+        f"resources must NOT include prewarm binaries (retired per plan-runtime-pack-split §6.2): {stale_prewarm}"
     )
 
     # Native macOS key-listener (ADR-0020 §6.4 — compiled CGEventTap hook

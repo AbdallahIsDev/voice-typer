@@ -93,16 +93,28 @@ def _create_cargo_build_placeholders() -> list[Path]:
         "resources/native/linux-key-listener",
     ):
         _stub(listener)
-    for triple in _TAURI_TRIPLES:
-        suffix = ".exe" if triple.endswith("-msvc") else ""
-        _stub(f"resources/prewarm-{triple}{suffix}")
+    # frontendDist: tauri-build's build script validates that the
+    # configured frontend dist directory exists. CI pytest checkouts
+    # don't build the client, so stub it with a minimal index.html.
+    renderer_dir = REPO_ROOT / "voice_typer" / "client" / "out" / "renderer"
+    if not renderer_dir.exists():
+        renderer_dir.mkdir(parents=True, exist_ok=True)
+        index = renderer_dir / "index.html"
+        index.write_text("<!doctype html><title>placeholder</title>", encoding="utf-8")
+        created.append(index)
+        created.append(renderer_dir)
+        created.append(renderer_dir.parent)
     return created
 
 
 def _cleanup_cargo_build_placeholders(created: list[Path]) -> None:
-    """Remove the placeholder files (and any now-empty parent dirs)."""
+    """Remove the placeholder files/dirs (and any now-empty parents)."""
     for p in created:
-        p.unlink(missing_ok=True)
+        if p.is_dir():
+            with contextlib.suppress(OSError):
+                p.rmdir()
+        else:
+            p.unlink(missing_ok=True)
     src_tauri = SIDECAR_CARGO_TOML.parent
     for d in (src_tauri / "bin", src_tauri / "resources" / "native"):
         with contextlib.suppress(OSError):

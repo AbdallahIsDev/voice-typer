@@ -312,18 +312,22 @@ def test_tauri_conf_resources_include_macos_native(tauri_conf) -> None:
         "x86_64-apple-darwin",
     ],
 )
-def test_tauri_conf_resources_include_macos_prewarm(tauri_conf, triple: str) -> None:
-    """ADR-0020 §4.1 + §5: per-arch prewarm binaries for macOS.
+def test_tauri_conf_resources_exclude_macos_prewarm(tauri_conf, triple: str) -> None:
+    """plan-runtime-pack-split §6.2 (Option P-1): NO per-arch prewarm
+    binaries for macOS.
 
-    The prewarm binary is launched by the macOS LaunchAgent (NOT by
-    Tauri), so it must be a ``bundle.resource`` extracted to
-    ``resourceDir``. Tauri's ``externalBin`` is NOT used for prewarm.
-    One binary per macOS target triple (aarch64 + x86_64).
+    The standalone prewarm binary was retired — the prewarm phase moved
+    INTO the worker exe (``bin/voice-typer-worker``, a bundle
+    ``externalBin``). Any ``resources/prewarm-*`` entry is a regression:
+    the old binaries no longer exist, and the installer would bloat
+    with dead entries.
     """
     resources = tauri_conf.get("bundle", {}).get("resources", [])
-    expected = f"resources/prewarm-{triple}"
-    assert expected in resources, (
-        f"bundle.resources must include '{expected}' (per-arch prewarm binary for macOS {triple}, ADR-0020 §5)"
+    stale = f"resources/prewarm-{triple}"
+    assert stale not in resources, (
+        f"bundle.resources must NOT include '{stale}' — the standalone "
+        f"prewarm binary was retired (plan-runtime-pack-split §6.2); the "
+        "worker exe owns the warm phase"
     )
 
 

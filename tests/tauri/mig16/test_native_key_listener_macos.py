@@ -310,8 +310,15 @@ class TestSubprocessSpawn:
         captured: dict = {}
 
         def fake_popen(cmd, **kwargs):
-            captured["cmd"] = list(cmd)
-            return MagicMock()
+            captured["kwargs"] = kwargs
+            # Mirror the sibling tests' richer proc: _spawn_process
+            # starts a reader thread that immediately readline()s the
+            # pipe — a bare MagicMock returns a non-bytes value and the
+            # spawn path raises before the assertions below run.
+            proc = MagicMock()
+            proc.poll.return_value = None  # still running
+            proc.stdout.readline.return_value = b""  # EOF
+            return proc
 
         monkeypatch.setattr(macos_env.subprocess, "Popen", fake_popen)
 
