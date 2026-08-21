@@ -87,6 +87,26 @@ class TestMemoryBufferInstallation:
         install_memory_buffer(tmp_path)
         assert _ch._memory_handler.capacity == 200
 
+    def test_memory_handler_flush_on_close_is_false(self, tmp_path: Path):
+        """``flushOnClose`` MUST be False so ``logging.shutdown()``
+        (the atexit-registered interpreter-exit hook) does NOT flush the
+        ring buffer to ``voice-typer-crash-buffer.log`` on a clean exit.
+
+        Python's ``logging.shutdown()`` iterates every handler and calls
+        ``h.flush()`` FIRST (guarded by ``getattr(h, 'flushOnClose',
+        True)``) and only THEN ``h.close()``.  With the default
+        ``flushOnClose=True`` the ring buffer is written to disk on
+        every clean shutdown — duplicating the tail of
+        ``voice-typer.log`` for a session that never crashed.  The
+        ``close()`` override runs too late to help (the flush already
+        happened).  Setting it to False makes the ONLY writer the VEH
+        callback's explicit ``flush_memory_handler()``."""
+        install_memory_buffer(tmp_path)
+        assert _ch._memory_handler.flushOnClose is False, (
+            "flushOnClose must be False — otherwise logging.shutdown() flushes "
+            "the ring to the crash-buffer file on every clean exit"
+        )
+
 
 class TestMemoryBufferFlush:
     """``flush_memory_handler`` pushes the buffered records to the

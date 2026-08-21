@@ -298,6 +298,19 @@ def install_memory_buffer(config_dir: Path) -> None:
             # path. The explicit ``flush()`` call from the VEH callback
             # still works.
             memory_handler.flushLevel = logging.CRITICAL + 1
+            # CRITICAL: ``flushOnClose`` must be False. Python's
+            # ``logging.shutdown()`` (registered via atexit) iterates
+            # every handler and calls ``h.flush()`` FIRST (guarded by
+            # ``getattr(h, 'flushOnClose', True)``) and only THEN
+            # ``h.close()``.  With the default ``flushOnClose=True`` the
+            # ring buffer is flushed to ``voice-typer-crash-buffer.log``
+            # at interpreter shutdown on EVERY clean exit — duplicating
+            # the tail of ``voice-typer.log`` for a session that never
+            # crashed (the ``close()`` override that clears the buffer
+            # runs too late to help).  Setting it to False makes
+            # ``logging.shutdown()`` skip the flush, so the only writer
+            # is the VEH callback's explicit ``flush_memory_handler()``.
+            memory_handler.flushOnClose = False
             memory_handler.setLevel(logging.INFO)
             memory_handler.target = target_handler
             # HU-8: the PII redaction filter is attached LAZILY (and
