@@ -28,7 +28,10 @@
 //!   tests/          // co-located per sub-module
 //! ```
 
-use crate::util::{now_time_only, now_timestamps, LOG_MAX_BYTES};
+use crate::util::{
+    now_time_only, now_timestamps, LOG_AGE_RETENTION_SECS, LOG_MAX_BYTES,
+    LOG_SIZE_FALLBACK_BYTES,
+};
 use std::fs::OpenOptions;
 use std::io::Seek;
 use std::io::Write;
@@ -41,8 +44,68 @@ use std::sync::{Mutex, OnceLock};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
+/// Startup sweep — Tiers 1 (age) + 2 (size fallback) of the three-tier
+/// log-cleanup design. Deletes any regular file in `logs_dir` that is
+/// EITHER older than [`crate::util::LOG_AGE_RETENTION_SECS`] (7 days)
+/// OR larger than [`crate::util::LOG_SIZE_FALLBACK_BYTES`] (25 MB).
+///
+/// Mirrors the Python `_sweep_stale_logs`
+/// (`voice_typer/server/log/__init__.py`) and the Electron
+/// `sweepStaleLogs` (`client/src/main/logging/rotation.ts`).
+///
+/// Scope: every regular file in the directory EXCEPT `*.lock` files —
+/// the inter-process truncation locks must persist across sessions.
+/// Files locked by another live process (e.g. `voice-typer.log` held
+/// open by an already-running Python backend in host-first launch
+/// order) fail the remove and are skipped silently — their owner
+/// sweeps them at its own startup.
+///
+/// Best-effort: every error is swallowed — a sweep failure must never
+/// block logger init or app startup.
+pub(crate) fn sweep_stale_logs(logs_dir: &std::path::Path) {
+    let entries = match std::fs::read_dir(logs_dir) {
+        Ok(entries) => entries,
+        Err(_) => return, // missing dir (fresh install) — nothing to sweep
+    };
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        // NEVER delete the inter-process truncation lock files —
+        // they must persist across sessions.
+        if entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.ends_with(".lock"))
+        {
+            continue;
+        }
+        let Ok(meta) = std::fs::metadata(&path) else {
+            continue;
+        };
+        let mtime_secs = meta
+            .modified()
+            .ok()
+            .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(now_secs);
+        let age = now_secs.saturating_sub(mtime_secs);
+        if age <= LOG_AGE_RETENTION_SECS && meta.len() <= LOG_SIZE_FALLBACK_BYTES {
+            continue;
+        }
+        // Best-effort remove — a locked file (another live process)
+        // fails here and is skipped; its owner sweeps it.
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
 /// ADR-0020 §11: initialize a rotating file logger writing to
-/// `<config_dir>/logs/voice-typer.log` (5 MB × 5 files ≈ 25 MB cap).
+/// `<config_dir>/logs/voice-typer-rust.log`.
 ///
 /// **Excludes `bubble_level` events** from the file log: at ~60 Hz
 /// they would fill disk fast even with rotation. The Rust WS-reader
@@ -66,6 +129,14 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), String> {
     let logs_dir = config_dir.join("logs");
     std::fs::create_dir_all(&logs_dir).map_err(|e| format!("create logs dir failed: {e}"))?;
+    // Startup sweep — Tiers 1 (age, 7 days) + 2 (size fallback, 25 MB)
+    // of the three-tier cleanup design. Runs BEFORE the writer opens
+    // `voice-typer-rust.log` so a stale/oversized active file is removed
+    // and a fresh one created for this session. Mirrors the Python
+    // `_sweep_stale_logs` and the Electron `sweepStaleLogs`. Best-effort:
+    // every error is swallowed — a sweep failure must never block logger
+    // init.
+    sweep_stale_logs(&logs_dir);
     // Tighten the parent `<config_dir>/logs/` dir to
     // `0o700` on POSIX (owner rwx only — no group/other access). Mirrors
     // the Python side's `os.chmod(config_dir, 0o700)` at
@@ -1521,9 +1592,11 @@ pub fn install_early_logger() {
 }
 
 /// Minimal rotating-file writer: appends to
-/// `<dir>/<base_name>.log` until the file exceeds `LOG_MAX_BYTES`,
-/// then rotates (`.log` → `.log.1` → `.log.2` → … → `.log.4` → delete).
-/// Thread-safe via a single `Mutex<Option<BufWriter<File>>>`.
+/// `<dir>/<base_name>.log` until the file exceeds `LOG_MAX_BYTES`
+/// (the Tier-3 mid-session hard ceiling, 40 MB), then truncates IN
+/// PLACE (empties it) and keeps writing — single-file policy, numbered
+/// backups (`.log.1`, ...) are NEVER created. Thread-safe via a single
+/// `Mutex<Option<BufWriter<File>>>`.
 ///
 /// The `File` is wrapped in a `std::io::BufWriter` (8 KB buffer) so
 /// the per-line `write_all` lands in an in-memory buffer instead of

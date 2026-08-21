@@ -373,7 +373,7 @@ def main() -> None:
             sys.exit(_ws_exit)
         elif port is not None:
             server.start_tcp(port)
-            log.info("[IPC] TCP mode on port %d — Electron should connect here", port)
+            log.info("[IPC] TCP server listening on port %d (Electron will connect)", port)
         else:
             # P1-1.2: Standalone mode (no --port). The user ran VoiceTyper
             # from a terminal.  Auto-pick an available port, start the TCP
@@ -435,7 +435,9 @@ def main() -> None:
 
         # Tell the frontend we're ready — Electron defers window creation until this.
         server.push({"type": "ready"})
-        log.info("[IPC] entering app.start() (tray event loop)")
+        # DEBUG: the tray's own "[TRAY] Tray icon created; event loop
+        # running" INFO line covers this hand-off.
+        log.debug("[IPC] entering app.start() (tray event loop)")
         try:
             app.start()  # blocks (tray event loop)
             # QUIT-CLEAN-001: keep shutdown quiet.  Only ``[QUIT] Quitting
@@ -484,7 +486,13 @@ def main() -> None:
         #      loop and let the process exit (``--ws`` already exits via
         #      ``sys.exit`` above; ``--port`` and standalone-quit fall
         #      through here with ``_in_place_restart`` False).
-        if not getattr(app, "_in_place_restart", False):
+        #
+        # NOTE: read via ``vars(app)`` (instance dict), NOT ``getattr``
+        # — a ``MagicMock`` test app auto-creates truthy attributes on
+        # any ``getattr``, which would make the loop think an in-place
+        # restart was requested and spin forever (the exact trap
+        # documented in ``shutdown/teardowns/electron.py``).
+        if not vars(app).get("_in_place_restart", False):
             break
         log.info("[RESTART] In-place restart — re-initializing app in the same process")
         # Loop back: the next iteration re-acquires the single-instance

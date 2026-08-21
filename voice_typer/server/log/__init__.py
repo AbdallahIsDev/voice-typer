@@ -54,19 +54,23 @@ import time
 import uuid
 from pathlib import Path
 
-# WN-7: centralized single-file log-size constant.  Mirrors the Rust-side
+# WN-7: centralized log-retention constants.  Mirror the Rust-side
 # ``LOG_MAX_BYTES`` in ``src-tauri/src/util.rs``.
 # All Python logging handlers that write log files (the main
 # voice-typer.log, the prewarm.log, and the Electron-build log) MUST
 # import the size cap from here instead of inlining ``5 * 1024 * 1024``
 # so a future bump edits ONE file.  See
-# ``voice_typer/server/_log_constants.py`` for the rationale.
+# ``voice_typer/server/_log_constants.py`` for the three-tier rationale.
 #
 # Single-file policy: each log is a SINGLE file.  When it exceeds
-# ``LOG_MAX_BYTES`` it is truncated in place (emptied) and writing
-# continues — numbered backups (``.1``, ``.2``, ...) are NEVER created.
-from voice_typer.server._log_constants import (  # noqa: F401
+# ``LOG_MAX_BYTES`` (the Tier-3 mid-session hard ceiling) it is
+# truncated in place (emptied) and writing continues — numbered backups
+# (``.1``, ``.2``, ...) are NEVER created.  Tiers 1 (age) and 2 (size
+# fallback) run at session start via :func:`_sweep_stale_logs`.
+from voice_typer.server._log_constants import (
+    LOG_AGE_RETENTION_SECONDS,  # noqa: F401  (re-exported for tests)
     LOG_MAX_BYTES,
+    LOG_SIZE_FALLBACK_BYTES,
 )
 from voice_typer.server.log.correlation import (  # noqa: F401
     _correlation_id,
@@ -90,22 +94,6 @@ from voice_typer.server.log.formatters import (  # noqa: F401
 )
 
 log = logging.getLogger(__name__)
-
-# log retention sweep — purge LEGACY numbered backups older than
-# 30 days at startup. Mirrors ``crash_handler._sweep_stale_diagnostics``
-# (30-day mtime cutoff for crash diagnostics). The size-only rotation
-# (5 MiB × 5 backups) keeps at most 25 MiB of recent logs but does NOT
-# bound the age — a low-traffic install could keep a 6-month-old
-# ``voice-typer.log.5`` containing dictated-text fragments (01 /
-# indefinitely. The startup sweep closes that gap by
-# unlinking any rotated file older than 30 days, regardless of how
-# many backups are currently retained.
-_LOG_RETENTION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60  # 30 days
-_LOG_ROTATION_GLOBS: tuple[str, ...] = (
-    "voice-typer.log.*",  # main process rotations (``.1``..``.5``)
-    "prewarm.log.*",  # legacy prewarm process rotations
-    "voice-typer-prewarm.log.*",  # legacy prewarm rotations (file no longer created)
-)
 
 # All log files live under a ``logs/`` subdirectory of the config dir
 # (O1 — the same directory the Rust host already uses for its rotating
@@ -202,70 +190,85 @@ def _maybe_move_legacy_log_file(src_root: Path, dst_root: Path, name: str) -> No
         log.debug("[LOG-SETUP] legacy log migration skipped %s: %s", name, exc)
 
 
-def _sweep_stale_log_rotations(config_dir: Path) -> None:
-    """Delete rotated log files older than 30 days .
+def _sweep_stale_logs(config_dir: Path) -> None:
+    """Delete stale log files at session start (Tiers 1 + 2).
 
-    Mirrors ``crash_handler._sweep_stale_diagnostics``: enumerate
-    ``voice-typer.log.*`` and ``prewarm.log.*`` in ``<config_dir>/logs/``,
-    unlink any whose ``st_mtime`` is older than
-    ``_LOG_RETENTION_MAX_AGE_SECONDS``. Best-effort — any error is
-    logged at DEBUG and swallowed so a single unreadable file does not
-    abort the sweep or ``setup_logging``.
+    Three-tier cleanup design — this function implements Tiers 1 and 2
+    (the session-start sweeps); Tier 3 (the mid-session hard ceiling)
+    lives in the ``_SecureTruncatingFileHandler`` rollover path:
 
-    The active log files (``voice-typer.log``, ``prewarm.log`` — no
-    suffix) are NEVER touched: they are the live sinks for the current
-    process. Only the numbered rotations (``.1``, ``.2``, ...) are
-    candidates for purging.
+      * **Tier 1 — age (primary):** any log file in ``logs/`` whose last
+        write is older than ``LOG_AGE_RETENTION_SECONDS`` (7 days) is
+        deleted. Bounds storage for low-traffic installs whose logs
+        would otherwise sit forever.
 
-    Called from :func:`setup_logging` after the file handler is
-    installed so the sweep runs once per process startup. Idempotent
-    if called multiple times (subsequent calls find nothing to delete).
+      * **Tier 2 — size fallback:** any log file larger than
+        ``LOG_SIZE_FALLBACK_BYTES`` (25 MB) is deleted even if freshly
+        written — covers a marathon session that pushed a log past the
+        fallback between startups. Checked ONLY here (session start),
+        never mid-session.
+
+    Runs at the TOP of :func:`setup_logging` — BEFORE the rotating file
+    handler opens ``voice-typer.log`` — so the active file itself can be
+    deleted when stale/oversized and a fresh one is created for the new
+    session ("cleans everything up and starts fresh").
+
+    Scope: every regular file in ``logs/`` EXCEPT the inter-process
+    truncation lock files (``*.lock``) — they must persist across setups
+    so the next process can acquire the flock. This covers Python-owned
+    logs (``voice-typer.log``, ``worker.log``, ``prewarm.log``,
+    ``startup-error.log``, ``voice-typer-crash-buffer.log``) AND the
+    host-owned logs (``electron-main.log``, ``electron-runtime.log``,
+    ``voice-typer-rust.log`` + rotations). Files locked by another live
+    process (e.g. the Electron host's logs in dev/Tauri mode, where the
+    host started first) fail the unlink — skipped silently; their owner
+    sweeps them at its own startup (mirrored in
+    ``client/src/main/logging/rotation.ts`` and
+    ``src-tauri/src/platform/logging.rs``).
+
+    Best-effort — any error is logged at DEBUG and swallowed so a single
+    unreadable file does not abort the sweep or ``setup_logging``.
+    Idempotent if called multiple times.
     """
     try:
         root = get_logs_dir(config_dir)
         if not root.is_dir():
             return
         now = time.time()
-        for pattern in _LOG_ROTATION_GLOBS:
-            for f in root.glob(pattern):
-                # Skip the live file (no numeric suffix). The glob
-                # ``voice-typer.log.*`` already excludes the bare
-                # ``voice-typer.log`` (no dot-suffix match), but be
-                # defensive — a stray ``voice-typer.log.rotate.lock``
-                # or similar should not be unlinked by the sweep.
-                if not f.is_file():
-                    continue
-                # NEVER touch the inter-process truncation
-                # lock file (``voice-typer.log.lock`` /
-                # ``prewarm.log.lock``). It is created by
-                # ``_SecureTruncatingFileHandler.__init__`` and must
-                # persist across setups so the next process can
-                # acquire the flock. Deleting it would race with a
-                # concurrent writer's lock acquisition. (The old
-                # ``*.rotate.lock`` names from the rename-based
-                # rotation are legacy leftovers the sweep can drop.)
-                if f.name.endswith(".lock"):
-                    continue
-                try:
-                    age = now - f.stat().st_mtime
-                except OSError:
-                    continue
-                if age > _LOG_RETENTION_MAX_AGE_SECONDS:
-                    try:
-                        f.unlink()
-                        log.debug(
-                            "[LOG-SETUP] purged stale log rotation %s (age=%.0f days)",
-                            f.name,
-                            age / 86400,
-                        )
-                    except OSError as exc:
-                        log.debug(
-                            "[LOG-SETUP] failed to purge stale log rotation %s: %s",
-                            f.name,
-                            exc,
-                        )
+        for f in root.iterdir():
+            # Skip directories and the inter-process truncation lock
+            # files (``*.log.lock``) — see the docstring above.
+            if not f.is_file() or f.name.endswith(".lock"):
+                continue
+            try:
+                stat = f.stat()
+            except OSError:
+                continue
+            age = now - stat.st_mtime
+            oversized = stat.st_size > LOG_SIZE_FALLBACK_BYTES
+            if age <= LOG_AGE_RETENTION_SECONDS and not oversized:
+                continue
+            reason = f"age={age / 86400:.1f}d" if age > LOG_AGE_RETENTION_SECONDS else ""
+            if oversized:
+                size_mb = stat.st_size / (1024 * 1024)
+                reason = f"{reason}{'+' if reason else ''}size={size_mb:.1f}MB"
+            try:
+                f.unlink()
+                log.debug(
+                    "[LOG-SETUP] purged stale log %s (%s)",
+                    f.name,
+                    reason,
+                )
+            except OSError as exc:
+                # Locked by another live process (host-first launch
+                # order) — its own startup sweep handles it.
+                log.debug(
+                    "[LOG-SETUP] failed to purge stale log %s: %s",
+                    f.name,
+                    exc,
+                )
     except Exception as exc:  # noqa: BLE001 — best-effort sweep
-        log.debug("[LOG-SETUP] stale-log-rotation sweep failed: %s", exc)
+        log.debug("[LOG-SETUP] stale-log sweep failed: %s", exc)
 
 
 # ── Module-level state ────────────────────────────────────────────────
@@ -639,6 +642,13 @@ def setup_logging(
             with contextlib.suppress(OSError):
                 os.chmod(logs_dir, 0o700)
         _maybe_migrate_legacy_logs(config_dir)
+        # ── 3c. Stale-log sweep (Tiers 1 + 2) ─────────────────────
+        # MUST run BEFORE the file handler below opens
+        # ``voice-typer.log`` — on Windows an open handle blocks the
+        # unlink, so sweeping first lets the active file itself be
+        # deleted when stale/oversized and a fresh one created for
+        # this session. Best-effort; see ``_sweep_stale_logs``.
+        _sweep_stale_logs(config_dir)
         # Single-file policy: process_name routes each long-lived
         # process to its OWN file so concurrent writers never share a
         # file descriptor on the same file (the rotation race covered
@@ -665,10 +675,14 @@ def setup_logging(
         # in the log file.
         handler = _SecureTruncatingFileHandler(
             log_file,
-            # Single-file policy: 5 MiB cap, ZERO backups.  When the file
-            # exceeds the cap it is truncated IN PLACE (emptied) and
-            # writing continues to the same file — numbered backups
-            # (``voice-typer.log.1`` ...) are never created.
+            # Single-file policy: ZERO backups.  When the file exceeds
+            # the Tier-3 mid-session hard ceiling (``LOG_MAX_BYTES``,
+            # 40 MB) it is truncated IN PLACE (emptied) and writing
+            # continues to the same file — numbered backups
+            # (``voice-typer.log.1`` ...) are never created.  The
+            # ceiling is deliberately far above the Tier-2 size
+            # fallback (25 MB, session-start delete) so normal
+            # multi-day usage never truncates mid-session.
             maxBytes=LOG_MAX_BYTES,
             backupCount=0,
             encoding="utf-8",
@@ -896,14 +910,6 @@ def setup_logging(
                 lib_logger.setLevel(logging.WARNING)
                 lib_logger.handlers.clear()
                 lib_logger.propagate = True
-
-        # sweep stale log rotations (voice-typer.log.*,
-        # prewarm.log.*) older than 30 days. Runs AFTER the file handler
-        # is installed so the sweep's own DEBUG messages land in the
-        # fresh log file. Best-effort — failures are swallowed inside
-        # the helper so a single unreadable file does not abort
-        # setup_logging.
-        _sweep_stale_log_rotations(config_dir)
 
         return _session_id
     finally:

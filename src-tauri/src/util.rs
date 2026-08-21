@@ -103,10 +103,28 @@ pub(crate) const DISPATCH_SHORT_TIMEOUT_SECS: u64 = 15;
 /// "restarting…" banner before the process exits.
 pub(crate) const PRE_RESTART_DELAY_MS: u64 = 500;
 
-/// ADR-0020 §11: max bytes per log file. Single-file policy:
-/// when the log exceeds this cap it is truncated IN PLACE (emptied) and
-/// writing continues — numbered backups (`.log.1`, ...) are NEVER created.
-pub(crate) const LOG_MAX_BYTES: u64 = 5 * 1024 * 1024; // 5 MB
+/// ADR-0020 §11: three-tier log-cleanup design (mirrors
+/// `voice_typer/server/_log_constants.py`).
+///
+/// Tier 1 — age retention (session-start delete): the startup sweep
+/// deletes any log file in `logs/` older than
+/// [`LOG_AGE_RETENTION_SECS`] (7 days).
+///
+/// Tier 2 — size fallback (session-start delete): the startup sweep
+/// deletes any log file larger than [`LOG_SIZE_FALLBACK_BYTES`]
+/// (25 MB) even if freshly written — covers a marathon session that
+/// pushed a log past the fallback between startups. Checked ONLY at
+/// session start, never mid-session.
+///
+/// Tier 3 — mid-session hard ceiling: [`LOG_MAX_BYTES`] (40 MB).
+/// Single-file policy: when the log exceeds this cap it is truncated
+/// IN PLACE (emptied) and writing continues — numbered backups
+/// (`.log.1`, ...) are NEVER created. Deliberately far above the
+/// Tier-2 fallback so normal multi-day usage never truncates
+/// mid-session.
+pub(crate) const LOG_AGE_RETENTION_SECS: u64 = 7 * 24 * 60 * 60; // 7 days
+pub(crate) const LOG_SIZE_FALLBACK_BYTES: u64 = 25 * 1024 * 1024; // 25 MB
+pub(crate) const LOG_MAX_BYTES: u64 = 40 * 1024 * 1024; // 40 MB
 
 //heartbeat / kill-tree / paste / poll / flush constants ──────
 //

@@ -65,6 +65,7 @@ vi.mock("../logging", () => ({
 	BUBBLE_CLR: "",
 	log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
 	RESET: "",
+	sweepStaleLogs: vi.fn(),
 	ts: () => "",
 }));
 vi.mock("../python", () => ({

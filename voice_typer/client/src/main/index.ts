@@ -39,7 +39,7 @@ import { registerIpcHandlers } from "./ipc";
 // (with 5 MiB rotation) and `electron-lifecycle.log` (opt-in INFO
 // persistence) instead of being lost in packaged builds where
 // `console.warn` has no terminal attached.
-import { BUBBLE_CLR, log, RESET, ts } from "./logging";
+import { BUBBLE_CLR, log, RESET, sweepStaleLogs, ts } from "./logging";
 // powerMonitor suspend/resume/on-battery handlers. Registered
 // after `app.whenReady()` (see call site below) — `powerMonitor` is
 // not usable before the app is ready.
@@ -60,6 +60,13 @@ import { createWindows, showMainWindow } from "./windows";
 if (process.env.npm_lifecycle_event === "dev" || !app.isPackaged) {
 	process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true";
 }
+
+// Startup-timeline marker (read by the Python backend at its first log
+// line — see `voice_typer/server/startup_timeline.py`): module-eval time
+// ≈ Electron process boot. Together with VOICE_TYPER_SPAWN_EPOCH_MS
+// (set in start-python.ts right before the spawn) it lets the backend
+// log one line attributing the launch gap: electron boot vs backend init.
+process.env.VOICE_TYPER_BOOT_EPOCH_MS ??= String(Date.now());
 
 // Prevent Chromium from persisting its HTTP + V8-code caches into the
 // shared `electron-profile/`. The renderer only ever loads the local
@@ -112,6 +119,14 @@ setupUserData();
 // it writes the PID file and registers the second-instance → showMainWindow
 // handler. See `./single_instance.ts` for the stale-PID recovery path.
 acquireSingleInstanceLock();
+
+// Startup log sweep — Tiers 1 (age, 7 days) + 2 (size fallback, 25 MB)
+// of the three-tier cleanup design. Runs AFTER the single-instance gate
+// (only the primary instance sweeps) and BEFORE any log writes
+// (error handlers install later, inside `whenReady()`), so stale /
+// oversized logs are deleted and this session starts fresh. Mirrors the
+// Python `_sweep_stale_logs` and the Rust host's startup sweep.
+sweepStaleLogs();
 
 // Register every `ipcMain.on` / `ipcMain.handle` listener (window
 // controls, bubble IPC, config/history/vocabulary/templates export,

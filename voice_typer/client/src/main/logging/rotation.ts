@@ -10,11 +10,13 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-
+import { computeConfigDir } from "../config-dir";
 import { ANSI_ENABLED_FLAG, DIM, RESET } from "./colors";
 import {
 	DEFAULT_CRASH_LOG_MAX_BYTES,
 	DEFAULT_MAIN_LOG_MAX_BYTES,
+	LOG_AGE_RETENTION_MS,
+	LOG_SIZE_FALLBACK_BYTES,
 } from "./constants";
 import {
 	_clearCachedFileSize,
@@ -481,6 +483,72 @@ export function ts(): string {
 		return `${y}-${mo}-${day}  ${time}`;
 	}
 	return `${DIM}${time}${RESET}`;
+}
+
+/**
+ * Startup sweep — Tiers 1 (age) + 2 (size fallback) of the three-tier
+ * log-cleanup design. Deletes any file in the config-dir `logs/`
+ * directory that is EITHER older than {@link LOG_AGE_RETENTION_MS}
+ * (7 days) OR larger than {@link LOG_SIZE_FALLBACK_BYTES} (25 MB).
+ *
+ * Called ONCE at Electron main-process startup, BEFORE any log writes,
+ * so a stale/oversized log is removed and a fresh one created for the
+ * new session ("cleans everything up and starts fresh"). Mirrors the
+ * Python `_sweep_stale_logs` (`voice_typer/server/log/__init__.py`) and
+ * the Rust host's startup sweep.
+ *
+ * Scope: every regular file in `logs/` EXCEPT `*.lock` files. Files
+ * locked by another live process (e.g. `voice-typer.log` held open by
+ * an already-running Python backend in dev/Tauri mode) fail the unlink
+ * and are skipped silently — their owner sweeps them at its own
+ * startup.
+ *
+ * Best-effort: every error is swallowed — a sweep failure must never
+ * break app startup.
+ */
+export function sweepStaleLogs(): void {
+	sweepStaleLogsIn(path.join(computeConfigDir(), "logs"));
+}
+
+/**
+ * Core sweep implementation — operates on an explicit directory so
+ * tests exercise it without mocking the config-dir resolver.
+ * See {@link sweepStaleLogs} for the full contract.
+ */
+export function sweepStaleLogsIn(logsDir: string): void {
+	try {
+		let entries: fs.Dirent[];
+		try {
+			entries = fs.readdirSync(logsDir, { withFileTypes: true });
+		} catch {
+			// Missing logs dir (fresh install) — nothing to sweep.
+			return;
+		}
+		const now = Date.now();
+		for (const entry of entries) {
+			if (!entry.isFile()) continue;
+			// NEVER delete the inter-process truncation lock files —
+			// they must persist across sessions.
+			if (entry.name.endsWith(".lock")) continue;
+			const full = path.join(logsDir, entry.name);
+			try {
+				const stat = fs.statSync(full);
+				const age = now - stat.mtimeMs;
+				if (
+					age <= LOG_AGE_RETENTION_MS &&
+					stat.size <= LOG_SIZE_FALLBACK_BYTES
+				) {
+					continue;
+				}
+				fs.unlinkSync(full);
+			} catch {
+				// Locked by another live process (host-first launch order)
+				// or stat failed — its own startup sweep handles it.
+			}
+		}
+	} catch {
+		// Best-effort — never break startup over a sweep failure.
+	}
 }
 
 /**

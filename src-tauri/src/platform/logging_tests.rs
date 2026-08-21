@@ -63,15 +63,16 @@ fn test_rotating_file_writer_basic_write() {
 
 #[test]
 fn test_rotating_file_writer_truncates_in_place() {
-    // Single-file policy: writing past LOG_MAX_BYTES (5 MB) truncates
+    // Single-file policy: writing past LOG_MAX_BYTES (40 MB) truncates
     // the log IN PLACE — the file keeps its single identity and a
     // numbered backup (`.log.1`) is NEVER created.
     let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-rotate", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
-    // 6 MB total, 100 KB per line → ~60 lines.
+    // ~45 MB total, 100 KB per line → ~450 lines (crosses the 40 MB
+    // ceiling at line ~420).
     let big_line = "x".repeat(100_000);
-    for _ in 0..60 {
+    for _ in 0..450 {
         writer.write_line(&big_line).unwrap();
     }
     writer.flush().unwrap();
@@ -85,10 +86,10 @@ fn test_rotating_file_writer_truncates_in_place() {
     // The file is bounded: the single-file policy guarantees the
     // on-disk log never exceeds the rotation cap (the write that
     // crosses the threshold is flushed then truncated away). All
-    // writes AFTER the truncation point survive — with a 5 MiB cap and
-    // 100 KB lines, the first 53 lines cross the cap (5,300,053 B) and
-    // are truncated, leaving the remaining 7 lines (~700 KB) well
-    // under the cap.
+    // writes AFTER the truncation point survive — with a 40 MiB cap
+    // and 100 KB lines, the first ~420 lines cross the cap and are
+    // truncated, leaving the remaining ~30 lines (~3 MB) well under
+    // the cap.
     let size = std::fs::metadata(tmp.join("test-log.log"))
         .map(|m| m.len())
         .unwrap_or(0);
@@ -670,10 +671,10 @@ fn test_rotating_file_writer_truncate_keeps_0o600_on_posix() {
     ));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
-    // Write ~6 MB total to trigger at least one truncate
-    // (LOG_MAX_BYTES = 5 MB).
+    // Write ~45 MB total to trigger at least one truncate
+    // (LOG_MAX_BYTES = 40 MB).
     let big_line = "x".repeat(100_000);
-    for _ in 0..60 {
+    for _ in 0..450 {
         writer.write_line(&big_line).unwrap();
     }
     writer.flush().unwrap();
@@ -1511,4 +1512,74 @@ fn test_ue6_no_false_positive_on_normal_paths() {
             "false positive: input {input:?} was changed to {out:?}"
         );
     }
+}
+
+// ── Startup sweep (Tiers 1 + 2) ───────────────────────────────────
+
+/// Backdate a file's mtime using std only (`File::set_modified`,
+/// stable since 1.75 — above the crate's 1.77 MSRV).
+fn _backdate_mtime(path: &std::path::Path, secs_ago: u64) {
+    let file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(path)
+        .expect("open for mtime backdate");
+    let target = std::time::SystemTime::now() - std::time::Duration::from_secs(secs_ago);
+    file.set_modified(target).expect("set_modified");
+}
+
+#[test]
+fn test_sweep_stale_logs_deletes_old_and_oversized() {
+    // Tier 1: a file older than LOG_AGE_RETENTION_SECS is deleted.
+    // Tier 2: a file larger than LOG_SIZE_FALLBACK_BYTES is deleted
+    // even when freshly written. Recent + small files survive.
+    let tmp = std::env::temp_dir().join(format!(
+        "voice-typer-test-{}-sweep",
+        std::process::id()
+    ));
+    std::fs::remove_dir_all(&tmp).ok();
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    // Old file (mtime pushed past the retention window).
+    let old_path = tmp.join("voice-typer-rust.log.1");
+    std::fs::write(&old_path, b"ancient").unwrap();
+    _backdate_mtime(&old_path, crate::util::LOG_AGE_RETENTION_SECS + 60);
+
+    // Oversized fresh file (Tier 2 — size only).
+    let oversized_path = tmp.join("voice-typer-rust.log");
+    std::fs::write(
+        &oversized_path,
+        vec![b'x'; crate::util::LOG_SIZE_FALLBACK_BYTES as usize + 1],
+    )
+    .unwrap();
+
+    // Recent + small file — must survive.
+    let recent_path = tmp.join("voice-typer-rust.log.2");
+    std::fs::write(&recent_path, b"recent").unwrap();
+
+    // Lock file — must survive even when ancient.
+    let lock_path = tmp.join("voice-typer-rust.log.lock");
+    std::fs::write(&lock_path, b"").unwrap();
+    _backdate_mtime(&lock_path, crate::util::LOG_AGE_RETENTION_SECS * 10);
+
+    super::logging::sweep_stale_logs(&tmp);
+
+    assert!(!old_path.exists(), "old file must be swept (Tier 1)");
+    assert!(
+        !oversized_path.exists(),
+        "oversized file must be swept (Tier 2)"
+    );
+    assert!(recent_path.exists(), "recent small file must survive");
+    assert!(lock_path.exists(), "lock file must NEVER be swept");
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+#[test]
+fn test_sweep_stale_logs_missing_dir_is_noop() {
+    // A missing logs dir must be a silent no-op (no panic).
+    let tmp = std::env::temp_dir().join(format!(
+        "voice-typer-test-{}-sweep-missing",
+        std::process::id()
+    ));
+    std::fs::remove_dir_all(&tmp).ok();
+    super::logging::sweep_stale_logs(&tmp); // must not panic
 }

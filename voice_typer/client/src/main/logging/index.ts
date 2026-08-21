@@ -116,6 +116,7 @@ export {
 	fileTimestamp,
 	redactPii,
 	rotateIfNeeded,
+	sweepStaleLogs,
 	ts,
 } from "./rotation";
 // Message-first structured logger + path resolvers + opt-in lifecycle
