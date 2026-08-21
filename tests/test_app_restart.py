@@ -277,6 +277,84 @@ class TestRestartAppThreadAwareExit:
         app.tray.stop.assert_called_once()
 
 
+class TestRestartAppInPlaceStandalone:
+    """``restart_app()`` in standalone/terminal mode must signal an
+    IN-PLACE restart: the process stays alive and the entrypoint loop
+    re-initializes the app in the same terminal.  This is the user's
+    expectation when running ``voice-typer`` from a terminal: Restart
+    tears the app down but does NOT exit the process (no home-prompt
+    return), and a fresh instance starts in the same window.
+    """
+
+    def test_standalone_restart_sets_in_place_flag(self, app, monkeypatch):
+        """In standalone mode (``_electron_pid`` set — Python spawned
+        Electron as a child), ``restart_app()`` must set
+        ``app._in_place_restart = True`` so the entrypoint loop knows to
+        re-run the startup sequence instead of exiting."""
+        spy_sys_exit = []
+        _stub_restart_environment(app, monkeypatch, spy_sys_exit=spy_sys_exit)
+
+        # Standalone mode: Python spawned Electron as a child.
+        app._electron_pid = 12345
+        monkeypatch.setattr(app, "_do_cleanup", lambda: None)
+
+        app.restart_app()
+
+        assert app._in_place_restart is True, (
+            "standalone restart must set _in_place_restart=True so the "
+            "entrypoint loop re-initializes instead of exiting"
+        )
+        assert app._is_restarting is True, "standalone restart must still mark _is_restarting=True for cleanup"
+        # The in-place path must NOT call sys.exit(0) — the process stays
+        # alive to re-initialize.
+        assert spy_sys_exit == [], (
+            f"standalone restart must NOT call sys.exit(0) (in-place restart keeps "
+            f"the process alive); got sys.exit calls: {spy_sys_exit}"
+        )
+
+    def test_non_standalone_restart_does_not_set_in_place_flag(self, app, monkeypatch):
+        """In dev mode (no ``_electron_pid`` — Electron spawned Python),
+        ``restart_app()`` must NOT set ``_in_place_restart``: the old
+        out-of-process relaunch (sys.exit + Electron respawn) is the
+        correct behaviour there."""
+        spy_sys_exit = []
+        _stub_restart_environment(app, monkeypatch, spy_sys_exit=spy_sys_exit)
+
+        app._electron_pid = None  # dev mode — Electron is the parent
+        monkeypatch.setattr(app, "_do_cleanup", lambda: None)
+
+        # The out-of-process path calls sys.exit(0) on the main thread.
+        with contextlib.suppress(SystemExit):
+            app.restart_app()
+
+        assert app._in_place_restart is False, "non-standalone restart must NOT set _in_place_restart"
+        assert spy_sys_exit == [0], (
+            "non-standalone restart must still call sys.exit(0) on the main thread "
+            f"(out-of-process relaunch); got sys.exit calls: {spy_sys_exit}"
+        )
+
+    def test_in_place_restart_runs_full_cleanup(self, app, monkeypatch):
+        """The in-place path must still run the full ``_do_cleanup()``
+        (which kills the Electron child, stops hotkeys/tray, flushes DBs,
+        releases the mutex) so the re-initialized app starts clean."""
+        _stub_restart_environment(app, monkeypatch, spy_sys_exit=[])
+
+        app._electron_pid = 12345  # standalone mode
+        cleanup_calls = []
+        monkeypatch.setattr(
+            app,
+            "_do_cleanup",
+            lambda: cleanup_calls.append(1),
+        )
+
+        app.restart_app()
+
+        assert cleanup_calls == [1], (
+            "in-place restart must run _do_cleanup (full teardown) so the "
+            f"re-initialized app starts clean; cleanup_calls={cleanup_calls}"
+        )
+
+
 def _run_spy(app, errors):
     """Helper: run ``app.restart_app()`` and capture any exception
     (especially ``SystemExit``) into ``errors`` so the calling test

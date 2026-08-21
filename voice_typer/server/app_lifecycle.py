@@ -254,6 +254,52 @@ class LifecycleController:
         # pass APP_NAME as the format argument.
         log.info("[RESTART] Restarting %s...", APP_NAME)
 
+        # ── STANDALONE IN-PLACE RESTART ────────────────────────────────
+        # In standalone/terminal mode Python spawned Electron as a child
+        # (`app._electron_pid` is set).  The user expectation is that
+        # Restart keeps THIS process alive and re-initializes the app in
+        # the same terminal/console — NOT that the process exits and a
+        # hidden backend is respawned by Electron (the old behaviour,
+        # which detached the app from the terminal the user launched it
+        # in).  We detect standalone mode by the tracked Electron PID and
+        # branch: teardown everything (including killing the Electron
+        # child — we'll relaunch it), then signal the entrypoint loop to
+        # re-run the startup sequence instead of ``sys.exit(0)``.
+        _in_place_restart = vars(app).get("_electron_pid") is not None
+        if _in_place_restart:
+            log.info(
+                "[RESTART] Standalone mode — in-place restart: tearing down and "
+                "re-initializing in the same terminal (PID=%s)",
+                app._electron_pid,
+            )
+            # Mark as restarting so the shared cleanup body can
+            # distinguish restart from quit where needed, but signal the
+            # IN-PLACE variant so ``teardown_electron`` terminates the
+            # Electron child (it will be re-launched by the entrypoint
+            # loop) and so the entrypoint loop knows to re-run.
+            app._is_restarting = True
+            app._in_place_restart = True
+            # In standalone in-place mode we do NOT push ``relaunch_app``
+            # to Electron — the Electron child is going to be terminated
+            # and re-launched by this same process, so there is no host
+            # to ack the relaunch.
+            app._shutting_down = True
+            app._shutting_down_event.set()
+            try:
+                app._thread_registry.shutdown_all()
+            except Exception:
+                log.warning(
+                    "[RESTART] thread_registry.shutdown_all failed",
+                    exc_info=True,
+                )
+            app._do_cleanup()
+            # Do NOT call ``sys.exit(0)`` — the process must stay alive.
+            # ``tray.stop()`` (the last cleanup step) breaks the pystray
+            # loop so ``app.start()`` returns, and the entrypoint loop
+            # observes ``_in_place_restart`` and re-initializes.
+            log.info("[RESTART] In-place restart complete — entrypoint loop will re-initialize")
+            return
+
         # ── RESTART-FLAG ──────────────────────────────────────────────
         # Mark this shutdown as a RESTART (not a quit) so the shared
         # cleanup body can distinguish the two.  In STANDALONE mode

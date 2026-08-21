@@ -63,10 +63,17 @@ def teardown_electron(controller) -> None:
     # (``_is_restarting`` False) and in dev mode (no tracked
     # ``_electron_pid``) the normal teardown runs.
     #
+    # EXCEPTION — IN-PLACE RESTART: when ``_in_place_restart`` is also
+    # set (standalone Restart), the Electron child must be TERMINATED,
+    # not left alive: the entrypoint loop re-initializes the app and
+    # re-launches Electron itself.  Leaving the old Electron alive would
+    # strand the old UI (single-instance lock) and orphan it from the
+    # new backend.
+    #
     # NOTE: read via ``vars(app)`` (instance dict), NOT ``getattr`` —
     # a ``MagicMock`` test app auto-creates truthy attributes on any
     # ``getattr``, which would spuriously trigger the guard.
-    if vars(app).get("_is_restarting", False):
+    if vars(app).get("_is_restarting", False) and not vars(app).get("_in_place_restart", False):
         with contextlib.suppress(Exception):
             launched_pid = getattr(app, "_electron_pid", None)
             if launched_pid:

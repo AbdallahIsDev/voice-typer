@@ -251,18 +251,6 @@ def main() -> None:
 
     port, ws_mode = parse_ipc_args()
 
-    # SINGLE-INSTANCE FIRST — before logging setup. A duplicate launch
-    # must exit BEFORE ``_setup_logging()`` runs: otherwise it would
-    # initialize logging, install the VEH crash handler, and print the
-    # startup banner ("logging initialized…" + "Windows VEH
-    # installed…") as if it were starting normally — then die. With the
-    # check up front, a second launch prints exactly one
-    # understandable line ("Voice Typer is already running — only one
-    # instance is allowed") and nothing else, and it never writes into
-    # the running instance's log file. Args are parsed first so
-    # ``--version`` / ``--help`` still work while another instance is
-    # running (the lock is taken for real launches only).
-    #
     # ADR-0020 §12: under the Tauri sidecar path (TAURI_SIDECAR=1), the
     # Tauri host's `tauri-plugin-single-instance` plugin already enforces
     # single-instance via the OS's native mechanism (Win32 named mutex on
@@ -271,196 +259,237 @@ def main() -> None:
     # would double-lock on Windows and block the second-instance focus
     # path, so we skip it under Tauri.
     _tauri_sidecar = os.environ.get("TAURI_SIDECAR") == "1"
-    _single_instance_mutex = None if _tauri_sidecar else _ensure_single_instance(silent=True)
 
-    _setup_logging()
-    if _tauri_sidecar:
-        log.info("[IPC] TAURI_SIDECAR=1 — skipping Python-side single-instance mutex (Tauri host owns it)")
+    # ── IN-PLACE-RESTART LOOP ────────────────────────────────────────
+    # In standalone/terminal mode (``voice-typer`` from a terminal without
+    # ``--port`` or ``--ws``), the user expects Restart to keep THIS
+    # process alive and re-initialize the app in the same terminal/console
+    # — NOT to exit and let a hidden backend be respawned by Electron.
+    # The loop below runs once for a normal start/quit and re-runs for
+    # each in-place restart.  For non-standalone modes (``--port`` /
+    # ``--ws``) the loop body executes once and then exits via
+    # ``sys.exit()`` or ``break``.
+    while True:
+        # Re-acquire the single-instance mutex each cycle.  The previous
+        # cycle's ``_do_cleanup()`` (if this is a restart) closed the
+        # mutex handle via ``_teardown_mutex_handle``, so we need a
+        # fresh one.  On the first iteration this is the same as the
+        # original single call.
+        _single_instance_mutex = None if _tauri_sidecar else _ensure_single_instance(silent=True)
 
-    # the os._exit monkey-patch that printed a stack trace
-    # on every shutdown has been removed.
+        # Re-stage logging + startup banner each cycle so the restarted
+        # session gets a fresh ``session_id`` and the ``[STARTUP] logging
+        # initialized`` banner (C-LOG-1).  ``setup_logging`` is idempotent
+        # (dedups the file handler via ``isinstance`` check).
+        _setup_logging()
+        if _tauri_sidecar:
+            log.info("[IPC] TAURI_SIDECAR=1 — skipping Python-side single-instance mutex (Tauri host owns it)")
 
-    try:
-        app = VoiceTyperApp()
-    except Exception:
-        # Under pythonw.exe, _setup_logging() redirects stdout/stderr to
-        # devnull, so ANY exception here is invisible to the user — they
-        # only see "Python process exited: 1" + the misleading "Only one
-        # instance" dialog from Electron.  Log the full traceback to both
-        # the app's log file and a dedicated diagnostic file so debugging
-        # is possible.
-        log.exception("[FATAL] VoiceTyperApp() construction failed")
-        #  the io.StringIO → traceback → _redact_text →
-        # _secure_atomic_write → /tmp-fallback pattern is encapsulated
-        # in ``ipc_diagnostics.write_startup_diagnostic`` so the
-        # construction-failure and app.start()-failure paths share a
-        # single source of truth (the two inline blocks had already
-        # drifted once — 's overwrite-vs-append fix was applied to
-        # only one). The helper preserves the historical
-        # "Voice Typer startup failed at <time>" header so
-        # ``tests/test_ipc_server_main_diagnostics.py``'s substring
-        # assertions keep passing.
-        from voice_typer.server.ipc_diagnostics import write_startup_diagnostic
+        # the os._exit monkey-patch that printed a stack trace
+        # on every shutdown has been removed.
 
-        write_startup_diagnostic("construction")
-        # use the standardized exit code instead of raw 1.
-        sys.exit(EXIT_CRASH)
+        try:
+            app = VoiceTyperApp()
+        except Exception:
+            # Under pythonw.exe, _setup_logging() redirects stdout/stderr to
+            # devnull, so ANY exception here is invisible to the user — they
+            # only see "Python process exited: 1" + the misleading "Only one
+            # instance" dialog from Electron.  Log the full traceback to both
+            # the app's log file and a dedicated diagnostic file so debugging
+            # is possible.
+            log.exception("[FATAL] VoiceTyperApp() construction failed")
+            #  the io.StringIO → traceback → _redact_text →
+            # _secure_atomic_write → /tmp-fallback pattern is encapsulated
+            # in ``ipc_diagnostics.write_startup_diagnostic`` so the
+            # construction-failure and app.start()-failure paths share a
+            # single source of truth (the two inline blocks had already
+            # drifted once — 's overwrite-vs-append fix was applied to
+            # only one). The helper preserves the historical
+            # "Voice Typer startup failed at <time>" header so
+            # ``tests/test_ipc_server_main_diagnostics.py``'s substring
+            # assertions keep passing.
+            from voice_typer.server.ipc_diagnostics import write_startup_diagnostic
 
-    # PLAT-HLEAK: store the mutex handle on the app instance so
-    # quit() can CloseHandle it on shutdown
-    app._mutex_handle = _single_instance_mutex
+            write_startup_diagnostic("construction")
+            # use the standardized exit code instead of raw 1.
+            sys.exit(EXIT_CRASH)
 
-    # use the providers.build_ipc_server composition
-    # root instead of constructing IPCServer directly.  Behavior is
-    # identical today (build_ipc_server just calls IPCServer(app));
-    # the factory exists so future wiring (logging, metrics, feature
-    # flags, an alternate service implementation) lives in one place
-    # rather than being threaded through this entry point.
-    from voice_typer.server.providers import build_ipc_server
+        # PLAT-HLEAK: store the mutex handle on the app instance so
+        # quit() can CloseHandle it on shutdown
+        app._mutex_handle = _single_instance_mutex
 
-    server = build_ipc_server(app)
-    #  ``main()`` NEVER uses the
-    # unauthenticated stdin/stdout IPC path. The three launch modes are:
-    #   1. ``--port N``        — explicit TCP, Electron connects over the
-    #                            network with a session token.
-    #   2. ``--ws``            — Tauri sidecar WebSocket (also
-    #                            token-authenticated via env var).
-    #   3. standalone (neither flag) — auto-pick a port, set a session
-    #                            token, start TCP, and launch the
-    #                            Electron frontend to connect back. The
-    #                            Python process is the parent; stdin is
-    #                            the user's terminal (or /dev/null when
-    #                            launched by a desktop launcher).
-    # In ALL three modes the stdin listener would be an unauthenticated
-    # command channel: on Linux TIOCSTI injection is possible, and on
-    # every platform an accidental paste of JSON into the terminal
-    # triggers unintended IPC commands. We therefore set
-    # ``_tcp_mode = True`` UNCONDITIONALLY before ``server.start()`` so
-    # ``start()`` skips spawning the stdin listener thread. The standalone
-    # path below still calls ``start_tcp()`` (the bound-socket overload)
-    # after ``start()`` to begin accepting connections.
-    server._tcp_mode = True
-    server.start()
-    # ADR-0020 §2: --ws mode starts the WebSocket sidecar server instead
-    # of the TCP server. The WS server binds 127.0.0.1:0, prints the
-    # `server_started` JSON to stdout, and accepts authenticated WS
-    # connections from the Tauri Rust host. The TCP / standalone paths
-    # below are unchanged for the Electron fallback.
-    if ws_mode:
-        from voice_typer.server import sidecar_ws
+        # use the providers.build_ipc_server composition
+        # root instead of constructing IPCServer directly.  Behavior is
+        # identical today (build_ipc_server just calls IPCServer(app));
+        # the factory exists so future wiring (logging, metrics, feature
+        # flags, an alternate service implementation) lives in one place
+        # rather than being threaded through this entry point.
+        from voice_typer.server.providers import build_ipc_server
 
-        log.info("[IPC] starting Tauri sidecar WebSocket server (sidecar_ws.run)")
-        # ADR-0020 round-2 fix: do NOT call server.push({"type": "ready"})
-        # here — in WS mode, server.push writes to the TCP _tcp_client
-        # which is None (no TCP server started). The `ready` event is
-        # emitted by sidecar_ws._handle_connection() via event_bus.publish
-        # AFTER the first WS client authenticates, so the Tauri host
-        # receives it over the WS connection.
-        # sidecar_ws.run() blocks until the asyncio loop is cancelled
-        # (SIGTERM from the host's kill_children backstop). Returns an
-        # exit code; we propagate it.
-        _ws_exit = sidecar_ws.run(server)
-        if _ws_exit != 0:
-            log.warning("[IPC] sidecar_ws.run exited with code %d", _ws_exit)
-        sys.exit(_ws_exit)
-    elif port is not None:
-        server.start_tcp(port)
-        log.info("[IPC] TCP mode on port %d — Electron should connect here", port)
-    else:
-        # P1-1.2: Standalone mode (no --port). The user ran VoiceTyper
-        # from a terminal.  Auto-pick an available port, start the TCP
-        # server, generate a session token, and launch the Electron
-        # frontend so it connects back to us over TCP instead of
-        # spawning its own Python backend.
-        from voice_typer.server import electron_launcher
+        server = build_ipc_server(app)
+        #  ``main()`` NEVER uses the
+        # unauthenticated stdin/stdout IPC path. The three launch modes are:
+        #   1. ``--port N``        — explicit TCP, Electron connects over the
+        #                            network with a session token.
+        #   2. ``--ws``            — Tauri sidecar WebSocket (also
+        #                            token-authenticated via env var).
+        #   3. standalone (neither flag) — auto-pick a port, set a session
+        #                            token, start TCP, and launch the
+        #                            Electron frontend to connect back. The
+        #                            Python process is the parent; stdin is
+        #                            the user's terminal (or /dev/null when
+        #                            launched by a desktop launcher).
+        # In ALL three modes the stdin listener would be an unauthenticated
+        # command channel: on Linux TIOCSTI injection is possible, and on
+        # every platform an accidental paste of JSON into the terminal
+        # triggers unintended IPC commands. We therefore set
+        # ``_tcp_mode = True`` UNCONDITIONALLY before ``server.start()`` so
+        # ``start()`` skips spawning the stdin listener thread. The standalone
+        # path below still calls ``start_tcp()`` (the bound-socket overload)
+        # after ``start()`` to begin accepting connections.
+        server._tcp_mode = True
+        server.start()
+        # ADR-0020 §2: --ws mode starts the WebSocket sidecar server instead
+        # of the TCP server. The WS server binds 127.0.0.1:0, prints the
+        # `server_started` JSON to stdout, and accepts authenticated WS
+        # connections from the Tauri Rust host. The TCP / standalone paths
+        # below are unchanged for the Electron fallback.
+        if ws_mode:
+            from voice_typer.server import sidecar_ws
 
-        standalone_port, standalone_sock = _pick_available_port(IPC_PORT)
-
-        # Generate the session token and set it as an env var BEFORE
-        # starting the TCP listener.  The _accept_tcp daemon thread reads
-        # VOICE_TYPER_IPC_TOKEN at the top of its function; if we set it
-        # after start_tcp(), the thread can read the env var before we
-        # assign it, leaving expected_token empty and the connection
-        # unauthenticated.
-        ipc_token = electron_launcher.generate_session_token()
-        os.environ[IPC_TOKEN_ENV_VAR] = ipc_token
-
-        # pass the BOUND socket through to start_tcp so there's
-        # no race window between _pick_available_port's probe and the
-        # real bind() in _accept_tcp.  The kernel guarantees no other
-        # local process can claim the port between probe and listen.
-        server.start_tcp((standalone_port, standalone_sock))
-        log.info(
-            "[IPC] standalone TCP mode on port %d — Electron will connect here",
-            standalone_port,
-        )
-
-        # Launch Electron as a subprocess.  Pass the port + token via
-        # env vars so Electron's main process detects them and connects
-        # directly instead of spawning its own Python backend.
-        electron_pid = electron_launcher.launch_electron_frontend(
-            standalone_port,
-            ipc_token,
-        )
-        if electron_pid is not None:
-            # Track PID on the app instance so quit() can terminate
-            # the subprocess during shutdown (P1-1.3).
-            app._electron_pid = electron_pid
-            # Also register with tray_window so its existing cleanup
-            # path (which calls get_electron_pid()) still works.
-            try:
-                from voice_typer.server.tray_window import set_electron_pid
-
-                set_electron_pid(electron_pid)
-            except Exception:
-                log.debug("[IPC] could not register Electron PID with tray_window", exc_info=True)
-            log.info(
-                "[STARTUP] Standalone mode — launched Electron (PID=%s) on port %d",
-                electron_pid,
-                standalone_port,
-            )
+            log.info("[IPC] starting Tauri sidecar WebSocket server (sidecar_ws.run)")
+            # ADR-0020 round-2 fix: do NOT call server.push({"type": "ready"})
+            # here — in WS mode, server.push writes to the TCP _tcp_client
+            # which is None (no TCP server started). The `ready` event is
+            # emitted by sidecar_ws._handle_connection() via event_bus.publish
+            # AFTER the first WS client authenticates, so the Tauri host
+            # receives it over the WS connection.
+            # sidecar_ws.run() blocks until the asyncio loop is cancelled
+            # (SIGTERM from the host's kill_children backstop). Returns an
+            # exit code; we propagate it.
+            _ws_exit = sidecar_ws.run(server)
+            if _ws_exit != 0:
+                log.warning("[IPC] sidecar_ws.run exited with code %d", _ws_exit)
+            sys.exit(_ws_exit)
+        elif port is not None:
+            server.start_tcp(port)
+            log.info("[IPC] TCP mode on port %d — Electron should connect here", port)
         else:
-            log.error(
-                "[STARTUP] Standalone mode — failed to launch Electron; backend is running on port %d with no UI",
+            # P1-1.2: Standalone mode (no --port). The user ran VoiceTyper
+            # from a terminal.  Auto-pick an available port, start the TCP
+            # server, generate a session token, and launch the Electron
+            # frontend so it connects back to us over TCP instead of
+            # spawning its own Python backend.
+            from voice_typer.server import electron_launcher
+
+            standalone_port, standalone_sock = _pick_available_port(IPC_PORT)
+
+            # Generate the session token and set it as an env var BEFORE
+            # starting the TCP listener.  The _accept_tcp daemon thread reads
+            # VOICE_TYPER_IPC_TOKEN at the top of its function; if we set it
+            # after start_tcp(), the thread can read the env var before we
+            # assign it, leaving expected_token empty and the connection
+            # unauthenticated.
+            ipc_token = electron_launcher.generate_session_token()
+            os.environ[IPC_TOKEN_ENV_VAR] = ipc_token
+
+            # pass the BOUND socket through to start_tcp so there's
+            # no race window between _pick_available_port's probe and the
+            # real bind() in _accept_tcp.  The kernel guarantees no other
+            # local process can claim the port between probe and listen.
+            server.start_tcp((standalone_port, standalone_sock))
+            log.info(
+                "[IPC] standalone TCP mode on port %d — Electron will connect here",
                 standalone_port,
             )
 
-    # Tell the frontend we're ready — Electron defers window creation until this.
-    server.push({"type": "ready"})
-    log.info("[IPC] entering app.start() (tray event loop)")
-    try:
-        app.start()  # blocks (tray event loop)
-        # QUIT-CLEAN-001: keep shutdown quiet.  Only ``[QUIT] Quitting
-        # Voice Typer...`` (from app.quit_app) and ``[SHUTDOWN]
-        # Shutdown complete, exiting`` (from app.quit) should be at
-        # INFO during a normal quit; everything else is internal
-        # bookkeeping that the user doesn't need to see.
-        log.debug("[IPC] Shutdown complete")
-    except SystemExit as _se:
-        # sys.exit() or os._exit() called from within pystray or runtime.
-        # Catch it so we can log the cause, then re-raise.
-        log.debug("[IPC] app.start() exited via sys.exit(%s)", _se.code)
-        raise
-    except Exception:
-        #  (fix): was `except BaseException` which also caught
-        # KeyboardInterrupt and GeneratorExit. Now catches only Exception
-        # so Ctrl+C and SystemExit propagate normally to the finally block.
-        log.exception("[FATAL] app.start() raised — shutting down")
-        #  route through the shared diagnostic helper
-        # (same as the construction-failure path above). The helper
-        # preserves the historical
-        # "\n--- app.start() failed at <time> ---\n" header and the
-        #  overwrite-vs-append semantics so repeated relaunch
-        # crashes don't grow ``startup-error.log`` without bound.
-        from voice_typer.server.ipc_diagnostics import write_startup_diagnostic
+            # Launch Electron as a subprocess.  Pass the port + token via
+            # env vars so Electron's main process detects them and connects
+            # directly instead of spawning its own Python backend.
+            electron_pid = electron_launcher.launch_electron_frontend(
+                standalone_port,
+                ipc_token,
+            )
+            if electron_pid is not None:
+                # Track PID on the app instance so quit() can terminate
+                # the subprocess during shutdown (P1-1.3).
+                app._electron_pid = electron_pid
+                # Also register with tray_window so its existing cleanup
+                # path (which calls get_electron_pid()) still works.
+                try:
+                    from voice_typer.server.tray_window import set_electron_pid
 
-        write_startup_diagnostic("app.start()")
-        # use the standardized exit code instead of raw 1.
-        sys.exit(EXIT_CRASH)
-    else:
-        pass
-    finally:
-        pass
+                    set_electron_pid(electron_pid)
+                except Exception:
+                    log.debug("[IPC] could not register Electron PID with tray_window", exc_info=True)
+                log.info(
+                    "[STARTUP] Standalone mode — launched Electron (PID=%s) on port %d",
+                    electron_pid,
+                    standalone_port,
+                )
+            else:
+                log.error(
+                    "[STARTUP] Standalone mode — failed to launch Electron; backend is running on port %d with no UI",
+                    standalone_port,
+                )
+
+        # Tell the frontend we're ready — Electron defers window creation until this.
+        server.push({"type": "ready"})
+        log.info("[IPC] entering app.start() (tray event loop)")
+        try:
+            app.start()  # blocks (tray event loop)
+            # QUIT-CLEAN-001: keep shutdown quiet.  Only ``[QUIT] Quitting
+            # Voice Typer...`` (from app.quit_app) and ``[SHUTDOWN]
+            # Shutdown complete, exiting`` (from app.quit) should be at
+            # INFO during a normal quit; everything else is internal
+            # bookkeeping that the user doesn't need to see.
+            log.debug("[IPC] Shutdown complete")
+        except SystemExit as _se:
+            # sys.exit() or os._exit() called from within pystray or runtime.
+            # Catch it so we can log the cause, then re-raise.
+            log.debug("[IPC] app.start() exited via sys.exit(%s)", _se.code)
+            raise
+        except Exception:
+            #  (fix): was `except BaseException` which also caught
+            # KeyboardInterrupt and GeneratorExit. Now catches only Exception
+            # so Ctrl+C and SystemExit propagate normally to the finally block.
+            log.exception("[FATAL] app.start() raised — shutting down")
+            #  route through the shared diagnostic helper
+            # (same as the construction-failure path above). The helper
+            # preserves the historical
+            # "\n--- app.start() failed at <time> ---\n" header and the
+            #  overwrite-vs-append semantics so repeated relaunch
+            # crashes don't grow ``startup-error.log`` without bound.
+            from voice_typer.server.ipc_diagnostics import write_startup_diagnostic
+
+            write_startup_diagnostic("app.start()")
+            # use the standardized exit code instead of raw 1.
+            sys.exit(EXIT_CRASH)
+        else:
+            pass
+        finally:
+            pass
+        # ── In-place restart check ─────────────────────────────────────
+        # ``app.start()`` returned: the tray loop was broken by
+        # ``tray.stop()`` (called inside ``_do_cleanup()``, which the
+        # tray callback ran for quit OR restart).  Two cases:
+        #
+        #   1. IN-PLACE restart (standalone/terminal mode) — the app
+        #      instance set ``_in_place_restart = True`` before cleanup,
+        #      and the process MUST stay alive.  Loop back and
+        #      re-initialize (fresh mutex, fresh logging session, fresh
+        #      VoiceTyperApp, fresh IPC server, re-launch Electron) in
+        #      the SAME process so the terminal window stays attached.
+        #   2. Normal quit / ``--port`` / ``--ws`` modes — break the
+        #      loop and let the process exit (``--ws`` already exits via
+        #      ``sys.exit`` above; ``--port`` and standalone-quit fall
+        #      through here with ``_in_place_restart`` False).
+        if not getattr(app, "_in_place_restart", False):
+            break
+        log.info("[RESTART] In-place restart — re-initializing app in the same process")
+        # Loop back: the next iteration re-acquires the single-instance
+        # mutex, re-stages logging, constructs a fresh VoiceTyperApp,
+        # starts a fresh IPC server, and re-launches Electron.
     # Keep mutex alive by referencing it until exit
     _ = _single_instance_mutex
 

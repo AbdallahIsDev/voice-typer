@@ -866,6 +866,13 @@ class VoiceTyperApp:
         # failed).  Tracked here so quit() can terminate the subprocess
         # explicitly during shutdown.
         self._electron_pid: int | None = None
+        # IN-PLACE-RESTART: True when ``restart_app()`` runs in standalone
+        # mode and the process must stay alive to re-initialize the app in
+        # the same terminal/console (instead of ``sys.exit(0)`` + Electron
+        # respawning a hidden backend).  The entrypoint loop checks this
+        # flag after ``app.start()`` returns to decide whether to re-run
+        # the startup sequence.
+        self._in_place_restart: bool = False
         # ESC- flag gating the global ESC cancel hotkey.  Set to
         # True by the ""set_esc_cancel_paused"" IPC handler when the
         # frontend HotkeyPicker enters capture mode, so the backend's
