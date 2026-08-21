@@ -40,7 +40,12 @@ import path from "node:path";
 import { app, crashReporter, dialog, session } from "electron";
 import { PROCESS_EXIT_BACKSTOP_MS } from "./constants";
 import { mainT } from "./i18n";
-import { DEFAULT_CRASH_LOG_MAX_BYTES, log, rotateIfNeeded } from "./logging";
+import {
+	DEFAULT_CRASH_LOG_MAX_BYTES,
+	fileTimestamp,
+	log,
+	rotateIfNeeded,
+} from "./logging";
 import { stopPython } from "./python";
 import { clearElectronPidFile, computeConfigDir } from "./single_instance";
 import { state } from "./state";
@@ -351,7 +356,7 @@ export function _installErrorHandlers(opts: {
 	const logEvent = (filePath: string, kind: string, err: unknown) => {
 		try {
 			rotateIfNeeded(filePath, maxBytes);
-			const ts = new Date().toISOString();
+			const ts = fileTimestamp();
 			const line = `${ts} [${kind}] ${
 				err instanceof Error ? (err.stack ?? err.message) : String(err)
 			}\n`;

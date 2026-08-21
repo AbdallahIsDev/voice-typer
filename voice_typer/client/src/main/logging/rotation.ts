@@ -482,3 +482,27 @@ export function ts(): string {
 	}
 	return `${DIM}${time}${RESET}`;
 }
+
+/**
+ * File-log timestamp matching the canonical Python `voice-typer.log`
+ * format (C-LOG-1): `YYYY-MM-DD  HH:MM:SS` — TWO spaces between the
+ * date and the time, seconds-only precision, local time, NO `T`
+ * separator, NO timezone offset, NO millisecond fraction.
+ *
+ * All Electron file logs (`electron-main.log`, `electron-runtime.log`,
+ * `electron-lifecycle.log`, crash/rejection logs) must use this exact
+ * format so the cross-process timeline is consistent with the main
+ * Python log.  The old `new Date().toISOString()` produced
+ * `YYYY-MM-DDTHH:MM:SS.mmmZ` (UTC, `T`, millis) — a different format
+ * from `voice-typer.log`.
+ */
+export function fileTimestamp(): string {
+	const d = new Date();
+	const y = String(d.getFullYear());
+	const mo = String(d.getMonth() + 1).padStart(2, "0");
+	const day = String(d.getDate()).padStart(2, "0");
+	const h = String(d.getHours()).padStart(2, "0");
+	const m = String(d.getMinutes()).padStart(2, "0");
+	const s = String(d.getSeconds()).padStart(2, "0");
+	return `${y}-${mo}-${day}  ${h}:${m}:${s}`;
+}

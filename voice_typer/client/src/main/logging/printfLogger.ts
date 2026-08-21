@@ -45,7 +45,7 @@ import path from "node:path";
 import { computeConfigDir } from "../config-dir";
 import { DIM, ERROR_CLR, INFO_CLR, RESET, WARN_CLR } from "./colors";
 import { RUNTIME_LOG_MAX_BYTES } from "./constants";
-import { appendLogLine, redactPii, ts } from "./rotation";
+import { appendLogLine, fileTimestamp, redactPii, ts } from "./rotation";
 import { appendLifecycleLine, PERSIST_INFO } from "./structuredLogger";
 
 /**
@@ -238,8 +238,8 @@ const mainRuntimeLogger = {
 	write(level: "WARN" | "ERROR", formattedArgs: string): void {
 		const logPath = getRuntimeLogPath();
 		if (!logPath) return;
-		const iso = new Date().toISOString();
-		const line = `${iso} [${level}] ${formattedArgs}\n`;
+		const fileTs = fileTimestamp();
+		const line = `${fileTs} [${level}] ${formattedArgs}\n`;
 		// Route through `appendLogLine` so the file-size
 		// cache is populated after each successful append. Previously
 		// this site called `rotateIfNeeded` + `fs.appendFileSync` directly,

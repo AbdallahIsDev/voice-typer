@@ -27,6 +27,7 @@ import { mainT } from "../i18n";
 import { WindowChannels } from "../ipc/channels";
 import {
 	cleanConsoleMsg,
+	fileTimestamp,
 	log,
 	RENDERER_CLR,
 	RESET,
@@ -440,7 +441,7 @@ export function createMainWindow(forceShow = false): void {
 			// cleaned text (idempotent on already-redacted
 			// text so the double-chain is safe).
 			const cleaned = cleanConsoleMsg(e.message);
-			const line = `${new Date().toISOString()} [renderer-error] ${redactPii(
+			const line = `${fileTimestamp()} [renderer-error] ${redactPii(
 				cleaned,
 			)} (${e.sourceId}:${e.lineNumber})\n`;
 			appendRendererError(line);

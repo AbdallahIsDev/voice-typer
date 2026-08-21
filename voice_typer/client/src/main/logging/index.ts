@@ -113,6 +113,7 @@ export {
 export {
 	appendLogLine,
 	cleanConsoleMsg,
+	fileTimestamp,
 	redactPii,
 	rotateIfNeeded,
 	ts,

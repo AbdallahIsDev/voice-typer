@@ -31,7 +31,12 @@ import path from "node:path";
 import { app } from "electron";
 
 import { computeConfigDir } from "../config-dir";
-import { appendLogLine, recordLoggingFailure, redactPii } from "./rotation";
+import {
+	appendLogLine,
+	fileTimestamp,
+	recordLoggingFailure,
+	redactPii,
+} from "./rotation";
 
 // Opt-in INFO persistence for support/enterprise deployments.
 // Set VOICE_TYPER_ELECTRON_INFO_LOG=1 to route INFO logs to
@@ -218,7 +223,7 @@ export function appendLifecycleLine(
 	args: unknown[],
 ): void {
 	try {
-		const tsStr = new Date().toISOString();
+		const tsStr = fileTimestamp();
 		// Redact PII / API keys / URL credentials from the
 		// message + args before persisting to the lifecycle
 		// log. Shares the same `redactArgsForFile` helper as
@@ -303,7 +308,7 @@ function redactArgsForFile(msg: string, args: unknown[]): string {
  * inject the same bracket via ``_SessionFilter``).
  */
 function formatLine(level: Level, msg: string, args: unknown[]): string {
-	const tsStr = new Date().toISOString();
+	const tsStr = fileTimestamp();
 	const sessionId = getSessionId();
 	const formatted = redactArgsForFile(msg, args);
 	return `${tsStr} [${sessionId}] [${level.toUpperCase()}] ${formatted}\n`;

@@ -78,6 +78,7 @@ vi.mock("../logging/rotation", async () => {
 		appendLogLine: (...args: unknown[]) => appendLogLineMock(...args),
 		rotateIfNeeded: vi.fn(),
 		cleanConsoleMsg: vi.fn(),
+		fileTimestamp: vi.fn(() => "2026-08-21  12:00:00"),
 		redactPii: actual.redactPii,
 		ts: vi.fn(() => "12:00:00"),
 	};

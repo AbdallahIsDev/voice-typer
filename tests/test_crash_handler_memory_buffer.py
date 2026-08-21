@@ -100,12 +100,36 @@ class TestMemoryBufferInstallation:
         ``voice-typer.log`` for a session that never crashed.  The
         ``close()`` override runs too late to help (the flush already
         happened).  Setting it to False makes the ONLY writer the VEH
-        callback's explicit ``flush_memory_handler()``."""
+        callback's explicit         ``flush_memory_handler()``."""
         install_memory_buffer(tmp_path)
         assert _ch._memory_handler.flushOnClose is False, (
             "flushOnClose must be False — otherwise logging.shutdown() flushes "
             "the ring to the crash-buffer file on every clean exit"
         )
+
+    def test_delay_true_prevents_file_on_clean_startup(self, tmp_path: Path):
+        """The crash-buffer target handler uses ``delay=True`` so the
+        file is NOT created on a clean startup — only when a crash
+        triggers ``flush_memory_handler()``.  Without ``delay=True``,
+        the ``RotatingFileHandler`` opens the file at construction,
+        creating a 0-byte ``voice-typer-crash-buffer.log`` on every
+        launch even though nothing writes to it on a clean session."""
+        install_memory_buffer(tmp_path)
+        buffer_path = tmp_path / "logs" / "voice-typer-crash-buffer.log"
+        assert not buffer_path.exists(), (
+            "crash-buffer file must NOT be created on install (delay=True keeps it absent until the first crash flush)"
+        )
+        # Log a record and flush explicitly (simulating a crash).
+        test_log = logging.getLogger("voice_typer.test.crash_buffer")
+        test_log.warning("crash record")
+        flush_memory_handler()
+        if _ch._crash_buffer_handler is not None:
+            _ch._crash_buffer_handler.flush()
+        assert buffer_path.exists(), (
+            "crash-buffer file must be created on explicit flush (delay=True opens the file on first emit)"
+        )
+        contents = buffer_path.read_text(encoding="utf-8", errors="replace")
+        assert "crash record" in contents
 
 
 class TestMemoryBufferFlush:

@@ -253,6 +253,7 @@ def install_memory_buffer(config_dir: Path) -> None:
             backupCount=0,  # single-file policy: truncate in place, never .1
             encoding="utf-8",
             errors="backslashreplace",
+            delay=True,  # only create the file on first actual write (crash flush)
         )
         # Tighten perms on POSIX so the crash buffer (which contains
         # the same PII-redacted log records as voice-typer.log) is not

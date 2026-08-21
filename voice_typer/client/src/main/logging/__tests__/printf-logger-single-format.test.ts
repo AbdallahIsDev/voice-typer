@@ -57,6 +57,7 @@ vi.mock("../rotation", () => ({
 		rotationMocks.appendLogLineSpy(...args),
 	rotateIfNeeded: vi.fn(),
 	cleanConsoleMsg: vi.fn(),
+	fileTimestamp: vi.fn(() => "2026-08-21  12:00:00"),
 	redactPii: (s: string) => rotationMocks.redactPiiSpy(s),
 	ts: () => rotationMocks.tsStub(),
 }));
