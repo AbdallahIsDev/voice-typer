@@ -279,6 +279,17 @@ export function relaunchApp(): void {
 			log.warn("[RESTART] dev: mainWindow reload failed:", e);
 		}
 
+		// Clear VT_PYTHON_PORT / VT_IPC_TOKEN before calling startPython()
+		// so the spawn branch runs (not the "connect to existing backend"
+		// branch).  In standalone/terminal mode the original Python CLI
+		// set these env vars when spawning Electron; if they survive into
+		// the dev-mode restart, startPython() skips the spawn and just
+		// tcpConnect()s to the old (dying) backend — no new Python is
+		// ever created and the app is left headless (Electron alive with
+		// no backend process).
+		delete process.env.VT_PYTHON_PORT;
+		delete process.env.VT_IPC_TOKEN;
+
 		//wrap ``startPython()`` in try/finally so
 		// ``state._relaunching`` is cleared even if startPython
 		// throws (e.g. pythonArgs() throws on unrecognized

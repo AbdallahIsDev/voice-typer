@@ -295,4 +295,27 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 		expect(mockStopPython).not.toHaveBeenCalled();
 		expect(mockStartPython).not.toHaveBeenCalled();
 	});
+
+	it("deletes VT_PYTHON_PORT/VT_IPC_TOKEN before startPython() so the spawn branch runs", async () => {
+		// Standalone/terminal mode: the original Python CLI set these env
+		// vars when spawning Electron. If they survive into the dev-mode
+		// restart, startPython() takes the "connect to existing backend"
+		// branch and never spawns a new Python — the app is left headless.
+		vi.resetModules();
+		// Set the env vars as the Python CLI would have.
+		process.env.VT_PYTHON_PORT = "9876";
+		process.env.VT_IPC_TOKEN = "test-token";
+		try {
+			const { relaunchApp } = await import("../relaunch-app");
+			const proc = makeMockProc();
+			mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
+			await relaunchApp();
+			expect(process.env.VT_PYTHON_PORT).toBeUndefined();
+			expect(process.env.VT_IPC_TOKEN).toBeUndefined();
+			expect(mockStartPython).toHaveBeenCalledTimes(1);
+		} finally {
+			delete process.env.VT_PYTHON_PORT;
+			delete process.env.VT_IPC_TOKEN;
+		}
+	});
 });
