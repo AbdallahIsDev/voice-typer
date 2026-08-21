@@ -379,7 +379,15 @@ class TestPreRollFiltered:
             )
 
             # start() should have called process_chunk once per pre-roll
-            # chunk (R18-F12). Pre-fix, the count was 0.
+            # chunk (R18-F12). Pre-fix, the count was 0. process_chunk
+            # runs on the ASYNC audio worker thread draining the ring
+            # buffer — wait (bounded, event-free) for it to drain all
+            # fired chunks before pinning the exact count, else a slow
+            # CI worker races the assert (observed: 3 of 5 on a loaded
+            # ubuntu runner).
+            deadline = time.monotonic() + 5.0
+            while processor.process_chunk.call_count < n_preroll_chunks and time.monotonic() < deadline:
+                time.sleep(0.05)
             assert processor.process_chunk.call_count == n_preroll_chunks, (
                 f"R18-F12: pre-roll must be filtered — expected "
                 f"{n_preroll_chunks} process_chunk calls, got "

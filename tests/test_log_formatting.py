@@ -303,7 +303,7 @@ def test_setup_logging_no_duplicate_stream_handlers_when_reinvoked(tmp_path: Pat
         reset()
 
 
-def test_winerror1_on_write_is_benign_and_silent(tmp_path: Path, monkeypatch) -> None:
+def test_winerror1_on_write_is_benign_and_silent(monkeypatch) -> None:
     """On a Windows console, ``write()`` itself can raise WinError 1
     (ERROR_INVALID_FUNCTION) even though the data reached the OS — the
     raise comes from the underlying flush.  This is benign and must be
@@ -311,10 +311,14 @@ def test_winerror1_on_write_is_benign_and_silent(tmp_path: Path, monkeypatch) ->
     reach the stream.
 
     The quirk is a Windows-console behaviour and production gates the
-    benign path on ``os.name == "nt"``, so the test pins ``os.name``
-    to ``"nt"`` for its duration — a faithful simulation of the only
-    platform where WinError 1 can occur — keeping the contract verified
-    on every OS."""
+    benign path on ``os.name == "nt"``, so the gate is exercised by
+    pinning ``os.name`` ONLY around each direct ``handler.emit()``
+    call. The handler is constructed directly instead of via
+    ``setup_logging``: Python 3.10's ``pathlib.Path`` dispatches on
+    ``os.name`` at INSTANTIATION time, so a test-wide patch would make
+    pytest's own failure-reporting machinery instantiate WindowsPath on
+    POSIX and crash the xdist worker (observed on ubuntu-22.04 py3.10).
+    """
     import errno
 
     written: list[str] = []
@@ -341,31 +345,34 @@ def test_winerror1_on_write_is_benign_and_silent(tmp_path: Path, monkeypatch) ->
             exc.winerror = 1
             raise exc
 
-    broken = _WinConsoleStderr()
-    monkeypatch.setattr(sys, "stderr", broken)
-    monkeypatch.setattr(os, "name", "nt")
-    reset()
-    config_dir = tmp_path / "cfg"
-    config_dir.mkdir()
-    try:
-        setup_logging(config_dir)
-        root = logging.getLogger("voice_typer")
-        stream = next(h for h in root.handlers if isinstance(h, _FlushingStreamHandler))
+    handler = _FlushingStreamHandler(stream=_WinConsoleStderr())
+    handler.setFormatter(logging.Formatter("%(message)s"))
 
-        logger = logging.getLogger("voice_typer.server.log_formatting_test")
-        logger.info("first line")
+    def _record(msg: str) -> logging.LogRecord:
+        return logging.LogRecord(
+            "voice_typer.server.log_formatting_test",
+            logging.INFO,
+            __file__,
+            1,
+            msg,
+            None,
+            None,
+        )
 
-        assert not stream._flushed_once, "WinError 1 on write must NOT trip the broken-stream diagnostic"
-        assert stream in root.handlers, "handler must stay attached"
-        assert any("first line" in w for w in written), "line must reach the stream"
+    # Benign path: os.name == "nt" + winerror == 1 → silent, handler alive.
+    with monkeypatch.context() as m:
+        m.setattr(os, "name", "nt")
+        handler.emit(_record("first line"))
 
-        # Second record: still works, still silent.
-        logger.info("second line")
-        assert not stream._flushed_once
-        assert stream in root.handlers
-        assert any("second line" in w for w in written)
-    finally:
-        reset()
+    assert not handler._flushed_once, "WinError 1 on write must NOT trip the broken-stream diagnostic"
+    assert any("first line" in w for w in written), "line must reach the stream"
+
+    # Second record: still works, still silent.
+    with monkeypatch.context() as m:
+        m.setattr(os, "name", "nt")
+        handler.emit(_record("second line"))
+    assert not handler._flushed_once
+    assert any("second line" in w for w in written)
 
 
 def test_broken_console_stream_silently_swallowed(tmp_path: Path, monkeypatch) -> None:

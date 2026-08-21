@@ -385,8 +385,9 @@ def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
 
         if result.returncode != 0:
             # Distinguish "cargo failed to compile (system libs missing)"
-            # from "the test itself failed". A compile failure is a skip;
-            # a test failure is a hard error.
+            # and "the tauri-build build script rejected this checkout"
+            # from "the test itself failed". Environment failures are a
+            # skip; a test failure is a hard error.
             stderr = result.stderr.decode("utf-8", errors="replace")
             if "pkg-config" in stderr or "gdk-3.0" in stderr or "webkit2gtk" in stderr:
                 pytest.skip(
@@ -395,13 +396,30 @@ def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
                     "layer (above) is the only guard in this run. stderr "
                     f"excerpt: {stderr[:200]}"
                 )
+            if "failed to run custom build command" in stderr:
+                # tauri-build's build script rejected the checkout (its
+                # own error text is in the "--- stderr" section cargo
+                # only prints on failure). This is an environment gap in
+                # the CI pytest leg (no client build, no bundler
+                # placeholders beyond what this test stubs) — NOT a
+                # permissions regression. Skip with the full output so
+                # the gap is diagnosable; the source-parsing layer
+                # (above) still guards the mode(0o600) calls.
+                pytest.skip(
+                    "cargo test failed in the tauri-build build script "
+                    "(checkout environment, not the perms contract). "
+                    "The source-parsing layer (above) is the only guard "
+                    "in this run.\n"
+                    f"stdout: {result.stdout.decode('utf-8', errors='replace')[:2000]}\n"
+                    f"stderr: {stderr[:2000]}"
+                )
             # The test compiled but failed — this is a real  regression.
             pytest.fail(
                 "PI-7 regression: the Rust unit test "
                 "`test_rotating_file_writer_log_file_mode_is_0o600_on_posix` "
                 "failed. The log file is NOT 0o600 on POSIX.\n"
-                f"stdout: {result.stdout.decode('utf-8', errors='replace')[:500]}\n"
-                f"stderr: {stderr[:500]}"
+                f"stdout: {result.stdout.decode('utf-8', errors='replace')[:2000]}\n"
+                f"stderr: {stderr[:2000]}"
             )
 
         # The test passed — log file mode is 0o600 on this POSIX host.

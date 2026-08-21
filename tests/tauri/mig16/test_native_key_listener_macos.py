@@ -310,6 +310,7 @@ class TestSubprocessSpawn:
         captured: dict = {}
 
         def fake_popen(cmd, **kwargs):
+            captured["cmd"] = list(cmd)
             captured["kwargs"] = kwargs
             # Mirror the sibling tests' richer proc: _spawn_process
             # starts a reader thread that immediately readline()s the
@@ -328,14 +329,16 @@ class TestSubprocessSpawn:
         )
 
     def test_spawn_pipes_stdout_for_wire_protocol(self, macos_env, monkeypatch, tmp_path):
-        """stdout=PIPE, stderr=STDOUT, stdin=DEVNULL.
+        """stdout=PIPE, stderr=STDOUT, stdin=PIPE.
 
         stdout MUST be piped — the reader thread reads line-delimited
         wire-protocol events (READY / KEY_DOWN / FN_DOWN / MOD_DOWN /
         ERROR) from it. stderr is redirected to stdout so error output
-        is visible in the same stream. stdin is DEVNULL (the binary
-        doesn't read commands from stdin — it's event-driven via the
-        NSEvent monitors + CGEventTap).
+        is visible in the same stream. stdin is PIPE too: the backend's
+        watchdog writes ``PING`` to the child's stdin every 30s and
+        expects ``PONG`` back over stdout (liveness protocol), so the
+        pipe is bidirectional — events flow OUT on stdout, watchdog
+        pings flow IN on stdin.
         """
         backend = macos_env.MacNativeHotkey("<f8>")
         fake_bin = tmp_path / "macos-key-listener"
@@ -347,7 +350,14 @@ class TestSubprocessSpawn:
 
         def fake_popen(cmd, **kwargs):
             captured["kwargs"] = kwargs
-            return MagicMock()
+            # Mirror the sibling tests' richer proc: _spawn_process
+            # starts a reader thread that immediately readline()s the
+            # pipe — a bare MagicMock returns a non-bytes value and the
+            # spawn path raises before the assertions below run.
+            proc = MagicMock()
+            proc.poll.return_value = None  # still running
+            proc.stdout.readline.return_value = b""  # EOF
+            return proc
 
         monkeypatch.setattr(macos_env.subprocess, "Popen", fake_popen)
 
@@ -359,8 +369,9 @@ class TestSubprocessSpawn:
         assert kwargs.get("stderr") == subprocess.STDOUT, (
             "stderr must redirect to stdout so errors surface in the wire stream"
         )
-        assert kwargs.get("stdin") == subprocess.DEVNULL, (
-            "stdin must be DEVNULL — the binary is event-driven, not command-driven"
+        assert kwargs.get("stdin") == subprocess.PIPE, (
+            "stdin must be PIPE — the watchdog writes PING to the child's "
+            "stdin and reads PONG from stdout (liveness protocol)"
         )
 
     def test_spawn_uses_start_new_session_on_macos(self, macos_env, monkeypatch, tmp_path):
