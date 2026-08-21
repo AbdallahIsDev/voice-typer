@@ -269,11 +269,10 @@ fn main() {
                 // DO NOT bridge this back through `tauri::async_runtime::
                 // block_on` / std::thread + block_on — see AGENTS.md
                 // constraint C-TOKIO-1.
-                let result = AssertUnwindSafe(sidecar::spawn::initialize_sidecar(
-                    &app_handle, state,
-                ))
-                .catch_unwind()
-                .await;
+                let result =
+                    AssertUnwindSafe(sidecar::spawn::initialize_sidecar(&app_handle, state))
+                        .catch_unwind()
+                        .await;
                 if let Err(payload) = result {
                     let msg = payload
                         .downcast_ref::<&'static str>()
