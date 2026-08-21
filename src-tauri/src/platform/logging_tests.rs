@@ -1532,10 +1532,7 @@ fn test_sweep_stale_logs_deletes_old_and_oversized() {
     // Tier 1: a file older than LOG_AGE_RETENTION_SECS is deleted.
     // Tier 2: a file larger than LOG_SIZE_FALLBACK_BYTES is deleted
     // even when freshly written. Recent + small files survive.
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-sweep",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-sweep", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     std::fs::create_dir_all(&tmp).unwrap();
 

@@ -74,6 +74,11 @@ def fake_win32_for_return_value():
     mock_kernel32.GetLastError.return_value = 0
     with (
         patch.object(clip_mod, "is_windows", return_value=True),
+        # Pin is_macos() False too: manager._dispatch_keystroke checks
+        # is_macos() BEFORE is_windows(), so on a macOS host the real
+        # darwin predicate would otherwise route paste() into the
+        # Cmd+V branch instead of the Win32 SendInput path under test.
+        patch.object(clip_mod, "is_macos", return_value=False),
         patch("ctypes.windll", mock_windll, create=True),
     ):
         yield {"user32": mock_user32, "windll": mock_windll}
@@ -228,8 +233,7 @@ class TestPasteReturnsTrueOnFullSuccess:
             mock_key.ctrl = "ctrl_key"
             result = cm.paste()
         assert result is False, (
-            "S2- regression: paste() must return False on partial "
-            f"success (SendInput returned 1..3); got {result!r}."
+            f"S2- regression: paste() must return False on partial success (SendInput returned 1..3); got {result!r}."
         )
         # The "Auto-paste failed (SendInput partial success)" warning
         # SHOULD fire on partial success (this is the correct behavior

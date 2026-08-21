@@ -19,7 +19,7 @@
       RWX pages when unpacking the embedded payload; without this
       entitlement macOS 14 kills the process with EXC_BAD_ACCESS at
       startup, breaking the sidecar + prewarm binaries (which Nuitka
-      froze with --onefile).
+      froze in onefile layout).
     - automation.apple-events — the volume_ducker + clipboard_snapshot
       modules use AppleScript via NSAppleEventDescriptor to drive
       System Events.app (volume ramp, foreground app detection). Without

@@ -137,8 +137,14 @@ class TestTcpNoDelayBehavioral:
             io = _TCPLineIO(a)
             try:
                 nodelay = a.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY)
-                assert nodelay == 1, (
-                    f"DJ-80: _TCPLineIO.__init__ must set TCP_NODELAY=1 on the wrapped socket; got {nodelay}."
+                # Nonzero check instead of == 1: Darwin/XNU packs extra
+                # TCP-flag bits into the value read back for this option,
+                # so an ENABLED socket may report e.g. 4 on macOS while a
+                # DISABLED socket reports 0 on every platform. The
+                # behavioral contract is "Nagle disabled" ⇔ nonzero.
+                assert nodelay != 0, (
+                    f"DJ-80: _TCPLineIO.__init__ must enable TCP_NODELAY (nonzero) "
+                    f"on the wrapped socket; got {nodelay}."
                 )
             finally:
                 io.close()

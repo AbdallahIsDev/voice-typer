@@ -27,6 +27,21 @@ import pytest
 # Skip on Windows — the POSIX path is not exercised there.
 pytest.importorskip("fcntl")
 
+from voice_typer.server._paths import RUN_SUBDIR  # noqa: E402
+
+
+def _lock_file(config_dir):
+    """Canonical lockfile path: ``<config_dir>/run/backend.lock``.
+
+    Mirrors ``_ensure_single_instance_posix``, which keeps transient
+    runtime state under the ``run/`` subdir of the config dir. The
+    parent directory is created eagerly so tests that plant a symlink
+    at the lockfile location have somewhere to put it.
+    """
+    lock = config_dir / RUN_SUBDIR / "backend.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    return lock
+
 
 @pytest.fixture
 def isolated_config_dir(monkeypatch, tmp_path):
@@ -159,7 +174,7 @@ class TestNoFollowSymlink:
         # (or any file the attacker might want to clobber).
         symlink_target = isolated_config_dir / "attacker_target.txt"
         symlink_target.write_text("original content — should NOT be clobbered")
-        symlink_path = isolated_config_dir / "backend.lock"
+        symlink_path = _lock_file(isolated_config_dir)
         symlink_created = False
         try:
             os.symlink(symlink_target, symlink_path)
@@ -241,7 +256,7 @@ class TestNoFollowSymlink:
         try:
             fd = si_mod._ensure_single_instance_posix(silent=True)
             assert fd is not None, "FR-37: normal lockfile creation (no symlink) should succeed"
-            lock_path = isolated_config_dir / "backend.lock"
+            lock_path = _lock_file(isolated_config_dir)
             assert lock_path.exists()
         finally:
             _cleanup_lock_fd(fd)

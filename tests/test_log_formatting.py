@@ -36,6 +36,7 @@ from __future__ import annotations
 import json
 import logging
 import logging.handlers
+import os
 import re
 import sys
 from pathlib import Path
@@ -307,7 +308,13 @@ def test_winerror1_on_write_is_benign_and_silent(tmp_path: Path, monkeypatch) ->
     (ERROR_INVALID_FUNCTION) even though the data reached the OS — the
     raise comes from the underlying flush.  This is benign and must be
     silent: NO diagnostic, handler stays attached, later writes still
-    reach the stream."""
+    reach the stream.
+
+    The quirk is a Windows-console behaviour and production gates the
+    benign path on ``os.name == "nt"``, so the test pins ``os.name``
+    to ``"nt"`` for its duration — a faithful simulation of the only
+    platform where WinError 1 can occur — keeping the contract verified
+    on every OS."""
     import errno
 
     written: list[str] = []
@@ -336,6 +343,7 @@ def test_winerror1_on_write_is_benign_and_silent(tmp_path: Path, monkeypatch) ->
 
     broken = _WinConsoleStderr()
     monkeypatch.setattr(sys, "stderr", broken)
+    monkeypatch.setattr(os, "name", "nt")
     reset()
     config_dir = tmp_path / "cfg"
     config_dir.mkdir()

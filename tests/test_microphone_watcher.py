@@ -387,6 +387,25 @@ class TestMicrophoneDeviceWatcherMacOS:
       watcher thread.
     """
 
+    @pytest.fixture(autouse=True)
+    def _force_polling_path(self):
+        """Disable the CoreAudio delegation so these tests exercise the
+        sounddevice-polling implementation they were written for.
+
+        On a macOS host with pyobjc installed, ``start()`` prefers the
+        event-driven ``CoreAudioMicrophoneWatcher`` and never spawns the
+        polling thread — the mocked ``sounddevice`` module would never be
+        consulted and the "polls" assertion would time out. Returning
+        ``None`` here simulates the documented no-pyobjc fallback and
+        makes the polling path deterministic on every host.
+        """
+        with patch.object(
+            MicrophoneDeviceWatcher,
+            "_try_create_coreaudio_watcher",
+            return_value=None,
+        ):
+            yield
+
     def test_macos_watcher_polls_sounddevice_device_count(self):
         """When ``sounddevice``'s device count changes, the callback fires."""
         callback_event = threading.Event()

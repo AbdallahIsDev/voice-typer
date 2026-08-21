@@ -22,10 +22,8 @@ Covers:
 
 from __future__ import annotations
 
-import sys
 import threading
 
-import pytest
 from voice_typer.server.volume_backend_base import VolumeBackend, VolumeState
 from voice_typer.server.volume_backends import (
     LinuxVolumeBackend,
@@ -422,15 +420,19 @@ class TestMacIsSpeakerActive:
         b._osascript_run = lambda script, timeout=2.0: "Spotify, Safari, Finder"
         assert b.is_speaker_active() is True
 
-    @pytest.mark.skipif(
-        sys.platform != "darwin",
-        reason="MacVolumeBackend uses osascript — macOS only",
-    )
-    def test_osascript_with_only_text_editor_returns_false(self, monkeypatch):
+    def test_osascript_fallback_returns_true_even_without_audio_apps(self, monkeypatch):
+        """osascript fallback: always True (safe duck-anyway default).
+
+        The foreground-app-name heuristic was removed from
+        ``MacVolumeBackend.is_speaker_active`` (a paused YouTube tab
+        still counted as "active", and the ducker disables smart-duck on
+        the osascript backend anyway). The osascript path now returns
+        True unconditionally so a needed duck is never silently skipped.
+        """
         b = MacVolumeBackend()
         b._use_coreaudio = False
         b._osascript_run = lambda script, timeout=2.0: "TextEdit, Finder, Mail"
-        assert b.is_speaker_active() is False
+        assert b.is_speaker_active() is True
 
     def test_osascript_returns_none_ducks_anyway(self, monkeypatch):
         """If osascript fails (returns None), default to True (duck anyway)."""

@@ -30,10 +30,11 @@ Tests in this module
 * ``test_pystray_icon_class_exposes_icon_handle`` — the primary
   regression test. Loads the *real* ``pystray`` package (bypassing
   the autouse ``MagicMock`` installed by ``tests/conftest.py``) and
-  asserts ``hasattr(pystray.Icon, "_icon_handle")``. Skips cleanly
-  if real pystray is not installed in the test environment (e.g.
-  minimal Linux sandbox without GUI deps); on Windows / macOS /
-  full Linux CI it actually verifies the attribute still exists.
+  asserts ``hasattr(pystray.Icon, "_icon_handle")``. Windows-only
+  (skipif): the private ``_icon_handle`` attribute exists only in
+  pystray's Win32 backend. Skips cleanly if real pystray is not
+  installed in the test environment (e.g. minimal Linux sandbox
+  without GUI deps).
 
 * ``test_apply_state_warns_when_icon_handle_missing`` — verifies
   the graceful fallback in ``tray.py:_apply_state``: when
@@ -55,6 +56,7 @@ from __future__ import annotations
 import importlib
 import sys
 
+import pytest
 from voice_typer.server.tray import TrayIcon  # noqa: E402
 from voice_typer.server.tray_types import AppState  # noqa: E402
 
@@ -116,6 +118,16 @@ def _load_real_pystray():
             sys.modules["pystray"] = saved
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason=(
+        "pystray sets the private `_icon_handle` instance attribute only in "
+        "its Win32 backend (pystray/_win32.py); the darwin/Xorg backends "
+        "never have it. The DestroyIcon workaround this test guards is a "
+        "Win32-only bug workaround (tray.py:_apply_state), so the attribute "
+        "can only be verified on Windows."
+    ),
+)
 def test_pystray_icon_class_exposes_icon_handle():
     """Stopgap regression: assert ``pystray.Icon._icon_handle`` still exists.
 
@@ -136,10 +148,7 @@ def test_pystray_icon_class_exposes_icon_handle():
     if pystray is None:
         # Real pystray isn't installed in this sandbox (e.g. Linux
         # CI without GUI deps). Nothing to introspect — skip
-        # cleanly. On Windows / macOS / full Linux CI where pystray
-        # IS installed, this test runs and asserts the attribute.
-        import pytest
-
+        # cleanly.
         pytest.skip("real pystray not installed in this environment — cannot introspect pystray.Icon._icon_handle")
 
     # The DestroyIcon workaround in ``tray.py:_apply_state`` writes
@@ -155,9 +164,7 @@ def test_pystray_icon_class_exposes_icon_handle():
     try:
         probe_icon = pystray.Icon("probe")
     except Exception:
-        import pytest as _pytest
-
-        _pytest.skip("cannot construct pystray.Icon in this environment — cannot verify _icon_handle")
+        pytest.skip("cannot construct pystray.Icon in this environment — cannot verify _icon_handle")
     assert hasattr(probe_icon, "_icon_handle"), (
         "pystray.Icon instances no longer expose the private `_icon_handle` "
         "attribute. The DestroyIcon workaround in "

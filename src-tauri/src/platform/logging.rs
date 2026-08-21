@@ -29,8 +29,7 @@
 //! ```
 
 use crate::util::{
-    now_time_only, now_timestamps, LOG_AGE_RETENTION_SECS, LOG_MAX_BYTES,
-    LOG_SIZE_FALLBACK_BYTES,
+    now_time_only, now_timestamps, LOG_AGE_RETENTION_SECS, LOG_MAX_BYTES, LOG_SIZE_FALLBACK_BYTES,
 };
 use std::fs::OpenOptions;
 use std::io::Seek;

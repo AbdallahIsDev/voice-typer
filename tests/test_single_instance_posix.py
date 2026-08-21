@@ -3,7 +3,7 @@
 # These tests verify that ``_ensure_single_instance_posix`` (and the
 # ``_ensure_single_instance`` dispatcher) correctly enforce single-instance
 # on macOS/Linux via an ``O_CREAT | O_EXCL`` lockfile at
-# ``<config_dir>/backend.lock`` with PID-based stale-lock recovery.
+# ``<config_dir>/run/backend.lock`` with PID-based stale-lock recovery.
 #
 # Scenarios covered:
 #   (a) First-instance success — lock acquired, fd returned, PID file written.
@@ -39,6 +39,22 @@ from voice_typer.server import single_instance as si_mod
 # security_test.py instead).
 pytest.importorskip("fcntl")
 import fcntl  # noqa: E402
+
+from voice_typer.server._paths import RUN_SUBDIR  # noqa: E402
+
+
+def _lock_file(config_dir):
+    """Canonical lockfile path: ``<config_dir>/run/backend.lock``.
+
+    Mirrors ``_ensure_single_instance_posix``, which keeps transient
+    runtime state under the ``run/`` subdir of the config dir. The
+    parent directory is created eagerly so tests that pre-seed a
+    stale lockfile (or plant a symlink) have somewhere to put it.
+    """
+    lock = config_dir / RUN_SUBDIR / "backend.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    return lock
+
 
 # ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -128,11 +144,11 @@ class TestFirstInstanceAcquiresLock:
             _cleanup_lock_fd(fd)
 
     def test_creates_backend_lock_file(self, isolated_config_dir):
-        """``backend.lock`` is created in the config dir."""
+        """``backend.lock`` is created under the config dir's ``run/`` subdir."""
         fd = None
         try:
             fd = si_mod._ensure_single_instance_posix(silent=True)
-            lock_file = isolated_config_dir / "backend.lock"
+            lock_file = _lock_file(isolated_config_dir)
             assert lock_file.exists()
         finally:
             _cleanup_lock_fd(fd)
@@ -142,7 +158,7 @@ class TestFirstInstanceAcquiresLock:
         fd = None
         try:
             fd = si_mod._ensure_single_instance_posix(silent=True)
-            lock_file = isolated_config_dir / "backend.lock"
+            lock_file = _lock_file(isolated_config_dir)
             content = lock_file.read_text().strip()
             assert int(content) == os.getpid()
         finally:
@@ -172,7 +188,7 @@ class TestFirstInstanceAcquiresLock:
         fd = None
         try:
             fd = si_mod._ensure_single_instance_posix(silent=True)
-            lock_file = isolated_config_dir / "backend.lock"
+            lock_file = _lock_file(isolated_config_dir)
             # Mask out file-type bits; check the permission bits.
             mode = lock_file.stat().st_mode & 0o777
             assert mode == 0o600, f"expected 0o600, got {oct(mode)}"
@@ -204,7 +220,7 @@ class TestSecondInstanceRejected:
         recycled unrelated PID), if another process holds the flock
         we must exit.
         """
-        lock_file = isolated_config_dir / "backend.lock"
+        lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text(f"{os.getpid()}\n")
         assert lock_file.exists()
 
@@ -215,7 +231,7 @@ class TestSecondInstanceRejected:
 
     def test_does_not_unlink_lockfile_when_flock_held(self, isolated_config_dir):
         """The lockfile is NOT removed when another process holds the flock."""
-        lock_file = isolated_config_dir / "backend.lock"
+        lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text(f"{os.getpid()}\n")
         original_content = lock_file.read_text()
 
@@ -231,7 +247,7 @@ class TestSecondInstanceRejected:
 
         We must not clobber the running instance's PID file.
         """
-        lock_file = isolated_config_dir / "backend.lock"
+        lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text(f"{os.getpid()}\n")
 
         # Simulate the running instance having written its PID file.
@@ -246,7 +262,7 @@ class TestSecondInstanceRejected:
 
     def test_silent_suppresses_stderr_message(self, isolated_config_dir, capsys):
         """silent=True suppresses the stderr duplicate-launch message."""
-        lock_file = isolated_config_dir / "backend.lock"
+        lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text(f"{os.getpid()}\n")
 
         with _hold_flock(lock_file), pytest.raises(SystemExit):
@@ -258,7 +274,7 @@ class TestSecondInstanceRejected:
 
     def test_non_silent_writes_stderr_message(self, isolated_config_dir, capsys):
         """silent=False writes a duplicate-launch message to stderr."""
-        lock_file = isolated_config_dir / "backend.lock"
+        lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text(f"{os.getpid()}\n")
 
         with _hold_flock(lock_file), pytest.raises(SystemExit):
@@ -278,7 +294,7 @@ class TestStaleLockRecovery:
         """A dead PID in the lockfile → lockfile is reclaimed, fd returned."""
         # Use a PID that's extremely unlikely to be alive.
         bogus_pid = 2_000_000
-        lock_file = isolated_config_dir / "backend.lock"
+        lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text(f"{bogus_pid}\n")
         assert lock_file.exists()
 
@@ -296,7 +312,7 @@ class TestStaleLockRecovery:
     def test_overwrites_stale_pid_with_our_pid(self, isolated_config_dir):
         """After stale recovery, ``backend.lock`` contains OUR PID."""
         bogus_pid = 2_000_000
-        lock_file = isolated_config_dir / "backend.lock"
+        lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text(f"{bogus_pid}\n")
 
         fd = None
@@ -311,7 +327,7 @@ class TestStaleLockRecovery:
     def test_writes_backend_pid_file_after_recovery(self, isolated_config_dir):
         """After stale recovery, ``backend.pid`` is written (CR-16)."""
         bogus_pid = 2_000_000
-        lock_file = isolated_config_dir / "backend.lock"
+        lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text(f"{bogus_pid}\n")
 
         fd = None
@@ -325,7 +341,7 @@ class TestStaleLockRecovery:
 
     def test_garbage_pid_treated_as_stale(self, isolated_config_dir):
         """A non-numeric PID in the lockfile → treated as stale → reclaimed."""
-        lock_file = isolated_config_dir / "backend.lock"
+        lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text("not-a-number\n")
 
         fd = None
@@ -340,7 +356,7 @@ class TestStaleLockRecovery:
 
     def test_empty_pid_treated_as_stale(self, isolated_config_dir):
         """An empty lockfile → treated as stale → reclaimed."""
-        lock_file = isolated_config_dir / "backend.lock"
+        lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text("")
 
         fd = None
@@ -368,7 +384,7 @@ class TestRetryRaceFailure:
         # Pre-create the lockfile with a dead PID so the first os.open
         # raises EEXIST and we enter the stale-recovery path.
         bogus_pid = 2_000_000
-        lock_file = isolated_config_dir / "backend.lock"
+        lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text(f"{bogus_pid}\n")
 
         # Mock os.open to ALWAYS raise EEXIST for backend.lock (simulating

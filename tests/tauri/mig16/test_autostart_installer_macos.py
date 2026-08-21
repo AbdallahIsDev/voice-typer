@@ -22,12 +22,14 @@ at ``~/Library/LaunchAgents/com.voicetyper.plist`` with:
   - ``WorkingDirectory`` = ``$HOME`` (absolute, NOT ``~`` — NEW-XPLAT-006)
   - ``StandardOutPath`` / ``StandardErrorPath`` = ``<config_dir>/autostart.log``
 
-After writing the plist, it runs ``launchctl load <plist>`` (with a 5s
-timeout — NEW-XPLAT-005). ``_disable_autostart_macos`` runs
+After writing the plist, it registers the job via the modern
+``launchctl bootstrap gui/<uid> <plist>`` (5s timeout), falling back to
+the deprecated ``launchctl load <plist>`` only when bootstrap fails.
+``_disable_autostart_macos`` runs
 ``launchctl bootout gui/<uid>/com.voicetyper`` (modern, macOS 10.10+)
 then falls back to ``launchctl remove com.voicetyper`` (legacy), then
-deletes the plist file. ``_is_autostart_macos`` simply probes
-``Path.exists()`` on the plist path.
+deletes the plist file. ``_is_autostart_macos`` probes the plist path
+AND validates its ProgramArguments exist on disk (AUTOSTART-CMD-VALIDATE).
 
 KNOWN GAPS (report, do not fix)
 -------------------------------
@@ -213,8 +215,10 @@ def test_enable_autostart_macos_creates_launchagent_plist(darwin_platform):
     """``_enable_autostart_macos()`` writes a LaunchAgent plist at
     ``~/Library/LaunchAgents/com.voicetyper.plist`` (the canonical per-user
     launchd location, NOT ``/Library/LaunchDaemons`` which would require
-    root). After writing, it runs ``launchctl load`` to register the job
-    with launchd so it fires at the next login.
+    root). After writing, it registers the job with launchd via the modern
+    ``launchctl bootstrap gui/<uid> <plist>`` verb (macOS 10.10+), falling
+    back to the deprecated ``launchctl load <plist>`` only when bootstrap
+    fails.
     """
     sp = darwin_platform.server_platform
     plist_path = darwin_platform.plist_path
@@ -231,15 +235,25 @@ def test_enable_autostart_macos_creates_launchagent_plist(darwin_platform):
     # plistlib doesn't preserve group/other bits in a useful way for launchd).
     assert (plist_path.stat().st_mode & 0o777) == 0o600, "plist must be chmod 0o600 (per-user, no group/other access)"
 
-    # launchctl load must have been invoked with the plist path.
-    load_calls = [c for c in darwin_platform.launchctl_calls if "load" in c]
-    assert len(load_calls) == 1, (
-        "must call `launchctl load <plist>` exactly once after writing the "
-        f"plist (got {len(load_calls)} load calls: {load_calls})"
+    # launchctl bootstrap must have been invoked with the gui domain and
+    # the plist path that was just written (the mocked subprocess.run
+    # returns rc=0 + empty stderr, so the legacy `load` fallback must
+    # NOT fire).
+    bootstrap_calls = [c for c in darwin_platform.launchctl_calls if "bootstrap" in c]
+    assert len(bootstrap_calls) == 1, (
+        "must call `launchctl bootstrap gui/<uid> <plist>` exactly once after "
+        f"writing the plist (got {len(bootstrap_calls)} bootstrap calls: {bootstrap_calls})"
     )
-    assert load_calls[0][0] == "launchctl"
-    assert load_calls[0][1] == "load"
-    assert str(plist_path) in load_calls[0], "launchctl load must reference the plist path that was just written"
+    assert bootstrap_calls[0][0] == "launchctl"
+    assert bootstrap_calls[0][1] == "bootstrap"
+    assert bootstrap_calls[0][2].startswith("gui/"), "launchctl bootstrap must target the per-user gui/<uid> domain"
+    assert str(plist_path) in bootstrap_calls[0], (
+        "launchctl bootstrap must reference the plist path that was just written"
+    )
+    load_calls = [c for c in darwin_platform.launchctl_calls if "load" in c]
+    assert load_calls == [], (
+        f"legacy `launchctl load` fallback must NOT fire when bootstrap succeeds (got: {load_calls})"
+    )
 
 
 # ─── Test 2: plist uses RunAtLoad=true (runs at login) ───────────────────
@@ -482,9 +496,7 @@ def test_is_autostart_macos_false_when_plist_program_path_missing(darwin_platfor
         "</array></dict></plist>",
         encoding="utf-8",
     )
-    assert sp._is_autostart_macos() is False, (
-        "plist pointing at a deleted interpreter must report autostart disabled"
-    )
+    assert sp._is_autostart_macos() is False, "plist pointing at a deleted interpreter must report autostart disabled"
 
 
 def test_is_autostart_macos_true_when_plist_program_paths_exist(darwin_platform):
@@ -502,13 +514,14 @@ def test_is_autostart_macos_true_when_plist_program_paths_exist(darwin_platform)
         "<key>Label</key><string>com.voicetyper</string>"
         "<key>ProgramArguments</key><array>"
         f"<string>{sys.executable}</string>"
-        "<string>/bin/true</string>"
+        # /bin/true is a Linux-ism — macOS has no /bin/true (its true(1)
+        # lives at /usr/bin/true), and the validation under test checks
+        # Path(...).exists(). Use /bin/ls, present on macOS AND Linux.
+        "<string>/bin/ls</string>"
         "</array></dict></plist>",
         encoding="utf-8",
     )
-    assert sp._is_autostart_macos() is True, (
-        "plist pointing at existing paths must report autostart enabled"
-    )
+    assert sp._is_autostart_macos() is True, "plist pointing at existing paths must report autostart enabled"
 
 
 # ─── Test 7: tauri.conf.json has bundle.macOS OR DMG+.app defaults ───────

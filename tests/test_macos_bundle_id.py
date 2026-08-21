@@ -270,7 +270,11 @@ class TestRealProcessTreeIntegration:
         macos_dir.mkdir(parents=True)
         (contents / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.voicetyper.desktop"}))
         host = macos_dir / "sleep"
-        shutil.copy2("/bin/sleep", host)  # real exe at a path inside the .app
+        # copyfile, NOT copy2: copystat() tries to preserve the source's
+        # macOS file flags (chflags) and fails with PermissionError when
+        # copying a system binary from /bin into a runner temp dir. The
+        # test only needs identical CONTENT plus an exec bit (chmod below).
+        shutil.copyfile("/bin/sleep", host)  # real exe at a path inside the .app
         host.chmod(0o755)
 
         proc = subprocess.Popen([str(host), "30"])

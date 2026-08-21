@@ -37,6 +37,7 @@ test) and the runtime Rust unit tests in
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shutil
@@ -49,6 +50,65 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LOGGING_RS = REPO_ROOT / "src-tauri" / "src" / "platform" / "logging.rs"
 SIDECAR_CARGO_TOML = REPO_ROOT / "src-tauri" / "Cargo.toml"
+
+# Target triples tauri.conf.json's externalBin / bundle.resources entries
+# cover (mirrors the "Create dummy sidecar + resource placeholders" step
+# in the Tauri Linux smoke workflow — outside a full bundle build the
+# tauri-build build script still validates those paths and hard-fails
+# cargo without them).
+_TAURI_TRIPLES = (
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+)
+_SIDECAR_NAMES = ("python-sidecar", "voice-typer-worker")
+
+
+def _create_cargo_build_placeholders() -> list[Path]:
+    """Create the dummy sidecar + resource placeholders the tauri-build
+    build script requires to run ``cargo test`` outside a full bundle
+    build. Only creates files that do NOT already exist (never clobbers
+    real build artifacts). Returns the created paths for cleanup.
+    """
+    src_tauri = SIDECAR_CARGO_TOML.parent
+    created: list[Path] = []
+
+    def _stub(rel: str) -> None:
+        p = src_tauri / rel
+        if p.exists():
+            return
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("placeholder\n", encoding="utf-8")
+        created.append(p)
+
+    for name in _SIDECAR_NAMES:
+        for triple in _TAURI_TRIPLES:
+            _stub(f"bin/{name}-{triple}")
+    for listener in (
+        "resources/native/windows-key-listener.exe",
+        "resources/native/macos-key-listener",
+        "resources/native/linux-key-listener",
+    ):
+        _stub(listener)
+    for triple in _TAURI_TRIPLES:
+        suffix = ".exe" if triple.endswith("-msvc") else ""
+        _stub(f"resources/prewarm-{triple}{suffix}")
+    return created
+
+
+def _cleanup_cargo_build_placeholders(created: list[Path]) -> None:
+    """Remove the placeholder files (and any now-empty parent dirs)."""
+    for p in created:
+        p.unlink(missing_ok=True)
+    src_tauri = SIDECAR_CARGO_TOML.parent
+    for d in (src_tauri / "bin", src_tauri / "resources" / "native"):
+        with contextlib.suppress(OSError):
+            d.rmdir()
+        with contextlib.suppress(OSError):
+            d.parent.rmdir()
 
 
 # ─── Layer 1: source-parsing regression guard ──────────────────────────
@@ -257,6 +317,14 @@ def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
     cargo = shutil.which("cargo")
     assert cargo is not None  # belt-and-suspenders (skipif above)
 
+    # tauri-build's build script validates the externalBin / bundle
+    # resource paths from tauri.conf.json even for `cargo test` — on a
+    # CI checkout without a prior bundle step those files don't exist
+    # and the build fails before any Rust test runs (observed on the
+    # macos-14 leg). Create the same placeholders the Tauri Linux smoke
+    # workflow creates, and clean them up afterwards.
+    placeholders = _create_cargo_build_placeholders()
+
     # Use a per-test temp target dir so we don't collide with other
     # cargo invocations (and so we don't write into the project's
     # target/ dir, which the user may have a clean state for).
@@ -268,68 +336,71 @@ def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
     # test; otherwise the source-parsing layer is the only guard.)
 
     try:
-        result = subprocess.run(
-            [
-                cargo,
-                "test",
-                "--manifest-path",
-                str(SIDECAR_CARGO_TOML),
-                # The crate is a bin-only package (no src/lib.rs), so
-                # ``--lib`` fails with "no library targets found" even
-                # when the test passes. Target the bin's unit tests
-                # explicitly (C-TEST-5: Rust tests live in logging_tests.rs
-                # wired via #[cfg(test)] mod tests;).
-                "--bin",
-                "voice-typer-tauri",
-                "--quiet",
-                "--",
-                "--nocapture",
-                "test_rotating_file_writer_log_file_mode_is_0o600_on_posix",
-            ],
-            capture_output=True,
-            timeout=600,
-            env=env,
-        )
-    except subprocess.TimeoutExpired:
-        pytest.skip(
-            "cargo test timed out (>600s) — likely a cold dependency "
-            "build. The source-parsing layer (above) is the only guard "
-            "in this run."
-        )
-    except OSError as exc:
-        pytest.skip(
-            f"cargo invocation failed with OSError: {exc}. The "
-            f"source-parsing layer (above) is the only guard in this run."
-        )
-
-    if result.returncode != 0:
-        # Distinguish "cargo failed to compile (system libs missing)"
-        # from "the test itself failed". A compile failure is a skip;
-        # a test failure is a hard error.
-        stderr = result.stderr.decode("utf-8", errors="replace")
-        if "pkg-config" in stderr or "gdk-3.0" in stderr or "webkit2gtk" in stderr:
-            pytest.skip(
-                "cargo test failed to compile due to missing system "
-                "libs (gtk/webkit dev packages). The source-parsing "
-                "layer (above) is the only guard in this run. stderr "
-                f"excerpt: {stderr[:200]}"
+        try:
+            result = subprocess.run(
+                [
+                    cargo,
+                    "test",
+                    "--manifest-path",
+                    str(SIDECAR_CARGO_TOML),
+                    # The crate is a bin-only package (no src/lib.rs), so
+                    # ``--lib`` fails with "no library targets found" even
+                    # when the test passes. Target the bin's unit tests
+                    # explicitly (C-TEST-5: Rust tests live in logging_tests.rs
+                    # wired via #[cfg(test)] mod tests;).
+                    "--bin",
+                    "voice-typer-tauri",
+                    "--quiet",
+                    "--",
+                    "--nocapture",
+                    "test_rotating_file_writer_log_file_mode_is_0o600_on_posix",
+                ],
+                capture_output=True,
+                timeout=600,
+                env=env,
             )
-        # The test compiled but failed — this is a real  regression.
-        pytest.fail(
-            "PI-7 regression: the Rust unit test "
-            "`test_rotating_file_writer_log_file_mode_is_0o600_on_posix` "
-            "failed. The log file is NOT 0o600 on POSIX.\n"
-            f"stdout: {result.stdout.decode('utf-8', errors='replace')[:500]}\n"
-            f"stderr: {stderr[:500]}"
-        )
+        except subprocess.TimeoutExpired:
+            pytest.skip(
+                "cargo test timed out (>600s) — likely a cold dependency "
+                "build. The source-parsing layer (above) is the only guard "
+                "in this run."
+            )
+        except OSError as exc:
+            pytest.skip(
+                f"cargo invocation failed with OSError: {exc}. The "
+                f"source-parsing layer (above) is the only guard in this run."
+            )
 
-    # The test passed — log file mode is 0o600 on this POSIX host.
-    assert (
-        b"test result: ok" in result.stdout
-        or b"test_rotating_file_writer_log_file_mode_is_0o600_on_posix" in result.stdout
-    ), (
-        "PI-7: cargo test returned 0 but the expected test name was "
-        "not found in stdout. The test may have been renamed or "
-        "removed — update this Python test's test-name filter.\n"
-        f"stdout: {result.stdout.decode('utf-8', errors='replace')[:500]}"
-    )
+        if result.returncode != 0:
+            # Distinguish "cargo failed to compile (system libs missing)"
+            # from "the test itself failed". A compile failure is a skip;
+            # a test failure is a hard error.
+            stderr = result.stderr.decode("utf-8", errors="replace")
+            if "pkg-config" in stderr or "gdk-3.0" in stderr or "webkit2gtk" in stderr:
+                pytest.skip(
+                    "cargo test failed to compile due to missing system "
+                    "libs (gtk/webkit dev packages). The source-parsing "
+                    "layer (above) is the only guard in this run. stderr "
+                    f"excerpt: {stderr[:200]}"
+                )
+            # The test compiled but failed — this is a real  regression.
+            pytest.fail(
+                "PI-7 regression: the Rust unit test "
+                "`test_rotating_file_writer_log_file_mode_is_0o600_on_posix` "
+                "failed. The log file is NOT 0o600 on POSIX.\n"
+                f"stdout: {result.stdout.decode('utf-8', errors='replace')[:500]}\n"
+                f"stderr: {stderr[:500]}"
+            )
+
+        # The test passed — log file mode is 0o600 on this POSIX host.
+        assert (
+            b"test result: ok" in result.stdout
+            or b"test_rotating_file_writer_log_file_mode_is_0o600_on_posix" in result.stdout
+        ), (
+            "PI-7: cargo test returned 0 but the expected test name was "
+            "not found in stdout. The test may have been renamed or "
+            "removed — update this Python test's test-name filter.\n"
+            f"stdout: {result.stdout.decode('utf-8', errors='replace')[:500]}"
+        )
+    finally:
+        _cleanup_cargo_build_placeholders(placeholders)

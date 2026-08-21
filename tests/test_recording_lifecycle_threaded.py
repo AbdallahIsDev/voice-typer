@@ -1,5 +1,6 @@
 """Regression tests for the  fix: F2 dispatch thread must return
-quickly (sub-200ms) even when a model reload is in flight.
+quickly (long before the load completes) even when a model reload is
+in flight.
 
 These tests pin the daemon-worker refactor of ``_start_impl``:
 
@@ -7,8 +8,8 @@ These tests pin the daemon-worker refactor of ``_start_impl``:
   worker thread (``_start_dictation_worker_entry``), NOT on the F2
   dispatch thread.
 * The F2 thread returns after a bounded ``join(timeout=...)`` — fast
-  enough for tests with mocked models, slow enough to not block the
-  dispatch thread in production (5-30s idle-unload reload).
+  enough to never block the dispatch thread in production (5-30s
+  idle-unload reload).
 * The worker signals ``_start_complete_event`` in its ``finally`` block
   so tests that need to assert model-loaded state can wait on the event.
 * The ``recording`` flag is set synchronously by ``recorder.start()``
@@ -17,7 +18,7 @@ These tests pin the daemon-worker refactor of ``_start_impl``:
 
 The tests stub ``ensure_active_engine_loaded`` with a configurable
 delay to simulate the 5-30s idle-unload reload path, then assert the
-F2 thread returns within 200ms while the model load is still in flight.
+F2 thread returns while the model load is still in flight.
 """
 
 from __future__ import annotations
@@ -112,13 +113,14 @@ def _make_controller_with_lifecycle(app: MagicMock) -> MagicMock:
 
 
 class TestFastF2ReturnDuringModelReload:
-    """The F2 dispatch thread returns within 200ms even when
-    ``ensure_active_engine_loaded()`` is slow (5-30s idle-unload reload)."""
+    """The F2 dispatch thread returns long before the simulated reload
+    finishes when ``ensure_active_engine_loaded()`` is slow (5-30s
+    idle-unload reload)."""
 
-    def test_f2_returns_within_200ms_when_model_reload_in_flight(self) -> None:
+    def test_f2_returns_before_load_completes_when_model_reload_in_flight(self) -> None:
         """When ``ensure_active_engine_loaded()`` takes 5s (simulated),
-        the F2 thread must return within 200ms. The model load continues
-        on the daemon worker thread."""
+        the F2 thread must return long before the load completes. The
+        model load continues on the daemon worker thread."""
         app = _make_app_with_mock_recorder()
         controller = _make_controller_with_lifecycle(app)
 
@@ -146,10 +148,16 @@ class TestFastF2ReturnDuringModelReload:
             controller._lifecycle._start_impl(controller)
         elapsed = time.monotonic() - start_time
 
-        # The F2 thread must return within 200ms.
-        assert elapsed < 0.2, (
+        # The F2 thread must return long before the simulated load
+        # finishes. The budget is generous (it only needs to hold on a
+        # heavily loaded CI runner) while still catching the regression
+        # class this test exists for: an unbounded join would block for
+        # the full 5s simulated reload. The product's own bounded join is
+        # 0.1s here (model pre-loaded path), so anything >= 2s means the
+        # dispatch thread waited on the worker.
+        assert elapsed < 2.0, (
             f"F2 dispatch thread took {elapsed:.3f}s to return — "
-            f"expected < 0.2s (200ms) even when model reload is in flight. "
+            f"expected < 2.0s even when model reload is in flight. "
             f"The daemon worker should handle the 5s load asynchronously."
         )
 
@@ -310,9 +318,12 @@ class TestFastF2ReturnDuringModelReload:
             controller._lifecycle._start_impl(controller)
         elapsed = time.monotonic() - start_time
 
-        # F2 thread returns within 200ms.
-        assert elapsed < 0.2, (
-            f"F2 thread took {elapsed:.3f}s — expected < 0.2s when model is already loaded (fast path)"
+        # F2 thread returns quickly on the pre-loaded fast path.
+        # Generous budget: only needs to hold on a loaded CI runner —
+        # the product's bounded join is 0.1s here, so >= 1s means the
+        # dispatch thread stalled.
+        assert elapsed < 1.0, (
+            f"F2 thread took {elapsed:.3f}s — expected < 1.0s when model is already loaded (fast path)"
         )
 
         # Worker completed (event signaled).

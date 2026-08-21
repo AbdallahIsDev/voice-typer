@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 import numpy as np
 
 
-def _wait_for_busy_clear(app, timeout=2.0):
+def _wait_for_busy_clear(app, timeout=10.0):
     """Poll until app._busy_event is set (not busy).
 
     Replaces bare time.sleep() calls that cause flaky failures under load.
@@ -21,6 +21,12 @@ def _wait_for_busy_clear(app, timeout=2.0):
     TEST-033 (fix): poll interval reduced from 50ms to 5ms to speed up
     the test suite. With ~100 call sites, this saves ~4.5s of cumulative
     sleep time across a full run.
+
+    The generous default deadline absorbs slow shared CI runners: a full
+    stop → transcription-thread → busy-reset cycle spawns real threads,
+    and on a loaded macos-14 xdist worker it can exceed 2s wall-clock.
+    The wait is still event-driven — it returns the moment the event is
+    set, so the larger ceiling costs nothing on fast machines.
     """
     deadline = time.monotonic() + timeout
     while not app._busy_event.is_set() and time.monotonic() < deadline:

@@ -55,6 +55,7 @@ import sys
 
 import pytest
 from voice_typer.server import credential_store
+from voice_typer.server._paths import RUN_SUBDIR
 
 try:
     import fcntl  # POSIX-only
@@ -702,9 +703,16 @@ class TestSecondaryOpenNoFollow:
 
         # Pre-create backend.lock as a regular file so _try_acquire's
         # O_EXCL fails with FileExistsError → returns None → reaches
-        # the secondary open.
+        # the secondary open. The lockfile lives under the config dir's
+        # ``run/`` subdir (RUN_SUBDIR — transient-state lockdown), so
+        # the decoy must sit at that SAME path — otherwise _try_acquire
+        # simply creates a fresh lockfile (O_CREAT|O_EXCL succeeds),
+        # the secondary open is never reached, and the simulated ELOOP
+        # never engages (the function returns without exiting).
         config_dir = tmp_path
-        lock_path = config_dir / "backend.lock"
+        run_dir = config_dir / RUN_SUBDIR
+        run_dir.mkdir()
+        lock_path = run_dir / "backend.lock"
         lock_path.write_text(str(os.getpid()))  # valid PID content
 
         # Monkeypatch the secondary os.open to raise ELOOP (simulating

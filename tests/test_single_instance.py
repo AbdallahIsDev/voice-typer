@@ -40,6 +40,21 @@ pytest.importorskip("fcntl")
 import fcntl  # noqa: E402
 
 from voice_typer.server import single_instance as si_mod  # noqa: E402
+from voice_typer.server._paths import RUN_SUBDIR  # noqa: E402
+
+
+def _lock_file(config_dir):
+    """Canonical lockfile path: ``<config_dir>/run/backend.lock``.
+
+    Mirrors ``_ensure_single_instance_posix``, which keeps transient
+    runtime state under the ``run/`` subdir of the config dir. The
+    parent directory is created eagerly so tests that pre-seed a stale
+    lockfile have somewhere to put it.
+    """
+    lock = config_dir / RUN_SUBDIR / "backend.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    return lock
+
 
 # Re-use the heavyweight ``app_for_startup`` fixture from
 # test_startup_sequence.py rather than duplicating ~30 lines of
@@ -115,7 +130,7 @@ class TestFlockAcquiredAfterStaleOExcl:
         the flock check correctly determines the previous holder is
         dead (no one holds the flock) and proceeds.
         """
-        lock_file = isolated_config_dir / "backend.lock"
+        lock_file = _lock_file(isolated_config_dir)
         # Write OUR OWN (alive!) PID into the lockfile — this is the
         # PID-recycling false-positive scenario. The old code would
         # exit here; the new code checks flock first and proceeds.
@@ -138,7 +153,7 @@ class TestFlockAcquiredAfterStaleOExcl:
         dead process's recycled PID)."""
         # Use a bogus (definitely dead) PID — the simplest case.
         bogus_pid = 2_000_000
-        lock_file = isolated_config_dir / "backend.lock"
+        lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text(f"{bogus_pid}\n")
 
         handle = None
@@ -160,7 +175,7 @@ class TestFlockAcquiredAfterStaleOExcl:
         driven by flock (crash-safe), not by PID liveness (which can
         be fooled by PID recycling).
         """
-        lock_file = isolated_config_dir / "backend.lock"
+        lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text(f"{os.getpid()}\n")
 
         # Hold the flock on another fd to simulate a live process.
@@ -184,7 +199,7 @@ class TestFlockAcquiredAfterStaleOExcl:
         lockfile fails). To ensure we hit the flock-first path, we
         make ``os.open(O_RDWR)`` succeed normally.
         """
-        lock_file = isolated_config_dir / "backend.lock"
+        lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text(f"{os.getpid()}\n")
 
         # Sentinel: if _is_pid_alive is called, raise.
@@ -254,7 +269,7 @@ class TestPosixSingleInstanceHandleRelease:
     def test_release_unlinks_lockfile(self, isolated_config_dir):
         """``release()`` best-effort unlinks the lockfile so the next
         launch sees a clean state."""
-        lock_file = isolated_config_dir / "backend.lock"
+        lock_file = _lock_file(isolated_config_dir)
         handle = si_mod._ensure_single_instance_posix(silent=True)
         assert lock_file.exists()
 
@@ -388,14 +403,17 @@ class TestStartupSharedBudget:
         the mic budget (~0.5s, monkeypatched) — the fire-and-forget
         prewarm thread must not be waited on.
 
-        The old summed design (per-future ``result(timeout=0.5)`` for
-        prewarm THEN mic) took ~1.0s; the DJ-4 design takes ~0.5s.
+        Any regressed design that waits on the prewarm task or on the
+        leaked mic worker blocks for at least the full slow-task
+        duration (4.0s); the correct design returns after ~0.5s plus
+        scheduler slack.
         """
         from voice_typer.server import _timeout_utils, startup_tasks
 
-        # Both tasks sleep 1.5s — well over the (patched) 0.5s budget.
+        # Both tasks sleep 4.0s — far beyond the (patched) 0.5s budget,
+        # so every wait-on-task design is unambiguous.
         def slow_task(app, evt=None):
-            time.sleep(1.5)
+            time.sleep(4.0)
 
         monkeypatch.setattr(startup_tasks, "sync_prewarm_task", slow_task)
         monkeypatch.setattr(startup_tasks, "load_microphones", slow_task)
@@ -425,12 +443,15 @@ class TestStartupSharedBudget:
         StartupSequence(app_for_startup).run()
         elapsed = time.monotonic() - start
 
-        # Assert elapsed is close to the single mic budget (0.5s), not
-        # 2x (1.0s) and not the slow-task duration (1.5s). Allow
-        # generous tolerance for CI scheduling jitter.
-        assert elapsed < 1.0, (
-            "DJ-4: startup must NOT wait on the fire-and-forget prewarm "
-            "thread — elapsed {elapsed:.2f}s suggests the prewarm task "
-            "was waited on (old per-future behavior). Expected < 1.0s "
-            "with the patched 0.5s mic budget."
+        # Assert elapsed stays near the single mic budget (0.5s) plus
+        # slack for run()'s other phases, and is FAR below the 4.0s
+        # slow-task duration: waiting on either task would blow past
+        # this bound. The wide 0.5s-vs-4.0s gap leaves multi-second
+        # headroom for loaded-CI scheduling jitter while still catching
+        # every wait-on-task regression.
+        assert elapsed < 2.5, (
+            f"startup must NOT wait on the fire-and-forget prewarm "
+            f"thread — elapsed {elapsed:.2f}s suggests the prewarm task "
+            "was waited on. Expected < 2.5s with the patched 0.5s mic "
+            "budget and 4.0s slow tasks."
         )

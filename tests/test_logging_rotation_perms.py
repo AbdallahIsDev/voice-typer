@@ -15,10 +15,15 @@ IN PLACE (empties it — numbered backups are never created) and then runs
 ``os.chmod(self.baseFilename, 0o600)`` on POSIX, so the 0o600 mode on
 the active log survives the truncation.
 
-This test writes >5 MiB of log records to force a rotation, then
+This test writes enough log records to exceed a pinned small
+``maxBytes`` on the installed handler (production's Tier-3 ceiling is
+40 MB — far too large to fill in-test), forcing a truncation, then
 asserts the active log file's mode is 0o600. It runs ONLY on POSIX
 (on Windows the file mode is governed by ACLs, not the POSIX mode
 bits — the chmod is a documented best-effort no-op there).
+
+The active log file lives at ``<config_dir>/logs/voice-typer.log``
+(the O1 layout), resolved via :func:`vt_log.get_log_file_path`.
 """
 
 from __future__ import annotations
@@ -92,7 +97,8 @@ def test_initial_log_file_mode_is_0o600(tmp_path, monkeypatch):
     monkeypatch.delenv("VOICE_TYPER_LOG_JSON", raising=False)
     vt_log.reset()
     vt_log.setup_logging(tmp_path)
-    log_file = tmp_path / "voice-typer.log"
+    # O1 layout: the active log lives under ``<config_dir>/logs/``.
+    log_file = vt_log.get_log_file_path(tmp_path)
     assert log_file.exists()
     mode = stat.S_IMODE(os.stat(log_file).st_mode)
     assert oct(mode) == "0o600", f"initial log file mode must be 0o600 on POSIX; got {oct(mode)}"
@@ -103,26 +109,38 @@ def test_truncate_in_place_keeps_mode_0o600(tmp_path, monkeypatch):
     """after the single-file truncation fires, the ACTIVE log file
     (the only file) is still 0o600.
 
-    Writes >5 MiB of records to force a truncate-in-place, then asserts
-    the active log file's mode is 0o600 and that NO numbered backup
-    (``voice-typer.log.1``) was created.
+    Pins a small ``maxBytes`` on the installed handler (production's
+    Tier-3 ceiling is 40 MB) and writes enough records to exceed it,
+    forcing a truncate-in-place, then asserts the active log file's
+    mode is 0o600 and that NO numbered backup (``voice-typer.log.1``)
+    was created.
     """
     monkeypatch.delenv("VOICE_TYPER_LOG_JSON", raising=False)
     vt_log.reset()
     vt_log.setup_logging(tmp_path, debug=True)
-    log_file = tmp_path / "voice-typer.log"
+    # O1 layout: the active log lives under ``<config_dir>/logs/``.
+    log_file = vt_log.get_log_file_path(tmp_path)
     # Sanity: initial mode is 0o600 ( invariant).
     assert oct(stat.S_IMODE(os.stat(log_file).st_mode)) == "0o600"
 
-    # Force a truncate-in-place by writing >5 MiB of records. Use a long
-    # sentence per record so the PII redaction filter (which replaces
-    # any run of identical chars with ``***``) doesn't collapse the
-    # payload. 8 KiB per record -> ~700 records to hit 5 MiB.
+    # Pin a small truncation threshold on the installed handler so the
+    # records below (~800 KiB) cross it — filling the real 40 MB
+    # Tier-3 ceiling in-test would be needlessly slow.
+    file_handlers = [
+        h for h in logging.getLogger("voice_typer").handlers if isinstance(h, vt_log._SecureTruncatingFileHandler)
+    ]
+    assert file_handlers, "expected the _SecureTruncatingFileHandler installed by setup_logging"
+    monkeypatch.setattr(file_handlers[0], "maxBytes", 512 * 1024)
+
+    # Force a truncate-in-place by writing past the pinned threshold. Use
+    # a long sentence per record so the PII redaction filter (which
+    # replaces any run of identical chars with ``***``) doesn't collapse
+    # the payload. 8 KiB per record -> ~100 records to clear 512 KiB.
     vt_logger = logging.getLogger("voice_typer.server.log_rotation_test")
     vt_logger.setLevel(logging.DEBUG)
     payload = "the quick brown fox jumps over the lazy dog " * 180  # ~8 KiB
     assert len(payload) > 7000
-    for _ in range(700):
+    for _ in range(100):
         vt_logger.info(payload)
 
     # Flush all handlers so the truncation actually fires.
@@ -139,7 +157,7 @@ def test_truncate_in_place_keeps_mode_0o600(tmp_path, monkeypatch):
     )
 
     # Single-file policy: NO numbered backup may exist.
-    backup = tmp_path / "voice-typer.log.1"
+    backup = vt_log.get_logs_dir(tmp_path) / "voice-typer.log.1"
     assert not backup.exists(), (
         "single-file policy: voice-typer.log.1 must NOT be created — the log "
         "truncates in place instead of rotating to numbered backups"

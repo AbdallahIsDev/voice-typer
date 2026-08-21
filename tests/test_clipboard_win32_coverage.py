@@ -138,6 +138,11 @@ def fake_win32():
 
     with (
         patch.object(clip_mod, "is_windows", return_value=True),
+        # Pin is_macos() False too: the dispatch in manager.py checks
+        # is_macos() BEFORE is_windows(), so on a macOS host the real
+        # darwin predicate would otherwise hijack these simulated-
+        # Windows tests into the Cmd+V branch.
+        patch.object(clip_mod, "is_macos", return_value=False),
         patch("ctypes.windll", mock_windll, create=True),
         patch("ctypes.create_unicode_buffer") as mock_buf,
     ):

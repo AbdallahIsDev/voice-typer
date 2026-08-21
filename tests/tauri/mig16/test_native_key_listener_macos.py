@@ -229,6 +229,39 @@ class TestTauriBundleResources:
 class TestSubprocessSpawn:
     """Verify ``SubprocessHotkeyBackend._spawn_process`` uses ``subprocess.Popen`` correctly."""
 
+    @pytest.fixture(autouse=True)
+    def _verifiable_dummy_manifest(self, monkeypatch, tmp_path):
+        """Point the SHA-256 manifest at a tmp manifest matching the dummy binary.
+
+        ``_spawn_process`` re-verifies the binary's checksum against
+        ``native/binaries.json`` BEFORE every ``subprocess.Popen`` (the
+        TOCTOU mitigation). The repo manifest has NO usable entry for the
+        dummy ``macos-key-listener`` these tests write (its ``sha256``
+        field is empty → verification fails CLOSED), so ``_spawn_process``
+        would set ``_failed=True`` and return without ever calling
+        ``Popen``. Rather than bypassing the verifier, point
+        ``_MANIFEST_PATH`` at a tmp manifest carrying the dummy content's
+        REAL SHA-256 (via ``hashlib``) so the production verification path
+        — manifest lookup → expected-hash resolution → hashlib comparison
+        — is exercised end-to-end.
+        """
+        import hashlib
+
+        from voice_typer.server.native_hotkeys import binary_path as bp
+
+        manifest = {
+            "version": 1,
+            "binaries": {
+                "macos-key-listener": {
+                    "sha256": hashlib.sha256(b"dummy").hexdigest(),
+                    "version": "1.0.0",
+                }
+            },
+        }
+        manifest_path = tmp_path / "binaries.json"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        monkeypatch.setattr(bp, "_MANIFEST_PATH", manifest_path)
+
     def test_spawn_uses_subprocess_popen(self, macos_env, monkeypatch, tmp_path):
         """``_spawn_process`` must call ``subprocess.Popen`` (not ``run``/``call``/``check_output``).
 
@@ -360,7 +393,14 @@ class TestSubprocessSpawn:
         via ``_on_permanent_failure_callback``.
         """
         backend = macos_env.MacNativeHotkey("<f8>")
-        backend._binary_path = tmp_path / "macos-key-listener"
+        # The dummy binary must EXIST and pass the SHA-256 gate so the
+        # spawn reaches ``Popen``: on POSIX ``_spawn_process`` pins the
+        # inode via ``os.open`` BEFORE ``Popen``, so a missing file would
+        # fail there (setting ``_failed`` without raising RuntimeError).
+        # The failure under test is ``Popen`` raising OSError.
+        fake_bin = tmp_path / "macos-key-listener"
+        fake_bin.write_text("dummy")
+        backend._binary_path = fake_bin
         backend._stop_event.set()
 
         def raising_popen(cmd, **kwargs):
@@ -568,6 +608,12 @@ class TestWireProtocol:
         # V alone — no fire.
         backend._handle_line("KEY_DOWN:V")
         assert fired == []
+
+        # Release V so the next KEY_DOWN is a fresh press (the
+        # auto-repeat filter treats a second KEY_DOWN while
+        # `_main_key_down` is still True as an OS repeat and
+        # suppresses it).
+        backend._handle_line("KEY_UP:V")
 
         # Hold Cmd+Alt, then press V — fire.
         backend._handle_line("MOD_DOWN:Cmd")
