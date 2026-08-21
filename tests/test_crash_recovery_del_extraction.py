@@ -497,7 +497,7 @@ class TestDelPreservesOriginalContract:
             )
 
         # Sanity: the entry is in memory but NOT on disk yet.
-        recovery_file = recovery_dir / "voice-typer-recovery.json"
+        recovery_file = recovery_dir / "recovery.json"
         if recovery_file.exists():
             pre = json.loads(recovery_file.read_text(encoding="utf-8"))
             assert all(e.get("text") != "del-only-mutation-vp40" for e in pre.get("entries", [])), (

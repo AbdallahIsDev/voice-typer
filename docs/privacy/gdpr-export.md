@@ -34,7 +34,7 @@ Support/voice-typer` on macOS).
 | Artifact | Path | Format | Notes |
 |---|---|---|---|
 | Transcription history | `history.db` | SQLite | Already structured; also export as JSON for portability. Included in export. |
-| Crash-recovery buffer | `voice-typer-recovery.json` | JSON | Last 10 unpasted transcriptions (`crash_recovery.py`). Included in export. |
+| Crash-recovery buffer | `recovery.json` | JSON | Last 10 unpasted transcriptions (`crash_recovery.py`). Included in export. |
 | User config + consent flags | `config.json` | JSON | Includes `onboarding_completed`, `auto_punctuation`, `recording_mode`, hotkey prefs, theme, language. **Redact** `llm_api_key` / cloud-engine credentials. Included in export. |
 | User corrections | `voice-typer-corrections.json` | JSON | Custom misspelling/phrase corrections (`text_cleanup.py`). Included in export. |
 | Vocabulary / templates | `vocabulary.json`, `templates.json` | JSON | User-added entries. Included in export. |

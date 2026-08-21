@@ -65,13 +65,19 @@ import path that successfully resolves the canonical constants).
 # ──────────────────────────────────────────────────────────────────────────
 
 # Mirrors ``voice_typer.server.crash_recovery.RECOVERY_FILENAME``.
-_RECOVERY_FILENAME: str = "voice-typer-recovery.json"
+# Legacy prefixed name ``voice-typer-recovery.json`` is retained in the
+# inventories (below) so a pre-migration uninstall / GDPR purge still
+# removes the old file.
+_RECOVERY_FILENAME: str = "recovery.json"
+_LEGACY_RECOVERY_FILENAME: str = "voice-typer-recovery.json"
 
 # Mirrors ``voice_typer.server.vocabulary.VOCAB_FILENAME``.
-_VOCAB_FILENAME: str = "voice-typer-vocabulary.json"
+_VOCAB_FILENAME: str = "vocabulary.json"
+_LEGACY_VOCAB_FILENAME: str = "voice-typer-vocabulary.json"
 
 # Mirrors ``voice_typer.server.templates.TEMPLATES_FILENAME``.
-_TEMPLATES_FILENAME: str = "voice-typer-templates.json"
+_TEMPLATES_FILENAME: str = "templates.json"
+_LEGACY_TEMPLATES_FILENAME: str = "voice-typer-templates.json"
 
 # Corrections filename — ``text_cleanup.py`` uses the literal
 # ``"voice-typer-corrections.json"`` in two places (the external-loader
@@ -139,8 +145,11 @@ _USER_DATA_FILES: tuple[str, ...] = (
     "history.db-wal",
     "history.db-shm",
     _RECOVERY_FILENAME,
+    _LEGACY_RECOVERY_FILENAME,
     _VOCAB_FILENAME,
+    _LEGACY_VOCAB_FILENAME,
     _TEMPLATES_FILENAME,
+    _LEGACY_TEMPLATES_FILENAME,
     _CORRECTIONS_FILENAME,
     _ONBOARDING_STATUS_MARKER,
     _ONBOARDING_COMPLETE_MARKER,
@@ -169,10 +178,13 @@ _GDPR_PERSONAL_FILES: tuple[str, ...] = (
     "history.db-wal",
     "history.db-shm",
     _RECOVERY_FILENAME,
+    _LEGACY_RECOVERY_FILENAME,
     "config.json",
     _CORRECTIONS_FILENAME,
     _VOCAB_FILENAME,
+    _LEGACY_VOCAB_FILENAME,
     _TEMPLATES_FILENAME,
+    _LEGACY_TEMPLATES_FILENAME,
     _VOICE_TYPER_LOG,
     _PREWARM_LOG,
     _RENDERER_ERRORS_LOG,

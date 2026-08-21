@@ -172,7 +172,7 @@ class TestJsonRoundTrip:
         del cr1
 
         # Inspect the raw on-disk JSON shape (must still be a list of dicts).
-        raw = (recovery_dir / "voice-typer-recovery.json").read_text(encoding="utf-8")
+        raw = (recovery_dir / "recovery.json").read_text(encoding="utf-8")
         parsed = json.loads(raw)
         assert isinstance(parsed, dict)
         assert "entries" in parsed
@@ -206,7 +206,7 @@ class TestJsonRoundTrip:
                 {"text": f"old-{i}", "timestamp": "2026-01-01T00:00:00", "pasted": False} for i in range(max_n * 2)
             ]
         }
-        recovery_path = recovery_dir / "voice-typer-recovery.json"
+        recovery_path = recovery_dir / "recovery.json"
         recovery_path.parent.mkdir(parents=True, exist_ok=True)
         recovery_path.write_text(json.dumps(oversized), encoding="utf-8")
 

@@ -216,11 +216,11 @@ class PrivacyMixin(ServiceMixinBase):
     # Personal-data file set ( /  spec):
     #
     #   * ``history.db``                       — transcription history
-    #   * ``voice-typer-recovery.json``        — crash-recovery buffer
+    #   * ``recovery.json``                    — crash-recovery buffer
     #   * ``config.json``                      — user settings + secrets
     #   * ``voice-typer-corrections.json``     — vocabulary corrections
-    #   * ``voice-typer-vocabulary.json``      — user vocabulary
-    #   * ``voice-typer-templates.json``       — user templates
+    #   * ``vocabulary.json``                  — user vocabulary
+    #   * ``templates.json``                   — user templates
     #   * ``voice-typer.log``                  — runtime log (Python side)
     #   * ``voice-typer.log.*``                — rotated backups (.1..5)
     #   * ``prewarm.log`` / ``prewarm.log.*``  — prewarm process log
@@ -605,7 +605,7 @@ class PrivacyMixin(ServiceMixinBase):
         the live in-memory managers.
 
         The unlink step in :meth:`delete_all_personal_data` removes
-        ``voice-typer-vocabulary.json`` and ``voice-typer-templates.json``
+        ``vocabulary.json`` and ``templates.json``
         from disk, but the live ``app._vocabulary_manager`` /
         ``app._template_manager`` instances still hold their pre-delete
         in-memory state (``_data`` / ``_templates`` populated with the

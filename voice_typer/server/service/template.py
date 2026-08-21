@@ -39,7 +39,7 @@ class TemplateMixin(ServiceMixinBase):
     # or app-data reset.
     #
     # The fix delegates to the existing ``TemplateManager`` which
-    # already persists to ``voice-typer-templates.json`` in the
+    # already persists to ``templates.json`` in the
     # Python config dir (``~/.voice-typer`` on POSIX,
     # ``%APPDATA%\voice-typer`` on Windows).  This file survives
     # Electron userData resets and reinstalls.

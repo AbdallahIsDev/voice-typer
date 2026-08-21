@@ -33,7 +33,7 @@ class TestVocabularySaveRetry:
             vocab._save_user()
 
         assert attempt["n"] == 3
-        assert (tmp_path / "voice-typer-vocabulary.json").exists()
+        assert (tmp_path / "vocabulary.json").exists()
 
 
 class TestSharedVocabConstants:

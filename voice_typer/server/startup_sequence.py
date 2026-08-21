@@ -142,6 +142,7 @@ _BACKUP_FILE_GLOBS: tuple[str, ...] = (
     "config.json.v*.bak",
     "config.json.bak.failed-migration-*",
     "voice-typer-recovery.json.corrupt.*",
+    "recovery.json.corrupt.*",
 )
 
 # Subdirectories of ``config_dir`` that also accumulate ``.tmp`` files

@@ -7,7 +7,7 @@ icon tooltip. The renderer had no toast indication of the failure, so
 users on Wayland / locked-screen / focus-stealer scenarios got a
 silent recovery-file save unless they happened to glance at the tray
 icon. No data loss (crash-recovery file at
-``~/.voice-typer/voice-typer-recovery.json``), but a real UX gap.
+``~/.voice-typer/recovery.json``), but a real UX gap.
 
 Post-fix: the pipeline ALSO publishes a ``paste_failed`` event on the
 in-process event bus (``voice_typer.server.event_bus.publish``), with
@@ -76,7 +76,7 @@ class _TestApp:
         self._crash_recovery = MagicMock()
         # Default: simulate a real recovery-file Path-like object that
         # str()s to a plausible path. Individual tests override this.
-        self._crash_recovery._path = "/fake/recovery/voice-typer-recovery.json"
+        self._crash_recovery._path = "/fake/recovery/recovery.json"
         self._waveform_bubble = MagicMock()
         self._busy_event = MagicMock()
         self._busy_event.set = MagicMock()
@@ -213,7 +213,7 @@ class TestRecoveryPathPlumbing:
         app = _TestApp()
         # crash_recovery_enabled defaults to True in _TestApp
         app.clipboard.copy.side_effect = ClipboardCopyError("clipboard locked")
-        app._crash_recovery._path = "/fake/path/voice-typer-recovery.json"
+        app._crash_recovery._path = "/fake/path/recovery.json"
         pipeline = _new_pipeline(app)
         published = _capture_publish(monkeypatch)
 
@@ -221,7 +221,7 @@ class TestRecoveryPathPlumbing:
 
         events = [e for e in published if e.get("type") == "paste_failed"]
         assert events
-        assert events[0]["data"]["recovery_path"] == ("/fake/path/voice-typer-recovery.json"), (
+        assert events[0]["data"]["recovery_path"] == ("/fake/path/recovery.json"), (
             "recovery_path should be the crash-recovery file path when crash recovery is enabled."
         )
 

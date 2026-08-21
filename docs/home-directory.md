@@ -114,10 +114,10 @@ This design is:
 ├── logs/
 │   └── voice-typer.log          # Tauri Rust host log (single file, truncates in place at 5 MB)
 ├── electron-profile/            # Electron/Chromium profile (caches, Local Storage, Network state)
-├── voice-typer-vocabulary.json  # User vocabulary overrides (merged with bundled defaults)
+├── vocabulary.json  # User vocabulary overrides (merged with bundled defaults)
 ├── voice-typer-corrections.json # User text-corrections overrides (optional; merged with bundled)
 └── crash_recovery/
-    └── voice-typer-recovery.json
+    └── recovery.json
 ```
 
 > **Windows note:** on a fresh install the directory is
@@ -157,7 +157,7 @@ one data root for uninstall/factory-reset. Safe to delete while the app
 is closed — Electron recreates it. Removed on uninstall purge and GDPR
 erasure; not included in GDPR export bundles.
 
-### `voice-typer-vocabulary.json` and `voice-typer-corrections.json`
+### `vocabulary.json` and `voice-typer-corrections.json`
 User-defined vocabulary and correction files. Read by `VocabularyManager` and `configure_corrections()` respectively to build replacement maps for `clean_transcribed_text()`. Both are optional — the app ships with bundled defaults (`voice_typer/server/corrections.json`) that are merged with the user file.
 
 ## Model Management
@@ -261,7 +261,7 @@ For an AI agent tasked with implementing the folder structure recommendations:
 - [ ] Handle existing broken symlinks (remove and recreate)
 
 ### 3. Vocabulary / corrections files (DONE)
-- [x] `VocabularyManager` reads `config_dir / "voice-typer-vocabulary.json"` (merged with bundled defaults)
+- [x] `VocabularyManager` reads `config_dir / "vocabulary.json"` (merged with bundled defaults)
 - [x] `configure_corrections()` reads `config_dir / "voice-typer-corrections.json"` (merged with bundled defaults)
 - [x] Both files are optional — the app works without them using bundled defaults
 

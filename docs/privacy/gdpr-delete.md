@@ -21,11 +21,11 @@ otherwise noted.
 | Artifact | Path | Delete behavior | Notes |
 |---|---|---|---|
 | Transcription history | `history.db` (SQLite) | Deleted (after `hdb.checkpoint(truncate=True)` + `hdb.close()` so the WAL is empty) | G4-CR-04: `history.db-wal` + `history.db-shm` are unlinked alongside. |
-| Crash-recovery buffer | `voice-typer-recovery.json` | Deleted | Last 10 unpasted transcriptions (`crash_recovery.py`). |
+| Crash-recovery buffer | `recovery.json` | Deleted | Last 10 unpasted transcriptions (`crash_recovery.py`). |
 | User config + consent flags | `config.json` | Deleted | User settings + onboarding state. OS keychain entries also cleared via `credential_store.delete_secret` (G4-CR-05). |
 | User corrections | `voice-typer-corrections.json` | Deleted | Custom misspelling/phrase corrections. |
-| Vocabulary | `voice-typer-vocabulary.json` | Deleted | User-added vocabulary. |
-| Templates | `voice-typer-templates.json` | Deleted | User templates. |
+| Vocabulary | `vocabulary.json` | Deleted | User-added vocabulary. |
+| Templates | `templates.json` | Deleted | User templates. |
 | Mic-test recordings | `mic-test-*.wav` | Deleted (glob match) | Voice biometric data. |
 | Logs (Python main) | `voice-typer.log` | Deleted | Active log file. |
 | Logs (Python main, rotated) | `voice-typer.log.*` | Deleted (glob match) | PI-4: defensive glob — the current build never creates numbered backups (single-file policy truncates in place), but leftovers from pre-single-file builds must still be erased. Per XZ-PII-01 / XZ-PRIV-04 may contain user-spoken text. |

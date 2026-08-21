@@ -63,7 +63,7 @@ class TestSweepDeletesStaleTmpFiles:
             # _secure_atomic_write pattern: target.name + ".<rand>.tmp"
             "config.json.abc123.tmp",
             "history.db.xyz789.tmp",
-            "voice-typer-recovery.json.deadbeef.tmp",
+            "recovery.json.deadbeef.tmp",
             # gdpr-export zip builder pattern (privacy.py:831)
             "gdpr-export-20240101-120000.zip.tmp",
             # generic

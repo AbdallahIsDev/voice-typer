@@ -4,7 +4,7 @@ Finding CR-87 (High): GDPR Art. 17 (right-to-erasure) is incomplete —
 ``service.clear_history()`` only deletes rows in ``history.db``. The
 following personal-data artifacts are NOT deletable today:
 
-- ``voice-typer-recovery.json`` (crash-recovery buffer with last 10
+- ``recovery.json`` (crash-recovery buffer with last 10
   unpasted transcriptions — pure PII).
 - ``config.json`` (user config + consent flags).
 - ``voice-typer-corrections.json`` (user customizations — PII).
@@ -87,8 +87,8 @@ def _seed_personal_data(tmp_path: Path) -> dict[str, Path]:
     hdb.close()
     artifacts["history.db"] = tmp_path / "history.db"
 
-    # 2. voice-typer-recovery.json
-    rec_path = tmp_path / "voice-typer-recovery.json"
+    # 2. recovery.json
+    rec_path = tmp_path / "recovery.json"
     rec_path.write_text(json.dumps({"entries": [{"text": "recovered pii"}]}))
     artifacts["recovery.json"] = rec_path
 
@@ -111,12 +111,12 @@ def _seed_personal_data(tmp_path: Path) -> dict[str, Path]:
     artifacts["corrections.json"] = corr_path
 
     # 5. vocabulary.json
-    vocab_path = tmp_path / "voice-typer-vocabulary.json"
+    vocab_path = tmp_path / "vocabulary.json"
     vocab_path.write_text(json.dumps({"custom": ["my-secret-term"]}))
     artifacts["vocabulary.json"] = vocab_path
 
     # 6. templates.json
-    tmpl_path = tmp_path / "voice-typer-templates.json"
+    tmpl_path = tmp_path / "templates.json"
     tmpl_path.write_text(json.dumps({"greeting": "Hi <name>"}))
     artifacts["templates.json"] = tmpl_path
 
@@ -242,7 +242,7 @@ def test_delete_all_personal_data_erases_history_db(tmp_path) -> None:
 
 
 def test_delete_all_personal_data_erases_recovery_json(tmp_path) -> None:
-    """voice-typer-recovery.json must be deleted."""
+    """recovery.json must be deleted."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "delete_all_personal_data"):
@@ -250,7 +250,7 @@ def test_delete_all_personal_data_erases_recovery_json(tmp_path) -> None:
         artifacts = _seed_personal_data(tmp_path)
         svc.delete_all_personal_data()
         assert not artifacts["recovery.json"].exists(), (
-            "voice-typer-recovery.json must be deleted — contains unpasted transcript PII (CR-87)."
+            "recovery.json must be deleted — contains unpasted transcript PII (CR-87)."
         )
     finally:
         mp.undo()

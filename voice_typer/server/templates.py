@@ -32,7 +32,8 @@ _WHITESPACE_RE = re.compile(r"\s+")
 # _get_clipboard_text() even when the output had no {clipboard} placeholder.
 _TEMPLATE_VAR_RE = re.compile(r"\{(today|now|clipboard|username)\}")
 
-TEMPLATES_FILENAME = "voice-typer-templates.json"
+TEMPLATES_FILENAME = "templates.json"
+_LEGACY_TEMPLATES_FILENAME = "voice-typer-templates.json"
 
 # SEC-011-style caps for templates to prevent resource
 # exhaustion. Mirror vocabulary.MAX_CORRECTIONS_ENTRIES pattern.
@@ -121,6 +122,22 @@ class TemplateManager:
 
             config_dir = _config_dir()
         self._path = config_dir / TEMPLATES_FILENAME
+        # One-time migration of the legacy prefixed name
+        # (``voice-typer-templates.json`` → ``templates.json``). Best-effort —
+        # a failed rename falls back to the canonical name on the next
+        # write, so the legacy file is never silently clobbered and the
+        # migration is idempotent (mirrors the O4 prewarm-status pattern).
+        _legacy = config_dir / _LEGACY_TEMPLATES_FILENAME
+        if _legacy.exists() and not self._path.exists():
+            try:
+                _legacy.rename(self._path)
+                log.debug(
+                    "[TEMPLATES] migrated legacy %s -> %s",
+                    _LEGACY_TEMPLATES_FILENAME,
+                    TEMPLATES_FILENAME,
+                )
+            except OSError as exc:
+                log.debug("[TEMPLATES] legacy file migration failed: %s", exc)
         # Route persistence through PersistedJSON so templates
         # get single-slot .bak before overwrite + corrupt-file
         # quarantine + 0o600 perms (parity with config.py). The

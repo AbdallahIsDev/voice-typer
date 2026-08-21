@@ -103,7 +103,7 @@ class TestCrashRecoveryPersistence:
         from voice_typer.server.crash_recovery import CrashRecovery
 
         # Write an empty recovery file
-        path = recovery_dir / "voice-typer-recovery.json"
+        path = recovery_dir / "recovery.json"
         path.write_text('{"entries": []}', encoding="utf-8")
         cr = CrashRecovery(config_dir=recovery_dir)
         assert cr.count == 0
@@ -134,7 +134,7 @@ class TestCrashRecoveryAsyncWrites:
         # flush should complete within a reasonable timeout
         assert cr.flush(timeout=5.0) is True
         # After flush, the file should reflect the latest state
-        recovery_file = recovery_dir / "voice-typer-recovery.json"
+        recovery_file = recovery_dir / "recovery.json"
         data = json.loads(recovery_file.read_text(encoding="utf-8"))
         # MAX_RECOVERY_ENTRIES is 10, so only the last 10 should be on disk
         assert len(data["entries"]) == 10
@@ -392,7 +392,7 @@ class TestCrashRecoveryShutdownFallback:
 
         # Read the recovery file back from disk and verify the entry
         # was persisted (not just held in-memory).
-        recovery_file = recovery_dir / "voice-typer-recovery.json"
+        recovery_file = recovery_dir / "recovery.json"
         assert recovery_file.exists(), "Recovery file must exist on disk after post-shutdown add()"
         data = json.loads(recovery_file.read_text(encoding="utf-8"))
         texts = [e.get("text", "") for e in data.get("entries", [])]
@@ -418,7 +418,7 @@ class TestCrashRecoveryShutdownFallback:
         # just call it and verify the on-disk state below.
         cr.mark_latest_pasted()
 
-        recovery_file = recovery_dir / "voice-typer-recovery.json"
+        recovery_file = recovery_dir / "recovery.json"
         data = json.loads(recovery_file.read_text(encoding="utf-8"))
         entries = data.get("entries", [])
         assert entries, "expected the pre-shutdown entry on disk"
@@ -455,7 +455,7 @@ class TestCrashRecoveryShutdownFallback:
         ok = cr.mark_pasted(0)
         assert ok is True, "mark_pasted(0) must return True for an in-range index"
 
-        recovery_file = recovery_dir / "voice-typer-recovery.json"
+        recovery_file = recovery_dir / "recovery.json"
         data = json.loads(recovery_file.read_text(encoding="utf-8"))
         entries = data.get("entries", [])
         assert entries, "expected the pre-shutdown entries on disk"
@@ -481,7 +481,7 @@ class TestCrashRecoveryShutdownFallback:
 
         cr.clear()
 
-        recovery_file = recovery_dir / "voice-typer-recovery.json"
+        recovery_file = recovery_dir / "recovery.json"
         data = json.loads(recovery_file.read_text(encoding="utf-8"))
         assert data.get("entries") == [], (
             "clear() post-shutdown must persist the empty state via the "
@@ -519,7 +519,7 @@ class TestCrashRecoveryShutdownFallback:
 
         # On-disk state must match (final sync save wins, serialized
         # by _save_lock — no torn writes, no corruption).
-        recovery_file = recovery_dir / "voice-typer-recovery.json"
+        recovery_file = recovery_dir / "recovery.json"
         data = json.loads(recovery_file.read_text(encoding="utf-8"))
         on_disk_entries = data.get("entries", [])
         assert len(on_disk_entries) == 10, (
@@ -610,7 +610,7 @@ class TestCrashRecoveryDelAfterShutdown:
             )
 
         # Sanity: the entry is in memory but NOT on disk yet.
-        recovery_file = recovery_dir / "voice-typer-recovery.json"
+        recovery_file = recovery_dir / "recovery.json"
         if recovery_file.exists():
             pre = json.loads(recovery_file.read_text(encoding="utf-8"))
             assert all(e.get("text") != "del-only-mutation" for e in pre.get("entries", [])), (
@@ -645,7 +645,7 @@ class TestCrashRecoveryDelAfterShutdown:
         cr.shutdown()
 
         # On-disk state must reflect the latest _entries (capped at 10).
-        recovery_file = recovery_dir / "voice-typer-recovery.json"
+        recovery_file = recovery_dir / "recovery.json"
         data = json.loads(recovery_file.read_text(encoding="utf-8"))
         on_disk_texts = [e.get("text", "") for e in data.get("entries", [])]
         in_memory_texts = [e.get("text", "") for e in cr.get_all()]
@@ -677,12 +677,12 @@ class TestCrashRecoveryQuarantineCorrupt:
         ``<name>.corrupt.<ts>`` and ``_entries`` is reset to ``[]``."""
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        path = recovery_dir / "voice-typer-recovery.json"
+        path = recovery_dir / "recovery.json"
         path.write_text('{"entries": [NOT VALID JSON', encoding="utf-8")
         cr = CrashRecovery(config_dir=recovery_dir)
         assert cr.count == 0, "GT-A1-5: corrupt file must yield _entries=[]"
         assert not path.exists(), "GT-A1-5: original corrupt file must be moved out of the way"
-        quarantined = list(recovery_dir.glob("voice-typer-recovery.json.corrupt.*"))
+        quarantined = list(recovery_dir.glob("recovery.json.corrupt.*"))
         assert len(quarantined) == 1, f"GT-A1-5: expected exactly one quarantine file; got {quarantined}"
         assert "NOT VALID JSON" in quarantined[0].read_text(encoding="utf-8")
 
@@ -691,12 +691,12 @@ class TestCrashRecoveryQuarantineCorrupt:
         ``entries`` key, not a list) is also quarantined."""
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        path = recovery_dir / "voice-typer-recovery.json"
+        path = recovery_dir / "recovery.json"
         path.write_text('{"unexpected_key": 42}', encoding="utf-8")
         cr = CrashRecovery(config_dir=recovery_dir)
         assert cr.count == 0
         assert not path.exists(), "GT-A1-5: wrong-shape file must be quarantined"
-        quarantined = list(recovery_dir.glob("voice-typer-recovery.json.corrupt.*"))
+        quarantined = list(recovery_dir.glob("recovery.json.corrupt.*"))
         assert len(quarantined) == 1
 
     def test_quarantine_allows_next_save_to_start_fresh(self, recovery_dir):
@@ -704,7 +704,7 @@ class TestCrashRecoveryQuarantineCorrupt:
         ``add()`` writes a fresh file at the original path."""
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        path = recovery_dir / "voice-typer-recovery.json"
+        path = recovery_dir / "recovery.json"
         path.write_text('{"entries": [BROKEN', encoding="utf-8")
         cr = CrashRecovery(config_dir=recovery_dir)
         assert cr.count == 0
@@ -714,7 +714,7 @@ class TestCrashRecoveryQuarantineCorrupt:
         data = json.loads(path.read_text(encoding="utf-8"))
         texts = [e.get("text", "") for e in data.get("entries", [])]
         assert "fresh after corruption" in texts
-        quarantined = list(recovery_dir.glob("voice-typer-recovery.json.corrupt.*"))
+        quarantined = list(recovery_dir.glob("recovery.json.corrupt.*"))
         assert len(quarantined) == 1
         cr.shutdown()
 
@@ -723,7 +723,7 @@ class TestCrashRecoveryQuarantineCorrupt:
         not raise — callers rely on a clean reset to ``_entries = []``."""
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        path = recovery_dir / "voice-typer-recovery.json"
+        path = recovery_dir / "recovery.json"
         path.write_text('{"entries": [BROKEN', encoding="utf-8")
 
         import unittest.mock as _mock

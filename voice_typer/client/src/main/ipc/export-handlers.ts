@@ -512,7 +512,7 @@ export function registerExportHandlers(): void {
 
 				const { canceled, filePath } = await dialog.showSaveDialog({
 					title: mainT("dialog.export.templates"),
-					defaultPath: "voice-typer-templates.json",
+					defaultPath: "templates.json",
 					filters: [{ name: "JSON", extensions: ["json"] }],
 				});
 

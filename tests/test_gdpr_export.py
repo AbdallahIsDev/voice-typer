@@ -12,7 +12,7 @@ Fix-D adds a new ``service.export_gdpr_bundle()`` method that:
 1. Produces a single timestamped ``.zip`` at
    ``<config_dir>/gdpr-export-YYYYMMDD-HHMMSS.zip``.
 2. Includes every personal-data artifact (history.db,
-   voice-typer-recovery.json, config.json, corrections.json,
+   recovery.json, config.json, corrections.json,
    vocabulary.json, templates.json, mic-test-*.wav,
    voice-typer.log + rotated backups (PI-4),
    crash_diagnostics.<PID>.txt + python_crash.<PID>.txt (PI-5)).
@@ -62,7 +62,7 @@ def _seed_personal_data(tmp_path: Path) -> None:
     hdb.flush()
     hdb.close()
 
-    (tmp_path / "voice-typer-recovery.json").write_text(json.dumps({"entries": [{"text": "recovered pii"}]}))
+    (tmp_path / "recovery.json").write_text(json.dumps({"entries": [{"text": "recovered pii"}]}))
     (tmp_path / "config.json").write_text(
         json.dumps(
             {
@@ -73,8 +73,8 @@ def _seed_personal_data(tmp_path: Path) -> None:
         )
     )
     (tmp_path / "voice-typer-corrections.json").write_text(json.dumps({"recieve": "receive"}))
-    (tmp_path / "voice-typer-vocabulary.json").write_text(json.dumps({"custom": ["my-secret-term"]}))
-    (tmp_path / "voice-typer-templates.json").write_text(json.dumps({"greeting": "Hi <name>"}))
+    (tmp_path / "vocabulary.json").write_text(json.dumps({"custom": ["my-secret-term"]}))
+    (tmp_path / "templates.json").write_text(json.dumps({"greeting": "Hi <name>"}))
     (tmp_path / "mic-test-20240101-120000.wav").write_bytes(b"RIFF\x00\x00\x00\x00WAVEfmt ")
     (tmp_path / "voice-typer.log").write_text("2024-01-01 12:00:00 INFO [SERVICE] transcript='secret text'\n")
     # rotated log backups produced by RotatingFileHandler(backupCount=5)
@@ -194,7 +194,7 @@ def test_export_gdpr_bundle_includes_config_json(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_includes_recovery_json(tmp_path) -> None:
-    """The zip must contain voice-typer-recovery.json."""
+    """The zip must contain recovery.json."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -204,7 +204,7 @@ def test_export_gdpr_bundle_includes_recovery_json(tmp_path) -> None:
         with zipfile.ZipFile(result["path"]) as zf:
             names = zf.namelist()
             assert any("recovery" in n.lower() and n.endswith(".json") for n in names), (
-                f"voice-typer-recovery.json not in export: {names}"
+                f"recovery.json not in export: {names}"
             )
     finally:
         mp.undo()

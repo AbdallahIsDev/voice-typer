@@ -30,7 +30,8 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-VOCAB_FILENAME = "voice-typer-vocabulary.json"
+VOCAB_FILENAME = "vocabulary.json"
+_LEGACY_VOCAB_FILENAME = "voice-typer-vocabulary.json"
 # single source of truth for the bundled corrections file path.
 # text_cleanup.py imports this constant instead of re-declaring it.
 BUNDLED_CORRECTIONS_PATH = Path(__file__).parent / "corrections.json"
@@ -78,6 +79,22 @@ class VocabularyManager:
         self._config_dir = config_dir
         self._usage_tracker: CorrectionUsageTracker | None = usage_tracker
         self._user_path = config_dir / VOCAB_FILENAME
+        # One-time migration of the legacy prefixed name
+        # (``voice-typer-vocabulary.json`` → ``vocabulary.json``). Best-effort —
+        # a failed rename falls back to the canonical name on the next
+        # write, so the legacy file is never silently clobbered and the
+        # migration is idempotent (mirrors the O4 prewarm-status pattern).
+        _legacy = config_dir / _LEGACY_VOCAB_FILENAME
+        if _legacy.exists() and not self._user_path.exists():
+            try:
+                _legacy.rename(self._user_path)
+                log.debug(
+                    "[VOCAB] migrated legacy %s -> %s",
+                    _LEGACY_VOCAB_FILENAME,
+                    VOCAB_FILENAME,
+                )
+            except OSError as exc:
+                log.debug("[VOCAB] legacy file migration failed: %s", exc)
 
         if bundled_path is None:
             # use the shared BUNDLED_CORRECTIONS_PATH constant.

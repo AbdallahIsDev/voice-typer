@@ -259,7 +259,7 @@ class TestSaveStillWorks:
         recovery.add("world", pasted=True)
         recovery._save_sync()
 
-        recovery_file = recovery_dir / "voice-typer-recovery.json"
+        recovery_file = recovery_dir / "recovery.json"
         assert recovery_file.exists()
         data = json.loads(recovery_file.read_text(encoding="utf-8"))
         entries = data.get("entries", [])
@@ -276,7 +276,7 @@ class TestSaveStillWorks:
             recovery.add(f"entry-{i}", pasted=False)
             recovery._save_sync()
 
-        recovery_file = recovery_dir / "voice-typer-recovery.json"
+        recovery_file = recovery_dir / "recovery.json"
         data = json.loads(recovery_file.read_text(encoding="utf-8"))
         entries = data.get("entries", [])
         # All 5 entries should be present (the recovery file is

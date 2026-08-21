@@ -8,7 +8,7 @@ corruption path writes ``config.json.corrupt-<ts>`` / ``history.db.corrupt-*``
 quarantine files; schema migrations write
 ``config.json.pre-migration-v*.bak`` / ``history.db.pre-migration-v*.bak`` /
 ``config.json.v*.bak`` / ``config.json.bak.failed-migration-*``;
-the crash-recovery path writes ``voice-typer-recovery.json.corrupt.*``.
+the crash-recovery path writes ``recovery.json.corrupt.*``.
 Without a sweep these accumulate indefinitely on disk (one per crash /
 per migration attempt).
 
@@ -72,7 +72,7 @@ class TestSweepDeletesStaleBackups:
             "config.json.pre-migration-v7.bak",
             "config.json.v2.bak",
             "config.json.bak.failed-migration-20240101",
-            "voice-typer-recovery.json.corrupt.1700000000",
+            "recovery.json.corrupt.1700000000",
         ],
     )
     def test_old_backup_file_deleted(self, tmp_path: Path, filename: str) -> None:
@@ -93,7 +93,7 @@ class TestSweepDeletesStaleBackups:
             "config.json.pre-migration-v1.bak",
             "config.json.v3.bak",
             "config.json.bak.failed-migration-20240101",
-            "voice-typer-recovery.json.corrupt.1700000000",
+            "recovery.json.corrupt.1700000000",
         ]
         for name in stale_files:
             _touch_with_age(tmp_path / name, _STALE_AGE_SECONDS)
@@ -120,7 +120,7 @@ class TestSweepPreservesFreshBackups:
             "config.json.pre-migration-v1.bak",
             "config.json.v2.bak",
             "config.json.bak.failed-migration-20240101",
-            "voice-typer-recovery.json.corrupt.1700000000",
+            "recovery.json.corrupt.1700000000",
         ],
     )
     def test_recent_backup_file_preserved(self, tmp_path: Path, filename: str) -> None:
@@ -169,7 +169,7 @@ class TestSweepCorruptFiles:
         assert not path.exists()
 
     def test_old_corrupt_recovery_json_deleted(self, tmp_path: Path) -> None:
-        path = tmp_path / "voice-typer-recovery.json.corrupt.1700000000"
+        path = tmp_path / "recovery.json.corrupt.1700000000"
         _touch_with_age(path, _STALE_AGE_SECONDS)
 
         ss_mod._sweep_stale_backup_files(tmp_path)
@@ -183,7 +183,7 @@ class TestSweepCorruptFiles:
         unmatched_files = [
             "config.json",  # the live config — must NEVER be swept
             "history.db",  # the live history DB — must NEVER be swept
-            "voice-typer-recovery.json",  # the live recovery file
+            "recovery.json",  # the live recovery file
             "config.json.bak",  # plain .bak (not in pattern list)
             "config.json.corrupt",  # no suffix after corrupt
             "random-file.txt",

@@ -56,7 +56,7 @@ class TestVocabularyLoad:
 class TestVocabularyMerge:
     def test_user_overrides_bundled(self, vocab_dir, bundled):
         """User vocabulary should override bundled entries."""
-        user_file = vocab_dir / "voice-typer-vocabulary.json"
+        user_file = vocab_dir / "vocabulary.json"
         user_file.write_text(
             json.dumps(
                 {
@@ -74,7 +74,7 @@ class TestVocabularyMerge:
         assert "recieve" in miss
 
     def test_user_extends_list_category(self, vocab_dir, bundled):
-        user_file = vocab_dir / "voice-typer-vocabulary.json"
+        user_file = vocab_dir / "vocabulary.json"
         user_file.write_text(
             json.dumps(
                 {

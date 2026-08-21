@@ -18,7 +18,7 @@ class TestTemplatesPersistToDisk:
         tm.add("hello", "Hello World!")
         tm.add("bye", "Goodbye!", match_mode="contains")
 
-        templates_file = templates_dir / "voice-typer-templates.json"
+        templates_file = templates_dir / "templates.json"
         assert templates_file.exists()
         import json
 

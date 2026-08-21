@@ -729,7 +729,7 @@ Voice Typer today uses the platform-aware `_paths.config_dir()` (which delegates
 - Models: `<config_dir>/models` (`HF_HOME` redirected here via `asr_setup.py`). `prewarm` warms this path.
 - Logs: `<config_dir>/logs/` (see §11).
 - History DB: `<config_dir>/history.db` (SQLite WAL, `0o600` on POSIX, NTFS ACLs on Windows).
-- Crash recovery: `<config_dir>/voice-typer-recovery.json`.
+- Crash recovery: `<config_dir>/recovery.json`.
 - **Electron `userData` migration:** on first Tauri launch, if `<config_dir>` is absent but the old Electron `userData/voice-typer` exists, copy it once (config + models + history) — one-time, idempotent. Off by default until validated.
   - **Both exist (merge rule):** if both `<config_dir>` and the old Electron `userData/voice-typer` exist and differ, do **not** blindly overwrite: (a) `config.json` — merge key-by-key, **newest mtime wins** per key; (b) `models/` — copy only files **absent** from the target (never clobber a newer download); (c) `history.db` — **append**, never replace (history is append-only and irreplaceable); (d) log a summary of what was merged. Prevents silently destroying user data on a revert-then-relaunch.
   - **Ordering (write-conflict trap):** run the migration/merge **before** the sidecar starts. If the sidecar boots first it initializes a fresh empty `config.json` / `history.db`; the later merge then hits a file lock / write conflict or silently ignores the old data. Migrate → then spawn.

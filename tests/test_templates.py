@@ -151,7 +151,7 @@ class TestTemplatePersistence:
         from voice_typer.server.templates import TemplateManager
 
         # Write empty templates file
-        (template_dir / "voice-typer-templates.json").write_text('{"templates": []}')
+        (template_dir / "templates.json").write_text('{"templates": []}')
         tm = TemplateManager(config_dir=template_dir)
         assert len(tm.templates) == 0
 

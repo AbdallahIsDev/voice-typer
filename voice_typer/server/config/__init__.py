@@ -71,7 +71,11 @@ from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 # ``_user_data_files._RECOVERY_FILENAME`` literal is verified against
 # the canonical ``crash_recovery.RECOVERY_FILENAME`` at the bottom of
 # ``_user_data_files.py`` so drift is still caught.
-from voice_typer.server._user_data_files import _RECOVERY_FILENAME, _USER_DATA_FILES
+from voice_typer.server._user_data_files import (
+    _LEGACY_RECOVERY_FILENAME,
+    _RECOVERY_FILENAME,
+    _USER_DATA_FILES,
+)
 
 # Load-time data-dict transforms + non-numeric field validation helpers
 # extracted from this module to keep the Config dataclass focused on
@@ -400,6 +404,11 @@ def purge_user_data(*, remove_config_dir: bool = False) -> dict[str, list[str]]:
                 # check used the bare unprefixed name and never matched
                 # a real file.
                 or name.startswith(f"{_RECOVERY_FILENAME}.corrupt")
+                # Pre-migration installs quarantined the corrupt file
+                # under the legacy prefixed name
+                # (``voice-typer-recovery.json.corrupt.<ts>``) — match
+                # it too so a pre-migration purge still removes it.
+                or name.startswith(f"{_LEGACY_RECOVERY_FILENAME}.corrupt")
             ):
                 continue
             if entry.is_dir():

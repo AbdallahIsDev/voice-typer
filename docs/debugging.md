@@ -231,7 +231,7 @@ Two distinct host paths can produce an "app won't start" symptom.
 1. Check `[CRASH]` for `recovery file written` — should fire on every
    successful transcription. If absent, the crash-recovery worker
    thread died.
-2. Check `<DATA_DIR>/crash_recovery/voice-typer-recovery.json` —
+2. Check `<DATA_DIR>/crash_recovery/recovery.json` —
    should be valid JSON with a `pending` array. If corrupt, the app
    silently ignores it on next launch (logged at WARNING).
 3. The prompt only fires if there's ≥1 unpasted transcription. If you

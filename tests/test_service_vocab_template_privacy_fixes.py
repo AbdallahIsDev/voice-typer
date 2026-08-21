@@ -21,8 +21,8 @@
   mixin call it.
 
 * **IN-33**: ``service.PrivacyMixin.delete_all_personal_data`` unlinks
-  the on-disk ``voice-typer-vocabulary.json`` /
-  ``voice-typer-templates.json`` files but does NOT invalidate the
+  the on-disk ``vocabulary.json`` /
+  ``templates.json`` files but does NOT invalidate the
   live in-memory ``app._vocabulary_manager`` /
   ``app._template_manager`` instances — so the next dictation
   would still apply the deleted vocabulary / templates (GDPR Art.
@@ -200,7 +200,7 @@ class TestGetVocabularyReusesLiveManager:
             data = svc.get_vocabulary()
             assert "_user_file" in data, "get_vocabulary must include _user_file path"
             assert isinstance(data["_user_file"], str)
-            assert "voice-typer-vocabulary.json" in data["_user_file"]
+            assert "vocabulary.json" in data["_user_file"]
         finally:
             mp.undo()
 
@@ -544,7 +544,7 @@ class TestGdprInvalidatesManagers:
         because ``add_entry`` would persist the PII to disk via
         ``_save_user``, which creates a ``.bak`` file via
         PersistedJSON. The .bak survives the GDPR unlink step
-        (only the main ``voice-typer-vocabulary.json`` is in
+        (only the main ``vocabulary.json`` is in
         ``_GDPR_PERSONAL_FILES``; the ``.bak`` is not) and
         PersistedJSON's load path restores from the .bak, defeating
         the in-memory invalidation. The .bak-survives gap is a
@@ -566,7 +566,7 @@ class TestGdprInvalidatesManagers:
 
             # The on-disk user vocab file should NOT exist (we never
             # wrote one — the live state was in-memory only).
-            vocab_path = tmp_path / "voice-typer-vocabulary.json"
+            vocab_path = tmp_path / "vocabulary.json"
             assert not vocab_path.exists(), (
                 "test setup invariant: vocabulary.json should not exist on disk (PII was injected in-memory only)"
             )
@@ -604,7 +604,7 @@ class TestGdprInvalidatesManagers:
         because ``add`` would persist the PII to disk via ``_save``,
         which creates a ``.bak`` file via PersistedJSON. The .bak
         survives the GDPR unlink step (only the main
-        ``voice-typer-templates.json`` is in ``_GDPR_PERSONAL_FILES``;
+        ``templates.json`` is in ``_GDPR_PERSONAL_FILES``;
         the ``.bak`` is not) and PersistedJSON's load path restores
         from the .bak, defeating the in-memory invalidation. The
         .bak-survives gap is a separate finding outside this fix's
@@ -629,7 +629,7 @@ class TestGdprInvalidatesManagers:
 
             # The on-disk templates file should NOT exist (we never
             # wrote one — the live state was in-memory only).
-            tmpl_path = tmp_path / "voice-typer-templates.json"
+            tmpl_path = tmp_path / "templates.json"
             assert not tmpl_path.exists(), (
                 "test setup invariant: templates.json should not exist on disk (PII was injected in-memory only)"
             )

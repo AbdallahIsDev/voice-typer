@@ -319,7 +319,7 @@ class TestDirEnsuredFlag:
                 # Filter to directory-mode chmod calls only (the
                 # ``_dir_ensured`` flag guards ``chmod(dir, 0o700)``).
                 # File-mode chmod calls (the temp file + final
-                # ``voice-typer-recovery.json`` for ``0o600``) happen
+                # ``recovery.json`` for ``0o600``) happen
                 # every save and are out of scope for this regression.
                 config_dir = Path(tmpdir).resolve()
                 dir_chmod_calls = [p for p in chmod_calls if p.resolve() == config_dir and p.is_dir()]
@@ -423,7 +423,7 @@ class TestFinalSaveDoneDedup:
 
             # Snapshot the file's mtime; __del__ (which would re-write
             # the file) must NOT change it.
-            recovery_file = Path(tmpdir) / "voice-typer-recovery.json"
+            recovery_file = Path(tmpdir) / "recovery.json"
             assert recovery_file.exists()
             mtime_before = recovery_file.stat().st_mtime_ns
 

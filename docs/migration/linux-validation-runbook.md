@@ -583,11 +583,11 @@ cat ~/Documents/voice-typer-history.json | python -m json.tool | head -20
 # 1. Open Settings → Vocabulary (or Side Panel → Vocabulary)
 # 2. Add at least one custom vocabulary entry if empty (e.g., "Voice Typer" → "Voice Typer")
 # 3. Click the "Export…" button
-# 4. Save as "voice-typer-vocabulary.json"
+# 4. Save as "vocabulary.json"
 
 # Verify the file:
-ls -l ~/Documents/voice-typer-vocabulary.json
-cat ~/Documents/voice-typer-vocabulary.json | python -m json.tool | head -10
+ls -l ~/Documents/vocabulary.json
+cat ~/Documents/vocabulary.json | python -m json.tool | head -10
 # Should be valid JSON with the vocabulary entries.
 ```
 

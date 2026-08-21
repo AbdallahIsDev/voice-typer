@@ -223,16 +223,16 @@ def test_reset_config_to_defaults_does_not_touch_vocabulary_or_templates(tmp_pat
     try:
         if not hasattr(svc, "reset_config_to_defaults"):
             pytest.skip("G4-L-25 not yet landed")
-        (tmp_path / "voice-typer-vocabulary.json").write_text(json.dumps({"custom": ["my-secret-term"]}))
-        (tmp_path / "voice-typer-templates.json").write_text(json.dumps({"greeting": "Hi <name>"}))
+        (tmp_path / "vocabulary.json").write_text(json.dumps({"custom": ["my-secret-term"]}))
+        (tmp_path / "templates.json").write_text(json.dumps({"greeting": "Hi <name>"}))
         (tmp_path / "voice-typer-corrections.json").write_text(json.dumps({"recieve": "receive"}))
 
         svc.reset_config_to_defaults()
 
-        assert (tmp_path / "voice-typer-vocabulary.json").exists()
-        assert (tmp_path / "voice-typer-templates.json").exists()
+        assert (tmp_path / "vocabulary.json").exists()
+        assert (tmp_path / "templates.json").exists()
         assert (tmp_path / "voice-typer-corrections.json").exists()
-        vocab = json.loads((tmp_path / "voice-typer-vocabulary.json").read_text())
+        vocab = json.loads((tmp_path / "vocabulary.json").read_text())
         assert vocab["custom"] == ["my-secret-term"]
     finally:
         mp.undo()
@@ -336,9 +336,7 @@ def test_reset_config_to_defaults_restores_config_on_save_failure(tmp_path, monk
         # values must be intact — the old API key stays active until the
         # user retries; it is never silently reset in-memory while disk
         # keeps the old values.
-        assert svc._app.config is cfg, (
-            "HU-22: save failure must restore app.config to the pre-swap object"
-        )
+        assert svc._app.config is cfg, "HU-22: save failure must restore app.config to the pre-swap object"
         assert cfg.hotkey == "<f5>"
         assert cfg.openai_api_key == "sk-still-active"
     finally:

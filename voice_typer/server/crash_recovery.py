@@ -36,7 +36,8 @@ from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
 
-RECOVERY_FILENAME = "voice-typer-recovery.json"
+RECOVERY_FILENAME = "recovery.json"
+_LEGACY_RECOVERY_FILENAME = "voice-typer-recovery.json"
 MAX_RECOVERY_ENTRIES = 10
 
 # Bounded queue: if the worker falls behind (e.g. disk is slow),
@@ -219,6 +220,22 @@ class CrashRecovery:
 
             config_dir = _config_dir()
         self._path = config_dir / RECOVERY_FILENAME
+        # One-time migration of the legacy prefixed name
+        # (``voice-typer-recovery.json`` → ``recovery.json``). Best-effort —
+        # a failed rename falls back to the canonical name on the next
+        # write, so the legacy file is never silently clobbered and the
+        # migration is idempotent (mirrors the O4 prewarm-status pattern).
+        _legacy = config_dir / _LEGACY_RECOVERY_FILENAME
+        if _legacy.exists() and not self._path.exists():
+            try:
+                _legacy.rename(self._path)
+                log.debug(
+                    "[RECOVERY] migrated legacy %s -> %s",
+                    _LEGACY_RECOVERY_FILENAME,
+                    RECOVERY_FILENAME,
+                )
+            except OSError as exc:
+                log.debug("[RECOVERY] legacy file migration failed: %s", exc)
         # Bounded deque: collections.deque(maxlen=...) auto-evicts the
         # oldest entry when full, so the manual ``while len() > MAX:
         # pop(0)`` trim in ``add()`` is now a defensive no-op (kept for
