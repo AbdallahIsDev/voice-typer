@@ -2,7 +2,6 @@ import { Search01Icon } from "@hugeicons/core-free-icons";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
-import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { SearchField } from "@/components/common/SearchField";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -29,7 +28,6 @@ import {
 import { ThemeSettingsSection } from "@/components/settings/ThemeSettingsSection";
 import { TroubleshootingSettingsSection } from "@/components/settings/TroubleshootingSettingsSection";
 import { useSettingsConfig } from "@/components/settings/useSettingsConfig";
-import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
@@ -147,8 +145,6 @@ export default function SettingsPage({
 	} = useNavigation();
 	const { showSnack } = useSnackbar();
 	const [showResetDialog, setShowResetDialog] = useState(false);
-	const { agoLabel, markUpdated } = useLastUpdated();
-	const [refreshing, setRefreshing] = useState(false);
 	const [settingsFilter, setSettingsFilter] = useState("");
 	// The active tab is DERIVED from the current Settings sub-page
 	// (passed in as `page` prop by App.tsx's renderPage switch). No
@@ -444,21 +440,11 @@ export default function SettingsPage({
 			(data): (() => void) | undefined => {
 				if (!data) return undefined;
 				mergeExternalConfig(data as Partial<VoiceTyperConfig>);
-				markUpdated();
 				return undefined;
 			},
-			[mergeExternalConfig, markUpdated],
+			[mergeExternalConfig],
 		),
 	);
-
-	const handleManualRefresh = useCallback(async () => {
-		setRefreshing(true);
-		try {
-			await loadConfig();
-		} finally {
-			setRefreshing(false);
-		}
-	}, [loadConfig]);
 
 	//reset-to-defaults wrapped in useCallback so ConfirmDialog's
 	// `onConfirm` prop identity stays stable across renders. The
@@ -620,13 +606,6 @@ export default function SettingsPage({
                                                 layout is unchanged on platforms where the banner doesn't
                                                 apply (Windows). */}
 				<KeyboardPermissionBanner />
-				<div className="flex justify-end pb-2">
-					<LastUpdatedIndicator
-						agoLabel={agoLabel}
-						onRefresh={handleManualRefresh}
-						refreshing={refreshing}
-					/>
-				</div>
 
 				{/* Empty-state banner rendered via the shared
                                                 EmptyState component (variant="info") so the visual
