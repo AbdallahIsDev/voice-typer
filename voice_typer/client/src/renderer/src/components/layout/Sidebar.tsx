@@ -61,7 +61,7 @@ interface NavChild {
 // groups gives users a faster mental model of the app: day-to-day
 // usage (Main), advanced/power features (Power), and system
 // configuration (System). Each group is rendered as its own
-// <section aria-label=...> with an <hr> divider between groups.
+// <section aria-label=...> (no <hr> dividers between groups).
 const MAIN_NAV_ITEMS: NavItem[] = [
 	{ id: "home", icon: Home04Icon },
 	{ id: "history", icon: HistoryIcon },
@@ -115,10 +115,20 @@ interface NavGroup {
 	// `screen.getByText("Main")` a stable string to assert on.
 	fallback: string;
 	items: NavItem[];
+	// When true, the group's visible heading label is NOT rendered
+	// (the `<section aria-label=...>` is kept, so screen-reader nav
+	// context is preserved). Used for the first/"Main" group, whose
+	// heading is redundant above the default page set.
+	hideLabel?: boolean;
 }
 
 const NAV_GROUPS: NavGroup[] = [
-	{ labelKey: "nav.group.main", fallback: "Main", items: MAIN_NAV_ITEMS },
+	{
+		labelKey: "nav.group.main",
+		fallback: "Main",
+		items: MAIN_NAV_ITEMS,
+		hideLabel: true,
+	},
 	{
 		labelKey: "nav.group.power",
 		fallback: "Power features",
@@ -298,66 +308,55 @@ function SidebarInner({
 					ref={navRef}
 					aria-label={t("a11y.mainNavigation")}
 					onKeyDown={handleNavKeyDown}
-					className={cn("flex flex-col gap-px")}
+					className={cn("flex flex-col gap-6")}
 				>
-					{NAV_GROUPS.map((group, gIdx) => {
+					{NAV_GROUPS.map((group) => {
 						const groupLabel = navGroupLabel(group.labelKey, group.fallback);
 						return (
-							<Fragment key={group.labelKey}>
-								{gIdx > 0 && (
-									<hr
-										aria-hidden
+							<section key={group.labelKey} aria-label={groupLabel}>
+								{!collapsed && !group.hideLabel && (
+									<div
 										className={cn(
-											"my-1 border-0 border-t border-border/10",
-											collapsed ? "mx-2" : "mx-3",
+											"px-3.5 pb-1 text-xs font-semibold capitalize tracking-wider",
+											"text-(--text-muted) opacity-70",
 										)}
-									/>
+									>
+										{groupLabel}
+									</div>
 								)}
-								<section aria-label={groupLabel}>
-									{!collapsed && (
-										<div
-											className={cn(
-												"px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider",
-												"text-(--text-muted) opacity-70",
-											)}
-										>
-											{groupLabel}
-										</div>
-									)}
-									{group.items.map((item) => {
-										if (item.children && item.children.length > 0) {
-											return (
-												<NavSubmenu
-													key={item.id}
-													item={item}
-													currentPage={currentPage}
-													collapsed={collapsed}
-													onNavigate={onNavigate}
-													rovingIdx={
-														ALL_NAV_ITEMS.findIndex((i) => i.id === item.id) ===
-														rovingIdx
-													}
-												/>
-											);
-										}
+								{group.items.map((item) => {
+									if (item.children && item.children.length > 0) {
 										return (
-											<NavLeaf
+											<NavSubmenu
 												key={item.id}
 												item={item}
 												currentPage={currentPage}
 												collapsed={collapsed}
 												onNavigate={onNavigate}
-												tabIndex={
+												rovingIdx={
 													ALL_NAV_ITEMS.findIndex((i) => i.id === item.id) ===
 													rovingIdx
-														? 0
-														: -1
 												}
 											/>
 										);
-									})}
-								</section>
-							</Fragment>
+									}
+									return (
+										<NavLeaf
+											key={item.id}
+											item={item}
+											currentPage={currentPage}
+											collapsed={collapsed}
+											onNavigate={onNavigate}
+											tabIndex={
+												ALL_NAV_ITEMS.findIndex((i) => i.id === item.id) ===
+												rovingIdx
+													? 0
+													: -1
+											}
+										/>
+									);
+								})}
+							</section>
 						);
 					})}
 				</nav>

@@ -5,7 +5,7 @@
  * - : active nav item uses a 2px left accent bar + soft accent
  *   background (replacing the weak full-border treatment).
  * - : nav items are grouped (Main / Power features / System)
- *   with visible section labels and <hr> dividers between groups.
+ *   with visible section labels.
  * - : aria-keyshortcuts is exposed on Home ("Control+h") and
  *   Settings ("Control+,") since App.tsx binds those shortcuts.
  *   Items without a shortcut omit the attribute entirely.
@@ -126,11 +126,14 @@ describe("Sidebar", () => {
 
 	//nav grouping ──────────────────────────────────────────
 
-	it("PROD-7: renders three group labels (Main, Power features, System)", () => {
+	it("PROD-7: renders two group labels (Power features, System) — 'Main' is hidden", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
-		expect(screen.getByText("Main")).toBeTruthy();
 		expect(screen.getByText("Power features")).toBeTruthy();
 		expect(screen.getByText("System")).toBeTruthy();
+		// "Main" is no longer rendered as visible text (the group
+		// heading is hidden; the section's aria-label is preserved for
+		// screen-reader navigation).
+		expect(screen.queryByText("Main")).toBeNull();
 	});
 
 	it("PROD-7: groups are rendered as <section> elements with aria-label matching the group label", () => {
@@ -162,11 +165,10 @@ describe("Sidebar", () => {
 		expect(groupOf("Privacy")).toBe("System");
 	});
 
-	it("PROD-7: renders exactly 2 <hr> dividers between the 3 groups", () => {
+	it("PROD-7: renders NO <hr> dividers between the groups", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		const nav = screen.getByRole("navigation", { name: "Main navigation" });
-		const dividers = nav.querySelectorAll("hr");
-		expect(dividers.length).toBe(2);
+		expect(nav.querySelectorAll("hr").length).toBe(0);
 	});
 
 	it("PROD-7: still renders all 10 nav item labels (grouping does not drop items)", () => {
