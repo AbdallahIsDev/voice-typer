@@ -1004,7 +1004,17 @@ Adding a new **ASR engine** has its own touchpoint set: see
   grep both `tests/test_X*.py` and `tests/**/test_X*.py` (the latter
   catches sub-packages like `tests/handlers/`, `tests/server/`,
   `tests/tauri/mig*/`).
-
+- **No new `inspect.getsource` source-string tests** (ARCH-12): tests
+  must exercise behavior — render/call the code under test and assert
+  observable effects — never string-match against source text
+  (`inspect.getsource(...)`, source regexes). A source-string pin breaks
+  on any refactor without catching a single real regression. When you
+  touch code pinned by an existing getsource test, migrate that pin to a
+  behavioral equivalent **in the same change**. AST inspection is
+  allowed only for structural guarantees behavior cannot express (e.g.
+  asserting a module re-exports a symbol). See
+  [`docs/adr/arch-12-source-text-test-migration.md`](docs/adr/arch-12-source-text-test-migration.md)
+  for the migration playbook.
 ### 7.2 Frontend — vitest + Testing Library
 
 - **Framework:** vitest 2.x with jsdom, `@testing-library/react` 16,

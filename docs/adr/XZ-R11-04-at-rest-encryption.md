@@ -1,11 +1,24 @@
 # ADR: At-Rest Encryption for User Data (Design-Gated)
 
-> **Status**: Proposed (design-only — no production code changes by this task).
-> Implementation is tracked as a follow-up under the "Phased rollout"
-> section below. This document is the design gate referenced by the task
-> list; it supersedes the "Roadmap" candidate mitigations in
+> **Status**: Partially implemented (read-side live; write-side deferred).
+> An optional at-rest encryption layer now exists at
+> `voice_typer/server/_text_encryption.py`: Fernet-based (AES-128-CBC +
+> HMAC-SHA-256 — diverging from the AES-256-GCM sketch in §4 below),
+> with the key stored in the OS keystore via the existing
+> `credential_store` keyring integration. The schema carries a
+> backward-compatible `text_is_encrypted` column flag, so plaintext rows
+> remain readable alongside ciphertext ones. Read-side decryption is
+> wired into `history_db.py` (deferred imports; passthrough when the
+> keystore or `cryptography` is unavailable or encryption is disabled).
+> Write-side encryption in `add_transcription` is NOT yet wired — it is
+> deferred (see the "Phased rollout" section below); today the only
+> encrypt-on-write path is the undo-delete `restore()` helper.
+> The `cryptography>=42` dependency is declared in `pyproject.toml`, and
+> the module's guarded import degrades to plaintext when the library is
+> absent instead of failing at import time. This document remains the
+> design gate; it supersedes the "Roadmap" candidate mitigations in
 > [`docs/privacy/encryption-at-rest.md`](../privacy/encryption-at-rest.md)
-> for the chosen path (application-layer AES-256-GCM), while leaving the
+> for the chosen path (application-layer column encryption), while leaving the
 > threat-model and per-OS validation matrix in that document normative.
 >
 > **Date**: 2026-11 (design gate)

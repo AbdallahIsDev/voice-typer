@@ -1,1 +1,10 @@
-no files deleted this round
+# Windows equivalent (PowerShell) — applies all DELETE/MOVE operations listed below.
+# Run from the repository root. The canonical pipe-delimited records below document
+# each operation's source path, destination path (for MOVE), and the responsible
+# task ID + reason.
+# NOTE: the credential_store MOVE record is a logical record — the actual Wave 1
+# implementation created the new credential_store/ package with 8 files (__init__.py +
+# 7 per-concern modules), not a literal filesystem rename.
+DELETE  |  tests/test_perf_review_fixes.py  |  W1-A12 (EC-25): split into 4 per-domain files (test_perf_text_cleanup.py, test_perf_hotkey_polling.py, test_perf_asr_engines_audio_stats.py, test_perf_audio_window_eq.py) — 34 tests moved verbatim
+MOVE    |  voice_typer/server/credential_store.py  |  voice_typer/server/credential_store/__init__.py  |  W1-A1 (AC-128): 2132-line monolith split into 7-module package + 153-line __init__.py re-export shim (preserves 56 public symbols)
+DELETE  |  voice_typer/server/credential_store.py  |  stale pre-split monolith shadowed by the credential_store/ package; drift pins repointed to _schema.py, namespace allowlist extended to package paths, pyrefly baseline pruned+remapped

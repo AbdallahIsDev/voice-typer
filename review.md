@@ -135,12 +135,6 @@ These items are the highest-priority remaining work for the project — they blo
 
 ---
 
-- **R2-1 Execute cloud-agent round 2 handoff** (XL, P1): Dispatch the next cloud session per `CLOUD-AGENT-ROUND2-PROMPT.md` — 20 parallel sub-agents in the first message (workstreams at §"Suggested 20 parallel workstreams"), finishing the runtime-pack-split + ONNX migration work at ~65% from the prior session, then run the mandatory verification gate (§"Verification gate") and report a per-row green matrix. Every sub-agent prompt must embed the `AGENTS.md` `Hard "Don'ts"` constraints (C-CI-1..15: never edit tauri-*.yml workflows as a first-line fix), branding (`APP_NAME`), i18n (all 8 locales), and no-task-ID-in-code rules.
-  - **Status:** ✅ EXECUTED — FG session (2026-08-14) Wave 1/2/3/4/5/6 completed; runtime-pack-split + ONNX migration advanced from ~65% to ~95%. 1121 Python tests pass on LINUX (sandbox); ruff 0/0; branding OK; 4-allowlist IPC parity verified (Python=67, Rust=63, TS=65); worker shutdown hang FIXED + integration test added; worker split into focused modules (839 → 300 LOC + 3 new modules); prewarm IPC surface retired across all 4 allowlists in lockstep; SSRF redirect gap + pack.py per-file size cap FIXED; worker log rotation race FIXED (worker.log separate from voice-typer.log); 24 broken prewarm-machinery tests + 9 pre-existing torch-API tests FIXED. 4 of 5 Wave 6 reviewers returned APPROVE (R6-1, R6-2, R6-3, R6-4); R6-5 returned REQUEST-CHANGES with 2 must-fix items (this status update + sub-worklog-*.md gitignore) — both resolved. Remaining 5% are host-only validations per SUMMARY.md Remaining Work items #2-#5 (cargo test + vitest full suite + npm run dev manual launch + full pytest suite + bench baseline = VALIDATE ON HOST). See `worklog.md` FG-SESSION-START + FG-SESSION-SUMMARY entries + Wave 1-6 entries for full evidence.
-  - **Related Files:** `CLOUD-AGENT-ROUND2-PROMPT.md` (executor), `AGENTS.md` (binding rules), `review.md` / `worklog.md` (state), `docs/plan-runtime-pack-split.md`, `docs/PLAN_ONNX_INTEGRATION.md` (plans at ~95%), `SUMMARY.md` (FG Session — R2-1 section).
-
----
-
 **Bottom line for the next agent:** Do NOT trust "all green on Linux" as proof of cross-platform cutover.
 
 plus the base repo's pre-existing comprehensive review.
