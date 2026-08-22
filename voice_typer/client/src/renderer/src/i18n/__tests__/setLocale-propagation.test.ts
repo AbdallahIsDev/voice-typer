@@ -451,7 +451,7 @@ describe("NH-4: trayLabelsForLocale helper", () => {
 				},
 				modelManager: {
 					modelNotDownloaded:
-						"No models are available. Open the models page to download a model.",
+						"No speech model is selected. Open Models to choose one.",
 					readyWhisper: "Ready -- {device_info}",
 				},
 				pipeline: {
@@ -477,7 +477,7 @@ describe("NH-4: trayLabelsForLocale helper", () => {
 		);
 		// model_manager
 		expect(labels["state.model_manager.model_not_downloaded"]).toBe(
-			"No models are available. Open the models page to download a model.",
+			"No speech model is selected. Open Models to choose one.",
 		);
 		// placeholders preserved verbatim (server formats them later)
 		expect(labels["state.model_manager.ready_whisper"]).toBe(

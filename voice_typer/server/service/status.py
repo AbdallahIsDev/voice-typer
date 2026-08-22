@@ -124,8 +124,8 @@ class StatusMixin(ServiceMixinBase):
         app = self._app
         status_str = app.tray.state.value
         # The tray-tooltip reason accompanying the current state (e.g.
-        # "No models are available. Open the models page to download a
-        # model." when AppState.ERROR was set by a refused model load).
+        # "No speech model is selected. Open Models to choose one." when
+        # AppState.ERROR was set by a refused model load).
         # This MUST travel with ``status`` in every status-carrying
         # response/push (get_status, state_changed, status_change) so
         # the renderer can update the Home page's ERROR pill and its

@@ -219,8 +219,7 @@ describe("useConnection — F1: first-run auto-route ignores persisted page", ()
 			}) => void;
 
 			// Backend pushed the error state + the tray-tooltip reason.
-			const reason =
-				"No models are available. Open the models page to download a model.";
+			const reason = "No speech model is selected. Open Models to choose one.";
 			handler({ status: "error", message: reason });
 			expect(useAppStore.getState().recordingState).toBe("error");
 			expect(useAppStore.getState().lastError).toBe(reason);
@@ -259,7 +258,7 @@ describe("useConnection — F1: first-run auto-route ignores persisted page", ()
 		});
 
 		const NO_MODEL_REASON =
-			"No models are available. Open the models page to download a model.";
+			"No speech model is selected. Open Models to choose one.";
 
 		function findHandler(event: "state_changed"): (data: unknown) => void {
 			const call = mockPythonEvent.mock.calls.find((c) => c[0] === event);

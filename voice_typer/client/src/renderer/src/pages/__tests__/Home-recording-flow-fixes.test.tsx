@@ -478,7 +478,7 @@ describe("Home keeps the status pill and the dynamic line derived from the same 
 	});
 
 	const NO_MODEL_REASON =
-		"No models are available. Open the models page to download a model.";
+		"No speech model is selected. Open Models to choose one.";
 
 	it("does NOT pair an ERROR pill with the normal dictate hint when lastError is empty", async () => {
 		const { useAppStore } = await import("@/stores/appStore");

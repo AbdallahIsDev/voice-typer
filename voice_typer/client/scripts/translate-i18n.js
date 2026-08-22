@@ -443,7 +443,7 @@ const arMore = {
 
 	// models section
 	"models.asrTitle": "نماذج ASR",
-	"models.asrSubtitle": "تكوين النماذج المحلية على الجهاز ومزودي ASR السحابي.",
+	"models.asrSubtitle": "تكوين نماذج الكلام المحلية والسحابية.",
 	"models.title": "النماذج",
 	"models.description": "تكوين محركات تحويل الكلام إلى نص",
 	"models.active": "نشط",

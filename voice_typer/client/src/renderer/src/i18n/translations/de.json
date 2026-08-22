@@ -1082,8 +1082,10 @@
 		"voiceBiometricProcessingInfo": "Stimmbiometrische Daten werden lokal auf Ihrem Gerät verarbeitet und verlassen es niemals."
 	},
 	"models": {
+		"loadFailedTitle": "Modelle konnten nicht geladen werden",
+		"loadFailedDescription": "Wir konnten Ihre Modellkonfiguration nicht vom Backend laden. Prüfen Sie die Protokolle und versuchen Sie es erneut.",
 		"asrTitle": "Modelle",
-		"asrSubtitle": "Konfigurieren Sie lokale On-Device-Modelle und cloudbasierte Spracherkennung.",
+		"asrSubtitle": "Konfigurieren Sie lokale und Cloud-Sprachmodelle.",
 		"title": "Modelle",
 		"description": "Konfigurieren Sie Ihre Spracherkennungs-Engines",
 		"active": "Aktiv",
@@ -1445,6 +1447,8 @@
 		"charsSuffix_other": " ({count} Zeichen)"
 	},
 	"onboarding": {
+		"applyFailedTitle": "Einrichtung konnte nicht abgeschlossen werden",
+		"applyFailedDescription": "Wir konnten Ihre Einstellungen nicht anwenden. Versuchen Sie es erneut, oder überspringen Sie es und schließen Sie es später in den Einstellungen ab.",
 		"welcomeTitle": "Willkommen bei {appName}",
 		"welcomeDescription": "{appName} ist ein hochwertiges Offline-Sprach-zu-Text-Dienstprogramm, das im System-Tray läuft. Drücken Sie eine Tastenkombination, sprechen Sie, und Ihre Worte erscheinen als Text in jeder Anwendung. Lassen Sie uns einige Dinge einrichten, um loszulegen.",
 		"step1Item": "Wählen Sie Ihr Mikrofon",
@@ -1597,6 +1601,7 @@
 		"configCrashHint": "Die Einstellungsdatei ist möglicherweise beschädigt. Versuchen Sie, auf die Standardwerte zurückzusetzen."
 	},
 	"hotkeyPicker": {
+		"ariaLabel": "Tastenkombination auswählen",
 		"capsLockSrConflictWarning": "Caps Lock ist die Standard-Modifikatortaste für VoiceOver / Narrator. Die Auswahl kann Ihren Screenreader beeinträchtigen. Verwenden Sie stattdessen F2 oder Strg+Alt+D.",
 		"pressAKey": "Taste drücken",
 		"none": "Keine",
@@ -1941,7 +1946,7 @@
 			"backend_change_deferred": "Das Backend wird nach der aktuellen Aufnahme zu {backend} wechseln.",
 			"backend_init_failed": "Das {backend}-Backend konnte nicht initialisiert werden.{hint}",
 			"last_resort_unloaded": "Das Modell ist nicht geladen.\nÖffnen Sie die Modellseite, um ein Modell herunterzuladen.",
-			"model_not_downloaded": "Keine Modelle verfügbar.\nÖffnen Sie die Modellseite, um ein Modell herunterzuladen.",
+			"model_not_downloaded": "Kein Sprachmodell ist ausgewählt. Öffnen Sie „Modelle“, um eines auszuwählen.",
 			"no_model_selected": "Kein Modell ausgewählt.\nGehen Sie zur Modellseite, um ein Modell auszuwählen.",
 			"load_failed_critical": "Das Sprachmodell konnte nicht geladen werden.\nDie App läuft weiter. Drücken Sie {hotkey}, um das Laden erneut zu versuchen."
 		},
@@ -2036,7 +2041,7 @@
 			"loadFailedRetry": "Modell laden fehlgeschlagen – drücken Sie Ihre Tastenkombination zum Wiederholen",
 			"backendFailed": "{backend}-Modell konnte nicht geladen werden",
 			"modelFailed": "Modellfehler: {error}",
-			"modelNotDownloaded": "Keine Modelle verfügbar. Öffnen Sie die Modelle-Seite, um ein Modell herunterzuladen.",
+			"modelNotDownloaded": "Kein Sprachmodell ist ausgewählt. Öffnen Sie „Modelle“, um eines auszuwählen.",
 			"modelIntegrityFailed": "{backend}-Modell hat die Integritätsprüfung nicht bestanden. Löschen Sie es und laden Sie es von der Modelle-Seite erneut herunter."
 		},
 		"pipeline": {

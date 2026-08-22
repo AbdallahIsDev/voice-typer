@@ -645,6 +645,13 @@ Rationale: The `+` separator was removed app-wide (2026-08-22) so shortcuts read
 Applies to: All agents, all modes, all sub-agents.
 ```
 
+```
+C-UI-2
+Rule: Do NOT use vague or generic UI/content copy that can reasonably be interpreted in multiple ways. User-facing text MUST be specific and unambiguous for its actual use case; before adding or rewriting any user-visible string, verify that it communicates the intended meaning and does not imply a different application state. Example: "No models are available" can incorrectly imply the application ships no models at all, when the actual state is that the user has no model installed/selected — the corrected copy reads "No speech model is selected. Open Models to choose one." (applied across all 8 locales and the server-side `voice_typer/server/i18n.py` fallbacks).
+Rationale: Ambiguous copy misleads users about the real state and generates false support/silence. The vague "No models are available" wording was corrected to describe the user's model-selection state (2026-08-22); any new or rewritten string must name the actual state, not an interpretation of it.
+Applies to: All agents, all modes, all sub-agents.
+```
+
 ---
 
 ## Category: Localization & i18n

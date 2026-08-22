@@ -1082,8 +1082,10 @@
 		"voiceBiometricProcessingInfo": "Los datos biométricos de voz se procesan localmente en tu dispositivo y nunca salen de tu equipo."
 	},
 	"models": {
+		"loadFailedTitle": "No se pudieron cargar los modelos",
+		"loadFailedDescription": "No pudimos cargar la configuración de modelos desde el backend. Revisa los registros e inténtalo de nuevo.",
 		"asrTitle": "Modelos",
-		"asrSubtitle": "Configura modelos locales en el dispositivo y reconocimiento de voz basado en la nube.",
+		"asrSubtitle": "Configura modelos de voz locales y en la nube.",
 		"title": "Modelos",
 		"description": "Configura tus motores de reconocimiento de voz",
 		"active": "Activo",
@@ -1445,6 +1447,8 @@
 		"charsSuffix_other": " ({count} caracteres)"
 	},
 	"onboarding": {
+		"applyFailedTitle": "No se pudo completar la configuración",
+		"applyFailedDescription": "No pudimos aplicar tu configuración. Inténtalo de nuevo, u omite este paso y termínalo más tarde en Ajustes.",
 		"welcomeTitle": "Bienvenido a {appName}",
 		"welcomeDescription": "{appName} es una utilidad premium sin conexión de voz a texto que se ejecuta en la bandeja del sistema. Presiona un atajo, habla y tus palabras aparecerán como texto en cualquier aplicación. Configuremos algunas cosas para empezar.",
 		"step1Item": "Elige tu micrófono",
@@ -1597,6 +1601,7 @@
 		"configCrashHint": "El archivo de ajustes puede estar dañado. Intenta restablecer los valores predeterminados."
 	},
 	"hotkeyPicker": {
+		"ariaLabel": "Selector de atajos de teclado",
 		"capsLockSrConflictWarning": "Bloq Mayús es la tecla modificadora predeterminada de VoiceOver / Narrador. Elegirla puede romper su lector de pantalla. Considere usar F2 o Ctrl+Alt+D.",
 		"pressAKey": "Pulse una tecla",
 		"none": "Ninguno",
@@ -1941,7 +1946,7 @@
 			"backend_change_deferred": "El backend cambiará a {backend} después de la grabación actual.",
 			"backend_init_failed": "No se pudo inicializar el backend {backend}.{hint}",
 			"last_resort_unloaded": "El modelo no está cargado.\nAbre la página de modelos para descargar un modelo.",
-			"model_not_downloaded": "No hay modelos disponibles.\nAbre la página de modelos para descargar un modelo.",
+			"model_not_downloaded": "No hay ningún modelo de voz seleccionado. Abre Modelos para elegir uno.",
 			"no_model_selected": "No hay ningún modelo seleccionado.\nVe a la página de modelos para seleccionar uno.",
 			"load_failed_critical": "No se pudo cargar el modelo de voz.\nLa aplicación seguirá funcionando. Pulse {hotkey} para reintentar la carga."
 		},
@@ -2036,7 +2041,7 @@
 			"loadFailedRetry": "No se pudo cargar el modelo: pulse su atajo de teclado para reintentar",
 			"backendFailed": "No se pudo cargar el modelo {backend}",
 			"modelFailed": "Error del modelo: {error}",
-			"modelNotDownloaded": "No hay modelos disponibles. Abra la página de modelos para descargar uno.",
+			"modelNotDownloaded": "No hay ningún modelo de voz seleccionado. Abre Modelos para elegir uno.",
 			"modelIntegrityFailed": "El modelo {backend} no superó la verificación de integridad. Elimínelo y descárguélo de nuevo desde la página de modelos."
 		},
 		"pipeline": {

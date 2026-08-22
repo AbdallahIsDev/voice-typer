@@ -8,8 +8,8 @@ state. When it is missing:
   (the name comes from ``model_size`` in config, which survives the
   model being deleted / never downloaded);
 - the tray state message and the Windows notification must be GENERIC
-  ("Open the models page to download a model") with NO model/backend
-  name;
+  ("No speech model is selected. Open Models to choose one.") with NO
+  model/backend name;
 - ``load_background`` must refuse BEFORE the heavy engine import /
   LOADING state (the load path would raise ``ModelNotDownloadedError``
   anyway — the registry re-raises for a missing primary, no whisper
@@ -74,12 +74,7 @@ def _make_whisper_repo_dir(config_dir: Path, model_size: str) -> Path:
 
     meta = get_model_metadata(model_size)
     assert meta is not None, f"model_size {model_size!r} not in MODEL_REGISTRY"
-    repo_dir = (
-        config_dir
-        / "huggingface"
-        / "hub"
-        / f"models--{meta.repo_id.replace('/', '--')}"
-    )
+    repo_dir = config_dir / "huggingface" / "hub" / f"models--{meta.repo_id.replace('/', '--')}"
     (repo_dir / "refs").mkdir(parents=True, exist_ok=True)
     (repo_dir / "refs" / "main").write_text("abc123\n")
     return repo_dir
@@ -156,13 +151,13 @@ class TestComputeTooltipModelSuffix:
         )
         tooltip = tray._compute_tooltip(
             AppState.ERROR,
-            "No models are available. Open the models page to download a model.",
+            "No speech model is selected. Open Models to choose one.",
         )
         assert "[tiny]" not in tooltip, (
             f"A model that is NOT downloaded must not be advertised in the tooltip. Got: {tooltip!r}"
         )
         # The generic message survives.
-        assert "Open the models page to download a model" in tooltip
+        assert "Open Models to choose one" in tooltip
 
     def test_downloaded_model_shows_suffix(self, tmp_config_dir):
         _make_whisper_repo_dir(tmp_config_dir, "tiny")
@@ -171,9 +166,7 @@ class TestComputeTooltipModelSuffix:
             config=Config(asr_backend="whisper", model_size="tiny"),
         )
         tooltip = tray._compute_tooltip(AppState.IDLE, "")
-        assert "[tiny]" in tooltip, (
-            f"A downloaded model SHOULD be named in the tooltip. Got: {tooltip!r}"
-        )
+        assert "[tiny]" in tooltip, f"A downloaded model SHOULD be named in the tooltip. Got: {tooltip!r}"
 
 
 def _make_mm(config: Config) -> tuple[ModelManager, MagicMock]:
@@ -222,13 +215,11 @@ class TestLoadBackgroundPrecheck:
         states = [c.args[0] for c in app.tray.set_state.call_args_list]
         assert any("ERROR" in str(s) for s in states), f"expected ERROR state, got {states}"
         msgs = [c.args[1] for c in app.tray.set_state.call_args_list if len(c.args) > 1]
-        assert any("Open the models page to download a model" in (m or "") for m in msgs), msgs
-        assert all("tiny" not in (m or "") for m in msgs), (
-            "refusal message must NOT name the missing model"
-        )
+        assert any("Open Models to choose one" in (m or "") for m in msgs), msgs
+        assert all("tiny" not in (m or "") for m in msgs), "refusal message must NOT name the missing model"
         # Windows notification is generic too — no backend name.
         notified = [c.args[1] for c in app.tray.notify.call_args_list]
-        assert any("Open the models page to download a model" in (m or "") for m in notified), notified
+        assert any("Open Models to choose one" in (m or "") for m in notified), notified
         assert all("Whisper" not in (m or "") for m in notified), notified
         # A pending dictation must be cleared (no auto-start loop).
         assert app._pending_dictation is False
@@ -236,19 +227,14 @@ class TestLoadBackgroundPrecheck:
     def test_no_model_selected_refusal_uses_select_message(self, tmp_config_dir):
         """Empty model_size (NO_MODEL_SIZE) → the "No model selected"
         message — the SAME text the renderer's Home status pill hint
-        shows — NOT the "No models are available" download message (the
+        shows — NOT the "No speech model is selected" download message (the
         tray tooltip must agree with the Home pill for this state)."""
         mm, app = _make_mm(Config(asr_backend="whisper", model_size=""))
 
         mm.load_background()
 
-        msgs = [
-            c.args[1] for c in app.tray.set_state.call_args_list if len(c.args) > 1
-        ]
-        assert any(
-            "No model selected. Go to the models page to select a model." in (m or "")
-            for m in msgs
-        ), msgs
+        msgs = [c.args[1] for c in app.tray.set_state.call_args_list if len(c.args) > 1]
+        assert any("No model selected. Go to the models page to select a model." in (m or "") for m in msgs), msgs
         assert all("No models are available" not in (m or "") for m in msgs), msgs
         # The Windows notification matches the tooltip wording too.
         notified = [c.args[1] for c in app.tray.notify.call_args_list]
@@ -276,17 +262,17 @@ class TestGenericNotDownloadedMessages:
         from voice_typer.server import i18n
 
         s = i18n.t("state.model_manager.model_not_downloaded")
-        assert "Open the models page to download a model." in s
+        assert "Open Models to choose one." in s
         assert "{backend}" not in s
-        assert "No models are available" in s
+        assert "No speech model is selected" in s
 
     def test_notify_message_generic(self):
         from voice_typer.server import i18n
 
         s = i18n.t("notify.model_manager.model_not_downloaded")
-        assert "Open the models page to download a model." in s
+        assert "Open Models to choose one." in s
         assert "{backend}" not in s
-        assert "No models are available" in s
+        assert "No speech model is selected" in s
 
     def test_no_model_selected_state_matches_home_hint(self):
         """The no-model-selected state message must read the SAME as the
@@ -295,9 +281,7 @@ class TestGenericNotDownloadedMessages:
         from voice_typer.server import i18n
 
         s = i18n.t("state.model_manager.no_model_selected")
-        assert (
-            "No model selected. Go to the models page to select a model." in s
-        ), s
+        assert "No model selected. Go to the models page to select a model." in s, s
         assert "{backend}" not in s
 
     def test_no_model_selected_notify_matches_home_hint(self):

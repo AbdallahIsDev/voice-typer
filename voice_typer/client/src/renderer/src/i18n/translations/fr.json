@@ -637,8 +637,10 @@
 		"voiceBiometricProcessingInfo": "Les données biométriques vocales sont traitées localement sur votre appareil et ne quittent jamais votre machine."
 	},
 	"models": {
+		"loadFailedTitle": "Impossible de charger les modèles",
+		"loadFailedDescription": "Impossible de charger la configuration des modèles depuis le backend. Consultez les journaux et réessayez.",
 		"asrTitle": "Modèles",
-		"asrSubtitle": "Configurez les modèles locaux sur l'appareil et la reconnaissance vocale basée sur le cloud.",
+		"asrSubtitle": "Configurez les modèles vocaux locaux et cloud.",
 		"title": "Modèles",
 		"download": {
 			"resumeAria": "Reprendre le téléchargement",
@@ -1467,6 +1469,7 @@
 		"configCrashHint": "Le fichier de réglages est peut-être corrompu. Essayez de rétablir les valeurs par défaut."
 	},
 	"hotkeyPicker": {
+		"ariaLabel": "Sélecteur de raccourci clavier",
 		"capsLockSrConflictWarning": "Verrouillage Maj est la touche de modification par défaut de VoiceOver / Narrateur. La choisir peut casser votre lecteur d'écran. Envisagez plutôt d'utiliser F2 ou Ctrl+Alt+D.",
 		"pressAKey": "Appuyez sur une touche",
 		"none": "Aucun",
@@ -1583,6 +1586,8 @@
 		}
 	},
 	"onboarding": {
+		"applyFailedTitle": "Impossible de terminer la configuration",
+		"applyFailedDescription": "Nous n'avons pas pu appliquer vos paramètres. Réessayez, ou ignorez cette étape et terminez plus tard dans les Paramètres.",
 		"welcomeTitle": "Bienvenue dans {appName}",
 		"welcomeDescription": "{appName} est un utilitaire premium hors ligne de voix-vers-texte qui s'exécute dans la barre système. Appuyez sur un raccourci, parlez, et vos mots apparaissent comme du texte dans n'importe quelle application. Configurons quelques éléments pour commencer.",
 		"step1Item": "Choisissez votre microphone",
@@ -1941,7 +1946,7 @@
 			"backend_change_deferred": "Le backend passera à {backend} après l'enregistrement actuel.",
 			"backend_init_failed": "Impossible d'initialiser le backend {backend}.{hint}",
 			"last_resort_unloaded": "Le modèle n'est pas chargé.\nOuvrez la page des modèles pour télécharger un modèle.",
-			"model_not_downloaded": "Aucun modèle disponible.\nOuvrez la page des modèles pour télécharger un modèle.",
+			"model_not_downloaded": "Aucun modèle vocal n'est sélectionné. Ouvrez Modèles pour en choisir un.",
 			"no_model_selected": "Aucun modèle sélectionné.\nAccédez à la page des modèles pour en sélectionner un.",
 			"load_failed_critical": "Impossible de charger le modèle vocal.\nL'application continuera de fonctionner. Appuyez sur {hotkey} pour réessayer le chargement."
 		},
@@ -2036,7 +2041,7 @@
 			"loadFailedRetry": "Échec du chargement du modèle : appuyez sur votre raccourci clavier pour réessayer",
 			"backendFailed": "Échec du chargement du modèle {backend}",
 			"modelFailed": "Erreur du modèle : {error}",
-			"modelNotDownloaded": "Aucun modèle disponible. Ouvrez la page des modèles pour en télécharger un.",
+			"modelNotDownloaded": "Aucun modèle vocal n'est sélectionné. Ouvrez Modèles pour en choisir un.",
 			"modelIntegrityFailed": "Le modèle {backend} a échoué à la vérification d'intégrité. Supprimez-le et téléchargez-le à nouveau depuis la page des modèles."
 		},
 		"pipeline": {

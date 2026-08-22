@@ -1089,8 +1089,10 @@
 		"voiceBiometricProcessingInfo": "Voice biometric data is processed locally on your device and never leaves your machine."
 	},
 	"models": {
+		"loadFailedTitle": "Couldn't load models",
+		"loadFailedDescription": "We couldn't load your model configuration from the backend. Check the logs and try again.",
 		"asrTitle": "Models",
-		"asrSubtitle": "Configure local on-device models and cloud-based speech recognition.",
+		"asrSubtitle": "Configure local and cloud speech models.",
 		"title": "Models",
 		"description": "Configure your speech-to-text engines",
 		"active": "Active",
@@ -1468,6 +1470,8 @@
 		"charsSuffix_other": " ({count} chars)"
 	},
 	"onboarding": {
+		"applyFailedTitle": "Couldn't finish setup",
+		"applyFailedDescription": "We couldn't apply your settings. Try again, or skip and finish later in Settings.",
 		"welcomeTitle": "Welcome to {appName}",
 		"welcomeDescription": "{appName} is a premium offline voice-to-text utility that runs in your system tray. Press a hotkey, speak, and your words appear as text in any application. Let's set up a few things to get you started.",
 		"step1Item": "Choose your microphone",
@@ -1604,6 +1608,7 @@
 		"configCrashHint": "The settings file may be corrupted. Try resetting to defaults."
 	},
 	"hotkeyPicker": {
+		"ariaLabel": "Hotkey picker",
 		"capsLockSrConflictWarning": "Caps Lock is the default modifier key for VoiceOver / Narrator. Choosing it may break your screen reader. Consider using F2 or Ctrl+Alt+D instead.",
 		"pressAKey": "Press a key",
 		"none": "None",
@@ -1941,7 +1946,7 @@
 			"backend_change_deferred": "Backend will change to {backend} after current recording.",
 			"backend_init_failed": "Could not initialize the {backend} backend.{hint}",
 			"last_resort_unloaded": "The model is not loaded.\nOpen the models page to download a model.",
-			"model_not_downloaded": "No models are available.\nOpen the models page to download a model.",
+			"model_not_downloaded": "No speech model is selected. Open Models to choose one.",
 			"no_model_selected": "No model selected.\nGo to the models page to select a model.",
 			"load_failed_critical": "Could not load the speech model.\nThe app will keep running. Press {hotkey} to retry loading."
 		},
@@ -2036,7 +2041,7 @@
 			"loadFailedRetry": "Model load failed -- press your hotkey to retry",
 			"backendFailed": "{backend} model failed to load",
 			"modelFailed": "Model failed: {error}",
-			"modelNotDownloaded": "No models are available. Open the models page to download a model.",
+			"modelNotDownloaded": "No speech model is selected. Open Models to choose one.",
 			"modelIntegrityFailed": "{backend} model failed integrity verification. Delete and re-download it from the Models page."
 		},
 		"pipeline": {

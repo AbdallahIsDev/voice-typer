@@ -91,7 +91,7 @@ _INITIAL_LABELS: dict[str, str] = {
     "state.model_manager.load_failed_retry": "Model load failed -- press your hotkey to retry",
     "state.model_manager.backend_failed": "{backend} model failed to load",
     "state.model_manager.model_failed": "Model failed: {error}",
-    "state.model_manager.model_not_downloaded": ("No models are available. Open the models page to download a model."),
+    "state.model_manager.model_not_downloaded": ("No speech model is selected. Open Models to choose one."),
     # no_model_selected: genuine "no model selected" state
     # (``model_size == NO_MODEL_SIZE``) — distinct from
     # model_not_downloaded (a concrete model is missing from disk). The
@@ -286,9 +286,7 @@ _INITIAL_LABELS: dict[str, str] = {
     ),
     "notify.model_manager.change_deferred": "Model will change to {model} after current recording",
     "notify.model_manager.backend_change_deferred": "Backend will change to {backend} after current recording.",
-    "notify.model_manager.model_not_downloaded": (
-        "No models are available.\nOpen the models page to download a model."
-    ),
+    "notify.model_manager.model_not_downloaded": ("No speech model is selected. Open Models to choose one."),
     # no_model_selected: notification twin of the state message above —
     # same wording as the renderer's Home hint so the tray notification
     # and the Home status pill stay in sync (user request: tooltip /

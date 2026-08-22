@@ -494,13 +494,13 @@ class TestGetStatusReturnsDict:
 
         app = MagicMock()
         app.tray.state.value = "error"
-        app.tray._message = "No models are available. Open the models page to download a model."
+        app.tray._message = "No speech model is selected. Open Models to choose one."
         service = VoiceTyperService(app)
 
         result = service.get_status()
 
         assert result["status"] == "error"
-        assert result["message"] == "No models are available. Open the models page to download a model."
+        assert result["message"] == "No speech model is selected. Open Models to choose one."
 
     def test_get_status_coerces_non_string_tray_message_to_empty(self):
         """A non-str tray ``_message`` (test doubles, mocks) degrades to ""."""
