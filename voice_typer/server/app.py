@@ -30,7 +30,9 @@ from voice_typer.server import crash_handler as _crash_handler, i18n
 # ``from __future__ import annotations`` above is REQUIRED so any future
 # ``np.ndarray`` annotation in this file stays as an unevaluated string
 # (PEP 563) and does NOT trigger the eager import we just eliminated.
+from voice_typer.server._busyness import BusynessCoordinator
 from voice_typer.server._lazy_import import lazy_module
+from voice_typer.server._microphone_registry import MicrophoneRegistry
 
 # restart token functions moved to voice_typer.server.security
 # COMPAT-001: backward-compat re-export for tests/test_pii_redaction.py
@@ -790,10 +792,23 @@ class VoiceTyperApp:
         # removed — callers now use `self.recording.<field>` directly,
         # or `self.recording.get_streaming_session()` /
         # `self.recording.set_streaming_session(...)`.)
-        self._microphones: list[dict] = []
-        self._busy_event = threading.Event()
-        self._busy_event.set()  # SET = not busy
-        self._lock = threading.Lock()
+        # Pipeline "busy" flag + companion lock live in
+        # BusynessCoordinator; the cached microphone list lives in
+        # MicrophoneRegistry. The legacy private attributes
+        # (``_busy_event`` / ``_lock`` / ``_microphones``) remain
+        # reachable via the back-compat properties further down this
+        # class — they delegate to these coordinators, so every
+        # existing consumer (``recording_lifecycle``,
+        # ``transcription_watchdog``, ``dictation_pipeline/*``,
+        # ``model_manager``, ``startup_tasks.load_microphones``,
+        # ``service/microphone_test``, ``tray_menu``) keeps working
+        # unchanged. NOTE: the legacy ``_busy_event`` semantics were
+        # INVERTED (SET == not busy — the event doubles as a ready
+        # signal); that inversion is now internal to the coordinator,
+        # which also exposes intent-revealing methods (``is_busy`` /
+        # ``set_busy`` / ``set_idle`` / ``wait_idle``).
+        self._busyness = BusynessCoordinator()
+        self._microphone_registry = MicrophoneRegistry()
         # serialize Config mutations between concurrent IPC
         # set_config handlers (multiple IPC server threads). Without
         # this lock, two simultaneous set_config calls can interleave
@@ -1010,6 +1025,50 @@ class VoiceTyperApp:
         self._vocabulary_manager_backing: Any = None
         self._llm_polisher = None  # Created on first polish (needs consent check)
         self._cloud_engine = None  # Lazy-init if cloud backend selected
+
+    # ─── Legacy private-state back-compat properties ──────────────────
+    #
+    # The raw state objects live in the coordinators constructed in
+    # ``__init__`` (``_busyness`` / ``_microphone_registry``); these
+    # read/write views keep every historical consumer of
+    # ``app._busy_event`` / ``app._lock`` / ``app._microphones``
+    # working unchanged. Setters rebind INTO the coordinator (never
+    # shadowing it) so ``monkeypatch.setattr(app, "_busy_event", ...)``
+    # style injection and plain ``app._microphones = [...]`` rebinding
+    # keep their pre-extraction semantics.
+
+    @property
+    def _busy_event(self) -> threading.Event:
+        """The pipeline busy/ready event owned by :class:`BusynessCoordinator`.
+
+        INVERTED legacy semantics preserved: ``is_set() == True`` means
+        NOT busy (the event doubles as a ready signal). New code should
+        prefer ``self._busyness.is_busy()`` / ``set_busy()`` /
+        ``set_idle()`` / ``wait_idle()``.
+        """
+        return self._busyness.event
+
+    @_busy_event.setter
+    def _busy_event(self, event: threading.Event) -> None:
+        self._busyness.adopt_event(event)
+
+    @property
+    def _lock(self) -> threading.Lock:
+        """The companion coarse-grained lock owned by BusynessCoordinator."""
+        return self._busyness.lock
+
+    @_lock.setter
+    def _lock(self, lock: threading.Lock) -> None:
+        self._busyness.adopt_lock(lock)
+
+    @property
+    def _microphones(self) -> list[dict]:
+        """Snapshot of the cached microphone list owned by MicrophoneRegistry."""
+        return self._microphone_registry.list()
+
+    @_microphones.setter
+    def _microphones(self, mics: list[dict]) -> None:
+        self._microphone_registry.replace(mics)
 
     # ─── Lazy @property accessors ─────────────────────────────────────
     #

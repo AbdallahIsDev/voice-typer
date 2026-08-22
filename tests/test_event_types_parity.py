@@ -78,7 +78,9 @@ REPO_ROOT = _repo_root()
 EVENT_PROTOCOL_RS = REPO_ROOT / "src-tauri" / "src" / "sidecar" / "ws" / "event_protocol.rs"
 PUSH_EVENTS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "types" / "ipc" / "push_events.ts"
 REQUESTS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "types" / "ipc" / "requests.ts"
-USE_PYTHON_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "hooks" / "usePython.ts"
+USE_PYTHON_TS = (
+    REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "lib" / "python-bridge" / "known-event-types.ts"
+)
 ALLOWED_COMMANDS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
 ALLOWLIST_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds" / "allowlist.rs"
 EVENT_BUS_PY = REPO_ROOT / "voice_typer" / "server" / "event_bus.py"
@@ -194,9 +196,13 @@ def _ts_python_push_event_types() -> set[str]:
 
 
 def _ts_known_event_types() -> set[str]:
-    """Parse the ``KNOWN_EVENT_TYPES`` Set literal in usePython.ts.
+    """Parse the ``KNOWN_EVENT_TYPES`` Set literal in
+    ``lib/python-bridge/known-event-types.ts``.
 
-    The Set is declared as::
+    The ``hooks/usePython.ts`` monolith was split into focused modules
+    under ``lib/python-bridge/``; the runtime set now lives in
+    ``known-event-types.ts`` (the hook barrel re-exports it). The Set
+    is declared as::
 
         export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
             "status_change",

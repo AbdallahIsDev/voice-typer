@@ -76,13 +76,25 @@ def _isolated_config_dir(tmp_config_dir):
 
     Also resets the keyring availability cache so each test re-probes
     (the probe is cached at module level for the lifetime of the
-    process, which would leak state across tests).
+    process, which would leak state across tests), and clears the
+    orphan/wedge state owned by ``credential_store._backend`` — the
+    wedge cooldown is global with a 60 s window, so a wedged backend
+    left behind by any other test file would short-circuit every
+    ``store_secret`` call here into a plaintext fallback.
     """
     from voice_typer.server import credential_store
 
     credential_store._reset_keyring_cache()
+    with credential_store._keyring_state_lock:
+        credential_store._backend._orphaned_thread_count = 0
+        credential_store._backend._consecutive_timeouts = 0
+        credential_store._backend._wedged_until = 0.0
     yield
     credential_store._reset_keyring_cache()
+    with credential_store._keyring_state_lock:
+        credential_store._backend._orphaned_thread_count = 0
+        credential_store._backend._consecutive_timeouts = 0
+        credential_store._backend._wedged_until = 0.0
 
 
 @pytest.fixture

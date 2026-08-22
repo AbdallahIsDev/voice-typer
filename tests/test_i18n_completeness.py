@@ -106,6 +106,17 @@ ALLOWED_UNTRANSLATED = {
     # genuinely identical in English and French ("les corrections"), so
     # fr.json's value matches English by cognate, not by a translation gap.
     "analytics.corrections",  # "Corrections"
+    # Vocabulary usage-count plural labels: "{count} correction(s)" is a
+    # genuine French cognate — "correction" is the same word in French
+    # ("la correction"), so fr.json's values match English by cognate,
+    # not by a translation gap. Same rationale as analytics.corrections
+    # and the trayState.error Spanish cognate above.
+    "vocabulary.count_zero",  # "{count} corrections"
+    "vocabulary.count_one",  # "{count} correction"
+    "vocabulary.count_two",  # "{count} corrections"
+    "vocabulary.count_few",  # "{count} corrections"
+    "vocabulary.count_many",  # "{count} corrections"
+    "vocabulary.count_other",  # "{count} corrections"
     # Theme switch labels: "System" in German is the standard German word for
     # the system-following theme mode — identical to English by coincidence,
     # not a translation gap.

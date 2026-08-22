@@ -231,8 +231,72 @@ def make_ipc_server_with_fakes() -> tuple[Any, MagicMock, MagicMock]:
     return server, fake_app, fake_service
 
 
+def make_fake_sidecar_ws_server(**overrides: Any) -> Any:
+    """Return the canonical fake sidecar-WS server for WS transport tests.
+
+    Public alias over
+    :func:`tests.fixtures.sidecar_ws_test_helpers._make_fake_server`
+    (the single canonical factory behind the former inline copies) so
+    test files don't have to reach for that module's private name.
+    See that helper's docstring for the full list of pre-configured
+    attributes (``_ws_dispatch_pool = None``, ``app._shutting_down =
+    False``, ``_ready_emitted = True``, ...) and why each one exists.
+
+    Parameters
+    ----------
+    **overrides:
+        Applied as attribute overrides post-construction, e.g.
+        ``make_fake_sidecar_ws_server(_dispatch=MagicMock(
+        return_value={"type": "result", "data": {}}))``.
+
+    Returns
+    -------
+    Any
+        A ``MagicMock`` shaped like an ``IPCServer`` for
+        ``sidecar_ws._make_dispatch`` / ``_handle_connection``.
+    """
+    from tests.fixtures.sidecar_ws_test_helpers import _make_fake_server
+
+    server = _make_fake_server()
+    for name, value in overrides.items():
+        setattr(server, name, value)
+    return server
+
+
+def make_fake_recorder(**config_overrides: Any) -> Any:
+    """Return the canonical minimal ``Recorder`` for secure-clear tests.
+
+    Public alias over
+    :func:`tests.fixtures.recorder_test_helpers.make_recorder` (the
+    single canonical factory that replaced the duplicated inline
+    ``_make_recorder`` helpers). Builds a real ``Recorder`` with a
+    mocked config (VAD availability patched out to skip the torch
+    import cost); see that helper's docstring for the pre-populated
+    config fields.
+
+    Parameters
+    ----------
+    **config_overrides:
+        Applied to ``rec.config`` post-construction, e.g.
+        ``make_fake_recorder(sample_rate=48000)``.
+
+    Returns
+    -------
+    Any
+        A real ``Recorder`` instance whose config is a ``MagicMock``.
+    """
+    from tests.fixtures.recorder_test_helpers import make_recorder as _mk
+
+    rec = _mk()
+    for name, value in config_overrides.items():
+        setattr(rec.config, name, value)
+    return rec
+
+
 __all__ = [
     "make_fake_app",
     "make_fake_service",
+    "make_fake_recorder",
+    "make_fake_sidecar_ws_server",
     "make_ipc_server_with_fakes",
 ]

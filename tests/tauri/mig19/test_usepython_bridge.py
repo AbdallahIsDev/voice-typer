@@ -302,11 +302,39 @@ _RENDERER_SRC = _CLIENT_SRC / "renderer" / "src"
 # spread across the split files.
 _TAURI_BRIDGE_DIR = _RENDERER_SRC / "lib" / "tauri-bridge"
 _TAURI_BRIDGE = _TAURI_BRIDGE_DIR / "index.ts"
-_USE_PYTHON = _RENDERER_SRC / "hooks" / "usePython.ts"
+# ``hooks/usePython.ts`` was split into focused modules under
+# ``lib/python-bridge/`` (the hook file is now a re-export barrel). The
+# reader below concatenates the implementation submodules so the static
+# regex assertions authored against the original monolith still match
+# patterns spread across the split files.
+_USE_PYTHON_DIR = _RENDERER_SRC / "lib" / "python-bridge"
+_USE_PYTHON_MODULES = (
+    "usePython.ts",
+    "usePythonEvent.ts",
+    "command-timeouts.ts",
+    "bridge-ready.ts",
+    "error-envelope.ts",
+)
 _PRELOAD = _CLIENT_SRC / "preload" / "index.ts"
 _PYTHON_CALL_HANDLER = _CLIENT_SRC / "main" / "ipc" / "python-call-handler.ts"
 _SIDECAR_CMDS_RS = _REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
 _SIDECAR_CMDS_DIR = _REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds"
+
+
+def _read_use_python_module() -> str:
+    """Concatenate the ``lib/python-bridge`` implementation submodules.
+
+    The former single-file ``hooks/usePython.ts`` monolith was split
+    into a barrel re-export plus focused modules under
+    ``lib/python-bridge/``. The bridge assertions target the module as
+    a whole, so we read each submodule and join them.
+    """
+    parts: list[str] = []
+    for name in _USE_PYTHON_MODULES:
+        path = _USE_PYTHON_DIR / name
+        assert path.is_file(), f"python-bridge submodule not found: {path}"
+        parts.append(path.read_text(encoding="utf-8"))
+    return "\n\n".join(parts)
 
 
 def _read_sidecar_cmds_module() -> str:
@@ -417,9 +445,13 @@ def tauri_bridge_source() -> str:
 
 @pytest.fixture(scope="module")
 def use_python_source() -> str:
-    """Read ``client/src/renderer/src/hooks/usePython.ts`` as text."""
-    assert _USE_PYTHON.exists(), f"usePython.ts not found: {_USE_PYTHON}"
-    return _USE_PYTHON.read_text(encoding="utf-8")
+    """Read the ``usePython`` bridge implementation as text.
+
+    Concatenates ``client/src/renderer/src/lib/python-bridge/{usePython,
+    usePythonEvent,command-timeouts,bridge-ready,error-envelope}.ts``
+    (the split successors of the former ``hooks/usePython.ts`` monolith).
+    """
+    return _read_use_python_module()
 
 
 @pytest.fixture(scope="module")

@@ -30,7 +30,7 @@ use crate::platform::paths::config_dir;
 //
 // The Python sidecar is contractually responsible for redacting API
 // keys / secrets / tokens BEFORE the config payload reaches the Rust
-// `export_config` command (see `voice_typer/server/credential_store.py`
+// `export_config` command (see `voice_typer/server/credential_store/_redact.py`
 //`_redact_sensitive`).  adds a Rust-side redaction pass as
 // defense-in-depth: if a future sidecar refactor or a custom build of
 // the renderer forgets to redact, the Rust host still scrubs obvious

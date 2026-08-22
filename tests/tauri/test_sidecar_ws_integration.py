@@ -21,6 +21,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.fixtures.ipc_test_helpers import make_fake_sidecar_ws_server
+
 websockets = pytest.importorskip("websockets")
 
 pytestmark = pytest.mark.asyncio
@@ -30,33 +32,12 @@ async def test_sidecar_round_trip_auth_dispatch_response(monkeypatch):
     """End-to-end: sidecar binds, client auths, client dispatches, gets response."""
     from voice_typer.server import sidecar_ws
 
-    # Mock the IPCServer — we only need _dispatch + app.quit.
-    server = MagicMock()
-    server._dispatch = MagicMock(return_value={"type": "result", "data": {"status": "idle"}})
-    server.app = MagicMock()
-    server.app.quit = MagicMock()
-    # The dispatch gate at sidecar_ws.py:1064 rejects every new request
-    # once app._shutting_down is truthy. A bare MagicMock attribute is
-    # truthy, so pin it to False explicitly (same as the canonical
-    # helper in tests/fixtures/sidecar_ws_test_helpers.py).
-    server.app._shutting_down = False
-    # push is called by start() — make it a no-op.
-    server.push = MagicMock()
-    # Skip the post-auth `ready` emission and the initial `state_changed`
-    # emission (the latter would publish a MagicMock status value that
-    # fails JSON serialization in the writer task — see
-    # tests/fixtures/sidecar_ws_test_helpers.py for the canonical list).
-    server._ready_emitted = True
-    server.app.tray._state = None
-    # ``dispatch`` increments / decrements the in-flight counter (and
-    # compares it to ints), so the mock must carry a real int, not a
-    # MagicMock (which would fail the ``<= 0`` comparison).
-    server._ws_inflight_count = 0
-    # force the lazy-create branch in
-    # ``_make_dispatch`` to run (creates a real ThreadPoolExecutor so
-    # ``loop.run_in_executor`` doesn't fail the ``wrap_future``
-    # isinstance assertion on a MagicMock.submit() return).
-    server._ws_dispatch_pool = None
+    # Mock the IPCServer — we only need _dispatch + app.quit. The
+    # canonical fake defaults to ``{"ok": True}``; the assertions below
+    # pin the idle-status payload, so override ``_dispatch`` here.
+    server = make_fake_sidecar_ws_server(
+        _dispatch=MagicMock(return_value={"type": "result", "data": {"status": "idle"}})
+    )
 
     # Set the auth token.
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token-" + "a" * 32)
@@ -112,13 +93,7 @@ async def test_sidecar_rejects_bad_token(monkeypatch):
     """
     from voice_typer.server import sidecar_ws
 
-    server = MagicMock()
-    server._dispatch = MagicMock()
-    server.app = MagicMock()
-    server.push = MagicMock()
-    # force the lazy-create branch in
-    # ``_make_dispatch`` to run.
-    server._ws_dispatch_pool = None
+    server = make_fake_sidecar_ws_server()
 
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "good-token")
 
@@ -156,26 +131,7 @@ async def test_sidecar_handles_malformed_frame_without_crashing(monkeypatch):
     """A garbage frame yields an `invalid_payload` error, connection stays open."""
     from voice_typer.server import sidecar_ws
 
-    server = MagicMock()
-    server._dispatch = MagicMock(return_value={"type": "result", "data": {"ok": True}})
-    server.app = MagicMock()
-    server.push = MagicMock()
-    # The dispatch gate at sidecar_ws.py:1064 rejects every new request
-    # once app._shutting_down is truthy. A bare MagicMock attribute is
-    # truthy, so pin it to False explicitly.
-    server.app._shutting_down = False
-    # Skip the post-auth `ready` emission and the initial `state_changed`
-    # emission (the latter would publish a MagicMock status value that
-    # fails JSON serialization in the writer task).
-    server._ready_emitted = True
-    server.app.tray._state = None
-    # ``dispatch`` increments / decrements the in-flight counter (and
-    # compares it to ints), so the mock must carry a real int, not a
-    # MagicMock (which would fail the ``<= 0`` comparison).
-    server._ws_inflight_count = 0
-    # force the lazy-create branch in
-    # ``_make_dispatch`` to run.
-    server._ws_dispatch_pool = None
+    server = make_fake_sidecar_ws_server()
 
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "tok")
 

@@ -15,6 +15,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.fixtures.ipc_test_helpers import make_fake_sidecar_ws_server
+
 # per-process rate limiter persists across reconnects ─────────
 
 
@@ -100,28 +102,11 @@ class TestPerProcessRateLimiter:
         from voice_typer.server import sidecar_ws
         from voice_typer.server.ipc_server import _RateLimiter
 
-        server = MagicMock()
-        server._dispatch = MagicMock(return_value={"type": "result", "data": {}})
-        # MagicMock auto-vivifies ``_ws_dispatch_pool`` as a child mock,
-        # which makes ``loop.run_in_executor`` fail (it expects a real
-        # ThreadPoolExecutor whose ``submit`` returns a Future). Force
-        # ``None`` so the production code creates a real pool.
-        server._ws_dispatch_pool = None
-        # Sidecar-WS dispatch gate (sidecar_ws.py:591) reads
-        # ``server.app._shutting_down`` to reject dispatches during
-        # shutdown. Without an explicit override, MagicMock's
-        # auto-vivification returns a child mock that IS truthy, so
-        # the dispatch would be rejected with a ``server.shutting_down``
-        # error and the test would never exercise the rate-limiter
-        # path. Pin it to False (the production default for an active
-        # server) so the test exercises the limiter code path.
-        server.app._shutting_down = False
-        # Same fix for ``_ws_inflight_count`` — MagicMock auto-vivifies
-        # it as a child mock, which the production code compares with
-        # ``<= 0`` (numeric comparison, raises TypeError on a child
-        # mock). Pin to the integer the production state machine
-        # expects when no dispatch is in flight.
-        server._ws_inflight_count = 0
+        server = make_fake_sidecar_ws_server()
+        # The canonical fake defaults to ``{"ok": True}``; this test
+        # asserts the empty-data result envelope, so override the
+        # dispatch return value.
+        server._dispatch.return_value = {"type": "result", "data": {}}
         dispatch = sidecar_ws._make_dispatch(server)
 
         # Send one frame — this should create+store the limiter on server.

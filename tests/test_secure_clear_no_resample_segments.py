@@ -36,33 +36,12 @@ from __future__ import annotations
 
 import ctypes
 import inspect
-from unittest.mock import MagicMock, patch
 
 import numpy as np
 
+from tests.fixtures.ipc_test_helpers import make_fake_recorder
+
 # ── helpers ─────────────────────────────────────────────────────────────
-
-
-def _make_recorder() -> MagicMock:
-    """Build a minimal Recorder with the fields the secure-clear path
-    touches.  Avoids spawning real audio threads / sounddevice probes.
-
-    The VAD availability check is mocked out because importing torch
-    takes ~17s on this sandbox (see vad.is_available), which blows the
-    per-test timeout.  The secure-clear path doesn't depend on VAD, so
-    mocking the check is safe.
-    """
-    from voice_typer.server.recording import Recorder
-
-    config = MagicMock()
-    config.sample_rate = 16000
-    config.microphone = None
-    config.silence_warning_seconds = 20.0
-    config.stop_on_silence_seconds = 120.0
-    config.max_recording_time_seconds = 900
-    config.device = "cpu"
-    with patch("voice_typer.server.vad.is_available", return_value=False):
-        return Recorder(config)
 
 
 def _assert_array_memory_zeroed(arr: np.ndarray, *, ctx: str = "") -> None:
@@ -178,7 +157,7 @@ def test_secure_clear_caches_zeros_no_resample_segments_in_place():
     """
     from voice_typer.server.recording.session_state import SessionState
 
-    rec = _make_recorder()
+    rec = make_fake_recorder()
     segment_a = np.zeros(100, dtype=np.float32)
     segment_b = np.zeros(200, dtype=np.float32)
     segment_a[:] = 0.1
@@ -209,7 +188,7 @@ def test_secure_clear_caches_resets_no_resample_concat_dirty():
     """
     from voice_typer.server.recording.session_state import SessionState
 
-    rec = _make_recorder()
+    rec = make_fake_recorder()
     rec._cached_no_resample_segments = [
         np.zeros(100, dtype=np.float32),
         np.zeros(200, dtype=np.float32),

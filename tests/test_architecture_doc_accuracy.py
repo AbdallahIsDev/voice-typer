@@ -247,7 +247,7 @@ def test_gp94_tauri_command_count_in_doc_matches_code():
 
 
 def test_gp94_main_rs_line_count_is_264():
-    """Doc claims 326 lines; main.rs must actually be 326 lines.
+    """Doc claims 333 lines; main.rs must actually be 333 lines.
 
     Updated 2026-08-13: main.rs grew from 264 → 288 lines as part of
     the runtime-pack split (additional setup wiring for the worker
@@ -261,17 +261,24 @@ def test_gp94_main_rs_line_count_is_264():
     protects; cf. AGENTS.md C-TAURI-2 / C-TOKIO-1). The wiring-only
     ceiling counts non-comment lines and is unaffected. Doc + test
     pin updated in lockstep.
+
+    Updated 2026-08-22: main.rs grew from 326 → 333 lines — host_events
+    event-forwarding wiring was added. Still wiring-only: the bodies
+    live in the extracted ``host_events`` module, satisfying AGENTS.md
+    C-ARCH-1 (~138 non-comment code lines). Doc + test pin updated in
+    lockstep.
     """
     doc = _read(ARCH_DOC)
-    assert "326 lines" in doc, "Doc must claim '326 lines' for main.rs."
+    assert "333 lines" in doc, "Doc must claim '333 lines' for main.rs."
     actual = sum(1 for _ in _read(MAIN_RS).splitlines())
-    assert actual == 326, (
-        f"src-tauri/src/main.rs must be 326 lines (actual: {actual}). Update the doc + this test together."
+    assert actual == 333, (
+        f"src-tauri/src/main.rs must be 333 lines (actual: {actual}). Update the doc + this test together."
     )
-    # Stale 264 + 488 + 288 must NOT be in the doc.
+    # Stale 264 + 488 + 288 + 326 must NOT be in the doc.
     assert "264 lines" not in doc, "Stale '264 lines' must be removed from doc."
     assert "488 lines" not in doc, "Stale '488 lines' must be removed from doc."
     assert "288 lines" not in doc, "Stale '288 lines' must be removed from doc."
+    assert "326 lines" not in doc, "Stale '326 lines' must be removed from doc."
 
 
 # ─── package-style module paths ───────────────────────────────────────

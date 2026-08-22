@@ -18,11 +18,12 @@ Legacy / wrong roots that must NOT reappear:
   (via ``LEGACY_POLKIT_POLICY_DEST``), so converged systems never
   register the old action ID.
 - ``app.voicetyper`` — the pre-migration OS keyring service name.
-  ``voice_typer/server/credential_store.py::KEYRING_SERVICE_NAME`` now
+  ``KEYRING_SERVICE_NAME`` in the ``credential_store`` package now
   uses ``com.voicetyper.keyring``, and
   ``_migrate_legacy_service_names_locked()`` copies legacy entries
-  forward at startup (gated on a per-hop config flag). No allowlisted
-  token remains for it.
+  forward at startup (gated on a per-hop config flag). The only
+  allowlisted tokens are the package submodules that define and
+  migrate that legacy tuple (see ``_LEGACY_TOKEN_ALLOWLIST``).
 - ``com.voice-typer`` / ``com.voice_typer`` / ``org.voicetyper`` /
   ``org.voice_typer`` — misspellings / alternative spellings of the
   product root (a real ``com.voice-typer`` once shipped in
@@ -98,8 +99,11 @@ _LEGACY_TOKEN_ALLOWLIST: dict[str, frozenset[str]] = {
     # The keyring half of the legacy namespace cleanup: the
     # ``_LEGACY_KEYRING_SERVICE_NAMES`` tuple + migration docstrings
     # must name the old service so ``_migrate_legacy_service_names_locked``
-    # can re-register entries under ``KEYRING_SERVICE_NAME``.
-    "voice_typer/server/credential_store.py": frozenset({"app.voicetyper"}),
+    # can re-register entries under ``KEYRING_SERVICE_NAME``. The tuple
+    # lives in ``credential_store/_schema.py``; the migration prose that
+    # spells out the hop history lives in ``_migration.py``.
+    "voice_typer/server/credential_store/_schema.py": frozenset({"app.voicetyper"}),
+    "voice_typer/server/credential_store/_migration.py": frozenset({"app.voicetyper"}),
     # The drift-guard test module pins the credential_store legacy
     # tuple STRING verbatim (``_LEGACY_KEYRING_SERVICE_NAMES: ... =
     # ("app.voicetyper", ...)``) and its allowlist docstring names the

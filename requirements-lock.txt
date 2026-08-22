@@ -511,7 +511,7 @@ contourpy==1.3.3 ; (python_full_version >= '3.11' and python_full_version < '3.1
     --hash=sha256:fd914713266421b7536de2bfa8181aa8c699432b6763a0ea64195ebe28bff6a9 \
     --hash=sha256:fde6c716d51c04b1c25d0b90364d0be954624a0ee9d60e23e850e8d48353d07a
     # via matplotlib
-cryptography==50.0.0 ; python_full_version < '3.15' and sys_platform == 'linux' \
+cryptography==50.0.0 ; python_full_version < '3.15' \
     --hash=sha256:031e2d5dd4bb9caa3ca9c82e5a197fd8ae680232cee62603d1a813f3f07e3d03 \
     --hash=sha256:06a32a980526a6ab9a4b9bf8f7385800791e2bb960903cb6b530e4817509a3b7 \
     --hash=sha256:07479a1cb08219ab719147e742e76090c9c773321959bb94946fffdd397a6437 \
@@ -558,7 +558,7 @@ cryptography==50.0.0 ; python_full_version < '3.15' and sys_platform == 'linux' 
     --hash=sha256:f59e38625469987d7ef6d495323c55e7db6c212eaf6112267e0d3b565a2e9c9f \
     --hash=sha256:f89831ef99dd7dd169ab06d63a831adb9e20a87aac6d380266bbda5823349169 \
     --hash=sha256:fd9192b7b70c573d7f214eb1ae35e00d359f6f5e4b27c7e21e30de1fc6204645
-    # via secretstorage
+    # via secretstorage, voice-typer (pyproject.toml)
 ctranslate2==4.8.1 ; python_full_version < '3.15' \
     --hash=sha256:0030670278a73cae09dff9bca72cdd248af61f9367257f18db9b3b94fbb3a50d \
     --hash=sha256:079976cbce3a68de04bf9948d08c96beb86df44e5cd2974e4187bc9c9bb388f3 \

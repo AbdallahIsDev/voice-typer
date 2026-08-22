@@ -249,7 +249,7 @@ class TestReleaseStuckModifiersGated:
 # (``_wedged_backends``, ``_backend_consecutive_timeouts``) and a
 # ``_reset_orphan_state()`` helper. None of those exist in production — the
 # real API is the global trio below. The tests were rewritten to match the
-# production API ( / IN-23 test-drift fix).
+# production API.
 
 
 class TestRunKeyringCallWedgedCooldown:
@@ -264,7 +264,7 @@ class TestRunKeyringCallWedgedCooldown:
     raises ``TimeoutError`` immediately without spawning a thread.
 
     Production API (verified in
-    ``voice_typer/server/credential_store.py``):
+    ``voice_typer/server/credential_store/_backend.py``):
 
     * ``_orphaned_thread_count``   — global int, bumped on each timeout
       orphan, decremented when the orphan thread eventually finishes.
@@ -292,22 +292,27 @@ class TestRunKeyringCallWedgedCooldown:
         so the module globals don't leak across tests.
 
         The production code does NOT expose a ``_reset_orphan_state()``
-        helper (an earlier draft of this test assumed one — see the
-         fix). We mutate the global state directly under the
-        production lock so we don't race with a still-running orphan
-        thread from a prior test.
+        helper (an earlier draft of this test assumed one). We mutate
+        the global state directly under the production lock so we don't
+        race with a still-running orphan thread from a prior test.
+
+        The counters are re-bound globals OWNED by
+        ``credential_store._backend`` and mutated there via bare-name
+        lookup — writing through the package module would only shadow
+        the PEP 562 delegation without reaching production code, so
+        every access below targets the owning submodule.
         """
         from voice_typer.server import credential_store
 
         with credential_store._keyring_state_lock:
-            credential_store._orphaned_thread_count = 0
-            credential_store._consecutive_timeouts = 0
-            credential_store._wedged_until = 0.0
+            credential_store._backend._orphaned_thread_count = 0
+            credential_store._backend._consecutive_timeouts = 0
+            credential_store._backend._wedged_until = 0.0
         yield
         with credential_store._keyring_state_lock:
-            credential_store._orphaned_thread_count = 0
-            credential_store._consecutive_timeouts = 0
-            credential_store._wedged_until = 0.0
+            credential_store._backend._orphaned_thread_count = 0
+            credential_store._backend._consecutive_timeouts = 0
+            credential_store._backend._wedged_until = 0.0
 
     def _make_hung_backend_event(self):
         """Build a fake keyring-like backend whose ``get_password``
@@ -360,13 +365,15 @@ class TestRunKeyringCallWedgedCooldown:
             with pytest.raises(TimeoutError):
                 credential_store._run_keyring_call(backend.get_password, "svc", "user")
 
-            assert credential_store._orphaned_thread_count == 1, "first timeout must bump the orphan count to 1"
+            assert credential_store._backend._orphaned_thread_count == 1, (
+                "first timeout must bump the orphan count to 1"
+            )
             # First timeout must NOT wedge — that requires 2 consecutive
             # timeouts. ``_wedged_until`` must still be 0.0 (no cooldown set).
-            assert credential_store._wedged_until == 0.0, (
+            assert credential_store._backend._wedged_until == 0.0, (
                 "first timeout must not wedge the backend (need 2 consecutive)"
             )
-            assert credential_store._consecutive_timeouts == 1
+            assert credential_store._backend._consecutive_timeouts == 1
         finally:
             done.set()
 
@@ -405,12 +412,12 @@ class TestRunKeyringCallWedgedCooldown:
                 credential_store._run_keyring_call(backend.get_password, "svc", "user")
 
             # Wedged-until timestamp must be in the future (≈ now + 60s).
-            wedged_until = credential_store._wedged_until
+            wedged_until = credential_store._backend._wedged_until
             now = time.monotonic()
             # Allow a small fudge for test scheduling latency.
             assert wedged_until > now + 55.0, f"cooldown must be ~60s; got wedged_until-now={wedged_until - now:.1f}s"
-            assert credential_store._orphaned_thread_count == 2
-            assert credential_store._consecutive_timeouts == 2
+            assert credential_store._backend._orphaned_thread_count == 2
+            assert credential_store._backend._consecutive_timeouts == 2
         finally:
             done1.set()
             done2.set()
@@ -478,7 +485,7 @@ class TestRunKeyringCallWedgedCooldown:
             # The two prior orphans are still blocked on `done1`/`done2`
             # (released in the `finally` below), so they haven't
             # decremented yet.
-            assert credential_store._orphaned_thread_count == 2
+            assert credential_store._backend._orphaned_thread_count == 2
         finally:
             done1.set()
             done2.set()
@@ -516,12 +523,12 @@ class TestRunKeyringCallWedgedCooldown:
             # First call — timeout (1st consecutive).
             with pytest.raises(TimeoutError):
                 credential_store._run_keyring_call(backend.get_password, "svc", "user")
-            assert credential_store._consecutive_timeouts == 1
+            assert credential_store._backend._consecutive_timeouts == 1
 
             # Second call — success. Must reset the consecutive count.
             result = credential_store._run_keyring_call(backend.get_password, "svc", "user")
             assert result == "recovered-value"
-            assert credential_store._consecutive_timeouts == 0, (
+            assert credential_store._backend._consecutive_timeouts == 0, (
                 "successful call must reset the consecutive-timeout counter"
             )
 
@@ -529,8 +536,10 @@ class TestRunKeyringCallWedgedCooldown:
             # (NOT 2 — the prior success reset it), so no wedge.
             with pytest.raises(TimeoutError):
                 credential_store._run_keyring_call(backend.get_password, "svc", "user")
-            assert credential_store._consecutive_timeouts == 1
-            assert credential_store._wedged_until == 0.0, "single timeout after a success must NOT wedge the backend"
+            assert credential_store._backend._consecutive_timeouts == 1
+            assert credential_store._backend._wedged_until == 0.0, (
+                "single timeout after a success must NOT wedge the backend"
+            )
         finally:
             done.set()
 
@@ -592,7 +601,7 @@ class TestRunKeyringCallWedgedCooldown:
                 credential_store._run_keyring_call(a.get_password, "svc", "user")
 
             # Global wedge must now be active.
-            assert credential_store._wedged_until > time.monotonic()
+            assert credential_store._backend._wedged_until > time.monotonic()
 
             # Backend B's call must short-circuit too (global wedge),
             # raising the wedge TimeoutError WITHOUT spawning a thread.
@@ -671,14 +680,14 @@ class TestRunKeyringCallWedgedCooldown:
                 credential_store._run_keyring_call(backend.get_password, "svc", "user")
             with pytest.raises(TimeoutError):
                 credential_store._run_keyring_call(backend.get_password, "svc", "user")
-            assert credential_store._wedged_until > time.monotonic()
+            assert credential_store._backend._wedged_until > time.monotonic()
 
             # Manually expire the cooldown by backdating the wedged-until
             # timestamp to the past. Production code resets
             # ``_consecutive_timeouts`` to 0 when it observes the
             # expired wedge on the next call.
             with credential_store._keyring_state_lock:
-                credential_store._wedged_until = time.monotonic() - 1.0
+                credential_store._backend._wedged_until = time.monotonic() - 1.0
 
             # Next call must NOT short-circuit — it must spawn a thread
             # (and time out for real). Consecutive count goes 0 → 1
@@ -700,8 +709,8 @@ class TestRunKeyringCallWedgedCooldown:
             assert spawn_count["n"] == 1, "post-cooldown call must spawn a thread"
             # After this single post-cooldown timeout: consecutive=1,
             # NOT wedged (need 2 consecutive to wedge).
-            assert credential_store._consecutive_timeouts == 1
-            assert credential_store._wedged_until == 0.0, (
+            assert credential_store._backend._consecutive_timeouts == 1
+            assert credential_store._backend._wedged_until == 0.0, (
                 "single post-cooldown timeout must NOT re-wedge "
                 "(production resets consecutive count on cooldown expiry)"
             )
@@ -710,7 +719,7 @@ class TestRunKeyringCallWedgedCooldown:
             # (consecutive count: 1 → 2 ≥ 2).
             with pytest.raises(TimeoutError):
                 credential_store._run_keyring_call(backend.get_password, "svc", "user")
-            assert credential_store._wedged_until > time.monotonic(), (
+            assert credential_store._backend._wedged_until > time.monotonic(), (
                 "2nd consecutive post-cooldown timeout must re-wedge the backend"
             )
         finally:

@@ -376,7 +376,8 @@ def init_schema(
             word_count INTEGER DEFAULT 0,
             char_count INTEGER DEFAULT 0,
             favorite INTEGER DEFAULT 0,
-            language TEXT DEFAULT ''
+            language TEXT DEFAULT '',
+            text_is_encrypted BOOLEAN DEFAULT 0
         )
     """)
 

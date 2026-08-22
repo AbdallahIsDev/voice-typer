@@ -296,6 +296,15 @@ dependencies = [
     # credential_store falls back to the existing plaintext-in-config.json
     # behavior with 0o600 perms on POSIX.
     "keyring>=25.0,<26.0",
+    # _text_encryption.py imports Fernet / InvalidToken from
+    # cryptography.fernet for the opt-in at-rest encryption of the
+    # history ``text`` column. The ``>=42`` floor matches the first
+    # release of the current py.typed API surface we consume
+    # (Fernet.generate_key / encrypt / decrypt + InvalidToken); no
+    # upper cap — that API has been stable across every major since.
+    # The module degrades to plaintext if the import fails, but it is
+    # a base dependency so a normal install always provides it.
+    "cryptography>=42",
 ]
 
 [project.urls]

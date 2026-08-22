@@ -1,7 +1,7 @@
 """Regression tests for the keyring-call orphan/wedge/cooldown tracking.
 
-Covers the orphan/wedge/cooldown fix landed in
-``voice_typer/server/credential_store.py``'s ``_run_keyring_call``::
+Covers the orphan/wedge/cooldown behavior of ``_run_keyring_call`` in
+``voice_typer/server/credential_store/_backend.py``::
 
     def _run_keyring_call(func, *args, **kwargs): ...
 
@@ -47,17 +47,26 @@ def _reset_keyring_state():
 
     Without this, a test that triggers a wedge would leave
     ``_wedged_until`` set and cause subsequent tests to short-circuit.
+
+    The counters are re-bound module globals OWNED by
+    ``credential_store._backend`` — production code mutates them via
+    bare-name global lookup inside that submodule. Writing them through
+    the package module would only create a ``__dict__`` shadow that the
+    production code never sees (and that would poison later reads via
+    the PEP 562 delegation), so every reset below targets the owning
+    submodule. The lock itself has stable identity and stays reachable
+    via the package's static import.
     """
     with credential_store._keyring_state_lock:
-        credential_store._orphaned_thread_count = 0
-        credential_store._consecutive_timeouts = 0
-        credential_store._wedged_until = 0.0
+        credential_store._backend._orphaned_thread_count = 0
+        credential_store._backend._consecutive_timeouts = 0
+        credential_store._backend._wedged_until = 0.0
     yield
     # Restore after the test too so a flaky run doesn't poison the suite.
     with credential_store._keyring_state_lock:
-        credential_store._orphaned_thread_count = 0
-        credential_store._consecutive_timeouts = 0
-        credential_store._wedged_until = 0.0
+        credential_store._backend._orphaned_thread_count = 0
+        credential_store._backend._consecutive_timeouts = 0
+        credential_store._backend._wedged_until = 0.0
 
 
 def _fast_timeout(monkeypatch, seconds: float = 0.05) -> None:
@@ -81,8 +90,8 @@ class TestOrphanTracking:
         # A fast-completing call — no orphan.
         result = credential_store._run_keyring_call(lambda: "ok")
         assert result == "ok"
-        assert credential_store._orphaned_thread_count == 0
-        assert credential_store._consecutive_timeouts == 0
+        assert credential_store._backend._orphaned_thread_count == 0
+        assert credential_store._backend._consecutive_timeouts == 0
 
     def test_timeout_increments_orphan_count(self, monkeypatch):
         _fast_timeout(monkeypatch)
@@ -96,17 +105,19 @@ class TestOrphanTracking:
         try:
             with pytest.raises(TimeoutError):
                 credential_store._run_keyring_call(slow_call)
-            assert credential_store._orphaned_thread_count == 1
-            assert credential_store._consecutive_timeouts == 1
+            assert credential_store._backend._orphaned_thread_count == 1
+            assert credential_store._backend._consecutive_timeouts == 1
         finally:
             # Let the orphan finish so it decrements the counter.
             done.set()
             # Wait for the orphan to decrement (poll, since we don't
             # have a handle to join).
             deadline = time.monotonic() + 2.0
-            while credential_store._orphaned_thread_count > 0 and time.monotonic() < deadline:
+            while credential_store._backend._orphaned_thread_count > 0 and time.monotonic() < deadline:
                 time.sleep(0.01)
-            assert credential_store._orphaned_thread_count == 0, "orphan thread did not decrement the counter on finish"
+            assert credential_store._backend._orphaned_thread_count == 0, (
+                "orphan thread did not decrement the counter on finish"
+            )
 
     def test_non_timeout_exception_resets_consecutive_timeouts(self, monkeypatch):
         _fast_timeout(monkeypatch)
@@ -119,13 +130,13 @@ class TestOrphanTracking:
         try:
             with pytest.raises(TimeoutError):
                 credential_store._run_keyring_call(slow_call)
-            assert credential_store._consecutive_timeouts == 1
+            assert credential_store._backend._consecutive_timeouts == 1
 
             # Second call: raises ValueError immediately — should reset
             # the consecutive counter to 0 (not increment it).
             with pytest.raises(ValueError):
                 credential_store._run_keyring_call(_raise_value_error)
-            assert credential_store._consecutive_timeouts == 0
+            assert credential_store._backend._consecutive_timeouts == 0
         finally:
             done.set()
 
@@ -153,7 +164,7 @@ class TestWedgeCooldown:
             msg = str(exc_info.value)
             # First timeout — no wedge message.
             assert "wedged" not in msg, msg
-            assert credential_store._wedged_until == 0.0
+            assert credential_store._backend._wedged_until == 0.0
         finally:
             done.set()
 
@@ -173,8 +184,8 @@ class TestWedgeCooldown:
             # 1st timeout — consecutive=1, no wedge.
             with pytest.raises(TimeoutError):
                 credential_store._run_keyring_call(slow_call_1)
-            assert credential_store._consecutive_timeouts == 1
-            assert credential_store._wedged_until == 0.0
+            assert credential_store._backend._consecutive_timeouts == 1
+            assert credential_store._backend._wedged_until == 0.0
 
             # 2nd consecutive timeout — wedge engaged.
             with pytest.raises(TimeoutError) as exc_info:
@@ -182,8 +193,8 @@ class TestWedgeCooldown:
             msg = str(exc_info.value)
             assert "orphaned threads: 2" in msg, msg
             assert "consecutive timeouts: 2" in msg, msg
-            assert credential_store._consecutive_timeouts == 2
-            assert credential_store._wedged_until > 0.0
+            assert credential_store._backend._consecutive_timeouts == 2
+            assert credential_store._backend._wedged_until > 0.0
 
             # 3rd call — short-circuits with the wedge message.
             with pytest.raises(TimeoutError) as exc_info:
@@ -192,7 +203,7 @@ class TestWedgeCooldown:
             assert "wedged" in msg, msg
             assert "cooldown" in msg, msg
             # No new orphan was spawned (short-circuit path).
-            assert credential_store._orphaned_thread_count == 2
+            assert credential_store._backend._orphaned_thread_count == 2
         finally:
             done1.set()
             done2.set()
@@ -240,8 +251,8 @@ class TestWedgeCooldown:
                 credential_store._run_keyring_call(slow_call_1)
             with pytest.raises(TimeoutError):
                 credential_store._run_keyring_call(slow_call_2)
-            assert credential_store._wedged_until > 0.0
-            assert credential_store._consecutive_timeouts == 2
+            assert credential_store._backend._wedged_until > 0.0
+            assert credential_store._backend._consecutive_timeouts == 2
 
             # Wait for the cooldown to expire.
             time.sleep(0.1)
@@ -249,8 +260,8 @@ class TestWedgeCooldown:
             # Next call: succeeds — wedge is cleared, consecutive reset.
             result = credential_store._run_keyring_call(lambda: "recovered")
             assert result == "recovered"
-            assert credential_store._wedged_until == 0.0
-            assert credential_store._consecutive_timeouts == 0
+            assert credential_store._backend._wedged_until == 0.0
+            assert credential_store._backend._consecutive_timeouts == 0
         finally:
             done1.set()
             done2.set()
@@ -293,10 +304,10 @@ class TestOrphanThresholdWarning:
                 "expected a threshold-exceeded WARNING when orphan count > threshold; "
                 f"got logs: {[r.getMessage() for r in caplog.records]}"
             )
-            assert credential_store._orphaned_thread_count >= 2
+            assert credential_store._backend._orphaned_thread_count >= 2
         finally:
             done.set()
             # Wait for orphans to finish so they don't leak into other tests.
             deadline = time.monotonic() + 5.0
-            while credential_store._orphaned_thread_count > 0 and time.monotonic() < deadline:
+            while credential_store._backend._orphaned_thread_count > 0 and time.monotonic() < deadline:
                 time.sleep(0.01)
