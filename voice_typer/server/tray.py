@@ -373,6 +373,33 @@ class TrayIcon:
             self._launch_bg_work()  # shared launch helper
             return
 
+        # Tauri sidecar runtime: the native tray is owned by the Rust host
+        # (created in src-tauri/src/tray.rs::create_tray and driven by the
+        # ``tray_menu`` / ``tray_state`` events this process publishes over
+        # the WS bridge — ADR-0020 §6.5). Creating a pystray icon here too
+        # yielded TWO tray icons on Windows and routed notifications through
+        # the pystray icon instead of the host's notification plugin. The
+        # ``maybe_publish_tray_menu`` docstring already documented this
+        # invariant ("under the Tauri runtime the pystray Icon is never
+        # created"); start() simply never implemented it. Degrade to the
+        # same unavailable-path used by headless hosts: no icon, bg_work
+        # still launched, pending states drained by run()'s 60s loop, and
+        # notifications re-routed to the host event bus (see
+        # tray_notifications.do_notify).
+        import os as _os
+
+        if _os.environ.get("TAURI_SIDECAR") == "1":
+            log.info(
+                "[TRAY] TAURI_SIDECAR=1 — native tray is owned by the Rust host; "
+                "skipping pystray icon creation. Menu/state reach the host via the "
+                "tray_menu/tray_state events."
+            )
+            self._icon = None
+            self._tray_unavailable = True
+            self._subscribe_host_ready_republish()
+            self._launch_bg_work()  # shared launch helper
+            return
+
         menu = pystray.Menu(self._build_menu)
         try:
             self._icon = pystray.Icon(
@@ -425,6 +452,52 @@ class TrayIcon:
         # shutdown independently.
         self._bg_thread = threading.Thread(target=self._bg_work_fn, daemon=True)
         self._bg_thread.start()
+
+    def _subscribe_host_ready_republish(self) -> None:
+        """Subscribe a listener that re-publishes the tray menu on host (re)connect.
+
+        The ``tray_menu`` publish is fire-and-forget: ``publish_tray_menu``
+        emits through ``event_bus`` and only subscribers registered AT THAT
+        MOMENT receive it. The sidecar WS subscriber (``sidecar_ws.
+        _install_subscriber``) installs per connection, so the one-shot
+        publish from ``_wrap_bg_work``'s finally block races the first
+        handshake — when bg_work finishes before the host authenticates,
+        the event lands on an empty subscriber set, the Rust host keeps
+        its placeholder menu forever, and nothing re-publishes.
+
+        Subscribing to the sidecar's ``ready`` event (published AFTER the
+        WS subscriber is installed — see sidecar_ws C-WS-1 ordering) turns
+        every fresh host connection into a menu+state replay. This covers
+        both the startup race and supervisor respawns/reconnects. Safe
+        under Tauri only (guarded by the same ``TAURI_SIDECAR`` gate as
+        ``publish_tray_menu``); on Electron this subscriber is never
+        registered.
+        """
+        try:
+            from voice_typer.server import event_bus as _event_bus
+
+            _event_bus.subscribe(self._on_host_ready)
+        except Exception:
+            log.warning(
+                "[TRAY] could not subscribe host-ready republish — the Tauri tray "
+                "menu may stay at its placeholder until the next state change",
+                exc_info=True,
+            )
+
+    def _on_host_ready(self, event: dict) -> None:
+        """Republish menu + state when the host connection signals ready."""
+        if not isinstance(event, dict) or event.get("type") != "ready":
+            return
+        import os as _os
+
+        if _os.environ.get("TAURI_SIDECAR") != "1":
+            return
+        try:
+            self._maybe_publish_tray_menu()
+            self._publish_tray_state()
+            log.debug("[TRAY] host ready — tray menu + state re-published")
+        except Exception:
+            log.debug("[TRAY] host-ready tray republish failed", exc_info=True)
 
     def run(self) -> None:
         """Block the main thread with pystray's event loop.
@@ -524,6 +597,13 @@ class TrayIcon:
             _event_bus.unsubscribe(self._on_parakeet_cpu_fallback)
         except Exception:
             log.debug("[TRAY] could not unsubscribe parakeet_cpu_fallback", exc_info=True)
+
+        try:
+            from voice_typer.server import event_bus as _event_bus
+
+            _event_bus.unsubscribe(self._on_host_ready)
+        except Exception:
+            log.debug("[TRAY] could not unsubscribe host-ready republish", exc_info=True)
 
         log.info("[TRAY] Tray icon stopped")
 

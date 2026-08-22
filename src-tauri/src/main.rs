@@ -32,6 +32,7 @@
 
 mod branding;
 mod commands;
+mod host_events;
 mod migrate;
 mod platform;
 mod sidecar;
@@ -238,6 +239,12 @@ fn main() {
                     .tray_available
                     .store(true, std::sync::atomic::Ordering::SeqCst);
             }
+            // Electron-parity host events: `show_window` (tray "Open App" /
+            // focus redirect) and `notification` (native toast). Both are
+            // consumed by the Electron main process today
+            // (`handle-message.ts`) and had no Tauri listener — the bodies
+            // live in `host_events.rs` so this file stays wiring-only.
+            crate::host_events::setup(app.handle());
             //(Critical): the unconditional `write_restart_counter(0)`
             // that used to live here DEFEATED the circuit breaker — see
             // git history. The reset is now ONLY done on successful

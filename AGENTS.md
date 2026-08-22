@@ -1163,3 +1163,16 @@ The user can `grep` `worklog.md` for `SKIPPED:` to see every constraint-driven s
 ## Final note
 
 This section is intentionally spare — the user fills it in over time as they discover areas where the cloud agent's "improvements" would damage the project's intent. Every rule here was added because a cloud agent (or a session in a merge) previously did the prohibited thing and the user had to revert it. Adding a rule here prevents the next agent from repeating the mistake.
+
+---
+
+## Review.md High Priority task admission (permanent rule - append-only)
+
+Every task added to the `## High Priority` section of `review.md` MUST satisfy all four criteria - an entry that fails any of them must not be added as-is:
+
+1. **Evidence-based** - grounded in the current code/behavior with concrete evidence (exact error text, file:line citations, or reproduced observations). Never invent features, problems, or fixes without repository evidence; never reuse a stale review.md claim at face value (verify against the code first).
+2. **High-impact** - addresses a real user-facing or infrastructure failure/opportunity with a clearly articulated why-it-matters. No arbitrary cleanup, churn-for-churn, or low-value polish as a High Priority item.
+3. **Clearly scoped** - a bounded problem/opportunity with a concrete expected outcome and (where the root cause is already known) a fix direction, so a sub-agent can execute it independently.
+4. **Non-redundant** - do not duplicate an existing review.md entry, an already-fixed behavior, or another task in the same section; when a task's investigation surface overlaps another task, cross-reference instead of duplicating.
+
+Task selection MUST favor improvements with significant product impact while minimizing unnecessary file/component overlap between independently delegated tasks (so parallel sub-agents do not conflict). When in doubt, verify before writing, and record verification. This rule is itself append-only and must never be overwritten or weakened by an agent.

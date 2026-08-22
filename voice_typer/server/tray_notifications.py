@@ -107,9 +107,9 @@ def _truncate_notification(title: str, message: str) -> tuple[str, str]:
     that content was elided.
     """
     if len(title) > _NOTIFY_TITLE_MAX_CHARS:
-        title = "..." + title[-(_NOTIFY_TITLE_MAX_CHARS - 3):]
+        title = "..." + title[-(_NOTIFY_TITLE_MAX_CHARS - 3) :]
     if len(message) > _NOTIFY_MESSAGE_MAX_CHARS:
-        message = "..." + message[-(_NOTIFY_MESSAGE_MAX_CHARS - 3):]
+        message = "..." + message[-(_NOTIFY_MESSAGE_MAX_CHARS - 3) :]
     return title, message
 
 
@@ -171,7 +171,11 @@ def notify(tray: TrayIcon, title: str, message: str) -> None:
             _NOTIFY_DEDUP_TTL_SECONDS,
         )
         return
-    if tray._icon:
+    if tray._icon or _is_tauri_sidecar():
+        # Under Tauri there is no pystray icon — ``do_notify`` detects that
+        # combination and routes the toast through the host ``notification``
+        # event instead of queueing it for a pystray flush that would never
+        # come (the Tauri runtime never creates an icon).
         do_notify(tray, title, message)
     else:
         with tray._queue_lock:
@@ -195,7 +199,7 @@ def notify_safety(tray: TrayIcon, title: str, message: str) -> None:
         the cost of a duplicate toast is far lower than the cost of a
         missed one.
     """
-    if tray._icon:
+    if tray._icon or _is_tauri_sidecar():
         do_notify(tray, title, message)
     else:
         with tray._queue_lock:
@@ -218,10 +222,46 @@ def do_notify(tray: TrayIcon, title: str, message: str) -> None:
     ``except Exception`` below — the user never saw the toast at all.
     """
     title, message = _truncate_notification(title, message)
+    # Tauri sidecar runtime: there is no pystray icon (the native tray is
+    # owned by the Rust host — see tray.py start()'s TAURI_SIDECAR gate),
+    # so route the toast through the ``notification`` event. The Rust host
+    # (src-tauri/src/host_events.rs) listens for it and shows the native
+    # toast via tauri-plugin-notification. The payload shape mirrors the
+    # ``show_electron_notification`` IPC publisher (system_handlers.py):
+    # ``{"title": ..., "message": ...}``.
+    if tray._icon is None and _is_tauri_sidecar():
+        _publish_notification_event(title, message)
+        return
     try:
         tray._icon.notify(message, title)
     except Exception as e:
         log.warning("[TRAY] Notification failed: %s", e)
+
+
+def _is_tauri_sidecar() -> bool:
+    """Return True when running as the Tauri sidecar (``TAURI_SIDECAR=1``)."""
+    import os
+
+    return os.environ.get("TAURI_SIDECAR") == "1"
+
+
+def _publish_notification_event(title: str, message: str) -> None:
+    """Publish a ``notification`` event for the Tauri host to render.
+
+    Best-effort: a publish failure is logged and swallowed — a toast must
+    never crash the tray (same contract as the pystray path above).
+    """
+    try:
+        from voice_typer.server import event_bus
+
+        event_bus.publish(
+            {
+                "type": "notification",
+                "data": {"title": title, "message": message},
+            }
+        )
+    except Exception as e:
+        log.warning("[TRAY] Notification event publish failed: %s", e)
 
 
 def on_parakeet_cpu_fallback(tray: TrayIcon, event: dict) -> None:
