@@ -195,8 +195,10 @@ def venv_pythonw() -> Path:
     so tests that pin ``sys.platform = "win32"`` continue to work.
     """
     if is_windows():
-        return _resolve_config_dir()() / "venv" / "Scripts" / "pythonw.exe"
-    return _resolve_config_dir()() / "venv" / "bin" / "python"
+        # ``_resolve_config_dir()()`` returns ``Any`` (lazy resolver);
+        # wrap in ``Path`` to honor the declared return type.
+        return Path(_resolve_config_dir()()) / "venv" / "Scripts" / "pythonw.exe"
+    return Path(_resolve_config_dir()()) / "venv" / "bin" / "python"
 
 
 def legacy_hf_cache_dir() -> Path:

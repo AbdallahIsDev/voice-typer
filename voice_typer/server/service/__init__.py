@@ -74,6 +74,11 @@ class StatusResponse(TypedDict):
     """Response shape of :meth:`VoiceTyperService.get_status`."""
 
     status: str
+    # The tray-tooltip reason for the current state. MUST stay in lockstep
+    # with ``status``: renderer sync paths derive BOTH the ERROR pill and
+    # the Home description line from this pair (diverging them re-opens the
+    # intermittent "ERROR pill with normal dictate hint" bug).
+    message: str
     xruns_since_start: int
     loaded_via: str
     config_dir: str

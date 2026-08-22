@@ -386,15 +386,25 @@ class TestWriterEncodesOnce:
         assert 'len(raw.encode("utf-8"))' not in src, (
             "XV-84: _writer must NOT re-encode via len(raw.encode('utf-8')) — encode once and reuse the buffer."
         )
-        # The send must use the bytes buffer, not a str, and be capped
-        # by asyncio.wait_for so a wedged peer cannot block the writer
-        # task (and the asyncio loop thread) forever.
-        assert "websocket.send(raw_bytes)" in src, (
-            "XV-84: _writer must await websocket.send(raw_bytes) (bytes), not websocket.send(raw) (str)."
+        # The send must hand ``websocket.send`` the encoded frame as a
+        # TEXT payload (the C-WS-2 wire contract: the Rust host parses
+        # ``Message::Text`` only — raw bytes would leave as a BINARY
+        # frame and be silently dropped), and be capped by
+        # asyncio.wait_for so a wedged peer cannot block the writer
+        # task (and the asyncio loop thread) forever. The encode-once
+        # buffer is still reused: the size check reads ``raw_bytes``
+        # and the send decodes that SAME single-encoded buffer.
+        assert 'websocket.send(raw_bytes.decode("utf-8"))' in src, (
+            "C-WS-2: _writer must await websocket.send(raw_bytes.decode('utf-8')) "
+            "(TEXT frame), not websocket.send(raw_bytes) (BINARY frame)."
         )
-        assert "await asyncio.wait_for(websocket.send(raw_bytes), timeout=_WS_SEND_TIMEOUT_SECONDS)" in src, (
-            "send must be wrapped in asyncio.wait_for(..., timeout=_WS_SEND_TIMEOUT_SECONDS)."
+        wait_for_send = (
+            "await asyncio.wait_for(\n"
+            '            websocket.send(raw_bytes.decode("utf-8")),\n'
+            "            timeout=_WS_SEND_TIMEOUT_SECONDS,\n"
+            "        )"
         )
+        assert wait_for_send in src, "send must be wrapped in asyncio.wait_for(..., timeout=_WS_SEND_TIMEOUT_SECONDS)."
 
 
 # validation helper hoists json + caches max_payload_bytes ────

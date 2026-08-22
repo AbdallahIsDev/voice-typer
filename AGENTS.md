@@ -1048,6 +1048,17 @@ Applies to: All agents, all modes, all sub-agents.
 
 ---
 
+## Category: Homepage Status Pill & Description Synchronization
+
+```
+C-HOME-1
+Rule: Do NOT let the Home page status pill and its dynamic description line below the mic button derive from different sources of truth. Both MUST be derived from the same authoritative `{recordingState, lastError}` pair hydrated by `applyStatusWithReason` in `voice_typer/client/src/renderer/src/hooks/useConnection.ts`: EVERY renderer sync path (`status_change`, the connect-time `state_changed` snapshot, and both `get_status` catch-ups — initial probe + background reconnect) must write recordingState and lastError TOGETHER from the same payload's `{status, message}` tuple, and the pill key (`statusKeyFor` in `pages/home/lib/status.ts`) must surface ERROR only when the description line actually shows an error. An ERROR pill displayed above the normal `Press <hotkey> or click to dictate` hint — or any pill/description disagreement across startup, model install/removal, navigation back to Home, or recovery — is a violation of this invariant.
+Rationale: The backend emits ONE tray-state tuple `set_state(state, message)`; the "no model installed" ERROR state carries its reason in that message. Sync paths that updated only `recordingState` (the old `state_changed` handler unconditionally cleared `lastError`; the old `get_status` responses/catch-ups carried no `message`) made the homepage error message intermittent — it appeared only when a live `status_change` happened to deliver the error, and vanished whenever the app launched/reconnected while the backend was already in error.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+---
+
 ## How the adds / edits constraints
 
 1. Add a new constraint block under the appropriate category (or create a new category with a `## Category: <name>` header).

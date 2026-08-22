@@ -446,6 +446,93 @@ describe("Home renders the single dynamic status line below the mic button", () 
 	});
 });
 
+// Pill/description synchronization ──
+//
+// Regression: the backend can sit in AppState.ERROR ("no models
+// available") when the renderer boots, so a connect-time snapshot may
+// hydrate recordingState="error" while lastError is still empty. The
+// pill must NEVER pair an ERROR label with the normal dictate hint —
+// both surfaces derive from the SAME {recordingState, lastError} pair
+// (hydrated atomically by applyStatusWithReason in useConnection.ts,
+// mirrored by statusKeyFor here). These tests pin both sides of the
+// invariant plus recovery back to normal guidance.
+
+describe("Home keeps the status pill and the dynamic line derived from the same state pair", () => {
+	beforeEach(() => {
+		resetStableMocks();
+		localStorage.clear();
+		vi.resetModules();
+		mockCall.mockImplementation((cmd: string) => {
+			if (cmd === "get_config") {
+				// A model IS selected (non-empty size) but NOT installed —
+				// the backend reports AppState.ERROR and carries the reason
+				// separately from config, exactly the screenshot scenario.
+				return Promise.resolve({ hotkey: "<f2>", model_size: "large-v3" });
+			}
+			return new Promise(() => {});
+		});
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	const NO_MODEL_REASON =
+		"No models are available. Open the models page to download a model.";
+
+	it("does NOT pair an ERROR pill with the normal dictate hint when lastError is empty", async () => {
+		const { useAppStore } = await import("@/stores/appStore");
+		useAppStore.setState({ recordingState: "error", lastError: null });
+
+		await renderHome();
+
+		// The normal dictate guidance is visible…
+		expect(screen.getByText("or click to dictate")).toBeTruthy();
+		// …so the pill must agree (READY) instead of claiming ERROR.
+		await screen.findByText("READY");
+		expect(screen.queryByText("ERROR")).toBeNull();
+	});
+
+	it("shows the ERROR pill together with the red error line once the reason arrives", async () => {
+		const { useAppStore } = await import("@/stores/appStore");
+		useAppStore.setState({
+			recordingState: "error",
+			lastError: NO_MODEL_REASON,
+		});
+
+		await renderHome();
+
+		const line = screen.getByText(NO_MODEL_REASON);
+		expect(line.closest("output")?.className).toContain("text-destructive");
+		// The normal dictate hint is replaced, not shown alongside.
+		expect(screen.queryByText("or click to dictate")).toBeNull();
+		// The pill agrees with the description line below the mic.
+		expect(screen.getByText("ERROR")).toBeTruthy();
+		expect(screen.queryByText("READY")).toBeNull();
+	});
+
+	it("returns to the READY pill and the normal dictate hint after the error clears", async () => {
+		const { useAppStore } = await import("@/stores/appStore");
+		useAppStore.setState({
+			recordingState: "error",
+			lastError: NO_MODEL_REASON,
+		});
+
+		await renderHome();
+		expect(screen.queryByText("or click to dictate")).toBeNull();
+
+		// Backend recovered (model installed + loaded): the idle
+		// transition clears lastError and restores normal guidance.
+		await act(async () => {
+			useAppStore.setState({ recordingState: "idle", lastError: null });
+		});
+
+		expect(await screen.findByText("or click to dictate")).toBeTruthy();
+		expect(screen.queryByText("ERROR")).toBeNull();
+		expect(screen.getByText("READY")).toBeTruthy();
+	});
+});
+
 // Exactly ONE live region across the three status surfaces ──
 //
 // The pill, the recording timer, and the dynamic status line all

@@ -25,7 +25,7 @@ task) now:
     raw_bytes = await loop.run_in_executor(_get_ws_encode_pool(), _encode_ws_frame, event)
     if len(raw_bytes) > _MAX_FRAME_BYTES:   # EXACT byte count
         ... drop with ERROR log ...
-    await websocket.send(raw_bytes)          # sends the same bytes — no re-encode
+    await websocket.send(raw_bytes.decode("utf-8"))  # TEXT frame, same single encode
 
 - The frame is encoded exactly ONCE (``_encode_ws_frame`` runs
   ``json.dumps`` + ``.encode`` together, off the event loop).
@@ -34,7 +34,11 @@ task) now:
   check missed (the char-count heuristic was a safe *lower bound*, but
   the byte count is the authoritative limit the Rust host's tungstenite
   ``max_size`` enforces on receive).
-- The encoded bytes are reused for ``send`` — no double encode.
+- The once-encoded buffer is reused for ``send`` — no double encode.
+  Per AGENTS.md constraint C-WS-2 the payload is decoded back to
+  ``str`` right before ``send`` so the websockets library emits a WS
+  **TEXT** frame (the Rust host's reader parses ``Message::Text``
+  only; raw bytes would leave as BINARY and be silently dropped).
 
 These tests verify the source contract and the size-check semantics.
 """
@@ -87,9 +91,10 @@ class TestWSFrameSizeCheckSource:
         assert "_encode_ws_frame" in src, (
             "AB-38: _safe_send must route through _encode_ws_frame (json.dumps + .encode in one pass)."
         )
-        assert "websocket.send(raw_bytes)" in src, (
-            "AB-38: _safe_send must send the SAME encoded bytes — not "
-            "re-encode a str for send (that would double the encode cost)."
+        assert 'websocket.send(raw_bytes.decode("utf-8"))' in src, (
+            "AB-38 + C-WS-2: _safe_send must send the SAME single-encoded "
+            "frame — decoded to str for a TEXT frame, not re-encoded and "
+            "not sent as raw bytes (BINARY frames are dropped by the host)."
         )
 
     def test_safety_comment_present(self):
@@ -185,19 +190,24 @@ class TestWSFrameSizeCheckBehavioral:
         assert sent == [], "oversized multi-byte frame must never reach send"
 
     @pytest.mark.asyncio
-    async def test_normal_frame_is_sent_with_encoded_bytes(self):
+    async def test_normal_frame_is_sent_as_text_str(self):
         """A small frame is sent — and the payload handed to
-        ``websocket.send`` must be the ENCODED bytes (bytes, not str —
-        proving no re-encode happens)."""
+        ``websocket.send`` must be the once-encoded frame decoded back
+        to ``str`` (a WS TEXT frame per the C-WS-2 wire contract: the
+        Rust host parses ``Message::Text`` only, so raw bytes would be
+        silently dropped)."""
         event = {"type": "bubble_level", "level": 0.42}
         raw_bytes = _encode_ws_frame(event)
         assert len(raw_bytes) <= _MAX_FRAME_BYTES
         status, ws, sent = await self._run_safe_send(event)
         assert status == "sent", f"expected sent, got {status!r}"
         assert len(sent) == 1, "exactly one send expected"
-        assert sent[0] == raw_bytes, (
-            "AB-38: websocket.send must receive the exact encoded bytes "
-            "produced by the single encode pass — no re-encode of a str."
+        assert isinstance(sent[0], str), (
+            f"C-WS-2: websocket.send must receive a str (TEXT frame), got {type(sent[0]).__name__}"
+        )
+        assert sent[0] == raw_bytes.decode("utf-8"), (
+            "C-WS-2: the TEXT payload must be exactly the single-encoded "
+            "frame decoded back to str — no re-serialization, no bytes."
         )
 
 

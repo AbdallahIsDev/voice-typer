@@ -123,6 +123,25 @@ class StatusMixin(ServiceMixinBase):
         """
         app = self._app
         status_str = app.tray.state.value
+        # The tray-tooltip reason accompanying the current state (e.g.
+        # "No models are available. Open the models page to download a
+        # model." when AppState.ERROR was set by a refused model load).
+        # This MUST travel with ``status`` in every status-carrying
+        # response/push (get_status, state_changed, status_change) so
+        # the renderer can update the Home page's ERROR pill and its
+        # red description line from ONE authoritative pair instead of
+        # letting them diverge (see the invariant comment on
+        # applyStatusWithReason in the renderer's useConnection.ts).
+        # Defensive coercion: test doubles may expose a non-str
+        # ``_message`` attribute — degrade to "" rather than leaking a
+        # repr() into the IPC payload.
+        message = ""
+        try:
+            raw_message = getattr(app.tray, "_message", "")
+            if isinstance(raw_message, str):
+                message = raw_message
+        except Exception:
+            log.debug("[SERVICE] could not read tray message", exc_info=True)
         # Best-effort: xruns counter exists on the Recorder instance.
         xruns = 0
         try:
@@ -149,6 +168,7 @@ class StatusMixin(ServiceMixinBase):
             log.debug("[SERVICE] could not read config_dir", exc_info=True)
         return {
             "status": status_str,
+            "message": message,
             "xruns_since_start": xruns,
             "loaded_via": loaded_via,
             "config_dir": config_dir,

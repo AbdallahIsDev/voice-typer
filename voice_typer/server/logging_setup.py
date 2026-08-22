@@ -9,6 +9,7 @@ Re-exported from ``app.py`` as ``_setup_logging`` so existing callers
 import logging
 import os
 import sys
+from pathlib import Path
 
 from voice_typer.server import crash_handler as _crash_handler
 from voice_typer.server.config import _config_dir, _migrate_from_legacy
@@ -105,7 +106,12 @@ def _emit_startup_banner() -> None:
         return
     _startup_banner_state = None
 
-    config_dir = state["config_dir"]
+    _raw_config_dir = state["config_dir"]
+    # ``_startup_banner_state`` is a ``dict[str, object]`` — restore the
+    # declared ``Path | None`` type staged by ``_setup_logging`` so the
+    # ``get_log_file_path`` call below typechecks (the isinstance guard
+    # also defends against a malformed staged value).
+    config_dir: Path | None = _raw_config_dir if isinstance(_raw_config_dir, Path) else None
     debug = bool(state["debug"])
     quiet = bool(state["quiet"])
     _session_id = state["session_id"]

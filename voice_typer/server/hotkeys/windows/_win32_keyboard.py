@@ -112,7 +112,9 @@ def _send_keyboard_event(user32: Any, vk: int, scan: int, flags: int) -> int:
     """
     inp = _build_keyboard_input(vk, scan, flags)
     events = (INPUT * 1)(inp)
-    return user32.SendInput(1, ctypes.byref(events), ctypes.sizeof(INPUT))
+    # ``user32`` is typed ``Any`` (ctypes WinDLL), so ``SendInput``
+    # returns ``Any`` — coerce to the declared ``int`` contract.
+    return int(user32.SendInput(1, ctypes.byref(events), ctypes.sizeof(INPUT)))
 
 
 __all__ = [

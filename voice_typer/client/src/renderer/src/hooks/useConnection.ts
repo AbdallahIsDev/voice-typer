@@ -26,6 +26,36 @@ function asRecordingState(value: unknown): RecordingState | null {
 	return RECORDING_STATES.has(value) ? (value as RecordingState) : null;
 }
 
+/**
+ * Apply ONE backend status snapshot — the `{status, message}` tuple —
+ * atomically to the store.
+ *
+ * SOURCE-OF-TRUTH INVARIANT: `recordingState` (drives the Home page's
+ * "ERROR" status pill) and `lastError` (drives the red description line
+ * below the mic) are two views of the SAME authoritative pair emitted by
+ * the backend's tray state (`set_state(state, message)`). Every renderer
+ * sync path MUST feed both fields from the same payload via this helper:
+ * the live `status_change` push, the connect-time `state_changed`
+ * snapshot, and both `get_status` catch-ups (the server includes
+ * `message` in its `get_status` response for exactly this reason).
+ *
+ * REGRESSION TO AVOID: a sync path that sets `recordingState` without
+ * deriving `lastError` from the same payload's message leaves the pill
+ * stuck on ERROR while the description still shows the normal
+ * "Press <hotkey> or click to dictate" hint — the intermittent mismatch
+ * this helper exists to prevent. Conversely, non-error transitions clear
+ * `lastError` so recovery restores the normal dictate guidance.
+ */
+function applyStatusWithReason(
+	status: RecordingState,
+	message: string | null | undefined,
+	setRecordingState: (s: RecordingState) => void,
+	setLastError: (error: string | null) => void,
+): void {
+	setRecordingState(status);
+	setLastError(status === "error" && message ? message : null);
+}
+
 interface UseConnectionArgs {
 	/** Python bridge `call` function (from usePython). */
 	call: <T = unknown>(
@@ -153,13 +183,24 @@ export function useConnection({
 					// without an extra IPC round-trip.
 					setConfig(cfg);
 					// Sync current state from backend (status_change events sent before
-					// the React app mounted are lost — this ensures we catch up)
+					// the React app mounted are lost — this ensures we catch up).
+					// The response carries the same {status, message} tuple as the
+					// pushes, so an app launched while the backend sits in an error
+					// state (e.g. no model installed) hydrates BOTH the ERROR pill
+					// and its reason line atomically — see applyStatusWithReason.
 					callRef
-						.current<{ status: string }>("get_status")
+						.current<{ status?: string; message?: string }>("get_status")
 						.then((s) => {
 							if (!cancelled && s?.status) {
 								const validated = asRecordingState(s.status);
-								if (validated) setRecordingState(validated);
+								if (validated) {
+									applyStatusWithReason(
+										validated,
+										typeof s.message === "string" ? s.message : null,
+										setRecordingState,
+										setLastError,
+									);
+								}
 							}
 						})
 						//surface get_status failures to the
@@ -253,7 +294,13 @@ export function useConnection({
 			cancelled = true;
 			clearTimeout(timer);
 		};
-	}, [navigate, setConnectionStatus, setRecordingState, setConfig]);
+	}, [
+		navigate,
+		setConnectionStatus,
+		setRecordingState,
+		setLastError,
+		setConfig,
+	]);
 
 	// Periodic health check while connected
 	//use ``get_status`` (lightweight — returns only state +
@@ -408,12 +455,22 @@ export function useConnection({
 					// push.
 					setConnectionStatus("connected");
 					setLastError(null);
+					// Same atomic pair write as the initial probe — the
+					// reconnect snapshot must hydrate pill + reason line
+					// together (see applyStatusWithReason).
 					callRef
-						.current<{ status: string }>("get_status")
+						.current<{ status?: string; message?: string }>("get_status")
 						.then((s) => {
 							if (!cancelled && s?.status) {
 								const validated = asRecordingState(s.status);
-								if (validated) setRecordingState(validated);
+								if (validated) {
+									applyStatusWithReason(
+										validated,
+										typeof s.message === "string" ? s.message : null,
+										setRecordingState,
+										setLastError,
+									);
+								}
 							}
 						})
 						.catch((err) =>
@@ -465,17 +522,16 @@ export function useConnection({
 				if (data?.status) {
 					const validated = asRecordingState(data.status);
 					if (validated) {
-						setRecordingState(validated);
 						// The backend forwards the `set_state` message (the
 						// tray-tooltip reason) with every status_change.
-						// Surface it for the error state so the Home page
-						// status line explains what happened (e.g.
-						// "No models are available…") instead of leaving
-						// lastError null and showing no error at all.
-						// Non-error transitions keep clearing lastError
-						// exactly as before.
-						setLastError(
-							validated === "error" && data.message ? data.message : null,
+						// Atomic pair write — see applyStatusWithReason for
+						// why recordingState + lastError must move together
+						// on EVERY sync path, not just this one.
+						applyStatusWithReason(
+							validated,
+							data.message,
+							setRecordingState,
+							setLastError,
 						);
 					}
 				}
@@ -552,11 +608,16 @@ export function useConnection({
 	// We treat `state_changed` as a stronger signal than
 	// `status_change`: a push from the backend means the connection
 	// is healthy, so we optimistically flip `connectionStatus` to
-	// "connected" and clear any stale `lastError`. The recording
-	// state is updated from `data.status` when it validates against
-	// the RecordingState union; unknown / missing values are
-	// discarded (defensive — the backend may add new states before
-	// the renderer ships a matching type).
+	// "connected". The snapshot carries the same {status, message}
+	// tuple as every other sync path, so it is applied through the
+	// atomic pair write (applyStatusWithReason) — an app launched while
+	// the backend already sits in AppState.ERROR (e.g. no model
+	// installed) hydrates BOTH the ERROR pill and its reason line.
+	// Unknown / missing status values are discarded (defensive — the
+	// backend may add new states before the renderer ships a matching
+	// type); in that case only a stale lastError is dropped and the
+	// existing recordingState is left untouched so we don't clobber a
+	// valid state with garbage.
 	usePythonEvent(
 		"state_changed",
 		useCallback(
@@ -565,18 +626,19 @@ export function useConnection({
 				// A push from the backend means we have a live
 				// connection — surface that immediately.
 				setConnectionStatus("connected");
-				setLastError(null);
 
 				const rawStatus = data?.status;
-				if (typeof rawStatus === "string") {
-					const validated = asRecordingState(rawStatus);
-					if (validated) {
-						setRecordingState(validated);
-					}
-					// If `validated` is null the backend sent a
-					// state we don't recognise — leave the
-					// existing recordingState untouched so we
-					// don't clobber a valid state with garbage.
+				const validated =
+					typeof rawStatus === "string" ? asRecordingState(rawStatus) : null;
+				if (validated) {
+					applyStatusWithReason(
+						validated,
+						typeof data?.message === "string" ? data.message : null,
+						setRecordingState,
+						setLastError,
+					);
+				} else {
+					setLastError(null);
 				}
 				return undefined;
 			},

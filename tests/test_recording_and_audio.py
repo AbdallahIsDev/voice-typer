@@ -480,6 +480,43 @@ class TestGetStatusReturnsDict:
         assert result["status"] == "idle"
         assert result["xruns_since_start"] == 7
 
+    def test_get_status_includes_tray_message(self):
+        """get_status exposes the tray-tooltip reason alongside status.
+
+        The renderer derives BOTH the Home ERROR pill and its red
+        description line from the {status, message} pair — every
+        status-carrying response must carry both fields (see
+        applyStatusWithReason in useConnection.ts).
+        """
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.service import VoiceTyperService
+
+        app = MagicMock()
+        app.tray.state.value = "error"
+        app.tray._message = "No models are available. Open the models page to download a model."
+        service = VoiceTyperService(app)
+
+        result = service.get_status()
+
+        assert result["status"] == "error"
+        assert result["message"] == "No models are available. Open the models page to download a model."
+
+    def test_get_status_coerces_non_string_tray_message_to_empty(self):
+        """A non-str tray ``_message`` (test doubles, mocks) degrades to ""."""
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.service import VoiceTyperService
+
+        app = MagicMock()
+        app.tray.state.value = "idle"
+        app.tray._message = object()  # not a str
+        service = VoiceTyperService(app)
+
+        result = service.get_status()
+
+        assert result["message"] == ""
+
 
 class TestCancelGuaranteesTrayReset:
     """Even if recorder.discard() raises, cancel resets tray state to IDLE."""
@@ -883,9 +920,7 @@ class TestAudioWorkerThreadLifecycle:
         # GT-23-style load guard: a worker that outlived a timed-out join
         # leaves a stale ref (stop() fast-paths when idle and cannot reap
         # it) — poll the shared guard before asserting the ref cleared.
-        assert wait_for_workers_stopped(r, stop=r.stop), (
-            "stop() must set _worker_thread to None after joining"
-        )
+        assert wait_for_workers_stopped(r, stop=r.stop), "stop() must set _worker_thread to None after joining"
 
     def test_worker_thread_stops_on_discard(self, monkeypatch):
         """discard() must join the worker thread and set _worker_thread
@@ -904,9 +939,7 @@ class TestAudioWorkerThreadLifecycle:
         r.discard()
 
         # GT-23-style load guard — see the stop() variant above.
-        assert wait_for_workers_stopped(r, stop=r.stop), (
-            "discard() must set _worker_thread to None after joining"
-        )
+        assert wait_for_workers_stopped(r, stop=r.stop), "discard() must set _worker_thread to None after joining"
 
     def test_worker_thread_can_restart_after_stop(self, monkeypatch):
         """After stop(), a subsequent start() must start a NEW worker

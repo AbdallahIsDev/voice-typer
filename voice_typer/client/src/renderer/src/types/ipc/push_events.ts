@@ -158,14 +158,13 @@ export interface HistoryChangedEvent {
 
 //emitted on every client connect
 // (`voice_typer/server/ipc_server.py:1311-1326`) with a snapshot of the
-// backend AppState so the renderer can hydrate its connection state
-// without a round-trip. Today NO renderer subscribes to this — the
-// connect-time snapshot is silently dropped. Wiring a
-// `usePythonEvent("state_changed", …)` subscriber in `useConnection.ts`
-// is a follow-up (out of FA9 scope).
+// backend AppState. Subscribed by `useConnection.ts`, which hydrates the
+// recordingState + lastError pair from `{status, message}` — the SAME
+// tuple shape `status_change` carries, so all sync paths agree (see
+// `applyStatusWithReason` there for the pill/description invariant).
 export interface StateChangedEvent {
 	type: "state_changed";
-	data: Record<string, unknown>;
+	data: { status?: string; message?: string };
 }
 
 //the 18 most important missing event types. Each one is

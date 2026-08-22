@@ -281,18 +281,18 @@ async def test_in35_writer_offloads_json_dumps_to_executor() -> None:
     payload via ``run_in_executor`` as the inline ``json.dumps`` did.
 
     Uses a real ``asyncio.Queue`` and a fake websocket that records
-    every sent frame. The recorded frame must equal
-    ``json.dumps(event, ensure_ascii=False).encode("utf-8")`` (BYTES —
-    production ``_encode_ws_frame`` returns ``bytes`` so the asyncio
-    loop thread never pays the encode cost; pre-fix the comparison was
-    against the ``str`` form, which silently masked the type change).
+    every sent frame. Per the C-WS-2 wire contract, production sends
+    the once-encoded buffer decoded back to ``str`` (a WS TEXT frame —
+    the Rust host's reader parses ``Message::Text`` only), so the
+    recorded payload must equal the ``str`` form of
+    ``json.dumps(event, ensure_ascii=False)``.
     """
     outbound: asyncio.Queue = asyncio.Queue()
     event = {"type": "test_event", "data": {"nested": [1, 2, 3], "unicode": "héllo"}}
-    expected_raw = json.dumps(event, ensure_ascii=False).encode("utf-8")
+    expected_raw = json.dumps(event, ensure_ascii=False)
 
     ws = MagicMock()
-    sent: list[bytes] = []
+    sent: list[str] = []
 
     async def _send(payload):
         sent.append(payload)
@@ -320,8 +320,8 @@ async def test_in35_writer_offloads_json_dumps_to_executor() -> None:
 
     assert len(sent) == 1, f"IN-35: expected one send, got {sent!r}"
     assert sent[0] == expected_raw, (
-        f"IN-35: writer via run_in_executor must produce identical JSON to "
-        f"inline json.dumps; got {sent[0]!r} vs expected {expected_raw!r}"
+        f"IN-35 + C-WS-2: writer via run_in_executor must produce identical JSON to "
+        f"inline json.dumps (as a str TEXT frame); got {sent[0]!r} vs expected {expected_raw!r}"
     )
 
 

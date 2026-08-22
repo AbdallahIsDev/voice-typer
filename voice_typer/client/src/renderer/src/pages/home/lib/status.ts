@@ -44,10 +44,22 @@ export function statusLabelFor(key: string): string {
  * Map a `RecordingState` (+ error flag) onto the lowercase status key
  * used to look up `STATUS_COLORS` / `statusLabelFor`. The `error` state
  * only surfaces when there is also a non-empty `lastError` — without an
- * error message the user can't act on, the pill stays in the underlying
- * state ("idle" / "recording" / etc.).
+ * error message the user can't act on, the pill falls back to the
+ * ready/idle key so it always agrees with the dynamic description line
+ * below the mic button (which shows the normal dictate hint whenever
+ * `lastError` is empty).
+ *
+ * PILL/DESCRIPTION INVARIANT: the pill and the description are two views
+ * of the same authoritative `{recordingState, lastError}` pair — they
+ * must be derived from the same predicate, never from independent
+ * sources (an ERROR pill above a "Press <hotkey> or click to dictate"
+ * hint is the divergence bug this guards against). The renderer-side
+ * sync contract that keeps `lastError` populated on every error path
+ * lives in `useConnection.ts` (`applyStatusWithReason`).
  */
 export function statusKeyFor(state: RecordingState, hasError: boolean): string {
-	if (state === "error" && hasError) return "error";
+	if (state === "error") {
+		return hasError ? "error" : "idle";
+	}
 	return state;
 }

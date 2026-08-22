@@ -155,9 +155,9 @@ _original_excepthook = sys.excepthook
 
 # original ``threading.excepthook`` saved by
 # ``install_threading_excepthook`` so ``_thread_crash_excepthook`` can
-# chain to it after logging the daemon-thread crash. Set on first
-# ``install_threading_excepthook`` call; ``None`` until then.
-_original_threading_excepthook = None
+# chain to it after logging the daemon-thread crash. Set on first call;
+# ``Any``-typed (bare ``None`` literal breaks mypy); ``None`` until then.
+_original_threading_excepthook: Any = None
 
 # ``_vectored_handler`` is the WINFUNCTYPE-wrapped VEH callback
 # (Windows-only). None on Linux/macOS — ``install_crash_handler``

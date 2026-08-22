@@ -60,6 +60,8 @@ from __future__ import annotations
 
 import sys as _sys  # noqa: F401  # test patch target (tests mutate cv._sys.platform → sys.platform)
 
+from voice_typer.server.config_validators import allowlist as _allowlist_module
+
 # ──────────────────────────────────────────────────────────────────────────
 # SEC-002 allowlist + supporting constants.
 #
@@ -86,7 +88,6 @@ from voice_typer.server.config_validators.allowlist import (  # noqa: F401
     _VALIDATOR_REPASTE_HOTKEY,
     _VALIDATOR_TRUSTED_HOSTS,
     ALLOWED_USER_MODELS,
-    IPC_CONFIG_ALLOWLIST,
     MAX_RECORDING_TIME_SECONDS_DEFAULT,
     MAX_RECORDING_TIME_SECONDS_MAX,
     MAX_RECORDING_TIME_SECONDS_MIN,
@@ -169,14 +170,18 @@ from voice_typer.server.config_validators.scalar import (  # noqa: F401
     _validate_trusted_extra_hosts,
 )
 
-# Re-annotate ``IPC_CONFIG_ALLOWLIST`` on this shim module so static
-# type-checkers (and ``typing.get_type_hints(cv)`` — exercised by
+# Re-export ``IPC_CONFIG_ALLOWLIST`` with an explicit parameterised
+# annotation so static type-checkers (and ``typing.get_type_hints(cv)``
+# — exercised by
 # ``tests/test_config.py::test_ipc_config_allowlist_is_dict_of_fieldspec``)
-# see the parameterised ``dict[str, FieldSpec]`` hint. The bare annotation
-# statement (no ``=``) does NOT rebind — ``IPC_CONFIG_ALLOWLIST`` still
-# refers to the same dict object imported from ``.allowlist`` above.
-# ``FieldSpec`` is imported just above (from ``.scalar``).
-IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec]  # noqa: F824 — annotation-only re-declaration on re-exported name
+# see the ``dict[str, FieldSpec]`` hint on the package namespace. This is
+# an annotated ALIAS ASSIGNMENT, not a bare re-annotation: it binds the
+# package attribute to the SAME dict object defined in ``.allowlist``
+# (identity preserved — this exact registry is the SEC-002 source of
+# truth), while registering the hint in ``__annotations__``. A previous
+# attempt used a bare annotation-only statement, which mypy flags as a
+# no-redef redefinition of an imported name.
+IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = _allowlist_module.IPC_CONFIG_ALLOWLIST
 
 
 # ──────────────────────────────────────────────────────────────────────────

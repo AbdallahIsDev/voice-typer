@@ -655,6 +655,16 @@ export default function Home() {
 	// (no model selected, or a recording error with a message), the pill
 	// flips to the `error` state instead of staying in the underlying
 	// state (e.g. "Ready" while the page is actually broken).
+	//
+	// PILL/DESCRIPTION INVARIANT: the pill (`key`) and the description
+	// line (`hint`) MUST be derived from the same underlying state pair
+	// (`recordingState` + `lastError`, hydrated atomically by
+	// `applyStatusWithReason` in useConnection.ts). Deriving either one
+	// from an independent source re-opens the intermittent bug where the
+	// pill shows ERROR while the description still shows the normal
+	// dictate hint (or vice versa). `statusKeyFor` mirrors this contract:
+	// an error state without a message falls back to the ready key so the
+	// pill never advertises an error the description doesn't explain.
 	const baseKey = statusKeyFor(recordingState, !!lastError);
 	const key = hint?.variant === "error" ? "error" : baseKey;
 	// noUncheckedIndexedAccess: `STATUS_COLORS[key]` is `string | undefined`.

@@ -250,6 +250,89 @@ describe("useConnection — F1: first-run auto-route ignores persisted page", ()
 		});
 	});
 
+	describe("connect-time snapshots keep recordingState + lastError in sync", () => {
+		beforeEach(() => {
+			resetStableMocks();
+			vi.resetModules();
+			localStorage.clear();
+			useAppStore.setState({ recordingState: "idle", lastError: null });
+		});
+
+		const NO_MODEL_REASON =
+			"No models are available. Open the models page to download a model.";
+
+		function findHandler(event: "state_changed"): (data: unknown) => void {
+			const call = mockPythonEvent.mock.calls.find((c) => c[0] === event);
+			if (!call) {
+				throw new Error(`expected a ${event} subscription`);
+			}
+			return call[1] as (data: unknown) => void;
+		}
+
+		it("state_changed carrying {error, message} hydrates BOTH recordingState and lastError (launch-while-errored)", () => {
+			// The app launches while the backend already sits in
+			// AppState.ERROR (no model installed). The connect-time
+			// snapshot must populate the ERROR pill's state AND the red
+			// reason line together — previously it cleared lastError and
+			// left the normal dictate hint under an ERROR pill.
+			render(<Harness />);
+			const handler = findHandler("state_changed");
+
+			handler({ status: "error", message: NO_MODEL_REASON });
+			expect(useAppStore.getState().recordingState).toBe("error");
+			expect(useAppStore.getState().lastError).toBe(NO_MODEL_REASON);
+		});
+
+		it("state_changed with a non-error state clears a stale lastError so normal guidance returns", () => {
+			useAppStore.setState({
+				recordingState: "error",
+				lastError: NO_MODEL_REASON,
+			});
+			render(<Harness />);
+			const handler = findHandler("state_changed");
+
+			handler({ status: "idle" });
+			expect(useAppStore.getState().recordingState).toBe("idle");
+			expect(useAppStore.getState().lastError).toBeNull();
+		});
+
+		it("state_changed keeps lastError null when an error snapshot carries no message", () => {
+			render(<Harness />);
+			const handler = findHandler("state_changed");
+
+			handler({ status: "error" });
+			expect(useAppStore.getState().recordingState).toBe("error");
+			expect(useAppStore.getState().lastError).toBeNull();
+		});
+
+		it("initial-probe get_status catch-up applies {status, message} atomically", async () => {
+			mockCall.mockImplementation((type: string) => {
+				switch (type) {
+					case "get_config":
+						return Promise.resolve({
+							onboarding_completed: true,
+							hotkey: "<f2>",
+							model_size: "large-v3",
+						});
+					case "get_status":
+						return Promise.resolve({
+							status: "error",
+							message: NO_MODEL_REASON,
+						});
+					default:
+						return Promise.resolve({});
+				}
+			});
+
+			render(<Harness />);
+
+			await waitFor(() => {
+				expect(useAppStore.getState().recordingState).toBe("error");
+			});
+			expect(useAppStore.getState().lastError).toBe(NO_MODEL_REASON);
+		});
+	});
+
 	it("navigates to onboarding when is_first_run=true and persisted page is home", async () => {
 		// Baseline case: persisted page is "home" (the original
 		// happy path that already worked before the fix). This
