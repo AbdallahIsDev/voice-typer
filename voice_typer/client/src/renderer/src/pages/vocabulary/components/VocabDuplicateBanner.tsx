@@ -30,13 +30,13 @@ export function VocabDuplicateBanner({
 		<div
 			data-testid="vocab-duplicate-banner"
 			role="status"
-			className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3.5 py-2.5"
+			className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-2.5"
 		>
 			<HugeiconsIcon
 				icon={Alert01Icon}
 				strokeWidth={2}
 				aria-hidden="true"
-				className="size-4 shrink-0 text-amber-400"
+				className="size-4 shrink-0 text-warning"
 			/>
 			<p className="min-w-0 flex-1 text-xs font-medium text-(--text-primary)">
 				{t("vocabulary.duplicateBanner", { count: String(count) })}
@@ -45,7 +45,7 @@ export function VocabDuplicateBanner({
 				variant="outline"
 				size="sm"
 				onClick={onRemoveDuplicates}
-				className="gap-1.5 border-amber-400/30 text-xs text-amber-400 hover:border-amber-400/60 hover:bg-amber-400/10 hover:text-amber-300"
+				className="gap-1.5 border-warning/30 text-xs text-warning hover:border-warning/60 hover:bg-warning/10 hover:text-warning"
 			>
 				{t("vocabulary.removeDuplicates")}
 			</Button>

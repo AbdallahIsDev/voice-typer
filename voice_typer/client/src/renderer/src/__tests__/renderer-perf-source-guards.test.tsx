@@ -1,41 +1,71 @@
 /**
- * Renderer performance source-guard regression tests for Group 2
- * (Performance & Resources) fixes scoped to the page components.
+ * Renderer performance source-guard regression tests for the page
+ * components.
  *
- * Covers:
- *  (a) ER-21 — `Settings.tsx` `sectionProps` is wrapped in `useMemo`
- *      with `[config, updateConfig, updateConfigDebounced,
- *      _filter_settings]` deps so it has a stable identity across
- *      re-renders when those deps are unchanged. Previously a fresh
- *      object literal was built every render, which broke referential
- *      equality for every `{...sectionProps}` spread into a
- *      `*SettingsSection` child, causing every section component to
- *      re-render on every SettingsPage render.
- *  (b) ER-56 — `Home.tsx` extracts `RecordingStatusPill`,
- *      `MicToggleButton`, `LastTranscriptionPreview`, and
- *      `RecordingErrorCard` and wraps each in `React.memo` so they
- *      only re-render when their props change. All props are
- *      primitives (strings, booleans) or callbacks already wrapped in
- *      `useCallback`, so referential equality holds across Home's
- *      frequent state flips.
- *  (c) ER-25 — `App.tsx` converts secondary page imports to
- *      `React.lazy(() => import("@/pages/..."))` for route-level code
- *      splitting. `Home` stays eager (default landing page). The
- *      `renderPage()` switch is wrapped in `<Suspense>` so first-time
- *      navigation to a not-yet-loaded chunk shows a spinner fallback.
+ * The runtime behaviour these guards protect (referential stability of
+ * `useMemo` results, `React.memo` wrapping, `React.lazy` chunk
+ * splitting, memoized derived data) is fully determined by the static
+ * call sites in the source. A source-level check is more reliable than
+ * a behavioural test that would have to instrument React internals
+ * (e.g., spy on `React.createElement` to capture prop identity, or
+ * count child re-renders via a mocked child) — both of which are flaky
+ * under React 19's concurrent renderer and add significant test setup
+ * boilerplate. The source grep also fails fast and points the reviewer
+ * directly at the regression if a future refactor removes the
+ * `useMemo` / `memo` / `lazy` wrapper.
  *
- * The tests are intentionally source-grep based: the runtime
- * behaviour they guard (referential stability of `useMemo` results,
- * `React.memo` wrapping, `React.lazy` chunk splitting) is fully
- * determined by the static call sites in the source. A source-level
- * check is more reliable than a behavioural test that would have to
- * instrument React internals (e.g., spy on `React.createElement` to
- * capture prop identity, or count child re-renders via a mocked
- * child) — both of which are flaky under React 19's concurrent
- * renderer and add significant test setup boilerplate. The source
- * grep also fails fast and points the reviewer directly at the
- * regression if a future refactor removes the `useMemo` / `memo` /
- * `lazy` wrapper.
+ * Covered invariants:
+ *
+ *  (a) Settings — `sectionProps` is wrapped in `useMemo` with
+ *      `[config, updateConfig, updateConfigDebounced, _filter_settings]`
+ *      deps so it has a stable identity across re-renders when those
+ *      deps are unchanged. Previously a fresh object literal was built
+ *      every render, which broke referential equality for every
+ *      `{...sectionProps}` spread into a `*SettingsSection` child,
+ *      causing every section component to re-render on every Settings
+ *      page render. Also guards: the empty-state visibility derivation
+ *      is keyed on `[settingsFilter]` (not recomputed per render), and
+ *      `resetToDefaults` is a stable `useCallback` (ConfirmDialog's
+ *      `onConfirm` benefits).
+ *
+ *  (b) Home — the status pill, mic toggle button, last-transcription
+ *      preview, and recording timer are extracted into their own files
+ *      under `pages/home/components/` and each is wrapped in
+ *      `React.memo` (`export default memo(Name)` over a named function,
+ *      preserving DevTools displayName), so they only re-render when
+ *      their props change. Also guards the shared event-handler
+ *      stability contract: `debouncedRefreshFromEvent` is a
+ *      `useCallback` passed by reference to the `history_changed`
+ *      subscription (and reused inside `transcription_final`) so those
+ *      events don't churn handler identities on every render.
+ *
+ *  (c) Home hotkey reload — the per-`status_change` `get_config` fetch
+ *      moved to the `config_changed` event. `status_change` fires on
+ *      every recording → transcribing → idle transition, so a
+ *      per-event config round-trip was wasted IPC; the hotkey only
+ *      changes when Settings saves (`config_changed`), which is where
+ *      it is now re-fetched.
+ *
+ *  (d) Home initial load — `initialLoading`'s initializer reads the
+ *      stats/recent caches through the component-scoped ref-memoized
+ *      loaders (`loadCachedStats(cachedStatsRef)` /
+ *      `loadCachedRecent(cachedRecentRef)`), so repeated calls never
+ *      hit localStorage more than once per mount. The pre-fix form
+ *      (module-level mutable cache bindings + repeated raw reads) must
+ *      stay gone.
+ *
+ *  (e) Route switching (router/PageSwitch.tsx) — secondary pages are
+ *      `React.lazy(() => import(...))` for route-level code splitting
+ *      while `Home` stays eager (default landing page), and the routed
+ *      content renders inside `<Suspense>` with a real fallback
+ *      component so first-time navigation shows a spinner instead of a
+ *      blank frame.
+ *
+ *  (f) Dashboard — the derived render values (period stats, activity
+ *      chart bars, correction stats) are computed inside `useMemo`s in
+ *      the `useDashboardData` hook keyed on the history sample and the
+ *      selected range, and the page consumes the memoized values rather
+ *      than rebuilding them inline per render.
  */
 
 import { readFileSync } from "node:fs";
@@ -48,13 +78,36 @@ function readSrc(relPath: string): string {
 	return readFileSync(resolve(RENDERER_SRC, relPath), "utf8");
 }
 
-// ── ER-21: Settings sectionProps useMemo ──────────────────────────────
+/**
+ * Remove whole-line `// …` comments so prose mentions of an API (e.g.
+ * "the previous `get_config` fetch") don't trip code-shape assertions.
+ * Only lines whose first non-whitespace token is `//` are dropped —
+ * inline trailing comments and string contents stay intact.
+ */
+function stripLineComments(src: string): string {
+	return src.replace(/^[ \t]*\/\/.*$\r?\n?/gm, "");
+}
 
-describe.skip("ER-21: Settings.tsx sectionProps is referentially stable via useMemo", () => {
-	// Skipped: the source-grep contract is only partially satisfiable
-	// against the current Settings.tsx. The memoized `sectionProps` /
-	// `useCallback(resetToDefaults)` forms are present again, so these
-	// guards can be re-enabled by removing `.skip` after a passing run.
+/**
+ * Slice out the body of a `usePythonEvent("<type>", ...)` call from the
+ * given source (line comments stripped). Returns everything from the
+ * call start up to (but not including) the next top-level
+ * `usePythonEvent(` occurrence — good enough to assert on what a
+ * specific subscription's handler does without parsing balanced parens.
+ */
+function sliceUsePythonEventBlock(src: string, type: string): string | null {
+	const clean = stripLineComments(src);
+	const startRe = new RegExp(`usePythonEvent\\(\\s*["']${type}["']\\s*,`);
+	const startMatch = startRe.exec(clean);
+	if (!startMatch) return null;
+	const rest = clean.slice(startMatch.index + startMatch[0].length);
+	const nextCall = rest.indexOf("usePythonEvent(");
+	return nextCall === -1 ? rest : rest.slice(0, nextCall);
+}
+
+// ── Settings: stable sectionProps + memoized empty-state derivation ──
+
+describe("Settings page keeps sectionProps referentially stable via useMemo", () => {
 	it("wraps sectionProps in useMemo with the correct deps", () => {
 		const src = readSrc("pages/Settings.tsx");
 
@@ -87,34 +140,33 @@ describe.skip("ER-21: Settings.tsx sectionProps is referentially stable via useM
 
 	it("does not declare sectionProps as a plain object literal (regression guard)", () => {
 		const src = readSrc("pages/Settings.tsx");
-		// Before the ER-21 fix, sectionProps was:
+		// Before the fix, sectionProps was:
 		//   const sectionProps = { config, updateConfig, ... };
 		// This regex matches that pre-fix shape and must NOT match.
 		const plainObjectPattern = /const\s+sectionProps\s*=\s*\{\s*config,/;
 		expect(plainObjectPattern.test(src)).toBe(false);
 	});
 
-	it("adds a [settingsFilter] dep array to the empty-state sentinel effect", () => {
+	it("derives empty-state visibility from settingsFilter via a memo keyed on [settingsFilter]", () => {
 		const src = readSrc("pages/Settings.tsx");
-		// The original buggy effect was:
-		//   useEffect(() => { ... setHasAnyVisibleRow(...) });
-		// (no dep array — ran after every render). After ER-21 the
-		// effect must have a `[settingsFilter]` dep array so it only
-		// runs when the search filter changes.
-		const effectMatch = src.match(
-			/useEffect\(\(\)\s*=>\s*\{\s*const\s+next\s*=\s*visibleMatchCountRef\.current\s*>\s*0;[\s\S]*?\}\s*,\s*\[([^\]]*)\]/,
+		// The original buggy form flipped `hasAnyVisibleRow` state from
+		// a dep-less effect (ran after every render). The current form
+		// derives `hasAnyVisibleRow` purely via useMemo keyed on
+		// `[settingsFilter]`, so memoized section children don't
+		// re-render unless the query actually changes.
+		const memoMatch = src.match(
+			/const\s+hasAnyVisibleRow\s*=\s*useMemo\(\(\)\s*=>\s*\{[\s\S]*?\n\s*\},\s*\[([^\]]*)\]/,
 		);
-		expect(effectMatch, "empty-state sentinel effect not found").not.toBeNull();
-		const depsBody = effectMatch?.[1] ?? "";
+		expect(memoMatch, "hasAnyVisibleRow useMemo not found").not.toBeNull();
+		const depsBody = memoMatch?.[1] ?? "";
 		expect(depsBody).toContain("settingsFilter");
 	});
 
 	it("wraps resetToDefaults in useCallback", () => {
 		const src = readSrc("pages/Settings.tsx");
-		// Before ER-21, resetToDefaults was a plain `async () => {...}`
-		// function expression assigned to a const. After the fix it
-		// must be wrapped in useCallback so its identity is stable
-		// across renders (ConfirmDialog's onConfirm prop benefits).
+		// resetToDefaults must be wrapped in useCallback so its identity
+		// is stable across renders (ConfirmDialog's onConfirm prop
+		// benefits).
 		expect(src).toMatch(/const\s+resetToDefaults\s*=\s*useCallback\(/);
 		// The deps array must include the values the closure reads.
 		const cbMatch = src.match(
@@ -132,174 +184,163 @@ describe.skip("ER-21: Settings.tsx sectionProps is referentially stable via useM
 	});
 });
 
-// ── ER-56: Home.tsx React.memo subcomponents ──────────────────────────
+// ── Home: memoized subcomponents + stable shared handlers ────────────
 
-describe.skip("ER-56: Home.tsx subcomponents are wrapped in React.memo", () => {
-	// Skipped: the ER-56 React.memo wrappers for RecordingStatusPill /
-	// MicToggleButton / LastTranscriptionPreview / RecordingErrorCard
-	// were reverted; Home.tsx no longer imports `memo` from react.
-	it("imports memo from react", () => {
-		const src = readSrc("pages/Home.tsx");
-		// The fix added `memo` to the react import. Without it the
-		// `memo(...)` call sites below would be a ReferenceError.
-		expect(src).toMatch(/import\s+\{[^}]*\bmemo\b[^}]*\}\s+from\s+"react"/);
-	});
+describe("Home subcomponents are memoized extracted components", () => {
+	// Each status surface lives in its own file and defaults to a
+	// `memo(...)` wrapper over a NAMED function export (the named
+	// function preserves the displayName for React DevTools). All props
+	// are primitives or stable callbacks, so referential equality holds
+	// across Home's frequent state flips.
+	const MEMO_COMPONENTS = [
+		{ name: "RecordingStatusPill" },
+		{ name: "MicToggleButton" },
+		{ name: "LastTranscriptionPreview" },
+		{ name: "RecordingTimer" },
+	] as const;
 
-	it.each([
-		"RecordingStatusPill",
-		"MicToggleButton",
-		"LastTranscriptionPreview",
-		"RecordingErrorCard",
-	] as const)(
-		"wraps %s in React.memo (memo(function %s(...) {...}))",
+	it.each(MEMO_COMPONENTS.map((c) => c.name))(
+		"%s imports memo from react",
 		(name: string) => {
-			const src = readSrc("pages/Home.tsx");
-			// Match `const <Name> = memo(function <Name>(` — the
-			// named-function form (rather than `memo((props) => ...)`)
-			// preserves the displayName for React DevTools.
-			const pattern = new RegExp(
-				`const\\s+${name}\\s*=\\s*memo\\(function\\s+${name}\\s*\\(`,
-			);
-			expect(
-				pattern.test(src),
-				`Expected ${name} to be wrapped in memo(function ${name}(...)). ` +
-					"Either it's not wrapped in memo, or the wrapping uses an " +
-					"anonymous arrow form (use the named-function form for DevTools).",
-			).toBe(true);
+			const src = readSrc(`pages/home/components/${name}.tsx`);
+			// Without the react import the `memo(...)` call below would
+			// be a ReferenceError.
+			expect(src).toMatch(/import\s+\{[^}]*\bmemo\b[^}]*\}\s+from\s+"react"/);
 		},
 	);
 
-	it("wraps the usePythonEvent handlers in useCallback (status_change, download_progress, transcription_final, recording_started)", () => {
-		const src = readSrc("pages/Home.tsx");
-		// ER-56: the four inline usePythonEvent arrow functions are
-		// extracted into named useCallback handlers and passed to
-		// usePythonEvent by reference. We verify the named handlers
-		// exist; the usePythonEvent calls are checked separately.
-		const handlers = [
-			"handleStatusChange",
-			"handleDownloadProgress",
-			"handleTranscriptionFinal",
-			"handleRecordingStarted",
-		];
-		for (const h of handlers) {
+	it.each(MEMO_COMPONENTS.map((c) => c.name))(
+		"%s declares a named function and exports it wrapped in memo()",
+		(name: string) => {
+			const src = readSrc(`pages/home/components/${name}.tsx`);
+			// Match `export function <Name>(` (the named-function form,
+			// rather than an anonymous arrow) AND the
+			// `export default memo(<Name>);` wrapper at the bottom of the
+			// file. Dropping the memo wrapper reintroduces the
+			// re-render-on-every-parent-render regression; dropping the
+			// named function breaks DevTools display names.
+			expect(src).toMatch(new RegExp(`export\\s+function\\s+${name}\\s*\\(`));
 			expect(
-				new RegExp(`const\\s+${h}\\s*=\\s*useCallback\\(`).test(src),
-				`Expected ${h} to be a useCallback-wrapped handler`,
-			).toBe(true);
+				src,
+				`Expected ${name}.tsx to end with export default memo(${name});`,
+			).toMatch(new RegExp(`export\\s+default\\s+memo\\(\\s*${name}\\s*\\)`));
+		},
+	);
+
+	it("Home composes the extracted memoized components (no inline copies)", () => {
+		const src = readSrc("pages/Home.tsx");
+		for (const { name } of MEMO_COMPONENTS) {
+			expect(
+				src,
+				`Expected Home.tsx to import ${name} from ./home/components/${name}`,
+			).toMatch(
+				new RegExp(
+					`import\\s+\\{\\s*${name}\\s*\\}\\s+from\\s+"./home/components/${name}"`,
+				),
+			);
+		}
+		// And none of them may be re-declared inline in Home.tsx.
+		for (const { name } of MEMO_COMPONENTS) {
+			expect(src).not.toMatch(new RegExp(`function\\s+${name}\\b`));
 		}
 	});
 
-	it("passes the memoized handlers to usePythonEvent (not inline arrows)", () => {
+	it("shares one stable debouncedRefreshFromEvent callback across the refresh events", () => {
 		const src = readSrc("pages/Home.tsx");
-		// Each usePythonEvent call must reference the named handler
-		// (e.g., `usePythonEvent("status_change", handleStatusChange)`)
-		// rather than an inline arrow function. Inline arrows have a
-		// fresh identity on every render, defeating the useCallback.
+		// The shared refresh routine must be a useCallback (stable
+		// identity across re-renders) and must be passed BY REFERENCE to
+		// the history_changed subscription; transcription_final invokes
+		// it from within its handler. Inline arrows at both sites would
+		// defeat the identity-stability contract the dispatcher relies
+		// on for skipping redundant refresh scheduling.
 		expect(src).toMatch(
-			/usePythonEvent\(\s*["']status_change["']\s*,\s*handleStatusChange\s*\)/,
+			/const\s+debouncedRefreshFromEvent\s*=\s*useCallback\(/,
 		);
 		expect(src).toMatch(
-			/usePythonEvent\(\s*["']download_progress["']\s*,\s*handleDownloadProgress\s*\)/,
+			/usePythonEvent\(\s*["']history_changed["']\s*,\s*debouncedRefreshFromEvent\s*\)/,
 		);
-		expect(src).toMatch(
-			/usePythonEvent\(\s*["']transcription_final["']\s*,\s*handleTranscriptionFinal\s*\)/,
-		);
-		expect(src).toMatch(
-			/usePythonEvent\(\s*["']recording_started["']\s*,\s*handleRecordingStarted\s*\)/,
-		);
+		const block = sliceUsePythonEventBlock(src, "transcription_final");
+		expect(block, "transcription_final handler not found").not.toBeNull();
+		expect(block).toContain("debouncedRefreshFromEvent()");
 	});
 });
 
-// ── ER-62: Home.tsx hotkey reload moved to config_changed ─────────────
+// ── Home: hotkey reload rides on config_changed, not status_change ───
 
-describe.skip("ER-62: Home.tsx hotkey reload moved from status_change to config_changed", () => {
-	// Skipped: the ER-62 hotkey-reload event switch (status_change →
-	// config_changed) was reverted; the source-grep contract is stale.
-	it("drops the per-status_change get_config fetch", () => {
+describe("Home reloads the hotkey from config_changed instead of status_change", () => {
+	it("does not fetch get_config from the status_change handler", () => {
 		const src = readSrc("pages/Home.tsx");
-		// The pre-fix status_change handler contained a `reloadHotkey`
-		// inner function that did `await call<VoiceTyperConfig>("get_config")`.
-		// After ER-62 that IPC is gone from the status_change handler.
-		// Verify by checking the handleStatusChange body doesn't call
-		// get_config.
-		const handlerMatch = src.match(
-			/const\s+handleStatusChange\s*=\s*useCallback\([\s\S]*?\n\s*\},\s*\[\s*\]\s*\);/,
-		);
+		// status_change fires on every recording → transcribing → idle
+		// transition; a per-event `get_config` round-trip was wasted
+		// IPC. The handler body must not call get_config.
+		const block = sliceUsePythonEventBlock(src, "status_change");
+		expect(block, "status_change handler not found").not.toBeNull();
 		expect(
-			handlerMatch,
-			"handleStatusChange useCallback not found",
-		).not.toBeNull();
-		const handlerBody = handlerMatch?.[0] ?? "";
-		expect(
-			handlerBody,
-			"handleStatusChange must NOT call get_config (ER-62 moved the hotkey reload to config_changed)",
+			block,
+			"status_change handler must NOT call get_config (hotkey reload belongs to config_changed)",
 		).not.toMatch(/get_config/);
 	});
 
-	it("adds a config_changed usePythonEvent handler that updates the hotkey", () => {
+	it("re-fetches the hotkey from the config_changed handler", () => {
 		const src = readSrc("pages/Home.tsx");
-		// ER-62: a new handleConfigChanged useCallback + usePythonEvent
-		// registration. The handler must call setHotkey(...) — either
-		// via the fast path (payload.hotkey) or the fallback (get_config).
-		expect(src).toMatch(/const\s+handleConfigChanged\s*=\s*useCallback\(/);
-		expect(src).toMatch(
-			/usePythonEvent\(\s*["']config_changed["']\s*,\s*handleConfigChanged\s*\)/,
-		);
-		// The handler must call setHotkey somewhere in its body.
-		const handlerMatch = src.match(
-			/const\s+handleConfigChanged\s*=\s*useCallback\([\s\S]*?\n\s*\},\s*\[\s*call\s*\]\s*\);/,
-		);
-		expect(
-			handlerMatch,
-			"handleConfigChanged useCallback with [call] deps not found",
-		).not.toBeNull();
-		const handlerBody = handlerMatch?.[0] ?? "";
-		expect(handlerBody).toMatch(/setHotkey\(/);
+		// config_changed fires when Settings saves a new config — that
+		// is the only moment the hotkey can change, so this handler
+		// performs the get_config fallback fetch and updates the
+		// rendered hotkey via setHotkey(...).
+		const block = sliceUsePythonEventBlock(src, "config_changed");
+		expect(block, "config_changed handler not found").not.toBeNull();
+		expect(block).toMatch(/setHotkey\(/);
+		expect(block).toMatch(/get_config/);
 	});
 });
 
-// ── ER-65: Home.tsx initialLoading dedupes localStorage reads ─────────
+// ── Home: initialLoading avoids redundant localStorage reads ─────────
 
-describe.skip("ER-65: Home.tsx initialLoading initializer dedupes localStorage reads", () => {
-	// Skipped: the ER-65 localStorage dedup refactor was reverted; the
-	// source-grep contract no longer matches Home.tsx.
-	it("references stats/recent state values directly (not loadCachedStats()/loadCachedRecent())", () => {
-		const src = readSrc("pages/Home.tsx");
-		// Pre-fix: useState(() => loadCachedStats() === null && loadCachedRecent().length === 0)
-		// Post-fix: useState(stats === null && recent.length === 0)
-		// The post-fix form references the already-assigned `stats`
-		// and `recent` state variables (useState initializers run
-		// synchronously in declaration order, so they're in scope by
-		// the time the third useState runs).
+describe("Home initialLoading initializer dedupes localStorage reads through ref-cached loaders", () => {
+	it("initializes initialLoading from the ref-backed cached loaders", () => {
+		const src = stripLineComments(readSrc("pages/Home.tsx"));
+		// The lazy useState initializer consults BOTH caches. Each call
+		// routes through the component-scoped refs (cachedStatsRef /
+		// cachedRecentRef), so the second read of the same cache is
+		// served from memory instead of localStorage.
 		expect(src).toMatch(
-			/useState\(\s*stats\s*===\s*null\s*&&\s*recent\.length\s*===\s*0\s*\)/,
+			/loadCachedStats\(\s*cachedStatsRef\s*\)\s*===\s*null\s*&&\s*loadCachedRecent\(\s*cachedRecentRef\s*\)\.length\s*===\s*0/,
 		);
-		// And the pre-fix form (with the lazy initializer calling
-		// loadCachedStats() and loadCachedRecent() again) must be
-		// gone. The pre-fix form used a lazy `() =>` initializer.
-		const preFixPattern =
-			/useState\(\s*\(\)\s*=>\s*loadCachedStats\(\)\s*===\s*null\s*&&\s*loadCachedRecent\(\)\.length\s*===\s*0\s*\)/;
-		expect(
-			preFixPattern.test(src),
-			"Pre-fix initialLoading initializer (4 localStorage reads) still present",
-		).toBe(false);
+		// The pre-fix module-level mutable bindings must stay gone (they
+		// leaked across HMR / test re-mounts and were not React-aware).
+		// Anchored to line start so prose comments mentioning the old
+		// names don't trip the guard.
+		expect(src).not.toMatch(/^[ \t]*let\s+_cached(?:Stats|Recent)\b/m);
+	});
+
+	it("cache helpers short-circuit on a populated ref before touching localStorage", () => {
+		const src = readSrc("pages/home/lib/cache.ts");
+		// Stats cache: non-null ref ⇒ return without reading storage.
+		expect(src).toMatch(
+			/if\s*\(\s*ref\.current\s*!==\s*null\s*\)\s*return\s+ref\.current;/,
+		);
+		// Recent cache: populated ref ⇒ return without reading storage.
+		expect(src).toMatch(
+			/if\s*\(\s*ref\.current\.length\s*>\s*0\s*\)\s*return\s+ref\.current;/,
+		);
 	});
 });
 
-// ── ER-25: App.tsx route-level code splitting ─────────────────────────
+// ── Route switching: code splitting with a Suspense fallback ─────────
 
-describe.skip("ER-25: App.tsx uses React.lazy for secondary routes + Suspense fallback", () => {
-	// Skipped: App.tsx again uses React.lazy for secondary routes, so most
-	// guards below are valid; the Suspense-fallback assertion needs
-	// re-verification against current markup before re-enabling.
+describe("Route switching lazy-loads secondary pages behind a Suspense fallback", () => {
+	// The lazy-route table + Suspense wrapper live in the extracted
+	// router/PageSwitch.tsx (App.tsx composes it).
+	const ROUTE_SRC_PATH = "router/PageSwitch.tsx";
+
 	it("imports lazy and Suspense from react", () => {
-		const src = readSrc("App.tsx");
+		const src = readSrc(ROUTE_SRC_PATH);
 		expect(src).toMatch(/import\s+\{[^}]*\blazy\b[^}]*\}\s+from\s+"react"/);
 		expect(src).toMatch(/import\s+\{[^}]*\bSuspense\b[^}]*\}\s+from\s+"react"/);
 	});
 
 	it("keeps Home as an eager (static) import — default landing page", () => {
-		const src = readSrc("App.tsx");
+		const src = readSrc(ROUTE_SRC_PATH);
 		// Home is the default landing page; it must NOT be lazy
 		// (loading it via React.lazy would add a Suspense fallback
 		// flash on every app launch).
@@ -327,7 +368,7 @@ describe.skip("ER-25: App.tsx uses React.lazy for secondary routes + Suspense fa
 	] as const)(
 		"converts %s to React.lazy(() => import(%s))",
 		(varName: string, importPath: string) => {
-			const src = readSrc("App.tsx");
+			const src = readSrc(ROUTE_SRC_PATH);
 			// Escape the import path for use in a regex (paths with
 			// slashes are safe in JS regex but be defensive).
 			const escaped = importPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -341,15 +382,22 @@ describe.skip("ER-25: App.tsx uses React.lazy for secondary routes + Suspense fa
 		},
 	);
 
-	it("wraps the renderPage() switch in <Suspense> with a <Spinner> fallback", () => {
-		const src = readSrc("App.tsx");
-		// The Suspense wrapper must use <Spinner /> as the fallback
-		// (the existing component, not a blank page or null).
-		expect(src).toMatch(/<Suspense\s+fallback=\{\s*<Spinner\s*\/\s*\s*\}>/);
+	it("wraps the routed content in <Suspense> with a real component fallback", () => {
+		const src = readSrc(ROUTE_SRC_PATH);
+		// The Suspense wrapper's fallback must be a dedicated fallback
+		// COMPONENT (`<RouteSuspenseFallback />` today) — not null,
+		// undefined, or a blank fragment, which would flash an empty
+		// frame on first navigation to a not-yet-loaded chunk.
+		expect(src).toMatch(
+			/<Suspense\s+fallback=\{\s*<[A-Z]\w*(?:\s*\/)?\s*>\s*\}\s*>/,
+		);
+		// And the fallback referenced must actually be declared in the
+		// same module.
+		expect(src).toMatch(/function\s+RouteSuspenseFallback\s*\(/);
 	});
 
 	it("does not statically import the secondary page modules (regression guard)", () => {
-		const src = readSrc("App.tsx");
+		const src = readSrc(ROUTE_SRC_PATH);
 		// Before the fix, all 10 pages were statically imported. After
 		// the fix, only Home is static. The 9 secondary pages must
 		// NOT appear in a plain `import X from "@/pages/Y"` statement.
@@ -380,62 +428,51 @@ describe.skip("ER-25: App.tsx uses React.lazy for secondary routes + Suspense fa
 	});
 });
 
-// ── ER-57: Dashboard.tsx derived values useMemo ───────────────────────
+// ── Dashboard: derived values memoized inside useDashboardData ───────
 
-describe.skip("ER-57: Dashboard.tsx derived render values are memoized", () => {
-	// Skipped: the ER-57 useMemo wrappers for Dashboard's derived labels /
-	// chart-bar values were reverted; Dashboard.tsx no longer imports
-	// `useMemo`. The source-grep contract is stale.
-	it("imports useMemo from react", () => {
-		const src = readSrc("pages/Dashboard.tsx");
+describe("Dashboard derived stats are memoized in useDashboardData", () => {
+	it("hook imports useMemo from react", () => {
+		const src = readSrc("pages/dashboard/hooks/useDashboardData.ts");
 		expect(src).toMatch(/import\s+\{[^}]*\buseMemo\b[^}]*\}\s+from\s+"react"/);
 	});
 
-	it("wraps the derived labels + chart-bar array in useMemo keyed on [d, locale]", () => {
-		const src = readSrc("pages/Dashboard.tsx");
-		// The memo must compute todayCharsLabel, totalCharsLabel,
-		// todayDurationLabel, totalCountLabel, activeDaysLabel, and
-		// bars — and return them as an object. We check the return
-		// shape and the deps array.
-		const memoMatch = src.match(
-			/const\s+derived\s*=\s*useMemo\(\(\)\s*=>\s*\{([\s\S]*?)\n\s*\},\s*\[([^\]]*)\]\s*\);/,
+	it("memoizes period stats, activity bars, and correction stats off the sample + range", () => {
+		const src = readSrc("pages/dashboard/hooks/useDashboardData.ts");
+		// Each derived value must be computed inside useMemo so unrelated
+		// re-renders (refreshing flag, ago label ticks) don't rebuild the
+		// stat objects / chart-bar arrays.
+		for (const name of ["period", "activity", "correctionStats"]) {
+			const memoMatch = src.match(
+				new RegExp(
+					`const\\s+${name}\\s*=\\s*useMemo\\(\\s*\\(\\)\\s*=>\\s*(\\w+)\\([^)]*\\)\\s*,\\s*\\[([^\\]]*)\\]`,
+				),
+			);
+			expect(
+				memoMatch,
+				`Expected const ${name} = useMemo(() => computeXxx(...), [...]) in useDashboardData`,
+			).not.toBeNull();
+			// Deps must include the range so a period toggle invalidates
+			// the memo.
+			expect(memoMatch?.[2] ?? "").toContain("range");
+		}
+		// The activity bars come from buildActivityBars (single source:
+		// the history sample), not an inline .map in render.
+		expect(src).toMatch(
+			/const\s+activity\s*=\s*useMemo\(\s*\(\)\s*=>\s*buildActivityBars\(sample,\s*range\)/,
 		);
-		expect(memoMatch, "derived useMemo declaration not found").not.toBeNull();
-		const body = memoMatch?.[1] ?? "";
-		const deps = memoMatch?.[2] ?? "";
-		expect(body).toContain("todayCharsLabel");
-		expect(body).toContain("totalCharsLabel");
-		expect(body).toContain("todayDurationLabel");
-		expect(body).toContain("totalCountLabel");
-		expect(body).toContain("activeDaysLabel");
-		expect(body).toContain("bars");
-		expect(body).toMatch(/\.toLocaleString\(locale\)/);
-		expect(body).toMatch(/formatDuration\(/);
-		expect(body).toMatch(/compactNumber\(/);
-		expect(body).toMatch(/t\(["']analytics\.dayActivityAria["']/);
-		// Deps must include both `d` (the data) and `locale` so a
-		// data refresh OR a locale toggle invalidates the memo.
-		expect(deps).toContain("d");
-		expect(deps).toContain("locale");
 	});
 
-	it("renders the chart bars from derived.bars (not an inline dailyActivity.map)", () => {
-		const src = readSrc("pages/Dashboard.tsx");
-		// The render body must iterate `derived.bars` (the memoized
-		// array), not call `d.dailyActivity.map(...)` inline (which
-		// would rebuild the array + 7× t() calls per render).
-		expect(src).toMatch(/derived\??\.bars/);
-		// The inline `d.dailyActivity.map((day) => {` call inside the
-		// chart-bar JSX must be gone. We approximate by checking the
-		// chart-bar block doesn't have a bare `d.dailyActivity.map`
-		// followed by `ariaLabel = t("analytics.dayActivityAria"`.
-		// (The memoized form puts the t() call inside the useMemo, not
-		// inside the render body.)
-		const inlineMapPattern =
-			/d\.dailyActivity\.map\(\(day\)\s*=>\s*\{[\s\S]*?ariaLabel\s*=\s*t\(["']analytics\.dayActivityAria["']/;
-		expect(
-			inlineMapPattern.test(src),
-			"Inline d.dailyActivity.map with per-render t() calls must be removed (use derived.bars)",
-		).toBe(false);
+	it("Dashboard consumes the memoized hook values instead of recomputing inline", () => {
+		const pageSrc = readSrc("pages/Dashboard.tsx");
+		// The page destructures the memoized values from the hook…
+		expect(pageSrc).toMatch(
+			/const\s*\{[\s\S]*?\bperiod\b,[\s\S]*?\bactivity\b,[\s\S]*?\bcorrectionStats\b,[\s\S]*?\}\s*=\s*useDashboardData/,
+		);
+		// …and passes the memoized activity array into the chart.
+		expect(pageSrc).toMatch(
+			/<ActivityChart\s+range=\{range\}\s+activity=\{activity\}\s*\/>/,
+		);
+		// No inline dailyActivity mapping may remain in the page render.
+		expect(pageSrc).not.toMatch(/dailyActivity\s*\.\s*map/);
 	});
 });

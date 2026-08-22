@@ -270,7 +270,7 @@ export function ActiveMicrophoneCard({
 
 			{/* Filter invalidation notice */}
 			{filtersSinceLastTest && filtersChangedSinceTest && !testRunning && (
-				<div className="mt-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-500">
+				<div className="mt-3 px-3 py-2 rounded-lg bg-warning/10 border border-warning/20 text-xs text-warning">
 					{t("microphone.filtersChangedNotice")}
 				</div>
 			)}

@@ -385,11 +385,12 @@ describe("Home renders the single dynamic status line below the mic button", () 
 		);
 
 		// The pill shows the error label + red dot (en.json
-		// home.error = "ERROR", STATUS_COLORS.error = #E74C3C).
+		// home.error = "ERROR"; STATUS_COLORS.error resolves the
+		// --destructive token so the dot adapts to every theme).
 		const pillLabel = screen.getByText("ERROR");
 		expect(pillLabel).toBeTruthy();
 		const dot = pillLabel.previousElementSibling as HTMLElement | null;
-		expect(dot?.style.backgroundColor).toBe("rgb(231, 76, 60)");
+		expect(dot?.style.backgroundColor).toBe("var(--destructive)");
 		// The underlying state is NOT shown — "READY" is gone.
 		expect(screen.queryByText("READY")).toBeNull();
 	});
@@ -602,6 +603,51 @@ describe("QV-49(b): LAST_TEXT_AUTO_CLEAR_MS is 30000ms", () => {
 	it("exports the bumped value (30s) so the preview stays visible long enough to act on", async () => {
 		const mod = await import("@/pages/home/lib/constants");
 		expect(mod.LAST_TEXT_AUTO_CLEAR_MS).toBe(30_000);
+	});
+});
+
+// Status pill dot colors are theme CSS variables ──
+//
+// The pill previously hardcoded a hex palette (#787878 / #2ECC71 / …),
+// which ignored theme presets and custom palettes entirely. Every value
+// must now be a `var(--…)` reference to a semantic token that index.css
+// defines for BOTH light and dark and every preset/custom palette
+// backfills (guarded by themes/__tests__/status-tokens.test.ts), so the
+// dot adapts to the active theme.
+
+describe("STATUS_COLORS maps every status key to a theme CSS variable", () => {
+	it("resolves each status key to the matching semantic token", async () => {
+		const mod = await import("@/pages/home/lib/constants");
+		expect(mod.STATUS_COLORS.idle).toBe("var(--text-muted)");
+		expect(mod.STATUS_COLORS.recording).toBe("var(--success)");
+		expect(mod.STATUS_COLORS.transcribing).toBe("var(--info)");
+		expect(mod.STATUS_COLORS.loading).toBe("var(--warning)");
+		expect(mod.STATUS_COLORS.cancelling).toBe("var(--warning)");
+		expect(mod.STATUS_COLORS.error).toBe("var(--destructive)");
+	});
+
+	it("contains no raw hex literals (theme presets + custom palettes must win)", async () => {
+		const mod = await import("@/pages/home/lib/constants");
+		for (const value of Object.values(mod.STATUS_COLORS)) {
+			expect(value.startsWith("var(--")).toBe(true);
+			expect(value.endsWith(")")).toBe(true);
+		}
+		expect(mod.DEFAULT_STATUS_COLOR).toBe("var(--text-muted)");
+	});
+
+	it("renders the idle pill dot with the muted token through Home", async () => {
+		resetStableMocks();
+		localStorage.clear();
+		vi.resetModules();
+		mockCall.mockImplementation(() => new Promise(() => {}));
+		const { useAppStore } = await import("@/stores/appStore");
+		useAppStore.setState({ recordingState: "idle", lastError: null });
+
+		await renderHome();
+
+		const pillLabel = screen.getByText("READY");
+		const dot = pillLabel.previousElementSibling as HTMLElement | null;
+		expect(dot?.style.backgroundColor).toBe("var(--text-muted)");
 	});
 });
 

@@ -202,3 +202,72 @@ describe("UX-18: Settings search empty state", () => {
 		});
 	});
 });
+
+describe("Settings initial-load failure shows an error state with Retry", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		mockPythonEvent.mockReset();
+		localStorage.clear();
+		vi.resetModules();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("renders the error EmptyState instead of an endless 'Loading…' spinner when get_config rejects", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config")
+				return Promise.reject(new Error("backend unreachable"));
+			return Promise.resolve({});
+		});
+
+		const { default: SettingsPage } = await import("@/pages/Settings");
+		renderWithProviders(<SettingsPage />);
+
+		// variant="error" EmptyState replaces the loading branch.
+		await waitFor(() => {
+			expect(screen.getByText("Couldn't load settings")).toBeTruthy();
+		});
+		expect(
+			screen.getByText(
+				"We couldn't load your settings from the backend. Check the logs and try again.",
+			),
+		).toBeTruthy();
+		expect(screen.getByRole("alert")).toBeTruthy();
+
+		const retryButton = screen.getByRole("button", { name: "Retry" });
+		expect(retryButton).toBeTruthy();
+	});
+
+	it("recovers into the normal page after a successful Retry click", async () => {
+		let failGetConfig = true;
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") {
+				return failGetConfig
+					? Promise.reject(new Error("backend unreachable"))
+					: Promise.resolve(baseConfig);
+			}
+			return Promise.resolve({});
+		});
+
+		const { default: SettingsPage } = await import("@/pages/Settings");
+		renderWithProviders(<SettingsPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("Couldn't load settings")).toBeTruthy();
+		});
+
+		failGetConfig = false;
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+		await waitFor(() => {
+			expect(screen.getByText("Settings")).toBeTruthy();
+		});
+		// The load-failure card is gone once the config loads. (The
+		// recovered page may legitimately contain OTHER role="alert"
+		// regions, e.g. the keyboard-permission banner — assert on the
+		// error card's own title instead of the alert role.)
+		expect(screen.queryByText("Couldn't load settings")).toBeNull();
+	});
+});

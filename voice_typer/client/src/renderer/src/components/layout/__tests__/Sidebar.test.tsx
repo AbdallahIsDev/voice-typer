@@ -87,9 +87,9 @@ describe("Sidebar", () => {
 
 	//active nav item visual hierarchy ───────────────────────
 
-	it("UX-16: active nav item blends with the page (--bg background, no accent bar, no accent tint)", () => {
-		renderWithProviders(<Sidebar {...baseProps} currentPage="settings" />);
-		const activeButton = findNavButton("Settings");
+	it("UX-16: active leaf nav item blends with the page (--bg background, no accent bar, no accent tint)", () => {
+		renderWithProviders(<Sidebar {...baseProps} currentPage="home" />);
+		const activeButton = findNavButton("Home");
 		expect(activeButton).toBeTruthy();
 		const cls = activeButton?.className ?? "";
 		// Transparent 2px inline-start border stays for alignment only
@@ -105,6 +105,23 @@ describe("Sidebar", () => {
 		// Text color + weight bumped to primary/medium.
 		expect(cls).toContain("text-(--text-primary)");
 		expect(cls).toContain("font-medium");
+	});
+
+	it("UX-16: Settings parent does NOT take the leaf active background when its submenu is active (calm foreground only)", () => {
+		renderWithProviders(
+			<Sidebar {...baseProps} currentPage="settingsGeneral" />,
+		);
+		const settingsButton = findNavButton("Settings");
+		expect(settingsButton).toBeTruthy();
+		const cls = settingsButton?.className ?? "";
+		// Parent groups (Settings) stay visually calm: the active-section
+		// signal is the stronger text/icon foreground ONLY — never the
+		// leaf `bg-(--bg)` highlighted background (no third background
+		// style competing with the active child).
+		expect(cls).toContain("text-(--text-primary)");
+		expect(cls).toContain("font-medium");
+		expect(cls).not.toContain("bg-(--bg)");
+		expect(cls).not.toContain("bg-(--accent-soft)");
 	});
 
 	it("UX-16: inactive nav items do NOT carry the accent border/background", () => {
@@ -204,20 +221,22 @@ describe("Sidebar", () => {
 		expect(settingsButton.getAttribute("aria-keyshortcuts")).toBe("Control+,");
 	});
 
-	it("expanded: renders the shortcut INLINE in the nav item (no tooltip)", async () => {
+	it("expanded: NO visible shortcut keycaps render inside the nav item (aria-keyshortcuts stays)", async () => {
 		renderWithProviders(<Sidebar {...baseProps} currentPage="home" />);
 		const home = findNavButton("Home");
 		// No plain-text `title` tooltip attribute.
 		expect(home.hasAttribute("title")).toBe(false);
-		// The shortcut is real, visible content inside the button — one
-		// <kbd> chip per key of the combo. formatHotkey("<ctrl>+<h>")
-		// resolves to "Ctrl" + "H" chips on non-macOS (KbdGroup wraps the
-		// combo in an outer <kbd>, so assert chip texts, not element count).
+		// The shortcut is NOT rendered as visible chips inside the
+		// expanded nav item — the sidebar stays clean (the shortcut
+		// remains functional via aria-keyshortcuts + the global
+		// shortcut handler).
 		const kbdTexts = Array.from(home.querySelectorAll("kbd")).map(
 			(k) => k.textContent,
 		);
-		expect(kbdTexts).toContain("Ctrl");
-		expect(kbdTexts).toContain("H");
+		expect(kbdTexts).not.toContain("Ctrl");
+		expect(kbdTexts).not.toContain("H");
+		// aria-keyshortcuts still exposes the binding to AT.
+		expect(home.getAttribute("aria-keyshortcuts")).toBe("Control+h");
 		// The expanded label is visible, so NO tooltip is rendered —
 		// focusing the item must not open one (there is no Tooltip
 		// wrapper around the expanded nav items at all).

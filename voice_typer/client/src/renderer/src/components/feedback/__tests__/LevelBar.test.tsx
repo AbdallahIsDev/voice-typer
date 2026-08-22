@@ -85,3 +85,38 @@ describe("LevelBar — aria-valuetext reflects tier", () => {
 		expect(bar.getAttribute("aria-label")).toBe("microphone.levelBarAria");
 	});
 });
+
+describe("LevelBar — compositor-friendly scaleX fill", () => {
+	function getFill(): HTMLElement {
+		const fill = getProgressbar().firstElementChild;
+		if (!fill) throw new Error("fill element not rendered");
+		return fill as HTMLElement;
+	}
+
+	it("animates the fill via transform scaleX instead of a percentage width", () => {
+		render(<LevelBar level={0.45} playing={false} />);
+		const fill = getFill();
+		expect(fill.style.transform).toBe("scaleX(0.45)");
+		// The old layout-triggering form set an animating width %; it
+		// must stay unset so the track width never participates in the
+		// animation.
+		expect(fill.style.width).toBe("");
+	});
+
+	it("clamps negative levels to a fully collapsed (empty) track", () => {
+		render(<LevelBar level={-0.2} playing={false} />);
+		expect(getFill().style.transform).toBe("scaleX(0)");
+	});
+
+	it("keeps the fill pinned to the left edge via transform-origin-left", () => {
+		render(<LevelBar level={0.6} playing={false} />);
+		expect(getFill().className).toContain("origin-left");
+	});
+
+	it("transitions only transform + opacity (no transition-all)", () => {
+		render(<LevelBar level={0.3} playing={false} />);
+		const cls = getFill().className;
+		expect(cls).toContain("transition-[transform,opacity]");
+		expect(cls).not.toContain("transition-all");
+	});
+});

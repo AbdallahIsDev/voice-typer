@@ -58,9 +58,15 @@ describe("NH-1: ConnectionStatusScreen", () => {
 		expect(
 			screen.getByRole("heading", { name: "app.startingBackend" }),
 		).toBeTruthy();
-		// The spinner is an <output> with aria-label="a11y.loading"
-		// (also mocked to return the key).
-		expect(screen.getByRole("status")).toBeTruthy();
+		// The description node is THE polite status region for the
+		// screen (role="status" on the <p>)…
+		const descriptionRegion = document.querySelector(
+			'[data-testid="connection-status"] p[role="status"]',
+		);
+		expect(descriptionRegion?.textContent).toBe("app.restartingHint");
+		// …and the spinner wrapper (<output aria-live="polite">) is a
+		// second status region identified by its aria-label.
+		expect(screen.getByRole("status", { name: "a11y.loading" })).toBeTruthy();
 	});
 
 	it("renders a restarting-backend title for status='restarting'", () => {
@@ -152,5 +158,30 @@ describe("NH-1: ConnectionStatusScreen", () => {
 
 		// No percentage text node should be present.
 		expect(screen.queryByText(/\d+%/)).toBeNull();
+	});
+
+	it("wrapper is roleless and the description node is a polite status region", () => {
+		render(
+			<ConnectionStatusScreen
+				status="disconnected"
+				lastError="boom"
+				onRetry={vi.fn()}
+				connectingProgress={null}
+			/>,
+		);
+		// The outer wrapper must NOT carry role="alert" (an assertive
+		// region around the whole card re-announced everything,
+		// progressbar ticks included).
+		const root = document.querySelector(
+			'[data-testid="connection-status"]',
+		) as HTMLElement;
+		expect(root).toBeTruthy();
+		expect(root.getAttribute("role")).toBeNull();
+		// The raw error is the description — announced politely via
+		// role="status" (implicit aria-live="polite"), rendered as a <p>.
+		const status = document.querySelector(
+			'[data-testid="connection-status"] p[role="status"]',
+		);
+		expect(status?.textContent).toBe("boom");
 	});
 });

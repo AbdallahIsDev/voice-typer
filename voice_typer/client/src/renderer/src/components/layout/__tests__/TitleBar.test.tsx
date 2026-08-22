@@ -539,8 +539,8 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 				onThemeChange={() => {}}
 			/>,
 		);
-		// en.json: help.openHelp = "Open this help overlay"
-		const helpBtn = screen.getByLabelText("Open this help overlay");
+		// en.json: help.openHelp = "Help Overlay"
+		const helpBtn = screen.getByLabelText("Help Overlay");
 		expect(helpBtn.tagName).toBe("BUTTON");
 		expect(helpBtn.getAttribute("aria-keyshortcuts")).toBe("?");
 	});
@@ -761,7 +761,7 @@ describe("TitleBar — macOS native traffic-light mode", () => {
 		expect(screen.queryByLabelText("Close")).toBeNull();
 		// The rest of the bar content stays.
 		expect(screen.getByLabelText("Toggle sidebar (Ctrl+B)")).toBeTruthy();
-		expect(screen.getByLabelText("Open this help overlay")).toBeTruthy();
+		expect(screen.getByLabelText("Help Overlay")).toBeTruthy();
 	});
 
 	it("reserves a traffic-light gutter on macOS so bar buttons don't collide with the dots", async () => {
@@ -833,7 +833,7 @@ describe("TitleBar — XA-1 (focus-ring parity + sidebar-toggle hover)", () => {
 		const toggle = screen.getByLabelText("Toggle sidebar (Ctrl+B)");
 		const back = screen.getByLabelText("Go back");
 		const forward = screen.getByLabelText("Go forward");
-		const help = screen.getByLabelText("Open this help overlay");
+		const help = screen.getByLabelText("Help Overlay");
 		for (const btn of [toggle, back, forward, help]) {
 			const cls = btn.className;
 			// Design-system Button uses ring-3; TitleBar previously used

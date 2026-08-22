@@ -77,11 +77,11 @@ from voice_typer.server.history_db import HistoryDB
 # ``importlib.import_module("voice_typer.server.transcription")``, so
 # the canonical patch target is the ``transcription`` module, not
 # ``app``.
-# T-1 / ARCH-9: ``create_hotkey_backend`` re-exported here so the
+# ``create_hotkey_backend`` re-exported here so the
 # 8+ test files that monkeypatch ``voice_typer.server.app.create_hotkey_backend``
 # (e.g. tests/test_volume_lifecycle.py:73-78, tests/test_hotkey_dispatcher_*.py)
 # keep working without per-test migration to the canonical location
-# ``voice_typer.server.hotkeys.create_hotkey_backend``. ARCH-9
+# ``voice_typer.server.hotkeys.create_hotkey_backend``.
 # documents the broader pattern of test-seam re-exports being
 # progressively removed (TranscriptionEngine was the first);
 # create_hotkey_backend stays because the migration cost is high

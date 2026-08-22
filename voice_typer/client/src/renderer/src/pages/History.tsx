@@ -30,7 +30,10 @@ import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { showUndoableToast } from "@/hooks/useSnackbar";
 import { getLocale, t } from "@/i18n/i18n";
-import { useHistoryCache } from "./history/hooks/useHistoryCache";
+import {
+	HISTORY_PAGE_SIZE,
+	useHistoryCache,
+} from "./history/hooks/useHistoryCache";
 import { useHistoryExport } from "./history/hooks/useHistoryExport";
 import {
 	type HistorySortOrder,
@@ -45,6 +48,14 @@ import {
 // event refresh) lives in `useHistoryCache`, the export paging loop
 // lives in `useHistoryExport`, and the client-side sort lives in
 // `historySort.ts`. This file is the thin view component.
+
+// Soft display cap — the flat list renders at most this many rows so a
+// very long history can't mount thousands of DOM rows at once. Once the
+// user has revealed this many rows AND the backend still reports more,
+// the "Load More" button is replaced by the cap notice pointing at
+// search (further fetches would append invisible rows past the cap).
+const HISTORY_DISPLAY_CAP = 200;
+
 export default function HistoryPage() {
 	const { navigate } = useNavigation();
 	const { call } = usePython();
@@ -67,6 +78,14 @@ export default function HistoryPage() {
 	const [searchQuery, setSearchQuery] = useState("");
 	const [favoritesOnly, setFavoritesOnly] = useState(false);
 	const [sortOrder, setSortOrder] = useState<HistorySortOrder>("newest");
+	// Explicit visible-row window. The cache hook pages 50 records per
+	// fetch into `records`; this state controls how many of them the
+	// list actually renders. It starts at one page and every "Load More"
+	// click BOTH fetches the next page (loadMore) and widens the window
+	// by one page — without the widening, appended rows would be sliced
+	// off by the render cap below and the click would look like a
+	// dead-zone no-op. Reset to one page whenever a fresh load runs.
+	const [visibleCount, setVisibleCount] = useState(HISTORY_PAGE_SIZE);
 	const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const [showClearConfirm, setShowClearConfirm] = useState(false);
 	const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -86,14 +105,27 @@ export default function HistoryPage() {
 	// Keep the cache hook's filter refs in sync with the page state.
 	setFilter(searchQuery, favoritesOnly);
 
+	// Fresh-load wrapper: every NEW fetch (mount, search, favorites
+	// toggle, manual refresh, error retry) restarts the visible window
+	// at one page so the list never shows a stale widened window over
+	// freshly-fetched rows. Background event refreshes bypass this —
+	// they must preserve the user's loaded depth.
+	const runLoad = useCallback(
+		(query?: string, favoritesOnly?: boolean) => {
+			setVisibleCount(HISTORY_PAGE_SIZE);
+			return load(query, favoritesOnly);
+		},
+		[load],
+	);
+
 	const handleManualRefresh = useCallback(async () => {
 		setRefreshing(true);
 		try {
-			await load();
+			await runLoad();
 		} finally {
 			setRefreshing(false);
 		}
-	}, [load]);
+	}, [runLoad]);
 
 	// R7-F13: extracted `debouncedRefreshFromEvent` via useCallback.
 	// Wraps `refreshFromEvent` (owned by useHistoryCache) in a 500ms
@@ -157,25 +189,25 @@ export default function HistoryPage() {
 	}, []);
 
 	useEffect(() => {
-		load();
-	}, [load]);
+		runLoad();
+	}, [runLoad]);
 
 	const handleSearch = useCallback(
 		(value: string) => {
 			setSearchQuery(value);
 			if (searchTimer.current) clearTimeout(searchTimer.current);
 			searchTimer.current = setTimeout(() => {
-				load(value, favoritesOnly);
+				runLoad(value, favoritesOnly);
 			}, 200);
 		},
-		[load, favoritesOnly],
+		[runLoad, favoritesOnly],
 	);
 
 	const toggleFavorites = useCallback(() => {
 		const next = !favoritesOnly;
 		setFavoritesOnly(next);
-		load(searchQuery, next);
-	}, [favoritesOnly, load, searchQuery]);
+		runLoad(searchQuery, next);
+	}, [favoritesOnly, runLoad, searchQuery]);
 
 	const handleDelete = useCallback(
 		async (id: number) => {
@@ -339,14 +371,14 @@ export default function HistoryPage() {
 						aria-label={t("history.favorites")}
 						className={`gap-2 ${
 							favoritesOnly
-								? "bg-amber-400/15 text-amber-700 border-amber-400/30 hover:bg-amber-400/20 dark:text-amber-400"
+								? "bg-warning/15 text-warning border-warning/30 hover:bg-warning/25"
 								: "text-(--text-muted) hover:text-(--text-primary)"
 						}`}
 					>
 						<HugeiconsIcon
 							icon={StarIcon}
 							strokeWidth={2}
-							className={`h-4 w-4 ${favoritesOnly ? "text-amber-700 dark:text-amber-400" : ""}`}
+							className={`h-4 w-4 ${favoritesOnly ? "text-warning" : ""}`}
 						/>
 						{t("history.favorites")}
 					</Button>
@@ -423,7 +455,7 @@ export default function HistoryPage() {
 						title={t("history.loadFailedTitle")}
 						description={loadError}
 						actionLabel={t("history.retry")}
-						onAction={() => load()}
+						onAction={() => runLoad()}
 					/>
 				) : records.length === 0 ? (
 					<EmptyState
@@ -457,26 +489,34 @@ export default function HistoryPage() {
 				) : (
 					<>
 						<ActivityList
-							// R7-F16: cap visible list at 200 items.
-							items={sortedRecords.slice(0, 50)}
+							// Visible window: at most `visibleCount` rows of the
+							// loaded cache are mounted (starts at one page;
+							// "Load More" widens it). The hard cap below keeps
+							// the window from ever exceeding the display limit.
+							items={sortedRecords.slice(
+								0,
+								Math.min(visibleCount, HISTORY_DISPLAY_CAP),
+							)}
 							lineClamp={3}
 							onDelete={handleDelete}
 							onToggleFavorite={handleToggleFavorite}
 						/>
 
-						{/*once `records.length` reaches the 200-item
-                                                        display cap AND the backend still reports more
-                                                        available (`hasMore`), further "Load More" clicks
-                                                        would be silent no-ops — `records.slice(0, 200)`
-                                                        above hides any items past 200, so the user would
-                                                        click Load More and see nothing change for several
-                                                        clicks.  Replace the button with a notice pointing
-                                                        the user at the search field to find older entries.
-                                                        When `records.length < 200`, the Load More button is
-                                                        still useful (it grows the visible list below the
-                                                        cap), so we keep it.
+						{/*once the visible window reaches BOTH the end of the
+                                                        loaded cache AND the 200-row display cap while the
+                                                        backend still reports more available (`hasMore`),
+                                                        further "Load More" clicks could not reveal anything —
+                                                        rows past the cap stay hidden, so the user would click
+                                                         and see nothing change. Replace the button with a
+                                                        notice pointing the user at the search field to find
+                                                        older entries. Below the cap (or when loaded rows are
+                                                        still unrevealed), the Load More button stays useful:
+                                                        each click fetches the next page AND widens the visible
+                                                        window to include it.
                                                 */}
-						{records.length >= 200 && hasMore ? (
+						{records.length >= HISTORY_DISPLAY_CAP &&
+						visibleCount >= records.length &&
+						hasMore ? (
 							<p className="mt-4 text-center text-xs text-(--text-muted)">
 								{t("history.showingCap", { shown: "200", total: "N+" })}
 							</p>
@@ -484,7 +524,10 @@ export default function HistoryPage() {
 							<Button
 								variant="outline"
 								size="default"
-								onClick={loadMore}
+								onClick={() => {
+									void loadMore();
+									setVisibleCount((c) => c + HISTORY_PAGE_SIZE);
+								}}
 								disabled={loadingMore}
 								className="mt-4 w-full gap-2 text-xs rounded-xl border border-dashed border-border/30"
 							>
@@ -509,7 +552,10 @@ export default function HistoryPage() {
 				)}
 			</div>
 
-			{/* #7: ConfirmDialog for Clear All */}
+			{/* ConfirmDialog for Clear All. variant="destructive" is
+			    explicit to match the Vocabulary Clear-All dialog — the
+			    confirm button carries the destructive treatment for an
+			    irreversible, privacy-adjacent wipe. */}
 			<ConfirmDialog
 				open={showClearConfirm}
 				title={t("history.clearAllHistory")}
@@ -523,6 +569,7 @@ export default function HistoryPage() {
 						: t("history.clearAllMessage")
 				}
 				confirmLabel={t("history.clearAllConfirm")}
+				variant="destructive"
 				onConfirm={confirmClearAll}
 				onCancel={() => setShowClearConfirm(false)}
 			/>

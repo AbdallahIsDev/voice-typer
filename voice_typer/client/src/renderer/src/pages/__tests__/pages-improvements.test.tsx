@@ -623,11 +623,71 @@ describe("R7-F15: DiagnosticsSettingsSection — configDir starts empty and fall
 
 // ── R7-F16 ─────────────────────────────────────────────────────────────
 
-describe("R7-F16: History.tsx — visible list capped at 200 items", () => {
-	it("source contains records.slice(0, 200)", async () => {
-		const fs = await import("node:fs");
-		const src = fs.readFileSync("src/renderer/src/pages/History.tsx", "utf8");
-		expect(src).toMatch(/records\.slice\(0,\s*200\)/);
+describe("R7-F16: History.tsx — Load More reveals paged rows (no dead zone)", () => {
+	function makeRecord(index: number) {
+		return {
+			id: index + 1,
+			text: `Record ${index + 1}`,
+			timestamp: new Date(Date.now() - index * 1000).toISOString(),
+			duration: 1,
+			model: "tiny",
+			device: "cpu",
+			word_count: 2,
+			char_count: 9,
+			favorite: 0,
+			language: "en",
+		};
+	}
+
+	it("renders only the first page initially, then reveals the appended rows after Load More", async () => {
+		// 60 total records: the first `get_history` page returns 50 rows
+		// (a full page → hasMore), the paged follow-up returns 10 more.
+		let historyCalls = 0;
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_today_stats") {
+				return Promise.resolve({
+					count: 60,
+					chars: 600,
+					word_count: 120,
+					duration: 60,
+				});
+			}
+			if (type === "get_history") {
+				historyCalls += 1;
+				const start = historyCalls === 1 ? 0 : 50;
+				const count = historyCalls === 1 ? 50 : 10;
+				return Promise.resolve(
+					Array.from({ length: count }, (_, i) => makeRecord(start + i)),
+				);
+			}
+			return Promise.resolve({});
+		});
+
+		const { default: HistoryPage } = await import("@/pages/History");
+		renderWithProviders(<HistoryPage />);
+
+		// First paint shows exactly the first page — row 51 must NOT be
+		// mounted yet.
+		await waitFor(() => {
+			expect(screen.getByText("Record 1")).toBeTruthy();
+		});
+		expect(screen.getByText("Record 50")).toBeTruthy();
+		expect(screen.queryByText("Record 51")).toBeNull();
+
+		// "Load More" fetches the next page AND widens the visible window
+		// so the newly appended rows actually appear (the dead-zone bug:
+		// rows were fetched + appended to the cache but sliced off by a
+		// fixed 50-row render cap, so clicks looked like no-ops).
+		fireEvent.click(
+			screen.getByRole("button", { name: t("history.loadMore") }),
+		);
+
+		await waitFor(() => {
+			expect(screen.getByText("Record 60")).toBeTruthy();
+		});
+		// The click actually fetched the second page from the backend
+		// (initial load + one paged follow-up).
+		expect(historyCalls).toBe(2);
 	});
 });
 

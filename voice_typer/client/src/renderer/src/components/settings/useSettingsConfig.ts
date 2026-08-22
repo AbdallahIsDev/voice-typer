@@ -107,6 +107,11 @@ export interface UseSettingsConfigResult {
 	 *  got 5") instead of the generic "Failed to save setting"
 	 *  toast text.  Cleared on the next successful save. */
 	error: string | null;
+	/** Set when the initial `get_config` fetch fails. The Settings
+	 *  page renders a load-failure EmptyState with a Retry action
+	 *  instead of an endless "Loading…" spinner (config stays null
+	 *  on failure). Cleared on the next successful load. */
+	loadError: string | null;
 	/** : true while debounced writes are queued OR a flush
 	 *  is in flight.  Consumers (Settings.tsx) can use this to
 	 *  guard `onNavigate` calls with a ConfirmDialog so the user
@@ -140,6 +145,11 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 	// indicator can render a "Save failed" state with the backend's
 	// specific message.  Cleared on the next successful save.
 	const [error, setError] = useState<string | null>(null);
+	// Initial-load failure surface: a rejected `get_config` used to be
+	// swallowed (console-only), leaving `config` null and the page on
+	// its "Loading…" branch forever. Exposed so the page can offer a
+	// Retry instead of an infinite spinner.
+	const [loadError, setLoadError] = useState<string | null>(null);
 
 	// batched writes — accumulate updates in `pendingUpdatesRef`
 	// and flush them in a single `set_config` IPC via a microtask.
@@ -195,6 +205,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 				// newer `loadConfig` call) does not have its in-flight
 				// `setConfig` call land on a dead or stale React state.
 				if (isCancelled()) return;
+				setLoadError(null);
 				_cachedConfig = result;
 				lastSavedConfigRef.current = result;
 				setConfig(result);
@@ -204,6 +215,10 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 						"[renderer:useSettingsConfig] Failed to load config:",
 						err,
 					);
+					// Surface the failure so the page can leave its loading
+					// branch and render the load-failure EmptyState (Retry)
+					// instead of an endless "Loading…" spinner.
+					setLoadError(err instanceof Error ? err.message : String(err));
 				}
 			}
 		},
@@ -453,6 +468,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 		saving,
 		pending,
 		error,
+		loadError,
 		hasPendingOrSaving: pending || saving,
 		updateConfig,
 		updateConfigDebounced,

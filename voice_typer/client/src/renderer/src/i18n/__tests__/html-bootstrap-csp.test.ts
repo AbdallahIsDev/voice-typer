@@ -111,6 +111,28 @@ describe("HTML inline i18n bootstrap scripts", () => {
 				expect(script).toMatch(/\blet\s+locale,\s+SUPPORTED,\s+tag\s*;/);
 			});
 
+			it("bootstrap sets document.documentElement.dir (rtl for ar, ltr otherwise)", () => {
+				const html = readHtml(fileName);
+				const scriptMatch = html.match(
+					/<script>\s*\(\(\)\s*=>\s*\{[\s\S]*?\}\)\(\);\s*<\/script>/,
+				);
+				expect(
+					scriptMatch,
+					"inline i18n bootstrap script must be present",
+				).not.toBeNull();
+				if (scriptMatch == null || scriptMatch[0] == null) {
+					throw new Error("inline i18n bootstrap script must be present");
+				}
+				const script = scriptMatch[0];
+				// The bootstrap must set the writing direction BEFORE first
+				// paint so Arabic users don't see an LTR flash (mirrors the
+				// setLocale dir contract: rtl for ar, ltr for every other
+				// locale).
+				expect(script).toContain("document.documentElement.dir");
+				expect(script).toContain('"rtl"');
+				expect(script).toContain('"ltr"');
+			});
+
 			it("does not include any task IDs in comments (C-STYLE-1)", () => {
 				const html = readHtml(fileName);
 				// The inline bootstrap script's comments must not reference
@@ -166,7 +188,12 @@ describe("HTML CSP meta tags — C-DATA-1 offline compliance", () => {
 				// These directives were not changed by the C-DATA-1 fix —
 				// verify they remain in place so the CSP is still strict.
 				expect(csp).toMatch(/script-src 'self'(?:;|$)/);
-				expect(csp).toContain("frame-ancestors 'none'");
+				// frame-ancestors is intentionally ABSENT from <meta> CSP
+				// policies: the CSP spec ignores frame-ancestors delivered
+				// via <meta> (it is only honored from HTTP headers), so the
+				// strict production policy lives in the onHeadersReceived
+				// header path instead.
+				expect(csp).not.toContain("frame-ancestors");
 				expect(csp).toContain("form-action 'none'");
 				expect(csp).toContain("base-uri 'self'");
 				expect(csp).toContain("default-src 'self'");

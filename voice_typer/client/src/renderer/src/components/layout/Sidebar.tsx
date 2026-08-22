@@ -1,6 +1,8 @@
 import {
 	AiBrain03Icon,
 	Analytics01Icon,
+	ArrowDown01Icon,
+	ArrowRight01Icon,
 	BookOpen02Icon,
 	File02Icon,
 	HistoryIcon,
@@ -31,7 +33,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { HotkeyChips } from "@/components/hotkey/HotkeyChips";
 import { HotkeyTooltip } from "@/components/hotkey/HotkeyTooltip";
 import { formatHotkey } from "@/components/hotkey/hotkey-utils";
 import { SHORTCUTS } from "@/components/hotkey/shortcuts";
@@ -152,8 +153,12 @@ const ALL_NAV_ITEMS: NavItem[] = [
 	...SYSTEM_NAV_ITEMS,
 ];
 
-//, : per-page keyboard shortcuts surfaced in the nav
-// item's tooltip (aria-keyshortcuts + Kbd chips via HotkeyTooltip).
+//, : per-page keyboard shortcuts surfaced ONLY for
+// accessibility + the collapsed-sidebar tooltip: the expanded nav
+// items render NO visible shortcut chips (clean, consistent with pages
+// that don't display shortcuts), but the shortcuts remain registered
+// and functional. `aria-keyshortcuts` exposes them to AT, and the
+// collapsed icon-only items show them as Kbd chips via HotkeyTooltip.
 // Uses formatHotkey() for platform-aware labels (e.g. "Ctrl+H" on
 // Windows/Linux, "⌘H" on macOS) instead of hardcoded English. Pages
 // without a shortcut return undefined (no chips rendered). The
@@ -400,7 +405,7 @@ function NavLeaf({
 			aria-current={isActive ? "page" : undefined}
 			className={cn(
 				"w-full justify-start gap-3 text-sm tracking-wide normal-case font-normal rounded-md",
-				"transition-all duration-200 ease-out",
+				"transition-[background-color,color] duration-200 ease-out",
 				"border-s-2",
 				collapsed ? "px-2" : "px-3",
 				isActive
@@ -408,7 +413,10 @@ function NavLeaf({
 							"border-s-transparent bg-(--bg) hover:bg-(--bg)",
 							"text-(--text-primary) font-medium",
 						)
-					: cn("border-s-transparent", "hover:bg-foreground/5"),
+					: cn(
+							"border-s-transparent text-(--text-muted)",
+							"hover:bg-foreground/5 hover:text-(--text-primary)",
+						),
 			)}
 			onClick={handleNav}
 		>
@@ -420,7 +428,7 @@ function NavLeaf({
 			<span
 				className={cn(
 					"overflow-hidden whitespace-nowrap text-sm font-medium dark:font-normal",
-					"transition-all duration-200 ease-out",
+					"transition-[max-width,opacity,filter] duration-200 ease-out",
 					collapsed
 						? "max-w-0 opacity-0 filter-[blur(4px)]"
 						: "max-w-40 opacity-100 filter-none",
@@ -428,14 +436,6 @@ function NavLeaf({
 			>
 				{t(`nav.${item.id}`)}
 			</span>
-			{!collapsed && shortcut !== undefined && (
-				<span
-					aria-hidden="true"
-					className="ms-auto flex items-center opacity-60"
-				>
-					<HotkeyChips keys={shortcut} />
-				</span>
-			)}
 		</Button>
 	);
 	if (collapsed) {
@@ -486,7 +486,8 @@ function NavSubmenu({
 }: NavSubmenuProps) {
 	// Track the user's manual preference so it survives
 	// navigation away from Settings and back. Initialized once
-	// on mount; updated when the user clicks the chevron.
+	// on mount; updated when the user clicks the parent row
+	// (the chevron is an indicator inside that same hit target).
 	const [manualExpanded, setManualExpanded] = useState<boolean>(() => {
 		try {
 			return localStorage.getItem(SETTINGS_SUBMENU_LS_KEY) === "true";
@@ -550,7 +551,6 @@ function NavSubmenu({
 	}, [hasActiveChild, isParentActive, onNavigate, item.id]);
 
 	const parentLabel = t(`nav.${item.id}`);
-	const parentShortcut = navShortcut(item.id);
 	const parentKeyShortcut = NAV_KEYSHORTCUTS[item.id];
 
 	// The parent button is the roving-tabindex target when no
@@ -575,11 +575,10 @@ function NavSubmenu({
 						aria-expanded={
 							hasActiveChild || isParentActive ? "true" : undefined
 						}
-						aria-haspopup="menu"
 						aria-current={isParentActive ? "page" : undefined}
 						className={cn(
 							"w-full justify-center p-2 rounded-md",
-							"transition-all duration-200 ease-out",
+							"transition-[background-color,color] duration-200 ease-out",
 							"border-s-2 border-s-transparent",
 							hasActiveChild || isParentActive
 								? "text-(--text-primary) font-medium"
@@ -605,7 +604,7 @@ function NavSubmenu({
 						)}
 					>
 						<div
-							className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-(--text-muted) opacity-70"
+							className="px-2 py-1 text-[0.6875rem] font-semibold uppercase tracking-wider text-(--text-muted) opacity-70"
 							aria-hidden
 						>
 							{parentLabel}
@@ -645,13 +644,17 @@ function NavSubmenu({
 	}
 
 	// Expanded sidebar: render a Collapsible parent button + nested
-	// children. The parent shows icon + label; clicking it navigates
-	// to the default child when no child is active, and toggles
-	// expanded when a child is already active. There is NO separate
-	// chevron/close toggle on the right edge of the parent row — the
-	// submenu's visibility is driven by the active page (auto-expand
-	// on a Settings sub-page, auto-collapse on leaving) plus the
-	// persisted manual preference.
+	// children. The parent shows icon + label + a direction-aware
+	// expand/collapse CHEVRON at the row's end edge. The chevron is an
+	// indicator only (aria-hidden) — the whole parent row remains the
+	// single hit target that navigates to the default child when no
+	// child is active and toggles expanded otherwise. Closed state
+	// points forward (ArrowRight01Icon + the `nav-directional-icon`
+	// RTL-mirroring class so it flips to point "forward" in RTL
+	// locales); open state points down (ArrowDown01Icon — vertical,
+	// direction-neutral, no mirroring class). The icon itself carries
+	// NO rotation/transition animation — the glyph swaps instantly on
+	// toggle.
 	return (
 		<Collapsible open={expanded} onOpenChange={setManualExpanded}>
 			<Button
@@ -660,7 +663,6 @@ function NavSubmenu({
 				aria-keyshortcuts={parentKeyShortcut}
 				tabIndex={parentTabIndex}
 				aria-expanded={expanded ? "true" : "false"}
-				aria-haspopup="menu"
 				// aria-current is set on the PARENT only
 				// when the parent literal itself is the
 				// active page (e.g. tests / stale persisted
@@ -672,30 +674,24 @@ function NavSubmenu({
 				aria-current={isParentActive ? "page" : undefined}
 				className={cn(
 					"w-full justify-start gap-3 text-sm tracking-wide normal-case font-normal rounded-md",
-					"transition-all duration-200 ease-out",
+					"transition-[background-color,color] duration-200 ease-out",
 					"border-s-2 border-s-transparent",
 					"px-3",
-					isParentActive
+					isParentActive || hasActiveChild
 						? cn(
-								// Parent literal is the active page —
-								// apply the same active styling as a
-								// leaf nav button (mirrors NavLeaf's
-								// active branch).
-								"bg-(--bg) hover:bg-(--bg)",
+								// Parent groups (Settings) stay visually CALM when
+								// their submenu is active: only the stronger
+								// text/icon foreground marks the active section —
+								// never the leaf `bg-(--bg)` highlighted
+								// background (that would compete with the active
+								// child and introduce a third background style).
 								"text-(--text-primary) font-medium",
+								"hover:bg-foreground/5",
 							)
-						: hasActiveChild
-							? cn(
-									"text-(--text-primary) font-medium",
-									// When a child is active, the parent
-									// does NOT take the active background
-									// (--bg) — that would visually compete
-									// with the child's active state. The
-									// parent stays in its default container
-									// background so the active child pops.
-									"hover:bg-foreground/5",
-								)
-							: cn("hover:bg-foreground/5"),
+						: cn(
+								"text-(--text-muted)",
+								"hover:bg-foreground/5 hover:text-(--text-primary)",
+							),
 				)}
 				onClick={handleParentClick}
 			>
@@ -712,14 +708,30 @@ function NavSubmenu({
 				>
 					{parentLabel}
 				</span>
-				{parentShortcut !== undefined && (
-					<span
-						aria-hidden="true"
-						className="ms-auto flex items-center opacity-60"
-					>
-						<HotkeyChips keys={parentShortcut} />
-					</span>
-				)}
+				{/* Expand/collapse indicator chevron at the row's end edge.
+				    aria-hidden — the button's aria-expanded already exposes
+				    the state to assistive tech. The size-6 (24px) wrapper
+				    keeps the glyph's pointer hit area at the 24px minimum
+				    inside the full-row button target. */}
+				<span
+					aria-hidden="true"
+					className="flex size-6 shrink-0 items-center justify-center"
+				>
+					<HugeiconsIcon
+						icon={expanded ? ArrowDown01Icon : ArrowRight01Icon}
+						strokeWidth={2}
+						className={cn(
+							"h-4 w-4",
+							// Closed chevron points "forward": mirrored under
+							// dir=rtl via the shared index.css rule so it keeps
+							// pointing forward in RTL locales. The open glyph
+							// points down — vertical/direction-neutral, no
+							// mirroring class. Deliberately NO rotation /
+							// transition classes: the glyph swaps instantly.
+							!expanded && "nav-directional-icon",
+						)}
+					/>
+				</span>
 			</Button>
 			<CollapsibleContent
 				className={cn(
@@ -727,8 +739,13 @@ function NavSubmenu({
 					"data-[state=closed]:animate-out data-[state=closed]:slide-out-to-top-1 data-[state=closed]:fade-out-0",
 				)}
 			>
+				{/* Plain grouping container — deliberately NOT role="menu".
+				    These are navigation links inside a nav landmark (the
+				    submenu is part of the page's navigation, not a
+				    transient action menu): menu semantics would demand
+				    menuitem roles + arrow-key menu behavior and break the
+				    nav's roving-tabindex contract. */}
 				<div
-					role="menu"
 					className={cn(
 						"ms-3 mt-0.5 flex flex-col gap-px border-s border-border/10 ps-2",
 					)}
@@ -750,7 +767,7 @@ function NavSubmenu({
 								aria-level={2}
 								className={cn(
 									"w-full justify-start gap-3 text-sm tracking-wide normal-case font-normal rounded-md",
-									"transition-all duration-200 ease-out",
+									"transition-[background-color,color] duration-200 ease-out",
 									"border-s-2 px-3 py-1.5",
 									childActive
 										? cn(

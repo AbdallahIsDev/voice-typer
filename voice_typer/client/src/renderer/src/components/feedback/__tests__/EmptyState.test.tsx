@@ -28,11 +28,12 @@ vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: ({
 		children,
 		icon,
+		...rest
 	}: {
 		children?: React.ReactNode;
 		icon?: { name?: string };
-	}) => (
-		<span data-testid="hugeicon" data-name={icon?.name}>
+	} & React.HTMLAttributes<HTMLSpanElement>) => (
+		<span data-testid="hugeicon" data-name={icon?.name} {...rest}>
 			{children}
 		</span>
 	),
@@ -163,5 +164,32 @@ describe("EmptyState — BG-R13 (title as <h3> + icon prop wiring)", () => {
 		);
 		expect(screen.queryByRole("button")).toBeNull();
 		expect(ref.current).toBeNull();
+	});
+
+	it("info icon relies on the muted token alone — no stacked opacity wash", () => {
+		// Stacking opacity-50 on top of text-(--text-muted) pushed the
+		// icon below the WCAG 1.4.11 non-text contrast minimum; the
+		// muted token must carry the hierarchy by itself.
+		render(<EmptyState icon={Mic02Icon} title="No dictations yet" />);
+		const icons = screen.getAllByTestId("hugeicon");
+		const titleIcon = icons.find(
+			(el) => el.getAttribute("data-name") === "Mic02Icon",
+		);
+		expect(titleIcon).toBeDefined();
+		expect(titleIcon?.className).toContain("text-(--text-muted)");
+		expect(titleIcon?.className).not.toMatch(/opacity-\d/);
+	});
+
+	it("error icon keeps the plain destructive token (no opacity stacking)", () => {
+		render(
+			<EmptyState icon={Mic02Icon} title="Failed to load" variant="error" />,
+		);
+		const alert = screen.getByRole("alert");
+		const errorIcon = Array.from(
+			alert.querySelectorAll<HTMLElement>("[data-testid='hugeicon']"),
+		).find((el) => el.getAttribute("data-name") === "Alert02Icon");
+		expect(errorIcon).toBeDefined();
+		expect(errorIcon?.className).toContain("text-destructive");
+		expect(errorIcon?.className).not.toMatch(/opacity-\d/);
 	});
 });

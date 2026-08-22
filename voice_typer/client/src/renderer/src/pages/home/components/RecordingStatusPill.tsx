@@ -39,7 +39,7 @@ export function RecordingStatusPill({
 			/>
 			<span
 				key={statusLabel}
-				className="text-[11px] font-medium uppercase tracking-wide text-(--text-muted) transition-opacity duration-200 animate-fade-in"
+				className="text-[0.6875rem] font-medium uppercase tracking-wide text-(--text-muted) transition-opacity duration-200 animate-fade-in"
 			>
 				{statusLabel}
 			</span>

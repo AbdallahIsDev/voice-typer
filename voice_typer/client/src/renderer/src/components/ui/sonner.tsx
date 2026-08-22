@@ -8,9 +8,9 @@ import {
 	MultiplicationSignCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
-import { getLocale, isRtlLocale } from "@/i18n/i18n";
+import { getLocale, isRtlLocale, subscribeLocale } from "@/i18n/i18n";
 
 /**
  * Resolve the current theme for the Sonner toaster.
@@ -60,8 +60,30 @@ function useResolvedTheme(): "light" | "dark" {
 	return resolved;
 }
 
+/**
+ * React to locale changes live.
+ *
+ * Subscribes via the i18n module's locale-subscriber registry (the same
+ * notification stream that drives `useT()`, fired by `setLocale` /
+ * `ensureLocaleLoaded`). The snapshot is a primitive boolean, so
+ * `useSyncExternalStore` re-renders the Toaster only when the RTL-ness
+ * of the active locale actually flips — e.g. switching English →
+ * Arabic moves the toaster corner without a page reload.
+ */
+function useRtlLocale(): boolean {
+	return useSyncExternalStore(
+		subscribeLocale,
+		() => isRtlLocale(getLocale()),
+		() => false,
+	);
+}
+
 const Toaster = ({ ...props }: ToasterProps) => {
 	const theme = useResolvedTheme();
+	// Position follows the ACTIVE locale on every change: bottom-right
+	// in LTR locales, bottom-left in RTL locales (Arabic) so the toaster
+	// sits in the visually-far corner from the reading start.
+	const rtl = useRtlLocale();
 
 	return (
 		<Sonner
@@ -77,11 +99,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
 			//     (errors stay 8s; some users want them gone now)
 			//     without waiting for the timer or hunting for the
 			//     action button.
-			//   - position: bottom-right in LTR locales, bottom-left in
-			//     RTL locales (Arabic/Hebrew) so the toaster sits in the
-			//     visually-far corner from the reading start. Note: this
-			//     is computed once at mount; sonner doesn't react to
-			//runtime locale changes ().
+			//   - position: reactive to the active locale (see
+			//     useRtlLocale above) — flipping to Arabic at runtime
+			//     re-renders the Toaster with the mirrored corner.
 			//   - duration={4000}: fallback for toasts raised via
 			//     ``toast.*`` directly (bypassing ``useSnackbar``).
 			//     The hook applies its own per-type durations
@@ -89,7 +109,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
 			//     which override this default.
 			richColors
 			closeButton
-			position={isRtlLocale(getLocale()) ? "bottom-left" : "bottom-right"}
+			position={rtl ? "bottom-left" : "bottom-right"}
 			duration={4000}
 			visibleToasts={6}
 			expand={false}

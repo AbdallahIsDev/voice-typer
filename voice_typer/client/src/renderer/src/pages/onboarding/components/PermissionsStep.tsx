@@ -74,7 +74,7 @@ export function PermissionsStep({
 					permissionsResult &&
 					permissionsResult.state !== "error" &&
 					(permissionsResult.needed ? (
-						<output className="rounded-lg border border-amber-400/40 bg-amber-50 dark:bg-amber-950/20 p-4 text-sm">
+						<output className="rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
 							<p className="mb-2 font-medium text-(--text-primary)">
 								{t("onboarding.permissionsNeeded")}
 							</p>
@@ -134,14 +134,12 @@ export function PermissionsStep({
 						<span>{t("onboarding.permissionsTestLabel")}</span>
 					)}
 					{permissionsTest.kind === "success" && (
-						<span className="text-green-600 dark:text-green-400">
+						<span className="text-success">
 							{t("onboarding.permissionsTestSuccess")}
 						</span>
 					)}
 					{permissionsTest.kind === "failure" && (
-						<span className="text-red-600 dark:text-red-400">
-							{failureMessage}
-						</span>
+						<span className="text-destructive">{failureMessage}</span>
 					)}
 				</div>
 			</div>

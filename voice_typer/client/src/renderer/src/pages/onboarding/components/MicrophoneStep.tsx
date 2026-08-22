@@ -72,7 +72,7 @@ export function MicrophoneStep({
 										<span>{mic.name}</span>
 										{showDefaultBadge && (
 											<span
-												className="rounded-full border border-accent/30 bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent"
+												className="rounded-full border border-accent/30 bg-accent/10 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-accent"
 												data-testid={`mic-default-badge-${mic.id}`}
 											>
 												{t("onboarding.defaultMic")}
@@ -80,7 +80,7 @@ export function MicrophoneStep({
 										)}
 										{showBluetoothBadge && (
 											<span
-												className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400"
+												className="rounded-full border border-warning/30 bg-warning/10 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-warning"
 												data-testid={`mic-bluetooth-badge-${mic.id}`}
 												title="Bluetooth/HFP — audio quality may be limited"
 											>

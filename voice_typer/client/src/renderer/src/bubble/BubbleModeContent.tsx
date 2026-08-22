@@ -185,7 +185,7 @@ export function BubbleModeContent({
 							strokeWidth={2}
 							className="w-3 h-3 text-(--text-muted)"
 						/>
-						<span className="text-[10px] font-medium text-(--text-muted)">
+						<span className="text-[0.625rem] font-medium text-(--text-muted)">
 							{tf("bubble.idleLabel", "Ready")}
 						</span>
 					</div>
@@ -206,7 +206,7 @@ export function BubbleModeContent({
 						className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse"
 						aria-hidden
 					/>
-					<span className="text-[10px] font-medium text-destructive">
+					<span className="text-[0.625rem] font-medium text-destructive">
 						{tf("bubble.errorLabel", "⚠ Error")}
 						{errorMessage ? `: ${errorMessage}` : ""}
 					</span>
@@ -216,12 +216,12 @@ export function BubbleModeContent({
 			return (
 				<div className="flex h-6 items-center gap-1.5 px-2">
 					<span
-						className="text-[11px] leading-none text-(--text-muted)"
+						className="text-[0.6875rem] leading-none text-(--text-muted)"
 						aria-hidden
 					>
 						⊘
 					</span>
-					<span className="text-[10px] font-medium text-(--text-muted)">
+					<span className="text-[0.625rem] font-medium text-(--text-muted)">
 						{tf("bubble.blockedLabel", "Blocked")}
 					</span>
 				</div>
@@ -230,12 +230,12 @@ export function BubbleModeContent({
 			return (
 				<div className="flex h-6 items-center gap-1.5 px-2">
 					<span
-						className="text-[11px] leading-none text-(--text-muted) animate-pulse"
+						className="text-[0.6875rem] leading-none text-(--text-muted) animate-pulse"
 						aria-hidden
 					>
 						⏇
 					</span>
-					<span className="text-[10px] font-medium text-(--text-muted)">
+					<span className="text-[0.625rem] font-medium text-(--text-muted)">
 						{tf("bubble.cancellingLabel", "Cancelling…")}
 					</span>
 				</div>
@@ -247,7 +247,7 @@ export function BubbleModeContent({
 						className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse"
 						aria-hidden
 					/>
-					<span className="text-[10px] font-medium text-destructive">
+					<span className="text-[0.625rem] font-medium text-destructive">
 						{tf("bubble.permissionRevokedLabel", "Mic permission revoked")}
 					</span>
 				</div>
@@ -259,7 +259,7 @@ export function BubbleModeContent({
 						className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse"
 						aria-hidden
 					/>
-					<span className="text-[10px] font-medium text-destructive">
+					<span className="text-[0.625rem] font-medium text-destructive">
 						{tf("bubble.pasteFailedLabel", "Paste failed")}
 					</span>
 				</div>

@@ -70,7 +70,7 @@ export function ActivityChart({ range, activity }: ActivityChartProps) {
 					// Sized to roughly match the stacked title+subtitle block
 					// beside it (was h-4 w-4, disproportionately tiny next
 					// to a two-line text block).
-					className="h-9 w-9 shrink-0 text-(--text-muted)"
+					className="h-8 w-8 shrink-0 text-(--text-muted)"
 				/>
 				<div className="space-y-0.5">
 					<h2 className="font-sans text-sm font-semibold text-(--text-primary)">

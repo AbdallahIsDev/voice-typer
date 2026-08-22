@@ -1,5 +1,5 @@
 /**
- * F-17: Automated WCAG violation scanning for all pages.
+ * Automated WCAG violation scanning for all pages.
  *
  * Each page is mounted with @testing-library/react and scanned with
  * axe-core. The color-contrast rule is disabled because the test
@@ -305,6 +305,17 @@ vi.mock("@/components/feedback/ErrorBoundary", () => ({
 	),
 }));
 
+// Stub ConfirmDialog out of every page scan below. Importing the real
+// component pulls the Radix AlertDialog + Portal + FocusScope module
+// graph into jsdom, which blows the worker heap on the Onboarding page
+// (FATAL mark-compacts near heap limit ~2 GB). A closed ConfirmDialog
+// renders nothing, so a `() => null` stub is behaviour-equivalent for
+// these scans while keeping the pages' own progressbar / heading /
+// button a11y coverage intact.
+vi.mock("@/components/common/ConfirmDialog", () => ({
+	default: () => null,
+}));
+
 vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: ({
 		children,
@@ -383,7 +394,7 @@ async function expectNoAxeViolations(container: HTMLElement): Promise<void> {
  */
 const renderPage = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
-describe("F-17: axe-core automated WCAG scan — all pages", () => {
+describe("axe-core automated WCAG scan — all pages", () => {
 	it("About page: no axe violations", async () => {
 		const AboutPage = (await import("@/pages/About")).default;
 		const { container } = renderPage(<AboutPage />);
@@ -396,27 +407,10 @@ describe("F-17: axe-core automated WCAG scan — all pages", () => {
 		await expectNoAxeViolations(container);
 	});
 
-	it.skip("Onboarding page: no axe violations", async () => {
-		//re-evaluated after  /  landed.
-		// Onboarding.tsx itself is now a thin (~180 line) composition
-		// root delegating to 6 step components + 2 hooks, but the test
-		// STILL OOMs under jsdom — verified in this session
-		// (FATAL ERROR: Ineffective mark-compacts near heap limit at
-		// ~2 GB, even with the default Vitest worker pool). The
-		// transitive dep graph that blows the heap is pulled in by
-		// `<ConfirmDialog>` (Radix UI Dialog + Portal + FocusScope
-		// chain). The other axe-core page tests avoid this by mocking
-		// heavy hooks (useConnection / useTheme / useModelLifecycle /
-		// useSoundFeedback / useSnackbar — see the vi.mock block
-		// above), but ConfirmDialog is imported directly by
-		// Onboarding.tsx so it can't be stubbed without losing
-		// coverage of the skip-confirmation flow.
-		//
-		// To re-enable: either (a) mock `@/components/common/ConfirmDialog`
-		// with a lightweight stub for this test (preferred — preserves
-		// coverage of the wizard's progressbar / heading / button a11y),
-		// or (b) raise the Vitest worker `--max-old-space-size` above
-		//2 GB in the project's vitest config. Tracked under
+	it("Onboarding page: no axe violations", async () => {
+		// ConfirmDialog is stubbed at module scope (see the vi.mock block
+		// above): the real component's Radix dialog import graph OOMs
+		// jsdom, and a closed dialog contributes nothing to the scan.
 		const OnboardingPage = (await import("@/pages/Onboarding")).default;
 		const { container } = renderPage(<OnboardingPage onComplete={vi.fn()} />);
 		await expectNoAxeViolations(container);

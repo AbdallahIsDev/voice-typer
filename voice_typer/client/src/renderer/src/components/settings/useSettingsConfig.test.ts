@@ -418,3 +418,63 @@ describe("useSettingsConfig — XA-14 fixes", () => {
 		expect(result.current.hasPendingOrSaving).toBe(true);
 	});
 });
+
+describe("useSettingsConfig — initial load failure surfaces loadError", () => {
+	beforeEach(() => {
+		resetStableMocks();
+		vi.resetModules();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("sets loadError when get_config rejects", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config")
+				return Promise.reject(new Error("backend unreachable"));
+			return Promise.resolve({});
+		});
+
+		const { result } = renderHook(() => useSettingsConfig());
+
+		await result.current.loadConfig();
+
+		await waitFor(() => {
+			expect(result.current.loadError).toBe("backend unreachable");
+		});
+		// NOTE: `config` itself may be non-null here — the hook seeds it
+		// from its module-level cache (populated by earlier successful
+		// loads in this file), which is exactly why the Settings page
+		// only falls into its error branch when NO cached config exists.
+	});
+
+	it("clears loadError on a subsequent successful load", async () => {
+		let failGetConfig = true;
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") {
+				return failGetConfig
+					? Promise.reject(new Error("backend unreachable"))
+					: Promise.resolve(baseConfig);
+			}
+			return Promise.resolve({});
+		});
+
+		const { result } = renderHook(() => useSettingsConfig());
+
+		await result.current.loadConfig();
+		await waitFor(() => {
+			expect(result.current.loadError).toBe("backend unreachable");
+		});
+
+		failGetConfig = false;
+		await result.current.loadConfig();
+
+		await waitFor(() => {
+			expect(result.current.loadError).toBeNull();
+		});
+		await waitFor(() => {
+			expect(result.current.config?.model_size).toBe("tiny");
+		});
+	});
+});

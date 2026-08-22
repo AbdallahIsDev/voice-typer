@@ -691,7 +691,7 @@ describe("Analytics polish: stat-card spacing, sublabel pruning, Activity icon w
 	});
 
 	it("Activity icon stroke is reduced to match the stat-card icons' weight", () => {
-		// POLISH: at h-9 w-9 the old 1.625 stroke painted ~2.4px lines
+		// POLISH: at h-8 w-8 the old 1.625 stroke painted ~2.4px lines
 		// (stat-card icons render ~1.5px); strokeWidth 1 matches them.
 		expect(SEVEN_DAY_SRC).toMatch(/strokeWidth=\{1\}/);
 	});

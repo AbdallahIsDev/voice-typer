@@ -68,12 +68,18 @@ export function MicToggleButton({
 				<HugeiconsIcon
 					icon={isRecording ? StopIcon : Mic02Icon}
 					strokeWidth={1.625}
-					// The mic lives on the red (destructive) button, so it
-					// stays white in BOTH themes — `text-(--text-primary)`
-					// turned black in light mode. The stop icon on the
-					// recording state is white too.
+					// The mic lives on the red (destructive) button in the
+					// idle state, so its glyph uses the destructive
+					// foreground token — near-white in BOTH light and dark
+					// (index.css defines --destructive-foreground as
+					// oklch(0.97 0 0) in :root AND .dark, and every theme
+					// preset + the custom-theme generator backfill it).
+					// `text-(--text-primary)` turned black in light mode;
+					// raw `text-white` ignored custom palettes entirely.
+					// The stop icon on the recording state
+					// (bg-foreground/15) keeps the same near-white glyph.
 					className={cn(
-						"h-8 w-8 transition-opacity text-white",
+						"h-8 w-8 transition-opacity text-(--destructive-foreground)",
 						toggling && "opacity-30",
 					)}
 				/>

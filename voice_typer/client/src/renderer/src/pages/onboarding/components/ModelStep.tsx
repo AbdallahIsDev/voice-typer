@@ -253,14 +253,14 @@ export function ModelStep({
                                                                                         badges are optional — older backends don't
                                                                                         return these fields. */}
 											{m.vram_gb != null && (
-												<span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-(--text-muted)">
+												<span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-(--text-muted)">
 													{t("onboarding.vramBadge", {
 														vram: formatVram(m.vram_gb * 1024),
 													})}
 												</span>
 											)}
 											{langKey != null && (
-												<span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-(--text-muted)">
+												<span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-(--text-muted)">
 													{t(langKey)}
 												</span>
 											)}

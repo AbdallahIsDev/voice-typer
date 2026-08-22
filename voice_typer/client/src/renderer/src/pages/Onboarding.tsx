@@ -469,6 +469,29 @@ export default function OnboardingPage({
 					</div>
 				)}
 
+				{/*inline apply-failure alert on the Done
+                                step. `handleApply` awaits `onboarding_apply`; when
+                                it rejects, applyError flips and this alert explains
+                                why setup didn't finish while Get Started stays
+                                available as the retry affordance (Skip remains the
+                                escape hatch below). Previously a rejected apply was
+                                invisible — the success snack + navigation fired
+                                unconditionally. */}
+				{isDoneStep && applyError && (
+					<div
+						role="alert"
+						data-testid="onboarding-apply-error"
+						className="mt-6 rounded-lg border border-destructive/40 bg-destructive/5 p-4"
+					>
+						<p className="text-sm font-medium text-(--text-primary)">
+							{t("onboarding.applyFailedTitle")}
+						</p>
+						<p className="mt-1 text-xs text-(--text-muted)">
+							{t("onboarding.applyFailedDescription")}
+						</p>
+					</div>
+				)}
+
 				<div className="mt-8 flex items-center justify-between gap-4">
 					<div>
 						{/* Fix 16: Back button shown on Done step too (was hidden). */}

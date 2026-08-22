@@ -37,16 +37,32 @@ export const FORCE_CANCEL_DELAY_MS = 5_000;
 export const LAST_TEXT_AUTO_CLEAR_MS = 30_000;
 
 /**
- *  (): aligned with `voice_typer/server/tray_icon.py:277-284`
- * color-blind-safe palette so the Home status pill matches the tray icon.
- * The key is the lowercase status string emitted by the backend's
- * `status_change` event / `RecordingState` enum.
+ * Status-key → CSS color mapping for the Home status pill dot,
+ * aligned with `voice_typer/server/tray_icon.py` color-blind-safe
+ * palette so the pill matches the tray icon semantics. The key is the
+ * lowercase status string emitted by the backend's `status_change`
+ * event / `RecordingState` enum.
+ *
+ * Values are theme CSS variables (NOT raw hex) so the dot adapts to
+ * every theme preset and custom palette — the same tokens every other
+ * surface uses (`--success` / `--warning` / `--info` are defined by
+ * index.css for both light and dark and backfilled by all presets +
+ * the custom-theme generator; see themes/__tests__/status-tokens.test.ts).
+ * Rendered via inline `backgroundColor`, which resolves the var at
+ * paint time.
  */
 export const STATUS_COLORS: Record<string, string> = {
-	idle: "#787878",
-	recording: "#2ECC71",
-	transcribing: "#3498DB",
-	loading: "#F39C12",
-	cancelling: "#F39C12",
-	error: "#E74C3C",
+	idle: "var(--text-muted)",
+	recording: "var(--success)",
+	transcribing: "var(--info)",
+	loading: "var(--warning)",
+	cancelling: "var(--warning)",
+	error: "var(--destructive)",
 };
+
+/**
+ * Fallback dot color for a status key missing from `STATUS_COLORS`
+ * (matches `STATUS_COLORS.idle`). Exported so Home's lookup fallback
+ * references one authoritative value instead of re-inlining a literal.
+ */
+export const DEFAULT_STATUS_COLOR = "var(--text-muted)";

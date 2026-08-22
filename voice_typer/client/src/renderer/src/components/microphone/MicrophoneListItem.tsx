@@ -33,7 +33,11 @@ export function MicrophoneListItem({
 						{mic.name}
 					</p>
 					{mic.default && !isSystemDefault && (
-						<span className="shrink-0 inline-flex items-center rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-white">
+						// text-accent-foreground (not text-white) — --accent maps
+						// to var(--primary) in every theme block, so the badge
+						// foreground must be its paired token to stay
+						// contrast-safe in light / dark / custom themes.
+						<span className="shrink-0 inline-flex items-center rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-accent-foreground">
 							{t("microphone.systemDefault")}
 						</span>
 					)}

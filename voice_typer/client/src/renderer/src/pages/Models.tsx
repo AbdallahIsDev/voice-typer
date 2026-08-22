@@ -24,7 +24,11 @@
  *    consent gate (toast with a one-click "Grant consent" action).
  */
 
-import { AiBrain03Icon, Folder02Icon } from "@hugeicons/core-free-icons";
+import {
+	AiBrain03Icon,
+	AlertCircleIcon,
+	Folder02Icon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useMemo, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
@@ -72,7 +76,27 @@ export default function ModelsPage() {
 
 	// Show a full-page spinner until the first `get_config` resolves.
 	// Replaces the original `if (!_cachedConfig && !config)` check.
+	// When the initial load FAILED, render the load-failure EmptyState
+	// (variant="error" + Retry) instead — without it, a rejected
+	// `get_config` left the page spinning forever with no recovery
+	// path. Mirrors the History page's established error EmptyState.
 	if (!lifecycle.config) {
+		if (lifecycle.loadError) {
+			return (
+				<div className="flex h-full items-center justify-center">
+					<EmptyState
+						variant="error"
+						icon={AlertCircleIcon}
+						title={t("models.loadFailedTitle")}
+						description={t("models.loadFailedDescription")}
+						actionLabel={t("models.retry")}
+						onAction={() => {
+							void lifecycle.loadConfig();
+						}}
+					/>
+				</div>
+			);
+		}
 		return (
 			<div className="flex h-full items-center justify-center">
 				<Spinner />

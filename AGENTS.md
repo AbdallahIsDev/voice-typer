@@ -652,6 +652,34 @@ Rationale: Ambiguous copy misleads users about the real state and generates fals
 Applies to: All agents, all modes, all sub-agents.
 ```
 
+```
+C-UI-3
+Rule: Do NOT give sidebar navigation parent groups (e.g. Settings) a separate highlighted/active BACKGROUND just because their submenu is expanded. The sidebar's state system MUST be a consistent hierarchy everywhere: items default to the muted text treatment, hover strengthens it slightly (`hover:bg-foreground/5` + `hover:text-(--text-primary)`), and the current page's LEAF uses the established subtle active background (`bg-(--bg)` + `text-(--text-primary)`). A parent whose submenu is active uses ONLY the stronger text/icon foreground (`text-(--text-primary)`) — never a third background style (`Sidebar.tsx` `NavSubmenu`).
+Rationale: A parent-group active background visually competes with the active child and introduces a third, inconsistent background style. The Settings parent stays calm while its sub-page is active (2026-08-22).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-UI-4
+Rule: Do NOT render visible hotkey/keycap indicators inside expanded sidebar navigation items. The sidebar's expanded items show the nav label only — no `Ctrl H` / `Ctrl ,` chips (remove the `HotkeyChips` `ms-auto` blocks from `Sidebar.tsx`). The shortcuts MUST remain registered and functional; `aria-keyshortcuts` keeps exposing them to assistive tech, and the COLLAPSED icon-only items may still show them as Kbd chips in their tooltip.
+Rationale: The sidebar stays clean and visually consistent with pages that don't display shortcuts; this is strictly a presentation change (2026-08-22).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-UI-5
+Rule: Do NOT let shortcut keycaps (`Kbd` / `HotkeyChips`) lose contrast inside tooltips or overlays. The shared `Kbd` component's tooltip-content treatment MUST keep sufficient contrast in EVERY theme (light/dark/custom): use foreground-based tokens (`in-data-[slot=tooltip-content]:bg-foreground/10` + `text-foreground`), never `text-background`/`bg-background/N` which render dark-on-dark in dark mode. Audit every tooltip/overlay usage (collapsed-sidebar tooltips, TitleBar tooltips, Help tooltip/overlay) so no keycap becomes invisible.
+Rationale: The previous `text-background` tooltip variant made keycaps effectively invisible inside dark tooltips (2026-08-22). Keycaps must stay readable while preserving the app's visual language.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-UI-6
+Rule: Do NOT use verbose action-phrasing for control tooltips/labels when a concise noun phrase is the intended wording. User-facing labels and tooltips MUST be concise and semantically precise for their control. The `?` Help control's tooltip/aria-label is `"Help Overlay"` (key `help.openHelp`, all 8 locales) — NOT "Open this help overlay".
+Rationale: Verbose "Open this help overlay" was shortened to the concise "Help Overlay" label (2026-08-22); future labels must follow the same concise, precise standard.
+Applies to: All agents, all modes, all sub-agents.
+```
+
 ---
 
 ## Category: Localization & i18n

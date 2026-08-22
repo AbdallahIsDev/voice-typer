@@ -53,6 +53,11 @@ interface UseModelConfigArgs {
 export interface UseModelConfigResult {
 	// public (spread into the facade's return)
 	config: VoiceTyperConfig | null;
+	/** Set when the gating `get_config` fetch fails. The page renders
+	 *  a load-failure EmptyState with a Retry action instead of an
+	 *  endless spinner (config stays null on failure). Cleared on the
+	 *  next successful load. */
+	loadError: string | null;
 	models: ModelInfo[];
 	modelCatalog: Record<string, ModelMetadata>;
 	refreshing: boolean;
@@ -91,6 +96,10 @@ export function useModelConfig({
 
 	const [refreshing, setRefreshing] = useState(false);
 	const [config, setConfig] = useState<VoiceTyperConfig | null>(null);
+	// Failure surface for the gating `get_config` fetch. Without this,
+	// a rejected `get_config` left `config` null forever and the page
+	// spun on its loading branch with no recovery path.
+	const [loadError, setLoadError] = useState<string | null>(null);
 	const [models, setModels] = useState<ModelInfo[]>([]);
 	const [modelCatalog, setModelCatalog] = useState<
 		Record<string, ModelMetadata>
@@ -168,6 +177,7 @@ export function useModelConfig({
 			const catalogResult = results[2];
 
 			if (cfgResult.status === "fulfilled") {
+				setLoadError(null);
 				const cfg = cfgResult.value;
 				cachedConfigRef.current = cfg;
 				setConfig(cfg);
@@ -192,6 +202,14 @@ export function useModelConfig({
 				console.error(
 					"[renderer:useModelConfig] Failed to load config:",
 					cfgResult.reason,
+				);
+				// Surface the failure so the page can leave the loading
+				// branch and render the load-failure EmptyState (Retry)
+				// instead of spinning forever on a null config.
+				setLoadError(
+					cfgResult.reason instanceof Error
+						? cfgResult.reason.message
+						: String(cfgResult.reason),
 				);
 			}
 
@@ -288,6 +306,7 @@ export function useModelConfig({
 
 	return {
 		config,
+		loadError,
 		models,
 		modelCatalog,
 		refreshing,

@@ -908,23 +908,11 @@ describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () 
 	// SelectItem children render inline in the DOM — no need to drive
 	// Radix's pointer-capture / Portal machinery.
 	//
-	//VALIDATE-ON-I18N (): skipped because the i18n keys
-	// `onboarding.vramBadge`, `onboarding.englishOnlyBadge`, and
-	// `onboarding.multilingualBadge` are referenced by
-	// `pages/onboarding/components/ModelStep.tsx` but are NOT yet
-	// defined in `i18n/translations/en.json` (or any other locale).
-	// The `t()` fallback returns the raw key, so the badge spans
-	// render the literal "onboarding.vramBadge" text instead of the
-	// interpolated "~1 GB VRAM" / "EN" / "Multilingual" values this
-	// test expects. The rendering LOGIC in ModelStep is correct
-	// (it conditionally renders the badge spans when vram_gb /
-	// languages are present); only the i18n strings are missing.
-	//`i18n/translations/en.json` is owned by  — once those
-	// three keys are added there (and propagated to the other 7
-	// locale files via the i18n-completeness test in
-	// `tests/test_i18n_completeness.py`), remove the `.skip` and
-	// this test should pass without further changes.
-	it.skip("BG-100: ModelStep renders VRAM + language badges per option", async () => {
+	// Previously skipped because the `onboarding.vramBadge` /
+	// `onboarding.englishOnlyBadge` / `onboarding.multilingualBadge`
+	// keys were missing from en.json; they now exist (all 8 locales),
+	// so this runs unskipped and asserts the SHIPPED strings.
+	it("ModelStep renders VRAM + language badges per option", async () => {
 		mockStartAtStepWithModels(4, [
 			{
 				name: "large-v3-turbo",
@@ -955,13 +943,13 @@ describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () 
 
 		// Assert the per-option badges appear inline (Select mock
 		// renders SelectItem children without opening a dropdown).
-		// formatVram(1 * 1024) = "1 GB" → badge text "~1 GB VRAM".
-		// formatVram(5 * 1024) = "5 GB" → badge text "~5 GB VRAM".
-		// English-only (languages=['en']) → "EN".
-		// Multilingual (languages=null) → "Multilingual".
-		expect(screen.getByText("~1 GB VRAM")).toBeTruthy();
-		expect(screen.getByText("~5 GB VRAM")).toBeTruthy();
-		expect(screen.getByText("EN")).toBeTruthy();
+		// vramBadge → "VRAM: ~{vram}": formatVram(1 * 1024) = "1 GB",
+		// formatVram(5 * 1024) = "5 GB".
+		// English-only (languages=['en']) → englishOnlyBadge.
+		// Multilingual (languages=null) → multilingualBadge.
+		expect(screen.getByText("VRAM: ~1 GB")).toBeTruthy();
+		expect(screen.getByText("VRAM: ~5 GB")).toBeTruthy();
+		expect(screen.getByText("English only")).toBeTruthy();
 		expect(screen.getByText("Multilingual")).toBeTruthy();
 	});
 });
@@ -1204,5 +1192,133 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 
 		const continueBtn = await screen.findByRole("button", { name: "Continue" });
 		expect(continueBtn.hasAttribute("disabled")).toBe(true);
+	});
+});
+
+describe("Onboarding wizard — apply failure surfaces an inline error (no false success)", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		mockShowSnack.mockReset();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	/**
+	 * Start the wizard directly on the Done step with the biometric
+	 * consent already granted (so Get Started is enabled), and make
+	 * `onboarding_apply` fail until `applyShouldFail` is flipped.
+	 */
+	function mockDoneStep(applyShouldFail: { value: boolean }) {
+		mockCall.mockImplementation((type: string) => {
+			switch (type) {
+				case "onboarding_start":
+					return Promise.resolve({
+						step: 5,
+						total_steps: 6,
+						step_name: "Done",
+					});
+				case "get_config":
+					return Promise.resolve({
+						hotkey: "<f2>",
+						model_size: "tiny",
+						microphone: "",
+						voice_biometric_consent: true,
+					});
+				case "onboarding_get_microphones":
+					return Promise.resolve({ microphones: [] });
+				case "onboarding_get_hotkey_presets":
+					return Promise.resolve({ presets: ["<f2>"] });
+				case "onboarding_get_model_options":
+					return Promise.resolve({ models: [] });
+				case "onboarding_apply":
+					return applyShouldFail.value
+						? Promise.reject(new Error("disk full"))
+						: Promise.resolve({});
+				default:
+					return Promise.resolve({});
+			}
+		});
+	}
+
+	it("shows the error snack + inline alert and does NOT complete when onboarding_apply rejects", async () => {
+		const onComplete = vi.fn();
+		const applyState = { value: true };
+		mockDoneStep(applyState);
+
+		render(<OnboardingPage onComplete={onComplete} />);
+
+		// The Done step renders the Get Started button (aria-label
+		// getStartedAria); it stays disabled until the biometric-consent
+		// probe resolves, so wait for it to become clickable.
+		const getStarted = await screen.findByRole("button", {
+			name: "Get started",
+		});
+		await waitFor(() => {
+			expect(getStarted.hasAttribute("disabled")).toBe(false);
+		});
+
+		fireEvent.click(getStarted);
+
+		// The apply rejection must surface the error snack — NOT the
+		// success one — and must not navigate away.
+		await waitFor(() => {
+			expect(mockShowSnack).toHaveBeenCalledWith(
+				"Failed to save selection",
+				"error",
+			);
+		});
+		expect(mockShowSnack).not.toHaveBeenCalledWith(
+			"Setup complete! Your settings are saved.",
+			"success",
+		);
+		expect(onComplete).not.toHaveBeenCalled();
+
+		// The inline alert near the Get Started button explains the
+		// failure (applyFailedTitle/applyFailedDescription).
+		expect(screen.getByRole("alert")).toBeTruthy();
+		expect(screen.getByText("Couldn't finish setup")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"We couldn't apply your settings. Try again, or skip and finish later in Settings.",
+			),
+		).toBeTruthy();
+	});
+
+	it("completes with the success snack + navigation once apply succeeds on retry", async () => {
+		const onComplete = vi.fn();
+		const applyState = { value: true };
+		mockDoneStep(applyState);
+
+		render(<OnboardingPage onComplete={onComplete} />);
+
+		const getStarted = await screen.findByRole("button", {
+			name: "Get started",
+		});
+		await waitFor(() => {
+			expect(getStarted.hasAttribute("disabled")).toBe(false);
+		});
+
+		// First click fails…
+		fireEvent.click(getStarted);
+		await waitFor(() => {
+			expect(screen.getByRole("alert")).toBeTruthy();
+		});
+
+		// …then the backend recovers and the user retries.
+		applyState.value = false;
+		fireEvent.click(getStarted);
+
+		await waitFor(() => {
+			expect(mockShowSnack).toHaveBeenCalledWith(
+				"Setup complete! Your settings are saved.",
+				"success",
+			);
+		});
+		expect(onComplete).toHaveBeenCalledTimes(1);
+		// applyError resets at the start of every apply attempt, so the
+		// inline alert disappears on the successful retry.
+		expect(screen.queryByRole("alert")).toBeNull();
 	});
 });

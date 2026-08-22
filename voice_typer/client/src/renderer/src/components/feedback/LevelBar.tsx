@@ -97,15 +97,25 @@ export function LevelBar({ level, playing }: LevelBarProps) {
 			>
 				<div
 					className={cn(
-						"h-full rounded-full transition-all duration-75",
+						// PERF: fixed-width fill animated via ``transform: scaleX()``
+						// (compositor-friendly). ``mic_level`` events arrive at up
+						// to ~10-30 Hz while recording; the previous animating
+						// ``width`` percentage forced a layout pass on every tick,
+						// while ``scaleX`` runs entirely on the compositor.
+						// ``origin-left`` pins the fill to the track's left edge so
+						// the rendered result is identical to the width-based bar.
+						// Opacity rides along in the transition list because the
+						// frozen ("playing") state fades the fill too.
+						"h-full w-full origin-left rounded-full transition-[transform,opacity] duration-75",
 						playing && "opacity-30",
 					)}
 					style={{
-						// ``Math.max(1, …)`` pinned an empty bar to 1% even
-						// when the user was totally silent — visually lying that
-						// there's "some" signal.  Use ``Math.max(0, …)`` so a
-						// silent input renders a truly empty track.
-						width: `${Math.max(0, level * 100)}%`,
+						// ``Math.max(1, …)`` previously pinned an empty bar to 1%
+						// even when the user was totally silent — visually lying
+						// that there's "some" signal. Use ``Math.max(0, …)`` on the
+						// scale factor so a silent input renders a truly empty
+						// track (``scaleX(0)`` collapses the fill completely).
+						transform: `scaleX(${Math.max(0, level)})`,
 						backgroundColor: getLevelColor(level),
 					}}
 				/>

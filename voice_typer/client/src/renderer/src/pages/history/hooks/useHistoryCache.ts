@@ -44,7 +44,10 @@ import type { HistoryRecord, TodayStats } from "@/types/ipc";
 
 // Page size used for both the initial load and ``loadMore`` paging.
 // Mirrors the Python ``history_db.get_history`` default limit (50).
-const HISTORY_PAGE_SIZE = 50;
+// Exported so the view layer (History.tsx) can size its visible-row
+// window to exactly one fetched page without duplicating the literal
+// (the two MUST stay in lockstep or "Load More" reveals nothing).
+export const HISTORY_PAGE_SIZE = 50;
 
 // Safety cap on the number of rows the renderer will hold in memory
 // at once. The backend enforces a frame cap of its own; this is a

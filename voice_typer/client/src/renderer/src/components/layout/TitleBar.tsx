@@ -329,6 +329,20 @@ function TitleBarInner({
 
 	return (
 		<div
+			// PHYSICAL-SIDE PINNING: the bar is forced LTR so the window
+			// chrome keeps its platform-conventional geometry regardless
+			// of the document direction. Under dir=rtl a plain flex row
+			// would mirror the whole bar — the macOS traffic-light gutter
+			// would flip to the right edge and the Windows/Linux
+			// minimize/maximize/close cluster to the left, both wrong:
+			// native window controls never move when the UI language is
+			// RTL. With dir="ltr" the gutter stays physically left, the
+			// control cluster physically right, in every locale. Content
+			// inside the buttons is icon-only (no text to mirror); the
+			// Back/Forward chevrons opt INTO mirroring via the
+			// `nav-directional-icon` class, whose [dir="rtl"] ancestor
+			// selector still matches through this container.
+			dir="ltr"
 			className={cn(
 				"drag-region flex w-full shrink-0 items-center select-none h-8 transition-opacity duration-150",
 				// Native OS title bars dim the WHOLE bar while the window
@@ -410,6 +424,10 @@ function TitleBarInner({
 						viewBox="0 0 16 16"
 						fill="none"
 						aria-hidden="true"
+						// RTL: the back chevron points "back" — mirrored under
+						// dir=rtl by the shared index.css rule so it points the
+						// semantically correct way for right-to-left locales.
+						className="nav-directional-icon"
 					>
 						<path
 							d="M10 12L6 8L10 4"
@@ -444,6 +462,9 @@ function TitleBarInner({
 						viewBox="0 0 16 16"
 						fill="none"
 						aria-hidden="true"
+						// RTL: the forward chevron points "forward" — mirrored
+						// under dir=rtl by the shared index.css rule.
+						className="nav-directional-icon"
 					>
 						<path
 							d="M6 4L10 8L6 12"
@@ -474,7 +495,10 @@ function TitleBarInner({
 						focusRing,
 					)}
 				>
-					<span aria-hidden className="text-[13px] font-semibold leading-none">
+					<span
+						aria-hidden
+						className="text-[0.8125rem] font-semibold leading-none"
+					>
 						?
 					</span>
 				</button>

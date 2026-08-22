@@ -1,19 +1,12 @@
-import {
-	lazy,
-	Suspense,
-	useCallback,
-	useEffect,
-	useRef,
-	useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { APP_NAME } from "@/branding";
+import { A11yLiveRegions } from "@/components/common/A11yLiveRegions";
 import ConsentGateDialog from "@/components/consent/ConsentGateDialog";
 import { HelpOverlay } from "@/components/help/HelpOverlay";
 import { configHotkeyLabels } from "@/components/hotkey/hotkey-utils";
 import { ConnectionStatusScreen } from "@/components/layout/ConnectionStatusScreen";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TitleBar } from "@/components/layout/TitleBar";
-import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useConnection } from "@/hooks/useConnection";
@@ -37,55 +30,13 @@ import {
 	openConsentGate,
 } from "@/lib/consentGate";
 import { cn } from "@/lib/utils";
-// Route-level code splitting. Home is the default landing page
-// and stays eagerly imported so first paint is fast. The other 9 pages
-// (History, Templates, Vocabulary, Models, Microphone, Analytics,
-// Settings, About, Onboarding) are loaded on demand via React.lazy so
-// Vite emits per-route chunks and the initial JS payload only carries
-// the Home page's transitive deps. Each lazy import resolves to the
-// page module's default export.
-import Home from "@/pages/Home";
-
-const AboutPage = lazy(() => import("@/pages/About"));
-const PrivacyPage = lazy(() => import("@/pages/Privacy"));
-const DashboardPage = lazy(() => import("@/pages/Dashboard"));
-const HistoryPage = lazy(() => import("@/pages/History"));
-const MicrophonePage = lazy(() => import("@/pages/Microphone"));
-const ModelsPage = lazy(() => import("@/pages/Models"));
-const OnboardingPage = lazy(() => import("@/pages/Onboarding"));
-const SettingsPage = lazy(() => import("@/pages/Settings"));
-const TemplatesPage = lazy(() => import("@/pages/Templates"));
-const VocabularyPage = lazy(() => import("@/pages/Vocabulary"));
-
+// Route→component mapping + per-route code splitting live in
+// router/PageSwitch.tsx (Home eager, the other 9 pages lazy). App
+// stays pure wiring: hooks, overlays, layout.
+import { PageSwitch } from "@/router/PageSwitch";
 import { isKnownPage } from "@/router/routes";
 import { useAppStore } from "@/stores/appStore";
 import type { Page, WindowBridge } from "@/types/ipc";
-
-/**
- * Suspense fallback for the lazy-loaded secondary routes.
- *
- * Inline (not a separate component file) so we don't introduce a new    * module outside the refactor scope. The spinner matches the visual
- * style already used by ``DoneStep.tsx`` and ``MicToggleButton.tsx``
- * (``animate-spin rounded-full border-2 border-current
- * border-t-transparent``) so the user sees a consistent loading
- * indicator across the app.
- *
- * The fallback is intentionally minimal — a route chunk typically
- * loads in <100ms on a local dev server and <300ms from a packaged
- * build, so a full-screen skeleton would flash too briefly to register.
- */
-function RouteSuspenseFallback() {
-	const t = useT();
-	return (
-		<output
-			aria-live="polite"
-			aria-label={t("a11y.loading")}
-			className="flex h-full w-full items-center justify-center p-8"
-		>
-			<span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-(--text-muted) border-t-transparent" />
-		</output>
-	);
-}
 
 export default function App() {
 	const t = useT();
@@ -427,78 +378,6 @@ export default function App() {
 		repaste_hotkey: repasteHotkeyFromConfig,
 	});
 
-	const renderPage = () => {
-		// Route table: see router/routes.ts for the single source of page names.
-		// This switch maps each `Page` literal to its component — legitimate
-		// routing logic (which component renders for which page), not a
-		// duplicate of the page registry. The set of valid page names lives
-		// in `ROUTES` (router/routes.ts); this switch only chooses the view.
-		switch (currentPage) {
-			case "home":
-				return <Home />;
-			case "history":
-				return <HistoryPage />;
-			case "templates":
-				return <TemplatesPage />;
-			case "vocabulary":
-				return <VocabularyPage />;
-			case "models":
-				return <ModelsPage />;
-			case "microphone":
-				return <MicrophonePage />;
-			case "analytics":
-				return <DashboardPage />;
-			// The Settings page is now a nested-sidebar navigation
-			// target (ADR-0021). The 4 sub-page literals
-			// (settingsGeneral / settingsAiAudio / settingsAppearance /
-			// settingsPrivacy) each render `<SettingsPage page={...} />`
-			// — the page derives the active tab from the prop instead
-			// of owning tab state locally. The legacy "settings"
-			// parent literal is redirected to "settingsGeneral" inside
-			// useNavigation.navigate BEFORE this switch is reached, so
-			// the `case "settings"` below is a defensive fallback
-			// (e.g. for a stale persisted `vt_nav_state` from an older
-			// build that resolves before the redirect fires) — it
-			// renders the General sub-page rather than an empty
-			// parent.
-			case "settings":
-			case "settingsGeneral":
-				return <SettingsPage page="settingsGeneral" />;
-			case "settingsAiAudio":
-				return <SettingsPage page="settingsAiAudio" />;
-			case "settingsAppearance":
-				return <SettingsPage page="settingsAppearance" />;
-			case "settingsPrivacy":
-				return <SettingsPage page="settingsPrivacy" />;
-			case "about":
-				return <AboutPage />;
-			case "privacy":
-				return <PrivacyPage />;
-			case "onboarding":
-				return <OnboardingPage onComplete={handleOnboardingComplete} />;
-			default:
-				// Page-not-found fallback now resolves via i18n
-				// (`app.pageNotFoundTitle` / `app.pageNotFoundDescription`)
-				// so non-English users see the fallback in their locale.
-				// Both keys ship translated across all 8 locales.
-				return (
-					<div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
-						<p className="text-sm font-medium text-(--text-primary)">
-							{t("app.pageNotFoundTitle")}
-						</p>
-						<p className="text-xs text-(--text-muted)">
-							{t("app.pageNotFoundDescription", {
-								page: String(currentPage),
-							})}
-						</p>
-						<Button variant="default" onClick={() => navigate("home")}>
-							{t("app.goHome")}
-						</Button>
-					</div>
-				);
-		}
-	};
-
 	// ── Render ────────────────────────────────────────────────────
 	// ErrorBoundary wrap was removed from here — `main.tsx` already
 	// wraps `<App />` in the same `<ErrorBoundary>` with the same
@@ -574,9 +453,11 @@ export default function App() {
 							style={{ scrollbarGutter: "stable" }}
 						>
 							{connectionStatus === "connected" ? (
-								<Suspense fallback={<RouteSuspenseFallback />}>
-									{renderPage()}
-								</Suspense>
+								<PageSwitch
+									page={currentPage}
+									navigate={navigate}
+									onOnboardingComplete={handleOnboardingComplete}
+								/>
 							) : (
 								<ConnectionStatusScreen
 									status={connectionStatus}
@@ -603,58 +484,14 @@ export default function App() {
 				/>
 
 				{/* Split the screen-reader live region
-                                    into TWO regions — one for recording state, one for
-                                    connection status. Previously a single aria-atomic region
-                                    concatenated both streams, so any change in either
-                                    re-announced the ENTIRE combined text — meaning a brief
-                                    `connectionStatus` flicker caused "Recording started." to
-                                    be re-announced even though recording state hadn't
-                                    changed. Two regions isolate the two streams so each only
-                                    re-announces when ITS OWN content changes. */}
-				<div aria-live="polite" aria-atomic="true" className="sr-only">
-					{recordingState === "recording" ? t("a11y.recordingStarted") : ""}
-					{/* Coarse transcribing/loading announcements are suppressed
-                                            on the Home page: Home's dynamic status line (its single
-                                            specific live region) already announces "Transcribing…
-                                            please wait" / "Downloading model…", so this coarse
-                                            "Transcribing audio." / "Loading model…" would
-                                            double-announce the same transition across the two live
-                                            regions. On every OTHER page the coarse announcement is
-                                            the only one (Home isn't mounted), so keep it there. */}
-					{recordingState === "transcribing" && currentPage !== "home"
-						? t("a11y.transcribingAudio")
-						: ""}
-					{recordingState === "idle" ? t("a11y.ready") : ""}
-					{recordingState === "error" ? t("a11y.errorOccurred") : ""}
-					{recordingState === "loading" && currentPage !== "home"
-						? t("a11y.loadingModel")
-						: ""}
-					{recordingState === "cancelling" ? t("a11y.cancelling") : ""}
-				</div>
-				{/* Assertive region for connection ERRORS (disconnected,
-                                    restarting) — these interrupt the user since they indicate
-                                    a problem requiring attention. Split from the recovery
-                                    region below so the recovery announcement stays polite
-                                    (non-interrupting) and doesn't yank the user out of what
-                                    they were doing. Reuses existing i18n keys
-                                    (`app.lostConnection`, `app.restartingBackend`) so no new
-                                    translation keys are required. */}
-				<div aria-live="assertive" aria-atomic="true" className="sr-only">
-					{connectionStatus === "disconnected" ? t("app.lostConnection") : ""}
-					{connectionStatus === "restarting" ? t("app.restartingBackend") : ""}
-				</div>
-				{/* Polite region for connection RECOVERY (re-connected after
-                                    an outage) — non-interrupting so the user hears it but
-                                    isn't pulled out of what they were doing. Reuses existing
-                                    i18n key (`about.connected`) so no new translation keys
-                                    are required. */}
-				<div aria-live="polite" aria-atomic="true" className="sr-only">
-					{connectionStatus === "connected" &&
-					prevConnectionRef.current !== "connected" &&
-					prevConnectionRef.current !== "connecting"
-						? t("about.connected")
-						: ""}
-				</div>
+                                    into THREE regions (recording / connection-error /
+                                    connection-recovery) — see A11yLiveRegions. */}
+				<A11yLiveRegions
+					recordingState={recordingState}
+					currentPage={currentPage}
+					connectionStatus={connectionStatus}
+					prevConnectionRef={prevConnectionRef}
+				/>
 			</div>
 		</TooltipProvider>
 	);

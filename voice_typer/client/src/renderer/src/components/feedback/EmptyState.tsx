@@ -80,9 +80,13 @@ export function EmptyState({
 							// contrast, and stacking opacity on top
 							// pushes the icon below WCAG 1.4.11.
 							"text-destructive"
-						: // opacity-50 (up from 30) so the icon passes WCAG
-							// 1.4.11 non-text contrast (3:1) against typical backgrounds.
-							"text-(--text-muted) opacity-50",
+						: // No opacity wash for the info variant either —
+							// text-(--text-muted) alone carries the visual
+							// hierarchy. Stacking opacity on top of the
+							// already-muted token pushed the icon below the
+							// WCAG 1.4.11 non-text contrast minimum (3:1)
+							// (same rationale as the description below).
+							"text-(--text-muted)",
 				)}
 			/>
 			{/* Title is rendered as an <h3> (not a <p>) so screen-reader

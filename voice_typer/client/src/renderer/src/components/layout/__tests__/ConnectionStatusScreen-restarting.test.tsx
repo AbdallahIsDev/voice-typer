@@ -9,8 +9,10 @@
  * during transient backend restarts and had no in-app escape.
  *
  * The fix:
- *  - Replaces `role="alertdialog"` with `role="alert"` and drops
- *    `aria-modal` entirely.
+ *  - Replaces `role="alertdialog"` with a ROLELESS wrapper (the
+ *    assertive announcement contract later moved onto the description
+ *    node's polite `role="status"`, so the wrapper carries no role at
+ *    all) and drops `aria-modal` entirely.
  *  - Renders the `<Spinner />` for BOTH `isConnecting` AND
  *    `isRestarting` (previously `isConnecting`-only).
  *  - Adds a secondary "Force retry" button when `isRestarting` that
@@ -49,7 +51,7 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-describe("ZU-36: ConnectionStatusScreen — role=alert + restarting spinner + force-retry action", () => {
+describe("ConnectionStatusScreen — roleless wrapper + restarting spinner + force-retry action", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});
@@ -57,7 +59,7 @@ describe("ZU-36: ConnectionStatusScreen — role=alert + restarting spinner + fo
 		cleanup();
 	});
 
-	it('root element uses role="alert" (NOT role="alertdialog")', () => {
+	it('root element is roleless (NOT role="alertdialog", NOT role="alert")', () => {
 		render(
 			<ConnectionStatusScreen
 				status="disconnected"
@@ -71,11 +73,30 @@ describe("ZU-36: ConnectionStatusScreen — role=alert + restarting spinner + fo
 			'[data-testid="connection-status"]',
 		) as HTMLElement;
 		expect(root).toBeTruthy();
-		expect(root.getAttribute("role")).toBe("alert");
+		// The wrapper is ROLELESS: an assertive alert/alertdialog region
+		// around the whole card re-announced every progressbar tick. The
+		// polite announcement contract now lives on the description node
+		// (role="status") inside EmptyState's error card.
+		expect(root.getAttribute("role")).toBeNull();
 		//`aria-modal` is dropped entirely (no modal → no modal
 		// attribute). The previous `aria-modal="false"` was contradictory
 		// on a `role="alertdialog"` (alertdialog is implicitly modal).
 		expect(root.hasAttribute("aria-modal")).toBe(false);
+	});
+
+	it("the description node is a polite status region (not assertive)", () => {
+		render(
+			<ConnectionStatusScreen
+				status="disconnected"
+				lastError={null}
+				onRetry={vi.fn()}
+				connectingProgress={null}
+			/>,
+		);
+		const status = document.querySelector(
+			'[data-testid="connection-status"] p[role="status"]',
+		);
+		expect(status?.textContent).toBe("app.lostConnectionHint");
 	});
 
 	it("status='restarting' renders the Spinner (parity with isConnecting)", () => {
@@ -89,8 +110,10 @@ describe("ZU-36: ConnectionStatusScreen — role=alert + restarting spinner + fo
 		);
 		// The Spinner is wrapped in an <output aria-live="polite">
 		// (so SR users hear the loading state). The output element
-		// has implicit role="status" — assert it renders.
-		expect(screen.getByRole("status")).toBeTruthy();
+		// has implicit role="status" — assert it renders. The
+		// description node is also a status region now, so query by
+		// accessible name.
+		expect(screen.getByRole("status", { name: "a11y.loading" })).toBeTruthy();
 		// The restarting-state title is the localized
 		// `app.restartingBackend` key (mocked to return the key).
 		expect(

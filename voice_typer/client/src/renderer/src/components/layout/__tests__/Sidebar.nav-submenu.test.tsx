@@ -9,7 +9,7 @@
  */
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -18,8 +18,12 @@ vi.mock("@/i18n/i18n", () => ({
 }));
 
 vi.mock("@hugeicons/react", () => ({
-	HugeiconsIcon: (props: { icon?: { name?: string } }) => (
-		<span data-testid="hugeicon" data-name={props.icon?.name} />
+	HugeiconsIcon: (props: { icon?: { name?: string }; className?: string }) => (
+		<span
+			data-testid="hugeicon"
+			data-name={props.icon?.name}
+			className={props.className}
+		/>
 	),
 }));
 
@@ -36,7 +40,8 @@ vi.mock("@hugeicons/core-free-icons", () => ({
 	Mic02Icon: { name: "Mic02Icon" },
 	SlidersHorizontalIcon: { name: "SlidersHorizontalIcon" },
 	PaintBoardIcon: { name: "PaintBoardIcon" },
-	Cancel01Icon: { name: "Cancel01Icon" },
+	ArrowDown01Icon: { name: "ArrowDown01Icon" },
+	ArrowRight01Icon: { name: "ArrowRight01Icon" },
 }));
 
 vi.mock("@/branding", () => ({ APP_NAME: "TestApp" }));
@@ -203,11 +208,15 @@ describe("NavSubmenu — nested Settings sidebar submenu (ADR-0021)", () => {
 		render(
 			wrap(<Sidebar {...baseProps} currentPage="home" collapsed={true} />),
 		);
-		// The Settings parent is rendered as a Popover trigger (icon only).
-		// Find it by its aria-haspopup="menu" attribute.
-		const triggers = document.querySelectorAll('button[aria-haspopup="menu"]');
-		expect(triggers.length).toBeGreaterThan(0);
-		const settingsTrigger = Array.from(triggers).find((b) =>
+		// The Settings parent is rendered as a Popover trigger (icon
+		// only). Locate it by its icon — the nav keeps plain navigation
+		// semantics, so there is no menu-role/haspopup hook to key on.
+		const navButtons = Array.from(
+			document.querySelectorAll<HTMLButtonElement>(
+				"button[data-nav-item='true']",
+			),
+		);
+		const settingsTrigger = navButtons.find((b) =>
 			b.querySelector('[data-name="Settings03Icon"]'),
 		);
 		expect(settingsTrigger).toBeTruthy();
@@ -225,6 +234,101 @@ describe("NavSubmenu — nested Settings sidebar submenu (ADR-0021)", () => {
 		expect(found).toBe(true);
 	});
 });
+
+describe("NavSubmenu — fake-menu semantics removed + chevron affordance", () => {
+	beforeEach(() => {
+		cleanup();
+		localStorage.clear();
+	});
+
+	afterEach(() => {
+		cleanup();
+		localStorage.clear();
+	});
+
+	it("renders NO role='menu' and NO aria-haspopup anywhere in the nav", () => {
+		render(
+			wrap(
+				<Sidebar
+					{...baseProps}
+					currentPage="settingsGeneral"
+					collapsed={false}
+				/>,
+			),
+		);
+		// The submenu children live INSIDE the nav landmark — they are
+		// navigation links, not a transient action menu. Menu semantics
+		// (role="menu" container + aria-haspopup="menu" triggers) would
+		// demand menuitem roles + arrow-key menu behavior that conflicts
+		// with the roving-tabindex composite pattern.
+		expect(document.querySelector('[role="menu"]')).toBeNull();
+		expect(document.querySelector("button[aria-haspopup]")).toBeNull();
+	});
+
+	it("collapsed submenu: parent chevron points forward (ArrowRight01Icon with nav-directional-icon)", () => {
+		render(
+			wrap(<Sidebar {...baseProps} currentPage="home" collapsed={false} />),
+		);
+		const parent = findSettingsParent();
+		const chevron = parent?.querySelector('[data-name="ArrowRight01Icon"]');
+		expect(chevron).toBeTruthy();
+		// The closed chevron participates in RTL mirroring via the
+		// shared index.css rule.
+		expect(chevron?.getAttribute("class")).toContain("nav-directional-icon");
+		// No rotation/transition animation on the glyph — it swaps
+		// instantly between states.
+		expect(chevron?.getAttribute("class")).not.toContain("rotate");
+		expect(chevron?.getAttribute("class")).not.toContain("transition");
+	});
+
+	it("open submenu: parent chevron points down (ArrowDown01Icon, no mirroring class)", () => {
+		render(
+			wrap(
+				<Sidebar
+					{...baseProps}
+					currentPage="settingsGeneral"
+					collapsed={false}
+				/>,
+			),
+		);
+		const parent = findSettingsParent();
+		const chevron = parent?.querySelector('[data-name="ArrowDown01Icon"]');
+		expect(chevron).toBeTruthy();
+		// The open glyph is vertical/direction-neutral — no RTL flip.
+		expect(chevron?.getAttribute("class")).not.toContain(
+			"nav-directional-icon",
+		);
+		expect(chevron?.getAttribute("class")).not.toContain("rotate");
+		expect(chevron?.getAttribute("class")).not.toContain("transition");
+	});
+
+	it("chevron indicator sits in a ≥24px hit-area wrapper and is aria-hidden", () => {
+		render(
+			wrap(
+				<Sidebar
+					{...baseProps}
+					currentPage="settingsGeneral"
+					collapsed={false}
+				/>,
+			),
+		);
+		const parent = findSettingsParent();
+		const wrapper = parent?.querySelector("span[aria-hidden='true']");
+		expect(wrapper).toBeTruthy();
+		// size-6 = 24px square pointer target around the 16px glyph.
+		expect(wrapper?.className).toContain("size-6");
+	});
+});
+
+/** Find the expanded Settings parent button by its exact label text
+ *  (child buttons render longer labels like "nav.settingsGeneral"). */
+function findSettingsParent(): HTMLElement | null {
+	return (
+		Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+			(b) => b.textContent === "nav.settings",
+		) ?? null
+	);
+}
 
 // Helper for fire.click — fireEvent.click is the API.
 const fire = { click: (el: HTMLElement) => fireEvent.click(el) };

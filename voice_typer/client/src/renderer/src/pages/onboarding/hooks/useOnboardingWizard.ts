@@ -422,12 +422,12 @@ export function useOnboardingWizard(
 		setApplyError(false);
 		setSubmitting(true);
 		try {
-			void call("onboarding_apply").catch((err) => {
-				console.error(
-					"[renderer:useOnboardingWizard] Failed to apply onboarding (async):",
-					err,
-				);
-			});
+			// Await the backend apply so success is only claimed when the
+			// settings actually persisted. The previous fire-and-forget
+			// form (`void call(...).catch(...)`) showed the success snack
+			// and navigated away even when `onboarding_apply` rejected,
+			// silently skipping setup.
+			await call("onboarding_apply");
 			// Surface a success toast so the user gets explicit
 			// feedback that setup completed (the inline
 			// `<output>` spinner disappears as soon as
@@ -439,7 +439,7 @@ export function useOnboardingWizard(
 			if (onComplete) onComplete();
 		} catch (err) {
 			console.error(
-				"[renderer:useOnboardingWizard] Failed to apply onboarding (sync):",
+				"[renderer:useOnboardingWizard] Failed to apply onboarding:",
 				err,
 			);
 			setApplyError(true);

@@ -1,11 +1,10 @@
 /**
- * Regression test pinning the fix for [XS-65]:
- *   "Production console.info calls in useStatsShare.ts + dead debug-test.test.tsx"
+ * Regression test pinning the useStatsShare logging invariant:
+ *   "Production console.info calls in useStatsShare.ts"
  *
- * Originally `debug-test.test.tsx` was a dead debug-only test (4 console.log
- * calls + `expect(true).toBe(true)`). It asserted nothing and was deleted as
- * part of the XS-65 cleanup. This file replaces it with a real regression
- * test that pins the production-code invariant:
+ * This file replaces an earlier dead debug-only spec (4 console.log
+ * calls + `expect(true).toBe(true)`). It asserts nothing vacuous; it
+ * pins a real production-code invariant:
  *
  *   Every `console.info(...)` call in `useStatsShare.ts` MUST be wrapped in
  *   an `if (import.meta.env.DEV) { ... }` block so the diagnostic logs do
@@ -204,7 +203,7 @@ function analyzeConsoleInfoGating(src: string): ConsoleInfoSite[] {
 	return results;
 }
 
-describe("[XS-65] useStatsShare.ts: every console.info must be DEV-gated", () => {
+describe("useStatsShare.ts: every console.info must be DEV-gated", () => {
 	it("useStatsShare.ts contains at least one console.info call (sanity)", () => {
 		// If this assertion fails, the file was refactored to remove all
 		// console.info calls — in which case this regression test becomes
@@ -222,7 +221,7 @@ describe("[XS-65] useStatsShare.ts: every console.info must be DEV-gated", () =>
 		const ungated = analysis.filter((entry) => !entry.gated);
 		if (ungated.length > 0) {
 			throw new Error(
-				`[XS-65 regression] found ${ungated.length} ungated console.info call(s) ` +
+				`found ${ungated.length} ungated console.info call(s) ` +
 					`in useStatsShare.ts at line(s): ${ungated.map((u) => u.line).join(", ")}. ` +
 					`Every console.info must be wrapped in \`if (import.meta.env.DEV) { ... }\` ` +
 					`so user-data shape (offsetWidth / dimensions / dataUrl prefix) is not leaked ` +
@@ -233,23 +232,22 @@ describe("[XS-65] useStatsShare.ts: every console.info must be DEV-gated", () =>
 	});
 
 	it("no `console.log` calls exist in useStatsShare.ts (debug artifacts)", () => {
-		// XS-65 also calls out dead debug-test.test.tsx's 4 console.log
-		// calls as debug artifacts. While that test file has been deleted,
-		// we additionally pin that the production hook itself contains no
-		// `console.log` calls — `console.log` is never appropriate in
-		// production renderer code (use `console.info` + DEV gate for
-		// diagnostics, or `console.warn`/`console.error` for actionable
-		// messages that should reach the packaged-app console).
+		// While the dead debug-only spec that motivated this file has been
+		// deleted, we additionally pin that the production hook itself
+		// contains no `console.log` calls — `console.log` is never
+		// appropriate in production renderer code (use `console.info` +
+		// DEV gate for diagnostics, or `console.warn`/`console.error` for
+		// actionable messages that should reach the packaged-app console).
 		const matches = USE_STATS_SHARE_SRC.match(/console\.log\s*\(/g) || [];
 		expect(matches).toEqual([]);
 	});
 });
 
-describe("[XS-65] dead debug-test.test.tsx is gone; this file replaces it", () => {
+describe("this regression file stays free of debug artifacts", () => {
 	it("this test file contains no `console.log` calls (debug artifacts)", () => {
 		// Pin that this regression test doesn't itself regress to the
-		// debug-only form (4 console.log calls + vacuous assertions that
-		// the original dead debug-test.test.tsx had). We strip comments
+		// debug-only form (console.log calls + vacuous assertions that the
+		// original dead debug-only spec had). We strip comments
 		// and string literals before checking, so mentioning `console.log`
 		// in a doc comment or test name doesn't trigger a false positive.
 		const thisSrc = fs.readFileSync(__filename, "utf8");

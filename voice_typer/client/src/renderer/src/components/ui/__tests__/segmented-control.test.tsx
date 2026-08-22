@@ -168,7 +168,7 @@ describe("SegmentedControl (default variant)", () => {
 		expect(rightLabel?.className).toContain("text-(--text-muted)");
 	});
 
-	it("renders labels with text-[11px]", () => {
+	it("renders labels with text-[0.6875rem]", () => {
 		render(
 			<SegmentedControl
 				options={TWO_OPTIONS}
@@ -181,7 +181,7 @@ describe("SegmentedControl (default variant)", () => {
 		const radios = screen.getAllByRole("radio");
 		for (const radio of radios) {
 			const label = radio.closest("label");
-			expect(label?.className).toContain("text-[11px]");
+			expect(label?.className).toContain("text-[0.6875rem]");
 		}
 	});
 });
@@ -461,7 +461,7 @@ describe("SegmentedControl tabs variant", () => {
 		for (const tab of tabs) {
 			expect(tab.className).toContain("rounded-none");
 			expect(tab.className).not.toContain("rounded-full");
-			expect(tab.className).toContain("text-[13px]");
+			expect(tab.className).toContain("text-[0.8125rem]");
 			expect(tab.className).toContain("font-medium");
 		}
 	});

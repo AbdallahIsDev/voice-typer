@@ -847,3 +847,63 @@ describe("ModelsPage — segmented control card border treatment (2026-08-21)", 
 		expect(activeTab.getAttribute("aria-selected")).toBe("true");
 	});
 });
+
+describe("ModelsPage — initial load failure shows an error state with Retry", () => {
+	afterEach(() => {
+		cleanup();
+		vi.clearAllMocks();
+		removeDialogMock();
+	});
+
+	it("renders the error EmptyState instead of spinning forever when get_config rejects", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.reject(new Error("down"));
+			return Promise.resolve({});
+		});
+
+		renderWithProviders(<ModelsPage />);
+
+		// The load-failure EmptyState replaces the endless spinner.
+		await waitFor(() => {
+			expect(screen.getByText(t("models.loadFailedTitle"))).toBeTruthy();
+		});
+		expect(screen.getByText(t("models.loadFailedDescription"))).toBeTruthy();
+		// variant="error" wraps the card in role="alert".
+		expect(screen.getByRole("alert")).toBeTruthy();
+
+		const retryButton = screen.getByRole("button", {
+			name: t("models.retry"),
+		});
+		expect(retryButton).toBeTruthy();
+	});
+
+	it("recovers into the normal page after a successful Retry click", async () => {
+		let failGetConfig = true;
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") {
+				return failGetConfig
+					? Promise.reject(new Error("down"))
+					: Promise.resolve(MOCK_CONFIG);
+			}
+			if (type === "get_model_status") return Promise.resolve({});
+			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
+			return Promise.resolve(MOCK_CONFIG);
+		});
+
+		renderWithProviders(<ModelsPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText(t("models.loadFailedTitle"))).toBeTruthy();
+		});
+
+		failGetConfig = false;
+		fireEvent.click(screen.getByRole("button", { name: t("models.retry") }));
+
+		await waitFor(() => {
+			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
+		});
+		// The error card is gone once the config loads (assert on the
+		// card's title — the loaded page may contain other alert roles).
+		expect(screen.queryByText(t("models.loadFailedTitle"))).toBeNull();
+	});
+});

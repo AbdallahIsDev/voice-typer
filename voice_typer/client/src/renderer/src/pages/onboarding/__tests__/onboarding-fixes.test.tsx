@@ -400,20 +400,22 @@ describe("Microphone step Refresh button re-fetches mic list", () => {
 	});
 });
 
-// ── handleApply is fire-and-forget ─────────────────────────────────
+// ── handleApply awaits onboarding_apply ────────────────────────────
 
-describe("Done step Get Started does not block on onboarding_apply", () => {
+describe("Done step Get Started waits for onboarding_apply to settle", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockShowSnack.mockReset();
 	});
 	afterEach(() => cleanup());
 
-	it("calls onComplete immediately even when onboarding_apply has not resolved", async () => {
-		// Make onboarding_apply never resolve — simulating a
-		// backend that blocks for many minutes while downloading
-		// the model. The wizard must NOT wait for it; onComplete
-		// must fire immediately.
+	it("does NOT complete while onboarding_apply is still pending", async () => {
+		// Make onboarding_apply never resolve — simulating a backend
+		// that hangs. The wizard must treat setup as INCOMPLETE: no
+		// success snack, no navigation, Get Started stays disabled
+		// (submitting) until the call settles. The previous
+		// fire-and-forget behaviour navigated the user to Home and
+		// showed "Setup complete!" even though nothing was applied.
 		let applyCallCount = 0;
 		mockCall.mockImplementation((type: string) => {
 			switch (type) {
@@ -456,7 +458,7 @@ describe("Done step Get Started does not block on onboarding_apply", () => {
 					});
 				case "onboarding_apply":
 					applyCallCount += 1;
-					// Never resolve — simulates a long-running download.
+					// Never resolve — simulates a hanging backend.
 					return new Promise(() => {});
 				default:
 					return Promise.resolve({});
@@ -464,38 +466,41 @@ describe("Done step Get Started does not block on onboarding_apply", () => {
 		});
 
 		let onCompleteCalled = false;
-		let onCompleteCallCount = 0;
 		render(
 			<OnboardingPage
 				onComplete={() => {
 					onCompleteCalled = true;
-					onCompleteCallCount += 1;
 				}}
 			/>,
 		);
 
-		// Wait for the Done step to render and the consent probe to settle.
+		// Wait for the Done step to render, the consent probe to settle,
+		// and the button to become clickable.
+		const getStarted = await screen.findByRole("button", {
+			name: "Get started",
+		});
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "Get started" })).toBeTruthy();
+			expect(getStarted.hasAttribute("disabled")).toBe(false);
 		});
 
 		// Click "Get Started" — this calls handleApply.
-		fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+		fireEvent.click(getStarted);
 
 		// The apply call must have been kicked off.
 		await waitFor(() => {
 			expect(applyCallCount).toBe(1);
 		});
 
-		// onComplete must be called immediately, even though
-		// onboarding_apply has not resolved. This is the
-		// fire-and-forget pattern: the user is navigated to Home
-		// right away, and Home's DownloadProgressBar surfaces real
-		// progress.
-		await waitFor(() => {
-			expect(onCompleteCalled).toBe(true);
-		});
-		expect(onCompleteCallCount).toBe(1);
+		// Give every pending microtask/task a chance to flush — if any
+		// code path still completed the wizard without awaiting the
+		// apply, onComplete would have fired by now.
+		await new Promise((resolve) => setTimeout(resolve, 50));
+
+		expect(onCompleteCalled).toBe(false);
+		expect(mockShowSnack).not.toHaveBeenCalled();
+		// The wizard is still submitting — the button stays disabled so
+		// the user can't re-trigger or navigate away mid-apply.
+		expect(getStarted.hasAttribute("disabled")).toBe(true);
 	});
 
 	it("shows the setupCompleteSnack success toast when Get Started is clicked", async () => {

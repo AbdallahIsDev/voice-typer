@@ -171,7 +171,7 @@ describe("useModelConfig — loadConfig (parallelized fetch)", () => {
 		expect(args.markUpdated).toHaveBeenCalled();
 	});
 
-	it("does NOT crash when get_config rejects (Promise.allSettled isolates failures)", async () => {
+	it("does NOT crash when get_config rejects, and surfaces loadError for the page's Retry state", async () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "get_config")
 				return Promise.reject(new Error("backend down"));
@@ -189,8 +189,44 @@ describe("useModelConfig — loadConfig (parallelized fetch)", () => {
 			expect(args.markUpdated).toHaveBeenCalled();
 		});
 
-		// Config stays null (get_config rejected).
+		// Config stays null (get_config rejected) and the failure is
+		// surfaced via `loadError` so the Models page can render the
+		// load-failure EmptyState with a Retry action instead of an
+		// endless spinner.
 		expect(result.current.config).toBeNull();
+		await waitFor(() => {
+			expect(result.current.loadError).toBe("backend down");
+		});
+	});
+
+	it("clears loadError on a subsequent successful load", async () => {
+		let failGetConfig = true;
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "get_config") {
+				return failGetConfig
+					? Promise.reject(new Error("backend down"))
+					: Promise.resolve(makeConfig({ model_size: "tiny" }));
+			}
+			if (cmd === "get_model_status") return Promise.resolve({});
+			if (cmd === "get_model_catalog") return Promise.resolve({ models: [] });
+			return Promise.resolve({});
+		});
+
+		const args = makeHookArgs();
+		const { result } = renderHook(() => useModelConfig(args));
+
+		await waitFor(() => {
+			expect(result.current.loadError).toBe("backend down");
+		});
+		expect(result.current.config).toBeNull();
+
+		failGetConfig = false;
+		await act(async () => {
+			await result.current.loadConfig();
+		});
+
+		expect(result.current.loadError).toBeNull();
+		expect(result.current.config?.model_size).toBe("tiny");
 	});
 
 	it("strips the <redacted> sentinel when seeding apiKeys from get_config", async () => {

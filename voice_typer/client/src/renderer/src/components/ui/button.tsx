@@ -5,7 +5,15 @@ import type * as React from "react";
 import { cn } from "#utils";
 
 const buttonVariants = cva(
-	"group/button inline-flex shrink-0 items-center justify-center rounded-4xl border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-hidden select-none cursor-pointer focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring active:not-aria-[haspopup]:translate-y-px disabled:cursor-not-allowed disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+	// PERF: enumerated `transition` property list instead of
+	// `transition-all`. The Button actually transitions colors
+	// (hover/aria-expanded backgrounds, text, border), box-shadow
+	// (focus-visible ring), opacity (disabled), and transform
+	// (active:translate-y-px) — exactly Tailwind's default `transition`
+	// set. `transition-all` would additionally watch every other
+	// animatable property (width/height/padding changes from variant
+	// swaps), promoting needless main-thread style recalculation.
+	"group/button inline-flex shrink-0 items-center justify-center rounded-4xl border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition outline-hidden select-none cursor-pointer focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring active:not-aria-[haspopup]:translate-y-px disabled:cursor-not-allowed disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 	{
 		variants: {
 			variant: {
@@ -32,7 +40,7 @@ const buttonVariants = cva(
 				default:
 					// physical pr/pl → logical pe/ps so icon padding
 					// mirrors correctly in RTL Arabic.
-					"h-9 gap-2 px-3 has-data-[icon=inline-end]:pe-2.5 has-data-[icon=inline-start]:ps-2.5",
+					"h-8 gap-2 px-2 has-data-[icon=inline-end]:pe-2.5 has-data-[icon=inline-start]:ps-2.5",
 				xs: "h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pe-2 has-data-[icon=inline-start]:ps-2 [&_svg:not([class*='size-'])]:size-3",
 				sm: "h-8 gap-1 px-3 has-data-[icon=inline-end]:pe-2 has-data-[icon=inline-start]:ps-2",
 				lg: "h-10 gap-2 px-4 has-data-[icon=inline-end]:pe-3 has-data-[icon=inline-start]:ps-3",

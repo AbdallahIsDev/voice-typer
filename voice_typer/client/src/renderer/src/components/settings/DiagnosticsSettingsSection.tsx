@@ -65,7 +65,7 @@ function StatusDot({ connected }: { connected: boolean }) {
 				aria-hidden="true"
 				className={
 					"size-1.5 rounded-full " +
-					(connected ? "bg-emerald-500" : "bg-destructive")
+					(connected ? "bg-success" : "bg-destructive")
 				}
 			/>
 			{connected ? t("about.connected") : t("about.disconnected")}
@@ -95,7 +95,7 @@ function LiveValue({
 				aria-hidden="true"
 				className={cn(
 					"size-1.5 shrink-0 rounded-full",
-					present ? "bg-emerald-500" : "bg-destructive",
+					present ? "bg-success" : "bg-destructive",
 				)}
 			/>
 			<span className="min-w-0 break-all">{children}</span>

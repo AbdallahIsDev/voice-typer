@@ -74,7 +74,7 @@ export function HotkeyPicker({
 	mode,
 	presets,
 	className,
-	"aria-label": ariaLabel = "Hotkey picker",
+	"aria-label": ariaLabel = t("hotkeyPicker.ariaLabel"),
 	onCaptureStart,
 	onCaptureEnd,
 	occupiedHotkeys,

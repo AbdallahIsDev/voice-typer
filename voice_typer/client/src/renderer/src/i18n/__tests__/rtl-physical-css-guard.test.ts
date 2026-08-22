@@ -62,10 +62,6 @@ const RENDERER_SRC = resolve(__dirname, "..", "..");
  * Last audited: 2026-07-27 by  (client_root_i18n).
  */
 const CURRENTLY_VIOLATING: ReadonlySet<string> = new Set<string>([
-	// `text-left` on a `<pre>` rendering the error stack trace. Migrating
-	// to `text-start` requires touching ErrorBoundary.tsx (owned by
-	//another agent — out of 's file scope).
-	"components/feedback/ErrorBoundary.tsx",
 	// `pages/About.tsx` was previously in this set for `text-right` on a
 	// credits `<span>`. The violation was refactored into
 	// `components/common/ReadonlyRow.tsx` and migrated to `text-end`
@@ -77,7 +73,7 @@ const CURRENTLY_VIOLATING: ReadonlySet<string> = new Set<string>([
 /**
  * Hard upper bound on {@link CURRENTLY_VIOLATING}'s size.
  *
- * The set is at 1 entry today; the bound is set to 5 to leave room
+ * The set is empty today; the bound is set to 5 to leave room
  * for short-term additions during the migration (e.g. a new file is
  * found to violate the rule and is added to the allowlist pending
  * migration by its owning agent). Once the migration is complete,

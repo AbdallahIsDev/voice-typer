@@ -29,7 +29,7 @@ export function LastTranscriptionPreview({
 		// `aria-live="polite"` here would cause screen readers to
 		// announce the same text twice, so it is intentionally omitted.
 		<div className="w-130 max-w-full rounded-[10px] bg-(--bg-subtle) px-4 py-3">
-			<p className="line-clamp-2 overflow-hidden text-ellipsis text-[13px] text-(--text-muted)">
+			<p className="line-clamp-2 overflow-hidden text-ellipsis text-[0.8125rem] text-(--text-muted)">
 				{text}
 			</p>
 			<div className="mt-2 flex items-center justify-end gap-1">

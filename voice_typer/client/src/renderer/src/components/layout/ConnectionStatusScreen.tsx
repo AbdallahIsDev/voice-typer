@@ -91,16 +91,12 @@ export function ConnectionStatusScreen({
 	return (
 		<div
 			className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center justify-center px-6 py-12"
-			role="alert"
-			aria-labelledby="connection-status-title"
-			aria-describedby="connection-status-desc"
 			data-testid="connection-status"
 		>
 			<EmptyState
 				variant="error"
 				icon={AlertCircleIcon}
 				title={title}
-				description={description}
 				// The primary EmptyState action is scoped to the
 				// disconnected state only. During restarting the backend
 				// is auto-recovering, so the sole manual affordance is the
@@ -110,6 +106,19 @@ export function ConnectionStatusScreen({
 				onAction={isDisconnected ? onRetry : undefined}
 				actionIcon={RefreshIcon}
 			>
+				{/* The description doubles as THE polite live region for this
+				 * screen (role="status" ⇒ implicit aria-live="polite"). The
+				 * wrapper div is intentionally ROLELESS: a role="alert"
+				 * wrapper around the whole card made every progressbar tick
+				 * re-announce the entire card assertively, drowning SR users
+				 * in repeated announcements. With only this polite region,
+				 * description updates (e.g. error ↔ hint swaps) announce
+				 * once, calmly, while the progressbar below reports its own
+				 * value changes via aria-valuenow.
+				 */}
+				<p role="status" className="text-xs text-(--text-muted)">
+					{description}
+				</p>
 				{(isConnecting || isRestarting) && (
 					<div className="mt-2 flex w-full flex-col items-center gap-3">
 						{/*the Spinner default is now a non-live
@@ -130,7 +139,7 @@ export function ConnectionStatusScreen({
 						</output>
 						{progressPercent !== null && (
 							<div className="flex w-full max-w-xs flex-col items-center gap-1">
-								<span className="text-xs text-(--fg-subtle)" aria-live="polite">
+								<span className="text-xs text-(--fg-subtle)">
 									{progressPercent}%
 								</span>
 								<div

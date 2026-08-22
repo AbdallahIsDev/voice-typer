@@ -258,24 +258,21 @@ vi.mock("@/components/layout/TitleBar", () => ({
 	TitleBar: () => <div data-testid="titlebar" />,
 }));
 
-//(session NH): the previous mock returned a bare <div> stub that
-// hid the real ConnectionStatusScreen's a11y contract from this test.
-// Now that the real component is implemented (renders a role="alertdialog"
-// with aria-labelledby/aria-describedby + a focusable Retry button), we
-// delegate to the real implementation so this test exercises the same
-// a11y surface an end user would encounter. The dedicated
-// ConnectionStatusScreen.test.tsx covers the per-state behavioral
-// contract (connecting / disconnected / progress).
+// Mock mirrors the REAL ConnectionStatusScreen markup: a roleless
+// wrapper (data-testid="connection-status") containing EmptyState's
+// error card (role="alert") with the description node as the screen's
+// polite status region (role="status"). Delegating to this structure
+// keeps the App-level test exercising the same a11y surface an end
+// user encounters. The dedicated ConnectionStatusScreen.test.tsx
+// covers the per-state behavioral contract (connecting / disconnected /
+// progress).
 vi.mock("@/components/layout/ConnectionStatusScreen", () => ({
 	ConnectionStatusScreen: () => (
-		<div
-			data-testid="connection-status"
-			role="alertdialog"
-			aria-labelledby="cs-title"
-			aria-describedby="cs-desc"
-		>
-			<span id="cs-title">Connection status</span>
-			<span id="cs-desc">Loading…</span>
+		<div data-testid="connection-status">
+			<div role="alert">
+				<h3>Connection status</h3>
+				<p role="status">Loading…</p>
+			</div>
 		</div>
 	),
 }));

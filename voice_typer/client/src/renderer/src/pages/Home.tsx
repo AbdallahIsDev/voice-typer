@@ -58,6 +58,7 @@ import type { HistoryRecord, TodayStats } from "@/types/ipc";
 import { LastTranscriptionPreview } from "./home/components/LastTranscriptionPreview";
 import { MicToggleButton } from "./home/components/MicToggleButton";
 import { RecordingStatusPill } from "./home/components/RecordingStatusPill";
+import { RecordingTimer } from "./home/components/RecordingTimer";
 import { useFirstRecordingCelebration } from "./home/hooks/useFirstRecordingCelebration";
 import {
 	loadCachedRecent,
@@ -66,6 +67,7 @@ import {
 	persistStats,
 } from "./home/lib/cache";
 import {
+	DEFAULT_STATUS_COLOR,
 	FORCE_CANCEL_DELAY_MS,
 	LAST_TEXT_AUTO_CLEAR_MS,
 	STATUS_COLORS,
@@ -100,21 +102,11 @@ export default function Home() {
 
 	const [hotkey, setHotkey] = useState("F2");
 	const [lastText, setLastText] = useState("");
-	// Live MM:SS recording timer — elapsed seconds while recording,
-	// reset to 0 when a new recording starts.
-	const [elapsedSec, setElapsedSec] = useState(0);
+	// The live MM:SS recording timer (elapsed seconds + its 1s interval)
+	// is owned by <RecordingTimer /> (./home/components) — keeping the
+	// per-second tick state here re-rendered the whole Home tree every
+	// second. See RecordingTimer.tsx.
 	const isRecording = recordingState === "recording";
-	useEffect(() => {
-		if (!isRecording) {
-			setElapsedSec(0);
-			return;
-		}
-		setElapsedSec(0);
-		const id = window.setInterval(() => {
-			setElapsedSec((s) => s + 1);
-		}, 1000);
-		return () => window.clearInterval(id);
-	}, [isRecording]);
 	const [downloadPct, setDownloadPct] = useState<number | null>(null);
 	const [transcribeStartedAt, setTranscribeStartedAt] = useState<number | null>(
 		null,
@@ -669,10 +661,10 @@ export default function Home() {
 	const key = hint?.variant === "error" ? "error" : baseKey;
 	// noUncheckedIndexedAccess: `STATUS_COLORS[key]` is `string | undefined`.
 	// `statusKeyFor` always returns a known key, but the index access still
-	// widens to `string | undefined` under strict TS; fall back to a literal
-	// sentinel that matches `STATUS_COLORS.idle` so we never pass `undefined`
-	// to the `RecordingStatusPill` `statusColor` prop.
-	const statusColor = STATUS_COLORS[key] ?? "#787878";
+	// widens to `string | undefined` under strict TS; fall back to the
+	// shared idle sentinel so we never pass `undefined` to the
+	// `RecordingStatusPill` `statusColor` prop.
+	const statusColor = STATUS_COLORS[key] ?? DEFAULT_STATUS_COLOR;
 	const statusLabel = statusLabelFor(key) ?? t("home.ready");
 
 	return (
@@ -688,7 +680,7 @@ export default function Home() {
 				>
 					<div
 						style={{ width: `${downloadPct}%` }}
-						className="h-0.5 rounded-full bg-amber-500"
+						className="h-0.5 rounded-full bg-warning"
 					/>
 				</div>
 			)}
@@ -697,7 +689,7 @@ export default function Home() {
 				<button
 					type="button"
 					onClick={handleForceCancel}
-					className="text-xs text-amber-700 hover:text-amber-800 hover:underline dark:text-amber-500 dark:hover:text-amber-400 transition-colors"
+					className="text-xs text-warning hover:text-warning/80 hover:underline transition-colors"
 					aria-label={t("home.forceCancelHint")}
 				>
 					{t("home.forceCancelHint")}
@@ -710,28 +702,7 @@ export default function Home() {
 					statusLabel={statusLabel}
 					isRecording={isRecording}
 				/>
-				{isRecording && (
-					<span
-						className="font-mono text-sm tabular-nums text-(--text-muted)"
-						// QV-49(a): accessible live timer while recording. role="timer"
-						// gives the span a role that supports aria-label (plain
-						// spans don't accept aria-label). aria-live="off" is
-						// EXPLICIT, not relied on implicitly: per WAI-ARIA,
-						// `timer` has an implicit aria-live="off", but some
-						// screen readers announce role="timer" content changes
-						// anyway — the explicit attribute is what guarantees the
-						// per-second tick is NEVER announced, so it can't
-						// compete with the single status live region below.
-						role="timer"
-						aria-live="off"
-						aria-label={t("home.timerAria", {
-							duration: `${String(Math.floor(elapsedSec / 60)).padStart(2, "0")}:${String(elapsedSec % 60).padStart(2, "0")}`,
-						})}
-					>
-						{String(Math.floor(elapsedSec / 60)).padStart(2, "0")}:
-						{String(elapsedSec % 60).padStart(2, "0")}
-					</span>
-				)}
+				<RecordingTimer isRecording={isRecording} />
 			</div>
 
 			<MicToggleButton
@@ -756,7 +727,7 @@ export default function Home() {
 			<output
 				aria-live="polite"
 				role={hint?.variant === "error" ? "alert" : undefined}
-				className={`flex items-center gap-2 text-[13px] animate-fade-in ${
+				className={`flex items-center gap-2 text-[0.8125rem] animate-fade-in ${
 					hint?.variant === "error" ? "text-destructive" : "text-(--text-muted)"
 				}`}
 			>

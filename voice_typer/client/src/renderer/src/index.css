@@ -490,22 +490,47 @@
 	animation: pulseRing 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* Subtle glow pulse for the mic button idle state. */
+/* Subtle glow pulse for the mic button idle state.
+   Compositor-only implementation: the original keyframes animated
+   `box-shadow` directly, which forces the browser to re-rasterize the
+   shadow (paint) on EVERY frame of the infinite loop. The glow is now
+   painted ONCE as a static peak-strength box-shadow on a ::after
+   pseudo-element, and the keyframes animate only its OPACITY — a
+   compositor-only property — so the idle pulsing runs without
+   per-frame paint. The pseudo-element carries `border-radius: inherit`
+   (the mic button is rounded-full) and `pointer-events: none` so it
+   never intercepts clicks.
+   Visual rhythm is unchanged: same 2.5s ease-in-out cycle, dim rest
+   glow at 0%/100% (half opacity ≈ the old 20%-destructive halo) and
+   the full-strength glow at 50% (the old 40%-destructive peak).
+   The base `opacity: 0.5` is the settled state: with animations
+   disabled (prefers-reduced-motion block below finishes them in
+   0.01ms) the pseudo-element falls back to this static dim glow
+   instead of flashing full strength. */
+.animate-glow-pulse {
+	position: relative;
+}
+
+.animate-glow-pulse::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	pointer-events: none;
+	opacity: 0.5;
+	box-shadow: 0 0 32px color-mix(in oklch, var(--destructive) 40%, transparent);
+	animation: glowPulse 2.5s ease-in-out infinite;
+}
+
 @keyframes glowPulse {
 	0%,
 	100% {
-		box-shadow: 0 0 18px
-			color-mix(in oklch, var(--destructive) 20%, transparent);
+		opacity: 0.5;
 	}
 
 	50% {
-		box-shadow: 0 0 32px
-			color-mix(in oklch, var(--destructive) 40%, transparent);
+		opacity: 1;
 	}
-}
-
-.animate-glow-pulse {
-	animation: glowPulse 2.5s ease-in-out infinite;
 }
 
 /* respect prefers-reduced-motion.

@@ -1,4 +1,4 @@
-import { Search01Icon } from "@hugeicons/core-free-icons";
+import { AlertCircleIcon, Search01Icon } from "@hugeicons/core-free-icons";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
@@ -124,6 +124,7 @@ export default function SettingsPage({
 		updateConfig,
 		updateConfigDebounced,
 		loadConfig,
+		loadError,
 		mergeExternalConfig,
 	} = useSettingsConfig();
 	const { call } = usePython();
@@ -539,6 +540,25 @@ export default function SettingsPage({
 	);
 
 	if (!config) {
+		// Initial-load failure: render the load-failure EmptyState
+		// (variant="error" + Retry) instead of an endless "Loading…"
+		// spinner. Mirrors the History/Models load-failure pattern.
+		if (loadError) {
+			return (
+				<div className="flex h-full items-center justify-center">
+					<EmptyState
+						variant="error"
+						icon={AlertCircleIcon}
+						title={t("settings.loadFailedTitle")}
+						description={t("settings.loadFailedDescription")}
+						actionLabel={t("settings.retry")}
+						onAction={() => {
+							void loadConfig();
+						}}
+					/>
+				</div>
+			);
+		}
 		return (
 			<div className="flex h-full items-center justify-center">
 				<div className="space-y-2 text-center">
