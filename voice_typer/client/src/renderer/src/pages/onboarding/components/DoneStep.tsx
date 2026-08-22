@@ -1,4 +1,5 @@
 import type { Ref } from "react";
+import { HotkeyChips } from "@/components/hotkey/HotkeyChips";
 import { formatHotkey } from "@/components/hotkey/hotkey-format";
 import { t } from "@/i18n/i18n";
 import type { BackendChoice } from "../hooks/useOnboardingWizard";
@@ -55,7 +56,7 @@ export function DoneStep({
 				</p>
 				<p>
 					{t("onboarding.summaryHotkey")}{" "}
-					<strong>{formatHotkey(selectedHotkey)}</strong>
+					<HotkeyChips keys={formatHotkey(selectedHotkey)} />
 				</p>
 				<p>
 					{t("onboarding.summaryModel")} <strong>{selectedModel}</strong>

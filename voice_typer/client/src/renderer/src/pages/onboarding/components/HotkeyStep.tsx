@@ -1,4 +1,5 @@
 import type { Ref } from "react";
+import { HotkeyChips } from "@/components/hotkey/HotkeyChips";
 import { formatHotkey } from "@/components/hotkey/hotkey-format";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,7 +62,7 @@ export function HotkeyStep({
 				<SelectContent>
 					{hotkeyPresets.map((hk) => (
 						<SelectItem key={hk} value={hk}>
-							{formatHotkey(hk)}
+							<HotkeyChips keys={formatHotkey(hk)} />
 						</SelectItem>
 					))}
 				</SelectContent>

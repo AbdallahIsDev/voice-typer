@@ -49,7 +49,7 @@ describe("HotkeyChips", () => {
 		expect(kbds[0]?.textContent).toBe("Esc");
 	});
 
-	it("splits a combo on '+' into a group of Kbd chips with a '+' separator", () => {
+	it("splits a combo on '+' into a group of Kbd chips with NO '+' separator (gap-only)", () => {
 		render(<HotkeyChips keys="Ctrl+Alt+V" />);
 		const kbds = chips();
 		expect(kbds).toHaveLength(3);
@@ -60,11 +60,21 @@ describe("HotkeyChips", () => {
 		}
 		// The group wrapper carries the kbd-group slot marker.
 		expect(groups()).toHaveLength(1);
-		// Two "+" separators between the three chips.
-		const plusCount = Array.from(
+		// The "+" separators are GONE — the KbdGroup's own gap provides
+		// the spacing between chips (keycaps separated by a small visual
+		// gap, never a "+").
+		const plusSeparators = Array.from(
 			document.querySelectorAll('[data-slot="kbd-group"] span'),
-		).filter((s) => s.textContent === "+").length;
-		expect(plusCount).toBe(2);
+		).filter((s) => s.textContent === "+");
+		expect(plusSeparators).toHaveLength(0);
+		// The chips are direct children of the KbdGroup (no separator
+		// nodes between them), so the group's `gap-1` is the only
+		// spacing.
+		const group = groups()[0];
+		const childTexts = group
+			? Array.from(group.children).map((c) => c.textContent)
+			: [];
+		expect(childTexts).toEqual(["Ctrl", "Alt", "V"]);
 	});
 
 	it("splits alternative bindings on ' / ' into separate groups", () => {

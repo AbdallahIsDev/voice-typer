@@ -7,9 +7,9 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Kbd } from "@/components/ui/kbd";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
+import { HotkeyChips } from "./HotkeyChips";
 import { formatHotkeyLabel, tryCommitHotkey } from "./hotkey-utils";
 import { useHotkeyCapture } from "./useHotkeyCapture";
 
@@ -146,10 +146,10 @@ export function HotkeyPicker({
 					{recording ? (
 						<span className="animate-pulse">{t("hotkeyPicker.pressAKey")}</span>
 					) : value ? (
-						// Render the assigned hotkey as a design-system <Kbd>
-						// chip inside the button (shadcn's documented
-						// "Kbd inside Button" pattern).
-						<Kbd>{formatHotkeyLabel(value)}</Kbd>
+						// Render the assigned hotkey as design-system keycap
+						// chips inside the button (each key its own <Kbd>,
+						// joined with a small gap — no "+" separator).
+						<HotkeyChips keys={formatHotkeyLabel(value)} />
 					) : (
 						<span>{t("hotkeyPicker.none")}</span>
 					)}
@@ -161,23 +161,31 @@ export function HotkeyPicker({
 							<Button
 								variant="outline"
 								size="sm"
-								className="w-40 justify-between font-mono"
+								className="min-w-40 justify-between font-mono"
 								aria-label={t("hotkeyPicker.presetHotkeysAria", {
 									label: ariaLabel,
 								})}
 							>
-								<span>
+								<span className="flex items-center">
 									{(() => {
 										if (!value) return t("hotkeyPicker.presets");
 										if (isPresetValue) {
 											const opt = presetOptions.find(
 												(o) => o.value === rawPresetValue,
 											);
-											return opt?.label ?? formatHotkeyLabel(value);
+											return (
+												<HotkeyChips
+													keys={opt?.label ?? formatHotkeyLabel(value)}
+												/>
+											);
 										}
-										return t("hotkeyPicker.customLabel", {
-											label: customLabel,
-										});
+										return (
+											<HotkeyChips
+												keys={t("hotkeyPicker.customLabel", {
+													label: customLabel,
+												})}
+											/>
+										);
 									})()}
 								</span>
 								<svg
@@ -197,7 +205,7 @@ export function HotkeyPicker({
 								</svg>
 							</Button>
 						</DropdownMenuTrigger>
-						<DropdownMenuContent className="w-40" align="start">
+						<DropdownMenuContent className="min-w-40" align="start">
 							{presetOptions.map((opt) => (
 								<DropdownMenuItem
 									key={opt.value}
@@ -222,7 +230,7 @@ export function HotkeyPicker({
 										onChange(newValue);
 									}}
 								>
-									{opt.label}
+									<HotkeyChips keys={opt.label} />
 								</DropdownMenuItem>
 							))}
 							{!isPresetValue && value && (
@@ -230,7 +238,11 @@ export function HotkeyPicker({
 									disabled
 									className="text-(--text-muted) cursor-default"
 								>
-									{t("hotkeyPicker.customLabel", { label: customLabel })}
+									<HotkeyChips
+										keys={t("hotkeyPicker.customLabel", {
+											label: customLabel,
+										})}
+									/>
 								</DropdownMenuItem>
 							)}
 						</DropdownMenuContent>

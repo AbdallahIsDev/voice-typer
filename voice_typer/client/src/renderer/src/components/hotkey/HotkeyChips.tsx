@@ -7,10 +7,11 @@ interface HotkeyChipsProps {
 	 * Canonical cross-platform hotkey string, e.g. `"Ctrl+Alt+V"` or
 	 * `"Tab / Shift+Tab"`. `" / "` separates alternative bindings
 	 * (rendered with a plain separator); `"+"` separates the individual
-	 * keys of a combo (rendered as a `KbdGroup` of `Kbd` chips). On
-	 * macOS the modifier labels are rendered as native glyphs
-	 * ("Ctrl+B" → "⌃B") automatically via {@link formatHotkeyForPlatform}
-	 * — the same treatment `formatHotkey` applies in the Sidebar.
+	 * keys of a combo (rendered as a `KbdGroup` of `Kbd` chips with a
+	 * small gap and NO visible `+`). On macOS the modifier labels are
+	 * rendered as native glyphs ("Ctrl+B" → "⌃B") automatically via
+	 * {@link formatHotkeyForPlatform} — the same treatment `formatHotkey`
+	 * applies in the Sidebar.
 	 */
 	keys: string;
 	/** Optional extra classes applied to each chip group / chip. */
@@ -19,10 +20,10 @@ interface HotkeyChipsProps {
 
 /**
  * Renders one hotkey alternative ("Ctrl+Alt+V") as a `KbdGroup` of
- * `Kbd` chips with a muted "+" separator, or a single `Kbd` chip when
- * there is no combo ("Esc", "Caps Lock"). Falls back to a single chip
- * holding the whole string when the format is unexpected (e.g. an
- * i18n key that couldn't be resolved).
+ * `Kbd` chips separated by a small gap (no `+` separator), or a single
+ * `Kbd` chip when there is no combo ("Esc", "Caps Lock"). Falls back
+ * to a single chip holding the whole string when the format is
+ * unexpected (e.g. an i18n key that couldn't be resolved).
  */
 function HotkeyCombo({
 	keys,
@@ -40,18 +41,8 @@ function HotkeyCombo({
 	}
 	return (
 		<KbdGroup className={className}>
-			{parts.map((part, i) => (
-				<Fragment key={part}>
-					{i > 0 && (
-						<span
-							aria-hidden
-							className="text-[11px] leading-none text-(--text-muted)"
-						>
-							+
-						</span>
-					)}
-					<Kbd>{part}</Kbd>
-				</Fragment>
+			{parts.map((part) => (
+				<Kbd key={part}>{part}</Kbd>
 			))}
 		</KbdGroup>
 	);
@@ -60,9 +51,11 @@ function HotkeyCombo({
 /**
  * HotkeyChips — renders a formatted hotkey string as shadcn/ui `<Kbd>`
  * chips. `" / "` separates alternative bindings ("Tab / Shift+Tab");
- * `"+"` separates the keys of a combo ("Ctrl+Alt+V"). This is the
- * single visual primitive for every hotkey display in the app, so the
- * chip styling always matches the design-system `Kbd` component.
+ * `"+"` separates the keys of a combo ("Ctrl+Alt+V"), rendered as
+ * separate keycaps with only a small gap between them — never a visible
+ * `+`. This is the single visual primitive for every hotkey display in
+ * the app, so the chip styling always matches the design-system `Kbd`
+ * component.
  */
 export function HotkeyChips({ keys, className }: HotkeyChipsProps) {
 	// Platform transform FIRST (before splitting): on macOS the

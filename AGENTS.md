@@ -638,6 +638,12 @@ Applies to: All agents, all modes.
 
 ## Category: UI & UX
 
+```
+C-UI-1
+Rule: Do NOT render a "+" (or any other punctuation) between the keys of a keyboard shortcut. Multi-key shortcuts MUST display as separate keycap chips separated only by a small, consistent visual gap (the `KbdGroup`'s `gap-1`), rendered through the shared `HotkeyChips` component (`voice_typer/client/src/renderer/src/components/hotkey/HotkeyChips.tsx`). Every shortcut display — sidebar nav tooltips/chips, TitleBar tooltips, the Help overlay, Home's "Press … or click" line, the Settings `HotkeyPicker` capture chip + preset dropdown, Diagnostics settings, and the onboarding hotkey Select/summary — MUST use `HotkeyChips` (or a wrapper that uses it); do NOT render `formatHotkey(...)` output or preset labels as plain text that keeps the "+". macOS glyph output ("⌃B", "⌘⇧V") is exempt — modifiers there are conventionally joined without separators.
+Rationale: The `+` separator was removed app-wide (2026-08-22) so shortcuts read as clean adjacent keycaps with only a small gap; the change is strictly presentation — the underlying shortcut strings, catalog `keys`, and behavior are unchanged. Plain-text renders of the formatted string reintroduce the "+" and silently desync from the keycap language.
+Applies to: All agents, all modes, all sub-agents.
+```
 
 ---
 
