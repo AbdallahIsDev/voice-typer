@@ -59,7 +59,18 @@ export function SettingRow({
 				ctrl.hasAttribute("aria-labelledby") ||
 				ctrl.hasAttribute("title");
 			const isWrappedInLabel = ctrl.closest("label") !== null;
-			if (hasOwnName || isWrappedInLabel) return;
+			// Skip controls hidden from the accessibility tree. Radix
+			// primitives (Switch/Checkbox/Radio) mount an invisible
+			// <input aria-hidden="true"> purely for native form
+			// semantics — it is never announced, so it legitimately has
+			// no accessible name and must not trip the warning. The
+			// same applies to `type="hidden"` inputs and any control
+			// under an aria-hidden ancestor.
+			const isHiddenFromAT =
+				ctrl.getAttribute("type") === "hidden" ||
+				ctrl.getAttribute("aria-hidden") === "true" ||
+				ctrl.closest('[aria-hidden="true"]') !== null;
+			if (hasOwnName || isWrappedInLabel || isHiddenFromAT) return;
 			console.warn(
 				`[renderer:SettingRow] The visible label "${label}" has no programmatic association with its child form control. ` +
 					"Pass `htmlFor` on SettingRow (and `id` on the control) OR pass `aria-label` / `aria-labelledby` on the control. " +

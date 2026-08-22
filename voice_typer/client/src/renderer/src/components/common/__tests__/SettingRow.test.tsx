@@ -16,9 +16,10 @@
  * `contextLabel={label}` is caught here.
  */
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SettingRow } from "@/components/common/SettingRow";
+import { Switch } from "@/components/ui/switch";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 /** Wrap a node in the shared TooltipProvider so isolated tests can mount. */
@@ -102,5 +103,54 @@ describe("SettingRow", () => {
 				name: "More info about Noise gate threshold",
 			}),
 		).toBeInTheDocument();
+	});
+});
+
+describe("SettingRow — dev-mode association audit", () => {
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("does NOT warn when the child control has an accessible name (aria-label)", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		render(
+			withProvider(
+				<SettingRow label="Launch at Login">
+					<Switch
+						checked={false}
+						onCheckedChange={() => {}}
+						aria-label="Launch at Login"
+					/>
+				</SettingRow>,
+			),
+		);
+		// Radix Switch mounts its hidden form <input aria-hidden="true">
+		// asynchronously; give the passive-effect flush time to run.
+		// The hidden input has no accessible name and must NOT trip the
+		// audit (regression for the false-positive console warnings seen
+		// on the Settings page).
+		await new Promise((r) => setTimeout(r, 50));
+		const settingRowWarnings = warn.mock.calls.filter((c) =>
+			String(c[0]).includes("[renderer:SettingRow]"),
+		);
+		expect(settingRowWarnings).toHaveLength(0);
+		warn.mockRestore();
+	});
+
+	it("STILL warns when a child form control has no accessible name and is not hidden", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		render(
+			withProvider(
+				<SettingRow label="Bare select">
+					<select aria-label={undefined} />
+				</SettingRow>,
+			),
+		);
+		await new Promise((r) => setTimeout(r, 50));
+		const settingRowWarnings = warn.mock.calls.filter((c) =>
+			String(c[0]).includes("[renderer:SettingRow]"),
+		);
+		expect(settingRowWarnings.length).toBeGreaterThan(0);
+		warn.mockRestore();
 	});
 });
