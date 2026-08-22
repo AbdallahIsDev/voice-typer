@@ -249,7 +249,7 @@ export default function VocabularyPage() {
 	if (loading) {
 		return (
 			<div className="flex h-full items-center justify-center">
-				<Spinner />
+				<Spinner label={t("vocabulary.loading")} />
 			</div>
 		);
 	}

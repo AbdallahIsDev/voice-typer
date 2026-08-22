@@ -64,12 +64,12 @@ export function VocabToolbar({
 	return (
 		<div className="flex w-full flex-wrap items-center justify-between gap-2">
 			{/* Secondary-action group (Import / Export / Clear All) — one
-			    flex container so the three stay clustered on the left
-			    while the primary Add Word action is pushed to the far
-			    right by the parent's justify-between. */}
+                            flex container so the three stay clustered on the left
+                            while the primary Add Word action is pushed to the far
+                            right by the parent's justify-between. */}
 			<div className="flex flex-wrap items-center gap-2">
 				{/* Hidden file input for the Import button (mirrors
-				the Templates pattern). */}
+                                the Templates pattern). */}
 				<input
 					ref={importInputRef}
 					type="file"
@@ -87,6 +87,10 @@ export function VocabToolbar({
 					size="sm"
 					onClick={onImportClick}
 					aria-label={t("common.importAria")}
+					// (XA-5-20): surface the expected file format
+					// schema on hover so the user knows what shape
+					// the import expects without trial-and-error.
+					title={t("vocabulary.importFormatHint")}
 					className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
 				>
 					<HugeiconsIcon
@@ -126,16 +130,16 @@ export function VocabToolbar({
 				</Button>
 			</div>
 			{/* Primary action — filled accent button, pushed to the far end
-			    of the row (justify-between) so it reads as THE action on
-			    this page, distinct from the Import/Export/Clear All
-			    cluster on the left. `ms-auto` is the flexbox auto-margin:
-			    it absorbs ALL free space ahead of it, which on a single
-			    row is identical to space-between (group flush left, Add
-			    Word flush right) AND on a narrow wrapped row keeps Add
-			    Word pinned to the right edge instead of falling to the
-			    left — auto margins are width-scaling alignment, not a
-			    fixed gap, so nothing breaks at different content lengths
-			    or window sizes. */}
+                            of the row (justify-between) so it reads as THE action on
+                            this page, distinct from the Import/Export/Clear All
+                            cluster on the left. `ms-auto` is the flexbox auto-margin:
+                            it absorbs ALL free space ahead of it, which on a single
+                            row is identical to space-between (group flush left, Add
+                            Word flush right) AND on a narrow wrapped row keeps Add
+                            Word pinned to the right edge instead of falling to the
+                            left — auto margins are width-scaling alignment, not a
+                            fixed gap, so nothing breaks at different content lengths
+                            or window sizes. */}
 			<Button
 				variant="default"
 				size="sm"

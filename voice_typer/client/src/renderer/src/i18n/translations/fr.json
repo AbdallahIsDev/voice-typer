@@ -416,6 +416,7 @@
 			"presetNoisyRoomDescription": "Filtrage agressif pour le bruit de clavier, les ventilateurs et le grondement CVC. RNNoise + porte forte + compresseur pour une précision ASR constante.",
 			"presetOffDescription": "Ignorer toute la chaîne de filtres. Utiliser uniquement avec un signal propre — le bruit de fond dégradera la transcription.",
 			"presetCustomDescription": "Choisissez chaque filtre et paramètre manuellement. Meilleur pour les utilisateurs avancés avec un environnement acoustique connu.",
+			"customFiltersTitle": "Filtres personnalisés",
 			"gateAttack": "Attaque de porte",
 			"gateAttackInfo": "Vitesse d'ouverture de la porte lorsque le signal dépasse le seuil d'ouverture. 5–25 ms est typique pour la parole.",
 			"gateAttackInfoSearch": "Vitesse d'ouverture de la porte.",
@@ -659,7 +660,10 @@
 			"errorMessage": "Échec du téléchargement : {error}",
 			"errorMessageWithName": "Échec du téléchargement de {name} : {error}",
 			"retry": "Réessayer",
-			"retryAria": "Réessayer le téléchargement"
+			"retryAria": "Réessayer le téléchargement",
+			"cancelConfirmTitle": "Annuler le téléchargement ?",
+			"cancelConfirmMessage": "Voulez-vous vraiment annuler ce téléchargement ? Cette action est irréversible.",
+			"cancelConfirmAction": "Annuler le téléchargement"
 		},
 		"active": "Actif",
 		"delete": "Supprimer",
@@ -778,7 +782,10 @@
 			"configureAria": "Configurer {provider}",
 			"hideConfigure": "Masquer",
 			"hideConfigureAria": "Masquer la configuration de {provider}",
-			"tagCloud": "Cloud"
+			"tagCloud": "Cloud",
+			"apiKeyShowAria": "Afficher la clé API {provider}",
+			"apiKeyHideAria": "Masquer la clé API {provider}",
+			"apiKeyFormatHint": "Les clés API {provider} sont des chaînes longues (généralement 40 à 60 caractères). Collez la clé complète — sans espaces ni préfixes."
 		},
 		"deleteDialog": {
 			"title": "Supprimer le Modèle",
@@ -851,7 +858,8 @@
 			"aria": "Révéler le dossier des modèles dans le gestionnaire de fichiers"
 		},
 		"cloudModels": "Modèles Cloud",
-		"cloudModelsDescription": "Utilisez des APIs cloud pour une transcription plus rapide. Clé API requise."
+		"cloudModelsDescription": "Utilisez des APIs cloud pour une transcription plus rapide. Clé API requise.",
+		"activeModelSummaryLabel": "Modèle actif :"
 	},
 	"history": {
 		"title": "Historique",
@@ -1174,7 +1182,14 @@
 		"exportSelected": "Exporter la sélection",
 		"deselectAll": "Tout désélectionner",
 		"importDuplicate": "Importation bloquée — une correction existe déjà",
-		"searchPlaceholderCount": "Rechercher {count} corrections"
+		"searchPlaceholderCount": "Rechercher {count} corrections",
+		"count_zero": "{count} corrections",
+		"count_one": "{count} correction",
+		"count_two": "{count} corrections",
+		"count_few": "{count} corrections",
+		"count_many": "{count} corrections",
+		"count_other": "{count} corrections",
+		"importFormatHint": "Accepte le JSON ({\"vocabulary\": [ … ]}) ou le CSV (colonnes : incorrect, corrigé)."
 	},
 	"templates": {
 		"title": "Modèles",
@@ -1243,7 +1258,8 @@
 		"count_few": "{count} modèles",
 		"count_many": "{count} modèles",
 		"count_other": "{count} modèles",
-		"unknownVariableWarning": "Variable inconnue {vars} — prises en charge : {today}, {now}, {clipboard}, {username}"
+		"unknownVariableWarning": "Variable inconnue {vars} — prises en charge : {today}, {now}, {clipboard}, {username}",
+		"importFormatHint": "Accepte le JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]})."
 	},
 	"analytics": {
 		"title": "Analytique",
@@ -1738,6 +1754,15 @@
 			"volume_too_low": "Volume trop faible — parlez plus près du microphone",
 			"volume_low": "Volume faible — envisagez d'augmenter le gain d'entrée",
 			"no_voice": "Aucune voix détectée — essayez de parler pendant le test"
+		},
+		"recommendations": {
+			"high_noise": "Essayez le préréglage « Pièce bruyante » pour supprimer le bruit de fond.",
+			"moderate_noise": "Essayez le préréglage « Pièce bruyante » pour une capture plus claire.",
+			"clipping": "Réduisez le gain d'entrée ou éloignez-vous un peu du microphone.",
+			"volume_too_low": "Parlez plus fort ou rapprochez-vous du microphone.",
+			"volume_low": "Augmentez le gain d'entrée dans les réglages son de votre système.",
+			"no_voice": "Parlez en continu pendant le test pour que la voix soit détectée.",
+			"applyNoisyRoom": "Appliquer le préréglage « Pièce bruyante »"
 		}
 	},
 	"dashboard": {

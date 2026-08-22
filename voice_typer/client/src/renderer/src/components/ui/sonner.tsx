@@ -10,7 +10,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
-import { getLocale, isRtlLocale, subscribeLocale } from "@/i18n/i18n";
+import { getLocale, isRtlLocale, subscribeLocale, t } from "@/i18n/i18n";
 
 /**
  * Resolve the current theme for the Sonner toaster.
@@ -110,6 +110,14 @@ const Toaster = ({ ...props }: ToasterProps) => {
 			richColors
 			closeButton
 			position={rtl ? "bottom-left" : "bottom-right"}
+			// Localized accessible names for the toast container and its
+			// close button — sonner's built-ins are hard-coded English
+			// ("Notifications" / "Close"), which leaked untranslated text
+			// to screen-reader users in every non-English locale.
+			containerAriaLabel={t("a11y.notifications")}
+			toastOptions={{
+				closeButtonAriaLabel: t("a11y.close"),
+			}}
 			duration={4000}
 			visibleToasts={6}
 			expand={false}

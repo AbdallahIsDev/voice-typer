@@ -58,6 +58,10 @@ export function TemplateToolbar({
 				size="sm"
 				onClick={onImportClick}
 				aria-label={t("common.importAria")}
+				// (XA-5-20): surface the expected file format
+				// schema on hover so the user knows what shape
+				// the import expects without trial-and-error.
+				title={t("templates.importFormatHint")}
 				className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
 			>
 				{/* Import icon omitted — label is sufficient. */}

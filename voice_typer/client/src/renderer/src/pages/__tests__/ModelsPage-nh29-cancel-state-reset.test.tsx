@@ -143,6 +143,15 @@ describe("ModelsPage — NH-29 cancel-download state reset", () => {
 		// 4. Click Cancel.
 		fireEvent.click(cancelButton);
 
+		// XA-5-6: Cancel is gated by a confirmation dialog — a stray
+		// click must not abort a multi-GB download. The IPC fires only
+		// after the dialog's destructive confirm action.
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: t("models.download.cancelConfirmAction"),
+			}),
+		);
+
 		// 5. cancel_model_download IPC was called.
 		await waitFor(() => {
 			expect(mockCall).toHaveBeenCalledWith("cancel_model_download");
@@ -198,6 +207,13 @@ describe("ModelsPage — NH-29 cancel-download state reset", () => {
 			}),
 		);
 		fireEvent.click(cancelButton);
+
+		// XA-5-6: the cancel confirmation dialog gates the IPC.
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: t("models.download.cancelConfirmAction"),
+			}),
+		);
 
 		// cancel_model_download IPC was called.
 		await waitFor(() => {

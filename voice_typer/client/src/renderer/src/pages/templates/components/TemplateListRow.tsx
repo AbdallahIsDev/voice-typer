@@ -58,9 +58,17 @@ export const TemplateListRow = memo(function TemplateListRow({
 					{row.trigger}
 				</p>
 				<div className="mt-0.5 flex items-center gap-3">
-					<p className="max-w-75 truncate text-xs text-(--text-muted)">
-						{row.expansion}
-					</p>
+					{/* (XA-5-14): wrap the truncated expansion <p> in an
+                                                InfoTooltip that shows the FULL expansion text on hover,
+                                                so a long template body that the CSS truncates to one
+                                                line is still readable in full without opening the Edit
+                                                dialog. The tooltip is rendered INSIDE the truncate
+                                                wrapper so the hover target follows the visible text,
+                                                not the whole row. */}
+					<div className="max-w-75 truncate text-xs text-(--text-muted)">
+						<p className="truncate">{row.expansion}</p>
+						<InfoTooltip text={row.expansion} contextLabel={row.trigger} />
+					</div>
 					<output
 						className={
 							"text-xs rounded-full px-2 py-0.5 font-medium " +
@@ -87,9 +95,9 @@ export const TemplateListRow = memo(function TemplateListRow({
 			</div>
 			<div className="flex shrink-0 items-center gap-0.5">
 				{/* Delete → Edit: the app-wide action-icon convention puts the
-				    edit pencil RIGHTMOST in the group (same rule as the
-				    Vocabulary rows) so the edit affordance sits consistently
-				    at the far edge of every row across pages. */}
+                                    edit pencil RIGHTMOST in the group (same rule as the
+                                    Vocabulary rows) so the edit affordance sits consistently
+                                    at the far edge of every row across pages. */}
 				<Button
 					variant="ghost"
 					size="icon-xs"

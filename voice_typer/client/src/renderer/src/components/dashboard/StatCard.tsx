@@ -10,7 +10,7 @@ export interface StatTrend {
 	up: boolean;
 }
 
-interface DashboardStatCardProps {
+interface StatCardProps {
 	label: string;
 	value: string;
 	icon: IconSvgElement;
@@ -52,13 +52,13 @@ function TrendIndicator({ trend }: { trend: StatTrend }) {
 	);
 }
 
-export function DashboardStatCard({
+export function StatCard({
 	label,
 	value,
 	icon,
 	sublabel,
 	trend,
-}: DashboardStatCardProps) {
+}: StatCardProps) {
 	return (
 		// Informational display card — NOT interactive: no hover
 		// lift/border change. Layout: a single top row of icon +

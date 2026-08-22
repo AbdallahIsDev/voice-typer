@@ -270,7 +270,14 @@
 		"exportSelected": "تصدير المحدد",
 		"deselectAll": "إلغاء تحديد الكل",
 		"importDuplicate": "تم حظر الاستيراد — هذا التصحيح موجود بالفعل",
-		"searchPlaceholderCount": "ابحث عن {count} تصحيحات"
+		"searchPlaceholderCount": "ابحث عن {count} تصحيحات",
+		"count_zero": "{count} تصحيحات",
+		"count_one": "{count} تصحيح",
+		"count_two": "{count} تصحيحان",
+		"count_few": "{count} تصحيحات",
+		"count_many": "{count} تصحيحًا",
+		"count_other": "{count} تصحيحًا",
+		"importFormatHint": "يقبل ملف JSON ({\"vocabulary\": [ … ]}) أو CSV (عمودا الخطأ والتصحيح)."
 	},
 	"templates": {
 		"title": "القوالب",
@@ -339,7 +346,8 @@
 		"importInvalidShape": "الملف لا يحتوي على مصفوفة قوالب",
 		"duplicateTrigger": "يوجد بالفعل قالب بنفس المُشغِّل ووضع التطابق",
 		"loadFailedDescription": "فشل تحميل القوالب من الخادم الخلفي. تحقق من اتصالك وحاول مرة أخرى.",
-		"unknownVariableWarning": "متغير غير معروف {vars} — المدعومة: {today}, {now}, {clipboard}, {username}"
+		"unknownVariableWarning": "متغير غير معروف {vars} — المدعومة: {today}, {now}, {clipboard}, {username}",
+		"importFormatHint": "يقبل ملف JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]})."
 	},
 	"analytics": {
 		"title": "تحليلات",
@@ -869,6 +877,7 @@
 			"presetNoisyRoomDescription": "تصفية قوية لضجيج لوحة المفاتيح والمراوح.",
 			"presetOffDescription": "تجاوز سلسلة التصفية بأكملها. استخدم فقط مع إشارة نظيفة.",
 			"presetCustomDescription": "اختيار كل مرشح ومعلمة يدوياً.",
+			"customFiltersTitle": "مرشحات مخصصة",
 			"gateAttack": "هجوم البوابة",
 			"gateAttackInfo": "مدى سرعة فتح البوابة عندما يرتفع الإشارة فوق عتبة الفتح.",
 			"gateAttackInfoSearch": "مدى سرعة فتح البوابة.",
@@ -1187,7 +1196,10 @@
 			"errorMessage": "فشل التنزيل: {error}",
 			"errorMessageWithName": "فشل تنزيل {name}: {error}",
 			"retry": "إعادة المحاولة",
-			"retryAria": "إعادة محاولة التنزيل"
+			"retryAria": "إعادة محاولة التنزيل",
+			"cancelConfirmTitle": "إلغاء التنزيل؟",
+			"cancelConfirmMessage": "هل أنت متأكد أنك تريد إلغاء هذا التنزيل؟ لا يمكن التراجع عن هذا الإجراء.",
+			"cancelConfirmAction": "إلغاء التنزيل"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1223,7 +1235,10 @@
 			"configureAria": "تكوين {provider}",
 			"hideConfigure": "إخفاء",
 			"hideConfigureAria": "إخفاء إعدادات {provider}",
-			"tagCloud": "سحابي"
+			"tagCloud": "سحابي",
+			"apiKeyShowAria": "إظهار مفتاح API الخاص بـ {provider}",
+			"apiKeyHideAria": "إخفاء مفتاح API الخاص بـ {provider}",
+			"apiKeyFormatHint": "مفاتيح API الخاصة بـ {provider} عبارة عن سلاسل طويلة (عادةً 40–60 حرفًا). الصق المفتاح كاملًا — بدون مسافات أو بادئات."
 		},
 		"deleteDialog": {
 			"title": "حذف النموذج",
@@ -1296,7 +1311,8 @@
 			"aria": "إظهار مجلد النماذج في مدير الملفات"
 		},
 		"cloudModels": "نماذج سحابية",
-		"cloudModelsDescription": "استخدم واجهات API السحابية للحصول على تفريغ أسرع. يتطلب مفتاح API."
+		"cloudModelsDescription": "استخدم واجهات API السحابية للحصول على تفريغ أسرع. يتطلب مفتاح API.",
+		"activeModelSummaryLabel": "النموذج النشط:"
 	},
 	"tooltips": {
 		"toggleRecording": "بدء أو إيقاف الإملاء الصوتي",
@@ -1738,6 +1754,15 @@
 			"volume_too_low": "مستوى الصوت منخفض جدًا — تحدث بالقرب من الميكروفون",
 			"volume_low": "مستوى الصوت منخفض — فكر في رفع كسب الإدخال",
 			"no_voice": "لم يتم اكتشاف صوت — حاول التحدث أثناء الاختبار"
+		},
+		"recommendations": {
+			"high_noise": "جرّب إعداد «الغرفة الصاخبة» لكتم ضوضاء الخلفية.",
+			"moderate_noise": "جرّب إعداد «الغرفة الصاخبة» للحصول على تسجيل أوضح.",
+			"clipping": "اخفض كسب الإدخال أو ابتعد قليلًا عن الميكروفون.",
+			"volume_too_low": "تحدث بصوت أعلى أو اقترب من الميكروفون.",
+			"volume_low": "ارفع كسب الإدخال في إعدادات الصوت بنظام التشغيل.",
+			"no_voice": "تحدث باستمرار أثناء الاختبار حتى يتم اكتشاف صوتك.",
+			"applyNoisyRoom": "تطبيق إعداد «الغرفة الصاخبة»"
 		}
 	},
 	"dashboard": {

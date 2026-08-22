@@ -571,7 +571,7 @@ describe("Top stat cards: merged dictation card + range-aware values", () => {
 		expect(EN_JSON.analytics.activeDaysTooltip).toBeUndefined();
 	});
 
-	it("DashboardStatCard no longer renders the (?) tooltip trigger", () => {
+	it("StatCard no longer renders the (?) tooltip trigger", () => {
 		const statCardSrc = fs.readFileSync(
 			path.resolve(
 				__dirname,
@@ -579,7 +579,7 @@ describe("Top stat cards: merged dictation card + range-aware values", () => {
 				"..",
 				"components",
 				"dashboard",
-				"DashboardStatCard.tsx",
+				"StatCard.tsx",
 			),
 			"utf8",
 		);
@@ -664,7 +664,7 @@ describe("Analytics polish: stat-card spacing, sublabel pruning, Activity icon w
 				"..",
 				"components",
 				"dashboard",
-				"DashboardStatCard.tsx",
+				"StatCard.tsx",
 			),
 			"utf8",
 		);

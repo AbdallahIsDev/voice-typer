@@ -48,6 +48,8 @@
  */
 import { PauseIcon, PlayIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { useState } from "react";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { formatBytes, formatSpeed } from "@/lib/format";
@@ -119,6 +121,10 @@ export function DownloadProgressBar({
 	onRetry,
 }: DownloadProgressBarProps) {
 	const hasError = Boolean(error);
+	// Cancel is gated by a confirmation dialog — a single stray click on
+	// the Cancel button must NOT abort an in-flight multi-GB download.
+	// Only the dialog's destructive confirm action invokes `onCancel`.
+	const [confirmOpen, setConfirmOpen] = useState(false);
 	// When the download has failed, the bar fill turns red so users
 	// instantly see the failure even without reading the status line.
 	// Paused → amber (unchanged). Otherwise → accent.
@@ -251,7 +257,7 @@ export function DownloadProgressBar({
 					<Button
 						variant="outline"
 						size="sm"
-						onClick={onCancel}
+						onClick={() => setConfirmOpen(true)}
 						aria-label={t("models.download.cancelAria")}
 						className="h-7 px-3 text-xs"
 					>
@@ -259,6 +265,19 @@ export function DownloadProgressBar({
 					</Button>
 				</div>
 			</div>
+
+			<ConfirmDialog
+				open={confirmOpen}
+				title={t("models.download.cancelConfirmTitle")}
+				message={t("models.download.cancelConfirmMessage")}
+				confirmLabel={t("models.download.cancelConfirmAction")}
+				variant="destructive"
+				onConfirm={() => {
+					setConfirmOpen(false);
+					onCancel();
+				}}
+				onCancel={() => setConfirmOpen(false)}
+			/>
 		</div>
 	);
 }

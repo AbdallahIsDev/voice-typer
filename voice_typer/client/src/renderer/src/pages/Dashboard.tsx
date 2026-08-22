@@ -34,12 +34,9 @@ import type { CSSProperties } from "react";
 import { useMemo } from "react";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
-import {
-	DashboardStatCard,
-	type StatTrend,
-} from "@/components/dashboard/DashboardStatCard";
 import { QuickInfoCard } from "@/components/dashboard/QuickInfoCard";
 import { ShareStatsDialog } from "@/components/dashboard/ShareStatsDialog";
+import { StatCard, type StatTrend } from "@/components/dashboard/StatCard";
 import { formatCompactNumber } from "@/components/dashboard/StatCards";
 import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -265,7 +262,7 @@ export default function DashboardPage() {
 						    always inside the DESC-ordered sample); for All
 						    Time the true count is used so the card is never
 						    sample-capped. */}
-						<DashboardStatCard
+						<StatCard
 							label={t("analytics.totalDictationsPeriod", {
 								range: t(`analytics.range.${range}`),
 							})}
@@ -275,13 +272,13 @@ export default function DashboardPage() {
 							icon={SpeechToTextIcon}
 							trend={computeTrend(period.count, period.prev?.count)}
 						/>
-						<DashboardStatCard
+						<StatCard
 							label={t("analytics.recordingTime")}
 							value={formatDuration(period.duration)}
 							icon={Time02Icon}
 							trend={computeTrend(period.duration, period.prev?.duration)}
 						/>
-						<DashboardStatCard
+						<StatCard
 							label={t("analytics.activeDays")}
 							value={String(period.activeDays)}
 							icon={Calendar01Icon}
@@ -298,7 +295,7 @@ export default function DashboardPage() {
 						    the K-abbreviation + rounding config carries over
 						    unchanged; wired to the same range-filtered char
 						    count as the rest of the page. */}
-						<DashboardStatCard
+						<StatCard
 							label={t("analytics.cards.chars")}
 							value={formatCompactNumber(period.chars)}
 							icon={TextIcon}

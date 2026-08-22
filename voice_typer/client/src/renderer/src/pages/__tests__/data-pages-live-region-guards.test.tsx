@@ -13,19 +13,25 @@
  * `role="progressbar"`, `role="tabpanel"`.
  *
  * Per page the guard pins:
- *   - Models  — a SETTLED page (model selected, no download, no cloud
- *               test result) must contain ZERO live regions: the
- *               per-card status / disk-space badges are visual spans
- *               (they were `<output aria-live="polite">` — the
+ *   - Models  — a SETTLED page (model selected, no download) carries
+ *               EXACTLY ONE live region: the active-model summary
+ *               banner (`models-active-model-summary`, polite) — the
+ *               designed announcer for active-model changes (without
+ *               it a model switch is silent to screen-reader users).
+ *               The per-card status / disk-space badges remain visual
+ *               spans (they were `<output aria-live="polite">` — the
  *               Home-pill class of accidental live region; with N
  *               cards that was up to 2N live regions). The download
  *               state has EXACTLY ONE announcer: DownloadProgressBar's
  *               status line.
- *   - History — a loaded list is ZERO live regions; the empty and
- *               load-error states each have EXACTLY ONE — the
+ *   - History — the ONLY sanctioned page-level live region is the
+ *               LastUpdatedIndicator's polite timestamp region
+ *               (XA-8-L5); beyond it, a loaded list adds ZERO, and the
+ *               empty / load-error states add EXACTLY ONE — the
  *               EmptyState (`role="status"` / `role="alert"`).
- *   - Dashboard — the skeleton AND the loaded analytics view (with
- *               keyboard permission granted) are ZERO live regions.
+ *   - Dashboard — the skeleton is ZERO live regions; the loaded
+ *               analytics view (with keyboard permission granted)
+ *               carries ONLY the LastUpdatedIndicator's polite region.
  *
  * If future code adds a stray `aria-live` / `role="status"` /
  * `role="alert"` to a badge, spinner wrapper, card, or stat, the
@@ -95,7 +101,7 @@ describe("Models page — live-region guard", () => {
 		cleanup();
 	});
 
-	it("settled page (model selected, no download) has ZERO live regions — badges are visual spans", async () => {
+	it("settled page (model selected, no download) has EXACTLY ONE live region — the active-model summary", async () => {
 		const { default: ModelsPage } = await import("@/pages/Models");
 		renderWithProviders(<ModelsPage />);
 
@@ -109,9 +115,17 @@ describe("Models page — live-region guard", () => {
 		// would be in the DOM.
 		await new Promise((resolve) => setTimeout(resolve, 50));
 
-		// A status badge rendered as <output aria-live> would show up
-		// here (one per model card) — the count must be zero.
-		expect(liveRegions()).toHaveLength(0);
+		// The ONE sanctioned region is the active-model summary banner
+		// (polite): its text changes when the user switches models, so
+		// screen readers hear the switch. A status badge rendered as
+		// <output aria-live> would show up here as a SECOND+ region —
+		// the count must stay at exactly one.
+		const live = liveRegions();
+		expect(live).toHaveLength(1);
+		expect(live[0]?.getAttribute("data-testid")).toBe(
+			"models-active-model-summary",
+		);
+		expect(live[0]?.getAttribute("aria-live")).toBe("polite");
 	});
 
 	it("DownloadProgressBar is the ONE live region for the download state", () => {
@@ -197,7 +211,11 @@ describe("History page — live-region guard", () => {
 			},
 			{ timeout: 3000 },
 		);
-		expect(liveRegions()).toHaveLength(0);
+		// The ONLY live region is the LastUpdatedIndicator's polite
+		// timestamp region (XA-8-L5) — the list itself adds none.
+		const live = liveRegions();
+		expect(live).toHaveLength(1);
+		expect(live[0]?.getAttribute("aria-live")).toBe("polite");
 	});
 
 	it("empty state has EXACTLY ONE live region — the EmptyState (role=status)", async () => {
@@ -224,8 +242,13 @@ describe("History page — live-region guard", () => {
 			{ timeout: 3000 },
 		);
 		const live = liveRegions();
-		expect(live).toHaveLength(1);
-		expect(live[0]?.getAttribute("role")).toBe("status");
+		expect(live).toHaveLength(2);
+		// The EmptyState announcer (role=status) + the LastUpdated
+		// indicator's polite timestamp region (XA-8-L5) — nothing else.
+		expect(live.some((el) => el.getAttribute("role") === "status")).toBe(true);
+		expect(live.some((el) => el.getAttribute("aria-live") === "polite")).toBe(
+			true,
+		);
 	});
 
 	it("load-error state has EXACTLY ONE live region — the EmptyState (role=alert)", async () => {
@@ -253,8 +276,13 @@ describe("History page — live-region guard", () => {
 			{ timeout: 3000 },
 		);
 		const live = liveRegions();
-		expect(live).toHaveLength(1);
-		expect(live[0]?.getAttribute("role")).toBe("alert");
+		expect(live).toHaveLength(2);
+		// The EmptyState announcer (role=alert) + the LastUpdated
+		// indicator's polite timestamp region (XA-8-L5) — nothing else.
+		expect(live.some((el) => el.getAttribute("role") === "alert")).toBe(true);
+		expect(live.some((el) => el.getAttribute("aria-live") === "polite")).toBe(
+			true,
+		);
 	});
 });
 
@@ -333,6 +361,10 @@ describe("Dashboard page — live-region guard", () => {
 		);
 		// Let the keyboard-permission probe resolve (granted → banner null).
 		await new Promise((resolve) => setTimeout(resolve, 50));
-		expect(liveRegions()).toHaveLength(0);
+		// The ONLY live region is the LastUpdatedIndicator's polite
+		// timestamp region (XA-8-L5).
+		const live = liveRegions();
+		expect(live).toHaveLength(1);
+		expect(live[0]?.getAttribute("aria-live")).toBe("polite");
 	});
 });

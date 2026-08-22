@@ -46,6 +46,18 @@ interface SpinnerProps {
 	/** Additional class names appended to the spinner element. */
 	className?: string;
 	/**
+	 * Optional accessible label override. When provided, this string is
+	 * used as the ``aria-label`` instead of the default ``t("a11y.loading")``
+	 * AND rendered as VISIBLE text next to the glyph (a labeled spinner
+	 * should be readable by sighted users too, not just announced).
+	 * Use this when the spinner represents a specific loading context
+	 * (e.g. ``t("page.loading")``, ``t("microphone.loading")``).
+	 *
+	 * Ignored when ``decorative`` is true (decorative spinners are
+	 * ``aria-hidden`` and have no accessible name).
+	 */
+	label?: string;
+	/**
 	 * When true, render a plain ``<div aria-hidden="true">`` instead of
 	 * ``<span role="img" aria-label="Loading">``. Use this when the
 	 * spinner is nested inside an element that already provides an
@@ -54,7 +66,6 @@ interface SpinnerProps {
 	 *
 	 * Default: ``false`` (renders
 	 * ``<span role="img" aria-label="Loading">`` — a focusable image
-	 * with an accessible name, but NO implicit live region per
 	 * with an accessible name, but NO implicit live region).
 	 */
 	decorative?: boolean;
@@ -63,6 +74,7 @@ interface SpinnerProps {
 export function Spinner({
 	size = 16,
 	className,
+	label,
 	decorative = false,
 }: SpinnerProps) {
 	const resolvedClassName = cn(
@@ -89,12 +101,25 @@ export function Spinner({
 	// they focus it) without the implicit live region. Pages that
 	// need the live-region announcement (e.g. ConnectionStatusScreen)
 	// wrap the Spinner in their own <output aria-live="polite">.
+	//
+	// When a contextual ``label`` is provided it ALSO renders as
+	// visible text next to the glyph — "Loading microphones…" reads
+	// better than an anonymous spinner for sighted users too. The
+	// glyph span stays the FIRST element (the component's root in the
+	// DOM) carrying role/aria-label/size/classes, and the label is a
+	// sibling so consumer layouts (flex-centered page containers)
+	// place them side by side.
 	return (
-		<span
-			role="img"
-			aria-label={t("a11y.loading")}
-			className={resolvedClassName}
-			style={resolvedStyle}
-		/>
+		<>
+			<span
+				role="img"
+				aria-label={label ?? t("a11y.loading")}
+				className={resolvedClassName}
+				style={resolvedStyle}
+			/>
+			{label ? (
+				<span className="ml-2 text-xs text-(--text-muted)">{label}</span>
+			) : null}
+		</>
 	);
 }

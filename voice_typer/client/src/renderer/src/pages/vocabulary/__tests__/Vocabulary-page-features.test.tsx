@@ -114,6 +114,11 @@ describe("Vocabulary page — flat two-column list", () => {
 		showSnack.mockReset();
 		toastSuccess.mockClear();
 		toastError.mockClear();
+		// The page persists search/sort filters in sessionStorage via
+		// useFilterState — clear it before every test so a query typed
+		// by an earlier test never filters out the seeded rows a later
+		// test expects.
+		sessionStorage.clear();
 		localStorage.clear();
 		vi.resetModules();
 	});
@@ -220,6 +225,7 @@ describe("Vocabulary page — empty state", () => {
 		showSnack.mockReset();
 		toastSuccess.mockClear();
 		toastError.mockClear();
+		sessionStorage.clear();
 		localStorage.clear();
 		vi.resetModules();
 	});
@@ -259,6 +265,7 @@ describe("Vocabulary page — per-entry usage", () => {
 		showSnack.mockReset();
 		toastSuccess.mockClear();
 		toastError.mockClear();
+		sessionStorage.clear();
 		localStorage.clear();
 		vi.resetModules();
 	});
@@ -330,6 +337,7 @@ describe("Vocabulary page — bulk selection", () => {
 		showSnack.mockReset();
 		toastSuccess.mockClear();
 		toastError.mockClear();
+		sessionStorage.clear();
 		localStorage.clear();
 		vi.resetModules();
 	});
@@ -452,6 +460,7 @@ describe("Vocabulary page — inline quick add", () => {
 		showSnack.mockReset();
 		toastSuccess.mockClear();
 		toastError.mockClear();
+		sessionStorage.clear();
 		localStorage.clear();
 		vi.resetModules();
 	});
@@ -547,6 +556,7 @@ describe("Vocabulary page — test this entry", () => {
 		showSnack.mockReset();
 		toastSuccess.mockClear();
 		toastError.mockClear();
+		sessionStorage.clear();
 		localStorage.clear();
 		vi.resetModules();
 	});
@@ -852,6 +862,7 @@ describe("Vocabulary page — search + sort interactions", () => {
 		showSnack.mockReset();
 		toastSuccess.mockClear();
 		toastError.mockClear();
+		sessionStorage.clear();
 		localStorage.clear();
 		vi.resetModules();
 	});
@@ -930,6 +941,7 @@ describe("Vocabulary page — load-time dedupe", () => {
 		showSnack.mockReset();
 		toastSuccess.mockClear();
 		toastError.mockClear();
+		sessionStorage.clear();
 		localStorage.clear();
 		vi.resetModules();
 	});

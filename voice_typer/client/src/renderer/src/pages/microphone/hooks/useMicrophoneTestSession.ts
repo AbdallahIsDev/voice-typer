@@ -52,6 +52,37 @@ import { buildTestFilters } from "../lib/buildTestFilters";
 import { computeAudioKey } from "../lib/computeAudioKey";
 import type { TestResultQuality, TestStopResult } from "../lib/types";
 
+// (XA-5-13): module-level cache for the last-test recording + quality
+// verdict — mirrors the ``_cachedMicrophones`` / ``_cachedConfig``
+// pattern in ``useMicrophoneData``. Persists across page navigations so
+// a user who runs a mic test, navigates to the Models page to download
+// a model, then returns to the Microphone page sees their previous
+// test's recording + verdict WITHOUT having to re-run the test (which
+// would otherwise be lost — the test audio + quality were React-state
+// only, cleared on unmount). The cache is invalidated whenever:
+//   • ``startTest`` runs (a new test supersedes the old one), or
+//   • ``selectMicrophone`` picks a different mic (the cached recording
+//     was for a DIFFERENT mic — keeping it would be misleading A/B
+//     comparison material).
+let _cachedTestAudioBase64: string | null = null;
+let _cachedRawAudioBase64: string | null = null;
+let _cachedTestQuality: TestResultQuality | null = null;
+let _cachedTestDurationMs: number = 0;
+
+/**
+ * Reset the module-level test cache. Exported for tests + for the
+ * session hook's own use when invalidating on a mic switch. The cached
+ * recordings are tied to the PREVIOUS mic + filter config — keeping
+ * them across a mic switch would let the user "play" the wrong
+ * recording against the wrong mic (mismatched A/B).
+ */
+export function _resetMicrophoneTestCache(): void {
+	_cachedTestAudioBase64 = null;
+	_cachedRawAudioBase64 = null;
+	_cachedTestQuality = null;
+	_cachedTestDurationMs = 0;
+}
+
 /** Type of the ``t()`` i18n function — accepts a key + optional params. */
 type TFunction = (key: string, params?: Record<string, string>) => string;
 
@@ -161,11 +192,20 @@ export function useMicrophoneTestSession({
 	const [testRunning, setTestRunning] = useState(false);
 	const [testCountdown, setTestCountdown] = useState(0);
 	const [testElapsed, setTestElapsed] = useState(0);
-	const [testAudioBase64, setTestAudioBase64] = useState<string | null>(null);
-	const [rawAudioBase64, setRawAudioBase64] = useState<string | null>(null);
-	const [testDurationMs, setTestDurationMs] = useState(0);
+	// (XA-5-13): seed the per-test React state from the module-level
+	// cache so navigating away from the Microphone page and back
+	// restores the last test's recording + verdict. The cache is
+	// invalidated on startTest (a new test) and on selectMicrophone
+	// (mic switch — the cached recording is for a different mic).
+	const [testAudioBase64, setTestAudioBase64] = useState<string | null>(
+		_cachedTestAudioBase64,
+	);
+	const [rawAudioBase64, setRawAudioBase64] = useState<string | null>(
+		_cachedRawAudioBase64,
+	);
+	const [testDurationMs, setTestDurationMs] = useState(_cachedTestDurationMs);
 	const [testQuality, setTestQuality] = useState<TestResultQuality | null>(
-		null,
+		_cachedTestQuality,
 	);
 	// Tracks whether filters have changed since last test (invalidation).
 	const [filtersSinceLastTest, setFiltersSinceLastTest] = useState<string>("");
@@ -212,6 +252,17 @@ export function useMicrophoneTestSession({
 				if (result.quality) {
 					setTestQuality(result.quality);
 				}
+				// (XA-5-13): mirror the freshly-captured test
+				// recording into the module-level cache so
+				// a page navigation does NOT discard it.
+				// Mirrors the ``_cachedConfig`` write-through
+				// pattern in useMicrophoneData.updateConfig.
+				_cachedTestAudioBase64 = result.audio_base64;
+				_cachedRawAudioBase64 = result.raw_audio_base64 || null;
+				_cachedTestDurationMs = result.duration_ms || 0;
+				if (result.quality) {
+					_cachedTestQuality = result.quality;
+				}
 				showSnack(
 					t("microphone.recorded", {
 						seconds: (result.duration_ms / 1000).toFixed(1),
@@ -244,6 +295,16 @@ export function useMicrophoneTestSession({
 		setRawAudioBase64(null);
 		setTestDurationMs(0);
 		setTestQuality(null);
+		// (XA-5-13): invalidate the module-level test cache when a
+		// new test starts — the cache holds the PREVIOUS test's
+		// recording, which is now superseded. The setX calls above
+		// update React state immediately; the cache reset keeps the
+		// module-level copy in lockstep so a navigation during the
+		// test doesn't surface stale data on return.
+		_cachedTestAudioBase64 = null;
+		_cachedRawAudioBase64 = null;
+		_cachedTestQuality = null;
+		_cachedTestDurationMs = 0;
 		setLevel(0);
 		setPeak(0);
 		setTestElapsed(0);
@@ -420,7 +481,7 @@ export function useMicrophoneTestSession({
 					await callRef.current("microphone_test_cancel");
 				} catch (e) {
 					/* ignore — test may have already finished, or the
-					   backend may be tearing down */
+                                           backend may be tearing down */
 					console.warn(
 						"[renderer:useMicrophoneTestSession] selectMicrophone cancel failed:",
 						e,
@@ -443,6 +504,14 @@ export function useMicrophoneTestSession({
 			setTestAudioBase64(null);
 			setRawAudioBase64(null);
 			setTestQuality(null);
+			// (XA-5-13): invalidate the test recording cache on a
+			// mic switch — the cached recording was for the PREVIOUS
+			// mic and would be misleading A/B comparison material
+			// against the new mic. Mirrors the startTest invalidation.
+			_cachedTestAudioBase64 = null;
+			_cachedRawAudioBase64 = null;
+			_cachedTestQuality = null;
+			_cachedTestDurationMs = 0;
 
 			try {
 				await callRef.current("set_config", { microphone: micId });

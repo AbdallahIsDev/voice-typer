@@ -270,7 +270,14 @@
 		"exportSelected": "Exportar selección",
 		"deselectAll": "Deseleccionar todo",
 		"importDuplicate": "Importación bloqueada — ya existe una corrección",
-		"searchPlaceholderCount": "Buscar {count} correcciones"
+		"searchPlaceholderCount": "Buscar {count} correcciones",
+		"count_zero": "{count} correcciones",
+		"count_one": "{count} corrección",
+		"count_two": "{count} correcciones",
+		"count_few": "{count} correcciones",
+		"count_many": "{count} correcciones",
+		"count_other": "{count} correcciones",
+		"importFormatHint": "Acepta JSON ({\"vocabulary\": [ … ]}) o CSV (columnas: incorrecto, corregido)."
 	},
 	"templates": {
 		"title": "Plantillas",
@@ -339,7 +346,8 @@
 		"count_few": "{count} plantillas",
 		"count_many": "{count} plantillas",
 		"count_other": "{count} plantillas",
-		"unknownVariableWarning": "Variable desconocida {vars} — compatibles: {today}, {now}, {clipboard}, {username}"
+		"unknownVariableWarning": "Variable desconocida {vars} — compatibles: {today}, {now}, {clipboard}, {username}",
+		"importFormatHint": "Acepta JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]})."
 	},
 	"analytics": {
 		"title": "Analíticas",
@@ -870,6 +878,7 @@
 			"presetNoisyRoomDescription": "Filtrado agresivo para ruido de teclado, ventiladores y retumbo HVAC. RNNoise + puerta fuerte + compresor para precisión ASR consistente.",
 			"presetOffDescription": "Omitir toda la cadena de filtros. Usar solo con una señal limpia — el ruido de fondo degradará la transcripción.",
 			"presetCustomDescription": "Selecciona cada filtro y parámetro manualmente. Mejor para usuarios avanzados con un entorno acústico conocido.",
+			"customFiltersTitle": "Filtros personalizados",
 			"gateAttack": "Ataque de puerta",
 			"gateAttackInfo": "Qué tan rápido se abre la puerta cuando la señal supera el umbral de apertura. 5–25 ms es típico para voz.",
 			"gateAttackInfoSearch": "Qué tan rápido se abre la puerta.",
@@ -1187,7 +1196,10 @@
 			"errorMessage": "Error de descarga: {error}",
 			"errorMessageWithName": "Error en la descarga de {name}: {error}",
 			"retry": "Reintentar",
-			"retryAria": "Reintentar descarga"
+			"retryAria": "Reintentar descarga",
+			"cancelConfirmTitle": "¿Cancelar la descarga?",
+			"cancelConfirmMessage": "¿Estás seguro de que quieres cancelar esta descarga? Esta acción no se puede deshacer.",
+			"cancelConfirmAction": "Cancelar descarga"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1223,7 +1235,10 @@
 			"configureAria": "Configurar {provider}",
 			"hideConfigure": "Ocultar",
 			"hideConfigureAria": "Ocultar configuración de {provider}",
-			"tagCloud": "Nube"
+			"tagCloud": "Nube",
+			"apiKeyShowAria": "Mostrar clave API de {provider}",
+			"apiKeyHideAria": "Ocultar clave API de {provider}",
+			"apiKeyFormatHint": "Las claves API de {provider} son cadenas largas (normalmente de 40 a 60 caracteres). Pega la clave completa — sin espacios ni prefijos."
 		},
 		"deleteDialog": {
 			"title": "Eliminar Modelo",
@@ -1296,7 +1311,8 @@
 			"aria": "Mostrar carpeta de modelos en el administrador de archivos"
 		},
 		"cloudModels": "Modelos en la Nube",
-		"cloudModelsDescription": "Usa APIs basadas en la nube para una transcripción más rápida. Requiere clave API."
+		"cloudModelsDescription": "Usa APIs basadas en la nube para una transcripción más rápida. Requiere clave API.",
+		"activeModelSummaryLabel": "Modelo activo:"
 	},
 	"tooltips": {
 		"toggleRecording": "Iniciar o detener el dictado por voz",
@@ -1738,6 +1754,15 @@
 			"volume_too_low": "Volumen demasiado bajo — habla más cerca del micrófono",
 			"volume_low": "El volumen es bajo — considera aumentar la ganancia de entrada",
 			"no_voice": "No se detectó voz — intenta hablar durante la prueba"
+		},
+		"recommendations": {
+			"high_noise": "Prueba el ajuste de habitación ruidosa para suprimir el ruido de fondo.",
+			"moderate_noise": "Prueba el ajuste de habitación ruidosa para una captura más clara.",
+			"clipping": "Baja la ganancia de entrada o aléjate un poco del micrófono.",
+			"volume_too_low": "Habla más alto o acércate al micrófono.",
+			"volume_low": "Sube la ganancia de entrada en los ajustes de sonido del sistema.",
+			"no_voice": "Habla de forma continua durante la prueba para que se detecte la voz.",
+			"applyNoisyRoom": "Aplicar ajuste de habitación ruidosa"
 		}
 	},
 	"stats": {

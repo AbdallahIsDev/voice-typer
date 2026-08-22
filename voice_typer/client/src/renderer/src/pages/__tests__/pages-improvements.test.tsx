@@ -467,9 +467,18 @@ describe("R7-F11: Vocabulary + Templates — i18n placeholders", () => {
 		);
 	});
 
-	it("Templates dialog renders the i18n trigger/output placeholders", async () => {
+	it("Templates quick-add row renders the i18n trigger/output placeholders; the Edit dialog keeps them", async () => {
 		mockCall.mockImplementation((type: string) => {
-			if (type === "get_templates") return Promise.resolve({ templates: [] });
+			if (type === "get_templates")
+				return Promise.resolve({
+					templates: [
+						{
+							trigger: "brb",
+							output: "be right back",
+							match_mode: "exact",
+						},
+					],
+				});
 			if (type === "save_templates") return Promise.resolve({ success: true });
 			return Promise.resolve({});
 		});
@@ -479,17 +488,44 @@ describe("R7-F11: Vocabulary + Templates — i18n placeholders", () => {
 			expect(screen.getByText(t("templates.addTemplate"))).toBeTruthy();
 		});
 
+		// Add-Template opens the INLINE quick-add row (no dialog) —
+		// both fields carry the i18n placeholders.
 		fireEvent.click(screen.getByText(t("templates.addTemplate")));
+		const form = await screen.findByTestId("template-quick-add");
+		expect(form).toBeTruthy();
 
 		const triggerInput = screen.getByLabelText(t("templates.triggerPhrase"), {
 			selector: "input",
 		}) as HTMLInputElement;
-		const outputTextarea = screen.getByLabelText(t("templates.outputText"), {
+		const outputInput = screen.getByLabelText(t("templates.outputText"), {
+			selector: "input",
+		}) as HTMLInputElement;
+
+		expect(triggerInput.placeholder).toBe(t("templates.triggerPlaceholder"));
+		expect(outputInput.placeholder).toBe(t("templates.outputPlaceholder"));
+
+		// Close the inline row so the Edit-dialog lookups below are
+		// unambiguous (both surfaces label their trigger field alike).
+		fireEvent.click(screen.getByRole("button", { name: t("common.cancel") }));
+		await waitFor(() => {
+			expect(screen.queryByTestId("template-quick-add")).toBeNull();
+		});
+
+		// The EDIT flow still uses the dialog — its labeled fields keep
+		// the same placeholders (trigger input + output textarea).
+		fireEvent.click(
+			screen.getByLabelText(t("templates.editAria", { name: "brb" })),
+		);
+		const dialogTrigger = (await screen.findByLabelText(
+			t("templates.triggerPhrase"),
+			{ selector: "input" },
+		)) as HTMLInputElement;
+		const dialogOutput = screen.getByLabelText(t("templates.outputText"), {
 			selector: "textarea",
 		}) as HTMLTextAreaElement;
 
-		expect(triggerInput.placeholder).toBe(t("templates.triggerPlaceholder"));
-		expect(outputTextarea.placeholder).toBe(t("templates.outputPlaceholder"));
+		expect(dialogTrigger.placeholder).toBe(t("templates.triggerPlaceholder"));
+		expect(dialogOutput.placeholder).toBe(t("templates.outputPlaceholder"));
 	});
 });
 

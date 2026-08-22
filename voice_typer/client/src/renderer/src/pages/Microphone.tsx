@@ -158,7 +158,7 @@ export default function MicrophonePage() {
 	if (!microphones.length && !config && loading) {
 		return (
 			<div className="flex h-full items-center justify-center">
-				<Spinner />
+				<Spinner label={t("microphone.loading")} />
 			</div>
 		);
 	}

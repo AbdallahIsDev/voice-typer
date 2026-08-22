@@ -1,5 +1,5 @@
 /**
- * Behavioral tests for DashboardStatCard (Analytics top-row stat cards).
+ * Behavioral tests for StatCard (Analytics top-row stat cards).
  *
  * POLISH round: the value carries `mt-auto` so the number is pushed to
  * the bottom of the min-h-24 card, keeping the icon+label row pinned at
@@ -14,7 +14,7 @@ import { hugeiconsReactMock } from "@/__tests__/helpers/stableMocks";
 
 vi.mock("@hugeicons/react", () => hugeiconsReactMock());
 
-import { DashboardStatCard } from "@/components/dashboard/DashboardStatCard";
+import { StatCard } from "@/components/dashboard/StatCard";
 
 afterEach(() => {
 	cleanup();
@@ -23,7 +23,7 @@ afterEach(() => {
 // The real icon is an SVG path array; the mocked HugeiconsIcon only
 // reads `icon?.name`, so a tagged object suffices here.
 const TEST_ICON = { name: "SpeechToTextIcon" } as unknown as Parameters<
-	typeof DashboardStatCard
+	typeof StatCard
 >[0]["icon"];
 
 function renderCard(props: {
@@ -33,7 +33,7 @@ function renderCard(props: {
 	trend?: { pct: number; up: boolean };
 }) {
 	return render(
-		<DashboardStatCard
+		<StatCard
 			label={props.label ?? "Recording Time"}
 			value={props.value ?? "1h 12m"}
 			icon={TEST_ICON}
@@ -43,7 +43,7 @@ function renderCard(props: {
 	);
 }
 
-describe("DashboardStatCard", () => {
+describe("StatCard", () => {
 	it("renders the icon, label and main value", () => {
 		renderCard({ label: "Active Days", value: "12" });
 		expect(screen.getByText("Active Days")).toBeInTheDocument();
@@ -59,7 +59,7 @@ describe("DashboardStatCard", () => {
 		expect(screen.queryByText("5-day streak")).not.toBeInTheDocument();
 
 		rerender(
-			<DashboardStatCard
+			<StatCard
 				label="Active Days"
 				value="12"
 				icon={TEST_ICON}

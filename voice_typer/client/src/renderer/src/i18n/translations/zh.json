@@ -270,7 +270,14 @@
 		"exportSelected": "导出所选",
 		"deselectAll": "取消全选",
 		"importDuplicate": "导入被阻止 — 该修正已存在",
-		"searchPlaceholderCount": "搜索 {count} 个更正"
+		"searchPlaceholderCount": "搜索 {count} 个更正",
+		"count_zero": "{count} 个更正",
+		"count_one": "{count} 个更正",
+		"count_two": "{count} 个更正",
+		"count_few": "{count} 个更正",
+		"count_many": "{count} 个更正",
+		"count_other": "{count} 个更正",
+		"importFormatHint": "接受 JSON（{\"vocabulary\": [ … ]}）或 CSV（错误、更正列）。"
 	},
 	"templates": {
 		"title": "模板",
@@ -339,7 +346,8 @@
 		"loadFailedDescription": "无法从后端加载模板。请检查连接后重试。",
 		"showMore": "显示更多",
 		"showingCap": "显示 {shown} / {total}",
-		"unknownVariableWarning": "未知变量 {vars} — 支持: {today}, {now}, {clipboard}, {username}"
+		"unknownVariableWarning": "未知变量 {vars} — 支持: {today}, {now}, {clipboard}, {username}",
+		"importFormatHint": "接受 JSON（{\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]}）。"
 	},
 	"analytics": {
 		"title": "分析",
@@ -863,6 +871,7 @@
 			"presetNoisyRoomDescription": "针对键盘敲击声、风扇和空调轰鸣声的激进滤波。RNNoise + 强噪声门 + 压缩器，确保一致的 ASR 准确率。",
 			"presetOffDescription": "绕过整个滤波链。仅在信号干净时使用 — 背景噪声会降低转写质量。",
 			"presetCustomDescription": "手动选择每个滤波器及其参数。适合了解自身声学环境的高级用户。",
+			"customFiltersTitle": "自定义滤波器",
 			"gateAttack": "噪声门启动",
 			"gateAttackInfo": "信号高于开启阈值时噪声门打开的速度。语音通常为 5–25 毫秒。",
 			"gateAttackInfoSearch": "噪声门打开的速度。",
@@ -1187,7 +1196,10 @@
 			"errorMessage": "下载失败：{error}",
 			"errorMessageWithName": "{name} 下载失败：{error}",
 			"retry": "重试",
-			"retryAria": "重试下载"
+			"retryAria": "重试下载",
+			"cancelConfirmTitle": "取消下载？",
+			"cancelConfirmMessage": "确定要取消此下载吗？此操作无法撤销。",
+			"cancelConfirmAction": "取消下载"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1223,7 +1235,10 @@
 			"configureAria": "配置{provider}",
 			"hideConfigure": "隐藏",
 			"hideConfigureAria": "隐藏{provider}设置",
-			"tagCloud": "云端"
+			"tagCloud": "云端",
+			"apiKeyShowAria": "显示 {provider} API 密钥",
+			"apiKeyHideAria": "隐藏 {provider} API 密钥",
+			"apiKeyFormatHint": "{provider} API 密钥是较长的字符串（通常为 40–60 个字符）。请粘贴完整密钥 — 不要包含空格或前缀。"
 		},
 		"deleteDialog": {
 			"title": "删除模型",
@@ -1296,7 +1311,8 @@
 			"aria": "在文件管理器中显示模型文件夹"
 		},
 		"cloudModels": "云端模型",
-		"cloudModelsDescription": "使用云端 API 进行更快的转录。需要 API 密钥。"
+		"cloudModelsDescription": "使用云端 API 进行更快的转录。需要 API 密钥。",
+		"activeModelSummaryLabel": "活动模型："
 	},
 	"tooltips": {
 		"toggleRecording": "开始或停止语音听写",
@@ -1738,6 +1754,15 @@
 			"volume_too_low": "音量过低 — 请靠近麦克风说话",
 			"volume_low": "音量偏低 — 请考虑提高输入增益",
 			"no_voice": "未检测到语音 — 请在测试时说话"
+		},
+		"recommendations": {
+			"high_noise": "尝试使用“嘈杂房间”预设来抑制背景噪音。",
+			"moderate_noise": "尝试使用“嘈杂房间”预设以获得更清晰的录音。",
+			"clipping": "降低输入增益，或稍微远离麦克风。",
+			"volume_too_low": "请大声说话或靠近麦克风。",
+			"volume_low": "在系统声音设置中提高输入增益。",
+			"no_voice": "测试期间请持续说话，以便检测到语音。",
+			"applyNoisyRoom": "应用“嘈杂房间”预设"
 		}
 	},
 	"dashboard": {

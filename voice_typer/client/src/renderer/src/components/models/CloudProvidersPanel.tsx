@@ -29,6 +29,8 @@ import {
 	Settings03Icon,
 	Shield01Icon,
 	SparklesIcon,
+	ViewIcon,
+	ViewOffIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type React from "react";
@@ -123,8 +125,8 @@ export function CloudProvidersPanel({
 							</ModelGroupTrigger>
 							<ModelGroupContent>
 								{/* One list row per provider: the API model
-								    name + descriptive tags + the Configure
-								    action (point 11). */}
+                                                                    name + descriptive tags + the Configure
+                                                                    action (point 11). */}
 								<ModelVariantRow
 									name={formatModelDisplayName(provider.model)}
 									meta={
@@ -224,6 +226,13 @@ function ProviderConfigForm({
 	);
 	const showConsent = Boolean(apiKeyValue) || consentGranted;
 
+	// (XA-5-11): show/hide toggle for the API key input. Default is
+	// hidden (type="password"); clicking the eye-icon button reveals
+	// the plain-text value for verification. The reveal state is purely
+	// local — every ProviderConfigForm instance owns its own toggle so
+	// opening one provider's key does NOT reveal another's.
+	const [revealKey, setRevealKey] = useState(false);
+
 	//pending state — disable the Test button + show a spinner.
 	const isPending = testResult?.status === "pending";
 	//disable Save Key when the input is empty (prevents
@@ -244,16 +253,53 @@ function ProviderConfigForm({
 					</label>
 					<KeyringStatusBadge status={config?.keyring_status} compact />
 				</div>
-				<Input
-					id={`api-key-input-${provider.key}`}
-					type="password"
-					value={apiKeyValue}
-					onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-						onApiKeyChange(e.target.value)
-					}
-					placeholder={t("models.apiKeyPlaceholder")}
-					className="w-full max-w-md"
-				/>
+				<div className="relative w-full max-w-md">
+					<Input
+						id={`api-key-input-${provider.key}`}
+						type={revealKey ? "text" : "password"}
+						value={apiKeyValue}
+						onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+							onApiKeyChange(e.target.value)
+						}
+						placeholder={t("models.apiKeyPlaceholder")}
+						className="w-full pe-10"
+						autoComplete="off"
+						spellCheck={false}
+					/>
+					<button
+						type="button"
+						onClick={() => setRevealKey((v) => !v)}
+						className="absolute end-2 top-1/2 -translate-y-1/2 inline-flex size-6 items-center justify-center rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-foreground/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						aria-label={
+							revealKey
+								? t("models.cloud.apiKeyHideAria", {
+										provider: getProviderLabel(provider.key),
+									})
+								: t("models.cloud.apiKeyShowAria", {
+										provider: getProviderLabel(provider.key),
+									})
+						}
+						aria-pressed={revealKey}
+					>
+						<HugeiconsIcon
+							icon={revealKey ? ViewOffIcon : ViewIcon}
+							strokeWidth={2}
+							className="h-4 w-4"
+							aria-hidden="true"
+						/>
+					</button>
+				</div>
+				{/* (XA-5-11): subtle format hint below the input so users
+                                        know the expected key shape without trial-and-error.
+                                        Generic hint covers the common provider key conventions;
+                                        the per-provider text is intentionally minimal so it
+                                        doesn't mislead when a provider changes their key
+                                        format. */}
+				<p className="mt-1.5 text-xs text-(--text-muted)">
+					{t("models.cloud.apiKeyFormatHint", {
+						provider: getProviderLabel(provider.key),
+					})}
+				</p>
 			</div>
 			<div className="flex flex-wrap items-center gap-3">
 				<Button

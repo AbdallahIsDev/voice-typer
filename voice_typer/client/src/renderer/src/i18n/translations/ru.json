@@ -270,7 +270,14 @@
 		"exportSelected": "Экспортировать выбранное",
 		"deselectAll": "Снять выделение",
 		"importDuplicate": "Импорт заблокирован — такое исправление уже существует",
-		"searchPlaceholderCount": "Поиск: {count} исправлений"
+		"searchPlaceholderCount": "Поиск: {count} исправлений",
+		"count_zero": "{count} исправлений",
+		"count_one": "{count} исправление",
+		"count_two": "{count} исправления",
+		"count_few": "{count} исправления",
+		"count_many": "{count} исправлений",
+		"count_other": "{count} исправления",
+		"importFormatHint": "Принимает JSON ({\"vocabulary\": [ … ]}) или CSV (столбцы: неправильно, исправлено)."
 	},
 	"templates": {
 		"title": "Шаблоны",
@@ -339,7 +346,8 @@
 		"loadFailedDescription": "Не удалось загрузить шаблоны из бэкенда. Проверьте подключение и попробуйте снова.",
 		"showMore": "Показать ещё",
 		"showingCap": "Показано {shown} из {total}",
-		"unknownVariableWarning": "Неизвестная переменная {vars} — поддерживаются: {today}, {now}, {clipboard}, {username}"
+		"unknownVariableWarning": "Неизвестная переменная {vars} — поддерживаются: {today}, {now}, {clipboard}, {username}",
+		"importFormatHint": "Принимает JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]})."
 	},
 	"analytics": {
 		"title": "Аналитика",
@@ -863,6 +871,7 @@
 			"presetNoisyRoomDescription": "Агрессивная фильтрация от стука клавиш, вентиляторов и гула кондиционеров. RNNoise + сильный гейт + компрессор для стабильной точности распознавания.",
 			"presetOffDescription": "Пропустить всю цепочку фильтров. Используйте только с чистым сигналом — фоновый шум ухудшит распознавание.",
 			"presetCustomDescription": "Выберите каждый фильтр и параметр вручную. Лучше всего для продвинутых пользователей с известной акустической средой.",
+			"customFiltersTitle": "Пользовательские фильтры",
 			"gateAttack": "Атака гейта",
 			"gateAttackInfo": "Скорость открытия гейта при превышении сигналом порога открытия. Для речи обычно 5–25 мс.",
 			"gateAttackInfoSearch": "Скорость открытия гейта.",
@@ -1187,7 +1196,10 @@
 			"errorMessage": "Ошибка загрузки: {error}",
 			"errorMessageWithName": "Ошибка загрузки {name}: {error}",
 			"retry": "Повторить",
-			"retryAria": "Повторить загрузку"
+			"retryAria": "Повторить загрузку",
+			"cancelConfirmTitle": "Отменить загрузку?",
+			"cancelConfirmMessage": "Вы уверены, что хотите отменить эту загрузку? Это действие нельзя отменить.",
+			"cancelConfirmAction": "Отменить загрузку"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1223,7 +1235,10 @@
 			"configureAria": "Настроить {provider}",
 			"hideConfigure": "Скрыть",
 			"hideConfigureAria": "Скрыть настройку {provider}",
-			"tagCloud": "Облако"
+			"tagCloud": "Облако",
+			"apiKeyShowAria": "Показать API-ключ {provider}",
+			"apiKeyHideAria": "Скрыть API-ключ {provider}",
+			"apiKeyFormatHint": "API-ключи {provider} — это длинные строки (обычно 40–60 символов). Вставьте полный ключ — без пробелов и префиксов."
 		},
 		"deleteDialog": {
 			"title": "Удалить модель",
@@ -1296,7 +1311,8 @@
 			"aria": "Показать папку моделей в файловом менеджере"
 		},
 		"cloudModels": "Облачные модели",
-		"cloudModelsDescription": "Используйте облачные API для более быстрого транскрибирования. Требуется API-ключ."
+		"cloudModelsDescription": "Используйте облачные API для более быстрого транскрибирования. Требуется API-ключ.",
+		"activeModelSummaryLabel": "Активная модель:"
 	},
 	"tooltips": {
 		"toggleRecording": "Начать или остановить голосовую диктовку",
@@ -1738,6 +1754,15 @@
 			"volume_too_low": "Слишком низкий уровень — говорите ближе к микрофону",
 			"volume_low": "Низкий уровень громкости — увеличьте усиление входа",
 			"no_voice": "Голос не обнаружен — говорите во время теста"
+		},
+		"recommendations": {
+			"high_noise": "Попробуйте пресет «Шумная комната», чтобы подавить фоновый шум.",
+			"moderate_noise": "Попробуйте пресет «Шумная комната» для более чистой записи.",
+			"clipping": "Уменьшите усиление входа или немного отодвиньтесь от микрофона.",
+			"volume_too_low": "Говорите громче или ближе к микрофону.",
+			"volume_low": "Увеличьте усиление входа в настройках звука операционной системы.",
+			"no_voice": "Говорите непрерывно во время теста, чтобы была обнаружена голосовая активность.",
+			"applyNoisyRoom": "Применить пресет «Шумная комната»"
 		}
 	},
 	"dashboard": {

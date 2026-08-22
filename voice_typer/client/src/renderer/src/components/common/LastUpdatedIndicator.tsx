@@ -47,7 +47,15 @@ export function LastUpdatedIndicator({
 			)}
 			data-testid="last-updated-indicator"
 		>
-			<span>{t("common.lastUpdatedWithValue", { value: agoLabel })}</span>
+			{/* The timestamp/label is the dynamic part — it lives inside its
+			    own polite live region so screen readers announce updates
+			    ("Last updated 5s ago" → "10s ago") without re-announcing
+			    the refresh button. The button stays OUTSIDE the live
+			    region (a button inside a live region would be announced
+			    twice). */}
+			<span aria-live="polite">
+				<span>{t("common.lastUpdatedWithValue", { value: agoLabel })}</span>
+			</span>
 			<Button
 				variant="ghost"
 				size="sm"
@@ -58,7 +66,11 @@ export function LastUpdatedIndicator({
 				className="h-6 w-6 p-0"
 			>
 				{refreshing ? (
-					<Spinner className="border-current h-3 w-3" />
+					// XA-8-L6: decorative — the parent <Button aria-label>
+					// already supplies the accessible name; a nested
+					// role="img" aria-label="Loading" would compete with
+					// (and re-announce over) the button's own label.
+					<Spinner decorative className="border-current h-3 w-3" />
 				) : (
 					<HugeiconsIcon
 						icon={RefreshIcon}

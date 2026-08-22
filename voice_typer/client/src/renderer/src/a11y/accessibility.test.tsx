@@ -1040,7 +1040,7 @@ describe("Item 9: Dashboard a11y — heatmap role + stat card names", () => {
 			"..",
 			"components",
 			"dashboard",
-			"DashboardStatCard.tsx",
+			"StatCard.tsx",
 		);
 		const src = fs.readFileSync(cardPath, "utf-8");
 		// The label prop is rendered as visible text inside a <p>; that

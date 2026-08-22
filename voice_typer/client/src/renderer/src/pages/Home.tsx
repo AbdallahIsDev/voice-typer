@@ -715,15 +715,15 @@ export default function Home() {
 			/>
 
 			{/* Single dynamic status line under the mic button — see the
-				`hint` computation above for the state → content mapping.
-				This is Home's ONE status live region: the pill above is a
-				plain <div> (no implicit `status` role) and the recording
-				timer is role="timer" with explicit aria-live="off", so a
-				state change announces exactly once here — no double
-				announcements. Coarse transitions ("Recording started." /
-				"Ready." / …) are additionally covered by App.tsx's sr-only
-				region (app-level, visible on every page). Errors switch to
-				`role="alert"` so they're announced as alerts. */}
+                                `hint` computation above for the state → content mapping.
+                                This is Home's ONE status live region: the pill above is a
+                                plain <div> (no implicit `status` role) and the recording
+                                timer is role="timer" with explicit aria-live="off", so a
+                                state change announces exactly once here — no double
+                                announcements. Coarse transitions ("Recording started." /
+                                "Ready." / …) are additionally covered by App.tsx's sr-only
+                                region (app-level, visible on every page). Errors switch to
+                                `role="alert"` so they're announced as alerts. */}
 			<output
 				aria-live="polite"
 				role={hint?.variant === "error" ? "alert" : undefined}
@@ -803,7 +803,11 @@ export default function Home() {
 					className="mt-4 w-full flex items-center justify-center py-6"
 					aria-label={t("home.loadingTodayStatsAria")}
 				>
-					<Spinner />
+					{/* XA-8-L6: decorative — the wrapping <section aria-label>
+                                            already supplies the accessible name; the bare
+                                            Spinner's own role="img" aria-label="Loading" would
+                                            compete with it. */}
+					<Spinner decorative />
 				</section>
 			)}
 
@@ -829,7 +833,9 @@ export default function Home() {
 					className="mt-4 w-full flex items-center justify-center py-6"
 					aria-label={t("home.loadingRecentAria")}
 				>
-					<Spinner />
+					{/* XA-8-L6: decorative — same reasoning as the
+                                            today-stats section above. */}
+					<Spinner decorative />
 				</section>
 			) : (
 				<ActivityList

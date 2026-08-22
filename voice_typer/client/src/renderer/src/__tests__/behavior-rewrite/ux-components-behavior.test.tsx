@@ -1157,11 +1157,16 @@ describe("Templates — rewrite of help-text + variable-tooltip tests", () => {
 			expect(screen.getByText("signoff")).toBeTruthy();
 		});
 
-		// Click the "Add Template" toolbar button to open the add-template
-		// dialog.  The button's aria-label is t("templates.addNewAria") →
-		// "Add new template" (en.json).
-		const addBtn = screen.getByRole("button", { name: /add new template/iu });
-		fireEvent.click(addBtn);
+		// The Add flow is now an inline quick-add row (no dialog, no
+		// help text); the triggerHelp/outputHelp copy and the four
+		// variable chips live in the EDIT dialog (TemplateDialog).
+		// Open it via the seeded row's edit affordance — its
+		// aria-label is t("templates.editAria") → "Edit template:
+		// signoff" (en.json).
+		const editBtn = screen.getByRole("button", {
+			name: /edit template: signoff/iu,
+		});
+		fireEvent.click(editBtn);
 
 		// triggerHelp → "The phrase you'll say during dictation…"
 		// outputHelp → "The text that replaces the trigger…"

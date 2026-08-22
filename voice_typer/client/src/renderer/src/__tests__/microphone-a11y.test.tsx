@@ -136,8 +136,9 @@ describe("BG-45: MicrophoneListItem 'Use' button has a per-mic aria-label", () =
 
 		const useButton = document.querySelector("button");
 		expect(useButton).toBeTruthy();
-		// Visible text is still just "Use" (microphone.use).
-		expect(useButton?.textContent).toBe("Use");
+		// Visible text is the full clarified label (microphone.use →
+		// "Use this microphone").
+		expect(useButton?.textContent).toBe("Use this microphone");
 		// Accessible name includes the mic name (useMicAria key +
 		// {name} interpolation).
 		expect(useButton?.getAttribute("aria-label")).toBe(

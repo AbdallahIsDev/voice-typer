@@ -145,13 +145,13 @@ export function ActiveMicrophoneCard({
 			</div>
 
 			{/* : LevelBarContainer bundles the level-driven children
-			    (LevelBar + LiveQualityFeedback) so the rest of the card
-			    (TestReviewPanel, AudioPresetSelector, test controls) can be
-			    memoised against level/peak changes. The container itself
-			    re-renders on every mic_level push (it consumes `level` and
-			    `peak` directly) — that's the intended behavior, since
-			    LevelBar's visual height + LiveQualityFeedback's peak marker
-			    both depend on the latest values. */}
+                            (LevelBar + LiveQualityFeedback) so the rest of the card
+                            (TestReviewPanel, AudioPresetSelector, test controls) can be
+                            memoised against level/peak changes. The container itself
+                            re-renders on every mic_level push (it consumes `level` and
+                            `peak` directly) — that's the intended behavior, since
+                            LevelBar's visual height + LiveQualityFeedback's peak marker
+                            both depend on the latest values. */}
 			<LevelBarContainer
 				level={level}
 				peak={peak}
@@ -195,25 +195,25 @@ export function ActiveMicrophoneCard({
 				)}
 
 				{/*(a11y): split the live level indicator from
-				    the post-test duration readout. The live level
-				    (rapidly fluctuating during recording) is NOT
-				    announced to avoid screen-reader spam; the post-test
-				    duration (a single, stable value) IS announced via
-				    aria-live="polite" so users with AT know when a test
-				    completes and how long it ran.
+                                    the post-test duration readout. The live level
+                                    (rapidly fluctuating during recording) is NOT
+                                    announced to avoid screen-reader spam; the post-test
+                                    duration (a single, stable value) IS announced via
+                                    aria-live="polite" so users with AT know when a test
+                                    completes and how long it ran.
 
-				    aria-hidden={true} is UNCONDITIONAL here — the
-				    sibling ``LevelBar`` exposes the live value to
-				    assistive tech via its ``role="progressbar"`` +
-				    ``aria-valuenow`` attributes (the bar element is the
-				    accessible source of truth for the level). Letting
-				    this textual "Level: NN%" readout be announced too
-				    would duplicate the value AND spam AT at up to 30 Hz
-				    (the ``mic_level`` push rate). The previous
-				    ``aria-hidden={testRunning ? undefined : true}``
-				    was inverted: it leaked the level text to AT
-				    whenever a test was running — exactly when it
-				    updates fastest. */}
+                                    aria-hidden={true} is UNCONDITIONAL here — the
+                                    sibling ``LevelBar`` exposes the live value to
+                                    assistive tech via its ``role="progressbar"`` +
+                                    ``aria-valuenow`` attributes (the bar element is the
+                                    accessible source of truth for the level). Letting
+                                    this textual "Level: NN%" readout be announced too
+                                    would duplicate the value AND spam AT at up to 30 Hz
+                                    (the ``mic_level`` push rate). The previous
+                                    ``aria-hidden={testRunning ? undefined : true}``
+                                    was inverted: it leaked the level text to AT
+                                    whenever a test was running — exactly when it
+                                    updates fastest. */}
 				<span
 					className="text-xs text-(--text-muted) ml-auto"
 					aria-hidden={true}
@@ -242,11 +242,11 @@ export function ActiveMicrophoneCard({
 			</div>
 
 			{/* Fix 15: test duration slider (3–30s). The
-			    ``deferApply`` prop batches the drag into a single
-			    ``set_config`` call on pointer-up so we don't flood the
-			    backend while sliding. Hidden during an active test to
-			    avoid mid-test duration changes (which the running test
-			    ignores anyway). */}
+                            ``deferApply`` prop batches the drag into a single
+                            ``set_config`` call on pointer-up so we don't flood the
+                            backend while sliding. Hidden during an active test to
+                            avoid mid-test duration changes (which the running test
+                            ignores anyway). */}
 			{!testRunning && (
 				<div className="mt-3 flex items-center gap-3">
 					<label
@@ -276,13 +276,13 @@ export function ActiveMicrophoneCard({
 			)}
 
 			{/* : Test Review Panel — memoised. Re-renders only when
-			    the post-test data (duration, quality, audio, playback
-			    state) actually changes, NOT on every mic_level push.
-			    The comparator ignores callback identity (the parent
-			    Microphone.tsx creates fresh inline closures for
-			    onPlayEnhanced / onPlayOriginal / onStop / onRetest on
-			    every render — those don't affect TestReviewPanel's
-			    rendered output, so skipping the re-render is safe). */}
+                            the post-test data (duration, quality, audio, playback
+                            state) actually changes, NOT on every mic_level push.
+                            The comparator ignores callback identity (the parent
+                            Microphone.tsx creates fresh inline closures for
+                            onPlayEnhanced / onPlayOriginal / onStop / onRetest on
+                            every render — those don't affect TestReviewPanel's
+                            rendered output, so skipping the re-render is safe). */}
 			<MemoizedTestReviewPanel
 				durationMs={testDurationMs}
 				quality={testQuality}
@@ -295,16 +295,26 @@ export function ActiveMicrophoneCard({
 				onStop={onStopPlayback}
 				onRetest={onRetest}
 				hasFiltersEnabled={hasFiltersEnabled}
+				// (XA-5-8): wire the preset-applier so detected-noise
+				// issues render a one-click "Apply Noisy Room preset"
+				// CTA. ``onPresetChange`` is useCallback-stable in
+				// useMicrophoneTest, so identity churn never re-renders
+				// the panel (verified by the custom memo comparator below,
+				// which now includes ``onApplyPreset`` + ``currentPreset``).
+				onApplyPreset={onPresetChange}
+				currentPreset={
+					config ? ((config.audio_preset as AudioPreset) ?? "auto") : undefined
+				}
 			/>
 
 			{/* : Audio Enhancement / Preset selector — memoised.
-			    Re-renders only when the preset / config / showAdvanced
-			    flag changes, NOT on every mic_level push. The
-			    comparator includes `onConfigChange` and `onPresetChange`
-			    (both useCallback-stable in `useMicrophoneTest`) but
-			    excludes `onToggleAdvanced` (inline closure in
-			    Microphone.tsx — identity changes per render but the
-			    behavior is identical, so skipping is safe). */}
+                            Re-renders only when the preset / config / showAdvanced
+                            flag changes, NOT on every mic_level push. The
+                            comparator includes `onConfigChange` and `onPresetChange`
+                            (both useCallback-stable in `useMicrophoneTest`) but
+                            excludes `onToggleAdvanced` (inline closure in
+                            Microphone.tsx — identity changes per render but the
+                            behavior is identical, so skipping is safe). */}
 			<div className="mt-3">
 				{config && (
 					<MemoizedAudioPresetSelector
@@ -404,5 +414,13 @@ const MemoizedTestReviewPanel = memo(
 		prev.rawAudioBase64 === next.rawAudioBase64 &&
 		prev.playing === next.playing &&
 		prev.playingOriginal === next.playingOriginal &&
-		prev.hasFiltersEnabled === next.hasFiltersEnabled,
+		prev.hasFiltersEnabled === next.hasFiltersEnabled &&
+		// (XA-5-8): include the new preset-applier + current preset in
+		// the comparator. ``onApplyPreset`` is useCallback-stable
+		// (delegated to ``onPresetChange`` in useMicrophoneTest) so
+		// identity churn is rare; ``currentPreset`` flips when the
+		// user picks a new preset, which SHOULD re-render so the
+		// recommendation CTA's disabled-state updates.
+		prev.onApplyPreset === next.onApplyPreset &&
+		prev.currentPreset === next.currentPreset,
 );

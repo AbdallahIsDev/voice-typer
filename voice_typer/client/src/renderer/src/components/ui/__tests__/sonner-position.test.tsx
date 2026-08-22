@@ -29,6 +29,8 @@ vi.mock("@/i18n/i18n", () => ({
 			localeListeners.delete(cb);
 		};
 	},
+	// The Toaster resolves localized aria-labels at render time.
+	t: (key: string) => key,
 }));
 
 vi.mock("sonner", () => ({

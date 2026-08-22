@@ -32,7 +32,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
 // assertable singletons + one vi.mock line per module. This file's
@@ -116,6 +116,14 @@ function removeDialogMock() {
 
 // ── Suite ─────────────────────────────────────────────────────────────
 
+// The page persists the active tab (Local / Cloud) in sessionStorage
+// via useFilterState — clear it before EVERY test so a test that
+// switches to the Cloud tab never leaks that state into a later test
+// that expects the default Local tab.
+beforeEach(() => {
+	sessionStorage.clear();
+});
+
 describe("ModelsPage — Import Model flow", () => {
 	afterEach(() => {
 		cleanup();
@@ -149,7 +157,9 @@ describe("ModelsPage — Import Model flow", () => {
 		// Wait for the loading spinner to disappear and the page heading
 		// to appear.  ModelsPage shows a Spinner until config loads.
 		await waitFor(() => {
-			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
+			expect(
+				screen.queryByRole("heading", { level: 1, name: /Models/i }),
+			).toBeTruthy();
 		});
 	}
 
@@ -493,7 +503,9 @@ describe("ModelsPage — MDL-3: cancel produces no duplicate snackbar", () => {
 		});
 		renderWithProviders(<ModelsPage />);
 		await waitFor(() => {
-			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
+			expect(
+				screen.queryByRole("heading", { level: 1, name: /Models/i }),
+			).toBeTruthy();
 		});
 	}
 
@@ -592,7 +604,9 @@ describe("ModelsPage — MDL-5: cloud provider API key inputs have unique HTML i
 		});
 		renderWithProviders(<ModelsPage />);
 		await waitFor(() => {
-			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
+			expect(
+				screen.queryByRole("heading", { level: 1, name: /Models/i }),
+			).toBeTruthy();
 		});
 
 		// Switch to the Cloud Models tab (renamed from "Cloud Providers"
@@ -668,7 +682,9 @@ describe("ModelsPage — MDL-9: download does not auto-activate in the renderer"
 		});
 		renderWithProviders(<ModelsPage />);
 		await waitFor(() => {
-			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
+			expect(
+				screen.queryByRole("heading", { level: 1, name: /Models/i }),
+			).toBeTruthy();
 		});
 		const initialCount = getConfigCallCount;
 		expect(initialCount).toBeGreaterThanOrEqual(1);
@@ -705,7 +721,9 @@ describe("ModelsPage — MDL-9: download does not auto-activate in the renderer"
 		});
 		renderWithProviders(<ModelsPage />);
 		await waitFor(() => {
-			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
+			expect(
+				screen.queryByRole("heading", { level: 1, name: /Models/i }),
+			).toBeTruthy();
 		});
 
 		const downloadButton = screen.getByRole("button", {
@@ -770,7 +788,9 @@ describe("ModelsPage — MDL-16: Select buttons disabled during download", () =>
 		});
 		renderWithProviders(<ModelsPage />);
 		await waitFor(() => {
-			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
+			expect(
+				screen.queryByRole("heading", { level: 1, name: /Models/i }),
+			).toBeTruthy();
 		});
 
 		// Find the Select button for tiny (downloaded, not active).
@@ -821,7 +841,9 @@ describe("ModelsPage — segmented control card border treatment (2026-08-21)", 
 		});
 		renderWithProviders(<ModelsPage />);
 		await waitFor(() => {
-			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
+			expect(
+				screen.queryByRole("heading", { level: 1, name: /Models/i }),
+			).toBeTruthy();
 		});
 
 		// The tablist is the SegmentedControl container; it must carry
@@ -900,7 +922,9 @@ describe("ModelsPage — initial load failure shows an error state with Retry", 
 		fireEvent.click(screen.getByRole("button", { name: t("models.retry") }));
 
 		await waitFor(() => {
-			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
+			expect(
+				screen.queryByRole("heading", { level: 1, name: /Models/i }),
+			).toBeTruthy();
 		});
 		// The error card is gone once the config loads (assert on the
 		// card's title — the loaded page may contain other alert roles).

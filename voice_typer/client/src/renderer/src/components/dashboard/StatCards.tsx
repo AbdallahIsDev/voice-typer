@@ -1,9 +1,9 @@
 import { Mic02Icon, TextIcon, Time02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { memo } from "react";
 import { t } from "@/i18n/i18n";
 import { compactNumber, formatDuration } from "@/lib/format";
 import type { TodayStats } from "@/types/ipc";
+import { StatCard } from "./StatCard";
 
 // ``formatCompactNumber`` was previously defined inline here (with the
 // "K+" suffix on remainder) AND separately in Dashboard.tsx (with just
@@ -68,30 +68,15 @@ interface StatCardsProps {
 
 function StatCards({ stats }: StatCardsProps) {
 	return (
-		<div className="flex gap-2 w-full">
-			{CARDS.map((card) => {
-				const label = t(card.labelKey);
-				return (
-					<div
-						key={card.labelKey}
-						className="rounded-lg bg-(--bg-subtle) px-4 py-3 flex-1 border border-border/10"
-					>
-						<div className="flex items-center gap-2 mb-1.5">
-							<HugeiconsIcon
-								icon={card.icon}
-								strokeWidth={1.625}
-								className="h-4 w-4 text-(--text-muted)"
-							/>
-							<span className="text-[11px] text-(--text-muted) font-medium">
-								{label}
-							</span>
-						</div>
-						<span className="text-xl font-bold text-(--text-primary) leading-none tracking-tight">
-							{card.format(stats[card.key])}
-						</span>
-					</div>
-				);
-			})}
+		<div className="grid grid-cols-3 gap-3">
+			{CARDS.map((card) => (
+				<StatCard
+					key={card.labelKey}
+					label={t(card.labelKey)}
+					value={card.format(stats[card.key])}
+					icon={card.icon}
+				/>
+			))}
 		</div>
 	);
 }

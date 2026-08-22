@@ -20,8 +20,11 @@ import type { VoiceTyperConfig } from "@/types/config";
  * source of truth). The frontend only knows the preset names + display
  * labels; the actual filter → setting mapping lives in the backend.
  *
- * When the user selects "Custom", the individual filter rows are
- * revealed (same controls as Settings.tsx → Audio → Custom panel).
+ * The preset Select is ALWAYS visible (the primary "improve your mic"
+ * control must not hide behind a disclosure). Only the per-filter
+ * Custom rows are progressively disclosed: when the user selects
+ * "Custom", a labeled toggle appears that reveals the individual
+ * filter chain (same controls as Settings.tsx → Audio → Custom panel).
  */
 export type AudioPreset = "auto" | "studio" | "noisy_room" | "off" | "custom";
 
@@ -103,75 +106,74 @@ export function AudioPresetSelector({
 
 	return (
 		<div className="rounded-lg border border-border/10 overflow-hidden">
-			<button
-				type="button"
-				className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-medium text-(--text-primary) hover:bg-(--accent)/5 transition-colors cursor-pointer"
-				onClick={onToggleAdvanced}
-				aria-expanded={showAdvanced}
-				aria-controls={panelId}
-			>
-				<span className="flex items-center gap-2 font-medium tracking-wide">
-					<HugeiconsIcon
-						icon={FilterIcon}
-						strokeWidth={2}
-						className="h-4 w-4 text-(--text-muted)"
-					/>
-					{t("settings.audioEnhancement.title")}
-				</span>
-				<span className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-(--text-muted)">
-					{presetOptions.find((o) => o.value === preset)?.label ??
-						(preset === "custom"
-							? t("settings.audioEnhancement.presetCustom")
-							: preset.replace("_", " "))}
-					{/* Fix 12: chevron with rotation animation so users can see
-					    at a glance whether the panel is expanded. The rotation
-					    is CSS-driven (no JS state needed beyond `showAdvanced`). */}
-					<HugeiconsIcon
-						icon={ArrowDown01Icon}
-						strokeWidth={1.625}
-						className={cn(
-							"h-3.5 w-3.5 transition-transform duration-200",
-							showAdvanced && "rotate-180",
-						)}
-					/>
-				</span>
-			</button>
+			{/* Preset selector — ALWAYS visible (no expand required). */}
+			<div className="px-4 py-3 space-y-2">
+				<p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">
+					{t("settings.audioEnhancement.microphoneQuality")}
+				</p>
+				<Select value={preset} onValueChange={handlePresetChange}>
+					<SelectTrigger
+						className="w-full"
+						aria-label={t("a11y.microphoneQualityPreset")}
+					>
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						{presetOptions.map((option) => (
+							<SelectItem key={option.value} value={option.value}>
+								{option.label}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+				<p className="text-xs text-(--text-muted)">
+					{presetOptions.find((o) => o.value === preset)?.description ?? ""}
+				</p>
+			</div>
 
-			{showAdvanced && (
-				<div
-					id={panelId}
-					className="divide-y divide-border/10 border-t border-border/10"
-				>
-					{/* Preset selector */}
-					<div className="px-4 py-3 space-y-2">
-						<p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">
-							{t("settings.audioEnhancement.microphoneQuality")}
-						</p>
-						<Select value={preset} onValueChange={handlePresetChange}>
-							<SelectTrigger
-								className="w-full"
-								aria-label={t("a11y.microphoneQualityPreset")}
-							>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{presetOptions.map((option) => (
-									<SelectItem key={option.value} value={option.value}>
-										{option.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-						<p className="text-xs text-(--text-muted)">
-							{presetOptions.find((o) => o.value === preset)?.description ?? ""}
-						</p>
-					</div>
+			{/* F-1: filter chain extracted to shared <AudioFilterChain />.
+			    Progressive disclosure: the toggle only exists when there is
+			    something to reveal (Custom preset); the rows themselves sit
+			    behind ``showAdvanced``. */}
+			{isCustom && (
+				<>
+					<button
+						type="button"
+						className="flex w-full items-center justify-between border-t border-border/10 px-4 py-2.5 text-xs font-medium text-(--text-primary) hover:bg-(--accent)/5 transition-colors cursor-pointer"
+						onClick={onToggleAdvanced}
+						aria-expanded={showAdvanced}
+						aria-controls={panelId}
+					>
+						<span className="flex items-center gap-2 font-medium tracking-wide">
+							<HugeiconsIcon
+								icon={FilterIcon}
+								strokeWidth={2}
+								className="h-4 w-4 text-(--text-muted)"
+							/>
+							{t("settings.audioEnhancement.customFiltersTitle")}
+						</span>
+						{/* Chevron with rotation animation so users can see
+						    at a glance whether the panel is expanded. The rotation
+						    is CSS-driven (no JS state needed beyond `showAdvanced`). */}
+						<HugeiconsIcon
+							icon={ArrowDown01Icon}
+							strokeWidth={1.625}
+							className={cn(
+								"h-3.5 w-3.5 transition-transform duration-200",
+								showAdvanced && "rotate-180",
+							)}
+						/>
+					</button>
 
-					{/* F-1: filter chain extracted to shared <AudioFilterChain />. */}
-					{isCustom && (
-						<AudioFilterChain config={config} onConfigChange={onConfigChange} />
+					{showAdvanced && (
+						<div id={panelId} className="border-t border-border/10">
+							<AudioFilterChain
+								config={config}
+								onConfigChange={onConfigChange}
+							/>
+						</div>
 					)}
-				</div>
+				</>
 			)}
 		</div>
 	);

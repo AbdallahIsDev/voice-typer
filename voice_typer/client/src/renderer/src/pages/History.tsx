@@ -440,7 +440,7 @@ export default function HistoryPage() {
 
 				{loading && records.length === 0 ? (
 					<div className="flex min-h-full items-center justify-center py-20">
-						<Spinner />
+						<Spinner label={t("history.loading")} />
 					</div>
 				) : loadError && records.length === 0 ? (
 					//distinguish "backend failed to load" from

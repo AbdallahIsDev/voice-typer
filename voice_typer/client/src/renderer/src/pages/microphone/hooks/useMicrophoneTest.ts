@@ -22,6 +22,7 @@ import {
 	useState,
 } from "react";
 import type { AudioPreset } from "@/components/microphone/AudioPresetSelector";
+import { useFilterState } from "@/hooks/useFilterState";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
@@ -100,7 +101,16 @@ export function useMicrophoneTest({
 	// Fix 15: user-configurable test recording duration (3–30s).
 	const [testDurationSec, setTestDurationSec] = useState(10);
 	// ADR 0007: Audio preset + filter state lives in ``config`` directly.
-	const [showAdvanced, setShowAdvanced] = useState(false);
+	// (XA-5-4): persist the "Show advanced filters" expand toggle across
+	// page navigation so a user who expanded the advanced panel to tweak
+	// a noise gate threshold doesn't have to re-expand it after a
+	// navigation. The toggle is purely a UI affordance (no behaviour
+	// change), so persisting it is safe.
+	const [showAdvanced, setShowAdvanced] = useFilterState<boolean>(
+		"microphone",
+		"showAdvanced",
+		false,
+	);
 
 	// Cross-hook ``testRunningRef`` — owned here so the level monitor
 	// (reads it) and the session hook (syncs it via internal effect)

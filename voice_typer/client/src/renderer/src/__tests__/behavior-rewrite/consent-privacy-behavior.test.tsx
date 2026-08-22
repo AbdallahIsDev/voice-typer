@@ -788,6 +788,10 @@ describe("Models page — cloud consent toggles", () => {
 		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
+		// The page persists the active tab (Local / Cloud) in
+		// sessionStorage — clear it so every test starts on the
+		// default Local tab regardless of what a previous test did.
+		sessionStorage.clear();
 	});
 
 	afterEach(() => {
@@ -827,7 +831,10 @@ describe("Models page — cloud consent toggles", () => {
 		// The SegmentedControl renders each option as a radio with
 		// a clickable label.
 		if (switchToCloudTab) {
-			fireEvent.click(screen.getByText("Cloud Models"));
+			// Query the TAB by role — the panel heading inside the
+			// Cloud tab also reads "Cloud Models", so a plain
+			// getByText would match two elements.
+			fireEvent.click(screen.getByRole("tab", { name: "Cloud Models" }));
 		}
 	}
 

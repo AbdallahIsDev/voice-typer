@@ -30,7 +30,7 @@ import {
 	Folder02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -42,14 +42,27 @@ import {
 	SegmentedControl,
 	type SegmentedControlOption,
 } from "@/components/ui/segmented-control";
+import { useFilterState } from "@/hooks/useFilterState";
 import { useModelLifecycle } from "@/hooks/useModelLifecycle";
 import { t } from "@/i18n/i18n";
-import { getActiveFamilyId, groupModelsByFamily } from "@/lib/utils/models";
+import {
+	formatModelDisplayName,
+	getActiveFamilyId,
+	groupModelsByFamily,
+} from "@/lib/utils/models";
 import { tabPageIndicatorClassName } from "./_tabBarStyles";
 
 export default function ModelsPage() {
 	const lifecycle = useModelLifecycle();
-	const [activeTab, setActiveTab] = useState<"local" | "cloud">("local");
+	// (XA-5-4): persist the active tab (Local / Cloud) across page
+	// navigation via sessionStorage — a user who picked the Cloud
+	// tab to configure an API key expects to still be on it when
+	// they navigate away and back.
+	const [activeTab, setActiveTab] = useFilterState<"local" | "cloud">(
+		"models",
+		"activeTab",
+		"local",
+	);
 
 	const tabOptions: SegmentedControlOption<string>[] = [
 		{ value: "local", label: t("models.localModels") },
@@ -57,6 +70,43 @@ export default function ModelsPage() {
 		// for naming consistency with "Local Models".
 		{ value: "cloud", label: t("models.cloudModels") },
 	];
+
+	// (XA-5-17): "currently active model" summary rendered as a banner
+	// at the top of the page so the user always knows which ASR backend
+	// is live without scrolling down to find the highlighted card.
+	// Resolved from the backend's `asr_backend` + `model_size` config
+	// fields (the cloud providers' `display_name` is used for cloud
+	// backends so the summary reads "OpenAI Whisper API" instead of the
+	// bare slug).
+	const activeModelSummary = useMemo(() => {
+		const cfg = lifecycle.config;
+		if (!cfg) return null;
+		if (cfg.model_size === "" && !cfg.asr_backend) return null;
+		const backend = cfg.asr_backend ?? "whisper";
+		if (backend === "whisper") {
+			if (!cfg.model_size) return null;
+			return {
+				name: `Whisper ${formatModelDisplayName(cfg.model_size)}`,
+				kind: "local" as const,
+			};
+		}
+		if (backend === "qwen") {
+			return { name: "Qwen", kind: "local" as const };
+		}
+		if (backend === "parakeet") {
+			return { name: "Parakeet TDT", kind: "local" as const };
+		}
+		// Cloud backends — the provider key matches the cloudProviders
+		// catalogue so we can resolve the localized provider label.
+		if (backend === "openai" || backend === "groq" || backend === "deepgram") {
+			const provider = lifecycle.cloudProviders.find((p) => p.key === backend);
+			return {
+				name: provider ? formatModelDisplayName(provider.model) : backend,
+				kind: "cloud" as const,
+			};
+		}
+		return null;
+	}, [lifecycle.config, lifecycle.cloudProviders]);
 
 	// Memoize the family grouping so we don't re-group on every render.
 	const modelFamilies = useMemo(
@@ -99,7 +149,7 @@ export default function ModelsPage() {
 		}
 		return (
 			<div className="flex h-full items-center justify-center">
-				<Spinner />
+				<Spinner label={t("models.loading")} />
 			</div>
 		);
 	}
@@ -107,19 +157,19 @@ export default function ModelsPage() {
 	return (
 		<>
 			{/*
-				(UI/UX overhaul 2026-08-20):
-				• points 1+2 — the sticky top-of-viewport tab bar was
-				  REMOVED; the SegmentedControl now sits in the page flow
-				  below the title/description (where the "Last updated"
-				  indicator used to sit) and scrolls with the content.
-				  The "Last updated / refresh" indicator was removed
-				  entirely (model availability/install state doesn't
-				  change moment-to-moment; a manual refresh serves no
-				  purpose here).
-				• point 3 — the "Import Model" button only renders on the
-				  Local Models tab (importing a local model file has no
-				  meaning on the Cloud Models tab).
-			*/}
+                                (UI/UX overhaul 2026-08-20):
+                                • points 1+2 — the sticky top-of-viewport tab bar was
+                                  REMOVED; the SegmentedControl now sits in the page flow
+                                  below the title/description (where the "Last updated"
+                                  indicator used to sit) and scrolls with the content.
+                                  The "Last updated / refresh" indicator was removed
+                                  entirely (model availability/install state doesn't
+                                  change moment-to-moment; a manual refresh serves no
+                                  purpose here).
+                                • point 3 — the "Import Model" button only renders on the
+                                  Local Models tab (importing a local model file has no
+                                  meaning on the Cloud Models tab).
+                        */}
 			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
 				<PageHeading
 					title={t("models.asrTitle")}
@@ -148,8 +198,44 @@ export default function ModelsPage() {
 					)}
 				</PageHeading>
 
+				{/* (XA-5-17): active-model summary banner — always at the
+                                        top of the page so the user knows which ASR backend is live
+                                        without scrolling. Renders only when an active model is
+                                        configured (model_size != "" or a cloud backend is set).
+                                        Plain text in an aria-live=polite region so SR users are
+                                        notified when the active model changes (e.g. via the model
+                                        selection action). */}
+				{activeModelSummary && (
+					<div
+						className="mb-3 flex items-center gap-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs"
+						aria-live="polite"
+						aria-atomic="true"
+						data-testid="models-active-model-summary"
+					>
+						<HugeiconsIcon
+							icon={AiBrain03Icon}
+							strokeWidth={2}
+							className="h-4 w-4 shrink-0 text-accent"
+							aria-hidden="true"
+						/>
+						<span className="text-(--text-muted)">
+							{t("models.activeModelSummaryLabel")}
+						</span>
+						<span className="font-medium text-(--text-primary)">
+							{activeModelSummary.name}
+						</span>
+						<span className="text-(--text-muted)">
+							(
+							{activeModelSummary.kind === "cloud"
+								? t("models.cloudModels")
+								: t("models.localModels")}
+							)
+						</span>
+					</div>
+				)}
+
 				{/* Tab switcher — in the page flow (not sticky), below the
-				    page title/description and above the model list. */}
+                                    page title/description and above the model list. */}
 				<div className="pb-4">
 					<SegmentedControl
 						variant="tabs"
@@ -183,14 +269,14 @@ export default function ModelsPage() {
 							className="space-y-6 scroll-mt-32"
 						>
 							{/* Genuine "no model selected" state (the backend's
-							        NO_MODEL_SIZE sentinel, model_size === "") —
-							        nothing is active and the app will not try to
-							        load a model until the user picks one below.
-							        Rendered via the shared EmptyState component
-							        (variant="info") so the visual treatment matches
-							        Dashboard / Settings / Vocabulary — the title is
-							        wrapped in an <h3> so SR users can navigate by
-							        heading. */}
+                                                                NO_MODEL_SIZE sentinel, model_size === "") —
+                                                                nothing is active and the app will not try to
+                                                                load a model until the user picks one below.
+                                                                Rendered via the shared EmptyState component
+                                                                (variant="info") so the visual treatment matches
+                                                                Dashboard / Settings / Vocabulary — the title is
+                                                                wrapped in an <h3> so SR users can navigate by
+                                                                heading. */}
 							{lifecycle.config.model_size === "" && (
 								<EmptyState
 									variant="info"

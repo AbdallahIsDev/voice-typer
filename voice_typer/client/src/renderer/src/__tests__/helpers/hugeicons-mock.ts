@@ -124,6 +124,8 @@ const hugeiconsMock = {
 	Upload01Icon: make("Upload01Icon"),
 	UserGroupIcon: make("UserGroupIcon"),
 	UserIcon: make("UserIcon"),
+	ViewIcon: make("ViewIcon"),
+	ViewOffIcon: make("ViewOffIcon"),
 	VoiceIdIcon: make("VoiceIdIcon"),
 	WhatsappIcon: make("WhatsappIcon"),
 	ZapIcon: make("ZapIcon"),

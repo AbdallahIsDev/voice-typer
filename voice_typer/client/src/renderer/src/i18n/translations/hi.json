@@ -270,7 +270,14 @@
 		"exportSelected": "चयनित निर्यात करें",
 		"deselectAll": "सभी अचयनित करें",
 		"importDuplicate": "आयात अवरुद्ध — यह सुधार पहले से मौजूद है",
-		"searchPlaceholderCount": "{count} सुधार खोजें"
+		"searchPlaceholderCount": "{count} सुधार खोजें",
+		"count_zero": "{count} सुधार",
+		"count_one": "{count} सुधार",
+		"count_two": "{count} सुधार",
+		"count_few": "{count} सुधार",
+		"count_many": "{count} सुधार",
+		"count_other": "{count} सुधार",
+		"importFormatHint": "JSON ({\"vocabulary\": [ … ]}) या CSV (गलत, सही किए गए कॉलम) स्वीकार करता है।"
 	},
 	"templates": {
 		"title": "टेम्पलेट",
@@ -339,7 +346,8 @@
 		"count_few": "{count} टेम्पलेट",
 		"count_many": "{count} टेम्पलेट",
 		"count_other": "{count} टेम्पलेट",
-		"unknownVariableWarning": "अज्ञात चर {vars} — समर्थित: {today}, {now}, {clipboard}, {username}"
+		"unknownVariableWarning": "अज्ञात चर {vars} — समर्थित: {today}, {now}, {clipboard}, {username}",
+		"importFormatHint": "JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]}) स्वीकार करता है।"
 	},
 	"analytics": {
 		"title": "एनालिटिक्स",
@@ -863,6 +871,7 @@
 			"presetNoisyRoomDescription": "कीबोर्ड रैटल, पंखे और HVAC गुंजन के लिए आक्रामक फ़िल्टर। लगातार ASR सटीकता के लिए RNNoise + मजबूत गेट + कंप्रेसर।",
 			"presetOffDescription": "पूर्ण फ़िल्टर श्रृंखला को बाइपास करें। केवल स्वच्छ सिग्नल के साथ उपयोग करें — पृष्ठभूमि शोर ट्रांसक्रिप्शन को ख़राब करेगा।",
 			"presetCustomDescription": "हर फ़िल्टर और पैरामीटर स्वयं चुनें। ज्ञात ध्वनिक वातावरण वाले उन्नत उपयोगकर्ताओं के लिए सर्वश्रेष्ठ।",
+			"customFiltersTitle": "कस्टम फ़िल्टर",
 			"gateAttack": "गेट अटैक",
 			"gateAttackInfo": "जब सिग्नल खुली सीमा से ऊपर बढ़ता है तब गेट कितनी तेज़ी से खुलता है। वाक् के लिए 5–25 ms विशिष्ट है।",
 			"gateAttackInfoSearch": "गेट कितनी तेज़ी से खुलता है।",
@@ -1187,7 +1196,10 @@
 			"errorMessage": "डाउनलोड विफल: {error}",
 			"errorMessageWithName": "{name} डाउनलोड विफल: {error}",
 			"retry": "पुनः प्रयास करें",
-			"retryAria": "डाउनलोड पुनः प्रयास करें"
+			"retryAria": "डाउनलोड पुनः प्रयास करें",
+			"cancelConfirmTitle": "डाउनलोड रद्द करें?",
+			"cancelConfirmMessage": "क्या आप वाकई इस डाउनलोड को रद्द करना चाहते हैं? इसे पूर्ववत नहीं किया जा सकता।",
+			"cancelConfirmAction": "डाउनलोड रद्द करें"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1223,7 +1235,10 @@
 			"configureAria": "{provider} कॉन्फ़िगर करें",
 			"hideConfigure": "छिपाएँ",
 			"hideConfigureAria": "{provider} सेटअप छिपाएँ",
-			"tagCloud": "क्लाउड"
+			"tagCloud": "क्लाउड",
+			"apiKeyShowAria": "{provider} API कुंजी दिखाएँ",
+			"apiKeyHideAria": "{provider} API कुंजी छिपाएँ",
+			"apiKeyFormatHint": "{provider} API कुंजियाँ लंबी स्ट्रिंग होती हैं (आमतौर पर 40–60 अक्षर)। पूरी कुंजी चिपकाएँ — बिना रिक्त स्थान या उपसर्ग के।"
 		},
 		"deleteDialog": {
 			"title": "मॉडल हटाएं",
@@ -1296,7 +1311,8 @@
 			"aria": "फ़ाइल प्रबंधक में मॉडल फ़ोल्डर दिखाएं"
 		},
 		"cloudModels": "क्लाउड मॉडल",
-		"cloudModelsDescription": "तेज़ ट्रांसक्रिप्शन के लिए क्लाउड-आधारित API का उपयोग करें। API कुंजी आवश्यक है।"
+		"cloudModelsDescription": "तेज़ ट्रांसक्रिप्शन के लिए क्लाउड-आधारित API का उपयोग करें। API कुंजी आवश्यक है।",
+		"activeModelSummaryLabel": "सक्रिय मॉडल:"
 	},
 	"tooltips": {
 		"toggleRecording": "वॉयस डिक्टेशन शुरू या बंद करें",
@@ -1738,6 +1754,15 @@
 			"volume_too_low": "वॉल्यूम बहुत कम है — माइक्रोफ़ोन के करीब बोलें",
 			"volume_low": "वॉल्यूम कम है — इनपुट गेन बढ़ाने पर विचार करें",
 			"no_voice": "कोई आवाज़ नहीं पाई गई — परीक्षण के दौरान बोलने का प्रयास करें"
+		},
+		"recommendations": {
+			"high_noise": "पृष्ठभूमि शोर दबाने के लिए नॉइज़ी रूम प्रीसेट आज़माएँ।",
+			"moderate_noise": "स्पष्ट रिकॉर्डिंग के लिए नॉइज़ी रूम प्रीसेट आज़माएँ।",
+			"clipping": "अपना इनपुट गेन कम करें या माइक्रोफ़ोन से थोड़ा दूर हटें।",
+			"volume_too_low": "ज़ोर से बोलें या माइक्रोफ़ोन के करीब जाएँ।",
+			"volume_low": "अपने OS साउंड सेटिंग्स में इनपुट गेन बढ़ाएँ।",
+			"no_voice": "परीक्षण के दौरान लगातार बोलें ताकि आवाज़ का पता चले।",
+			"applyNoisyRoom": "नॉइज़ी रूम प्रीसेट लागू करें"
 		}
 	},
 	"dashboard": {

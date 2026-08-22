@@ -169,7 +169,7 @@
 		"connectAndRestart": "Connect a microphone and restart",
 		"otherMicrophones": "Other Microphones",
 		"noOtherMicrophones": "No other microphones available",
-		"use": "Use",
+		"use": "Use this microphone",
 		"channels": "Channels:",
 		"rateHz": "Rate:",
 		"loadFailedTitle": "Failed to load microphone data",
@@ -277,7 +277,14 @@
 		"exportSelected": "Export selected",
 		"deselectAll": "Deselect all",
 		"importDuplicate": "Import blocked — a correction already exists",
-		"searchPlaceholderCount": "Search {count} corrections"
+		"searchPlaceholderCount": "Search {count} corrections",
+		"count_zero": "{count} corrections",
+		"count_one": "{count} correction",
+		"count_two": "{count} corrections",
+		"count_few": "{count} corrections",
+		"count_many": "{count} corrections",
+		"count_other": "{count} corrections",
+		"importFormatHint": "Accepts JSON ({\"vocabulary\": [ … ]}) or CSV (wrong,corrected columns)."
 	},
 	"templates": {
 		"title": "Templates",
@@ -346,7 +353,8 @@
 		"count_few": "{count} templates",
 		"count_many": "{count} templates",
 		"count_other": "{count} templates",
-		"unknownVariableWarning": "Unknown variable {vars} — supported: {today}, {now}, {clipboard}, {username}"
+		"unknownVariableWarning": "Unknown variable {vars} — supported: {today}, {now}, {clipboard}, {username}",
+		"importFormatHint": "Accepts JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]})."
 	},
 	"analytics": {
 		"title": "Analytics",
@@ -827,6 +835,7 @@
 			"presetNoisyRoomDescription": "Aggressive filtering for keyboard clatter, fans, and HVAC rumble. RNNoise + strong gate + compressor for consistent ASR accuracy.",
 			"presetOffDescription": "Bypass the entire filter chain. Use only with a clean signal — background noise will degrade transcription.",
 			"presetCustomDescription": "Hand-pick every filter and parameter. Best for advanced users with a known acoustic environment.",
+			"customFiltersTitle": "Custom filters",
 			"highPassFilter": "High-Pass Filter",
 			"highPassFilterInfo": "Remove low-frequency rumble (HVAC, traffic) below the cutoff frequency.",
 			"highPassFilterInfoSearch": "Remove low-frequency rumble.",
@@ -1202,7 +1211,10 @@
 			"errorMessage": "Download failed: {error}",
 			"errorMessageWithName": "{name} download failed: {error}",
 			"retry": "Retry",
-			"retryAria": "Retry download"
+			"retryAria": "Retry download",
+			"cancelConfirmTitle": "Cancel download?",
+			"cancelConfirmMessage": "Are you sure you want to cancel this download? This cannot be undone.",
+			"cancelConfirmAction": "Cancel download"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1238,7 +1250,10 @@
 			"configureAria": "Configure {provider}",
 			"hideConfigure": "Hide",
 			"hideConfigureAria": "Hide {provider} setup",
-			"tagCloud": "Cloud"
+			"tagCloud": "Cloud",
+			"apiKeyShowAria": "Show {provider} API key",
+			"apiKeyHideAria": "Hide {provider} API key",
+			"apiKeyFormatHint": "{provider} API keys are long strings (typically 40–60 characters). Paste the full key — no spaces or prefixes."
 		},
 		"deleteDialog": {
 			"title": "Delete Model",
@@ -1303,7 +1318,8 @@
 		},
 		"loading": "Loading models…",
 		"cloudModels": "Cloud Models",
-		"cloudModelsDescription": "Use cloud-based APIs for faster transcription. Requires API key."
+		"cloudModelsDescription": "Use cloud-based APIs for faster transcription. Requires API key.",
+		"activeModelSummaryLabel": "Active model:"
 	},
 	"tooltips": {
 		"toggleRecording": "Start or stop voice dictation",
@@ -1732,6 +1748,15 @@
 			"volume_too_low": "Volume too low — speak closer to the microphone",
 			"volume_low": "Volume is low — consider raising input gain",
 			"no_voice": "No voice detected — try speaking during the test"
+		},
+		"recommendations": {
+			"high_noise": "Try the Noisy Room preset to suppress background noise.",
+			"moderate_noise": "Try the Noisy Room preset for clearer capture.",
+			"clipping": "Lower your input gain or move slightly farther from the microphone.",
+			"volume_too_low": "Speak louder or move closer to the microphone.",
+			"volume_low": "Raise the input gain in your OS sound settings.",
+			"no_voice": "Speak continuously during the test so voice activity is detected.",
+			"applyNoisyRoom": "Apply Noisy Room preset"
 		},
 		"playEnhanced": "Play Enhanced",
 		"playOriginal": "Play Original",

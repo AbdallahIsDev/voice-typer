@@ -270,7 +270,14 @@
 		"exportSelected": "Auswahl exportieren",
 		"deselectAll": "Auswahl aufheben",
 		"importDuplicate": "Import blockiert — eine Korrektur existiert bereits",
-		"searchPlaceholderCount": "Suche {count} Korrekturen"
+		"searchPlaceholderCount": "Suche {count} Korrekturen",
+		"count_zero": "{count} Korrekturen",
+		"count_one": "{count} Korrektur",
+		"count_two": "{count} Korrekturen",
+		"count_few": "{count} Korrekturen",
+		"count_many": "{count} Korrekturen",
+		"count_other": "{count} Korrekturen",
+		"importFormatHint": "Akzeptiert JSON ({\"vocabulary\": [ … ]}) oder CSV (Spalten: falsch, korrigiert)."
 	},
 	"templates": {
 		"title": "Vorlagen",
@@ -339,7 +346,8 @@
 		"count_few": "{count} Vorlagen",
 		"count_many": "{count} Vorlagen",
 		"count_other": "{count} Vorlagen",
-		"unknownVariableWarning": "Unbekannte Variable {vars} — unterstützt: {today}, {now}, {clipboard}, {username}"
+		"unknownVariableWarning": "Unbekannte Variable {vars} — unterstützt: {today}, {now}, {clipboard}, {username}",
+		"importFormatHint": "Akzeptiert JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]})."
 	},
 	"analytics": {
 		"title": "Analysen",
@@ -869,6 +877,7 @@
 			"presetNoisyRoomDescription": "Aggressive Filterung für Tastaturklappern, Lüfter und HVAC-Grollen. RNNoise + starkes Gate + Kompressor für konsistente ASR-Genauigkeit.",
 			"presetOffDescription": "Gesamte Filterkette umgehen. Nur mit einem sauberen Signal verwenden — Hintergrundgeräusche beeinträchtigen die Transkription.",
 			"presetCustomDescription": "Jeden Filter und Parameter manuell auswählen. Am besten für fortgeschrittene Benutzer mit bekannter akustischer Umgebung.",
+			"customFiltersTitle": "Benutzerdefinierte Filter",
 			"gateAttack": "Gate-Attack",
 			"gateAttackInfo": "Wie schnell das Gate öffnet, wenn das Signal über den Öffnungsschwellwert steigt. 5–25 ms sind typisch für Sprache.",
 			"gateAttackInfoSearch": "Wie schnell das Gate öffnet.",
@@ -1187,7 +1196,10 @@
 			"errorMessage": "Download fehlgeschlagen: {error}",
 			"errorMessageWithName": "{name}-Download fehlgeschlagen: {error}",
 			"retry": "Erneut versuchen",
-			"retryAria": "Download erneut versuchen"
+			"retryAria": "Download erneut versuchen",
+			"cancelConfirmTitle": "Download abbrechen?",
+			"cancelConfirmMessage": "Möchten Sie diesen Download wirklich abbrechen? Dies kann nicht rückgängig gemacht werden.",
+			"cancelConfirmAction": "Download abbrechen"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1223,7 +1235,10 @@
 			"configureAria": "{provider} konfigurieren",
 			"hideConfigure": "Ausblenden",
 			"hideConfigureAria": "{provider} Einrichtung ausblenden",
-			"tagCloud": "Cloud"
+			"tagCloud": "Cloud",
+			"apiKeyShowAria": "API-Schlüssel für {provider} anzeigen",
+			"apiKeyHideAria": "API-Schlüssel für {provider} ausblenden",
+			"apiKeyFormatHint": "{provider}-API-Schlüssel sind lange Zeichenfolgen (in der Regel 40–60 Zeichen). Fügen Sie den vollständigen Schlüssel ein — ohne Leerzeichen oder Präfixe."
 		},
 		"deleteDialog": {
 			"title": "Modell löschen",
@@ -1296,7 +1311,8 @@
 			"aria": "Modellordner im Dateimanager anzeigen"
 		},
 		"cloudModels": "Cloud-Modelle",
-		"cloudModelsDescription": "Verwenden Sie cloudbasierte APIs für schnellere Transkription. Erfordert einen API-Schlüssel."
+		"cloudModelsDescription": "Verwenden Sie cloudbasierte APIs für schnellere Transkription. Erfordert einen API-Schlüssel.",
+		"activeModelSummaryLabel": "Aktives Modell:"
 	},
 	"tooltips": {
 		"toggleRecording": "Sprachdiktat starten oder beenden",
@@ -1738,6 +1754,15 @@
 			"volume_too_low": "Lautstärke zu niedrig – sprechen Sie näher am Mikrofon",
 			"volume_low": "Lautstärke ist niedrig – erwägen Sie, die Eingangsverstärkung zu erhöhen",
 			"no_voice": "Keine Stimme erkannt – versuchen Sie, während des Tests zu sprechen"
+		},
+		"recommendations": {
+			"high_noise": "Probieren Sie das Preset „Noisy Room“, um Hintergrundgeräusche zu unterdrücken.",
+			"moderate_noise": "Probieren Sie das Preset „Noisy Room“, um eine klarere Aufnahme zu erzielen.",
+			"clipping": "Verringern Sie die Eingangsverstärkung oder halten Sie etwas mehr Abstand zum Mikrofon.",
+			"volume_too_low": "Sprechen Sie lauter oder rücken Sie näher an das Mikrofon.",
+			"volume_low": "Erhöhen Sie die Eingangsverstärkung in den Soundeinstellungen Ihres Betriebssystems.",
+			"no_voice": "Sprechen Sie während des Tests durchgehend, damit Stimmaktivität erkannt wird.",
+			"applyNoisyRoom": "Preset „Noisy Room“ anwenden"
 		}
 	},
 	"dashboard": {

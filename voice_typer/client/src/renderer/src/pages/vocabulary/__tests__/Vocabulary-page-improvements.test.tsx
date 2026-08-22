@@ -64,6 +64,11 @@ describe("Vocabulary page — display cap + Show more", () => {
 		showSnack.mockReset();
 		toastSuccess.mockClear();
 		toastError.mockClear();
+		// The page persists search/sort filters in sessionStorage via
+		// useFilterState — clear it before every test so a query typed
+		// by an earlier test never filters out the seeded rows a later
+		// test expects.
+		sessionStorage.clear();
 		localStorage.clear();
 		vi.resetModules();
 	});
@@ -213,6 +218,7 @@ describe("Vocabulary page — Clear All + ConfirmDialog", () => {
 		showSnack.mockReset();
 		toastSuccess.mockClear();
 		toastError.mockClear();
+		sessionStorage.clear();
 		localStorage.clear();
 		vi.resetModules();
 	});
@@ -443,6 +449,7 @@ describe("Vocabulary page — paginated Show more (incremental reveal)", () => {
 		showSnack.mockReset();
 		toastSuccess.mockClear();
 		toastError.mockClear();
+		sessionStorage.clear();
 		localStorage.clear();
 		vi.resetModules();
 	});
@@ -510,6 +517,7 @@ describe("Vocabulary page — duplicate detection on save", () => {
 		showSnack.mockReset();
 		toastSuccess.mockClear();
 		toastError.mockClear();
+		sessionStorage.clear();
 		localStorage.clear();
 		vi.resetModules();
 	});
@@ -703,6 +711,7 @@ describe("Vocabulary page — duplicate review banner", () => {
 		showSnack.mockReset();
 		toastSuccess.mockClear();
 		toastError.mockClear();
+		sessionStorage.clear();
 		localStorage.clear();
 		vi.resetModules();
 	});

@@ -17,6 +17,7 @@
 // owns one concern.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFilterState } from "@/hooks/useFilterState";
 import { showUndoableToast } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 
@@ -76,8 +77,19 @@ export function useTemplates({
 	// array from backend) from "load failed" (backend unreachable or
 	// returned garbage).
 	const [loadError, setLoadError] = useState<string | null>(null);
-	const [searchQuery, setSearchQuery] = useState("");
-	const [sortOrder, setSortOrder] = useState<TemplateSortOrder>("newest");
+	// (XA-5-4): persist search + sort across page navigation via
+	// sessionStorage — same pattern as Vocabulary. Wraps
+	// useSessionStorage under the hood with a per-page namespaced key.
+	const [searchQuery, setSearchQuery] = useFilterState<string>(
+		"templates",
+		"searchQuery",
+		"",
+	);
+	const [sortOrder, setSortOrder] = useFilterState<TemplateSortOrder>(
+		"templates",
+		"sortOrder",
+		"newest",
+	);
 
 	//ref mirror of `templates` (the React-state TemplateRow[])
 	// so `saveTemplate` and the `instantDeleteTemplate` undo callback

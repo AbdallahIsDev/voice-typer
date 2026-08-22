@@ -20,6 +20,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useFilterState } from "@/hooks/useFilterState";
 import { showUndoableToast } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import type { VocabularyData, VocabularyEntry } from "@/types/ipc";
@@ -84,14 +85,26 @@ export function useVocabulary({
 	showSnack,
 }: UseVocabularyArgs): UseVocabularyResult {
 	const [entries, setEntries] = useState<VocabRow[]>([]);
-	const [searchQuery, setSearchQuery] = useState("");
 	const [loading, setLoading] = useState(true);
 	//fix #8: surface backend-load failures to the user
 	// instead of silently masking them as "no entries exist".  Matches
 	// the History/Templates retry pattern.
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
-	const [sortOrder, setSortOrder] = useState<VocabSortOrder>("newest");
+	// (XA-5-4): persist search + sort across page navigation via
+	// sessionStorage so a user who switched tabs doesn't lose their
+	// filter context when they come back. Wraps useSessionStorage
+	// under the hood with a per-page namespaced key.
+	const [searchQuery, setSearchQuery] = useFilterState<string>(
+		"vocabulary",
+		"searchQuery",
+		"",
+	);
+	const [sortOrder, setSortOrder] = useFilterState<VocabSortOrder>(
+		"vocabulary",
+		"sortOrder",
+		"newest",
+	);
 
 	// Per-correction usage snapshot (``get_correction_usage``) — powers
 	// the per-row "Used N×" indicator. Fetched alongside the vocabulary

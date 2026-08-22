@@ -21,11 +21,13 @@ import { useSnackbar } from "@/hooks/useSnackbar";
 import { t, tChoice } from "@/i18n/i18n";
 
 import { TemplateDialog } from "./templates/components/TemplateDialog";
+import { TemplateInlineForm } from "./templates/components/TemplateInlineForm";
 import { TemplateListRow } from "./templates/components/TemplateListRow";
 import { TemplateSearchSortBar } from "./templates/components/TemplateSearchSortBar";
 import { TemplateToolbar } from "./templates/components/TemplateToolbar";
 import { useTemplateDialog } from "./templates/hooks/useTemplateDialog";
 import { useTemplateImportExport } from "./templates/hooks/useTemplateImportExport";
+import { useTemplateQuickAdd } from "./templates/hooks/useTemplateQuickAdd";
 import { useTemplates } from "./templates/hooks/useTemplates";
 import type { TemplateRow } from "./templates/lib/types";
 
@@ -53,7 +55,9 @@ export default function TemplatesPage() {
 		trigger,
 		expansion,
 		matchMode,
-		openAddDialog,
+		// openAddDialog intentionally NOT destructured — Add-Template now
+		// opens the inline quick-add row (XA-5-1); only the Edit flow still
+		// uses the dialog.
 		openEditDialog,
 		saveTemplate,
 		handleTriggerChange,
@@ -64,6 +68,19 @@ export default function TemplatesPage() {
 
 	const { importInputRef, doExport, handleImportFile, handleImportClick } =
 		useTemplateImportExport({ call, loadRows, templatesRef });
+
+	// XA-5-1: inline quick-add row above the templates list. Mirrors
+	// Vocabulary's ``useVocabularyQuickAdd`` so create stays in-place
+	// (no modal). Edit still flows through ``useTemplateDialog`` +
+	// ``TemplateDialog`` — the inline pattern is intentionally ONLY for
+	// add (the common case); power users who need to change match mode
+	// use the Edit dialog.
+	const quickAdd = useTemplateQuickAdd({
+		call,
+		showSnack,
+		templatesRef,
+		loadRows,
+	});
 
 	// ``openEditDialog`` from ``useTemplateDialog`` is a plain
 	// function (recreated every render).  Wrap it in a stable
@@ -83,7 +100,7 @@ export default function TemplatesPage() {
 	if (loading) {
 		return (
 			<div className="flex h-full items-center justify-center">
-				<Spinner />
+				<Spinner label={t("templates.loading")} />
 			</div>
 		);
 	}
@@ -132,7 +149,11 @@ export default function TemplatesPage() {
 						// `() => doExport()` dropped the format arg,
 						// silently making CSV export behave like JSON.
 						onExport={(format) => doExport(format)}
-						onAdd={openAddDialog}
+						// XA-5-1: Add-Template opens the inline quick-add
+						// row (mirrors Vocabulary). The Edit dialog is
+						// still wired via the row's pencil icon (no
+						// regression for edit).
+						onAdd={quickAdd.openQuickAdd}
 						exportDisabled={templates.length === 0}
 					/>
 				</PageHeading>
@@ -146,6 +167,23 @@ export default function TemplatesPage() {
 					/>
 				)}
 
+				{/* XA-5-1: inline quick-add row. NOT gated on
+                                    templates.length — "Add Template" must work from the
+                                    empty state too (mirrors Vocabulary). */}
+				{quickAdd.open && (
+					<div className="mt-4">
+						<TemplateInlineForm
+							trigger={quickAdd.trigger}
+							expansion={quickAdd.expansion}
+							error={quickAdd.error}
+							onTriggerChange={quickAdd.setTrigger}
+							onExpansionChange={quickAdd.setExpansion}
+							onSave={quickAdd.saveQuickAdd}
+							onCancel={quickAdd.closeQuickAdd}
+						/>
+					</div>
+				)}
+
 				<div className="mt-4">
 					{templates.length === 0 ? (
 						<EmptyState
@@ -153,7 +191,7 @@ export default function TemplatesPage() {
 							title={t("templates.emptyTitle")}
 							description={t("templates.emptyDescription")}
 							actionLabel={t("templates.createFirst")}
-							onAction={openAddDialog}
+							onAction={quickAdd.openQuickAdd}
 						/>
 					) : filteredSortedTemplates.length === 0 ? (
 						//search returned no matches — use the dedicated
