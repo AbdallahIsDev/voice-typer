@@ -36,6 +36,26 @@ _LEGACY_VOCAB_FILENAME = "voice-typer-vocabulary.json"
 # text_cleanup.py imports this constant instead of re-declaring it.
 BUNDLED_CORRECTIONS_PATH = Path(__file__).parent / "corrections.json"
 
+# Persistence model (do NOT flatten or re-merge):
+#   - ``vocabulary.json`` is the AUTHORITATIVE user-customization store.
+#     It persists ONLY the diff against the bundled defaults shipped in
+#     ``corrections.json`` (BUNDLED_CORRECTIONS_PATH) plus the reserved
+#     ``_deleted`` tombstone map (entries the user removed from the
+#     BUNDLED set). Bundled entries are intentionally NOT duplicated
+#     into this file — the merged vocabulary the UI/dictation sees is
+#     ``bundled + user - _deleted`` computed at load time.
+#   - The 6 category buckets (``CATEGORIES``) are the PERSISTED DATA
+#     LAYER: the renderer hides them (flat original→corrected list,
+#     auto-assigned via ``detectCategory``), but the backend applies
+#     per-category (order, regex semantics), the usage tracker keys by
+#     category, and the diff-save + tombstones are per-category. They
+#     are NOT obsolete — do not remove them without migrating
+#     ``apply_to_text`` / ``CorrectionUsageTracker`` /
+#     ``save_vocabulary_with_diff``.
+#   - Usage/analytics data (``correction-usage.json``) is a SEPARATE
+#     file owned by ``CorrectionUsageTracker`` (independent
+#     time-series: debounced writes, day-pruned, prune-on-delete). It
+#     must NOT be merged into ``vocabulary.json``.
 # Category names in canonical order
 CATEGORIES = [
     "misspellings",

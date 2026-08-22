@@ -138,6 +138,16 @@ pub(super) fn read_restart_counter() -> u32 {
 /// — if the write fails, log and continue (the counter is a safety
 /// gate, not a correctness requirement).
 ///
+/// Persistence ownership: ``restart_counter.json`` is the TAURI-ONLY
+/// sidecar-respawn circuit breaker ({count, ts}, 10-minute staleness
+/// window, cleared on successful reconnect). It is intentionally
+/// INDEPENDENT of the Electron runtime's ``restart_history.json``
+/// (voice_typer/client/src/main/python/relaunch-app.ts: an array of
+/// epoch-ms relaunch timestamps for the app-relaunch crash-loop
+/// breaker). The two runtimes never coexist and their schemas /
+/// semantics / lifecycles differ — do NOT merge them into one
+/// "restart" file.
+///
 /// dropped the unused `_state: &Arc<SidecarState>`
 /// parameter — the function only writes a disk file and never touches
 /// the shared state. All call sites updated.

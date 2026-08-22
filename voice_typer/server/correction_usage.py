@@ -63,6 +63,17 @@ log = logging.getLogger(__name__)
 CORRECTION_USAGE_FILENAME = "correction-usage.json"
 USAGE_SCHEMA_VERSION = 1
 
+# Persistence ownership (do NOT merge into vocabulary.json):
+# ``correction-usage.json`` is INDEPENDENT ANALYTICS / time-series data —
+# per-(category, original) cumulative counts + per-local-day correction /
+# dictation totals that feed the Vocabulary page's "used Nx" and the
+# Analytics page's corrections-applied rate. It is NOT vocabulary data:
+# it has a different lifecycle (batched debounced writes, 90-day prune,
+# prune-on-delete from the save path) and a different producer (the
+# dictation engine, via ``record_corrections`` / ``record_dictation``).
+# The vocabulary's own authoritative user store is ``vocabulary.json``
+# (VocabularyManager); the two files must stay separate.
+
 # Keep per-day totals for at most this many days (bounded file growth).
 KEEP_DAYS = 90
 # Batched writes: flush at most this often while dirty.

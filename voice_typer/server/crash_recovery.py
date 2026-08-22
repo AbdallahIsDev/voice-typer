@@ -40,6 +40,15 @@ RECOVERY_FILENAME = "recovery.json"
 _LEGACY_RECOVERY_FILENAME = "voice-typer-recovery.json"
 MAX_RECOVERY_ENTRIES = 10
 
+# Persistence role: ``recovery.json`` is an ACTIVE crash-recovery store
+# for the last ``MAX_RECOVERY_ENTRIES`` UNPASTED transcriptions. It is
+# NOT obsolete: the dictation pipeline calls ``CrashRecovery.add()``
+# (gated by ``config.crash_recovery_enabled``), and startup
+# (``startup_sequence`` → ``check_on_startup``) reads it to notify the
+# user of recovered text; it is also exported to diagnostics bundles.
+# An empty ``{"entries": []}`` is the NORMAL state (nothing pending),
+# not a signal that the file can be removed.
+
 # Bounded queue: if the worker falls behind (e.g. disk is slow),
 # drop the oldest pending save rather than blocking the transcription
 # thread.  The latest state is what matters; intermediate states are

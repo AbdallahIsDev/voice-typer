@@ -1100,6 +1100,38 @@ Applies to: All agents, all modes, all sub-agents.
 
 ---
 
+## Category: Persistence & Data Files
+
+```
+C-PERSIST-1
+Rule: Do NOT flatten or merge the vocabulary persistence model. `vocabulary.json` (`voice_typer/server/vocabulary.py`) is the AUTHORITATIVE store for USER vocabulary customizations ONLY — it persists the diff against the bundled defaults in `corrections.json` plus the reserved `_deleted` tombstone map (entries removed from the bundled set). Bundled entries are intentionally NOT duplicated into `vocabulary.json`; the merged vocabulary the UI/dictation sees is `bundled + user - _deleted`. A user file that contains only `_deleted` is correct (the visible entries are bundled defaults), NOT a sign of missing data. The 6 category buckets (`misspellings`, `phrase_corrections`, `extra_word_patterns`, `technical_terms`, `names`, `products`) are the PERSISTED DATA LAYER — the renderer hides them behind a flat original→corrected list (auto-assigned via `detectCategory`), but the backend applies per-category, the usage tracker keys by category, and the diff-save/tombstones are per-category. Do NOT remove the category buckets without migrating `apply_to_text`, `CorrectionUsageTracker`, and `save_vocabulary_with_diff`.
+Rationale: Audited 2026-08-22 — every category is consumed by the apply engine, usage tracking, and diff-save; the flat UI is a presentation choice, not a schema change. Removing them would break the vocabulary feature.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-PERSIST-2
+Rule: Do NOT merge `correction-usage.json` into `vocabulary.json` (or any other file). `correction-usage.json` (`voice_typer/server/correction_usage.py`, `CorrectionUsageTracker`) is INDEPENDENT ANALYTICS / time-series data — per-(category, original) cumulative counts + per-local-day correction/dictation totals feeding the Vocabulary page's "used Nx" and the Analytics corrections-rate. It has a different producer (the dictation engine), a different lifecycle (batched debounced writes, 90-day prune, prune-on-delete), and is NOT vocabulary data.
+Rationale: Audited 2026-08-22 — forcing a merge to reduce file count would couple two independent lifecycles and corrupt both stores.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-PERSIST-3
+Rule: Do NOT remove `recovery.json`. It is an ACTIVE crash-recovery store for the last `MAX_RECOVERY_ENTRIES` UNPASTED transcriptions (`voice_typer/server/crash_recovery.py`, `CrashRecovery`): the dictation pipeline calls `add()` (gated by `config.crash_recovery_enabled`), startup calls `check_on_startup()` to notify the user of recovered text, and diagnostics export reads it. An empty `{"entries": []}` is the NORMAL state (nothing pending), not a signal of obsolescence.
+Rationale: Audited 2026-08-22 — the recovery mechanism is live end-to-end (pipeline write → startup check → tray notify).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-PERSIST-4
+Rule: Do NOT merge `restart_history.json` and `restart_counter.json`. They are two INDEPENDENT per-runtime restart mechanisms with different schemas, semantics, and lifecycles: `restart_history.json` is the ELECTRON-only production app-relaunch crash-loop breaker (array of epoch-ms timestamps, 60s window, cap 3; `voice_typer/client/src/main/python/relaunch-app.ts`); `restart_counter.json` is the TAURI-only sidecar-respawn circuit breaker (`{"count", "ts"}` with a 10-minute staleness window, cleared on successful reconnect; `src-tauri/src/sidecar/supervisor.rs`). The two runtimes never coexist and neither reads the other's file — merging them would force two independent circuit breakers to share one incompatible schema.
+Rationale: Audited 2026-08-22 — the two files complement rather than duplicate; a merge would break both circuit breakers and lose per-runtime semantics.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+---
+
 ## How the adds / edits constraints
 
 1. Add a new constraint block under the appropriate category (or create a new category with a `## Category: <name>` header).

@@ -82,6 +82,15 @@ import { clearTcpStartupTimeout } from "./tcp-connect";
 const MAX_RESTARTS_PER_WINDOW = 3;
 const RESTART_WINDOW_MS = 60_000;
 
+// Persistence ownership: ``restart_history.json`` is the ELECTRON-only
+// production app-relaunch crash-loop breaker (a small array of epoch-ms
+// relaunch timestamps, pruned to the 60s window). It is intentionally
+// INDEPENDENT of the Tauri runtime's ``restart_counter.json``
+// (src-tauri/src/sidecar/supervisor.rs: a {count, ts} sidecar-respawn
+// circuit breaker with a 10-minute staleness window). The two runtimes
+// never coexist and their schemas / semantics / lifecycles differ — do
+// NOT merge them into one "restart" file.
+
 function _restartHistoryPath(): string {
 	return path.join(computeConfigDir(), "restart_history.json");
 }
