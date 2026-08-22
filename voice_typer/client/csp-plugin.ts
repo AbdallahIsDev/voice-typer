@@ -6,6 +6,13 @@
  * (onHeadersReceived); this Vite plugin rewrites the meta tag in
  * `transformIndexHtml` so it matches the current mode:
  *
+ * `frame-ancestors` is deliberately EXCLUDED from the meta CSP (and from
+ * every policy below): the CSP spec only honors `frame-ancestors` when
+ * delivered as an HTTP header — a `<meta>` occurrence is ignored AND
+ * triggers a console warning. The Electron main process enforces it via
+ * the HTTP-header CSP in `bootstrap.ts::_buildCsp` (onHeadersReceived),
+ * which keeps the frame protection while the meta tag stays warning-free.
+ *
  * - Dev (command === 'serve'): emit CSP_DEV with `unsafe-eval` and
  *   `unsafe-inline` for script-src (Vite HMR + React Refresh preamble +
  *   eval-based sourcemaps need them) and ws://localhost:* / http://localhost:*
@@ -70,7 +77,6 @@ export const CSP_PROD_MAIN = [
 	"media-src 'self' data:",
 	"connect-src 'self'",
 	"object-src 'none'",
-	"frame-ancestors 'none'",
 	"form-action 'none'",
 	"base-uri 'self'",
 ].join("; ");
@@ -95,7 +101,6 @@ export const CSP_PROD_BUBBLE = [
 	"media-src 'self' data:",
 	"connect-src 'self'",
 	"object-src 'none'",
-	"frame-ancestors 'none'",
 	"form-action 'none'",
 	"base-uri 'self'",
 ].join("; ");
@@ -124,7 +129,6 @@ export const CSP_DEV = [
 	"font-src 'self' data:",
 	"media-src 'self' data:",
 	"connect-src 'self' ws://localhost:* http://localhost:*",
-	"frame-ancestors 'none'",
 	"form-action 'none'",
 	"base-uri 'self'",
 ].join("; ");

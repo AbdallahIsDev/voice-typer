@@ -38,8 +38,12 @@ describe("CR-11 / R6-F5: per-window CSP split", () => {
 			expect(CSP_PROD_MAIN).toMatch(/script-src 'self'(?:;|$)/);
 		});
 
-		it("denies frame-ancestors and form-action", () => {
-			expect(CSP_PROD_MAIN).toContain("frame-ancestors 'none'");
+		it("keeps form-action 'none' and EXCLUDES frame-ancestors from the meta CSP (header-only directive)", () => {
+			// `frame-ancestors` is only honored via an HTTP header — a
+			// <meta> occurrence is ignored by the browser AND logs a
+			// console warning. It belongs in the Electron-main header CSP
+			// (bootstrap.ts::_buildCsp), never here.
+			expect(CSP_PROD_MAIN).not.toContain("frame-ancestors");
 			expect(CSP_PROD_MAIN).toContain("form-action 'none'");
 		});
 
@@ -58,8 +62,8 @@ describe("CR-11 / R6-F5: per-window CSP split", () => {
 			expect(CSP_PROD_BUBBLE).toMatch(/script-src 'self'(?:;|$)/);
 		});
 
-		it("denies frame-ancestors and form-action", () => {
-			expect(CSP_PROD_BUBBLE).toContain("frame-ancestors 'none'");
+		it("keeps form-action 'none' and EXCLUDES frame-ancestors from the meta CSP (header-only directive)", () => {
+			expect(CSP_PROD_BUBBLE).not.toContain("frame-ancestors");
 			expect(CSP_PROD_BUBBLE).toContain("form-action 'none'");
 		});
 

@@ -170,8 +170,13 @@ class TestCspPluginConstants:
             f"CSP_PROD script-src should be exactly `script-src 'self'` — got: {script_src}"
         )
 
-    def test_csp_prod_has_frame_ancestors_none(self, csp_prod: str):
-        assert "frame-ancestors 'none'" in csp_prod
+    def test_csp_prod_excludes_frame_ancestors_from_meta(self, csp_prod: str):
+        # `frame-ancestors` is only honored via an HTTP header; a <meta>
+        # occurrence is ignored by the browser AND logs a console warning
+        # ("Content Security Policy directive 'frame-ancestors' is ignored
+        # when delivered via a <meta> element"). It belongs in the Electron
+        # main-process header CSP (bootstrap.ts::_buildCsp), never the meta.
+        assert "frame-ancestors" not in csp_prod
 
     def test_csp_prod_has_form_action_none(self, csp_prod: str):
         assert "form-action 'none'" in csp_prod

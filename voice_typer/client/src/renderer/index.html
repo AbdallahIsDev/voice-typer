@@ -1,18 +1,20 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" dir="ltr">
 
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!--
-      set <html lang> from the saved UI locale
+      set <html lang> AND <html dir> from the saved UI locale
       BEFORE React mounts so screen readers announce content in the
-      correct language on first paint.  Without this, the hardcoded
-      lang="en" above means a user who switched the UI to (e.g.) French
-      still hears the initial render announced as English until the
-      React effect that flips document.documentElement.lang runs (which
-      can be 100-200ms after first paint — long enough for AT to read
-      the first heading in the wrong language).
+      correct language on first paint and RTL layouts don't flash
+      LTR (the same first-paint problem the theme bootstrap below
+      solves for dark mode).  Without this, the hardcoded
+      lang="en"/dir="ltr" above means a user who switched the UI to
+      (e.g.) Arabic sees the whole layout render left-to-right and
+      then flip to right-to-left when the React effect that syncs
+      document.documentElement.lang/dir runs (which can be
+      100-200ms after first paint).
 
       The inline script reads localStorage for
       `voice-typer-ui-locale` (the same key i18n.ts persists the active
@@ -32,7 +34,7 @@
       NOTE: the script must NOT throw if localStorage is unavailable
       (Electron sandboxed frames, Tauri webview restrictions).  All
       access is wrapped in try/catch and falls back silently to
-      lang="en".
+      lang="en" / dir="ltr".
   -->
   <script>
     (() => {
@@ -48,7 +50,15 @@
         // for date/number formatting anyway.
         SUPPORTED = { ar: "ar", de: "de", en: "en", es: "es", fr: "fr", hi: "hi", ru: "ru", zh: "zh" };
         tag = SUPPORTED[locale];
-        if (tag) document.documentElement.lang = tag;
+        if (tag) {
+          document.documentElement.lang = tag;
+          // Mirror the i18n module's dir contract (setLocale sets
+          // dir="rtl" for Arabic and dir="ltr" for every other locale)
+          // so the very first paint already has the correct writing
+          // direction — no LTR flash for Arabic users, no stale RTL
+          // direction if a user switches back to an LTR locale.
+          document.documentElement.dir = tag === "ar" ? "rtl" : "ltr";
+        }
       } catch {
         // localStorage unavailable (sandboxed frame, Tauri webview, etc.)
         // — fall through to the hardcoded lang="en" attribute.
@@ -85,11 +95,15 @@
         grant was removed because it was a latent C-DATA-1 violation;
         update checks must route through the Python sidecar instead of
         a renderer-direct HTTPS call.
-      - frame-ancestors 'none' — this page can't be framed.
       - form-action 'none' — no form submissions.
+      NOTE: `frame-ancestors 'none'` is intentionally NOT in this meta
+      tag — the CSP spec ignores `frame-ancestors` delivered via <meta>
+      (only HTTP headers honor it) and the browser logs a console warning
+      for it. It is enforced via the HTTP-header CSP set by the Electron
+      main process (`bootstrap.ts::_buildCsp` → onHeadersReceived).
     -->
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; media-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'none'; base-uri 'self';" />
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; media-src 'self' data:; connect-src 'self'; form-action 'none'; base-uri 'self';" />
 
   <!--
       apply the cached theme BEFORE React mounts.
