@@ -2,7 +2,6 @@ import {
 	AiBrain03Icon,
 	Analytics01Icon,
 	BookOpen02Icon,
-	Cancel01Icon,
 	File02Icon,
 	HistoryIcon,
 	Home04Icon,
@@ -15,11 +14,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from "@radix-ui/react-collapsible";
+import { Collapsible, CollapsibleContent } from "@radix-ui/react-collapsible";
 import * as Popover from "@radix-ui/react-popover";
 // Collapsible is the default export (Root component); Trigger +
 // Content are named exports (radix's per-primitive package layout —
@@ -42,7 +37,7 @@ import { formatHotkey } from "@/components/hotkey/hotkey-utils";
 import { SHORTCUTS } from "@/components/hotkey/shortcuts";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
-import { cn, focusRing } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import type { Page } from "@/types/ipc";
 
 interface NavItem {
@@ -651,111 +646,82 @@ function NavSubmenu({
 	}
 
 	// Expanded sidebar: render a Collapsible parent button + nested
-	// children. The parent shows icon + label + chevron; clicking
-	// the parent navigates to the default child (or toggles
-	// expanded if a child is already active). The chevron has its
-	// own click handler that ONLY toggles expanded (does not
-	// navigate) — gives the user explicit control over the
-	// submenu's visibility.
+	// children. The parent shows icon + label; clicking it navigates
+	// to the default child when no child is active, and toggles
+	// expanded when a child is already active. There is NO separate
+	// chevron/close toggle on the right edge of the parent row — the
+	// submenu's visibility is driven by the active page (auto-expand
+	// on a Settings sub-page, auto-collapse on leaving) plus the
+	// persisted manual preference.
 	return (
 		<Collapsible open={expanded} onOpenChange={setManualExpanded}>
-			<div className="relative">
-				<Button
-					variant="ghost"
-					data-nav-item="true"
-					aria-keyshortcuts={parentKeyShortcut}
-					tabIndex={parentTabIndex}
-					aria-expanded={expanded ? "true" : "false"}
-					aria-haspopup="menu"
-					// aria-current is set on the PARENT only
-					// when the parent literal itself is the
-					// active page (e.g. tests / stale persisted
-					// nav state). When a CHILD is active, the
-					// child carries aria-current="page" + the
-					// parent carries only aria-expanded="true"
-					// (signaling "this section is open, look
-					// inside for the active leaf").
-					aria-current={isParentActive ? "page" : undefined}
-					className={cn(
-						"w-full justify-start gap-3 text-sm tracking-wide normal-case font-normal rounded-md",
-						"transition-all duration-200 ease-out",
-						"border-s-2 border-s-transparent",
-						"px-3",
-						isParentActive
+			<Button
+				variant="ghost"
+				data-nav-item="true"
+				aria-keyshortcuts={parentKeyShortcut}
+				tabIndex={parentTabIndex}
+				aria-expanded={expanded ? "true" : "false"}
+				aria-haspopup="menu"
+				// aria-current is set on the PARENT only
+				// when the parent literal itself is the
+				// active page (e.g. tests / stale persisted
+				// nav state). When a CHILD is active, the
+				// child carries aria-current="page" + the
+				// parent carries only aria-expanded="true"
+				// (signaling "this section is open, look
+				// inside for the active leaf").
+				aria-current={isParentActive ? "page" : undefined}
+				className={cn(
+					"w-full justify-start gap-3 text-sm tracking-wide normal-case font-normal rounded-md",
+					"transition-all duration-200 ease-out",
+					"border-s-2 border-s-transparent",
+					"px-3",
+					isParentActive
+						? cn(
+								// Parent literal is the active page —
+								// apply the same active styling as a
+								// leaf nav button (mirrors NavLeaf's
+								// active branch).
+								"bg-(--bg) hover:bg-(--bg)",
+								"text-(--text-primary) font-medium",
+							)
+						: hasActiveChild
 							? cn(
-									// Parent literal is the active page —
-									// apply the same active styling as a
-									// leaf nav button (mirrors NavLeaf's
-									// active branch).
-									"bg-(--bg) hover:bg-(--bg)",
 									"text-(--text-primary) font-medium",
+									// When a child is active, the parent
+									// does NOT take the active background
+									// (--bg) — that would visually compete
+									// with the child's active state. The
+									// parent stays in its default container
+									// background so the active child pops.
+									"hover:bg-foreground/5",
 								)
-							: hasActiveChild
-								? cn(
-										"text-(--text-primary) font-medium",
-										// When a child is active, the parent
-										// does NOT take the active background
-										// (--bg) — that would visually compete
-										// with the child's active state. The
-										// parent stays in its default container
-										// background so the active child pops.
-										"hover:bg-foreground/5",
-									)
-								: cn("hover:bg-foreground/5"),
-					)}
-					onClick={handleParentClick}
-				>
-					<HugeiconsIcon
-						icon={item.icon}
-						strokeWidth={2}
-						className="h-4 w-4 shrink-0 transition-colors duration-200"
-					/>
-					<span
-						className={cn(
-							"overflow-hidden whitespace-nowrap text-sm font-medium dark:font-normal",
-							"opacity-100 filter-none",
-						)}
-					>
-						{parentLabel}
-					</span>
-					{parentShortcut !== undefined && (
-						<span
-							aria-hidden="true"
-							className="ms-auto flex items-center opacity-60"
-						>
-							<HotkeyChips keys={parentShortcut} />
-						</span>
-					)}
-				</Button>
-				{/* Chevron toggle — separate from the parent
-                                    button so the user can collapse the submenu
-                                    without triggering a navigation. Position
-                                    absolute over the right edge of the parent
-                                    button. */}
-				<CollapsibleTrigger
-					aria-label={
-						expanded
-							? t("a11y.collapseSubmenu", { label: parentLabel })
-							: t("a11y.expandSubmenu", { label: parentLabel })
-					}
+							: cn("hover:bg-foreground/5"),
+				)}
+				onClick={handleParentClick}
+			>
+				<HugeiconsIcon
+					icon={item.icon}
+					strokeWidth={2}
+					className="h-4 w-4 shrink-0 transition-colors duration-200"
+				/>
+				<span
 					className={cn(
-						"absolute inset-e-1 top-1/2 -translate-y-1/2",
-						"flex h-6 w-6 items-center justify-center rounded",
-						"text-(--text-muted) hover:bg-foreground/5 hover:text-(--text-primary)",
-						"transition-transform duration-200",
-						focusRing,
+						"overflow-hidden whitespace-nowrap text-sm font-medium dark:font-normal",
+						"opacity-100 filter-none",
 					)}
 				>
-					<HugeiconsIcon
-						icon={Cancel01Icon}
-						strokeWidth={2}
-						className={cn(
-							"h-3 w-3 transition-transform duration-200",
-							expanded ? "rotate-90" : "rotate-0",
-						)}
-					/>
-				</CollapsibleTrigger>
-			</div>
+					{parentLabel}
+				</span>
+				{parentShortcut !== undefined && (
+					<span
+						aria-hidden="true"
+						className="ms-auto flex items-center opacity-60"
+					>
+						<HotkeyChips keys={parentShortcut} />
+					</span>
+				)}
+			</Button>
 			<CollapsibleContent
 				className={cn(
 					"data-[state=open]:animate-in data-[state=open]:slide-in-from-top-1 data-[state=open]:fade-in-0",
