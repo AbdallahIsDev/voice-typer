@@ -55,9 +55,7 @@ def ipc_server_and_fakes():
 class TestMicrophoneTestStartFiltersContract:
     """``filters`` on ``microphone_test_start`` — dict wire contract."""
 
-    def test_full_dict_payload_forwarded_unchanged(
-        self, ipc_server_and_fakes
-    ):
+    def test_full_dict_payload_forwarded_unchanged(self, ipc_server_and_fakes):
         """(a) Full non-"off" dict → success envelope + dict reaches the
         service fake UNCHANGED (same content, deep-equal)."""
         server, _, fake_service = ipc_server_and_fakes
@@ -215,9 +213,7 @@ class TestBuildTestFiltersKeyParity:
         """
         from voice_typer.server.audio_processor import _CONFIG_SIGNATURE_FIELDS
 
-        chain_read = {
-            name for name in _CONFIG_SIGNATURE_FIELDS if name != "audio_preset"
-        } | {"noise_filter_enabled"}
+        chain_read = {name for name in _CONFIG_SIGNATURE_FIELDS if name != "audio_preset"} | {"noise_filter_enabled"}
         missing = chain_read - self._renderer_emitted_keys()
         assert not missing, (
             "buildTestFilters no longer emits field(s) the filter chain "
@@ -233,9 +229,7 @@ class TestBuildTestFiltersKeyParity:
         from voice_typer.server.config import Config
 
         backend_fields = {
-            name
-            for name in Config.__dataclass_fields__
-            if name.startswith(("noise_filter_", "noise_suppression_"))
+            name for name in Config.__dataclass_fields__ if name.startswith(("noise_filter_", "noise_suppression_"))
         }
         unknown = self._renderer_emitted_keys() - backend_fields
         assert not unknown, (

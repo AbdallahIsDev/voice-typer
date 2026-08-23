@@ -147,12 +147,10 @@ class TestMicrophoneTestStart:
         assert resp["data"]["code"] == "client.consent_required"
         records = [r for r in caplog.records if "voice biometric consent" in r.getMessage()]
         assert records, "the consent rejection must produce a log record"
-        assert all(
-            r.levelno == logging.WARNING for r in records
-        ), f"consent rejection must log at WARNING, not ERROR; levels={[r.levelno for r in records]}"
-        assert all(
-            r.exc_info is None for r in records
-        ), "consent rejection must not carry a traceback (exc_info)"
+        assert all(r.levelno == logging.WARNING for r in records), (
+            f"consent rejection must log at WARNING, not ERROR; levels={[r.levelno for r in records]}"
+        )
+        assert all(r.exc_info is None for r in records), "consent rejection must not carry a traceback (exc_info)"
         assert all("rejected:" in r.getMessage() for r in records), (
             f"consent log line should use the 'rejected' phrasing; got: {[r.getMessage() for r in records]}"
         )
