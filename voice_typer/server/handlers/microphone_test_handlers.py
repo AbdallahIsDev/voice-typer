@@ -109,8 +109,21 @@ class MicrophoneTestHandlersMixin(HandlerBase):
                         "required": False,
                         "default": None,
                     },
+                    # ADR 0007 filter-config contract: ``filters`` is
+                    # a DICT of noise_filter_* keys (the renderer's
+                    # ``buildTestFilters`` builds it from config), not
+                    # a list. Every downstream consumer treats it as a
+                    # mapping: ``level_monitor.test_recording`` stores
+                    # it via ``dict(filters)``, merges via
+                    # ``update_test_filters(...).update()``, reads it
+                    # with ``filters.get("noise_filter_enabled", ...)``,
+                    # and unpacks it as ``types.SimpleNamespace(**filters)``
+                    # before constructing ``AudioProcessor``. A list
+                    # payload would crash those call sites at stop time,
+                    # so reject non-dict values here at the validation
+                    # boundary.
                     "filters": {
-                        "type": (list, type(None)),
+                        "type": (dict, type(None)),
                         "required": False,
                         "default": None,
                     },

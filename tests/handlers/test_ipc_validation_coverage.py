@@ -155,9 +155,15 @@ class TestMicrophoneTestStartValidation:
         assert resp["data"]["field"] == "mic_id"
         fake_service.microphone_test_start.assert_not_called()
 
-    def test_non_list_filters_returns_invalid_field_error(self, ipc_server, fake_service):
-        """``{"filters": "not-a-list"}`` → ``code: invalid_field, field: filters``."""
-        resp = ipc_server._handle_microphone_test_start({"filters": "not-a-list"}, {})
+    def test_non_dict_filters_returns_invalid_field_error(self, ipc_server, fake_service):
+        """``{"filters": "not-a-dict"}`` → ``code: invalid_field, field: filters``.
+
+        ``filters`` is the ADR 0007 filter-config DICT (the renderer's
+        ``buildTestFilters`` output); any non-dict, non-None value is
+        rejected at the boundary because every downstream consumer of
+        the value requires a mapping.
+        """
+        resp = ipc_server._handle_microphone_test_start({"filters": "not-a-dict"}, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "filters"

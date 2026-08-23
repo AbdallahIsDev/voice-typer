@@ -11,8 +11,11 @@ Scope (ADR-0020 §7 + §15):
 1. **``build`` block** — ``frontendDist`` points at the React renderer
    build output, ``devUrl`` is the Vite dev server
    (``http://localhost:1420``), and ``beforeDevCommand`` +
-   ``beforeBuildCommand`` both invoke ``npm run build:renderer`` so a
-   fresh ``out/renderer/`` is always present before Tauri bundles or serves.
+   ``beforeBuildCommand`` both invoke ``npm run build:renderer`` via the
+   Tauri v2 object form with an explicit ``cwd`` anchored at
+   ``src-tauri/``, so a fresh ``out/renderer/`` is always present before
+   Tauri bundles or serves — regardless of the directory ``tauri dev`` /
+   ``tauri build`` was invoked from.
 
 2. **``app.security`` block** — ``csp`` is set and reproduces the
    Electron CSP's core directives (``default-src 'self'``,
@@ -156,6 +159,16 @@ EXPECTED_DEV_URL = "http://localhost:1420"
 #: embedding in the Tauri webview. Must exist in package.json:scripts
 #: and be invoked by both beforeDevCommand + beforeBuildCommand.
 EXPECTED_RENDERER_BUILD_SCRIPT = "build:renderer"
+
+#: Directory both renderer-build hooks run in, expressed relative to
+#: ``src-tauri/`` (same anchor convention as ``build.frontendDist``).
+#: The Tauri CLI pins its own process CWD to ``src-tauri/`` immediately
+#: before spawning either hook, so this relative path resolves to
+#: ``<repo>/voice_typer/client`` no matter where the CLI was invoked
+#: from. The plain string hook forms must NOT be used here: their
+#: effective CWD depends on CLI version and frontend-directory
+#: auto-detection, which broke local dev runs.
+EXPECTED_HOOK_CWD = "../voice_typer/client"
 
 # ADR-0020 §7 + : capability identifier referenced by tauri.conf.json's
 # ``app.security.capabilities`` list.  split the original
@@ -374,18 +387,49 @@ def test_tauri_conf_before_dev_command_runs_renderer_build(tauri_conf) -> None:
     """ADR-0020 §7: ``beforeDevCommand`` must run ``npm run build:renderer``.
 
     In dev mode, Tauri runs this before starting the dev server so the
-    renderer is rebuilt on every ``cargo tauri dev`` invocation. The
-    command must ``cd`` into ``voice_typer/client`` (relative to
-    ``src-tauri/``) and invoke ``npm run build:renderer``.
+    renderer is rebuilt on every ``cargo tauri dev`` invocation.
+
+    The Tauri v2 object form (``BeforeDevCommand.ScriptWithOptions``)
+    is REQUIRED here: a plain string hook's effective working directory
+    depends on CLI version and frontend-directory auto-detection (older
+    CLIs spawn it inside ``src-tauri/``, newer ones inside an
+    auto-walked frontend dir), which made the previous
+    ``cd voice_typer/client && npm run build:renderer`` string fail with
+    "The system cannot find the path specified" under local dev runs.
+    The object form pins everything:
+
+    - ``script`` invokes ``npm run build:renderer``;
+    - ``cwd`` is ``../voice_typer/client``, resolved against
+      ``src-tauri/`` because the CLI pins its own process CWD there
+      immediately before spawning the hook — deterministic for every
+      invocation directory and platform;
+    - ``wait: true`` makes the CLI block until the build exits before
+      polling ``devUrl`` (the dev recipe serves pre-built static output
+      on port 1420, so an un-waited poll succeeds against stale files
+      mid-rebuild).
     """
     build = tauri_conf.get("build", {})
     assert "beforeDevCommand" in build, (
         "build.beforeDevCommand must exist (ADR-0020 §7) — Tauri runs this before starting the dev server"
     )
     cmd = build["beforeDevCommand"]
-    assert isinstance(cmd, str), f"build.beforeDevCommand must be a string; got {type(cmd).__name__}"
-    assert "npm run build:renderer" in cmd, f"build.beforeDevCommand must invoke 'npm run build:renderer'; got {cmd!r}"
-    assert "voice_typer/client" in cmd, f"build.beforeDevCommand must cd into voice_typer/client; got {cmd!r}"
+    assert isinstance(cmd, dict), (
+        "build.beforeDevCommand must be an object ({'script', 'cwd', 'wait'}) "
+        f"— string-form hooks have version-dependent CWD semantics; got {cmd!r}"
+    )
+    expected_script = f"npm run {EXPECTED_RENDERER_BUILD_SCRIPT}"
+    assert cmd.get("script") == expected_script, (
+        f"build.beforeDevCommand.script must be exactly {expected_script!r}; got {cmd.get('script')!r}"
+    )
+    assert cmd.get("cwd") == EXPECTED_HOOK_CWD, (
+        f"build.beforeDevCommand.cwd must be {EXPECTED_HOOK_CWD!r} (relative to src-tauri/, "
+        f"which is where the CLI pins its CWD before spawning); got {cmd.get('cwd')!r}"
+    )
+    assert cmd.get("wait") is True, (
+        "build.beforeDevCommand.wait must be true — the dev recipe serves static "
+        "output on the devUrl port while this hook rebuilds it; without wait the "
+        "CLI polls against stale files mid-rebuild"
+    )
 
 
 def test_tauri_conf_before_build_command_runs_renderer_build(tauri_conf) -> None:
@@ -393,20 +437,28 @@ def test_tauri_conf_before_build_command_runs_renderer_build(tauri_conf) -> None
 
     In production builds, Tauri runs this before bundling the app so
     ``frontendDist`` is populated with a fresh renderer build. Same
-    shape as ``beforeDevCommand`` (the renderer build is identical in
-    dev and prod — only the Vite mode flag differs, handled inside
-    the ``build:renderer`` script).
+    object shape as ``beforeDevCommand`` minus ``wait`` (the
+    ``HookCommand`` schema has no ``wait`` field — build hooks always
+    run synchronously) and with the same ``src-tauri/``-anchored ``cwd``
+    contract.
     """
     build = tauri_conf.get("build", {})
     assert "beforeBuildCommand" in build, (
         "build.beforeBuildCommand must exist (ADR-0020 §7) — Tauri runs this before bundling the production app"
     )
     cmd = build["beforeBuildCommand"]
-    assert isinstance(cmd, str), f"build.beforeBuildCommand must be a string; got {type(cmd).__name__}"
-    assert "npm run build:renderer" in cmd, (
-        f"build.beforeBuildCommand must invoke 'npm run build:renderer'; got {cmd!r}"
+    assert isinstance(cmd, dict), (
+        "build.beforeBuildCommand must be an object ({'script', 'cwd'}) "
+        f"— string-form hooks have version-dependent CWD semantics; got {cmd!r}"
     )
-    assert "voice_typer/client" in cmd, f"build.beforeBuildCommand must cd into voice_typer/client; got {cmd!r}"
+    expected_script = f"npm run {EXPECTED_RENDERER_BUILD_SCRIPT}"
+    assert cmd.get("script") == expected_script, (
+        f"build.beforeBuildCommand.script must be exactly {expected_script!r}; got {cmd.get('script')!r}"
+    )
+    assert cmd.get("cwd") == EXPECTED_HOOK_CWD, (
+        f"build.beforeBuildCommand.cwd must be {EXPECTED_HOOK_CWD!r} (relative to src-tauri/, "
+        f"which is where the CLI pins its CWD before spawning); got {cmd.get('cwd')!r}"
+    )
 
 
 # ─── Test 4: app.security.csp is set + matches Electron CSP subset ────

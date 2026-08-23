@@ -172,7 +172,11 @@ WebView2 + native listener ABI).
 ### §0.5 Node.js 20 LTS
 
 **VALIDATE ON WINDOWS HOST** Node.js 20 LTS for the React renderer
-build. The Tauri `beforeBuildCommand` invokes `npm run build:renderer`.
+build. The Tauri `beforeBuildCommand` invokes `npm run build:renderer`
+(object form in `src-tauri/tauri.conf.json`, with `cwd`
+`../voice_typer/client` resolved against `src-tauri/` — the CLI pins its
+own working directory there before spawning the hook, so the build runs
+correctly no matter where `cargo tauri build` is invoked from).
 
 ```powershell
 **VALIDATE ON WINDOWS HOST** winget install --id OpenJS.NodeJS.LTS -e
@@ -1889,6 +1893,25 @@ binaries; the human validator runs §6 against them.
 | §10.2 Export Vocabulary | §16 (new commands) | (Sub-agent A: `main.rs` `export_vocabulary`) |
 | §10.3 Bubble window | §9 + §16 | `src-tauri/tauri.conf.json:29-39` (bubble window decl) |
 | §11 Known Issues | §4.2 + §6.3 | (this runbook) |
+
+---
+
+## Appendix C — Native tray menu theme behavior (informational)
+
+**Confirmed intended; no action required.** The Tauri host's tray menu
+(`src-tauri/src/tray.rs`, built on the Tauri v2 core `muda`-backed
+menu stack) renders with the OPERATING SYSTEM's theme — it follows the
+Windows light/dark app mode natively and is NOT driven by the app's
+in-app theme setting (the renderer theme toggle affects webview
+content only).
+
+There is no supported API path to force the application theme onto the
+native menu (`tauri::menu` / muda expose no per-menu theme override;
+menu colors come from the OS). This is deliberate: native menus that
+track the OS theme are the platform convention, and attempting to
+repaint them would require unsupported workarounds. Validators should
+expect the tray popup to match the Windows personalization setting,
+not the in-app Light/Dark/System selection.
 
 ---
 

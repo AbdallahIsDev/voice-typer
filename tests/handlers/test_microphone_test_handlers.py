@@ -33,8 +33,16 @@ class TestMicrophoneTestStart:
             "duration": 5.0,
             "sample_rate": 16000,
         }
+        # ``filters`` is the ADR 0007 filter-config DICT the renderer's
+        # ``buildTestFilters`` sends — not a list. Downstream consumers
+        # (``level_monitor.test_recording``) require a mapping
+        # (``filters.get(...)`` / ``SimpleNamespace(**filters)``).
+        filters = {
+            "noise_filter_enabled": True,
+            "noise_suppression_method": "rnnoise",
+        }
         resp = ipc_server._handle_microphone_test_start(
-            {"mic_id": "usb_mic_1", "duration": 5.0, "filters": ["noise_suppressor"]},
+            {"mic_id": "usb_mic_1", "duration": 5.0, "filters": filters},
             {},
         )
         assert resp["type"] == "microphone_test_result"
@@ -46,7 +54,7 @@ class TestMicrophoneTestStart:
         fake_service.microphone_test_start.assert_called_once_with(
             mic_id="usb_mic_1",
             duration=5.0,
-            filters=["noise_suppressor"],
+            filters=filters,
         )
 
     def test_non_dict_data_uses_defaults(self, ipc_server, fake_service):
