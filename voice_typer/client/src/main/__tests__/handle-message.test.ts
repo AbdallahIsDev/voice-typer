@@ -129,6 +129,10 @@ import {
 } from "../ipc/bubble-handlers";
 import { handleMessage } from "../python/handle-message";
 import { state } from "../state";
+import {
+	getPersistedBubblePosition,
+	setPersistedBubblePosition,
+} from "../windows/bubble/positioning";
 
 describe("XS-78: handle-message.ts", () => {
 	beforeEach(() => {
@@ -258,6 +262,28 @@ describe("XS-78: handle-message.ts", () => {
 				"bubble:config",
 				data,
 			);
+		});
+
+		it("bubble_config with a finite x/y pair feeds the durable position cache", () => {
+			handleMessage({
+				type: "bubble_config",
+				data: { bubble_x: -1920, bubble_y: 0 },
+			});
+			expect(getPersistedBubblePosition()).toEqual({ x: -1920, y: 0 });
+		});
+
+		it("bubble_config with null / partial / non-numeric coords clears the cache", () => {
+			setPersistedBubblePosition({ x: 10, y: 20 });
+
+			handleMessage({ type: "bubble_config", data: { bubble_x: null } });
+			expect(getPersistedBubblePosition()).toBeNull();
+
+			setPersistedBubblePosition({ x: 10, y: 20 });
+			handleMessage({
+				type: "bubble_config",
+				data: { bubble_x: "junk", bubble_y: 4 },
+			});
+			expect(getPersistedBubblePosition()).toBeNull();
 		});
 
 		it("show_window → showMainWindow()", () => {

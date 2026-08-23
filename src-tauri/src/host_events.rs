@@ -91,12 +91,28 @@ fn show_main_window(app: &AppHandle) {
     let _ = tauri::async_runtime::spawn_blocking(move || match app.webview_windows().get("main")
     {
         Some(window) => {
+            // RAISE-TO-FRONT: `set_focus` alone is subject to the OS
+            // foreground lock (Windows refuses SetForegroundWindow from
+            // a background process and only flashes the taskbar), so the
+            // dashboard stayed buried behind other apps' windows. The
+            // momentary always-on-top raise below mirrors Electron's
+            // `showMainWindow()` (main-window.ts) — lift, focus, drop.
+            if let Err(e) = window.unminimize() {
+                log::warn!("[HOST-EVENTS] main window unminimize failed: {}", e);
+            }
             if let Err(e) = window.show() {
                 log::warn!("[HOST-EVENTS] main window show failed: {}", e);
+            }
+            if let Err(e) = window.set_always_on_top(true) {
+                log::warn!("[HOST-EVENTS] main window set_always_on_top(true) failed: {}", e);
             }
             if let Err(e) = window.set_focus() {
                 log::warn!("[HOST-EVENTS] main window set_focus failed: {}", e);
             }
+            if let Err(e) = window.set_always_on_top(false) {
+                log::warn!("[HOST-EVENTS] main window set_always_on_top(false) failed: {}", e);
+            }
+            log::info!("[HOST-EVENTS] main window shown + raised to front (show_window request)");
         }
         None => log::warn!("[HOST-EVENTS] show_window: main window not found"),
     });

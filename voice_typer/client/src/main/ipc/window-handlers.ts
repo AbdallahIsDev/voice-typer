@@ -30,7 +30,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { dialog, ipcMain, shell } from "electron";
 import { mainT } from "../i18n";
-import { appendLogLine, logger, rendererErrorsLogPath } from "../logging";
+import {
+	appendLogLine,
+	fileTimestamp,
+	logger,
+	rendererErrorsLogPath,
+} from "../logging";
 import { computeConfigDir } from "../single_instance";
 import { state } from "../state";
 import {
@@ -273,8 +278,7 @@ export function registerWindowHandlers(): void {
 					typeof payload?.componentStack === "string"
 						? scrubComponentStackPii(payload.componentStack)
 						: "";
-				const ts = new Date().toISOString();
-				const line = `${ts} [renderer-error:${kind}] ${message}\n${
+				const line = `${fileTimestamp()}  ERROR  [renderer-error:${kind}] ${message}\n${
 					stack ? `  stack: ${stack.replace(/\n/g, "\n    ")}\n` : ""
 				}${
 					componentStack

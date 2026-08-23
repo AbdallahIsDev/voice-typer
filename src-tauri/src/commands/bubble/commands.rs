@@ -14,10 +14,10 @@ use tauri::{Emitter, Manager, PhysicalPosition};
 use crate::state::SidecarState;
 
 use super::math::{
-    clamp_resize_height, clamp_resize_width, compute_move_by_new_pos, round_f64_to_i32_saturating,
-    round_f64_to_u32_saturating,
+    bubble_position_in_work_area, clamp_resize_height, clamp_resize_width, compute_move_by_new_pos,
+    edge_margin_physical, rect_contains_point, round_f64_to_i32_saturating,
+    round_f64_to_u32_saturating, RectPx,
 };
-use super::parse::parse_keyword_position;
 use super::rate_limit::toggle_rate_limiter_allows;
 use super::window::hide_bubble_window;
 
@@ -63,10 +63,24 @@ use super::window::hide_bubble_window;
 /// the bubble window itself.
 #[tauri::command]
 pub async fn bubble_show(app: tauri::AppHandle) -> Result<(), String> {
-    app.get_webview_window("bubble")
-        .ok_or("bubble window not found")?
-        .show()
-        .map_err(|e| e.to_string())
+    let window = app
+        .get_webview_window("bubble")
+        .ok_or("bubble window not found")?;
+    // Durable drag-position restore (mirrors Electron's show-time
+    // placement): when the sidecar's config carries a persisted
+    // `bubble_x` / `bubble_y` pair that still lies on an attached
+    // monitor, place the window there before showing. Without a cached
+    // pair (never dragged / edge-toggle reset) the window keeps its
+    // last keyword-centered position — default behavior unchanged.
+    //
+    // The restore itself is a PROGRAMMATIC placement — suppress the
+    // debounced persist around it so its own `Moved` event doesn't
+    // rewrite the config with the coordinates just read from it.
+    if let Some((x, y)) = crate::commands::bubble::restore_position(&app) {
+        crate::commands::bubble::suppress_persist_for_window();
+        let _ = window.set_position(PhysicalPosition::new(x, y));
+    }
+    window.show().map_err(|e| e.to_string())
 }
 
 /// Emit `bubble:ready` to signal that the bubble page is mounted and
@@ -107,9 +121,19 @@ pub async fn bubble_signal_ready(
 /// rejected a single `{ position }` payload for a 2-arg command), and
 /// the Rust `parse_position` helper then re-derived centered-x from
 /// either axis. The new `(position: String)` signature accepts the
-/// keyword directly and resolves it to absolute physical coordinates
-/// server-side (centered horizontally, y=0 for "top", y=screen_h -
-/// bubble_h for "bottom", clamped to ≥0).
+/// keyword directly and resolves it to absolute PHYSICAL coordinates
+/// server-side: centered horizontally within the CURSOR monitor's work
+/// area, y = work-area top + margin for `"top"`, y = work-area bottom -
+/// bubble_h - margin for `"bottom"` (mirroring Electron's
+/// `centerOnActiveDisplay`; see [`resolve_cursor_monitor`] for the
+/// monitor-resolution order and the sibling `math` helpers for the
+/// geometry contracts).
+///
+/// Electron's in-session saved-position validation
+/// (`isPositionOnAnyDisplay` / `savedBubblePos` in `positioning.ts`) is
+/// a RENDERER-side concern on this host — the bubble renderer applies
+/// its last-position by invoking this command with a keyword, so the
+/// Rust side only owns keyword → work-area placement.
 ///
 /// The previous numeric `(x: Value, y: Value)` path was dead in
 /// production (no caller passed numeric coords) — its parsing logic is
@@ -127,31 +151,100 @@ pub async fn bubble_signal_ready(
 /// is confined to the bubble window itself, so a compromised bubble
 /// can at worst move itself off-screen (an annoyance, not a security
 //boundary — the bubble is sandboxed per SEC-026 / ).
+/// Resolve the monitor the bubble should appear on: the display the
+/// CURSOR is currently on (multi-monitor aware — mirrors Electron's
+/// `getActiveDisplay()` in
+/// `voice_typer/client/src/main/windows/bubble/positioning.ts:171-186`),
+/// falling back to the primary monitor when the cursor's display can't
+/// be determined.
+///
+/// Resolution order:
+/// 1. `AppHandle::cursor_position()` → physical-pixel desktop coords,
+///    then `AppHandle::monitor_from_point(x, y)` (both take f64
+///    physical pixels — no conversion needed between them).
+/// 2. Manual hit-test over `AppHandle::available_monitors()` full
+///    bounds via [`super::math::rect_contains_point`] — covers
+///    platforms/runtime versions where `monitor_from_point` misses
+///    stacked or negative-origin secondary layouts (historical tao
+///    macOS axis bug, fixed upstream in tao 0.18 / PR #711; kept as a
+///    cheap belt-and-suspenders fallback). Full bounds, NOT work area:
+///    a cursor hovering the taskbar strip still belongs to that
+///    monitor, matching Electron's `getDisplayMatching`.
+/// 3. `primary_monitor()` → `Err("no primary monitor available")` if
+///    the OS reports none (same error string as before).
+///
+/// All coordinates stay PHYSICAL end-to-end: `cursor_position` is
+/// physical, monitor bounds/work areas are physical, and the result is
+/// applied with `PhysicalPosition::set_position` — the only unit
+/// conversion in the whole path is the Electron-parity edge margin
+/// ([`super::math::edge_margin_physical`], DIP → per-monitor physical).
+fn resolve_cursor_monitor(app: &tauri::AppHandle) -> Result<tauri::window::Monitor, String> {
+    if let Ok(cursor) = app.cursor_position() {
+        match app.monitor_from_point(cursor.x, cursor.y) {
+            Ok(Some(monitor)) => return Ok(monitor),
+            Ok(None) | Err(_) => {
+                // Fallback hit-test: round the f64 cursor to i32 with
+                // the shared saturating helper (NaN/±inf defined).
+                let cx = round_f64_to_i32_saturating(cursor.x);
+                let cy = round_f64_to_i32_saturating(cursor.y);
+                let hit = app.available_monitors().ok().and_then(|monitors| {
+                    monitors.into_iter().find(|m| {
+                        let rect = RectPx::new(
+                            m.position().x,
+                            m.position().y,
+                            m.size().width,
+                            m.size().height,
+                        );
+                        rect_contains_point(&rect, cx, cy)
+                    })
+                });
+                if let Some(monitor) = hit {
+                    return Ok(monitor);
+                }
+                log::warn!(
+                    "[BUBBLE] cursor ({cx},{cy}) matched no monitor — falling back to primary"
+                );
+            }
+        }
+    }
+    app.primary_monitor()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "no primary monitor available".to_string())
+}
+
 #[tauri::command]
 pub async fn bubble_set_position(position: String, app: tauri::AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("bubble")
         .ok_or("bubble window not found")?;
-    let monitor = app
-        .primary_monitor()
-        .map_err(|e| e.to_string())?
-        .ok_or("no primary monitor available")?;
-    let screen_size = monitor.size();
-    //`screen_size.width` / `.height` are `u32`; the raw `as i32`
-    // cast silently wraps to negative on >i32::MAX-pixel virtual displays
-    // (8K surround, large HiDPI canvases), moving the bubble off-screen.
-    // `i32::try_from(...).unwrap_or(i32::MAX)` saturates instead of
-    // wrapping. In practice the value is always <i32::MAX for any real
-    // display, but the saturating cast is the project-adopted pattern
-    //( / ).
-    let screen_w = i32::try_from(screen_size.width).unwrap_or(i32::MAX);
-    let screen_h = i32::try_from(screen_size.height).unwrap_or(i32::MAX);
+    let monitor = resolve_cursor_monitor(&app)?;
+    // This is a PROGRAMMATIC placement (Settings edge toggle / connect-
+    // time sync): arm the suppression window BEFORE the move so the
+    // `Moved` events it emits are never persisted as a user drag. The
+    // Python side clears the durable pair server-side on the same
+    // toggle; our own centered coordinates must not overwrite that
+    // reset.
+    crate::commands::bubble::suppress_persist_for_window();
+    // Work area = monitor bounds minus taskbar/dock strips, in PHYSICAL
+    // pixels (`Monitor::work_area()` returns a `PhysicalRect<i32, u32>`
+    // — verified against the vendored tauri-runtime source). Placing
+    // within the work area keeps the bubble clear of the taskbar on the
+    // "bottom" edge and of top-docked bars on the "top" edge, matching
+    // Electron's use of `display.workArea`.
+    let wa = monitor.work_area();
+    let wa_rect = RectPx::new(wa.position.x, wa.position.y, wa.size.width, wa.size.height);
     let bubble_size = window.outer_size().map_err(|e| e.to_string())?;
-    //same saturating-cast rationale as `screen_w` / `screen_h`
-    // above. `bubble_size.width` / `.height` are `u32`.
+    //`bubble_size.width` / `.height` are `u32`; the saturating
+    // `i32::try_from(..).unwrap_or(i32::MAX)` conversion (project-adopted
+    // pattern) can't silently wrap negative on absurd dimensions.
     let bubble_w = i32::try_from(bubble_size.width).unwrap_or(i32::MAX);
     let bubble_h = i32::try_from(bubble_size.height).unwrap_or(i32::MAX);
-    let (px, py) = parse_keyword_position(&position, screen_w, screen_h, bubble_w, bubble_h)?;
+    // Electron expresses its edge offset in DIPs (`wa.y + 48`); scale
+    // it to this monitor's physical pixels so the visual gap matches
+    // across scale factors.
+    let margin = edge_margin_physical(monitor.scale_factor());
+    let (px, py) =
+        bubble_position_in_work_area(&position, &wa_rect, bubble_w, bubble_h, margin)?;
     window
         .set_position(PhysicalPosition::new(px, py))
         .map_err(|e| e.to_string())

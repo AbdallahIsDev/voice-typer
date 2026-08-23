@@ -67,11 +67,13 @@ vi.mock("../state", () => ({
 }));
 
 vi.mock("../windows/bubble-window", () => ({
+	cancelScheduledDurablePersist: vi.fn(),
 	centerOnActiveDisplay: vi.fn(() => ({ x: 0, y: 0 })),
 	consumeHideAnimationCallback: vi.fn(() => null),
 	hideBubbleWindow: vi.fn(),
 	resetSavedBubblePosition: vi.fn(),
 	showBubbleWindow: vi.fn(),
+	suppressDurablePersistFor: vi.fn(),
 }));
 
 import {

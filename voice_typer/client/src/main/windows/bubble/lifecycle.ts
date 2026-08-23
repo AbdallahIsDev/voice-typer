@@ -49,9 +49,9 @@ import { attachConsoleForwarder } from "./console-forwarder";
 import { createCrashStormTracker } from "./crash-storm";
 import {
 	centerOnActiveDisplay,
-	getSavedBubblePosition,
 	isForegroundFullscreen,
-	isPositionOnAnyDisplay,
+	recordBubbleMoved,
+	resolveRestoredBubblePosition,
 	setSavedBubblePosition,
 } from "./positioning";
 
@@ -125,17 +125,13 @@ export function createBubbleWindow(): BrowserWindow {
 	//use the multi-monitor-aware placement for the initial
 	// position so the bubble appears on the screen the user is currently
 	// on, not always the primary display.
-	//discard a saved position that no longer lies on any
+	//discard a restored position that no longer lies on any
 	// currently-attached display (monitor-unplug safety).
-	// `getSavedBubblePosition()` reads the live binding owned by
-	// positioning.ts (writes go through `setSavedBubblePosition()` so
-	// the mutation stays inside the owning module — ES module live
-	// bindings only allow the exporting module to reassign).
-	const savedPos = getSavedBubblePosition();
-	const initialPos =
-		savedPos && isPositionOnAnyDisplay(savedPos)
-			? savedPos
-			: centerOnActiveDisplay();
+	// `resolveRestoredBubblePosition()` prefers the in-session saved
+	// drag position (fast path) and falls back to the durable pair from
+	// the Python config (`bubble_x` / `bubble_y`, cached here from
+	// `bubble_config` pushes) so a drag survives an app restart.
+	const initialPos = resolveRestoredBubblePosition() ?? centerOnActiveDisplay();
 	const { x, y } = initialPos;
 	//routine lifecycle event — log.info (not console.warn).
 	log.info(
@@ -326,14 +322,12 @@ export function createBubbleWindow(): BrowserWindow {
 			// writer (which would persist a garbage value).
 			if (px === undefined || py === undefined) return;
 			const candidate = { x: px, y: py };
-			if (!isPositionOnAnyDisplay(candidate)) {
-				// Window ended up off-screen — don't poison the saved
-				// state. The next `showBubbleWindow()` will fall back
-				// to `centerOnActiveDisplay()`.
-				setSavedBubblePosition(null);
-				return;
-			}
-			setSavedBubblePosition(candidate);
+			// Shared move handler: updates the in-session saved position
+			// AND schedules the debounced durable persist (Python config)
+			// so both stores can't drift. Off-screen positions and
+			// programmatic placements (suppressed window) are skipped
+			// inside `recordBubbleMoved`.
+			recordBubbleMoved(candidate);
 		} catch (e) {
 			// Best-effort — ignore read failures (e.g. window destroyed
 			// mid-event between the isDestroyed() check and getPosition()).

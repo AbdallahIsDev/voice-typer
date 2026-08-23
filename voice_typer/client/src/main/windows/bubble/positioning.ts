@@ -17,15 +17,17 @@
  *     fullscreen detection.
  *
  * : bubble position is now remembered across show/hide cycles.
- * The BrowserWindow's `moved` event (wired in `lifecycle.ts`) persists
- * the user's last drag position to module-level state
- * (`savedBubblePos`); on the next `showBubbleWindow()` (in
- * `show-hide.ts`) we restore those coordinates instead of
- * re-centering. A `bubble:set-position` IPC (top/bottom toggle from
- * the Settings page) resets the saved position so the new edge
- * default takes effect. In-session persistence only — durable
- * persistence to the Python config is a follow-up (config.py is out
- * of scope for this fix).
+ * The BrowserWindow's `moved` event (wired in `lifecycle.ts` via
+ * `recordBubbleMoved`) persists the user's last drag position to
+ * module-level state (`savedBubblePos`) and schedules a debounced
+ * durable persist of the pair to the Python config; on the next
+ * `showBubbleWindow()` (in `show-hide.ts`) we restore those coordinates
+ * instead of re-centering — falling back to the durable config pair
+ * after a restart (see `resolveRestoredBubblePosition`). A
+ * `bubble:set-position` IPC (top/bottom toggle from the Settings page)
+ * resets the saved position so the new edge default takes effect; the
+ * Python side clears both keys server-side on the same toggle and the
+ * cleared pair propagates back via `setPersistedBubblePosition`.
  */
 import { BrowserWindow, screen } from "electron";
 import { BUBBLE_HEIGHT, BUBBLE_WIDTH } from "../../constants";
@@ -33,7 +35,8 @@ import { BUBBLE_HEIGHT, BUBBLE_WIDTH } from "../../constants";
 // ESM import — the previous try/catch + console.* fallback was added
 // to tolerate minimal test mocks, but the real logging module is now
 // always present and the test mocks have been updated to expose `log`.
-import { log } from "../../logging";
+import { BUBBLE_CLR, log, RESET } from "../../logging";
+import { sendToPython } from "../../python/send-to-python";
 import { state } from "../../state";
 
 //in-session persistence of the bubble's last user-positioned
@@ -65,9 +68,13 @@ export function setSavedBubblePosition(
 }
 
 /**
- * : read the saved bubble position (if any). Exposed for IPC
- * consumers (e.g. a future Settings-page "reset position" affordance)
- * and for tests.
+ * Read the saved bubble position (if any).
+ *
+ * Test-observability export: production code reads the slot through
+ * `resolveRestoredBubblePosition()` / the durable-persist path; this
+ * getter exists so positioning/durable-position tests can assert
+ * in-session slot state directly. Do NOT add new production callers —
+ * extend the resolver instead.
  */
 export function getSavedBubblePosition(): { x: number; y: number } | null {
 	return savedBubblePos;
@@ -81,6 +88,152 @@ export function getSavedBubblePosition(): { x: number; y: number } | null {
  */
 export function resetSavedBubblePosition(): void {
 	savedBubblePos = null;
+}
+
+// Durable (cross-restart) persistence of the user's last drag position,
+// mirrored from the Python config's optional `bubble_x` / `bubble_y`
+// pair. The Python backend publishes the pair inside every
+// `bubble_config` push; `handle-message.ts` feeds it here via
+// `setPersistedBubblePosition()`. Unlike `savedBubblePos` (in-session),
+// this value survives app restarts — it IS the persisted config.
+//
+// `null` means "never dragged" or "the user toggled top/bottom in
+// Settings, which clears both keys server-side". A coordinate of `0`
+// is legitimate, so consumers must only check for `null`, never
+// truthiness.
+let persistedBubblePos: { x: number; y: number } | null = null;
+
+/**
+ * Update the durable position cache from a `bubble_config` push payload.
+ * Called by `handle-message.ts`. Both fields must be finite numbers for
+ * the pair to be stored; anything else (`null`, one-sided, non-numeric)
+ * clears the cache so an edge-toggle reset propagates in-session.
+ */
+export function setPersistedBubblePosition(
+	pos: { x: number; y: number } | null,
+): void {
+	persistedBubblePos = pos;
+}
+
+/**
+ * Read the durable position cache. Exposed for tests.
+ */
+export function getPersistedBubblePosition(): { x: number; y: number } | null {
+	return persistedBubblePos;
+}
+
+/**
+ * Resolve the position the bubble should be restored to: the in-session
+ * saved drag position wins (fast path); without one, fall back to the
+ * durable pair from the Python config (restart restore). Either way the
+ * candidate must lie on a currently-attached display — a stale/off-screen
+ * position returns `null` and the caller re-centers.
+ */
+export function resolveRestoredBubblePosition(): {
+	x: number;
+	y: number;
+} | null {
+	const candidate = savedBubblePos ?? persistedBubblePos;
+	if (!candidate) return null;
+	return isPositionOnAnyDisplay(candidate) ? candidate : null;
+}
+
+// Debounced durable-persist machinery. Every user drag ends in a `moved`
+// event; writing to the Python backend on each one would spam set_config
+// during a drag (~60 Hz). The last candidate wins after a 500ms quiet
+// period. Programmatic placements (show-time centering/restore, the
+// Settings top/bottom toggle) suppress the write entirely so they don't
+// overwrite the just-cleared/restored config with their own computed
+// coordinates.
+const PERSIST_DEBOUNCE_MS = 500;
+const SUPPRESS_WINDOW_MS = 1500;
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let persistSuppressedUntil = 0;
+
+/**
+ * Schedule the debounced durable persist of a dragged position via the
+ * main-process → Python request path (`sendToPython` with no sender id).
+ * Fire-and-forget: failures are logged, never thrown, and the move event
+ * that triggered this is never blocked.
+ */
+function scheduleDurablePersist(pos: { x: number; y: number }): void {
+	if (persistTimer !== null) clearTimeout(persistTimer);
+	persistTimer = setTimeout(() => {
+		persistTimer = null;
+		if (Date.now() < persistSuppressedUntil) return;
+		void sendToPython({
+			type: "set_config",
+			data: { bubble_x: pos.x, bubble_y: pos.y },
+		})
+			.then(() => {
+				log.info(
+					`${BUBBLE_CLR}[BUBBLE]${RESET} persisted bubble position (${pos.x}, ${pos.y})`,
+				);
+			})
+			.catch((e: unknown) => {
+				log.warn(
+					`${BUBBLE_CLR}[BUBBLE]${RESET} persisting bubble position failed:`,
+					e,
+				);
+			});
+	}, PERSIST_DEBOUNCE_MS);
+}
+
+/**
+ * Cancel any pending durable persist. Called by the Settings top/bottom
+ * toggle path (bubble-handlers.ts) BEFORE its programmatic reposition so
+ * a stale drag write can't race the server-side reset.
+ */
+export function cancelScheduledDurablePersist(): void {
+	if (persistTimer !== null) {
+		clearTimeout(persistTimer);
+		persistTimer = null;
+	}
+}
+
+/**
+ * Suppress durable persists for a short window. Called by programmatic
+ * placement sites (show-time placement, the Settings edge toggle) so the
+ * `moved` events those placements emit are never mistaken for user drags.
+ */
+export function suppressDurablePersistFor(ms = SUPPRESS_WINDOW_MS): void {
+	persistSuppressedUntil = Date.now() + ms;
+}
+
+/**
+ * Handle a bubble-window move: update the in-session saved position and
+ * schedule the debounced durable persist. Skips off-screen positions and
+ * suppressed windows (programmatic placements).
+ *
+ * Shared by the `moved` handler in lifecycle.ts so the in-session write
+ * and the durable schedule can't drift apart.
+ */
+export function recordBubbleMoved(pos: { x: number; y: number }): void {
+	if (!isPositionOnAnyDisplay(pos)) {
+		// Window ended up off-screen — don't poison either store. The
+		// next show falls back to centering.
+		setSavedBubblePosition(null);
+		return;
+	}
+	setSavedBubblePosition(pos);
+	if (Date.now() >= persistSuppressedUntil) {
+		scheduleDurablePersist(pos);
+	}
+}
+
+/**
+ * Reset the debounced-persist machinery (pending timer + suppression
+ * window) to a clean slate. Underscore-prefixed to signal
+ * "internal/test-only" — mirrors the existing `_resetIpcBackpressure`
+ * convention. Production code never needs this: both fields converge on
+ * their own (the timer fires, the suppression window expires).
+ */
+export function _resetDurablePersistStateForTest(): void {
+	if (persistTimer !== null) {
+		clearTimeout(persistTimer);
+		persistTimer = null;
+	}
+	persistSuppressedUntil = 0;
 }
 
 /**

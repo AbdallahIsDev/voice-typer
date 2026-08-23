@@ -63,6 +63,14 @@ const winSpies = vi.hoisted(() => {
 	};
 });
 
+// Spies for the positioning-module mock so behavioral tests can assert
+// the `moved` handler delegates to the shared `recordBubbleMoved` helper
+// (in-session save + debounced durable persist in one place).
+const positioningSpies = vi.hoisted(() => ({
+	recordBubbleMoved: vi.fn(),
+	resolveRestoredBubblePosition: vi.fn(() => null),
+}));
+
 // Hoisted mutable mock-state object. Hoisted so the `vi.mock("../../../state")`
 // factory (which is itself hoisted above all top-level statements) closes
 // over a stable reference. Mutations from `beforeEach` are visible to the
@@ -137,7 +145,11 @@ vi.mock("../positioning", () => ({
 	getSavedBubblePosition: () => null,
 	isForegroundFullscreen: () => false,
 	isPositionOnAnyDisplay: () => true,
+	recordBubbleMoved: positioningSpies.recordBubbleMoved,
+	resolveRestoredBubblePosition: positioningSpies.resolveRestoredBubblePosition,
+	setPersistedBubblePosition: vi.fn(),
 	setSavedBubblePosition: vi.fn(),
+	suppressDurablePersistFor: vi.fn(),
 }));
 
 import {
@@ -347,5 +359,37 @@ describe("bubble lifecycle.ts: regressions", () => {
 		// call. (Allowing `2000` elsewhere in the file is fine —
 		// we only forbid it inside this specific setTimeout.)
 		expect(setTimeoutSlice).not.toMatch(/,\s*2000\s*\)/);
+	});
+});
+
+describe("bubble lifecycle.ts: moved handler delegates to recordBubbleMoved", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockState.bubbleWindow = null;
+		detachDisplayRemovedHandler();
+	});
+
+	afterEach(() => {
+		detachDisplayRemovedHandler();
+	});
+
+	it("the 'moved' handler forwards the window position to recordBubbleMoved", () => {
+		winSpies.getPosition.mockReturnValue([320, 240]);
+		createBubbleWindow();
+
+		const movedCalls = winSpies.on.mock.calls.filter(
+			(c: unknown[]) => c[0] === "moved",
+		);
+		expect(movedCalls.length).toBe(1);
+		const movedHandler = movedCalls[0]?.[1] as (() => void) | undefined;
+		if (movedHandler === undefined) {
+			throw new Error("expected a registered moved handler");
+		}
+		movedHandler();
+
+		expect(positioningSpies.recordBubbleMoved).toHaveBeenCalledWith({
+			x: 320,
+			y: 240,
+		});
 	});
 });

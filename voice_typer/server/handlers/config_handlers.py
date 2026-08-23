@@ -143,6 +143,22 @@ class ConfigHandlersMixin(HandlerBase):
                     "errors": list(errors),
                 }
                 return resp
+            # A change to the bubble EDGE preference invalidates the
+            # persisted DRAG position: the saved y-coordinate was computed
+            # against the other edge, so keeping it would make the next
+            # launch restore the bubble to a spot that contradicts the
+            # user's new top/bottom choice. Clear both coordinates (the
+            # optional-int fields treat ``None`` as "never dragged") so
+            # hosts fall back to their default edge centering. Explicit
+            # ``bubble_x`` / ``bubble_y`` values in the SAME payload win
+            # (``setdefault``) — a drag-persist write never carries
+            # ``bubble_position``, and an explicit pair is always the more
+            # recent user intent. Injected AFTER ``validate_config_update``
+            # so the accepted-keys echo lists them; ``None`` is the
+            # documented valid value for these optional-int keys.
+            if "bubble_position" in validated:
+                validated.setdefault("bubble_x", None)
+                validated.setdefault("bubble_y", None)
             # echo accepted + rejected keys so the
             # renderer can show the user which fields were applied
             # and which were silently dropped (unknown keys).
@@ -410,12 +426,19 @@ class ConfigHandlersMixin(HandlerBase):
             # / bubble_click_to_toggle / bubble_mic_button), push a dedicated
             # `bubble_config` event so the sandboxed bubble renderer (which
             # has no get_config) learns whether to show its mic button.
+            # ``bubble_position`` is included because the handler above
+            # clears the persisted bubble_x/bubble_y pair whenever the edge
+            # preference changes — the repush carries the cleared pair to
+            # BOTH runtimes (Electron main + Tauri host cache it from this
+            # frame) so an in-flight durable position doesn't survive the
+            # toggle.
             if any(
                 k in validated
                 for k in (
                     "bubble_behavior",
                     "bubble_click_to_toggle",
                     "bubble_mic_button",
+                    "bubble_position",
                 )
             ):
                 try:

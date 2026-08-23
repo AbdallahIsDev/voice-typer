@@ -11,6 +11,21 @@
 //!   with fully-defined behavior on NaN / ±inf / out-of-range inputs.
 //! - [`compute_move_by_new_pos`] is the `checked_add` core of
 //!   `bubble_move_by` ( overflow safety).
+//! - [`RectPx`] + the multi-monitor placement helpers
+//!   ([`rect_contains_point`], [`edge_margin_physical`],
+//!   [`centered_x_in_work_area`], [`keyword_edge_y_in_work_area`],
+//!   [`bubble_position_in_work_area`]) implement the cursor-display
+//!   work-area placement of `bubble_set_position`, mirroring Electron's
+//!   `centerOnActiveDisplay`
+//!   (`voice_typer/client/src/main/windows/bubble/positioning.ts`).
+//!   All arithmetic stays in PHYSICAL pixels end-to-end:
+//!   `AppHandle::cursor_position()` reports physical pixels,
+//!   `Monitor::position()` / `Monitor::size()` / `Monitor::work_area()`
+//!   are physical pixels, and the command applies the result via
+//!   `PhysicalPosition` — so no logical↔physical conversion is needed
+//!   anywhere except the one intentional one in
+//!   [`edge_margin_physical`] (Electron expresses its edge margin in
+//!   DIPs; we scale it per-monitor).
 //! - [`clamp_f64_to_i32`] is `#[cfg(test)]`-only — kept for the legacy
 //!   `parse_position` test contract.
 
@@ -175,4 +190,180 @@ pub(super) fn clamp_f64_to_i32(f: f64) -> i32 {
     // boundaries are not subject to rounding.
     let clamped = f.clamp(i32::MIN as f64, i32::MAX as f64);
     clamped as i32
+}
+
+// ─── Multi-monitor work-area placement (physical pixels) ─────────────
+
+/// Edge margin between the bubble and the work-area's top/bottom edge,
+/// expressed in LOGICAL (DIP) pixels. Mirrors Electron's hardcoded
+/// `+ 48` / `- 48` offsets in `centerOnActiveDisplay` /
+/// `centerOnPrimaryDisplay`
+/// (`voice_typer/client/src/main/windows/bubble/positioning.ts:196-221`)
+/// so both hosts place the bubble at the same visual distance from the
+/// screen edge.
+const EDGE_MARGIN_LOGICAL_PX: f64 = 48.0;
+
+/// Axis-aligned rectangle in PHYSICAL desktop coordinates. A plain
+/// integer mirror of Tauri's monitor bounds / `Monitor::work_area()`
+/// (`PhysicalRect<i32, u32>`) so the placement helpers below are pure
+/// functions unit-testable without a live Tauri runtime + real
+/// monitors.
+///
+/// All fields saturate on construction (`u32` dimensions → `i32`) so
+/// no helper downstream can panic or wrap on absurd-but-representable
+/// hardware reports (same saturating-cast pattern the command bodies
+/// use for `monitor.size()`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RectPx {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+impl RectPx {
+    /// Build from a physical-pixel top-left corner + physical-pixel
+    /// dimensions (the exact shape of both `Monitor::position()` +
+    /// `Monitor::size()` full bounds AND
+    /// `Monitor::work_area().position` + `.size`).
+    ///
+    /// Dimensions use the same saturating `u32 → i32` conversion as
+    /// the command body (`i32::try_from(..).unwrap_or(i32::MAX)`) so a
+    /// hypothetical >2-Gpx dimension can't silently wrap negative.
+    pub(super) fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
+        Self {
+            x,
+            y,
+            width: i32::try_from(width).unwrap_or(i32::MAX),
+            height: i32::try_from(height).unwrap_or(i32::MAX),
+        }
+    }
+
+    /// Half-open containment test: `[x, x+width) × [y, y+height)`.
+    ///
+    /// Half-open so a cursor sitting EXACTLY on the shared vertical
+    /// border of two side-by-side monitors resolves to exactly one
+    /// monitor (the left one) instead of matching both — mirrors
+    /// Electron's `getDisplayMatching` rect-intersection semantics
+    /// where a zero-area overlap loses.
+    ///
+    /// Saturating adds: a degenerate rect at `x = i32::MAX` can't wrap
+    /// the right edge negative (which would make `contains`
+    /// spuriously true for everything left of it).
+    pub(super) fn contains(&self, px: i32, py: i32) -> bool {
+        px >= self.x
+            && px < self.x.saturating_add(self.width)
+            && py >= self.y
+            && py < self.y.saturating_add(self.height)
+    }
+}
+
+/// Pure hit-test used by `bubble_set_position`'s fallback monitor
+/// resolution: is the cursor point (already rounded to physical `i32`)
+/// inside this monitor's FULL bounds?
+///
+/// Full bounds — NOT the work area — because a cursor hovering over
+/// the taskbar/dock strip still belongs to that monitor; Electron's
+/// `getDisplayMatching` also matches against full display bounds.
+pub(super) fn rect_contains_point(rect: &RectPx, px: i32, py: i32) -> bool {
+    rect.contains(px, py)
+}
+
+/// Convert the [`EDGE_MARGIN_LOGICAL_PX`] DIP margin to PHYSICAL
+/// pixels for a monitor with the given scale factor, so a 150%-scaled
+/// display keeps the same visual gap as Electron's 48-DIP offset.
+///
+/// - `scale_factor ≤ 0` clamps to 0 margin (degenerate report; a 0
+///   margin still places the bubble INSIDE the work area — the edge
+///   clamp in [`keyword_edge_y_in_work_area`] guarantees that).
+/// - `NaN` scale factor yields margin 0 via
+///   [`round_f64_to_i32_saturating`]'s NaN contract (defined behavior
+///   instead of an unspecified saturated cast).
+pub(super) fn edge_margin_physical(scale_factor: f64) -> i32 {
+    round_f64_to_i32_saturating(EDGE_MARGIN_LOGICAL_PX * scale_factor.max(0.0))
+}
+
+/// Centered top-left x for a bubble of `bubble_w` physical px inside
+/// the work area `wa`, mirroring Electron's
+/// `wa.x + (wa.width - BUBBLE_WIDTH) / 2`.
+///
+/// The result is clamped to ≥ `wa.x` (NOT to absolute ≥0): on a
+/// left-of-primary secondary monitor whose work area starts at a
+/// NEGATIVE x, clamping to 0 would shove the bubble onto the primary
+/// display's territory — the whole bug this module fixes. When the
+/// bubble is wider than the work area, the centered expression goes
+/// negative relative to `wa.x`; clamping pins the bubble's left edge
+/// to the work area's left edge instead of stranding it off-screen
+/// left (mirrors the legacy `parse_keyword_position` ≥0 clamp, but in
+/// work-area-relative terms).
+pub(super) fn centered_x_in_work_area(wa: &RectPx, bubble_w: i32) -> i32 {
+    wa.x + ((wa.width - bubble_w) / 2).max(0)
+}
+
+/// Top-left y for `"top"` / `"bottom"` edge placement inside the work
+/// area `wa`, mirroring Electron's `centerOnActiveDisplay`:
+/// - `"top"` → `wa.y + margin`
+/// - `"bottom"` → `wa.y + wa.height - bubble_h - margin`, clamped to
+///   ≥ `wa.y` (a bubble taller than the work area minus two margins
+///   pins to the work-area top instead of poking above it)
+/// - anything else → `Err` with the SAME message shape the deleted
+///   `parse_keyword_position` produced, so renderer error surfacing is
+///   unchanged.
+///
+/// Saturating arithmetic throughout: extreme work-area/bubble values
+/// can't wrap i32 mid-formula.
+///
+/// # Errors
+///
+/// Returns `Err` when `position` is neither `"top"` nor `"bottom"`.
+pub(super) fn keyword_edge_y_in_work_area(
+    position: &str,
+    wa: &RectPx,
+    bubble_h: i32,
+    margin: i32,
+) -> Result<i32, String> {
+    let y = match position {
+        "top" => wa.y.saturating_add(margin),
+        "bottom" => wa
+            .y
+            .saturating_add(wa.height)
+            .saturating_sub(bubble_h)
+            .saturating_sub(margin)
+            .max(wa.y),
+        other => {
+            return Err(format!(
+                "position must be \"top\" or \"bottom\", got {:?}",
+                other
+            ))
+        }
+    };
+    Ok(y)
+}
+
+/// Compose the full bubble placement for one monitor's work area:
+/// horizontally centered + top/bottom edge y, all physical pixels.
+/// This is the single entry point `bubble_set_position` calls once per
+/// invocation after resolving the cursor's monitor.
+///
+/// Mirrors Electron's `centerOnActiveDisplay`
+/// (`voice_typer/client/src/main/windows/bubble/positioning.ts:211-222`)
+/// except that the bubble dimensions come from the LIVE window's
+/// measured `outer_size()` (physical px) rather than compile-time
+/// constants — the Tauri bubble resizes itself to fit its pill content,
+/// so the measured size is the correct input here.
+///
+/// # Errors
+///
+/// Returns `Err` when `position` is neither `"top"` nor `"bottom"`
+/// (see [`keyword_edge_y_in_work_area`]).
+pub(super) fn bubble_position_in_work_area(
+    position: &str,
+    wa: &RectPx,
+    bubble_w: i32,
+    bubble_h: i32,
+    margin: i32,
+) -> Result<(i32, i32), String> {
+    let x = centered_x_in_work_area(wa, bubble_w);
+    let y = keyword_edge_y_in_work_area(position, wa, bubble_h, margin)?;
+    Ok((x, y))
 }

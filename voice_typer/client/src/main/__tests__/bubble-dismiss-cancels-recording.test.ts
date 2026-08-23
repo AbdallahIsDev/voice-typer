@@ -45,6 +45,8 @@ const mocks = vi.hoisted(() => {
 		consumeHideAnimationCallback: vi.fn(() => null),
 		centerOnActiveDisplay: vi.fn(() => ({ x: 0, y: 0 })),
 		resetSavedBubblePosition: vi.fn(),
+		cancelScheduledDurablePersist: vi.fn(),
+		suppressDurablePersistFor: vi.fn(),
 		bubbleWindow: null as unknown,
 		webContentsSend: vi.fn(),
 	};
@@ -89,11 +91,13 @@ vi.mock("../state", () => ({
 }));
 
 vi.mock("../windows/bubble-window", () => ({
+	cancelScheduledDurablePersist: mocks.cancelScheduledDurablePersist,
 	centerOnActiveDisplay: mocks.centerOnActiveDisplay,
 	consumeHideAnimationCallback: mocks.consumeHideAnimationCallback,
 	hideBubbleWindow: mocks.hideBubbleWindow,
 	resetSavedBubblePosition: mocks.resetSavedBubblePosition,
 	showBubbleWindow: mocks.showBubbleWindow,
+	suppressDurablePersistFor: mocks.suppressDurablePersistFor,
 }));
 
 // --- Helpers ---

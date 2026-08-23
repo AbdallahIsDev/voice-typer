@@ -22,13 +22,14 @@
  *
  * : bubble position is now remembered across show/hide cycles.
  * The BrowserWindow's `moved` event persists the user's last drag
- * position to module-level state (`savedBubblePos`); on the next
+ * position to module-level state (`savedBubblePos`) and schedules a
+ * debounced durable persist to the Python config; on the next
  * `showBubbleWindow()` we restore those coordinates instead of
- * re-centering. A `bubble:set-position` IPC (top/bottom toggle from
- * the Settings page) resets the saved position so the new edge
- * default takes effect. In-session persistence only — durable
- * persistence to the Python config is a follow-up (config.py is out
- * of scope for this fix).
+ * re-centering, falling back to the durable config pair after a
+ * restart. A `bubble:set-position` IPC (top/bottom toggle from the
+ * Settings page) resets the saved position so the new edge default
+ * takes effect (the Python side clears both keys server-side on the
+ * same toggle).
  */
 
 export {
@@ -43,14 +44,20 @@ export {
 	notifyBubbleLocaleChanged,
 } from "./bubble/lifecycle";
 export {
+	cancelScheduledDurablePersist,
 	centerOnActiveDisplay,
 	centerOnPrimaryDisplay,
 	getActiveDisplay,
+	getPersistedBubblePosition,
 	getSavedBubblePosition,
 	isForegroundFullscreen,
 	isPositionOnAnyDisplay,
+	recordBubbleMoved,
 	resetSavedBubblePosition,
+	resolveRestoredBubblePosition,
 	savedBubblePos,
+	setPersistedBubblePosition,
 	setSavedBubblePosition,
+	suppressDurablePersistFor,
 } from "./bubble/positioning";
 export { hideBubbleWindow, showBubbleWindow } from "./bubble/show-hide";

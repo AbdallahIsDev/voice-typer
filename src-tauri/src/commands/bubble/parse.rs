@@ -1,50 +1,25 @@
 //! Bubble position parsing helpers ( + ADR-0020 §9).
 //!
-//! [`parse_keyword_position`] is the production path — `bubble_set_position`
-//! delegates to it. [`parse_position`] is kept `#[cfg(test)]`-only so the
-//! existing unit tests for the legacy numeric / NaN / inf edge cases
-//! continue to pin the contract for any future caller that reintroduces
-//! numeric coordinates.
+//! [`parse_position`] is kept `#[cfg(test)]`-only so the existing unit
+//! tests for the legacy numeric / NaN / inf edge cases continue to pin
+//! the contract for any future caller that reintroduces numeric
+//! coordinates.
+//!
+//! The former production keyword path (`parse_keyword_position`) was
+//! removed when `bubble_set_position` moved to cursor-monitor
+//! work-area placement: its full-screen-bounds geometry (y=0 for
+//! "top", screen_h - bubble_h for "bottom", primary monitor only) no
+//! longer matched the Electron-parity behavior. The keyword →
+//! coordinate mapping now lives in `math::bubble_position_in_work_area`
+//! (with the identical `"position must be \"top\" or \"bottom\""`
+//! error contract), and the multi-monitor resolution lives in
+//! `commands::resolve_cursor_monitor`.
 
 #[cfg(test)]
 use serde_json::Value;
 
 #[cfg(test)]
 use super::math::clamp_f64_to_i32;
-
-/// Parse a `"top"` / `"bottom"` keyword into `(x, y)` physical
-/// pixels. The bubble is centered horizontally (clamped to ≥0 so a
-/// bubble wider than the primary monitor doesn't end up off-screen
-/// left), and y is `0` for `"top"` or `screen_h - bubble_h` clamped to
-/// ≥0 for `"bottom"`.
-///
-/// Extracted from the command body so the keyword→coordinate mapping
-/// can be unit-tested without a Tauri runtime + monitor enumeration.
-pub(super) fn parse_keyword_position(
-    position: &str,
-    screen_w: i32,
-    screen_h: i32,
-    bubble_w: i32,
-    bubble_h: i32,
-) -> Result<(i32, i32), String> {
-    //clamp to ≥0 — mirrors the prior `parse_position` behavior.
-    // Without the clamp, when the bubble window is wider than the
-    // primary monitor (e.g. 400px bubble on a 320px-wide screen),
-    // `(screen_w - bubble_w) / 2` evaluates to a NEGATIVE value,
-    // moving the bubble's top-left off-screen left.
-    let centered_x = ((screen_w - bubble_w) / 2).max(0);
-    let py = match position {
-        "top" => 0,
-        "bottom" => (screen_h - bubble_h).max(0),
-        other => {
-            return Err(format!(
-                "position must be \"top\" or \"bottom\", got {:?}",
-                other
-            ))
-        }
-    };
-    Ok((centered_x, py))
-}
 
 /// Parse a position value into `(x, y)` physical pixels.
 ///
@@ -77,8 +52,9 @@ pub(super) fn parse_keyword_position(
 ///   the bubble at the rightmost representable pixel).
 ///
 /// This helper is no longer called by `bubble_set_position` (the
-/// command now takes a single `position: String` keyword and uses
-/// `parse_keyword_position` above). It's kept as a `#[cfg(test)]`-only
+/// command takes a single `position: String` keyword and delegates the
+/// keyword → work-area mapping to `math::bubble_position_in_work_area`).
+/// It's kept as a `#[cfg(test)]`-only
 /// helper so the existing unit tests for the numeric / NaN / inf edge
 /// cases continue to pin the contract for any future caller that
 /// reintroduces numeric coordinates.

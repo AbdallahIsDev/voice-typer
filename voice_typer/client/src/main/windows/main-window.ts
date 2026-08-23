@@ -91,13 +91,32 @@ export function showMainWindow(): void {
 		createMainWindow(/* forceShow */ true);
 		return;
 	}
-	if (!state.mainWindow.isVisible()) {
-		state.mainWindow.show();
+	const win = state.mainWindow;
+	if (win.isMinimized()) {
+		win.restore();
 	}
-	if (state.mainWindow.isMinimized()) {
-		state.mainWindow.restore();
+	if (!win.isVisible()) {
+		win.show();
 	}
-	state.mainWindow.focus();
+	// RAISE-TO-FRONT: `focus()` alone does NOT bring the window above
+	// other applications' windows. Every OS enforces a foreground lock
+	// (Windows: SetForegroundWindow from a background process is
+	// refused and the taskbar button merely flashes; macOS/Linux window
+	// managers behave similarly) — so a tray click left the dashboard
+	// visible but buried at the bottom of the z-order. The standard
+	// cross-platform workaround is a momentary always-on-top raise:
+	// lift the window above everything, focus it, then immediately
+	// drop the flag so normal z-order behavior resumes. `moveTop()`
+	// additionally raises the z-order without stealing focus on
+	// platforms where the WM refuses the focus steal.
+	win.setAlwaysOnTop(true, "screen-saver");
+	win.show();
+	win.focus();
+	win.moveTop();
+	win.setAlwaysOnTop(false);
+	log.info(
+		"[MAIN] Dashboard window shown + raised to front (show_window request)",
+	);
 }
 
 /**
@@ -441,7 +460,7 @@ export function createMainWindow(forceShow = false): void {
 			// cleaned text (idempotent on already-redacted
 			// text so the double-chain is safe).
 			const cleaned = cleanConsoleMsg(e.message);
-			const line = `${fileTimestamp()} [renderer-error] ${redactPii(
+			const line = `${fileTimestamp()}  ERROR  [renderer-error] ${redactPii(
 				cleaned,
 			)} (${e.sourceId}:${e.lineNumber})\n`;
 			appendRendererError(line);

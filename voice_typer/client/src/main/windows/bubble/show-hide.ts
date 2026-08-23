@@ -43,9 +43,9 @@ import {
 import { createBubbleWindow } from "./lifecycle";
 import {
 	centerOnActiveDisplay,
-	getSavedBubblePosition,
 	isForegroundFullscreen,
-	isPositionOnAnyDisplay,
+	resolveRestoredBubblePosition,
+	suppressDurablePersistFor,
 } from "./positioning";
 
 /**
@@ -108,19 +108,27 @@ export function showBubbleWindow(): void {
 	//restore the user's last drag position if we have one;
 	// otherwise fall back to multi-monitor-aware centering on the
 	// display the user is currently on. Previously this always called
-	// `centerOnPrimaryDisplay()`, which stranded the bubble on the
-	// primary screen when the user was working on a secondary monitor
+	// `centerOnPrimaryDisplay()`, which stranded the bubble on the primary
+	// screen when the user was working on a secondary monitor
 	// AND blew away the user's last drag position on every show.
 	//
-	//discard the saved position if it no longer lies on any
+	//discard a restored position if it no longer lies on any
 	// currently-attached display (the saved display may have been
 	// unplugged since the position was saved). The `display-removed`
 	// listener also clears it on unplug, but this is the defensive
 	// second line for the case where the app was offline during the
 	// unplug event.
-	const savedPos = getSavedBubblePosition();
-	const c = savedPos && isPositionOnAnyDisplay(savedPos) ? savedPos : null;
-	const fallback = c ?? centerOnActiveDisplay();
+	//
+	// The restore source prefers the in-session drag position and falls
+	// back to the durable pair from the Python config, so a drag
+	// survives an app restart.
+	// This setBounds is a PROGRAMMATIC placement — suppress the debounced
+	// durable persist around it so the `moved` events it emits are never
+	// mistaken for a fresh user drag (they would rewrite the config with
+	// coordinates we just restored from it).
+	suppressDurablePersistFor();
+	const restored = resolveRestoredBubblePosition();
+	const fallback = restored ?? centerOnActiveDisplay();
 	win.setBounds({
 		x: fallback.x,
 		y: fallback.y,

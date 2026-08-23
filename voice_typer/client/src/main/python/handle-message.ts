@@ -33,6 +33,7 @@ import { BubbleChannels, PythonChannels } from "../ipc/channels";
 import { BUBBLE_CLR, log, RESET, ts } from "../logging";
 import { state } from "../state";
 import { hideBubbleWindow, showBubbleWindow, showMainWindow } from "../windows";
+import { setPersistedBubblePosition } from "../windows/bubble/positioning";
 //broadcastToMainWindow imported directly from main-window
 // (windows/index.ts is owned by another sub-agent and doesn't re-export it).
 import { broadcastToMainWindow } from "../windows/main-window";
@@ -106,14 +107,33 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 		state.bubbleWindow?.webContents.send(BubbleChannels.level, msg.data);
 	},
 	bubble_config: (msg) => {
-		state.bubbleWindow?.webContents.send(
-			BubbleChannels.config,
+		// Cache the persisted drag position (Python config's optional
+		// `bubble_x` / `bubble_y` pair) so bubble placement can restore
+		// it across app restarts. Both fields must be finite numbers;
+		// anything else (nulls after a Settings edge-toggle reset,
+		// missing keys, non-numeric junk) clears the cache.
+		const cfgData =
 			typeof msg.data === "object" && msg.data !== null
 				? (msg.data as Record<string, unknown>)
-				: {},
-		);
+				: {};
+		const px = cfgData.bubble_x;
+		const py = cfgData.bubble_y;
+		if (
+			typeof px === "number" &&
+			Number.isFinite(px) &&
+			typeof py === "number" &&
+			Number.isFinite(py)
+		) {
+			setPersistedBubblePosition({ x: px, y: py });
+		} else {
+			setPersistedBubblePosition(null);
+		}
+		state.bubbleWindow?.webContents.send(BubbleChannels.config, cfgData);
 	},
 	show_window: () => {
+		log.info(
+			`${ts()}  [TRAY] show_window received from Python — showing + raising dashboard window to front`,
+		);
 		showMainWindow();
 	},
 	// OS notification events from the Python backend (the

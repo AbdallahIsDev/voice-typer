@@ -34,11 +34,13 @@ import { log } from "../logging";
 import { sendToPython } from "../python";
 import { state } from "../state";
 import {
+	cancelScheduledDurablePersist,
 	centerOnActiveDisplay,
 	consumeHideAnimationCallback,
 	hideBubbleWindow,
 	resetSavedBubblePosition,
 	showBubbleWindow,
+	suppressDurablePersistFor,
 } from "../windows/bubble-window";
 import { BubbleChannels } from "./channels";
 
@@ -274,10 +276,20 @@ export function registerBubbleHandlers(): void {
 	// computed against the OTHER edge). Reset it and re-center on the
 	// display the user is currently on (multi-monitor aware) instead
 	// of always stranding the bubble on the primary display.
+	//
+	// Durable half of the reset: the Python side clears
+	// `bubble_x` / `bubble_y` server-side when this same toggle's
+	// set_config lands there. Locally we (a) cancel any pending debounced
+	// persist so a stale drag write can't race that reset and (b)
+	// suppress persists around our own programmatic reposition so its
+	// `moved` events don't rewrite the freshly-cleared config with the
+	// centered coordinates.
 	const applyBubblePosition = (position: "top" | "bottom") => {
 		if (position === "top" || position === "bottom") {
 			state.bubblePosition = position;
 			resetSavedBubblePosition();
+			cancelScheduledDurablePersist();
+			suppressDurablePersistFor();
 			// If the bubble window is visible, reposition it immediately.
 			if (
 				state.bubbleWindow &&

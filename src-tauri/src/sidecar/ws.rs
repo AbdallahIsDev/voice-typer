@@ -839,6 +839,17 @@ fn spawn_reader_task(
                         // events under snake_case names that the renderer
                         // expects as `bubble:*` kebab-case).
                         let emit_name = translate_event_name(event_type);
+
+                        // Durable bubble-position transport: the sidecar's
+                        // `bubble_config` push carries the persisted
+                        // `bubble_x` / `bubble_y` pair (both, or nulls after
+                        // a Settings edge-toggle reset). Cache it BEFORE the
+                        // emit so a `bubble_show` arriving later restores
+                        // the freshest position.
+                        if event_type == "bubble_config" {
+                            crate::commands::bubble::update_persisted_pos_from_config(&payload);
+                        }
+
                         // ADR-0020 "Sidecar→UI Event Table" (channel 2):
                         // emit BOTH the specific event (for direct listeners)
                         // AND the generic `python-event` (for the usePython

@@ -19,64 +19,190 @@
 
 use super::commands::{bubble_dismiss, bubble_hide_complete};
 use super::math::{
-    clamp_f64_to_i32, clamp_resize_height, clamp_resize_width, compute_move_by_new_pos,
-    round_f64_to_i32_saturating, round_f64_to_u32_saturating, MAX_BUBBLE_H, MAX_BUBBLE_W,
-    MIN_BUBBLE_H, MIN_BUBBLE_W,
+    bubble_position_in_work_area, centered_x_in_work_area, clamp_f64_to_i32, clamp_resize_height,
+    clamp_resize_width, compute_move_by_new_pos, edge_margin_physical,
+    keyword_edge_y_in_work_area, rect_contains_point, round_f64_to_i32_saturating,
+    round_f64_to_u32_saturating, RectPx, MAX_BUBBLE_H, MAX_BUBBLE_W, MIN_BUBBLE_H, MIN_BUBBLE_W,
 };
-use super::parse::{parse_keyword_position, parse_position};
+use super::parse::parse_position;
 use super::window::hide_bubble_window;
 use crate::commands::main_window_label_check;
 use serde_json::{json, Value};
 
-// ── parse_keyword_position (the new single-keyword API) ───────
+// ── Multi-monitor work-area placement (bubble_set_position) ────────
 //
-// The new `bubble_set_position(position: String)` command delegates
-// to `parse_keyword_position`. These tests pin the keyword →
-// coordinate mapping for `"top"` and `"bottom"` and the rejection
-// of unknown keywords. The behavior matches the legacy
-// `parse_position(json!("top"), json!("top"), ...)` shape (centered
-// horizontally, y=0 for "top", y=screen_h-bubble_h clamped to ≥0
-// for "bottom").
+// `bubble_set_position` resolves the CURSOR's monitor (Electron-parity
+// `centerOnActiveDisplay`) and places the bubble within that monitor's
+// WORK AREA in physical pixels. The pure helpers below are unit-tested
+// here without a Tauri runtime; these tests replace the former
+// `parse_keyword_position` tests (full-screen-bounds primary-monitor
+// geometry, deleted with the helper).
+//
+// Reference scenario used throughout: a 1920×1080 primary display with
+// a 40px-bottom taskbar → work area RectPx { x: 0, y: 0, width: 1920,
+// height: 1040 }, plus a left-of-primary secondary 1920×1080 display
+// whose bounds/work area start at x = -1920. Bubble pill 320×80,
+// scale-1.0 margin 48.
+
+fn wa_primary() -> RectPx {
+    RectPx::new(0, 0, 1920, 1040)
+}
+
+fn wa_secondary_left() -> RectPx {
+    RectPx::new(-1920, -1080, 1920, 1040)
+}
+
+// ── RectPx containment (monitor hit-test fallback) ─────────────────
 
 #[test]
-fn test_parse_keyword_position_top() {
-    let (x, y) = parse_keyword_position("top", 1920, 1080, 320, 80).unwrap();
-    assert_eq!(x, (1920 - 320) / 2);
-    assert_eq!(y, 0);
+fn test_rect_px_contains_inside_point() {
+    let wa = wa_primary();
+    assert!(rect_contains_point(&wa, 0, 0));
+    assert!(rect_contains_point(&wa, 960, 520));
+    assert!(rect_contains_point(&wa, 1919, 1039)); // last representable px
 }
 
 #[test]
-fn test_parse_keyword_position_bottom() {
-    let (x, y) = parse_keyword_position("bottom", 1920, 1080, 320, 80).unwrap();
-    assert_eq!(x, (1920 - 320) / 2);
-    assert_eq!(y, 1080 - 80);
+fn test_rect_px_contains_half_open_edges() {
+    // Half-open [x, x+w): the right/bottom edges are EXCLUDED so a
+    // cursor exactly on a shared border between two side-by-side
+    // monitors resolves to exactly one monitor.
+    let wa = wa_primary();
+    assert!(!rect_contains_point(&wa, 1920, 0)); // right edge excluded
+    assert!(!rect_contains_point(&wa, 0, 1040)); // bottom edge excluded
+    assert!(rect_contains_point(&wa, 0, 1039));
 }
 
 #[test]
-fn test_parse_keyword_position_bottom_clamped_when_bubble_taller_than_screen() {
-    // Mirrors the legacy `test_parse_position_bottom_clamped_when_bubble_taller_than_screen`
-    // — `(screen_h - bubble_h).max(0)` clamps the negative result to 0.
-    // The centered-x is clamped too: `((320 - 400) / 2).max(0) == 0`,
-    // so a bubble wider than the screen doesn't end up off-screen left
-    // (same clamp `test_parse_keyword_position_top_centered_x_clamped_when_bubble_wider_than_screen`
-    // pins for the "top" arm).
-    let (x, y) = parse_keyword_position("bottom", 320, 80, 400, 200).unwrap();
-    assert_eq!(x, 0); // ((320 - 400) / 2).max(0) == 0
-    assert_eq!(y, 0); // (80 - 200).max(0) == 0
+fn test_rect_px_contains_outside_points() {
+    let wa = wa_primary();
+    assert!(!rect_contains_point(&wa, -1, 0));
+    assert!(!rect_contains_point(&wa, 0, -1));
+    assert!(!rect_contains_point(&wa, 5000, 500));
 }
 
 #[test]
-fn test_parse_keyword_position_top_centered_x_clamped_when_bubble_wider_than_screen() {
-    //when the bubble is wider than the screen, `(screen_w -
-    // bubble_w) / 2` is negative; `.max(0)` clamps to 0 so the
-    // bubble's top-left doesn't end up off-screen left.
-    let (x, _) = parse_keyword_position("top", 320, 1080, 400, 80).unwrap();
-    assert_eq!(x, 0);
+fn test_rect_px_contains_negative_origin_monitor() {
+    // A left/above-of-primary secondary monitor has NEGATIVE desktop
+    // coordinates; the hit-test must work there (the pre-multi-monitor
+    // code never handled negatives).
+    let wa = wa_secondary_left();
+    assert!(rect_contains_point(&wa, -1920, -1080));
+    assert!(rect_contains_point(&wa, -960, -540));
+    assert!(!rect_contains_point(&wa, 0, 0)); // primary's origin
 }
 
 #[test]
-fn test_parse_keyword_position_unknown_keyword_returns_err() {
-    let result = parse_keyword_position("middle", 1920, 1080, 320, 80);
+fn test_rect_px_new_saturates_huge_dimensions() {
+    // u32 dimensions saturate to i32::MAX instead of wrapping negative
+    // (same pattern the command body uses for monitor.size()).
+    let rect = RectPx::new(i32::MIN, i32::MIN, u32::MAX, u32::MAX);
+    assert_eq!(rect.width, i32::MAX);
+    assert_eq!(rect.height, i32::MAX);
+    // Saturating edge math: x + width must not wrap negative, which
+    // would make contains() spuriously true for everything left.
+    assert!(!rect.contains(-1, i32::MIN));
+    assert!(rect.contains(i32::MIN, i32::MIN));
+}
+
+// ── Edge margin (DIP → per-monitor physical) ───────────────────────
+
+#[test]
+fn test_edge_margin_physical_scale_one_matches_electron_48() {
+    assert_eq!(edge_margin_physical(1.0), 48);
+}
+
+#[test]
+fn test_edge_margin_physical_scales_with_scale_factor() {
+    // 150% / 200% displays keep the same VISUAL gap as Electron's
+    // 48-DIP offset.
+    assert_eq!(edge_margin_physical(1.5), 72);
+    assert_eq!(edge_margin_physical(2.0), 96);
+    assert_eq!(edge_margin_physical(1.25), 60);
+}
+
+#[test]
+fn test_edge_margin_physical_degenerate_scale_factors() {
+    // Zero / negative / NaN scale factors degrade to margin 0 (defined
+    // behavior; the work-area clamp still keeps the bubble inside).
+    assert_eq!(edge_margin_physical(0.0), 0);
+    assert_eq!(edge_margin_physical(-1.5), 0);
+    assert_eq!(edge_margin_physical(f64::NAN), 0);
+}
+
+// ── Centered x within the work area ─────────────────────────────────
+
+#[test]
+fn test_centered_x_typical_single_monitor() {
+    assert_eq!(centered_x_in_work_area(&wa_primary(), 320), 800); // (1920-320)/2
+}
+
+#[test]
+fn test_centered_x_secondary_monitor_keeps_desktop_offset() {
+    // THE core multi-monitor fix: on a left-of-primary secondary display the
+    // centered x is NEGATIVE relative to the desktop origin. Clamping
+    // to absolute >= 0 (the old full-screen-bounds behavior) would
+    // shove the bubble onto the primary display; clamping to wa.x
+    // keeps it centered on the cursor's monitor.
+    assert_eq!(
+        centered_x_in_work_area(&wa_secondary_left(), 320),
+        -1920 + (1920 - 320) / 2
+    );
+    assert_eq!(centered_x_in_work_area(&wa_secondary_left(), 320), -1120);
+}
+
+#[test]
+fn test_centered_x_clamped_to_workarea_left_when_bubble_wider() {
+    // Bubble wider than the work area: the centered expression goes
+    // negative relative to wa.x; the clamp pins the LEFT EDGE to
+    // wa.x (not to absolute 0).
+    let narrow = RectPx::new(0, 0, 300, 1040);
+    assert_eq!(centered_x_in_work_area(&narrow, 400), 0);
+    let narrow_left = RectPx::new(-500, 0, 300, 1040);
+    assert_eq!(centered_x_in_work_area(&narrow_left, 400), -500);
+}
+
+// ── Top/bottom edge y within the work area ──────────────────────────
+
+#[test]
+fn test_keyword_edge_y_top_adds_margin_to_workarea_top() {
+    // Primary display, taskbar irrelevant for "top": y = wa.y + 48
+    // (mirrors Electron `Math.round(wa.y + 48)`).
+    assert_eq!(keyword_edge_y_in_work_area("top", &wa_primary(), 80, 48).unwrap(), 48);
+    // Monitor with a TOP-docked bar: work area starts at y=60, so the
+    // bubble clears it instead of hiding under the bar (old y=0 did
+    // not).
+    let top_docked = RectPx::new(0, 60, 1920, 1020);
+    assert_eq!(keyword_edge_y_in_work_area("top", &top_docked, 80, 48).unwrap(), 108);
+}
+
+#[test]
+fn test_keyword_edge_y_bottom_mirrors_electron_formula() {
+    // y = wa.y + wa.height - bubble_h - margin = 1040 - 80 - 48 = 912.
+    assert_eq!(
+        keyword_edge_y_in_work_area("bottom", &wa_primary(), 80, 48).unwrap(),
+        912
+    );
+}
+
+#[test]
+fn test_keyword_edge_y_bottom_clamped_to_workarea_top_on_overflow() {
+    // Bubble taller than the work area minus two margins: pin to wa.y
+    // instead of poking above the work-area top.
+    let short = RectPx::new(0, 0, 1920, 100);
+    assert_eq!(keyword_edge_y_in_work_area("bottom", &short, 200, 48).unwrap(), 0);
+    let short_below_origin = RectPx::new(0, 500, 1920, 100);
+    assert_eq!(
+        keyword_edge_y_in_work_area("bottom", &short_below_origin, 200, 48).unwrap(),
+        500
+    );
+}
+
+#[test]
+fn test_keyword_edge_y_unknown_keyword_error_contract_preserved() {
+    // The error message shape is UNCHANGED from the deleted
+    // parse_keyword_position — the renderer surfaces it verbatim.
+    let result = keyword_edge_y_in_work_area("middle", &wa_primary(), 80, 48);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(
@@ -84,17 +210,43 @@ fn test_parse_keyword_position_unknown_keyword_returns_err() {
         "error should mention the accepted keywords, got: {}",
         err
     );
-    assert!(
-        err.contains("middle"),
-        "error should include the offending keyword, got: {}",
-        err
+    assert!(err.contains("middle"));
+
+    let empty = keyword_edge_y_in_work_area("", &wa_primary(), 80, 48);
+    assert!(empty.is_err());
+}
+
+// ── Composed placement (what the command calls) ─────────────────────
+
+#[test]
+fn test_bubble_position_in_work_area_electron_parity_pin() {
+    // Exact numbers Electron's centerOnActiveDisplay produces for the
+    // reference scenario (1920×1080 display, 40px taskbar, 320×80
+    // pill, 48-DIP margin): centered-x 800, top 48, bottom 912.
+    // Cross-host divergence here is a UX regression — pin both edges.
+    assert_eq!(
+        bubble_position_in_work_area("top", &wa_primary(), 320, 80, 48).unwrap(),
+        (800, 48)
+    );
+    assert_eq!(
+        bubble_position_in_work_area("bottom", &wa_primary(), 320, 80, 48).unwrap(),
+        (800, 912)
     );
 }
 
 #[test]
-fn test_parse_keyword_position_empty_string_returns_err() {
-    let result = parse_keyword_position("", 1920, 1080, 320, 80);
-    assert!(result.is_err());
+fn test_bubble_position_in_work_area_secondary_monitor_end_to_end() {
+    // Cursor on the left-of-primary secondary display: the whole
+    // placement lands in NEGATIVE desktop territory — the exact case
+    // the old primary-monitor-only code got wrong.
+    let (x, y) =
+        bubble_position_in_work_area("bottom", &wa_secondary_left(), 320, 80, 48).unwrap();
+    assert_eq!(x, -1120);
+    assert_eq!(y, -1080 + 1040 - 80 - 48);
+    let (top_x, top_y) = bubble_position_in_work_area("top", &wa_secondary_left(), 320, 80, 48)
+        .unwrap();
+    assert_eq!(top_x, -1120);
+    assert_eq!(top_y, -1080 + 48);
 }
 
 //legacy: parse_position (kept test-only for the ───────
@@ -145,9 +297,11 @@ fn test_parse_position_negative_coords() {
 
 #[test]
 fn test_parse_position_bottom_clamped_when_bubble_taller_than_screen() {
-    // The centered-x is clamped to >=0 in production (see the
-    // `((screen_w - bubble_w) / 2).max(0)` arms in `parse_position`
-    // and `parse_keyword_position`) — a bubble wider than the screen
+    // The centered-x is clamped to >=0 in this legacy test-only helper
+    // (see the `((screen_w - bubble_w) / 2).max(0)` arm in
+    // `parse_position`; production now clamps to the WORK AREA's left
+    // edge via `centered_x_in_work_area` instead of absolute 0) — a
+    // bubble wider than the screen
     // must not end up off-screen left. `((320 - 400) / 2).max(0)`
     // evaluates to 0, not -40.
     let (x, y) = parse_position(json!("bottom"), json!("bottom"), 320, 80, 400, 200).unwrap();

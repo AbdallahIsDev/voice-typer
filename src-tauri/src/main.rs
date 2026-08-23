@@ -300,6 +300,22 @@ fn main() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 on_main_window_close(window.app_handle(), window, api);
             }
+            // Durable bubble drag-position persistence: observe USER drags
+            // of the bubble window and write them back to the Python config
+            // (debounced, fire-and-forget — see
+            // `commands::bubble::persisted_position`). Programmatic moves
+            // arm a suppression window so they never persist themselves.
+            if let WindowEvent::Moved(position) = event {
+                if window.label() == "bubble" {
+                    let sidecar_state =
+                        window.app_handle().state::<std::sync::Arc<crate::state::SidecarState>>();
+                    crate::commands::bubble::schedule_persist(
+                        sidecar_state.inner(),
+                        position.x,
+                        position.y,
+                    );
+                }
+            }
         })
         //split `.run(ctx)` into `.build(ctx)?.run(callback)`
         // so we get a callback for `RunEvent::Exit` / `ExitRequested`.

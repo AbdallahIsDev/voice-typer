@@ -71,6 +71,16 @@ const winSpies = vi.hoisted(() => ({
 	webContents: { send: vi.fn() },
 }));
 
+// Spies for the positioning-module mock so behavioral tests can assert
+// the programmatic-placement suppression ordering (suppress BEFORE
+// setBounds).
+const positioningSpies = vi.hoisted(() => ({
+	resolveRestoredBubblePosition: vi.fn<() => { x: number; y: number } | null>(
+		() => null,
+	),
+	suppressDurablePersistFor: vi.fn<() => void>(),
+}));
+
 vi.mock("electron", () => ({
 	BrowserWindow: vi.fn(),
 	screen: {
@@ -117,6 +127,8 @@ vi.mock("../positioning", () => ({
 	getSavedBubblePosition: () => null,
 	isForegroundFullscreen: () => false,
 	isPositionOnAnyDisplay: () => true,
+	resolveRestoredBubblePosition: positioningSpies.resolveRestoredBubblePosition,
+	suppressDurablePersistFor: positioningSpies.suppressDurablePersistFor,
 }));
 
 function readSrc(): string {
@@ -259,5 +271,35 @@ describe("behavioral: _tryWinOp swallows + logs failures", () => {
 		//   - moveTop (warn)
 		expect(logSpies.warn).toHaveBeenCalled();
 		expect(logSpies.error).toHaveBeenCalled();
+	});
+});
+
+describe("behavioral: programmatic placement suppresses the durable persist", () => {
+	it("suppressDurablePersistFor runs BEFORE the placement setBounds", async () => {
+		mockState.bubbleWindow = winSpies;
+		mockState._hideTimeout = null;
+		positioningSpies.resolveRestoredBubblePosition.mockReturnValue({
+			x: 120,
+			y: 80,
+		});
+
+		const { showBubbleWindow } = await import("../show-hide");
+		showBubbleWindow();
+
+		// The suppression must be armed before the window is placed —
+		// otherwise the `moved` events emitted by this very setBounds
+		// would be persisted as if the user had dragged.
+		const suppressOrder = positioningSpies.suppressDurablePersistFor.mock
+			.invocationCallOrder[0] as number | undefined;
+		const boundsOrder = winSpies.setBounds.mock.invocationCallOrder[0] as
+			| number
+			| undefined;
+		expect(suppressOrder).toBeDefined();
+		expect(boundsOrder).toBeDefined();
+		expect(suppressOrder as number).toBeLessThan(boundsOrder as number);
+		// And the restored position (durable fallback) must be applied.
+		expect(winSpies.setBounds).toHaveBeenCalledWith(
+			expect.objectContaining({ x: 120, y: 80 }),
+		);
 	});
 });
