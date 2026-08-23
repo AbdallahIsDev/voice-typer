@@ -186,11 +186,11 @@ def get_level() -> dict:
     _state._last_get_level_poll_ts = time.monotonic()
     with _state._monitor_lock:
         return {
-            # MULT-8: increased from *5 to *8 so low-level ambient sounds
-            # (ambient noise, mic taps) produce a visible bar response.
-            # The bubble's visualizer uses the same *8 multiplier in
-            # rmsToNorm().
-            "level": min(1.0, _state._monitor_level * 8),
+            # Display gain: shared constant (see ``_state._LEVEL_DISPLAY_GAIN``)
+            # so this poll response and the ``mic_level`` push payload scale
+            # identically. The bubble's visualizer applies the same
+            # multiplier client-side in rmsToNorm().
+            "level": min(1.0, _state._monitor_level * _state._LEVEL_DISPLAY_GAIN),
             "peak": _state._monitor_peak,
             "active": _state._monitor_active,
         }

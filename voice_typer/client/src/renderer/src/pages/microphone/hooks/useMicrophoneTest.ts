@@ -51,6 +51,12 @@ interface UseMicrophoneTestOptions {
 	 * it to a ``<div>`` wrapping ``<ActiveMicrophoneCard>``.
 	 */
 	meterRef: RefObject<HTMLElement | null>;
+	/**
+	 * Force-pause the level monitor while the active microphone is
+	 * lost (``device_lost``). Passed straight through to
+	 * ``useMicrophoneLevelMonitor`` — see its ``paused`` option.
+	 */
+	levelMonitorPaused?: boolean;
 }
 
 export interface UseMicrophoneTestResult {
@@ -69,6 +75,12 @@ export interface UseMicrophoneTestResult {
 	/** Live peak ref (mutated at ≤30 Hz by ``mic_level`` events). */
 	peakRef: MutableRefObject<number>;
 	micMonitoring: boolean;
+	/**
+	 *  True when level monitoring is blocked by the voice-biometric
+	 * consent toggle (the page renders the consent banner instead of a
+	 * silently dead meter).
+	 */
+	consentBlocked: boolean;
 	testDurationSec: number;
 	showAdvanced: boolean;
 	filtersSinceLastTest: string;
@@ -94,6 +106,7 @@ export function useMicrophoneTest({
 	updateConfig,
 	selectMicrophoneRef,
 	meterRef,
+	levelMonitorPaused = false,
 }: UseMicrophoneTestOptions): UseMicrophoneTestResult {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
@@ -155,6 +168,7 @@ export function useMicrophoneTest({
 		playingRef: playback.playingRef,
 		testRunningRef,
 		meterRef,
+		paused: levelMonitorPaused,
 		onConsentRequired: handleLevelMonitorConsentRequired,
 	});
 
@@ -205,6 +219,7 @@ export function useMicrophoneTest({
 		levelRef: levelMonitor.levelRef,
 		peakRef: levelMonitor.peakRef,
 		micMonitoring: levelMonitor.micMonitoring,
+		consentBlocked: levelMonitor.consentBlocked,
 		testRunning: session.testRunning,
 		testCountdown: session.testCountdown,
 		testElapsed: session.testElapsed,

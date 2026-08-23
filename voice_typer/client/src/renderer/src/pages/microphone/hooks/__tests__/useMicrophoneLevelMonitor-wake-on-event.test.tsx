@@ -233,7 +233,10 @@ describe("useMicrophoneLevelMonitor rAF loop pauses on idle", () => {
 			'[role="progressbar"] > div',
 		);
 		expect(fill).toBeTruthy();
-		expect(fill?.style.width).toContain("50");
+		// The rAF loop writes the SAME property LevelBar renders — the
+		// fill animates via ``transform: scaleX()`` (see LevelBar.tsx),
+		// NOT ``width``.
+		expect(fill?.style.transform).toContain("scaleX(0.5");
 		// `levelRef` should also reflect the new value (the push
 		// handler mutates the ref).
 		expect(captures.hook?.levelRef.current).toBe(0.5);

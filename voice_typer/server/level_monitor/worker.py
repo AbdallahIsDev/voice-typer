@@ -596,7 +596,22 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
                 _emit_device_lost("zero_chunks")
         else:
             _state._consecutive_zero_chunks = 0
+        # Push the DISPLAY values, not the raw chunk values. The
+        # ``mic_level`` push event replaced the 10 Hz
+        # ``microphone_test_get_level`` poll on the Microphone page, and
+        # that poll returned the EMA-smoothed level scaled by
+        # ``_LEVEL_DISPLAY_GAIN`` (see ``monitoring.get_level``). Pushing
+        # the raw instantaneous RMS here made every push frame 8x smaller
+        # than the poll value the UI was built against — the live meter
+        # collapsed to ~0% for normal speech levels right after the
+        # one-shot fallback poll seeded it with the scaled first read.
+        # Mirror ``get_level`` exactly: same smoothed state, same gain,
+        # same 1.0 cap.
         if _state._monitor_active and rms is not None and peak is not None:
             from .monitoring import _push_mic_level
 
-            _push_mic_level(rms, peak, _state._monitor_active)
+            _push_mic_level(
+                min(1.0, _state._monitor_level * _state._LEVEL_DISPLAY_GAIN),
+                _state._monitor_peak,
+                _state._monitor_active,
+            )

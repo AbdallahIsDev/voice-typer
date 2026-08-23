@@ -18,10 +18,15 @@ import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { OfflinePackPreparingBanner } from "@/components/feedback/OfflinePackPreparingBanner";
 import { Spinner } from "@/components/feedback/Spinner";
+import { useNavigation } from "@/hooks/useNavigation";
 import { useOfflinePackDownload } from "@/hooks/useOfflinePackDownload";
 import { t } from "@/i18n/i18n";
+import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
+import { useDeviceLostStore } from "@/stores/deviceLostStore";
 import { ActiveMicrophoneCard } from "./microphone/components/ActiveMicrophoneCard";
 import { AvailableMicrophonesList } from "./microphone/components/AvailableMicrophonesList";
+import { MicrophoneConsentGateBanner } from "./microphone/components/MicrophoneConsentGateBanner";
+import { MicrophoneDeviceLostBanner } from "./microphone/components/MicrophoneDeviceLostBanner";
 import { MicrophonePermissionBanner } from "./microphone/components/MicrophonePermissionBanner";
 import { useMicrophoneData } from "./microphone/hooks/useMicrophoneData";
 import { useMicrophonePermission } from "./microphone/hooks/useMicrophonePermission";
@@ -60,6 +65,41 @@ export default function MicrophonePage() {
 	} = useMicrophoneData({ selectMicrophoneRef });
 
 	const { micPermission } = useMicrophonePermission();
+
+	// Device-lost state — written ONCE by the App-level
+	// ``useDeviceLostToast`` subscriber (single event → single
+	// mechanism). While a loss is flagged the level monitor is paused
+	// (futile to monitor a vanished stream) and the recovery banner
+	// below replaces the dead meter with a Retry affordance.
+	const lostSource = useDeviceLostStore((s) => s.lostSource);
+	const clearLost = useDeviceLostStore((s) => s.clearLost);
+
+	// Voice-consent gate — mirrors useMicrophoneLevelMonitor's own
+	// guard and the server-side refusal: without the voice-biometric
+	// consent toggle the meter + mic test stay dead, so the page says
+	// so instead of showing a silently zero bar.
+	const consentBlocked = Boolean(config) && !config?.voice_biometric_consent;
+
+	// Deep-link for the consent banner: navigates to Settings → Privacy
+	// and scrolls/highlights the exact ``voice_biometric_consent``
+	// toggle (the shared navigate store + transient consent-field
+	// channel — same mechanism the backend's CLICKABLE OS notifications
+	// use).
+	const { navigate } = useNavigation();
+	const openConsentSettings = useCallback(() => {
+		navigate("settingsPrivacy", {
+			consentField: VOICE_BIOMETRIC_CONSENT_FIELD,
+		});
+	}, [navigate]);
+
+	// Recovery affordance: clear the lost flag + refresh the device
+	// list. Flipping the flag false un-pauses the level monitor (its
+	// effect re-runs and restarts monitoring); if the mic is still gone
+	// the backend re-emits ``device_lost`` and the banner returns.
+	const handleDeviceRecovery = useCallback(() => {
+		clearLost();
+		void loadData();
+	}, [clearLost, loadData]);
 
 	// Runtime-pack readiness — drives the "Preparing offline engine…"
 	// banner below. The mic test itself uses RMS only and works without
@@ -106,6 +146,7 @@ export default function MicrophonePage() {
 		updateConfig,
 		selectMicrophoneRef,
 		meterRef,
+		levelMonitorPaused: lostSource !== null,
 	});
 
 	// Wrap startTest + selectMicrophone so the first invocation flips
@@ -210,12 +251,33 @@ export default function MicrophonePage() {
 			<div className="space-y-6">
 				<MicrophonePermissionBanner micPermission={micPermission} />
 
+				{/* Voice-consent gate — the level monitor + mic test are
+			    refused without the voice-biometric consent toggle (GDPR
+			    Art. 9). Without this banner the meter silently sat at
+			    zero with no explanation; now the page names the actual
+			    state and deep-links to the exact Settings toggle. Gated
+			    on ``config`` so it can't flash while the config is still
+			    loading. */}
+				<MicrophoneConsentGateBanner
+					visible={Boolean(config) && consentBlocked}
+					onOpenSettings={openConsentSettings}
+				/>
+
+				{/* Device-lost recovery — shown while the backend has
+			    flagged the active microphone as lost. The level monitor
+			    is paused for the same condition; Retry clears the flag +
+			    refreshes the device list, which restarts monitoring. */}
+				<MicrophoneDeviceLostBanner
+					visible={lostSource !== null}
+					onRetry={handleDeviceRecovery}
+				/>
+
 				{/* Runtime-pack readiness banner — §4.8 / §4.9. Visible only
-					when the pack isn't ready AND the user has actually
-					started a test or picked a microphone. The mic test
-					itself works without the pack (RMS only — §4.9), so
-					this banner is purely informational; it does NOT block
-					the Start Test button. */}
+				when the pack isn't ready AND the user has actually
+				started a test or picked a microphone. The mic test
+				itself works without the pack (RMS only — §4.9), so
+				this banner is purely informational; it does NOT block
+				the Start Test button. */}
 				<OfflinePackPreparingBanner
 					visible={!packReady && hasAttempted}
 					status={packStatus}

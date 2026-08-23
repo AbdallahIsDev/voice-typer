@@ -24,6 +24,7 @@ All ``sounddevice`` calls are mocked so the tests run on any platform.
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 
@@ -191,8 +192,14 @@ class TestMicLevelPublishedWhenActive:
         lm.stop_monitoring()
 
     def test_payload_values_match_chunk(self, monkeypatch):
-        """The published ``level`` (rms) and ``peak`` values match the
-        chunk's RMS and peak (computed via the TY-17 AUDIO-NP path)."""
+        """The published ``level`` / ``peak`` carry the DISPLAY contract
+        (EMA-smoothed level scaled by ``_LEVEL_DISPLAY_GAIN``, capped at
+        1.0; EMA-smoothed peak) — the same values a
+        ``microphone_test_get_level`` poll returns for the same state.
+        The push replaced that poll on the Microphone page; pushing raw
+        instantaneous RMS here collapsed the live meter to ~0% because
+        the renderer writes ``width = level * 100%`` with no client-side
+        gain."""
         import voice_typer.server.level_monitor as lm
 
         holder = _wire_stream_with_callback_capture(monkeypatch)
@@ -200,7 +207,7 @@ class TestMicLevelPublishedWhenActive:
         lm._level_processor = None  # hit the no-processor branch
         lm.start_monitoring(mic_id=None)
 
-        # Chunk with known RMS=0.25, peak=0.25.
+        # Chunk with known raw RMS=0.25, raw peak=0.25.
         chunk = np.ones((512, 1), dtype=np.float32) * 0.25
         holder["callback"](chunk, 512, None, None)
 
@@ -214,16 +221,113 @@ class TestMicLevelPublishedWhenActive:
 
         evt = next(e for e in captured if e.get("type") == "mic_level")
         flat = chunk.ravel()
-        expected_rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
-        expected_peak = max(float(flat.max()), -float(flat.min()))
-        assert abs(evt["data"]["level"] - expected_rms) < 1e-6, (
-            f"TY-18: data.level {evt['data']['level']} != expected rms {expected_rms}"
+        raw_rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
+        raw_peak = max(float(flat.max()), -float(flat.min()))
+        # Smoothed state after one chunk: level = 0.4 * raw_rms (EMA from
+        # 0), peak = max(0 * 0.8, raw_peak) = raw_peak.
+        expected_level = min(1.0, 0.4 * raw_rms * lm._LEVEL_DISPLAY_GAIN)
+        assert abs(evt["data"]["level"] - expected_level) < 1e-6, (
+            f"pushed level {evt['data']['level']} != display-gain value {expected_level}"
         )
-        assert abs(evt["data"]["peak"] - expected_peak) < 1e-6, (
-            f"TY-18: data.peak {evt['data']['peak']} != expected peak {expected_peak}"
+        assert abs(evt["data"]["peak"] - raw_peak) < 1e-6, (
+            f"pushed peak {evt['data']['peak']} != smoothed peak {raw_peak}"
         )
 
         lm.stop_monitoring()
+
+    def test_push_payload_matches_get_level_poll(self, monkeypatch):
+        """PARITY CONTRACT: the ``mic_level`` push payload must be
+        interchangeable with the ``microphone_test_get_level`` poll
+        response it replaced — same smoothed state in, same level/peak
+        out. Guards against the push path drifting from the poll path's
+        scaling again."""
+        import voice_typer.server.level_monitor as lm
+
+        holder = _wire_stream_with_callback_capture(monkeypatch)
+        captured = _patch_event_bus_publish(monkeypatch)
+        lm._level_processor = None
+        lm.start_monitoring(mic_id=None)
+
+        # Two chunks with distinct amplitudes so smoothing matters (the
+        # second chunk's EMA depends on the first). Amplitudes chosen so
+        # the final display value stays below the 1.0 cap.
+        for amp in (0.3, 0.05):
+            holder["callback"](np.ones((512, 1), dtype=np.float32) * amp, 512, None, None)
+            # Respect the coalesce gate so each chunk produces a push.
+            deadline = time.monotonic() + lm._MIC_LEVEL_COALESCE_SEC + 0.005
+            while time.monotonic() < deadline:
+                time.sleep(0.001)
+
+        # Wait until a push lands carrying the FINAL smoothed state
+        # (don't assert an exact event count — the mic-level worker's
+        # latest-only drain may legally merge back-to-back payloads).
+        smoothed_a = 0.4 * 0.3  # EMA from zero after chunk 1
+        smoothed_b = 0.6 * smoothed_a + 0.4 * 0.05  # EMA after chunk 2
+        expected_level = min(1.0, smoothed_b * lm._LEVEL_DISPLAY_GAIN)
+        # Peak state: chunk 1 sets it to 0.3; chunk 2 decays it
+        # (0.3 * 0.8) and takes max with chunk 2's raw peak (0.05).
+        expected_peak = max(0.3 * 0.8, 0.05)
+        deadline = time.monotonic() + 2.0
+        matched = None
+        while time.monotonic() < deadline and matched is None:
+            for evt in captured:
+                if evt.get("type") != "mic_level":
+                    continue
+                data = evt["data"]
+                if math.isclose(data["level"], expected_level, abs_tol=1e-6) and math.isclose(
+                    data["peak"],
+                    expected_peak,
+                    abs_tol=1e-6,
+                ):
+                    matched = data
+                    break
+            if matched is None:
+                time.sleep(0.005)
+
+        assert matched is not None, (
+            f"a mic_level push matching the final smoothed state "
+            f"(level={expected_level}, peak={expected_peak}) must be published; "
+            f"captured={captured}"
+        )
+
+        # And the poll endpoint returns the SAME values for the same state.
+        polled = lm.get_level()
+        assert polled["level"] == pytest.approx(matched["level"]), (
+            f"get_level poll {polled['level']} != pushed {matched['level']}"
+        )
+        assert polled["peak"] == pytest.approx(matched["peak"]), (
+            f"get_level poll {polled['peak']} != pushed {matched['peak']}"
+        )
+        assert polled["active"] == matched["active"]
+
+        lm.stop_monitoring()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# forwarded event name matches the Tauri host allowlist
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestForwardedEventNameAllowlist:
+    """The published event name must survive the Tauri host's
+    ``ALLOWED_EVENT_TYPES`` allowlist untranslated — otherwise the host's
+    WS reader silently drops every frame ([WS-READER] dropping unknown
+    event type) and the meter freezes."""
+
+    def test_mic_level_and_device_lost_are_forwarded(self):
+        from tests.test_event_types_parity import _rust_allowed_event_types
+
+        allowlist = _rust_allowed_event_types()
+        assert "mic_level" in allowlist, "Rust ALLOWED_EVENT_TYPES must list mic_level or the host drops every frame"
+        assert "device_lost" in allowlist, (
+            "Rust ALLOWED_EVENT_TYPES must list device_lost or the host drops every frame"
+        )
+
+    def test_published_type_is_registered_in_event_bus_catalogue(self):
+        import voice_typer.server.event_bus as eb
+
+        assert "mic_level" in eb.EVENT_TYPES
+        assert "device_lost" in eb.EVENT_TYPES
 
 
 # ═══════════════════════════════════════════════════════════════════════════

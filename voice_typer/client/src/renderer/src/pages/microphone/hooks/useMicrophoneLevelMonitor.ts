@@ -109,6 +109,16 @@ interface UseMicrophoneLevelMonitorOptions {
 	 */
 	meterRef: RefObject<HTMLElement | null>;
 	/**
+	 * When true, the level monitor is force-paused: the mount effect
+	 * skips ``level_monitor_start`` and sends ``level_monitor_stop``
+	 * instead. Used by the Microphone page while the active device is
+	 * lost (``device_lost`` push event) — monitoring a vanished stream
+	 * is futile, so the page pauses the meter until the user retries
+	 * (flipping this back to false re-runs the effect and restarts
+	 * monitoring).
+	 */
+	paused?: boolean;
+	/**
 	 * Optional callback invoked when ``level_monitor_start`` is refused
 	 * with the backend's ``client.consent_required`` envelope (a race:
 	 * consent revoked between the renderer's client-side gate and the
@@ -143,6 +153,13 @@ export interface UseMicrophoneLevelMonitorResult {
 	setPeak: Dispatch<SetStateAction<number>>;
 	/** Exposed so the session hook can mark monitoring inactive on mic change. */
 	setMicMonitoring: Dispatch<SetStateAction<boolean>>;
+	/**
+	 *  True when level monitoring is blocked because
+	 * ``config.voice_biometric_consent`` is off. The Microphone page
+	 * renders an explanatory consent banner (with a deep-link to the
+	 * Settings toggle) instead of a silently dead meter.
+	 */
+	consentBlocked: boolean;
 }
 
 // ──  LevelBar colour ladder ────────────────────────────────────
@@ -164,6 +181,7 @@ export function useMicrophoneLevelMonitor({
 	playingRef,
 	testRunningRef,
 	meterRef,
+	paused = false,
 	onConsentRequired,
 }: UseMicrophoneLevelMonitorOptions): UseMicrophoneLevelMonitorResult {
 	const { call } = usePython();
@@ -227,7 +245,26 @@ export function useMicrophoneLevelMonitor({
 	// keep only a ONE-SHOT poll as a first-read fallback (so the UI
 	// doesn't freeze for ~33 ms waiting for the first push after
 	// ``level_monitor_start``).
+	//
+	// ``paused`` (device-lost gate): while the page reports the active
+	// microphone as lost, skip the start entirely AND send an explicit
+	// stop — the backend stream for a vanished device is dead weight.
+	// Flipping ``paused`` back to false re-runs this effect, which
+	// restarts monitoring without any extra imperative plumbing.
+	const consentBlocked = !config?.voice_biometric_consent;
 	useEffect(() => {
+		if (paused) {
+			setMicMonitoring(false);
+			callRef
+				.current("level_monitor_stop")
+				.catch((err) =>
+					console.warn(
+						"[renderer:useMicrophoneLevelMonitor] microphone command failed: level_monitor_stop:",
+						err,
+					),
+				);
+			return;
+		}
 		// Privacy gate (GDPR Art. 9): the level monitor opens a
 		// continuous biometric-capture InputStream on the mic — the
 		// backend enforces ``voice_biometric_consent`` and refuses
@@ -323,6 +360,7 @@ export function useMicrophoneLevelMonitor({
 	}, [
 		config?.microphone,
 		config?.voice_biometric_consent,
+		paused,
 		playingRef,
 		onConsentRequired,
 	]);
@@ -370,16 +408,19 @@ export function useMicrophoneLevelMonitor({
 	//     mic is muted, no audio input, or backend stalls), the loop
 	//     pauses after 500ms — no continuous spin.
 	//
-	// Visual parity: the prior React-driven path updated ``LevelBar``'s
-	// ``width`` + ``backgroundColor`` at ≤30 Hz via inline ``style``
-	// props. This rAF loop writes the same ``width`` + ``backgroundColor``
-	// to the same DOM node at ≤60 Hz while events are flowing — strictly
-	// smoother than the prior 30 Hz cadence, with the same visual result
-	// (the bar fills to the latest level with the same colour ladder).
+	// Visual parity: the React-driven path updates ``LevelBar``'s fill via
+	// inline ``transform: scaleX()`` + ``backgroundColor`` style props. This
+	// rAF loop writes the SAME two properties to the same DOM node at
+	// ≤60 Hz while events are flowing — strictly smoother than the 30 Hz
+	// React-driven cadence, with the same visual result (the bar fills to
+	// the latest level with the same colour ladder).
 	// When the loop is paused (idle / gate closed), the bar holds its
 	// last value — which matches the prior behaviour (the React state
 	// was already stale during monitoring; only the rAF-driven DOM write
 	// was live).
+	//  the rAF loop writes ``transform: scaleX()`` — LevelBar animates its
+	// fill via transform (see the PERF note in LevelBar.tsx), so writing
+	// ``width`` here would double-scale / freeze the bar.
 	const lastLevelEventAtRef = useRef(0);
 	const frameRef = useRef<number | null>(null);
 	const wakeRef = useRef<(() => void) | null>(null);
@@ -426,15 +467,23 @@ export function useMicrophoneLevelMonitor({
 				// LevelBar's fill div — ``[role="progressbar"] > div``.
 				// Selector mirrors ``LevelBar.tsx``'s render structure
 				// (the ``<div role="progressbar">`` wrapper + its single
-				// child ``<div>`` carrying the inline ``width`` /
+				// child ``<div>`` carrying the inline ``transform`` /
 				// ``backgroundColor`` style). If ``LevelBar``'s DOM
 				// changes, update this selector.
 				const fill = meter.querySelector<HTMLElement>(
 					'[role="progressbar"] > div',
 				);
 				if (fill) {
-					const lvl = levelRef.current;
-					fill.style.width = `${Math.max(0, lvl * 100)}%`;
+					// Write the SAME style property LevelBar renders:
+					// the fill is a full-width div animated via
+					// ``transform: scaleX()`` (compositor-friendly — see
+					// the PERF note in LevelBar.tsx). Writing ``width``
+					// here instead would fight the fill's ``w-full``
+					// class AND leave the transform at its stale
+					// React-rendered value, double-scaling / freezing
+					// the bar.
+					const lvl = Math.max(0, levelRef.current);
+					fill.style.transform = `scaleX(${lvl})`;
 					fill.style.backgroundColor = getLevelColor(lvl);
 				}
 			}
@@ -541,5 +590,6 @@ export function useMicrophoneLevelMonitor({
 		setLevel,
 		setPeak,
 		setMicMonitoring,
+		consentBlocked,
 	};
 }

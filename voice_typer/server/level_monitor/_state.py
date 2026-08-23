@@ -92,6 +92,15 @@ class _State:
         self._monitor_sample_rate: int = WHISPER_SAMPLE_RATE
         self._monitor_mic_id: str | None = None  # device this stream is on
 
+        # Display gain applied to the smoothed RMS before it reaches any
+        # UI surface (``get_level`` poll response AND the ``mic_level``
+        # push payload — both MUST scale identically so the two delivery
+        # paths stay interchangeable for the renderer).
+        # History: originally *5, raised to *8 ("MULT-8") so low-level
+        # ambient sounds produce a visible bar response; the bubble's
+        # ``rmsToNorm()`` applies the same multiplier client-side.
+        self._LEVEL_DISPLAY_GAIN: float = 8.0
+
         # ── Audio processor for filtering the live level bar ─────────
         # When set, audio from the callback is run through this processor's
         # process_chunk() before computing RMS/peak so the level bar
