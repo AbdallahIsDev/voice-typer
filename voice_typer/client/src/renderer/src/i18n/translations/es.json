@@ -97,7 +97,10 @@
 		"retryStartDictation": "Iniciar dictado",
 		"timerLabel": "Duración de la grabación",
 		"timerAria": "Duración de la grabación: {duration}",
-		"transcribingHint": "Transcribiendo… espere por favor"
+		"transcribingHint": "Transcribiendo… espere por favor",
+		"lowConfidenceWarning": "Esta transcripción puede ser imprecisa (confianza baja). Vuelve a dictar si parece incorrecta.",
+		"redictate": "Volver a dictar",
+		"redictateAria": "Grabar de nuevo"
 	},
 	"common": {
 		"cancel": "Cancelar",
@@ -139,6 +142,9 @@
 		"startTestFailed": "No se pudo iniciar la prueba de micrófono",
 		"consentRequired": "Se requiere el consentimiento biométrico de voz para probar o supervisar el micrófono.",
 		"consentRequiredAction": "Abrir ajustes de privacidad",
+		"consentRequiredTitle": "Se requiere consentimiento de voz",
+		"deviceLostTitle": "Micrófono desconectado",
+		"deviceLostDescription": "El micrófono activo desapareció. Reconéctalo o elige otro y vuelve a intentarlo.",
 		"recorded": "{seconds}s grabados",
 		"noAudio": "No se detectó audio.",
 		"tryDefaultMic": " Prueba el micrófono predeterminado.",
@@ -436,6 +442,12 @@
 		"version": "Versión",
 		"platforms": "Plataformas",
 		"platformsValue": "Windows, macOS y Linux",
+		"runtimePack": "Paquete de motores sin conexión",
+		"runtimePackNotChecked": "Aún no se ha comprobado",
+		"runtimePackUpToDate": "Actualizado (v{version})",
+		"runtimePackFailed": "Error al comprobar las actualizaciones",
+		"runtimePackConsentRequired": "La descarga del paquete sin conexión está desactivada. Actívela en Configuración → General para recibir actualizaciones.",
+		"runtimePackDownloadStarted": "Descargando la actualización en segundo plano.",
 		"connected": "Conectado",
 		"disconnected": "Desconectado",
 		"checking": "Comprobando…",
@@ -1589,6 +1601,10 @@
 		"recordingIndicatorAria": "Indicador de grabación de {appName}",
 		"transcribingLabel": "Transcribiendo",
 		"idleLabel": "Listo",
+		"blockedLabel": "Bloqueado",
+		"cancellingLabel": "Cancelando…",
+		"pasteFailedLabel": "Error al pegar",
+		"permissionRevokedLabel": "Permiso de micrófono revocado",
 		"recordingLabel": "GRAB",
 		"micButtonStartAria": "Iniciar dictado",
 		"micButtonStopAria": "Detener dictado",
@@ -1599,7 +1615,8 @@
 		"retryAria": "Reintentar transcripción",
 		"stopRecordingAria": "Detener grabación",
 		"dismissAria": "Descartar burbuja",
-		"transcriptPreviewAria": "Vista previa de transcripción en vivo"
+		"transcriptPreviewAria": "Vista previa de transcripción en vivo",
+		"livePreviewUnavailable": "Sin vista previa en vivo para este motor"
 	},
 	"errorBoundary": {
 		"title": "Algo salió mal",
@@ -1910,7 +1927,11 @@
 		"rateLimited": "Demasiadas solicitudes. Espere un momento e intente de nuevo.",
 		"unknownBackend": "El backend de transcripción encontró un error inesperado. Sus datos están seguros — intente de nuevo.",
 		"viewLogsAction": "Ver registros",
-		"copyErrorAction": "Copiar error"
+		"copyErrorAction": "Copiar error",
+		"commandTimeout": "La solicitud agotó el tiempo de espera — el motor puede estar aún cargándose. Inténtalo de nuevo en breve.",
+		"backendNotConnected": "El servicio en segundo plano aún no está conectado. Espera a que termine de iniciarse y vuelve a intentarlo.",
+		"invalidFields": "{count} valores se rechazaron como no válidos. Revisa los ajustes modificados y corrígelos.",
+		"invalidValue": "Uno de los valores proporcionados se rechazó como no válido. Comprueba el ajuste e inténtalo de nuevo."
 	},
 	"connection": {
 		"respawnFailed": "El backend no pudo reiniciarse automáticamente",
@@ -2036,6 +2057,15 @@
 			"llm_polish_consent": "El pulido con LLM envía su texto transcrito al proveedor LLM configurado para corregir gramática y puntuación. ¿Permitir?",
 			"offline_pack_consent": "El paquete del motor sin conexión (~180 MB) se descarga una vez desde el servidor de lanzamiento y permite la transcripción totalmente local. ¿Permitir la descarga?"
 		}
+	},
+
+	"degradation": {
+		"deviceLost": "Micrófono seleccionado desconectado",
+		"deviceLostHint": "Reconéctalo o elige otro micrófono y vuelve a intentarlo.",
+		"llmPolishFailed": "El pulido con IA falló — la transcripción se entregó sin limpieza gramatical",
+		"llmPolishFailedHint": "Comprueba la configuración de tu proveedor de LLM y la conexión. El pulido se reintenta automáticamente en la siguiente transcripción.",
+		"asrBackendDisabled": "Motor de voz {backend} deshabilitado tras fallos repetidos",
+		"asrBackendDisabledHint": "La transcripción usa otro motor. Abre Modelos para elegir uno distinto."
 	},
 	"trayState": {
 		"idle": "inactivo",

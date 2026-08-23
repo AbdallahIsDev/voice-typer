@@ -97,7 +97,10 @@
 		"retryStartDictation": "بدء الإملاء",
 		"timerLabel": "مدة التسجيل",
 		"timerAria": "مدة التسجيل: {duration}",
-		"transcribingHint": "جارٍ التحويل إلى نص… الرجاء الانتظار"
+		"transcribingHint": "جارٍ التحويل إلى نص… الرجاء الانتظار",
+		"lowConfidenceWarning": "قد يكون هذا النسخ غير دقيق (ثقة منخفضة). أعد الإملاء إذا بدا خاطئًا.",
+		"redictate": "إعادة الإملاء",
+		"redictateAria": "التسجيل مرة أخرى"
 	},
 	"common": {
 		"cancel": "إلغاء",
@@ -139,6 +142,9 @@
 		"startTestFailed": "تعذّر بدء اختبار الميكروفون",
 		"consentRequired": "يلزم الموافقة على المعالجة الحيوية للصوت لاختبار الميكروفون أو مراقبته.",
 		"consentRequiredAction": "فتح إعدادات الخصوصية",
+		"consentRequiredTitle": "الموافقة على معالجة الصوت مطلوبة",
+		"deviceLostTitle": "تم فصل الميكروفون",
+		"deviceLostDescription": "اختفى الميكروفون النشط. أعد توصيله أو اختر ميكروفونًا آخر، ثم أعد المحاولة.",
 		"recorded": "تم تسجيل {seconds} ث",
 		"noAudio": "لم يتم اكتشاف أي صوت.",
 		"tryDefaultMic": " جرّب الميكروفون الافتراضي.",
@@ -436,6 +442,12 @@
 		"version": "الإصدار",
 		"platforms": "المنصات",
 		"platformsValue": "Windows و macOS و Linux",
+		"runtimePack": "حزمة المحرّكات دون اتصال",
+		"runtimePackNotChecked": "لم يتم الفحص بعد",
+		"runtimePackUpToDate": "محدَّثة (v{version})",
+		"runtimePackFailed": "فشل التحقق من التحديث",
+		"runtimePackConsentRequired": "تنزيلات حزمة المحرّكات دون اتصال مُعطَّلة. فعِّلها من الإعدادات ← عام لتلقِّي التحديثات.",
+		"runtimePackDownloadStarted": "جارٍ تنزيل التحديث في الخلفية.",
 		"connected": "متصل",
 		"disconnected": "غير متصل",
 		"checking": "جارٍ الفحص…",
@@ -1589,6 +1601,10 @@
 		"recordingIndicatorAria": "مؤشر تسجيل {appName}",
 		"transcribingLabel": "جارٍ الكتابة",
 		"idleLabel": "جاهز",
+		"blockedLabel": "محظور",
+		"cancellingLabel": "جارٍ الإلغاء…",
+		"pasteFailedLabel": "فشل اللصق",
+		"permissionRevokedLabel": "تم إلغاء إذن الميكروفون",
 		"recordingLabel": "تسجيل",
 		"micButtonStartAria": "بدء الإملاء",
 		"micButtonStopAria": "إيقاف الإملاء",
@@ -1599,7 +1615,8 @@
 		"retryAria": "إعادة محاولة النسخ",
 		"stopRecordingAria": "إيقاف التسجيل",
 		"dismissAria": "إخفاء الفقاعة",
-		"transcriptPreviewAria": "معاينة النص المباشر"
+		"transcriptPreviewAria": "معاينة النص المباشر",
+		"livePreviewUnavailable": "لا توجد معاينة مباشرة لهذا المحرك"
 	},
 	"errorBoundary": {
 		"title": "حدث خطأ ما",
@@ -1910,7 +1927,11 @@
 		"rateLimited": "طلبات كثيرة جدًا. يرجى الانتظار لحظة والمحاولة مرة أخرى.",
 		"unknownBackend": "واجهت خدمة النسخ الصوتي خطأ غير متوقع. بياناتك آمنة — حاول مرة أخرى.",
 		"viewLogsAction": "عرض السجلات",
-		"copyErrorAction": "نسخ الخطأ"
+		"copyErrorAction": "نسخ الخطأ",
+		"commandTimeout": "انتهت مهلة الطلب — قد لا يزال المحرك قيد التحميل. حاول مجددًا بعد قليل.",
+		"backendNotConnected": "الخدمة الخلفية غير متصلة بعد. انتظر حتى تنتهي من بدء التشغيل ثم أعد المحاولة.",
+		"invalidFields": "تم رفض {count} من القيم لأنها غير صالحة. راجع الإعدادات المعدَّلة وصحّحها.",
+		"invalidValue": "تم رفض إحدى القيم المقدمة لأنها غير صالحة. تحقق من الإعداد وحاول مجددًا."
 	},
 	"connection": {
 		"respawnFailed": "تعذر إعادة تشغيل الواجهة الخلفية تلقائيًا",
@@ -2036,6 +2057,15 @@
 			"llm_polish_consent": "تحسين النص بالذكاء الاصطناعي يرسل نصك المنسوخ إلى موفر LLM المكوّن لتصحيح القواعد وعلامات الترقيم. هل تسمح؟",
 			"offline_pack_consent": "يتم تنزيل حزمة المحرك دون اتصال (~180 م.ب.) مرة واحدة من خادم الإصدارات وتمكّن النسخ المحلي بالكامل. هل تسمح بالتنزيل؟"
 		}
+	},
+
+	"degradation": {
+		"deviceLost": "تم فصل الميكروفون المحدد",
+		"deviceLostHint": "أعد توصيله أو اختر ميكروفونًا آخر، ثم أعد المحاولة.",
+		"llmPolishFailed": "فشل التحسين بالذكاء الاصطناعي — تم تسليم النسخ دون تحسين لغوي",
+		"llmPolishFailedHint": "تحقق من إعدادات مزوّد LLM واتصالك. يُعاد التحسين تلقائيًا في النسخ التالية.",
+		"asrBackendDisabled": "تم تعطيل محرك التعرف على الكلام {backend} بعد تكرار حالات الفشل",
+		"asrBackendDisabledHint": "سيعتمد التعرف على محرك آخر. افتح «النماذج» لاختيار نموذج مختلف."
 	},
 	"trayState": {
 		"idle": "خامل",

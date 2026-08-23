@@ -97,7 +97,10 @@
 		"retryStartDictation": "重新开始听写",
 		"timerAria": "录音计时器：{duration}",
 		"timerLabel": "计时器",
-		"transcribingHint": "正在转录..."
+		"transcribingHint": "正在转录...",
+		"lowConfidenceWarning": "这条转写可能不准确（置信度低）。如看起来有误，请重新听写。",
+		"redictate": "重新听写",
+		"redictateAria": "重新录音"
 	},
 	"common": {
 		"cancel": "取消",
@@ -139,6 +142,9 @@
 		"startTestFailed": "开始麦克风测试失败",
 		"consentRequired": "测试或监控麦克风需要语音生物识别同意。",
 		"consentRequiredAction": "打开隐私设置",
+		"consentRequiredTitle": "需要语音同意",
+		"deviceLostTitle": "麦克风已断开",
+		"deviceLostDescription": "当前麦克风已消失。请重新连接或选择其他麦克风，然后重试。",
 		"recorded": "已录制 {seconds} 秒",
 		"noAudio": "未检测到音频。",
 		"tryDefaultMic": "请尝试默认麦克风。",
@@ -436,6 +442,12 @@
 		"version": "版本",
 		"platforms": "平台",
 		"platformsValue": "Windows、macOS 和 Linux",
+		"runtimePack": "离线引擎包",
+		"runtimePackNotChecked": "尚未检查",
+		"runtimePackUpToDate": "已是最新版本（v{version}）",
+		"runtimePackFailed": "检查更新失败",
+		"runtimePackConsentRequired": "离线引擎包下载已关闭。请在“设置”→“常规”中开启以接收更新。",
+		"runtimePackDownloadStarted": "正在后台下载更新。",
 		"connected": "已连接",
 		"disconnected": "已断开",
 		"checking": "检查中…",
@@ -1589,6 +1601,10 @@
 		"recordingIndicatorAria": "{appName} 录音指示器",
 		"transcribingLabel": "转写中",
 		"idleLabel": "就绪",
+		"blockedLabel": "已屏蔽",
+		"cancellingLabel": "正在取消…",
+		"pasteFailedLabel": "粘贴失败",
+		"permissionRevokedLabel": "麦克风权限已被撤销",
 		"recordingLabel": "录音",
 		"micButtonStartAria": "开始听写",
 		"micButtonStopAria": "停止听写",
@@ -1599,7 +1615,8 @@
 		"retryAria": "重试转写",
 		"stopRecordingAria": "停止录音",
 		"dismissAria": "关闭气泡",
-		"transcriptPreviewAria": "实时转录预览"
+		"transcriptPreviewAria": "实时转录预览",
+		"livePreviewUnavailable": "当前引擎不支持实时预览"
 	},
 	"errorBoundary": {
 		"title": "出错了",
@@ -1910,7 +1927,11 @@
 		"rateLimited": "请求过多。请稍候片刻再试。",
 		"unknownBackend": "转写后端遇到意外错误。您的数据是安全的——请重试。",
 		"viewLogsAction": "查看日志",
-		"copyErrorAction": "复制错误"
+		"copyErrorAction": "复制错误",
+		"commandTimeout": "请求超时——引擎可能仍在加载。请稍后重试。",
+		"backendNotConnected": "后台服务尚未连接。请等待其完成启动后再试。",
+		"invalidFields": "{count} 个值被拒绝为无效。请检查所更改的设置并修正。",
+		"invalidValue": "提供的某个值被拒绝为无效。请重新检查该设置后重试。"
 	},
 	"connection": {
 		"respawnFailed": "后端无法自动重启",
@@ -2036,6 +2057,15 @@
 			"llm_polish_consent": "LLM 润色会将您的转录文本发送到所配置的 LLM 提供商，用于语法和标点修正。允许吗？",
 			"offline_pack_consent": "离线引擎包（约 180 MB）将从发布服务器下载一次，支持完全本地转录。允许下载吗？"
 		}
+	},
+
+	"degradation": {
+		"deviceLost": "所选麦克风已断开",
+		"deviceLostHint": "请重新连接或选择其他麦克风，然后重试。",
+		"llmPolishFailed": "AI 润色失败——转写未经语法清理即已交付",
+		"llmPolishFailedHint": "请检查你的 LLM 提供商设置和网络连接。下次转写时会自动重试润色。",
+		"asrBackendDisabled": "{backend} 语音引擎在多次失败后已停用",
+		"asrBackendDisabledHint": "转写将回退到其他引擎。打开“模型”页面选择其他引擎。"
 	},
 	"trayState": {
 		"idle": "空闲",

@@ -76,7 +76,10 @@
 		"retryStartDictation": "Démarrer la dictée",
 		"timerLabel": "Durée d'enregistrement",
 		"timerAria": "Durée d'enregistrement : {duration}",
-		"transcribingHint": "Transcription… veuillez patienter"
+		"transcribingHint": "Transcription… veuillez patienter",
+		"lowConfidenceWarning": "Cette transcription peut être imprécise (confiance faible). Refaites la dictée si elle semble incorrecte.",
+		"redictate": "Refaire la dictée",
+		"redictateAria": "Enregistrer à nouveau"
 	},
 	"settings": {
 		"title": "Paramètres",
@@ -1051,6 +1054,9 @@
 		"startTestFailed": "Impossible de démarrer le test du microphone",
 		"consentRequired": "Le consentement biométrique vocal est requis pour tester ou surveiller votre microphone.",
 		"consentRequiredAction": "Ouvrir les paramètres de confidentialité",
+		"consentRequiredTitle": "Consentement vocal requis",
+		"deviceLostTitle": "Microphone déconnecté",
+		"deviceLostDescription": "Le microphone actif a disparu. Reconnectez-le ou choisissez-en un autre, puis réessayez.",
 		"recorded": "{seconds}s enregistrés",
 		"noAudio": "Aucun audio détecté.",
 		"tryDefaultMic": " Essayez le microphone par défaut.",
@@ -1348,6 +1354,12 @@
 		"version": "Version",
 		"platforms": "Plateformes",
 		"platformsValue": "Windows, macOS et Linux",
+		"runtimePack": "Pack de moteurs hors ligne",
+		"runtimePackNotChecked": "Pas encore vérifié",
+		"runtimePackUpToDate": "À jour (v{version})",
+		"runtimePackFailed": "Échec de la recherche de mise à jour",
+		"runtimePackConsentRequired": "Le téléchargement du pack hors ligne est désactivé. Activez-le dans Paramètres → Général pour recevoir les mises à jour.",
+		"runtimePackDownloadStarted": "Téléchargement de la mise à jour en arrière-plan.",
 		"connected": "Connecté",
 		"disconnected": "Déconnecté",
 		"checking": "Vérification…",
@@ -1457,6 +1469,10 @@
 		"recordingIndicatorAria": "Indicateur d'enregistrement {appName}",
 		"transcribingLabel": "Transcription en cours",
 		"idleLabel": "Prêt",
+		"blockedLabel": "Bloqué",
+		"cancellingLabel": "Annulation…",
+		"pasteFailedLabel": "Échec du collage",
+		"permissionRevokedLabel": "Autorisation micro révoquée",
 		"recordingLabel": "ENREG",
 		"micButtonStartAria": "Commencer la dictée",
 		"micButtonStopAria": "Arrêter la dictée",
@@ -1467,7 +1483,8 @@
 		"retryAria": "Réessayer la transcription",
 		"stopRecordingAria": "Arrêter l'enregistrement",
 		"dismissAria": "Fermer la bulle",
-		"transcriptPreviewAria": "Aperçu de la transcription en direct"
+		"transcriptPreviewAria": "Aperçu de la transcription en direct",
+		"livePreviewUnavailable": "Pas d'aperçu en direct pour ce moteur"
 	},
 	"errorBoundary": {
 		"title": "Une erreur s'est produite",
@@ -1910,7 +1927,11 @@
 		"rateLimited": "Trop de requêtes. Veuillez attendre un instant et réessayer.",
 		"unknownBackend": "Le backend de transcription a rencontré une erreur inattendue. Vos données sont en sécurité — réessayez.",
 		"viewLogsAction": "Voir les journaux",
-		"copyErrorAction": "Copier l'erreur"
+		"copyErrorAction": "Copier l'erreur",
+		"commandTimeout": "La demande a expiré — le moteur est peut-être encore en cours de chargement. Réessayez dans un instant.",
+		"backendNotConnected": "Le service en arrière-plan n'est pas encore connecté. Attendez la fin de son démarrage, puis réessayez.",
+		"invalidFields": "{count} valeurs ont été rejetées comme non valides. Vérifiez les paramètres modifiés et corrigez-les.",
+		"invalidValue": "L'une des valeurs fournies a été rejetée comme non valide. Vérifiez le paramètre et réessayez."
 	},
 	"connection": {
 		"respawnFailed": "Le backend n'a pas pu redémarrer automatiquement",
@@ -2036,6 +2057,15 @@
 			"llm_polish_consent": "La correction par LLM envoie votre texte transcrit au fournisseur LLM configuré pour corriger la grammaire et la ponctuation. Autoriser ?",
 			"offline_pack_consent": "Le pack moteur hors ligne (~180 Mo) est téléchargé une fois depuis le serveur de publication et permet une transcription entièrement locale. Autoriser le téléchargement ?"
 		}
+	},
+
+	"degradation": {
+		"deviceLost": "Microphone sélectionné déconnecté",
+		"deviceLostHint": "Reconnectez-le ou choisissez un autre microphone, puis réessayez.",
+		"llmPolishFailed": "Échec du raffinement IA — transcription livrée sans correction grammaticale",
+		"llmPolishFailedHint": "Vérifiez les réglages de votre fournisseur LLM et la connexion. Le raffinement réessaie automatiquement à la prochaine transcription.",
+		"asrBackendDisabled": "Moteur vocal {backend} désactivé après plusieurs échecs",
+		"asrBackendDisabledHint": "La transcription utilise un autre moteur. Ouvrez Modèles pour en choisir un différent."
 	},
 	"trayState": {
 		"idle": "inactif",

@@ -97,7 +97,10 @@
 		"retryStartDictation": "Diktat starten",
 		"timerLabel": "Aufnahmedauer",
 		"timerAria": "Aufnahmedauer: {duration}",
-		"transcribingHint": "Wird transkribiert… bitte warten"
+		"transcribingHint": "Wird transkribiert… bitte warten",
+		"lowConfidenceWarning": "Diese Transkription könnte ungenau sein (geringe Konfidenz). Diktieren Sie erneut, wenn sie falsch aussieht.",
+		"redictate": "Erneut diktieren",
+		"redictateAria": "Erneut aufnehmen"
 	},
 	"common": {
 		"cancel": "Abbrechen",
@@ -139,6 +142,9 @@
 		"startTestFailed": "Mikrofontest konnte nicht gestartet werden",
 		"consentRequired": "Für das Testen oder Überwachen Ihres Mikrofons ist die Einwilligung zur Verarbeitung biometrischer Sprachdaten erforderlich.",
 		"consentRequiredAction": "Datenschutzeinstellungen öffnen",
+		"consentRequiredTitle": "Zustimmung zur Sprachverarbeitung erforderlich",
+		"deviceLostTitle": "Mikrofon getrennt",
+		"deviceLostDescription": "Das aktive Mikrofon ist verschwunden. Schließen Sie es erneut an oder wählen Sie ein anderes, und versuchen Sie es dann erneut.",
 		"recorded": "{seconds}s aufgenommen",
 		"noAudio": "Kein Audio erkannt.",
 		"tryDefaultMic": " Versuchen Sie das Standardmikrofon.",
@@ -436,6 +442,12 @@
 		"version": "Version",
 		"platforms": "Plattformen",
 		"platformsValue": "Windows, macOS und Linux",
+		"runtimePack": "Offline-Engine-Paket",
+		"runtimePackNotChecked": "Noch nicht geprüft",
+		"runtimePackUpToDate": "Aktuell (v{version})",
+		"runtimePackFailed": "Update-Prüfung fehlgeschlagen",
+		"runtimePackConsentRequired": "Downloads des Offline-Pakets sind deaktiviert. Aktivieren Sie sie unter Einstellungen → Allgemein, um Updates zu erhalten.",
+		"runtimePackDownloadStarted": "Das Update wird im Hintergrund heruntergeladen.",
 		"connected": "Verbunden",
 		"disconnected": "Getrennt",
 		"checking": "Wird geprüft…",
@@ -1589,6 +1601,10 @@
 		"recordingIndicatorAria": "{appName}-Aufnahmeanzeige",
 		"transcribingLabel": "Transkribieren",
 		"idleLabel": "Bereit",
+		"blockedLabel": "Blockiert",
+		"cancellingLabel": "Bricht ab…",
+		"pasteFailedLabel": "Einfügen fehlgeschlagen",
+		"permissionRevokedLabel": "Mikrofonzugriff widerrufen",
 		"recordingLabel": "AUFNAHME",
 		"micButtonStartAria": "Diktat starten",
 		"micButtonStopAria": "Diktat beenden",
@@ -1599,7 +1615,8 @@
 		"retryAria": "Transkription wiederholen",
 		"stopRecordingAria": "Aufnahme beenden",
 		"dismissAria": "Blase schließen",
-		"transcriptPreviewAria": "Live-Transkript-Vorschau"
+		"transcriptPreviewAria": "Live-Transkript-Vorschau",
+		"livePreviewUnavailable": "Keine Live-Vorschau für diese Engine"
 	},
 	"errorBoundary": {
 		"title": "Etwas ist schiefgegangen",
@@ -1910,7 +1927,11 @@
 		"rateLimited": "Zu viele Anfragen. Bitte warten Sie einen Moment und versuchen Sie es erneut.",
 		"unknownBackend": "Das Transkriptions-Backend hat einen unerwarteten Fehler verursacht. Ihre Daten sind sicher – versuchen Sie es erneut.",
 		"viewLogsAction": "Protokolle anzeigen",
-		"copyErrorAction": "Fehler kopieren"
+		"copyErrorAction": "Fehler kopieren",
+		"commandTimeout": "Die Anfrage hat das Zeitlimit überschritten – die Engine lädt möglicherweise noch. Versuchen Sie es gleich erneut.",
+		"backendNotConnected": "Der Hintergrunddienst ist noch nicht verbunden. Warten Sie, bis er gestartet ist, und versuchen Sie es dann erneut.",
+		"invalidFields": "{count} Werte wurden als ungültig abgelehnt. Überprüfen Sie die geänderten Einstellungen und korrigieren Sie sie.",
+		"invalidValue": "Einer der angegebenen Werte wurde als ungültig abgelehnt. Überprüfen Sie die Einstellung und versuchen Sie es erneut."
 	},
 	"connection": {
 		"respawnFailed": "Backend konnte nicht automatisch neu gestartet werden",
@@ -2036,6 +2057,15 @@
 			"llm_polish_consent": "Die LLM-Textverbesserung sendet Ihren transkribierten Text zur Korrektur von Grammatik und Zeichensetzung an den konfigurierten LLM-Anbieter. Zulassen?",
 			"offline_pack_consent": "Das Offline-Engine-Paket (~180 MB) wird einmalig vom Release-Server heruntergeladen und ermöglicht vollständig lokale Transkription. Download zulassen?"
 		}
+	},
+
+	"degradation": {
+		"deviceLost": "Ausgewähltes Mikrofon getrennt",
+		"deviceLostHint": "Schließen Sie es erneut an oder wählen Sie ein anderes Mikrofon, und versuchen Sie es dann erneut.",
+		"llmPolishFailed": "KI-Optimierung fehlgeschlagen – Transkript ohne Grammatikkorrektur geliefert",
+		"llmPolishFailedHint": "Prüfen Sie Ihre LLM-Anbietereinstellungen und die Verbindung. Die Optimierung wird bei der nächsten Transkription automatisch wiederholt.",
+		"asrBackendDisabled": "{backend}-Sprachengine nach wiederholten Fehlern deaktiviert",
+		"asrBackendDisabledHint": "Die Transkription fällt auf eine andere Engine zurück. Öffnen Sie „Modelle“, um eine andere zu wählen."
 	},
 	"trayState": {
 		"idle": "bereit",

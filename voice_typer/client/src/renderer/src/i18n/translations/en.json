@@ -97,7 +97,10 @@
 		"retryStartDictation": "Start dictation",
 		"timerLabel": "Recording duration",
 		"timerAria": "Recording duration: {duration}",
-		"transcribingHint": "Transcribing… please wait"
+		"transcribingHint": "Transcribing… please wait",
+		"lowConfidenceWarning": "This transcription may be inaccurate (low confidence). Re-dictate if it looks wrong.",
+		"redictate": "Re-dictate",
+		"redictateAria": "Record again"
 	},
 	"dashboard": {
 		"cards": {
@@ -146,6 +149,9 @@
 		"startTestFailed": "Failed to start microphone test",
 		"consentRequired": "Voice biometric consent is required to test or monitor your microphone.",
 		"consentRequiredAction": "Open Privacy settings",
+		"consentRequiredTitle": "Voice consent required",
+		"deviceLostTitle": "Microphone disconnected",
+		"deviceLostDescription": "The active microphone disappeared. Reconnect it or choose another one, then retry.",
 		"recorded": "{seconds}s recorded",
 		"noAudio": "No audio detected.",
 		"tryDefaultMic": " Try the default microphone.",
@@ -443,6 +449,12 @@
 		"version": "Version",
 		"platforms": "Platforms",
 		"platformsValue": "Windows, macOS, and Linux",
+		"runtimePack": "Offline engine pack",
+		"runtimePackNotChecked": "Not checked yet",
+		"runtimePackUpToDate": "Up to date (v{version})",
+		"runtimePackFailed": "Update check failed",
+		"runtimePackConsentRequired": "Offline pack downloads are turned off. Enable them in Settings → General to receive updates.",
+		"runtimePackDownloadStarted": "Downloading the update in the background.",
 		"connected": "Connected",
 		"disconnected": "Disconnected",
 		"checking": "Checking…",
@@ -1364,6 +1376,10 @@
 		"idleIndicatorAria": "{appName} idle indicator",
 		"transcribingLabel": "Transcribing",
 		"idleLabel": "Ready",
+		"blockedLabel": "Blocked",
+		"cancellingLabel": "Cancelling…",
+		"pasteFailedLabel": "Paste failed",
+		"permissionRevokedLabel": "Mic permission revoked",
 		"errorLabel": "⚠ Error",
 		"recordingLabel": "REC",
 		"micButtonStopAria": "Stop dictation",
@@ -1371,7 +1387,8 @@
 		"retryAria": "Retry transcription",
 		"stopRecordingAria": "Stop recording",
 		"dismissAria": "Dismiss bubble",
-		"transcriptPreviewAria": "Live transcript preview"
+		"transcriptPreviewAria": "Live transcript preview",
+		"livePreviewUnavailable": "No live preview for this engine"
 	},
 	"help": {
 		"title": "Keyboard Shortcuts",
@@ -1910,7 +1927,11 @@
 		"rateLimited": "Too many requests. Please wait a moment and try again.",
 		"unknownBackend": "The transcription backend hit an unexpected error. Your data is safe — try again.",
 		"viewLogsAction": "View logs",
-		"copyErrorAction": "Copy error"
+		"copyErrorAction": "Copy error",
+		"commandTimeout": "The request timed out — the engine may still be loading. Try again shortly.",
+		"backendNotConnected": "The background service isn't connected yet. Wait for it to finish starting, then try again.",
+		"invalidFields": "{count} values were rejected as invalid. Review the changed settings and correct them.",
+		"invalidValue": "One of the provided values was rejected as invalid. Recheck the setting and try again."
 	},
 	"connection": {
 		"respawnFailed": "Backend couldn't restart automatically",
@@ -2036,6 +2057,15 @@
 			"llm_polish_consent": "LLM polish sends your transcribed text to the configured LLM provider for grammar and punctuation cleanup. Allow?",
 			"offline_pack_consent": "The offline engine pack (~180 MB) is downloaded once from the release server and enables fully local transcription. Allow the download?"
 		}
+	},
+
+	"degradation": {
+		"deviceLost": "Selected microphone disconnected",
+		"deviceLostHint": "Reconnect it or pick another microphone, then retry.",
+		"llmPolishFailed": "AI polish failed — transcription delivered without grammar cleanup",
+		"llmPolishFailedHint": "Check your LLM provider settings and connection. Polish retries automatically on the next transcription.",
+		"asrBackendDisabled": "{backend} speech engine disabled after repeated failures",
+		"asrBackendDisabledHint": "Transcription falls back to another engine. Open Models to pick a different one."
 	},
 	"trayState": {
 		"idle": "idle",

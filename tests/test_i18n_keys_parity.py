@@ -285,3 +285,35 @@ def test_zu_fix_22_search_hints_translated(locale_flats: dict[str, dict[str, str
         loc = locale_flats[locale]
         untranslated = [k for k in keys if loc.get(k) == en.get(k)]
         assert not untranslated, f"{locale}.json still has untranslated settings.searchHints.*: {untranslated}"
+
+
+def _no_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict:
+    """object_pairs_hook that raises on ANY duplicate sibling key.
+
+    ``json.loads`` silently keeps the LAST duplicate, so a copy-pasted
+    namespace (e.g. a second top-level ``"errors"`` block) shadows the
+    original without any error. This hook turns that into a hard
+    failure naming the duplicated key.
+    """
+    result: dict = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key!r}")
+        result[key] = value
+    return result
+
+
+@pytest.mark.parametrize("locale", ALL_LOCALES)
+def test_no_duplicate_keys_in_any_locale(locale):
+    """No translation file may contain duplicate sibling JSON keys.
+
+    Duplicate keys parse silently (last-wins), shadowing the earlier
+    block's translations — a standing drift trap that key-presence
+    tests cannot see because they read the merged view.
+    """
+    path = TRANSLATIONS_DIR / f"{locale}.json"
+    with path.open(encoding="utf-8") as f:
+        try:
+            json.load(f, object_pairs_hook=_no_duplicate_json_keys)
+        except ValueError as exc:
+            pytest.fail(f"{path.name}: {exc}")
