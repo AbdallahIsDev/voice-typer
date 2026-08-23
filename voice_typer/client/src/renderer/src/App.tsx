@@ -9,11 +9,14 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { TitleBar } from "@/components/layout/TitleBar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useAsrBackendDisabledToast } from "@/hooks/useAsrBackendDisabledToast";
 import { useConnection } from "@/hooks/useConnection";
 import { useConnectionToasts } from "@/hooks/useConnectionToasts";
+import { useDeviceLostToast } from "@/hooks/useDeviceLostToast";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useGlobalKeyboardShortcuts";
 import { useHelpOverlayShortcut } from "@/hooks/useHelpOverlayShortcut";
 import { useLastResortUnloadedToast } from "@/hooks/useLastResortUnloadedToast";
+import { useLlmPolishFailedToast } from "@/hooks/useLlmPolishFailedToast";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useNavigation } from "@/hooks/useNavigation";
 import { useNetworkOnline } from "@/hooks/useNetworkOnline";
@@ -267,6 +270,21 @@ export default function App() {
 
 	// paste_failed toast — extracted to `usePasteFailedToast` (EO-28).
 	usePasteFailedToast(t);
+
+	// Degradation-event toasts — the typed-but-previously-unsubscribed
+	// server push events. Each hook is the SINGLE consumer of its event
+	// and shows ONE actionable localized notification naming what
+	// degraded + what to do:
+	//   - device_lost also flips the shared Microphone-page state
+	//     (meter pause + recovery banner) via deviceLostStore.
+	//   - llm_polish_failed covers the silent "transcription delivered
+	//     raw" path of the optional AI-polish step.
+	//   - asr_backend_disabled covers the recoverable engine-fallback
+	//     case (asr_last_resort_unloaded — the TERMINAL case — has its
+	//     own hook above).
+	useDeviceLostToast(t, () => navigate("microphone"));
+	useLlmPolishFailedToast(t);
+	useAsrBackendDisabledToast(t, () => navigate("models"));
 
 	// asr_last_resort_unloaded toast — surfaces the Models-page pointer
 	// as an IN-APP toast so the user still sees it when OS tray

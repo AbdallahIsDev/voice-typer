@@ -33,6 +33,7 @@ import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { useTheme } from "@/hooks/useTheme";
 import { t } from "@/i18n/i18n";
+import { userFacingErrorMessage } from "@/lib/errors/userFacingErrorMessage";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 
@@ -471,7 +472,13 @@ export default function SettingsPage({
 			}
 		} catch (err) {
 			console.error("[renderer:Settings] Failed to reset to defaults:", err);
-			showSnack(t("settings.resetFailed"), "error");
+			// Known failure classes (timeout / backend unreachable) get
+			// their curated localized message; unknown ones keep the
+			// contextual fallback.
+			showSnack(
+				userFacingErrorMessage(err, t, t("settings.resetFailed")),
+				"error",
+			);
 		}
 	}, [config, call, updateConfig, showSnack]);
 
