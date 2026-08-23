@@ -676,16 +676,29 @@ class TestOpenElectronWindow:
     Tests mock at the tray_window module level.
     """
 
-    def test_primary_path_pushes_show_window_over_tcp(self, tray, monkeypatch):
+    def test_primary_path_pushes_show_window_over_tcp(self, tray, monkeypatch, caplog):
         """The primary path should push {"type": "show_window"} via TCP."""
         pushed = []
         monkeypatch.setattr(
             "voice_typer.server.event_bus.publish",
             lambda msg: pushed.append(msg) or True,
         )
-        tray.open_electron_window()
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.has_live_transport",
+            lambda: True,
+        )
+        with caplog.at_level("INFO", logger="voice_typer.server.tray_window"):
+            tray.open_electron_window()
         assert len(pushed) == 1
         assert pushed[0] == {"type": "show_window"}
+        # The delivery log must be specific about what happened (not a
+        # vague "pushed" line): it names the trigger (tray left-click),
+        # the transport (IPC), and what Electron will do (show + raise
+        # + focus the dashboard).
+        assert any(
+            "Tray icon left-click" in rec.message and "show_window" in rec.message and "raise and focus" in rec.message
+            for rec in caplog.records
+        ), f"expected specific show_window delivery log, got: {[r.message for r in caplog.records]}"
 
     def test_falls_back_to_bring_electron_to_front(self, tray, monkeypatch):
         """When TCP push fails, should try bring_electron_to_front."""

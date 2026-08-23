@@ -174,9 +174,7 @@ def bring_electron_to_front() -> bool:
         # window was brought to front.
         fg_hwnd = ctypes.windll.user32.GetForegroundWindow()
         if not fg_hwnd:
-            log.info(
-                "[TRAY] No foreground window (secure desktop / Winlogon active) — skipping bring-to-front"
-            )
+            log.info("[TRAY] No foreground window (secure desktop / Winlogon active) — skipping bring-to-front")
             return False
 
         found_hwnd = None
@@ -267,7 +265,10 @@ def open_electron_window() -> None:
     # reports a live host client; otherwise fall through to the Win32
     # focus path so the window still appears.
     if published and event_bus.has_live_transport():
-        log.info("[TRAY] show_window pushed to Electron")
+        log.info(
+            "[TRAY] Tray icon left-click: show_window request sent to Electron "
+            "over IPC — Electron will show, raise and focus the dashboard window"
+        )
         return
     log.info("[TRAY] no live Electron transport — trying Win32 focus")
 
@@ -286,10 +287,7 @@ def open_electron_window() -> None:
     #    macOS/Linux a transient TCP blip fell straight through to a
     #    duplicate launch.
     if _electron_process_is_running():
-        log.warning(
-            "[TRAY] Electron appears to be running but window focus failed — "
-            "skipping duplicate launch (EO-16)"
-        )
+        log.warning("[TRAY] Electron appears to be running but window focus failed — skipping duplicate launch (EO-16)")
         return
 
     # 4. Last resort: Electron isn't running — build + launch with
