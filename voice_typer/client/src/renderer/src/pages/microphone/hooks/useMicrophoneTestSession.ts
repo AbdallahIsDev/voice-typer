@@ -47,6 +47,7 @@ import {
 	VOICE_BIOMETRIC_CONSENT_FIELD,
 } from "@/lib/consent";
 import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
+import { userFacingErrorMessage } from "@/lib/errors/userFacingErrorMessage";
 import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 import { buildTestFilters } from "../lib/buildTestFilters";
 import { computeAudioKey } from "../lib/computeAudioKey";
@@ -284,7 +285,13 @@ export function useMicrophoneTestSession({
 				"[renderer:useMicrophoneTestSession] Failed to stop microphone test:",
 				err,
 			);
-			showSnack(t("microphone.stopTestFailed"), "error");
+			// Known failure classes (timeout / backend unreachable /
+			// rate limit) get their curated localized message; unknown
+			// ones keep the contextual "failed to stop" fallback.
+			showSnack(
+				userFacingErrorMessage(err, t, t("microphone.stopTestFailed")),
+				"error",
+			);
 		} finally {
 			stoppingRef.current = false;
 		}
@@ -457,7 +464,13 @@ export function useMicrophoneTestSession({
 				"[renderer:useMicrophoneTestSession] Failed to start microphone test:",
 				err,
 			);
-			showSnack(t("microphone.startTestFailed"), "error");
+			// Known failure classes (timeout / backend unreachable /
+			// rate limit) get their curated localized message; unknown
+			// ones keep the contextual "failed to start" fallback.
+			showSnack(
+				userFacingErrorMessage(err, t, t("microphone.startTestFailed")),
+				"error",
+			);
 		}
 	}, [
 		call,
@@ -535,8 +548,13 @@ export function useMicrophoneTestSession({
 						: (microphones.find((m) => (m.id ?? String(m.index)) === micId)
 								?.name ?? t("microphone.microphone"));
 				showSnack(t("microphone.usingMic", { name: label }), "success");
-			} catch {
-				showSnack(t("microphone.setFailed"), "error");
+			} catch (err) {
+				// Known failure classes surface their curated message;
+				// unknown ones keep the contextual fallback.
+				showSnack(
+					userFacingErrorMessage(err, t, t("microphone.setFailed")),
+					"error",
+				);
 			}
 		},
 		[
