@@ -145,8 +145,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   addendum; +1 later the same day — `run_prewarm` restored (plan §6.3
   addendum 2nd half, re-implemented to re-run the worker's warm phase
   in-process via `prewarm.status.run_prewarm_now` instead of spawning
-  the deleted standalone-prewarm subprocess); +1 `check_pack_update`
-  added by the auto-update feature). The 4-way parity
+   the deleted standalone-prewarm subprocess); +1 `check_offline_pack_update`
+   added by the auto-update feature). The 4-way parity
   test (`tests/test_security_doc_command_count.py` +
   `tests/test_electron_ipc_and_build.py::TestAllowlistCorrectness`) now
   passes; previously it failed.
@@ -167,8 +167,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   STAYS retired — start/stop is the `fast_startup` toggle gating the
   worker warm phase, so the "Run Prewarm Now" button was not restored.
   Reconciliation counts now: TS allowlist = 68, Rust allowlist = 66,
-  Python registry = 70 (`run_prewarm` still removed; `check_pack_update`
-  added by the auto-update feature, docs/auto-update-feature.md).
+   Python registry = 70 (`run_prewarm` still removed; `check_offline_pack_update`
+   added by the auto-update feature, docs/auto-update-feature.md).
   (+2 2026-08-16: `get_correction_usage` + `test_vocabulary_correction`,
   vocabulary usage tracking + live-correction test panel — see the
   ADR-0020 §16 addendum 2026-08-16; counts now 71/69/73.)
@@ -404,7 +404,7 @@ Changes that affect end users (new features, bug fixes, UX improvements).
 - **Label associations** on all settings inputs (screen reader support)
 - **"Reset to Defaults"** fetches from backend (no silent drift from hardcoded defaults)
 - **Honest "not implemented" messages** on fake buttons (model download, benchmark)
-  - Note: the microphone test is **real** — it opens a live `sounddevice.InputStream` via `level_monitor.start_test_recording()` and returns captured audio. Only model download progress and the model benchmark are simulated.
+  - Note: the microphone test is **real** — it opens a live `sounddevice.InputStream` via `level_monitor.start_test_recording()` and returns captured audio. (At the time, model download progress and the model benchmark were simulated — downloads are real today via `huggingface_hub.snapshot_download`, and the benchmark UI has since been removed.)
 
 ---
 

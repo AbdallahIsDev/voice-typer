@@ -44,7 +44,8 @@ are added or removed. The Tauri Rust host enforces a mirror allowlist
 entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 
 > The Python-side `_COMMAND_REGISTRY` in
-> `voice_typer/server/ipc_server.py` registers **73** handlers. Two of
+> `voice_typer/server/ipc/registry.py` (re-exported by
+> `ipc_server.py`) registers **73** handlers. Two of
 > those are intentionally absent from the renderer allowlist:
 > `tray_click` (a Rust-only command routed via `dispatch_inner` — the
 > tray handler invokes it directly, bypassing the allowlist gate) and
@@ -76,7 +77,7 @@ entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 > (the About-page Cache Status card is a user-facing product feature —
 > plan §6.3 addendum) while `run_prewarm` stayed removed (its
 > standalone-prewarm subprocess machinery is gone), bringing the
-> counts to 69/67/65. `check_pack_update` was added the same day by
+> counts to 69/67/65. `check_offline_pack_update` was added the same day by
 > the auto-update feature (docs/auto-update-feature.md) — the
 > runtime-pack manifest check + consent-gated background download —
 > bringing the counts to 70/68/66. Later the same day, `run_prewarm`

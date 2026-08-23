@@ -36,21 +36,21 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-# ─── 36-event bus ─────────────────────────────────────────────────────
+# ─── 37-event bus ─────────────────────────────────────────────────────
 
 
-def test_gp91_event_bus_count_is_36_in_doc_and_code():
-    """Doc must say "36-event bus" and ``EVENT_TYPES`` must have 36 entries."""
+def test_gp91_event_bus_count_is_37_in_doc_and_code():
+    """Doc must say "37-event bus" and ``EVENT_TYPES`` must have 37 entries."""
     doc = _read(ARCH_DOC)
-    assert "36-event bus" in doc, "ARCHITECTURE.md must describe the bus as '36-event bus' ."
+    assert "37-event bus" in doc, "ARCHITECTURE.md must describe the bus as '37-event bus' ."
     assert "24-event bus" not in doc, "Stale '24-event bus' must not appear in ARCHITECTURE.md ."
-    # And the IPC-contract section's frozen-surface count must also say 36.
-    assert "69 commands / 36 events" in doc, "IPC contract section must say '69 commands / 36 events'."
+    # And the IPC-contract section's frozen-surface count must also say 37.
+    assert "69 commands / 37 events" in doc, "IPC contract section must say '69 commands / 37 events'."
 
     from voice_typer.server.event_bus import EVENT_TYPES
 
-    assert len(EVENT_TYPES) == 36, (
-        f"EVENT_TYPES in voice_typer/server/event_bus.py must have 36 "
+    assert len(EVENT_TYPES) == 37, (
+        f"EVENT_TYPES in voice_typer/server/event_bus.py must have 37 "
         f"entries (actual: {len(EVENT_TYPES)}). Update doc + test together."
     )
 
@@ -246,8 +246,8 @@ def test_gp94_tauri_command_count_in_doc_matches_code():
     assert "ONE generic `dispatch`" not in body, "stale 'ONE generic `dispatch`' phrase must be removed."
 
 
-def test_gp94_main_rs_line_count_is_264():
-    """Doc claims 333 lines; main.rs must actually be 333 lines.
+def test_gp94_main_rs_line_count_is_349():
+    """Doc claims 349 lines; main.rs must actually be 349 lines.
 
     Updated 2026-08-13: main.rs grew from 264 → 288 lines as part of
     the runtime-pack split (additional setup wiring for the worker
@@ -267,18 +267,26 @@ def test_gp94_main_rs_line_count_is_264():
     live in the extracted ``host_events`` module, satisfying AGENTS.md
     C-ARCH-1 (~138 non-comment code lines). Doc + test pin updated in
     lockstep.
+
+    Updated 2026-08-23: main.rs grew from 333 → 349 lines — durable
+    bubble-position persistence wiring (WindowEvent::Moved branch for
+    the bubble label + generation-debounced persist schedule). Bodies
+    live in ``commands/bubble/persisted_position.rs``. Doc + test pin
+    updated in lockstep.
     """
     doc = _read(ARCH_DOC)
-    assert "333 lines" in doc, "Doc must claim '333 lines' for main.rs."
+    assert "349 lines" in doc, "Doc must claim '349 lines' for main.rs."
     actual = sum(1 for _ in _read(MAIN_RS).splitlines())
-    assert actual == 333, (
-        f"src-tauri/src/main.rs must be 333 lines (actual: {actual}). Update the doc + this test together."
+    assert actual == 349, (
+        f"src-tauri/src/main.rs must be 349 lines (actual: {actual}). Update the doc + this test together."
     )
-    # Stale 264 + 488 + 288 + 326 must NOT be in the doc.
+    # Stale counts must NOT be in the doc.
     assert "264 lines" not in doc, "Stale '264 lines' must be removed from doc."
     assert "488 lines" not in doc, "Stale '488 lines' must be removed from doc."
     assert "288 lines" not in doc, "Stale '288 lines' must be removed from doc."
     assert "326 lines" not in doc, "Stale '326 lines' must be removed from doc."
+    assert "333 lines" not in doc, "Stale '333 lines' must be removed from doc."
+    assert "337 lines" not in doc, "Stale '337 lines' must be removed from doc."
 
 
 # ─── package-style module paths ───────────────────────────────────────

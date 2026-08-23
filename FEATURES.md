@@ -30,7 +30,7 @@ Last updated: 2026-06-22
 
 ---
 
-## Architecture
+## Architecture — Electron runtime (current default)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -97,6 +97,38 @@ Last updated: 2026-06-22
 └─────────────────────────────────────────────────────────┘
 ```
 
+### Tauri v2 runtime (migration target, not yet the default)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│       Tauri v2 Rust Host (src-tauri/src/)               │
+│  · Spawns the Nuitka-frozen sidecar (externalBin        │
+│    python-sidecar-<triple>) and the runtime-pack worker │
+│    exe (voice-typer-worker-<triple>)                    │
+│  · WS client to sidecar (bearer-token auth handshake)   │
+│  · Native tray + window mgmt + dispatch allowlist       │
+│  · Shared React renderer via tauri-bridge.ts            │
+└──────────────────────┬──────────────────────────────────┘
+                       │ WebSocket
+                       │ ws://127.0.0.1:<port> — the sidecar binds an
+                       │ ephemeral loopback port and prints
+                       │ {"event":"server_started"}
+┌──────────────────────▼──────────────────────────────────┐
+│                  Python Backend                         │
+│  · Same voice_typer/server/ stack as the Electron       │
+│    runtime; transport is sidecar_ws.py (WebSocket)      │
+│    instead of the TCP IPC server                        │
+│  · Second WS hop: sidecar (client) → runtime-pack       │
+│    worker (voice-typer-worker-<triple>) for offline     │
+│    ASR via the transcribe_offline command               │
+└─────────────────────────────────────────────────────────┘
+```
+
+The Electron stack remains the default shipping app until each
+platform's Tauri cutover completes ([ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md));
+see [README → Runtime Architecture](README.md#runtime-architecture) for
+the dual-runtime overview and developer environment variables.
+
 ---
 
 ## All Features
@@ -133,8 +165,8 @@ Last updated: 2026-06-22
 | 21 | Cloud ASR — Deepgram API (nova-2) | ✅ | `CloudEngine` interface, tested |
 | 22 | GPU→CPU automatic fallback chain | ✅ | 4 levels: CUDA→CUDA (fallback)→CPU (float16)→CPU (float32) |
 | 23 | ASR backend registry (AsrBackendRegistry) | ✅ | Single source of truth for all engine instances |
-| 24 | Model download management | ⚠️ | Download progress bar renders; real download is simulated |
-| 25 | Model benchmark | ⚠️ | Button exists; benchmark is simulated |
+| 24 | Model download management | ✅ | Real HuggingFace downloads via `huggingface_hub.snapshot_download` with retry + pause/resume; progress events stream to the UI (asserted by e2e tests, `tests/test_download_progress_events.py`) |
+| 25 | Model benchmark | ❌ | Removed — the Models page has no benchmark UI (the simulated-benchmark button and `BenchmarkSection` were deleted; only unused i18n keys remain) |
 
 ### Post-Processing Pipeline
 
@@ -194,7 +226,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | # | Feature | Status | Notes |
 |---|---|---|---|---|
 | 57 | System tray icon | ✅ | pystray with dynamic state colors (idle/recording/transcribing), DPI-aware sizing |
-| 58 | Tray right-click menu | ✅ | Toggle Dictation → Open App → Models → Restart → Quit (cached, lazy rebuild) |
+| 58 | Tray right-click menu | ✅ | Open App → Start/Stop Dictation (hotkey) → Force Cancel Stuck Transcription (only while transcribing) → Models ▸ / Microphones ▸ → Settings / History / Help → Restart / Quit (`build_menu_for_tray` in `tray_menu.py`; cached, lazy rebuild) |
 | 59 | Desktop notifications | ✅ | Tray `notify()` with configurable toggle; friendly error messages |
 | 60 | Left-click tray action configurable | ✅ | open_app or toggle_dictation |
 
@@ -215,7 +247,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | 66 | History | ✅ | Paginated list (50/page), search, favorites filter, delete, clear all, export JSON/CSV |
 | 67 | Templates | ✅ | Trigger→output pairs; add/edit dialog; exact/contains match; 4 variables |
 | 68 | Vocabulary | ✅ | add/edit/search; export JSON/CSV |
-| 69 | Models | ✅ | Model selection (5 options); download progress; API keys (OpenAI/Groq/Deepgram); test connection; benchmark |
+| 69 | Models | ✅ | Model selection (5 options); download progress; API keys (OpenAI/Groq/Deepgram); test connection |
 | 70 | Microphone | ✅ | Device list; system default; select/activate; live level meter; test start/stop; channels/rate |
 | 71 | Analytics | ✅ | Today's stats (4 cards); 7-day bar chart; quick stats (model/device/language); streaks; all-time totals |
 | 72 | Settings | ✅ | 8 sections: General, Overlay, Hotkey, Recording, Post-Processing, LLM Polishing, Audio & Recovery, Troubleshooting |
@@ -271,7 +303,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | 78 | Diagnostics scripts | ✅ | F2 hotkey test, CUDA fallback, runtime proof |
 | 79 | Test suite (700+ pytest files, 250+ vitest files; 2800+ Python tests) | ✅ | All major subsystems covered (counts grow over time — see `pytest --collect-only` and `npm run test` for the current totals) |
 | 80 | Ruff linting + mypy type checking | ✅ | Configured in pyproject.toml |
-| 81 | IPC command allowlist | ✅ | 69 allowed commands whitelisted in the Electron main process `ALLOWED_COMMANDS` set (`voice_typer/client/src/main/allowed-commands.ts`); the Python `_COMMAND_REGISTRY` registers 73 commands total. Two of those are intentionally absent from the renderer allowlist — `tray_click` (Rust-only, routed via `dispatch_inner` from the tray handler) and `shutdown` (cooperative shutdown is sent via `shutdown_sidecar` directly, not via the generic dispatch path) — so the renderer-callable count is 71 (== the renderer allowlist count). The +2 host-only delta is asserted by `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py`. CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 (S4-CR-18 follow-up: 78/59 stale counts across CHANGELOG/FEATURES/SECURITY/CONTRIBUTING reconciled to 64/62/66; +2 again 2026-08-10: `reset_macos_accessibility` + `reset_linux_permissions`, now 66/64/68; +1 2026-08-10: `check_accessibility` re-added for the Settings → Troubleshooting stale-grant reset (finding #919 part b), now 67/65/69; +1 2026-08-13: `transcribe_offline` added by the runtime-pack split (master plan §7.4 — slim core → worker offline-transcription request), now 68/66/70; −3 2026-08-14: `get_prewarm_status` / `run_prewarm` / `open_prewarm_log` retired as prewarm became a worker startup phase (master plan §6.2 P-1), now 65/63/67; +2 2026-08-14: `get_prewarm_status` / `open_prewarm_log` restored for the Settings → About Cache Status card (plan §6.3 addendum 2026-08-14 — restored verbatim from 5a319872; `run_prewarm` stays retired per §6.2 P-1), now 67/65/69; +1 2026-08-14: `check_pack_update` added by the auto-update feature (docs/auto-update-feature.md — runtime-pack manifest check + consent-gated background download), now 68/66/70; +1 2026-08-14: `run_prewarm` restored (plan §6.3 addendum 2nd half — re-implemented to re-run the worker's warm phase in-process via `prewarm.status.run_prewarm_now`, no deleted-subprocess spawn), now 69/67/71; +2 2026-08-16: `get_correction_usage` + `test_vocabulary_correction` added by the vocabulary usage-tracking + live-correction-test feature (ADR-0020 §16 addendum 2026-08-16), now 71/69/73). Count is enforced by `tests/test_security_doc_command_count.py` + `tests/test_rust_allowlist_parity.py` + `tests/test_electron_ipc_and_build.py`. |
+| 81 | IPC command allowlist | ✅ | 71 allowed commands whitelisted in the Electron main process `ALLOWED_COMMANDS` set (`voice_typer/client/src/main/allowed-commands.ts`); the Python `_COMMAND_REGISTRY` registers 73 commands total. Two of those are intentionally absent from the renderer allowlist — `tray_click` (Rust-only, routed via `dispatch_inner` from the tray handler) and `shutdown` (cooperative shutdown is sent via `shutdown_sidecar` directly, not via the generic dispatch path) — so the renderer-callable count is 71 (== the renderer allowlist count). The +2 host-only delta is asserted by `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py`. CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 (S4-CR-18 follow-up: 78/59 stale counts across CHANGELOG/FEATURES/SECURITY/CONTRIBUTING reconciled to 64/62/66; +2 again 2026-08-10: `reset_macos_accessibility` + `reset_linux_permissions`, now 66/64/68; +1 2026-08-10: `check_accessibility` re-added for the Settings → Troubleshooting stale-grant reset (finding #919 part b), now 67/65/69; +1 2026-08-13: `transcribe_offline` added by the runtime-pack split (master plan §7.4 — slim core → worker offline-transcription request), now 68/66/70; −3 2026-08-14: `get_prewarm_status` / `run_prewarm` / `open_prewarm_log` retired as prewarm became a worker startup phase (master plan §6.2 P-1), now 65/63/67; +2 2026-08-14: `get_prewarm_status` / `open_prewarm_log` restored for the Settings → About Cache Status card (plan §6.3 addendum 2026-08-14 — restored verbatim from 5a319872; `run_prewarm` stays retired per §6.2 P-1), now 67/65/69; +1 2026-08-14: `check_offline_pack_update` added by the auto-update feature (docs/auto-update-feature.md — runtime-pack manifest check + consent-gated background download), now 68/66/70; +1 2026-08-14: `run_prewarm` restored (plan §6.3 addendum 2nd half — re-implemented to re-run the worker's warm phase in-process via `prewarm.status.run_prewarm_now`, no deleted-subprocess spawn), now 69/67/71; +2 2026-08-16: `get_correction_usage` + `test_vocabulary_correction` added by the vocabulary usage-tracking + live-correction-test feature (ADR-0020 §16 addendum 2026-08-16), now 71/69/73). Count is enforced by `tests/test_security_doc_command_count.py` + `tests/test_rust_allowlist_parity.py` + `tests/test_electron_ipc_and_build.py`. |
 | 82 | IPC rate limiter | ✅ | Sliding window: 60 msg/s sustained, 200 burst |
 | 83 | IPC auth token | ✅ | Per-launch random 256-bit token exchanged on TCP connect |
 | 84 | Config secret redaction | ✅ | API keys replaced with `<redacted>` sentinel in IPC responses |
@@ -300,8 +332,8 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | Per-app writing styles / context-aware profiles | thinkur, Freestyle | ❌ None |
 | CLI flags for remote control | Handy | ❌ None |
 | Onboarding wizard UI | — | ✅ Full 6-step React wizard implemented (Welcome → Microphone → Permissions → Hotkey → Model → Done) |
-| Model download (real implementation) | — | ⚠️ Progress bar renders, download is simulated |
-| Model benchmark (real implementation) | — | ⚠️ Button exists, benchmark is simulated |
+| Model download (real implementation) | — | ✅ Real HuggingFace download (`snapshot_download` + retry + progress events) |
+| Model benchmark (real implementation) | — | ❌ Removed — no benchmark UI on the Models page |
 | Microphone test (real audio capture) | — | ✅ Real capture via `level_monitor.start_test_recording()` which opens a live `sounddevice.InputStream` and returns recorded audio |
 
 ### Distribution — gaps that remain
@@ -341,8 +373,8 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | Multi-language models | None | Non-English users | ❌ |
 | Always-listening | None | Hands-free | ❌ |
 | Onboarding wizard | None | First-run UX | ✅ Implemented |
-| Model download (real) | None | Usability | ⚠️ Simulated |
-| Model benchmark (real) | None | Confidence | ⚠️ Simulated |
+| Model download (real) | None | Usability | ✅ Real download |
+| Model benchmark (real) | None | Confidence | ❌ Removed (no benchmark UI) |
 | Microphone test (real) | None | Confidence | ✅ Real audio capture via `level_monitor.start_test_recording()` |
 
 No features conflict. All can coexist once completed.

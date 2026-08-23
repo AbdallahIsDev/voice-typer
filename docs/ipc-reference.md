@@ -238,7 +238,7 @@ restored `get_prewarm_status` / `run_prewarm` (worker status file +
 in-process warm pass), not the old
 `sentinel` / `PID`-file probe.
 
-## Push events (48 typed)
+## Push events (50 typed)
 
 Push events flow server to renderer via `window.python.onEvent(callback)`.
 The `PythonPushEvent` union in `types/ipc/push_events.ts` is the canonical
@@ -283,6 +283,8 @@ list — events not in the union fall through to the `string` overload of
 | `reconnecting` | `ReconnectingEvent` | `{ reason: string }` |
 | `reconnected` | `ReconnectedEvent` | `{ reason: string }` |
 | `mic_level` | `MicLevelEvent` | `{ rms: number, peak: number, active: boolean }` — continuous level monitor stream for the Settings microphone level meter. |
+| `device_lost` | `DeviceLostEvent` | `{ source: string }` — the active input device disappeared mid-monitoring; the level monitor auto-stops and the Microphone page surfaces a recovery banner + toast. |
+| `transcription_partial` | `TranscriptionPartialEvent` | `{ text: string, cycle_id: string, supported?: boolean }` — live partial text pushed ≤4 Hz by the hidden streaming session's coalescing broadcaster; mirrored onto the bubble channel as a `bubble_set_state` transcript so the pill paints words mid-recording. One-time `supported: false` payload signals engines without word-level transcription. |
 | `offline_pack_download_started` | `OfflinePackDownloadStartedEvent` | `{ version: string, url: string, total_bytes: number }` — runtime-pack download began; payload mirrors the model-download `download_progress` shape so a `useOfflinePackDownload` hook can reuse the `useModelDownload` UI pattern. |
 | `offline_pack_download_progress` | `OfflinePackDownloadProgressEvent` | `{ version: string, progress: number, downloaded_bytes: number, total_bytes: number, speed_bytes_per_sec: number, eta_seconds: number }` — emitted ~1 Hz while the pack is downloading (currently silent — no UI surface, surfaced for diagnostics). |
 | `offline_pack_download_completed` | `OfflinePackDownloadCompletedEvent` | `{ version: string, sha256: string }` — download finished; verification is the next step (`offline_pack_verified` / `offline_pack_corrupt`). |

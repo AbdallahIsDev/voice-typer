@@ -21,7 +21,7 @@ Voice Typer runs on **two parallel runtime stacks** during the migration from El
 
 1. **Electron (current default shipping app)** — `voice_typer/client/src/main/index.ts` (Electron main process) spawns the Python backend as a child process and bridges IPC over a local TCP socket on `127.0.0.1:9876`. This is the app users install today from the [Releases page](https://github.com/AbdallahIsDev/voice-typer/releases).
 
-2. **Tauri v2 + Python sidecar (in migration, not yet the default)** — `src-tauri/src/main.rs` is a Rust host that spawns the Python backend as a Nuitka-frozen sidecar via Tauri's `externalBin` mechanism and bridges IPC over a localhost WebSocket. This stack is being developed per [ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md).
+2. **Tauri v2 + Python sidecar (in migration, not yet the default)** — `src-tauri/src/main.rs` is a Rust host that spawns the Python backend as a Nuitka-frozen sidecar via Tauri's `externalBin` mechanism and bridges IPC over a localhost WebSocket (the sidecar binds an ephemeral loopback port and announces it on stdout; the host connects and authenticates with a bearer token). The Rust host also spawns the runtime-pack worker exe (`voice-typer-worker-<triple>`), a second Nuitka-frozen process that owns the heavy offline-ASR stack; the sidecar talks to it over a dedicated second WebSocket hop to serve the `transcribe_offline` command. This stack is being developed per [ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md).
 
 The Electron stack remains fully shippable as a **reversible fallback** until each platform's Tauri build is proven and cut over (Windows first → macOS → Linux, per [docs/migration/cutover-playbook.md](docs/migration/cutover-playbook.md)). The Tauri stack is **additive** — the Electron code is untouched and remains buildable, runnable, and shippable at every phase. The React renderer (`voice_typer/client/src/renderer/`) is **shared between both stacks** — the same bundle runs under Electron (via the preload `contextBridge`) and under Tauri (via `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`, which auto-detects the host at startup and installs the `window.python` / `window.bubble` / `window.window_` namespaces using Tauri's global `__TAURI__` API).
 
@@ -242,22 +242,28 @@ for every setting. Key categories:
 ### Tray Menu Structure
 
 The tray menu is intentionally minimal — most configuration lives in the
-Electron app. The actual menu (see `voice_typer/server/tray_menu.py`) is:
+Electron app. The actual menu (`build_menu_for_tray` in
+`voice_typer/server/tray_menu.py`) is:
 
 ```
-Toggle Dictation (current hotkey)
-─────────────────────
 Open App
+Start Dictation (current hotkey)
+Force Cancel Stuck Transcription   (only shown while transcribing)
 ─────────────────────
-Models           → tiny.en, small.en, medium.en, qwen, parakeet
+Models ▸           → downloaded models + "More models..." link
+Microphones ▸      → devices (active one checked) + "More microphones..."
+─────────────────────
+Settings
+History
+Help
 ─────────────────────
 Restart
 Quit
 ```
 
-There is no Hotkey / Microphone / Advanced submenu. Hotkey and microphone
-selection live in the Electron app's Settings and Microphone pages,
-respectively.
+The dictation item's label switches to "Stop Dictation" while recording.
+There is no Hotkey submenu — hotkey selection lives in the Electron app's
+Settings page.
 
 ### Hotkey
 
@@ -458,7 +464,7 @@ voice_typer/
 │   ├── clipboard/     # Clipboard copy + safe auto-paste (package: manager, linux, windows; terminal-aware: Shift+Insert)
 │   ├── hotkeys/        # Hotkey backend abstraction package (Win32 native / pynput / Wayland fallback)
 │   ├── hotkey_dispatcher.py  # Owns the 3 hotkey backends (dictation / ESC / repaste)
-│   ├── ipc_server.py   # JSON-over-TCP IPC server for the Electron client (port 9876)
+│   ├── ipc_server.py   # IPC server for the desktop client: JSON-over-TCP (port 9876) under Electron; WebSocket (--ws) as the Tauri sidecar
 │   ├── server_platform/  # OS-specific autostart adapters + mic listing + desktop shortcut (package)
 │   ├── tray.py         # System tray icon (pystray) + dynamic menu
 │   ├── tray_menu.py    # Tray menu builder (extracted from tray.py)
