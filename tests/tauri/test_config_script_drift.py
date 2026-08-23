@@ -1020,8 +1020,8 @@ class TestReverseDnsIdentifierNamespace:
     reviewing the item):
 
     - ``_LEGACY_KEYRING_SERVICE_NAMES = ("app.voicetyper", "voice-typer")``
-      (credential_store.py) — keyring migration sources (migrated once,
-      then deleted).
+      (credential_store/_schema.py) — keyring migration sources
+      (migrated once, then deleted).
     - ``Local\\VoiceTyperSingleInstance`` mutex (single_instance.py) —
       internal OS/API identifier; AGENTS.md explicitly permits
       internal identifiers to keep their names. Same for the
@@ -1082,7 +1082,7 @@ class TestReverseDnsIdentifierNamespace:
         """
         pins = {
             "voice_typer/server/server_platform/autostart_macos.py": "<string>com.voicetyper</string>",
-            "voice_typer/server/credential_store.py": 'KEYRING_SERVICE_NAME = "com.voicetyper.keyring"',
+            "voice_typer/server/credential_store/_schema.py": 'KEYRING_SERVICE_NAME = "com.voicetyper.keyring"',
         }
         for rel, pin in pins.items():
             assert pin in (PROJECT_ROOT / rel).read_text(encoding="utf-8"), (
@@ -1109,9 +1109,9 @@ class TestReverseDnsIdentifierNamespace:
         """Migration sources are allowlisted AS-IS — a rename breaks the
         one-time keyring migration (credentials would be re-migrated or
         orphaned)."""
-        text = (PROJECT_ROOT / "voice_typer/server/credential_store.py").read_text(encoding="utf-8")
+        text = (PROJECT_ROOT / "voice_typer/server/credential_store/_schema.py").read_text(encoding="utf-8")
         assert '_LEGACY_KEYRING_SERVICE_NAMES: tuple[str, ...] = ("app.voicetyper", "voice-typer")' in text, (
-            "credential_store.py legacy keyring service names drifted — they "
+            "credential_store/_schema.py legacy keyring service names drifted — they "
             "are pinned migration sources (allowlisted)."
         )
 
@@ -1141,3 +1141,37 @@ class TestReverseDnsIdentifierNamespace:
             "carrying the v1 marker re-sweep once after the namespace "
             "rename)."
         )
+
+
+def test_persisted_position_bound_matches_server_allowlist():
+    """The Rust durable-bubble-position fallback range must mirror the
+    server's ``bubble_x``/``bubble_y`` allowlist bounds.
+
+    ``persisted_position.rs::position_on_any_monitor`` falls back to a
+    sanity range when monitor enumeration fails; that range is a
+    hand-mirrored copy of the server-side allowlist bound. This pin
+    keeps the two in lockstep — widen one, widen both.
+    """
+    allowlist = (PROJECT_ROOT / "voice_typer/server/config_validators/allowlist.py").read_text(encoding="utf-8")
+    bounds = re.findall(
+        r'"bubble_[xy]": \(\(int, type\(None\)\), '
+        r"_make_optional_int_validator\(lo=(-?[\d_]+), hi=([\d_]+)\)\)",
+        allowlist,
+    )
+    assert len(bounds) == 2, (
+        "allowlist.py bubble_x/bubble_y validator signature drifted — "
+        "update this pin together with persisted_position.rs."
+    )
+    lo, hi = bounds[0]
+    lo, hi = lo.replace("_", ""), hi.replace("_", "")
+    assert lo == "-100000" and hi == "100000", (
+        f"server bubble coordinate bounds changed to [{lo}, {hi}] — "
+        "update PERSISTED_COORDINATE_LIMIT in "
+        "src-tauri/src/commands/bubble/persisted_position.rs to match."
+    )
+
+    rust = (SRC_TAURI / "src/commands/bubble/persisted_position.rs").read_text(encoding="utf-8")
+    assert "const PERSISTED_COORDINATE_LIMIT: i32 = 100_000;" in rust, (
+        "persisted_position.rs PERSISTED_COORDINATE_LIMIT drifted from "
+        "the server allowlist bound (±100000) — keep them in lockstep."
+    )
