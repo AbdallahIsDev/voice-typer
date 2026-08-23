@@ -67,6 +67,14 @@ export interface BubbleStateMachine {
 	 * yet. Cleared on transition to a non-transcribing mode.
 	 */
 	transcript: string | null;
+	/**
+	 * True when the backend signalled that the active engine cannot
+	 * stream live partials (no `transcribe_words` — Parakeet/Qwen).
+	 * Sticky while recording stays the current mode; cleared on any
+	 * transition to another mode so a later Whisper recording starts
+	 * clean.
+	 */
+	livePreviewUnsupported: boolean;
 }
 
 export function useBubbleStateMachine(): BubbleStateMachine {
@@ -81,6 +89,12 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 	// transition so the partial text fades out smoothly with the pill.
 	// Cleared on transition to any other mode.
 	const [transcript, setTranscript] = useState<string | null>(null);
+	// Engine-capability signal from the backend's one-time
+	// live-preview publish: true = the active engine cannot stream
+	// partials. Kept while recording continues (legacy bare payloads
+	// carry no opinion); cleared on leaving recording so the next
+	// session with a different engine starts clean.
+	const [livePreviewUnsupported, setLivePreviewUnsupported] = useState(false);
 
 	// Latest-mode ref so the `onSetState` callback can read the current
 	// mode synchronously without re-subscribing on every mode change
@@ -135,7 +149,21 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 				state,
 				message,
 				transcript: newTranscript,
+				livePreviewSupported,
 			} = parseSetStatePayload(stateArg);
+
+			// Engine-capability hint (live preview unavailable). An
+			// explicit boolean updates the flag; an absent field keeps
+			// the previous value so legacy bare payloads and the
+			// per-partial mirrors don't clear the hint mid-recording.
+			// Preserved across fading; cleared on every other mode.
+			if (state === "fading") {
+				// no-op: preserve across the fade-out transition.
+			} else if (livePreviewSupported !== null) {
+				setLivePreviewUnsupported(livePreviewSupported === false);
+			} else if (state !== "recording") {
+				setLivePreviewUnsupported(false);
+			}
 
 			// Recording interrupts the fading→exit transition (e.g.
 			// user starts a new dictation while the previous
@@ -170,13 +198,16 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 			}
 
 			// Surface / clear the live partial-transcript text
-			// (XA-6-2). Update `transcript` whenever the new payload
-			// carries one (including an empty string → null mapping
-			// so the pill can clear mid-flow). Preserve the previous
+			// (XA-6-2 + live streaming partials). Update `transcript`
+			// whenever the new payload carries one — during BOTH the
+			// transcribing mode (finalize-time text) and the recording
+			// mode (mid-recording live partials mirrored onto the
+			// bubble channel), including an empty string → null mapping
+			// so the pill can clear mid-flow. Preserve the previous
 			// value across the fading transition so the partial text
 			// fades out smoothly with the pill instead of vanishing
 			// a frame before the exit animation kicks in.
-			if (state === "transcribing") {
+			if (state === "transcribing" || state === "recording") {
 				setTranscript(newTranscript);
 			} else if (state === "fading") {
 				// No-op: preserve the existing transcript so the
@@ -196,5 +227,6 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 		setExitTick,
 		errorMessage,
 		transcript,
+		livePreviewUnsupported,
 	};
 }

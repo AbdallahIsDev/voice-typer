@@ -308,6 +308,27 @@ class WaveformBubbleWiring:
                         # the ``or default`` fallback so we don't paper over
                         # a legitimately-cleared custom_theme.
                         "custom_theme": getattr(cfg, "custom_theme", None),
+                        # Persisted drag position: ``bubble_x`` / ``bubble_y``
+                        # are forwarded VERBATIM (plain ``getattr`` without an
+                        # ``or`` fallback) so hosts can restore the user's
+                        # last dragged position after a restart. Both fields
+                        # are optional-int config keys (``None`` = "never
+                        # dragged — use default centering"); a coordinate of
+                        # ``0`` is legitimate, so the truthiness-based
+                        # fallback used for the enum/bool keys above would
+                        # silently discard it. Hosts validate the pair
+                        # against the current displays at restore time (both
+                        # must be non-null and on-screen).
+                        #
+                        # These two keys also make this push event the
+                        # durable-position transport to BOTH runtimes
+                        # (Electron main caches it from the forwarded frame;
+                        # the Tauri host's WS reader caches it from the same
+                        # frame), so a Settings top/bottom toggle that clears
+                        # them server-side propagates as a fresh push
+                        # carrying ``None``.
+                        "bubble_x": getattr(cfg, "bubble_x", None),
+                        "bubble_y": getattr(cfg, "bubble_y", None),
                     },
                 }
             )

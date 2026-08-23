@@ -71,6 +71,13 @@ export interface BubbleModeContentProps {
 	 * the UX of macOS Dictation / Google Voice Typing.
 	 */
 	transcript?: string | null;
+	/**
+	 * True when the backend signalled the active engine cannot stream
+	 * live partials (no `transcribe_words` — Parakeet/Qwen). The
+	 * recording branch renders a small localized hint next to the
+	 * visualizer instead of silently omitting live text.
+	 */
+	livePreviewUnsupported?: boolean;
 	dotRefs: RefObject<(HTMLSpanElement | null)[]>;
 }
 
@@ -95,6 +102,7 @@ export function BubbleModeContent({
 	mode,
 	errorMessage,
 	transcript,
+	livePreviewUnsupported,
 	dotRefs,
 }: BubbleModeContentProps) {
 	switch (mode) {
@@ -265,6 +273,18 @@ export function BubbleModeContent({
 				</div>
 			);
 		default:
-			return <BubbleVisualizer dotRefs={dotRefs} />;
+			return (
+				<div className="flex items-center gap-2">
+					<BubbleVisualizer dotRefs={dotRefs} />
+					{livePreviewUnsupported && (
+						<span className="text-[0.625rem] font-medium text-(--text-muted)">
+							{tf(
+								"bubble.livePreviewUnavailable",
+								"No live preview for this engine",
+							)}
+						</span>
+					)}
+				</div>
+			);
 	}
 }

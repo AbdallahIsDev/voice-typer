@@ -22,11 +22,21 @@
 // didn't exist.  The dead type was deleted.
 //
 //(part 3): the same rationale + guard was applied to
-// ``TranscriptionPartialEvent`` — also a dead type with no publisher.
+// ``TranscriptionPartialEvent`` — at the time, also a dead type with no
+// publisher.
 //
 // These tests pin the deletions so a future contributor cannot silently
 // reintroduce either orphaned contract without an explicit decision
 // (which should also wire up both a publisher and a subscriber).
+//
+// ``TranscriptionPartialEvent`` was later legitimately REVIVED: it now
+// has BOTH a publisher (the hidden streaming session's coalescing
+// broadcaster in ``voice_typer/server/streaming.py``, plus the
+// one-time `supported:false` capability signal from
+// ``streaming_session_coordinator.py``) AND a subscriber (the bubble's
+// live-dictation-preview hook). The negative guards below were updated
+// to positive guards for that event — only ``model_loaded`` remains a
+// pinned deletion.
 //
 //the acceptedTypes list + length assertion
 // were extended to cover the 19 new event types added to the union
@@ -43,9 +53,9 @@
 //
 // NOTE: ``types/ipc.ts`` exports ONLY TypeScript types/interfaces —
 // there are no runtime values — so the bulk of these assertions are
-// COMPILE-TIME checks.  If someone re-adds ``ModelLoadedEvent`` or
-// ``TranscriptionPartialEvent`` to the ``PythonPushEvent`` union, the
-// type-level guards below fail to compile and CI breaks.
+// COMPILE-TIME checks.  If someone re-adds ``ModelLoadedEvent`` to the
+// ``PythonPushEvent`` union, the type-level guards below fail to
+// compile and CI breaks.
 
 import { describe, expect, it } from "vitest";
 import type {
@@ -60,14 +70,15 @@ import type {
 } from "@/types/ipc";
 
 describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
-	it("PythonPushEvent union does NOT include `model_loaded` or `transcription_partial` variants", () => {
-		// Build the exhaustive list of ``type`` literals that the
-		// ``PythonPushEvent`` union admits by inspecting a sample of
-		// each member.  If the union ever grows to include
-		// ``ModelLoadedEvent`` (type: "model_loaded") or
-		// ``TranscriptionPartialEvent`` (type: "transcription_partial"),
-		// this list must be updated — and the literal appearing in
+	it("PythonPushEvent union does NOT include the `model_loaded` variant", () => {
+		// Build a sample list of ``type`` literals that the
+		// ``PythonPushEvent`` union admits.  If the union ever grows to
+		// include ``ModelLoadedEvent`` (type: "model_loaded"), this list
+		// must be updated — and the literal appearing in
 		// the list below would make the assertion fail loudly.
+		// ``transcription_partial`` is deliberately ABSENT from this
+		// negative guard: it is a legitimate union member today (live
+		// publisher + subscriber — see the positive guard further down).
 		//
 		//the list was extended from 9 → 27
 		// entries to cover the new event types added to the union.
@@ -119,11 +130,10 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 			"llm_polish_failed",
 		];
 
-		// Runtime guard: the literals must NOT appear in the accepted
+		// Runtime guard: the literal must NOT appear in the accepted
 		// list.  This catches a contributor who adds the literal to
 		// the array above AND reintroduces the type.
 		expect(acceptedTypes).not.toContain("model_loaded");
-		expect(acceptedTypes).not.toContain("transcription_partial");
 		//``relaunch_electron`` must NOT be in the union
 		// (RelaunchElectronEvent interface deleted).
 		expect(acceptedTypes).not.toContain("relaunch_electron");
@@ -164,20 +174,22 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		expect(_typeGuard).toBe(false);
 	});
 
-	it("a `{ type: 'transcription_partial' }` value is NOT assignable to PythonPushEvent (compile-time guard)", () => {
-		//(part 3): mirror of the model_loaded guard above
-		// for the dead ``TranscriptionPartialEvent`` type. Same
-		// mechanism: the conditional resolves to ``false`` while the
-		// union does NOT contain a ``transcription_partial`` variant.
-		type WouldBeTranscriptionPartial = {
+	it("a `{ type: 'transcription_partial', data }` value IS assignable to PythonPushEvent (live publisher)", () => {
+		// ``TranscriptionPartialEvent`` was revived with a real
+		// publisher (streaming session's coalescing broadcaster +
+		// the one-time `supported:false` capability signal) and a real
+		// subscriber (bubble live-dictation preview hook). The former
+		// negative "dead type" guard is now a positive guard: if the
+		// interface is ever removed from the union again, this
+		// conditional resolves to `false` and the `true` assignment
+		// fails to compile.
+		type LivePartialShape = {
 			type: "transcription_partial";
-			text: string;
+			data: { text: string; cycle_id?: string; supported?: false };
 		};
-		type Guard = WouldBeTranscriptionPartial extends PythonPushEvent
-			? true
-			: false;
-		const _typeGuard: Guard = false;
-		expect(_typeGuard).toBe(false);
+		type InUnion = LivePartialShape extends PythonPushEvent ? true : false;
+		const _inUnionGuard: InUnion = true;
+		expect(_inUnionGuard).toBe(true);
 	});
 
 	it("a `{ type: 'relaunch_electron' }` value is NOT assignable to PythonPushEvent (GT-55 compile-time guard)", () => {

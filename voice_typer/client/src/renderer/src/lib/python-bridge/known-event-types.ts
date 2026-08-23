@@ -46,6 +46,7 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	"relaunch_app",
 	"tray_state",
 	"consent_required",
+	"device_lost",
 	"parakeet_cpu_fallback",
 	"asr_backend_disabled",
 	"asr_last_resort_unloaded",
@@ -58,6 +59,12 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	// `pages/microphone/hooks/useMicrophoneTest.ts` instead of
 	// the legacy 10 Hz `microphone_test_get_level` IPC poll.
 	"mic_level",
+	// Live partial-transcription text pushed mid-recording by the
+	// hidden streaming session's coalescing broadcaster (≤4 Hz,
+	// latest-value-wins). Rendered by the bubble via the mirrored
+	// `bubble_set_state` transcript field; this event stays on the
+	// push-event surface for main-window consumers.
+	"transcription_partial",
 	// ── Pack + worker IPC events (master plan §7.4 — 12 push
 	// events from the slim-core / runtime-pack split). Each is
 	// published by `event_bus.publish(...)` in the Python sidecar

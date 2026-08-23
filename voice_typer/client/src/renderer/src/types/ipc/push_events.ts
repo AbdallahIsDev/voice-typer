@@ -56,15 +56,30 @@ export interface ErrorEvent {
 	};
 }
 
-//(part 3): the dead `TranscriptionPartialEvent` type was
-// REMOVED. No `event_bus.publish({"type": "transcription_partial"})`
-// exists anywhere in the Python tree — the partial-transcription path
-// in `dictation_pipeline.py` only publishes `transcription_final`. The
-// old type was a phantom contract that gave a false impression of an
-// IPC event that never fires. Do NOT re-add it without also wiring up
-// a publisher (`event_bus.publish({"type":"transcription_partial", ...})`).
-// The compile-time guard in `types/__tests__/ipc-types.test.ts` will
-// fail tsc if this is re-added (the union length assertion drops by 1).
+//(part 3): `TranscriptionPartialEvent` is LIVE again — it now has a
+// real publisher AND a subscriber. The Python side publishes it from
+// the hidden streaming session's coalescing broadcaster
+// (`voice_typer/server/streaming.py::PartialTranscriptionBroadcaster`):
+// latest-value-wins, throttled to ≤4 Hz, unchanged/empty text
+// suppressed, so spoken words appear live in the bubble during
+// dictation on Whisper-family engines (word-level timestamps).
+//
+// It ALSO carries a ONE-TIME per-recording capability signal: when the
+// active engine lacks `transcribe_words` (Parakeet / Qwen), the
+// streaming-session coordinator (`streaming_session_coordinator.py`)
+// publishes a single frame with `supported: false` and an empty text —
+// the renderer surfaces a localized "live preview unavailable" hint
+// instead of silence (never spam; one frame per recording start).
+//
+// Wire shape: `{ "type": "transcription_partial", "data": {
+//   "text": "<committed partial text>", "cycle_id": "#3",
+//   "supported": false } }`. `supported` is only present, as `false`,
+//   on the capability-gap signal; `cycle_id` mirrors the backend's
+//   dictation cycle correlation id (`app._cycle_id`, e.g. "#3").
+export interface TranscriptionPartialEvent {
+	type: "transcription_partial";
+	data: { text: string; cycle_id?: string; supported?: false };
+}
 
 //(part 1): `transcription_final` payload nests inside `data`
 // (matching `voice_typer/server/dictation_pipeline.py:1331`), NOT at the
@@ -81,9 +96,29 @@ export interface ErrorEvent {
 // runtime. Do NOT re-add this field without ALSO wiring up the
 // Python emitter to populate it (and a parity test in
 // `types/__tests__/ipc-types.test.ts`).
+//
+// `quality` mirrors the optional dict the Python storage step attaches
+// when the active engine produced numeric per-segment confidence stats
+// (Whisper batch path only — see `build_quality_summary` in
+// `voice_typer/server/transcription.py`). Every field is optional
+// because the server builds a PARTIAL dict: an engine reporting only
+// logprobs omits `no_speech_prob_max`, and vice versa. Engines without
+// per-segment confidence stats (Parakeet / Qwen / cloud) leave the
+// whole field absent, so consumers must treat it as optional.
+export interface TranscriptionQualitySummary {
+	/** Mean per-segment `avg_logprob` — closer to 0 = more confident decoding. */
+	mean_logprob?: number;
+	/** Worst single-segment `avg_logprob`. */
+	min_logprob?: number;
+	/** Highest per-segment `no_speech_prob` (high = segment likely silent). */
+	no_speech_prob_max?: number;
+	/** How many segments contributed numeric stats. */
+	segments?: number;
+}
+
 export interface TranscriptionFinalEvent {
 	type: "transcription_final";
-	data: { text: string };
+	data: { text: string; quality?: TranscriptionQualitySummary };
 }
 
 //(part 2): the Python emitters for `recording_started` and
@@ -434,6 +469,24 @@ export interface LLMPolishFailedEvent {
 	type: "llm_polish_failed";
 }
 
+/** Pushed by the level monitor / recording pipeline when the ACTIVE
+ *  microphone disappears (unplug, Bluetooth power-off, driver reset) and
+ *  retries are exhausted. Emitters (all publish the same wire shape):
+ *    - `voice_typer/server/level_monitor/monitoring.py` (`_emit_device_lost`,
+ *      sources: `"stream_finished"` / `"zero_chunks"`)
+ *    - `voice_typer/server/mic_lifecycle_hooks.py` (dictation recorder,
+ *      max-restart-retries path)
+ *  The renderer surfaces a global toast AND flips the Microphone page
+ *  into a device-lost state (meter paused + recovery affordance).
+ *
+ *  Wire shape: `{ "type": "device_lost", "data": { "source": "<str>" } }`.
+ *  `source` identifies which subsystem detected the loss (diagnostics
+ *  only — the user-facing copy is source-agnostic). */
+export interface DeviceLostEvent {
+	type: "device_lost";
+	data: { source: string };
+}
+
 // ── (resilient sidecar) lifecycle events ──────────────────────
 //
 //(addresses []): these events are NOT emitted by the Python
@@ -678,6 +731,7 @@ export type PythonPushEvent =
 	| StatusChangeEvent
 	| ErrorEvent
 	| TranscriptionFinalEvent
+	| TranscriptionPartialEvent
 	| RecordingStartedEvent
 	| RecordingStoppedEvent
 	| ConfigChangedEvent
@@ -721,6 +775,9 @@ export type PythonPushEvent =
 	| ASRBackendDisabledEvent
 	| ASRLastResortUnloadedEvent
 	| LLMPolishFailedEvent
+	// active-microphone-disappeared event (level monitor + dictation
+	// recorder emitters). See `DeviceLostEvent` above for the wire shape.
+	| DeviceLostEvent
 	| ReconnectingEvent
 	| ReconnectedEvent
 	//coalesced mic-level push event (≤30 Hz).

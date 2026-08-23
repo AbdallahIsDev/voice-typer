@@ -37,9 +37,57 @@ from __future__ import annotations
 import logging
 import os
 
+from voice_typer.server import event_bus
 from voice_typer.server.streaming import StreamingConfig, StreamingTranscriptionSession
 
 log = logging.getLogger(__name__)
+
+
+def _publish_live_preview_unsupported(cycle_id: str) -> None:
+    """Publish the ONE-TIME per-recording "live preview unavailable" signal.
+
+    Emitted from the coordinator's skip paths (the only place that knows
+    authoritatively whether the active engine supports hidden streaming)
+    so the renderer can surface a localized hint instead of silence.
+    The engine-capability check (``hasattr(active, "transcribe_words")``)
+    lives server-side; duplicating the engine list in TypeScript would
+    drift silently. Best-effort: a publish failure must never block the
+    recording start path.
+    """
+    try:
+        event_bus.publish(
+            {
+                "type": "transcription_partial",
+                "data": {
+                    "text": "",
+                    "cycle_id": cycle_id,
+                    "supported": False,
+                },
+            },
+        )
+    except Exception:
+        log.debug(
+            "[STREAMING] Failed to publish live-preview-unavailable signal",
+            exc_info=True,
+        )
+    # Mirror onto the bubble channel so the sandboxed bubble window
+    # (SEC-026 — no python bridge) can show a localized hint instead of
+    # silently omitting live text for engines without transcribe_words.
+    try:
+        event_bus.publish(
+            {
+                "type": "bubble_set_state",
+                "data": {
+                    "state": "recording",
+                    "live_preview_supported": False,
+                },
+            },
+        )
+    except Exception:
+        log.debug(
+            "[STREAMING] Failed to mirror live-preview-unavailable to bubble",
+            exc_info=True,
+        )
 
 
 class StreamingSessionCoordinator:
@@ -96,6 +144,7 @@ class StreamingSessionCoordinator:
                     "[STREAMING] Transcriber lacks transcribe_words, skipping streaming (cycle=%s)",
                     app._cycle_id,
                 )
+                _publish_live_preview_unsupported(getattr(app, "_cycle_id", "") or "")
                 return
         else:
             log.info("[STREAMING] No active transcriber, skipping streaming (cycle=%s)", app._cycle_id)
@@ -113,6 +162,9 @@ class StreamingSessionCoordinator:
                 # if a test constructs RecordingController with a mock
                 # app that doesn't have ``_thread_registry``.
                 thread_registry=getattr(app, "_thread_registry", None),
+                # Correlation id echoed in every transcription_partial
+                # payload. ``getattr`` keeps mock-app test fixtures working.
+                cycle_id=getattr(app, "_cycle_id", "") or "",
             )
             session.start()
             controller.set_streaming_session(session)

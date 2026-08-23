@@ -170,15 +170,30 @@ export function parseSetStatePayload(arg: unknown): {
 	state: string;
 	message: string | null;
 	transcript: string | null;
+	/**
+	 * Tri-state engine capability from the backend's one-time
+	 * live-preview signal: `false` when the active engine cannot
+	 * stream partials (no `transcribe_words`), `true` when explicitly
+	 * supported, `null` when the payload doesn't say (legacy/other
+	 * publishers). Consumers keep the last explicit value while the
+	 * recording continues.
+	 */
+	livePreviewSupported: boolean | null;
 } {
 	if (typeof arg === "string") {
-		return { state: arg, message: null, transcript: null };
+		return {
+			state: arg,
+			message: null,
+			transcript: null,
+			livePreviewSupported: null,
+		};
 	}
 	if (arg && typeof arg === "object" && "state" in arg) {
 		const obj = arg as {
 			state: unknown;
 			message?: unknown;
 			transcript?: unknown;
+			live_preview_supported?: unknown;
 		};
 		const stateStr =
 			typeof obj.state === "string" ? obj.state : String(obj.state);
@@ -190,7 +205,21 @@ export function parseSetStatePayload(arg: unknown): {
 			typeof obj.transcript === "string" && obj.transcript.length > 0
 				? obj.transcript
 				: null;
-		return { state: stateStr, message, transcript };
+		const livePreviewSupported =
+			typeof obj.live_preview_supported === "boolean"
+				? obj.live_preview_supported
+				: null;
+		return {
+			state: stateStr,
+			message,
+			transcript,
+			livePreviewSupported,
+		};
 	}
-	return { state: String(arg), message: null, transcript: null };
+	return {
+		state: String(arg),
+		message: null,
+		transcript: null,
+		livePreviewSupported: null,
+	};
 }

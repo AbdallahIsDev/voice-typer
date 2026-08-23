@@ -120,6 +120,34 @@ fn test_si14_tray_fallback_notification_is_allowed() {
     );
 }
 
+// ── transcription_partial allowlist + passthrough ─────────────
+
+/// `transcription_partial` must be in the server-event allowlist and
+/// must pass through `translate_event_name` UNCHANGED. The Python
+/// sidecar publishes it from the hidden streaming session's coalescing
+/// broadcaster (live partial text during dictation) and ONCE per
+/// recording with `supported:false` when the active engine lacks
+/// word-level timestamps. Without the allowlist entry the WS reader's
+/// `is_allowed_event_type` gate would silently drop every frame.
+#[test]
+fn test_transcription_partial_is_allowed_and_passthrough() {
+    assert!(
+        ALLOWED_EVENT_TYPES.contains(&"transcription_partial"),
+        "ALLOWED_EVENT_TYPES slice must contain transcription_partial"
+    );
+    assert!(
+        is_allowed_event_type("transcription_partial"),
+        "is_allowed_event_type(`transcription_partial`) must return true — \
+         the WS reader would otherwise drop the frame"
+    );
+    // Passthrough: no kebab-case rename arm — the renderer subscribes
+    // via usePythonEvent("transcription_partial", ...).
+    assert_eq!(
+        translate_event_name("transcription_partial"),
+        "transcription_partial"
+    );
+}
+
 // ── Pack + worker IPC event types (master plan §7.4 — 13 new) ───────
 //
 // The runtime-pack split introduces 13 new server-initiated event types:

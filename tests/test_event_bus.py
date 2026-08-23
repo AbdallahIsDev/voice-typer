@@ -915,11 +915,15 @@ class TestCanonicalCatalogue:
         assert "``parakeet_cpu_fallback``" in event_bus.__doc__
 
     def test_catalogue_total_count_updated(self):
-        """GT-53: the 'Total: N events' line must reflect the 4 newly
-        catalogued events (24 → 28)."""
-        assert "Total: 28 events" in event_bus.__doc__
-        # The old stale count must NOT still be present.
-        assert "Total: 24 events" not in event_bus.__doc__
+        """The 'Total: N events' docstring line must stay in lockstep
+        with the live ``EVENT_TYPES`` count (self-maintaining guard:
+        adding an event without updating the catalogue docstring fails
+        here, with the required number computed from the code)."""
+        total = len(event_bus.EVENT_TYPES)
+        assert f"Total: {total} events" in event_bus.__doc__, (
+            f"event_bus.__doc__ must say 'Total: {total} events' — "
+            "update the catalogue docstring when EVENT_TYPES changes."
+        )
 
 
 # async dispatch option ───────────────────────────────────────

@@ -80,9 +80,11 @@ const _PARITY = {
 	asr_backend_disabled: true,
 	asr_last_resort_unloaded: true,
 	llm_polish_failed: true,
+	device_lost: true,
 	reconnecting: true,
 	reconnected: true,
 	mic_level: true,
+	transcription_partial: true,
 	// Master plan §7.4 — 12 new push events from the
 	// slim-core / runtime-pack split. Pinned by
 	// `tests/test_event_types_parity.py` (Python-side cross-layer

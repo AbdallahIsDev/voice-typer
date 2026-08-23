@@ -46,7 +46,21 @@ Events emitted via ``event_bus.publish`` (the modern path):
 * ``bubble_set_state`` — set the bubble's state machine.
   Payload: ``{state:str}``.
 * ``transcription_final`` — final transcription text (UI preview).
-  Payload: ``{text:str (≤200 chr)}``.
+  Payload: ``{text:str (≤200 chr), quality?:{mean_logprob:float,
+  min_logprob:float, no_speech_prob_max:float, segments:float}}``.
+  ``quality`` is present only when the active engine produced numeric
+  per-segment confidence stats (Whisper batch path); the renderer uses
+  it to flag low-confidence dictations inline.
+* ``transcription_partial`` — live partial transcription text while
+  dictation is still recording (Whisper-family engines with word-level
+  timestamps; published by the hidden streaming session's coalescing
+  broadcaster — latest-value-wins, ≤4 Hz, unchanged/empty suppressed).
+  ALSO published ONCE per recording start with ``supported:false``
+  when the active engine lacks ``transcribe_words`` (Parakeet/Qwen) so
+  the renderer can surface a one-time "live preview unavailable" hint
+  instead of silence.
+  Payload: ``{text:str, cycle_id:str, supported?:false}`` (``supported``
+  is only present, as ``false``, on the capability-gap signal).
 * ``vocabulary_suggestion`` — pending correction suggestions.
   Payload: ``{suggestions:[{original,corrected,confidence,context,timestamp}]}``.
 * ``hotkey_capture_cancel`` — cancel hotkey capture mode. Payload: ``{}``.
@@ -184,9 +198,11 @@ server):
   former is a per-transition signal with just ``status``; the latter
   is the connect-time snapshot with a ``message`` field.
 
-Total: 28 events (26 via ``event_bus.publish`` (``ready`` is also
-pushed directly on TCP-server start) + 2 ``IPCServer.push``-only
-events = 28 unique event names; the ADR-0020 §2 table lists all 28).
+Total: 37 events — the live count is ``len(EVENT_TYPES)`` and this
+sentence is kept in lockstep with it by
+``tests/test_event_bus.py::TestCanonicalCatalogue
+::test_catalogue_total_count_updated``. Update this docstring whenever
+an event is added to ``EVENT_TYPES``.
 
 Thread safety
 -------------
@@ -252,6 +268,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "bubble_set_state",
         "bubble_config",
         "transcription_final",
+        "transcription_partial",
         "vocabulary_suggestion",
         "hotkey_capture_cancel",
         "config_changed",
