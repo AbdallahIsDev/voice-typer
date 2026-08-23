@@ -54,7 +54,11 @@ import { formatDevice, formatModel } from "@/lib/utils/configDisplay";
 import { HOTKEY_DEFAULT } from "@/pages/onboarding/lib/constants";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
-import type { HistoryRecord, TodayStats } from "@/types/ipc";
+import type {
+	HistoryRecord,
+	TodayStats,
+	TranscriptionQualitySummary,
+} from "@/types/ipc";
 import { LastTranscriptionPreview } from "./home/components/LastTranscriptionPreview";
 import { MicToggleButton } from "./home/components/MicToggleButton";
 import { RecordingStatusPill } from "./home/components/RecordingStatusPill";
@@ -102,6 +106,14 @@ export default function Home() {
 
 	const [hotkey, setHotkey] = useState("F2");
 	const [lastText, setLastText] = useState("");
+	// Engine-reported confidence summary carried by the latest
+	// `transcription_final` push (Whisper batch path only — see
+	// `build_quality_summary` in `voice_typer/server/transcription.py`).
+	// Cleared everywhere `lastText` is cleared so a stale low-confidence
+	// flag can never attach to a NEW transcription.
+	const [lastQuality, setLastQuality] = useState<
+		TranscriptionQualitySummary | undefined
+	>(undefined);
 	// The live MM:SS recording timer (elapsed seconds + its 1s interval)
 	// is owned by <RecordingTimer /> (./home/components) — keeping the
 	// per-second tick state here re-rendered the whole Home tree every
@@ -439,11 +451,12 @@ export default function Home() {
 	usePythonEvent("transcription_final", (data): (() => void) | undefined => {
 		if (typeof data?.text === "string" && data.text.trim()) {
 			setLastText(data.text);
+			setLastQuality(data.quality ?? undefined);
 			if (lastTextTimer.current) clearTimeout(lastTextTimer.current);
-			lastTextTimer.current = setTimeout(
-				() => setLastText(""),
-				LAST_TEXT_AUTO_CLEAR_MS,
-			);
+			lastTextTimer.current = setTimeout(() => {
+				setLastText("");
+				setLastQuality(undefined);
+			}, LAST_TEXT_AUTO_CLEAR_MS);
 			celebrateFirstRecording();
 		}
 		debouncedRefreshFromEvent();
@@ -764,6 +777,14 @@ export default function Home() {
 						text={lastText}
 						onUndo={handleUndo}
 						onRepaste={handleRepaste}
+						quality={lastQuality}
+						onRedictate={
+							isRecording || micDisabled
+								? undefined
+								: () => {
+										void handleToggle();
+									}
+						}
 					/>
 				</output>
 			)}

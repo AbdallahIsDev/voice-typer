@@ -292,6 +292,16 @@ class _TranscribeStepMixin:
                         audio_stats=self._audio_stats,
                         local_engine=local_engine,
                     )
+                    # Capture the engine's compact quality summary (mean /
+                    # min logprob + no-speech prob stats the Whisper
+                    # segment loop already collected). Duck-typed via
+                    # getattr so engines without per-segment confidence
+                    # stats (Parakeet / Qwen / cloud, test stubs) leave
+                    # ``None`` — the renderer omits the low-confidence
+                    # affordance when the field is absent. Same-thread
+                    # read immediately after the call: no locking, no
+                    # recomputation, no paste-path latency.
+                    self._quality_summary = getattr(active, "last_quality_summary", None)
         finally:
             if abort_watcher is not None:
                 with contextlib.suppress(Exception):
@@ -436,9 +446,7 @@ class _TranscribeStepMixin:
                 _grace_period,
                 self._recorded_rms,
             )
-            self._app.tray.set_state(
-                AppState.IDLE, _i18n_t("state.dictation_pipeline.no_speech_detected")
-            )
+            self._app.tray.set_state(AppState.IDLE, _i18n_t("state.dictation_pipeline.no_speech_detected"))
             #  (observability): publish a ``dictation_suppressed``
             # event so the renderer can show a subtle inline bubble
             # ("recording too short — try again") instead of giving the

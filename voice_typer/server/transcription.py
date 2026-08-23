@@ -201,6 +201,16 @@ class TranscriptionEngine:
         # implicit, and the test fixtures that bypass ``__init__`` set
         # this explicitly too.
         self._pending_gc_collect = False
+        # Compact quality summary of the LAST completed transcription,
+        # populated by ``_transcribe_unlocked`` from the per-segment
+        # ``avg_logprob`` / ``no_speech_prob`` stats it already collects
+        # (no recomputation). Read by the dictation pipeline right after
+        # the transcribe call and attached to the renderer-facing
+        # ``transcription_final`` push event so the UI can flag
+        # low-confidence results. ``None`` when the engine has not
+        # transcribed anything yet, the audio was empty, or the model
+        # yielded no numeric segment stats (e.g. non-Whisper engines).
+        self.last_quality_summary: dict[str, float] | None = None
         # store a reference to the app's Config dataclass so the
         # engine can read per-segment flags (e.g. ``log_transcriptions``)
         # without reaching into the app object.
@@ -839,8 +849,6 @@ class TranscriptionEngine:
             # Cache miss (or local probe failure) — never auto-download.
             return False
 
-
-
     def transcribe(self, audio: np.ndarray, audio_stats: tuple[float, float, float] | None = None) -> str:
         """Transcribe audio array. Returns cleaned text string.
 
@@ -928,6 +936,11 @@ class TranscriptionEngine:
         last_segment_end = None
         avg_logprobs = []
         no_speech_probs = []
+        # Reset the renderer-facing quality summary at the START of each
+        # transcription so a stale summary from a previous dictation can
+        # never be attributed to this one (e.g. when the segment loop is
+        # cut short by an abort and collects no numeric stats).
+        self.last_quality_summary = None
         # hoist the per-segment ``log_transcriptions`` flag and
         # ``redact_pii`` import OUT of the segment loop. Pre-fix, the
         # ``getattr(self.config, 'log_transcriptions', False)`` ran once
@@ -1043,6 +1056,13 @@ class TranscriptionEngine:
             _format_optional_mean(avg_logprobs),
             _format_optional_mean(no_speech_probs),
         )
+
+        # Compact quality summary for the dictation pipeline → renderer
+        # (``transcription_final`` payload). Built from the stats already
+        # collected above — a handful of float ops per dictation, never
+        # on the paste path. ``None`` when the loop collected no numeric
+        # segment stats so downstream consumers omit the field.
+        self.last_quality_summary = build_quality_summary(avg_logprobs, no_speech_probs)
 
         result = " ".join(text_parts).strip()
         if self._should_reject_low_audio_hallucination(
@@ -1466,3 +1486,34 @@ def _format_optional_mean(values: list[float]) -> str:
     if not values:
         return "n/a"
     return f"{sum(values) / len(values):.2f}"
+
+
+def build_quality_summary(avg_logprobs: list[float], no_speech_probs: list[float]) -> dict[str, float] | None:
+    """Build the compact per-dictation quality summary for the renderer.
+
+    Computed from the ``avg_logprob`` / ``no_speech_prob`` values the
+    segment loop ALREADY collected — no recomputation, one small dict of
+    floats allocated once per dictation (never on the paste hot path).
+
+    Returns ``None`` when no numeric stats were collected (empty audio,
+    aborted run, or an engine that reports no segment probs) so callers
+    can omit the summary entirely instead of shipping an empty object.
+
+    Keys:
+      - ``mean_logprob``: mean per-segment ``avg_logprob`` (closer to 0 =
+        more confident decoding).
+      - ``min_logprob``: worst single-segment ``avg_logprob``.
+      - ``no_speech_prob_max``: highest per-segment ``no_speech_prob``
+        (high values indicate segments the model considered silent).
+      - ``segments``: how many segments contributed numeric stats.
+    """
+    if not avg_logprobs and not no_speech_probs:
+        return None
+    summary: dict[str, float] = {}
+    if avg_logprobs:
+        summary["mean_logprob"] = sum(avg_logprobs) / len(avg_logprobs)
+        summary["min_logprob"] = min(avg_logprobs)
+        summary["segments"] = float(len(avg_logprobs))
+    if no_speech_probs:
+        summary["no_speech_prob_max"] = max(no_speech_probs)
+    return summary

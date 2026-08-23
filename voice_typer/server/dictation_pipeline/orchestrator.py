@@ -99,6 +99,13 @@ class _OrchestratorMixin:
         # Recorder.stop(), passed through to the transcription engine
         # so it doesn't recompute the same stats on the same audio.
         self._audio_stats: tuple[float, float, float] | None = None
+        # Compact quality summary captured from the active ASR engine
+        # right after this cycle's transcribe call (``None`` for engines
+        # that don't expose per-segment confidence stats — e.g. Parakeet,
+        # Qwen, cloud providers — and for streaming-session cycles).
+        # Attached to the ``transcription_final`` push event by the
+        # storage step so the renderer can flag low-confidence results.
+        self._quality_summary: dict[str, float] | None = None
         #  (defense-in-depth observability): tracks whether
         # ``_apply_templates`` modified the text in this cycle. If it
         # did, the text MAY contain clipboard-substituted content
@@ -234,6 +241,11 @@ class _OrchestratorMixin:
         # capture the pre-computed audio stats from the
         # recorder so we can pass them to the transcription engine.
         self._audio_stats = getattr(self._app.recorder, "_last_audio_stats", None)
+        # Reset the per-cycle quality summary BEFORE transcription so a
+        # stale summary from a previous dictation (or a cycle that never
+        # reaches the batch transcribe path — e.g. streaming) can't leak
+        # into this cycle's ``transcription_final`` payload.
+        self._quality_summary = None
         _t0 = time.perf_counter()
 
         # Hoist ``text = ""`` outside the try block so the

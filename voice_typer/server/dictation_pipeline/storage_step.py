@@ -156,14 +156,20 @@ class _StorageStepMixin:
 
         # emit transcription_final push event so the
         # renderer can proactively refresh Home/Dashboard/History
-        # without polling.
+        # without polling. When this cycle captured a compact quality
+        # summary (Whisper batch path only), attach it so the renderer's
+        # last-text preview can flag low-confidence results inline.
         try:
             from voice_typer.server import event_bus
 
+            event_data: dict[str, Any] = {"text": text[:200]}  # truncated for UI preview
+            quality = getattr(self, "_quality_summary", None)
+            if isinstance(quality, dict):
+                event_data["quality"] = quality
             event_bus.publish(
                 {
                     "type": "transcription_final",
-                    "data": {"text": text[:200]},  # truncated for UI preview
+                    "data": event_data,
                 }
             )
         except Exception:
