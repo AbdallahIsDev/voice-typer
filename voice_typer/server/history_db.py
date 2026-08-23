@@ -388,6 +388,7 @@ def _secure_copy_db_file(src: Path, dst: Path) -> None:
 import voice_typer.server.history_db_internals.search as _search_helpers  # noqa: E402,F401 — backward-compat re-export
 
 _is_fts_compatible_query = _search_helpers.is_fts_compatible_query
+_has_cjk_or_wide_chars = _search_helpers.has_cjk_or_wide_chars
 _prepare_like_search_pattern = _search_helpers.prepare_like_search_pattern
 _project_text_row = _search_helpers.project_text_row
 _sanitize_fts_query = _search_helpers.sanitize_fts_query
@@ -2347,6 +2348,12 @@ class HistoryDB:
         user's input is treated as a literal phrase rather than FTS5
         MATCH syntax (e.g. ``foo*`` matches the literal token ``foo*``,
         not a prefix query).
+
+        Queries containing CJK / fullwidth characters
+        (``_has_cjk_or_wide_chars``) also take the LIKE path: the
+        ``unicode61`` tokenizer cannot substring-match those scripts
+        (a contiguous CJK run indexes as one token), while LIKE gives
+        true substring semantics for every query length.
 
         On the no-cursor path the FTS5 ``LIMIT`` is pushed INTO the FTS
         subquery so FTS5 only materialises the rowids that will actually

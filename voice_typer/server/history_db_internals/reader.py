@@ -97,9 +97,16 @@ def _get_read_conn(db: HistoryDB) -> sqlite3.Connection:
             db._read_local.conn.close()
         db._read_local.conn = None
     if not hasattr(db._read_local, "conn") or db._read_local.conn is None:
+        # Mirror open_write_conn: the parent directory must exist before
+        # SQLite can open the file, on EVERY platform — a reader thread
+        # may be the first to touch a fresh install whose ``<config>/db/``
+        # has not been created yet. Idempotent.
+        try:
+            db.db_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            log.warning("[HISTORY_DB] Could not create DB directory %s: %s", db.db_path.parent, e)
         if not is_windows():
             try:
-                db.db_path.parent.mkdir(parents=True, exist_ok=True)
                 os.chmod(db.db_path.parent, 0o700)
             except OSError as e:
                 log.warning("[HISTORY_DB] Could not tighten dir perms: %s", e)

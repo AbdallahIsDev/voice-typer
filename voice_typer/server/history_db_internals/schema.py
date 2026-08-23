@@ -154,11 +154,22 @@ def open_write_conn(db_path: Path) -> sqlite3.Connection:
         files in WAL mode; we chmod those too (best-effort, since
         they may be created lazily on first write).
     """
-    # SEC-007: tighten dir permissions before the connection
-    # creates files in it.
+    # Ensure the parent directory exists on EVERY platform before the
+    # connection opens the file. SQLite cannot create intermediate
+    # directories; on a fresh install ``<config>/db/`` does not exist yet
+    # (the legacy-DB migration in history_db.py only creates it when a
+    # pre-O2 root ``history.db`` exists), so skipping this mkdir on
+    # Windows made every fresh-install open fail with "unable to open
+    # database file" and the writer refuse all writes for the session.
+    # ``mkdir(parents=True, exist_ok=True)`` is idempotent.
+    try:
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        log.warning("[HISTORY_DB] Could not create DB directory %s: %s", db_path.parent, e)
+    # SEC-007: tighten dir permissions before the connection creates
+    # files in it (POSIX only — Windows has no POSIX mode bits).
     if not is_windows():
         try:
-            db_path.parent.mkdir(parents=True, exist_ok=True)
             os.chmod(db_path.parent, 0o700)
         except OSError as e:
             log.warning("[HISTORY_DB] Could not tighten dir perms: %s", e)

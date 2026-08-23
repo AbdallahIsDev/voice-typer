@@ -24,6 +24,7 @@ Module-level helpers (re-exported by
 
 - :func:`prepare_like_search_pattern` — bounded LIKE pattern.
 - :func:`is_fts_compatible_query` — heuristic for FTS5 fallback.
+- :func:`has_cjk_or_wide_chars` — CJK / fullwidth script detection.
 - :func:`sanitize_fts_query` — escape FTS5 special chars.
 - :func:`project_text_row` — post-process a SQLite row for list responses.
 """
@@ -77,6 +78,60 @@ def is_fts_compatible_query(query: str) -> bool:
     # explicitly strip ``_`` because ``\w`` includes underscore.
     stripped = re.sub(r"[\W_]+", "", capped, flags=re.UNICODE)
     return bool(stripped)
+
+
+# Codepoint ranges whose scripts the FTS5 ``unicode61`` tokenizer cannot
+# substring-match. unicode61 has no word-boundary concept for these
+# scripts (Chinese/Japanese/Korean text has no spaces), so a contiguous
+# CJK run in a transcription is indexed as ONE token. A phrase-wrapped
+# MATCH therefore only finds rows where the ENTIRE run equals the query
+# — searching "你好" never matches "今天你好吗". Queries containing any
+# character from these ranges are routed to the bounded LIKE scan
+# instead, which gives true substring semantics for every query length
+# (1-char included).
+#
+# Range set:
+#   U+1100–U+11FF   Hangul Jamo (decomposed syllables)
+#   U+3000–U+303F   CJK Symbols and Punctuation (、。 「」 …)
+#   U+3040–U+30FF   Hiragana + Katakana
+#   U+3130–U+318F   Hangul Compatibility Jamo
+#   U+31F0–U+31FF   Katakana Phonetic Extensions
+#   U+3400–U+4DBF   CJK Unified Ideographs Extension A
+#   U+4E00–U+9FFF   CJK Unified Ideographs
+#   U+F900–U+FAFF   CJK Compatibility Ideographs
+#   U+AC00–U+D7AF   Hangul Syllables
+#   U+FF00–U+FFEF   Halfwidth and Fullwidth Forms (！ａｂｃ ｱｲｳ …)
+#   U+20000–U+2FA1F CJK Ideograph Extensions B–F + Compat Supplement
+_CJK_WIDE_CODEPOINT_RANGES: tuple[tuple[int, int], ...] = (
+    (0x1100, 0x11FF),
+    (0x3000, 0x303F),
+    (0x3040, 0x30FF),
+    (0x3130, 0x318F),
+    (0x31F0, 0x31FF),
+    (0x3400, 0x4DBF),
+    (0x4E00, 0x9FFF),
+    (0xF900, 0xFAFF),
+    (0xAC00, 0xD7AF),
+    (0xFF00, 0xFFEF),
+    (0x20000, 0x2FA1F),
+)
+
+
+def has_cjk_or_wide_chars(query: str) -> bool:
+    """Return True if the (capped) query contains CJK / fullwidth chars.
+
+    Such queries bypass the FTS5 index (see
+    :data:`_CJK_WIDE_CODEPOINT_RANGES` for why) and are served by the
+    LIKE path, which matches raw substrings regardless of script or
+    length. The scan cost is bounded the same way as every other LIKE
+    fallback: one pass over the transcriptions table with the
+    ``(timestamp DESC, id DESC)`` index serving the ORDER BY and the
+    caller's LIMIT bounding the result set.
+    """
+    from voice_typer.server import history_db as _hd
+
+    capped = query[: _hd._MAX_SEARCH_QUERY_CHARS]
+    return any(lo <= codepoint <= hi for codepoint in map(ord, capped) for lo, hi in _CJK_WIDE_CODEPOINT_RANGES)
 
 
 def sanitize_fts_query(query: str) -> str:
@@ -256,6 +311,21 @@ def search(
     ``_``), we fall back to the pre-FTS5 LIKE path so literal wildcards
     still match.
 
+    CJK / fullwidth queries (``has_cjk_or_wide_chars``) are ALSO routed
+    to the LIKE path: the ``unicode61`` tokenizer indexes a contiguous
+    CJK run as a single token, so a phrase-wrapped MATCH only matches
+    whole runs — searching "你好" would never find "今天你好吗". The LIKE
+    scan gives true substring semantics for every query length; its cost
+    is bounded by the same ORDER BY + LIMIT contract as the FTS path
+    (the ``(timestamp DESC, id DESC)`` index serves the ordering, and
+    the caller's LIMIT/OFFSET bounds the result set). Latin-only search
+    behavior is unchanged.
+
+    Mixed-script queries containing at least one CJK/fullwidth character
+    take the LIKE path too: the whole capped query becomes one literal
+    substring pattern, consistent with the existing separator-only
+    fallback semantics.
+
     FTS5 LIMIT push-down: on the no-cursor path, the ``LIMIT`` (and
     ``OFFSET`` when present) is pushed INTO the FTS5 subquery so FTS5
     only materialises the rowids that will actually be returned, rather
@@ -278,7 +348,10 @@ def search(
     with contextlib.closing(conn.cursor()) as cursor:
         capped = query[: _hd._MAX_SEARCH_QUERY_CHARS]
         use_cursor = before_timestamp is not None and before_id is not None
-        if capped and is_fts_compatible_query(capped):
+        # CJK / fullwidth queries bypass FTS5 (unicode61 cannot
+        # substring-match those scripts) and take the LIKE path below.
+        use_fts = bool(capped) and is_fts_compatible_query(capped) and not has_cjk_or_wide_chars(capped)
+        if use_fts:
             fts_query = sanitize_fts_query(capped)
             if use_cursor:
                 # Cursor path: cannot push LIMIT into FTS because the
