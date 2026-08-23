@@ -150,8 +150,6 @@ NOISE_SUPPRESSION_METHODS: frozenset[str] = frozenset({"rnnoise", "deepfilternet
 # Fields deliberately excluded:
 #   - `schema_version`           — managed by Config.load() migration path
 #   - `wayland_warned`           — internal UX state, not user-tunable
-#   - `onboarding_completed`     — set via the dedicated `complete_onboarding`
-#                                   IPC command, not `set_config`
 #   - `qwen_model_path`          — trusted-path, set by model download flow
 #   - `parakeet_model_path`      — trusted-path, set by model download flow
 #   - `corrections_path`         — trusted-path, set by file picker IPC
@@ -232,6 +230,13 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # from ``runtime_pack_consent`` 2026-08-14 (legacy key migrated in
     # config/loader.py).
     "offline_pack_consent": (bool, _bool_validator),
+    # Re-run setup wizard (Settings → Troubleshooting). The renderer
+    # writes ``false`` via set_config so App.tsx's onboarding route
+    # guard admits the wizard page and the flag persists across config
+    # refreshes; completing the wizard still flows through the
+    # dedicated ``complete_onboarding`` IPC command. Reset-to-defaults
+    # paths keep excluding this key from their bulk writes.
+    "onboarding_completed": (bool, _bool_validator),
     # ── Clipboard borrow/restore (ADR-0010) ───────────────────────────
     # ADR-0010 §2.11 / §8.3a: these keys MUST be in the IPC allowlist
     # or ``validate_config_update()`` drops them, ``service.apply_config()``
@@ -333,11 +338,20 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # default of ``None``). The validator itself (returned by
     # ``_make_optional_int_validator``) short-circuits ``None`` to
     # success and delegates the range check to ``_make_int_validator``
-    # for non-None values. Range [0, 10000] covers any plausible screen
-    # coordinate (8K monitors are 7680px wide) while rejecting negative
-    # / absurd values that would place the bubble off-screen.
-    "bubble_x": ((int, type(None)), _make_optional_int_validator(lo=0, hi=10000)),
-    "bubble_y": ((int, type(None)), _make_optional_int_validator(lo=0, hi=10000)),
+    # for non-None values. Range [-100000, 100000] covers any plausible
+    # screen coordinate (8K monitors are 7680px wide) INCLUDING the
+    # negative coordinates that are normal and expected in multi-monitor
+    # layouts: displays positioned left of / above the primary monitor
+    # have negative origins on Windows/macOS/Linux virtual screens (the
+    # primary display anchors (0,0); the lower bound leaves ~12x headroom
+    # beyond a wall of 8K displays). The upper bound still rejects absurd
+    # values that would place the bubble off-screen. On-screen validity
+    # is enforced at RESTORE time by the hosts (Electron's
+    # isPositionOnAnyDisplay / the Tauri work-area check), not here —
+    # a coordinate can be temporarily off-screen when a monitor is
+    # unplugged and must survive that transient state.
+    "bubble_x": ((int, type(None)), _make_optional_int_validator(lo=-100_000, hi=100_000)),
+    "bubble_y": ((int, type(None)), _make_optional_int_validator(lo=-100_000, hi=100_000)),
     # Persisted bubble scale factor (multiplier on the base DPI).
     # Range [0.5, 3.0] — wider than the renderer's visible [0.5, 2.0]
     # clamp so a future renderer change can loosen the visible range

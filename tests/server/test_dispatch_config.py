@@ -234,19 +234,38 @@ class TestDispatchSetConfigAllowlist:
         assert result["type"] == "ack"  # may include data field
         assert real_config.wayland_warned == original
 
-    def test_rejects_onboarding_completed_via_set_config(self, real_server, real_config):
-        """onboarding_completed is set by the dedicated complete_onboarding IPC,
-        not by set_config."""
-        original = real_config.onboarding_completed
+    def test_accepts_onboarding_completed_via_set_config(self, real_server, real_config):
+        """onboarding_completed is renderer-writable via set_config so the
+        Settings "Re-run setup wizard" flow can flip it to false (the
+        App.tsx route guard then admits the wizard page and the value
+        persists across config refreshes). Completion still flows through
+        the dedicated complete_onboarding IPC command."""
+        real_config.onboarding_completed = True
         result = real_server._dispatch(
             {
                 "id": 1,
                 "type": "set_config",
-                "data": {"onboarding_completed": True},
+                "data": {"onboarding_completed": False},
             }
         )
         assert result["type"] == "ack"  # may include data field
-        assert real_config.onboarding_completed == original
+        assert real_config.onboarding_completed is False
+
+    def test_rejects_non_bool_onboarding_completed(self, real_server, real_config):
+        """A non-bool onboarding_completed value is dropped by the
+        boolean validator (defense in depth against a malicious IPC
+        client writing garbage into the flag)."""
+        real_config.onboarding_completed = True
+        result = real_server._dispatch(
+            {
+                "id": 1,
+                "type": "set_config",
+                "data": {"onboarding_completed": "no"},
+            }
+        )
+        # Known key with an invalid value → atomic error envelope.
+        assert result["type"] == "error"
+        assert real_config.onboarding_completed is True
 
     def test_rejects_trusted_path_field_qwen_model_path(self, real_server, real_config):
         """qwen_model_path is a trusted-path field (set by model download flow)."""
