@@ -248,7 +248,7 @@ describe("About page — product identity (IA split)", () => {
 		expect(screen.queryByText("View prewarm log")).toBeNull();
 	});
 
-	it("does NOT render the Updates section (removed — belongs on a diagnostics surface)", async () => {
+	it("renders the runtime-pack row with a manual Check for Updates control", async () => {
 		const { default: AboutPage } = await import("@/pages/About");
 		render(<AboutPage />);
 
@@ -256,10 +256,14 @@ describe("About page — product identity (IA split)", () => {
 			expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
 		});
 
-		// The Updates section previously had a "Check for Updates"
-		// button — removed.
-		expect(screen.queryByText("Updates")).toBeNull();
-		expect(screen.queryByText("Check for Updates")).toBeNull();
+		// The Updates section was removed in the IA split, then
+		// intentionally RESTORED as a compact runtime-pack status row +
+		// user-triggerable check: the pack auto-update path only checks
+		// silently on network-online transitions, so users had no way
+		// to see pack currency or force a check. This pin guards the
+		// restored surface against future removal.
+		expect(screen.getByText("Offline engine pack")).toBeTruthy();
+		expect(screen.getByText("Check for Updates")).toBeTruthy();
 	});
 });
 

@@ -59,6 +59,7 @@ import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { usePythonEvent } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
+import { userFacingErrorMessage } from "@/lib/errors/userFacingErrorMessage";
 import { formatErrorMessage, type ModelInfo } from "@/lib/utils/models";
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -315,7 +316,10 @@ export function useModelDownload({
 				}
 			} catch (err) {
 				const message = t("models.snack.downloadFailed", {
-					error: formatErrorMessage(err),
+					// Known codes map to curated localized copy; anything
+					// else keeps the real formatted reason (never a
+					// generic placeholder that hides what happened).
+					error: userFacingErrorMessage(err, t, formatErrorMessage(err)),
 				});
 				setState((prev) => ({
 					...prev,
@@ -414,10 +418,11 @@ export function useModelDownload({
 			}
 		} catch (err) {
 			setState((prev) => ({ ...prev, isPaused: !prev.isPaused }));
+			const reason = userFacingErrorMessage(err, t, formatErrorMessage(err));
 			showSnack(
 				state.isPaused
-					? t("models.snack.resumeFailed", { error: formatErrorMessage(err) })
-					: t("models.snack.pauseFailed", { error: formatErrorMessage(err) }),
+					? t("models.snack.resumeFailed", { error: reason })
+					: t("models.snack.pauseFailed", { error: reason }),
 				"error",
 			);
 		}
@@ -429,7 +434,9 @@ export function useModelDownload({
 			showSnack(t("models.snack.cancelled"), "warning");
 		} catch (err) {
 			showSnack(
-				t("models.snack.cancelFailed", { error: formatErrorMessage(err) }),
+				t("models.snack.cancelFailed", {
+					error: userFacingErrorMessage(err, t, formatErrorMessage(err)),
+				}),
 				"error",
 			);
 		} finally {
