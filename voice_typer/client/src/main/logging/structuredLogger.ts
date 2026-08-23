@@ -21,7 +21,8 @@
  *     module's `logger.info` AND by `printfLogger.ts`'s `log.info`
  *     (the printf-style logger mirrors the opt-in here).
  *   - `formatLine` — local helper that renders a file-friendly line
- *     (ISO-8601 timestamp + level tag + JSON-stringified args).
+ *     (canonical `YYYY-MM-DD  HH:MM:SS  LEVEL  msg` timestamp +
+ *     level label + redacted args).
  *
  * Imports: `path`, Electron's `app` (for `isPackaged` gating),
  * `computeConfigDir` from `../config-dir`, and
@@ -54,50 +55,6 @@ import {
 // Exported (not in the public barrel) so `printfLogger.ts` can mirror
 // the opt-in on its `log.info` without re-reading `process.env`.
 export const PERSIST_INFO = process.env.VOICE_TYPER_ELECTRON_INFO_LOG === "1";
-
-/**
- * Resolve the per-process session ID for the Electron log
- * line prefix.
- *
- * The ID is sourced from ``process.env.VOICE_TYPER_SESSION_ID`` (set
- * by ``bootstrap.ts::generateSessionNonce`` at app startup, OR by a
- * parent process like a test harness). When unset (e.g. a fresh test
- * that hasn't called ``bootstrapRuntime``), the bracket renders as
- * ``[--------]`` (8 dashes) — mirroring the Python side's
- * ``_SessionFilter`` fallback (``log.py:474 / 567`` uses the same
- * 8-dash placeholder). This keeps the bracket shape stable so log
- * parsers can rely on a consistent ``[xxxxxxxx]`` token even when the
- * ID isn't yet known.
- *
- * Memoized at module init: the env var is read ONCE, then the cached
- * value is reused on every ``formatLine`` call. ``VOICE_TYPER_SESSION_ID``
- * is set by ``bootstrap.ts`` BEFORE any ``logger.*`` call lands (the
- * bootstrap is the first thing ``app.whenReady()`` runs), so the
- * memoization is safe. If the env var is set LATER (e.g. by a test
- * that sets it after import), the memoized value would be stale — but
- * no production code path does this, and the test seam
- * ``_getSessionIdForTest`` (below) lets tests override the memo.
- */
-const SESSION_ID_PLACEHOLDER = "--------";
-let _sessionId: string | undefined;
-
-function getSessionId(): string {
-	if (_sessionId === undefined) {
-		_sessionId =
-			process.env.VOICE_TYPER_SESSION_ID?.trim() || SESSION_ID_PLACEHOLDER;
-	}
-	return _sessionId;
-}
-
-/**
- * Test seam: override the memoized session ID. Pass ``undefined`` to
- * force re-reading ``process.env.VOICE_TYPER_SESSION_ID`` on the next
- * ``formatLine`` call. Exported (not in the public barrel) so tests
- * can pin a stable bracket without depending on env-var mutation.
- */
-export function _setSessionIdForTest(id: string | undefined): void {
-	_sessionId = id;
-}
 
 // ─── Memoized `<config-dir>/logs/<filename>` resolver ────────────────────
 //
@@ -234,7 +191,9 @@ export function appendLifecycleLine(
 		// and `electron-lifecycle.log` via this function) never
 		// drift in their redaction / formatting.
 		const formatted = redactArgsForFile(msg, args);
-		const line = `${tsStr} [${level.toUpperCase()}] ${formatted}\n`;
+		// Canonical file line (C-LOG-1): two-space field separators,
+		// bare level label — identical shape to `formatLine`.
+		const line = `${tsStr}  ${level.toUpperCase()}  ${formatted}\n`;
 		const p = lifecycleLogPath();
 		// Delegate to the shared `appendLogLine` helper so the
 		// file-size cache eliminates the per-write `statSync`
@@ -301,17 +260,18 @@ function redactArgsForFile(msg: string, args: unknown[]): string {
  * Format a log line for the file. Always ends with `\n` so `tail -f`
  * shows lines as they're written.
  *
- * Prepends the ``[session_id]`` bracket after the timestamp
- * so operators can grep across Rust / Python / Electron logs for the
- * same bracket to reconstruct a cross-process timeline. Mirrors the
- * Python side's ``_FileFormatter`` / ``_ConsoleFormatter`` (which
- * inject the same bracket via ``_SessionFilter``).
+ * Uses the canonical cross-process format (C-LOG-1):
+ * `YYYY-MM-DD  HH:MM:SS  LEVEL  msg` — TWO spaces between fields,
+ * bare level label (no brackets), NO per-line session id. The Python
+ * side removed the per-line `[session_id]` bracket from every log
+ * line (it only appears on the FIRST line's `session=xxxxxxxx`
+ * startup banner), so the Electron main log mirrors that contract to
+ * keep the cross-process timeline greppable and visually consistent.
  */
 function formatLine(level: Level, msg: string, args: unknown[]): string {
 	const tsStr = fileTimestamp();
-	const sessionId = getSessionId();
 	const formatted = redactArgsForFile(msg, args);
-	return `${tsStr} [${sessionId}] [${level.toUpperCase()}] ${formatted}\n`;
+	return `${tsStr}  ${level.toUpperCase()}  ${formatted}\n`;
 }
 
 /**

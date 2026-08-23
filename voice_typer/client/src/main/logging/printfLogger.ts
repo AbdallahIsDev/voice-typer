@@ -191,8 +191,10 @@ function writeStdout(
 	color: string,
 	formattedArgs: string,
 ): void {
-	const prefix = `${ts()}  ${color}[${level}]${RESET}`;
-	const out = `${prefix} ${formattedArgs}`;
+	// Canonical terminal line (C-LOG-1): `HH:MM:SS  LEVEL  msg` — TWO
+	// spaces between fields, bare level label (no brackets).
+	const prefix = `${ts()}  ${color}${level}${RESET}`;
+	const out = `${prefix}  ${formattedArgs}`;
 	if (level === "ERROR") {
 		console.error(out);
 	} else if (level === "WARN") {
@@ -239,7 +241,9 @@ const mainRuntimeLogger = {
 		const logPath = getRuntimeLogPath();
 		if (!logPath) return;
 		const fileTs = fileTimestamp();
-		const line = `${fileTs} [${level}] ${formattedArgs}\n`;
+		// Canonical file line (C-LOG-1): two-space field separators,
+		// bare level label (no brackets).
+		const line = `${fileTs}  ${level}  ${formattedArgs}\n`;
 		// Route through `appendLogLine` so the file-size
 		// cache is populated after each successful append. Previously
 		// this site called `rotateIfNeeded` + `fs.appendFileSync` directly,

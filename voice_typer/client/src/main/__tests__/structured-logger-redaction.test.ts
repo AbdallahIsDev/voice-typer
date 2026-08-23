@@ -123,7 +123,8 @@ describe("XZ-LOG-03: structuredLogger formatLine redacts PII / API keys / URL cr
 		) as unknown[] | undefined;
 		expect(mainCall).toBeDefined();
 		const line = String(mainCall?.[1]);
-		expect(line).toContain("[WARN]");
+		expect(line).toContain("  WARN  ");
+		expect(line).not.toContain("[WARN]");
 		expect(line).toContain("[EMAIL]");
 		expect(line).not.toContain("alice@example.com");
 	});
@@ -139,7 +140,8 @@ describe("XZ-LOG-03: structuredLogger formatLine redacts PII / API keys / URL cr
 		) as unknown[] | undefined;
 		expect(mainCall).toBeDefined();
 		const line = String(mainCall?.[1]);
-		expect(line).toContain("[ERROR]");
+		expect(line).toContain("  ERROR  ");
+		expect(line).not.toContain("[ERROR]");
 		expect(line).toContain("Bearer ***");
 		expect(line).not.toContain("eyJhbGciOiJIUzI1NiJ9");
 	});
@@ -239,7 +241,8 @@ describe("XZ-LOG-03: structuredLogger formatLine redacts PII / API keys / URL cr
 		) as unknown[] | undefined;
 		expect(lifecycleCall).toBeDefined();
 		const line = String(lifecycleCall?.[1]);
-		expect(line).toContain("[INFO]");
+		expect(line).toContain("  INFO  ");
+		expect(line).not.toContain("[INFO]");
 		expect(line).toContain("[EMAIL]");
 		expect(line).not.toContain("carol@example.com");
 	});

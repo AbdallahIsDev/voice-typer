@@ -27,8 +27,8 @@
  *   (a) `logger.info("...")` (with `PERSIST_INFO=1`) calls `appendLogLine`
  *       (spied via the rotation module export) — NOT an inline
  *       `statSync` + `renameSync` + `appendFileSync`.
- *   (b) The line passed to `appendLogLine` contains the `[INFO]` level
- *       tag and the message text.
+ *   (b) The line passed to `appendLogLine` contains the bare `INFO`
+ *       level label and the message text.
  *   (c) The 1 MiB cap is preserved (the third arg to `appendLogLine`).
  *   (d) The lifecycle log path is passed as the first arg.
  *
@@ -134,13 +134,16 @@ describe("DJ-50: appendLifecycleLine routes through appendLogLine (not inline st
 		expect(lifecycleCall[0]).toBe(LIFECYCLE_LOG_PATH);
 	});
 
-	it("the line passed to appendLogLine (lifecycle call) contains [INFO] and the message text", async () => {
+	it("the line passed to appendLogLine (lifecycle call) contains the bare INFO label and the message text", async () => {
 		const { logger } = await importLoggingFresh();
 		logger.info("DJ-50 message body");
 
 		const lifecycleCall = appendLogLineMock.mock.calls[1] as unknown[];
 		const line = String(lifecycleCall[1]);
-		expect(line).toContain("[INFO]");
+		// Canonical C-LOG-1 format: two-space separators around a bare
+		// level label — no bracketed `[INFO]`.
+		expect(line).toContain("  INFO  ");
+		expect(line).not.toContain("[INFO]");
 		expect(line).toContain("DJ-50 message body");
 		// Must end with newline so tail -f shows it cleanly.
 		expect(line.endsWith("\n")).toBe(true);
@@ -187,7 +190,7 @@ describe("DJ-50: appendLifecycleLine routes through appendLogLine (not inline st
 		const callArgs = appendLogLineMock.mock.calls[0] as unknown[];
 		expect(callArgs[0]).toBe(LIFECYCLE_LOG_PATH);
 		const line = String(callArgs[1]);
-		expect(line).toContain("[INFO]");
+		expect(line).toContain("  INFO  ");
 		expect(line).toContain("[BUBBLE] DJ-50 printf path");
 	});
 });

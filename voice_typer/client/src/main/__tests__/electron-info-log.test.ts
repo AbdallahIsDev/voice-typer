@@ -19,8 +19,8 @@
  *
  * These tests verify:
  *   (a) When the env var is set, `logger.info("test")` calls
- *       `fs.appendFileSync` with a line containing the `[INFO]` level
- *       tag and the message text.
+ *       `fs.appendFileSync` with a line containing the bare `INFO`
+ *       level label and the message text.
  *   (b) When the env var is unset, `logger.info("test")` does NOT call
  *       `fs.appendFileSync` against the lifecycle log path (the only
  *       `appendFileSync` calls that may fire are against
@@ -106,7 +106,7 @@ describe("YJ-3: VOICE_TYPER_ELECTRON_INFO_LOG=1 routes logger.info to electron-l
 		vi.resetModules();
 	});
 
-	it("calls fs.appendFileSync with a line containing [INFO] and the message text", async () => {
+	it("calls fs.appendFileSync with a line containing the bare INFO label and the message text", async () => {
 		const { logger } = await importLoggingFresh();
 		logger.info("YJ-3 test lifecycle event");
 
@@ -116,11 +116,12 @@ describe("YJ-3: VOICE_TYPER_ELECTRON_INFO_LOG=1 routes logger.info to electron-l
 		);
 		expect(lifecycleCalls.length).toBeGreaterThanOrEqual(1);
 
-		// The line passed as the 2nd arg must contain [INFO] and the
-		// message text. The exact ISO-8601 timestamp is non-deterministic,
-		// so we assert substrings only.
+		// The line passed as the 2nd arg must contain the bare `INFO`
+		// level label and the message text. The exact timestamp is
+		// non-deterministic, so we assert substrings only.
 		const line = String(lifecycleCalls[0][1]);
-		expect(line).toContain("[INFO]");
+		expect(line).toContain("  INFO  ");
+		expect(line).not.toContain("[INFO]");
 		expect(line).toContain("YJ-3 test lifecycle event");
 		// The line must end with a newline so `tail -f` shows it cleanly.
 		expect(line.endsWith("\n")).toBe(true);
@@ -160,7 +161,8 @@ describe("YJ-3: VOICE_TYPER_ELECTRON_INFO_LOG=1 routes logger.info to electron-l
 		);
 		expect(lifecycleCalls.length).toBeGreaterThanOrEqual(1);
 		const line = String(lifecycleCalls[0][1]);
-		expect(line).toContain("[INFO]");
+		expect(line).toContain("  INFO  ");
+		expect(line).not.toContain("[INFO]");
 		// printf-style logger coerces args via String() and joins with
 		// spaces — verify the tag + coordinates are present.
 		expect(line).toContain("[BUBBLE] creating window at");
