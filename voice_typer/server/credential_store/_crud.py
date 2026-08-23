@@ -157,16 +157,14 @@ def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool =
     if not isinstance(value, str):
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             log.warning(
-                "[CREDENTIAL_STORE] received non-string value"
-                " for provider=%s (type=%s) — coercing to str",
+                "[CREDENTIAL_STORE] received non-string value for provider=%s (type=%s) — coercing to str",
                 provider,
                 type(value).__name__,
             )
             value = str(value)
         else:
             log.warning(
-                "[CREDENTIAL_STORE] received non-string value"
-                " for provider=%s (type=%s) — rejecting",
+                "[CREDENTIAL_STORE] received non-string value for provider=%s (type=%s) — rejecting",
                 provider,
                 type(value).__name__,
             )

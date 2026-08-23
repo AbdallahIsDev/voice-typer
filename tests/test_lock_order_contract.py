@@ -256,9 +256,7 @@ class TestLockInventory:
             "via a delegating property) — see "
             "docs/architecture/lock-order-contract.md §1"
         )
-        assert bc_declarations["_lock"] == "Lock", (
-            f"app._lock must be threading.Lock (got {bc_declarations['_lock']})"
-        )
+        assert bc_declarations["_lock"] == "Lock", f"app._lock must be threading.Lock (got {bc_declarations['_lock']})"
 
         # ``_pending_timers_lock`` is owned by ``TimerCoordinator`` (
         # Phase 7). Read its real source file. The shadow assignment in

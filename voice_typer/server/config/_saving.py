@@ -396,9 +396,7 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
                     # read-modify-write cycles and (b) preserving the secret on
                     # disk (previously the reference token overwrite caused silent
                     # API-key data loss when keyring flaked mid-save).
-                    stored_to_keyring = credential_store.store_secret(
-                        provider, value, _caller_holds_config_lock=True
-                    )
+                    stored_to_keyring = credential_store.store_secret(provider, value, _caller_holds_config_lock=True)
                     if stored_to_keyring:
                         data[field_name] = f"{credential_store.KEYRING_REF_PREFIX}{provider}"
                     # else: leave data[field_name] as the plaintext value —

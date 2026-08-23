@@ -212,9 +212,7 @@ _APP_TSX = _RENDERER_SRC / "App.tsx"
 # (``app.restartingBackend``, ``app.lostConnection``, the Retry
 # ``Button``) moved OUT of App.tsx into this component. Assertions that
 # used to grep App.tsx for those strings now read this file instead.
-_CONNECTION_STATUS_SCREEN_TSX = (
-    _RENDERER_SRC / "components" / "layout" / "ConnectionStatusScreen.tsx"
-)
+_CONNECTION_STATUS_SCREEN_TSX = _RENDERER_SRC / "components" / "layout" / "ConnectionStatusScreen.tsx"
 # the former monolithic ipc types file was split
 # into a ``types/ipc/`` directory. The ``PythonPushEvent``
 # discriminated union + all *Event interfaces now live in
