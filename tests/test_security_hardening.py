@@ -652,7 +652,11 @@ class TestSecureReadUsage:
 
     def test_config_load_uses_secure_read(self):
         """SEC-002: Config.load uses _secure_read_text for config.json."""
-        import voice_typer.server.config as mod
+        # The load implementation moved into ``config/loader.py`` during
+        # the config package split; the facade (``config/__init__.py``)
+        # only re-exports the name. Scan the module where the actual
+        # read happens.
+        import voice_typer.server.config.loader as mod
 
         with open(mod.__file__) as f:
             source = f.read()

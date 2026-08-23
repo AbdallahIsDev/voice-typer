@@ -75,6 +75,15 @@ DICTATION_PIPELINE_PY = SERVER_DIR / "dictation_stages.py"
 # points at the coordinator's lock. The inventory test must therefore read
 # ``timer_coordinator.py`` for this lock, not ``app.py``.
 TIMER_COORDINATOR_PY = SERVER_DIR / "timer_coordinator.py"
+# ``_lock`` / ``_busy_event`` construction migrated to ``BusynessCoordinator``
+# alongside the config/credential_store package split. Production
+# ``VoiceTyperApp`` no longer declares them directly: it constructs
+# ``self._busyness = BusynessCoordinator()`` and serves ``_lock`` /
+# ``_busy_event`` through property shims that delegate to the coordinator
+# (mirroring the Phase 7 shadow-attribute arrangement above). The real
+# ``threading.Lock()`` / ``threading.Event()`` constructions live here —
+# the inventory tests must read this file for them, not ``app.py``.
+BUSYNESS_PY = SERVER_DIR / "_busyness.py"
 
 # The three app-level locks enumerated in the contract. ``_lock`` is the
 # bare name; ``_config_mutation_lock`` and ``_pending_timers_lock`` are
@@ -223,18 +232,32 @@ class TestLockInventory:
         app_declarations: dict[str, str] = {}
         for m in _LOCK_DECL_RE.finditer(app_source):
             app_declarations[m.group(1)] = m.group(2)
-        assert "_lock" in app_declarations, (
-            "app._lock (threading.Lock) must be declared in app.py — see docs/architecture/lock-order-contract.md §1"
-        )
-        assert app_declarations["_lock"] == "Lock", (
-            f"app._lock must be threading.Lock (got {app_declarations['_lock']})"
-        )
         assert "_config_mutation_lock" in app_declarations, (
             "app._config_mutation_lock (threading.RLock) must be declared — "
             "see docs/architecture/lock-order-contract.md §1"
         )
         assert app_declarations["_config_mutation_lock"] == "RLock", (
             "app._config_mutation_lock must be threading.RLock (defensive reentrancy — see contract §3 rationale)"
+        )
+
+        # ``_lock`` is owned by ``BusynessCoordinator`` (the app keeps a
+        # delegating property shim, mirroring the Phase 7 shadow-attribute
+        # arrangement for the timer lock). Read its real source file. The
+        # property shims in app.py (``_lock`` getter/setter) do NOT match
+        # ``_LOCK_DECL_RE``, which is correct — the lock is constructed in
+        # the coordinator, not the app.
+        bc_source = _strip_comments_and_docstrings(_read_source(BUSYNESS_PY))
+        bc_declarations: dict[str, str] = {}
+        for m in _LOCK_DECL_RE.finditer(bc_source):
+            bc_declarations[m.group(1)] = m.group(2)
+        assert "_lock" in bc_declarations, (
+            "app._lock (threading.Lock) must be declared in _busyness.py "
+            "(BusynessCoordinator owns the construction; app.py serves it "
+            "via a delegating property) — see "
+            "docs/architecture/lock-order-contract.md §1"
+        )
+        assert bc_declarations["_lock"] == "Lock", (
+            f"app._lock must be threading.Lock (got {bc_declarations['_lock']})"
         )
 
         # ``_pending_timers_lock`` is owned by ``TimerCoordinator`` (
@@ -266,9 +289,21 @@ class TestLockInventory:
         # ``_bubble_level_worker_stop`` is created conditionally (under
         # ``if not hasattr(...)``) — the regex above still matches the
         # ``self._bubble_level_worker_stop = threading.Event()`` line
-        # inside the ``if``. The other two are unconditional.
-        assert "_busy_event" in declared_events, "app._busy_event must be declared — see contract §1"
+        # inside the ``if``.
         assert "_shutting_down_event" in declared_events, "app._shutting_down_event must be declared — see contract §1"
+
+        # ``_busy_event`` construction lives in ``BusynessCoordinator``
+        # (app.py serves it via a delegating property shim — see the
+        # lock-inventory note above).
+        bc_source = _strip_comments_and_docstrings(_read_source(BUSYNESS_PY))
+        bc_declared_events: set[str] = set()
+        for m in _EVENT_DECL_RE.finditer(bc_source):
+            bc_declared_events.add(m.group(1))
+        assert "_busy_event" in bc_declared_events, (
+            "app._busy_event must be declared in _busyness.py "
+            "(BusynessCoordinator owns the construction; app.py serves it "
+            "via a delegating property) — see contract §1"
+        )
 
 
 class TestNoLockNesting:
@@ -386,14 +421,21 @@ def app_shell():
     contract locks.
 
     The lock objects are REAL ``threading.Lock`` / ``threading.RLock``
-    instances — same types as production (see ``app.py:324/336/382``).
+    instances — same types as production (the coordinator constructs
+    ``_lock``; ``app.py`` constructs ``_config_mutation_lock``).
     """
+    from voice_typer.server._busyness import BusynessCoordinator
     from voice_typer.server.app import VoiceTyperApp
     from voice_typer.server.timer_coordinator import TimerCoordinator
 
     shell = VoiceTyperApp.__new__(VoiceTyperApp)
-    # Match the production declarations exactly.
-    shell._lock = threading.Lock()  # app.py:324
+    # Match the production declarations exactly: ``VoiceTyperApp.__init__``
+    # constructs ``self._busyness = BusynessCoordinator()`` (app.py:810)
+    # and serves ``_lock`` / ``_busy_event`` through delegating property
+    # shims — so install a real coordinator rather than raw lock/event
+    # attributes (assigning ``shell._lock`` directly would route through
+    # the property setter into a missing coordinator).
+    shell._busyness = BusynessCoordinator()
     shell._config_mutation_lock = threading.RLock()  # app.py:336
     # Phase 7: install a real TimerCoordinator so the delegate
     # methods (_schedule_timer / _cancel_pending_timers) reach real code.

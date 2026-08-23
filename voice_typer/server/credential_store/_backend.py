@@ -294,6 +294,12 @@ def is_keyring_available() -> bool:
       timestamp).
     """
     global _keyring_available_cache, _keyring_backend_name_cache, _keyring_reason_cache, _keyring_last_probe_ts
+    # The re-probe interval is read from the *package* module at call
+    # time so a test that rebinds ``credential_store._KEYRING_REPROBE_INTERVAL_SECONDS``
+    # is observed here (same pattern as ``_KEYRING_TIMEOUT_SECONDS`` in
+    # :func:`_run_keyring_call`). The caches themselves are bare globals:
+    # this function rebinds them, so they must live in this submodule.
+    reprobe_interval = _cs._KEYRING_REPROBE_INTERVAL_SECONDS
     # Fast path: cache is populated AND either (a) the backend is
     # available (cached for process lifetime) or (b) the unavailable
     # result is still within the re-probe interval.
@@ -301,7 +307,7 @@ def is_keyring_available() -> bool:
         return True
     if _keyring_available_cache is False and _keyring_last_probe_ts is not None:
         elapsed = time.time() - _keyring_last_probe_ts
-        if elapsed < _KEYRING_REPROBE_INTERVAL_SECONDS:
+        if elapsed < reprobe_interval:
             return False
     # Slow path: probe (or re-probe). Serialize so two concurrent
     # ``load_secret`` calls don't each fire a probe.
@@ -313,7 +319,7 @@ def is_keyring_available() -> bool:
         if (
             _keyring_available_cache is False
             and _keyring_last_probe_ts is not None
-            and (time.time() - _keyring_last_probe_ts) < _KEYRING_REPROBE_INTERVAL_SECONDS
+            and (time.time() - _keyring_last_probe_ts) < reprobe_interval
         ):
             return False
         # ``_probe_keyring`` is monkey-patched by tests via

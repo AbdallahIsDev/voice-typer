@@ -1036,6 +1036,14 @@ class VoiceTyperApp:
     # shadowing it) so ``monkeypatch.setattr(app, "_busy_event", ...)``
     # style injection and plain ``app._microphones = [...]`` rebinding
     # keep their pre-extraction semantics.
+    #
+    # Declared here (not inferred from the ``__init__`` assignments)
+    # because ``__init__`` is unannotated — mypy does not treat
+    # assignments inside an untyped function body as attribute
+    # declarations, so without these the delegating properties below
+    # read the coordinators as ``Any``.
+    _busyness: BusynessCoordinator
+    _microphone_registry: MicrophoneRegistry
 
     @property
     def _busy_event(self) -> threading.Event:

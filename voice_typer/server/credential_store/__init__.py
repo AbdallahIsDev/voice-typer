@@ -97,6 +97,9 @@ Cross-platform testing notes are in ``docs/security/credential-store.md``.
 
 from __future__ import annotations
 
+import sys
+from types import ModuleType
+
 # ── Backend: timeout isolation + caches + probe ──────────────────────────
 # Bare re-exports — functions / constants / locks / in-place-mutated
 # containers only. Re-bound scalars (``_orphaned_thread_count``,
@@ -256,3 +259,37 @@ def __getattr__(name: str):
         if hasattr(mod, name):
             return getattr(mod, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+class _PackageFacade(ModuleType):
+    """Write-through attribute assignment for submodule-owned globals.
+
+    The pre-split monolith let tests assign module globals directly
+    (``credential_store._keyring_last_probe_ts = time.time() - 301.0``)
+    and the implementation read the very same global. After the split,
+    those scalars live in :mod:`._backend` — a plain ``setattr`` on the
+    package would only shadow the facade while
+    :func:`._backend.is_keyring_available` kept reading its own global.
+
+    For any name that is NOT already in the package ``__dict__``
+    (i.e. not statically re-exported) but exists on one of the owning
+    submodules, assignment is forwarded to that submodule so both sides
+    observe the same value. Names present in ``__dict__`` (functions,
+    constants, locks, containers) keep plain shadow semantics, which is
+    what the ``_cs.<NAME>`` call-time lookups in the submodules read.
+    Reads of forwarded names flow back through :func:`__getattr__`, so
+    ``monkeypatch.setattr`` capture/teardown round-trips cleanly.
+    """
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if name not in self.__dict__:
+            from . import _backend, _migration, _outcome
+
+            for mod in (_backend, _outcome, _migration):
+                if hasattr(mod, name):
+                    setattr(mod, name, value)
+                    return
+        super().__setattr__(name, value)
+
+
+sys.modules[__name__].__class__ = _PackageFacade

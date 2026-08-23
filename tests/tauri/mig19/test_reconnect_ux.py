@@ -193,8 +193,28 @@ _APP_STORE_TS = _RENDERER_SRC / "stores" / "appStore.ts"
 _TAURI_BRIDGE_DIR = _RENDERER_SRC / "lib" / "tauri-bridge"
 _TAURI_BRIDGE_TS = _TAURI_BRIDGE_DIR / "index.ts"
 _USE_CONNECTION_TS = _RENDERER_SRC / "hooks" / "useConnection.ts"
-_USE_PYTHON_TS = _RENDERER_SRC / "hooks" / "usePython.ts"
+# ``hooks/usePython.ts`` is now a public barrel re-export; the call
+# implementation moved to ``lib/python-bridge/`` (``usePython.ts``,
+# ``error-envelope.ts``, ``command-timeouts.ts``). Like the
+# tauri-bridge fixture below, concatenate the barrel + implementation
+# modules so the static regex assertions authored against the original
+# monolith still match patterns spread across the split files.
+_USE_PYTHON_BARREL_TS = _RENDERER_SRC / "hooks" / "usePython.ts"
+_PYTHON_BRIDGE_DIR = _RENDERER_SRC / "lib" / "python-bridge"
+_USE_PYTHON_SOURCES = (
+    _USE_PYTHON_BARREL_TS,
+    _PYTHON_BRIDGE_DIR / "usePython.ts",
+    _PYTHON_BRIDGE_DIR / "error-envelope.ts",
+    _PYTHON_BRIDGE_DIR / "command-timeouts.ts",
+)
 _APP_TSX = _RENDERER_SRC / "App.tsx"
+# RT-FIX-9 successor refactor: the per-state restart/disconnect copy
+# (``app.restartingBackend``, ``app.lostConnection``, the Retry
+# ``Button``) moved OUT of App.tsx into this component. Assertions that
+# used to grep App.tsx for those strings now read this file instead.
+_CONNECTION_STATUS_SCREEN_TSX = (
+    _RENDERER_SRC / "components" / "layout" / "ConnectionStatusScreen.tsx"
+)
 # the former monolithic ipc types file was split
 # into a ``types/ipc/`` directory. The ``PythonPushEvent``
 # discriminated union + all *Event interfaces now live in
@@ -270,9 +290,17 @@ def use_connection_source() -> str:
 
 @pytest.fixture(scope="module")
 def use_python_source() -> str:
-    """Read usePython.ts as text (for static assertions)."""
-    assert _USE_PYTHON_TS.is_file(), f"usePython.ts not found: {_USE_PYTHON_TS}"
-    return _USE_PYTHON_TS.read_text(encoding="utf-8")
+    """Read the usePython implementation as text (for static assertions).
+
+    Concatenates the public barrel (``hooks/usePython.ts``) with the
+    implementation modules under ``lib/python-bridge/`` so assertions
+    written against the pre-split monolith keep matching.
+    """
+    parts: list[str] = []
+    for _path in _USE_PYTHON_SOURCES:
+        assert _path.is_file(), f"usePython source not found: {_path}"
+        parts.append(_path.read_text(encoding="utf-8"))
+    return "\n".join(parts)
 
 
 @pytest.fixture(scope="module")
@@ -280,6 +308,21 @@ def app_tsx_source() -> str:
     """Read App.tsx as text (for static assertions)."""
     assert _APP_TSX.is_file(), f"App.tsx not found: {_APP_TSX}"
     return _APP_TSX.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def connection_status_screen_source() -> str:
+    """Read ConnectionStatusScreen.tsx as text (for static assertions).
+
+    The restart/disconnect copy keys (``app.restartingBackend``,
+    ``app.lostConnection``, ``app.retryConnection``) and the Retry
+    ``Button`` render moved from App.tsx into this component; the
+    assertions that used to grep App.tsx for them read this file now.
+    """
+    assert _CONNECTION_STATUS_SCREEN_TSX.is_file(), (
+        f"ConnectionStatusScreen.tsx not found: {_CONNECTION_STATUS_SCREEN_TSX}"
+    )
+    return _CONNECTION_STATUS_SCREEN_TSX.read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -939,6 +982,7 @@ test_app_tsx_renders_spinner_when_connecting = test_app_tsx_renders_connection_s
 
 def test_app_tsx_renders_connection_status_screen_when_restarting(
     app_tsx_source: str,
+    connection_status_screen_source: str,
 ) -> None:
     """``App.tsx`` must render the ``<ConnectionStatusScreen />``
     component when ``connectionStatus === "restarting"`` (the respawn
@@ -947,7 +991,7 @@ def test_app_tsx_renders_connection_status_screen_when_restarting(
 
     RT-FIX-9 (2026-07-24): see
     ``test_app_tsx_renders_connection_status_screen_when_connecting``
-    for the refactor rationale. The restarting branch is now rendered
+    for the refactor rationale. The restarting branch is rendered
     inside ``ConnectionStatusScreen`` (which receives the
     ``status === 'restarting'`` prop).
     """
@@ -957,13 +1001,13 @@ def test_app_tsx_renders_connection_status_screen_when_restarting(
     )
     # The restarting branch must use the dedicated i18n copy (NOT the
     # cold-start "firstLaunchHint" key which advertises a model download).
-    # (2026-07-24): the ``restartingHint`` key moved into
-    # ``ConnectionStatusScreen.tsx``; App.tsx still references the
-    # ``restartingBackend`` key in its a11y live region.
-    assert "restartingBackend" in app_tsx_source, (
-        "App.tsx must use the app.restartingBackend i18n key in the "
-        "'restarting' branch — distinct from app.startingBackend so "
-        "users don't think the restart is hung on a 466 MB re-download."
+    # (RT-FIX-9 successor refactor): the ``restartingBackend`` key moved
+    # into ``ConnectionStatusScreen.tsx`` together with the branch.
+    assert "restartingBackend" in connection_status_screen_source, (
+        "ConnectionStatusScreen.tsx must use the app.restartingBackend "
+        "i18n key in the 'restarting' branch — distinct from "
+        "app.startingBackend so users don't think the restart is hung "
+        "on a 466 MB re-download."
     )
 
 
@@ -972,15 +1016,16 @@ test_app_tsx_renders_spinner_when_restarting = test_app_tsx_renders_connection_s
 
 def test_app_tsx_renders_retry_button_when_disconnected(
     app_tsx_source: str,
+    connection_status_screen_source: str,
 ) -> None:
     """``App.tsx`` must render a "Retry Connection" button + "Lost
     connection to Python backend" message when
     ``connectionStatus === "disconnected"``.
 
-    RT-FIX-9 (2026-07-24): the disconnected branch (including the
-    Retry button) was extracted into ``<ConnectionStatusScreen>``.
-    App.tsx now passes ``onRetry={handleRetryConnection}`` to
-    ``ConnectionStatusScreen`` so the component can render the Retry
+    RT-FIX-9 (2026-07-24): the disconnected branch (including the Retry
+    button) was extracted into ``<ConnectionStatusScreen>``. App.tsx
+    passes ``onRetry={handleRetryConnection}`` to
+    ``ConnectionStatusScreen`` so the component renders the Retry
     button internally.
     """
     # App.tsx must pass onRetry={handleRetryConnection} to
@@ -996,14 +1041,12 @@ def test_app_tsx_renders_retry_button_when_disconnected(
         "render the Retry button."
     )
     # The disconnected branch must use the lostConnection i18n key.
-    # (2026-07-24): the ``retryConnection`` key moved into
-    # ``ConnectionStatusScreen.tsx`` (renders the Retry button label);
-    # App.tsx still references ``lostConnection`` in its a11y live
-    # region.
-    assert "lostConnection" in app_tsx_source, (
-        "App.tsx must use the app.lostConnection i18n key in the "
-        "'disconnected' branch — surfaces 'Lost connection to Python "
-        "backend' to the user."
+    # (RT-FIX-9 successor refactor): the ``lostConnection`` key moved
+    # into ``ConnectionStatusScreen.tsx`` together with the branch.
+    assert "lostConnection" in connection_status_screen_source, (
+        "ConnectionStatusScreen.tsx must use the app.lostConnection "
+        "i18n key in the 'disconnected' branch — surfaces 'Lost "
+        "connection to Python backend' to the user."
     )
 
 
@@ -1432,9 +1475,14 @@ def test_app_tsx_imports_connection_status_screen(app_tsx_source: str) -> None:
 test_app_tsx_imports_spinner = test_app_tsx_imports_connection_status_screen
 
 
-def test_app_tsx_imports_button_for_retry(app_tsx_source: str) -> None:
-    """``App.tsx`` must import a ``Button`` component so the
-    disconnected branch can render the "Retry Connection" button.
+def test_app_tsx_imports_button_for_retry(
+    connection_status_screen_source: str,
+) -> None:
+    """The disconnected-branch UI must import a ``Button`` component so
+    it can render the "Retry Connection" button.
+
+    (RT-FIX-9 successor refactor): the Button moved from App.tsx into
+    ``ConnectionStatusScreen.tsx`` together with the branch.
     """
     # The Button import is platform-conditional (shadcn/ui), so we just
     # look for any Button import line.
@@ -1442,6 +1490,7 @@ def test_app_tsx_imports_button_for_retry(app_tsx_source: str) -> None:
         r'import\s+\{[^}]*\bButton\b[^}]*\}\s+from\s+["\']',
         re.MULTILINE,
     )
-    assert import_re.search(app_tsx_source), (
-        "App.tsx must import a Button component — the disconnected branch renders a 'Retry Connection' button."
+    assert import_re.search(connection_status_screen_source), (
+        "ConnectionStatusScreen.tsx must import a Button component — "
+        "the disconnected branch renders a 'Retry Connection' button."
     )
