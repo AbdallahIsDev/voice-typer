@@ -14,10 +14,10 @@
     "var-annotated 12 -> 11: transcription_result.py text_parts: list[str]",
     "net: attr-defined 279 (was 320), no-any-return 93 (was 95), assignment 25 (was 28), union-attr 33 (was 34) \u2014 the shrink is real typing-debt reduction across the server, not a re-baseline of regressions."
   ],
-  "total_count": 639,
+  "total_count": 632,
   "by_code": {
-    "arg-type": 20,
-    "assignment": 25,
+    "arg-type": 21,
+    "assignment": 24,
     "attr-defined": 277,
     "call-overload": 3,
     "has-type": 16,
@@ -25,12 +25,12 @@
     "method-assign": 1,
     "misc": 17,
     "name-defined": 114,
-    "no-any-return": 93,
+    "no-any-return": 92,
     "no-redef": 6,
     "operator": 1,
     "return-value": 3,
     "type-var": 1,
-    "union-attr": 33,
+    "union-attr": 27,
     "var-annotated": 11
   }
 }
