@@ -165,6 +165,26 @@ class StreamingSessionCoordinator:
                 # Correlation id echoed in every transcription_partial
                 # payload. ``getattr`` keeps mock-app test fixtures working.
                 cycle_id=getattr(app, "_cycle_id", "") or "",
+                # ER-48 residual fence: let the session check whether the
+                # backend is busy in ANOTHER thread before its finalize path
+                # re-enters the captured engine. ``is_busy`` is keyed by
+                # backend NAME. PRIMARY scenario is same-cycle overlap:
+                # finalize()'s bounded join (~10s) can return while the
+                # worker's own transcription call is merely SLOW and still
+                # holds the busy flag (set/cleared around the call by the
+                # registry wrapper) — the fence converts that concurrent-
+                # entry race into committed-only output. NOT a post-force-
+                # recovery guard: force_unload_active() force-clears the
+                # busy flag AND drops the registry slot, so after recovery
+                # is_busy(active_name) is False even while the orphaned
+                # thread runs (next cycle loads a fresh engine instance).
+                # Duck-typed getattr: test fixtures with
+                # mock app.models keep working (fence disabled).
+                busy_check=lambda: (
+                    app.models.registry.is_busy(app.models.registry.active_name)
+                    if getattr(getattr(app, "models", None), "registry", None) is not None
+                    else False
+                ),
             )
             session.start()
             controller.set_streaming_session(session)

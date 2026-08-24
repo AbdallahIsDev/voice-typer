@@ -1,5 +1,6 @@
 """Tests for streaming transcription planning and text assembly."""
 
+import math
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -1059,8 +1060,7 @@ class TestFinalizeImplInner:
         args, kwargs = transcriber.transcribe_with_fallback.call_args
         # full_audio is positional arg 0
         assert args[0] is full_audio, (
-            "transcribe_with_fallback must receive the full_audio array "
-            "as its first positional argument."
+            "transcribe_with_fallback must receive the full_audio array as its first positional argument."
         )
         # local_engine MUST be forwarded so cloud→local fallback fires
         assert kwargs.get("local_engine") is local_engine, (
@@ -1244,3 +1244,70 @@ class TestValidateWords:
         ]
         # Must not raise
         session._validate_words(good)
+
+
+# ── ER-48 residual fence: finalize must not enter a busy engine ────
+
+
+def test_finalize_skips_engine_when_busy_check_fires():
+    """Skip-on-busy (same-cycle overlap): the worker's transcription
+    call is merely SLOW past finalize()'s bounded join, so the busy
+    flag is still set → finalize returns already-committed text and
+    NEVER calls the transcriber (no concurrent entry into the engine)."""
+    transcriber = MagicMock()
+    transcriber.transcribe_with_fallback.return_value = "should-not-happen"
+
+    session = StreamingTranscriptionSession(
+        recorder=MagicMock(),
+        transcriber=transcriber,
+        config=StreamingConfig(),
+        sample_rate=SAMPLE_RATE,
+        busy_check=lambda: True,
+    )
+    # Simulate committed streaming partials.
+    session.assembler.add_words(
+        [WordTiming("hi", start_seconds=0.0, end_seconds=0.4)],
+        commit_horizon_seconds=math.inf,
+    )
+    result = session.finalize(audio_seconds(1.0))
+    assert result == "hi"
+    assert transcriber.transcribe_with_fallback.call_count == 0
+
+
+def test_finalize_enters_engine_when_busy_check_false():
+    """Enter-on-free: fence is transparent when the backend is free —
+    normal finalize path runs exactly as before (transcriber IS
+    called)."""
+    transcriber = MagicMock()
+    transcriber.transcribe_with_fallback.return_value = "engine text"
+    session = StreamingTranscriptionSession(
+        recorder=MagicMock(),
+        transcriber=transcriber,
+        config=StreamingConfig(),
+        sample_rate=SAMPLE_RATE,
+        busy_check=lambda: False,
+    )
+    final_text = session.finalize(audio_seconds(2.0))
+    assert transcriber.transcribe_with_fallback.call_count == 1
+    assert isinstance(final_text, str)
+
+
+def test_busy_check_exception_treated_as_not_busy():
+    """Exception falls through: a raising fence must not break the
+    normal finalize path."""
+
+    def boom():
+        raise RuntimeError("fence probe exploded")
+
+    transcriber = MagicMock()
+    transcriber.transcribe_with_fallback.return_value = "text"
+
+    session = StreamingTranscriptionSession(
+        recorder=MagicMock(),
+        transcriber=transcriber,
+        config=StreamingConfig(),
+        sample_rate=SAMPLE_RATE,
+        busy_check=boom,
+    )
+    final_text = session.finalize(audio_seconds(1.0))
+    assert isinstance(final_text, str)

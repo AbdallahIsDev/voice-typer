@@ -8,7 +8,7 @@ import logging
 import math
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
 from voice_typer.server._lazy_import import lazy_module
@@ -683,6 +683,7 @@ class StreamingTranscriptionSession:
         thread_registry=None,
         local_engine=None,
         cycle_id: str = "",
+        busy_check: Callable[[], bool] | None = None,
     ):
         self.recorder = recorder
         self.transcriber = transcriber
@@ -719,6 +720,22 @@ class StreamingTranscriptionSession:
         # behavior is unchanged — the worker is still tracked locally
         # via ``self._thread`` and stopped by ``cancel()`` / ``finalize()``.
         self._thread_registry = thread_registry
+        self._cycle_id = cycle_id
+        # ER-48 residual fence: zero-arg callable returning True when the
+        # captured transcriber's backend is BUSY inside another thread's
+        # C-level inference call (wired from the registry's is_busy by the
+        # coordinator). PRIMARY scenario is same-cycle overlap: finalize()
+        # joins the streaming worker only up to ~10s, so a merely SLOW
+        # worker transcription call (CPU fallback, cloud latency, large
+        # audio) can still be in flight at finalize time — re-entering
+        # the engine concurrently is the ctranslate2 race the fence
+        # prevents; finalize() degrades to committed-only text.
+        # NOT a post-force-recovery guard: ModelManager.force_unload_active()
+        # force-clears the busy flag AND drops the registry slot, so after
+        # force-recovery is_busy(active_name) is False even while the
+        # orphaned thread runs (and the next cycle captures a fresh engine
+        # instance anyway). ``None`` (all existing tests) disables the check.
+        self._busy_check = busy_check
         # optional local engine forwarded to
         # ``transcriber.transcribe_with_fallback`` at finalize time so
         # the cloud→local fallback path actually fires when the active
@@ -993,6 +1010,56 @@ class StreamingTranscriptionSession:
                 pass
 
     def _finalize_impl(self, full_audio: np.ndarray) -> str:
+        # ER-48 residual fence: if the captured transcriber's backend is
+        # BUSY in another thread's C-level inference call, do NOT enter
+        # the engine — concurrent calls on one ctranslate2 model are not
+        # thread-safe (crash / silent corruption). Degrade to whatever the
+        # streaming assembler already committed so paste output stays
+        # coherent.
+        #
+        # PRIMARY firing scenario: same-cycle overlap. finalize()'s join
+        # of the streaming worker is bounded (~10s cancel timeout), so a
+        # merely SLOW worker transcription call (CPU fallback, cloud
+        # latency, large audio) can still be running when finalize
+        # proceeds; the registry wrapper holds the busy flag set around
+        # that call (asr/registry.py transcribe_with_fallback) and this
+        # check converts that genuine concurrent-entry race into returning
+        # committed text. Known trade-off: tail words since the last
+        # committed partial are intentionally sacrificed in favor of not
+        # racing the engine.
+        #
+        # Also defence-in-depth against ANY other in-flight engine entry
+        # at finalize time. The check is TOCTOU-racy by design (see
+        # ``BusyFlag.is_busy``'s docstring): defence-in-depth gate, not
+        # strict mutual exclusion.
+        #
+        # NOT a post-force-recovery guard: watchdog force-recovery goes
+        # through ModelManager.force_unload_active(), which force-clears
+        # the busy flag AND unregisters the backend slot — after
+        # force-recovery is_busy(active_name) is False even while the
+        # orphaned thread runs, and the next cycle captures a FRESH engine
+        # instance anyway (object-safe vs the orphan). Force-recovery
+        # safety is structural; see tests/test_forced_recovery_engine_ejection.py.
+        busy_check = getattr(self, "_busy_check", None)
+        if busy_check is not None:
+            try:
+                backend_busy = bool(busy_check())
+            except Exception:
+                log.debug(
+                    "[STREAMING] finalize busy-check raised (treating as not busy)",
+                    exc_info=True,
+                )
+                backend_busy = False
+            if backend_busy:
+                log.warning(
+                    "[STREAMING] finalize skipped: transcriber backend is busy in "
+                    "another thread (finalize-overlap fence) — returning "
+                    "already-committed streaming text only (cycle=%s)",
+                    self._cycle_id,
+                )
+                with self.assembler._lock:
+                    return self.assembler.committed_text
+
         # H16: Snapshot assembler state under lock at the beginning
         with self.assembler._lock:
             snapshot_committed_text = self.assembler.committed_text
