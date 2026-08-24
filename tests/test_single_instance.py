@@ -35,7 +35,7 @@ import pytest
 
 # ``fcntl`` is POSIX-only; skip the entire module on
 # Windows. The Windows mutex path is exercised in
-# tests/regressions/security_test.py instead.
+# tests/regressions/test_security.py instead.
 pytest.importorskip("fcntl")
 import fcntl  # noqa: E402
 

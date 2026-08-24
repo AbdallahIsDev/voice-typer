@@ -511,7 +511,7 @@ search-path = [
 # Full configuration is the [tool.mutmut] table below.
 [tool.mutmut]
 paths_to_mutate = "voice_typer/server/text_cleanup.py,voice_typer/server/config.py,voice_typer/server/tray.py,voice_typer/server/tray_menu.py"
-test_command = "pytest -x -q tests/test_text_cleanup.py tests/test_config.py tests/test_tray.py tests/test_tray_menu.py"
+test_command = "pytest -x -q tests/test_text_cleanup.py tests/config tests/test_tray.py tests/test_tray_menu.py"
 
 [tool.setuptools.packages.find]
 include = ["voice_typer*"]
@@ -550,7 +550,7 @@ norecursedirs = [".venv", "dist", "build", "node_modules", "voice_typer/client",
 # for diagnosing failures in long test suites.
 # TEST-011: --cov=voice_typer --cov-fail-under=65 for coverage threshold.
 # COV-002: clipboard.py now at 100% coverage (was 40%) via
-# tests/test_clipboard_win32_coverage.py (110 new tests mocking ctypes.windll
+# tests/clipboard/win32/ (110 new tests mocking ctypes.windll
 # on Linux). Global coverage is 65.23% — kept threshold at 65% to avoid
 # breaking CI. Aspirational target: 70%. The three modules previously
 # cited as blockers now EXCEED 70%:

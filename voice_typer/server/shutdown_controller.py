@@ -214,7 +214,7 @@ class ShutdownController:
     # (``_teardown_history_db`` / ``_teardown_crash_recovery``) MUST run
     # before the hotkey / level_monitor / event_bus teardowns begin
     # (flush-before-teardown guarantee — see
-    # ``tests/regressions/electron_test.py::TestShutdownControllerPhasesContract::
+    # ``tests/regressions/test_electron.py::TestShutdownControllerPhasesContract::
     # test_flush_bearing_phases_run_first``). The remaining 11 entries
     # are the parallel batch. The list is inspectable at runtime so
     # tests (and operators) can pin the decomposition.

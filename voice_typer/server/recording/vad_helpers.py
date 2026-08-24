@@ -37,7 +37,7 @@ here as module-level functions (:func:`refresh_vad_caches`,
 1-line delegator methods so existing call sites, subclass overrides,
 and ``inspect.getsource(Recorder._vad_update)`` regression tests
 (notably ``test_grey_zone_does_not_reset_counters`` in
-``tests/regressions/audio_test.py``) keep working — the pinned phrases
+``tests/regressions/test_audio.py``) keep working — the pinned phrases
 "Grey zone (between speech and silence thresholds)", "pass", and
 "State transitions" remain in the delegator's docstring on
 ``Recorder._vad_update``.

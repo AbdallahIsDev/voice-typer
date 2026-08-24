@@ -100,7 +100,7 @@ log = logging.getLogger(__name__)
 # ``__init__.py`` (not here) because (a) it depends on
 # ``_install_hash_suffix`` (defined in :mod:`.autostart`) which is also
 # re-exported by ``__init__.py``, and (b) tests in
-# ``tests/regressions/platform_win32_test.py`` do
+# ``tests/regressions/test_platform_win32.py`` do
 # ``inspect.getsource(server_platform)`` (which returns the
 # ``__init__.py`` source) and assert the literal f-string
 # ``f"VoiceTyperAutostart{_install_hash_suffix()}"`` is present.  The

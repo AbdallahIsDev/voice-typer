@@ -4,7 +4,7 @@
 TOCTOU (Time-Of-Check-To-Time-Of-Use) re-check inside
 ``ClipboardManager.paste()`` was only tested by mocking
 ``_get_frontmost_pid_macos`` directly (see
-``tests/test_clipboard_win32_coverage.py:1572-1608``). That bypasses
+``tests/clipboard/win32/test_win32_copy_paste.py`` (TestPasteWindowsBranches)). That bypasses
 the real ``_get_frontmost_pid_macos`` code path which reads
 ``AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
 .processIdentifier()``. These two tests close the gap by mocking
@@ -46,7 +46,7 @@ def _make_cm() -> ClipboardManager:
     """Build a ClipboardManager with mocked pynput controller.
 
     Mirrors the ``_make_cm`` helper pattern in
-    ``tests/test_clipboard_win32_coverage.py:1150-1158``: bypass the
+    ``tests/clipboard/win32/test_win32_copy_paste.py`` (TestCopyWindowsBranches): bypass the
     real ``__init__`` (which calls ``_cb._ensure_pynput_imported()`` and
     instantiates ``_cb._Controller()``) and install a ``MagicMock``
     keyboard directly. Sets ``_restore_delay_ms`` so ``paste()``'s
@@ -93,7 +93,7 @@ class TestMacosToctouPidRecheck:
     """macOS TOCTOU re-check via ``AppKit.NSWorkspace`` mocking.
 
     These tests close the  coverage gap: the existing TOCTOU tests
-    in ``tests/test_clipboard_win32_coverage.py:1572-1608`` patch
+    in ``tests/clipboard/win32/test_win32_copy_paste.py`` (TestPasteWindowsBranches) patch
     ``ClipboardManager._get_frontmost_pid_macos`` directly with
     ``side_effect=[4242, 9999]``, bypassing the real
     ``_get_frontmost_pid_macos`` implementation. Here we instead
@@ -161,9 +161,7 @@ class TestMacosToctouPidRecheck:
         cm._keyboard.press.assert_not_called()
         # Verify the TOCTOU warning was logged (manager.py:1155-1161).
         toctou_warnings = [
-            c
-            for c in mock_log.warning.call_args_list
-            if "TOCTOU" in str(c) and "1234" in str(c) and "5678" in str(c)
+            c for c in mock_log.warning.call_args_list if "TOCTOU" in str(c) and "1234" in str(c) and "5678" in str(c)
         ]
         assert len(toctou_warnings) == 1, (
             f"Expected exactly one TOCTOU warning log call referencing "
@@ -224,12 +222,7 @@ class TestMacosToctouPidRecheck:
         cm._keyboard.press.assert_any_call("cmd_key")
         cm._keyboard.press.assert_any_call("v")
         # Verify NO TOCTOU warning was logged on the happy path.
-        toctou_warnings = [
-            c
-            for c in mock_log.warning.call_args_list
-            if "TOCTOU" in str(c)
-        ]
+        toctou_warnings = [c for c in mock_log.warning.call_args_list if "TOCTOU" in str(c)]
         assert len(toctou_warnings) == 0, (
-            f"Expected NO TOCTOU warning on the happy path; got "
-            f"{len(toctou_warnings)}: {toctou_warnings}"
+            f"Expected NO TOCTOU warning on the happy path; got {len(toctou_warnings)}: {toctou_warnings}"
         )

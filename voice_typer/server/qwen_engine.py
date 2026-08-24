@@ -721,7 +721,7 @@ class QwenEngine:
 
         Defensive fallback: tests that bypass ``__init__`` (e.g.
         ``QwenEngine.__new__(QwenEngine)`` in
-        ``tests/regressions/gpu_memory_release_test.py``) don't always
+        ``tests/regressions/test_gpu_memory_release.py``) don't always
         set up ``_inference_cond`` / ``_active_inference``. Fall back to
         ``self._lock`` in that case so the regression test still works.
         """

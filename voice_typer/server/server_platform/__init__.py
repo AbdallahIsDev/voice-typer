@@ -122,7 +122,7 @@ module object).
   ``voice_typer.server.server_platform.<submodule>``).
 - Module-level checks like ``inspect.getsource(server_platform)`` read
   this ``__init__.py``'s source.  The PLAT-RUN source-string check in
-  ``tests/regressions/platform_win32_test.py`` asserts that the literal
+  ``tests/regressions/test_platform_win32.py`` asserts that the literal
   f-string ``f"VoiceTyperAutostart{_install_hash_suffix()}"`` appears
   in the package source — this is satisfied by the
   ``_APP_AUTOSTART_TASK_NAME`` assignment below.
@@ -243,7 +243,7 @@ from .volume_factory import get_volume_backend  # noqa: E402
 #   1. ``_install_hash_suffix`` is defined in :mod:`.autostart` (loaded
 #      above), so the import is already available by this point in the
 #      file.
-#   2. ``tests/regressions/platform_win32_test.py``
+#   2. ``tests/regressions/test_platform_win32.py``
 #      ``.test_autostart_task_name_includes_hash_suffix`` does
 #      ``inspect.getsource(server_platform)`` (which returns THIS file's
 #      source) and asserts the literal f-string
@@ -343,7 +343,7 @@ __all__ = [
 ]
 
 # ── Source-check echo (PLAT-RUN) ──────────────────────────────────────
-# tests/regressions/platform_win32_test.py::TestPlatRunHashSuffix
+# tests/regressions/test_platform_win32.py::TestPlatRunAutostartTaskHashed
 # .test_autostart_task_name_includes_hash_suffix does
 # ``inspect.getsource(server_platform)`` (which reads THIS file) and
 # asserts that the literal f-string

@@ -22,7 +22,7 @@ shrinks back to a thin composition root (``__init__`` + ``restart`` /
 and signature is preserved verbatim; the mixin is composed via
 multiple inheritance so ``VoiceTyperService.apply_config`` resolves
 to ``ConfigMutationMixin.apply_config`` (MRO), which is what the
-regression guards in ``tests/regressions/concurrency_test.py``
+regression guards in ``tests/regressions/test_concurrency.py``
 (``inspect.getsource(VoiceTyperService.apply_config)`` must contain
 ``_config_applier``) and ``tests/test_config_applier.py`` assert.
 """
@@ -43,7 +43,7 @@ class ConfigMutationMixin(ServiceMixinBase):
         :meth:`VoiceTyperService.__init__`) so the config-mutation lock
         (``_config_mutation_lock``) lives in exactly one place — see
     for the rationale and
-        ``tests/regressions/concurrency_test.py`` for the regression
+        ``tests/regressions/test_concurrency.py`` for the regression
         guard that introspects ``ConfigApplier.apply_config`` for the
         lock acquisition.
 

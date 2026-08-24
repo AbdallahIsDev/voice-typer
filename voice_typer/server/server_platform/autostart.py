@@ -534,7 +534,7 @@ def is_autostart_enabled() -> bool:
 
 
 # ── Source-check echo (PLAT-RUN) ──────────────────────────────────────
-# tests/regressions/platform_win32_test.py::TestPlatRunHashSuffix
+# tests/regressions/test_platform_win32.py::TestPlatRunAutostartTaskHashed
 # .test_autostart_task_name_includes_hash_suffix does
 # ``inspect.getsource(server_platform)`` and asserts that the literal
 # f-string ``f"com.voicetyper.autostart{_install_hash_suffix()}"`` appears in

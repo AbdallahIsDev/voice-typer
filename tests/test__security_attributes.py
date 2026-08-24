@@ -4,7 +4,7 @@ These tests exercise the Win32 DACL / SECURITY_ATTRIBUTES builder
 (``_create_restrictive_security_attributes``) on Linux by mocking
 ``ctypes.windll`` (which only exists on Windows) and patching
 ``is_windows`` to return True. The strategy mirrors
-``tests/test_clipboard_win32_coverage.py``:
+``tests/clipboard/win32/test_win32_copy_paste.py``:
 
 1. Patch ``_security_attributes.is_windows`` → ``True`` so the
    ``if not is_windows(): return None`` early-exit is skipped.
@@ -62,7 +62,7 @@ def _set_byref_value(byref_obj, value):
     ``ctypes.byref(obj)`` returns a ``CArgObject`` whose ``_obj``
     attribute is the wrapped instance. We use this to fake the kernel
     writing an output value into a ``wintypes.DWORD`` passed by-ref.
-    Same pattern as ``tests/test_clipboard_win32_coverage.py``.
+    Same pattern as ``tests/clipboard/win32/test_win32_copy_paste.py``.
     """
     byref_obj._obj.value = value
 

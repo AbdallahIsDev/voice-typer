@@ -8,7 +8,7 @@ invalidation works correctly on Linux (``/dev/snd`` polling), macOS
 The Windows ``WM_DEVICECHANGE`` path is exercised on Linux CI by
 mocking ``ctypes.windll`` and ``ctypes.WINFUNCTYPE`` (which don't
 exist on non-Windows) — following the same pattern as
-``tests/test_clipboard_win32_coverage.py``. The macOS path is
+``tests/clipboard/win32/test_win32_copy_paste.py``. The macOS path is
 exercised by mocking ``sounddevice`` in ``sys.modules``.
 """
 

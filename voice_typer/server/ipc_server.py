@@ -321,7 +321,7 @@ from voice_typer.server.ipc.dispatcher import DispatcherMixin  # noqa: E402
 # ``tests/test_ipc_server.py``, ``tests/test_startup_error_log_cap.py``,
 # ``tests/server/test_ipc_server_regressions.py``,
 # ``tests/test_electron_ipc_and_build.py``,
-# ``tests/regressions/cli_exit_codes_test.py``,
+# ``tests/regressions/test_cli_exit_codes.py``,
 # ``tests/app/test_app_lifecycle_fixes.py`` — keep working unchanged.
 # The tests' substring checks (``_frame: FrameType | None``,
 # ``sys.exit(EXIT_CRASH)``, ``server._tcp_mode = True``,
@@ -460,6 +460,7 @@ class IPCServer(
             from voice_typer.server.service import VoiceTyperService
 
             self.service = VoiceTyperService(app)
+
             # wire the service-layer mic cache invalidator so
             # the OS device-change watcher (which already invalidates
             # DeviceManager._device_list_cache via _invalidate_device_cache)

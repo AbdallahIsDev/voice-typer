@@ -211,7 +211,7 @@ cd /home/z/my-project/voice-typer
 python -m pytest tests/test_credential_store.py -v --timeout=30
 
 # Verify existing config tests still pass (no regression)
-python -m pytest tests/test_config.py -v --timeout=30
+python -m pytest tests/config -v --timeout=30
 ```
 
 The unit tests mock the `keyring` library so they don't depend on a

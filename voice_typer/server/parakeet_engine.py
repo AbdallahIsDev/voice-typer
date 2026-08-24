@@ -257,7 +257,7 @@ _CHUNK_OVERLAP_SECONDS = 3
 # Backward-compat re-exports of the merge-chunk constants. The canonical
 # values now live in ``asr_utils`` (``MAX_BOUNDARY_SKIP_WORDS``,
 # ``OVERLAP_DEDUP_WINDOW``). Kept here so existing tests / importers
-# (``tests/test_parakeet_engine.py``, ``tests/regressions/parakeet_merge_test.py``)
+# (``tests/test_parakeet_engine.py``, ``tests/regressions/test_parakeet_merge.py``)
 # keep working.
 _MAX_BOUNDARY_SKIP_WORDS = 2
 _OVERLAP_DEDUP_WINDOW = 3
@@ -296,7 +296,7 @@ class _AbortStoppingCriteria:
 # to :mod:`voice_typer.server.asr_utils`. The canonical implementations
 # live there now; the leading-underscore names below are kept as
 # backward-compat aliases so existing import sites
-# (``tests/test_parakeet_engine.py``, ``tests/regressions/parakeet_merge_test.py``,
+# (``tests/test_parakeet_engine.py``, ``tests/regressions/test_parakeet_merge.py``,
 # ``tests/test_word_drop_regression.py``) keep working without a
 # parallel test rewrite. New code should import from ``asr_utils``.
 

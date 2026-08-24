@@ -23,7 +23,7 @@ These tests pin the XV-103 fix:
 
 The tests mock ``ctypes.windll`` and ``comtypes`` so they run on Linux
 without Windows or comtypes installed. They mirror the mocking strategy
-of ``tests/test_clipboard_win32_coverage.py``.
+of ``tests/clipboard/win32/test_win32_copy_paste.py``.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ from voice_typer.server import (
 def _set_byref_value(byref_obj: Any, value: int) -> None:
     """Mutate the c_ulong instance wrapped by ``ctypes.byref``.
 
-    Mirrors the helper in ``test_clipboard_win32_coverage.py``: fakes the
+    Mirrors the helper in ``test_win32_copy_paste.py``: fakes the
     kernel writing an output DWORD into a by-ref buffer.
     """
     byref_obj._obj.value = value
@@ -62,7 +62,7 @@ def reset_caches():
     XV-103: the locks themselves are NOT reset (they're stateless) — only
     the cached values they protect. This mirrors what the existing
     ``_reset_we_elevated`` / ``_reset_uia_singleton`` fixtures in
-    ``test_clipboard_win32_coverage.py`` do.
+    ``test_win32_copy_paste.py`` do.
     """
     safety_mod._WE_ELEVATED = None
     safety_mod._UIA_SINGLETON = None

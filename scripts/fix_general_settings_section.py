@@ -8,7 +8,7 @@ imports `pushLocaleToPythonBackend` from `@/i18n/i18n`, and replaces the inline
 `pushLocaleToPythonBackend(v as Locale)`.
 
 Preserves the file's tab indentation. Fixes 2 pre-existing test failures in
-`tests/regressions/electron_test.py::TestSettingsRendererCallsPythonBridgeCall`.
+`tests/regressions/test_electron.py::TestSettingsRendererCallsPythonBridgeCall`.
 """
 
 from __future__ import annotations

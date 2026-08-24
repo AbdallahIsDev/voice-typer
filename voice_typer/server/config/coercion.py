@@ -50,7 +50,7 @@ def _get_config_dir() -> Path:
 
     Tests monkeypatch ``voice_typer.server.config._config_dir`` to
     redirect config-dir lookups to a ``tmp_path`` fixture (see e.g.
-    ``tests/test_config.py::TestConfigPathValidation``). After the
+    ``tests/config/test_config_load_save.py::TestConfigPathValidation``). After the
     helper extraction, this module's direct import of ``_config_dir``
     from ``config_internals.paths`` would bypass that monkeypatch
     (the symbol in THIS module's namespace wouldn't be touched by

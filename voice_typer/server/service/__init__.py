@@ -27,7 +27,7 @@ spawns a daemon thread whose only side-effect is writing to the HF
 cache dir — no critical cleanup. On force-kill the partial download is
 resumed on next start via HF's ``resume_download=True``. (Rationale
 kept here so the regression guard in
-``tests/regressions/platform_misc_test.py::TestDaemonThreadRationaleDocumented``
+``tests/regressions/test_platform_misc.py::TestDaemonThreadRationaleDocumented``
 that introspects ``inspect.getsource(service)`` still finds it.)
 """
 
@@ -143,7 +143,7 @@ class VoiceTyperService(
         # save_strict()). The previous inline copies were never wired up.
         # ConfigApplier is the single owner of the config-mutation lock
         # acquisition + rollback logic (//) so the
-        # regression test ``tests/regressions/concurrency_test.py`` can
+        # regression test ``tests/regressions/test_concurrency.py`` can
         # introspect ``ConfigApplier.apply_config`` for the lock.
         self._config_applier = ConfigApplier(self)
         # delegate state initialisation to the owning mixins

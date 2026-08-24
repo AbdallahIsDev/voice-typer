@@ -15,7 +15,7 @@ This module is the canonical import path going forward:
 ``config/__init__.py`` re-exports ``_validate_systemroot`` so the
 legacy import ``from voice_typer.server.config import
 _validate_systemroot`` (used by ``env_validation.py`` and the
-``tests/regressions/security_test.py`` regression guards) keeps
+``tests/regressions/test_security.py`` regression guards) keeps
 working unchanged.
 """
 

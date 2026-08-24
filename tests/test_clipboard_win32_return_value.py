@@ -25,7 +25,7 @@ Files verified (post-fix):
 Test layout:
   1. ``TestSendCtrlVWin32ReturnValue`` — cross-platform (runs on Linux CI).
      Uses the ``fake_win32`` fixture-style mocking pattern (mirrors
-     ``tests/test_clipboard_win32_coverage.py``) to mock ``ctypes.windll``
+     ``tests/clipboard/win32/ (split files)``) to mock ``ctypes.windll``
      and exercises the real ``ClipboardManager._send_ctrl_v_win32`` /
      ``_cb._send_ctrl_v_win32`` call chain. Asserts the bool return value
      on full success (4), partial success (1..3), and zero+fallback paths.
@@ -52,7 +52,7 @@ import pytest
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 
-# ─── Cross-platform fixture (mirrors fake_win32 in test_clipboard_win32_coverage) ──
+# ─── Cross-platform fixture (mirrors fake_win32 in test_win32_copy_paste (fake_win32 fixture)) ──
 
 
 @pytest.fixture
@@ -60,7 +60,7 @@ def fake_win32_for_return_value():
     """Mock ``ctypes.windll`` so the Win32 code path runs on Linux.
 
     Same shape as the ``fake_win32`` fixture in
-    ``tests/test_clipboard_win32_coverage.py`` (lines 118-162), local to
+    ``tests/clipboard/win32/ (split files)`` (lines 118-162), local to
     this file so we don't cross-import a private fixture.
     """
     mock_user32 = MagicMock()

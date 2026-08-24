@@ -843,7 +843,7 @@ class Recorder(VadShimMixin, RecorderInitMixin):
     #     ``r._mic_watcher is None`` / ``r._device_list_cache = ...``
     #     (see tests/test_microphone_watcher.py /
     #     tests/test_audio_callback.py /
-    #     tests/regressions/audio_test.py)
+    #     tests/regressions/test_audio.py)
     #
     # The shims delegate reads AND writes through to ``self._devices.X``
     # so both directions keep working. The 4 attrs that are ONLY used
@@ -1566,7 +1566,7 @@ class Recorder(VadShimMixin, RecorderInitMixin):
         delegator so existing call sites, subclass overrides, and
         ``inspect.getsource(Recorder._vad_update)`` checks keep working
         (notably ``test_grey_zone_does_not_reset_counters`` in
-        ``tests/regressions/audio_test.py`` — the pinned phrases "Grey
+        ``tests/regressions/test_audio.py`` — the pinned phrases "Grey
         zone (between speech and silence thresholds)", "pass", and
         "State transitions" remain in this docstring so the source-
         string regression test continues to pass after the body move).

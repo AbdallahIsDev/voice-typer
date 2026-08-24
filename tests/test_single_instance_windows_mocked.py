@@ -1,7 +1,7 @@
 """Behavioral coverage for ``_ensure_windows_single_instance`` on Linux.
 
-The existing regression tests in ``tests/regressions/platform_win32_test.py``
-and ``tests/regressions/security_test.py`` only assert that the source
+The existing regression tests in ``tests/regressions/test_platform_win32.py``
+and ``tests/regressions/test_security.py`` only assert that the source
 string of ``_ensure_windows_single_instance`` contains certain tokens
 (``"VoiceTyperSingleInstance"``, absence of ``hashlib.sha256(...)``
 etc.).  Source-string tests cannot catch a behavior regression where
@@ -10,7 +10,7 @@ actually passes it to ``CreateMutexW``.
 
 This module mocks ``ctypes.windll`` so the Windows-only code path
 executes on Linux, mirroring the strategy used by
-``tests/test_clipboard_win32_coverage.py`` and
+``tests/clipboard/win32/test_win32_copy_paste.py`` and
 ``tests/test_singleton_lock.py``:
 
 1. Patch ``ctypes.windll`` with a ``MagicMock`` exposing ``kernel32``
@@ -114,9 +114,7 @@ def test_error_already_exists_triggers_sys_exit(fake_win32):
     with pytest.raises(SystemExit) as exc_info:
         si_mod._ensure_windows_single_instance(silent=True)
 
-    assert exc_info.value.code == 1, (
-        "error_already_exists with no stale-PID recovery must exit(1)"
-    )
+    assert exc_info.value.code == 1, "error_already_exists with no stale-PID recovery must exit(1)"
     fake_win32["kernel32"].CreateMutexW.assert_called_once()
     fake_win32["kernel32"].GetLastError.assert_called_once()
     # The duplicate-launch path closes the mutex handle before exiting.
@@ -193,14 +191,10 @@ def test_stale_pid_recovery_clears_pid_file(fake_win32, monkeypatch):
     result = si_mod._ensure_windows_single_instance(silent=True)
 
     # Stale PID file was cleared as part of recovery.
-    assert len(clear_calls) == 1, (
-        "stale PID recovery must call _clear_backend_pid_file exactly once"
-    )
+    assert len(clear_calls) == 1, "stale PID recovery must call _clear_backend_pid_file exactly once"
     # The recovered mutex path writes OUR PID so the next launch can
     # detect a stale lock if we crash hard.
-    assert len(write_calls) == 1, (
-        "stale PID recovery must write our own PID via _write_backend_pid_file"
-    )
+    assert len(write_calls) == 1, "stale PID recovery must write our own PID via _write_backend_pid_file"
     # The function proceeds (returns the mutex) — does NOT sys.exit.
     assert result == 0xDEADBEEF
 
@@ -220,7 +214,7 @@ def test_mutex_name_is_exactly_local_voicetyper_single_instance(fake_win32):
     ``hashlib.sha256(sys.executable.encode())`` which let dev venvs
     and production installs run as separate instances.
 
-    The source-string test in ``tests/regressions/platform_win32_test.py``
+    The source-string test in ``tests/regressions/test_platform_win32.py``
     only checks that the token appears in the source — this behavioral
     test asserts the token is actually passed to ``CreateMutexW``.
     """
@@ -234,9 +228,6 @@ def test_mutex_name_is_exactly_local_voicetyper_single_instance(fake_win32):
     args, _ = create_mutex.call_args
     # ``lp_mutex_attributes`` may be None or a byref; ``bInitialOwner``
     # must be True; ``lpName`` MUST be the exact fixed string.
-    assert args[2] == MUTEX_NAME, (
-        f"CreateMutexW must be called with mutex name {MUTEX_NAME!r}; "
-        f"got {args[2]!r}"
-    )
+    assert args[2] == MUTEX_NAME, f"CreateMutexW must be called with mutex name {MUTEX_NAME!r}; got {args[2]!r}"
     # bInitialOwner must be True so WE own the handle.
     assert args[1] is True, "CreateMutexW must be called with bInitialOwner=True"

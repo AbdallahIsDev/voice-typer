@@ -547,7 +547,7 @@ class TestLanguageValidator:
 
     def test_nul_byte_still_rejected_as_control_char(self) -> None:
         # Regression test for test_str_validator_via_ipc_rejects_nul_in_language
-        # in test_config.py — the new validator MUST still reject NUL
+        # in tests/config/test_config_validation.py — the new validator MUST still reject NUL
         # bytes (and the error must contain the word "control" so the
         # existing test continues to pass).
         err = _validate_language("en\x00fr")

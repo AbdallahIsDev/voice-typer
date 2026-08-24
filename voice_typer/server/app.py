@@ -159,11 +159,11 @@ log = logging.getLogger(__name__)
 # voice_typer.server.container_detect) at startup to detect container
 # environments and warn about unavailable features. The call lives in
 # logging_setup.py now but the source-string assertion in
-# tests/regressions/platform_misc_test.py::test_container_detect_called_in_startup
+# tests/regressions/test_platform_misc.py::test_container_detect_called_in_startup
 # greps app.py source for the symbol name — kept here as a comment.  # ruff: noqa: F401
 # extraction — _validate_env_vars moved to voice_typer.server.env_validation.
 # Re-exported here so tests doing `from voice_typer.server.app import _validate_env_vars`
-# keep working (test_plat_fixes.py / regressions/platform_misc_test.py).
+# keep working (test_plat_fixes.py / regressions/test_platform_misc.py).
 # SEC-audit-011: _validate_env_vars calls _validate_systemroot from
 # voice_typer.server.config to reject attacker-controlled SystemRoot values
 # that could enable DLL injection.  # ruff: noqa: F401
@@ -1897,7 +1897,7 @@ class VoiceTyperApp:
         through ``ConfigApplier.apply_config`` → ``_config_mutation_lock``)
         blocks until the editor exits and the reload completes — exactly
         the SEC-audit-011 invariant the regression test
-        (``tests/regressions/concurrency_test.py::TestConfigEditHoldsMutationLock``)
+        (``tests/regressions/test_concurrency.py::TestConfigEditHoldsMutationLock``)
         pins.
 
         The earlier "split-lock" relaxation released the lock

@@ -540,7 +540,7 @@ pytest tests/ -v
 
 # Single test file / single test
 pytest tests/test_ipc_server.py -v
-pytest tests/test_config.py::test_set_config_allowlist -v
+pytest tests/config/test_config_schema_migration.py::test_ipc_config_allowlist_is_dict_of_fieldspec -v
 
 # Markers (see tests/conftest.py for the full list)
 pytest -m real_pynput      # tests that need the real pynput.keyboard listener
@@ -968,10 +968,15 @@ Adding a new **ASR engine** has its own touchpoint set: see
     listener (for tests that exercise the actual key dispatch path).
   - `@pytest.mark.real_pil` — use the real `PIL.ImageDraw` (for tests
     that render the tray icon bitmap).
-  - `@pytest.mark.real_torch` — use the real `torch` package (evicts
-    the session `torch` mock so real `torch.backends.mps` semantics
-    work on Apple Silicon; currently unused, registered for future
-    tests — the branch is symmetric with `real_pil`).
+  - (`real_torch` was removed with PLAN_ONNX_INTEGRATION Phase 1c —
+    no consumer survived the ORT migration; construct explicit
+    fakes instead of re-registering it.)
+- **Slow tests:** anything genuinely slow (multi-second waits that
+  cannot be shortened without weakening what they verify) carries
+  `@pytest.mark.slow`. These are skipped by default; run them with
+  `pytest --slow` (CI runs them in a separate best-effort job). Keep
+  the default suite fast — do not use `slow` to paper over fixable
+  slowness (sleep-polling, oversized fixtures).
 - **Coverage threshold:** 65 %, enforced by `--cov-fail-under=65` in
   `pyproject.toml`. If your change drops coverage below 65 %, add
   tests or mark unreachable branches with `# pragma: no cover`.
@@ -999,12 +1004,13 @@ Adding a new **ASR engine** has its own touchpoint set: see
   **deprecated** — no files in the tree use it. The historical
   `tests/regressions/*_test.py` (suffix form) and
   `test_<feature>_<session>_fixes.py` (per-round session) patterns are
-  also **deprecated**; they are kept on disk for git-history continuity
-  but new tests MUST use `test_<feature>.py` or
-  `test_<feature>_<concern>.py`. To find every test touching feature X,
-  grep both `tests/test_X*.py` and `tests/**/test_X*.py` (the latter
-  catches sub-packages like `tests/handlers/`, `tests/server/`,
-  `tests/tauri/mig*/`).
+  also **deprecated** — the last 19 suffix-form files were renamed to
+  `tests/regressions/test_<feature>.py` (ZR-49, 2026-08-24); they are
+  kept in git history under their old names. New tests MUST use
+  `test_<feature>.py` or `test_<feature>_<concern>.py`. To find every
+  test touching feature X, grep `tests/test_X*.py` and
+  `tests/**/test_X*.py` (the latter catches sub-packages like
+  `tests/handlers/`, `tests/server/`, `tests/tauri/mig*/`).
 - **No new `inspect.getsource` source-string tests** (ARCH-12): tests
   must exercise behavior — render/call the code under test and assert
   observable effects — never string-match against source text

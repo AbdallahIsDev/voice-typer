@@ -25,7 +25,7 @@ These tests pin the fix BEHAVIORALLY (no ``inspect.getsource``):
    concurrent ``set_config`` call (mimicked by a second thread
    acquiring the same lock) BLOCKS until the editor closes, then
    proceeds — mirrors
-   ``tests/regressions/concurrency_test.py::test_open_config_file_holds_config_mutation_lock``.
+   ``tests/regressions/test_concurrency.py::test_open_config_file_holds_config_mutation_lock``.
 
 2. ``config.save()`` happens INSIDE ``_config_mutation_lock`` (the lock
    is held when save is called) — pins CR-015.
@@ -429,7 +429,7 @@ def _assert_concurrent_set_config_blocks_then_proceeds(app, editor):
     DOES acquire it shortly after the editor closes.
 
     Mirrors the assertion style of
-    ``tests/regressions/concurrency_test.py::test_open_config_file_holds_config_mutation_lock``.
+    ``tests/regressions/test_concurrency.py::test_open_config_file_holds_config_mutation_lock``.
     """
     import time as _time
 

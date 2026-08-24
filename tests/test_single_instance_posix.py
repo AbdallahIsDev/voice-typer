@@ -20,7 +20,7 @@
 #       ``_ensure_single_instance_posix`` on non-Windows.
 #
 # The Windows mutex path is NOT exercised here (sandbox is Linux). See
-# ``tests/regressions/security_test.py::TestMutexAcquisitionHasRetryAndTimeout``
+# ``tests/regressions/test_security.py::TestMutexAcquisitionHasRetryAndTimeout``
 # for the Windows source-string invariants.
 #
 # Run: python -m pytest tests/test_single_instance_posix.py -q --no-cov
@@ -36,7 +36,7 @@ from voice_typer.server import single_instance as si_mod
 
 # ``fcntl`` is POSIX-only; skip the entire module on
 # Windows (the Windows mutex path is exercised in regressions/
-# security_test.py instead).
+# test_security.py instead).
 pytest.importorskip("fcntl")
 import fcntl  # noqa: E402
 

@@ -16,14 +16,14 @@ initialization on the calling thread for the lifetime of the process —
 on the paste hot path this is a per-paste leak that accumulates.
 
 Pre-fix this branch was entirely untested: the 110+ mocked Win32 tests
-in ``tests/test_clipboard_win32_coverage.py`` cover ``_is_password_field``
+in ``tests/clipboard/win32/test_win32_target_safety.py`` cover ``_is_password_field``
 / ``_is_elevated_target`` etc. directly, but no test ever invoked
 ``_is_safe_paste_target_impl`` with the comtypes path active, so the
 ``CoInitialize``/``CoUninitialize`` pairing was dead code from the
 tests' point of view.
 
 These tests mock ``ctypes.windll`` (the ``fake_win32`` fixture pattern
-from ``tests/test_clipboard_win32_coverage.py``) and inject a fake
+from ``tests/clipboard/win32/ (split files)``) and inject a fake
 ``comtypes`` module into ``sys.modules`` so the Windows branch executes
 on Linux. All clipboard helpers are patched at the PACKAGE level
 (``voice_typer.server.clipboard.X``) per the safety.py design contract
@@ -90,9 +90,7 @@ class TestComtypesTeardown:
     """``CoUninitialize`` must run in the ``finally`` whenever
     ``CoInitialize`` succeeded — regardless of the paste outcome."""
 
-    def test_password_field_blocks_paste_and_still_tears_down_com(
-        self, fake_win32
-    ):
+    def test_password_field_blocks_paste_and_still_tears_down_com(self, fake_win32):
         """Password field focused → paste blocked (False) BUT the
         finally-block ``CoUninitialize`` still runs exactly once.
 
@@ -106,9 +104,7 @@ class TestComtypesTeardown:
         content_editable = MagicMock(return_value=False)
 
         with (
-            patch.dict(
-                sys.modules, {"comtypes": fake_comtypes, "comtypes.client": _fake_client}
-            ),
+            patch.dict(sys.modules, {"comtypes": fake_comtypes, "comtypes.client": _fake_client}),
             patch.object(clip_mod, "_is_password_field", password_field),
             patch.object(clip_mod, "_is_content_editable", content_editable),
         ):
@@ -126,9 +122,7 @@ class TestComtypesTeardown:
         fake_comtypes, _fake_client = _install_fake_comtypes()
 
         with (
-            patch.dict(
-                sys.modules, {"comtypes": fake_comtypes, "comtypes.client": _fake_client}
-            ),
+            patch.dict(sys.modules, {"comtypes": fake_comtypes, "comtypes.client": _fake_client}),
             patch.object(clip_mod, "_is_password_field", lambda focused, hwnd: False),
             patch.object(clip_mod, "_is_content_editable", lambda focused: False),
         ):
@@ -138,9 +132,7 @@ class TestComtypesTeardown:
         fake_comtypes.CoInitialize.assert_called_once_with()
         fake_comtypes.CoUninitialize.assert_called_once_with()
 
-    def test_content_editable_probe_raising_still_tears_down_com(
-        self, fake_win32
-    ):
+    def test_content_editable_probe_raising_still_tears_down_com(self, fake_win32):
         """The contentEditable probe is fail-open (logs, continues) and
         the finally teardown must still run when it raises."""
         fake_comtypes, _fake_client = _install_fake_comtypes()
@@ -149,9 +141,7 @@ class TestComtypesTeardown:
             raise RuntimeError("UIA contentEditable probe failed")
 
         with (
-            patch.dict(
-                sys.modules, {"comtypes": fake_comtypes, "comtypes.client": _fake_client}
-            ),
+            patch.dict(sys.modules, {"comtypes": fake_comtypes, "comtypes.client": _fake_client}),
             patch.object(clip_mod, "_is_password_field", lambda focused, hwnd: False),
             patch.object(clip_mod, "_is_content_editable", _boom),
         ):
@@ -184,9 +174,7 @@ class TestComtypesTeardown:
         fake_comtypes.CoInitialize.side_effect = OSError("COM init failed")
 
         with (
-            patch.dict(
-                sys.modules, {"comtypes": fake_comtypes, "comtypes.client": _fake_client}
-            ),
+            patch.dict(sys.modules, {"comtypes": fake_comtypes, "comtypes.client": _fake_client}),
             patch.object(clip_mod, "_is_password_field", lambda focused, hwnd: False),
             patch.object(clip_mod, "_is_content_editable", lambda focused: False),
         ):

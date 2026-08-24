@@ -97,7 +97,7 @@ def _is_windows() -> bool:
     """Look up ``is_windows`` via the ``voice_typer.server.config`` module
     attribute so test monkeypatches on ``voice_typer.server.config.is_windows``
     (e.g. ``tests/test_validate_systemroot.py``,
-    ``tests/regressions/security_test.py``) propagate to paths.py callers.
+    ``tests/regressions/test_security.py``) propagate to paths.py callers.
 
     In production ``config.is_windows is paths.is_windows`` (the same
     function object, re-exported via ``from ... import``).  Under test,
@@ -297,7 +297,7 @@ def _validate_systemroot() -> None:
     # Look up ``Path`` via the config module attribute so test
     # monkeypatches on ``voice_typer.server.config.Path`` (see
     # ``tests/test_validate_systemroot.py`` and
-    # ``tests/regressions/security_test.py``) propagate to this function
+    # ``tests/regressions/test_security.py``) propagate to this function
     # after the  split.  The local shadow is intentional.  Lazy
     # import avoids a circular module-load.
     from voice_typer.server import config as _cfg

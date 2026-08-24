@@ -41,7 +41,7 @@ rich text. For now, we log when the paste target appears to be a
 rich editor (e.g. Word, LibreOffice).
 
  (source-string pin — see
-tests/regressions/security_test.py::TestClipboardRetryNarrowedException):
+tests/regressions/test_security.py::TestClipboardRetryNarrowedException):
 the copy() retry block in :mod:`.manager` MUST catch ``OSError``
 (narrowed from the pre-fix broad ``Exception`` pattern) and check
 ``winerror == 5`` (ERROR_ACCESS_DENIED) before retrying. The exact

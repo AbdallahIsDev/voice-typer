@@ -173,7 +173,7 @@ from voice_typer.server.config_validators.scalar import (  # noqa: F401
 # Re-export ``IPC_CONFIG_ALLOWLIST`` with an explicit parameterised
 # annotation so static type-checkers (and ``typing.get_type_hints(cv)``
 # — exercised by
-# ``tests/test_config.py::test_ipc_config_allowlist_is_dict_of_fieldspec``)
+# ``tests/config/test_config_schema_migration.py::test_ipc_config_allowlist_is_dict_of_fieldspec``)
 # see the ``dict[str, FieldSpec]`` hint on the package namespace. This is
 # an annotated ALIAS ASSIGNMENT, not a bare re-annotation: it binds the
 # package attribute to the SAME dict object defined in ``.allowlist``

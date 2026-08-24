@@ -267,7 +267,7 @@ not enumerate the rewrites. These tests are mandatory:
 | `tests/test_electron_ipc_and_build.py:498` | Source-greps `assert "torch.jit.load" in src` | Change to `assert "InferenceSession" in src` (or remove the assertion if it serves no purpose post-migration). |
 | `bench/bench_vad.py` | Uses real torch + real `silero_vad.jit` | Rewrite to use ORT + `silero_vad.onnx`. Keep the `--include-silero` flag for parity. |
 | `tests/conftest.py` (~190 lines of `mock_torch` plumbing) | `_FakeOutOfMemoryError`, `_FakeTensor`, `_build_mock_torch()` session fixture, `real_torch` marker | Strip VAD-specific torch mocks. Keep the fixture for Parakeet/Qwen until Phase 1c. |
-| `tests/regressions/gpu_memory_release_test.py` | Tests `torch.cuda.empty_cache()` (58 hits) | Either delete (purpose disappears) or repurpose to test `unload()` drops the ORT session. |
+| `tests/regressions/test_gpu_memory_release.py` | Tests `torch.cuda.empty_cache()` (58 hits) | Either delete (purpose disappears) or repurpose to test `unload()` drops the ORT session. |
 
 ### 2.5 Phase gate
 
