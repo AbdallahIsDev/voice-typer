@@ -25,6 +25,7 @@ import threading
 import time
 import weakref
 
+import pytest
 from voice_typer.server.thread_registry import (
     ThreadRegistry,
     ThreadRegistryEntry,
@@ -768,6 +769,10 @@ class TestShutdownAllAutoPrune:
 # Frozen-clock drain regression ────────────────────────
 
 
+# WR-10: these drain-budget proofs wait out the ~5s internal drain
+# budget twice (frozen-clock scenarios cannot be shortened without
+# weakening what they verify) — mark slow, run via ``pytest --slow``.
+@pytest.mark.slow
 class TestFrozenClockDrain:
     """The test-suite drain must stay bounded even if a leaked test patch
     freezes the global ``time.monotonic`` clock.
@@ -812,8 +817,7 @@ class TestFrozenClockDrain:
             # old infinite-spin behaviour (which ran until the per-test
             # timeout killed the worker).
             assert elapsed < 30, (
-                f"drain with frozen time.monotonic took {elapsed:.1f}s; "
-                "expected bounded by the drain budget"
+                f"drain with frozen time.monotonic took {elapsed:.1f}s; expected bounded by the drain budget"
             )
         finally:
             time.monotonic = real_monotonic
@@ -842,8 +846,7 @@ class TestFrozenClockDrain:
             tr_module._drain_live_thread_registries()
             elapsed = real_perf_counter() - start
             assert elapsed < 30, (
-                f"drain with both clocks frozen took {elapsed:.1f}s; "
-                "expected bounded by the iteration cap"
+                f"drain with both clocks frozen took {elapsed:.1f}s; expected bounded by the iteration cap"
             )
         finally:
             time.monotonic = real_monotonic
