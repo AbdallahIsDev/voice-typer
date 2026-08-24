@@ -32,11 +32,10 @@ vi.mock("@/pages/Microphone", () => ({
 vi.mock("@/pages/Dashboard", () => ({
 	default: () => <div data-testid="page-analytics">Analytics page</div>,
 }));
-vi.mock("@/pages/About", () => ({
-	default: () => <div data-testid="page-about">About page</div>,
-}));
-vi.mock("@/pages/Privacy", () => ({
-	default: () => <div data-testid="page-privacy">Privacy page</div>,
+vi.mock("@/pages/AboutAndPrivacy", () => ({
+	default: () => (
+		<div data-testid="page-aboutAndPrivacy">About & Privacy page</div>
+	),
 }));
 vi.mock("@/pages/Onboarding", () => ({
 	default: ({ onComplete }: { onComplete?: () => void }) => (
@@ -83,8 +82,7 @@ describe("PageSwitch — route table mapping", () => {
 		["models", "page-models"],
 		["microphone", "page-microphone"],
 		["analytics", "page-analytics"],
-		["about", "page-about"],
-		["privacy", "page-privacy"],
+		["aboutAndPrivacy", "page-aboutAndPrivacy"],
 	] as const)(
 		"renders %s as its mapped page component",
 		async (page, testid) => {

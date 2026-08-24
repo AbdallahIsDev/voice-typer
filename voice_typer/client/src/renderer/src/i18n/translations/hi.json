@@ -49,8 +49,7 @@
 		"models": "मॉडल",
 		"microphone": "माइक्रोफोन",
 		"settings": "सेटिंग्स",
-		"about": "हमारे बारे में",
-		"privacy": "गोपनीयता",
+		"aboutAndPrivacy": "परिचय और गोपनीयता",
 		"group": {
 			"power": "उन्नत सुविधाएँ",
 			"system": "सिस्टम",
@@ -411,6 +410,10 @@
 		"avgCharsLabel": "औसत अक्षर / श्रुतलेख",
 		"longestLabel": "सबसे लंबा सत्र"
 	},
+	"aboutAndPrivacy": {
+		"title": "परिचय और गोपनीयता",
+		"description": "{appName} क्या है, और आपका ऑडियो और डेटा कैसे संभाला जाता है।"
+	},
 	"about": {
 		"title": "परिचय",
 		"productTagline": "डेस्कटॉप वॉइस-टू-टेक्स्ट",
@@ -443,8 +446,6 @@
 		"loadedVia": "इसके माध्यम से लोड किया गया",
 		"hotkey": "हॉटकी",
 		"microphone": "माइक्रोफ़ोन",
-		"privacyTitle": "गोपनीयता",
-		"privacyDescription": "आपके ऑडियो और डेटा को कैसे संभाला जाता है।",
 		"audioProcessingTitle": "ऑडियो प्रोसेसिंग",
 		"audioProcessingDesc": "{appName} सभी ऑडियो आपके डिवाइस पर लोकल रूप से प्रोसेस करता है। जब तक आप स्पष्ट रूप से क्लाउड वाक् पहचान प्रदाता (OpenAI/Groq/Deepgram) कॉन्फ़िगर नहीं करते, तब तक कोई ऑडियो आपकी मशीन से बाहर नहीं जाता।",
 		"modelWeightsTitle": "मॉडल वेट",

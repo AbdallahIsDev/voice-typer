@@ -161,11 +161,8 @@ vi.mock("@/pages/Vocabulary", () => ({
 vi.mock("@/pages/Models", () => ({
 	default: () => <div data-testid="models-page">Models</div>,
 }));
-vi.mock("@/pages/About", () => ({
-	default: () => <div data-testid="about-page">About</div>,
-}));
-vi.mock("@/pages/Privacy", () => ({
-	default: () => <div data-testid="privacy-page">Privacy</div>,
+vi.mock("@/pages/AboutAndPrivacy", () => ({
+	default: () => <div data-testid="aboutAndPrivacy-page">About & Privacy</div>,
 }));
 vi.mock("@/pages/Dashboard", () => ({
 	default: () => <div data-testid="dashboard-page">Dashboard</div>,
@@ -705,11 +702,16 @@ describe("App recording state — rewrite of test_no_unvalidated_as_recording_st
 			// transcribing/loading strings are suppressed (Home's dynamic
 			// status line covers them), which would make the
 			// transcribing/loading cases fail for the wrong reason.
-			// "about" is stubbed above (about-page testid) so App mounts
-			// the lightweight stub rather than the real Settings page.
+			// "aboutAndPrivacy" is stubbed above (aboutAndPrivacy-page testid)
+			// so App mounts the lightweight stub rather than the real
+			// merged About & Privacy page.
 			localStorage.setItem(
 				"vt_nav_state",
-				JSON.stringify({ page: "about", history: ["about"], index: 0 }),
+				JSON.stringify({
+					page: "aboutAndPrivacy",
+					history: ["aboutAndPrivacy"],
+					index: 0,
+				}),
 			);
 			_resetNavigationForTest();
 
@@ -717,7 +719,7 @@ describe("App recording state — rewrite of test_no_unvalidated_as_recording_st
 			render(<App />);
 
 			await waitFor(() => {
-				expect(screen.getByTestId("about-page")).toBeTruthy();
+				expect(screen.getByTestId("aboutAndPrivacy-page")).toBeTruthy();
 			});
 
 			// The aria-live region must announce the state.  This proves

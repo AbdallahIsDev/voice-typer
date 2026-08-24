@@ -49,8 +49,7 @@
 		"models": "النماذج",
 		"microphone": "الميكروفون",
 		"settings": "الإعدادات",
-		"about": "حول",
-		"privacy": "الخصوصية",
+		"aboutAndPrivacy": "حول التطبيق والخصوصية",
 		"group": {
 			"power": "ميزات متقدمة",
 			"system": "النظام",
@@ -411,6 +410,10 @@
 		"avgCharsLabel": "متوسط الأحرف / الإملاء",
 		"longestLabel": "أطول جلسة"
 	},
+	"aboutAndPrivacy": {
+		"title": "حول التطبيق والخصوصية",
+		"description": "ما هو {appName}، وكيف يتم التعامل مع الصوت وبياناتك."
+	},
 	"about": {
 		"title": "حول",
 		"productTagline": "صوت إلى نص لسطح المكتب",
@@ -443,8 +446,6 @@
 		"loadedVia": "تم التحميل عبر",
 		"hotkey": "مفتاح الاختصار",
 		"microphone": "الميكروفون",
-		"privacyTitle": "الخصوصية",
-		"privacyDescription": "كيفية التعامل مع صوتك وبياناتك.",
 		"audioProcessingTitle": "معالجة الصوت",
 		"audioProcessingDesc": "عند استخدام التعرّف الصوتي المحلي، يعالج {appName} الصوت على جهازك. لا يغادر أي صوت جهازك إلا إذا قمت بتهيئة مزوّد تعرّف صوتي سحابي بشكل صريح (OpenAI/Groq/Deepgram).",
 		"modelWeightsTitle": "أوزان النموذج",

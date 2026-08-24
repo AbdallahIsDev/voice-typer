@@ -49,8 +49,7 @@
 		"models": "模型",
 		"microphone": "麦克风",
 		"settings": "设置",
-		"about": "关于",
-		"privacy": "隐私",
+		"aboutAndPrivacy": "关于与隐私",
 		"group": {
 			"power": "高级功能",
 			"system": "系统",
@@ -411,6 +410,10 @@
 		"avgCharsLabel": "平均字符 / 听写",
 		"longestLabel": "最长会话"
 	},
+	"aboutAndPrivacy": {
+		"title": "关于与隐私",
+		"description": "{appName} 是什么，以及您的音频和数据如何被处理。"
+	},
 	"about": {
 		"title": "关于",
 		"productTagline": "桌面语音转文字",
@@ -443,8 +446,6 @@
 		"loadedVia": "加载方式",
 		"hotkey": "快捷键",
 		"microphone": "麦克风",
-		"privacyTitle": "隐私",
-		"privacyDescription": "您的音频和数据如何被处理。",
 		"audioProcessingTitle": "音频处理",
 		"audioProcessingDesc": "{appName} 在您的设备上本地处理所有音频。除非您明确配置云端语音识别提供商（OpenAI/Groq/Deepgram），否则音频不会离开您的机器。",
 		"modelWeightsTitle": "模型权重",

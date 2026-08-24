@@ -16,10 +16,10 @@
  *
  * Render counting is done via a mocked `<Button>` child (the shared
  * design-system Button that every nav item/submenu parent renders
- * through). Sidebar always renders exactly 10 Buttons in the expanded
- * state; Button itself is NOT memo'd, so a Sidebar re-render
- * propagates to every Button. Counting Button renders is therefore a
- * faithful proxy for counting Sidebar renders.
+ * through). Sidebar always renders exactly 9 Buttons in the expanded
+ * state (8 leaves + the Settings parent); Button itself is NOT memo'd,
+ * so a Sidebar re-render propagates to every Button. Counting Button
+ * renders is therefore a faithful proxy for counting Sidebar renders.
  */
 import { act, cleanup, render } from "@testing-library/react";
 import { useState } from "react";

@@ -534,6 +534,34 @@
 	}
 }
 
+/* Settings-submenu reveal (Radix Collapsible height animation).
+   --radix-collapsible-content-height is set by Radix on the content
+   element; animating height + opacity gives a smooth reveal/hide in
+   BOTH directions without layout jumps. Reduced-motion users get the
+   instant state swap via the global prefers-reduced-motion block
+   (animation-duration 0.01ms) — the submenu still opens/closes, just
+   without the motion. */
+@keyframes collapsibleDown {
+	from {
+		height: 0;
+		opacity: 0;
+	}
+	to {
+		height: var(--radix-collapsible-content-height);
+		opacity: 1;
+	}
+}
+@keyframes collapsibleUp {
+	from {
+		height: var(--radix-collapsible-content-height);
+		opacity: 1;
+	}
+	to {
+		height: 0;
+		opacity: 0;
+	}
+}
+
 /* respect prefers-reduced-motion.
    WCAG 2.1 SC 2.3.3 requires that motion be disable-able.  When the
    user has this setting enabled (common for vestibular disorders,

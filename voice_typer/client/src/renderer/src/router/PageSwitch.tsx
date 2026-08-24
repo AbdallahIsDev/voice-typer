@@ -2,17 +2,16 @@ import { lazy, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n/i18n";
 // Route-level code splitting. Home is the default landing page
-// and stays eagerly imported so first paint is fast. The other 9 pages
+// and stays eagerly imported so first paint is fast. The other 8 pages
 // (History, Templates, Vocabulary, Models, Microphone, Analytics,
-// Settings, About, Onboarding) are loaded on demand via React.lazy so
-// Vite emits per-route chunks and the initial JS payload only carries
-// the Home page's transitive deps. Each lazy import resolves to the
-// page module's default export.
+// Settings, AboutAndPrivacy, Onboarding) are loaded on demand via
+// React.lazy so Vite emits per-route chunks and the initial JS payload
+// only carries the Home page's transitive deps. Each lazy import
+// resolves to the page module's default export.
 import Home from "@/pages/Home";
 import type { Page } from "@/types/ipc";
 
-const AboutPage = lazy(() => import("@/pages/About"));
-const PrivacyPage = lazy(() => import("@/pages/Privacy"));
+const AboutAndPrivacyPage = lazy(() => import("@/pages/AboutAndPrivacy"));
 const DashboardPage = lazy(() => import("@/pages/Dashboard"));
 const HistoryPage = lazy(() => import("@/pages/History"));
 const MicrophonePage = lazy(() => import("@/pages/Microphone"));
@@ -114,10 +113,8 @@ export function PageSwitch({
 				return <SettingsPage page="settingsAppearance" />;
 			case "settingsPrivacy":
 				return <SettingsPage page="settingsPrivacy" />;
-			case "about":
-				return <AboutPage />;
-			case "privacy":
-				return <PrivacyPage />;
+			case "aboutAndPrivacy":
+				return <AboutAndPrivacyPage />;
 			case "onboarding":
 				return <OnboardingPage onComplete={onOnboardingComplete} />;
 			default:

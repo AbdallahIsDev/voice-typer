@@ -1,24 +1,41 @@
-// About page — product identity.
+// About & Privacy page — merged product identity + data-handling
+// disclosure.
 //
-// IA split: this page is now genuinely ABOUT the product: what Voice
-// Typer is, what it does, its local/offline + optional-cloud
-// capabilities, the installed version, and supported platforms.
+// The previously separate About page (product identity) and Privacy
+// page (audio/data disclosure) were combined into ONE sidebar
+// destination: both surfaces are short, read as a single "what this
+// app is + how it treats your data" story, and the merge removes a
+// low-traffic second navigation entry.
 //
-// What moved out (and where it lives now):
-//   - Privacy disclosure  → Privacy page (sidebar destination)
-//   - Diagnostics table   → Settings → Troubleshooting (support area)
-//   - Resources & Feedback → Settings → Troubleshooting (support area)
+// The page stays static AT LOAD — the only dynamic values are:
+//   - the installed version, read directly from package.json at build
+//     time (VERSION-SOURCE-FIX) so it never drifts from the canonical
+//     source of truth on a release bump;
+//   - an USER-INITIATED runtime-pack update check (click "Check for
+//     Updates"; no fetch happens on mount), so the identity card still
+//     renders fine when the backend is down;
+//   - the config directory (from the backend's get_status — the same
+//     authoritative source the Settings diagnostics section and
+//     Analytics data path use), interpolated into the Local data
+//     description. On a failed fetch the row falls back to a neutral
+//     "—" instead of a permanent "Loading…".
 //
-// The page stays static AT LOAD — the only dynamic values are the
-// installed version, read directly from package.json at build time
-// (VERSION-SOURCE-FIX) so it never drifts from the canonical source of
-// truth on a release bump, and an USER-INITIATED runtime-pack update
-// check (click "Check for Updates"; no fetch happens on mount), so the
-// page still renders fine when the backend is down.
+// The privacy disclosure is kept intact per the audit rule "do not
+// remove meaningful privacy disclosures", with its earlier
+// presentation fixes preserved:
+//   - topic titles no longer end in sentence punctuation (a trailing
+//     "." read like a status dot)
+//   - the voice-biometrics copy is calmer and more factual
 
-import { CloudIcon, Mic02Icon } from "@hugeicons/core-free-icons";
+import {
+	CloudIcon,
+	DatabaseIcon,
+	Layers01Icon,
+	Mic02Icon,
+	VoiceIdIcon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { APP_NAME } from "@/branding";
 import PageHeading from "@/components/common/PageHeading";
 import { ReadonlyRow } from "@/components/common/ReadonlyRow";
@@ -57,13 +74,41 @@ interface PackUpdateCheckResult {
 /** Lifecycle of the user-initiated pack update check. */
 type PackUpdatePhase = "idle" | "checking" | "done";
 
-export default function AboutPage() {
+/** Privacy topics — icon + existing i18n title/description keys. */
+const PRIVACY_TOPICS = [
+	{
+		icon: Mic02Icon,
+		title: "about.audioProcessingTitle",
+		desc: "about.audioProcessingDesc",
+	},
+	{
+		icon: Layers01Icon,
+		title: "about.modelWeightsTitle",
+		desc: "about.modelWeightsDesc",
+	},
+	{ icon: CloudIcon, title: "about.cloudAsrTitle", desc: "about.cloudAsrDesc" },
+	{
+		icon: VoiceIdIcon,
+		title: "about.voiceBiometricsTitle",
+		desc: "about.voiceBiometricsDesc",
+	},
+	{
+		icon: DatabaseIcon,
+		title: "about.localDataTitle",
+		desc: "about.localDataDesc",
+	},
+] as const;
+
+export default function AboutAndPrivacyPage() {
 	// Re-render on locale switch so all t() calls re-resolve.
 	useT();
 
 	const { call } = usePython();
-	// Ref mirror of `call` (PrewarmAndUpdates pattern) so the click
-	// handler never goes stale across renders.
+	// Ref mirror of `call` (PrewarmAndUpdates pattern) shared by BOTH
+	// dynamic paths on this page — the pack update check click handler
+	// and the mount-time configDir probe — so neither goes stale across
+	// renders and a test mock handing out a fresh `call` per render can
+	// never re-fire the probe.
 	const callRef = useRef(call);
 	callRef.current = call;
 
@@ -113,6 +158,29 @@ export default function AboutPage() {
 		void runPackUpdateCheck();
 	};
 
+	// The backend's authoritative config directory (get_status) —
+	// rendered into the Local data description. Empty until resolved;
+	// a failed fetch leaves it empty and the row shows "—".
+	const [configDir, setConfigDir] = useState("");
+
+	useEffect(() => {
+		let cancelled = false;
+		(async () => {
+			try {
+				const status = await callRef.current<{ config_dir?: string }>(
+					"get_status",
+				);
+				if (!cancelled && status?.config_dir) setConfigDir(status.config_dir);
+			} catch {
+				// leave configDir empty — the Local data row falls back
+				// to a neutral "—" (never a permanent "Loading…").
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
 	// Resolve the row value + optional detail line from the current
 	// phase + last response. Computed INSIDE the component body so the
 	// strings follow the active locale (B-REVIEW-3 pattern).
@@ -159,8 +227,8 @@ export default function AboutPage() {
 	return (
 		<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col space-y-6 px-16 pt-28 pb-6">
 			<PageHeading
-				title={t("about.title")}
-				description={t("about.description")}
+				title={t("aboutAndPrivacy.title")}
+				description={t("aboutAndPrivacy.description")}
 			/>
 
 			{/* Product identity card — compact, native-app About block.
@@ -261,6 +329,36 @@ export default function AboutPage() {
 						)}
 					</div>
 				</div>
+			</div>
+
+			{/* The privacy disclosure — five topic rows with thin dividers (the
+                            section card's divide-y supplies them). Icons render
+                            directly (no chip), in the standard muted icon tone. */}
+			<div className="divide-y divide-border/10 rounded-xl border border-border/10 bg-(--bg-subtle)">
+				{PRIVACY_TOPICS.map((topic) => (
+					<div key={topic.title} className="flex gap-3 px-4 py-4">
+						<HugeiconsIcon
+							icon={topic.icon}
+							strokeWidth={1.75}
+							aria-hidden="true"
+							className="mt-0.5 size-5 shrink-0 text-(--text-muted)"
+						/>
+						<div className="min-w-0 text-sm leading-relaxed text-(--text-muted)">
+							<p className="font-medium text-(--text-primary)">
+								{t(topic.title)}
+							</p>
+							{/* max-w-prose: keep paragraph line length
+							    readable; the rows can stay full width.
+							    text-balance: even out the final line of
+							    the description when it wraps. */}
+							<p className="mt-1 max-w-prose text-balance">
+								{t(topic.desc, {
+									configDir: configDir || t("about.unknown"),
+								})}
+							</p>
+						</div>
+					</div>
+				))}
 			</div>
 		</div>
 	);

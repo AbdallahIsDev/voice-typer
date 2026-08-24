@@ -49,8 +49,7 @@
 		"models": "Modelos",
 		"microphone": "Micrófono",
 		"settings": "Configuración",
-		"about": "Acerca de",
-		"privacy": "Privacidad",
+		"aboutAndPrivacy": "Acerca de y privacidad",
 		"group": {
 			"power": "Funciones avanzadas",
 			"system": "Sistema",
@@ -411,6 +410,10 @@
 		"avgCharsLabel": "Prom. caracteres / dictado",
 		"longestLabel": "Sesión más larga"
 	},
+	"aboutAndPrivacy": {
+		"title": "Acerca de y privacidad",
+		"description": "Qué es {appName} y cómo se tratan tu audio y tus datos."
+	},
 	"about": {
 		"title": "Acerca de",
 		"productTagline": "Voz a texto para escritorio",
@@ -443,8 +446,6 @@
 		"loadedVia": "Cargado mediante",
 		"hotkey": "Atajo de teclado",
 		"microphone": "Micrófono",
-		"privacyTitle": "Privacidad",
-		"privacyDescription": "Cómo se manejan tu audio y tus datos.",
 		"audioProcessingTitle": "Procesamiento de audio",
 		"audioProcessingDesc": "Cuando usas el reconocimiento de voz local, {appName} procesa el audio en tu dispositivo. Ningún audio sale de tu máquina a menos que configures explícitamente un proveedor de reconocimiento de voz en la nube (OpenAI/Groq/Deepgram).",
 		"modelWeightsTitle": "Pesos del modelo",

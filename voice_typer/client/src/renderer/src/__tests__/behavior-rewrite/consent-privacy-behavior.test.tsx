@@ -570,16 +570,16 @@ describe("About & Settings — voice biometric consent disclosure", () => {
 		cleanup();
 	});
 
-	it("Privacy page renders the voice biometrics heading + GDPR Article 9 disclosure", async () => {
+	it("merged About & Privacy page renders the voice biometrics heading + GDPR Article 9 disclosure", async () => {
 		// Python invariant (test_about_cites_gdpr_article_9):
 		//   't("about.voiceBiometricsDesc")' in src
 		//   't("about.voiceBiometricsTitle")' in src
 		//
-		// IA split: the voice-biometrics disclosure moved OFF the
-		// About page onto the dedicated Privacy page. Behavioral:
-		// the rendered Privacy page contains the voice-biometrics
-		// heading text AND the disclosure body mentions both
-		// "BIPA" and "GDPR Article 9".
+		// IA merge: the voice-biometrics disclosure and the About
+		// product identity now share ONE page (aboutAndPrivacy).
+		// Behavioral: the rendered merged page contains the
+		// voice-biometrics heading text AND the disclosure body
+		// mentions both "BIPA" and "GDPR Article 9".
 		mockCall.mockReset();
 		mockCall.mockImplementation((cmd: string) => {
 			switch (cmd) {
@@ -610,8 +610,10 @@ describe("About & Settings — voice biometric consent disclosure", () => {
 			}),
 		) as unknown as typeof fetch;
 
-		const { default: PrivacyPage } = await import("@/pages/Privacy");
-		renderWithProviders(<PrivacyPage />);
+		const { default: AboutAndPrivacyPage } = await import(
+			"@/pages/AboutAndPrivacy"
+		);
+		renderWithProviders(<AboutAndPrivacyPage />);
 
 		await waitFor(() => {
 			expect(screen.getAllByText(/voice biometrics/i).length).toBeGreaterThan(

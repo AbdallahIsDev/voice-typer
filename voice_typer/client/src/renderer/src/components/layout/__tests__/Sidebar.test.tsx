@@ -87,15 +87,17 @@ describe("Sidebar", () => {
 
 	//active nav item visual hierarchy ───────────────────────
 
-	it("UX-16: active leaf nav item blends with the page (--bg background, no accent bar, no accent tint)", () => {
+	it("UX-16: active leaf nav item blends with the page (card border, --bg background, primary text)", () => {
 		renderWithProviders(<Sidebar {...baseProps} currentPage="home" />);
 		const activeButton = findNavButton("Home");
 		expect(activeButton).toBeTruthy();
 		const cls = activeButton?.className ?? "";
-		// Transparent 2px inline-start border stays for alignment only
-		// (no layout shift when the active item changes).
-		expect(cls).toContain("border-s-2");
-		expect(cls).toContain("border-s-transparent");
+		// Active leaf = the standard card treatment: the shared card
+		// border token at ~10% opacity (the border every card uses).
+		expect(cls).toContain("border-border/10");
+		// The legacy left-accent-bar borders are gone from ALL nav buttons.
+		expect(cls).not.toContain("border-s-2");
+		expect(cls).not.toContain("border-s-transparent");
 		// The old accent dash (before:bg-accent) is gone.
 		expect(cls).not.toContain("before:bg-accent");
 		// Active background matches the page background (--bg), and the
@@ -107,7 +109,7 @@ describe("Sidebar", () => {
 		expect(cls).toContain("font-medium");
 	});
 
-	it("UX-16: Settings parent does NOT take the leaf active background when its submenu is active (calm foreground only)", () => {
+	it("UX-16: Settings parent does NOT take the leaf card border/background when its submenu is active (calm foreground only)", () => {
 		renderWithProviders(
 			<Sidebar {...baseProps} currentPage="settingsGeneral" />,
 		);
@@ -116,24 +118,26 @@ describe("Sidebar", () => {
 		const cls = settingsButton?.className ?? "";
 		// Parent groups (Settings) stay visually calm: the active-section
 		// signal is the stronger text/icon foreground ONLY — never the
-		// leaf `bg-(--bg)` highlighted background (no third background
-		// style competing with the active child).
+		// leaf `bg-(--bg)` highlighted background or the leaf card border
+		// (no third active style competing with the active child).
 		expect(cls).toContain("text-(--text-primary)");
 		expect(cls).toContain("font-medium");
+		expect(cls).toContain("hover:bg-foreground/5");
 		expect(cls).not.toContain("bg-(--bg)");
 		expect(cls).not.toContain("bg-(--accent-soft)");
+		expect(cls).not.toContain("border-border/10");
 	});
 
-	it("UX-16: inactive nav items do NOT carry the accent border/background", () => {
+	it("UX-16: inactive nav items do NOT carry the card border or any active background", () => {
 		renderWithProviders(<Sidebar {...baseProps} currentPage="home" />);
-		const inactiveButton = findNavButton("Settings");
+		const inactiveButton = findNavButton("History");
 		expect(inactiveButton).toBeTruthy();
 		const cls = inactiveButton?.className ?? "";
-		// Inactive uses a transparent border-s-2 so heights stay aligned
-		// (no layout shift when the active item changes), but the bar
-		// itself is transparent, NOT --accent.
-		expect(cls).toContain("border-s-2");
-		expect(cls).toContain("border-s-transparent");
+		// Inactive leaves carry NO border token beyond the Button base's
+		// transparent border — the legacy border-s-2 alignment bar is gone.
+		expect(cls).not.toContain("border-s-2");
+		expect(cls).not.toContain("border-s-transparent");
+		expect(cls).not.toContain("border-border/10");
 		expect(cls).not.toContain("border-s-(--accent)");
 		expect(cls).not.toContain("bg-(--accent-soft)");
 		expect(cls).not.toContain("bg-(--bg)");
@@ -163,7 +167,7 @@ describe("Sidebar", () => {
 		expect(systemSection?.getAttribute("aria-label")).toBe("System");
 	});
 
-	it("PROD-7: Home/History/Analytics are in the Main group; Templates/Vocabulary/Models/Microphone in Power features; Settings/About/Privacy in System", () => {
+	it("PROD-7: Home/History/Analytics are in the Main group; Templates/Vocabulary/Models/Microphone in Power features; Settings + About & Privacy in System", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		const groupOf = (label: string) =>
 			findNavButton(label).closest("section")?.getAttribute("aria-label");
@@ -178,8 +182,7 @@ describe("Sidebar", () => {
 		expect(groupOf("Microphone")).toBe("Power features");
 
 		expect(groupOf("Settings")).toBe("System");
-		expect(groupOf("About")).toBe("System");
-		expect(groupOf("Privacy")).toBe("System");
+		expect(groupOf("About & Privacy")).toBe("System");
 	});
 
 	it("PROD-7: renders NO <hr> dividers between the groups", () => {
@@ -188,7 +191,7 @@ describe("Sidebar", () => {
 		expect(nav.querySelectorAll("hr").length).toBe(0);
 	});
 
-	it("PROD-7: still renders all 10 nav item labels (grouping does not drop items)", () => {
+	it("PROD-7: still renders all 9 nav item labels (grouping does not drop items)", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		const labels = [
 			"Home",
@@ -199,12 +202,27 @@ describe("Sidebar", () => {
 			"Models",
 			"Microphone",
 			"Settings",
-			"About",
-			"Privacy",
+			"About & Privacy",
 		];
 		for (const label of labels) {
 			expect(findNavButton(label)).toBeTruthy();
 		}
+	});
+
+	it("About & Privacy is ONE destination: exactly one merged nav button, no separate About or Privacy buttons", () => {
+		renderWithProviders(<Sidebar {...baseProps} />);
+		// Exactly one button matches the merged label.
+		const merged = screen.getAllByRole("button", {
+			name: /^About & Privacy/,
+		});
+		expect(merged.length).toBe(1);
+		// No button carries the former standalone "About" or "Privacy"
+		// label as its full accessible name.
+		const plainLabels = screen
+			.getAllByRole("button")
+			.map((b) => b.textContent?.trim())
+			.filter((name) => name === "About" || name === "Privacy");
+		expect(plainLabels.length).toBe(0);
 	});
 
 	//aria-keyshortcuts on nav items ────────────────────────
@@ -264,20 +282,32 @@ describe("Sidebar", () => {
 
 	it("PROD-9: nav items without a keyboard shortcut omit aria-keyshortcuts entirely", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
-		// History, Templates, Vocabulary, Models, Microphone, About —
-		// none have shortcuts bound in App.tsx.
+		// History, Templates, Vocabulary, Models, Microphone,
+		// About & Privacy — none have shortcuts bound in App.tsx.
 		const noShortcutItems = [
 			"History",
 			"Templates",
 			"Vocabulary",
 			"Models",
 			"Microphone",
-			"About",
+			"About & Privacy",
 		];
 		for (const label of noShortcutItems) {
 			const btn = findNavButton(label);
 			expect(btn?.hasAttribute("aria-keyshortcuts")).toBe(false);
 		}
+	});
+
+	it("PROD-7: the System group is pinned to the sidebar bottom (mt-auto); Main and Power features are not", () => {
+		renderWithProviders(<Sidebar {...baseProps} />);
+		const sectionClassOf = (label: string) =>
+			findNavButton(label).closest("section")?.className ?? "";
+		expect(sectionClassOf("Settings")).toContain("mt-auto");
+		expect(sectionClassOf("About & Privacy")).toContain("mt-auto");
+		// The top groups flow normally — no auto margin competing with
+		// the System group's bottom anchor.
+		expect(sectionClassOf("Home")).not.toContain("mt-auto");
+		expect(sectionClassOf("Templates")).not.toContain("mt-auto");
 	});
 
 	//sidebar branding removed ──────────────────────────

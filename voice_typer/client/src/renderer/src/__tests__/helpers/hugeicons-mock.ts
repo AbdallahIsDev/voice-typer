@@ -104,6 +104,7 @@ const hugeiconsMock = {
 	Share08Icon: make("Share08Icon"),
 	Shield01Icon: make("Shield01Icon"),
 	ShieldBanIcon: make("ShieldBanIcon"),
+	ShieldUserIcon: make("ShieldUserIcon"),
 	SlidersHorizontalIcon: make("SlidersHorizontalIcon"),
 	Sorting01Icon: make("Sorting01Icon"),
 	SparklesIcon: make("SparklesIcon"),

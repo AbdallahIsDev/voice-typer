@@ -24,3 +24,7 @@ R tests/regressions/security_test.py -> tests/regressions/test_security.py
 R tests/regressions/tcp_live_test.py -> tests/regressions/test_tcp_live.py
 R tests/regressions/text_cleanup_test.py -> tests/regressions/test_text_cleanup.py
 R tests/regressions/tray_test.py -> tests/regressions/test_tray.py
+
+# Recorded 2026-08-25 (About + Privacy pages merged into ONE sidebar destination).
+D voice_typer/client/src/renderer/src/pages/About.tsx -> merged (with Privacy) into voice_typer/client/src/renderer/src/pages/AboutAndPrivacy.tsx (Page literal "aboutAndPrivacy")
+D voice_typer/client/src/renderer/src/pages/Privacy.tsx -> merged (with About) into voice_typer/client/src/renderer/src/pages/AboutAndPrivacy.tsx (Page literal "aboutAndPrivacy")

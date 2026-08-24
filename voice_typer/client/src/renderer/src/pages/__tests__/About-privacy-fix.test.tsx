@@ -9,11 +9,13 @@
  * clicked "Full Privacy Policy" expecting a privacy-specific document
  * and landed on the security policy instead.
  *
- * BG-59 removed the duplicate button. The IA split since moved the
- * privacy disclosure to its own Privacy page and the resources grid to
- * Settings → Troubleshooting (ResourcesSettingsSection), so these tests
- * now mount those two destinations:
- *   - Privacy page: no "Full Privacy Policy" button, no trailing note.
+ * BG-59 removed the duplicate button. The IA split moved the privacy
+ * disclosure to its own Privacy page and the resources grid to
+ * Settings → Troubleshooting (ResourcesSettingsSection); About and
+ * Privacy have since been MERGED back into one page
+ * (pages/AboutAndPrivacy.tsx), so these tests now mount those two
+ * destinations:
+ *   - Merged page: no "Full Privacy Policy" button, no trailing note.
  *   - ResourcesSettingsSection: exactly ONE anchor pointing at
  *     SECURITY.md (the Security Policy button).
  */
@@ -39,7 +41,7 @@ vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
 vi.mock("sonner", () => sonnerMock());
 vi.mock("next-themes", () => nextThemesMock());
 
-describe("Privacy page — BG-59 privacy URL fix", () => {
+describe("Merged About & Privacy page — BG-59 privacy URL fix", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockCall.mockImplementation((type: string) => {
@@ -68,11 +70,15 @@ describe("Privacy page — BG-59 privacy URL fix", () => {
 	});
 
 	it("does NOT render the 'Full Privacy Policy' button (removed — duplicate of Security Policy)", async () => {
-		const { default: PrivacyPage } = await import("@/pages/Privacy");
-		render(<PrivacyPage />);
+		const { default: AboutAndPrivacyPage } = await import(
+			"@/pages/AboutAndPrivacy"
+		);
+		render(<AboutAndPrivacyPage />);
 
 		await waitFor(() => {
-			expect(screen.getByRole("heading", { name: "Privacy" })).toBeTruthy();
+			expect(
+				screen.getByRole("heading", { name: "About & Privacy" }),
+			).toBeTruthy();
 		});
 
 		// The "Full Privacy Policy" button is gone — the i18n key
@@ -83,11 +89,15 @@ describe("Privacy page — BG-59 privacy URL fix", () => {
 	});
 
 	it("does NOT render the 'See the full privacy policy below' note (removed — the full privacy content is already shown inline above it)", async () => {
-		const { default: PrivacyPage } = await import("@/pages/Privacy");
-		render(<PrivacyPage />);
+		const { default: AboutAndPrivacyPage } = await import(
+			"@/pages/AboutAndPrivacy"
+		);
+		render(<AboutAndPrivacyPage />);
 
 		await waitFor(() => {
-			expect(screen.getByRole("heading", { name: "Privacy" })).toBeTruthy();
+			expect(
+				screen.getByRole("heading", { name: "About & Privacy" }),
+			).toBeTruthy();
 		});
 
 		// The trailing "Privacy policy — See the full privacy policy

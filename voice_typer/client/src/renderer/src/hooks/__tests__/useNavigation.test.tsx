@@ -198,7 +198,12 @@ describe("useNavigation useShallow consolidation (4 selector runs per update)", 
 		const goForwardRef0 = captures.current?.goForward;
 		const replaceRef0 = captures.current?.replace;
 
-		for (const page of ["settings", "history", "home", "about"] as const) {
+		for (const page of [
+			"settings",
+			"history",
+			"home",
+			"aboutAndPrivacy",
+		] as const) {
 			act(() => {
 				captures.current?.navigate(page);
 			});

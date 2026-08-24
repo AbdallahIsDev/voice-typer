@@ -1,9 +1,10 @@
 /**
  * Tests for the Sidebar component.
  *
- * Sidebar renders the primary navigation: 10 nav items (Home, History,
+ * Sidebar renders the primary navigation: 9 nav items (Home, History,
  * Analytics, Templates, Vocabulary, Models, Microphone, Settings,
- * About, Privacy). The branding header + the ThemeSwitch moved OUT of
+ * About & Privacy — the former About and Privacy pages merged into ONE
+ * destination). The branding header + the ThemeSwitch moved OUT of
  * the sidebar (the theme control now lives in the TitleBar), so the
  * sidebar is nav-only.
  */
@@ -58,7 +59,7 @@ describe("Sidebar", () => {
 		onNavigate: vi.fn(),
 	};
 
-	it("renders all 10 navigation items with their labels", () => {
+	it("renders all 9 navigation items with their labels", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		const labels = [
 			"Home",
@@ -69,8 +70,7 @@ describe("Sidebar", () => {
 			"Models",
 			"Microphone",
 			"Settings",
-			"About",
-			"Privacy",
+			"About & Privacy",
 		];
 		for (const label of labels) {
 			expect(screen.getByText(label)).toBeTruthy();
@@ -99,11 +99,11 @@ describe("Sidebar", () => {
 		expect(onNavigate).toHaveBeenCalledWith("microphone");
 	});
 
-	it("calls onNavigate with 'about' when the About item is clicked", () => {
+	it("calls onNavigate with 'aboutAndPrivacy' when the About & Privacy item is clicked", () => {
 		const onNavigate = vi.fn();
 		renderWithProviders(<Sidebar {...baseProps} onNavigate={onNavigate} />);
-		fireEvent.click(screen.getByText("About"));
-		expect(onNavigate).toHaveBeenCalledWith("about");
+		fireEvent.click(screen.getByText("About & Privacy"));
+		expect(onNavigate).toHaveBeenCalledWith("aboutAndPrivacy");
 	});
 
 	it("marks the active page with aria-current='page'", () => {

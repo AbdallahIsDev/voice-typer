@@ -51,7 +51,7 @@ function packResult(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-describe("About page — offline-pack consent gate (point-of-use)", () => {
+describe("About & Privacy page — offline-pack consent gate (point-of-use)", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockCall.mockImplementation(() => Promise.resolve({}));
@@ -64,10 +64,12 @@ describe("About page — offline-pack consent gate (point-of-use)", () => {
 	});
 
 	const renderAbout = async () => {
-		const { default: AboutPage } = await import("@/pages/About");
+		const { default: AboutPage } = await import("@/pages/AboutAndPrivacy");
 		render(<AboutPage />);
 		await waitFor(() => {
-			expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
+			expect(
+				screen.getByRole("heading", { name: "About & Privacy" }),
+			).toBeTruthy();
 		});
 	};
 

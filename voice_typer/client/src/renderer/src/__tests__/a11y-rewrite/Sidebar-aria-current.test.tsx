@@ -164,7 +164,7 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 	};
 
 	// The flat order of nav items across all groups (Main → Power →
-	// System), matching ALL_NAV_ITEMS in Sidebar.tsx:77-81.  Used to
+	// System), matching ALL_NAV_ITEMS in Sidebar.tsx. Used to
 	// assert ArrowDown cycles through items in the right order.
 	const EXPECTED_NAV_ORDER: string[] = [
 		// Main
@@ -178,8 +178,7 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 		"microphone",
 		// System
 		"settings",
-		"about",
-		"privacy",
+		"aboutAndPrivacy",
 	];
 
 	beforeEach(() => {

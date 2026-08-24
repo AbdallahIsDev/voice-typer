@@ -1145,6 +1145,62 @@ Rationale: Two different button trees for the collapsed/expanded Settings parent
 Applies to: All agents, all modes, all sub-agents.
 ```
 
+```
+C-SIDEBAR-9
+Rule: Do NOT give active sidebar pages a custom or stronger border. The active page item (top-level leaf AND Settings submenu child) MUST use the standard card treatment: `border-border/10` (the same ~10%-opacity card border token every card in the app uses) + `bg-(--bg)` + `text-(--text-primary)`. The legacy `border-s-2`/`border-s-transparent` alignment borders are REMOVED — do not reintroduce them. The Settings PARENT is exempt: when its submenu is open it gets ONLY the calm foreground treatment (`text-(--text-primary)` + `font-medium` + `hover:bg-foreground/5`) — never the card border/background.
+Rationale: The active item previously had no border at all while every card surface in the app carries `border-border/10`; the parent must not compete with its active child (supersedes the older UX-16 "no border, transparent border-s-2 only" contract, 2026-08-24).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-SIDEBAR-10
+Rule: Do NOT swap the Settings expand/collapse arrow icon. ONE persistent `ArrowRight01Icon` glyph renders in a `ms-auto` (far-end edge) `size-6` aria-hidden wrapper; direction is animation only: `rotate-90` when the submenu is open, `nav-directional-icon` (RTL mirror) when closed, transitioned via `transition-[rotate]` (NOT `transition-transform`, which would visibly animate the RTL mirror flip). The arrow renders only in the expanded sidebar (the collapsed rail opens the flyout instead).
+Rationale: Conditional ArrowRight/ArrowDown rendering made the indicator pop; rotation is the app's animation convention. `ms-auto` pins the indicator to the row's end padding instead of hugging the label (2026-08-24).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-SIDEBAR-11
+Rule: Do NOT decouple the Settings submenu's open state from navigation. The submenu is open EXACTLY while a Settings sub-page (or the legacy `settings` parent literal) is the current page (`expanded = hasActiveChild || isParentActive`) and MUST close when the user navigates anywhere else. There is NO persisted manual preference (the old `vt_settings_submenu_expanded` localStorage key is removed) — navigating back to Settings re-opens the submenu automatically.
+Rationale: The old manual flag survived navigation, leaving the submenu stuck open on unrelated pages; navigation itself is now the single source of truth (2026-08-24).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-SIDEBAR-12
+Rule: Do NOT let sidebar icons shift horizontally during expand/collapse, and do not center them per-state. Every top-level nav button anchors its icon through the single icon column — container `p-2` + the Button base's uniform 1px border + button `px-2` (17px from the aside edge) in BOTH states — and the collapsed rail width (`w-12`, 48px) keeps that column centered. Never `justify-center`, never per-state padding swaps. (Supersedes the C-SIDEBAR-4 arithmetic — `border-s-2` 18px / `w-13` — which the C-SIDEBAR-9 card-border change removed; the INVARIANT — identical icon x-position in both states, centered collapsed column — is unchanged and still pinned.)
+Rationale: Per-state padding/wrapper differences made icons jump on every toggle; the anchored-column math must stay symmetric across states (re-verified 2026-08-24 via a11y bounds).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-SIDEBAR-13
+Rule: Do NOT remount nav buttons when the sidebar toggles. The element carrying the label transition must persist across states, so every nav button renders through the SAME wrapper element type in both states: leaves are ALWAYS wrapped in `HotkeyTooltip` (expanded passes its `disabled` prop to suppress the tooltip content), and the Settings subtree ALWAYS renders inside ONE `Popover.Root` (parent button in a `Popover.Anchor`; only the CONTENT branch differs — portal flyout collapsed vs inline Collapsible expanded). Never branch the wrapper type (Fragment↔Tooltip, Popover↔Collapsible) — a wrapper-type change remounts the button and CSS transitions do not run on freshly mounted nodes, so labels snap instead of animating. Labels animate only via `navTextClasses` (opacity + inline-start translate + explicit blur endpoints + max-width), never `display:none` or conditional unmount.
+Rationale: The original per-state wrapper swap was the root cause of "labels disappear almost instantly" while section headings (stable tree) animated fine (diagnosed + fixed 2026-08-24).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-SIDEBAR-14
+Rule: Do NOT push the System group to the bottom with spacer elements, fixed heights, or large static gaps. The System/low-priority cluster is pinned to the sidebar's bottom edge via `mt-auto` (flex auto margin) on its `<section>`, inside the `min-h-full flex-col` nav — on short windows the auto margin collapses to 0 and the nav simply scrolls. Main + Power features stay at the top.
+Rationale: The importance hierarchy (frequent destinations top, system/info bottom) must come from the layout structure so it stays stable across window sizes and both sidebar states (2026-08-24).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-SIDEBAR-15
+Rule: Do NOT reintroduce separate About and Privacy pages/destinations. They are ONE combined destination: Page literal `aboutAndPrivacy`, route key `aboutAndPrivacy`, component `pages/AboutAndPrivacy.tsx` (default export `AboutAndPrivacyPage`), nav/i18n key `nav.aboutAndPrivacy` (display "About & Privacy"), icon `ShieldUserIcon` (shield + user = personal-data protection; never a warning/error-semantics glyph). The old `about`/`privacy` Page literals are removed from the union — do not restore them.
+Rationale: Two short, low-traffic informational pages read better as one "what the app is + how it treats your data" story; duplicate destinations after a merge are a navigation defect (merged 2026-08-24).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-SIDEBAR-16
+Rule: Do NOT make the collapsed-rail Settings flyout keyboard-hostile. The flyout child buttons render in NATURAL tab order (no `tabIndex={-1}` — the portal sits outside the nav's roving-tabindex scope, so Tab is the only keyboard path in), and the collapsed Settings trigger KEEPS the roving tab stop (`tabIndex=0`) even while a Settings sub-page is active — otherwise every rail button is -1 and Tab skips the entire sidebar.
+Rationale: Audit finding (2026-08-24): hard-coded `-1` flyout children + portal-outside-nav scope left the Settings sub-pages unreachable by keyboard from the collapsed rail (WCAG 2.1.1), and the active-child roving rule zeroed out the whole collapsed nav.
+Applies to: All agents, all modes, all sub-agents.
+```
+
 ---
 
 ## Category: Homepage Status Pill & Description Synchronization

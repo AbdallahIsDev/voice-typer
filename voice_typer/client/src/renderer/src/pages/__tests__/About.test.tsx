@@ -1,6 +1,7 @@
 /**
- * Tests for the About page (product identity) plus the moved-out
- * surfaces it used to host:
+ * Tests for the merged About & Privacy page (product identity +
+ * data-handling disclosure) plus the moved-out surfaces it used to
+ * host:
  *
  *   - formatBytes() / formatRelativeTime() — now exported from the
  *     DiagnosticsSettingsSection component (they moved there with the
@@ -9,10 +10,11 @@
  *     diagnostics, model-truth rows) — now lives in Settings →
  *     Privacy (support area), covered by mounting
  *     DiagnosticsSettingsSection directly.
- *   - The privacy disclosure — now lives on the Privacy page (its own
- *     sidebar destination), covered by mounting PrivacyPage.
- *   - About page product-identity smoke tests + the negative tests
- *     that Help / Cache Status / Updates are gone from About.
+ *   - The privacy disclosure — lives on the SAME page now (the About
+ *     and Privacy pages were merged into AboutAndPrivacy); covered by
+ *     the a11y-rewrite/About-privacy.test.tsx suite.
+ *   - Product-identity smoke tests + the negative tests that Help /
+ *     Cache Status / Updates are gone from the identity card.
  */
 import {
 	cleanup,
@@ -154,9 +156,9 @@ describe("formatRelativeTime", () => {
 	});
 });
 
-// ─── About page — product identity ─────────────────────────────────────
+// ─── About & Privacy page — product identity (merged) ────────────────
 
-describe("About page — product identity (IA split)", () => {
+describe("About & Privacy page — product identity (merged)", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockCall.mockImplementation(() => Promise.resolve({}));
@@ -167,12 +169,14 @@ describe("About page — product identity (IA split)", () => {
 	});
 
 	it("renders the product identity: name, tagline, description, capabilities", async () => {
-		const { default: AboutPage } = await import("@/pages/About");
+		const { default: AboutPage } = await import("@/pages/AboutAndPrivacy");
 		render(<AboutPage />);
 
 		// Page heading — the About title (i18n key about.title).
 		await waitFor(() => {
-			expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
+			expect(
+				screen.getByRole("heading", { name: "About & Privacy" }),
+			).toBeTruthy();
 		});
 
 		// Identity row: product tagline under the app name.
@@ -183,11 +187,13 @@ describe("About page — product identity (IA split)", () => {
 	});
 
 	it("renders the Version and Platforms rows", async () => {
-		const { default: AboutPage } = await import("@/pages/About");
+		const { default: AboutPage } = await import("@/pages/AboutAndPrivacy");
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
+			expect(
+				screen.getByRole("heading", { name: "About & Privacy" }),
+			).toBeTruthy();
 		});
 
 		// Version row (value is v{version} from package.json).
@@ -198,18 +204,20 @@ describe("About page — product identity (IA split)", () => {
 		expect(screen.getByText("Windows, macOS, and Linux")).toBeTruthy();
 	});
 
-	it("does NOT render Diagnostics, Privacy, or Resources sections (moved out in the IA split)", async () => {
-		const { default: AboutPage } = await import("@/pages/About");
+	it("does NOT render Diagnostics or Resources sections (moved out in the IA split)", async () => {
+		const { default: AboutPage } = await import("@/pages/AboutAndPrivacy");
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
+			expect(
+				screen.getByRole("heading", { name: "About & Privacy" }),
+			).toBeTruthy();
 		});
 
 		// The diagnostics table moved to Settings → Privacy (support
-		// area), the privacy disclosure to the Privacy page, and the
-		// resources grid to Settings → Privacy. About is product
-		// identity only.
+		// area) and the resources grid to Settings → Privacy. The
+		// privacy disclosure lives on this page (merged), but as plain
+		// topic rows — no separate "Privacy" section heading exists.
 		expect(screen.queryByRole("heading", { name: "Diagnostics" })).toBeNull();
 		expect(screen.queryByRole("heading", { name: "Privacy" })).toBeNull();
 		expect(
@@ -218,11 +226,13 @@ describe("About page — product identity (IA split)", () => {
 	});
 
 	it("does NOT render the Help section (removed — duplicates `?` overlay)", async () => {
-		const { default: AboutPage } = await import("@/pages/About");
+		const { default: AboutPage } = await import("@/pages/AboutAndPrivacy");
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
+			expect(
+				screen.getByRole("heading", { name: "About & Privacy" }),
+			).toBeTruthy();
 		});
 
 		// The Help section previously rendered a "Start / Stop dictation"
@@ -234,11 +244,13 @@ describe("About page — product identity (IA split)", () => {
 	});
 
 	it("does NOT render the Cache Status section (removed — belongs on a diagnostics surface)", async () => {
-		const { default: AboutPage } = await import("@/pages/About");
+		const { default: AboutPage } = await import("@/pages/AboutAndPrivacy");
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
+			expect(
+				screen.getByRole("heading", { name: "About & Privacy" }),
+			).toBeTruthy();
 		});
 
 		// The Cache Status card previously had a "Run Prewarm Now"
@@ -249,11 +261,13 @@ describe("About page — product identity (IA split)", () => {
 	});
 
 	it("renders the runtime-pack row with a manual Check for Updates control", async () => {
-		const { default: AboutPage } = await import("@/pages/About");
+		const { default: AboutPage } = await import("@/pages/AboutAndPrivacy");
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
+			expect(
+				screen.getByRole("heading", { name: "About & Privacy" }),
+			).toBeTruthy();
 		});
 
 		// The Updates section was removed in the IA split, then

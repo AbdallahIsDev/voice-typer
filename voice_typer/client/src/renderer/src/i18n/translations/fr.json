@@ -28,8 +28,7 @@
 		"models": "Modèles",
 		"microphone": "Microphone",
 		"settings": "Paramètres",
-		"about": "À propos",
-		"privacy": "Confidentialité",
+		"aboutAndPrivacy": "À propos et confidentialité",
 		"group": {
 			"power": "Fonctionnalités avancées",
 			"system": "Système",
@@ -1331,6 +1330,10 @@
 		"avgCharsLabel": "Ø caractères / dictée",
 		"longestLabel": "Séance la plus longue"
 	},
+	"aboutAndPrivacy": {
+		"title": "À propos et confidentialité",
+		"description": "Ce qu'est {appName} et comment vos données audio sont traitées."
+	},
 	"about": {
 		"title": "À propos",
 		"productTagline": "Dictée vocale pour ordinateur",
@@ -1363,8 +1366,6 @@
 		"loadedVia": "Chargé via",
 		"hotkey": "Raccourci clavier",
 		"microphone": "Micro",
-		"privacyTitle": "Confidentialité",
-		"privacyDescription": "Comment votre audio et vos données sont traités.",
 		"audioProcessingTitle": "Traitement audio",
 		"audioProcessingDesc": "Lorsque vous utilisez la reconnaissance vocale locale, {appName} traite l'audio sur votre appareil. Aucun audio ne quitte votre machine sauf si vous configurez explicitement un fournisseur de reconnaissance vocale cloud (OpenAI/Groq/Deepgram).",
 		"modelWeightsTitle": "Poids du modèle",

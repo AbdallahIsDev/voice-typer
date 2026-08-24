@@ -5,7 +5,7 @@
  *  - Icon anchoring: every top-level nav button (leaves AND the
  *    Settings parent) starts its icon at the same x-position in both
  *    states (single `px-2` icon column, never `justify-center`) and
- *    the aside rail width (w-13) keeps that column centered when
+ *    the aside rail width (w-12, 48px) keeps that column centered when
  *    collapsed — icons never jump horizontally on toggle.
  *  - Text transition: label spans use the shared animated visibility
  *    transition (max-width + opacity + translate + filter with
@@ -18,7 +18,7 @@
  *  - Collapsed usability: every rail icon keeps a non-empty accessible
  *    name (including the Settings flyout trigger) and the Settings
  *    trigger shows the same right-side hotkey tooltip as the leaves.
- *  - Stability: rapid collapse/expand toggling keeps all 10 nav
+ *  - Stability: rapid collapse/expand toggling keeps all 9 nav
  *    buttons mounted with classes flipping cleanly.
  */
 import { cleanup, render, screen, within } from "@testing-library/react";
@@ -76,8 +76,7 @@ const NAV_LABELS = [
 	"Models",
 	"Microphone",
 	"Settings",
-	"About",
-	"Privacy",
+	"About & Privacy",
 ];
 
 describe("Sidebar — collapse rail geometry & transition model", () => {
@@ -90,20 +89,20 @@ describe("Sidebar — collapse rail geometry & transition model", () => {
 		onNavigate: vi.fn(),
 	};
 
-	it("aside rail width: w-55 expanded, w-13 collapsed (anchored icon column stays centered)", () => {
+	it("aside rail width: w-55 expanded, w-12 collapsed (anchored icon column stays centered)", () => {
 		const { rerender, container } = renderWithProviders(
 			<Sidebar {...baseProps} />,
 		);
 		const aside = () => container.querySelector("aside");
 		expect(aside()?.className).toContain("w-55");
-		expect(aside()?.className).not.toContain("w-13");
+		expect(aside()?.className).not.toContain("w-12");
 
 		rerender(
 			<TooltipProvider delayDuration={200} skipDelayDuration={500}>
 				<Sidebar {...baseProps} collapsed />
 			</TooltipProvider>,
 		);
-		expect(aside()?.className).toContain("w-13");
+		expect(aside()?.className).toContain("w-12");
 		expect(aside()?.className).not.toContain("w-55");
 	});
 
@@ -115,11 +114,11 @@ describe("Sidebar — collapse rail geometry & transition model", () => {
 					"aside button[data-nav-item='true']",
 				),
 			);
-			expect(buttons.length).toBe(10);
+			expect(buttons.length).toBe(9);
 			for (const btn of buttons) {
 				// The single anchored icon column: identical start padding
-				// in both states (container p-2 + border-s-2 + px-2 = 18px
-				// from the aside edge).
+				// in both states (container p-2 + button px-2 = 16px from
+				// the aside edge).
 				expect(btn.className).toContain("px-2");
 				// The old collapsed Settings trigger centered its icon
 				// (justify-center) — the one button whose icon jumped on
@@ -148,8 +147,8 @@ describe("Sidebar — collapse rail geometry & transition model", () => {
 			).filter((s) =>
 				s.className.includes("transition-[max-width,opacity,translate,filter]"),
 			);
-		// 10 nav items — every leaf + the Settings parent.
-		expect(labelSpans().length).toBe(10);
+		// 9 nav items — every leaf + the Settings parent.
+		expect(labelSpans().length).toBe(9);
 		for (const span of labelSpans()) {
 			expect(span.className).toContain("opacity-100");
 			expect(span.className).toContain("blur-[0px]");
@@ -253,7 +252,7 @@ describe("Sidebar — collapse rail geometry & transition model", () => {
 		expect(kbdTexts).toContain(",");
 	});
 
-	it("rapid collapse/expand toggling keeps all 10 nav buttons mounted with classes flipping cleanly", () => {
+	it("rapid collapse/expand toggling keeps all 9 nav buttons mounted with classes flipping cleanly", () => {
 		const { rerender } = renderWithProviders(<Sidebar {...baseProps} />);
 		const countButtons = () =>
 			document.querySelectorAll<HTMLButtonElement>(
@@ -265,13 +264,13 @@ describe("Sidebar — collapse rail geometry & transition model", () => {
 					<Sidebar {...baseProps} collapsed />
 				</TooltipProvider>,
 			);
-			expect(countButtons()).toBe(10);
+			expect(countButtons()).toBe(9);
 			rerender(
 				<TooltipProvider delayDuration={200} skipDelayDuration={500}>
 					<Sidebar {...baseProps} />
 				</TooltipProvider>,
 			);
-			expect(countButtons()).toBe(10);
+			expect(countButtons()).toBe(9);
 		}
 		// After the toggle storm the expanded tree is intact: labels,
 		// active state, and the Settings submenu contract all survive.

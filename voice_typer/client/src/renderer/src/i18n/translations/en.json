@@ -49,8 +49,7 @@
 		"models": "Models",
 		"microphone": "Microphone",
 		"settings": "Settings",
-		"about": "About",
-		"privacy": "Privacy",
+		"aboutAndPrivacy": "About & Privacy",
 		"group": {
 			"main": "Main",
 			"power": "Power features",
@@ -418,6 +417,10 @@
 		"avgCharsLabel": "Avg chars / dictation",
 		"longestLabel": "Longest session"
 	},
+	"aboutAndPrivacy": {
+		"title": "About & Privacy",
+		"description": "What {appName} is, and how your audio and data are handled."
+	},
 	"about": {
 		"title": "About",
 		"productTagline": "Desktop voice-to-text",
@@ -450,8 +453,6 @@
 		"loadedVia": "Loaded Via",
 		"hotkey": "Hotkey",
 		"microphone": "Microphone",
-		"privacyTitle": "Privacy",
-		"privacyDescription": "How your audio and data are handled.",
 		"audioProcessingTitle": "Audio processing",
 		"audioProcessingDesc": "When using local speech recognition, {appName} processes audio on your device. No audio leaves your machine unless you explicitly configure a cloud speech recognition provider (OpenAI/Groq/Deepgram).",
 		"modelWeightsTitle": "Model weights",

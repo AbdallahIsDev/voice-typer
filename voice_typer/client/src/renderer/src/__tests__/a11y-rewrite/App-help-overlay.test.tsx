@@ -141,11 +141,8 @@ vi.mock("@/pages/Models", () => ({
 vi.mock("@/pages/Microphone", () => ({
 	default: () => <div data-testid="microphone-page">Microphone</div>,
 }));
-vi.mock("@/pages/About", () => ({
-	default: () => <div data-testid="about-page">About</div>,
-}));
-vi.mock("@/pages/Privacy", () => ({
-	default: () => <div data-testid="privacy-page">Privacy</div>,
+vi.mock("@/pages/AboutAndPrivacy", () => ({
+	default: () => <div data-testid="aboutAndPrivacy-page">About & Privacy</div>,
 }));
 vi.mock("@/pages/Dashboard", () => ({
 	default: () => <div data-testid="dashboard-page">Analytics</div>,

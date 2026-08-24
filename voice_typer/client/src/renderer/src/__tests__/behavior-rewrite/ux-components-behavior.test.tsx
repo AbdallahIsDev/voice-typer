@@ -908,7 +908,7 @@ describe("useNavigation — rewrite of localStorage persistence tests", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Sidebar — About nav button exists
+// Sidebar — About & Privacy nav button exists
 // ────────────────────────────────────────────────────────────────────
 
 describe("Sidebar — rewrite of About-nav tests", () => {
@@ -916,24 +916,24 @@ describe("Sidebar — rewrite of About-nav tests", () => {
 		cleanup();
 	});
 
-	it("renders an 'About' nav button that fires onNavigate('about')", async () => {
+	it("renders an 'About & Privacy' nav button that fires onNavigate('aboutAndPrivacy')", async () => {
 		// Replaces test_sidebar_has_about_nav.
 		//
-		// Python invariant: `"'about'" in src or '"about"' in src`.
 		// Behavioral: the Sidebar renders a button whose text is
-		// t("nav.about") → "About", and clicking it calls onNavigate
-		// with the literal "about".
+		// t("nav.aboutAndPrivacy") → "About & Privacy", and clicking it
+		// calls onNavigate with the literal "aboutAndPrivacy" (the merged
+		// About + Privacy page).
 		const { Sidebar } = await import("@/components/layout/Sidebar");
 		const onNavigate: (page: Page) => void = vi.fn();
 		// Sidebar mounts Radix Tooltips (HotkeyTooltip) → needs the
 		// TooltipProvider wrapper (same as the app shell).
 		renderWithProviders(<Sidebar currentPage="home" onNavigate={onNavigate} />);
 
-		const aboutBtn = screen.getByRole("button", { name: "About" });
+		const aboutBtn = screen.getByRole("button", { name: "About & Privacy" });
 		expect(aboutBtn).toBeTruthy();
 
 		fireEvent.click(aboutBtn);
-		expect(onNavigate).toHaveBeenCalledWith("about");
+		expect(onNavigate).toHaveBeenCalledWith("aboutAndPrivacy");
 	});
 });
 
@@ -1401,8 +1401,10 @@ async function registerAppPageStubs() {
 	vi.doMock("@/pages/Settings", () => ({
 		default: () => <div data-testid="settings-page">Settings</div>,
 	}));
-	vi.doMock("@/pages/About", () => ({
-		default: () => <div data-testid="about-page">About</div>,
+	vi.doMock("@/pages/AboutAndPrivacy", () => ({
+		default: () => (
+			<div data-testid="aboutAndPrivacy-page">About & Privacy</div>
+		),
 	}));
 }
 
@@ -1426,24 +1428,22 @@ describe("App routing + chrome — rewrite of routing + ErrorBoundary tests", ()
 		cleanup();
 	});
 
-	it("routes to the About page when currentPage is 'about'", async () => {
+	it("routes to the About & Privacy page when currentPage is 'aboutAndPrivacy'", async () => {
 		// Replaces test_about_page_exported + test_app_routes_to_about.
 		//
-		// Python invariants: About.tsx has `export default`, App.tsx
-		// has `case 'about'` AND `AboutPage`.
-		// Behavioral: set currentPage to "about" via the navigation
-		// mock, assert the About page test-id mounts.  (The Sidebar
-		// is stubbed in the App tests so we can't click a real nav
-		// button — instead we drive the mock directly, which is what
-		// the Sidebar would do internally.)
+		// Behavioral: set currentPage to "aboutAndPrivacy" via the
+		// navigation mock, assert the merged About & Privacy page
+		// test-id mounts.  (The Sidebar is stubbed in the App tests so
+		// we can't click a real nav button — instead we drive the mock
+		// directly, which is what the Sidebar would do internally.)
 		await registerAppPageStubs();
-		mockNavState.page = "about";
+		mockNavState.page = "aboutAndPrivacy";
 		vi.resetModules();
 		const { default: App } = await import("@/App");
 		render(<App />);
 
 		await waitFor(() => {
-			expect(screen.getByTestId("about-page")).toBeTruthy();
+			expect(screen.getByTestId("aboutAndPrivacy-page")).toBeTruthy();
 		});
 	});
 

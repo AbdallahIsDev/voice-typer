@@ -1,11 +1,14 @@
 /**
- * NavSubmenu behavior tests — covers the new nested-Settings sidebar
- * submenu (ADR-0021). Asserts:
+ * NavSubmenu behavior tests — covers the nested Settings sidebar
+ * submenu (expansion synchronized with navigation). Asserts:
  *   - Settings parent renders + 4 children render when expanded
  *   - Active child carries aria-current="page"
  *   - Settings parent carries aria-expanded="true" when expanded
  *   - Clicking a child calls onNavigate with the child's Page literal
  *   - Collapsed sidebar: Popover flyout shows the 4 children
+ *   - ONE persistent arrow glyph (ArrowRight01Icon) that rotates —
+ *     never swaps icons; wrapper pinned to the row edge via ms-auto
+ *   - CollapsibleContent animates reveal AND hide inside overflow-hidden
  */
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -27,22 +30,15 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-vi.mock("@hugeicons/core-free-icons", () => ({
-	Settings03Icon: { name: "Settings03Icon" },
-	InformationCircleIcon: { name: "InformationCircleIcon" },
-	Shield01Icon: { name: "Shield01Icon" },
-	Home04Icon: { name: "Home04Icon" },
-	HistoryIcon: { name: "HistoryIcon" },
-	Analytics01Icon: { name: "Analytics01Icon" },
-	File02Icon: { name: "File02Icon" },
-	BookOpen02Icon: { name: "BookOpen02Icon" },
-	AiBrain03Icon: { name: "AiBrain03Icon" },
-	Mic02Icon: { name: "Mic02Icon" },
-	SlidersHorizontalIcon: { name: "SlidersHorizontalIcon" },
-	PaintBoardIcon: { name: "PaintBoardIcon" },
-	ArrowDown01Icon: { name: "ArrowDown01Icon" },
-	ArrowRight01Icon: { name: "ArrowRight01Icon" },
-}));
+// Canonical shared icon mock — a hand-rolled stub list here drifted out
+// of sync with Sidebar.tsx's imports and crashed this suite at module
+// load ("No 'ShieldUserIcon' export is defined on the mock").
+vi.mock("@hugeicons/core-free-icons", async () => {
+	const { createHugeiconsMock } = await import(
+		"@/__tests__/helpers/hugeicons-mock"
+	);
+	return createHugeiconsMock();
+});
 
 vi.mock("@/branding", () => ({ APP_NAME: "TestApp" }));
 
@@ -71,14 +67,6 @@ vi.mock("@/components/hotkey/shortcuts", () => ({
 	},
 }));
 
-vi.mock("@/components/layout/Logo", () => ({
-	Logo: () => <div data-testid="logo" />,
-}));
-
-vi.mock("@/components/layout/ThemeSwitch", () => ({
-	ThemeSwitch: () => <div data-testid="theme-switch" />,
-}));
-
 vi.mock("@/components/ui/button", () => ({
 	Button: ({
 		children,
@@ -103,10 +91,9 @@ const baseProps = {
 
 afterEach(() => {
 	cleanup();
-	localStorage.clear();
 });
 
-describe("NavSubmenu — nested Settings sidebar submenu (ADR-0021)", () => {
+describe("NavSubmenu — nested Settings sidebar submenu (navigation-synchronized expansion)", () => {
 	it("renders the 4 Settings children when the parent is expanded", () => {
 		render(
 			wrap(
@@ -158,7 +145,7 @@ describe("NavSubmenu — nested Settings sidebar submenu (ADR-0021)", () => {
 		expect(parent).toBeTruthy();
 	});
 
-	it("collapses (hides children) when currentPage leaves Settings", () => {
+	it("collapses (hides children) when currentPage leaves Settings, and re-opens when a Settings sub-page becomes active again", () => {
 		const { rerender } = render(
 			wrap(
 				<Sidebar
@@ -179,6 +166,21 @@ describe("NavSubmenu — nested Settings sidebar submenu (ADR-0021)", () => {
 		// unmounts CollapsibleContent when closed).
 		expect(screen.queryByText("nav.settingsGeneral")).toBeNull();
 		expect(screen.queryByText("nav.settingsPrivacy")).toBeNull();
+
+		// Navigate back into Settings: the submenu re-opens automatically
+		// (expansion is synchronized with navigation — no persisted
+		// preference to fall out of sync).
+		rerender(
+			wrap(
+				<Sidebar
+					{...baseProps}
+					currentPage="settingsGeneral"
+					collapsed={false}
+				/>,
+			),
+		);
+		expect(screen.getByText("nav.settingsGeneral")).toBeTruthy();
+		expect(screen.getByText("nav.settingsPrivacy")).toBeTruthy();
 	});
 
 	it("clicking a child calls onNavigate with the child's Page literal", () => {
@@ -235,18 +237,16 @@ describe("NavSubmenu — nested Settings sidebar submenu (ADR-0021)", () => {
 	});
 });
 
-describe("NavSubmenu — fake-menu semantics removed + chevron affordance", () => {
+describe("NavSubmenu — disclosure semantics, arrow affordance, reveal animation", () => {
 	beforeEach(() => {
 		cleanup();
-		localStorage.clear();
 	});
 
 	afterEach(() => {
 		cleanup();
-		localStorage.clear();
 	});
 
-	it("renders NO role='menu' and NO aria-haspopup anywhere in the nav", () => {
+	it("expanded: renders NO role='menu' and NO aria-haspopup anywhere in the nav (inline disclosure, not a menu)", () => {
 		render(
 			wrap(
 				<Sidebar
@@ -265,23 +265,56 @@ describe("NavSubmenu — fake-menu semantics removed + chevron affordance", () =
 		expect(document.querySelector("button[aria-haspopup]")).toBeNull();
 	});
 
-	it("collapsed submenu: parent chevron points forward (ArrowRight01Icon with nav-directional-icon)", () => {
+	it("collapsed: the Settings flyout trigger carries aria-haspopup='dialog'", () => {
 		render(
-			wrap(<Sidebar {...baseProps} currentPage="home" collapsed={false} />),
+			wrap(<Sidebar {...baseProps} currentPage="home" collapsed={true} />),
 		);
-		const parent = findSettingsParent();
-		const chevron = parent?.querySelector('[data-name="ArrowRight01Icon"]');
-		expect(chevron).toBeTruthy();
-		// The closed chevron participates in RTL mirroring via the
-		// shared index.css rule.
-		expect(chevron?.getAttribute("class")).toContain("nav-directional-icon");
-		// No rotation/transition animation on the glyph — it swaps
-		// instantly between states.
-		expect(chevron?.getAttribute("class")).not.toContain("rotate");
-		expect(chevron?.getAttribute("class")).not.toContain("transition");
+		const trigger = findCollapsedSettingsTrigger();
+		expect(trigger?.getAttribute("aria-haspopup")).toBe("dialog");
+		// The collapsed rail has no inline chevron — the arrow glyph
+		// renders only when the sidebar is expanded.
+		expect(trigger?.querySelector('[data-name="ArrowRight01Icon"]')).toBeNull();
 	});
 
-	it("open submenu: parent chevron points down (ArrowDown01Icon, no mirroring class)", () => {
+	it("ONE persistent arrow glyph: ArrowRight01Icon in both states — rotated 90° when open, nav-directional-icon when closed", () => {
+		const getArrowClass = () => {
+			const arrow = document.querySelector(
+				'aside button[data-nav-item="true"] [data-name="ArrowRight01Icon"]',
+			);
+			return arrow?.getAttribute("class") ?? "";
+		};
+
+		// Closed submenu (home active): points forward, RTL-mirrored via
+		// the shared index.css rule.
+		const { rerender } = render(
+			wrap(<Sidebar {...baseProps} currentPage="home" collapsed={false} />),
+		);
+		let cls = getArrowClass();
+		expect(cls).toContain("nav-directional-icon");
+		expect(cls).not.toContain("rotate-90");
+		// Only `rotate` transitions so the RTL mirror flip stays instant
+		// while the rotation animates.
+		expect(cls).toContain("transition-[rotate]");
+
+		// Open submenu: the SAME glyph rotates 90° to point down — never
+		// an icon swap, never the mirroring class while rotated (a
+		// mirrored + rotated glyph would point back up).
+		rerender(
+			wrap(
+				<Sidebar
+					{...baseProps}
+					currentPage="settingsGeneral"
+					collapsed={false}
+				/>,
+			),
+		);
+		cls = getArrowClass();
+		expect(cls).toContain("rotate-90");
+		expect(cls).not.toContain("nav-directional-icon");
+		expect(cls).toContain("transition-[rotate]");
+	});
+
+	it("no ArrowDown01Icon anywhere in the nav (the direction is rotation, never an icon swap)", () => {
 		render(
 			wrap(
 				<Sidebar
@@ -291,18 +324,10 @@ describe("NavSubmenu — fake-menu semantics removed + chevron affordance", () =
 				/>,
 			),
 		);
-		const parent = findSettingsParent();
-		const chevron = parent?.querySelector('[data-name="ArrowDown01Icon"]');
-		expect(chevron).toBeTruthy();
-		// The open glyph is vertical/direction-neutral — no RTL flip.
-		expect(chevron?.getAttribute("class")).not.toContain(
-			"nav-directional-icon",
-		);
-		expect(chevron?.getAttribute("class")).not.toContain("rotate");
-		expect(chevron?.getAttribute("class")).not.toContain("transition");
+		expect(document.querySelector('[data-name="ArrowDown01Icon"]')).toBeNull();
 	});
 
-	it("chevron indicator sits in a ≥24px hit-area wrapper and is aria-hidden", () => {
+	it("arrow indicator sits in an aria-hidden size-6 wrapper pinned to the row's far-end edge (ms-auto)", () => {
 		render(
 			wrap(
 				<Sidebar
@@ -315,8 +340,35 @@ describe("NavSubmenu — fake-menu semantics removed + chevron affordance", () =
 		const parent = findSettingsParent();
 		const wrapper = parent?.querySelector("span[aria-hidden='true']");
 		expect(wrapper).toBeTruthy();
-		// size-6 = 24px square pointer target around the 16px glyph.
+		// size-6 = 24px square pointer target around the 16px glyph;
+		// ms-auto pins it to the button's end padding edge.
 		expect(wrapper?.className).toContain("size-6");
+		expect(wrapper?.className).toContain("ms-auto");
+	});
+
+	it("submenu content animates its reveal AND hide (collapsibleDown / collapsibleUp) inside an overflow-hidden wrapper", () => {
+		const getContent = () =>
+			document.querySelector<HTMLElement>("[class*='collapsibleDown']");
+		render(
+			wrap(
+				<Sidebar
+					{...baseProps}
+					currentPage="settingsGeneral"
+					collapsed={false}
+				/>,
+			),
+		);
+		const content = getContent();
+		expect(content).toBeTruthy();
+		// Height clips during the animation; Radix's Presence keeps the
+		// node mounted until the closing animation finishes.
+		expect(content?.className).toContain("overflow-hidden");
+		expect(content?.className).toContain(
+			"data-[state=open]:animate-[collapsibleDown_200ms_ease-out]",
+		);
+		expect(content?.className).toContain(
+			"data-[state=closed]:animate-[collapsibleUp_200ms_ease-out]",
+		);
 	});
 });
 
@@ -327,6 +379,18 @@ function findSettingsParent(): HTMLElement | null {
 		Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
 			(b) => b.textContent === "nav.settings",
 		) ?? null
+	);
+}
+
+/** Find the collapsed-rail Settings flyout trigger by its icon (the
+ *  rail renders icon-only buttons with no visible label text). */
+function findCollapsedSettingsTrigger(): HTMLElement | null {
+	return (
+		Array.from(
+			document.querySelectorAll<HTMLButtonElement>(
+				"aside button[data-nav-item='true']",
+			),
+		).find((b) => b.querySelector('[data-name="Settings03Icon"]')) ?? null
 	);
 }
 

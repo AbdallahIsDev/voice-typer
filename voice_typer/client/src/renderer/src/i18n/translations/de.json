@@ -49,8 +49,7 @@
 		"models": "Modelle",
 		"microphone": "Mikrofon",
 		"settings": "Einstellungen",
-		"about": "Über",
-		"privacy": "Datenschutz",
+		"aboutAndPrivacy": "Über & Datenschutz",
 		"group": {
 			"power": "Erweiterte Funktionen",
 			"system": "System",
@@ -411,6 +410,10 @@
 		"avgCharsLabel": "Ø Zeichen / Diktat",
 		"longestLabel": "Längste Sitzung"
 	},
+	"aboutAndPrivacy": {
+		"title": "Über & Datenschutz",
+		"description": "Was {appName} ist und wie mit Ihren Audio- und Daten umgegangen wird."
+	},
 	"about": {
 		"title": "Über",
 		"productTagline": "Sprache-zu-Text für den Desktop",
@@ -443,8 +446,6 @@
 		"loadedVia": "Geladen über",
 		"hotkey": "Tastenkombination",
 		"microphone": "Mikrofon",
-		"privacyTitle": "Datenschutz",
-		"privacyDescription": "Wie Ihre Audio- und Daten verarbeitet werden.",
 		"audioProcessingTitle": "Audioverarbeitung",
 		"audioProcessingDesc": "Wenn Sie lokale Spracherkennung verwenden, verarbeitet {appName} das Audio auf Ihrem Gerät. Es verlässt kein Audio Ihren Rechner, es sei denn, Sie konfigurieren explizit einen Cloud-Spracherkennungs-Anbieter (OpenAI/Groq/Deepgram).",
 		"modelWeightsTitle": "Modellgewichte",

@@ -11,12 +11,11 @@
  * pass even when the privacy section is conditionally hidden, when
  * the i18n keys are mistyped, or when the disclosure is rendered in
  * a non-user-visible way.  The vitest version below mounts the real
- * Privacy page and asserts each disclosure heading is rendered into
+ * page and asserts each disclosure heading is rendered into
  * the DOM as visible text.
  *
- * IA split: the privacy disclosure moved OUT of the About page (now
- * product identity) onto its own Privacy destination in the sidebar —
- * so this test mounts `@/pages/Privacy` rather than `@/pages/About`.
+ * IA merge: About (product identity) and Privacy (the disclosure)
+ * now share ONE page — this test mounts `@/pages/AboutAndPrivacy`.
  *
  * The corresponding Python test is skipped via `@pytest.mark.skip`
  * with a pointer back to this file.  It is NOT deleted.
@@ -54,7 +53,7 @@ vi.mock("sonner", () => ({
 	Toaster: () => null,
 }));
 
-import PrivacyPage from "@/pages/Privacy";
+import AboutAndPrivacyPage from "@/pages/AboutAndPrivacy";
 
 describe("Privacy disclosure — rewrite of test_about_page_has_privacy_section", () => {
 	beforeEach(() => {
@@ -85,7 +84,7 @@ describe("Privacy disclosure — rewrite of test_about_page_has_privacy_section"
 	});
 
 	it("renders the privacy disclosure section with all required headings", async () => {
-		render(<PrivacyPage />);
+		render(<AboutAndPrivacyPage />);
 
 		// The Python invariant: About.tsx (or en.json)
 		// contains the strings "Audio processing",
@@ -93,7 +92,7 @@ describe("Privacy disclosure — rewrite of test_about_page_has_privacy_section"
 		// "Voice biometrics", "BIPA".  Behavioral: each
 		// heading is rendered into the DOM as visible text.
 		//
-		// The Privacy page renders these via i18n keys
+		// The merged page renders these via i18n keys
 		// (about.audioProcessingTitle, etc.) whose en.json
 		// values are "Audio processing", "Model weights",
 		// "Cloud speech recognition", "Voice biometrics"
@@ -120,13 +119,15 @@ describe("Privacy disclosure — rewrite of test_about_page_has_privacy_section"
 		expect(bodyText).toMatch(/BIPA/);
 	});
 
-	it("renders the privacy disclosure heading itself", async () => {
-		render(<PrivacyPage />);
+	it("renders the merged page heading itself", async () => {
+		render(<AboutAndPrivacyPage />);
 
-		// The privacy page heading is rendered via the
-		// i18n key about.privacyTitle ("Privacy" in en.json).
+		// The page heading is rendered via the i18n key
+		// aboutAndPrivacy.title ("About & Privacy" in en.json).
 		await waitFor(() => {
-			expect(screen.getAllByText(/^Privacy$/).length).toBeGreaterThan(0);
+			expect(screen.getAllByText(/^About & Privacy$/).length).toBeGreaterThan(
+				0,
+			);
 		});
 	});
 });

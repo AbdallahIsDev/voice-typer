@@ -355,8 +355,7 @@ describe("Route switching lazy-loads secondary pages behind a Suspense fallback"
 	});
 
 	it.each([
-		["AboutPage", "@/pages/About"],
-		["PrivacyPage", "@/pages/Privacy"],
+		["AboutAndPrivacyPage", "@/pages/AboutAndPrivacy"],
 		["DashboardPage", "@/pages/Dashboard"],
 		["HistoryPage", "@/pages/History"],
 		["MicrophonePage", "@/pages/Microphone"],
@@ -398,12 +397,12 @@ describe("Route switching lazy-loads secondary pages behind a Suspense fallback"
 
 	it("does not statically import the secondary page modules (regression guard)", () => {
 		const src = readSrc(ROUTE_SRC_PATH);
-		// Before the fix, all 10 pages were statically imported. After
-		// the fix, only Home is static. The 9 secondary pages must
-		// NOT appear in a plain `import X from "@/pages/Y"` statement.
+		// Before the fix, all secondary pages were statically imported.
+		// After the fix, only Home is static. The remaining secondary
+		// pages must NOT appear in a plain `import X from "@/pages/Y"`
+		// statement.
 		const secondaryPages = [
-			["AboutPage", "@/pages/About"],
-			["PrivacyPage", "@/pages/Privacy"],
+			["AboutAndPrivacyPage", "@/pages/AboutAndPrivacy"],
 			["DashboardPage", "@/pages/Dashboard"],
 			["HistoryPage", "@/pages/History"],
 			["MicrophonePage", "@/pages/Microphone"],
