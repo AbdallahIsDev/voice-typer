@@ -217,8 +217,7 @@ def _win32_exclude_clipboard_from_monitoring() -> bool:
         fmt = user32.RegisterClipboardFormatW("ExcludeClipboardContentFromMonitorProcessing")
         if not fmt:
             _cb.log.debug(
-                "[CLIPBOARD] RegisterClipboardFormatW failed (err=%d) — "
-                "clipboard monitor exclusion disabled",
+                "[CLIPBOARD] RegisterClipboardFormatW failed (err=%d) — clipboard monitor exclusion disabled",
                 kernel32.GetLastError(),
             )
             return False
@@ -244,12 +243,10 @@ def _win32_exclude_clipboard_from_monitoring() -> bool:
         # Open the clipboard via the ``Win32Clipboard`` context manager
         # so ``CloseClipboard`` is guaranteed (and so test patches on
         # ``clip_mod.Win32Clipboard`` take effect — the existing test
-        # pattern in ``tests/test_clipboard_win32_coverage.py``).
+        # pattern in ``tests/clipboard/win32/``).
         with _cb.Win32Clipboard() as clip:
             if not clip._opened:
-                _cb.log.debug(
-                    "[CLIPBOARD] OpenClipboard failed — cannot set monitor-exclusion tag"
-                )
+                _cb.log.debug("[CLIPBOARD] OpenClipboard failed — cannot set monitor-exclusion tag")
                 # We still own the HGLOBAL; free it.
                 kernel32.GlobalFree(h_global)
                 return False
@@ -573,7 +570,7 @@ def _send_shift_insert_win32(
                 release_events = (INPUT * 2)(
                     INPUT(
                         INPUT.KEYBOARD,
-InputUnion(
+                        InputUnion(
                             ki=KEYBDINPUT(
                                 wVk=vk_insert,
                                 wScan=0,

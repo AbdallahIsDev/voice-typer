@@ -1,0 +1,26 @@
+# Recorded 2026-08-24 (audit-round follow-ups, E15).
+#
+# Deletions replaced by split packages (exact test-count parity):
+D tests/test_clipboard_win32_coverage.py -> tests/clipboard/win32/{core,copy_paste,focus_detection,send_ctrl_v,test_win32_target_safety}.py (104 tests)
+D tests/test_config.py -> tests/config/{test_config_load_save,test_config_validation,test_config_schema_migration}.py (115 tests)
+
+R tests/regressions/ (pure git renames, content byte-identical):
+R tests/regressions/audio_test.py -> tests/regressions/test_audio.py
+R tests/regressions/cli_exit_codes_test.py -> tests/regressions/test_cli_exit_codes.py
+R tests/regressions/concurrency_rms_test.py -> tests/regressions/test_concurrency_rms.py
+R tests/regressions/concurrency_test.py -> tests/regressions/test_concurrency.py
+R tests/regressions/coverage_gates_test.py -> tests/regressions/test_coverage_gates.py
+R tests/regressions/crash_recovery_test.py -> tests/regressions/test_crash_recovery.py
+R tests/regressions/electron_test.py -> tests/regressions/test_electron.py
+R tests/regressions/gpu_memory_release_test.py -> tests/regressions/test_gpu_memory_release.py
+R tests/regressions/i18n_test.py -> tests/regressions/test_i18n.py
+R tests/regressions/ipc_test.py -> tests/regressions/test_ipc.py
+R tests/regressions/model_integrity_test.py -> tests/regressions/test_model_integrity.py
+R tests/regressions/offline_mode_test.py -> tests/regressions/test_offline_mode.py
+R tests/regressions/parakeet_merge_test.py -> tests/regressions/test_parakeet_merge.py
+R tests/regressions/platform_misc_test.py -> tests/regressions/test_platform_misc.py
+R tests/regressions/platform_win32_test.py -> tests/regressions/test_platform_win32.py
+R tests/regressions/security_test.py -> tests/regressions/test_security.py
+R tests/regressions/tcp_live_test.py -> tests/regressions/test_tcp_live.py
+R tests/regressions/text_cleanup_test.py -> tests/regressions/test_text_cleanup.py
+R tests/regressions/tray_test.py -> tests/regressions/test_tray.py

@@ -120,8 +120,10 @@ def test_gp92_capabilities_row_lists_accurate_perms():
         "core:window:allow-hide",
         "core:window:allow-set-focus",
         "core:window:allow-close",
+        "core:window:allow-minimize",
         "core:window:allow-start-dragging",
         "core:window:allow-set-position",
+        "core:window:allow-toggle-maximize",
         "shell:allow-spawn",
         "shell:allow-kill",
         "notification:allow-notify",
@@ -268,17 +270,17 @@ def test_gp94_main_rs_line_count_is_349():
     C-ARCH-1 (~138 non-comment code lines). Doc + test pin updated in
     lockstep.
 
-    Updated 2026-08-23: main.rs grew from 333 → 349 lines — durable
+    Updated 2026-08-24: main.rs grew from 349 → 378 lines — durable
     bubble-position persistence wiring (WindowEvent::Moved branch for
     the bubble label + generation-debounced persist schedule). Bodies
     live in ``commands/bubble/persisted_position.rs``. Doc + test pin
     updated in lockstep.
     """
     doc = _read(ARCH_DOC)
-    assert "349 lines" in doc, "Doc must claim '349 lines' for main.rs."
+    assert "378 lines" in doc, "Doc must claim '378 lines' for main.rs."
     actual = sum(1 for _ in _read(MAIN_RS).splitlines())
-    assert actual == 349, (
-        f"src-tauri/src/main.rs must be 349 lines (actual: {actual}). Update the doc + this test together."
+    assert actual == 378, (
+        f"src-tauri/src/main.rs must be 378 lines (actual: {actual}). Update the doc + this test together."
     )
     # Stale counts must NOT be in the doc.
     assert "264 lines" not in doc, "Stale '264 lines' must be removed from doc."
@@ -286,6 +288,7 @@ def test_gp94_main_rs_line_count_is_349():
     assert "288 lines" not in doc, "Stale '288 lines' must be removed from doc."
     assert "326 lines" not in doc, "Stale '326 lines' must be removed from doc."
     assert "333 lines" not in doc, "Stale '333 lines' must be removed from doc."
+    assert "349 lines" not in doc, "Stale '349 lines' must be removed from doc."
     assert "337 lines" not in doc, "Stale '337 lines' must be removed from doc."
 
 

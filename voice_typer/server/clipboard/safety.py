@@ -109,9 +109,7 @@ def _is_safe_paste_target_impl() -> bool:
                 # paste; the helper itself emits the WARNING + tray
                 # toast on the first detection per session.
                 if _cb._is_secure_input_enabled():
-                    _cb.log.info(
-                        "[CLIPBOARD] Paste blocked — macOS Secure Input is active"
-                    )
+                    _cb.log.info("[CLIPBOARD] Paste blocked — macOS Secure Input is active")
                     return False
             elif _cb.is_linux():  # noqa: SIM102
                 if _cb._is_password_field_linux():
@@ -148,7 +146,7 @@ def _is_safe_paste_target_impl() -> bool:
         # ``_CRED_DIALOG_CLASSES`` (in clipboard_target_safety.py)
         # are deliberately kept as two separate sets for now —
         # unifying them would require updating
-        # ``tests/test_clipboard_win32_coverage.py`` (not owned by
+        # ``tests/clipboard/win32/`` (not owned by
         # this agent) to reflect the new  guidance that
         # ``#32770`` should NOT be blocked. The unification is
         # tracked as a follow-up; for now this matches the
