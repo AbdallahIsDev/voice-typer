@@ -151,7 +151,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# REF-3: extraction — _setup_logging moved to voice_typer.server.logging_setup.
+# extraction — _setup_logging moved to voice_typer.server.logging_setup.
 # Re-exported here so callers (voice_typer.server.ipc_server.main,
 # voice_typer.server.prewarm.run) and tests that monkeypatch
 # voice_typer.server.app._setup_logging keep working unchanged.
@@ -161,7 +161,7 @@ log = logging.getLogger(__name__)
 # logging_setup.py now but the source-string assertion in
 # tests/regressions/platform_misc_test.py::test_container_detect_called_in_startup
 # greps app.py source for the symbol name — kept here as a comment.  # ruff: noqa: F401
-# REF-3: extraction — _validate_env_vars moved to voice_typer.server.env_validation.
+# extraction — _validate_env_vars moved to voice_typer.server.env_validation.
 # Re-exported here so tests doing `from voice_typer.server.app import _validate_env_vars`
 # keep working (test_plat_fixes.py / regressions/platform_misc_test.py).
 # SEC-audit-011: _validate_env_vars calls _validate_systemroot from
@@ -1693,12 +1693,29 @@ class VoiceTyperApp:
         """#2 delegate to RecordingController.start()."""
         self.recording.start()
 
+    # One-shot latch for audio-quality chunk delegation loss. The audio
+    # pipeline delivers chunks at ~94 Hz, so when ``audio_quality`` is
+    # None every chunk would otherwise re-log the WARNING (~94 lines per
+    # second of recording). Warn ONCE per delegate-loss episode: the
+    # latch resets on the first successful delegation, so a recovered
+    # delegate re-arms the warning for any future loss episode. Class
+    # attribute default keeps ``__new__``-constructed instances working.
+    _audio_quality_delegate_warned = False
+
     def _on_audio_quality_chunk(self, rms: float, peak: float) -> None:
         """Phase 7: delegate to AudioQualityController."""
         delegate = self.audio_quality
         if delegate is None:
-            log.warning("[APP] audio_quality controller unavailable — lazy-init failed earlier; skipping chunk")
+            if not self._audio_quality_delegate_warned:
+                log.warning("[APP] audio_quality controller unavailable — lazy-init failed earlier; skipping chunk")
+                self._audio_quality_delegate_warned = True
+            else:
+                log.debug("[APP] audio_quality controller unavailable — skipping chunk")
             return None
+        # Delegate is back: reset the latch so the NEXT loss episode
+        # warns again (only write when latched — this runs at ~94 Hz).
+        if self._audio_quality_delegate_warned:
+            self._audio_quality_delegate_warned = False
         return delegate._on_audio_quality_chunk(rms, peak)
 
     def _rebuild_audio_processor(self, force_sr: int | None = None) -> None:
@@ -2047,7 +2064,7 @@ class VoiceTyperApp:
         return self.shutdown._win32_console_handler(ctrl_type)
 
 
-# REF-3: extraction — single-instance enforcement + backend PID file
+# extraction — single-instance enforcement + backend PID file
 # helpers moved to voice_typer.server.single_instance. Re-exported here so
 # tests doing `from voice_typer.server.app import _ensure_single_instance` /
 # `_write_backend_pid_file` / `_clear_backend_pid_file` / `_is_pid_alive` /
@@ -2118,7 +2135,7 @@ def main() -> None:
         sys.exit(1)
 
 
-# REF-3: extraction — Windows editor-launch helpers moved to
+# extraction — Windows editor-launch helpers moved to
 # voice_typer.server.platform_launch. Re-exported here so callers
 # (VoiceTyperApp._open_config_file) and tests that monkeypatch
 # voice_typer.server.app._windows_open_with_default_app /
