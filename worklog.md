@@ -1099,3 +1099,27 @@ Six-track review of the full working tree (performance/business-logic/security/d
 5. SUGGESTION — `getSavedBubblePosition` exported without production callers. Resolved as test-observability export: contract documented at the export site + stale windows/index.ts comment corrected (removal would churn 3 test files for zero product gain).
 
 Validation after fix round: Python **13,535 passed / 0 failed**; Vitest **3,418 passed / 0 failed**; typecheck exit 0; cargo check Finished + persisted_position 5/5; ruff clean.
+
+## Window-control caption glyphs replaced with exact native outlines (2026-08-24)
+
+- User report: custom title-bar window buttons look blurry / off-white and the
+  close X does not match the native Windows icon.
+- Root cause (verified in TitleBar.tsx): hand-drawn stroked SVGs — minimize bar
+  rect at y=4.5 straddles a device-pixel boundary (two ~50%-alpha rows at DPR 1),
+  maximize/restore used sub-pixel 0.5 strokes, close X was full-box stroked
+  lines with geometry unlike Microsoft's glyph.
+- Research: opencode reserves 138px for NATIVE Windows caption buttons (no custom
+  SVGs). Electron exposes native overlay via `titleBarStyle: hidden` +
+  `titleBarOverlay` (WCO); Tauri v2 has `titleBarStyle: Overlay`. Alternative:
+  render the exact glyphs Windows itself uses — Segoe Fluent Icons Chrome*
+  codepoints (E8BB/E921/E922/E923, 10px em).
+- Fix chosen: extracted the TRUE filled outlines from C:\Windows\Fonts\SegoeIcons.ttf
+  (fonttools) via new scripts/gen_caption_glyph_paths.py and embedded them as
+  filled <path> data in TitleBar.tsx (`CaptionGlyph`). No stroke anywhere →
+  pure currentColor (#fff in dark mode), pixel-identical geometry to native.
+- Tests updated (TitleBar.test.tsx): stroke-weight pins replaced with
+  filled-native-outline assertions; all layout suites (79) + a11y suite green;
+  tsc -p tsconfig.web.json exit 0; prettier clean.
+- Alternative NOT taken here (noted for future): switching Windows to OS-drawn
+  overlay controls (Electron WCO / Tauri Overlay) would make Windows draw the
+  buttons itself; bigger cross-runtime change to fragile window-creation code.

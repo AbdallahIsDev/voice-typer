@@ -21,15 +21,20 @@
     "windows": [
       {
         "title": "Voice Typer",
-        "width": 900,
+        "width": 1000,
         "height": 700,
-        "minWidth": 720,
-        "minHeight": 540,
+        "minWidth": 850,
+        "minHeight": 550,
         "resizable": true,
         "fullscreen": false,
         "transparent": false,
         "decorations": true,
+        "center": true,
+        "hiddenTitle": true,
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": { "x": 12, "y": 10 },
         "visible": true,
+        "create": false,
         "label": "main"
       },
       {

@@ -182,6 +182,35 @@ fn main() {
             renderer_log_error,
         ])
         .setup(|app| {
+            // Custom-title-bar parity with Electron's main window (see
+            // `main-window.ts` for the Electron side). The window is NOT
+            // auto-created — `tauri.conf.json` declares it with
+            // `"create": false` and it is built here from that config so
+            // the FRAME can be platform-conditional:
+            //   - macOS: keep native decorations + the traffic lights
+            //     (`titleBarStyle: Overlay` + `trafficLightPosition` from
+            //     config) — Electron's `hiddenInset` equivalent. The
+            //     renderer omits its custom window buttons on macOS and
+            //     reserves the traffic-light gutter.
+            //   - Windows/Linux: fully frameless (`decorations: false`) —
+            //     the renderer draws the custom title bar + window
+            //     controls, mirroring Electron's `frame: false`.
+            let main_window_config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|w| w.label == "main")
+                .unwrap_or_else(|| panic!("[SETUP] main window missing from tauri.conf.json"));
+            let main_window_builder =
+                tauri::WebviewWindowBuilder::from_config(app, main_window_config)
+                    .expect("[SETUP] main window config is valid");
+            #[cfg(not(target_os = "macos"))]
+            let main_window_builder = main_window_builder.decorations(false);
+            main_window_builder
+                .build()
+                .expect("[SETUP] main window build failed");
+
             let app_handle = app.handle().clone();
             //log only the basename — the absolute path can
             // contain the user's home directory / username (PII leak in
