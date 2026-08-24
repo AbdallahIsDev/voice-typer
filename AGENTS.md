@@ -682,6 +682,20 @@ Rationale: Verbose "Open this help overlay" was shortened to the concise "Help O
 Applies to: All agents, all modes, all sub-agents.
 ```
 
+```
+C-UI-7
+Rule: Do NOT re-pin the scrollable help/cheat-sheet modal header. The HelpOverlay DialogContent (`components/help/HelpOverlay.tsx`) MUST stay `overflow-hidden` on a `max-h-[85vh]` panel with a SINGLE inner scroll wrapper (`-mx-6 -mb-6 min-h-0 overflow-y-auto px-6 pb-6`) that contains BOTH the dialog header (title + description) AND the body — the header scrolls naturally with the content and is NEVER a pinned grid row. Do NOT split the header back into a fixed `grid-rows-[auto_minmax(0,1fr)]` row above a scrolled body, and do NOT move the title/description back into `Modal`'s props for this surface (that re-pins the header and duplicates a11y titles).
+Rationale: A pinned header above a scrolled body created an awkward fixed-header/content relationship (2026-08-24 UX audit). The single-scroll-wrapper structure also preserves the Windows scrollbar fix: the inner wrapper's scrollbar is clipped to the rounded-4xl panel corners by `overflow-hidden` (an internal panel scrollbar escapes the border-radius). `DialogTitle`/`DialogDescription` still render inside `DialogContent`, so Radix keeps wiring `aria-labelledby`/`aria-describedby` and `onOpenAutoFocus` still targets the title.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-UI-8
+Rule: Do NOT create a second keycap/Kbd component and do NOT import keycaps from `components/ui/kbd` (that file was removed 2026-08-24). `components/common/Kbd.tsx` is the SINGLE source of truth for keycap presentation app-wide: it exports `Kbd` (single key or voice character; `data-slot="kbd"`, `bg-(--bg-subtle)` + `text-(--text-primary)` for dark-modal contrast, and `in-data-[slot=tooltip-content]:bg-foreground/10` + `in-data-[slot=tooltip-content]:text-foreground` for tooltip contrast) and `KbdGroup` (adjacent chips separated by `gap-1`, never a `+`). `HotkeyChips` (`components/hotkey/HotkeyChips.tsx`) MUST keep importing from `common/Kbd`. Use `<Kbd as="code">` for voice-inserted punctuation characters.
+Rationale: Two parallel `Kbd` components (the app's `common/Kbd` and the shadcn `ui/kbd`) drifted in font (mono vs sans) and contrast tokens; every HotkeyChips chip in the app rendered with the shadcn tokens while the cheat sheet used the app tokens. Unifying on `common/Kbd` keeps chip styling, contrast, and typography consistent everywhere (2026-08-24 UX audit).
+Applies to: All agents, all modes, all sub-agents.
+```
+
 ---
 
 ## Category: Localization & i18n
@@ -1093,6 +1107,41 @@ Applies to: All agents, all modes, all sub-agents.
 C-SIDEBAR-3
 Rule: Do NOT build a second theme implementation for the title-bar control, and do NOT change the theme's Light/Dark/System cycling behavior or the underlying theme state management while modifying its presentation. The title-bar theme control MUST be the shared `ThemeSwitch` component (`voice_typer/client/src/renderer/src/components/layout/ThemeSwitch.tsx`) — icon-only, no visible text label, driven by the SAME `themeMode` + `onThemeChange` values App.tsx derives from `useTheme` and passes as props. The `title` + `aria-label` ("Current theme: {mode}. Click to switch to {next}.") are the ONLY way the current/next modes are exposed (no text in the UI).
 Rationale: The theme control is presentation-only; the cycling logic (`nextMode`), the `useTheme` singleton store, the debounced backend save, and the Light/Dark/System semantics are shared application state that must not be duplicated or re-implemented per-surface. A parallel implementation would drift (different icons, labels, or cycle order) and silently desync the UI from the persisted config.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-SIDEBAR-4
+Rule: Do NOT let sidebar icons shift horizontally during expand/collapse. Every top-level nav button (leaves AND the Settings parent) MUST anchor its icon through the single icon column — container `p-2` + `border-s-2` + button `px-2` = 18px from the aside edge in BOTH states — and the collapsed rail width (`w-13`, 52px) MUST keep that column centered. Never use `justify-center` (or any per-state padding swap) to center collapsed icons.
+Rationale: The original collapsed Settings trigger used `justify-center p-2` while leaves used `px-2`/`px-3`, so icons sat at different x-positions per state and per item — the whole column visibly jumped on every toggle (verified 2026-08-24: icons pinned at x=18 in both states via the a11y bounds).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-SIDEBAR-5
+Rule: Do NOT instant-hide, unmount, or branch-swap sidebar label text on collapse. Item/parent labels MUST render through the shared animated visibility transition (`navTextClasses` in `Sidebar.tsx`: `max-width` + `opacity` + inline-start `translate` (RTL-mirrored) + `filter` with EXPLICIT `blur-[0px]`/`blur-[4px]` endpoints — never `filter-none`, which cannot interpolate against `blur(N)`), synchronized with the aside's 200ms ease-out width transition. Group headings MUST collapse via `max-height`+`opacity` (never an instant conditional unmount, which shifts the groups below). Buttons clip their own row (`overflow-hidden`) so the animating label never paints outside it.
+Rationale: The original text snapped (non-interpolable `filter: none` ↔ `blur(4px)`, no translate, headings unmounting and jumping the nav up one heading height per group at toggle time). One coherent 200ms ease-out model — width + labels + headings — replaced the competing sources (2026-08-24).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-SIDEBAR-6
+Rule: Do NOT revert the sidebar's deliberate vertical rhythm: items breathe with `gap-1` inside a group section; the nav separates groups with `gap-5` expanded (headings visible) / `gap-2` collapsed rail (headings at `max-h-0` still contribute their surrounding flex gaps, netting 16px cluster separation vs the 4px item rhythm). Do not flatten both states to one gap value or leave collapsed clusters flush-with-huge-voids.
+Rationale: The original collapsed rail had 0px gaps inside groups and 24px voids between them (a vertically compressed sidebar, not a designed rail). The two-scale rhythm (4px items / 16px clusters collapsed; 4px items / heading-separated groups expanded) is intentional (2026-08-24).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-SIDEBAR-7
+Rule: Do NOT reorder the sidebar's navigation hierarchy (Main: Home/History/Analytics → Power features: Templates/Vocabulary/Models/Microphone → System: Settings/About/Privacy) without product-level justification. Frequently used destinations stay toward the top; low-priority informational/system destinations stay grouped at the bottom.
+Rationale: The three-group hierarchy encodes usage frequency (day-to-day pages, power features, system/info) and is pinned by the grouping tests; reordering for visual novelty breaks discoverability and the mental model.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-SIDEBAR-8
+Rule: Do NOT implement expand/collapse behavior through page-specific patches or duplicated per-state button trees. The expanded and collapsed sidebar MUST render through the single shared source of truth in `Sidebar.tsx` (shared `navTextClasses` helper, ONE parent-button element wrapped by Popover-flyout vs inline-Collapsible, per-state spacing only where the rhythm requires it). Every collapsed rail icon MUST keep a non-empty accessible name (mounted label span) and the same right-side `HotkeyTooltip` treatment as the leaves.
+Rationale: Two different button trees for the collapsed/expanded Settings parent popped its label instantly and dropped its accessible name entirely (empty accessible name on the flyout trigger). The shared-element structure is what makes the label transition, a11y name, and icon anchoring hold in both states (2026-08-24).
 Applies to: All agents, all modes, all sub-agents.
 ```
 
