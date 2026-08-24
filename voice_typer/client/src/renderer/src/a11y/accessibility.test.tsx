@@ -405,7 +405,6 @@ function makeStubConfig(): VoiceTyperConfig {
 		corrections_path: null,
 		log_transcriptions: false,
 		recording_mode: "toggle",
-		push_to_talk_hotkey: "",
 		esc_cancel_enabled: true,
 		repaste_hotkey: "",
 		auto_punctuation: true,

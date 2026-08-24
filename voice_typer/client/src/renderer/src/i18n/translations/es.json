@@ -135,14 +135,15 @@
 		"levelBarFrozenAria": "Nivel de entrada del micrófono (congelado durante la reproducción)",
 		"description": "Selecciona y prueba tu micrófono",
 		"systemDefault": "Predeterminado del sistema",
+		"osDefaultBadge": "Predeterminado",
 		"unknown": "Desconocido",
+		"youSaid": "Has dicho",
+		"transcriptionUnavailable": "Todavía no hay ningún modelo de voz cargado. Carga un modelo para ver una transcripción en directo de tu grabación de prueba.",
+		"availableMicrophones": "Micrófonos disponibles",
 		"microphone": "Micrófono",
 		"usingMic": "Usando: {name}",
 		"setFailed": "No se pudo configurar el micrófono",
 		"startTestFailed": "No se pudo iniciar la prueba de micrófono",
-		"consentRequired": "Se requiere el consentimiento biométrico de voz para probar o supervisar el micrófono.",
-		"consentRequiredAction": "Abrir ajustes de privacidad",
-		"consentRequiredTitle": "Se requiere consentimiento de voz",
 		"deviceLostTitle": "Micrófono desconectado",
 		"deviceLostDescription": "El micrófono activo desapareció. Reconéctalo o elige otro y vuelve a intentarlo.",
 		"recorded": "{seconds}s grabados",
@@ -156,30 +157,17 @@
 		"systemDefaultDesc": "Dispositivo de entrada predeterminado del sistema operativo",
 		"selectedMicDesc": "Micrófono seleccionado",
 		"recordingStatus": "Grabando…",
-		"active": "Activo",
 		"startTest": "Iniciar prueba",
 		"stopTest": "Detener prueba ({seconds}s)",
 		"level": "Nivel: {percent}%",
 		"monitoringOff": "Monitoreo desactivado",
 		"duration": "Duración: {seconds}s",
-		"monitoring": "Monitoreando…",
 		"filtersChangedNotice": "⚠ La configuración de filtros cambió — los resultados anteriores de la prueba ya no reflejan la configuración actual. Ejecuta una nueva prueba.",
 		"noMicrophonesFound": "No se encontraron micrófonos",
 		"connectAndRestart": "Conecta un micrófono y reinicia",
-		"otherMicrophones": "Otros micrófonos",
-		"noOtherMicrophones": "No hay otros micrófonos disponibles",
-		"use": "Usar",
-		"channels": "Canales:",
-		"rateHz": "Tasa:",
 		"loadFailedTitle": "No se pudieron cargar los datos del micrófono",
 		"retry": "Reintentar",
-		"useSystemDefault": "Usar predeterminado del sistema",
-		"useSystemDefaultAria": "Revertir al micrófono predeterminado del sistema operativo",
 		"activeMicUnavailable": "El micrófono seleccionado anteriormente ya no está disponible. Recurriendo al predeterminado del sistema.",
-		"fallbackToSystemDefault": "Micrófono revertido al predeterminado del sistema.",
-		"testDuration": "Duración de la prueba",
-		"testDurationInfo": "Cuánto tiempo se ejecuta la grabación de prueba (3–30 segundos).",
-		"testDurationAria": "Duración de la prueba en segundos",
 		"permissionDeniedTitle": "Permiso de micrófono denegado",
 		"permissionDeniedMessageMacos": "{appName} no puede acceder al micrófono. Abre Configuración del Sistema → Privacidad y Seguridad → Micrófono y habilita {appName}.",
 		"permissionDeniedMessageWindows": "{appName} no puede acceder al micrófono. Abre Configuración → Privacidad y seguridad → Micrófono y permite que las aplicaciones de escritorio accedan al micrófono.",
@@ -188,15 +176,8 @@
 		"openSettings": "Abrir configuración",
 		"openSettingsAria": "Abrir la configuración de privacidad del micrófono del sistema operativo",
 		"loading": "Cargando micrófonos…",
-		"test": {
-			"qualityPoor": "Mala",
-			"qualityGood": "Buena",
-			"qualityOk": "Aceptable"
-		},
-		"stopPlaybackFirst": "Detén la reproducción de audio antes de iniciar una nueva prueba",
 		"loadFailedDescription": "No pudimos cargar los datos del micrófono desde el backend. Revisa los registros e inténtalo de nuevo.",
-		"selected": "Micrófono seleccionado",
-		"useAria": "Usar micrófono — {name}"
+		"selected": "Micrófono seleccionado"
 	},
 	"keyboard": {
 		"permissionDeniedTitle": "Los atajos de teclado requieren permiso de accesibilidad",
@@ -446,7 +427,6 @@
 		"runtimePackNotChecked": "Aún no se ha comprobado",
 		"runtimePackUpToDate": "Actualizado (v{version})",
 		"runtimePackFailed": "Error al comprobar las actualizaciones",
-		"runtimePackConsentRequired": "La descarga del paquete sin conexión está desactivada. Actívela en Configuración → General para recibir actualizaciones.",
 		"runtimePackDownloadStarted": "Descargando la actualización en segundo plano.",
 		"connected": "Conectado",
 		"disconnected": "Desconectado",
@@ -1101,7 +1081,25 @@
 		"huggingFaceDownloads": "Descargas de Hugging Face",
 		"voiceBiometricProcessing": "Procesamiento biométrico de voz",
 		"voiceBiometricProcessingAria": "Estado del procesamiento biométrico de voz",
-		"voiceBiometricProcessingInfo": "Los datos biométricos de voz se procesan localmente en tu dispositivo y nunca salen de tu equipo."
+		"voiceBiometricProcessingInfo": "Los datos biométricos de voz se procesan localmente en tu dispositivo y nunca salen de tu equipo.",
+		"linuxWindowButtons": {
+			"title": "Botones de la ventana",
+			"description": "Personaliza los botones de minimizar, maximizar y cerrar de la barra de título.",
+			"mode": "Disposición de los botones",
+			"modeInfo": "Sigue la disposición que ya usa tu escritorio o elige la tuya.",
+			"modeSystem": "Seguir el sistema",
+			"modeCustom": "Personalizado",
+			"side": "Posición",
+			"sideInfo": "Lado de la barra de título donde se sitúan los botones.",
+			"sideLeft": "Izquierda",
+			"sideRight": "Derecha",
+			"showMinimize": "Mostrar el botón de minimizar",
+			"showMaximize": "Mostrar el botón de maximizar",
+			"showClose": "Mostrar el botón de cerrar",
+			"systemLayout": "Disposición del sistema: lado {side} — {buttons}",
+			"systemUnavailable": "Disposición del sistema no disponible; se usa la predeterminada (derecha, todos los botones).",
+			"followingSystem": "Siguiendo la disposición de tu escritorio"
+		}
 	},
 	"models": {
 		"loadFailedTitle": "No se pudieron cargar los modelos",
@@ -1149,8 +1147,6 @@
 			"apiKeySaved": "Clave API de {provider} guardada",
 			"consentGranted": "Consentimiento otorgado para {provider} — el audio se enviará a este proveedor.",
 			"consentRevoked": "Consentimiento revocado para {provider} — el audio NO se enviará.",
-			"hfConsentGranted": "Consentimiento otorgado — las descargas de modelos desde HuggingFace continuarán.",
-			"hfConsentRevoked": "Consentimiento revocado — las descargas de modelos desde HuggingFace están bloqueadas.",
 			"resumeFailed": "Error al reanudar: {error}",
 			"pauseFailed": "Error al pausar: {error}",
 			"cancelled": "Descarga cancelada. Los archivos parciales se reutilizarán al reintentar.",
@@ -1184,10 +1180,6 @@
 			"failedAll": "No se pudo importar ningún modelo desde ese directorio.",
 			"failed": "Error al importar el modelo: {error}",
 			"importModelAria": "Importar modelo desde carpeta"
-		},
-		"hfConsent": {
-			"grant": "Otorgar consentimiento",
-			"jitMessage": "Se requiere el consentimiento de descarga de Hugging Face antes de descargar este modelo. Concédelo ahora para continuar."
 		},
 		"progress": {
 			"eta": "Tiempo restante {time}",
@@ -1280,8 +1272,6 @@
 		"connectionSuccessful": "Conexión exitosa — la clave API es válida.",
 		"connectionFailed": "Error de conexión",
 		"pleaseEnterApiKey": "Por favor, introduce una clave API primero",
-		"consentGranted": "Consentimiento otorgado — las descargas de modelos desde HuggingFace continuarán.",
-		"consentRevoked": "Consentimiento revocado — las descargas de modelos desde HuggingFace están bloqueadas.",
 		"size": "Tamaño",
 		"language": "Idioma",
 		"fastest": "Más rápido",
@@ -2056,7 +2046,6 @@
 			"offline_pack_consent": "El paquete del motor sin conexión (~180 MB) se descarga una vez desde el servidor de lanzamiento y permite la transcripción totalmente local. ¿Permitir la descarga?"
 		}
 	},
-
 	"degradation": {
 		"deviceLost": "Micrófono seleccionado desconectado",
 		"deviceLostHint": "Reconéctalo o elige otro micrófono y vuelve a intentarlo.",

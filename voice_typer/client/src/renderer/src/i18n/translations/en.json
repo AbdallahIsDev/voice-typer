@@ -142,14 +142,15 @@
 		"levelBarFrozenAria": "Microphone input level (frozen during playback)",
 		"description": "Select and test your microphone",
 		"systemDefault": "System Default",
+		"osDefaultBadge": "Default",
 		"unknown": "Unknown",
+		"youSaid": "You said",
+		"transcriptionUnavailable": "No speech model is loaded yet. Load a model to see a live transcription of your test recording.",
+		"availableMicrophones": "Available Microphones",
 		"microphone": "Microphone",
 		"usingMic": "Using: {name}",
 		"setFailed": "Failed to set microphone",
 		"startTestFailed": "Failed to start microphone test",
-		"consentRequired": "Voice biometric consent is required to test or monitor your microphone.",
-		"consentRequiredAction": "Open Privacy settings",
-		"consentRequiredTitle": "Voice consent required",
 		"deviceLostTitle": "Microphone disconnected",
 		"deviceLostDescription": "The active microphone disappeared. Reconnect it or choose another one, then retry.",
 		"recorded": "{seconds}s recorded",
@@ -163,30 +164,17 @@
 		"systemDefaultDesc": "Operating system default input device",
 		"selectedMicDesc": "Selected microphone",
 		"recordingStatus": "Recording…",
-		"active": "Active",
 		"startTest": "Start Test",
 		"stopTest": "Stop Test ({seconds}s)",
 		"level": "Level: {percent}%",
 		"monitoringOff": "Monitoring off",
 		"duration": "Duration: {seconds}s",
-		"monitoring": "Monitoring…",
 		"filtersChangedNotice": "⚠ Filter settings changed — previous test results no longer reflect current settings. Run a new test.",
 		"noMicrophonesFound": "No microphones found",
 		"connectAndRestart": "Connect a microphone and restart",
-		"otherMicrophones": "Other Microphones",
-		"noOtherMicrophones": "No other microphones available",
-		"use": "Use this microphone",
-		"channels": "Channels:",
-		"rateHz": "Rate:",
 		"loadFailedTitle": "Failed to load microphone data",
 		"retry": "Retry",
-		"useSystemDefault": "Use System Default",
-		"useSystemDefaultAria": "Revert to the operating system default microphone",
 		"activeMicUnavailable": "The previously selected microphone is no longer available. Falling back to the system default.",
-		"fallbackToSystemDefault": "Microphone reverted to System Default.",
-		"testDuration": "Test Duration",
-		"testDurationInfo": "How long the test recording runs (3–30 seconds).",
-		"testDurationAria": "Test duration in seconds",
 		"permissionDeniedTitle": "Microphone permission denied",
 		"permissionDeniedMessageMacos": "{appName} cannot access the microphone. Open System Settings → Privacy & Security → Microphone and enable {appName}.",
 		"permissionDeniedMessageWindows": "{appName} cannot access the microphone. Open Settings → Privacy & security → Microphone and allow desktop apps to access the microphone.",
@@ -195,15 +183,8 @@
 		"openSettings": "Open settings",
 		"openSettingsAria": "Open the operating system microphone privacy settings",
 		"loading": "Loading microphones…",
-		"stopPlaybackFirst": "Stop audio playback before starting a new test",
-		"test": {
-			"qualityGood": "Good",
-			"qualityOk": "OK",
-			"qualityPoor": "Poor"
-		},
 		"loadFailedDescription": "We couldn't load your microphone data from the backend. Check the logs and try again.",
-		"selected": "Selected microphone",
-		"useAria": "Use microphone — {name}"
+		"selected": "Selected microphone"
 	},
 	"keyboard": {
 		"permissionDeniedTitle": "Hotkeys require accessibility permission",
@@ -453,7 +434,6 @@
 		"runtimePackNotChecked": "Not checked yet",
 		"runtimePackUpToDate": "Up to date (v{version})",
 		"runtimePackFailed": "Update check failed",
-		"runtimePackConsentRequired": "Offline pack downloads are turned off. Enable them in Settings → General to receive updates.",
 		"runtimePackDownloadStarted": "Downloading the update in the background.",
 		"connected": "Connected",
 		"disconnected": "Disconnected",
@@ -1108,7 +1088,25 @@
 		"huggingFaceDownloads": "Hugging Face downloads",
 		"voiceBiometricProcessing": "Voice biometric processing",
 		"voiceBiometricProcessingAria": "Voice biometric processing status",
-		"voiceBiometricProcessingInfo": "Voice biometric data is processed locally on your device and never leaves your machine."
+		"voiceBiometricProcessingInfo": "Voice biometric data is processed locally on your device and never leaves your machine.",
+		"linuxWindowButtons": {
+			"title": "Window Buttons",
+			"description": "Customize the minimize, maximize, and close buttons in the title bar.",
+			"mode": "Button layout",
+			"modeInfo": "Follow the buttons your desktop already uses, or choose your own.",
+			"modeSystem": "Follow system",
+			"modeCustom": "Custom",
+			"side": "Position",
+			"sideInfo": "Which side of the title bar the buttons sit on.",
+			"sideLeft": "Left",
+			"sideRight": "Right",
+			"showMinimize": "Show minimize button",
+			"showMaximize": "Show maximize button",
+			"showClose": "Show close button",
+			"systemLayout": "System layout: {side} side — {buttons}",
+			"systemUnavailable": "System button layout unavailable — using the default (right side, all buttons).",
+			"followingSystem": "Following your desktop's layout"
+		}
 	},
 	"models": {
 		"loadFailedTitle": "Couldn't load models",
@@ -1156,8 +1154,6 @@
 			"apiKeySaved": "{provider} API key saved",
 			"consentGranted": "Consent granted for {provider} — audio will be sent to this provider.",
 			"consentRevoked": "Consent revoked for {provider} — audio will NOT be sent.",
-			"hfConsentGranted": "Consent granted — model downloads from HuggingFace will proceed.",
-			"hfConsentRevoked": "Consent revoked — model downloads from HuggingFace are blocked.",
 			"resumeFailed": "Failed to resume: {error}",
 			"pauseFailed": "Failed to pause: {error}",
 			"cancelled": "Download cancelled. Partial files will be reused on retry.",
@@ -1199,10 +1195,6 @@
 			"failedAll": "Failed to import any models from that directory.",
 			"failed": "Failed to import model: {error}",
 			"importModelAria": "Import model from folder"
-		},
-		"hfConsent": {
-			"grant": "Grant consent",
-			"jitMessage": "Hugging Face download consent is required before downloading this model. Grant it now to continue."
 		},
 		"progress": {
 			"eta": "ETA {time}",
@@ -1295,8 +1287,6 @@
 		"connectionSuccessful": "Connection successful — API key is valid.",
 		"connectionFailed": "Connection failed",
 		"pleaseEnterApiKey": "Please enter an API key first",
-		"consentGranted": "Consent granted — model downloads from HuggingFace will proceed.",
-		"consentRevoked": "Consent revoked — model downloads from HuggingFace are blocked.",
 		"benchmarkNotImplemented": "Benchmark not yet implemented.",
 		"speed": {
 			"fastest": "Fastest",
@@ -2056,7 +2046,6 @@
 			"offline_pack_consent": "The offline engine pack (~180 MB) is downloaded once from the release server and enables fully local transcription. Allow the download?"
 		}
 	},
-
 	"degradation": {
 		"deviceLost": "Selected microphone disconnected",
 		"deviceLostHint": "Reconnect it or pick another microphone, then retry.",

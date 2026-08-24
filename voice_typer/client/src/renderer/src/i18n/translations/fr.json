@@ -639,7 +639,25 @@
 		"huggingFaceDownloads": "Téléchargements Hugging Face",
 		"voiceBiometricProcessing": "Traitement biométrique vocal",
 		"voiceBiometricProcessingAria": "État du traitement biométrique vocal",
-		"voiceBiometricProcessingInfo": "Les données biométriques vocales sont traitées localement sur votre appareil et ne quittent jamais votre machine."
+		"voiceBiometricProcessingInfo": "Les données biométriques vocales sont traitées localement sur votre appareil et ne quittent jamais votre machine.",
+		"linuxWindowButtons": {
+			"title": "Boutons de la fenêtre",
+			"description": "Personnalisez les boutons réduire, agrandir et fermer de la barre de titre.",
+			"mode": "Disposition des boutons",
+			"modeInfo": "Suivez la disposition de votre bureau ou choisissez la vôtre.",
+			"modeSystem": "Suivre le système",
+			"modeCustom": "Personnalisé",
+			"side": "Emplacement",
+			"sideInfo": "Côté de la barre de titre où se trouvent les boutons.",
+			"sideLeft": "Gauche",
+			"sideRight": "Droite",
+			"showMinimize": "Afficher le bouton réduire",
+			"showMaximize": "Afficher le bouton agrandir",
+			"showClose": "Afficher le bouton fermer",
+			"systemLayout": "Disposition du système : côté {side} — {buttons}",
+			"systemUnavailable": "Disposition du système indisponible — utilisation de la valeur par défaut (droite, tous les boutons).",
+			"followingSystem": "Suit la disposition de votre bureau"
+		}
 	},
 	"models": {
 		"loadFailedTitle": "Impossible de charger les modèles",
@@ -707,8 +725,6 @@
 			"apiKeySaved": "Clé API {provider} sauvegardée",
 			"consentGranted": "Consentement accordé pour {provider} — l'audio sera envoyé à ce fournisseur.",
 			"consentRevoked": "Consentement révoqué pour {provider} — l'audio NE sera PAS envoyé.",
-			"hfConsentGranted": "Consentement accordé — les téléchargements de modèles depuis HuggingFace continueront.",
-			"hfConsentRevoked": "Consentement révoqué — les téléchargements de modèles depuis HuggingFace sont bloqués.",
 			"resumeFailed": "Échec de la reprise : {error}",
 			"pauseFailed": "Échec de la pause : {error}",
 			"cancelled": "Téléchargement annulé. Les fichiers partiels seront réutilisés lors d'une nouvelle tentative.",
@@ -742,10 +758,6 @@
 			"failedAll": "Impossible d'importer les modèles depuis ce répertoire.",
 			"failed": "Échec de l'importation du modèle : {error}",
 			"importModelAria": "Importer un modèle depuis un dossier"
-		},
-		"hfConsent": {
-			"grant": "Accorder le consentement",
-			"jitMessage": "Le consentement de téléchargement Hugging Face est requis avant de télécharger ce modèle. Accordez-le maintenant pour continuer."
 		},
 		"progress": {
 			"eta": "ETA {time}",
@@ -818,8 +830,6 @@
 		"connectionSuccessful": "Connexion réussie — la clé API est valide.",
 		"connectionFailed": "Échec de la connexion",
 		"pleaseEnterApiKey": "Veuillez d'abord saisir une clé API",
-		"consentGranted": "Consentement accordé — les téléchargements de modèles depuis HuggingFace vont continuer.",
-		"consentRevoked": "Consentement révoqué — les téléchargements de modèles depuis HuggingFace sont bloqués.",
 		"size": "Taille",
 		"language": "Langue",
 		"fastest": "Le plus rapide",
@@ -1045,14 +1055,15 @@
 		"levelBarFrozenAria": "Niveau d'entrée du microphone (figé pendant la lecture)",
 		"description": "Sélectionnez et testez votre microphone",
 		"systemDefault": "Valeur système par défaut",
+		"osDefaultBadge": "Par défaut",
 		"unknown": "Inconnu",
+		"youSaid": "Vous avez dit",
+		"transcriptionUnavailable": "Aucun modèle vocal n'est chargé pour le moment. Chargez un modèle pour voir une transcription en direct de votre enregistrement de test.",
+		"availableMicrophones": "Microphones disponibles",
 		"microphone": "Micro",
 		"usingMic": "Utilisé : {name}",
 		"setFailed": "Impossible de configurer le microphone",
 		"startTestFailed": "Impossible de démarrer le test du microphone",
-		"consentRequired": "Le consentement biométrique vocal est requis pour tester ou surveiller votre microphone.",
-		"consentRequiredAction": "Ouvrir les paramètres de confidentialité",
-		"consentRequiredTitle": "Consentement vocal requis",
 		"deviceLostTitle": "Microphone déconnecté",
 		"deviceLostDescription": "Le microphone actif a disparu. Reconnectez-le ou choisissez-en un autre, puis réessayez.",
 		"recorded": "{seconds}s enregistrés",
@@ -1066,30 +1077,17 @@
 		"systemDefaultDesc": "Périphérique d'entrée par défaut du système d'exploitation",
 		"selectedMicDesc": "Microphone sélectionné",
 		"recordingStatus": "Enregistrement…",
-		"active": "Actif",
 		"startTest": "Démarrer le test",
 		"stopTest": "Arrêter le test ({seconds}s)",
 		"level": "Niveau : {percent} %",
 		"monitoringOff": "Surveillance désactivée",
 		"duration": "Durée : {seconds}s",
-		"monitoring": "Surveillance…",
 		"filtersChangedNotice": "⚠ Paramètres de filtre modifiés — les résultats de test précédents ne reflètent plus les paramètres actuels. Lancez un nouveau test.",
 		"noMicrophonesFound": "Aucun microphone trouvé",
 		"connectAndRestart": "Connectez un microphone et redémarrez",
-		"otherMicrophones": "Autres microphones",
-		"noOtherMicrophones": "Aucun autre microphone disponible",
-		"use": "Utiliser",
-		"channels": "Canaux:",
-		"rateHz": "Taux:",
 		"loadFailedTitle": "Échec du chargement des microphones",
 		"retry": "Réessayer",
-		"useSystemDefault": "Utiliser le réglage système par défaut",
-		"useSystemDefaultAria": "Revenir au microphone par défaut du système d'exploitation",
 		"activeMicUnavailable": "Le microphone précédemment sélectionné n'est plus disponible. Retour au microphone par défaut du système.",
-		"fallbackToSystemDefault": "Microphone rétabli au réglage par défaut du système.",
-		"testDuration": "Durée du test",
-		"testDurationInfo": "Durée d'enregistrement du test (3 à 30 secondes).",
-		"testDurationAria": "Durée du test en secondes",
 		"permissionDeniedTitle": "Autorisation du microphone refusée",
 		"permissionDeniedMessageMacos": "{appName} ne peut pas accéder au microphone. Ouvrez Réglages Système → Confidentialité et Sécurité → Microphone et activez {appName}.",
 		"permissionDeniedMessageWindows": "{appName} ne peut pas accéder au microphone. Ouvrez Paramètres → Confidentialité et sécurité → Microphone et autorisez les applications de bureau à accéder au microphone.",
@@ -1098,15 +1096,8 @@
 		"openSettings": "Ouvrir les paramètres",
 		"openSettingsAria": "Ouvrir les paramètres de confidentialité du microphone du système d'exploitation",
 		"loading": "Chargement des microphones…",
-		"test": {
-			"qualityPoor": "Mauvaise",
-			"qualityGood": "Bonne",
-			"qualityOk": "OK"
-		},
-		"stopPlaybackFirst": "Arrêtez la lecture audio avant de lancer un nouveau test",
 		"loadFailedDescription": "Impossible de charger les données de votre microphone depuis le backend. Vérifiez les journaux et réessayez.",
-		"selected": "Microphone sélectionné",
-		"useAria": "Utiliser le micro — {name}"
+		"selected": "Microphone sélectionné"
 	},
 	"keyboard": {
 		"permissionDeniedTitle": "Les raccourcis clavier nécessitent l'autorisation d'accessibilité",
@@ -1356,7 +1347,6 @@
 		"runtimePackNotChecked": "Pas encore vérifié",
 		"runtimePackUpToDate": "À jour (v{version})",
 		"runtimePackFailed": "Échec de la recherche de mise à jour",
-		"runtimePackConsentRequired": "Le téléchargement du pack hors ligne est désactivé. Activez-le dans Paramètres → Général pour recevoir les mises à jour.",
 		"runtimePackDownloadStarted": "Téléchargement de la mise à jour en arrière-plan.",
 		"connected": "Connecté",
 		"disconnected": "Déconnecté",
@@ -1755,11 +1745,11 @@
 		"stop": "Arrêter",
 		"qualityFeedback": {
 			"recording": "Enregistrement…",
-			"voiceDetected": "Voix détectée",
+			"voiceDetected": "✓ Voix détectée",
 			"excellent": "Qualité excellente",
-			"tooHigh": "Volume trop élevé",
-			"tooLow": "Volume trop faible",
-			"lowVolume": "Faible volume détecté",
+			"tooHigh": "⚠ Volume trop élevé",
+			"tooLow": "⚠ Volume trop faible",
+			"lowVolume": "⚠ Faible volume détecté",
 			"waiting": "En attente de voix…"
 		},
 		"detectedIssueCodes": {
@@ -2056,7 +2046,6 @@
 			"offline_pack_consent": "Le pack moteur hors ligne (~180 Mo) est téléchargé une fois depuis le serveur de publication et permet une transcription entièrement locale. Autoriser le téléchargement ?"
 		}
 	},
-
 	"degradation": {
 		"deviceLost": "Microphone sélectionné déconnecté",
 		"deviceLostHint": "Reconnectez-le ou choisissez un autre microphone, puis réessayez.",

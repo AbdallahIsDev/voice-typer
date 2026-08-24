@@ -135,14 +135,15 @@
 		"levelBarFrozenAria": "مستوى مدخل الميكروفون (مجمد أثناء التشغيل)",
 		"description": "اختر واختبر الميكروفون الخاص بك",
 		"systemDefault": "افتراضي للنظام",
+		"osDefaultBadge": "افتراضي",
 		"unknown": "غير معروف",
+		"youSaid": "لقد قلت",
+		"transcriptionUnavailable": "لم يتم تحميل أي نموذج للكلام بعد. حمِّل نموذجًا لرؤية نسخ حي لتسجيل اختبارك.",
+		"availableMicrophones": "الميكروفونات المتاحة",
 		"microphone": "ميكروفون",
 		"usingMic": "قيد الاستخدام: {name}",
 		"setFailed": "تعذّر ضبط الميكروفون",
 		"startTestFailed": "تعذّر بدء اختبار الميكروفون",
-		"consentRequired": "يلزم الموافقة على المعالجة الحيوية للصوت لاختبار الميكروفون أو مراقبته.",
-		"consentRequiredAction": "فتح إعدادات الخصوصية",
-		"consentRequiredTitle": "الموافقة على معالجة الصوت مطلوبة",
 		"deviceLostTitle": "تم فصل الميكروفون",
 		"deviceLostDescription": "اختفى الميكروفون النشط. أعد توصيله أو اختر ميكروفونًا آخر، ثم أعد المحاولة.",
 		"recorded": "تم تسجيل {seconds} ث",
@@ -156,30 +157,17 @@
 		"systemDefaultDesc": "جهاز الإدخال الافتراضي للنظام",
 		"selectedMicDesc": "الميكروفون المحدد",
 		"recordingStatus": "جارٍ التسجيل…",
-		"active": "نشط",
 		"startTest": "بدء الاختبار",
 		"stopTest": "إيقاف الاختبار ({seconds} ث)",
 		"level": "المستوى: {percent}%",
 		"monitoringOff": "المراقبة متوقفة",
 		"duration": "المدة: {seconds} ث",
-		"monitoring": "جارٍ المراقبة…",
 		"filtersChangedNotice": "⚠ تغيّرت إعدادات الفلاتر — نتائج الاختبار السابقة لم تعد تعكس الإعدادات الحالية. أجرِ اختبارًا جديدًا.",
 		"noMicrophonesFound": "لم يتم العثور على ميكروفونات",
 		"connectAndRestart": "وصّل ميكروفونًا وأعد التشغيل",
-		"otherMicrophones": "ميكروفونات أخرى",
-		"noOtherMicrophones": "لا تتوفر ميكروفونات أخرى",
-		"use": "استخدام",
-		"channels": "القنوات:",
-		"rateHz": "المعدل:",
 		"loadFailedTitle": "تعذّر تحميل الميكروفونات",
 		"retry": "إعادة المحاولة",
-		"useSystemDefault": "استخدام إعدادات النظام الافتراضية",
-		"useSystemDefaultAria": "العودة إلى ميكروفون النظام الافتراضي",
 		"activeMicUnavailable": "الميكروفون المحدد سابقًا غير متاح. العودة إلى إعدادات النظام الافتراضية.",
-		"fallbackToSystemDefault": "تمت العودة إلى ميكروفون النظام الافتراضي.",
-		"testDuration": "مدة الاختبار",
-		"testDurationInfo": "مدة تسجيل الاختبار (3-30 ثانية).",
-		"testDurationAria": "مدة الاختبار بالثواني",
 		"permissionDeniedTitle": "تم رفض إذن الميكروفون",
 		"permissionDeniedMessageMacos": "{appName} لا يمكنه الوصول إلى الميكروفون. افتح إعدادات النظام → الخصوصية والأمان → الميكروفون وقم بتمكين {appName}.",
 		"permissionDeniedMessageWindows": "{appName} لا يمكنه الوصول إلى الميكروفون. افتح الإعدادات → الخصوصية والأمان → الميكروفون واسمح لتطبيقات سطح المكتب بالوصول إلى الميكروفون.",
@@ -188,15 +176,8 @@
 		"openSettings": "فتح الإعدادات",
 		"openSettingsAria": "فتح إعدادات خصوصية الميكروفون في نظام التشغيل",
 		"loading": "جارٍ تحميل الميكروفونات…",
-		"test": {
-			"qualityPoor": "ضعيف",
-			"qualityGood": "جيد",
-			"qualityOk": "مقبول"
-		},
-		"stopPlaybackFirst": "أوقف تشغيل الصوت قبل بدء اختبار جديد",
 		"loadFailedDescription": "تعذر تحميل بيانات الميكروفون من الخادم الخلفي. تحقق من اتصالك وحاول مرة أخرى.",
-		"selected": "الميكروفون المحدد",
-		"useAria": "استخدام الميكروفون — {name}"
+		"selected": "الميكروفون المحدد"
 	},
 	"keyboard": {
 		"permissionDeniedTitle": "تتطلب مفاتيح الاختصار إذن الوصول",
@@ -446,7 +427,6 @@
 		"runtimePackNotChecked": "لم يتم الفحص بعد",
 		"runtimePackUpToDate": "محدَّثة (v{version})",
 		"runtimePackFailed": "فشل التحقق من التحديث",
-		"runtimePackConsentRequired": "تنزيلات حزمة المحرّكات دون اتصال مُعطَّلة. فعِّلها من الإعدادات ← عام لتلقِّي التحديثات.",
 		"runtimePackDownloadStarted": "جارٍ تنزيل التحديث في الخلفية.",
 		"connected": "متصل",
 		"disconnected": "غير متصل",
@@ -1101,7 +1081,25 @@
 		"huggingFaceDownloads": "تنزيلات Hugging Face",
 		"voiceBiometricProcessing": "معالجة القياسات الحيوية الصوتية",
 		"voiceBiometricProcessingAria": "حالة معالجة القياسات الحيوية الصوتية",
-		"voiceBiometricProcessingInfo": "تُعالج البيانات الحيوية الصوتية محليًا على جهازك ولا تغادر جهازك أبدًا."
+		"voiceBiometricProcessingInfo": "تُعالج البيانات الحيوية الصوتية محليًا على جهازك ولا تغادر جهازك أبدًا.",
+		"linuxWindowButtons": {
+			"title": "أزرار النافذة",
+			"description": "تخصيص أزرار التصغير والتكبير والإغلاق في شريط العنوان.",
+			"mode": "تخطيط الأزرار",
+			"modeInfo": "اتبع الأزرار التي يستخدمها سطح المكتب لديك، أو اختر تخطيطك الخاص.",
+			"modeSystem": "اتباع النظام",
+			"modeCustom": "مخصص",
+			"side": "الموضع",
+			"sideInfo": "الجانب الذي توجد عليه الأزرار في شريط العنوان.",
+			"sideLeft": "يسار",
+			"sideRight": "يمين",
+			"showMinimize": "إظهار زر التصغير",
+			"showMaximize": "إظهار زر التكبير",
+			"showClose": "إظهار زر الإغلاق",
+			"systemLayout": "تخطيط النظام: جانب {side} — {buttons}",
+			"systemUnavailable": "تخطيط أزرار النظام غير متاح — يُستخدم الافتراضي (اليمين، جميع الأزرار).",
+			"followingSystem": "يتبع تخطيط سطح المكتب لديك"
+		}
 	},
 	"models": {
 		"loadFailedTitle": "تعذّر تحميل النماذج",
@@ -1149,8 +1147,6 @@
 			"apiKeySaved": "تم حفظ مفتاح API لـ {provider}",
 			"consentGranted": "تم منح الموافقة لـ {provider} — سيتم إرسال الصوت إلى هذا المزود.",
 			"consentRevoked": "تم إلغاء الموافقة لـ {provider} — لن يتم إرسال الصوت.",
-			"hfConsentGranted": "تم منح الموافقة — ستستمر تحميلات النماذج من HuggingFace.",
-			"hfConsentRevoked": "تم إلغاء الموافقة — تم حظر تحميلات النماذج من HuggingFace.",
 			"resumeFailed": "فشل الاستئناف: {error}",
 			"pauseFailed": "فشل الإيقاف المؤقت: {error}",
 			"cancelled": "تم إلغاء التحميل. ستتم إعادة استخدام الملفات الجزئية عند إعادة المحاولة.",
@@ -1184,10 +1180,6 @@
 			"failedAll": "فشل استيراد أي نموذج من هذا الدليل.",
 			"failed": "فشل استيراد النموذج: {error}",
 			"importModelAria": "استيراد نموذج من مجلد"
-		},
-		"hfConsent": {
-			"grant": "منح الموافقة",
-			"jitMessage": "مطلوب موافقة تنزيل Hugging Face قبل تنزيل هذا النموذج. امنحها الآن للمتابعة."
 		},
 		"progress": {
 			"eta": "الوقت المتبقي {time}",
@@ -1280,8 +1272,6 @@
 		"connectionSuccessful": "نجح الاتصال — مفتاح API صالح.",
 		"connectionFailed": "فشل الاتصال",
 		"pleaseEnterApiKey": "الرجاء إدخال مفتاح API أولاً",
-		"consentGranted": "تم منح الموافقة — ستستمر تحميلات النماذج من HuggingFace.",
-		"consentRevoked": "تم إلغاء الموافقة — تحميلات النماذج من HuggingFace محظورة.",
 		"size": "الحجم",
 		"language": "اللغة",
 		"fastest": "الأسرع",
@@ -1755,11 +1745,11 @@
 		"stop": "إيقاف",
 		"qualityFeedback": {
 			"recording": "جارٍ التسجيل…",
-			"voiceDetected": "تم اكتشاف الصوت",
+			"voiceDetected": "✓ تم اكتشاف الصوت",
 			"excellent": "جودة ممتازة",
-			"tooHigh": "الصوت مرتفع جدًا",
-			"tooLow": "الصوت منخفض جدًا",
-			"lowVolume": "تم اكتشاف صوت منخفض",
+			"tooHigh": "⚠ الصوت مرتفع جدًا",
+			"tooLow": "⚠ الصوت منخفض جدًا",
+			"lowVolume": "⚠ تم اكتشاف صوت منخفض",
 			"waiting": "في انتظار الصوت…"
 		},
 		"detectedIssueCodes": {
@@ -2056,7 +2046,6 @@
 			"offline_pack_consent": "يتم تنزيل حزمة المحرك دون اتصال (~180 م.ب.) مرة واحدة من خادم الإصدارات وتمكّن النسخ المحلي بالكامل. هل تسمح بالتنزيل؟"
 		}
 	},
-
 	"degradation": {
 		"deviceLost": "تم فصل الميكروفون المحدد",
 		"deviceLostHint": "أعد توصيله أو اختر ميكروفونًا آخر، ثم أعد المحاولة.",

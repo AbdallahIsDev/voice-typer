@@ -54,6 +54,7 @@ from voice_typer.server.config_validators.scalar import (
     _make_enum_validator,
     _make_float_validator,
     _make_int_validator,
+    _make_linux_window_buttons_validator,
     _make_optional_float_validator,
     _make_optional_int_validator,
     _make_optional_str_validator,
@@ -180,13 +181,6 @@ _VALIDATOR_TRUSTED_HOSTS = _validate_trusted_extra_hosts
 IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # ── Hotkey ────────────────────────────────────────────────────────
     "hotkey": (str, _VALIDATOR_HOTKEY),
-    # ``push_to_talk_hotkey`` removed from the IPC allowlist —
-    # the TS-side contract (see voice_typer/client/src/renderer/src/types/config.ts)
-    # documents it as a write-only back-compat field the renderer MUST NOT
-    # write. Accepting it here would let a malicious IPC client mutate a
-    # server field the renderer is forbidden to touch. Existing on-disk
-    # config.json values are still loaded by ``Config.load()`` (the field
-    # remains on the Config dataclass); only the IPC write path is closed.
     "repaste_hotkey": (str, _VALIDATOR_REPASTE_HOTKEY),
     # ── Recording ─────────────────────────────────────────────────────
     "microphone": ((str, type(None)), _VALIDATOR_MICROPHONE),
@@ -405,6 +399,11 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # by ``_make_custom_theme_validator``) short-circuits ``None`` to
     # success.
     "custom_theme": ((dict, type(None)), _make_custom_theme_validator()),
+    # Linux title-bar window-button customization (Settings → Appearance,
+    # Linux only). Shape contract pinned by
+    # _make_linux_window_buttons_validator (mode/side + 3 bools — all
+    # required, unknown keys rejected). Ignored on Windows/macOS.
+    "linux_window_buttons": (dict, _make_linux_window_buttons_validator()),
     "text_size": (int, _make_int_validator(lo=8, hi=72)),
     # ── Silent mic disconnection (H12) ────────────────────────────────
     "silence_warning_seconds": (float, _make_float_validator(lo=0.0, hi=600.0)),

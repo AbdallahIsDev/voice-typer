@@ -102,6 +102,23 @@ class ConfigMutationMixin(ServiceMixinBase):
         sanitized = sanitize_config_for_ipc(self._app.config)
         # SVC-6: route through the shared helper (single try/except).
         sanitized["keyring_status"] = self._keyring_status()
+        # Linux window-button system snapshot (read-only, computed — NOT
+        # a persisted Config field). Lets the renderer's "follow system"
+        # mode know the desktop's button-layout + DE without the renderer
+        # ever spawning a subprocess. Cached once per process inside
+        # window_buttons; every failure degrades to layout=None.
+        try:
+            from voice_typer.server.server_platform.window_buttons import (
+                system_window_buttons,
+            )
+
+            sanitized["linux_window_buttons_system"] = system_window_buttons()
+        except Exception:  # noqa: BLE001 — snapshot must never break get_config
+            log.warning(
+                "[SERVICE] get_config: linux_window_buttons_system probe failed",
+                exc_info=True,
+            )
+            sanitized["linux_window_buttons_system"] = None
         return sanitized
 
     def get_defaults(self) -> dict[str, object]:

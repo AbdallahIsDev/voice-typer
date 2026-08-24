@@ -590,7 +590,6 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "hotkey.presets.single.ctrl",
     "hotkey.presets.single.fn",
     "hotkeyPicker.secondsRemainingSuffix",
-    "microphone.test.qualityOk",
     "models.speed.variable",
     "nav.group.system",
     "onboarding.modelOption",

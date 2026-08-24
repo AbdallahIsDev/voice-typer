@@ -15,26 +15,21 @@
  *   - config_changed event: triggers a loadData refresh
  *   - hot-swap fallback: when the active mic is no longer present, the
  *     hook shows a warning snack + invokes selectMicrophoneRef(null)
+ *   - startup fallback: a persisted id absent from the freshly enumerated
+ *     list falls back on mount/reload too (same snack + select path),
+ *     guarded against empty lists, load errors, and repeat-load snack spam
  *
- * Strategy: mock usePython (call), usePythonEvent (capture subscribers),
- * useSnackbar, useLastUpdated.
+ * Strategy: mock usePython (call), usePythonEvent (capture subscribers)
+ * and useSnackbar.
  */
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mocks (hoisted) ──────────────────────────────────────────────────
-const {
-	callMock,
-	usePythonEventMock,
-	showSnackMock,
-	markUpdatedMock,
-	agoLabelMock,
-} = vi.hoisted(() => ({
+const { callMock, usePythonEventMock, showSnackMock } = vi.hoisted(() => ({
 	callMock: vi.fn(),
 	usePythonEventMock: vi.fn(),
 	showSnackMock: vi.fn(),
-	markUpdatedMock: vi.fn(),
-	agoLabelMock: "just now",
 }));
 
 const stable = vi.hoisted(() => ({
@@ -54,13 +49,6 @@ vi.mock("@/hooks/useSnackbar", () => ({
 	useSnackbar: () => ({
 		showSnack: showSnackMock,
 		clearSnack: stable.clearSnack,
-	}),
-}));
-
-vi.mock("@/hooks/useLastUpdated", () => ({
-	useLastUpdated: () => ({
-		agoLabel: agoLabelMock,
-		markUpdated: markUpdatedMock,
 	}),
 }));
 
@@ -153,7 +141,6 @@ beforeEach(() => {
 	callMock.mockReset();
 	usePythonEventMock.mockReset();
 	showSnackMock.mockReset();
-	markUpdatedMock.mockReset();
 });
 
 afterEach(() => {
@@ -188,9 +175,6 @@ describe("useMicrophoneData — loadData (parallel fetch + buffering)", () => {
 		const cmds = callMock.mock.calls.map((c) => c[0]);
 		expect(cmds).toContain("get_microphones");
 		expect(cmds).toContain("get_config");
-
-		// markUpdated called in the finally block of loadData.
-		expect(markUpdatedMock).toHaveBeenCalled();
 	});
 
 	it("captures loadError when get_microphones rejects (surfaces backend-load failure)", async () => {
@@ -432,6 +416,157 @@ describe("useMicrophoneData — hot-swap fallback (active mic no longer present)
 
 		// mic-1 is still present — no fallback.
 		expect(selectMicrophoneRef.current).not.toHaveBeenCalled();
+	});
+});
+
+describe("useMicrophoneData — startup fallback for a stale persisted selection", () => {
+	it("falls back to System Default when the persisted id matches no enumerated device on mount", async () => {
+		// Root cause of the silent "Unknown" active-mic card: a persisted
+		// config.microphone id that no longer exists in the enumerated
+		// list used to render t("microphone.unknown") until some later
+		// event fired. The mount load must run the SAME fallback as the
+		// hot-swap handler.
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "get_microphones")
+				return Promise.resolve([makeMic("mic-1"), makeMic("mic-2")]);
+			if (cmd === "get_config")
+				return Promise.resolve(makeConfig({ microphone: "vanished-mount" }));
+			return Promise.resolve({});
+		});
+
+		const selectMicrophoneRef = makeSelectMicrophoneRef();
+		const { result } = renderHook(() =>
+			useMicrophoneData({ selectMicrophoneRef }),
+		);
+
+		await waitFor(() => {
+			expect(result.current.loading).toBe(false);
+		});
+		await waitFor(() => {
+			expect(selectMicrophoneRef.current).toHaveBeenCalledWith(null);
+		});
+		expect(showSnackMock).toHaveBeenCalledWith(
+			"microphone.activeMicUnavailable",
+			"warning",
+		);
+	});
+
+	it("does NOT fall back when the persisted id is still enumerated", async () => {
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "get_microphones")
+				return Promise.resolve([makeMic("ok-mic")]);
+			if (cmd === "get_config")
+				return Promise.resolve(makeConfig({ microphone: "ok-mic" }));
+			return Promise.resolve({});
+		});
+
+		const selectMicrophoneRef = makeSelectMicrophoneRef();
+		const { result } = renderHook(() =>
+			useMicrophoneData({ selectMicrophoneRef }),
+		);
+
+		await waitFor(() => {
+			expect(result.current.loading).toBe(false);
+		});
+		// Flush any late microtasks before asserting the negative.
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+		expect(selectMicrophoneRef.current).not.toHaveBeenCalled();
+		expect(showSnackMock).not.toHaveBeenCalledWith(
+			"microphone.activeMicUnavailable",
+			"warning",
+		);
+	});
+
+	it("does NOT fall back when the enumeration is empty (unreachable ≠ device gone)", async () => {
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "get_microphones") return Promise.resolve([]);
+			if (cmd === "get_config")
+				return Promise.resolve(makeConfig({ microphone: "vanished-empty" }));
+			return Promise.resolve({});
+		});
+
+		const selectMicrophoneRef = makeSelectMicrophoneRef();
+		const { result } = renderHook(() =>
+			useMicrophoneData({ selectMicrophoneRef }),
+		);
+
+		await waitFor(() => {
+			expect(result.current.loading).toBe(false);
+		});
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+		expect(selectMicrophoneRef.current).not.toHaveBeenCalled();
+		expect(showSnackMock).not.toHaveBeenCalled();
+	});
+
+	it("does NOT fall back when the load itself failed (backend unreachable)", async () => {
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "get_microphones")
+				return Promise.reject(new Error("backend unreachable"));
+			if (cmd === "get_config")
+				return Promise.resolve(makeConfig({ microphone: "vanished-error" }));
+			return Promise.resolve({});
+		});
+
+		const selectMicrophoneRef = makeSelectMicrophoneRef();
+		const { result } = renderHook(() =>
+			useMicrophoneData({ selectMicrophoneRef }),
+		);
+
+		await waitFor(() => {
+			expect(result.current.loadError).toBe("backend unreachable");
+		});
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+		expect(selectMicrophoneRef.current).not.toHaveBeenCalled();
+		expect(showSnackMock).not.toHaveBeenCalledWith(
+			"microphone.activeMicUnavailable",
+			"warning",
+		);
+	});
+
+	it("fires the fallback at most ONCE per distinct missing id across repeated reloads (no snack-spam)", async () => {
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "get_microphones") return Promise.resolve([makeMic("mic-1")]);
+			if (cmd === "get_config")
+				return Promise.resolve(makeConfig({ microphone: "vanished-repeat" }));
+			return Promise.resolve({});
+		});
+
+		const selectMicrophoneRef = makeSelectMicrophoneRef();
+		const { result } = renderHook(() =>
+			useMicrophoneData({ selectMicrophoneRef }),
+		);
+
+		await waitFor(() => {
+			expect(result.current.loading).toBe(false);
+		});
+		await waitFor(() => {
+			expect(selectMicrophoneRef.current).toHaveBeenCalledWith(null);
+		});
+
+		// The fallback triggers config_changed reloads in production
+		// (set_config persists System Default); while the SAME stale id
+		// keeps coming back from get_config, repeated loads must NOT
+		// re-snack / re-select.
+		const handler = getEventHandler("config_changed");
+		expect(handler).toBeDefined();
+		await act(async () => {
+			handler?.();
+			await new Promise((r) => setTimeout(r, 0));
+			handler?.();
+			await new Promise((r) => setTimeout(r, 0));
+		});
+
+		const unavailableSnacks = showSnackMock.mock.calls.filter(
+			(c) => c[0] === "microphone.activeMicUnavailable",
+		);
+		expect(unavailableSnacks.length).toBe(1);
+		expect(selectMicrophoneRef.current).toHaveBeenCalledTimes(1);
 	});
 });
 

@@ -1,6 +1,5 @@
 /**
- *  /  /  /  — accessibility + perf fixes for the
- * Microphone page components.
+ * Accessibility + perf pins for the Microphone page components.
  *
  * This file mounts the real components and asserts on the rendered DOM
  * (not on source substrings) so a refactor that preserves the contract
@@ -10,14 +9,14 @@
  *   - `@hugeicons/react` and `@hugeicons/core-free-icons` are stubbed
  *     so we don't pull in the real icon runtime.
  *   - `@/components/audio/AudioFilterChain` is stubbed so the
- *     AudioPresetSelector test doesn't mount the full settings row
- *     graph (irrelevant to 's memoization invariant).
+ *     PresetAccordionSelector test doesn't mount the full settings row
+ *     graph (irrelevant to its memoization invariant).
  *   - `@/i18n/i18n` is mocked with a `t` spy that returns the real
- *     English value (loaded from en.json) AND records every call so
- *      can assert that `getPresetOptions()` runs exactly once per
- *     mount instead of three times.
+ *     English value (loaded from en.json) AND records every call so we
+ *     can assert that `getPresetOptions()` runs exactly once per mount
+ *     instead of per render.
  */
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -78,10 +77,11 @@ vi.mock("@/components/audio/AudioFilterChain", () => ({
 	AudioFilterChain: () => <div data-testid="audio-filter-chain" />,
 }));
 
-import { AudioPresetSelector } from "@/components/microphone/AudioPresetSelector";
 import { MicrophoneListItem } from "@/components/microphone/MicrophoneListItem";
 import { TestReviewPanel } from "@/components/microphone/TestReviewPanel";
+import { RadioGroup } from "@/components/ui/radio-group";
 import { AvailableMicrophonesList } from "@/pages/microphone/components/AvailableMicrophonesList";
+import { PresetAccordionSelector } from "@/pages/microphone/components/PresetAccordionSelector";
 import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 
 // ── Fixtures ──────────────────────────────────────────────────────────
@@ -105,8 +105,10 @@ const micB: MicrophoneDevice = {
 	rate: 44100,
 };
 
-// Minimal VoiceTyperConfig — only the fields AudioPresetSelector itself
-// reads (audio_preset). The full object is too noisy for this unit test.
+// Minimal VoiceTyperConfig — only the fields PresetAccordionSelector
+// itself reads (audio_preset + the noise_filter_* fields handed to the
+// stubbed AudioFilterChain). The full object is too noisy for this unit
+// test.
 const minimalConfig = {
 	audio_preset: "auto",
 } as unknown as VoiceTyperConfig;
@@ -122,61 +124,67 @@ afterEach(() => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-//MicrophoneListItem 'Use' button aria-label includes mic name
+//Mic list radio rows: each row exposes an accessible name, checked
+// state tracks the selection, and items are REALLY disabled during a test.
 // ──────────────────────────────────────────────────────────────────────
-describe("BG-45: MicrophoneListItem 'Use' button has a per-mic aria-label", () => {
-	it("uses the mic name in the aria-label so SR users can distinguish buttons", () => {
+describe("BG-45: mic selection rows expose radio semantics with per-row accessible names", () => {
+	it("renders one radiogroup whose radios carry the device names (System Default included)", () => {
 		render(
-			<MicrophoneListItem
-				mic={micA}
-				isSystemDefault={false}
-				onSelect={() => {}}
+			<AvailableMicrophonesList
+				microphones={[micA, micB]}
+				activeMicId={null}
+				testRunning={false}
+				onSelectMicrophone={() => {}}
 			/>,
 		);
 
-		const useButton = document.querySelector("button");
-		expect(useButton).toBeTruthy();
-		// Visible text is the full clarified label (microphone.use →
-		// "Use this microphone").
-		expect(useButton?.textContent).toBe("Use this microphone");
-		// Accessible name includes the mic name (useMicAria key +
-		// {name} interpolation).
-		expect(useButton?.getAttribute("aria-label")).toBe(
-			"Use microphone — Blue Yeti X",
-		);
+		const group = screen.getByRole("radiogroup");
+		expect(group).toBeTruthy();
+
+		// Per-row accessible names — the regression BG-45 called out was
+		// N indistinguishable controls; each radio now announces WHICH
+		// microphone it selects.
+		expect(screen.getByRole("radio", { name: "Blue Yeti X" })).toBeTruthy();
+		expect(screen.getByRole("radio", { name: "Rode NT-USB" })).toBeTruthy();
+		expect(screen.getByRole("radio", { name: "System Default" })).toBeTruthy();
 	});
 
-	it("produces different aria-labels for different microphones", () => {
-		const { rerender } = render(
-			<MicrophoneListItem
-				mic={micA}
-				isSystemDefault={false}
-				onSelect={() => {}}
+	it("marks the active selection via aria-checked on its radio", () => {
+		render(
+			<AvailableMicrophonesList
+				microphones={[micA, micB]}
+				activeMicId="mic-a"
+				testRunning={false}
+				onSelectMicrophone={() => {}}
 			/>,
 		);
-		const labelA = document.querySelector("button")?.getAttribute("aria-label");
-		expect(labelA).toBe("Use microphone — Blue Yeti X");
 
-		rerender(
-			<MicrophoneListItem
-				mic={micB}
-				isSystemDefault={false}
-				onSelect={() => {}}
+		expect(screen.getByRole("radio", { name: "Blue Yeti X" })).toBeChecked();
+		expect(
+			screen.getByRole("radio", { name: "Rode NT-USB" }),
+		).not.toBeChecked();
+	});
+
+	it("disables every radio while a test recording is running", () => {
+		render(
+			<AvailableMicrophonesList
+				microphones={[micA, micB]}
+				activeMicId="mic-a"
+				testRunning={true}
+				onSelectMicrophone={() => {}}
 			/>,
 		);
-		const labelB = document.querySelector("button")?.getAttribute("aria-label");
-		expect(labelB).toBe("Use microphone — Rode NT-USB");
 
-		// Two different mics → two different aria-labels. This is the
-		// exact regression the finding called out (5 mics → 5 identical
-		// "Use" buttons).
-		expect(labelA).not.toBe(labelB);
+		for (const name of ["System Default", "Blue Yeti X", "Rode NT-USB"]) {
+			expect(screen.getByRole("radio", { name })).toBeDisabled();
+		}
 	});
 });
 
 // ──────────────────────────────────────────────────────────────────────
 //TestReviewPanel exposes quality updates via aria-live +
-// role=status, and hides the decorative bullet from AT.
+// role=status, hides the decorative bullet from AT, and uses the
+// theme warning token (no hardcoded palette classes).
 // ──────────────────────────────────────────────────────────────────────
 describe("BG-71: TestReviewPanel quality block is announced to AT", () => {
 	const qualityWithIssues = {
@@ -191,11 +199,13 @@ describe("BG-71: TestReviewPanel quality block is announced to AT", () => {
 		silence_ratio: 0.2,
 	};
 
-	it("wraps the quality block in an aria-live=polite region with aria-atomic", () => {
-		render(
+	function renderReviewPanel() {
+		return render(
 			<TestReviewPanel
 				durationMs={5000}
 				quality={qualityWithIssues}
+				transcription={null}
+				transcriptionUnavailable={false}
 				testAudioBase64="data:audio/wav;base64,AAAA"
 				rawAudioBase64={null}
 				playing={false}
@@ -207,6 +217,10 @@ describe("BG-71: TestReviewPanel quality block is announced to AT", () => {
 				hasFiltersEnabled={false}
 			/>,
 		);
+	}
+
+	it("wraps the quality block in an aria-live=polite region with aria-atomic", () => {
+		renderReviewPanel();
 
 		// The quality summary (containing the "Estimated Transcription
 		// Quality" label) is wrapped in an aria-live region.
@@ -218,21 +232,7 @@ describe("BG-71: TestReviewPanel quality block is announced to AT", () => {
 	});
 
 	it("marks the detected-issues heading with role=status", () => {
-		render(
-			<TestReviewPanel
-				durationMs={5000}
-				quality={qualityWithIssues}
-				testAudioBase64="data:audio/wav;base64,AAAA"
-				rawAudioBase64={null}
-				playing={false}
-				playingOriginal={false}
-				onPlayEnhanced={() => {}}
-				onPlayOriginal={() => {}}
-				onStop={() => {}}
-				onRetest={() => {}}
-				hasFiltersEnabled={false}
-			/>,
-		);
+		renderReviewPanel();
 
 		// The "Detected Issues:" heading carries role="status" so SR
 		// users are alerted when issues appear after a test. It renders as
@@ -247,10 +247,34 @@ describe("BG-71: TestReviewPanel quality block is announced to AT", () => {
 	});
 
 	it("hides the decorative bullet glyph from assistive tech", () => {
+		renderReviewPanel();
+
+		// The "•" bullet is purely decorative — its meaning is conveyed
+		// by list structure, so it must be aria-hidden. It uses the theme
+		// warning TOKEN (text-warning), never a hardcoded palette class
+		// like text-amber-500.
+		const bulletSpans = Array.from(
+			document.querySelectorAll("span.text-warning"),
+		).filter((el) => el.textContent === "•");
+		expect(bulletSpans.length).toBeGreaterThanOrEqual(1);
+		for (const span of bulletSpans) {
+			expect(span.getAttribute("aria-hidden")).toBe("true");
+			expect(span.className).not.toContain("amber");
+		}
+	});
+});
+
+// ──────────────────────────────────────────────────────────────────────
+//TestReviewPanel transcription display ("You said" / unavailable copy).
+// ──────────────────────────────────────────────────────────────────────
+describe("TestReviewPanel test-transcription display", () => {
+	it("renders the transcription under the You-said label when present", () => {
 		render(
 			<TestReviewPanel
 				durationMs={5000}
-				quality={qualityWithIssues}
+				quality={null}
+				transcription="hello world"
+				transcriptionUnavailable={false}
 				testAudioBase64="data:audio/wav;base64,AAAA"
 				rawAudioBase64={null}
 				playing={false}
@@ -263,28 +287,71 @@ describe("BG-71: TestReviewPanel quality block is announced to AT", () => {
 			/>,
 		);
 
-		// The "•" bullet is purely decorative — its meaning is conveyed
-		// by list structure, so it must be aria-hidden.
-		const bulletSpans = Array.from(
-			document.querySelectorAll("span.text-amber-500"),
-		).filter((el) => el.textContent === "•");
-		expect(bulletSpans.length).toBeGreaterThanOrEqual(1);
-		for (const span of bulletSpans) {
-			expect(span.getAttribute("aria-hidden")).toBe("true");
-		}
+		expect(screen.getByText("You said")).toBeTruthy();
+		expect(screen.getByTestId("test-transcription").textContent).toBe(
+			"hello world",
+		);
+	});
+
+	it("renders the localized explanation when no model can transcribe", () => {
+		render(
+			<TestReviewPanel
+				durationMs={5000}
+				quality={null}
+				transcription={null}
+				transcriptionUnavailable={true}
+				testAudioBase64="data:audio/wav;base64,AAAA"
+				rawAudioBase64={null}
+				playing={false}
+				playingOriginal={false}
+				onPlayEnhanced={() => {}}
+				onPlayOriginal={() => {}}
+				onStop={() => {}}
+				onRetest={() => {}}
+				hasFiltersEnabled={false}
+			/>,
+		);
+
+		expect(screen.getByText("You said")).toBeTruthy();
+		expect(
+			screen.getByTestId("test-transcription-unavailable").textContent,
+		).toBe(enFlat.get("microphone.transcriptionUnavailable"));
+	});
+
+	it("renders neither line without transcription data", () => {
+		render(
+			<TestReviewPanel
+				durationMs={5000}
+				quality={null}
+				transcription={null}
+				transcriptionUnavailable={false}
+				testAudioBase64="data:audio/wav;base64,AAAA"
+				rawAudioBase64={null}
+				playing={false}
+				playingOriginal={false}
+				onPlayEnhanced={() => {}}
+				onPlayOriginal={() => {}}
+				onStop={() => {}}
+				onRetest={() => {}}
+				hasFiltersEnabled={false}
+			/>,
+		);
+
+		expect(screen.queryByText("You said")).toBeNull();
+		expect(screen.queryByTestId("test-transcription")).toBeNull();
 	});
 });
 
 // ──────────────────────────────────────────────────────────────────────
-//AvailableMicrophonesList uses real list semantics (ul/li).
+//AvailableMicrophonesList keeps real list semantics (ul/li) around the
+// unified radio rows.
 // ──────────────────────────────────────────────────────────────────────
 describe("BG-72: AvailableMicrophonesList renders a real list with ul/li + roles", () => {
 	it("wraps the mic rows in a <ul role=list>", () => {
 		render(
 			<AvailableMicrophonesList
 				microphones={[micA, micB]}
-				otherMicrophones={[micA, micB]}
-				isSystemDefault={false}
+				activeMicId={null}
 				testRunning={false}
 				onSelectMicrophone={() => {}}
 			/>,
@@ -299,53 +366,29 @@ describe("BG-72: AvailableMicrophonesList renders a real list with ul/li + roles
 		expect(ul.tagName.toLowerCase()).toBe("ul");
 	});
 
-	it("renders one <li role=listitem> per row (system default + each mic)", () => {
+	it("renders one <li role=listitem> per row (system default + every device)", () => {
 		render(
 			<AvailableMicrophonesList
 				microphones={[micA, micB]}
-				otherMicrophones={[micA, micB]}
-				isSystemDefault={false}
+				activeMicId="mic-a"
 				testRunning={false}
 				onSelectMicrophone={() => {}}
 			/>,
 		);
 
-		// 1 system-default row + 2 mic rows = 3 list items. Native <li>
-		// elements expose the "listitem" role implicitly.
+		// 1 system-default row + 2 device rows = 3 list items. The ACTIVE
+		// device is present too (radio groups need the selected option in
+		// the set). Native <li> elements expose the "listitem" role
+		// implicitly.
 		const items = screen.getAllByRole("listitem");
 		expect(items.length).toBe(3);
-	});
-
-	it("renders the no-other-mics notice as a list item (not a bare div)", () => {
-		render(
-			<AvailableMicrophonesList
-				microphones={[micA]}
-				otherMicrophones={[]}
-				isSystemDefault={false}
-				testRunning={false}
-				onSelectMicrophone={() => {}}
-			/>,
-		);
-
-		// 1 system-default row + 1 "no other mics" notice row = 2 items.
-		const items = screen.getAllByRole("listitem");
-		expect(items.length).toBe(2);
-
-		// The "No other microphones available" text lives inside a real
-		// <li> (which exposes the listitem role), not a bare <div>.
-		const notice = items.find((li) =>
-			li.textContent?.includes("No other microphones available"),
-		);
-		expect(notice).toBeTruthy();
-		expect(notice?.tagName.toLowerCase()).toBe("li");
 	});
 
 	it("does not render any bare <div> as a direct child of the list (all rows are <li>)", () => {
 		render(
 			<AvailableMicrophonesList
 				microphones={[micA, micB]}
-				otherMicrophones={[micA, micB]}
-				isSystemDefault={false}
+				activeMicId={null}
 				testRunning={false}
 				onSelectMicrophone={() => {}}
 			/>,
@@ -361,21 +404,17 @@ describe("BG-72: AvailableMicrophonesList renders a real list with ul/li + roles
 });
 
 // ──────────────────────────────────────────────────────────────────────
-//AudioPresetSelector memoizes getPresetOptions() instead of
-// calling it 3× per render.
+//PresetAccordionSelector memoizes getPresetOptions() instead of
+// calling it inline per render.
 // ──────────────────────────────────────────────────────────────────────
-describe("BG-94: AudioPresetSelector memoizes getPresetOptions() to a single call per mount", () => {
+describe("BG-94: PresetAccordionSelector memoizes getPresetOptions() to a single call per mount", () => {
 	it("calls t('settings.audioEnhancement.presetAuto') exactly once on initial render", () => {
-		// Before the fix, getPresetOptions() was invoked inline at
-		// three sites (header label, <Select> options, description
-		// lookup). Each call internally calls t() for every preset's
-		// label + description (10 keys total, including
-		// presetAuto). With 3 inline call sites, presetAuto would be
-		// looked up 3 times per render. After the fix, the array is
-		// memoized via useMemo(() => getPresetOptions(), []) so each
-		// preset key is looked up exactly once.
+		// The option array is built inside useMemo(() =>
+		// getPresetOptions(), []) so each preset label/description key is
+		// looked up exactly once per mount, no matter how often the
+		// component re-renders (level pushes re-render the parent card).
 		render(
-			<AudioPresetSelector
+			<PresetAccordionSelector
 				preset="auto"
 				config={minimalConfig}
 				showAdvanced={true}
@@ -400,7 +439,7 @@ describe("BG-94: AudioPresetSelector memoizes getPresetOptions() to a single cal
 
 	it("does NOT re-call getPresetOptions() on re-render when props change", () => {
 		const { rerender } = render(
-			<AudioPresetSelector
+			<PresetAccordionSelector
 				preset="auto"
 				config={minimalConfig}
 				showAdvanced={true}
@@ -419,7 +458,7 @@ describe("BG-94: AudioPresetSelector memoizes getPresetOptions() to a single cal
 		// is NOT called again — presetAuto should still have been
 		// called only once total.
 		rerender(
-			<AudioPresetSelector
+			<PresetAccordionSelector
 				preset="studio"
 				config={minimalConfig}
 				showAdvanced={true}
@@ -435,36 +474,153 @@ describe("BG-94: AudioPresetSelector memoizes getPresetOptions() to a single cal
 		expect(callsAfterRerender).toBe(1);
 	});
 
-	it("still renders the correct header label + Select options + description for the current preset", () => {
-		// Behavioral smoke test: even with memoization, the visible
-		// DOM must still show the right preset's label and
-		// description.
-		render(
-			<AudioPresetSelector
+	it("shows the current selection in the collapsed header and applies a radio pick immediately", () => {
+		const handlePresetChange = vi.fn();
+		const { rerender } = render(
+			<PresetAccordionSelector
 				preset="studio"
 				config={minimalConfig}
-				showAdvanced={true}
-				onPresetChange={() => {}}
+				showAdvanced={false}
+				onPresetChange={handlePresetChange}
 				onToggleAdvanced={() => {}}
 				onConfigChange={() => {}}
 			/>,
 		);
 
-		// Header label (chevron span) should contain "Studio".
-		// Use text-based lookup since the Tailwind class
-		// `text-(--text-muted)` contains parens that break CSS
-		// selectors. We expect the header to render the current
-		// preset's label, which for "studio" is the EN value
-		// "Studio".
-		const allSpans = Array.from(document.querySelectorAll("span"));
-		const headerText = allSpans.map((s) => s.textContent ?? "").join(" ");
-		expect(headerText).toContain("Studio");
+		// Collapsed header shows the section label + CURRENT selection.
+		expect(screen.getByText("Microphone Quality")).toBeTruthy();
+		expect(screen.getByTestId("mic-preset-current").textContent).toBe(
+			"Studio (clean environment)",
+		);
 
-		// The Select trigger renders the current preset's label.
-		const selectTrigger =
-			document.querySelector("[data-slot='select-trigger']") ??
-			document.querySelector("button[role='combobox']");
-		expect(selectTrigger).toBeTruthy();
-		expect(selectTrigger?.textContent).toContain("Studio");
+		// Expand, then pick another preset via its radio.
+		fireEvent.click(screen.getByRole("button", { expanded: false }));
+		fireEvent.click(screen.getByRole("radio", { name: "Off (raw audio)" }));
+		expect(handlePresetChange).toHaveBeenCalledWith("off");
+
+		// After the prop flips, the collapsed label follows.
+		rerender(
+			<PresetAccordionSelector
+				preset="off"
+				config={minimalConfig}
+				showAdvanced={false}
+				onPresetChange={handlePresetChange}
+				onToggleAdvanced={() => {}}
+				onConfigChange={() => {}}
+			/>,
+		);
+		expect(screen.getByTestId("mic-preset-current").textContent).toBe(
+			"Off (raw audio)",
+		);
+	});
+
+	it("reveals the Custom-filters disclosure only under the custom preset", () => {
+		let showAdvanced = false;
+		const handleToggleAdvanced = () => {
+			showAdvanced = !showAdvanced;
+		};
+		const { rerender } = render(
+			<PresetAccordionSelector
+				preset="auto"
+				config={minimalConfig}
+				showAdvanced={showAdvanced}
+				onPresetChange={() => {}}
+				onToggleAdvanced={handleToggleAdvanced}
+				onConfigChange={() => {}}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+		// Not custom → no Custom-filters toggle, no filter chain.
+		expect(screen.queryByText("Custom filters")).toBeNull();
+
+		rerender(
+			<PresetAccordionSelector
+				preset="custom"
+				config={minimalConfig}
+				showAdvanced={showAdvanced}
+				onPresetChange={() => {}}
+				onToggleAdvanced={handleToggleAdvanced}
+				onConfigChange={() => {}}
+			/>,
+		);
+
+		expect(screen.getByText("Custom filters")).toBeTruthy();
+		expect(
+			document.querySelector('[data-testid="audio-filter-chain"]'),
+		).toBeFalsy();
+
+		// Progressive disclosure: the toggle reveals the filter chain.
+		fireEvent.click(screen.getByText("Custom filters"));
+		rerender(
+			<PresetAccordionSelector
+				preset="custom"
+				config={minimalConfig}
+				showAdvanced={showAdvanced}
+				onPresetChange={() => {}}
+				onToggleAdvanced={handleToggleAdvanced}
+				onConfigChange={() => {}}
+			/>,
+		);
+		expect(
+			document.querySelector('[data-testid="audio-filter-chain"]'),
+		).toBeTruthy();
+	});
+});
+
+// ──────────────────────────────────────────────────────────────────────
+//MicrophoneListItem: badge + row rendering for the unified radio list.
+// ──────────────────────────────────────────────────────────────────────
+describe("MicrophoneListItem radio row", () => {
+	function renderRowInGroup(ui: React.ReactElement) {
+		// Radix RadioGroupItem requires a Root ancestor (production always
+		// renders rows inside the list's single RadioGroup).
+		return render(<RadioGroup>{ui}</RadioGroup>);
+	}
+
+	it("renders the OS-default badge with the accent foreground token when not the active selection", () => {
+		renderRowInGroup(
+			<MicrophoneListItem
+				mic={{ ...micA, default: true }}
+				checked={false}
+				showDefaultBadge={true}
+				disabled={false}
+				onSelect={() => {}}
+			/>,
+		);
+
+		const badge = screen.getByText("Default");
+		expect(badge.className).toContain("bg-accent");
+		expect(badge.className).toContain("text-accent-foreground");
+		expect(badge.className).not.toContain("text-white");
+	});
+
+	it("omits the badge when the OS default IS the active selection", () => {
+		renderRowInGroup(
+			<MicrophoneListItem
+				mic={{ ...micA, default: true }}
+				checked={true}
+				showDefaultBadge={false}
+				disabled={false}
+				onSelect={() => {}}
+			/>,
+		);
+
+		expect(screen.queryByText("Default")).toBeNull();
+	});
+
+	it("exposes the mic name as the radio's accessible name", () => {
+		renderRowInGroup(
+			<MicrophoneListItem
+				mic={micA}
+				checked={false}
+				showDefaultBadge={false}
+				disabled={false}
+				onSelect={() => {}}
+			/>,
+		);
+
+		expect(screen.getByRole("radio", { name: "Blue Yeti X" })).toBeTruthy();
 	});
 });

@@ -12,6 +12,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MicrophoneListItem } from "@/components/microphone/MicrophoneListItem";
+import { RadioGroup } from "@/components/ui/radio-group";
 import type { MicrophoneDevice } from "@/types/config";
 
 vi.mock("@/i18n/i18n", () => ({
@@ -24,31 +25,39 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-function renderRow(mic: Partial<MicrophoneDevice>) {
+function renderRow(mic: Partial<MicrophoneDevice>, checked = false) {
+	// Radix RadioGroupItem requires a Root ancestor (production always
+	// renders rows inside the list's single RadioGroup).
 	return render(
-		<MicrophoneListItem
-			mic={{ id: "default", name: "Test Mic", ...mic } as MicrophoneDevice}
-			isSystemDefault={false}
-			onSelect={() => {}}
-		/>,
+		<RadioGroup>
+			<MicrophoneListItem
+				mic={{ id: "default", name: "Test Mic", ...mic } as MicrophoneDevice}
+				checked={checked}
+				showDefaultBadge={!checked}
+				disabled={false}
+				onSelect={() => {}}
+			/>
+		</RadioGroup>,
 	);
 }
 
-describe("MicrophoneListItem System Default badge uses the accent foreground token", () => {
+describe("MicrophoneListItem OS-default badge uses the accent foreground token", () => {
 	afterEach(() => {
 		cleanup();
 	});
 
 	it("renders the badge with text-accent-foreground (never hardcoded text-white)", () => {
 		renderRow({ default: true });
-		const badge = screen.getByText("microphone.systemDefault");
+		const badge = screen.getByText("microphone.osDefaultBadge");
 		expect(badge.className).toContain("bg-accent");
 		expect(badge.className).toContain("text-accent-foreground");
 		expect(badge.className).not.toContain("text-white");
 	});
 
-	it("does not render the badge for a non-default device", () => {
-		renderRow({ default: false });
-		expect(screen.queryByText("microphone.systemDefault")).toBeNull();
+	it("does not render the badge when the OS default IS the active selection", () => {
+		// checked=true → the parent suppresses showDefaultBadge (the
+		// selected System Default row already communicates the state).
+		renderRow({ default: true }, true);
+		expect(screen.queryByText("microphone.osDefaultBadge")).toBeNull();
 	});
 });

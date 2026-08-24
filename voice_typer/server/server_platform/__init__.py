@@ -222,9 +222,11 @@ from .microphone_list import (  # noqa: E402
     find_microphone_by_name,
     invalidate_microphone_list_cache,
     list_microphones,
+    resolve_mic_id_to_device_index,
 )
 from .platform_flags import is_linux, is_macos, is_windows  # noqa: E402
 from .remote_session import (  # noqa: E402
+    _is_invalid_device_name,
     _is_non_mic_device,
     is_remote_session,
 )
@@ -264,11 +266,13 @@ __all__ = [
     # remote_session
     "is_remote_session",
     "_is_non_mic_device",
+    "_is_invalid_device_name",
     # microphone_list
     "list_microphones",
     "find_microphone_by_name",
     "find_microphone_by_id",
     "invalidate_microphone_list_cache",
+    "resolve_mic_id_to_device_index",
     "_sd_dev_as_dict",
     # volume_factory
     "get_volume_backend",

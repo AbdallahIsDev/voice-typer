@@ -21,7 +21,9 @@
  *  • point 3 — "Import Model" renders only on the Local Models tab.
  *  • point 4 — downloads route through
  *    `lifecycle.handleDownloadModel`, the just-in-time HuggingFace
- *    consent gate (toast with a one-click "Grant consent" action).
+ *    consent gate (shared point-of-use consent dialog via
+ *    `openConsentGate`; Allow persists the consent and continues the
+ *    download).
  */
 
 import {

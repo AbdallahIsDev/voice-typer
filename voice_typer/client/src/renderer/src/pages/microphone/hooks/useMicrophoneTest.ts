@@ -3,7 +3,7 @@
 // Formerly a 625-LOC monolith; now a thin composition root over three
 // focused hooks (``useMicrophoneLevelMonitor`` /
 // ``useMicrophoneTestSession`` / ``useMicrophonePlayback``) plus the
-// trivial UI-only state (testDurationSec / showAdvanced) +
+// trivial UI-only state (showAdvanced) +
 // ``handlePresetChange`` / ``handleConfigChange`` wrappers + the
 // cross-hook ``testRunningRef`` (synced by the session hook, read by
 // the level monitor). Public return shape unchanged.
@@ -19,7 +19,6 @@ import {
 	type SetStateAction,
 	useCallback,
 	useRef,
-	useState,
 } from "react";
 import type { AudioPreset } from "@/components/microphone/AudioPresetSelector";
 import { useFilterState } from "@/hooks/useFilterState";
@@ -68,6 +67,10 @@ export interface UseMicrophoneTestResult {
 	rawAudioBase64: string | null;
 	testDurationMs: number;
 	testQuality: TestResultQuality | null;
+	/** Best-effort auto-transcription from the last test (backend-provided). */
+	testTranscription: string | null;
+	/** True when the backend could not transcribe the last test recording. */
+	testTranscriptionUnavailable: boolean;
 	level: number;
 	peak: number;
 	/** Live level ref (mutated at ≤30 Hz by ``mic_level`` events). */
@@ -75,13 +78,6 @@ export interface UseMicrophoneTestResult {
 	/** Live peak ref (mutated at ≤30 Hz by ``mic_level`` events). */
 	peakRef: MutableRefObject<number>;
 	micMonitoring: boolean;
-	/**
-	 *  True when level monitoring is blocked by the voice-biometric
-	 * consent toggle (the page renders the consent banner instead of a
-	 * silently dead meter).
-	 */
-	consentBlocked: boolean;
-	testDurationSec: number;
 	showAdvanced: boolean;
 	filtersSinceLastTest: string;
 	playingEnhanced: boolean;
@@ -95,7 +91,6 @@ export interface UseMicrophoneTestResult {
 	handlePresetChange: (preset: AudioPreset) => void;
 	handleConfigChange: (updates: Partial<VoiceTyperConfig>) => void;
 	// Setters
-	setTestDurationSec: Dispatch<SetStateAction<number>>;
 	setShowAdvanced: Dispatch<SetStateAction<boolean>>;
 }
 
@@ -111,8 +106,6 @@ export function useMicrophoneTest({
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
 
-	// Fix 15: user-configurable test recording duration (3–30s).
-	const [testDurationSec, setTestDurationSec] = useState(10);
 	// ADR 0007: Audio preset + filter state lives in ``config`` directly.
 	// (XA-5-4): persist the "Show advanced filters" expand toggle across
 	// page navigation so a user who expanded the advanced panel to tweak
@@ -185,7 +178,6 @@ export function useMicrophoneTest({
 		updateConfig,
 		showSnack,
 		t,
-		testDurationSec,
 		setLevel: levelMonitor.setLevel,
 		setPeak: levelMonitor.setPeak,
 		setMicMonitoring: levelMonitor.setMicMonitoring,
@@ -219,7 +211,6 @@ export function useMicrophoneTest({
 		levelRef: levelMonitor.levelRef,
 		peakRef: levelMonitor.peakRef,
 		micMonitoring: levelMonitor.micMonitoring,
-		consentBlocked: levelMonitor.consentBlocked,
 		testRunning: session.testRunning,
 		testCountdown: session.testCountdown,
 		testElapsed: session.testElapsed,
@@ -227,10 +218,11 @@ export function useMicrophoneTest({
 		rawAudioBase64: session.rawAudioBase64,
 		testDurationMs: session.testDurationMs,
 		testQuality: session.testQuality,
+		testTranscription: session.testTranscription,
+		testTranscriptionUnavailable: session.testTranscriptionUnavailable,
 		filtersSinceLastTest: session.filtersSinceLastTest,
 		playingEnhanced: playback.playingEnhanced,
 		playingOriginal: playback.playingOriginal,
-		testDurationSec,
 		showAdvanced,
 		startTest: session.startTest,
 		stopTest: session.stopTest,
@@ -239,7 +231,6 @@ export function useMicrophoneTest({
 		stopPlayback: playback.stopPlayback,
 		handlePresetChange,
 		handleConfigChange,
-		setTestDurationSec,
 		setShowAdvanced,
 	};
 }

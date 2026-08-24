@@ -52,7 +52,6 @@ class TestNonStringHotkeyCoercion:
         cfg = SimpleNamespace(
             hotkey=123,  # type: ignore[assignment]
             repaste_hotkey="<f6>",
-            push_to_talk_hotkey="<f7>",
         )
         captured: dict = {}
 
@@ -74,9 +73,8 @@ class TestNonStringHotkeyCoercion:
         assert "field_values" in captured, "_check_cross_field_hotkey_conflicts was not invoked — patch failed"
         fv = captured["field_values"]
         assert fv["hotkey"] is None, f"expected hotkey coerced to None, got {fv['hotkey']!r}"
-        # The legitimate string hotkeys pass through unchanged.
+        # The legitimate string hotkey passes through unchanged.
         assert fv["repaste_hotkey"] == "<f6>"
-        assert fv["push_to_talk_hotkey"] == "<f7>"
 
     def test_bool_hotkey_coerced_to_none(self) -> None:
         """``hotkey = True`` (bool from a hand-edited config.json) is
@@ -85,7 +83,6 @@ class TestNonStringHotkeyCoercion:
         cfg = SimpleNamespace(
             hotkey=True,  # type: ignore[assignment]
             repaste_hotkey="<f6>",
-            push_to_talk_hotkey="<f7>",
         )
         captured: dict = {}
 
@@ -110,7 +107,6 @@ class TestNonStringHotkeyCoercion:
         cfg = SimpleNamespace(
             hotkey=["<ctrl>", "<space>"],  # type: ignore[assignment]
             repaste_hotkey="<f6>",
-            push_to_talk_hotkey="<f7>",
         )
         captured: dict = {}
 
@@ -128,8 +124,8 @@ class TestNonStringHotkeyCoercion:
         fv = captured["field_values"]
         assert fv["hotkey"] is None, f"expected list hotkey coerced to None, got {fv['hotkey']!r}"
 
-    def test_all_three_hotkeys_non_string_does_not_raise(self) -> None:
-        """If ALL three hotkey fields are non-string (e.g. a corrupted
+    def test_all_hotkeys_non_string_does_not_raise(self) -> None:
+        """If ALL hotkey fields are non-string (e.g. a corrupted
         config where every hotkey is an int), :func:`validate_config`
         must NOT raise and must pass ``None`` for each to the
         cross-field helper.
@@ -137,7 +133,6 @@ class TestNonStringHotkeyCoercion:
         cfg = SimpleNamespace(
             hotkey=123,  # type: ignore[assignment]
             repaste_hotkey=456,  # type: ignore[assignment]
-            push_to_talk_hotkey=789,  # type: ignore[assignment]
         )
         captured: dict = {}
 
@@ -156,7 +151,6 @@ class TestNonStringHotkeyCoercion:
         assert fv == {
             "hotkey": None,
             "repaste_hotkey": None,
-            "push_to_talk_hotkey": None,
         }, f"expected all-None hotkey_values, got {fv!r}"
 
     def test_string_hotkey_not_coerced(self) -> None:
@@ -168,7 +162,6 @@ class TestNonStringHotkeyCoercion:
         cfg = SimpleNamespace(
             hotkey="<f5>",
             repaste_hotkey="<f6>",
-            push_to_talk_hotkey="<f7>",
         )
         captured: dict = {}
 
@@ -193,7 +186,6 @@ class TestNonStringHotkeyCoercion:
         cfg = SimpleNamespace(
             hotkey="<f5>",  # valid string
             repaste_hotkey=0,  # type: ignore[assignment]  # non-string (int 0)
-            push_to_talk_hotkey=None,  # explicit None
         )
         captured: dict = {}
 
@@ -211,7 +203,6 @@ class TestNonStringHotkeyCoercion:
         fv = captured["field_values"]
         assert fv["hotkey"] == "<f5>", "string hotkey should pass through"
         assert fv["repaste_hotkey"] is None, f"int 0 hotkey should be coerced to None, got {fv['repaste_hotkey']!r}"
-        assert fv["push_to_talk_hotkey"] is None, "explicit None hotkey should remain None"
 
     def test_validate_config_returns_list_without_raising(self) -> None:
         """End-to-end: ``validate_config`` on a config with non-string
@@ -220,7 +211,6 @@ class TestNonStringHotkeyCoercion:
         cfg = SimpleNamespace(
             hotkey=123,  # type: ignore[assignment]
             repaste_hotkey=456,  # type: ignore[assignment]
-            push_to_talk_hotkey=789,  # type: ignore[assignment]
         )
         # No patch — exercise the real cross-field check too. The
         # non-string values are coerced to None, so the real
@@ -240,7 +230,6 @@ class TestNonStringHotkeyCoercion:
             {
                 "hotkey": None,
                 "repaste_hotkey": None,
-                "push_to_talk_hotkey": None,
             }
         )
         assert errors == [], f"expected no conflicts for all-None hotkeys, got {errors}"

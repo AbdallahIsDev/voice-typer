@@ -151,8 +151,9 @@ vi.mock("next-themes", () => ({
 	useTheme: () => ({ theme: "light" as const }),
 }));
 
-import ModelsPage from "@/pages/Models";
 // ─── Module imports (after vi.mock — these run with mocks in place) ───
+import { useConsentGateStore } from "@/lib/consentGate";
+import ModelsPage from "@/pages/Models";
 import type { VoiceTyperConfig } from "@/types/config";
 
 // ─── Helpers ───────────────────────────────────────────────────────────
@@ -196,7 +197,6 @@ function makeConfig(
 		corrections_path: null,
 		log_transcriptions: false,
 		recording_mode: "toggle",
-		push_to_talk_hotkey: "",
 		esc_cancel_enabled: true,
 		repaste_hotkey: "",
 		auto_punctuation: false,
@@ -788,6 +788,10 @@ describe("Models page — cloud consent toggles", () => {
 		vi.clearAllMocks();
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
+		// The shared consent gate is module-level zustand state —
+		// reset it so a request opened by one test can't leak into
+		// the next.
+		useConsentGateStore.setState({ request: null });
 		// The page persists the active tab (Local / Cloud) in
 		// sessionStorage — clear it so every test starts on the
 		// default Local tab regardless of what a previous test did.
@@ -984,28 +988,24 @@ describe("Models page — cloud consent toggles", () => {
 		);
 	});
 
-	it("blocks a download until HF consent is granted, then grants it in one click via the JIT toast", async () => {
-		// Python invariant (test_models_has_hugging_face_consent_banner):
-		//   't("models.hfConsent.jitMessage")' in src
-		//   't("models.hfConsent.grant")' in src
-		//   "setHuggingFaceConsent" in src
-		//
-		// (UI/UX overhaul point 4): the persistent HuggingFace consent
-		// banner was REMOVED. Consent is now checked only at the moment
-		// the user clicks a model's Download button:
-		//   • no banner on page load;
+	it("opens the shared consent dialog on download and continues the download after Allow", async () => {
+		// The persistent HuggingFace consent banner was REMOVED, and the
+		// interim "transient toast with a Grant action" was replaced by
+		// the SHARED point-of-use consent dialog (`openConsentGate` —
+		// the same modal every other consent-gated flow uses). Contract:
+		//   • no consent UI on page load;
 		//   • clicking Download with consent missing does NOT fire
-		//     download_model — instead a transient warning toast appears
-		//     with a "Grant consent" action;
-		//   • clicking that action persists huggingface_consent=true
-		//     AND proceeds with the download (single click, no Settings
-		//     navigation).
+		//     download_model — it opens the shared dialog request with
+		//     the huggingface_consent field + body key;
+		//   • Allow persists huggingface_consent=true (persistence itself
+		//     is covered by ConsentGateDialog.test.tsx) and re-invokes
+		//     the blocked download.
 		await renderModels(
 			{ huggingface_consent: false },
 			{ switchToCloudTab: false },
 		);
 
-		// No persistent banner on the Local Models tab anymore.
+		// No persistent consent UI on the Local Models tab.
 		expect(
 			screen.queryByText(/huggingface download consent required/i),
 		).toBeNull();
@@ -1023,43 +1023,71 @@ describe("Models page — cloud consent toggles", () => {
 		});
 		fireEvent.click(downloadButton);
 
-		// The download is BLOCKED — no download_model IPC fired. A
-		// transient toast with a "Grant consent" action is shown
-		// instead (via showSnack → the app's sonner toaster).
+		// The download is BLOCKED — no download_model IPC fired — and
+		// the shared gate opens instead of a transient toast.
 		await waitFor(() => {
-			expect(stable.showSnack).toHaveBeenCalledWith(
-				expect.stringMatching(/hugging face download consent is required/i),
-				"warning",
-				expect.objectContaining({
-					action: expect.objectContaining({
-						label: "Grant consent",
-					}),
-				}),
-			);
+			const req = useConsentGateStore.getState().request;
+			expect(req).not.toBeNull();
+			expect(req?.consentField).toBe("huggingface_consent");
+			expect(req?.bodyKey).toBe("consentDialog.field.huggingface_consent");
 		});
 		expect(mockCall).not.toHaveBeenCalledWith("download_model", {
 			model: "tiny",
 		});
+		expect(stable.showSnack).not.toHaveBeenCalledWith(
+			expect.stringMatching(/hugging face download consent is required/i),
+			"warning",
+			expect.anything(),
+		);
+		expect(useConsentGateStore.getState().request?.onAllow).toBeDefined();
 
-		// One click on the toast's action resolves everything:
-		// consent is persisted AND the download proceeds.
-		const snackCalls = stable.showSnack.mock.calls;
-		const lastSnackCall = snackCalls[snackCalls.length - 1];
-		const action = lastSnackCall?.[2]?.action;
-		expect(action).toBeDefined();
+		// Allow → the blocked download continues (the dialog has already
+		// persisted huggingface_consent=true by this point in the real
+		// flow).
+		const onAllow = useConsentGateStore.getState().request?.onAllow;
 		await act(async () => {
-			action?.onClick();
-		});
-
-		await waitFor(() => {
-			expect(lastSetConfigPayload()).toMatchObject({
-				huggingface_consent: true,
-			});
+			await onAllow?.();
 		});
 		await waitFor(() => {
 			expect(mockCall).toHaveBeenCalledWith("download_model", {
 				model: "tiny",
 			});
+		});
+	});
+
+	it("downloads immediately WITHOUT opening the consent dialog when HF consent is already granted", async () => {
+		// State-driven: once granted, the dialog must never nag again.
+		useConsentGateStore.setState({ request: null });
+		await renderModels(
+			{ huggingface_consent: true },
+			{ switchToCloudTab: false },
+		);
+		fireEvent.click(screen.getByRole("button", { name: /download tiny/i }));
+		await waitFor(() => {
+			expect(mockCall).toHaveBeenCalledWith("download_model", {
+				model: "tiny",
+			});
+		});
+		expect(useConsentGateStore.getState().request).toBeNull();
+	});
+
+	it("leaves the download blocked when the consent dialog is cancelled", async () => {
+		useConsentGateStore.setState({ request: null });
+		await renderModels(
+			{ huggingface_consent: false },
+			{ switchToCloudTab: false },
+		);
+		fireEvent.click(screen.getByRole("button", { name: /download tiny/i }));
+		await waitFor(() => {
+			expect(useConsentGateStore.getState().request).not.toBeNull();
+		});
+		// Cancel = close without granting.
+		act(() => {
+			useConsentGateStore.getState().close();
+		});
+		expect(useConsentGateStore.getState().request).toBeNull();
+		expect(mockCall).not.toHaveBeenCalledWith("download_model", {
+			model: "tiny",
 		});
 	});
 

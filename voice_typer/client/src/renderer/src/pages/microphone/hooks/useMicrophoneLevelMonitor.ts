@@ -46,13 +46,17 @@
 //
 // ``setLevel`` / ``setPeak`` remain as React state setters so
 // ``useMicrophoneTestSession`` can reset the meter to 0 on test
-// start / stop / mic-change (rare, sub-Hz events). The ``level`` /
-// ``peak`` STATE values are only updated on those resets — they're
-// intentionally stale during mic monitoring so the parent doesn't
-// re-render at 30 Hz. The live visual update happens through the rAF
-// loop's imperative DOM writes, which produce the same visual result
-// (LevelBar width + colour update at ≤60 Hz, smoother than the prior
-// 30 Hz React-driven updates).
+// start / stop / mic-change (rare, sub-Hz events). The rAF loop ALSO
+// throttles the latest ref values into React state at a low fixed
+// cadence (``LEVEL_STATE_SYNC_INTERVAL_MS``, ~8 Hz) — state-bound
+// consumers that are NOT the bar fill depend on it:
+// ``ActiveMicrophoneCard``'s "Level: NN%" text, ``LevelBar``'s
+// ``aria-valuenow``/``aria-valuetext`` (the accessible value AT reads),
+// the clipping indicator, and ``LiveQualityFeedback``'s voice/tier
+// feedback. Without this sync those consumers freeze at the last reset
+// while only the bar fill moves. ~8 Hz keeps the parent re-render cost
+// far below the old 30 Hz setState-per-push path while staying well
+// above what a text readout / SR announcement needs.
 //
 // ──  dead-code ``handleVisibility`` removed ──
 //
@@ -153,13 +157,6 @@ export interface UseMicrophoneLevelMonitorResult {
 	setPeak: Dispatch<SetStateAction<number>>;
 	/** Exposed so the session hook can mark monitoring inactive on mic change. */
 	setMicMonitoring: Dispatch<SetStateAction<boolean>>;
-	/**
-	 *  True when level monitoring is blocked because
-	 * ``config.voice_biometric_consent`` is off. The Microphone page
-	 * renders an explanatory consent banner (with a deep-link to the
-	 * Settings toggle) instead of a silently dead meter.
-	 */
-	consentBlocked: boolean;
 }
 
 // ──  LevelBar colour ladder ────────────────────────────────────
@@ -212,10 +209,10 @@ export function useMicrophoneLevelMonitor({
 
 	//  live level/peak refs. Mutated by the ``mic_level`` push
 	// handler at ≤30 Hz WITHOUT calling ``setLevel`` / ``setPeak`` — the
-	// rAF loop reads these refs and writes the latest values to the DOM
-	// imperatively. The React state (``level`` / ``peak``) is only
-	// updated on test start/stop/mic-change resets (rare, sub-Hz), so
-	// the parent ``Microphone.tsx`` doesn't re-render at 30 Hz.
+	// rAF loop reads these refs, writes the latest values to the DOM
+	// imperatively, and throttles them into React state at ~8 Hz (see
+	// ``LEVEL_STATE_SYNC_INTERVAL_MS`` below). The push handler itself
+	// never calls setState, so the parent doesn't re-render at 30 Hz.
 	const levelRef = useRef(0);
 	const peakRef = useRef(0);
 
@@ -251,7 +248,6 @@ export function useMicrophoneLevelMonitor({
 	// stop — the backend stream for a vanished device is dead weight.
 	// Flipping ``paused`` back to false re-runs this effect, which
 	// restarts monitoring without any extra imperative plumbing.
-	const consentBlocked = !config?.voice_biometric_consent;
 	useEffect(() => {
 		if (paused) {
 			setMicMonitoring(false);
@@ -424,7 +420,17 @@ export function useMicrophoneLevelMonitor({
 	const lastLevelEventAtRef = useRef(0);
 	const frameRef = useRef<number | null>(null);
 	const wakeRef = useRef<(() => void) | null>(null);
+	// Last time the rAF loop synced ``levelRef`` / ``peakRef`` into
+	// React state. Reset to 0 on every effect run so the first active
+	// frame publishes immediately after a gate flip.
+	const lastStateSyncAtRef = useRef(0);
 	const IDLE_TIMEOUT_MS = 500;
+	// Cadence for ref→state sync. ~8 Hz: fast enough that the "Level:
+	// NN%" text, the LevelBar's aria value, the clipping indicator and
+	// LiveQualityFeedback's tier feel live; slow enough that the parent
+	// Microphone page subtree re-renders 8×/s instead of the 30 Hz the
+	// old setState-per-push path cost.
+	const LEVEL_STATE_SYNC_INTERVAL_MS = 120;
 
 	useEffect(() => {
 		// Prime the timestamp so the first frame runs (gives the
@@ -434,6 +440,7 @@ export function useMicrophoneLevelMonitor({
 		// the LevelBar at 0% even though the one-shot poll had already
 		// seeded ``levelRef.current``.
 		lastLevelEventAtRef.current = performance.now();
+		lastStateSyncAtRef.current = 0;
 
 		const animate = () => {
 			frameRef.current = null;
@@ -488,6 +495,20 @@ export function useMicrophoneLevelMonitor({
 				}
 			}
 
+			// Throttled ref→state sync for the state-bound consumers
+			// (level text, aria value, clipping icon, quality tiers).
+			// Runs INSIDE the same gated frame as the DOM write, so a
+			// paused/idle loop never publishes stale values. Identical
+			// values bail out via the functional updater (React skips
+			// the re-render), so quiet audio costs nothing.
+			if (now - lastStateSyncAtRef.current >= LEVEL_STATE_SYNC_INTERVAL_MS) {
+				lastStateSyncAtRef.current = now;
+				setLevel((prev) =>
+					prev === levelRef.current ? prev : levelRef.current,
+				);
+				setPeak((prev) => (prev === peakRef.current ? prev : peakRef.current));
+			}
+
 			// Schedule the next frame. The idle check above will pause
 			// the loop on the next frame if no new ``mic_level`` event has
 			// arrived in the interim.
@@ -531,12 +552,13 @@ export function useMicrophoneLevelMonitor({
 	//
 	//  the handler mirrors ``level`` / ``peak`` into refs
 	// (``levelRef.current = data.level``) WITHOUT calling ``setLevel`` /
-	// ``setPeak``. The rAF loop above reads the refs and imperatively
-	// updates the DOM, so the visual update path is decoupled from
-	// React's re-render cycle. ``setMicMonitoring`` is still called when
-	// ``active`` flips (rare, sub-Hz) because the ``micMonitoring`` flag
-	// drives the "Monitoring…" / "Level: X%" label toggle in
-	// ``ActiveMicrophoneCard``, which DOES need a re-render to update.
+	// ``setPeak``. The rAF loop reads the refs, writes the DOM
+	// imperatively at ≤60 Hz, and throttles the values into React state
+	// at ~8 Hz (see ``LEVEL_STATE_SYNC_INTERVAL_MS``). ``setMicMonitoring``
+	// is still called when ``active`` flips (rare, sub-Hz) because the
+	// ``micMonitoring`` flag drives the "Monitoring…" / "Level: X%"
+	// label toggle in ``ActiveMicrophoneCard``, which DOES need a
+	// re-render to update.
 	usePythonEvent(
 		"mic_level",
 		useCallback(
@@ -590,6 +612,5 @@ export function useMicrophoneLevelMonitor({
 		setLevel,
 		setPeak,
 		setMicMonitoring,
-		consentBlocked,
 	};
 }

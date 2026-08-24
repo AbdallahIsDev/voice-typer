@@ -493,9 +493,10 @@ class TestDeadBranchesRemoved:
       - ``volume_duck_smart`` was removed from the Config dataclass
         (UX-2/GT-58) and from ``IPC_CONFIG_ALLOWLIST`` — the condition
         could never be True via the IPC path.
-      - ``push_to_talk_hotkey`` was deliberately removed from the IPC
-        allowlist per GT-F2-8 — the disjunct could never be True via
-        the IPC path.
+      - ``push_to_talk_hotkey`` was never readable on the wire (it was
+        deliberately removed from the IPC allowlist per GT-F2-8, then
+        fully removed from the Config dataclass in the v5 migration) —
+        the disjunct could never be True via the IPC path.
 
     The fix is verified by source inspection (the branches are gone)
     and by behavior parity: the live hotkey-restart path still fires
@@ -525,8 +526,7 @@ class TestDeadBranchesRemoved:
     ):
         """The ``or "push_to_talk_hotkey" in updates`` disjunct must
         NOT appear in the hotkey-restart branch's ``if`` condition
-        (it was dead code — push_to_talk_hotkey is not in the IPC
-        allowlist)."""
+        (it was dead code — push_to_talk_hotkey is not on the wire)."""
         import inspect
 
         from voice_typer.server import config_applier

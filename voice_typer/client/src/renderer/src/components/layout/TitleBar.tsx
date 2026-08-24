@@ -9,6 +9,10 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { isTauri } from "@/lib/tauri-bridge/detect";
 import { cn, focusRing } from "@/lib/utils";
+import {
+	type ResolvedLinuxWindowButtons,
+	resolveLinuxWindowButtons,
+} from "@/lib/utils/windowButtons";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { WindowBridge } from "@/types/ipc";
 
@@ -69,6 +73,14 @@ interface TitleBarProps {
 	// second theme implementation.
 	themeMode: VoiceTyperConfig["theme_mode"];
 	onThemeChange: (mode: VoiceTyperConfig["theme_mode"]) => void;
+	/** Linux-only: the resolved window-button layout (side, visibility,
+	 *  circle-vs-square shell). App.tsx computes it from the
+	 *  `linux_window_buttons` config + the sidecar's
+	 *  `linux_window_buttons_system` snapshot via
+	 *  `resolveLinuxWindowButtons`. Optional — omitted (undefined)
+	 *  falls back to the classic right-side trio, and the prop is
+	 *  ignored entirely on Windows/macOS. */
+	linuxWindowButtons?: ResolvedLinuxWindowButtons;
 }
 
 // Window-control glyphs — native Windows caption icon geometry.
@@ -159,6 +171,9 @@ interface TitleBarButtonProps {
 	onClick: () => void;
 	ariaLabel: string;
 	variant?: "default" | "close";
+	/** Linux-only shell style: GNOME/Yaru-style always-visible circle
+	 *  (default) or KDE/Breeze-style flat square with a hover-only wash. */
+	shape?: "circle" | "square";
 	children: React.ReactNode;
 }
 
@@ -166,6 +181,7 @@ function TitleBarButton({
 	onClick,
 	ariaLabel,
 	variant = "default",
+	shape = "circle",
 	children,
 }: TitleBarButtonProps) {
 	// Red close hover is a WINDOWS convention (the native Windows
@@ -217,22 +233,25 @@ function TitleBarButton({
 				// TitleBarInner), which dims every element uniformly and
 				// cannot clash with theme colors.
 				"text-(--text-primary) dark:text-white transition-colors duration-150",
-				// Linux (GNOME/Adwaita-style): circular buttons with an
-				// ALWAYS-VISIBLE subtle circle background — the gray
-				// circle is the button's resting state, NOT a hover
-				// effect. Hover/focus/active deepen the circle (opacity
-				// increase) so there is clear interaction. No red close
-				// on Linux — the `variant` call-site already passes
-				// "default" when IS_WIN is false, so all three buttons
-				// use the neutral circle.
+				// Linux shell styles. GNOME/Ubuntu (Yaru): circular buttons
+				// with an ALWAYS-VISIBLE subtle circle background — the
+				// gray circle is the button's resting state, NOT a hover
+				// effect (matches the native Ubuntu header bar). KDE
+				// Plasma (Breeze): flat SQUARES with a transparent rest
+				// and a hover-only wash. Both share the same
+				// deepen-on-interaction ladder. No red close on Linux —
+				// the `variant` call-site already passes "default" when
+				// IS_WIN is false, so all three buttons use the neutral
+				// treatment. `shape` comes from the resolved window-button
+				// layout (KDE detection lives in the sidecar snapshot).
 				IS_LINUX
 					? cn(
-							// Linux circular buttons are SMALLER than the bar
-							// (h-6/w-6 = 24px in the 32px bar → space around
-							// them) and spaced gap-2 apart (see the cluster
-							// wrapper). Resting circle is always-visible.
-							"h-6 w-6 rounded-full",
-							"bg-foreground/5",
+							// Linux buttons are SMALLER than the bar (h-6/w-6 =
+							// 24px in the 32px bar → space around them) and
+							// spaced gap-2 apart (see the cluster wrapper).
+							shape === "square"
+								? cn("h-6 w-6 rounded-none", "bg-transparent")
+								: cn("h-6 w-6 rounded-full", "bg-foreground/5"),
 							"hover:bg-foreground/10 dark:hover:bg-foreground/10",
 							"focus-visible:bg-foreground/10 dark:focus-visible:bg-foreground/10",
 							"active:bg-foreground/15 dark:active:bg-foreground/15",
@@ -285,6 +304,7 @@ function TitleBarInner({
 	onOpenHelp,
 	themeMode,
 	onThemeChange,
+	linuxWindowButtons,
 }: TitleBarProps) {
 	// When the window is unfocused (user clicked another app), the
 	// WHOLE title bar dims like native OS title bars (container
@@ -319,6 +339,62 @@ function TitleBarInner({
 			.catch((err) =>
 				console.warn("[renderer:TitleBar] window control failed: close:", err),
 			);
+
+	// ── Linux window-button layout (option: system / custom / KDE) ──
+	// Resolved from the config + sidecar snapshot by App.tsx; undefined
+	// falls back to the classic right-side trio. Only the IS_LINUX
+	// cluster below consumes this — Windows keeps its fixed native
+	// convention and macOS has no custom buttons at all.
+	const linuxButtons =
+		linuxWindowButtons ?? resolveLinuxWindowButtons(undefined, undefined);
+
+	const linuxButtonDefs = [
+		{
+			key: "minimize",
+			show: linuxButtons.showMinimize,
+			label: t("titleBar.minimize"),
+			onClick: handleMinimize,
+			glyph: <MinimizeIcon />,
+		},
+		{
+			key: "maximize",
+			show: linuxButtons.showMaximize,
+			label: isMaximized ? t("titleBar.restore") : t("titleBar.maximize"),
+			onClick: handleToggleMaximize,
+			glyph: isMaximized ? <RestoreIcon /> : <MaximizeIcon />,
+		},
+		{
+			key: "close",
+			show: linuxButtons.showClose,
+			label: t("titleBar.close"),
+			onClick: handleClose,
+			glyph: <CloseIcon />,
+		},
+	].filter((button) => button.show);
+
+	const renderLinuxCluster = (side: "left" | "right") => (
+		<div
+			className={cn(
+				"flex items-center gap-2",
+				// Right side: ms-1 separates from the theme switch and pe-2
+				// keeps the close button off the window's right edge.
+				// Left side: mirrored insets (the bar is pinned dir="ltr",
+				// so these are PHYSICAL sides — see the root's LTR pin).
+				side === "right" ? "ms-1 pe-2" : "me-1 ps-2",
+			)}
+		>
+			{linuxButtonDefs.map((button) => (
+				<TitleBarButton
+					key={button.key}
+					onClick={button.onClick}
+					ariaLabel={button.label}
+					shape={linuxButtons.buttonStyle}
+				>
+					{button.glyph}
+				</TitleBarButton>
+			))}
+		</div>
+	);
 
 	return (
 		<div
@@ -355,6 +431,13 @@ function TitleBarInner({
 			    ~52px — reserve 72px so the bar's buttons never collide
 			    with them. Windows/Linux don't need it (their window
 			    controls are the custom ones on the right). */}
+			{/* Linux window controls pinned to the LEFT edge — either the
+			    desktop's own button-layout says so (gsettings, "follow
+			    system" mode) or the user picked "Left" in Settings →
+			    Appearance. Rendered BEFORE the toolbar group so the app
+			    buttons start after them. The bar is pinned dir="ltr", so
+			    this is the physical left edge in every locale. */}
+			{IS_LINUX && linuxButtons.side === "left" && renderLinuxCluster("left")}
 			{IS_MAC && <div className="h-8 w-18 shrink-0" aria-hidden="true" />}
 			{/* Toolbar button group — sidebar/back/forward/help wrapped in
 			    a p-1 (4px) padded flex container so no button takes the
@@ -536,22 +619,20 @@ function TitleBarInner({
 			    traffic lights (titleBarStyle: 'hiddenInset' in the main
 			    window), so rendering Windows-style buttons there would
 			    duplicate the chrome with wrong-style buttons.
-			    The control cluster is wrapped in a flex container so
-			    LINUX can space the circular buttons apart (gap-2 =
-			    8px, matching the macOS traffic-light spacing). Windows
-			    square buttons are edge-to-edge (no gap). */}
-			{!IS_MAC && (
+			    Windows: the fixed 46×32 edge-to-edge trio — the layout is
+			    NOT user-configurable on Windows (native convention).
+			    Linux: the resolved cluster (side/visibility/shape from
+			    the linux_window_buttons setting + system snapshot); the
+			    LEFT-side variant renders before the toolbar group (see
+			    the mirror block at the top of the bar). */}
+			{IS_WIN && (
 				<div
 					className={cn(
 						// ms-1 separates the cluster from the theme switch —
 						// 4px here + the theme wrapper's 4px padding = an
-						// 8px icon-to-icon gap: smaller than before on
-						// Windows, and on Linux it EQUALS the gap-2 (8px)
-						// between the circular buttons. On Linux the close
-						// circle additionally gets pe-2 so it never touches
-						// the window's right edge.
+						// 8px icon-to-icon gap. Windows square buttons are
+						// edge-to-edge (no gap).
 						"ms-1 flex items-center",
-						IS_LINUX && "gap-2 pe-2",
 					)}
 				>
 					<TitleBarButton
@@ -571,15 +652,16 @@ function TitleBarInner({
 					<TitleBarButton
 						onClick={handleClose}
 						ariaLabel={t("titleBar.close")}
-						// Red close hover is a Windows convention; Linux
-						// (GNOME/KDE) uses a neutral hover for the close
-						// button, so only Windows gets the "close" variant.
-						variant={IS_WIN ? "close" : "default"}
+						// Red close hover is a WINDOWS convention (the native
+						// close button turns solid red); Linux never passes
+						// the "close" variant.
+						variant="close"
 					>
 						<CloseIcon />
 					</TitleBarButton>
 				</div>
 			)}
+			{IS_LINUX && linuxButtons.side === "right" && renderLinuxCluster("right")}
 		</div>
 	);
 }

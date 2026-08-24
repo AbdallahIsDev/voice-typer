@@ -134,8 +134,6 @@ const {
 			testResults: {},
 			saveApiKey: vi.fn(),
 			setCloudConsent: vi.fn(),
-			setHuggingFaceConsent: vi.fn(),
-			handleGrantConsent: vi.fn(),
 			testConnection: vi.fn(),
 			clearTestResult: vi.fn(),
 		},

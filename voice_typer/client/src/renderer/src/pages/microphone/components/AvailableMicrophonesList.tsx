@@ -1,41 +1,69 @@
 // Available-microphones list.
 //
-// Renders the "other microphones" section: the "Use System Default"
-//row ( / Fix 1 — the only way to revert from a named mic back
-// to the OS default) followed by the list of microphones not currently
-// selected, each rendered via ``MicrophoneListItem``.
+// ONE unified RadioGroup: the first row is "System Default" (value
+// maps to ``null``), followed by every reported device — INCLUDING the
+// currently-active one, rendered checked. Radix radio groups need the
+// active item present and checked so arrow-key navigation and the
+// checked visual work for the whole set; there are no per-row "Use"
+// buttons anymore — selection IS the radio.
+//
+// While a test is running the items carry a real ``disabled`` attribute
+// (keyboard + AT safe; CSS-only pointer blocking was a keyboard hole)
+// and rows dim via opacity.
 //
 // Falls back to an ``EmptyState`` (``MicOff01Icon``) when the backend
-// reports zero microphones. While a test is running, the entire list
-// is greyed out + click-disabled so the user can't swap mics
-// mid-recording.
+// reports zero microphones.
 
 import { Mic02Icon, MicOff01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { MouseEvent } from "react";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { MicrophoneListItem } from "@/components/microphone/MicrophoneListItem";
-import { Button } from "@/components/ui/button";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { t } from "@/i18n/i18n";
-import { cn } from "@/lib/utils";
 import type { MicrophoneDevice } from "@/types/config";
 
+/**
+ * Sentinel RadioGroup value for the OS-default device — Radix radio
+ * values are strings, but the backend's "system default" state is
+ * ``config.microphone === null``, so the sentinel maps to ``null`` in
+ * the selection handler.
+ */
+export const SYSTEM_DEFAULT_MIC_VALUE = "__system_default__";
+
 export interface AvailableMicrophonesListProps {
-	/** All microphones reported by the backend (used for the empty check). */
+	/** All microphones reported by the backend. */
 	microphones: MicrophoneDevice[];
-	/** Subset of ``microphones`` excluding the currently-active mic, sorted. */
-	otherMicrophones: MicrophoneDevice[];
-	/** ``true`` when the active mic is the OS default (no named selection). */
-	isSystemDefault: boolean;
+	/** Currently-selected device id, or ``null`` for the OS default. */
+	activeMicId: string | null;
 	/** Disables list interaction while a test recording is in flight. */
 	testRunning: boolean;
 	/** Selection handler — receives ``null`` for "use system default". */
 	onSelectMicrophone: (micId: string | null) => void;
 }
 
+function rowClickHandler(
+	onSelect: () => void,
+	disabled: boolean,
+	isActive: boolean,
+): (event: MouseEvent<HTMLDivElement>) => void {
+	return (event) => {
+		// Clicks that originate on the radio control itself are handled by
+		// Radix (onValueChange); handling them here too would fire the
+		// selection IPC twice for one click.
+		if (
+			(event.target as HTMLElement).closest('[data-slot="radio-group-item"]')
+		) {
+			return;
+		}
+		if (disabled || isActive) return;
+		onSelect();
+	};
+}
+
 export function AvailableMicrophonesList({
 	microphones,
-	otherMicrophones,
-	isSystemDefault,
+	activeMicId,
 	testRunning,
 	onSelectMicrophone,
 }: AvailableMicrophonesListProps) {
@@ -49,73 +77,89 @@ export function AvailableMicrophonesList({
 		);
 	}
 
+	const value = activeMicId === null ? SYSTEM_DEFAULT_MIC_VALUE : activeMicId;
+
+	// Default device first (stable sort keeps the backend order otherwise).
+	const sorted = [...microphones].sort(
+		(a, b) => Number(b.default ?? false) - Number(a.default ?? false),
+	);
+
+	const handleValueChange = (next: string) => {
+		onSelectMicrophone(next === SYSTEM_DEFAULT_MIC_VALUE ? null : next);
+	};
+
 	return (
 		<div>
-			<p className="text-xs font-semibold capitalize tracking-wide text-(--text-muted) mb-2 px-1">
-				{t("microphone.otherMicrophones")}
+			<p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted) mb-2 px-1">
+				{t("microphone.availableMicrophones")}
 			</p>
-			{/*native <ul>/<li> list semantics — the implicit ARIA roles
-			    (list / listitem) come from the elements themselves, so no
-			    explicit role attributes are needed (biome's
-			    noRedundantRoles rule + the ARIA-in-HTML spec agree).
-			    Tailwind's divide-y and the rounded/border classes apply
-			    identically to <ul>/<li> as they did to the previous
-			    <div>/<div>. */}
-			<ul className="rounded-lg border border-border/10 bg-(--bg-subtle) divide-y divide-border/10">
-				{/*(Fix 1): "Use System Default" button — the only
-				    way (other than refreshing and hoping) to revert
-				    from a named microphone back to the OS default.
-				    Disabled while a test is running so the user can't
-				    swap mics mid-recording. */}
-				<li
-					className={cn(
-						"flex items-center gap-3 px-3.5 py-2.5",
-						testRunning && "opacity-50 pointer-events-none",
-					)}
-				>
-					<HugeiconsIcon
-						icon={Mic02Icon}
-						strokeWidth={2}
-						className="h-4 w-4 shrink-0 text-(--text-muted)"
-					/>
-					<div className="flex flex-col flex-1 min-w-0 gap-1">
-						<p className="text-sm font-medium text-(--text-primary)">
-							{t("microphone.systemDefault")}
-						</p>
-						<p className="text-xs text-(--text-muted)">
-							{t("microphone.systemDefaultDesc")}
-						</p>
-					</div>
-					<Button
-						variant={isSystemDefault ? "default" : "outline"}
-						size="sm"
-						className="shrink-0"
-						disabled={isSystemDefault || testRunning}
-						aria-label={t("microphone.useSystemDefaultAria")}
-						onClick={() => void onSelectMicrophone(null)}
-					>
-						{t("microphone.use")}
-					</Button>
-				</li>
-				{otherMicrophones.length === 0 ? (
-					<li className="px-3.5 py-3 text-xs text-(--text-muted)">
-						{t("microphone.noOtherMicrophones")}
+			<RadioGroup
+				value={value}
+				onValueChange={handleValueChange}
+				disabled={testRunning}
+				className="rounded-lg border border-border/10 bg-(--bg-subtle)"
+				data-testid="microphone-radio-list"
+			>
+				{/* native <ul>/<li> list semantics around the radio rows — the
+				    implicit list/listitem ARIA roles come from the elements
+				    themselves (biome's noRedundantRoles + ARIA-in-HTML agree). */}
+				<ul className="divide-y divide-border/10">
+					<li className={testRunning ? "opacity-50" : undefined}>
+						{/* biome-ignore lint/a11y/noStaticElementInteractions: the nested RadioGroupItem is the accessible control (role=radio); the row click is pointer convenience. */}
+						{/* biome-ignore lint/a11y/useKeyWithClickEvents: keyboard activation goes through the focused radio itself (Space/arrows via Radix); a keydown mirror here would double-fire the selection. */}
+						<div
+							className={
+								"flex items-center gap-3 px-3.5 py-2.5 transition-colors" +
+								(testRunning || activeMicId === null
+									? ""
+									: " cursor-pointer hover:bg-foreground/5")
+							}
+							onClick={rowClickHandler(
+								() => onSelectMicrophone(null),
+								testRunning,
+								activeMicId === null,
+							)}
+							data-testid="system-default-row"
+						>
+							<HugeiconsIcon
+								icon={Mic02Icon}
+								strokeWidth={2}
+								className="h-4 w-4 shrink-0 text-(--text-muted)"
+							/>
+							<div className="flex flex-col flex-1 min-w-0 gap-1">
+								<p className="text-sm font-medium text-(--text-primary)">
+									{t("microphone.systemDefault")}
+								</p>
+								<p className="text-xs text-(--text-muted)">
+									{t("microphone.systemDefaultDesc")}
+								</p>
+							</div>
+							<RadioGroupItem
+								value={SYSTEM_DEFAULT_MIC_VALUE}
+								disabled={testRunning}
+								aria-label={t("microphone.systemDefault")}
+							/>
+						</div>
 					</li>
-				) : (
-					otherMicrophones.map((mic) => (
+					{sorted.map((mic) => (
+						// Dim device rows during a test to match the
+						// system-default row — the whole list reads as one
+						// disabled surface, not half-disabled.
 						<li
 							key={mic.id ?? String(mic.index)}
-							className={cn(testRunning && "opacity-50 pointer-events-none")}
+							className={testRunning ? "opacity-50" : undefined}
 						>
 							<MicrophoneListItem
 								mic={mic}
-								isSystemDefault={isSystemDefault}
-								onSelect={(micId) => onSelectMicrophone(micId)}
+								checked={(mic.id ?? String(mic.index)) === activeMicId}
+								showDefaultBadge={Boolean(mic.default) && activeMicId !== null}
+								disabled={testRunning}
+								onSelect={() => onSelectMicrophone(mic.id ?? String(mic.index))}
 							/>
 						</li>
-					))
-				)}
-			</ul>
+					))}
+				</ul>
+			</RadioGroup>
 		</div>
 	);
 }

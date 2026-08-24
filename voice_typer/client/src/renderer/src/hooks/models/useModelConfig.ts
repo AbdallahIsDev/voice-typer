@@ -293,10 +293,10 @@ export function useModelConfig({
 
 	//previously ``updateConfig`` swallowed ``set_config`` errors
 	// (try/catch with only ``console.error``), so callers like
-	// ``selectModel`` / ``saveApiKey`` / ``setCloudConsent`` /
-	// ``setHuggingFaceConsent`` always showed their SUCCESS toast
-	// even when the backend save failed. The wrapper now re-throws on
-	// error so each caller can branch on the result.
+	// ``selectModel`` / ``saveApiKey`` / ``setCloudConsent``
+	// always showed their SUCCESS toast even when the backend save
+	// failed. The wrapper now re-throws on error so each caller can
+	// branch on the result.
 	const updateConfig = useCallback(
 		async (updates: Partial<VoiceTyperConfig>): Promise<void> => {
 			await call("set_config", updates);

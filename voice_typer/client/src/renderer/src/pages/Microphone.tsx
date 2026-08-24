@@ -13,19 +13,17 @@
 
 import { AlertCircleIcon } from "@hugeicons/core-free-icons";
 import { useCallback, useRef, useState } from "react";
-import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { OfflinePackPreparingBanner } from "@/components/feedback/OfflinePackPreparingBanner";
 import { Spinner } from "@/components/feedback/Spinner";
-import { useNavigation } from "@/hooks/useNavigation";
 import { useOfflinePackDownload } from "@/hooks/useOfflinePackDownload";
 import { t } from "@/i18n/i18n";
 import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
+import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import { useDeviceLostStore } from "@/stores/deviceLostStore";
 import { ActiveMicrophoneCard } from "./microphone/components/ActiveMicrophoneCard";
 import { AvailableMicrophonesList } from "./microphone/components/AvailableMicrophonesList";
-import { MicrophoneConsentGateBanner } from "./microphone/components/MicrophoneConsentGateBanner";
 import { MicrophoneDeviceLostBanner } from "./microphone/components/MicrophoneDeviceLostBanner";
 import { MicrophonePermissionBanner } from "./microphone/components/MicrophonePermissionBanner";
 import { useMicrophoneData } from "./microphone/hooks/useMicrophoneData";
@@ -57,10 +55,7 @@ export default function MicrophonePage() {
 		setConfig,
 		loading,
 		loadError,
-		refreshing,
-		agoLabel,
 		loadData,
-		handleManualRefresh,
 		updateConfig,
 	} = useMicrophoneData({ selectMicrophoneRef });
 
@@ -73,24 +68,6 @@ export default function MicrophonePage() {
 	// below replaces the dead meter with a Retry affordance.
 	const lostSource = useDeviceLostStore((s) => s.lostSource);
 	const clearLost = useDeviceLostStore((s) => s.clearLost);
-
-	// Voice-consent gate — mirrors useMicrophoneLevelMonitor's own
-	// guard and the server-side refusal: without the voice-biometric
-	// consent toggle the meter + mic test stay dead, so the page says
-	// so instead of showing a silently zero bar.
-	const consentBlocked = Boolean(config) && !config?.voice_biometric_consent;
-
-	// Deep-link for the consent banner: navigates to Settings → Privacy
-	// and scrolls/highlights the exact ``voice_biometric_consent``
-	// toggle (the shared navigate store + transient consent-field
-	// channel — same mechanism the backend's CLICKABLE OS notifications
-	// use).
-	const { navigate } = useNavigation();
-	const openConsentSettings = useCallback(() => {
-		navigate("settingsPrivacy", {
-			consentField: VOICE_BIOMETRIC_CONSENT_FIELD,
-		});
-	}, [navigate]);
 
 	// Recovery affordance: clear the lost flag + refresh the device
 	// list. Flipping the flag false un-pauses the level monitor (its
@@ -122,10 +99,11 @@ export default function MicrophonePage() {
 		rawAudioBase64,
 		testDurationMs,
 		testQuality,
+		testTranscription,
+		testTranscriptionUnavailable,
 		level,
 		peak,
 		micMonitoring,
-		testDurationSec,
 		showAdvanced,
 		filtersSinceLastTest,
 		playingEnhanced,
@@ -137,7 +115,6 @@ export default function MicrophonePage() {
 		stopPlayback,
 		handlePresetChange,
 		handleConfigChange,
-		setTestDurationSec,
 		setShowAdvanced,
 	} = useMicrophoneTest({
 		config,
@@ -149,26 +126,52 @@ export default function MicrophonePage() {
 		levelMonitorPaused: lostSource !== null,
 	});
 
-	// Wrap startTest + selectMicrophone so the first invocation flips
-	// `hasAttempted` to true. Subsequent invocations are no-ops on the
-	// flag (we only care about the first attempt). `rawStartTest` /
-	// `rawSelectMicrophone` are `useCallback`-stable per the
-	// `useMicrophoneTest` contract (see the comment at the top of that
-	// hook), so the wrappers preserve stable identity too — no extra
-	// re-renders of `ActiveMicrophoneCard` / `AvailableMicrophonesList`.
+	// GDPR Art. 9 gate — mirrors Home.tsx handleToggle: the backend
+	// refuses mic-test starts while ``voice_biometric_consent`` is off,
+	// but its refusal only surfaces as a post-hoc error path. Gate
+	// client-side at ACTION time so pressing Start Test opens the unified
+	// point-of-use consent dialog INSTEAD of firing a doomed IPC; once the
+	// consent flag is true the test starts directly and never re-prompts.
+	// The session hook's reactive refusal paths remain as the backstop for
+	// hotkey-triggered tests and config races.
 	const startTest = useCallback(
 		(...args: Parameters<typeof rawStartTest>) => {
 			setHasAttempted(true);
+			if (config && !config.voice_biometric_consent) {
+				openConsentGate({
+					consentField: VOICE_BIOMETRIC_CONSENT_FIELD,
+					bodyKey: consentBodyKey(VOICE_BIOMETRIC_CONSENT_FIELD),
+					// Retry after granting: run the test start that was blocked.
+					onAllow: () => void rawStartTest(...args),
+				});
+				return;
+			}
 			return rawStartTest(...args);
 		},
-		[rawStartTest],
+		[rawStartTest, config],
 	);
+
+	// Wrap selectMicrophone so the first invocation flips `hasAttempted`
+	// to true. Selecting a microphone WHILE a device-lost flag is active
+	// clears that flag first — otherwise the stale banner + frozen meter
+	// linger over a now-working device. If the picked mic is still gone
+	// the backend re-emits ``device_lost`` and the banner returns. A data
+	// refresh follows so the device list reflects the switch immediately.
 	const selectMicrophone = useCallback(
-		(...args: Parameters<typeof rawSelectMicrophone>) => {
+		async (...args: Parameters<typeof rawSelectMicrophone>) => {
 			setHasAttempted(true);
-			return rawSelectMicrophone(...args);
+			if (lostSource !== null) {
+				clearLost();
+			}
+			try {
+				return await rawSelectMicrophone(...args);
+			} finally {
+				if (lostSource !== null) {
+					await loadData();
+				}
+			}
 		},
-		[rawSelectMicrophone],
+		[rawSelectMicrophone, lostSource, clearLost, loadData],
 	);
 
 	// ── Derived state ─────────────────────────────────────────────
@@ -180,9 +183,6 @@ export default function MicrophonePage() {
 			? t("microphone.systemDefault")
 			: (microphones.find((m) => (m.id ?? String(m.index)) === activeMicId)
 					?.name ?? t("microphone.unknown"));
-	const otherMicrophones = microphones
-		.filter((mic) => (mic.id ?? String(mic.index)) !== activeMicId)
-		.sort((a, b) => (a.default ? -1 : b.default ? 1 : 0));
 
 	const filtersChangedSinceTest: string | false =
 		filtersSinceLastTest && filtersSinceLastTest !== computeAudioKey(config)
@@ -237,38 +237,19 @@ export default function MicrophonePage() {
 				description={t("microphone.description")}
 			/>
 
-			{/* F4 (b-review Finding 11): "Last updated" indicator + manual
-			    refresh button. The module-level caches survive page
-			    navigations, so we surface staleness here. */}
-			<div className="flex justify-end pb-2">
-				<LastUpdatedIndicator
-					agoLabel={agoLabel}
-					onRefresh={handleManualRefresh}
-					refreshing={refreshing}
-				/>
-			</div>
-
 			<div className="space-y-6">
 				<MicrophonePermissionBanner micPermission={micPermission} />
-
-				{/* Voice-consent gate — the level monitor + mic test are
-			    refused without the voice-biometric consent toggle (GDPR
-			    Art. 9). Without this banner the meter silently sat at
-			    zero with no explanation; now the page names the actual
-			    state and deep-links to the exact Settings toggle. Gated
-			    on ``config`` so it can't flash while the config is still
-			    loading. */}
-				<MicrophoneConsentGateBanner
-					visible={Boolean(config) && consentBlocked}
-					onOpenSettings={openConsentSettings}
-				/>
 
 				{/* Device-lost recovery — shown while the backend has
 			    flagged the active microphone as lost. The level monitor
 			    is paused for the same condition; Retry clears the flag +
-			    refreshes the device list, which restarts monitoring. */}
+			    refreshes the device list, which restarts monitoring.
+			    Suppressed while OS mic permission is denied: a revoked
+			    permission fails the backend stream too (→ device_lost),
+			    and stacking two role=alert banners for one root cause
+			    drowns the actionable one (grant permission). */}
 				<MicrophoneDeviceLostBanner
-					visible={lostSource !== null}
+					visible={lostSource !== null && micPermission !== "denied"}
 					onRetry={handleDeviceRecovery}
 				/>
 
@@ -299,7 +280,6 @@ export default function MicrophonePage() {
 						testRunning={testRunning}
 						testCountdown={testCountdown}
 						testElapsed={testElapsed}
-						testDurationSec={testDurationSec}
 						testDurationMs={testDurationMs}
 						level={level}
 						peak={peak}
@@ -307,6 +287,8 @@ export default function MicrophonePage() {
 						testAudioBase64={testAudioBase64}
 						rawAudioBase64={rawAudioBase64}
 						testQuality={testQuality}
+						testTranscription={testTranscription}
+						testTranscriptionUnavailable={testTranscriptionUnavailable}
 						playing={playingEnhanced || playingOriginal}
 						playingOriginal={playingOriginal}
 						filtersSinceLastTest={filtersSinceLastTest}
@@ -324,7 +306,6 @@ export default function MicrophonePage() {
 						}
 						onStopPlayback={stopPlayback}
 						onRetest={startTest}
-						onSetTestDurationSec={setTestDurationSec}
 						onToggleAdvanced={() => setShowAdvanced((v) => !v)}
 						onPresetChange={handlePresetChange}
 						onConfigChange={handleConfigChange}
@@ -333,8 +314,7 @@ export default function MicrophonePage() {
 
 				<AvailableMicrophonesList
 					microphones={microphones}
-					otherMicrophones={otherMicrophones}
-					isSystemDefault={isSystemDefault}
+					activeMicId={activeMicId}
 					testRunning={testRunning}
 					onSelectMicrophone={selectMicrophone}
 				/>

@@ -379,20 +379,10 @@ describe("useCloudProviders — setCloudConsent", () => {
 		);
 	});
 
-	it("handleGrantConsent grants HuggingFace consent (thin wrapper)", async () => {
-		const args = makeHookArgs({}, makeConfig({ huggingface_consent: false }));
-		const { result } = renderHook(() => useCloudProviders(args));
-
-		act(() => {
-			result.current.handleGrantConsent();
-		});
-		// Wait for the underlying async setHuggingFaceConsent to resolve.
-		await act(async () => {
-			await Promise.resolve();
-		});
-
-		expect(updateConfigMock).toHaveBeenCalledWith({
-			huggingface_consent: true,
-		});
-	});
+	// NOTE: HuggingFace consent is NOT granted through this hook —
+	// the download flow opens the shared point-of-use consent dialog
+	// (`useModelLifecycle.handleDownloadModel` → `openConsentGate`),
+	// and revocation lives in the Settings privacy row. The former
+	// `setHuggingFaceConsent` / `handleGrantConsent` wrappers were
+	// removed with that migration.
 });

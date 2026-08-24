@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { APP_NAME } from "@/branding";
 import { A11yLiveRegions } from "@/components/common/A11yLiveRegions";
 import ConsentGateDialog from "@/components/consent/ConsentGateDialog";
@@ -33,6 +33,7 @@ import {
 	openConsentGate,
 } from "@/lib/consentGate";
 import { cn } from "@/lib/utils";
+import { resolveLinuxWindowButtons } from "@/lib/utils/windowButtons";
 // Route→component mapping + per-route code splitting live in
 // router/PageSwitch.tsx (Home eager, the other 9 pages lazy). App
 // stays pure wiring: hooks, overlays, layout.
@@ -82,6 +83,15 @@ export default function App() {
 	);
 	const hotkeyFromConfig = useAppStore((s) => s.config?.hotkey);
 	const repasteHotkeyFromConfig = useAppStore((s) => s.config?.repaste_hotkey);
+	// Linux window-button layout sources (config setting + the sidecar's
+	// read-only system snapshot). Field-level selectors like the ones above
+	// so unrelated config writes don't re-resolve the layout.
+	const linuxWindowButtonsConfig = useAppStore(
+		(s) => s.config?.linux_window_buttons,
+	);
+	const linuxWindowButtonsSystem = useAppStore(
+		(s) => s.config?.linux_window_buttons_system,
+	);
 	useEffect(() => {
 		if (currentPage === "onboarding" && onboardingCompleted) {
 			// Use `replace` instead of `navigate` so the
@@ -396,6 +406,18 @@ export default function App() {
 		repaste_hotkey: repasteHotkeyFromConfig,
 	});
 
+	// Linux window-button layout — resolved once per config/system change
+	// and passed to the (memoized) TitleBar as a single stable prop.
+	// No-op on Windows/macOS (TitleBar ignores the prop there).
+	const linuxWindowButtons = useMemo(
+		() =>
+			resolveLinuxWindowButtons(
+				linuxWindowButtonsConfig,
+				linuxWindowButtonsSystem,
+			),
+		[linuxWindowButtonsConfig, linuxWindowButtonsSystem],
+	);
+
 	// ── Render ────────────────────────────────────────────────────
 	// ErrorBoundary wrap was removed from here — `main.tsx` already
 	// wraps `<App />` in the same `<ErrorBoundary>` with the same
@@ -438,6 +460,7 @@ export default function App() {
 					// before — single source of theme state.
 					themeMode={themeMode}
 					onThemeChange={handleThemeChange}
+					linuxWindowButtons={linuxWindowButtons}
 				/>
 
 				<div className="flex min-h-0 flex-1">

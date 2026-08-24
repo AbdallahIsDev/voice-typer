@@ -11,12 +11,14 @@
  *     persisted value — prevents silently clobbering stored keys
  *     with the empty string that `safeApiKey` substitutes for the
  *     `<redacted>` sentinel on every config fetch.
- *   • `setCloudConsent` / `setHuggingFaceConsent` — persist the
- *     consent flag + optimistically update the local config snapshot
- *     (so the UI flips immediately without waiting for the
- *     `config_changed` event round-trip).
- *   • `handleGrantConsent` — thin wrapper that grants HuggingFace
- *     consent (used by the consent banner's "Grant" button).
+ *   • `setCloudConsent` — persists a cloud-provider consent flag +
+ *     optimistically updates the local config snapshot (so the UI
+ *     flips immediately without waiting for the `config_changed`
+ *     event round-trip). HuggingFace consent is NOT handled here —
+ *     it's granted through the shared point-of-use consent dialog
+ *     (`lib/consentGate.ts`) opened by the download flow in
+ *     `useModelLifecycle.handleDownloadModel`, and revoked via the
+ *     Settings privacy row.
  *   • `testConnection` — routes the cloud-provider key verification
  *     through the backend IPC `test_cloud_connection` command so the
  *     API key never leaves the Python process (C-DATA-1 offline-app
@@ -74,8 +76,6 @@ export interface UseCloudProvidersResult {
 	testResults: Record<string, ApiTestResult>;
 	saveApiKey: (provider: string) => Promise<void>;
 	setCloudConsent: (provider: string, granted: boolean) => Promise<void>;
-	setHuggingFaceConsent: (granted: boolean) => Promise<void>;
-	handleGrantConsent: () => void;
 	testConnection: (provider: string) => Promise<void>;
 	/** Clear the test result for a single provider. Wired to the API-key
 	 * Input's onChange so stale "Success" badges don't linger after
@@ -146,7 +146,7 @@ export function useCloudProviders({
 		});
 	}, []);
 
-	// ── Action: saveApiKey / setCloudConsent / setHuggingFaceConsent ─
+	// ── Action: saveApiKey / setCloudConsent ─────────────────────────
 	//
 	// Bail out (and surface an info snackbar) when:
 	//   • `key.trim() === ""` — the input is empty (the user clicked
@@ -205,24 +205,6 @@ export function useCloudProviders({
 		},
 		[showSnack, updateConfig, setConfig],
 	);
-
-	const setHuggingFaceConsent = useCallback(
-		async (granted: boolean) => {
-			await updateConfig({ huggingface_consent: granted });
-			setConfig((prev) =>
-				prev ? { ...prev, huggingface_consent: granted } : prev,
-			);
-			showSnack(
-				granted ? t("models.consentGranted") : t("models.consentRevoked"),
-				granted ? "success" : "warning",
-			);
-		},
-		[showSnack, updateConfig, setConfig],
-	);
-
-	const handleGrantConsent = useCallback(() => {
-		void setHuggingFaceConsent(true);
-	}, [setHuggingFaceConsent]);
 
 	// ── Action: testConnection ──────────────────────────────────────
 	//
@@ -316,8 +298,6 @@ export function useCloudProviders({
 		testResults,
 		saveApiKey,
 		setCloudConsent,
-		setHuggingFaceConsent,
-		handleGrantConsent,
 		testConnection,
 		clearTestResult,
 	};

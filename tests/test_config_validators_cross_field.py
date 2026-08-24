@@ -49,12 +49,11 @@ from voice_typer.server.config_validators import (
 class TestCrossFieldHotkeyConflicts:
     """Direct tests for :func:`_check_cross_field_hotkey_conflicts`."""
 
-    def test_no_conflict_when_all_three_differ(self) -> None:
+    def test_no_conflict_when_both_differ(self) -> None:
         errors = _check_cross_field_hotkey_conflicts(
             {
                 "hotkey": "<f5>",
                 "repaste_hotkey": "<f6>",
-                "push_to_talk_hotkey": "<f7>",
             }
         )
         assert errors == []
@@ -64,7 +63,6 @@ class TestCrossFieldHotkeyConflicts:
             {
                 "hotkey": "<ctrl>+<space>",
                 "repaste_hotkey": "<ctrl>+<space>",
-                "push_to_talk_hotkey": "<f7>",
             }
         )
         assert len(errors) == 1
@@ -72,41 +70,14 @@ class TestCrossFieldHotkeyConflicts:
         assert "'repaste_hotkey'" in errors[0]
         assert "<ctrl>+<space>" in errors[0]
 
-    def test_conflict_between_hotkey_and_push_to_talk(self) -> None:
-        errors = _check_cross_field_hotkey_conflicts(
-            {
-                "hotkey": "<ctrl>+<space>",
-                "repaste_hotkey": "<f6>",
-                "push_to_talk_hotkey": "<ctrl>+<space>",
-            }
-        )
-        assert len(errors) == 1
-        assert "'hotkey'" in errors[0]
-        assert "'push_to_talk_hotkey'" in errors[0]
-
-    def test_three_way_conflict_produces_two_errors(self) -> None:
-        errors = _check_cross_field_hotkey_conflicts(
-            {
-                "hotkey": "<ctrl>+<space>",
-                "repaste_hotkey": "<ctrl>+<space>",
-                "push_to_talk_hotkey": "<ctrl>+<space>",
-            }
-        )
-        # 3 fields all share the same value -> 2 conflict pairs
-        # (hotkey vs repaste, hotkey vs push_to_talk).
-        assert len(errors) == 2
-        assert all("<ctrl>+<space>" in e for e in errors)
-
     def test_none_values_do_not_conflict(self) -> None:
-        errors = _check_cross_field_hotkey_conflicts(
-            {"hotkey": None, "repaste_hotkey": None, "push_to_talk_hotkey": None}
-        )
+        errors = _check_cross_field_hotkey_conflicts({"hotkey": None, "repaste_hotkey": None})
         assert errors == []
 
     def test_empty_strings_do_not_conflict(self) -> None:
         # Empty strings are treated as "not set" — two unset hotkeys
         # don't conflict.
-        errors = _check_cross_field_hotkey_conflicts({"hotkey": "", "repaste_hotkey": "", "push_to_talk_hotkey": ""})
+        errors = _check_cross_field_hotkey_conflicts({"hotkey": "", "repaste_hotkey": ""})
         assert errors == []
 
     def test_case_insensitive_matching(self) -> None:
@@ -117,7 +88,6 @@ class TestCrossFieldHotkeyConflicts:
             {
                 "hotkey": "<CTRL>+<SPACE>",
                 "repaste_hotkey": "<ctrl>+<space>",
-                "push_to_talk_hotkey": None,
             }
         )
         assert len(errors) == 1
@@ -131,18 +101,16 @@ class TestCrossFieldHotkeyConflicts:
             {
                 "hotkey": "<ctrl>+<alt>+<v>",
                 "repaste_hotkey": "<alt>+<ctrl>+<v>",
-                "push_to_talk_hotkey": None,
             }
         )
         assert len(errors) == 1
 
     def test_hotkey_field_names_constant(self) -> None:
-        # Sanity: the constant must list all 3 hotkey fields, in a stable
+        # Sanity: the constant must list all hotkey fields, in a stable
         # order, so the error messages are deterministic.
         assert _HOTKEY_FIELD_NAMES == (
             "hotkey",
             "repaste_hotkey",
-            "push_to_talk_hotkey",
         )
 
 
@@ -165,20 +133,6 @@ class TestCrossFieldViaValidateConfigUpdate:
         validated, errors = validate_config_update({"hotkey": "<f5>"})
         assert errors == []
         assert validated == {"hotkey": "<f5>"}
-
-    def test_push_to_talk_hotkey_silently_dropped_no_cross_field_error(
-        self,
-    ) -> None:
-        # (regression): ``push_to_talk_hotkey`` is NOT in the
-        # IPC allowlist, so it's silently dropped.  The cross-field
-        # check should NOT produce an error for the dropped field.
-        # (This is the same contract as
-        # test_validate_config_update_silently_drops_push_to_talk_hotkey
-        # in test_reserved_hotkeys.py — adding the cross-field check
-        # must not regress it.)
-        validated, errors = validate_config_update({"push_to_talk_hotkey": "<cmd>+<q>"})
-        assert errors == []
-        assert "push_to_talk_hotkey" not in validated
 
     def test_invalid_hotkey_does_not_participate_in_cross_field_check(
         self,
@@ -203,47 +157,32 @@ class TestCrossFieldViaValidateConfig:
     """Integration: the cross-field check runs in ``validate_config`` (load path).
 
     Unlike ``validate_config_update`` (which only sees fields the renderer
-    pushed), ``validate_config`` sees ALL 3 hotkey fields via ``getattr``
-    — so it catches conflicts involving ``push_to_talk_hotkey`` (which is
-    NOT in IPC_CONFIG_ALLOWLIST and therefore not settable via IPC, but IS
-    a Config dataclass field settable via hand-edited config.json).
+    pushed), ``validate_config`` sees ALL hotkey fields via ``getattr``
+    — so it catches conflicts in a hand-edited config.json that the IPC
+    path alone could not surface.
     """
 
-    def test_conflict_involving_push_to_talk_hotkey_caught_at_load(self) -> None:
+    def test_conflict_between_hotkey_and_repaste_caught_at_load(self) -> None:
         # Simulate a hand-edited config.json where ``hotkey`` and
-        # ``push_to_talk_hotkey`` are both set to the same value.
+        # ``repaste_hotkey`` are both set to the same value.
         cfg = SimpleNamespace(
             hotkey="<f5>",
-            repaste_hotkey="<f6>",
-            push_to_talk_hotkey="<f5>",  # conflicts with hotkey
+            repaste_hotkey="<f5>",  # conflicts with hotkey
         )
         errors = validate_config(cfg)
-        assert any("'hotkey'" in e and "'push_to_talk_hotkey'" in e for e in errors), (
-            f"expected a hotkey/push_to_talk conflict, got: {errors}"
+        assert any("'hotkey'" in e and "'repaste_hotkey'" in e for e in errors), (
+            f"expected a hotkey/repaste conflict, got: {errors}"
         )
 
     def test_no_conflict_in_clean_config(self) -> None:
         cfg = SimpleNamespace(
             hotkey="<f5>",
             repaste_hotkey="<f6>",
-            push_to_talk_hotkey="<f7>",
         )
         errors = validate_config(cfg)
         assert not any("Hotkey conflict" in e for e in errors), (
             f"unexpected cross-field conflict in clean config: {errors}"
         )
-
-    def test_missing_push_to_talk_hotkey_does_not_crash(self) -> None:
-        # A Config object without a ``push_to_talk_hotkey`` attribute
-        # (e.g. an older dataclass version) should not crash the
-        # cross-field check — the missing field is treated as None.
-        cfg = SimpleNamespace(
-            hotkey="<f5>",
-            repaste_hotkey="<f6>",
-            # push_to_talk_hotkey intentionally absent
-        )
-        errors = validate_config(cfg)
-        assert not any("Hotkey conflict" in e for e in errors)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -325,9 +264,9 @@ class TestCrossPlatformWarnings:
         # with a different letter to confirm the blanket rule covers
         # every alpha letter, not just the ones in the explicit list.
         with patch.object(sys, "platform", "linux"):
-            warning = _cross_platform_hotkey_warning("<cmd>+<z>", "push_to_talk_hotkey")
+            warning = _cross_platform_hotkey_warning("<cmd>+<z>", "repaste_hotkey")
         assert warning is not None
-        assert "push_to_talk_hotkey" in warning
+        assert "repaste_hotkey" in warning
         assert "portable" in warning
         assert "Cmd+Z" in warning
         assert "macOS" in warning
@@ -369,19 +308,17 @@ class TestCrossPlatformWarnings:
         # Integration: ``cross_platform_hotkey_warnings(cfg)`` must
         # surface the blanket-rule warnings for every hotkey field on
         # the cfg, not just the explicit-list warnings.  A cfg with one
-        # hotkey per blanket-rule path should produce three warnings
-        # (Cmd+letter on macOS, Win+* on Windows, Alt+Shift on Windows).
+        # hotkey per blanket-rule path should produce two warnings
+        # (Cmd+letter on macOS, Win+* on Windows).
         cfg = SimpleNamespace(
             hotkey="<cmd>+<b>",  # darwin blanket rule (Cmd+letter)
             repaste_hotkey="<win>+<a>",  # win32 blanket rule (Win+*)
-            push_to_talk_hotkey="<alt_l>+<shift_l>",  # win32 blanket rule (Alt+Shift)
         )
         with patch.object(sys, "platform", "linux"):
             warnings = cross_platform_hotkey_warnings(cfg)
-        assert len(warnings) == 3, f"expected 3 blanket-rule warnings, got {len(warnings)}: {warnings}"
+        assert len(warnings) == 2, f"expected 2 blanket-rule warnings, got {len(warnings)}: {warnings}"
         assert any("hotkey" in w and "Cmd+B" in w for w in warnings), warnings
         assert any("repaste_hotkey" in w and "Windows key combinations" in w for w in warnings), warnings
-        assert any("push_to_talk_hotkey" in w and "Alt+Shift" in w for w in warnings), warnings
 
     def test_no_warning_for_unreserved_hotkey(self) -> None:
         # <f5> is not reserved on any platform.
@@ -426,7 +363,6 @@ class TestCrossPlatformWarnings:
         cfg = SimpleNamespace(
             hotkey="<cmd>+<q>",  # darwin reserved
             repaste_hotkey="<win>+<l>",  # win32 reserved
-            push_to_talk_hotkey="<f5>",  # not reserved anywhere
         )
         with patch.object(sys, "platform", "linux"):
             warnings = cross_platform_hotkey_warnings(cfg)
@@ -438,7 +374,6 @@ class TestCrossPlatformWarnings:
         cfg = SimpleNamespace(
             hotkey="<f5>",
             repaste_hotkey="<f6>",
-            push_to_talk_hotkey="<f7>",
         )
         with patch.object(sys, "platform", "linux"):
             warnings = cross_platform_hotkey_warnings(cfg)
@@ -448,19 +383,17 @@ class TestCrossPlatformWarnings:
         cfg = SimpleNamespace(
             hotkey=None,
             repaste_hotkey=None,
-            push_to_talk_hotkey=None,
         )
         with patch.object(sys, "platform", "linux"):
             warnings = cross_platform_hotkey_warnings(cfg)
         assert warnings == []
 
     def test_skips_missing_attributes(self) -> None:
-        # A Config object without ``push_to_talk_hotkey`` should not
+        # A Config object without a hotkey attribute should not
         # crash — the missing field is skipped.
         cfg = SimpleNamespace(
             hotkey="<cmd>+<q>",
-            repaste_hotkey="<f6>",
-            # push_to_talk_hotkey intentionally absent
+            # repaste_hotkey intentionally absent
         )
         with patch.object(sys, "platform", "linux"):
             warnings = cross_platform_hotkey_warnings(cfg)
@@ -475,7 +408,6 @@ class TestCrossPlatformWarnings:
         cfg = SimpleNamespace(
             hotkey="<cmd>+<q>",  # valid on linux, reserved on darwin
             repaste_hotkey="<f6>",
-            push_to_talk_hotkey="<f7>",
         )
         with patch.object(sys, "platform", "linux"):
             errors = validate_config(cfg)

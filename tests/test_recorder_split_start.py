@@ -144,11 +144,7 @@ def _source_without_docstring(func) -> str:
     if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
         return src
     first = fn.body[0] if fn.body else None
-    if (
-        isinstance(first, ast.Expr)
-        and isinstance(first.value, ast.Constant)
-        and isinstance(first.value.value, str)
-    ):
+    if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
         lines = src.splitlines(keepends=True)
         del lines[first.lineno - 1 : first.end_lineno]
         src = "".join(lines)
@@ -335,21 +331,24 @@ class TestDeviceEnumerationAtFunctionScope:
                 f"device-enumeration contract would be violated."
             )
 
-    def test_persist_mic_closure_captures_recorder_not_self(self):
-        """The ``_persist_mic`` closure nested inside the
-        microphone-fallback persistence block captures ``recorder``
-        (and ``log``), NOT ``self``. The captured name must be
-        ``recorder`` — that's what makes the extracted function's
-        reference to the recorder work after the closure defers.
+    def test_no_persistence_closure_in_body(self):
+        """The microphone-fallback persistence block is GONE: the
+        fallback device is session-local only, so ``start_recording``
+        must not define a nested persistence closure nor reference the
+        ``"mic-fallback-save"`` spawn name. Auto-persisting the
+        fallback silently overwrote the user's saved selection.
         """
         code = start_recording.__code__
-        # ``recorder`` is captured by the nested ``_persist_mic``
-        # closure so it appears in ``co_cellvars``.
-        assert "recorder" in code.co_cellvars, (
-            "CRITICAL contract: _persist_mic must capture "
-            "`recorder` via closure (so the fallback persistence runs "
-            "against the right object)."
-        )
+        for name in ("_persist_mic", "mic-fallback-save"):
+            assert name not in code.co_varnames
+            assert name not in code.co_cellvars
+            assert name not in code.co_freevars
+            assert all(name not in str(c) for c in code.co_consts), (
+                f"CRITICAL contract: `{name}` must not appear anywhere in "
+                "start_recording — the microphone-fallback persistence "
+                "block was removed because auto-writing config.microphone "
+                "silently replaced the user's saved selection."
+            )
         # Ensure no stale ``self`` reference snuck in (would mean the
         # body wasn't fully self-rewritten).
         assert "self" not in code.co_varnames
@@ -448,92 +447,79 @@ class TestStartRecordingFallbackPath:
             start_recording(recorder)
 
 
-# ── Microphone fallback persistence ──────────────────────────────
+# ── Microphone fallback is session-local ─────────────────────────
 
 
-class TestMicrophoneFallbackPersistence:
+class TestMicrophoneFallbackSessionLocal:
     """When the opened device differs from the configured ``device``
-    returned by ``_resolve_device``, the fallback must be persisted
-    on a background daemon thread (``_spawn_device_thread``) so the
-    recording-start critical path isn't blocked by the 50-500 ms
-    blocking config-write (the fix)."""
+    returned by ``_resolve_device``, the fallback applies to THIS
+    session only: ``config.microphone`` must NOT be rewritten and no
+    persistence thread may be spawned. Auto-writing the fallback
+    silently replaced the user's saved selection (or a ``None``
+    System Default) with an arbitrary concrete device id."""
 
-    def test_persist_thread_spawned_when_selected_device_differs(self):
-        """When ``selected_device != device`` (and is an int), the
-        fallback persistence thread is spawned and
-        ``config.microphone`` is updated to the new device.
-        """
+    def test_config_microphone_not_overwritten_on_fallback(self):
+        """``selected_device != device`` → the stream runs on the
+        fallback, but the persisted selection stays untouched."""
         recorder = _build_mock_recorder(device=5, open_success=True)
-        # Override: configured device=5 but the stream opened on device=7.
+        recorder._open_stream_for_candidates.return_value = (7, 16000, None)
+        recorder._resolve_device.return_value = 5
+        recorder.config.microphone = "Windows WASAPI|USB Mic"
+
+        start_recording(recorder)
+
+        assert recorder.config.microphone == "Windows WASAPI|USB Mic", (
+            "config.microphone must NOT be auto-rewritten when a "
+            "fallback device is used — the saved selection belongs to "
+            "the user."
+        )
+        recorder.config.save.assert_not_called()
+
+    def test_no_persistence_thread_spawned_when_selected_device_differs(self):
+        """No persistence thread (``mic-fallback-save``) may be spawned
+        for a session-local fallback."""
+        recorder = _build_mock_recorder(device=5, open_success=True)
         recorder._open_stream_for_candidates.return_value = (7, 16000, None)
         recorder._resolve_device.return_value = 5
 
         start_recording(recorder)
 
-        recorder._spawn_device_thread.assert_called_once()
-        kwargs = recorder._spawn_device_thread.call_args.kwargs
-        assert kwargs["name"] == "mic-fallback-save"
-        assert callable(kwargs["target"])
+        for call in recorder._spawn_device_thread.call_args_list:
+            assert call.kwargs.get("name") != "mic-fallback-save", (
+                "the mic-fallback persistence thread was removed; spawning "
+                "it again would silently overwrite the user's selection"
+            )
 
-        # The config.microphone must be updated to the new device.
-        assert recorder.config.microphone == "7"
+    def test_fallback_logs_session_local_notice(self, caplog):
+        """The fallback path logs that the saved selection is unchanged
+        so the session-local behavior is observable in the log file."""
+        recorder = _build_mock_recorder(device=5, open_success=True)
+        recorder._open_stream_for_candidates.return_value = (7, 16000, None)
+        recorder._resolve_device.return_value = 5
 
-    def test_persist_thread_not_spawned_when_selected_device_matches(self):
-        """No persistence thread when the opened device is the
-        configured one.
-        """
+        with caplog.at_level("INFO", logger="voice_typer.server.recording"):
+            start_recording(recorder)
+
+        assert any(
+            "saved selection unchanged" in rec.message and "[RECORDING]" in rec.message for rec in caplog.records
+        ), "fallback usage must log an INFO line noting the saved selection is unchanged."
+
+    def test_nothing_logged_when_selected_device_matches(self, caplog):
+        """No fallback notice when the opened device is the configured
+        one."""
         recorder = _build_mock_recorder(device=5, open_success=True)
         recorder._resolve_device.return_value = 5
         recorder._open_stream_for_candidates.return_value = (5, 16000, None)
 
-        start_recording(recorder)
+        with caplog.at_level("INFO", logger="voice_typer.server.recording"):
+            start_recording(recorder)
 
-        recorder._spawn_device_thread.assert_not_called()
+        assert not any("saved selection unchanged" in rec.message for rec in caplog.records)
 
-    def test_persist_thread_runs_persist_mic_closure(self):
-        """The ``target`` callable passed to ``_spawn_device_thread``
-        is the ``_persist_mic`` closure. When called, it must invoke
-        ``recorder.config.save()``.
-        """
+    def test_non_int_selected_device_skips_fallback_block(self, caplog):
+        """A non-int device (e.g. None or a string) skips the
+        fallback-notice block entirely."""
         recorder = _build_mock_recorder(device=5, open_success=True)
-        recorder._resolve_device.return_value = 5
-        recorder._open_stream_for_candidates.return_value = (7, 16000, None)
-        recorder.config.save.return_value = True
-
-        start_recording(recorder)
-
-        target = recorder._spawn_device_thread.call_args.kwargs["target"]
-        target()  # invoke the closure
-        recorder.config.save.assert_called_once()
-
-    def test_persist_mic_logs_when_save_fails(self, caplog):
-        """When ``config.save()`` returns False, the closure logs a
-        debug message — best-effort persistence.
-        """
-        recorder = _build_mock_recorder(device=5, open_success=True)
-        recorder._resolve_device.return_value = 5
-        recorder._open_stream_for_candidates.return_value = (7, 16000, None)
-        recorder.config.save.return_value = False
-
-        start_recording(recorder)
-        target = recorder._spawn_device_thread.call_args.kwargs["target"]
-
-        with caplog.at_level("DEBUG", logger="voice_typer.server.recording"):
-            target()
-        assert any("Could not persist microphone fallback" in rec.message for rec in caplog.records), (
-            "when config.save() returns False, the "
-            "persistence closure must log a debug message so the "
-            "best-effort failure is observable."
-        )
-
-    def test_persist_thread_not_spawned_when_selected_device_is_not_int(self):
-        """The persistence block guards with
-        ``isinstance(selected_device, int)`` — a non-int device
-        (e.g. None or a string) skips the persistence path.
-        """
-        recorder = _build_mock_recorder(device=5, open_success=True)
-        # Return a string ``selected_device`` — not int, so the
-        # persistence block must be skipped.
         recorder._open_stream_for_candidates.return_value = (
             "not-an-int",
             16000,
@@ -541,8 +527,10 @@ class TestMicrophoneFallbackPersistence:
         )
         recorder._resolve_device.return_value = 5
 
-        start_recording(recorder)
-        recorder._spawn_device_thread.assert_not_called()
+        with caplog.at_level("INFO", logger="voice_typer.server.recording"):
+            start_recording(recorder)
+        assert not any("saved selection unchanged" in rec.message for rec in caplog.records)
+        recorder.config.save.assert_not_called()
 
 
 # ── Resampler warm-up ────────────────────────────────────────────

@@ -252,7 +252,6 @@ class DeviceManager:
                     continue
                 devices.append(
                     {
-                        "id": str(i),
                         "index": i,
                         "name": dev.get("name", ""),
                         "max_input_channels": dev.get("max_input_channels", 0),
@@ -944,11 +943,24 @@ class DeviceManager:
                   saved index that now points at a different physical device
                   (after Windows MME hot-swap renumbering) is NOT silently
                   substituted.
+        - ``"<host api>|<name>[#N]"`` (stable id, as emitted by
+                  ``list_microphones``) → resolved via
+                  ``find_microphone_by_id``, which survives reboots and
+                  hot-swap renumbering because it matches on host API +
+                  name instead of the unstable index.
+
+        Resolution order for string values: exact stable-id lookup first
+        (an exact match against a live device's generated id is correct
+        regardless of which format produced the stored string), then the
+        legacy bare-index / compound parsing below. Purely-numeric strings
+        skip the enumeration entirely — they can never equal a generated
+        id, and the legacy fast path must stay RPC-free.
 
         (Medium): PortAudio device indices are NOT stable across
                 hot-swap on Windows MME. The compound form stores the device
-                NAME alongside the index so the resolver can re-find the
-                original physical device by name after renumbering.
+                NAME alongside the index and the stable id stores name +
+                host API so the resolver can re-find the original physical
+                device by name after renumbering.
 
         when the saved index now points at a differently-named
                 device AND name lookup failed, emit a one-time WARNING.
@@ -956,6 +968,22 @@ class DeviceManager:
         mic = self.recorder.config.microphone
         if mic is None:
             return None
+        # Stable-id form (and any non-legacy string): try an exact match
+        # against the live enumeration before falling back to the legacy
+        # parsers. Skipped for bare digits — the legacy index path below
+        # handles those without a PortAudio round-trip.
+        if isinstance(mic, str) and not mic.isdigit():
+            try:
+                from voice_typer.server.server_platform import find_microphone_by_id
+
+                stable_match = find_microphone_by_id(mic)
+            except Exception:
+                stable_match = None
+            if stable_match is not None:
+                try:
+                    return int(stable_match["index"])
+                except (KeyError, TypeError, ValueError):
+                    pass
         # Legacy / simple case: bare numeric index or non-compound string.
         if not isinstance(mic, str) or "|" not in mic:
             try:
@@ -978,12 +1006,17 @@ class DeviceManager:
 
         # Prefer name-based resolution: this is the stable identifier
         # that survives PortAudio hot-swap renumbering on Windows MME.
-        try:
-            from voice_typer.server.server_platform import find_microphone_by_name
+        # An empty/whitespace name fragment (corrupt value like "5|")
+        # must skip the lookup — substring-matching "" would return the
+        # first enumerated device.
+        match = None
+        if saved_name.strip():
+            try:
+                from voice_typer.server.server_platform import find_microphone_by_name
 
-            match = find_microphone_by_name(saved_name)
-        except Exception:
-            match = None
+                match = find_microphone_by_name(saved_name)
+            except Exception:
+                match = None
         if match is not None:
             try:
                 return int(match.get("index", saved_index) if saved_index is not None else match["index"])

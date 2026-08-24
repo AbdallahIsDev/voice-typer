@@ -270,6 +270,57 @@ def _make_custom_theme_validator() -> ValidatorFn:
     return _validate
 
 
+# Canonical enums + bool keys for the linux_window_buttons validator below.
+_LINUX_WINDOW_BUTTON_MODES = frozenset({"system", "custom"})
+_LINUX_WINDOW_BUTTON_SIDES = frozenset({"left", "right"})
+_LINUX_WINDOW_BUTTON_BOOL_KEYS = ("show_minimize", "show_maximize", "show_close")
+
+
+def _make_linux_window_buttons_validator() -> ValidatorFn:
+    """Validate the Linux window-button customization dict.
+
+    Expected shape (matches the ``linux_window_buttons`` dataclass default
+    in ``config/_schema.py`` and the renderer's ``LinuxWindowButtonsConfig``):
+
+        {"mode": "system" | "custom",
+         "side": "left" | "right",
+         "show_minimize": bool,
+         "show_maximize": bool,
+         "show_close": bool}
+
+    All five keys are REQUIRED — the renderer always sends the complete
+    object (it edits a full draft, never a partial patch), and requiring
+    every key keeps a stale/partial write from silently half-configuring
+    the title bar. Unknown extra keys are rejected so the shape cannot
+    silently drift.
+    """
+
+    def _validate(v: object) -> str | None:
+        if not isinstance(v, dict):
+            return f"must be a dict, got {type(v).__name__}"
+        # The legitimate shape is exactly 5 keys; 8 is a generous bound
+        # that still rejects pathological 1000-key payloads.
+        if len(v) > 8:
+            return "too many keys"
+        allowed_keys = {"mode", "side", *_LINUX_WINDOW_BUTTON_BOOL_KEYS}
+        unknown = set(v) - allowed_keys
+        if unknown:
+            return f"unknown keys: {sorted(unknown)}"
+        mode = v.get("mode")
+        if mode not in _LINUX_WINDOW_BUTTON_MODES:
+            return f"mode must be one of {sorted(_LINUX_WINDOW_BUTTON_MODES)}, got {mode!r}"
+        side = v.get("side")
+        if side not in _LINUX_WINDOW_BUTTON_SIDES:
+            return f"side must be one of {sorted(_LINUX_WINDOW_BUTTON_SIDES)}, got {side!r}"
+        for key in _LINUX_WINDOW_BUTTON_BOOL_KEYS:
+            val = v.get(key)
+            if not isinstance(val, bool):
+                return f"{key} must be a bool, got {type(val).__name__}"
+        return None
+
+    return _validate
+
+
 def _make_url_validator(
     *,
     allow_empty: bool = False,

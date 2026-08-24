@@ -24,7 +24,7 @@
  * drift from the tooltips.
  *
  * Scroll structure: the DialogContent is capped at `max-h-[85vh]` and
- * clips (`overflow-hidden`) — an internal scrollbar on a rounded-4xl
+ * clips (`overflow-hidden`) — an internal scrollbar on a rounded
  * panel escapes the corner radius on Windows classic scrollbars
  * (Chromium "scrollbars escaping border-radius"). The TITLE, the
  * description, and the whole body therefore live inside ONE inner
@@ -32,7 +32,7 @@
  * naturally with the content instead of being pinned above a scrolled
  * body. Negative horizontal/bottom margins cancel the panel padding so
  * the scrollbar sits flush at the panel edge, where the panel's
- * overflow-hidden + rounded-4xl clips it to the corner curves.
+ * overflow-hidden + rounded corners clip it to the corner curves.
  */
 import { memo } from "react";
 import { Modal } from "@/components/common/Modal";
@@ -74,7 +74,7 @@ function HelpOverlayInner({
 			// shortcut list + cheat sheet cramped.
 			size="lg"
 			// The PANEL clips (overflow-hidden) instead of scrolling:
-			// an internal scrollbar on a rounded-4xl panel escapes the
+			// an internal scrollbar on a rounded panel escapes the
 			// corner radius on Windows classic scrollbars (Chromium
 			// "scrollbars escaping border-radius"). The title, body,
 			// and footer scroll together in the inner wrapper below —
@@ -88,7 +88,7 @@ function HelpOverlayInner({
 				    scrolls naturally as one unit. Negative horizontal/bottom
 				    margins cancel the panel padding so the scrollbar sits
 				    flush at the panel edge — where the panel's
-				    overflow-hidden + rounded-4xl clips it to the corner
+				    overflow-hidden + rounded corners clip it to the corner
 				    curves (no more scrollbar escaping the rounded shape). */}
 			<div
 				data-testid="help-overlay-scroll"

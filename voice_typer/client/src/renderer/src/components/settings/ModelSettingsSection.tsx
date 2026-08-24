@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useT } from "@/i18n/i18n";
+import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import { LANGUAGE_OPTIONS } from "@/lib/utils/languages";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
@@ -69,8 +70,26 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 		updateConfig({ templates_enabled: checked });
 	const handleVocabularyChange = (checked: boolean) =>
 		updateConfig({ vocabulary_enabled: checked });
-	const handleLlmPolishChange = (checked: boolean) =>
-		updateConfig({ llm_polish: checked });
+	// Point-of-use consent gate: turning LLM polishing ON sends
+	// transcribed text to the configured LLM provider, which requires
+	// `llm_polish_consent`. When the consent is missing, ask via the
+	// SHARED consent dialog at this exact moment instead of enabling a
+	// flow that would silently refuse (or nag) on every transcription:
+	//   • Allow → persists `llm_polish_consent=true`, then enables the
+	//     feature (the dialog's retry below);
+	//   • Cancel → the toggle stays off — no consent, no enablement;
+	//   • already granted (or switching OFF) → behave as before.
+	const handleLlmPolishChange = (checked: boolean) => {
+		if (!checked || config.llm_polish_consent) {
+			updateConfig({ llm_polish: checked });
+			return;
+		}
+		openConsentGate({
+			consentField: "llm_polish_consent",
+			bodyKey: consentBodyKey("llm_polish_consent"),
+			onAllow: () => updateConfig({ llm_polish: true }),
+		});
+	};
 	const handleLlmPresetChange = (v: string) => updateConfig({ llm_preset: v });
 
 	//section-level visibility check for Post-Processing section.

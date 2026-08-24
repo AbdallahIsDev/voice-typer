@@ -4,6 +4,11 @@
  * Coverage :
  *   - session lifecycle: startTest → countdown timer armed + testRunning=true,
  *     stopTest → microphone_test_stop IPC + recorded snack
+ *   - fixed test duration: the start payload always carries the module-level
+ *     MICROPHONE_TEST_DURATION_SEC constant (no user configurability)
+ *   - transcription passthrough: backend transcription /
+ *     transcription_unavailable fields surface as testTranscription /
+ *     testTranscriptionUnavailable and reset on a new test
  *   - device-swap handling: selectMicrophone cancels an in-flight test,
  *     sends set_config with the new micId, surfaces "usingMic" snack
  *   - microphone_test_complete event drives stopTest when the backend
@@ -54,7 +59,10 @@ vi.mock("@/i18n/i18n", () => ({
 import { useConsentGateStore } from "@/lib/consentGate";
 import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 // ── Helpers ──────────────────────────────────────────────────────────
-import { useMicrophoneTestSession } from "../useMicrophoneTestSession";
+import {
+	MICROPHONE_TEST_DURATION_SEC,
+	useMicrophoneTestSession,
+} from "../useMicrophoneTestSession";
 
 function makeConfig(
 	overrides: Partial<VoiceTyperConfig> = {},
@@ -146,7 +154,6 @@ function makeHookArgs() {
 			}
 			return result;
 		},
-		testDurationSec: 10,
 		setLevel,
 		setPeak,
 		setMicMonitoring,
@@ -226,7 +233,7 @@ describe("useMicrophoneTestSession — startTest lifecycle", () => {
 		expect(startCalls.length).toBe(1);
 		expect(startCalls[0]?.[1]).toMatchObject({
 			mic_id: "mic-1",
-			duration: 10,
+			duration: MICROPHONE_TEST_DURATION_SEC,
 		});
 
 		// testRunning flipped to true + countdown armed.
@@ -497,6 +504,7 @@ describe("useMicrophoneTestSession — stopTest lifecycle", () => {
 					raw_audio_base64: "raw-1",
 					duration_ms: 5000,
 					quality: "good",
+					transcription: "hello world",
 				});
 			return Promise.resolve({ success: true });
 		});
@@ -526,8 +534,53 @@ describe("useMicrophoneTestSession — stopTest lifecycle", () => {
 		expect(result.current.testAudioBase64).toBe("clip-1");
 		expect(result.current.testDurationMs).toBe(5000);
 		expect(result.current.testQuality).toBe("good");
+		// Backend transcription passthrough.
+		expect(result.current.testTranscription).toBe("hello world");
+		expect(result.current.testTranscriptionUnavailable).toBe(false);
 		// testRunning cleared.
 		expect(result.current.testRunning).toBe(false);
+	});
+
+	it("flags testTranscriptionUnavailable when the backend reports it and resets both on a new test", async () => {
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "microphone_test_start")
+				return Promise.resolve({
+					success: true,
+					message: "ok",
+					duration: MICROPHONE_TEST_DURATION_SEC,
+					sample_rate: 16000,
+				});
+			if (cmd === "microphone_test_stop")
+				return Promise.resolve({
+					success: true,
+					audio_base64: "clip-1",
+					raw_audio_base64: null,
+					duration_ms: 4000,
+					quality: "good",
+					transcription_unavailable: true,
+				});
+			return Promise.resolve({ success: true });
+		});
+
+		const { result } = renderHook(() =>
+			useMicrophoneTestSession(makeHookArgs()),
+		);
+
+		await act(async () => {
+			await result.current.startTest();
+		});
+		await act(async () => {
+			await result.current.stopTest();
+		});
+		expect(result.current.testTranscription).toBeNull();
+		expect(result.current.testTranscriptionUnavailable).toBe(true);
+
+		// A fresh test clears the stale transcription verdict.
+		await act(async () => {
+			await result.current.startTest();
+		});
+		expect(result.current.testTranscription).toBeNull();
+		expect(result.current.testTranscriptionUnavailable).toBe(false);
 	});
 
 	it("surfaces a warning snack when the backend reports success=true but no audio", async () => {

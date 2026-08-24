@@ -263,13 +263,13 @@ describe("LocalModelsPanel — BG-21 (low-disk banner uses correct i18n keys)", 
 describe("LocalModelsPanel — HuggingFace consent is NOT a persistent banner", () => {
 	afterEach(() => cleanup());
 
-	it("never renders the consent banner (consent moved to a just-in-time toast at download time)", () => {
+	it("never renders the consent banner (consent moved to the shared dialog at download time)", () => {
 		// The persistent consent banner was REMOVED (UI/UX overhaul
 		// point 4): consent is now checked only at the moment the user
 		// clicks a model's Download button
-		// (`useModelLifecycle.handleDownloadModel`), which shows a
-		// transient toast with a "Grant consent" action. The panel must
-		// not render any always-visible consent UI.
+		// (`useModelLifecycle.handleDownloadModel`), which opens the
+		// shared point-of-use consent dialog (`openConsentGate`). The
+		// panel must not render any always-visible consent UI.
 		render(<LocalModelsPanel {...baseProps} />);
 		expect(
 			screen.queryByText("HuggingFace download consent required"),

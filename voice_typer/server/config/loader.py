@@ -426,10 +426,8 @@ def _load_config(cls) -> "Config":
         # the platform default (<caps_lock>) and append a
         # warning to _load_warnings.
         default_hotkey = _default_hotkey_for_platform()
-        for hotkey_field in ("hotkey", "push_to_talk_hotkey", "repaste_hotkey"):
+        for hotkey_field in ("hotkey", "repaste_hotkey"):
             value = data.get(hotkey_field)
-            # An empty push_to_talk_hotkey means "same as
-            # toggle" -- skip empty strings.
             if not isinstance(value, str) or value == "":
                 continue
             err = _validate_hotkey(value)

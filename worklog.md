@@ -1123,3 +1123,154 @@ Validation after fix round: Python **13,535 passed / 0 failed**; Vitest **3,418 
 - Alternative NOT taken here (noted for future): switching Windows to OS-drawn
   overlay controls (Electron WCO / Tauri Overlay) would make Windows draw the
   buttons itself; bigger cross-runtime change to fragile window-creation code.
+
+
+## Session: Microphone page revamp (2026-08-24)
+
+### Baseline (Windows, pwsh 7, pre-change)
+- pytest: `.venv/Scripts/python.exe -m pytest tests/ -n auto --dist=loadgroup -q --no-cov --tb=no` → **13545 passed, 910 skipped, 4 xfailed, 0 failed** (3m35s)
+- vitest: `npx vitest run` (voice_typer/client) → **3423 passed, 33 skipped, 0 failed** (67s)
+- Branch at start: main @ f5ffd3b0
+
+### Root causes identified (orchestrator recon, verified from code)
+- config.microphone persists the PortAudio device INDEX as string (str(i), server_platform/microphone_list.py); indices shift across reboots/hot-plugs → stale id matches no enumerated device → renderer falls back to 	("microphone.unknown").
+- Input () device: PortAudio entry with empty/unresolved friendly name passes _is_non_mic_device (which only filters loopback/line-in/sound-mapper names) → rendered as a bogus selectable mic.
+- Persistent MicrophoneConsentGateBanner duplicates the existing unified JIT consent gate (ConsentGateDialog + openConsentGate, mounted in App.tsx; Home.tsx already uses the JIT pattern).
+- Test-duration slider (3-30s) is user-facing config for an operation that should be fixed 10s.
+
+
+## Session: Microphone page revamp completion (2026-08-24, orchestrator)
+
+### Sub-agent waves (5 specialists, disjoint ownership)
+1. Hooks/test-duration: fixed MICROPHONE_TEST_DURATION_SEC=10 (single source), removed
+   setTestDurationSec/testDurationSec public API + dead refresh machinery (refreshing/
+   agoLabel/handleManualRefresh/useLastUpdated), wired testTranscription(+unavailable)
+   passthrough, added startup stale-selection fallback (reconcileActiveMic) with
+   once-per-missing-id anti-snack-spam guard. 47 hook + 22 interaction + 19 a11y tests green.
+2. Backend device-state: verified stable-id round trip; FIXED compound-id gap in
+   resolve_mic_id_to_device_index (new _resolve_legacy_compound_id), DRY delegation to
+   find_microphone_by_id, twin-vanish base-id fallback, empty-name guard in _resolve_device,
+   removed dead old-format id write in DeviceManager cache; fixed 2 pre-existing
+   test_recording.py failures forward (session-local-fallback contract). 77+122+242 pytest green.
+3. Consent audit repo-wide: migrated HuggingFace download toast→shared JIT gate
+   (useModelLifecycle), About offline-pack nag→JIT gate w/ retry, LLM-polish toggle→JIT gate;
+   removed dead consent wrappers + orphaned hfConsent/about keys in 8 locales; rewrote
+   consent tests to JIT contract. 156 vitest + 45 pytest green.
+4. Independent read-only auditor: confirmed transcription pipeline + consent gate + races +
+   backend contract correct; reported HIGH frozen level/peak state (fixed below) + 5 med/low.
+5. i18n/a11y verifier: 131-key parity PASS all 8 locales; fixed ru/zh truncated consent copy,
+   de glyph drift, missing ✓/⚠ prefixes, ru missing space; 0 duplicate keys/placeholders.
+
+### Orchestrator integration fixes
+- [HIGH] useMicrophoneLevelMonitor: mic_level handler updated refs only -> level/peak React
+  state froze at 0 => "Level: NN%" text, LevelBar aria-valuenow/valuetext, clipping icon,
+  LiveQualityFeedback tiers all dead during monitoring/tests. Fix: throttled ref->state sync
+  (~8 Hz LEVEL_STATE_SYNC_INTERVAL_MS) inside the gated rAF frame; bar keeps <=60 Hz
+  imperative writes; push handler stays setState-free.
+- Removed dead consentBlocked API (level monitor + useMicrophoneTest re-export) + stale docs.
+- ActiveMicrophoneCard: memo comparator += transcription/transcriptionUnavailable; card-header
+  name min-w-0/truncate for narrow windows.
+- Microphone.tsx: device-lost banner suppressed while OS permission denied (double role=alert
+  stack for one root cause).
+- MicrophoneListItem: OS-default badge now microphone.osDefaultBadge ("Default", 8 locales)
+  instead of reusing "System Default" (label collision, C-UI-2).
+- AvailableMicrophonesList: device rows dim during test like System Default row; section label
+  uppercase to match PresetAccordionSelector treatment.
+- PresetAccordionSelector: dropped aria-label override so SR announces visible trigger content
+  (section label + CURRENT selection) when collapsed.
+- loadData deps fixed to ref identity (selectMicrophoneRef object, not .current) — restores the
+  render-loop-guard invariant (4x get_config regression caught by the guard).
+- i18n: added microphone.osDefaultBadge x8; removed stale microphone.use x8 + its
+  feature-friction pin block; pruned stale RW2_BACKFILLED entry microphone.test.qualityOk.
+- llm-polish-consent-gate.test.tsx: typed vi.fn generic (TS2322).
+- Updated render-loop-guard doc comment (markUpdatedRef mirror no longer exists).
+
+### Rules appended
+AGENTS.md: new category "Microphone Selection & Consent Flow" — C-MIC-1..C-MIC-6 (System
+Default first-use default; never silent overwrite/Unknown; JIT consent gate only; mutually
+exclusive accordion+radio presets w/ fixed 10s duration; source-layer invalid-device filter;
+design-system tokens on the mic page).
+
+## Linux window-button control (system layout + custom setting + KDE squares) (2026-08-24)
+
+Scope: all three options the user approved.
+
+- Backend: new `voice_typer/server/server_platform/window_buttons.py` —
+  DE detection (KDE_FULL_SESSION / XDG_CURRENT_DESKTOP) + GNOME
+  button-layout parsing (gsettings, 2s timeout, fail-soft) + per-process
+  cache. `get_config` now attaches a READ-ONLY
+  `linux_window_buttons_system` snapshot (computed, never persisted,
+  never settable — allowlist rejects it).
+- Config: new persisted `linux_window_buttons` field (mode system|custom,
+  side left|right, 3 visibility bools) + `_make_linux_window_buttons_validator`
+  (all 5 keys required, unknown keys rejected) + SEC-002 allowlist entry
+  (frozen snapshot test updated 122→123).
+- Renderer: `lib/utils/windowButtons.ts` resolver (pure, precedence:
+  custom > system-layout > fallback trio; KDE → Breeze squares);
+  TitleBar renders the Linux cluster side-aware + visibility-aware with
+  circle/square shells (Windows/macOS untouched); App.tsx resolves the
+  layout via field-level store selectors; Settings → Appearance gained a
+  Linux-only section; types + 16 i18n keys × 8 locales (real translations;
+  de/fr 'Position' re-worded to Platzierung/Emplacement after the
+  untranslated-value gate caught them).
+- Tests: 29 new Python (window_buttons, validator e2e, snapshot update),
+  17 new vitest (resolver, TitleBar layout, settings section). i18n
+  completeness 45/45.
+- Gates: tsc web exit 0; pyrefly 0 errors; ruff clean; prettier clean;
+  FULL pytest suite 13647 passed / 0 failed (final state); FULL vitest
+  3468 passed / 0 failed (pre-format; format-only write afterwards
+  re-covered by tsc + 104 targeted tests).
+
+### Integration-pass extra fixes (orchestrator, post-wave)
+- mypy ratchet +1 (microphone_list.py:194 arg-type): resolve_mic_id_to_device_index now
+  passes str(mic_id) into find_microphone_by_id (legacy int normalization).
+- pyrefly: _schema.py linux_window_buttons default_factory cast to dict[str, object]
+  (live full-set count 376 <= baseline floor 425; count-gate green, no baseline edit).
+- ruff I001 x2 (test imports) fixed; ruff ratchet 0<=0.
+- render-loop-guard regression caught S1 regression (loadData dep on selectMicrophoneRef.current
+  re-fired mount load 4x) — fixed to ref-identity dep; guard green.
+
+### Validation performed (final code state, Windows 11, pwsh 7)
+- ruff check (repo): clean; ruff ratchet 0<=0 PASS; mypy ratchet 632<=632 PASS
+- pyrefly count gate: 376 <= 425 PASS; pip-audit (uv tool run, --require-hashes): no vulns
+- pytest --co: 14565 collected (wiring OK); cargo check: Finished (after gen_tauri_icons_stub)
+- sync_versions --check OK; check_branding OK; generate_beeps --check OK
+- client: typecheck:ci clean, biome lint+format clean, electron-vite build OK
+- FULL pytest: 13654 passed / 0 failed (910 skipped, 4 xfailed), 4m33s, -n auto --dist=loadgroup
+- FULL vitest: 3468 passed / 0 failed (33 skipped), 347 files
+- coverage gate (earlier full cov run): 82.44% >= 65% + ratchet 81.85 >= 65.23 PASS
+
+### Manual verification (real desktop app, Windows 11)
+Launched production build via `npx electron . --remote-debugging-port=9222` (dev venv backend,
+real user profile), driven over CDP with browser-control; screenshots in
+~/.browser-control/runtime/default/screenshots/ (light 1000x700, dark 1920x1040).
+- Page render: System Default card w/ Selected badge, neutral borders, no consent banner,
+  no refresh control, no duration slider, no Channels/Rate, no Use-this-mic buttons.
+- Enumeration: 12 devices, NO `Input ()` placeholder; names clean; rows = icon+name+radio.
+- Selection: System Default checked by default (config.microphone null); Realtek radio click
+  -> persisted `MME|Microphone (Realtek(R) Audio)`; System Default click -> null again.
+- Consent: Start Test w/o consent -> unified Consent required modal (Open Settings/Cancel/Allow);
+  Cancel -> no test; Allow -> consent persisted + test started instantly (backend:
+  "Test recording started: mic=default, duration=10.0s" -> "Auto-stop: 10.0s recorded");
+  already-granted -> no modal.
+- Fixed duration: backend auto-stop at exactly 10.0s.
+- Live level: bar + "Level: NN%" text + clipping icon all live (throttled state sync fix
+  visible in production; bar was pegged 100% red on the default virtual mic).
+- Quality accordion: collapsed shows current pick; expand -> 5 radio options; Studio click
+  persisted audio_preset=studio; header updates.
+- Error path: mic test with no ASR model/pack -> graceful timeout snack ("engine may still be
+  loading") + Preparing-offline-engine banner (environment limitation: no whisper model on
+  this machine; TestReviewPanel results path covered by 47 session-hook tests).
+- Themes/sizes: light@1000x700 + dark@1920x1040 screenshots; tokens hold in both.
+- User config restored post-verification (preset=auto, consent=false, theme_mode=light,
+  microphone=null).
+
+### Known limitations / observations
+- CDP-injected NORMAL clicks on the consent dialog buttons did not trigger onClick (only
+  force-click did); OS-level clicks untested in this harness. Flagged for a future manual
+  click check; all dialog flows verified via keyboard (Escape=Cancel) and force-click.
+- Same physical mic appears once per PortAudio host API (MME + WASAPI + driver wave forms);
+  stable ids disambiguate. Deliberately NOT deduped (each entry is independently selectable;
+  dedup risks hiding a user-selected device per C-MIC-2) — candidate future UX enhancement
+  (host-API suffix badge on duplicates).
+- pip-audit run via `uv tool run` (pip-audit not installed in venv).

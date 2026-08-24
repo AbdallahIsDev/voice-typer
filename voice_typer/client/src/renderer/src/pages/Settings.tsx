@@ -14,6 +14,7 @@ import { AiEnhancementSettingsSection } from "@/components/settings/AiEnhancemen
 import { AudioSettingsSection } from "@/components/settings/AudioSettingsSection";
 import { DiagnosticsSettingsSection } from "@/components/settings/DiagnosticsSettingsSection";
 import { GeneralSettingsSection } from "@/components/settings/GeneralSettingsSection";
+import { LinuxWindowButtonsSettingsSection } from "@/components/settings/LinuxWindowButtonsSettingsSection";
 import { ModelSettingsSection } from "@/components/settings/ModelSettingsSection";
 import PrewarmAndUpdates, {
 	getPrewarmAndUpdatesLabels,
@@ -661,11 +662,18 @@ export default function SettingsPage({
 				{activeTab === "appearance" &&
 					renderTabPanel(
 						"appearance",
-						<ThemeSettingsSection
-							{...sectionProps}
-							themeModeProp={themeModeProp}
-							onThemeChange={handleThemeChangeLocal}
-						/>,
+						<>
+							<ThemeSettingsSection
+								{...sectionProps}
+								themeModeProp={themeModeProp}
+								onThemeChange={handleThemeChangeLocal}
+							/>
+							{/* Linux-only (returns null elsewhere): the
+							    frameless title bar's window-button layout —
+							    follow the desktop's button-layout or pick a
+							    custom side/visibility. */}
+							<LinuxWindowButtonsSettingsSection {...sectionProps} />
+						</>,
 					)}
 
 				{activeTab === "general" &&

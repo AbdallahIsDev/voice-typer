@@ -237,7 +237,6 @@ const baseConfig: VoiceTyperConfig = {
 	corrections_path: null,
 	log_transcriptions: false,
 	recording_mode: "toggle",
-	push_to_talk_hotkey: "",
 	esc_cancel_enabled: true,
 	repaste_hotkey: "",
 	auto_punctuation: false,
@@ -549,7 +548,15 @@ describe("Microphone — rewrite of test_microphone_uses_shared_snackbar_hook", 
 						default: true,
 					},
 				]);
-			if (type === "get_config") return Promise.resolve(baseConfig);
+			if (type === "get_config")
+				// Grant voice-biometric consent so the page's point-of-use
+				// consent gate (Microphone.tsx startTest) does NOT intercept
+				// the click — otherwise the dialog opens instead of the
+				// mic-test IPC, and the failure snack never fires.
+				return Promise.resolve({
+					...baseConfig,
+					voice_biometric_consent: true,
+				});
 			if (type === "set_config") return Promise.resolve({ success: true });
 			if (type === "microphone_test_start")
 				// Returning success: false triggers the error path which

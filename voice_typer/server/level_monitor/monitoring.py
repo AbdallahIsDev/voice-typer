@@ -440,10 +440,26 @@ def start_monitoring(mic_id: str | None = None) -> dict:
     config_snapshot: dict | None = None
     result: dict | None = None
     with _state._monitor_lock:
+        # Resolve the requested mic id to a live PortAudio index. Handles
+        # every id shape (stable "<host api>|<name>[#N]" ids from
+        # list_microphones, legacy bare-index strings, None = system
+        # default); an unresolvable id falls back to the system default
+        # instead of crashing the monitor.
         device = None
         if mic_id is not None:
-            with contextlib.suppress(ValueError, TypeError):
-                device = int(mic_id)
+            try:
+                from voice_typer.server.server_platform import (
+                    resolve_mic_id_to_device_index,
+                )
+
+                device = resolve_mic_id_to_device_index(mic_id)
+            except Exception:
+                log.debug(
+                    "[LEVEL-MON] mic id %r resolution failed; using system default",
+                    mic_id,
+                    exc_info=True,
+                )
+                device = None
 
         try:
             dev_info_raw = sd.query_devices(kind="input") if device is None else sd.query_devices(device)

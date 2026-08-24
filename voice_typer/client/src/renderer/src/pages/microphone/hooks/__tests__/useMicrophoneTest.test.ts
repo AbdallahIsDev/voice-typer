@@ -9,7 +9,8 @@
  *   - test start clears prior testAudioBase64 + rawAudioBase64 +
  *     testDurationMs + testQuality before starting
  *   - handlePresetChange / handleConfigChange: thin wrappers around updateConfig
- *   - testDurationSec / showAdvanced setters exposed
+ *   - fixed test duration: the start payload carries MICROPHONE_TEST_DURATION_SEC;
+ *     no testDurationSec / setTestDurationSec remains in the public API
  *   - smoke: composition renders without crashing + exposes the full return shape
  *
  * Strategy: mock usePython (call) + usePythonEvent + useSnackbar + Audio +
@@ -124,8 +125,9 @@ afterEach(() => {
 });
 
 import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
-// ── Helpers ──────────────────────────────────────────────────────────
 import { useMicrophoneTest } from "../useMicrophoneTest";
+// ── Helpers ──────────────────────────────────────────────────────────
+import { MICROPHONE_TEST_DURATION_SEC } from "../useMicrophoneTestSession";
 
 function makeConfig(
 	overrides: Partial<VoiceTyperConfig> = {},
@@ -229,7 +231,6 @@ describe("useMicrophoneTest — composition smoke test (renders without crashing
 		expect(typeof r.testCountdown).toBe("number");
 		expect(typeof r.testElapsed).toBe("number");
 		expect(typeof r.testDurationMs).toBe("number");
-		expect(typeof r.testDurationSec).toBe("number");
 		expect(typeof r.showAdvanced).toBe("boolean");
 		expect(typeof r.filtersSinceLastTest).toBe("string");
 		expect(typeof r.playingEnhanced).toBe("boolean");
@@ -242,10 +243,16 @@ describe("useMicrophoneTest — composition smoke test (renders without crashing
 		expect(r.peakRef).toHaveProperty("current");
 	});
 
-	it("defaults testDurationSec=10 + showAdvanced=false (user-configurable test duration)", () => {
+	it("exposes the fixed test duration + no dead duration configurability", () => {
+		// The test duration is permanently MICROPHONE_TEST_DURATION_SEC —
+		// the former user-configurable state/setter pair is gone from the
+		// public API.
+		expect(MICROPHONE_TEST_DURATION_SEC).toBe(10);
+
 		const { result } = renderHook(() => useMicrophoneTest(makeHookArgs()));
-		expect(result.current.testDurationSec).toBe(10);
 		expect(result.current.showAdvanced).toBe(false);
+		expect("testDurationSec" in result.current).toBe(false);
+		expect("setTestDurationSec" in result.current).toBe(false);
 	});
 });
 
@@ -269,14 +276,15 @@ describe("useMicrophoneTest — test start/stop lifecycle", () => {
 			await result.current.startTest();
 		});
 
-		// microphone_test_start IPC fired with the active mic id + duration.
+		// microphone_test_start IPC fired with the active mic id + the
+		// fixed duration constant.
 		const startCalls = callMock.mock.calls.filter(
 			(c) => c[0] === "microphone_test_start",
 		);
 		expect(startCalls.length).toBe(1);
 		expect(startCalls[0]?.[1]).toMatchObject({
 			mic_id: "mic-1",
-			duration: 10,
+			duration: MICROPHONE_TEST_DURATION_SEC,
 		});
 
 		// testRunning flipped to true (countdown timer armed).
@@ -518,16 +526,6 @@ describe("useMicrophoneTest — handlePresetChange / handleConfigChange", () => 
 });
 
 describe("useMicrophoneTest — setter pass-through", () => {
-	it("setTestDurationSec updates the testDurationSec state", () => {
-		const { result } = renderHook(() => useMicrophoneTest(makeHookArgs()));
-		expect(result.current.testDurationSec).toBe(10);
-
-		act(() => {
-			result.current.setTestDurationSec(20);
-		});
-		expect(result.current.testDurationSec).toBe(20);
-	});
-
 	it("setShowAdvanced toggles the showAdvanced state", () => {
 		const { result } = renderHook(() => useMicrophoneTest(makeHookArgs()));
 		expect(result.current.showAdvanced).toBe(false);

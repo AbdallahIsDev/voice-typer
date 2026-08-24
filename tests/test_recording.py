@@ -216,8 +216,11 @@ class TestStopAudioPrep:
         assert opened_devices == [9, 1]
         assert r.recording is True
         assert r._stream is not None
-        assert config.microphone == "1"
-        config.save.assert_called_once()
+        # Session-local fallback ONLY: the saved selection must survive
+        # unchanged (rewriting it here silently replaced the user's
+        # choice with an arbitrary fallback index that went stale).
+        assert config.microphone == "9"
+        config.save.assert_not_called()
 
         # Clean up worker threads spawned by start() so they don't trip
         # the "no leaked worker threads" checks in later tests.
@@ -284,7 +287,9 @@ class TestStopAudioPrep:
         assert 2 in opened_devices
         assert r.recording is True
         assert r._stream is not None
-        assert config.microphone == "2"
+        # Session-local fallback ONLY: the saved selection stays "1"
+        # even though this session ran on device 2.
+        assert config.microphone == "1"
 
         # Clean up worker threads spawned by start() so they don't trip
         # the "no leaked worker threads" checks in later tests.

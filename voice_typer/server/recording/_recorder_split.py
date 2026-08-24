@@ -707,30 +707,19 @@ def start_recording(recorder: Recorder) -> None:
         recorder._ring_buffer = collections.deque(maxlen=_uu36_new_ring_capacity)
 
     if selected_device != device and isinstance(selected_device, int):
+        # Session-local fallback ONLY: the opened stream uses the
+        # fallback device for this recording, but the persisted
+        # ``config.microphone`` is left untouched. Auto-writing the
+        # fallback here silently replaced the user's selection (or a
+        # None "System Default") with an arbitrary concrete device id,
+        # which then surfaced as a stale selection after restart.
+        # Re-selection happens either by explicit user action or via the
+        # renderer's hot-swap fallback (set_config microphone:null).
         log.info(
-            "[RECORDING] Selected microphone [%s] failed; using device [%s]",
+            "[RECORDING] Selected microphone [%s] failed; using device [%s] "
+            "for this session (saved selection unchanged)",
             device,
             selected_device,
-        )
-        recorder.config.microphone = str(selected_device)
-        # PERF-: persist the microphone-fallback update on
-        # a background daemon thread so the 50-500 ms blocking
-        # write doesn't stall the recording-start critical path.
-        # The fallback is best-effort persistence — if the process
-        # crashes before the write lands, the user just re-selects
-        # the mic on next start.
-
-        def _persist_mic() -> None:
-            if not recorder.config.save():
-                log.debug("[RECORDING] Could not persist microphone fallback")
-
-        # use _spawn_device_thread so the persistence thread
-        # is registered with thread_registry (when available),
-        # allowing ``shutdown_all()`` to join it during process exit
-        # (preventing a half-written config file).
-        recorder._spawn_device_thread(
-            name="mic-fallback-save",
-            target=_persist_mic,
         )
 
     recorder._recording_event.set()

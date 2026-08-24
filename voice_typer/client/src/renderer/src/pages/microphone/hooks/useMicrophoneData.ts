@@ -1,19 +1,23 @@
 // Data hook for the Microphone page.
 //
 // Owns: the ``microphones`` / ``config`` / ``loading`` / ``loadError``
-// / ``refreshing`` state, the module-level caches
-// (``_cachedMicrophones`` / ``_cachedConfig``) that survive page
-// navigations, the ``loadData`` / ``handleManualRefresh`` /
+// state, the module-level caches (``_cachedMicrophones`` /
+// ``_cachedConfig``) that survive page navigations, the ``loadData`` /
 // ``updateConfig`` handlers, the mount-time load effect, and the
 // ``config_changed`` + ``microphones_changed`` event subscriptions.
 //
-// The ``microphones_changed`` handler depends on the test hook's
-// ``selectMicrophone`` closure (for the auto-fallback-to-default
-// behaviour when the active mic is hot-unplugged). The page owns a
-// shared ``selectMicrophoneRef`` and passes it to both this hook and
-// ``useMicrophoneTest``; this hook reads ``selectMicrophoneRef.current``
-// at event-fire time so it always invokes the latest closure without
-//re-subscribing on every render ( / Fix 2 pattern).
+// Both the mount/reload path and the ``microphones_changed`` handler
+// reconcile the active microphone selection: when the persisted
+// ``config.microphone`` id matches no enumerated device (hot-unplug,
+// Bluetooth power-off, renamed host API), the hook auto-falls back to
+// System Default with a warning snack instead of rendering
+// ``t("microphone.unknown")``.
+//
+// The reconciliation depends on the test hook's ``selectMicrophone``
+// closure. The page owns a shared ``selectMicrophoneRef`` and passes
+// it to both this hook and ``useMicrophoneTest``; this hook reads
+// ``selectMicrophoneRef.current`` at call time so it always invokes
+// the latest closure without re-subscribing on every render.
 
 import {
 	type Dispatch,
@@ -24,7 +28,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
@@ -35,6 +38,11 @@ import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 // spinner.
 let _cachedMicrophones: MicrophoneDevice[] = [];
 let _cachedConfig: VoiceTyperConfig | null = null;
+
+/** Stable device id comparison (backend ids are "<hostapi>|<name>[#N]"). */
+function deviceMatches(device: MicrophoneDevice, micId: string): boolean {
+	return (device.id ?? String(device.index)) === micId;
+}
 
 interface UseMicrophoneDataOptions {
 	/**
@@ -54,10 +62,7 @@ export interface UseMicrophoneDataResult {
 	setConfig: Dispatch<SetStateAction<VoiceTyperConfig | null>>;
 	loading: boolean;
 	loadError: string | null;
-	refreshing: boolean;
-	agoLabel: string;
 	loadData: (isCancelled?: () => boolean) => Promise<void>;
-	handleManualRefresh: () => Promise<void>;
 	updateConfig: (updates: Partial<VoiceTyperConfig>) => void;
 }
 
@@ -66,9 +71,8 @@ export function useMicrophoneData({
 }: UseMicrophoneDataOptions): UseMicrophoneDataResult {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
-	const { agoLabel, markUpdated } = useLastUpdated();
 
-	// callRef / markUpdatedRef mirrors (Home.tsx pattern): `loadData`
+	// callRef / showSnackRef mirrors (Home.tsx pattern): `loadData`
 	// must keep a STABLE identity ([] deps) so the mount effect below
 	// (and the event-handler callbacks that depend on it) don't re-fire
 	// on an identity change. Both are useCallback-stable in production,
@@ -80,25 +84,26 @@ export function useMicrophoneData({
 	useEffect(() => {
 		callRef.current = call;
 	}, [call]);
-	const markUpdatedRef = useRef(markUpdated);
+	const showSnackRef = useRef(showSnack);
 	useEffect(() => {
-		markUpdatedRef.current = markUpdated;
-	}, [markUpdated]);
+		showSnackRef.current = showSnack;
+	}, [showSnack]);
 
 	const [microphones, setMicrophones] =
 		useState<MicrophoneDevice[]>(_cachedMicrophones);
 	const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig);
-	// F4 (b-review Finding 11): "Last updated" indicator state. The
-	// module-level caches (``_cachedMicrophones``, ``_cachedConfig``)
-	// survive page navigations, so we mark the timestamp after each
-	// successful loadData() to surface staleness to the user.
-	const [refreshing, setRefreshing] = useState(false);
 	const [loading, setLoading] = useState(true);
 	//surface backend-load failures to the user instead of
 	// silently masking them. The previous implementation only logged to
 	// console, leaving the user with an empty mic list and no indication
 	// that the backend was unreachable (vs. genuinely no microphones).
 	const [loadError, setLoadError] = useState<string | null>(null);
+
+	// Last persisted id we already auto-fell-back from. Guards against
+	// snack-spam: until the backend confirms the switch (or the device
+	// reappears / the user picks another mic), repeated reloads of the
+	// SAME stale id must not re-fire the fallback.
+	const lastMissingMicIdRef = useRef<string | null>(null);
 
 	/** Optimistic config update: writes through to backend + local cache. */
 	const updateConfig = useCallback(
@@ -119,15 +124,62 @@ export function useMicrophoneData({
 		[call],
 	);
 
-	//(session 5): ``isCancelled`` is consulted after every
-	// ``await`` so an unmounted component (or a stale invocation
-	// superseded by a newer ``loadData`` call) does not have its
-	// in-flight ``setX`` calls land on a dead or stale React state. The
-	// default ``() => false`` keeps existing callers (the
-	// ``microphones_changed`` hot-swap handler, ``handleManualRefresh``)
-	// working without changes.
+	// ``isCancelled`` is consulted after every ``await`` so an unmounted
+	// component (or a stale invocation superseded by a newer ``loadData``
+	// call) does not have its in-flight ``setX`` calls land on a dead or
+	// stale React state. The default ``() => false`` keeps existing
+	// callers (the ``microphones_changed`` hot-swap handler) working
+	// without changes.
 	const loadData = useCallback(
 		async (isCancelled: () => boolean = () => false) => {
+			/**
+			 * Startup/reload counterpart of the ``microphones_changed``
+			 * hot-swap handler below: a persisted device id that matches no
+			 * enumerated device would otherwise leave ActiveMicrophoneCard
+			 * rendering ``t("microphone.unknown")`` silently until some later
+			 * event fired. Runs the SAME fallback (warning snack +
+			 * selectMicrophone(null)). Guard rails:
+			 *   - skip while already on System Default (nothing to fall back from),
+			 *   - skip when the list is EMPTY — a failed/empty enumeration is
+			 *     not evidence the device is gone (the catch path never gets
+			 *     here, but an empty success response does),
+			 *   - fire at most once per distinct missing id until state changes
+			 *     (loop guard: config_changed reloads triggered BY the fallback
+			 *     itself must not re-snack while the stale id is still persisted).
+			 */
+			function reconcileActiveMic(cfg: VoiceTyperConfig | null): void {
+				const activeMicId = cfg?.microphone ?? null;
+				if (
+					activeMicId === null ||
+					lastMissingMicIdRef.current === activeMicId ||
+					_cachedMicrophones.length === 0
+				) {
+					return;
+				}
+				const stillPresent = _cachedMicrophones.some((m) =>
+					deviceMatches(m, activeMicId),
+				);
+				if (stillPresent) {
+					// Device is back (or selection is valid again) — re-arm the
+					// guard so a FUTURE disappearance of the same id falls back.
+					lastMissingMicIdRef.current = null;
+					return;
+				}
+				lastMissingMicIdRef.current = activeMicId;
+				showSnackRef.current(t("microphone.activeMicUnavailable"), "warning");
+				// Auto-fallback to system default. selectMicrophone(null)
+				// already handles stopping any active test, clearing the
+				// config, and showing a confirmation snackbar.
+				selectMicrophoneRef
+					.current(null)
+					.catch((err) =>
+						console.warn(
+							"[renderer:useMicrophoneData] auto-fallback to system default failed:",
+							err,
+						),
+					);
+			}
+
 			setLoading(true);
 			//clear any prior load error before retrying so
 			// the EmptyState swaps back to the spinner during the retry
@@ -141,10 +193,10 @@ export function useMicrophoneData({
 				if (isCancelled()) return;
 				_cachedMicrophones = Array.isArray(mics) ? mics : [];
 				_cachedConfig = cfg;
-				//(session 5): don't touch state if we were cancelled.
 				if (!isCancelled()) {
 					setMicrophones(_cachedMicrophones);
 					setConfig(cfg);
+					reconcileActiveMic(cfg);
 				}
 			} catch (err) {
 				console.error(
@@ -163,16 +215,21 @@ export function useMicrophoneData({
 				}
 			} finally {
 				if (!isCancelled()) setLoading(false);
-				// F4: bump the "last updated" timestamp after each load attempt.
-				markUpdatedRef.current();
 			}
 		},
-		[],
+		[
+			// The REF OBJECT, never ``.current``: the current closure is
+			// assigned by ``useMicrophoneTest`` after mount and may change
+			// identity across renders — depending on it re-fires the mount
+			// load (the exact loop the render-loop guard pins). Reading
+			// ``.current`` at call time already yields the latest closure.
+			selectMicrophoneRef,
+		],
 	);
 
-	//(session 5): guard the mount-time load against
-	// setState-after-unmount (and against superseding calls from
-	// handleManualRefresh or the microphones_changed hot-swap handler)
+	//guard the mount-time load against
+	// setState-after-unmount (and against superseding calls from the
+	// microphones_changed hot-swap handler)
 	// via a local ``cancelled`` flag captured by the ``() => cancelled``
 	// closure passed into ``loadData``.
 	useEffect(() => {
@@ -183,19 +240,6 @@ export function useMicrophoneData({
 		};
 	}, [loadData]);
 
-	// F4: manual refresh handler for the LastUpdatedIndicator button.
-	// Wraps ``loadData()`` so we can flip a ``refreshing`` flag for the
-	// button's spinner state without disturbing ``loading`` (which gates
-	// the page's main spinner on first visit).
-	const handleManualRefresh = useCallback(async () => {
-		setRefreshing(true);
-		try {
-			await loadData();
-		} finally {
-			setRefreshing(false);
-		}
-	}, [loadData]);
-
 	// F11-FIX (b-review Finding 11): invalidate the module-level caches
 	// when the backend reports that the underlying data changed through
 	// a path OUTSIDE this page. The server already emits
@@ -203,9 +247,7 @@ export function useMicrophoneData({
 	// changes; without subscribing here, ``_cachedMicrophones`` would
 	// show stale devices until the next manual refresh. ``config_changed``
 	// (emitted by set_config / onboarding) keeps ``_cachedConfig`` fresh
-	// too. Both re-run loadData() so the cache AND the visible UI update
-	// — the "Last updated" indicator is only the safety net, not the
-	// sole invalidation path.
+	// too. Both re-run loadData() so the cache AND the visible UI update.
 	//
 	//(Fix 2): hot-swap detection. After loadData() refreshes
 	// the microphone list, if the currently-selected microphone
@@ -226,9 +268,7 @@ export function useMicrophoneData({
 				// the next React commit cycle.
 				const stillPresent =
 					previousMicId === null ||
-					_cachedMicrophones.some(
-						(m) => (m.id ?? String(m.index)) === previousMicId,
-					);
+					_cachedMicrophones.some((m) => deviceMatches(m, previousMicId));
 				if (!stillPresent) {
 					showSnack(t("microphone.activeMicUnavailable"), "warning");
 					// Auto-fallback to system default. selectMicrophone(null)
@@ -255,10 +295,7 @@ export function useMicrophoneData({
 		setConfig,
 		loading,
 		loadError,
-		refreshing,
-		agoLabel,
 		loadData,
-		handleManualRefresh,
 		updateConfig,
 	};
 }

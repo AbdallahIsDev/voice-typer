@@ -135,14 +135,15 @@
 		"levelBarFrozenAria": "माइक्रोफ़ोन इनपुट स्तर (प्लेबैक के दौरान फ्रीज़)",
 		"description": "अपना माइक्रोफ़ोन चुनें और परीक्षण करें",
 		"systemDefault": "सिस्टम डिफ़ॉल्ट",
+		"osDefaultBadge": "डिफ़ॉल्ट",
 		"unknown": "अज्ञात",
+		"youSaid": "आपने कहा",
+		"transcriptionUnavailable": "अभी कोई स्पीच मॉडल लोड नहीं है। अपनी टेस्ट रिकॉर्डिंग का लाइव ट्रांसक्रिप्शन देखने के लिए कोई मॉडल लोड करें।",
+		"availableMicrophones": "उपलब्ध माइक्रोफ़ोन",
 		"microphone": "माइक्रोफ़ोन",
 		"usingMic": "उपयोग में: {name}",
 		"setFailed": "माइक्रोफ़ोन सेट करने में विफल",
 		"startTestFailed": "माइक्रोफ़ोन परीक्षण शुरू करने में विफल",
-		"consentRequired": "माइक्रोफ़ोन का परीक्षण या निगरानी करने के लिए वॉइस बायोमेट्रिक सहमति आवश्यक है।",
-		"consentRequiredAction": "गोपनीयता सेटिंग खोलें",
-		"consentRequiredTitle": "आवाज़ सहमति आवश्यक",
 		"deviceLostTitle": "माइक्रोफ़ोन डिस्कनेक्ट हो गया",
 		"deviceLostDescription": "सक्रिय माइक्रोफ़ोन गायब हो गया। इसे दोबारा कनेक्ट करें या दूसरा चुनें, फिर फिर कोशिश करें।",
 		"recorded": "{seconds}s रिकॉर्ड किया गया",
@@ -156,30 +157,17 @@
 		"systemDefaultDesc": "ऑपरेटिंग सिस्टम का डिफ़ॉल्ट इनपुट डिवाइस",
 		"selectedMicDesc": "चयनित माइक्रोफ़ोन",
 		"recordingStatus": "रिकॉर्डिंग…",
-		"active": "सक्रिय",
 		"startTest": "परीक्षण शुरू करें",
 		"stopTest": "परीक्षण रोकें ({seconds}s)",
 		"level": "स्तर: {percent}%",
 		"monitoringOff": "निगरानी बंद है",
 		"duration": "अवधि: {seconds}s",
-		"monitoring": "निगरानी…",
 		"filtersChangedNotice": "⚠ फ़िल्टर सेटिंग्स बदली गईं — पिछले परीक्षण परिणाम अब वर्तमान सेटिंग्स को नहीं दर्शाते। नया परीक्षण चलाएँ।",
 		"noMicrophonesFound": "कोई माइक्रोफ़ोन नहीं मिला",
 		"connectAndRestart": "माइक्रोफ़ोन कनेक्ट करें और पुनर्प्रारंभ करें",
-		"otherMicrophones": "अन्य माइक्रोफ़ोन",
-		"noOtherMicrophones": "कोई अन्य माइक्रोफ़ोन उपलब्ध नहीं",
-		"use": "उपयोग करें",
-		"channels": "चैनल:",
-		"rateHz": "दर:",
 		"loadFailedTitle": "माइक्रोफ़ोन लोड करने में विफल",
 		"retry": "पुनः प्रयास करें",
-		"useSystemDefault": "सिस्टम डिफ़ॉल्ट का उपयोग करें",
-		"useSystemDefaultAria": "ऑपरेटिंग सिस्टम के डिफ़ॉल्ट माइक्रोफ़ोन पर वापस जाएं",
 		"activeMicUnavailable": "पहले चयनित माइक्रोफ़ोन अब उपलब्ध नहीं है। सिस्टम डिफ़ॉल्ट पर वापस जा रहे हैं।",
-		"fallbackToSystemDefault": "माइक्रोफ़ोन सिस्टम डिफ़ॉल्ट पर वापस सेट किया गया।",
-		"testDuration": "परीक्षण अवधि",
-		"testDurationInfo": "परीक्षण रिकॉर्डिंग कितने समय तक चलती है (3–30 सेकंड)।",
-		"testDurationAria": "सेकंड में परीक्षण अवधि",
 		"permissionDeniedTitle": "माइक्रोफ़ोन अनुमति अस्वीकृत",
 		"permissionDeniedMessageMacos": "{appName} माइक्रोफ़ोन तक नहीं पहुंच सकता। सिस्टम सेटिंग्स → गोपनीयता और सुरक्षा → माइक्रोफ़ोन खोलें और {appName} को सक्षम करें।",
 		"permissionDeniedMessageWindows": "{appName} माइक्रोफ़ोन तक नहीं पहुंच सकता। सेटिंग्स → गोपनीयता और सुरक्षा → माइक्रोफ़ोन खोलें और डेस्कटॉप ऐप्स को माइक्रोफ़ोन तक पहुंचने दें।",
@@ -188,15 +176,8 @@
 		"openSettings": "सेटिंग्स खोलें",
 		"openSettingsAria": "ऑपरेटिंग सिस्टम की माइक्रोफ़ोन गोपनीयता सेटिंग्स खोलें",
 		"loading": "माइक्रोफ़ोन लोड हो रहे हैं…",
-		"test": {
-			"qualityPoor": "खराब",
-			"qualityGood": "अच्छा",
-			"qualityOk": "ठीक"
-		},
-		"stopPlaybackFirst": "नया परीक्षण शुरू करने से पहले ऑडियो प्लेबैक रोकें",
 		"loadFailedDescription": "हम आपका माइक्रोफ़ोन डेटा बैकएंड से लोड नहीं कर सके। लॉग जांचें और पुनः प्रयास करें।",
-		"selected": "चयनित माइक्रोफ़ोन",
-		"useAria": "माइक्रोफ़ोन का उपयोग करें — {name}"
+		"selected": "चयनित माइक्रोफ़ोन"
 	},
 	"keyboard": {
 		"permissionDeniedTitle": "हॉटकी के लिए एक्सेसिबिलिटी अनुमति आवश्यक है",
@@ -446,7 +427,6 @@
 		"runtimePackNotChecked": "अभी तक जांचा नहीं गया",
 		"runtimePackUpToDate": "अप-टू-डेट (v{version})",
 		"runtimePackFailed": "अपडेट की जांच विफल रही",
-		"runtimePackConsentRequired": "ऑफ़लाइन पैक डाउनलोड बंद हैं। अपडेट प्राप्त करने के लिए उन्हें सेटिंग्स → सामान्य में चालू करें।",
 		"runtimePackDownloadStarted": "अपडेट बैकग्राउंड में डाउनलोड हो रहा है।",
 		"connected": "कनेक्टेड",
 		"disconnected": "डिस्कनेक्टेड",
@@ -1101,7 +1081,25 @@
 		"huggingFaceDownloads": "Hugging Face डाउनलोड",
 		"voiceBiometricProcessing": "वॉइस बायोमेट्रिक प्रसंस्करण",
 		"voiceBiometricProcessingAria": "वॉइस बायोमेट्रिक प्रसंस्करण स्थिति",
-		"voiceBiometricProcessingInfo": "वॉइस बायोमेट्रिक डेटा आपके डिवाइस पर स्थानीय रूप से प्रोसेस किया जाता है और आपकी मशीन से कभी बाहर नहीं जाता।"
+		"voiceBiometricProcessingInfo": "वॉइस बायोमेट्रिक डेटा आपके डिवाइस पर स्थानीय रूप से प्रोसेस किया जाता है और आपकी मशीन से कभी बाहर नहीं जाता।",
+		"linuxWindowButtons": {
+			"title": "विंडो बटन",
+			"description": "टाइटल बार में मिनिमाइज़, मैक्सिमाइज़ और क्लोज़ बटन को अनुकूलित करें।",
+			"mode": "बटन लेआउट",
+			"modeInfo": "अपने डेस्कटॉप के लेआउट का पालन करें या अपना चुनें।",
+			"modeSystem": "सिस्टम का पालन करें",
+			"modeCustom": "कस्टम",
+			"side": "स्थिति",
+			"sideInfo": "टाइटल बार की किस ओर बटन हों।",
+			"sideLeft": "बाएँ",
+			"sideRight": "दाएँ",
+			"showMinimize": "मिनिमाइज़ बटन दिखाएँ",
+			"showMaximize": "मैक्सिमाइज़ बटन दिखाएँ",
+			"showClose": "क्लोज़ बटन दिखाएँ",
+			"systemLayout": "सिस्टम लेआउट: {side} ओर — {buttons}",
+			"systemUnavailable": "सिस्टम बटन लेआउट उपलब्ध नहीं — डिफ़ॉल्ट (दाईं ओर, सभी बटन) का उपयोग हो रहा है।",
+			"followingSystem": "आपके डेस्कटॉप के लेआउट का पालन कर रहा है"
+		}
 	},
 	"models": {
 		"loadFailedTitle": "मॉडल लोड नहीं हो सके",
@@ -1149,8 +1147,6 @@
 			"apiKeySaved": "{provider} API कुंजी सहेजी गई",
 			"consentGranted": "{provider} के लिए सहमति प्रदान की गई — ऑडियो इस प्रदाता को भेजा जाएगा।",
 			"consentRevoked": "{provider} के लिए सहमति वापस ली गई — ऑडियो नहीं भेजा जाएगा।",
-			"hfConsentGranted": "सहमति प्रदान — HuggingFace से मॉडल डाउनलोड आगे बढ़ेंगे।",
-			"hfConsentRevoked": "सहमति वापस ली गई — HuggingFace से मॉडल डाउनलोड अवरुद्ध हैं।",
 			"resumeFailed": "फिर से शुरू करने में विफल: {error}",
 			"pauseFailed": "रोकने में विफल: {error}",
 			"cancelled": "डाउनलोड रद्द। आंशिक फ़ाइलें पुनः प्रयास पर पुनः उपयोग होंगी।",
@@ -1184,10 +1180,6 @@
 			"failedAll": "उस निर्देशिका से कोई मॉडल आयात करने में विफल।",
 			"failed": "मॉडल आयात करने में विफल: {error}",
 			"importModelAria": "फ़ोल्डर से मॉडल आयात करें"
-		},
-		"hfConsent": {
-			"grant": "सहमति दें",
-			"jitMessage": "इस मॉडल को डाउनलोड करने से पहले Hugging Face डाउनलोड सहमति आवश्यक है। जारी रखने के लिए अभी अनुमति दें।"
 		},
 		"progress": {
 			"eta": "अनुमानित समय {time}",
@@ -1280,8 +1272,6 @@
 		"connectionSuccessful": "कनेक्शन सफल — API कुंजी मान्य है।",
 		"connectionFailed": "कनेक्शन विफल",
 		"pleaseEnterApiKey": "कृपया पहले एक API कुंजी दर्ज करें",
-		"consentGranted": "सहमति प्रदान की गई — HuggingFace से मॉडल डाउनलोड आगे बढ़ेंगे।",
-		"consentRevoked": "सहमति वापस ली गई — HuggingFace से मॉडल डाउनलोड अवरुद्ध हैं।",
 		"size": "आकार",
 		"language": "भाषा",
 		"fastest": "सबसे तेज़",
@@ -1755,11 +1745,11 @@
 		"stop": "रोकें",
 		"qualityFeedback": {
 			"recording": "रिकॉर्डिंग हो रही है…",
-			"voiceDetected": "आवाज़ पहचानी गई",
+			"voiceDetected": "✓ आवाज़ पहचानी गई",
 			"excellent": "उत्कृष्ट गुणवत्ता",
-			"tooHigh": "आवाज़ बहुत तेज़ है",
-			"tooLow": "आवाज़ बहुत कम है",
-			"lowVolume": "कम वॉल्यूम पहचाना गया",
+			"tooHigh": "⚠ आवाज़ बहुत तेज़ है",
+			"tooLow": "⚠ आवाज़ बहुत कम है",
+			"lowVolume": "⚠ कम वॉल्यूम पहचाना गया",
 			"waiting": "आवाज़ की प्रतीक्षा…"
 		},
 		"detectedIssueCodes": {
@@ -2056,7 +2046,6 @@
 			"offline_pack_consent": "ऑफ़लाइन इंजन पैक (~180 MB) रिलीज़ सर्वर से एक बार डाउनलोड होता है और पूरी तरह स्थानीय ट्रांसक्रिप्शन सक्षम करता है। डाउनलोड की अनुमति दें?"
 		}
 	},
-
 	"degradation": {
 		"deviceLost": "चयनित माइक्रोफ़ोन डिस्कनेक्ट हो गया",
 		"deviceLostHint": "इसे दोबारा कनेक्ट करें या कोई अन्य माइक्रोफ़ोन चुनें, फिर फिर कोशिश करें।",

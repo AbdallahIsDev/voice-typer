@@ -13,9 +13,9 @@
  * (UI/UX overhaul 2026-08-20):
  *   • The persistent HuggingFace consent banner was REMOVED — consent
  *     is now checked just-in-time in the download flow
- *     (`useModelLifecycle.handleDownloadModel`), which shows a
- *     transient toast with a "Grant consent" action instead. This
- *     panel no longer renders any consent UI.
+ *     (`useModelLifecycle.handleDownloadModel`), which opens the
+ *     shared point-of-use consent dialog (`openConsentGate`) when the
+ *     consent is missing. This panel no longer renders any consent UI.
  *   • The group accordion + variant rows now compose the shared
  *     `ModelGroupList` primitives (same components as the Cloud Models
  *     tab) so both tabs share one visual system.
@@ -381,7 +381,7 @@ function ModelMetadataLine({ meta }: { meta: ModelMetadata }) {
 //
 // Kept inside the panel (not in lib/utils/models.ts) because it's
 // purely presentational — it returns CSS color strings tied to the
-// amber-400 token used by the consent banner. The lib module stays
+// amber-400 token used by the deps-required badge. The lib module stays
 // free of styling concerns.
 
 function getStatusBadge(

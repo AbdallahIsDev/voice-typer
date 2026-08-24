@@ -187,26 +187,6 @@ def test_validate_config_update_rejects_reserved_repaste_hotkey(monkeypatch: pyt
     assert "reserved" in errors[0].lower()
 
 
-def test_validate_config_update_silently_drops_push_to_talk_hotkey(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GT-F2-8: ``push_to_talk_hotkey`` was removed from
-    ``IPC_CONFIG_ALLOWLIST`` to match the TS-side contract (config.ts
-    documents it as a write-only back-compat field the renderer MUST
-    NOT write). The field is still a ``Config`` dataclass member and
-    still validated on load — only the IPC write path is closed.
-
-    A payload with ``push_to_talk_hotkey`` set to a *reserved* shortcut
-    must NOT raise a reserved-shortcut error: the key is silently
-    dropped by ``validate_config_update`` (same contract as any other
-    unknown key), so the reserved-shortcut validator never runs.
-    """
-    monkeypatch.setattr(sys, "platform", "darwin")
-    validated, errors = validate_config_update({"push_to_talk_hotkey": "<cmd>+<q>"})
-    # No errors — the field is silently dropped, not rejected.
-    assert errors == [], f"push_to_talk_hotkey should be silently dropped (GT-F2-8); got errors: {errors}"
-    # The field does not appear in the validated dict.
-    assert "push_to_talk_hotkey" not in validated
-
-
 # ──────────────────────────────────────────────────────────────────────────
 # 4. _platform_key
 # ──────────────────────────────────────────────────────────────────────────

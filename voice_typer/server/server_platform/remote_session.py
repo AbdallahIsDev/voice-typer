@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 
 # Patch-path bridge: route lookups of ``SYSTEM`` through the package
 # namespace so test patches of the form
@@ -322,3 +323,65 @@ def _is_non_mic_device(name: str) -> bool:
     # System virtual devices that just mirror the default device
     # (redundant with "System Default" menu option)
     return bool(any(p in lower for p in ["microsoft sound mapper", "primary sound capture driver"]))
+
+
+# Generic WASAPI/CoreAudio/PulseAudio endpoint words that appear as the
+# friendly-name prefix when a host API fails to give a real device name.
+# A name made of ONLY one of these words plus empty parentheticals
+# (e.g. ``"Input ()"``, ``"Microphone ( )"``) is a placeholder endpoint,
+# not a usable microphone.
+_GENERIC_ENDPOINT_LABELS = frozenset(
+    {
+        "microphone",
+        "mic",
+        "input",
+        "output",
+        "recording",
+        "capture",
+        "line",
+        "aux",
+        "auxiliary",
+        "digital",
+        "default",
+        "speakers",
+    }
+)
+
+# Matches empty / whitespace-only parenthetical groups: ``"()"``, ``"( )"``.
+_EMPTY_PAREN_GROUP_RE = re.compile(r"\(\s*\)")
+
+
+def _is_invalid_device_name(name: object) -> bool:
+    """Return True if *name* is not a usable microphone display name.
+
+    Windows WASAPI (and occasionally MME / CoreAudio / PulseAudio) can
+    expose input endpoints with an EMPTY or placeholder friendly name —
+    users see a literal ``Input ()`` row (channels + sample rate, no
+    real device behind it). Such rows are unusable and must be filtered
+    out of :func:`.microphone_list.list_microphones` output.
+
+    A name is INVALID when any of the following holds:
+
+    - it is not a string, or is empty / whitespace-only;
+    - it contains no alphanumeric characters at all
+      (e.g. ``"---"``, ``"()"``);
+    - after removing every EMPTY parenthetical group, what remains is a
+      bare generic endpoint label (e.g. ``"Input ()" → "Input"``) —
+      the signature of a placeholder endpoint.
+
+    Legitimate names survive untouched: ``"Line 1 (Virtual Audio Cable)"``
+    has non-empty parentheses and extra content; ``"Microphone (Realtek Audio)"``
+    keeps its real endpoint description; trailing whitespace differences
+    are ignored (callers should pass the trimmed name).
+    """
+    if not isinstance(name, str):
+        return True
+    stripped = name.strip()
+    if not stripped:
+        return True
+    if not any(ch.isalnum() for ch in stripped):
+        return True
+    reduced = _EMPTY_PAREN_GROUP_RE.sub("", stripped).strip()
+    if not reduced or not any(ch.isalnum() for ch in reduced):
+        return True
+    return reduced.lower() in _GENERIC_ENDPOINT_LABELS

@@ -35,11 +35,13 @@ from typing import Any
 
 log = logging.getLogger("voice_typer.server.config")
 
-_CURRENT_SCHEMA_VERSION = 4
+_CURRENT_SCHEMA_VERSION = 5
 
 # _MIGRATIONS infrastructure for schema version migrations.
 # v3 prunes deprecated dead-code keys.
 # v4 renames the offline-pack consent flag (2026-08-14, offline_pack rename).
+# v5 prunes the dead ``push_to_talk_hotkey`` field (2026-08-24, fully
+#    removed from the Config dataclass — PTT uses the main ``hotkey``).
 # T1-F3: typed as ``dict[int, Callable[[dict[str, Any]], dict[str, Any]]]``
 # so static checkers can verify that every registered migration is a function
 # taking a config dict and returning a (possibly mutated) config dict.
@@ -135,19 +137,31 @@ def _migrate_to_v4(data: dict[str, Any]) -> dict[str, Any]:
     """
     data.setdefault("_load_warnings", [])
     if "runtime_pack_consent" in data:
-        log.info(
-            "[CONFIG] migrating schema v3 -> v4: renaming runtime_pack_consent -> offline_pack_consent"
-        )
+        log.info("[CONFIG] migrating schema v3 -> v4: renaming runtime_pack_consent -> offline_pack_consent")
         data.setdefault("offline_pack_consent", data.pop("runtime_pack_consent"))
-        data["_load_warnings"].append(
-            "runtime_pack_consent renamed to offline_pack_consent (schema v4 migration)"
-        )
+        data["_load_warnings"].append("runtime_pack_consent renamed to offline_pack_consent (schema v4 migration)")
+    return data
+
+
+def _migrate_to_v5(data: dict[str, Any]) -> dict[str, Any]:
+    """Migrate config from schema v4 to v5 (prune dead ``push_to_talk_hotkey``).
+
+    The ``push_to_talk_hotkey`` field was fully removed from the Config
+    dataclass — PTT uses the main ``hotkey`` field. Existing config files
+    that carry the key are silently pruned here.
+    """
+    data.setdefault("_load_warnings", [])
+    if "push_to_talk_hotkey" in data:
+        log.info("[CONFIG] migrating schema v4 -> v5: pruning dead key push_to_talk_hotkey")
+        data["_load_warnings"].append("dead key push_to_talk_hotkey pruned (schema v5 migration)")
+        data.pop("push_to_talk_hotkey")
     return data
 
 
 _MIGRATIONS[2] = _migrate_to_v2
 _MIGRATIONS[3] = _migrate_to_v3
 _MIGRATIONS[4] = _migrate_to_v4
+_MIGRATIONS[5] = _migrate_to_v5
 
 
 def _run_migrations(

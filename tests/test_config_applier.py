@@ -46,7 +46,6 @@ def fake_app() -> MagicMock:
     app.config.autostart = False
     app.config.hotkey = "<f2>"
     app.config.recording_mode = "toggle"
-    app.config.push_to_talk_hotkey = None
     app.config.esc_cancel_enabled = True
     app.config.repaste_enabled = False
     app.config.repaste_hotkey = None
@@ -124,8 +123,7 @@ def test_service_apply_config_delegates_to_module(fake_app) -> None:
     updates = {"hotkey": "<f3>"}
     svc.apply_config_side_effects(updates)
     assert captured, (
-        "Expected VoiceTyperService.apply_config_side_effects to delegate "
-        "to the extracted config_applier module."
+        "Expected VoiceTyperService.apply_config_side_effects to delegate to the extracted config_applier module."
     )
 
 

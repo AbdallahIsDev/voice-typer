@@ -6,8 +6,8 @@ in :mod:`voice_typer.server.config_validators.scalar` and
 :mod:`voice_typer.server.config_validators.hotkey`:
 
 * :func:`_check_cross_field_hotkey_conflicts` — detects when two of the
-  three hotkey fields (``hotkey``, ``repaste_hotkey``,
-  ``push_to_talk_hotkey``) are assigned the same value.  Called from both
+  hotkey fields (``hotkey``, ``repaste_hotkey``) are assigned the same
+  value.  Called from both
   :func:`validate_config_update` and :func:`validate_config` so the
   conflict is caught at IPC-write time AND at config-load time.
 
@@ -44,9 +44,9 @@ from voice_typer.server.config_validators.hotkey import (
 # time.  These two helpers layer on top of it:
 #
 # func:`_check_cross_field_hotkey_conflicts`: detects when
-#     two of the three hotkey fields (``hotkey``, ``repaste_hotkey``,
-#     ``push_to_talk_hotkey``) are assigned the same value.  Called from
-#     both :func:`validate_config_update` and :func:`validate_config` so
+#     two of the hotkey fields (``hotkey``, ``repaste_hotkey``) are
+#     assigned the same value.  Called from both
+#     :func:`validate_config_update` and :func:`validate_config` so
 #     the conflict is caught at IPC-write time AND at config-load time.
 #
 # func:`cross_platform_hotkey_warnings` (): checks each hotkey
@@ -58,25 +58,20 @@ from voice_typer.server.config_validators.hotkey import (
 #     surface them as non-blocking portability notices.
 # ──────────────────────────────────────────────────────────────────────────
 
-# The three hotkey fields whose values must not collide.  Note that
-# ``push_to_talk_hotkey`` is NOT in :data:`IPC_CONFIG_ALLOWLIST` (removed
-# per the SEC-002 audit — see comment at the allowlist entry for
-# ``repaste_hotkey``), so the IPC path's cross-field check will only see
-# fields that survive the per-field validator (i.e. ``hotkey`` and
-# ``repaste_hotkey``).  The full-config validator (:func:`validate_config`)
-# DOES see all three fields via ``getattr(cfg, name)``, so a hand-edited
-# config.json that sets a conflicting ``push_to_talk_hotkey`` is still
-# caught at load time.
-_HOTKEY_FIELD_NAMES: tuple[str, ...] = ("hotkey", "repaste_hotkey", "push_to_talk_hotkey")
+# The hotkey fields whose values must not collide.  ``push_to_talk_hotkey``
+# (a third member of this tuple until 2026-08-24) was fully removed — PTT
+# uses the main ``hotkey`` field, so only ``hotkey`` and ``repaste_hotkey``
+# remain.
+_HOTKEY_FIELD_NAMES: tuple[str, ...] = ("hotkey", "repaste_hotkey")
 
 
 def _check_cross_field_hotkey_conflicts(
     field_values: dict[str, str | None],
 ) -> list[str]:
-    """Detect duplicate hotkey assignments across the 3 hotkey fields.
+    """Detect duplicate hotkey assignments across the hotkey fields.
 
     without this cross-field check, a user could set
-        ``hotkey=<ctrl>+<space>`` AND ``push_to_talk_hotkey=<ctrl>+<space>``
+        ``hotkey=<ctrl>+<space>`` AND ``repaste_hotkey=<ctrl>+<space>``
         simultaneously and the second assignment would silently overwrite
         the first when both listeners register with pynput / Win32
         ``RegisterHotKey`` / macOS ``CGEventTap``.
@@ -85,9 +80,9 @@ def _check_cross_field_hotkey_conflicts(
         ----------
         field_values
             A mapping from hotkey field name (``"hotkey"``,
-            ``"repaste_hotkey"``, ``"push_to_talk_hotkey"``) to its current
-            value (or ``None`` if not set).  Unknown field names are
-            ignored; missing field names are treated as ``None``.
+            ``"repaste_hotkey"``) to its current value (or ``None`` if
+            not set).  Unknown field names are ignored; missing field
+            names are treated as ``None``.
 
         Returns
         -------
@@ -272,8 +267,8 @@ def cross_platform_hotkey_warnings(cfg: object) -> list[str]:
     """Produce portability warnings for every hotkey field on ``cfg``.
 
     this is the warnings counterpart of :func:`validate_config`.
-        It checks each of the 3 hotkey fields (``hotkey``, ``repaste_hotkey``,
-        ``push_to_talk_hotkey``) against the reserved lists of every
+        It checks each of the 2 hotkey fields (``hotkey``,
+        ``repaste_hotkey``) against the reserved lists of every
         non-current platform and returns a list of human-readable warning
         strings.
 

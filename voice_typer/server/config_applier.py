@@ -537,13 +537,6 @@ class _DictationHotkeyHandler:
     ``register()`` then fails (or restart itself raises), the on-disk
     config retains the broken hotkey. We restore the previous value
     and re-save so the next launch reads a working hotkey.
-
-    ``push_to_talk_hotkey`` was deliberately removed from
-    ``IPC_CONFIG_ALLOWLIST``, so it can never appear in ``updates``
-    via the IPC path. The disjunct that lived in the original
-    if-block was dead code. If ``push_to_talk_hotkey`` is ever
-    re-wired, the allowlist AND this handler's ``applies()`` must be
-    updated together.
     """
 
     name = "hotkey"

@@ -141,12 +141,9 @@ def validate_config_update(data: dict[str, object]) -> tuple[dict[str, object], 
     # passed their per-field validator are in ``validated`` — invalid
     # hotkeys don't participate in the cross-field check (they already
     # produced their own per-field error and would just add noise).
-    # Note: ``push_to_talk_hotkey`` is NOT in IPC_CONFIG_ALLOWLIST
-    # (removed per ), so it's silently dropped above and never
-    # appears in ``validated`` — the IPC path can only catch conflicts
-    # between ``hotkey`` and ``repaste_hotkey``.  Conflicts involving
-    # ``push_to_talk_hotkey`` are caught by :func:`validate_config`
-    # at config-load time (it sees all 3 fields via getattr).
+    # The only hotkey fields on the wire are ``hotkey`` and
+    # ``repaste_hotkey`` (``push_to_talk_hotkey`` was fully removed —
+    # PTT uses the main ``hotkey``).
     #
     # apply the same isinstance narrowing as  so the
     # ``hotkey_values`` dict (typed ``dict[str, str | None]``) actually
@@ -258,11 +255,9 @@ def validate_config(cfg: object) -> list[str]:
             errors.append(f"{key}: {err}")
     # cross-field hotkey conflict check on the FULL config.
     # Unlike :func:`validate_config_update` (which can only see fields
-    # the renderer pushed), this function sees ALL 3 hotkey fields via
-    # getattr — so it catches conflicts involving ``push_to_talk_hotkey``
-    # (which is NOT in IPC_CONFIG_ALLOWLIST and therefore not settable
-    # via IPC, but IS a Config dataclass field that can be set by a
-    # hand-edited config.json).
+    # the renderer pushed), this function sees ALL hotkey fields via
+    # getattr — so it catches conflicts in a hand-edited config.json
+    # that the IPC path alone could not surface.
     hotkey_values: dict[str, str | None] = {}
     for name in _HOTKEY_FIELD_NAMES:
         try:

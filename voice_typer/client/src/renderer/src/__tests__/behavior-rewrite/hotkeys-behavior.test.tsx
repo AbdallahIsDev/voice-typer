@@ -168,7 +168,6 @@ function makeConfig(
 		corrections_path: null,
 		log_transcriptions: false,
 		recording_mode: "toggle",
-		push_to_talk_hotkey: "",
 		esc_cancel_enabled: true,
 		repaste_hotkey: "<ctrl>+<alt>+v",
 		auto_punctuation: false,

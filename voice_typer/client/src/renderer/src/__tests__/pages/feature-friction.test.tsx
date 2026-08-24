@@ -314,8 +314,6 @@ describe("XA-5-12 — AudioPresetSelector renders the preset Select outside the 
 //     unit test).
 //   • XA-5-20 — Import buttons carry a ``title`` attribute pointing
 //     at the importFormatHint i18n key.
-//   • XA-5-22 — microphone.use i18n value is the clearer
-//     "Use this microphone" (locale-parity checked for all 8 files).
 //
 // Tests run on LINUX (sandbox).
 // ─────────────────────────────────────────────────────────────────────
@@ -537,26 +535,6 @@ describe("XA-5-20 — Import buttons carry a format-hint title attribute", () =>
 			"utf8",
 		);
 		expect(src).toMatch(/title=\{t\("templates\.importFormatHint"\)\}/);
-	});
-});
-
-describe("XA-5-22 — microphone.use i18n value is the clearer label", () => {
-	it.each(Object.keys(LOCALES))(
-		"locale `%s` defines microphone.use with a non-empty value",
-		(locale) => {
-			const cat = LOCALES[locale] as unknown as {
-				microphone?: { use?: string };
-			};
-			expect(typeof cat.microphone?.use).toBe("string");
-			expect(cat.microphone?.use?.length ?? 0).toBeGreaterThan(0);
-		},
-	);
-
-	it("en.json microphone.use is the explicit 'Use this microphone' label", () => {
-		const enCat = en as unknown as {
-			microphone?: { use?: string };
-		};
-		expect(enCat.microphone?.use).toBe("Use this microphone");
 	});
 });
 

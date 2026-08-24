@@ -2,17 +2,17 @@
 //
 // Renders the currently-selected microphone (or "System Default")
 // header, the live LevelBar, the LiveQualityFeedback during a test,
-// the start/stop test buttons, the test-duration slider, the
-// "filters changed" invalidation notice, the TestReviewPanel (post-test
-// quality + playback), and the AudioPresetSelector. This is the
-// primary interactive surface of the Microphone page.
+// the start/stop test buttons, the "filters changed" invalidation
+// notice, the TestReviewPanel (post-test transcription, quality +
+// playback), and the PresetAccordionSelector. This is the primary
+// interactive surface of the Microphone page.
 //
 // Pure presentational component — all state and handlers are passed in
 // from the page (which wires them from ``useMicrophoneData`` /
 // ``useMicrophoneTest``). The card owns no business logic.
 //
 // Memoised children: the heaviest subtrees —
-// `AudioPresetSelector` (renders the full `AudioFilterChain` when
+// `PresetAccordionSelector` (renders the full `AudioFilterChain` when
 // `preset === "custom"`) and `TestReviewPanel` (post-test quality
 // metrics + playback controls) — are wrapped in `React.memo` with a
 // custom comparator so a 10 Hz `mic_level` push (which updates
@@ -23,19 +23,16 @@
 import { Mic02Icon, PlayIcon, StopIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo } from "react";
-import { RangeSlider } from "@/components/common/RangeSlider";
 import { LevelBar } from "@/components/feedback/LevelBar";
 import { LiveQualityFeedback } from "@/components/feedback/LiveQualityFeedback";
-import {
-	type AudioPreset,
-	AudioPresetSelector,
-} from "@/components/microphone/AudioPresetSelector";
+import type { AudioPreset } from "@/components/microphone/AudioPresetSelector";
 import { TestReviewPanel } from "@/components/microphone/TestReviewPanel";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { TestResultQuality } from "../lib/types";
+import { PresetAccordionSelector } from "./PresetAccordionSelector";
 
 export interface ActiveMicrophoneCardProps {
 	activeMicName: string;
@@ -48,7 +45,6 @@ export interface ActiveMicrophoneCardProps {
 	testRunning: boolean;
 	testCountdown: number;
 	testElapsed: number;
-	testDurationSec: number;
 	testDurationMs: number;
 	level: number;
 	peak: number;
@@ -56,6 +52,10 @@ export interface ActiveMicrophoneCardProps {
 	testAudioBase64: string | null;
 	rawAudioBase64: string | null;
 	testQuality: TestResultQuality | null;
+	/** Transcription of the last test recording (null = none/failed). */
+	testTranscription?: string | null;
+	/** True when no speech model is loaded, so no transcription can exist. */
+	testTranscriptionUnavailable?: boolean;
 	/** Whether enhanced OR original playback is in flight. */
 	playing: boolean;
 	playingOriginal: boolean;
@@ -72,7 +72,6 @@ export interface ActiveMicrophoneCardProps {
 	onPlayOriginal: () => void;
 	onStopPlayback: () => void;
 	onRetest: () => void;
-	onSetTestDurationSec: (value: number) => void;
 	onToggleAdvanced: () => void;
 	onPresetChange: (preset: AudioPreset) => void;
 	onConfigChange: (updates: Partial<VoiceTyperConfig>) => void;
@@ -85,7 +84,6 @@ export function ActiveMicrophoneCard({
 	testRunning,
 	testCountdown,
 	testElapsed,
-	testDurationSec,
 	testDurationMs,
 	level,
 	peak,
@@ -93,6 +91,8 @@ export function ActiveMicrophoneCard({
 	testAudioBase64,
 	rawAudioBase64,
 	testQuality,
+	testTranscription,
+	testTranscriptionUnavailable,
 	playing,
 	playingOriginal,
 	filtersSinceLastTest,
@@ -106,7 +106,6 @@ export function ActiveMicrophoneCard({
 	onPlayOriginal,
 	onStopPlayback,
 	onRetest,
-	onSetTestDurationSec,
 	onToggleAdvanced,
 	onPresetChange,
 	onConfigChange,
@@ -114,20 +113,20 @@ export function ActiveMicrophoneCard({
 	return (
 		<div
 			className={cn(
-				"rounded-xl border p-5 transition-colors",
-				"border-accent bg-(--bg-subtle)",
+				"rounded-xl border border-border/10 p-5 transition-colors",
+				"bg-(--bg-subtle)",
 			)}
 		>
 			{/* Mic header */}
 			<div className="flex items-center justify-between">
-				<div className="flex items-center gap-3">
+				<div className="flex items-center gap-3 min-w-0">
 					<HugeiconsIcon
 						icon={Mic02Icon}
 						strokeWidth={1.625}
-						className="h-4 w-4"
+						className="h-4 w-4 shrink-0"
 					/>
-					<div>
-						<p className="text-sm font-semibold text-(--text-primary)">
+					<div className="min-w-0">
+						<p className="text-sm font-semibold text-(--text-primary) truncate">
 							{activeMicName}
 						</p>
 						<p className="text-xs text-(--text-muted)">
@@ -158,7 +157,7 @@ export function ActiveMicrophoneCard({
 				playing={playing}
 				testRunning={testRunning}
 				testElapsed={testElapsed}
-				testDurationSec={testDurationSec}
+				testDurationMs={testDurationMs}
 			/>
 
 			{/* Test controls */}
@@ -200,20 +199,18 @@ export function ActiveMicrophoneCard({
                                     announced to avoid screen-reader spam; the post-test
                                     duration (a single, stable value) IS announced via
                                     aria-live="polite" so users with AT know when a test
-                                    completes and how long it ran.
+                                    completes and how long it ran. Only the FIRST trailing
+                                    span carries ``ml-auto`` — a second one would fight it
+                                    for the free space and push the duration readout off.
 
-                                    aria-hidden={true} is UNCONDITIONAL here — the
-                                    sibling ``LevelBar`` exposes the live value to
+                                    aria-hidden={true} is UNCONDITIONAL on the live-level
+                                    span — the sibling ``LevelBar`` exposes the live value to
                                     assistive tech via its ``role="progressbar"`` +
                                     ``aria-valuenow`` attributes (the bar element is the
                                     accessible source of truth for the level). Letting
                                     this textual "Level: NN%" readout be announced too
                                     would duplicate the value AND spam AT at up to 30 Hz
-                                    (the ``mic_level`` push rate). The previous
-                                    ``aria-hidden={testRunning ? undefined : true}``
-                                    was inverted: it leaked the level text to AT
-                                    whenever a test was running — exactly when it
-                                    updates fastest. */}
+                                    (the ``mic_level`` push rate). */}
 				<span
 					className="text-xs text-(--text-muted) ml-auto"
 					aria-hidden={true}
@@ -230,7 +227,7 @@ export function ActiveMicrophoneCard({
 				</span>
 				{!testRunning && testDurationMs > 0 && (
 					<span
-						className="text-xs text-(--text-muted) ml-auto"
+						className="text-xs text-(--text-muted)"
 						aria-live="polite"
 						aria-atomic="true"
 					>
@@ -240,33 +237,6 @@ export function ActiveMicrophoneCard({
 					</span>
 				)}
 			</div>
-
-			{/* Fix 15: test duration slider (3–30s). The
-                            ``deferApply`` prop batches the drag into a single
-                            ``set_config`` call on pointer-up so we don't flood the
-                            backend while sliding. Hidden during an active test to
-                            avoid mid-test duration changes (which the running test
-                            ignores anyway). */}
-			{!testRunning && (
-				<div className="mt-3 flex items-center gap-3">
-					<label
-						htmlFor="mic-test-duration"
-						className="text-xs font-medium text-(--text-muted) shrink-0"
-					>
-						{t("microphone.testDuration")}
-					</label>
-					<RangeSlider
-						value={testDurationSec}
-						min={3}
-						max={30}
-						step={1}
-						onChange={onSetTestDurationSec}
-						ariaLabel={t("microphone.testDurationAria")}
-						suffix="s"
-						deferApply
-					/>
-				</div>
-			)}
 
 			{/* Filter invalidation notice */}
 			{filtersSinceLastTest && filtersChangedSinceTest && !testRunning && (
@@ -286,6 +256,8 @@ export function ActiveMicrophoneCard({
 			<MemoizedTestReviewPanel
 				durationMs={testDurationMs}
 				quality={testQuality}
+				transcription={testTranscription}
+				transcriptionUnavailable={testTranscriptionUnavailable}
 				testAudioBase64={testAudioBase64}
 				rawAudioBase64={rawAudioBase64}
 				playing={playing}
@@ -307,7 +279,7 @@ export function ActiveMicrophoneCard({
 				}
 			/>
 
-			{/* : Audio Enhancement / Preset selector — memoised.
+			{/* : Preset selector (accordion + radio) — memoised.
                             Re-renders only when the preset / config / showAdvanced
                             flag changes, NOT on every mic_level push. The
                             comparator includes `onConfigChange` and `onPresetChange`
@@ -317,7 +289,7 @@ export function ActiveMicrophoneCard({
                             behavior is identical, so skipping is safe). */}
 			<div className="mt-3">
 				{config && (
-					<MemoizedAudioPresetSelector
+					<MemoizedPresetAccordionSelector
 						preset={(config.audio_preset as AudioPreset) ?? "auto"}
 						config={config}
 						showAdvanced={showAdvanced}
@@ -351,7 +323,7 @@ interface LevelBarContainerProps {
 	playing: boolean;
 	testRunning: boolean;
 	testElapsed: number;
-	testDurationSec: number;
+	testDurationMs: number;
 }
 
 function LevelBarContainer({
@@ -360,7 +332,7 @@ function LevelBarContainer({
 	playing,
 	testRunning,
 	testElapsed,
-	testDurationSec,
+	testDurationMs,
 }: LevelBarContainerProps) {
 	return (
 		<>
@@ -375,7 +347,7 @@ function LevelBarContainer({
 				peak={peak}
 				isRecording={testRunning}
 				elapsedSeconds={testElapsed}
-				totalSeconds={testDurationSec}
+				totalSeconds={testDurationMs / 1000}
 			/>
 		</>
 	);
@@ -395,8 +367,8 @@ function LevelBarContainer({
 // rarely). Including it lets us skip re-renders even when an upstream
 // component forgets to memoise a wrapper. Same for `onPresetChange`.
 
-const MemoizedAudioPresetSelector = memo(
-	AudioPresetSelector,
+const MemoizedPresetAccordionSelector = memo(
+	PresetAccordionSelector,
 	(prev, next) =>
 		prev.preset === next.preset &&
 		prev.config === next.config &&
@@ -410,6 +382,8 @@ const MemoizedTestReviewPanel = memo(
 	(prev, next) =>
 		prev.durationMs === next.durationMs &&
 		prev.quality === next.quality &&
+		prev.transcription === next.transcription &&
+		prev.transcriptionUnavailable === next.transcriptionUnavailable &&
 		prev.testAudioBase64 === next.testAudioBase64 &&
 		prev.rawAudioBase64 === next.rawAudioBase64 &&
 		prev.playing === next.playing &&

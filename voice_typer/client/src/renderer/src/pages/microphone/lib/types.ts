@@ -37,4 +37,11 @@ export interface TestStopResult {
 	sample_rate: number;
 	message: string;
 	quality: TestResultQuality;
+	/**
+	 * Best-effort auto-transcription of the test recording — present
+	 * only when the active engine produced non-empty text.
+	 */
+	transcription?: string;
+	/** True when the backend could not transcribe (e.g. no engine loaded). */
+	transcription_unavailable?: boolean;
 }

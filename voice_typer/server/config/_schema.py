@@ -28,7 +28,7 @@ the function bodies below.
 import logging
 import types
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal
+from typing import ClassVar, Literal, cast
 
 from voice_typer.server._audio_constants import (
     _DEFAULT_SMART_DUCK_POLL_MS,
@@ -280,7 +280,6 @@ class _ConfigSchema:
 
     # Push-to-talk mode (hold to record, release to stop)
     recording_mode: Literal["toggle", "push_to_talk"] = "toggle"
-    push_to_talk_hotkey: str = ""  # Separate hotkey for PTT (empty = same as toggle)
 
     # ESC to cancel at any stage
     # Esc-to-cancel defaults ON so users can cancel a
@@ -483,6 +482,27 @@ class _ConfigSchema:
     # parameterised the bare ``dict`` annotation so static checkers
     # can verify the nested structure that the renderer writes.
     custom_theme: dict[str, dict[str, str]] | None = None
+
+    # Linux title-bar window-button customization (Settings → Appearance).
+    # Shape: {"mode": "system"|"custom", "side": "left"|"right",
+    #         "show_minimize": bool, "show_maximize": bool, "show_close": bool}
+    # ``mode: "system"`` follows the desktop's own button-layout
+    # (gsettings org.gnome.desktop.wm.preferences button-layout); the
+    # side/show_* keys only apply when mode == "custom". Ignored on
+    # Windows (fixed native convention) and macOS (OS-drawn traffic
+    # lights). Validated by _make_linux_window_buttons_validator.
+    linux_window_buttons: dict[str, object] = field(
+        default_factory=lambda: cast(
+            "dict[str, object]",
+            {
+                "mode": "system",
+                "side": "right",
+                "show_minimize": True,
+                "show_maximize": True,
+                "show_close": True,
+            },
+        )
+    )
 
     # Accessibility
     text_size: int = 14

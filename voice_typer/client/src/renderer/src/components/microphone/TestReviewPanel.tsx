@@ -19,6 +19,10 @@ interface QualityData {
 interface TestReviewPanelProps {
 	durationMs: number;
 	quality: QualityData | null;
+	/** Transcription of the test recording (null/undefined = none). */
+	transcription?: string | null;
+	/** True when no speech model is loaded, so no transcription can exist. */
+	transcriptionUnavailable?: boolean;
 	testAudioBase64: string | null;
 	rawAudioBase64: string | null;
 	playing: boolean;
@@ -145,6 +149,8 @@ function getIssueRecommendation(rawIssue: string): IssueRecommendation | null {
 export function TestReviewPanel({
 	durationMs,
 	quality,
+	transcription,
+	transcriptionUnavailable,
 	testAudioBase64,
 	rawAudioBase64,
 	playing,
@@ -188,6 +194,35 @@ export function TestReviewPanel({
 					{t("microphoneTest.retest")}
 				</Button>
 			</div>
+
+			{/* Test transcription — the primary "what did it hear" result.
+			    Rendered when the backend produced text; when no speech
+			    model is loaded (``transcriptionUnavailable``) a localized
+			    explanation names the actual state instead of silence. */}
+			{(transcription || transcriptionUnavailable) && (
+				<div className="space-y-1">
+					<p className="text-xs font-medium text-(--text-muted)">
+						{t("microphone.youSaid")}
+					</p>
+					{transcription ? (
+						<p
+							className="text-sm text-(--text-primary)"
+							data-testid="test-transcription"
+						>
+							{transcription}
+						</p>
+					) : (
+						transcriptionUnavailable && (
+							<p
+								className="text-xs text-(--text-muted)"
+								data-testid="test-transcription-unavailable"
+							>
+								{t("microphone.transcriptionUnavailable")}
+							</p>
+						)
+					)}
+				</div>
+			)}
 
 			{/* Quality score */}
 			{quality && (
@@ -307,7 +342,7 @@ export function TestReviewPanel({
 										data-testid="detected-issue-row"
 									>
 										<div className="flex items-center gap-1">
-											<span className="text-amber-500" aria-hidden="true">
+											<span className="text-warning" aria-hidden="true">
 												•
 											</span>
 											<span>{translated}</span>
@@ -323,7 +358,7 @@ export function TestReviewPanel({
                                                                                         active one (no-op CTA would be
                                                                                         misleading). */}
 										{recommendation && (
-											<div className="ms-3 mt-0.5 flex flex-wrap items-center gap-2 rounded-md border-l-2 border-amber-400/40 bg-amber-400/5 px-2 py-1 text-(--text-muted)">
+											<div className="ms-3 mt-0.5 flex flex-wrap items-center gap-2 rounded-md border-l-2 border-warning/40 bg-warning/5 px-2 py-1 text-(--text-muted)">
 												<span
 													className="text-[11px] leading-snug"
 													data-testid="issue-recommendation"

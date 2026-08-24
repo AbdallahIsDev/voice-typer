@@ -17,6 +17,29 @@ export type ModelSize =
 	| "qwen"
 	| "parakeet";
 
+/** Linux title-bar window-button customization (persisted config field
+ *  `linux_window_buttons`; Settings → Appearance, Linux only). Mirrors
+ *  the Python dataclass default + the `_make_linux_window_buttons_validator`
+ *  shape contract (all 5 keys required, unknown keys rejected). */
+export interface LinuxWindowButtonsConfig {
+	mode: "system" | "custom";
+	side: "left" | "right";
+	show_minimize: boolean;
+	show_maximize: boolean;
+	show_close: boolean;
+}
+
+/** READ-ONLY computed snapshot the sidecar attaches to every `get_config`
+ *  response (NOT a persisted field): the desktop's own button-layout
+ *  (parsed from `gsettings org.gnome.desktop.wm.preferences button-layout`)
+ *  plus the detected desktop environment (drives circle vs Breeze-square
+ *  button styling). `layout` is null on non-Linux or when the probe
+ *  failed. Never sent back via `set_config` — the allowlist rejects it. */
+export interface LinuxWindowButtonsSystemInfo {
+	desktop_environment: "gnome" | "kde" | "xfce" | "mate" | "other" | "unknown";
+	layout: { side: "left" | "right"; buttons: string[] } | null;
+}
+
 export interface VoiceTyperConfig {
 	schema_version: number;
 
@@ -99,44 +122,6 @@ export interface VoiceTyperConfig {
 
 	// Recording mode
 	recording_mode: "toggle" | "push_to_talk";
-	/**
-	 * @deprecated  /  / : server-controlled only.
-	 *
-	 * Kept in the type for config-file backwards-compat only — older
-	 * `config.json` files written by previous versions may include
-	 * this key. The server (`voice_typer/server/config.py`) declares
-	 * `push_to_talk_hotkey: str = ""` but NEVER reads it —
-	 * `recording_mode == "push_to_talk"` always uses the main `hotkey`
-	 * field (see `voice_typer/server/config_applier.py` and
-	 * `voice_typer/server/service.py`, which only check for the
-	 * *presence* of the key in `updates` so the hotkey listener can
-	 * be re-registered, not the value).
-	 *
-	 *  (coordinates with  on the Python side): the
-	 * field has been REMOVED from `IPC_CONFIG_ALLOWLIST` in
-	 * `voice_typer/server/config_validators.py`, so the server now
-	 * ENFORCES the write-only-on-the-wire contract — any
-	 * `set_config({ push_to_talk_hotkey: ... })` IPC call is rejected
-	 * by the validator before reaching the dataclass. The renderer
-	 * cannot write this value via IPC; the field survives only as a
-	 * config-file back-compat key for stale `config.json` files.
-	 *
-	 * Rules of engagement (, enforced as of ):
-	 *   - The server MUST NOT read this value (the allowlist removal
-	 *     now blocks any attempt to write it via IPC).
-	 *   - The renderer MUST NOT write this value (no production
-	 *     component sets it; only test fixtures do, for type
-	 *     completeness).
-	 *   - The field is kept OPTIONAL so new code can omit it entirely
-	 *     without breaking the type contract.
-	 *
-	 * Do NOT wire up a separate PTT hotkey without also:
-	 *   1. Re-adding the field to the Python IPC allowlist.
-	 *   2. Reading this value in the server's hotkey listener.
-	 *   3. Surfacing a UI in `RecordingSettingsSection.tsx` to set it.
-	 * Until all three exist, this field is a no-op.
-	 */
-	push_to_talk_hotkey?: string;
 	esc_cancel_enabled: boolean;
 	repaste_hotkey: string;
 	auto_punctuation: boolean;
@@ -270,6 +255,16 @@ export interface VoiceTyperConfig {
 		dark: Record<string, string>;
 	} | null;
 
+	// Linux window-button customization (Settings → Appearance, Linux
+	// only). OPTIONAL for backward compat with older sidecars that
+	// predate the field — absence falls back to the resolver defaults
+	// (system mode / right side / all three buttons).
+	linux_window_buttons?: LinuxWindowButtonsConfig;
+	// READ-ONLY computed snapshot attached by the sidecar's `get_config`
+	// (desktop button-layout + DE). OPTIONAL + nullable: absent on older
+	// sidecars, null layout on non-Linux / probe failure.
+	linux_window_buttons_system?: LinuxWindowButtonsSystemInfo | null;
+
 	// Accessibility
 	text_size: number;
 
@@ -298,8 +293,7 @@ export interface VoiceTyperConfig {
 	 * with stale on-disk config files / older sidecar responses that
 	 * still echo it; renderer code MUST NOT read or write it.
 	 *
-	 * Following the precedent set by `push_to_talk_hotkey` (above):
-	 * the field survives only as a config-file back-compat key. A
+	 * The field survives only as a config-file back-compat key. A
 	 * future coordinated change should drop the field from the TS
 	 * interface AND from every test fixture that includes it —
 	 * deferred because the test fixtures are owned by other
@@ -317,8 +311,7 @@ export interface VoiceTyperConfig {
 	 * with stale on-disk config files / older sidecar responses that
 	 * still echo it; renderer code MUST NOT read or write it.
 	 *
-	 * Following the precedent set by `push_to_talk_hotkey` (above):
-	 * the field survives only as a config-file back-compat key. A
+	 * The field survives only as a config-file back-compat key. A
 	 * future coordinated change should drop the field from the TS
 	 * interface AND from every test fixture that includes it —
 	 * deferred because the test fixtures are owned by other
@@ -358,8 +351,7 @@ export interface VoiceTyperConfig {
 	 * responses that still echo it; renderer code MUST NOT read or
 	 * write it.
 	 *
-	 * Following the precedent set by `push_to_talk_hotkey` (above):
-	 * the field survives only as a config-file back-compat key. A
+	 * The field survives only as a config-file back-compat key. A
 	 * future coordinated change should drop the field from the TS
 	 * interface AND from every test fixture that includes it —
 	 * deferred because the test fixtures are owned by other

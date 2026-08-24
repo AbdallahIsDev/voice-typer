@@ -4,7 +4,8 @@
  * OOM, whole suite died at ~356 files).
  *
  * Root cause (fixed in `pages/microphone/hooks/useMicrophoneData.ts` via
- * the `callRef` + `markUpdatedRef` mirrors): a test mock (or future
+ * the `callRef` / `showSnackRef` mirrors + ref-identity deps): a test
+ * mock (or future
  * code) that hands out a FRESH `call` identity on every render re-fires
  * any effect listing `call` in its deps — each run re-fetches
  * get_microphones + get_config and stores fresh state → render → new

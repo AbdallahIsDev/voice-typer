@@ -67,10 +67,10 @@ class TestCfg8DeprecatedFieldsRemoved:
         "silence_peak_threshold",
         "normalize_audio",
         "normalize_target_peak",
-        # removed from IPC allowlist to match the TS-side
-        # contract (config.ts documents this as a write-only back-compat
-        # field the renderer MUST NOT write). The Config dataclass field
-        # is retained — only the IPC write path is closed.
+        # fully removed from the Config dataclass AND the IPC allowlist
+        # (2026-08-24) — PTT uses the main ``hotkey`` field. Existing
+        # config.json values are silently scrubbed by the v5 schema
+        # migration.
         "push_to_talk_hotkey",
     ]
 
@@ -205,3 +205,49 @@ class TestValidatorAndMigrationTypes:
         assert isinstance(result, dict)
         # The deprecated key was scrubbed.
         assert "silence_rms_threshold" not in result
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# v5 migration: prune the dead ``push_to_talk_hotkey`` field
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestV5PushToTalkHotkeyPrune:
+    """The ``push_to_talk_hotkey`` field was fully removed from the
+    Config dataclass (PTT uses the main ``hotkey``). The v5 migration
+    prunes the key from existing config files so they load cleanly.
+    """
+
+    def test_migrate_to_v5_prunes_push_to_talk_hotkey(self):
+        from voice_typer.server.config_internals.migrations import _migrate_to_v5
+
+        result = _migrate_to_v5({"push_to_talk_hotkey": "<f9>", "hotkey": "<caps_lock>", "_load_warnings": []})
+        assert "push_to_talk_hotkey" not in result
+        assert result["hotkey"] == "<caps_lock>"
+
+    def test_migrate_to_v5_noop_when_key_absent(self):
+        from voice_typer.server.config_internals.migrations import _migrate_to_v5
+
+        result = _migrate_to_v5({"hotkey": "<caps_lock>", "_load_warnings": []})
+        assert "push_to_talk_hotkey" not in result
+        assert result["hotkey"] == "<caps_lock>"
+        assert result["_load_warnings"] == []
+
+    def test_load_prunes_push_to_talk_hotkey_from_v4_config(self, tmp_path, tmp_config_dir):
+        """A v4 config file carrying ``push_to_talk_hotkey`` loads cleanly
+        at the current schema version with the key pruned."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "schema_version": 4,
+                    "hotkey": "<f9>",
+                    "push_to_talk_hotkey": "<f9>",
+                    "recording_mode": "toggle",
+                }
+            )
+        )
+        loaded = Config.load()
+        assert loaded.schema_version == _CURRENT_SCHEMA_VERSION
+        assert not hasattr(loaded, "push_to_talk_hotkey")
+        assert loaded.hotkey == "<f9>"

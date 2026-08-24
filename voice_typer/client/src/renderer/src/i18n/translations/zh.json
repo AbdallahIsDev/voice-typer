@@ -135,14 +135,15 @@
 		"levelBarFrozenAria": "麦克风输入电平（播放期间冻结）",
 		"description": "选择并测试您的麦克风",
 		"systemDefault": "系统默认",
+		"osDefaultBadge": "默认",
 		"unknown": "未知",
+		"youSaid": "您说的是",
+		"transcriptionUnavailable": "尚未加载语音模型。请先加载模型，即可实时查看测试录音的转写结果。",
+		"availableMicrophones": "可用麦克风",
 		"microphone": "麦克风",
 		"usingMic": "使用中：{name}",
 		"setFailed": "设置麦克风失败",
 		"startTestFailed": "开始麦克风测试失败",
-		"consentRequired": "测试或监控麦克风需要语音生物识别同意。",
-		"consentRequiredAction": "打开隐私设置",
-		"consentRequiredTitle": "需要语音同意",
 		"deviceLostTitle": "麦克风已断开",
 		"deviceLostDescription": "当前麦克风已消失。请重新连接或选择其他麦克风，然后重试。",
 		"recorded": "已录制 {seconds} 秒",
@@ -156,30 +157,17 @@
 		"systemDefaultDesc": "操作系统的默认输入设备",
 		"selectedMicDesc": "已选麦克风",
 		"recordingStatus": "录音中…",
-		"active": "活动中",
 		"startTest": "开始测试",
 		"stopTest": "停止测试（{seconds} 秒）",
 		"level": "电平：{percent}%",
 		"monitoringOff": "监控已关闭",
 		"duration": "时长：{seconds} 秒",
-		"monitoring": "正在监测…",
 		"filtersChangedNotice": "⚠ 滤波器设置已更改 — 之前的测试结果不再反映当前设置。请运行新测试。",
 		"noMicrophonesFound": "未找到麦克风",
 		"connectAndRestart": "请连接麦克风并重启",
-		"otherMicrophones": "其他麦克风",
-		"noOtherMicrophones": "没有其他麦克风",
-		"use": "使用",
-		"channels": "声道:",
-		"rateHz": "采样率:",
 		"loadFailedTitle": "加载麦克风失败",
 		"retry": "重试",
-		"useSystemDefault": "使用系统默认",
-		"useSystemDefaultAria": "恢复到操作系统的默认麦克风",
 		"activeMicUnavailable": "先前选择的麦克风不再可用。正在回退到系统默认。",
-		"fallbackToSystemDefault": "麦克风已恢复为系统默认。",
-		"testDuration": "测试时长",
-		"testDurationInfo": "测试录音的运行时长（3-30秒）。",
-		"testDurationAria": "测试时长（秒）",
 		"permissionDeniedTitle": "麦克风权限被拒绝",
 		"permissionDeniedMessageMacos": "{appName} 无法访问麦克风。打开系统设置 → 隐私与安全性 → 麦克风，然后启用 {appName}。",
 		"permissionDeniedMessageWindows": "{appName} 无法访问麦克风。打开设置 → 隐私和安全 → 麦克风，允许桌面应用访问麦克风。",
@@ -188,15 +176,8 @@
 		"openSettings": "打开设置",
 		"openSettingsAria": "打开操作系统麦克风隐私设置",
 		"loading": "正在加载麦克风…",
-		"test": {
-			"qualityPoor": "质量差",
-			"qualityGood": "质量好",
-			"qualityOk": "OK"
-		},
-		"stopPlaybackFirst": "开始新测试前请先停止音频播放",
 		"loadFailedDescription": "无法加载麦克风列表。请检查连接后重试。",
-		"selected": "已选择",
-		"useAria": "使用麦克风 — {name}"
+		"selected": "已选择"
 	},
 	"keyboard": {
 		"permissionDeniedTitle": "热键需要辅助功能权限",
@@ -446,7 +427,6 @@
 		"runtimePackNotChecked": "尚未检查",
 		"runtimePackUpToDate": "已是最新版本（v{version}）",
 		"runtimePackFailed": "检查更新失败",
-		"runtimePackConsentRequired": "离线引擎包下载已关闭。请在“设置”→“常规”中开启以接收更新。",
 		"runtimePackDownloadStarted": "正在后台下载更新。",
 		"connected": "已连接",
 		"disconnected": "已断开",
@@ -1101,7 +1081,25 @@
 		"unsavedChangesTitle": "未保存的更改",
 		"voiceBiometricProcessing": "语音生物识别处理",
 		"voiceBiometricProcessingAria": "语音生物识别处理",
-		"voiceBiometricProcessingInfo": "启用语音生物识别以提高识别准确率。"
+		"voiceBiometricProcessingInfo": "启用语音生物识别以提高识别准确率。",
+		"linuxWindowButtons": {
+			"title": "窗口按钮",
+			"description": "自定义标题栏中的最小化、最大化和关闭按钮。",
+			"mode": "按钮布局",
+			"modeInfo": "跟随桌面已有的按钮布局，或自行选择。",
+			"modeSystem": "跟随系统",
+			"modeCustom": "自定义",
+			"side": "位置",
+			"sideInfo": "按钮位于标题栏的哪一侧。",
+			"sideLeft": "左侧",
+			"sideRight": "右侧",
+			"showMinimize": "显示最小化按钮",
+			"showMaximize": "显示最大化按钮",
+			"showClose": "显示关闭按钮",
+			"systemLayout": "系统布局：{side}侧 — {buttons}",
+			"systemUnavailable": "系统按钮布局不可用——使用默认值（右侧，全部按钮）。",
+			"followingSystem": "正在跟随您的桌面布局"
+		}
 	},
 	"models": {
 		"loadFailedTitle": "无法加载模型",
@@ -1149,8 +1147,6 @@
 			"apiKeySaved": "{provider} API 密钥已保存",
 			"consentGranted": "已授予 {provider} 许可 — 音频将发送到此提供商。",
 			"consentRevoked": "已撤销对 {provider} 的许可 — 音频将不会被发送。",
-			"hfConsentGranted": "已授予许可 — 将继续从 HuggingFace 下载模型。",
-			"hfConsentRevoked": "已撤销许可 — 已阻止从 HuggingFace 下载模型。",
 			"resumeFailed": "恢复失败：{error}",
 			"pauseFailed": "暂停失败：{error}",
 			"cancelled": "下载已取消。部分文件将在重试时被复用。",
@@ -1184,10 +1180,6 @@
 			"failedAll": "无法从该目录导入任何模型。",
 			"failed": "导入模型失败：{error}",
 			"importModelAria": "从文件夹导入模型"
-		},
-		"hfConsent": {
-			"grant": "授予同意",
-			"jitMessage": "下载此模型需要 Hugging Face 下载同意。请立即授予同意以继续。"
 		},
 		"progress": {
 			"eta": "ETA {time}",
@@ -1280,8 +1272,6 @@
 		"connectionSuccessful": "连接成功 — API 密钥有效。",
 		"connectionFailed": "连接失败",
 		"pleaseEnterApiKey": "请先输入 API 密钥",
-		"consentGranted": "已授同意 — 将继续从 HuggingFace 下载模型。",
-		"consentRevoked": "已撤销同意 — 从 HuggingFace 下载模型已被阻止。",
 		"size": "大小",
 		"language": "语言",
 		"fastest": "最快",
@@ -1555,7 +1545,7 @@
 		"consentHuggingFaceInfo": "允许 {appName} 从 huggingface.co 下载 Whisper 模型权重。",
 		"consentRequired": "需要同意才能继续",
 		"consentVoiceBiometric": "同意语音生物识别处理",
-		"consentVoiceBiometricInfo": "允许 {appName} 在本地处理您的语音录音以进行转录。",
+		"consentVoiceBiometricInfo": "允许 {appName} 在本地处理您的语音录音以进行转录。根据伊利诺伊州 BIPA 和 GDPR 第 9 条，语音录音可能被视为生物识别数据。{appName} 不会在转录后存储原始音频 — 仅保留转录文本。",
 		"copied": "已复制",
 		"copyError": "复制失败",
 		"copyErrorAria": "复制错误",
@@ -1755,11 +1745,11 @@
 		"stop": "停止",
 		"qualityFeedback": {
 			"recording": "正在录音…",
-			"voiceDetected": "检测到人声",
+			"voiceDetected": "✓ 检测到人声",
 			"excellent": "质量优秀",
-			"tooHigh": "音量过高",
-			"tooLow": "音量过低",
-			"lowVolume": "检测到音量过低",
+			"tooHigh": "⚠ 音量过高",
+			"tooLow": "⚠ 音量过低",
+			"lowVolume": "⚠ 检测到音量过低",
 			"waiting": "等待人声…"
 		},
 		"detectedIssueCodes": {
@@ -2056,7 +2046,6 @@
 			"offline_pack_consent": "离线引擎包（约 180 MB）将从发布服务器下载一次，支持完全本地转录。允许下载吗？"
 		}
 	},
-
 	"degradation": {
 		"deviceLost": "所选麦克风已断开",
 		"deviceLostHint": "请重新连接或选择其他麦克风，然后重试。",

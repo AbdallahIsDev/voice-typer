@@ -53,6 +53,15 @@ import { buildTestFilters } from "../lib/buildTestFilters";
 import { computeAudioKey } from "../lib/computeAudioKey";
 import type { TestResultQuality, TestStopResult } from "../lib/types";
 
+/**
+ * Fixed microphone-test recording duration, in seconds. The test is
+ * permanently 10 seconds — there is no user-facing configurability.
+ * Single source of truth for the ``microphone_test_start`` payload and
+ * the countdown fallback; the backend independently clamps to
+ * [1.0, 60.0].
+ */
+export const MICROPHONE_TEST_DURATION_SEC = 10;
+
 // (XA-5-13): module-level cache for the last-test recording + quality
 // verdict — mirrors the ``_cachedMicrophones`` / ``_cachedConfig``
 // pattern in ``useMicrophoneData``. Persists across page navigations so
@@ -69,6 +78,8 @@ let _cachedTestAudioBase64: string | null = null;
 let _cachedRawAudioBase64: string | null = null;
 let _cachedTestQuality: TestResultQuality | null = null;
 let _cachedTestDurationMs: number = 0;
+let _cachedTestTranscription: string | null = null;
+let _cachedTestTranscriptionUnavailable: boolean = false;
 
 /**
  * Reset the module-level test cache. Exported for tests + for the
@@ -82,6 +93,8 @@ export function _resetMicrophoneTestCache(): void {
 	_cachedRawAudioBase64 = null;
 	_cachedTestQuality = null;
 	_cachedTestDurationMs = 0;
+	_cachedTestTranscription = null;
+	_cachedTestTranscriptionUnavailable = false;
 }
 
 /** Type of the ``t()`` i18n function — accepts a key + optional params. */
@@ -109,8 +122,6 @@ interface UseMicrophoneTestSessionOptions {
 	showSnack: ShowSnack;
 	/** i18n ``t`` function (passed in for testability). */
 	t: TFunction;
-	/** User-configurable test recording duration (3–30s). */
-	testDurationSec: number;
 	/** Level setter from ``useMicrophoneLevelMonitor``. */
 	setLevel: Dispatch<SetStateAction<number>>;
 	/** Peak setter from ``useMicrophoneLevelMonitor``. */
@@ -153,6 +164,10 @@ export interface UseMicrophoneTestSessionResult {
 	rawAudioBase64: string | null;
 	testDurationMs: number;
 	testQuality: TestResultQuality | null;
+	/** Best-effort auto-transcription from the last test (backend-provided). */
+	testTranscription: string | null;
+	/** True when the backend could not transcribe the last test recording. */
+	testTranscriptionUnavailable: boolean;
 	filtersSinceLastTest: string;
 	startTest: () => Promise<void>;
 	stopTest: () => Promise<void>;
@@ -167,7 +182,6 @@ export function useMicrophoneTestSession({
 	updateConfig,
 	showSnack,
 	t,
-	testDurationSec,
 	setLevel,
 	setPeak,
 	setMicMonitoring,
@@ -208,6 +222,11 @@ export function useMicrophoneTestSession({
 	const [testQuality, setTestQuality] = useState<TestResultQuality | null>(
 		_cachedTestQuality,
 	);
+	const [testTranscription, setTestTranscription] = useState<string | null>(
+		_cachedTestTranscription,
+	);
+	const [testTranscriptionUnavailable, setTestTranscriptionUnavailable] =
+		useState(_cachedTestTranscriptionUnavailable);
 	// Tracks whether filters have changed since last test (invalidation).
 	const [filtersSinceLastTest, setFiltersSinceLastTest] = useState<string>("");
 
@@ -264,6 +283,16 @@ export function useMicrophoneTestSession({
 				if (result.quality) {
 					_cachedTestQuality = result.quality;
 				}
+				const transcriptionText =
+					typeof result.transcription === "string"
+						? result.transcription
+						: null;
+				const transcriptionUnavailable =
+					result.transcription_unavailable === true;
+				setTestTranscription(transcriptionText);
+				setTestTranscriptionUnavailable(transcriptionUnavailable);
+				_cachedTestTranscription = transcriptionText;
+				_cachedTestTranscriptionUnavailable = transcriptionUnavailable;
 				showSnack(
 					t("microphone.recorded", {
 						seconds: (result.duration_ms / 1000).toFixed(1),
@@ -302,6 +331,8 @@ export function useMicrophoneTestSession({
 		setRawAudioBase64(null);
 		setTestDurationMs(0);
 		setTestQuality(null);
+		setTestTranscription(null);
+		setTestTranscriptionUnavailable(false);
 		// (XA-5-13): invalidate the module-level test cache when a
 		// new test starts — the cache holds the PREVIOUS test's
 		// recording, which is now superseded. The setX calls above
@@ -312,6 +343,8 @@ export function useMicrophoneTestSession({
 		_cachedRawAudioBase64 = null;
 		_cachedTestQuality = null;
 		_cachedTestDurationMs = 0;
+		_cachedTestTranscription = null;
+		_cachedTestTranscriptionUnavailable = false;
 		setLevel(0);
 		setPeak(0);
 		setTestElapsed(0);
@@ -360,7 +393,7 @@ export function useMicrophoneTestSession({
 				sample_rate: number;
 			}>("microphone_test_start", {
 				mic_id: micId,
-				duration: testDurationSec,
+				duration: MICROPHONE_TEST_DURATION_SEC,
 				filters: buildTestFilters(config),
 			});
 
@@ -401,12 +434,15 @@ export function useMicrophoneTestSession({
 			}
 
 			setTestRunning(true);
-			setTestCountdown(Math.ceil(result.duration || testDurationSec));
+			setTestCountdown(
+				Math.ceil(result.duration || MICROPHONE_TEST_DURATION_SEC),
+			);
 
 			// Timer countdown
 			if (testTimerRef.current) clearInterval(testTimerRef.current);
 			const startTime = Date.now();
-			const totalDurationMs = (result.duration || testDurationSec) * 1000;
+			const totalDurationMs =
+				(result.duration || MICROPHONE_TEST_DURATION_SEC) * 1000;
 			const checkInterval = setInterval(() => {
 				const elapsed = Date.now() - startTime;
 				const remaining = Math.max(
@@ -472,17 +508,7 @@ export function useMicrophoneTestSession({
 				"error",
 			);
 		}
-	}, [
-		call,
-		config,
-		showSnack,
-		t,
-		testDurationSec,
-		stopPlayback,
-		stopTest,
-		setLevel,
-		setPeak,
-	]);
+	}, [call, config, showSnack, t, stopPlayback, stopTest, setLevel, setPeak]);
 	// Keep the consent-retry ref pointed at the latest closure.
 	startTestRef.current = startTest;
 
@@ -504,6 +530,8 @@ export function useMicrophoneTestSession({
 				setTestAudioBase64(null);
 				setRawAudioBase64(null);
 				setTestQuality(null);
+				setTestTranscription(null);
+				setTestTranscriptionUnavailable(false);
 				if (testTimerRef.current) {
 					clearInterval(testTimerRef.current);
 					testTimerRef.current = null;
@@ -517,6 +545,8 @@ export function useMicrophoneTestSession({
 			setTestAudioBase64(null);
 			setRawAudioBase64(null);
 			setTestQuality(null);
+			setTestTranscription(null);
+			setTestTranscriptionUnavailable(false);
 			// (XA-5-13): invalidate the test recording cache on a
 			// mic switch — the cached recording was for the PREVIOUS
 			// mic and would be misleading A/B comparison material
@@ -525,6 +555,8 @@ export function useMicrophoneTestSession({
 			_cachedRawAudioBase64 = null;
 			_cachedTestQuality = null;
 			_cachedTestDurationMs = 0;
+			_cachedTestTranscription = null;
+			_cachedTestTranscriptionUnavailable = false;
 
 			try {
 				await callRef.current("set_config", { microphone: micId });
@@ -646,6 +678,8 @@ export function useMicrophoneTestSession({
 		rawAudioBase64,
 		testDurationMs,
 		testQuality,
+		testTranscription,
+		testTranscriptionUnavailable,
 		filtersSinceLastTest,
 		startTest,
 		stopTest,

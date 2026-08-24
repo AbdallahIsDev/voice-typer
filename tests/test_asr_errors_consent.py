@@ -409,7 +409,6 @@ class _MockApp:
         self.config.hotkey = "<f2>"
         self.config.repaste_hotkey = "<ctrl>+<alt>+v"
         self.config.recording_mode = "toggle"
-        self.config.push_to_talk_hotkey = ""
         self.config.esc_cancel_enabled = True
         self.config.model_size = "small.en"
         self.config.asr_backend = "whisper"

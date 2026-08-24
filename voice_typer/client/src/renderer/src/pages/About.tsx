@@ -26,6 +26,7 @@ import { Logo } from "@/components/layout/Logo";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
 import { t, useT } from "@/i18n/i18n";
+import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import pkg from "../../../../package.json";
 
 // App version — read directly from package.json (see VERSION-SOURCE-FIX
@@ -75,7 +76,7 @@ export default function AboutPage() {
 		null,
 	);
 
-	const handleCheckPackUpdate = async () => {
+	const runPackUpdateCheck = async () => {
 		setPackPhase("checking");
 		try {
 			const result = (await callRef.current(
@@ -83,6 +84,21 @@ export default function AboutPage() {
 				{},
 			)) as PackUpdateCheckResult;
 			setPackResult(result);
+			// Point-of-use consent gate: the backend found an update but
+			// refused to start the download because
+			// `offline_pack_consent` is off. Ask via the SHARED consent
+			// dialog right now — Allow persists the consent and re-runs
+			// the check (which then triggers the download); Cancel
+			// leaves the pack untouched. No persistent "enable in
+			// Settings" nag — the modal only opens at the moment of the
+			// blocked attempt, and only while the consent is missing.
+			if (result?.consent_required) {
+				openConsentGate({
+					consentField: "offline_pack_consent",
+					bodyKey: consentBodyKey("offline_pack_consent"),
+					onAllow: () => void runPackUpdateCheck(),
+				});
+			}
 		} catch (err) {
 			setPackResult({
 				success: false,
@@ -91,6 +107,10 @@ export default function AboutPage() {
 		} finally {
 			setPackPhase("done");
 		}
+	};
+
+	const handleCheckPackUpdate = () => {
+		void runPackUpdateCheck();
 	};
 
 	// Resolve the row value + optional detail line from the current
@@ -104,12 +124,14 @@ export default function AboutPage() {
 		packStatusText = t("about.checking");
 	} else if (packResult?.consent_required) {
 		// Update found but the download was refused by the consent gate
-		// (server returns success=false + consent_required=true).
+		// (server returns success=false + consent_required=true). The
+		// shared consent dialog was opened by `runPackUpdateCheck` —
+		// this row stays informational ("update available"), never a
+		// persistent "go enable consent" instruction.
 		packStatusText =
 			packResult.remote_version != null
 				? t("about.updateAvailable", { version: packResult.remote_version })
 				: t("about.runtimePackFailed");
-		packDetail = t("about.runtimePackConsentRequired");
 	} else if (packResult && packResult.success === true) {
 		if (packResult.update_available) {
 			packStatusText =
@@ -225,9 +247,7 @@ export default function AboutPage() {
 						<Button
 							variant="outline"
 							size="sm"
-							onClick={() => {
-								void handleCheckPackUpdate();
-							}}
+							onClick={handleCheckPackUpdate}
 							disabled={packPhase === "checking"}
 						>
 							{packPhase === "checking"

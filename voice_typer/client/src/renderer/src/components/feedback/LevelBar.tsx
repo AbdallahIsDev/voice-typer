@@ -53,7 +53,7 @@ export function getVolumeTier(level: number, peak: number): VolumeTier {
 	return "low";
 }
 
-function getLevelColor(lvl: number): string {
+export function getLevelColor(lvl: number): string {
 	if (lvl > 0.7) return "var(--destructive)";
 	if (lvl > 0.3) return "var(--primary)";
 	return "var(--accent)";

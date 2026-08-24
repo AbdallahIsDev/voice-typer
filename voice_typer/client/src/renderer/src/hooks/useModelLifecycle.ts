@@ -52,7 +52,7 @@ import { useModelSelection } from "@/hooks/models/useModelSelection";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
-import { t } from "@/i18n/i18n";
+import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import {
 	CLOUD_PROVIDERS,
 	type CloudProvider,
@@ -135,14 +135,15 @@ export function useModelLifecycle() {
 
 	// 6. (UI/UX overhaul 2026-08-20, point 4) — just-in-time
 	//    HuggingFace-consent gate for downloads. The persistent
-	//    consent banner was removed; consent is now checked ONLY at
+	//    consent banner was removed; consent is checked ONLY at
 	//    the moment the user clicks a model's Download button:
 	//      • consent already granted (or the model doesn't download
 	//        from HuggingFace, e.g. qwen) → proceed immediately;
-	//      • consent missing → block the download and show a
-	//        TRANSIENT warning toast with a "Grant consent" action
-	//        that persists the consent AND proceeds with the download
-	//        in one click (no Settings navigation). The backend's own
+	//      • consent missing → block the download and open the shared
+	//        point-of-use consent dialog (`openConsentGate` — the SAME
+	//        modal every other consent-gated flow uses). Allow persists
+	//        `huggingface_consent=true` and re-invokes the blocked
+	//        download; Cancel leaves it blocked. The backend's own
 	//        `_require_huggingface_consent` gate remains the GDPR
 	//        enforcement — this only changes when/how the requirement
 	//        is surfaced to the user.
@@ -155,24 +156,13 @@ export function useModelLifecycle() {
 				void download.downloadModel(model);
 				return;
 			}
-			showSnack(t("models.hfConsent.jitMessage"), "warning", {
-				action: {
-					label: t("models.hfConsent.grant"),
-					onClick: () => {
-						void (async () => {
-							await cloud.setHuggingFaceConsent(true);
-							await download.downloadModel(model);
-						})();
-					},
-				},
+			openConsentGate({
+				consentField: "huggingface_consent",
+				bodyKey: consentBodyKey("huggingface_consent"),
+				onAllow: () => void download.downloadModel(model),
 			});
 		},
-		[
-			configRest.config,
-			download.downloadModel,
-			cloud.setHuggingFaceConsent,
-			showSnack,
-		],
+		[configRest.config, download.downloadModel],
 	);
 
 	return {

@@ -186,9 +186,8 @@ describe("FR-67: volume_duck_per_session / volume_duck_smart / noise_filter_gate
 		// 837-840`) — existing `config.json` files that still carry
 		// them are silently scrubbed by the v3 schema migration, so
 		// they're NOT on the wire post-v3. The TS interface marks
-		// them as OPTIONAL (`?:`) with `@deprecated` tags, matching
-		// the precedent set by `push_to_talk_hotkey` (server-controlled
-		// only — kept in the type for config-file back-compat only).
+		// them as OPTIONAL (`?:`) with `@deprecated` tags — kept in
+		// the type for config-file back-compat only.
 		//
 		// Compile-time guards: each of the three fields must be
 		// `T | undefined` (optional). We use a conditional-type guard:
@@ -307,7 +306,6 @@ describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds 
 			warn_elevated_paste: true,
 			warn_password_paste: true,
 			recording_mode: "toggle",
-			push_to_talk_hotkey: "",
 			esc_cancel_enabled: true,
 			repaste_hotkey: "",
 			auto_punctuation: false,
