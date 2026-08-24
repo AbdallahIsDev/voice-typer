@@ -2566,20 +2566,25 @@ class ModelManager:
     # ── : force-unload the active backend (watchdog escalation) ──
 
     def force_unload_active(self) -> None:
-        """force-unload the active backend + clear its busy flag.
+        """Eject the active backend from the registry + clear its busy flag.
 
         Called by the watchdog
-        (:meth:`voice_typer.server.recording_controller.RecordingController._force_recover_from_stuck_transcription`)
-        after the 2nd force-recovery to actually tear down the stuck
-        ctranslate2 model's GPU resources. The watchdog itself can't
-        interrupt the C-level ctranslate2 call, but unloading the
-        backend object releases the Python-side reference and (for
-        backends whose ``unload()`` frees CUDA tensors) the VRAM.
+        (meth:`voice_typer.server.transcription_watchdog.TranscriptionWatchdog.force_recover`)
+        when a forced recovery fires while the worker thread is still
+        alive inside the engine's C-level call. The watchdog cannot
+        interrupt that call, so the engine object itself must NOT be
+        destroyed here: freeing CUDA tensors / ctranslate2 handles under
+        a live call crashes with use-after-free (the same hazard
+        :meth:`AsrBackendRegistry.unload` busy-guards against). Instead,
+        this method DROPS the backend's registry slot so the next
+        ``_ensure_engine`` constructs a FRESH engine instance; the stuck
+        thread keeps its orphaned reference and its late result stays
+        fenced downstream by the cancelled-cycle registry.
 
         Contract:
 
         * **Idempotent.** Safe to call multiple times — each call is a
-          no-op if the backend is already unloaded.
+          no-op once the slot is dropped.
 
         * **Best-effort.** Catches every exception, logs a warning, and
           NEVER raises. The watchdog calls this from its own
@@ -2587,20 +2592,21 @@ class ModelManager:
           state reset (``_busy_event.set()``, tray to IDLE) the
           watchdog has already performed.
 
-        * **Three-layer unload.**
+        * **Drops the registration without destroying the engine.**
+          ``registry.unregister(active_name)`` deletes the
+          ``_backends[name]`` slot (mirroring ``_evict_lru_model`` /
+          ``_change_model_unload_phase``) so a subsequent
+          ``get``/``get_active`` cannot hand out the stuck instance and
+          ``_ensure_engine``'s "already registered" short-circuit does
+          not reuse it. Unlike ``registry.unload``, this bypasses the
+          busy guard deliberately — the busy flag here means "a thread
+          is trapped inside the object", which is exactly why the object
+          must be orphaned, not freed.
 
-          1. ``registry.unload(active_name)`` — clears the registry's
-             ``_backends[name]`` slot (defence-in-depth so a
-             subsequent ``get_active`` doesn't return a half-torn-down
-             backend).
-          2. ``backend.unload()`` directly on the backend object —
-             bypasses the registry's name lookup in case a concurrent
-             ``change_model`` / ``set_active_backend`` swapped the
-             registered backend out from under us between step 1 and
-             step 2.
-          3. ``release_gpu_memory()`` — releases PyTorch's CUDA caching
-             allocator blocks back to the OS (matches the
-             idle-unload path's three-layer pattern).
+        * **Releases GPU cache.** ``release_gpu_memory()`` returns
+          PyTorch's free caching-allocator blocks to the OS (allocated
+          tensors of the orphaned engine are untouched until GC reclaims
+          it — matches the LRU-eviction / idle-unload defence-in-depth).
 
         * **Clears the busy flag.** Calls
           :meth:`AsrBackendRegistry.force_clear_busy` so the next
@@ -2614,7 +2620,7 @@ class ModelManager:
           :meth:`ensure_active_engine_loaded` call (from
           ``recording_controller.start``) will re-create + re-load
           the same backend via ``_ensure_engine`` + ``load_active``.
-          The watchdog's contract is "tear down the stuck model so the
+          The watchdog's contract is "eject the stuck model so the
           next dictation can load a fresh one", not "switch to a
           different backend".
 
@@ -2630,36 +2636,29 @@ class ModelManager:
         except Exception:
             active_name = None
         log.warning(
-            "[MODEL] force_unload_active: tearing down active backend %r "
-            "(watchdog escalation after stuck transcription)",
+            "[MODEL] force_unload_active: ejecting active backend %r (watchdog escalation after stuck transcription)",
             active_name,
         )
         # Deliberate unload — the model IS on disk (it was loaded and
         # got stuck); the last-resort tray notification must NOT tell
         # the user to download it.
         self._mark_deliberately_unloaded(active_name)
-        # Layer 1: registry.unload (clears _backends[name] slot).
+        # Drop the registry slot WITHOUT calling unload() on the engine
+        # object — the stuck worker may still be inside its C-level
+        # call, and destroying the object under it would crash with
+        # use-after-free. The next _ensure_engine constructs a fresh
+        # instance because the slot is gone.
         try:
-            self._registry.unload(active_name)
+            self._registry.unregister(active_name)
         except Exception:
             log.warning(
-                "[MODEL] registry.unload(%s) failed (non-fatal)",
+                "[MODEL] registry.unregister(%r) failed (non-fatal)",
                 active_name,
                 exc_info=True,
             )
-        # Layer 2: backend.unload() directly (bypasses the registry in
-        # case a concurrent change_model / set_active_backend swapped
-        # the registered backend out from under us).
-        try:
-            backend = self._registry.get(active_name)
-            if backend is not None and hasattr(backend, "unload"):
-                backend.unload()
-        except Exception:
-            log.warning(
-                "[MODEL] backend.unload() failed (non-fatal)",
-                exc_info=True,
-            )
-        # Layer 3: release GPU memory (CUDA caching allocator blocks).
+        # Release GPU memory (CUDA caching allocator blocks). Free
+        # cached blocks only — allocated tensors of the orphaned engine
+        # stay valid for the stuck thread.
         try:
             from voice_typer.server.asr_utils import release_gpu_memory
 

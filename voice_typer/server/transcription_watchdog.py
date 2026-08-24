@@ -286,6 +286,26 @@ class TranscriptionWatchdog:
                 "[RECOVERY] failed to cancel streaming session during force-recover",
                 exc_info=True,
             )
+        # Forced recovery cannot kill the stuck worker thread (threads
+        # are never killed — documented limitation), so eject the ASR
+        # backend it is trapped inside from the registry: the next
+        # dictation then constructs a FRESH engine instance instead of
+        # entering the same object the orphaned thread still occupies.
+        # Only eject when a worker thread is genuinely alive mid-call —
+        # a recovery that raced past a worker which already exited would
+        # otherwise needlessly drop a healthy warm model. Best-effort:
+        # ``ModelManager.force_unload_active`` never raises, and a
+        # failure here must not mask the state reset below.
+        if transcription_thread is not None and transcription_thread.is_alive():
+            try:
+                models = getattr(app, "models", None)
+                if models is not None:
+                    models.force_unload_active()
+            except Exception:
+                log.debug(
+                    "[RECOVERY] failed to eject ASR backend during force-recover",
+                    exc_info=True,
+                )
         app._busy_event.set()  # busy = False
         app.tray.set_state(AppState.IDLE, i18n.t("state.recording_controller.recovered"))
         # HOTKEY-THREAD: name the user's ACTUAL configured hotkey in the

@@ -11,7 +11,7 @@ unload phase mid-transcription, unloading the ctranslate2 model from
 underneath the in-flight transcribe thread (crash / heap corruption /
 stuck thread — see UE-11 in review.md).
 
-UE-48: ``ensure_active_engine_loaded`` must reject the request when
+``ensure_active_engine_loaded`` must reject the request when
 the active backend is busy (inside
 ``transcribe_with_fallback`` on another thread — e.g. a stuck
 ctranslate2 call). The rejection causes ``recording_controller.start``
@@ -53,9 +53,12 @@ UE-48 (ensure_active_engine_loaded busy rejection):
     ``is_busy`` does NOT crash ``ensure_active_engine_loaded``.
 
 UE-48 (force_unload_active):
-14. ``force_unload_active`` calls ``registry.unload(active_name)``.
-15. ``force_unload_active`` calls ``backend.unload()`` directly
-    (defence-in-depth).
+14. ``force_unload_active`` drops the active backend's registry slot
+    (``registry.unregister``) so the next load constructs a FRESH
+    engine instance.
+15. ``force_unload_active`` does NOT call ``backend.unload()`` — the
+    stuck thread may still be inside the engine's C-level call and
+    destroying it there would use-after-free.
 16. ``force_unload_active`` calls ``release_gpu_memory()``.
 17. ``force_unload_active`` calls ``registry.force_clear_busy`` so
     the next dictation isn't rejected.
@@ -502,7 +505,7 @@ class TestApplyPendingBackendChange:
 
 
 class TestEnsureActiveEngineLoadedBusyRejection:
-    """UE-48: ``ensure_active_engine_loaded`` must reject when the
+    """``ensure_active_engine_loaded`` must reject when the
     active backend is busy."""
 
     def test_rejects_when_active_backend_is_busy(self):
@@ -518,14 +521,14 @@ class TestEnsureActiveEngineLoadedBusyRejection:
         result = mm.ensure_active_engine_loaded()
 
         assert result is None, (
-            "UE-48: ensure_active_engine_loaded must return None when "
+            "ensure_active_engine_loaded must return None when "
             "the active backend is busy (stuck transcription). Returning "
             "None causes recording_controller.start to fall through to "
             "fallback_to_whisper, which loads a SEPARATE backend rather "
             "than piling up on the stuck backend's ctranslate2 lock."
         )
         assert mm._pending_dictation is True, (
-            "UE-48: ensure_active_engine_loaded must set "
+            "ensure_active_engine_loaded must set "
             "_pending_dictation = True when rejecting so the user's F2 "
             "press is queued and re-tried after the watchdog recovers."
         )
@@ -549,7 +552,7 @@ class TestEnsureActiveEngineLoadedBusyRejection:
 
         # Not rejected (returns the active transcriber, not None).
         assert result is not None, (
-            "UE-48: ensure_active_engine_loaded must NOT reject when the "
+            "ensure_active_engine_loaded must NOT reject when the "
             "active backend is not busy — the existing lazy-init path is "
             "preserved."
         )
@@ -576,7 +579,7 @@ class TestEnsureActiveEngineLoadedBusyRejection:
         # The busy-check failed open (defensive) — the method proceeded
         # with the existing lazy-init path.
         assert result is not None, (
-            "UE-48: ensure_active_engine_loaded must be defensive "
+            "ensure_active_engine_loaded must be defensive "
             "against registry.is_busy errors — the busy-check must "
             "fail OPEN (continue with the existing path), not crash."
         )
@@ -586,38 +589,38 @@ class TestEnsureActiveEngineLoadedBusyRejection:
 
 
 class TestForceUnloadActive:
-    """UE-48: ``force_unload_active`` is the watchdog's escalation
-    path — tears down the stuck model's GPU resources AND clears the
-    busy flag so the next dictation isn't rejected."""
+    """``force_unload_active`` is the watchdog's escalation
+    path — ejects the stuck backend from the registry (so the next
+    dictation constructs a FRESH engine instance) AND clears the busy
+    flag so the next dictation isn't rejected. It must NOT destroy the
+    engine object itself: the stuck thread may still be inside its
+    C-level call."""
 
-    def test_calls_registry_unload(self):
-        """``force_unload_active`` must call ``registry.unload`` on the
-        active backend (Layer 1: clears the _backends[name] slot)."""
+    def test_drops_registry_slot(self):
+        """``force_unload_active`` must drop the active backend's
+        registry slot (via ``registry.unregister``) so a subsequent
+        ``_ensure_engine`` constructs a fresh instance instead of
+        reusing the stuck one."""
         mm, app, config, registry = _make_mm(asr_backend="parakeet", recording=False, busy=False)
         parakeet_engine = MagicMock()
         parakeet_engine.is_loaded = True
         registry.register("parakeet", parakeet_engine)
-        # Spy on registry.unload.
-        original_unload = registry.unload
-        unload_calls: list[str] = []
-
-        def spy_unload(name=None):
-            unload_calls.append(name)
-            return original_unload(name)
-
-        registry.unload = spy_unload
 
         mm.force_unload_active()
 
-        assert "parakeet" in unload_calls, (
-            "UE-48: force_unload_active must call registry.unload on the "
-            "active backend (Layer 1 — clears the _backends[name] slot)."
+        assert registry.get("parakeet") is None, (
+            "force_unload_active must drop the _backends[name] slot "
+            "so the next dictation cannot enter the same engine instance "
+            "the stuck thread still occupies."
         )
 
-    def test_calls_backend_unload_directly(self):
-        """``force_unload_active`` must call ``backend.unload()``
-        directly on the backend object (Layer 2: defence-in-depth
-        bypassing the registry's name lookup)."""
+    def test_does_not_destroy_live_engine(self):
+        """``force_unload_active`` must NOT call ``backend.unload()`` —
+        a forced recovery fires while the worker thread may still be
+        inside the engine's C-level call, and freeing CUDA tensors /
+        ctranslate2 handles under it crashes with use-after-free. The
+        engine is orphaned instead (the stuck thread keeps its
+        reference)."""
         mm, app, config, registry = _make_mm(asr_backend="parakeet", recording=False, busy=False)
         parakeet_engine = MagicMock()
         parakeet_engine.is_loaded = True
@@ -625,15 +628,12 @@ class TestForceUnloadActive:
 
         mm.force_unload_active()
 
-        # backend.unload() was called directly (Layer 2).
         (
-            parakeet_engine.unload.assert_called(),
+            parakeet_engine.unload.assert_not_called(),
             (
-                "UE-48: force_unload_active must call backend.unload() "
-                "directly on the backend object (Layer 2 — defence-in-depth "
-                "bypassing the registry's name lookup in case a concurrent "
-                "change_model / set_active_backend swapped the registered "
-                "backend out from under us)."
+                "force_unload_active must NOT destroy the engine object "
+                "— the stuck thread may still be inside its C-level call; the "
+                "backend is ejected from the registry instead."
             ),
         )
 
@@ -652,7 +652,7 @@ class TestForceUnloadActive:
         mm.force_unload_active()
 
         assert registry.is_busy("parakeet") is False, (
-            "UE-48: force_unload_active must clear the busy flag so the "
+            "force_unload_active must clear the busy flag so the "
             "next ensure_active_engine_loaded isn't rejected. Without "
             "this, the busy flag would remain set forever (the stuck "
             "transcription never returned to clear it) and every "
@@ -661,20 +661,14 @@ class TestForceUnloadActive:
 
     def test_best_effort_never_raises(self):
         """``force_unload_active`` must NEVER raise — even if every
-        layer (registry.unload, backend.unload, release_gpu_memory,
+        layer (registry.unregister, release_gpu_memory,
         force_clear_busy) raises. The watchdog calls this from its own
         force-recover path; a raise here would mask the recovery state
         reset it has already performed."""
         mm, app, config, registry = _make_mm(asr_backend="parakeet", recording=False, busy=False)
         # Make every layer raise.
-        registry.unload = MagicMock(side_effect=RuntimeError("registry unload failed"))
-        registry.get = MagicMock(
-            return_value=MagicMock(unload=MagicMock(side_effect=RuntimeError("backend unload failed")))
-        )
+        registry.unregister = MagicMock(side_effect=RuntimeError("registry unregister failed"))
         registry.force_clear_busy = MagicMock(side_effect=RuntimeError("force_clear_busy failed"))
-        # release_gpu_memory import will fail because we monkey-patch
-        # the import system. The except block must catch it.
-
         # Patch release_gpu_memory to raise.
         import sys
         from types import ModuleType
@@ -703,12 +697,14 @@ class TestForceUnloadActive:
 
         # First call.
         mm.force_unload_active()
-        # Second call (backend is already unloaded).
+        # Second call (backend is already ejected).
         mm.force_unload_active()
 
         # No exception raised — the test passing is the assertion.
-        # Verify the engine was unloaded (sanity).
-        assert parakeet_engine.unload.called
+        # Verify the slot stayed dropped (sanity) and the engine object
+        # was never destroyed.
+        assert registry.get("parakeet") is None
+        assert not parakeet_engine.unload.called
 
     def test_does_not_touch_config_asr_backend(self):
         """``force_unload_active`` must NOT touch ``config.asr_backend``
@@ -724,7 +720,7 @@ class TestForceUnloadActive:
         mm.force_unload_active()
 
         assert config.asr_backend == "parakeet", (
-            "UE-48: force_unload_active must NOT touch config.asr_backend "
+            "force_unload_active must NOT touch config.asr_backend "
             "— the watchdog's contract is to tear down the stuck model, "
             "not to switch backends."
         )
@@ -744,7 +740,7 @@ class TestForceUnloadActive:
         (
             app.tray.set_state.assert_not_called(),
             (
-                "UE-48: force_unload_active must NOT call tray.set_state — "
+                "force_unload_active must NOT call tray.set_state — "
                 "the watchdog has already set the tray state, and overwriting "
                 "it would confuse the user (the recovery message is more "
                 "specific than the TY-11 'Idle — model unloaded' message)."
@@ -763,13 +759,22 @@ class TestStuckRecoveryIntegration:
         """End-to-end: a backend gets stuck (busy flag set),
         ``ensure_active_engine_loaded`` rejects the next dictation,
         the watchdog calls ``force_unload_active``, and the NEXT
-        ``ensure_active_engine_loaded`` call succeeds (busy flag
-        cleared)."""
+        ``ensure_active_engine_loaded`` call succeeds against a FRESH
+        engine instance (slot dropped + busy flag cleared)."""
         mm, app, config, registry = _make_mm(asr_backend="parakeet", recording=False, busy=False)
         parakeet_engine = MagicMock()
         parakeet_engine.is_loaded = True
         registry.register("parakeet", parakeet_engine)
-        mm._ensure_engine = MagicMock()
+        fresh_engine = MagicMock()
+        fresh_engine.is_loaded = True
+
+        def fake_ensure_engine(backend_name):
+            # Mirrors the real ``_ensure_engine`` short-circuit: only
+            # constructs when the slot is empty.
+            if registry.get(backend_name) is None:
+                registry.register(backend_name, fresh_engine)
+
+        mm._ensure_engine = fake_ensure_engine
         mm.touch_model = MagicMock()
 
         # Step 1: the transcribe thread enters transcribe_with_fallback
@@ -802,7 +807,8 @@ class TestStuckRecoveryIntegration:
             "isn't rejected."
         )
 
-        # Step 6: the next ensure_active_engine_loaded call succeeds.
+        # Step 6: the next ensure_active_engine_loaded call succeeds —
+        # against a FRESH engine instance, not the ejected stuck one.
         mm._pending_dictation = False  # reset for the new attempt
         result = mm.ensure_active_engine_loaded()
         assert result is not None, (
@@ -810,4 +816,10 @@ class TestStuckRecoveryIntegration:
             "flag, the next ensure_active_engine_loaded call must succeed "
             "(not be rejected by the busy-check)."
         )
+        assert result is fresh_engine, (
+            "UE-48 integration: after force_unload_active drops the "
+            "registry slot, the next dictation must be served by a FRESH "
+            "engine instance — never the ejected stuck one."
+        )
+        assert result is not parakeet_engine
         assert mm._pending_dictation is False
