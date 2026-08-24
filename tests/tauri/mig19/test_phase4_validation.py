@@ -907,11 +907,19 @@ def test_ws_bridge_coalesces_bubble_level():
     assert "bubble_coalesce_should_emit" in src, (
         "ws.rs must call `bubble_coalesce_should_emit` for bubble_level events (ADR-0020 §9 — coalesce to ≤30 Hz)."
     )
-    # The coalesced emit path emits BOTH the specific event and the
-    # python-event catch-all (same as the generic path).
+    # ER-35: the coalesced emit path is TYPED-ONLY — no per-frame
+    # `json!({...})` catch-all duplicate. Renderer consumers listen on the
+    # typed `bubble_level` event (bubble-namespace onLevel); no
+    # `usePythonEvent("bubble_level")` subscriber exists, so the catch-all
+    # was pure allocation waste (~30 Map allocations/sec). The ADR-0020 §6.3
+    # double-emit contract still holds for every LOW-RATE event type via the
+    # generic branch (gated by `is_high_rate_event_type`).
     bubble_section = src[src.index("bubble_level") :]
-    assert '"python-event"' in bubble_section, (
-        "ws.rs must emit `python-event` for coalesced bubble_level events (ADR-0020 §6.3 + §9)."
+    assert "is_high_rate_event_type" in src or "ER-35" in bubble_section, (
+        "ws.rs must gate high-rate catch-all duplicates via `is_high_rate_event_type` (ER-35)."
+    )
+    assert 'emit("python-event", json!({"type": "bubble_level"' not in bubble_section[:2000], (
+        "ws.rs must NOT re-emit a per-frame `python-event` json! duplicate for bubble_level (ER-35)."
     )
 
 
