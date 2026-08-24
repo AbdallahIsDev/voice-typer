@@ -326,6 +326,4 @@ class TestPlatMacBlocked:
         build_yml = Path(__file__).resolve().parent.parent.parent / ".github" / "workflows" / "build.yml"
         if build_yml.exists():
             src = build_yml.read_text(encoding="utf-8")
-            assert "macos-latest" in src or "macos" in src.lower(), (
-                "No macOS CI runner found — macOS code is untested."
-            )
+            assert "macos-latest" in src or "macos" in src.lower(), "No macOS CI runner found — macOS code is untested."

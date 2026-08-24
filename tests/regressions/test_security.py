@@ -104,8 +104,7 @@ class TestTranscriptionLoggingRedactsPii:
         # regressed to either logging raw text or to ``redact_pii()``
         # (the pre- four-pattern masker).
         assert sha256_calls, (
-            "_store_result must call hashlib.sha256 on "
-            "the transcription text when log_transcriptions is True."
+            "_store_result must call hashlib.sha256 on the transcription text when log_transcriptions is True."
         )
         assert any(raw_text.encode("utf-8") in call_args for call_args in sha256_calls), (
             "hashlib.sha256 must be called with the raw transcription text as its argument."
@@ -125,8 +124,7 @@ class TestTranscriptionLoggingRedactsPii:
         import re
 
         assert re.search(r"hash=[0-9a-f]{12}", log_text), (
-            "the log line should contain "
-            "'hash=<12-char hex prefix>' when log_transcriptions is True."
+            "the log line should contain 'hash=<12-char hex prefix>' when log_transcriptions is True."
         )
 
     def test_redact_pii_masks_email_phone_ssn_cc(self):
@@ -523,9 +521,7 @@ class TestComtypesFallbackFailsClosed:
         src = inspect.getsource(clipboard._is_password_field)
         # Accept both ``log.warning(...)`` and ``_log().warning(...)``
         # forms (the clipboard module uses the lazy ``_log()`` helper).
-        assert re.search(r"\b(?:log|_log\(\))\.warning\b", src), (
-            "comtypes-absence must log at WARNING level (not INFO)"
-        )
+        assert re.search(r"\b(?:log|_log\(\))\.warning\b", src), "comtypes-absence must log at WARNING level (not INFO)"
         # Must call the credential-dialog fallback
         assert "_focused_window_is_credential_dialog" in src, (
             "comtypes-absence path must call _focused_window_is_credential_dialog"
@@ -608,8 +604,7 @@ class TestSystemRootValidationFunctional:
         with pytest.raises(SystemExit) as exc_info:
             _validate_systemroot()
         assert exc_info.value.code == 1, (
-            "a malicious SystemRoot containing '..' must "
-            "sys.exit(1) (fail-closed), not log+reset (fail-open)."
+            "a malicious SystemRoot containing '..' must sys.exit(1) (fail-closed), not log+reset (fail-open)."
         )
 
         # The malicious value must NOT be silently reset — the user
