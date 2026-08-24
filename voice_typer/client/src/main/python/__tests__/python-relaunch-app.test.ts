@@ -153,17 +153,17 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 		});
 	});
 
-	it.skip("calls stopPython() to kill the old proc (no duplicated SIGTERM+SIGKILL)", async () => {
-		// Skipped: relaunchApp() now kills the old proc inline (proc.kill)
-		// instead of delegating to stopPython(). The old design awaited
-		// stopPython's quit_app IPC + SIGTERM/SIGKILL fallback; the refactor
-		// removed that indirection.
+	it("kills the old proc via the shared SIGTERM+SIGKILL helper (no duplicated kill logic)", async () => {
+		// ER-26 dedupe contract: relaunchApp() must NOT carry its own
+		// inline SIGTERM/SIGKILL escalation — the kill goes through
+		// killPythonProcessWithSigkillFallback (the same helper
+		// stop-python.ts uses). Dev mode sends SIGTERM first.
 		vi.resetModules();
 		const { relaunchApp } = await import("../relaunch-app");
-		const proc = makeMockProc();
+		const proc = makeMockProc({ autoExitOnKill: false });
 		mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
 		await relaunchApp();
-		expect(mockStopPython).toHaveBeenCalledTimes(1);
+		expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
 	});
 
 	it("calls clearTcpStartupTimeout() before startPython() (ER-29 fresh 60s window)", async () => {
@@ -187,11 +187,10 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 		);
 	});
 
-	it.skip("awaits the old proc exit before calling startPython()", async () => {
-		// Skipped: relaunchApp() no longer awaits the old proc exit. The
-		// dev-mode branch now kills synchronously and immediately calls
-		// startPython(); the await-exit design was removed (the SIGKILL
-		// 3s fallback covers stuck-in-C-extension cases).
+	it("awaits the old proc exit before calling startPython()", async () => {
+		// ER-26 implemented: relaunchApp()'s dev branch awaits the old
+		// proc's "exit" event (bounded at 3.5s) BEFORE startPython(), so
+		// the fresh backend doesn't race the dying one for IPC_PORT.
 		vi.resetModules();
 		const { relaunchApp } = await import("../relaunch-app");
 		// A proc that does NOT auto-exit on kill — we'll emit "exit" manually.

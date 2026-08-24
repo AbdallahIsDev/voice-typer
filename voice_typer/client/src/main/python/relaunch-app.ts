@@ -22,6 +22,10 @@
  * Python process is force-killed directly here instead.
  */
 
+// ER-26: bounded wait for the old Python process to actually exit
+// between the SIGTERM and the fresh spawn. Node's ChildProcess shape
+// is all we need (exitCode/signalCode/once) — no other API surface.
+import type { ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { app, dialog } from "electron";
@@ -170,7 +174,53 @@ function _appendRestartTimestamp(history: number[]): void {
 	}
 }
 
-export function relaunchApp(): void {
+/**
+ * ER-26: wait (bounded) for the old Python process to actually exit.
+ *
+ * The dev-mode restart used to call `startPython()` immediately after
+ * `killPythonProcessWithSigkillFallback()` — but the old backend may
+ * still be alive for up to the 3 s SIGKILL fallback window, and the
+ * fresh backend cannot bind IPC_PORT until the dying one releases the
+ * listening socket. Callers perceived this as a multi-second
+ * "Restarting…" hang while `tcpConnect()` hammered a held port.
+ *
+ * Resolves when the process emits "exit" OR once the SIGKILL fallback
+ * has fired (3.5 s — slightly past the helper's 3 s escalation so we
+ * observe its effect), whichever comes first. If the proc already
+ * exited (`exitCode`/`signalCode` non-null) it resolves immediately.
+ * Never rejects — worst case is proceeding after the timeout, which
+ * is strictly better than the old always-immediate spawn.
+ */
+const RESTART_EXIT_WAIT_MS = 3_500;
+
+function _waitForProcessExit(proc: ChildProcess): Promise<void> {
+	return new Promise<void>((resolve) => {
+		if (proc.exitCode !== null || proc.signalCode !== null) {
+			resolve();
+			return;
+		}
+		let settled = false;
+		const done = () => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			// Defensive: some test doubles expose `once`/`on` but not
+			// `removeListener`. Cleanup is best-effort — resolving
+			// matters more than deregistering.
+			try {
+				proc.removeListener("exit", onExit);
+			} catch {
+				/* ignore */
+			}
+			resolve();
+		};
+		const onExit = () => done();
+		const timer = setTimeout(done, RESTART_EXIT_WAIT_MS);
+		proc.once("exit", onExit);
+	});
+}
+
+export async function relaunchApp(): Promise<void> {
 	//clear the TCP startup timeout timer FIRST so it
 	// doesn't fire mid-restart and trip the false-positive
 	// "Python backend failed to start" dialog + `app.quit()`.
@@ -266,6 +316,18 @@ export function relaunchApp(): void {
 		if (state.heartbeatInterval) {
 			clearInterval(state.heartbeatInterval);
 			state.heartbeatInterval = null;
+		}
+
+		// ER-26: wait for the OLD backend to actually release the IPC
+		// port before spawning its replacement. All synchronous
+		// teardown above has already run; from here until the fresh
+		// spawn we are purely waiting on the dying process. Bounded at
+		// 3.5 s so a wedged process can't stall the restart forever
+		// (the kill helper's own SIGKILL escalation fires at 3 s).
+		const oldProc = state.pythonProcess;
+		if (oldProc) {
+			await _waitForProcessExit(oldProc);
+			log.info("[RESTART] dev: old Python exited — spawning replacement");
 		}
 
 		// Reject pending IPC, reload renderer, spawn fresh Python

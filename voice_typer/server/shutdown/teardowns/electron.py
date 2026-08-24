@@ -152,58 +152,30 @@ def teardown_electron(controller) -> None:
 
                 electron_pid = get_electron_pid()
                 if electron_pid is not None:
-                    import signal as _sig
-
-                    log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", electron_pid)
-                    # SIGTERM → 2s blocking waitpid → SIGKILL on POSIX.
-                    # ``os.kill(SIGTERM)`` returns immediately (it just
-                    # queues the signal); the 2s waitpid gives the child
-                    # a grace period to exit cleanly before we escalate
-                    # to SIGKILL.
-                    #
-                    # The previous implementation used a 2s busy-wait
-                    # poll loop (``deadline = time.monotonic() + 2.0;
-                    # while ...: os.waitpid(pid, WNOHANG);
-                    # time.sleep(0.1)``) — 20 iterations × 0.1s sleep =
-                    # 20 kernel wakeups for what is a single blocking
-                    # wait. Replaced with a single
-                    # ``os.waitpid(electron_pid, 0)`` (the blocking
-                    # variant — ``WNOHANG`` removed) wrapped in
-                    # ``_run_with_timeout(timeout=2.0)`` so the 2s grace
-                    # period is enforced by a SINGLE waitpid syscall +
-                    # at most one worker-thread join. On Windows the
-                    # loop is already skipped (``not is_windows()``
-                    # check below) so this change is POSIX-only.
-                    with contextlib.suppress(OSError, ProcessLookupError):
-                        os.kill(electron_pid, _sig.SIGTERM)
-                    reaped = False
-                    if not is_windows():
-                        # Single blocking ``os.waitpid`` wrapped
-                        # in ``_run_with_timeout``. ``_run_with_timeout``
-                        # re-raises OSError (e.g. ECHILD when the child
-                        # was already reaped by a prior call); catch
-                        # that here and treat it as "reaped" (matching
-                        # the original poll-loop's behaviour, which
-                        # broke out of the loop on OSError).
-                        try:
-                            _waitpid_result = _run_with_timeout(
-                                "electron.waitpid",
-                                lambda: os.waitpid(electron_pid, 0),
-                                timeout=2.0,
-                            )
-                            if _waitpid_result is not TIMEOUT:
-                                # ``os.waitpid`` returns ``(pid, status)``;
-                                # any non-error return means the child was
-                                # reaped.
-                                reaped = True
-                        except OSError:
-                            # Child already reaped or not a child of
-                            # this process — treat as reaped (no need
-                            # to SIGKILL).
-                            reaped = True
-                    if not reaped and not is_windows():
+                    # ER-26 dedupe: this fallback branch previously
+                    # re-implemented the SIGTERM → grace-wait → SIGKILL
+                    # escalation inline — a third parallel copy of the
+                    # same logic that already lives in
+                    # ``electron_launcher.terminate_electron`` (used by
+                    # the tracked-PID branch above) and in the TS
+                    # kill-python helper. Delegating to the shared
+                    # helper keeps ONE escalator per runtime. The
+                    # helper is best-effort by contract (all failures
+                    # logged + swallowed), matching this branch's old
+                    # suppress-everything behaviour; the outer
+                    # ``_run_with_timeout(5.0)`` still bounds it.
+                    log.info(
+                        "[SHUTDOWN] Terminating Electron subprocess (PID=%s, shared helper)",
+                        electron_pid,
+                    )
+                    _term_result = _run_with_timeout(
+                        "electron_launcher.terminate_electron",
+                        lambda: electron_launcher.terminate_electron(electron_pid),
+                        timeout=5.0,
+                    )
+                    if _term_result is TIMEOUT:
                         with contextlib.suppress(OSError, ProcessLookupError):
-                            os.kill(electron_pid, getattr(_sig, "SIGKILL", 9))
+                            os.kill(electron_pid, 9)  # SIGKILL
     except Exception:
         log.debug("[SHUTDOWN] Electron subprocess termination failed", exc_info=True)
 
