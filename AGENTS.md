@@ -553,7 +553,9 @@ python scripts/build/generate_beeps.py --check
 # Full Python test suite + coverage (never run unfiltered `pytest tests/` in one Bash
 # call — it exceeds the 10-min tool ceiling; use targeted subsets per file/module
 # during development, but the FULL suite must run green before packaging — split
-# across multiple calls or a background/long-timeout invocation if needed)
+# across multiple calls or a background/long-timeout invocation if needed.
+# This is a HARD GATE: see C-TEST-6 — no deliverable ships without a green full-suite
+# run on the final code state)
 python -m pytest tests/ -n auto --dist=loadgroup -q --cov=voice_typer \
   --cov-fail-under=65 --cov-report=term-missing --timeout=120 --timeout-method=thread
 python scripts/coverage_ratchet_check.py
@@ -928,6 +930,13 @@ C-TEST-5
 Rule: Do NOT put test code inside production source files. Tests MUST live in separate test files/folders, for every language: Python → `tests/`; Rust → a sibling `tests.rs` module wired via `#[cfg(test)] mod tests;` (or `src-tauri/tests/` integration tests); frontend → `*.test.ts` / `*.spec.ts` files (or the renderer `__tests__/` convention). No inline `#[cfg(test)] mod tests` blocks in `.rs` source files, no test assertions inside Python modules, no test cases inside production TS/TSX. When splitting a module, new tests for it go in the module's separate test file — never appended inline to the production file.
 Rationale: Inline tests bloat production files and mix concerns — `src-tauri/src/platform/logging.rs` carried 89 `#[test]` fns inside a 3183-line production file, and split sessions silently lost or mis-wired inline test blocks. The repo's own conventions already separate tests everywhere else (Python `tests/`, bubble `tests.rs`, renderer `__tests__/`); inline Rust tests were the remaining inconsistency.
 Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-TEST-6
+Rule (CLOUD-SANDBOX AGENT RULE): This rule exists FOR the cloud AI agent running inside the online platform's Linux Debian sandbox (the `/home/z/my-project` cloud workspace that hands back `changes.zip`) — the agent whose runs repeatedly completed, reported success, and shipped red test suites that only surfaced when the user applied the zip locally on Windows. Do NOT package deliverables (`changes.zip`), close a session, or mark any task/run complete while the current code state lacks a recorded GREEN full-suite run — 0 failed, 0 errors — covering the ENTIRE Python pytest suite AND the client vitest suite, plus the wiring trio (`cargo check`, `npm run typecheck:ci`, `pytest --collect-only`). Mandatory full-suite runs happen at exactly three points: (1) session-start baseline, (2) after every Implementation-Wave merge (orchestrator-owned; the wave is not done until green), (3) FINAL DELIVERY GATE on the exact final code state after the last fix and BEFORE packaging — any edit after a green run creates a new code state and VOIDS the evidence (re-run required). The 10-minute tool ceiling is NEVER an excuse to skip it: run the suite detached/backgrounded with output redirected to a log file and poll (`nohup python -m pytest tests/ -n auto --dist=loadgroup -q --no-cov --tb=no > /tmp/full_pytest.log 2>&1 &`), or split into per-domain chunks whose union provably covers 100% of collected tests (Σ chunk collected-counts == total from `pytest --co -q`; sum mismatch = gate failed). Sub-agents NEVER run the full suite (focused tests only; their 10-min ceiling cannot hold it) — aggregation is always the orchestrator's job. Manufacturing green is forbidden: no adding skips/xfail/pass-marks, no deleting/weakening tests, no excluding failing files from the chunk map — fix the root cause. Every full-suite run is recorded in `worklog.md`: commands, pass/fail counts, failing test IDs (or `0 failed`), OS qualifier. Respect the one-full-run-per-unchanged-state rule above — re-run only when the state actually changed.
+Rationale: Cloud sessions repeatedly completed tasks, reported success, and shipped changes that introduced MANY test failures visible only in a full-suite run the agent never executed; the user's previously-green local suite broke on every apply. Focused/per-file greens prove only the slice — they say nothing about the system. The final delivery gate converts "the agent believes it works" into verified evidence before anything reaches the user's machine.
+Applies to: All agents, all modes, all sub-agents. Runs are orchestrator-owned; sub-agents are bound by honest focused-test reporting and by the no-skip/no-xfail/no-delete prohibition.
 ```
 ---
 
