@@ -489,13 +489,14 @@ def mock_heavy_imports_session():
     running multiple pytest invocations in the same interpreter (e.g.
     via ``pytest.main()`` in a notebook).
 
-    Tests marked ``@pytest.mark.real_torch`` evict the session torch
-    mock in the per-test ``mock_heavy_imports`` fixture (mirroring the
-    ``real_pil`` eviction pattern) and import the real ``torch``
-    package, so they can exercise real ``torch.backends.mps`` semantics
-    on Apple Silicon. No test currently uses ``real_torch`` (the marker
-    was registered for future use), but the eviction branch is in
-    place to keep the contract symmetric with ``real_pil``.
+    The ``real_torch`` eviction branch is REMOVED. It used to let tests
+    marked ``@pytest.mark.real_torch`` evict the session torch mock
+    (mirroring the ``real_pil`` eviction pattern) so they could import
+    real ``torch``; Phase 1c of PLAN_ONNX_INTEGRATION.md (§5.1, §2.4)
+    removed the branch, the marker registration, and its only consumer
+    (``tests/test_vad_dtype_optimization.py``, deleted). No test uses
+    the marker anymore — see the comment inside
+    ``mock_heavy_imports`` below for the full rationale.
 
     Per-test local overrides of ``mock_heavy_imports`` (in
     ``tests/test_shutdown_plan_zr17.py``, ``tests/test_volume_lifecycle.py``,

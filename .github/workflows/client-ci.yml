@@ -98,7 +98,7 @@ jobs:
       # XS-69: run with --coverage so the vitest.config.ts thresholds
       # (lines/functions/statements 70%, branches 60%) are actually
       # enforced. The `test:coverage` script runs
-      # `vitest run --coverage` and requires @vitest/coverage-v8 (also
+      # `vitest run --coverage` and requires @vitest/coverage-istanbul (also
       # Without --coverage the thresholds are dead
       # config — coverage can regress silently.
       - name: Test (Vitest + coverage)
