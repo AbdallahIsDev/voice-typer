@@ -1190,6 +1190,52 @@ Applies to: All agents, all modes, all sub-agents.
 
 ---
 
+## Category: Microphone Selection & Consent Flow
+
+```
+C-MIC-1
+Rule: Do NOT make any microphone other than System Default the initial selection on first use. `config.microphone` MUST default to `null` (= System Default) on fresh installs, and every consumer (recorder init, level monitor, microphone test, tray) must treat `null` as "OS default input", never as an error state or a coerced concrete device.
+Rationale: Established 2026-08-24 during the Microphone-page revamp — only two code paths may write `config.microphone` (onboarding + explicit user selection via settings IPC); nothing may auto-populate it.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-MIC-2
+Rule: Do NOT silently overwrite a user's selected microphone with `Unknown` or another device. A persisted selection that no longer matches an enumerated device must resolve through the shared id resolvers (`find_microphone_by_id` / `resolve_mic_id_to_device_index` in `voice_typer/server/server_platform/microphone_list.py` — stable ids are `"<hostapi>|<name>[#N]"`, legacy bare-index and `<index>|<name>` compound strings stay resolvable), and when genuinely unresolvable fall back to System Default WITH user-visible feedback (warning snackbar + recovery banner), never a silent mislabel.
+Rationale: Persisting raw PortAudio indices made selections go stale across reboots/hot-plugs and rendered "Unknown"; stable ids plus the explicit fallback contract fixed the class of bug (2026-08-24).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-MIC-3
+Rule: Do NOT show persistent prerequisite warnings for consent-gated actions. Consent-protected features (voice biometrics, HuggingFace download, cloud providers, LLM polish, offline pack) MUST use the shared just-in-time gate — `openConsentGate()` (`lib/consentGate.ts`) + the single `ConsentGateDialog` mounted in App.tsx — invoked AT THE MOMENT the user attempts the protected action, with `onAllow` continuing that action after grant. Settings toggle rows and the onboarding ConsentStep are the only legitimate always-visible consent surfaces. Do not create feature-specific consent modals.
+Rationale: Persistent "enable consent" banners nag users who never perform the action and duplicate the unified gate migrated app-wide 2026-08-24; point-of-use asking preserves GDPR Art. 9 requirements while keeping the flow actionable.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-MIC-4
+Rule: Do NOT make microphone quality/filter presets multi-select or reintroduce a dropdown on the Microphone page. Presets are mutually exclusive and MUST be chosen through the shared accordion+RadioGroup pattern (`PresetAccordionSelector` using `ui/accordion` + `ui/radio-group`); the collapsed header shows the current selection. The microphone test duration is FIXED at 10 seconds (`MICROPHONE_TEST_DURATION_SEC`) and MUST NOT become user-configurable again without an explicit product decision reversing this rule.
+Rationale: Fixed during the 2026-08-24 revamp — a single-source constant removed dead configurability; radio/accordion matches the app's interaction language where a dropdown did not.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-MIC-5
+Rule: Do NOT hide invalid audio devices with UI-only filters. Non-user-selectable devices (placeholder endpoints like `Input ()`, empty/whitespace names, generic-label-only entries) MUST be filtered at the enumeration source (`_is_invalid_device_name` in `voice_typer/server/server_platform/remote_session.py`, applied inside `list_microphones`), so every consumer (tray, recorder, tests, renderer) sees the same clean set.
+Rationale: A renderer-only filter would leave the bogus device selectable via tray/tests and would reappear wherever a new consumer enumerates devices (fixed at source 2026-08-24).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-MIC-6
+Rule: Do NOT introduce unrelated styling on the Microphone page. Cards use the standard tokens (`border border-border/10`, `bg-(--bg-subtle)`, `text-(--text-primary)` / `text-(--text-muted)`); microphone selection uses RadioGroup rows (System Default row first) — no bright-blue full-card borders, no verbose per-row action buttons, no technical channel/rate metadata in user-facing rows, section labels use one consistent treatment.
+Rationale: Pinned by the 2026-08-24 revamp so the page stays inside the existing Voice Typer design system; visual drift here was the original defect class.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+---
+
 ## How the adds / edits constraints
 
 1. Add a new constraint block under the appropriate category (or create a new category with a `## Category: <name>` header).

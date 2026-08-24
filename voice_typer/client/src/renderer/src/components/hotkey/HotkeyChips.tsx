@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { Kbd, KbdGroup } from "@/components/ui/kbd";
+import { Kbd, KbdGroup } from "@/components/common/Kbd";
 import { formatHotkeyForPlatform } from "./hotkey-utils";
 
 interface HotkeyChipsProps {

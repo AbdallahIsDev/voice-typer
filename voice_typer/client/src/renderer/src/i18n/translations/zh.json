@@ -1365,7 +1365,7 @@
 	"help": {
 		"title": "键盘快捷键",
 		"dictation": "开始 / 停止听写",
-		"cancel": "取消录音（若在设置中启用），或关闭此对话框",
+		"cancel": "取消录音，或关闭此对话框",
 		"repaste": "重新粘贴上次转写",
 		"toggleSidebar": "切换侧边栏",
 		"openSettings": "打开设置",
@@ -1375,10 +1375,10 @@
 		"activate": "激活聚焦的控件",
 		"openHelp": "帮助叠加层",
 		"navBack": "向后 / 向前导航",
-		"closeHint": "按 {key} 或点击外部以关闭。",
+		"closeHint": "按 {key} 关闭。",
 		"zoomTextSize": "文本大小",
 		"punctuationTitle": "标点符号速查表",
-		"punctuationHint": "在听写时说出这些词语以插入相应的标点符号。{appName} 通过语音模型识别它们，并在文本清理过程中保留这些符号。",
+		"punctuationHint": "在听写时说出这些词语以插入标点符号。{appName} 通过语音模型识别它们。",
 		"punctuation": {
 			"comma": "逗号",
 			"period": "句号",
@@ -1401,8 +1401,6 @@
 			"allCaps": "全大写 [单词]"
 		},
 		"description": "键盘快捷键和标点符号速查表。",
-		"searchPlaceholder": "搜索命令…",
-		"searchNoMatch": "没有命令匹配 \"{query}\"",
 		"openCheatSheet": "打开标点符号速查表",
 		"shortcuts": {
 			"settings": "打开设置",

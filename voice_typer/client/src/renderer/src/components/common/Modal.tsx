@@ -35,8 +35,8 @@ interface ModalProps {
 	open: boolean;
 	/** Called when the user dismisses the dialog (Escape, backdrop click, Cancel) */
 	onClose: () => void;
-	/** Dialog title (required for a11y — sets aria-labelledby) */
-	title: string;
+	/** Dialog title (sets aria-labelledby). */
+	title?: string;
 	/** Optional description (sets aria-describedby) */
 	description?: string;
 	/** Content children — typically the message body + ModalFooter */
@@ -59,10 +59,6 @@ export function Modal({
 }: ModalProps) {
 	const handleOpenChange = useCallback(
 		(isOpen: boolean) => {
-			// Radix Dialog fires onOpenChange(false) exactly once per
-			// close event — button click, Escape key, or backdrop click. No
-			// additional handlers are needed; the old dismissedByAction ref
-			// was guarding against a non-existent double-fire.
 			if (!isOpen) {
 				onClose();
 			}
@@ -73,10 +69,14 @@ export function Modal({
 	return (
 		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogContent size={size} className={cn(className)}>
-				<DialogHeader>
-					<DialogTitle>{title}</DialogTitle>
-					{description && <DialogDescription>{description}</DialogDescription>}
-				</DialogHeader>
+				{title && (
+					<DialogHeader>
+						<DialogTitle>{title}</DialogTitle>
+						{description && (
+							<DialogDescription>{description}</DialogDescription>
+						)}
+					</DialogHeader>
+				)}
 				{children}
 			</DialogContent>
 		</Dialog>

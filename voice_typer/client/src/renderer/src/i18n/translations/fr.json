@@ -966,7 +966,7 @@
 	"help": {
 		"title": "Raccourcis clavier",
 		"dictation": "Démarrer / arrêter la dictée",
-		"cancel": "Annuler l'enregistrement (si activé dans les Paramètres), ou fermer cette boîte de dialogue",
+		"cancel": "Annuler l'enregistrement, ou fermer cette boîte de dialogue",
 		"repaste": "Re-coller la dernière transcription",
 		"toggleSidebar": "Basculer la barre latérale",
 		"openSettings": "Ouvrir les Paramètres",
@@ -976,10 +976,10 @@
 		"activate": "Activer le contrôle focalisé",
 		"openHelp": "Superposition d'aide",
 		"navBack": "Naviguer en arrière / en avant",
-		"closeHint": "Appuyez sur {key} ou cliquez à l'extérieur pour fermer.",
+		"closeHint": "Appuyez sur {key} pour fermer.",
 		"zoomTextSize": "Taille du texte du zoom",
 		"punctuationTitle": "Aide-mémoire de ponctuation",
-		"punctuationHint": "Prononcez ces mots pendant la dictée pour insérer le signe de ponctuation correspondant. {appName} les reconnaît via le modèle vocal et les conserve lors du nettoyage du texte.",
+		"punctuationHint": "Prononcez ces mots pendant la dictée pour insérer la ponctuation. {appName} les reconnaît via le modèle vocal.",
 		"punctuation": {
 			"comma": "Virgule",
 			"period": "Point",
@@ -1002,8 +1002,6 @@
 			"allCaps": "Tout en majuscules [mot]"
 		},
 		"description": "Raccourcis clavier et aide-mémoire de ponctuation.",
-		"searchPlaceholder": "Rechercher des commandes…",
-		"searchNoMatch": "Aucune commande ne correspond à \"{query}\"",
 		"openCheatSheet": "Ouvrir l'aide-mémoire de ponctuation",
 		"shortcuts": {
 			"settings": "Ouvrir les réglages",

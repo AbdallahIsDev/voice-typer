@@ -1,4 +1,4 @@
-import type { ElementType, ReactNode } from "react";
+import type { ComponentProps, ElementType, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 interface KbdProps {
@@ -15,10 +15,8 @@ interface KbdProps {
 
 /**
  * Kbd — shared visual primitive for the bordered mono "chip" used to
- * render keyboard shortcuts (HelpOverlay) and voice-inserted
- * characters (PunctuationCheatSheet). The two call sites previously
- * duplicated the same Tailwind class string; centralising it here
- * keeps the visual treatment in sync if the design tokens ever change.
+ * render keyboard shortcuts and voice-inserted characters. The single
+ * source of truth for keycap presentation across the entire app.
  *
  * Renders `<kbd>` by default. Pass `as="code"` when the content is a
  * voice-inserted character rather than a physical key — `<kbd>` would
@@ -27,12 +25,28 @@ interface KbdProps {
 export function Kbd({ children, as: Tag = "kbd", className }: KbdProps) {
 	return (
 		<Tag
+			data-slot="kbd"
 			className={cn(
-				"rounded border border-border/10 bg-(--bg-subtle) px-2 py-0.5 font-mono text-xs text-(--text-primary)",
+				"rounded border border-border/10 bg-(--bg-subtle) px-2 py-0.5 font-mono text-xs text-(--text-primary) in-data-[slot=tooltip-content]:bg-foreground/10 in-data-[slot=tooltip-content]:text-foreground",
 				className,
 			)}
 		>
 			{children}
 		</Tag>
+	);
+}
+
+/**
+ * KbdGroup — renders a set of `Kbd` chips as adjacent keycaps separated
+ * only by a small gap (never a visible `+`). Used by HotkeyChips to lay
+ * out the individual keys of a shortcut combo.
+ */
+export function KbdGroup({ className, ...props }: ComponentProps<"kbd">) {
+	return (
+		<kbd
+			data-slot="kbd-group"
+			className={cn("inline-flex items-center gap-1", className)}
+			{...props}
+		/>
 	);
 }

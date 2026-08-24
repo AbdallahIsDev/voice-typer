@@ -30,17 +30,13 @@
  * the cheat sheet is reachable from (a) the help overlay Modal in
  * App.tsx, and (b) any other surface that explicitly mounts the
  * button. The affordance itself is fully self-contained here.
- *
- * The component renders an inline {@link SearchField} so users can
- * filter entries by spoken form (e.g. "quote") or by character
- * (e.g. `?`). Filtering is case-insensitive and matches substrings.
  */
 import { useState } from "react";
 import { Kbd } from "@/components/common/Kbd";
 import { Modal } from "@/components/common/Modal";
-import { SearchField } from "@/components/common/SearchField";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n/i18n";
+import { cn } from "@/lib/utils";
 
 /**
  * Canonical mapping of spoken-form label key → inserted character.
@@ -81,38 +77,21 @@ export const PUNCTUATION_ENTRIES: ReadonlyArray<{
 	{ labelKey: "help.punctuation.allCaps", character: "WORD" },
 ];
 
-/**
- * Filter the canonical {@link PUNCTUATION_ENTRIES} list by a free-text
- * query. Matches case-insensitively against either the localized
- * spoken-form label or the literal character. Exported so unit tests
- * can verify the matching semantics without poking at DOM state.
- */
-export function filterPunctuationEntries(
-	entries: ReadonlyArray<{
-		readonly labelKey: string;
-		readonly character: string;
-	}>,
-	query: string,
-	localize: (key: string) => string,
-): typeof entries {
-	const q = query.trim().toLowerCase();
-	if (!q) return entries;
-	return entries.filter((entry) => {
-		const label = localize(entry.labelKey).toLowerCase();
-		const ch = entry.character.toLowerCase();
-		return label.includes(q) || ch.includes(q);
-	});
+interface PunctuationCheatSheetProps {
+	/** Optional extra classes merged onto the section (e.g. outer
+	 *  margin when mounted in the help overlay). */
+	className?: string;
 }
 
-export function PunctuationCheatSheet() {
+export function PunctuationCheatSheet({
+	className,
+}: PunctuationCheatSheetProps) {
 	const t = useT();
-	const [query, setQuery] = useState("");
-	const filtered = filterPunctuationEntries(PUNCTUATION_ENTRIES, query, t);
 	return (
 		<section
 			data-testid="punctuation-cheat-sheet"
 			aria-labelledby="punctuation-cheat-sheet-title"
-			className="space-y-2 border-t border-border/10 pt-3"
+			className={cn("space-y-3 border-t border-border/10 pt-4", className)}
 		>
 			<h3
 				id="punctuation-cheat-sheet-title"
@@ -121,43 +100,31 @@ export function PunctuationCheatSheet() {
 				{t("help.punctuationTitle")}
 			</h3>
 			<p className="text-xs text-(--text-muted)">{t("help.punctuationHint")}</p>
-			<SearchField
-				value={query}
-				onChange={setQuery}
-				placeholder={t("help.searchPlaceholder")}
-				ariaLabel={t("help.searchPlaceholder")}
-			/>
-			{filtered.length === 0 ? (
-				<p className="text-xs text-(--text-muted)">
-					{t("help.searchNoMatch", { query })}
-				</p>
-			) : (
-				<ul
-					className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs"
-					data-testid="punctuation-cheat-sheet-list"
-				>
-					{filtered.map((entry) => (
-						<li
-							key={entry.labelKey}
-							className="flex items-center justify-between gap-2"
-							data-testid="punctuation-cheat-sheet-entry"
-							data-character={entry.character}
-						>
-							<span className="text-(--text-muted)">{t(entry.labelKey)}</span>
-							{/*
-							 * `<code>` is the correct semantic element here — these
-							 * are voice-inserted characters, not keyboard shortcuts.
-							 * `<kbd>` would imply the user pressed a physical key.
-							 * Visual styling is shared with the HelpOverlay shortcut
-							 * chips via the `<Kbd>` primitive (which renders `<code>`
-							 */}
-							<Kbd as="code" className="px-1.5">
-								{entry.character}
-							</Kbd>
-						</li>
-					))}
-				</ul>
-			)}
+			<ul
+				className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs"
+				data-testid="punctuation-cheat-sheet-list"
+			>
+				{PUNCTUATION_ENTRIES.map((entry) => (
+					<li
+						key={entry.labelKey}
+						className="flex items-center justify-between gap-2"
+						data-testid="punctuation-cheat-sheet-entry"
+						data-character={entry.character}
+					>
+						<span className="text-(--text-muted)">{t(entry.labelKey)}</span>
+						{/*
+						 * `<code>` is the correct semantic element here — these
+						 * are voice-inserted characters, not keyboard shortcuts.
+						 * `<kbd>` would imply the user pressed a physical key.
+						 * Visual styling is shared with the HelpOverlay shortcut
+						 * chips via the `<Kbd>` primitive (which renders `<code>`
+						 */}
+						<Kbd as="code" className="px-1.5">
+							{entry.character}
+						</Kbd>
+					</li>
+				))}
+			</ul>
 		</section>
 	);
 }

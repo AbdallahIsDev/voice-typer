@@ -22,12 +22,28 @@
  * source of truth shared with TitleBar and Sidebar — so the overlay
  * always reflects the bindings the hooks actually handle and can never
  * drift from the tooltips.
+ *
+ * Scroll structure: the DialogContent is capped at `max-h-[85vh]` and
+ * clips (`overflow-hidden`) — an internal scrollbar on a rounded-4xl
+ * panel escapes the corner radius on Windows classic scrollbars
+ * (Chromium "scrollbars escaping border-radius"). The TITLE, the
+ * description, and the whole body therefore live inside ONE inner
+ * scroll wrapper (grid row `minmax(0,1fr)`), so the header scrolls
+ * naturally with the content instead of being pinned above a scrolled
+ * body. Negative horizontal/bottom margins cancel the panel padding so
+ * the scrollbar sits flush at the panel edge, where the panel's
+ * overflow-hidden + rounded-4xl clips it to the corner curves.
  */
 import { memo } from "react";
 import { Modal } from "@/components/common/Modal";
 import { PunctuationCheatSheet } from "@/components/help/PunctuationCheatSheet";
 import { HotkeyChips } from "@/components/hotkey/HotkeyChips";
 import { IN_APP_SHORTCUTS, SHORTCUTS } from "@/components/hotkey/shortcuts";
+import {
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { useT } from "@/i18n/i18n";
 
 interface HelpOverlayProps {
@@ -53,8 +69,6 @@ function HelpOverlayInner({
 		<Modal
 			open={open}
 			onClose={onClose}
-			title={t("help.title")}
-			description={t("help.description")}
 			// Roomier panel — the old `sm` size was clamped to
 			// max-w-xs (320px) at every breakpoint, leaving the
 			// shortcut list + cheat sheet cramped.
@@ -62,21 +76,34 @@ function HelpOverlayInner({
 			// The PANEL clips (overflow-hidden) instead of scrolling:
 			// an internal scrollbar on a rounded-4xl panel escapes the
 			// corner radius on Windows classic scrollbars (Chromium
-			// "scrollbars escaping border-radius"). The body scrolls
-			// in the inner wrapper below instead. shadow-none: the
-			// popup's drop shadow was removed per user request.
-			className="max-h-[85vh] overflow-hidden shadow-none grid-rows-[auto_minmax(0,1fr)]"
+			// "scrollbars escaping border-radius"). The title, body,
+			// and footer scroll together in the inner wrapper below —
+			// there is no pinned header row (grid row 1 is the single
+			// scrollable region). shadow-none: the popup's drop shadow
+			// was removed per user request.
+			className="max-h-[85vh] overflow-hidden shadow-none grid-rows-[minmax(0,1fr)]"
 		>
-			{/* Scroll wrapper (grid row 2): the title row above stays
-				    pinned. Negative horizontal/bottom margins cancel the
-				    panel padding so the scrollbar sits flush at the panel
-				    edge — where the panel's overflow-hidden + rounded-4xl
-				    clips it to the corner curves (no more scrollbar
-				    escaping the rounded shape). */}
+			{/* Scroll wrapper: the single grid row holds the header
+				    (title + description) AND the body so the whole modal
+				    scrolls naturally as one unit. Negative horizontal/bottom
+				    margins cancel the panel padding so the scrollbar sits
+				    flush at the panel edge — where the panel's
+				    overflow-hidden + rounded-4xl clips it to the corner
+				    curves (no more scrollbar escaping the rounded shape). */}
 			<div
 				data-testid="help-overlay-scroll"
 				className="-mx-6 -mb-6 min-h-0 overflow-y-auto px-6 pb-6"
 			>
+				{/* Dialog header lives INSIDE the scroll area (no pinned
+				    header row): the title/description scroll away with the
+				    content. Radix wires aria-labelledby/aria-describedby to
+				    these as long as they render inside DialogContent, and
+				    DialogContent's onOpenAutoFocus still targets the title. */}
+				<DialogHeader className="mb-4">
+					<DialogTitle>{t("help.title")}</DialogTitle>
+					<DialogDescription>{t("help.description")}</DialogDescription>
+				</DialogHeader>
+
 				{/* The punctuation cheat sheet lives ONCE in this overlay
 				    (bottom section). The standalone PunctuationCheatSheetButton
 				    (a second `?` that opened its own cheat-sheet popup) is
@@ -126,7 +153,7 @@ function HelpOverlayInner({
 				(the same catalog TitleBar and Sidebar render from).
 				Rendering from the same array keeps the overlay in
 				lock-step with the actual key bindings. */}
-				<h3 className="mt-4 text-sm font-medium text-(--text-primary)">
+				<h3 className="mt-6 text-sm font-medium text-(--text-primary)">
 					{t("help.shortcuts.title")}
 				</h3>
 				<ul className="mt-2 space-y-2 text-sm">
@@ -143,8 +170,8 @@ function HelpOverlayInner({
 					))}
 				</ul>
 
-				<PunctuationCheatSheet />
-				<p className="text-xs text-(--text-muted)">
+				<PunctuationCheatSheet className="mt-6" />
+				<p className="mt-6 text-xs text-(--text-muted)">
 					{t("help.closeHint", { key: SHORTCUTS.cancel.keys })}
 				</p>
 			</div>

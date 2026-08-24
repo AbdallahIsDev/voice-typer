@@ -1365,7 +1365,7 @@
 	"help": {
 		"title": "Atajos de Teclado",
 		"dictation": "Iniciar / detener dictado",
-		"cancel": "Cancelar grabación (si está habilitado en Configuración), o cerrar este diálogo",
+		"cancel": "Cancelar grabación, o cerrar este diálogo",
 		"repaste": "Re-pegar última transcripción",
 		"toggleSidebar": "Alternar barra lateral",
 		"openSettings": "Abrir Configuración",
@@ -1375,10 +1375,10 @@
 		"activate": "Activar control enfocado",
 		"openHelp": "Superposición de ayuda",
 		"navBack": "Navegar atrás / adelante",
-		"closeHint": "Presiona {key} o haz clic fuera para cerrar.",
+		"closeHint": "Presiona {key} para cerrar.",
 		"zoomTextSize": "Tamaño del texto",
 		"punctuationTitle": "Hoja de referencia de puntuación",
-		"punctuationHint": "Di estas palabras durante el dictado para insertar el signo de puntuación correspondiente. {appName} las reconoce mediante el modelo de voz y las conserva durante la limpieza del texto.",
+		"punctuationHint": "Di estas palabras durante el dictado para insertar signos de puntuación. {appName} los reconoce mediante el modelo de voz.",
 		"punctuation": {
 			"comma": "Coma",
 			"period": "Punto",
@@ -1401,8 +1401,6 @@
 			"allCaps": "Todo mayúsculas [palabra]"
 		},
 		"description": "Presiona Esc para cerrar.",
-		"searchPlaceholder": "Buscar comandos…",
-		"searchNoMatch": "Ningún comando coincide con \"{query}\"",
 		"openCheatSheet": "Abrir hoja de referencia de puntuación",
 		"shortcuts": {
 			"settings": "Abrir ajustes",

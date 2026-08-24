@@ -1365,7 +1365,7 @@
 	"help": {
 		"title": "Tastaturkürzel",
 		"dictation": "Diktat starten / beenden",
-		"cancel": "Aufnahme abbrechen (falls in den Einstellungen aktiviert) oder diesen Dialog schließen",
+		"cancel": "Aufnahme abbrechen oder diesen Dialog schließen",
 		"repaste": "Letzte Transkription erneut einfügen",
 		"toggleSidebar": "Seitenleiste umschalten",
 		"openSettings": "Einstellungen öffnen",
@@ -1375,10 +1375,10 @@
 		"activate": "Fokussiertes Bedienelement aktivieren",
 		"openHelp": "Hilfe-Overlay",
 		"navBack": "Vorwärts / rückwärts navigieren",
-		"closeHint": "Drücken Sie {key} oder klicken Sie außerhalb, um zu schließen.",
+		"closeHint": "Drücken Sie {key} zum Schließen.",
 		"zoomTextSize": "Textgröße",
 		"punctuationTitle": "Zeichensetzungs-Spickzettel",
-		"punctuationHint": "Sprechen Sie diese Wörter während der Diktatfunktion, um das entsprechende Satzzeichen einzufügen. {appName} erkennt diese über das Sprachmodell und bewahrt sie während der Textbereinigung auf.",
+		"punctuationHint": "Sprechen Sie diese Wörter während der Diktatfunktion, um Satzzeichen einzufügen. {appName} erkennt sie über das Sprachmodell.",
 		"punctuation": {
 			"comma": "Komma",
 			"period": "Punkt",
@@ -1401,8 +1401,6 @@
 			"allCaps": "Großbuchstaben [Wort]"
 		},
 		"description": "Tastenkürzel und Zeichensetzung-Übersicht.",
-		"searchPlaceholder": "Befehle suchen…",
-		"searchNoMatch": "Keine Befehle gefündet für \"{query}\"",
 		"openCheatSheet": "Spickzettel für Zeichensetzung öffnen",
 		"shortcuts": {
 			"settings": "Einstellungen öffnen",

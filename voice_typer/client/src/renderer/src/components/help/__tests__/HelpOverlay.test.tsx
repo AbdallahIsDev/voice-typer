@@ -66,6 +66,22 @@ vi.mock("@/i18n/i18n", () => ({
 	useT: () => (key: string) => key,
 }));
 
+// The real header (title/description) now renders INSIDE HelpOverlay's
+// scroll wrapper using Radix dialog primitives. This test mocks Modal
+// (no Dialog.Root context), so stub the dialog primitives as plain
+// elements — the assertions only care about HelpOverlay's structure.
+vi.mock("@/components/ui/dialog", () => ({
+	DialogHeader: ({ children }: { children: React.ReactNode }) => (
+		<div data-testid="dialog-header">{children}</div>
+	),
+	DialogTitle: ({ children }: { children: React.ReactNode }) => (
+		<h2 data-testid="dialog-title">{children}</h2>
+	),
+	DialogDescription: ({ children }: { children: React.ReactNode }) => (
+		<p data-testid="dialog-description">{children}</p>
+	),
+}));
+
 describe("HelpOverlay — ZU-26 (scroll container + PunctuationCheatSheetButton mount)", () => {
 	afterEach(() => {
 		cleanup();

@@ -1393,7 +1393,7 @@
 	"help": {
 		"title": "Keyboard Shortcuts",
 		"dictation": "Start / stop dictation",
-		"cancel": "Cancel recording (if enabled in Settings), or close this dialog",
+		"cancel": "Cancel recording, or close this dialog",
 		"repaste": "Re-paste last transcription",
 		"toggleSidebar": "Toggle sidebar",
 		"openSettings": "Open Settings",
@@ -1403,12 +1403,10 @@
 		"activate": "Activate focused control",
 		"openHelp": "Help Overlay",
 		"navBack": "Navigate back / forward",
-		"closeHint": "Press {key} or click outside to close.",
+		"closeHint": "Press {key} to close.",
 		"zoomTextSize": "Zoom text size",
 		"punctuationTitle": "Punctuation Cheat Sheet",
-		"punctuationHint": "Say these words during dictation to insert the matching punctuation. {appName} recognizes these via the speech model and preserves them through text cleanup.",
-		"searchPlaceholder": "Search commands…",
-		"searchNoMatch": "No commands match \"{query}\"",
+		"punctuationHint": "Say these words during dictation to insert punctuation. {appName} recognizes them through the speech model.",
 		"openCheatSheet": "Open punctuation cheat sheet",
 		"punctuation": {
 			"comma": "Comma",
