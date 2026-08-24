@@ -46,7 +46,13 @@ pub(crate) use heartbeat::abort_heartbeat;
 
 // Pull the submodule helpers used in the WS pipeline below into
 // local scope so the call sites read the same as before the split.
-use event_protocol::is_allowed_event_type;
+// `pub(super)`: the sibling `sidecar/ws_tests.rs` module cannot see the
+// private `event_protocol` submodule, so the emission gates and the
+// envelope builder are re-exported here for the tests to pin the exact
+// contract production exercises.
+pub(super) use event_protocol::{
+    is_allowed_event_type, is_high_rate_event_type, python_event_envelope,
+};
 use heartbeat::spawn_heartbeat_task;
 use respawn_scheduler::{cleanup_and_trigger_respawn, trigger_respawn_off_thread};
 
@@ -613,7 +619,7 @@ async fn wait_for_auth_ok(
                         log::warn!("[WS-AUTH] failed to re-emit ready event: {}", e);
                     }
                     if let Err(e) =
-                        app.emit("python-event", json!({"type": "ready", "data": payload}))
+                        app.emit("python-event", python_event_envelope("ready", payload))
                     {
                         log::warn!(
                             "[WS-AUTH] failed to re-emit ready (python-event) event: {}",
@@ -825,8 +831,26 @@ fn spawn_reader_task(
                                 // directly — the prior `last_bubble_payload`
                                 // Option was redundant (always overwritten
                                 // before being read).
+                                // Typed-only carve-out for `bubble_level`
+                                // (ADR-0020 §9 + "Sidecar→UI Event Table"):
+                                // this frame is emitted on the typed channel
+                                // ONLY — NO generic `python-event` duplicate.
+                                // Its sole consumer listens typed (bubble
+                                // window `onLevel` →
+                                // tauri.event.listen("bubble_level")) and ZERO
+                                // `usePythonEvent("bubble_level")` subscribers
+                                // exist (grep-verified across the renderer), so
+                                // skipping the per-frame `json!({...})` envelope
+                                // saves ~30 Map allocations/sec at the 30 Hz
+                                // coalesce ceiling. Every LOW-RATE server event
+                                // — including `mic_level`, whose meter consumer
+                                // rides the generic envelope — keeps BOTH
+                                // emissions; see the generic branch below.
+                                // The current frame's `payload` is emitted
+                                // directly — the prior `last_bubble_payload`
+                                // Option was redundant (always overwritten
+                                // before being read).
                                 let _ = app_for_reader.emit("bubble_level", payload.clone());
-                                let _ = app_for_reader.emit("python-event", json!({"type": "bubble_level", "data": payload}));
                             }
                             continue;
                         }
@@ -851,11 +875,27 @@ fn spawn_reader_task(
                         }
 
                         // ADR-0020 "Sidecar→UI Event Table" (channel 2):
-                        // emit BOTH the specific event (for direct listeners)
-                        // AND the generic `python-event` (for the usePython
-                        // hook's onEvent catch-all).
-                        let _ = app_for_reader.emit(emit_name, payload.clone());
-                        let _ = app_for_reader.emit("python-event", json!({"type": emit_name, "data": payload}));
+                        // DEFAULT delivery = the specific event (for direct
+                        // listeners) AND the generic `python-event` envelope
+                        // (for the usePython hook's onEvent catch-all,
+                        // matching the Electron path's
+                        // ipcRenderer.on("python-event")). The ONLY exception
+                        // is `bubble_level`, handled above by its typed-only
+                        // fast path; the `is_high_rate_event_type` guard stays
+                        // here as a second-line gate so a future high-rate
+                        // addition can never silently reintroduce the
+                        // per-frame envelope. `mic_level` deliberately takes
+                        // THIS dual branch: its sole consumer
+                        // (useMicrophoneLevelMonitor) subscribes via
+                        // `usePythonEvent("mic_level")` → api.onEvent → the
+                        // generic envelope, not a typed listener.
+                        if is_high_rate_event_type(event_type) {
+                            let _ = app_for_reader.emit(emit_name, payload.clone());
+                        } else {
+                            let _ = app_for_reader.emit(emit_name, payload.clone());
+                            let _ = app_for_reader
+                                .emit("python-event", python_event_envelope(emit_name, payload));
+                        }
 
                         // the legacy `electron_notification` →
                         // `notification` alias block was REMOVED. The

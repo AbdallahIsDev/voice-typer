@@ -18,7 +18,8 @@
 //! the `sidecar` parent module) can access it.
 
 use super::ws::{
-    drain_pending_with_disconnect_error, queue_auth_and_store_ws_tx, truncate_frame_text,
+    drain_pending_with_disconnect_error, is_allowed_event_type, is_high_rate_event_type,
+    python_event_envelope, queue_auth_and_store_ws_tx, truncate_frame_text,
     WS_WRITER_CHANNEL_CAPACITY,
 };
 use crate::sidecar::bubble_coalesce::bubble_coalesce_should_emit;
@@ -576,132 +577,195 @@ async fn test_queue_auth_creates_bounded_channel_at_capacity() {
     ws_rx.close();
 }
 
-// ── bubble_level coalesce-emit payload identity ──────────────────
+// ── Server-event emission contract (typed vs generic catch-all) ────
 //
-// The simplified `bubble_level` emit path (no `last_bubble_payload`
-// Option) must:
-// 1. Use the CURRENT frame's `payload` for both the specific
-//    `bubble_level` emit AND the generic `python-event` catch-all —
-//    no stale-payload retention from a prior suppressed frame.
-// 2. Coalesce at ≤30 Hz (delegates to `bubble_coalesce_should_emit`,
-//    already unit-tested in `bubble_coalesce.rs`).
+// Contract pinned here (ADR-0020 "Sidecar→UI Event Table", channel 2):
+// 1. LOW-RATE server events → BOTH the typed emit AND the generic
+//    `python-event` envelope shaped exactly `{"type","data"}`.
+// 2. `bubble_level` → TYPED ONLY (≤30 Hz coalesce fast path; NO
+//    `python-event` emission). Its sole consumer listens typed
+//    (`tauri-bridge/bubble-namespace.ts` onLevel →
+//    `tauri.event.listen("bubble_level")`) and ZERO
+//    `usePythonEvent("bubble_level")` subscribers exist in the renderer.
+// 3. `mic_level` → BOTH (regression guard: its only consumer, the
+//    Microphone meter in `useMicrophoneLevelMonitor`, subscribes via
+//    `usePythonEvent("mic_level")` → `api.onEvent` → the GENERIC
+//    `listen("python-event")` envelope; no typed listener exists).
 //
-// We mirror the inline emit decision (without a Tauri runtime /
-// AppHandle, which is infeasible to construct in a unit test) and
-// verify that on each emit:
-// - the emitted `bubble_level` payload equals the current frame's
-//   payload (NOT a prior frame's);
-// - the emitted `python-event` payload's `data` field equals the
-//   current frame's payload.
-//
-// This pins the contract that removing `last_bubble_payload` did not
-// change the wire behavior — both emits still carry the current
-// frame's payload, never a stale one.
+// Mechanism honesty: exercising `spawn_reader_task` directly requires a
+// live `AppHandle` + WebSocket stream, which is infeasible to construct
+// in a unit test — so these tests pin the contract through the REAL pure
+// pieces the reader calls: the `is_allowed_event_type` /
+// `is_high_rate_event_type` gates and the `python_event_envelope`
+// builder from `ws/event_protocol.rs` (re-exported by `ws.rs`), plus
+// the `bubble_coalesce_should_emit` gate. The reader's emission
+// branches reduce to exactly these decisions.
+
 #[test]
-fn test_bubble_level_emit_uses_current_payload_not_stale() {
-    // Simulate a 60 Hz stream for ~100 ms (6 frames at 16.667 ms
-    // apart). With BUBBLE_LEVEL_COALESCE_HZ=30 (min interval ≈
-    // 33.333 ms), frames at i=0 and i=2 (and i=4) pass; frames at
-    // i=1, i=3, i=5 are suppressed. The emit on frame i=2 must use
-    // frame i=2's payload — NOT frame i=1's (which was the most
-    // recent suppressed frame).
+fn test_low_rate_events_take_dual_typed_plus_envelope_path() {
+    // Representative low-rate server events must NOT be classified
+    // high-rate: for these the reader emits the typed channel AND the
+    // generic envelope built by `python_event_envelope`.
+    let low_rate = [
+        "ready",
+        "status_change",
+        "state_changed",
+        "transcription_final",
+        "recording_started",
+        "download_progress",
+    ];
+    for evt in low_rate {
+        assert!(
+            is_allowed_event_type(evt),
+            "`{evt}` must stay in ALLOWED_EVENT_TYPES (the reader drops unknown types)"
+        );
+        assert!(
+            !is_high_rate_event_type(evt),
+            "`{evt}` is low-rate: reader must emit BOTH the typed channel \
+             AND the generic `python-event` envelope"
+        );
+    }
+}
+
+#[test]
+fn test_python_event_envelope_shape_is_type_plus_data() {
+    // The generic envelope emitted alongside every low-rate typed event
+    // must carry the (translated) event name in `type` and the untouched
+    // payload in `data` — the shape the renderer's usePythonEvent
+    // dispatcher pattern-matches on (`api.onEvent` →
+    // `dispatchEvent({type, data})`).
+    let payload = json!({"rms": 0.5, "peak": 0.9});
+    let env = python_event_envelope("status_change", payload.clone());
+    assert_eq!(
+        env,
+        json!({"type": "status_change", "data": {"rms": 0.5, "peak": 0.9}}),
+        "envelope must be exactly {{type, data}} wrapping the payload"
+    );
+    // Translated kebab-case names pass through verbatim (the reader
+    // envelopes the TRANSLATED name, e.g. `bubble:set-state`).
+    let env_kebab = python_event_envelope("bubble:set-state", json!({}));
+    assert_eq!(env_kebab["type"], "bubble:set-state");
+    assert_eq!(env_kebab["data"], json!({}));
+    // Empty payloads stay `{}` — never null (the reader normalizes a
+    // missing `data` field to `{}` BEFORE building the envelope).
+    let env_empty = python_event_envelope("ready", json!({}));
+    assert_eq!(env_empty, json!({"type": "ready", "data": {}}));
+}
+
+#[test]
+fn test_bubble_level_carve_out_is_typed_only() {
+    // Carve-out membership: `bubble_level` must be THE ONLY high-rate
+    // entry, so it alone skips the generic envelope via its coalesce
+    // fast path. Any future carve-out candidate must extend these
+    // assertions consciously.
+    assert!(is_allowed_event_type("bubble_level"));
+    assert!(is_high_rate_event_type("bubble_level"));
+    // Spot-check the hot/likely candidates stay on the dual path.
+    assert!(!is_high_rate_event_type("mic_level"));
+    assert!(!is_high_rate_event_type("transcription_partial"));
+    assert!(!is_high_rate_event_type("status_change"));
+}
+
+#[test]
+fn test_mic_level_stays_dual_emitted_meter_regression_guard() {
+    // REGRESSION GUARD (Microphone meter): `mic_level` MUST NOT join
+    // HIGH_RATE_EVENT_TYPES. Its only consumer,
+    // `pages/microphone/hooks/useMicrophoneLevelMonitor.ts`, subscribes
+    // via `usePythonEvent("mic_level", ...)` → `lib/python-bridge/
+    // event-dispatcher.ts` `api.onEvent(...)` → `tauri-bridge/
+    // python-namespace.ts` `tauri.event.listen("python-event", ...)`.
+    // A previous version of the carve-out listed `mic_level` here based
+    // on misreading that chain as a typed-channel subscription — that
+    // variant would silence the live level meter entirely while every
+    // host-side test stayed green (nothing exercises the renderer
+    // dispatcher from Rust).
+    assert!(
+        is_allowed_event_type("mic_level"),
+        "mic_level must remain deliverable (allowlisted)"
+    );
+    assert!(
+        !is_high_rate_event_type("mic_level"),
+        "mic_level consumers ride the GENERIC `python-event` envelope — \
+         classifying it high-rate kills the Microphone level meter"
+    );
+}
+
+// ── bubble_level coalesce payload identity (typed-only path) ───────
+//
+// The coalesce fast path must keep emitting the CURRENT frame's
+// `payload` on the typed channel (never a prior suppressed frame's),
+// now WITHOUT any envelope side-emission. Same mechanism caveat as the
+// tests above: the loop mirrors the reader's fast path using the REAL
+// coalesce gate; the typed-only property itself is pinned by
+// `test_bubble_level_carve_out_is_typed_only` +
+// `test_mic_level_stays_dual_emitted_meter_regression_guard`.
+
+#[test]
+fn test_bubble_level_coalesce_emits_current_payload_not_stale() {
+    // Simulate a 60 Hz stream (~100 ms; 6 frames at 16.667 ms apart).
+    // With BUBBLE_LEVEL_COALESCE_HZ=30 (min interval ≈33.333 ms),
+    // frames i=0/i=2/i=4 emit; frames i=1/i=3/i=5 are suppressed. The
+    // emit on frame i=2 must carry frame i=2's payload — NOT frame
+    // i=1's (the most recent suppressed frame).
     let hz = BUBBLE_LEVEL_COALESCE_HZ;
     let start = Instant::now();
     let step_60hz = Duration::from_micros(16_667);
 
     // Each frame's payload is a distinct JSON value so we can assert
-    // which frame's payload was emitted.
+    // WHICH frame's payload was emitted.
     let frames: Vec<Value> = (0..6u32)
         .map(|i| json!({"frame": i, "level": i as f64 * 10.0}))
         .collect();
 
+    // Mirror the reader's typed-only fast path:
+    // ```
+    // if event_type == "bubble_level" {
+    //     if bubble_coalesce_should_emit(last_bubble_level, Instant::now(), HZ) {
+    //         last_bubble_level = Some(now);
+    //         emit("bubble_level", payload);   // ← the ONLY emission
+    //     }
+    //     continue;
+    // }
+    // ```
+    // No envelope capture below: per the carve-out the reader performs
+    // NO other emission on this path.
     let mut last_emitted: Option<Instant> = None;
-    let mut emitted_payloads: Vec<Value> = Vec::new();
-    let mut emitted_python_event_data: Vec<Value> = Vec::new();
-
+    let mut emitted_payloads: Vec<(usize, Value)> = Vec::new();
     for (i, payload) in frames.iter().enumerate() {
         let now = start + step_60hz * i as u32;
-        // Mirror the simplified inline emit path:
-        // ```
-        // if event_type == "bubble_level" {
-        //     let now = Instant::now();
-        //     if bubble_coalesce_should_emit(last_bubble_level, now, HZ) {
-        //         last_bubble_level = Some(now);
-        //         emit("bubble_level", payload.clone());
-        //         emit("python-event", json!({"type": "bubble_level", "data": payload}));
-        //     }
-        //     continue;
-        // }
-        // ```
         if bubble_coalesce_should_emit(last_emitted, now, hz) {
             last_emitted = Some(now);
-            // Capture the payload that would have been emitted on
-            // the `bubble_level` channel and the `python-event`
-            // channel (the latter wraps `payload` in a json! object).
-            emitted_payloads.push(payload.clone());
-            emitted_python_event_data
-                .push(json!({"type": "bubble_level", "data": payload.clone()}));
+            emitted_payloads.push((i, payload.clone()));
         }
     }
 
-    // Coalesce must have fired at least once (frame 0 always emits).
+    // Coalesce must have fired at least once (frame 0 always emits) and
+    // suppressed at least one frame (60 Hz in → ~30 Hz out).
     assert!(
         !emitted_payloads.is_empty(),
         "coalesce must emit at least the first frame"
     );
-    // Coalesce must have suppressed at least one frame (60 Hz in →
-    // 30 Hz out means at least one of the 6 frames was suppressed).
     assert!(
         emitted_payloads.len() < frames.len(),
         "coalesce must suppress some frames (60 Hz in → ~30 Hz out)"
     );
 
-    // The FIRST emitted payload MUST be frame 0's payload (no stale
-    // payload from a non-existent prior frame). This is the key
-    // invariant: removing `last_bubble_payload` did not introduce a
-    // stale-payload bug.
+    // The FIRST emit must be frame 0's payload (no stale retention from
+    // a non-existent prior frame).
     assert_eq!(
-        emitted_payloads[0], frames[0],
+        emitted_payloads[0],
+        (0, frames[0].clone()),
         "first emit must carry frame 0's payload (no stale retention)"
     );
 
-    // Each emitted payload must match the CURRENT frame's payload
-    // (the one whose `now` timestamp passed the coalesce check), NOT
-    // a prior suppressed frame's payload. We re-derive the expected
-    // emits by re-running the coalesce decision and asserting each
-    // emitted payload matches the corresponding frame.
-    let mut expected_emit_indices: Vec<usize> = Vec::new();
-    let mut last_emitted2: Option<Instant> = None;
-    for (i, _payload) in frames.iter().enumerate() {
-        let now = start + step_60hz * i as u32;
-        if bubble_coalesce_should_emit(last_emitted2, now, hz) {
-            last_emitted2 = Some(now);
-            expected_emit_indices.push(i);
-        }
-    }
-    assert_eq!(
-        emitted_payloads.len(),
-        expected_emit_indices.len(),
-        "re-run coalesce decision must produce the same emit count"
-    );
-    for (emit_idx, &frame_idx) in expected_emit_indices.iter().enumerate() {
+    // EVERY emit must carry its OWN frame's payload — the current
+    // frame whose timestamp passed the coalesce check, never a prior
+    // suppressed frame's.
+    for (frame_idx, payload) in &emitted_payloads {
         assert_eq!(
-            emitted_payloads[emit_idx], frames[frame_idx],
-            "emit #{} must carry frame {}'s payload (current frame, not stale)",
-            emit_idx, frame_idx
-        );
-        // The `python-event` catch-all must wrap the SAME payload
-        // in its `data` field (the prior `last_bubble_payload.take()`
-        // path also satisfied this; the simplified path must too).
-        assert_eq!(
-            emitted_python_event_data[emit_idx]["data"], frames[frame_idx],
-            "python-event emit #{} must wrap frame {}'s payload in its data field",
-            emit_idx, frame_idx
-        );
-        assert_eq!(
-            emitted_python_event_data[emit_idx]["type"], "bubble_level",
-            "python-event emit #{} must have type=\"bubble_level\"",
-            emit_idx
+            payload, &frames[*frame_idx],
+            "emit for frame {frame_idx} must carry frame {frame_idx}'s own \
+             payload (current frame, not a prior suppressed frame)"
         );
     }
 }

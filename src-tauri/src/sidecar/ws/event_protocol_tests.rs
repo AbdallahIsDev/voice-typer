@@ -10,6 +10,8 @@
 //! `use super::*` below resolves to the `event_protocol` module.
 
 use super::*;
+// Explicit (not relied on via the parent glob): envelope-shape tests.
+use serde_json::json;
 
 // translate_event_name ────────────────────────────
 
@@ -145,6 +147,60 @@ fn test_transcription_partial_is_allowed_and_passthrough() {
     assert_eq!(
         translate_event_name("transcription_partial"),
         "transcription_partial"
+    );
+}
+
+// ── High-rate carve-out + generic envelope builder ────────────
+
+/// `HIGH_RATE_EVENT_TYPES` must contain EXACTLY `bubble_level` — no
+/// more, no less. The carve-out skips the generic `python-event`
+/// envelope for its members, so an over-broad list silently starves
+/// catch-all consumers (a previous version listed `mic_level`, which
+/// killed the Microphone meter — see the ws_tests regression guard).
+#[test]
+fn test_high_rate_event_types_is_exactly_bubble_level() {
+    assert_eq!(
+        HIGH_RATE_EVENT_TYPES,
+        &["bubble_level"],
+        "the typed-only carve-out must cover exactly bubble_level"
+    );
+    assert!(
+        ALLOWED_EVENT_TYPES.contains(&"bubble_level"),
+        "bubble_level must stay allowlisted (carve-out only skips the envelope)"
+    );
+}
+
+/// Truth table for the gate the WS reader consults before deciding
+/// between the typed-only fast path and the default dual emission.
+#[test]
+fn test_is_high_rate_event_type_truth_table() {
+    assert!(is_high_rate_event_type("bubble_level"));
+    // Regression guard: mic_level consumers ride the GENERIC
+    // python-event envelope (usePythonEvent → api.onEvent →
+    // listen("python-event")) — it must never be high-rate again.
+    assert!(!is_high_rate_event_type("mic_level"));
+    assert!(!is_high_rate_event_type("status_change"));
+    assert!(!is_high_rate_event_type(""));
+    assert!(!is_high_rate_event_type("not_an_event"));
+}
+
+/// The generic envelope builder must produce exactly
+/// `{"type": <name>, "data": <payload>}` — the shape the renderer's
+/// usePythonEvent dispatcher consumes via `api.onEvent`.
+#[test]
+fn test_python_event_envelope_shape() {
+    let env = python_event_envelope(
+        "transcription_final",
+        json!({"text": "done", "cycle": 7}),
+    );
+    assert_eq!(
+        env,
+        json!({"type": "transcription_final", "data": {"text": "done", "cycle": 7}})
+    );
+    // Empty payload stays `{}` (never null).
+    assert_eq!(
+        python_event_envelope("ready", json!({})),
+        json!({"type": "ready", "data": {}})
     );
 }
 

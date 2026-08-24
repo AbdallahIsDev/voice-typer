@@ -25,6 +25,7 @@
 //! - `ALLOWED_EVENT_TYPES_SET` is private (only used by
 //!   `is_allowed_event_type`).
 
+use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
@@ -216,10 +217,58 @@ static ALLOWED_EVENT_TYPES_SET: OnceLock<HashSet<&'static str>> = OnceLock::new(
 /// Returns `true` iff `event_type` is in the server-initiated event
 /// allowlist. O(1) after the first call (the `HashSet` is built once
 /// from `ALLOWED_EVENT_TYPES` and cached in a `OnceLock`).
-pub(super) fn is_allowed_event_type(event_type: &str) -> bool {
+///
+/// `pub(crate)` so the parent `ws` module can re-export it to the
+/// sibling `sidecar/ws_tests.rs` module (which cannot see this private
+/// submodule) for contract-pinning tests.
+pub(crate) fn is_allowed_event_type(event_type: &str) -> bool {
     ALLOWED_EVENT_TYPES_SET
         .get_or_init(|| ALLOWED_EVENT_TYPES.iter().copied().collect())
         .contains(event_type)
+}
+
+/// High-rate server event types: the WS reader skips the generic
+/// `python-event` catch-all duplicate for these, keeping only the typed
+/// emit. Exactly ONE entry, and the evidence is asymmetric by design:
+///
+/// - `bubble_level` is emitted TYPED-ONLY because its sole consumer (the
+///   bubble window's `onLevel`) listens on the TYPED channel
+///   (`tauri-bridge/bubble-namespace.ts` →
+///   `tauri.event.listen("bubble_level")`) and a grep across
+///   `voice_typer/client/src/renderer` confirms ZERO
+///   `usePythonEvent("bubble_level")` subscribers — the per-frame
+///   `json!({...})` envelope allocation would be pure waste at the ~30 Hz
+///   coalesced emit rate (~30 Map allocs/sec saved).
+/// - `mic_level` deliberately stays OUT of this list (dual-emitted): its
+///   only consumer, `pages/microphone/hooks/useMicrophoneLevelMonitor.ts`,
+///   subscribes via `usePythonEvent("mic_level")` → `api.onEvent` → the
+///   GENERIC `tauri.event.listen("python-event")` envelope — dropping the
+///   envelope would silently kill the Microphone page's live level meter.
+///   An earlier version of this list wrongly cited
+///   `usePythonEvent("mic_level")` as a typed-channel subscription; no
+///   typed listener for `mic_level` exists anywhere in the renderer.
+const HIGH_RATE_EVENT_TYPES: &[&str] = &["bubble_level"];
+
+/// Returns `true` iff `event_type` is high-rate enough that the generic
+/// catch-all re-emission is skipped (see `HIGH_RATE_EVENT_TYPES`).
+///
+/// `pub(crate)` for the ws.rs test re-export (same reason as
+/// `is_allowed_event_type` above).
+pub(crate) fn is_high_rate_event_type(event_type: &str) -> bool {
+    HIGH_RATE_EVENT_TYPES.contains(&event_type)
+}
+
+/// Build the generic `python-event` catch-all envelope the WS reader
+/// emits alongside every LOW-RATE typed event: exactly
+/// `{"type": <translated event name>, "data": <payload>}`. Extracted so
+/// the wire shape is pinned by unit tests against the same function
+/// production calls — both the `ready` re-emit in `wait_for_auth_ok` and
+/// the reader's generic branch share this builder.
+///
+/// `pub(crate)` for the ws.rs test re-export (same reason as
+/// `is_allowed_event_type` above).
+pub(crate) fn python_event_envelope(emit_name: &str, payload: Value) -> Value {
+    json!({"type": emit_name, "data": payload})
 }
 
 // translate Python-sidecar event names to the renderer's
