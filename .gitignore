@@ -117,3 +117,6 @@ status.md
 sub-worklog-*.md
 WINDOWS_PIPELINE_LOCAL_RUN_STATUS.md
 archive/deleted_files.txt
+
+ruff_base_snap.json
+ruff_now_snap.json

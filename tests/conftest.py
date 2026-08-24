@@ -181,9 +181,9 @@ def pytest_configure(config):
     are deselected by default (see ``pytest_collection_modifyitems``)
     and only run when ``--slow`` is passed.
 
-    also register the ``real_torch`` marker for tests that
-    genuinely need real ``torch.backends.mps`` semantics (mirrors the
-    existing ``real_pynput`` / ``real_pil`` pattern).
+    The former ``real_torch`` marker is intentionally NOT registered -
+    the eviction branch it gated was removed in Phase 1c and no test
+    requests it anymore (see CONTRIBUTING.md "Slow tests" section).
 
     also register a project-wide hypothesis profile named ``ci`` with
     ``deadline=None`` and load it unconditionally. Hypothesis's default
