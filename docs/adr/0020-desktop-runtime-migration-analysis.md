@@ -215,6 +215,8 @@ The plan runs **Windows → macOS → Linux** in sequence. Each platform has its
 
 The sidecar pushes UI events through `event_bus.publish(event)` (`event_bus.py`, the modern successor to `ipc_server._push_event_now` — locate by `def _push_event_now`); the Rust bridge subscribes and re-emits each as a Tauri event. This is **channel (2)** — server-initiated events, distinct from the command/response envelope (channel 1). Every event below is delivered as `{"type":<name>,"data":{...}}`. Payloads are carried unchanged from today's code so the React UI needs no reshaping.
 
+**Delivery rule (Rust host, since 2026-08-24):** each event defaults to TWO Tauri emissions — the typed event name AND a generic `python-event` envelope `{"type","data"}` (what the renderer's `usePythonEvent` hook consumes via `api.onEvent`). EXCEPTION: `bubble_level` is typed-only (no envelope duplicate — see §9); `mic_level` explicitly stays dual-emitted — its consumer (`useMicrophoneLevelMonitor`) subscribes via `usePythonEvent("mic_level")` → the generic envelope, not a typed listener.
+
 **Verified against the live `voice_typer/server/` tree (2026-07-16; IPC-2 reconciliation 2026-07-18).** The table below lists **24 events** — 3 more than the prior 21-event draft (`paste_failed`, `state_changed`, `status_change` were previously undocumented; all three are emitted via `event_bus.publish` or `IPCServer.push` and flow through the same channel). Line numbers drift as the code grows, so the table anchors on **symbols** (function/class names) — locate each event by `event_bus.publish({"type": "<name>"})` (or `IPCServer.push` for the two `push`-only events) rather than by line number. `ready` is emitted via `IPCServer.push` (not `event_bus.publish` — locate by the `{"type": "ready"}` push call in `sidecar_ws.py` and `ipc_server.py`) but flows through the same channel. `state_changed` and `status_change` are emitted via `IPCServer.push` (the former on TCP connect, the latter on every tray state transition via the `_hook_tray_set_state` wrapper); they are server-initiated events on channel (2), NOT command responses — the prior draft's parenthetical "command responses on this channel" was wrong. Empty `data` is written as `{}` (never `null`) so the Rust subscriber can always do `event.data ?? {}`.
 
 | Event `type` | Source (file:symbol) | `data` payload | Notes |
@@ -222,7 +224,7 @@ The sidecar pushes UI events through `event_bus.publish(event)` (`event_bus.py`,
 | `ready` | `ipc_server.py` / `sidecar_ws.py` — locate by `{"type": "ready"}` `IPCServer.push` call | `{}` | emitted on server start (Electron defers window creation; Tauri should likewise defer UI hydration) |
 | `bubble_show` | `waveform_bubble_wiring.py` — locate by `event_bus.publish({"type": "bubble_show"})` | `{}` | show waveform bubble |
 | `bubble_hide` | `waveform_bubble_wiring.py` — locate by `event_bus.publish({"type": "bubble_hide"})` | `{}` | hide waveform bubble |
-| `bubble_level` | `waveform_bubble_wiring.py` — locate by `_push_bubble_level` | `{rms:float, peak:float}` | ~60 Hz source → Rust coalesce ≤30 Hz (see §9) |
+| `bubble_level` | `waveform_bubble_wiring.py` — locate by `_push_bubble_level` | `{rms:float, peak:float}` | ~60 Hz source → Rust coalesce ≤30 Hz (see §9); delivered **TYPED-ONLY** — no generic `python-event` envelope duplicate (§9) |
 | `bubble_set_state` | `waveform_bubble_wiring.py` — locate by `_push_bubble_set_state` | `{state:str}` | |
 | `transcription_final` | `dictation_pipeline.py` — locate by `event_bus.publish({"type": "transcription_final"})` | `{text:str (≤200 chr)}` | UI preview / refresh |
 | `vocabulary_suggestion` | `dictation_pipeline.py` — locate by `event_bus.publish({"type": "vocabulary_suggestion"})` | `{suggestions:[{original,corrected,confidence,context,timestamp}]}` | |
@@ -738,6 +740,7 @@ Voice Typer today uses the platform-aware `_paths.config_dir()` (which delegates
 ### 9. `bubble_level` throttling
 
 - Sidecar emits `bubble_level` at source ~60 Hz. **Rust coalesces**: keep only the latest `{rms,peak}` and emit a Tauri event at ≤ 30 Hz (or on `requestAnimationFrame`). Prevents WebView jank. The ~60 Hz source throttle in `app.py` stays; Rust adds a second coalescing throttle.
+- **Typed-only delivery carve-out (since 2026-08-24):** coalesced `bubble_level` frames are delivered **TYPED-ONLY** — the Rust host emits the typed `bubble_level` event and skips the generic `python-event` envelope duplicate. Rationale: the sole consumer (bubble window `onLevel` → `tauri.event.listen("bubble_level")`) listens on the typed channel and no renderer `usePythonEvent("bubble_level")` subscriber exists (grep-verified), so skipping the envelope avoids one JSON `{"type","data"}` Map allocation per emitted frame at the ≤30 Hz coalesced rate. `mic_level` deliberately does NOT get this carve-out — its consumer (`useMicrophoneLevelMonitor`) subscribes via `usePythonEvent("mic_level")` → the generic `python-event` envelope, so it stays dual-emitted.
 
 ### 10. WebSocket disconnect / error handling + supervisor + rate limiter
 

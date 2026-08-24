@@ -273,20 +273,6 @@ Brainstorm yourself and use the best practices to solve this problem.
 
 ---
 
-### [ER-26] — Dev-mode restart path duplicates SIGTERM+SIGKILL logic and races on TCP port
-**Status:** ❌ Not Fixed
-> - **2026-08-24 audit:** two parallel escalators confirmed (electron_launcher.py:294-351 vs shutdown/teardowns/electron.py:44-53,158-178); port race already mitigated (ephemeral/auto-increment). Dedupe onto teardowns.
-**Severity:** 🟡 Medium
-**Description:** `relaunch-app.ts:50-141` — the dev-mode branch kills the old Python with SIGTERM, schedules a 3s SIGKILL fallback, then immediately calls `startPython()` to spawn a fresh backend. The new backend cannot bind `IPC_PORT` (9876) until the old process has actually released the listening socket — which under SIGTERM may take up to 3s. So in practice the new `tcpConnect()` retry loop hammers a port that the dying process still holds, and the user perceives a multi-second "Restarting…" hang. The killTimer in `relaunch-app.ts` and the killTimer in `stop-python.ts` are also duplicated logic — drift risk.
-**Root Cause:** Verified — `startPython()` is called BEFORE the old proc has actually exited.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/main/python/relaunch-app.ts`
-- `voice_typer/client/src/main/python/stop-python.ts`
-**Fix:** In the dev branch, after `proc.kill("SIGTERM")`, await the `exit` event (with a 3s timeout `Promise.race`) BEFORE calling `startPython()`. Alternatively, call the shared `stopPython()` (with idempotency flags reset) instead of duplicating the kill logic.
-
----
-
 ### [ER-35] — Double-emit per coalesced `bubble_level` (specific + generic catch-all) — ❌ STILL NOT FIXED (2026-08-12 re-verify)
 **Status:** ❌ Not Fixed (re-verified 2026-08-12) — the earlier "✅ Fixed" claim was FALSE. Rust-side double-emit STILL persists at `ws.rs:805-806`: the reader emits BOTH the specific `bubble_level` event AND the generic `python-event` catch-all (with a fresh `json!({...})` allocation) per frame. The Python-side `_push_bubble_level` single-emit path exists, but it is a DIFFERENT layer — it does not remove the Rust-side double-emit.
 **Severity:** 🟡 Medium
@@ -312,40 +298,18 @@ Brainstorm yourself and use the best practices to solve this problem.
 ---
 
 ### [ER-48] — Stuck transcription thread not fenced after force-recovery (model race)
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed (2026-08-23/24, two layers) — structural layer: `force_unload_active()` ejects the registry slot (fresh engine next load; stuck thread keeps orphaned ref; late result fenced). Defence-in-depth layer: streaming finalize busy_check returns committed text on same-cycle overlap (bounded tail-word trade-off documented at the fence).
 **Severity:** 🟡 Medium
 **Description:** `transcription_watchdog.py:169-307` `_force_recover_from_stuck_transcription` (re-audited 2026-08-12: the method moved out of recording_controller.py — old path `recording_controller.py:799-853` is stale) — the stuck transcription thread (e.g. ctranslate2 deadlock) continues running in the background. On the next `stop()` (line 515), the old reference is overwritten. If the old thread eventually completes its model call, it runs `DictationPipeline.run()`'s finally block. The old thread is still holding the ctranslate2 model lock. When the new transcription thread calls the model concurrently, ctranslate2 is not thread-safe for concurrent calls on the same model → crash or silent corruption.
 **Root Cause:** Verified — no mechanism to kill or fence the stuck transcription thread. Python threads cannot be force-killed; the only option is to set a flag the thread checks, but ctranslate2's C++ call is not interruptible.
-**Progress:** None yet.
+**Progress:**
+- Structural layer: `ModelManager.force_unload_active()` (`model_manager.py:2568`, invoked by `_force_recover_from_stuck_transcription` at `transcription_watchdog.py:303`) force-clears the busy flag AND ejects the ASR registry slot, so the next cycle captures a FRESH engine instance; the stuck thread keeps only an orphaned reference and any late result it produces is fenced out.
+- Defence-in-depth layer: streaming finalize `busy_check` fence (`streaming.py:1043-1061`, wired via `streaming_session_coordinator.py:183`) returns already-committed text when the backend is busy in another thread at finalize time.
+- Audit (2026-08-24): the finalize fence's TRUE firing scenario is SAME-CYCLE OVERLAP past the bounded join (~10 s cancel timeout — a merely SLOW worker transcription still running when finalize proceeds), NOT orphaned-thread-after-force-recovery. The latter is impossible post-fix: force-recovery clears the busy flag and drops the registry slot, so `is_busy(active)` reads False even while the orphan runs, and the orphan can never touch the fresh engine instance the next cycle loaded.
 **Related Files:**
 - `voice_typer/server/transcription_watchdog.py:169-307`
 - `voice_typer/server/recording_controller.py` (force-recovery caller)
 **Fix:** After force-recovery, set a module-level "model in use" lock that the new transcription thread must acquire before calling the model. The old thread holds the lock; the new thread blocks until the old thread's ctranslate2 call returns and releases it. Prune `_cancelled_cycle_ids` to keep only the last N entries. Consider reloading the model after a force-recovery to ensure clean state.
-
----
-
-### [ER-91] — `_buffer_clear_worker` keeps old deque alive 30-283ms during stop (compounds ER-19 peak)
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-**Description:** `recording/buffer.py:266-299` — the secure-clear worker keeps the OLD deque alive for ~30–100 ms (16 kHz) / ~85–283 ms (48 kHz) during `stop()`/`discard()`. This is the window that compounds the `stop()` peak (see ER-19).
-**Root Cause:** Verified — background zeroing holds reference to the old deque.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording/buffer.py`
-**Fix:** Drain the deque chunk-by-chunk into a pre-allocated destination ndarray, zeroing + popping each chunk after copy (instead of materializing a full second copy via `np.concatenate` then handing the deque to the background worker). This eliminates the 2×N peak in ER-19 as well.
-
----
-
-### [ER-93] — `kill_process_tree` 200ms unconditional grace sleep even when no descendants
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-**Description:** `src-tauri/src/platform/process/mod.rs:246` `kill_process_tree` (re-audited 2026-08-12: moved out of state.rs — old path `state.rs:187-241/225-247` is stale) — `std::thread::sleep(Duration::from_millis(200))` grace period is unconditional even when no descendants exist (empty `all_descendants` → still sleeps 200ms). `kill_tree` is always called in `shutdown_sidecar_for_exit` after the 2s wait, even if the sidecar already exited.
-**Root Cause:** Verified.
-**Progress:** None yet.
-**Related Files:**
-- `src-tauri/src/platform/process/mod.rs:246`
-- `src-tauri/src/state.rs` (call site — `shutdown_sidecar_for_exit`)
-**Fix:** Short-circuit the grace sleep when `all_descendants.is_empty()`. Also consider checking `/proc/<pid>/stat` (Linux) or `waitpid(WNOHANG)` before the SIGKILL loop to skip already-reaped processes.
 
 ---
 
@@ -376,54 +340,6 @@ Phase 4 (fix) will address all Critical and High severity findings, plus a curat
 **Severity:** 🔴 High
 
 ---
-
-### [WR-10] — Misnamed e2e tests + unmarked slow/stress tests + grab-bag history_and_models
-**Status:** ❌ Not Fixed — test_e2e_*.py files are at tests/ root (discoverable by pytest); moving to tests/regressions/ requires CI test-discovery updates; cosmetic only
-> - **2026-08-24 audit:** history_and_models deleted; e2e naming cosmetic — narrow to marking genuinely-slow tests.
-**Description:** test_e2e_*.py files are misnamed (e.g., test_e2e_pipeline.py vs test_e2e_smoke.py); some test files mix unit + integration + stress tests without markers; test_history_and_models.py is a 1180-LOC grab-bag.
-**Root cause:** Organic growth without naming conventions.
-**Progress:** Verified — no naming changes since filing.
-**Related Files:**
-- tests/test_e2e_pipeline.py
-- tests/test_e2e_smoke.py
-- tests/test_history_and_models.py
-**Fix:** Rename to tests/slow/, tests/stress/, etc. Or add pytest markers. Cosmetic.
-**Severity:** Medium
-
----
-
-### ZR-49 — Test file naming inconsistency: 5 different conventions, 2 documented (one unused)
-**Status:** ❌ Not Fixed
-**Description:** `tests/regressions/*_test.py` (19 files using `_test.py` suffix); `tests/test_clipboard_de_fixes.py`, `tests/test_ipc_de33_to_de36.py`, `tests/test_prewarm_er_fix_e2.py`, `tests/test_prewarm_xv_fixes.py`, `tests/test_clipboard_regression.py`, etc. (46 files using `test_*_<session>_fixes.py` / `test_*_<session>_<id>.py`, re-counted 2026-08-12); `tests/test_clipboard.py`, `tests/test_config.py` (using documented `test_<feature>.py`).
-`CONTRIBUTING.md` §7.1: "The test file naming convention is `test_<feature>.py` or `test_round<N>_<theme>.py` for batch review rounds."
-Actual patterns observed:
-- `test_<feature>.py` (documented, 265 files)
-- `test_round<N>_<theme>.py` (documented, 0 files — convention exists but unused)
-- `*_test.py` suffix (undocumented, 19 files in `tests/regressions/`)
-- `test_<feature>_de_fixes.py` (undocumented, 8 files)
-- `test_<feature>_<session>_fix_<id>.py` (undocumented, e.g. `test_prewarm_er_fix_e2.py`, `test_prewarm_xv_fixes.py`)
-- `test_<feature>_de<N>_to_de<N>.py` (undocumented, 1 file)
-**Root Cause:** Each review session invented its own naming pattern, none of which match the two documented conventions.
-**Progress:** None yet.
-**Related Files:**
-- `tests/regressions/*_test.py` (19 files)
-- `tests/test_*_fixes*.py` (46 files, re-counted 2026-08-12)
-- `tests/test_clipboard*.py` (21 files, re-counted 2026-08-12)
-- `CONTRIBUTING.md` §7.1**Fix:** Pick one convention (recommend `test_<feature>.py` for new tests, `test_<feature>_<concern>.py` for sub-files). Rename the 19 `tests/regressions/*_test.py` files to `tests/regressions/test_*.py`. Update CONTRIBUTING.md to document only the chosen convention and explicitly deprecate the others. Add a CI lint that rejects new files matching the deprecated patterns.
-**Severity:** 🟡 Medium — to find all tests touching feature X, a maintainer must grep both `test_X*.py` AND `*_test.py` AND know which session-name files might cover X.
-
----
-
-### ZR-57 — `tests/conftest.py:461, 554` — 190-line autouse fixture mocks 10 modules for every test
-**Status:** ❌ Not Fixed
-**Description:** `tests/conftest.py` (`mock_heavy_imports_session` at :461, `mock_heavy_imports` autouse fixture at :554, ~190 lines — the earlier "231-419" line ref is stale). The fixture mocks: `sounddevice`, `faster_whisper`, `faster_whisper.WhisperModel`, `pynput`, `pynput.keyboard`, `pystray`, `PIL`, `PIL.Image`, `PIL.ImageDraw`, `pyperclip`, `torch`, `transformers`, plus the 3 inline patches above, plus `ctypes.WINFUNCTYPE` aliasing, plus `lru_cache` clearing on `get_native_binary_path` and `_shutil_which_cached`. Plus a `MockHeavyImportsWarning` class with per-kind dedup (`_warn_once`). Plus opt-out markers (`real_pynput`, `real_pil`, `real_torch`, `slow`).
-`$ rg "monkeypatch.setitem\(sys.modules" tests/conftest.py | wc -l` returns 10 (re-counted 2026-08-12; the claimed 15 is stale).
-**Root Cause:** The fixture has accreted patches over many sessions (TEST-003, FIX-18, XS-45, XS-46, CR-068, CR-017, XV-112, XV-100). Each addition is individually justified with a long comment block, but the aggregate is a 190-line autouse fixture that runs for every test — including tests that don't touch any of the mocked modules.
-**Progress:** None yet.
-**Related Files:**
-- `tests/conftest.py` (`mock_heavy_imports` at lines 554+, session fixture at 461)
-**Fix:** Split into per-domain opt-in fixtures: `mock_audio_imports`, `mock_gui_imports`, `mock_torch_imports`. Make `mock_heavy_imports` a thin wrapper that depends on all three (preserving current behavior for tests that don't care). New tests opt into only the mocks they need. Document the opt-out markers in CONTRIBUTING.md §7.1 (currently only `real_pynput` is mentioned; `real_torch` and `real_pil` exist but aren't documented).
-**Severity:** 🟡 Medium (working-but-suboptimal) — a new test author cannot predict what their test sees without reading 190 lines of fixture. `import torch` in a test silently returns a `MagicMock` unless they remember `@pytest.mark.real_torch`.
 
 ### ZR-84 — `autostart_launcher.py` (1164 lines) mixes 6 unrelated helper groups (SPLIT REQUIRED)
 **Status:** ❌ Not Fixed (Spaghetti / monolith detection; re-verified 2026-08-12: 1164 LOC, up from 849)
