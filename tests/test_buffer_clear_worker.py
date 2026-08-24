@@ -279,3 +279,38 @@ def test_non_ndarray_items_skipped_gracefully():
             assert not np.any(chunk), f"mixed[{i}] not zeroed"
     for i, chunk in enumerate(clean):
         assert not np.any(chunk), f"clean[{i}] not zeroed"
+
+
+# ── ER-91: pop-drain frees chunks as they are zeroed ───────────────
+
+
+def test_er91_deque_is_drained_chunk_by_chunk():
+    """The worker must POP chunks off the deque (not iterate in place):
+    after processing, the deque itself is empty and every handed-over
+    chunk is zeroed. In-place iteration would leave the full deque
+    alive for the whole pass (the ER-91 complaint)."""
+    import collections
+
+    from voice_typer.server.recording import _secure_clear_array_background
+
+    chunks = [np.arange(8, dtype=np.float32) + float(i) for i in range(5)]
+    buf = collections.deque(chunks)
+    _secure_clear_array_background(buf)
+    _drain_queue()
+    assert len(buf) == 0, f"deque must be emptied by the pop-drain, has {len(buf)} items"
+    for i, c in enumerate(chunks):
+        assert not np.any(c), f"chunk {i} was not zeroed"
+
+
+def test_er91_non_deque_iterable_still_zeroed_defensively():
+    """Non-deque buffers fall back to in-place iteration semantics:
+    all ndarray chunks end up zeroed."""
+    from voice_typer.server.recording import _secure_clear_array_background
+
+    chunks = [np.full(4, 7.0, dtype=np.float32), "not-an-array", np.ones(3, dtype=np.float32)]
+    buf = list(chunks)
+    _secure_clear_array_background(buf)
+    _drain_queue()
+    assert not np.any(chunks[0]), "first ndarray chunk not zeroed"
+    assert not np.any(chunks[2]), "last ndarray chunk not zeroed"
+    assert chunks[1] == "not-an-array", "non-ndarray item must be untouched"

@@ -228,6 +228,37 @@ pub(super) fn signal_name(sig: libc::c_int) -> &'static str {
     }
 }
 
+/// Liveness probe: does `pid` currently exist? Used by
+/// `kill_process_tree` (ER-93) to drop already-exited descendants from
+/// the snapshot BEFORE paying any signal or grace-sleep cost.
+///
+/// Uses `kill(pid, 0)` — signal 0 performs permission/existence checks
+/// but delivers no signal. Semantics:
+/// - `rc == 0`            → process exists and we may signal it → alive
+/// - `errno == ESRCH`     → no such process → dead
+/// - `errno == EPERM`     → process EXISTS but belongs to another user
+///                          (we may not signal it, yet it is running)
+///                          → treated as alive (killing it would fail
+///                          with EPERM anyway, but skipping the attempt
+///                          would misreport the tree as empty).
+///
+/// Guards mirror `signal_pid`: pid 0 and pids > `i32::MAX` are reported
+/// dead without a syscall (0 would probe the caller's own process
+/// group; the cast would wrap negative).
+#[cfg(unix)]
+pub(super) fn pid_is_alive(pid: u32) -> bool {
+    if pid == 0 || pid > i32::MAX as u32 {
+        return false;
+    }
+    let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    if rc == 0 {
+        return true;
+    }
+    let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+    // EPERM ⇒ the process exists but is not ours to signal. ESRCH ⇒ gone.
+    errno == libc::EPERM
+}
+
 /// Enumerate the direct child pids of `pid`. Platform-stratified:
 ///
 /// - **Linux** (`target_os = "linux"`): reads
@@ -347,14 +378,14 @@ pub(super) fn enumerate_children_pgrep(pid: u32) -> Vec<u32> {
 // is updated to put the sidecar in its own group.
 
 #[cfg(unix)]
-pub(super) fn signal_process_group(sidecar_pgid: libc::pid_t, sig: libc::c_int) {
+pub(super) fn signal_process_group(sidecar_pgid: libc::pid_t, sig: libc::c_int) -> bool {
     // Safety guard: refuse to signal a group that includes the host.
     // `sidecar_pgid <= 0` means `getpgid` failed (the sidecar already
     // exited, or the pid is invalid) — skip the group kill entirely.
     // `sidecar_pgid == getpgrp()` means the sidecar shares the host's
     // pgid — sending the group signal would kill the host.
     if sidecar_pgid <= 0 {
-        return;
+        return false;
     }
     let host_pgid = unsafe { libc::getpgrp() };
     if sidecar_pgid == host_pgid {
@@ -371,7 +402,7 @@ pub(super) fn signal_process_group(sidecar_pgid: libc::pid_t, sig: libc::c_int) 
             sidecar_pgid,
             host_pgid
         );
-        return;
+        return false;
     }
     // Send the signal to the entire process group. `kill(-pgid, sig)`
     // is the POSIX way to signal a process group. Returns 0 on
@@ -395,13 +426,14 @@ pub(super) fn signal_process_group(sidecar_pgid: libc::pid_t, sig: libc::c_int) 
                 std::io::Error::last_os_error()
             );
         }
-    } else {
-        log::info!(
-            "[KILL-TREE] sent signal {} to process group -{} (race-window catcher)",
-            sig,
-            sidecar_pgid
-        );
+        return false;
     }
+    log::info!(
+        "[KILL-TREE] sent signal {} to process group -{} (race-window catcher)",
+        sig,
+        sidecar_pgid
+    );
+    true
 }
 
 /// Convenience wrapper: resolve the sidecar's pgid from its pid, then
@@ -409,7 +441,7 @@ pub(super) fn signal_process_group(sidecar_pgid: libc::pid_t, sig: libc::c_int) 
 /// `kill_process_tree` (when `all_descendants` is empty, we still want
 /// to attempt the process-group kill to catch race-window children).
 #[cfg(unix)]
-pub(super) fn kill_process_group_if_safe(pid: u32, sig: libc::c_int) {
+pub(super) fn kill_process_group_if_safe(pid: u32, sig: libc::c_int) -> bool {
     // pid 0 guard: `getpgid(0)` returns the CALLING process's own
     // pgid, which would route the group signal to the caller's own
     // group (the `signal_process_group` host-pgid check happens to
@@ -418,7 +450,7 @@ pub(super) fn kill_process_group_if_safe(pid: u32, sig: libc::c_int) {
         log::debug!(
             "[KILL-TREE] kill_process_group_if_safe skipped for pid 0 (getpgid(0) would return the caller's own pgid)"
         );
-        return;
+        return false;
     }
     // Range guard: same as `signal_pid` — `pid_t` is `i32`, so a
     // `u32` value > `i32::MAX` would wrap to a negative `pid_t` and
@@ -429,8 +461,8 @@ pub(super) fn kill_process_group_if_safe(pid: u32, sig: libc::c_int) {
             "[KILL-TREE] kill_process_group_if_safe skipped for out-of-range pid {} (> i32::MAX)",
             pid
         );
-        return;
+        return false;
     }
     let sidecar_pgid = unsafe { libc::getpgid(pid as libc::pid_t) };
-    signal_process_group(sidecar_pgid, sig);
+    signal_process_group(sidecar_pgid, sig)
 }

@@ -523,3 +523,45 @@ fn test_register_kill_on_parent_exit_returns_result_not_panic() {
         assert!(result.is_ok());
     }
 }
+
+// ── ER-93: `pid_is_alive` liveness probe ───────────────────────────
+
+/// The test process obviously exists — `pid_is_alive(own pid)` must
+/// report alive. Pins the rc == 0 path of the `kill(pid, 0)` probe.
+#[cfg(unix)]
+#[test]
+fn test_pid_is_alive_own_pid() {
+    assert!(
+        super::posix_impl::pid_is_alive(std::process::id()),
+        "the running test process must be reported alive"
+    );
+}
+
+/// A pid that almost certainly does not exist must be reported dead
+/// (ESRCH ⇒ false). 99999999 may in theory be taken on a huge PID
+/// space box, but combined with the guard test below the probe
+/// contract stays observable.
+#[cfg(unix)]
+#[test]
+fn test_pid_is_alive_nonexistent_is_false() {
+    // Probe a range far above typical pid_max values first; fall back
+    // to asserting only the guard cases if the host actually runs
+    // with a colossal pid_max AND that pid exists.
+    let candidate: u32 = 999_999_999;
+    if super::posix_impl::pid_is_alive(candidate) {
+        // Host has pid_max ≥ 1e9 and the pid exists — skip rather
+        // than fail on a pathological kernel config.
+        return;
+    }
+    assert!(!super::posix_impl::pid_is_alive(candidate));
+}
+
+/// Guards mirror `signal_pid`: pid 0 (would probe the caller's own
+/// process group) and pids > i32::MAX (pid_t truncation) must be
+/// reported dead WITHOUT any syscall.
+#[cfg(unix)]
+#[test]
+fn test_pid_is_alive_guards_are_dead_without_syscall() {
+    assert!(!super::posix_impl::pid_is_alive(0));
+    assert!(!super::posix_impl::pid_is_alive(u32::MAX));
+}

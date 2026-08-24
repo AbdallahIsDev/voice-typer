@@ -253,10 +253,24 @@ def _buffer_clear_worker_loop() -> None:
 
     Loops until a ``None`` sentinel is popped from the queue (sent by
     ``_stop_buffer_clear_worker``). Each non-None item popped is a
-    ``collections.deque`` of audio chunks; we iterate it and
-    ``ndarray.fill(0)`` each chunk. Best effort — any exception is
-    swallowed (the deque will be GC'd anyway, and we don't want one bad
-    buffer to poison the worker for the rest).
+    ``collections.deque`` of audio chunks.
+
+    ER-91: chunks are popped OFF the deque one at a time
+    (``popleft`` → ``fill(0)`` → reference dropped), instead of
+    iterating the deque in place. Iterating kept the deque (and every
+    chunk in it) alive for the whole zeroing pass — ~30–100 ms at
+    16 kHz / ~85–283 ms at 48 kHz during ``stop()``/``discard()``,
+    which is exactly the window that compounds the stop-time memory
+    peak. With the pop-drain, each chunk becomes garbage the moment
+    its ``fill(0)`` returns, so the retained footprint decays
+    chunk-by-chunk instead of holding 2×N until the pass ends.
+    Callers hand off the OLD deque after installing a fresh one and
+    (on ``stop()``) after concatenating the captured audio, so nobody
+    reads the popped chunks concurrently.
+
+    Best effort — any exception is swallowed (the deque will be GC'd
+    anyway, and we don't want one bad buffer to poison the worker for
+    the rest).
     """
     while True:
         try:
@@ -273,9 +287,22 @@ def _buffer_clear_worker_loop() -> None:
                 # exit the loop cleanly so the worker thread can be
                 # joined by tests / shutdown_all().
                 return
-            for chunk in buffer:
-                if isinstance(chunk, np.ndarray):
-                    chunk.fill(0)
+            if isinstance(buffer, collections.deque):
+                # ER-91 pop-drain: free each chunk as soon as it is
+                # zeroed (see docstring).
+                while True:
+                    try:
+                        chunk = buffer.popleft()
+                    except IndexError:
+                        break
+                    if isinstance(chunk, np.ndarray):
+                        chunk.fill(0)
+            else:
+                # Non-deque iterables (defensive): previous in-place
+                # iteration semantics.
+                for chunk in list(buffer):
+                    if isinstance(chunk, np.ndarray):
+                        chunk.fill(0)
         except Exception:
             pass  # best-effort; the buffer will be GC'd anyway
         finally:

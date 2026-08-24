@@ -320,9 +320,36 @@ pub(crate) fn kill_process_tree(pid: u32) {
             }
         }
 
+        // ER-93: drop descendants that already exited between their
+        // enumeration and now (a sidecar's children can be short-lived
+        // helpers that reap themselves at any moment). Signalling them
+        // would be an ESRCH no-op per pid; filtering here lets the
+        // truly-empty case fall into the zero-cost fast path below
+        // instead of paying SIGTERM → 200ms grace → SIGKILL for
+        // corpses.
+        let before_filter = all_descendants.len();
+        all_descendants.retain(|&dpid| posix_impl::pid_is_alive(dpid));
+        if all_descendants.len() != before_filter {
+            log::debug!(
+                "[KILL-TREE] dropped {} already-exited descendant(s) of pid {} before signalling",
+                before_filter - all_descendants.len(),
+                pid
+            );
+        }
+
         // Short-circuit when no descendants exist — avoids the
         // unconditional 200ms sleep below on the Tauri event-loop thread
         // (called from shutdown_sidecar_for_exit via block_on).
+        //
+        // ER-93: the process-group kill below is (in the current
+        // production spawn path) ALWAYS a safe no-op — the sidecar
+        // inherits the host's pgid, and `signal_process_group` refuses
+        // to signal its own host's group. The grace sleep existed only
+        // to give that (nonexistent) group-signal time to land, so we
+        // now sleep ONLY when the group kill actually fired
+        // (`kill_process_group_if_safe` returns true). When it didn't,
+        // this path returns immediately: zero-cost shutdown for the
+        // common "sidecar already exited / has no children" case.
         //
         // NOTE: we DO still attempt the process-group kill below even
         // when `all_descendants` is empty, because the race window
@@ -338,11 +365,19 @@ pub(crate) fn kill_process_tree(pid: u32) {
                 "[KILL-TREE] no descendants for pid {} — skipping SIGTERM/SIGKILL cycle",
                 pid
             );
-            // Still attempt the process-group kill (best-effort, no-op
-            // when the sidecar shares the host's pgid).
-            posix_impl::kill_process_group_if_safe(pid, libc::SIGTERM);
-            std::thread::sleep(Duration::from_millis(KILL_TREE_SIGTERM_GRACE_MS));
-            posix_impl::kill_process_group_if_safe(pid, libc::SIGKILL);
+            // Attempt the process-group kill (best-effort, no-op when
+            // the sidecar shares the host's pgid). Only pay the grace
+            // sleep when the group signal was actually delivered —
+            // otherwise there is nothing in flight to wait for.
+            let term_fired = posix_impl::kill_process_group_if_safe(pid, libc::SIGTERM);
+            if term_fired {
+                std::thread::sleep(Duration::from_millis(KILL_TREE_SIGTERM_GRACE_MS));
+                posix_impl::kill_process_group_if_safe(pid, libc::SIGKILL);
+            } else {
+                log::debug!(
+                    "[KILL-TREE] process-group SIGTERM did not fire — skipping grace sleep + group SIGKILL entirely"
+                );
+            }
             return;
         }
 

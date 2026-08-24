@@ -76,8 +76,7 @@ def test_signal_pid_guards_pid_zero() -> None:
     assert m, "signal_pid body not found"
     body = m.group(1)
     assert re.search(r"if pid == 0 \{\s*\n\s*log::debug!", body), (
-        "signal_pid must guard pid 0: POSIX kill(0, sig) signals the CALLER's own "
-        "process group (self-kill)."
+        "signal_pid must guard pid 0: POSIX kill(0, sig) signals the CALLER's own process group (self-kill)."
     )
     assert "libc::kill" in body, "signal_pid must keep its libc::kill call for real pids"
 
@@ -85,9 +84,7 @@ def test_signal_pid_guards_pid_zero() -> None:
 def test_enumerate_children_pgrep_guards_pid_zero() -> None:
     """``enumerate_children_pgrep(0)`` must NOT run ``pgrep -P 0``."""
     src = _read(_POSIX_RS)
-    m = re.search(
-        r"fn enumerate_children_pgrep\(pid: u32\) -> Vec<u32> \{(.*?)\n\}", src, re.DOTALL
-    )
+    m = re.search(r"fn enumerate_children_pgrep\(pid: u32\) -> Vec<u32> \{(.*?)\n\}", src, re.DOTALL)
     assert m, "enumerate_children_pgrep body not found"
     body = m.group(1)
     assert re.search(r"if pid == 0 \{\s*\n\s*log::debug!", body), (
@@ -100,9 +97,7 @@ def test_enumerate_children_pgrep_guards_pid_zero() -> None:
 def test_kill_process_group_if_safe_guards_pid_zero() -> None:
     """``kill_process_group_if_safe(0, sig)`` must not resolve the caller's pgid."""
     src = _read(_POSIX_RS)
-    m = re.search(
-        r"fn kill_process_group_if_safe\(pid: u32, sig: libc::c_int\) \{(.*?)\n\}", src, re.DOTALL
-    )
+    m = re.search(r"fn kill_process_group_if_safe\(pid: u32, sig: libc::c_int\) -> bool \{(.*?)\n\}", src, re.DOTALL)
     assert m, "kill_process_group_if_safe body not found"
     body = m.group(1)
     assert re.search(r"if pid == 0 \{\s*\n\s*log::debug!", body), (
