@@ -1222,6 +1222,13 @@ Rationale: Tooltips must name the action directly; mechanism wording ("or mouse 
 Applies to: All agents, all modes, all sub-agents.
 ```
 
+```
+C-SIDEBAR-20
+Rule: Do NOT restore the three-group sidebar hierarchy. The sidebar has exactly TWO groups (user product decision 2026-08-25, supersedes the C-SIDEBAR-7 group order): (1) a header-less top group (`hideLabel`, aria-label "Main" preserved for AT) containing Home, History, Analytics, Models, Templates, Vocabulary — the former "Power features" group and its `nav.group.power` i18n key are REMOVED; (2) the System group (visible heading, `mt-auto`-pinned bottom) containing Settings, Microphone (input-device configuration belongs beside app settings), About & Privacy. Do not reintroduce a "Power features" heading, a third group, or the old item-to-group assignments.
+Rationale: The three-group split left a two-item delta between groups and a heading that added no information; the user consolidated to a header-less primary list plus a system cluster (2026-08-25).
+Applies to: All agents, all modes, all sub-agents.
+```
+
 ---
 
 ## Category: Homepage Status Pill & Description Synchronization
