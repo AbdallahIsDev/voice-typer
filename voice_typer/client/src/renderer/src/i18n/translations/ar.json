@@ -155,7 +155,6 @@
 		"startPlaybackFailed": "تعذّر بدء التشغيل.",
 		"systemDefaultDesc": "جهاز الإدخال الافتراضي للنظام",
 		"selectedMicDesc": "الميكروفون المحدد",
-		"recordingStatus": "جارٍ التسجيل…",
 		"startTest": "بدء الاختبار",
 		"stopTest": "إيقاف الاختبار ({seconds} ث)",
 		"level": "المستوى: {percent}%",
@@ -175,8 +174,7 @@
 		"openSettings": "فتح الإعدادات",
 		"openSettingsAria": "فتح إعدادات خصوصية الميكروفون في نظام التشغيل",
 		"loading": "جارٍ تحميل الميكروفونات…",
-		"loadFailedDescription": "تعذر تحميل بيانات الميكروفون من الخادم الخلفي. تحقق من اتصالك وحاول مرة أخرى.",
-		"selected": "الميكروفون المحدد"
+		"loadFailedDescription": "تعذر تحميل بيانات الميكروفون من الخادم الخلفي. تحقق من اتصالك وحاول مرة أخرى."
 	},
 	"keyboard": {
 		"permissionDeniedTitle": "تتطلب مفاتيح الاختصار إذن الوصول",
@@ -1581,10 +1579,8 @@
 		"maximize": "تكبير",
 		"restore": "استعادة",
 		"close": "إغلاق",
-		"back": "رجوع (أو زر الرجوع في الفأرة)",
-		"forward": "للأمام (أو زر الأمام في الفأرة)",
-		"forwardWithShortcut": "للأمام ({shortcut})",
-		"backWithShortcut": "للخلف ({shortcut})"
+		"back": "رجوع",
+		"forward": "تقدّم"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "مؤشر تسجيل {appName}",

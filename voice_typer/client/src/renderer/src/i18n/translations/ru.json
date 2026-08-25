@@ -155,7 +155,6 @@
 		"startPlaybackFailed": "Не удалось начать воспроизведение.",
 		"systemDefaultDesc": "Устройство ввода по умолчанию операционной системы",
 		"selectedMicDesc": "Выбранный микрофон",
-		"recordingStatus": "Запись…",
 		"startTest": "Начать тест",
 		"stopTest": "Остановить тест ({seconds} с)",
 		"level": "Уровень: {percent}%",
@@ -175,8 +174,7 @@
 		"openSettings": "Открыть настройки",
 		"openSettingsAria": "Открыть настройки конфиденциальности микрофона операционной системы",
 		"loading": "Загрузка микрофонов…",
-		"loadFailedDescription": "Не удалось загрузить список микрофонов. Проверьте подключение и попробуйте снова.",
-		"selected": "Выбран"
+		"loadFailedDescription": "Не удалось загрузить список микрофонов. Проверьте подключение и попробуйте снова."
 	},
 	"keyboard": {
 		"permissionDeniedTitle": "Горячие клавиши требуют разрешения универсального доступа",
@@ -1581,10 +1579,8 @@
 		"maximize": "Развернуть",
 		"restore": "Восстановить",
 		"close": "Закрыть",
-		"back": "Назад (или кнопка мыши «Назад»)",
-		"forward": "Вперёд (или кнопка мыши «Вперёд»)",
-		"forwardWithShortcut": "Вперёд ({shortcut})",
-		"backWithShortcut": "Назад ({shortcut})"
+		"back": "Назад",
+		"forward": "Вперёд"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Индикатор записи {appName}",

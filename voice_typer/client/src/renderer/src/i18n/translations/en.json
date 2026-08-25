@@ -162,7 +162,6 @@
 		"startPlaybackFailed": "Failed to start playback.",
 		"systemDefaultDesc": "Operating system default input device",
 		"selectedMicDesc": "Selected microphone",
-		"recordingStatus": "Recording…",
 		"startTest": "Start Test",
 		"stopTest": "Stop Test ({seconds}s)",
 		"level": "Level: {percent}%",
@@ -182,8 +181,7 @@
 		"openSettings": "Open settings",
 		"openSettingsAria": "Open the operating system microphone privacy settings",
 		"loading": "Loading microphones…",
-		"loadFailedDescription": "We couldn't load your microphone data from the backend. Check the logs and try again.",
-		"selected": "Selected microphone"
+		"loadFailedDescription": "We couldn't load your microphone data from the backend. Check the logs and try again."
 	},
 	"keyboard": {
 		"permissionDeniedTitle": "Hotkeys require accessibility permission",
@@ -1609,10 +1607,8 @@
 		"maximize": "Maximize",
 		"restore": "Restore",
 		"close": "Close",
-		"back": "Back (or mouse back button)",
-		"forward": "Forward (or mouse forward button)",
-		"backWithShortcut": "Back ({shortcut})",
-		"forwardWithShortcut": "Forward ({shortcut})"
+		"back": "Back",
+		"forward": "Forward"
 	},
 	"errorBoundary": {
 		"title": "Something went wrong",

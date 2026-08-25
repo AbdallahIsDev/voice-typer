@@ -1201,6 +1201,27 @@ Rationale: Audit finding (2026-08-24): hard-coded `-1` flyout children + portal-
 Applies to: All agents, all modes, all sub-agents.
 ```
 
+```
+C-SIDEBAR-17
+Rule: Do NOT derive the Settings submenu's open state purely from the current page, and do NOT keep multiple sources of truth. There is exactly ONE state (`submenuOpen`, initialized from whether a Settings page is active) with exactly three deterministic transitions: (1) clicking the parent TOGGLES it — open → closed in place (even on a Settings sub-page, with no navigation fired), closed → open + navigate to the default child; (2) ENTERING the Settings section by any path (parent click, Ctrl+,, tray/back-forward navigation) reveals it via a sync effect; (3) LEAVING the section closes it. No persisted preference, no timeouts, no navigation side effects for closing. (Refines C-SIDEBAR-11: the submenu may now be toggled closed while a Settings sub-page is active — when that happens the PARENT carries `aria-current="page"` and the roving tab stop, because the active leaf is not rendered.)
+Rationale: The previous derived model made the parent click a no-op re-navigation — the submenu could never be closed by clicking; the toggle must be deterministic against the navigation sync (verified 2026-08-25).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-SIDEBAR-18
+Rule: Do NOT swap, unmount, or branch-replace any sidebar element at the moment the sidebar collapses or expands. The Settings Collapsible renders UNCONDITIONALLY in both sidebar states (`open={submenuOpen && !collapsed}`) so collapsing the rail ANIMATES an open submenu closed in sync with the width transition instead of vanishing it; the flyout Portal is strictly additive; the Settings chevron is rendered in BOTH states and FADES (`transition-[opacity]` + `opacity-0 pointer-events-none` collapsed) instead of unmounting. Group headers follow the SAME text motion model as nav-item labels — a `max-height`-only container (space collapse) with the label text on an inner `block` span carrying the shared horizontal motion (`navLabelMotion`: opacity + inline-start translate + explicit blur endpoints, X-axis only, never any Y component), with the text fade slightly faster (150ms) than the container collapse (200ms) so the shrinking clip never visibly half-cuts glyphs. (Extends C-SIDEBAR-5/10/13.)
+Rationale: The per-state branch swap unmounted the open submenu instantly at toggle time; the header's combined max-height+opacity transition vertically clipped the label mid-transition; the chevron popped out of the DOM (all fixed 2026-08-25).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-SIDEBAR-19
+Rule: Do NOT write tooltip copy that is verbose, explanatory, or mechanism-describing when a concise action word suffices. The title-bar Back and Forward tooltips are EXACTLY `Back` and `Forward` (localized per-locale to the same verb root as that locale's `a11y.goBack`/`a11y.goForward`), rendered with their shortcut chips via `HotkeyTooltip` — no "(or mouse back button)"-style wording, no "button", no parentheticals. The `titleBar.backWithShortcut`/`titleBar.forwardWithShortcut` keys are REMOVED (the chips come from `HotkeyChips`, not the label string) — do not reintroduce them or duplicate tooltip strings elsewhere.
+Rationale: Tooltips must name the action directly; mechanism wording ("or mouse back button") was noise duplicated across all 8 locales and the dead *WithShortcut keys invited drift (cleaned 2026-08-25).
+Applies to: All agents, all modes, all sub-agents.
+```
+
 ---
 
 ## Category: Homepage Status Pill & Description Synchronization

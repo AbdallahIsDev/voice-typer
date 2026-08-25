@@ -5,9 +5,17 @@
  *   - Active child carries aria-current="page"
  *   - Settings parent carries aria-expanded="true" when expanded
  *   - Clicking a child calls onNavigate with the child's Page literal
+ *   - Parent-click toggling is deterministic against the navigation
+ *     sync: open+navigate / close-in-place / re-open / close
+ *   - Collapse-while-open coherence: the submenu state survives the
+ *     collapsed phase (expanding restores it without navigation)
  *   - Collapsed sidebar: Popover flyout shows the 4 children
  *   - ONE persistent arrow glyph (ArrowRight01Icon) that rotates —
- *     never swaps icons; wrapper pinned to the row edge via ms-auto
+ *     never swaps icons; rendered in BOTH sidebar states, faded-but-
+ *     mounted in the collapsed rail; wrapper pinned to the row edge
+ *     via ms-auto
+ *   - Closing the submenu over an active child moves aria-current to
+ *     the parent while the active leaf is hidden
  *   - CollapsibleContent animates reveal AND hide inside overflow-hidden
  */
 
@@ -206,6 +214,112 @@ describe("NavSubmenu — nested Settings sidebar submenu (navigation-synchronize
 		expect(baseProps.onNavigate).toHaveBeenCalledWith("settings");
 	});
 
+	it("parent-click toggling is deterministic against the navigation sync (open+navigate, close-in-place, re-open, close)", () => {
+		const onNavigate = vi.fn();
+		const { rerender } = render(
+			wrap(
+				<Sidebar
+					{...baseProps}
+					onNavigate={onNavigate}
+					currentPage="home"
+					collapsed={false}
+				/>,
+			),
+		);
+		const parent = () => findSettingsParent() as HTMLElement;
+
+		// Closed -> open AND navigate (lands on the section's default child).
+		fireEvent.click(parent());
+		expect(onNavigate).toHaveBeenCalledTimes(1);
+		expect(onNavigate).toHaveBeenCalledWith("settings");
+		expect(screen.getByText("nav.settingsGeneral")).toBeTruthy();
+
+		// Land on the Settings sub-page: the sync effect keeps it open.
+		rerender(
+			wrap(
+				<Sidebar
+					{...baseProps}
+					onNavigate={onNavigate}
+					currentPage="settingsGeneral"
+					collapsed={false}
+				/>,
+			),
+		);
+		expect(screen.getByText("nav.settingsGeneral")).toBeTruthy();
+
+		// Open -> close IN PLACE on a Settings sub-page: no navigation side effect.
+		fireEvent.click(parent());
+		expect(onNavigate).toHaveBeenCalledTimes(1);
+		expect(screen.queryByText("nav.settingsGeneral")).toBeNull();
+
+		// Closed -> open again (+ navigate).
+		fireEvent.click(parent());
+		expect(onNavigate).toHaveBeenCalledTimes(2);
+		expect(screen.getByText("nav.settingsGeneral")).toBeTruthy();
+
+		// Open -> close again: the cycle stays deterministic.
+		fireEvent.click(parent());
+		expect(onNavigate).toHaveBeenCalledTimes(2);
+		expect(screen.queryByText("nav.settingsGeneral")).toBeNull();
+	});
+
+	it("collapse-while-open keeps the submenu state coherent (no branch swap): expanding restores the open submenu without navigation", () => {
+		const onNavigate = vi.fn();
+		const { rerender } = render(
+			wrap(
+				<Sidebar
+					{...baseProps}
+					onNavigate={onNavigate}
+					currentPage="settingsGeneral"
+					collapsed={false}
+				/>,
+			),
+		);
+		expect(screen.getByText("nav.settingsGeneral")).toBeTruthy();
+
+		// Collapse the rail WHILE the submenu is open. The SAME inline
+		// Collapsible renders in both states with
+		// open={submenuOpen && !collapsed} — collapsing drives it closed
+		// in step with the width transition instead of swapping branches.
+		rerender(
+			wrap(
+				<Sidebar
+					{...baseProps}
+					onNavigate={onNavigate}
+					currentPage="settingsGeneral"
+					collapsed={true}
+				/>,
+			),
+		);
+		// NO BRANCH SWAP: the SAME inline CollapsibleContent element stays
+		// MOUNTED in both sidebar states — the closed state parks it as
+		// data-state="closed" + hidden instead of removing it from the
+		// DOM (jsdom runs no CSS animations, so the closing transition
+		// completes instantly and the child buttons are gone).
+		const content = document.querySelector<HTMLElement>(
+			"[class*='collapsibleDown']",
+		);
+		expect(content).toBeTruthy();
+		expect(content?.getAttribute("data-state")).toBe("closed");
+		expect(content?.hasAttribute("hidden")).toBe(true);
+		expect(screen.queryByText("nav.settingsGeneral")).toBeNull();
+
+		// Expand again WITHOUT navigating: the submenu state survived the
+		// collapsed phase, so the children come straight back.
+		rerender(
+			wrap(
+				<Sidebar
+					{...baseProps}
+					onNavigate={onNavigate}
+					currentPage="settingsGeneral"
+					collapsed={false}
+				/>,
+			),
+		);
+		expect(screen.getByText("nav.settingsGeneral")).toBeTruthy();
+		expect(onNavigate).not.toHaveBeenCalled();
+	});
+
 	it("collapsed sidebar: Popover flyout shows the 4 children when parent trigger is clicked", () => {
 		render(
 			wrap(<Sidebar {...baseProps} currentPage="home" collapsed={true} />),
@@ -265,30 +379,117 @@ describe("NavSubmenu — disclosure semantics, arrow affordance, reveal animatio
 		expect(document.querySelector("button[aria-haspopup]")).toBeNull();
 	});
 
-	it("collapsed: the Settings flyout trigger carries aria-haspopup='dialog'", () => {
+	it("closing the submenu over an active child moves aria-current to the parent (active leaf hidden behind the closed submenu)", () => {
+		const onNavigate = vi.fn();
+		render(
+			wrap(
+				<Sidebar
+					{...baseProps}
+					onNavigate={onNavigate}
+					currentPage="settingsGeneral"
+					collapsed={false}
+				/>,
+			),
+		);
+		const parent = findSettingsParent() as HTMLElement;
+		// Open over an active child: the CHILD carries aria-current="page"
+		// and the parent only signals expansion.
+		expect(parent.getAttribute("aria-expanded")).toBe("true");
+		expect(parent.getAttribute("aria-current")).toBeNull();
+
+		fireEvent.click(parent);
+
+		// Submenu closed → the active leaf is no longer rendered, so the
+		// PARENT carries the current-page signal. The close is in-place:
+		// no navigation fired, no rerender needed.
+		expect(onNavigate).not.toHaveBeenCalled();
+		expect(parent.getAttribute("aria-current")).toBe("page");
+		expect(parent.getAttribute("aria-expanded")).toBe("false");
+		expect(screen.queryByText("nav.settingsGeneral")).toBeNull();
+		// The roving tab stop migrates with the aria-current signal: the
+		// hidden active child can't hold it, so the parent becomes the
+		// focusable stand-in for the section.
+		expect(parent.tabIndex).toBe(0);
+	});
+
+	it("roving tabindex follows the visible active leaf: child holds it while the submenu is open, parent reclaims it when closed", () => {
+		const { rerender } = render(
+			wrap(
+				<Sidebar
+					{...baseProps}
+					currentPage="settingsGeneral"
+					collapsed={false}
+				/>,
+			),
+		);
+		const parent = findSettingsParent() as HTMLElement;
+		// Open over the active child: the CHILD is the roving target.
+		expect(parent.tabIndex).toBe(-1);
+		const visibleChild = screen
+			.getByText("nav.settingsGeneral")
+			.closest("button") as HTMLElement;
+		expect(visibleChild.tabIndex).toBe(0);
+
+		// Collapse the submenu: the parent reclaims the tab stop.
+		fireEvent.click(parent);
+		expect(parent.tabIndex).toBe(0);
+
+		// Re-open: the child holds it again.
+		fireEvent.click(parent);
+		expect(parent.tabIndex).toBe(-1);
+		expect(
+			(screen.getByText("nav.settingsGeneral").closest("button") as HTMLElement)
+				.tabIndex,
+		).toBe(0);
+
+		// Collapsed rail: the parent keeps the stop even over an active
+		// child (the inline children never mount there).
+		rerender(
+			wrap(
+				<Sidebar
+					{...baseProps}
+					currentPage="settingsGeneral"
+					collapsed={true}
+				/>,
+			),
+		);
+		expect((findCollapsedSettingsTrigger() as HTMLElement).tabIndex).toBe(0);
+	});
+
+	it("collapsed: the Settings flyout trigger carries aria-haspopup='dialog' with the persistent chevron faded-but-mounted", () => {
 		render(
 			wrap(<Sidebar {...baseProps} currentPage="home" collapsed={true} />),
 		);
 		const trigger = findCollapsedSettingsTrigger();
 		expect(trigger?.getAttribute("aria-haspopup")).toBe("dialog");
-		// The collapsed rail has no inline chevron — the arrow glyph
-		// renders only when the sidebar is expanded.
-		expect(trigger?.querySelector('[data-name="ArrowRight01Icon"]')).toBeNull();
+		// The chevron renders UNCONDITIONALLY in both sidebar states —
+		// in the collapsed rail it is faded-but-mounted inside its
+		// aria-hidden wrapper: fully transparent + inert (and clipped by
+		// the button's overflow-hidden), so the icon-only rail shows no
+		// visual artifact.
+		const chevron = trigger?.querySelector('[data-name="ArrowRight01Icon"]');
+		expect(chevron).toBeTruthy();
+		const wrapper = chevron?.parentElement;
+		expect(wrapper?.getAttribute("aria-hidden")).toBe("true");
+		expect(wrapper?.className).toContain("opacity-0");
+		expect(wrapper?.className).toContain("pointer-events-none");
+		// The chevron FADES with the rail (never pops out of the DOM).
+		expect(wrapper?.className).toContain("transition-[opacity]");
 	});
 
 	it("ONE persistent arrow glyph: ArrowRight01Icon in both states — rotated 90° when open, nav-directional-icon when closed", () => {
-		const getArrowClass = () => {
-			const arrow = document.querySelector(
+		const arrowInAside = () =>
+			document.querySelector(
 				'aside button[data-nav-item="true"] [data-name="ArrowRight01Icon"]',
 			);
-			return arrow?.getAttribute("class") ?? "";
-		};
+		const getArrowClass = () => arrowInAside()?.getAttribute("class") ?? "";
 
 		// Closed submenu (home active): points forward, RTL-mirrored via
 		// the shared index.css rule.
 		const { rerender } = render(
 			wrap(<Sidebar {...baseProps} currentPage="home" collapsed={false} />),
 		);
+		expect(arrowInAside()).toBeTruthy();
 		let cls = getArrowClass();
 		expect(cls).toContain("nav-directional-icon");
 		expect(cls).not.toContain("rotate-90");
@@ -308,10 +509,23 @@ describe("NavSubmenu — disclosure semantics, arrow affordance, reveal animatio
 				/>,
 			),
 		);
+		expect(arrowInAside()).toBeTruthy();
 		cls = getArrowClass();
 		expect(cls).toContain("rotate-90");
 		expect(cls).not.toContain("nav-directional-icon");
 		expect(cls).toContain("transition-[rotate]");
+
+		// Back to a closed submenu (navigation leaves Settings): the
+		// SAME glyph returns to the forward/RTL-mirrored direction —
+		// rotation follows the SUBMENU state, never the page identity,
+		// and the glyph persists across every transition.
+		rerender(
+			wrap(<Sidebar {...baseProps} currentPage="home" collapsed={false} />),
+		);
+		expect(arrowInAside()).toBeTruthy();
+		cls = getArrowClass();
+		expect(cls).toContain("nav-directional-icon");
+		expect(cls).not.toContain("rotate-90");
 	});
 
 	it("no ArrowDown01Icon anywhere in the nav (the direction is rotation, never an icon swap)", () => {

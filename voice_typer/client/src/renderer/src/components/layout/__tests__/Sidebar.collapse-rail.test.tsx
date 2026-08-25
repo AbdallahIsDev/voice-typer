@@ -14,7 +14,10 @@
  *    `pointer-events-none` when collapsed.
  *  - Vertical rhythm: items breathe with `gap-1` inside a group; the
  *    nav uses `gap-5` expanded / `gap-2` collapsed; group headings
- *    collapse via max-height (no instant unmount → no layout jump).
+ *    collapse via max-height on their container while the heading
+ *    TEXT exits through the shared label-motion model (translate +
+ *    fade + blur on a faster inner-span track) — no instant unmount,
+ *    no layout jump.
  *  - Collapsed usability: every rail icon keeps a non-empty accessible
  *    name (including the Settings flyout trigger) and the Settings
  *    trigger shows the same right-side hotkey tooltip as the leaves.
@@ -156,6 +159,12 @@ describe("Sidebar — collapse rail geometry & transition model", () => {
 			// `filter-none` cannot interpolate against blur() — it snaps
 			// discretely (the old abrupt disappearance).
 			expect(span.className).not.toContain("filter-none");
+			// STRICTLY horizontal motion: the transition property list and
+			// the motion tokens must never introduce a Y component.
+			expect(span.className).toContain(
+				"transition-[max-width,opacity,translate,filter]",
+			);
+			expect(span.className).not.toContain("translate-y");
 		}
 
 		rerender(
@@ -172,6 +181,8 @@ describe("Sidebar — collapse rail geometry & transition model", () => {
 			expect(span.className).toContain("rtl:translate-x-3");
 			// Invisible labels never intercept pointer events.
 			expect(span.className).toContain("pointer-events-none");
+			// X-axis only — no vertical/diagonal travel.
+			expect(span.className).not.toContain("translate-y");
 		}
 	});
 
@@ -195,20 +206,48 @@ describe("Sidebar — collapse rail geometry & transition model", () => {
 		expect(nav?.className).not.toContain("gap-5");
 	});
 
-	it("group headings collapse via max-height (max-h-4 ↔ max-h-0) — no instant unmount layout jump", () => {
+	it("group headings collapse via max-height while the label exits through the shared motion model (no instant unmount layout jump)", () => {
 		const { rerender, container } = renderWithProviders(
 			<Sidebar {...baseProps} />,
 		);
+		// The heading container no longer carries text-style classes —
+		// the label TEXT lives in an inner span that owns the horizontal
+		// motion. Locate by the container's max-height transition.
 		const headings = () =>
 			Array.from(container.querySelectorAll("section > div")).filter((d) =>
-				d.className.includes("transition-[max-height,opacity]"),
+				d.className.includes("transition-[max-height]"),
 			);
+		const headingLabel = (heading: Element) => heading.querySelector("span");
 		// Power features + System (the "Main" heading stays hidden).
 		expect(headings().length).toBe(2);
 		for (const heading of headings()) {
+			// Outer container: vertical SPACE collapse only (max-height,
+			// 200ms ease-out) + clipping so the shrinking box never
+			// half-paints glyphs.
+			expect(heading.className).toContain("px-3.5");
+			expect(heading.className).toContain("overflow-hidden");
+			expect(heading.className).toContain("transition-[max-height]");
+			expect(heading.className).toContain("duration-200");
+			expect(heading.className).toContain("ease-out");
 			expect(heading.className).toContain("max-h-4");
-			expect(heading.className).toContain("opacity-70");
 			expect(heading.getAttribute("aria-hidden")).toBeNull();
+			// Inner span: the text exits through the SHARED motion tokens
+			// (translate + fade + blur) on a deliberately faster 150ms
+			// track, so the label has dissolved before the vertical clip
+			// could bite. `block` is required for transforms to apply;
+			// the muted label tone rides on top of the motion's opacity.
+			const label = headingLabel(heading);
+			expect(label?.className).toContain("block");
+			expect(label?.className).toContain(
+				"transition-[opacity,translate,filter]",
+			);
+			expect(label?.className).toContain("duration-150");
+			expect(label?.className).toContain("ease-out");
+			expect(label?.className).toContain("translate-x-0");
+			expect(label?.className).toContain("blur-[0px]");
+			expect(label?.className).toContain("opacity-70");
+			// Same X-axis-only rule as the item labels.
+			expect(label?.className).not.toContain("translate-y");
 		}
 
 		rerender(
@@ -217,12 +256,22 @@ describe("Sidebar — collapse rail geometry & transition model", () => {
 			</TooltipProvider>,
 		);
 		// Headings stay MOUNTED when collapsed (they animate to zero
-		// height instead of vanishing and shifting the groups below).
+		// height instead of vanishing and shifting the groups below) and
+		// leave the accessibility tree via aria-hidden.
 		expect(headings().length).toBe(2);
 		for (const heading of headings()) {
 			expect(heading.className).toContain("max-h-0");
-			expect(heading.className).toContain("opacity-0");
 			expect(heading.getAttribute("aria-hidden")).toBe("true");
+			// Shared motion exit tokens on the inner span: toward the
+			// inline-start icon column (RTL-mirrored), fully transparent,
+			// blurred, and inert.
+			const label = headingLabel(heading);
+			expect(label?.className).toContain("-translate-x-3");
+			expect(label?.className).toContain("rtl:translate-x-3");
+			expect(label?.className).toContain("opacity-0");
+			expect(label?.className).toContain("blur-[4px]");
+			expect(label?.className).toContain("pointer-events-none");
+			expect(label?.className).not.toContain("translate-y");
 		}
 	});
 

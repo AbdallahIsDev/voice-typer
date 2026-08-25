@@ -198,17 +198,26 @@ function navShortcut(page: Page): string | undefined {
 	return undefined;
 }
 
+// Shared label motion — the STATE classes of the sidebar's ONE text
+// exit/enter model: opacity + inline-start X translate (RTL-mirrored)
+// + explicit blur endpoints. X-axis only — never any Y component.
+// The element owns its transition-property list (item labels include
+// max-width; group-header containers animate max-height separately),
+// so this helper deliberately declares NO transition classes.
+function navLabelMotion(collapsed: boolean): string {
+	return collapsed
+		? "-translate-x-3 opacity-0 blur-[4px] pointer-events-none rtl:translate-x-3"
+		: "translate-x-0 opacity-100 blur-[0px]";
+}
+
 // Shared label visibility transition for nav item text (leaf labels +
 // the Settings parent label). ONE animation model for the whole
 // sidebar: the label's layout box (max-width) collapses in sync with
 // the aside's 200ms ease-out width transition while the text itself
-// exits toward the inline-start icon column (translate), fades
-// (opacity), and un-blurs (filter). Both filter endpoints are explicit
-// blur values — `blur-[0px]`, never `filter-none` — because
-// `filter: none` cannot interpolate against `blur(N)`. The `rtl:`
-// mirror keeps the exit direction pointing at the icon column in RTL
-// locales. Icons are flex siblings BEFORE the span, so this animation
-// can never shift the icon column.
+// exits toward the inline-start icon column through the shared
+// navLabelMotion state classes (translate + fade + blur). Icons are
+// flex siblings BEFORE the span, so this animation can never shift
+// the icon column.
 //
 // For this transition to actually RUN, the element carrying it must
 // NOT be remounted when `collapsed` flips (CSS transitions only
@@ -222,12 +231,8 @@ function navTextClasses(collapsed: boolean): string {
 	return cn(
 		"overflow-hidden whitespace-nowrap text-sm font-medium dark:font-normal",
 		"transition-[max-width,opacity,translate,filter] duration-200 ease-out",
-		collapsed
-			? cn(
-					"max-w-0 -translate-x-3 opacity-0 blur-[4px] pointer-events-none",
-					"rtl:translate-x-3",
-				)
-			: "max-w-40 translate-x-0 opacity-100 blur-[0px]",
+		collapsed ? "max-w-0" : "max-w-40",
+		navLabelMotion(collapsed),
 	);
 }
 
@@ -396,19 +401,33 @@ function SidebarInner({
 									<div
 										aria-hidden={collapsed || undefined}
 										className={cn(
-											"px-3.5 text-xs font-semibold capitalize tracking-wider text-(--text-muted)",
-											"overflow-hidden",
-											// The heading collapses WITH the rail: max-height
-											// + opacity ride the same 200ms ease-out curve as
-											// the width transition, so the groups below never
-											// jump when the heading disappears (an instant
-											// unmount would shift the whole nav up by one
-											// heading height per group at toggle time).
-											"transition-[max-height,opacity] duration-200 ease-out",
-											collapsed ? "max-h-0 opacity-0" : "max-h-4 opacity-70",
+											"px-3.5",
+											// Vertical SPACE collapse only. The label text itself
+											// exits via the shared horizontal motion (inner span),
+											// so the shrinking container never visibly half-clips
+											// glyphs: the text has dissolved toward the icon column
+											// before the collapse cuts into it.
+											"overflow-hidden transition-[max-height] duration-200 ease-out",
+											collapsed ? "max-h-0" : "max-h-4",
 										)}
 									>
-										{groupLabel}
+										<span
+											className={cn(
+												// block: CSS transforms do not apply to inline elements.
+												"block whitespace-nowrap text-xs font-semibold capitalize tracking-wider text-(--text-muted)",
+												// The text fade runs slightly FASTER (150ms) than the
+												// container's 200ms space collapse — deliberate exit
+												// choreography so the label is gone before the
+												// vertical clip could bite. The shared principles
+												// allow per-layout timing.
+												"block transition-[opacity,translate,filter] duration-150 ease-out",
+												collapsed
+													? navLabelMotion(true)
+													: cn(navLabelMotion(false), "opacity-70"),
+											)}
+										>
+											{groupLabel}
+										</span>
 									</div>
 								)}
 								{group.items.map((item) => {
@@ -545,21 +564,36 @@ interface NavSubmenuProps {
 // A nav item WITH children — the Settings parent + its nested child
 // buttons.
 //
-// ONE authoritative expansion state, fully synchronized with
-// navigation: the submenu is open EXACTLY while a Settings sub-page
-// (or the legacy "settings" parent literal) is the current page, and
-// it closes as soon as the user navigates anywhere else. There is no
-// separate persisted preference to fall out of sync — navigating back
-// to Settings re-opens the submenu automatically.
+// ONE authoritative expansion state: a `submenuOpen` React state,
+// INITIALIZED from the current page and kept IN SYNC with navigation
+// by an effect. Navigation is the sync signal, with deterministic
+// transitions:
+//   - clicking the parent toggles the submenu directly (open ->
+//     closed even on a Settings sub-page; closed -> open + navigate
+//     to the default child);
+//   - ENTERING the Settings section from anywhere (parent click,
+//     Ctrl+, , tray/back-forward navigation) reveals it;
+//   - LEAVING the Settings section closes it.
+// No persisted preference, no timeouts — navigating back to Settings
+// re-opens the submenu automatically.
 //
-// The whole subtree renders through ONE stable element structure in
-// both sidebar states: a single Popover.Root wraps everything; the
-// parent button sits in a Popover.Anchor (positional reference only —
-// no aria leakage, never opens the popover by itself); and only the
-// CONTENT branch differs (collapsed → portal flyout, expanded →
-// inline Collapsible). Keeping the root type stable means the parent
-// button never remounts on toggle, so its label participates in the
-// shared collapse/expand text transition instead of snapping.
+// NO BRANCH SWAP between sidebar states: the SAME inline Collapsible
+// renders expanded AND collapsed (`open={submenuOpen && !collapsed}`),
+// so collapsing the sidebar ANIMATES the open submenu closed
+// (collapsibleUp, 200ms) in step with the aside width transition
+// instead of unmounting it at t=0; expanding animates it back open.
+// Only the collapsed-rail flyout is additive
+// ({collapsed && <Popover.Portal>…</Popover.Portal>}), and the chevron
+// indicator renders UNCONDITIONALLY in both states, fading out with
+// the rail rather than popping out of the DOM.
+//
+// The whole subtree still renders through ONE stable element
+// structure in both sidebar states: a single Popover.Root wraps
+// everything; the parent button sits in a Popover.Anchor (positional
+// reference only — no aria leakage, never opens the popover by
+// itself). Keeping the root type stable means the parent button never
+// remounts on toggle, so its label participates in the shared
+// collapse/expand text transition instead of snapping.
 function NavSubmenu({
 	item,
 	currentPage,
@@ -580,8 +614,22 @@ function NavSubmenu({
 	const hasActiveChild =
 		item.children?.some((c) => c.id === currentPage) ?? false;
 	const isParentActive = currentPage === item.id;
-	// The single expansion source of truth: navigation itself.
-	const expanded = hasActiveChild || isParentActive;
+	// ONE composite flag for "the current page belongs to the Settings
+	// section" — drives BOTH the styling/aria-current signal AND the
+	// submenu state machine (the arrow mirrors the toggle, not the
+	// page).
+	const inSettings = hasActiveChild || isParentActive;
+	// ONE source of truth for the submenu. Deterministic transitions:
+	//   - clicking the parent toggles it directly (open -> closed even on
+	//     a Settings sub-page; closed -> open + navigate);
+	//   - ENTERING the Settings section from anywhere (parent click,
+	//     Ctrl+, , tray/back-forward navigation) reveals it;
+	//   - LEAVING the Settings section closes it — navigation itself is
+	//     the sync signal, no persisted preference, no timeouts.
+	const [submenuOpen, setSubmenuOpen] = useState(inSettings);
+	useEffect(() => {
+		setSubmenuOpen(inSettings);
+	}, [inSettings]);
 
 	// Collapsed-rail flyout state (controlled so outside clicks and
 	// Escape dismiss it through the same handler). Reset when the
@@ -595,21 +643,22 @@ function NavSubmenu({
 	const parentLabel = t(`nav.${item.id}`);
 	const parentKeyShortcut = NAV_KEYSHORTCUTS[item.id];
 
-	// The parent button is the roving-tabindex target when no
-	// child is active (but the parent itself may be active, in
-	// which case it still holds tabIndex=0). When a child IS
-	// active, the child holds tabIndex=0 and the parent drops to -1.
-	// In the COLLAPSED rail the children are never mounted (the flyout
-	// renders its own buttons outside the nav's roving scope), so the
-	// parent keeps the roving tab stop whenever the roving index points
-	// here — even while a Settings sub-page is active — otherwise every
-	// rail button would be tabIndex=-1 and Tab would skip the entire
-	// sidebar.
+	// The parent button is the roving-tabindex target whenever no
+	// child is ACTUALLY VISIBLE — a child being active but hidden
+	// behind a closed submenu leaves the parent as the focusable
+	// stand-in for the section (only `submenuOpen && hasActiveChild`
+	// means the child holds tabIndex=0 and the parent drops to -1).
+	// In the COLLAPSED rail the inline children are never visible (the
+	// flyout renders its own buttons outside the nav's roving scope),
+	// so the parent keeps the roving tab stop whenever the roving
+	// index points here — even while a Settings sub-page is active —
+	// otherwise every rail button would be tabIndex=-1 and Tab would
+	// skip the entire sidebar.
 	const parentTabIndex = collapsed
 		? rovingIdx
 			? 0
 			: -1
-		: rovingIdx && !hasActiveChild
+		: rovingIdx && !(submenuOpen && hasActiveChild)
 			? 0
 			: -1;
 
@@ -634,18 +683,27 @@ function NavSubmenu({
 						// expanded parent is an inline disclosure, not a
 						// dialog opener).
 						aria-expanded={
-							(collapsed ? flyoutOpen : expanded) ? "true" : "false"
+							(collapsed ? flyoutOpen : submenuOpen) ? "true" : "false"
 						}
 						aria-haspopup={collapsed ? "dialog" : undefined}
-						// aria-current is set on the PARENT only
-						// when the parent literal itself is the
-						// active page (e.g. tests / stale persisted
-						// nav state). When a CHILD is active, the
-						// child carries aria-current="page" + the
-						// parent carries only aria-expanded="true"
-						// (signaling "this section is open, look
-						// inside for the active leaf").
-						aria-current={isParentActive ? "page" : undefined}
+						// aria-current is set on the PARENT when the parent
+						// literal itself is the active page (e.g. tests /
+						// stale persisted nav state), OR when an active CHILD
+						// is not actually rendered — hidden behind a closed
+						// submenu OR in the collapsed rail (where the inline
+						// children never mount and the flyout is shut). The
+						// parent then carries the current-page signal because
+						// the actual active leaf is not rendered. When a child
+						// IS active AND visible (submenu open, sidebar
+						// expanded), the child carries aria-current="page" and
+						// the parent carries only aria-expanded="true"
+						// (signaling "this section is open, look inside for
+						// the active leaf").
+						aria-current={
+							isParentActive || (hasActiveChild && (!submenuOpen || collapsed))
+								? "page"
+								: undefined
+						}
 						className={cn(
 							"w-full justify-start gap-3 text-sm tracking-wide normal-case font-normal rounded-md",
 							// Clip the row so the animating label never paints
@@ -655,7 +713,7 @@ function NavSubmenu({
 							// Same anchored icon column as the leaves (px-2 in
 							// both states).
 							"px-2",
-							expanded
+							inSettings
 								? cn(
 										// Parent groups (Settings) stay visually CALM
 										// when their submenu is open: only the stronger
@@ -674,15 +732,14 @@ function NavSubmenu({
 						onClick={() => {
 							if (collapsed) {
 								setFlyoutOpen((open) => !open);
+							} else if (submenuOpen) {
+								// Deterministic close — direct state set, no
+								// navigation side effect.
+								setSubmenuOpen(false);
 							} else {
-								// Navigate to the default Settings child. The
-								// useNavigation.navigate action handles the legacy
-								// "settings" parent literal by redirecting it to
-								// "settingsGeneral", so we just call onNavigate
-								// with the parent's id here. While a Settings page
-								// is already active the navigation is a no-op —
-								// the submenu stays open (it is pinned while its
-								// section owns the current page).
+								// Open + land on the default child; the sync
+								// effect keeps it open.
+								setSubmenuOpen(true);
 								onNavigate(item.id);
 							}
 						}}
@@ -693,40 +750,45 @@ function NavSubmenu({
 							className="h-4 w-4 shrink-0 transition-colors duration-200"
 						/>
 						<span className={navTextClasses(collapsed)}>{parentLabel}</span>
-						{!collapsed && (
-							/* Expand/collapse indicator at the row's FAR END edge
-							    (ms-auto pins it to the button's end padding).
-							    aria-hidden — the button's aria-expanded already
-							    exposes the state to assistive tech. The size-6
-							    (24px) wrapper keeps the glyph's pointer hit area
-							    at the 24px minimum inside the full-row button
-							    target. ONE persistent glyph — the direction is
-							    animation, never an icon swap: expanded rotates
-							    90° to point down; collapsed points forward
-							    (RTL-mirrored via the shared index.css rule, which
-							    is why the mirroring class only applies while
-							    collapsed — a mirrored + rotated glyph would point
-							    back up). Only `rotate` transitions (not
-							    `transform`) so the RTL mirror flip stays instant
-							    while the rotation animates. */
-							<span
-								aria-hidden="true"
-								className="ms-auto flex size-6 shrink-0 items-center justify-center"
-							>
-								<HugeiconsIcon
-									icon={ArrowRight01Icon}
-									strokeWidth={2}
-									className={cn(
-										"h-4 w-4 transition-[rotate] duration-200 ease-out",
-										expanded ? "rotate-90" : "nav-directional-icon",
-									)}
-								/>
-							</span>
-						)}
+						{/* Expand/collapse indicator at the row's FAR END edge
+					    (ms-auto pins it to the button's end padding).
+					    aria-hidden — the button's aria-expanded already
+					    exposes the state to assistive tech. ONE persistent
+					    glyph rendered in BOTH sidebar states: direction is
+					    animation (rotation only, never an icon swap) and the
+					    WRAPPER fades with the rail instead of being unmounted
+					    at t=0. Open rotates 90° to point down; closed points
+					    forward (RTL-mirrored via the shared index.css rule,
+					    which is why `nav-directional-icon` only applies while
+					    closed — a mirrored + rotated glyph would point back
+					    up). Only `rotate` transitions (not `transform`) so
+					    the RTL mirror flip stays instant while the rotation
+					    animates. */}
+						<span
+							aria-hidden="true"
+							className={cn(
+								"ms-auto flex size-6 shrink-0 items-center justify-center",
+								// Fades out with the rail instead of popping out of the DOM;
+								// in the collapsed rail it is fully transparent and inert
+								// (and clipped by the button's overflow-hidden), so the
+								// icon-only state stays clean.
+								"transition-[opacity] duration-200 ease-out",
+								collapsed ? "pointer-events-none opacity-0" : "opacity-100",
+							)}
+						>
+							<HugeiconsIcon
+								icon={ArrowRight01Icon}
+								strokeWidth={2}
+								className={cn(
+									"h-4 w-4 transition-[rotate] duration-200 ease-out",
+									submenuOpen ? "rotate-90" : "nav-directional-icon",
+								)}
+							/>
+						</span>
 					</Button>
 				</Popover.Anchor>
 			</HotkeyTooltip>
-			{collapsed ? (
+			{collapsed && (
 				<Popover.Portal>
 					<Popover.Content
 						side="right"
@@ -780,81 +842,85 @@ function NavSubmenu({
 						})}
 					</Popover.Content>
 				</Popover.Portal>
-			) : (
-				<Collapsible open={expanded}>
-					<CollapsibleContent
-						className={cn(
-							// Smooth reveal/hide in BOTH directions: the content
-							// animates height 0 ↔ --radix-collapsible-content-height
-							// (set by Radix) + opacity, and Radix's Presence keeps
-							// the content mounted until the closing animation
-							// finishes — no layout jump, no instant removal. The
-							// global prefers-reduced-motion block reduces both
-							// animations to 0.01ms (instant, still correct).
-							"overflow-hidden",
-							"data-[state=open]:animate-[collapsibleDown_200ms_ease-out]",
-							"data-[state=closed]:animate-[collapsibleUp_200ms_ease-out]",
-						)}
-					>
-						{/* Plain grouping container — deliberately NOT role="menu".
+			)}
+			{/* Inline submenu — the SAME element renders in BOTH sidebar
+		    states (open only while the rail is expanded), so collapsing
+		    the sidebar ANIMATES an open submenu closed (collapsibleUp,
+		    200ms) in sync with the aside width transition instead of
+		    swapping branches and unmounting it at t=0. */}
+			<Collapsible open={submenuOpen && !collapsed}>
+				<CollapsibleContent
+					className={cn(
+						// Smooth reveal/hide in BOTH directions: the content
+						// animates height 0 ↔ --radix-collapsible-content-height
+						// (set by Radix) + opacity, and Radix's Presence keeps
+						// the content mounted until the closing animation
+						// finishes — no layout jump, no instant removal. The
+						// global prefers-reduced-motion block reduces both
+						// animations to 0.01ms (instant, still correct).
+						"overflow-hidden",
+						"data-[state=open]:animate-[collapsibleDown_200ms_ease-out]",
+						"data-[state=closed]:animate-[collapsibleUp_200ms_ease-out]",
+					)}
+				>
+					{/* Plain grouping container — deliberately NOT role="menu".
 						    These are navigation links inside a nav landmark (the
 						    submenu is part of the page's navigation, not a
 						    transient action menu): menu semantics would demand
 						    menuitem roles + arrow-key menu behavior and break the
 						    nav's roving-tabindex contract. */}
-						<div
-							className={cn(
-								"ms-3 mt-0.5 flex flex-col gap-px border-s border-border/10 ps-2",
-							)}
-						>
-							{item.children?.map((child) => {
-								const childActive = currentPage === child.id;
-								// The active child takes tabIndex=0
-								// (roving target); others -1. When no
-								// child is active, ALL children are
-								// -1 (the parent holds 0).
-								const childTabIndex = childActive ? 0 : -1;
-								return (
-									<Button
-										key={child.id}
-										variant="ghost"
-										data-nav-item="true"
-										tabIndex={childTabIndex}
-										aria-current={childActive ? "page" : undefined}
-										aria-level={2}
-										className={cn(
-											"w-full justify-start gap-3 text-sm tracking-wide normal-case font-normal rounded-md",
-											"transition-[background-color,border-color,color] duration-200 ease-out",
-											"px-3 py-1.5",
-											childActive
-												? cn(
-														// Same standard card treatment as the
-														// top-level active leaf.
-														"border-border/10 bg-(--bg) hover:bg-(--bg)",
-														"text-(--text-primary) font-medium",
-													)
-												: cn(
-														"text-(--text-muted)",
-														"hover:bg-foreground/5 hover:text-(--text-primary)",
-													),
-										)}
-										onClick={() => onNavigate(child.id)}
-									>
-										<HugeiconsIcon
-											icon={child.icon ?? item.icon}
-											strokeWidth={2}
-											className="h-4 w-4 shrink-0"
-										/>
-										<span className="overflow-hidden whitespace-nowrap text-sm font-medium dark:font-normal">
-											{t(`nav.${child.id}`)}
-										</span>
-									</Button>
-								);
-							})}
-						</div>
-					</CollapsibleContent>
-				</Collapsible>
-			)}
+					<div
+						className={cn(
+							"ms-3 mt-0.5 flex flex-col gap-px border-s border-border/10 ps-2",
+						)}
+					>
+						{item.children?.map((child) => {
+							const childActive = currentPage === child.id;
+							// The active child takes tabIndex=0
+							// (roving target); others -1. When no
+							// child is active, ALL children are
+							// -1 (the parent holds 0).
+							const childTabIndex = childActive ? 0 : -1;
+							return (
+								<Button
+									key={child.id}
+									variant="ghost"
+									data-nav-item="true"
+									tabIndex={childTabIndex}
+									aria-current={childActive ? "page" : undefined}
+									aria-level={2}
+									className={cn(
+										"w-full justify-start gap-3 text-sm tracking-wide normal-case font-normal rounded-md",
+										"transition-[background-color,border-color,color] duration-200 ease-out",
+										"px-3 py-1.5",
+										childActive
+											? cn(
+													// Same standard card treatment as the
+													// top-level active leaf.
+													"border-border/10 bg-(--bg) hover:bg-(--bg)",
+													"text-(--text-primary) font-medium",
+												)
+											: cn(
+													"text-(--text-muted)",
+													"hover:bg-foreground/5 hover:text-(--text-primary)",
+												),
+									)}
+									onClick={() => onNavigate(child.id)}
+								>
+									<HugeiconsIcon
+										icon={child.icon ?? item.icon}
+										strokeWidth={2}
+										className="h-4 w-4 shrink-0"
+									/>
+									<span className="overflow-hidden whitespace-nowrap text-sm font-medium dark:font-normal">
+										{t(`nav.${child.id}`)}
+									</span>
+								</Button>
+							);
+						})}
+					</div>
+				</CollapsibleContent>
+			</Collapsible>
 		</Popover.Root>
 	);
 }

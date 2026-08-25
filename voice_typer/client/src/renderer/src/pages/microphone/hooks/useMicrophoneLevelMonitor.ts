@@ -159,19 +159,14 @@ export interface UseMicrophoneLevelMonitorResult {
 	setMicMonitoring: Dispatch<SetStateAction<boolean>>;
 }
 
-// ──  LevelBar colour ladder ────────────────────────────────────
+// ──  LevelBar fill colour ──────────────────────────────────────
 //
-// Duplicated from ``components/feedback/LevelBar.tsx``'s private
-// ``getLevelColor`` so the rAF loop can compute the fill colour without
-// a React re-render. Kept in sync manually — the thresholds are stable
-// (they mirror the CSS variable ladder ``--destructive`` / ``--primary``
-// / ``--accent`` and haven't changed since F8). If ``LevelBar``'s
-// thresholds change, update this too.
-function getLevelColor(lvl: number): string {
-	if (lvl > 0.7) return "var(--destructive)";
-	if (lvl > 0.3) return "var(--primary)";
-	return "var(--accent)";
-}
+// The fill is styled SOLID ``bg-primary`` by ``LevelBar.tsx`` (a class,
+// not an inline style), so the rAF loop below must NOT write
+// ``backgroundColor`` — only ``transform: scaleX()``. The former
+// per-tier colour ladder (and its duplicated private ``getLevelColor``
+// copy here) was removed when the fill became solid primary; the tier
+// is communicated via aria-valuetext + the ⚠ clipping icon instead.
 
 export function useMicrophoneLevelMonitor({
 	config,
@@ -405,11 +400,11 @@ export function useMicrophoneLevelMonitor({
 	//     pauses after 500ms — no continuous spin.
 	//
 	// Visual parity: the React-driven path updates ``LevelBar``'s fill via
-	// inline ``transform: scaleX()`` + ``backgroundColor`` style props. This
-	// rAF loop writes the SAME two properties to the same DOM node at
-	// ≤60 Hz while events are flowing — strictly smoother than the 30 Hz
-	// React-driven cadence, with the same visual result (the bar fills to
-	// the latest level with the same colour ladder).
+	// the inline ``transform: scaleX()`` style prop (the fill colour is a
+	// static ``bg-primary`` class). This rAF loop writes the SAME property
+	// to the same DOM node at ≤60 Hz while events are flowing — strictly
+	// smoother than the 30 Hz React-driven cadence, with the same visual
+	// result.
 	// When the loop is paused (idle / gate closed), the bar holds its
 	// last value — which matches the prior behaviour (the React state
 	// was already stale during monitoring; only the rAF-driven DOM write
@@ -474,24 +469,24 @@ export function useMicrophoneLevelMonitor({
 				// LevelBar's fill div — ``[role="progressbar"] > div``.
 				// Selector mirrors ``LevelBar.tsx``'s render structure
 				// (the ``<div role="progressbar">`` wrapper + its single
-				// child ``<div>`` carrying the inline ``transform`` /
-				// ``backgroundColor`` style). If ``LevelBar``'s DOM
-				// changes, update this selector.
+				// child ``<div>`` carrying the inline ``transform``
+				// style). If ``LevelBar``'s DOM changes, update this
+				// selector.
 				const fill = meter.querySelector<HTMLElement>(
 					'[role="progressbar"] > div',
 				);
 				if (fill) {
 					// Write the SAME style property LevelBar renders:
-					// the fill is a full-width div animated via
-					// ``transform: scaleX()`` (compositor-friendly — see
-					// the PERF note in LevelBar.tsx). Writing ``width``
-					// here instead would fight the fill's ``w-full``
-					// class AND leave the transform at its stale
-					// React-rendered value, double-scaling / freezing
-					// the bar.
-					const lvl = Math.max(0, levelRef.current);
-					fill.style.transform = `scaleX(${lvl})`;
-					fill.style.backgroundColor = getLevelColor(lvl);
+					// the fill is a full-width solid-primary div animated
+					// via ``transform: scaleX()`` (compositor-friendly —
+					// see the PERF note in LevelBar.tsx). Writing
+					// ``width`` here instead would fight the fill's
+					// ``w-full`` class AND leave the transform at its
+					// stale React-rendered value, double-scaling /
+					// freezing the bar. Do NOT write
+					// ``backgroundColor``: the fill colour is the static
+					// ``bg-primary`` class, not an inline style.
+					fill.style.transform = `scaleX(${Math.max(0, levelRef.current)})`;
 				}
 			}
 

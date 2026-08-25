@@ -155,7 +155,6 @@
 		"startPlaybackFailed": "प्लेबैक शुरू करने में विफल।",
 		"systemDefaultDesc": "ऑपरेटिंग सिस्टम का डिफ़ॉल्ट इनपुट डिवाइस",
 		"selectedMicDesc": "चयनित माइक्रोफ़ोन",
-		"recordingStatus": "रिकॉर्डिंग…",
 		"startTest": "परीक्षण शुरू करें",
 		"stopTest": "परीक्षण रोकें ({seconds}s)",
 		"level": "स्तर: {percent}%",
@@ -175,8 +174,7 @@
 		"openSettings": "सेटिंग्स खोलें",
 		"openSettingsAria": "ऑपरेटिंग सिस्टम की माइक्रोफ़ोन गोपनीयता सेटिंग्स खोलें",
 		"loading": "माइक्रोफ़ोन लोड हो रहे हैं…",
-		"loadFailedDescription": "हम आपका माइक्रोफ़ोन डेटा बैकएंड से लोड नहीं कर सके। लॉग जांचें और पुनः प्रयास करें।",
-		"selected": "चयनित माइक्रोफ़ोन"
+		"loadFailedDescription": "हम आपका माइक्रोफ़ोन डेटा बैकएंड से लोड नहीं कर सके। लॉग जांचें और पुनः प्रयास करें।"
 	},
 	"keyboard": {
 		"permissionDeniedTitle": "हॉटकी के लिए एक्सेसिबिलिटी अनुमति आवश्यक है",
@@ -1581,10 +1579,8 @@
 		"maximize": "अधिकतम करें",
 		"restore": "पुनर्स्थापित करें",
 		"close": "बंद करें",
-		"back": "पीछे (या माउस बैक बटन)",
-		"forward": "आगे (या माउस फ़ॉरवर्ड बटन)",
-		"forwardWithShortcut": "आगे ({shortcut})",
-		"backWithShortcut": "पीछे ({shortcut})"
+		"back": "पीछे",
+		"forward": "आगे"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "{appName} रिकॉर्डिंग संकेतक",

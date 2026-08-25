@@ -155,7 +155,6 @@
 		"startPlaybackFailed": "开始播放失败。",
 		"systemDefaultDesc": "操作系统的默认输入设备",
 		"selectedMicDesc": "已选麦克风",
-		"recordingStatus": "录音中…",
 		"startTest": "开始测试",
 		"stopTest": "停止测试（{seconds} 秒）",
 		"level": "电平：{percent}%",
@@ -175,8 +174,7 @@
 		"openSettings": "打开设置",
 		"openSettingsAria": "打开操作系统麦克风隐私设置",
 		"loading": "正在加载麦克风…",
-		"loadFailedDescription": "无法加载麦克风列表。请检查连接后重试。",
-		"selected": "已选择"
+		"loadFailedDescription": "无法加载麦克风列表。请检查连接后重试。"
 	},
 	"keyboard": {
 		"permissionDeniedTitle": "热键需要辅助功能权限",
@@ -1581,10 +1579,8 @@
 		"maximize": "最大化",
 		"restore": "还原",
 		"close": "关闭",
-		"back": "后退（或鼠标后退按钮）",
-		"forward": "前进（或鼠标前进按钮）",
-		"forwardWithShortcut": "前进 ({shortcut})",
-		"backWithShortcut": "后退 ({shortcut})"
+		"back": "返回",
+		"forward": "前进"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "{appName} 录音指示器",

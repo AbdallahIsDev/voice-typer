@@ -155,7 +155,6 @@
 		"startPlaybackFailed": "Wiedergabe konnte nicht gestartet werden.",
 		"systemDefaultDesc": "Standardeingabegerät des Betriebssystems",
 		"selectedMicDesc": "Ausgewähltes Mikrofon",
-		"recordingStatus": "Aufnahme…",
 		"startTest": "Test starten",
 		"stopTest": "Test stoppen ({seconds}s)",
 		"level": "Pegel: {percent}%",
@@ -175,8 +174,7 @@
 		"openSettings": "Einstellungen öffnen",
 		"openSettingsAria": "Mikrofon-Datenschutzeinstellungen des Betriebssystems öffnen",
 		"loading": "Mikrofone werden geladen…",
-		"loadFailedDescription": "Wir konnten Ihre Mikrofon-Daten nicht vom Backend laden. Prüfen Sie die Protokolle und versuchen Sie es erneut.",
-		"selected": "Ausgewähltes Mikrofon"
+		"loadFailedDescription": "Wir konnten Ihre Mikrofon-Daten nicht vom Backend laden. Prüfen Sie die Protokolle und versuchen Sie es erneut."
 	},
 	"keyboard": {
 		"permissionDeniedTitle": "Tastenkürzel erfordern Barrierefreiheits-Berechtigung",
@@ -1581,10 +1579,8 @@
 		"maximize": "Maximieren",
 		"restore": "Wiederherstellen",
 		"close": "Schließen",
-		"back": "Zurück (oder Maus-Zurück-Taste)",
-		"forward": "Vorwärts (oder Maus-Vorwärts-Taste)",
-		"forwardWithShortcut": "Vorwärts ({shortcut})",
-		"backWithShortcut": "Zurück ({shortcut})"
+		"back": "Zurück",
+		"forward": "Vorwärts"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "{appName}-Aufnahmeanzeige",

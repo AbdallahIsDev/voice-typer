@@ -155,7 +155,6 @@
 		"startPlaybackFailed": "No se pudo iniciar la reproducción.",
 		"systemDefaultDesc": "Dispositivo de entrada predeterminado del sistema operativo",
 		"selectedMicDesc": "Micrófono seleccionado",
-		"recordingStatus": "Grabando…",
 		"startTest": "Iniciar prueba",
 		"stopTest": "Detener prueba ({seconds}s)",
 		"level": "Nivel: {percent}%",
@@ -175,8 +174,7 @@
 		"openSettings": "Abrir configuración",
 		"openSettingsAria": "Abrir la configuración de privacidad del micrófono del sistema operativo",
 		"loading": "Cargando micrófonos…",
-		"loadFailedDescription": "No pudimos cargar los datos del micrófono desde el backend. Revisa los registros e inténtalo de nuevo.",
-		"selected": "Micrófono seleccionado"
+		"loadFailedDescription": "No pudimos cargar los datos del micrófono desde el backend. Revisa los registros e inténtalo de nuevo."
 	},
 	"keyboard": {
 		"permissionDeniedTitle": "Los atajos de teclado requieren permiso de accesibilidad",
@@ -1581,10 +1579,8 @@
 		"maximize": "Maximizar",
 		"restore": "Restaurar",
 		"close": "Cerrar",
-		"back": "Atrás (o botón atrás del ratón)",
-		"forward": "Adelante (o botón adelante del ratón)",
-		"forwardWithShortcut": "Adelante ({shortcut})",
-		"backWithShortcut": "Atrás ({shortcut})"
+		"back": "Atrás",
+		"forward": "Adelante"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Indicador de grabación de {appName}",

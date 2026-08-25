@@ -1075,7 +1075,6 @@
 		"startPlaybackFailed": "Impossible de démarrer la lecture.",
 		"systemDefaultDesc": "Périphérique d'entrée par défaut du système d'exploitation",
 		"selectedMicDesc": "Microphone sélectionné",
-		"recordingStatus": "Enregistrement…",
 		"startTest": "Démarrer le test",
 		"stopTest": "Arrêter le test ({seconds}s)",
 		"level": "Niveau : {percent} %",
@@ -1095,8 +1094,7 @@
 		"openSettings": "Ouvrir les paramètres",
 		"openSettingsAria": "Ouvrir les paramètres de confidentialité du microphone du système d'exploitation",
 		"loading": "Chargement des microphones…",
-		"loadFailedDescription": "Impossible de charger les données de votre microphone depuis le backend. Vérifiez les journaux et réessayez.",
-		"selected": "Microphone sélectionné"
+		"loadFailedDescription": "Impossible de charger les données de votre microphone depuis le backend. Vérifiez les journaux et réessayez."
 	},
 	"keyboard": {
 		"permissionDeniedTitle": "Les raccourcis clavier nécessitent l'autorisation d'accessibilité",
@@ -1449,10 +1447,8 @@
 		"maximize": "Agrandir",
 		"restore": "Restaurer",
 		"close": "Fermer",
-		"back": "Retour (ou bouton retour de la souris)",
-		"forward": "Avancer (ou bouton avancer de la souris)",
-		"forwardWithShortcut": "Suivant ({shortcut})",
-		"backWithShortcut": "Retour ({shortcut})"
+		"back": "Retour",
+		"forward": "Avancer"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Indicateur d'enregistrement {appName}",
