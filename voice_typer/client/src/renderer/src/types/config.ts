@@ -60,7 +60,7 @@ export interface VoiceTyperConfig {
 	// `pre_roll_buffer_seconds: float = 0.0` (no pre-roll) and it's
 	// in the IPC allowlist; absence on the wire is treated as 0.0.
 	pre_roll_buffer_seconds?: number;
-	//ER-42: auto-calibrate VAD thresholds from ambient noise
+	//auto-calibrate VAD thresholds from ambient noise
 	// (server-side recording setting — no renderer UI, mirroring the
 	// other `vad_*` fields which are intentionally absent from this
 	// interface). Declared `vad_auto_calibrate: bool = False` in the
@@ -391,13 +391,15 @@ export interface VoiceTyperConfig {
 	noise_filter_post_capture: boolean; // RUNTIME (server-controlled, not IPC-settable per ADR 0009)
 	//tightened to mirror the Python `NOISE_SUPPRESSION_METHODS`
 	// frozenset in `voice_typer/server/config_validators.py`
-	// ({"rnnoise", "deepfilternet", "none"}). The historical "speex"
+	// ({"rnnoise", "gtcrn", "none"}). The historical "speex"
 	// option was never implemented — there is no speex backend in
 	// `audio_filters/noise_suppressor.py` — and was rejected at the
-	// IPC boundary, but the TS union still admitted it, letting
-	// renderer code construct a payload the server would silently
-	// reject. Removed from the union to eliminate the drift.
-	noise_suppression_method: "rnnoise" | "deepfilternet" | "none";
+	// IPC boundary. "deepfilternet" was retired when the bundled
+	// GTCRN ONNX streaming model replaced the unmaintained
+	// DeepFilterNet package (the Python config loader remaps the
+	// legacy on-disk value to "gtcrn"). Removed from the union to
+	// eliminate the drift.
+	noise_suppression_method: "rnnoise" | "gtcrn" | "none";
 	noise_filter_eq: boolean;
 	noise_filter_eq_low_db: number;
 	noise_filter_eq_mid_db: number;

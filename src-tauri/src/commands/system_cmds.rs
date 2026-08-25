@@ -23,6 +23,7 @@ use tokio::sync::oneshot;
 
 use crate::commands::export::export_data;
 use crate::commands::require_main_window;
+use crate::error::VoiceTyperError;
 use crate::platform::open_path::open_path_in_file_manager;
 use crate::platform::paths::config_dir;
 
@@ -191,7 +192,10 @@ fn redact_config_secrets_inner(value: &mut Value, parent_key: Option<&str>, coun
 /// `require_main_window(&window)?` runs FIRST so a compromised bubble
 /// renderer cannot trigger OS file-manager opens.
 #[tauri::command]
-pub async fn open_logs(_app: tauri::AppHandle, window: tauri::Window) -> Result<Value, String> {
+pub async fn open_logs(
+    _app: tauri::AppHandle,
+    window: tauri::Window,
+) -> Result<Value, VoiceTyperError> {
     require_main_window(&window)?;
     let log_dir = config_dir();
     // Offload the synchronous fs mkdir + the OS file-manager spawn to
@@ -273,7 +277,7 @@ pub async fn renderer_log_error(
     payload: Value,
     window: tauri::Window,
     _app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), VoiceTyperError> {
     //main-window-origin guard. Without this, a compromised
     // bubble renderer (withGlobalTauri: true) could invoke
     // `invoke('renderer_log_error', payload)` directly and flood the
@@ -322,7 +326,7 @@ pub async fn renderer_log_error(
 pub async fn open_model_import_dialog(
     app: tauri::AppHandle,
     window: tauri::Window,
-) -> Result<Value, String> {
+) -> Result<Value, VoiceTyperError> {
     require_main_window(&window)?;
     //use the async folder-pick pattern instead of blocking.
     // tauri-plugin-dialog v2.7.2's ``pick_folder()`` is callback-based
@@ -365,7 +369,7 @@ pub async fn export_templates(
     data: Value,
     app: tauri::AppHandle,
     window: tauri::Window,
-) -> Result<Value, String> {
+) -> Result<Value, VoiceTyperError> {
     require_main_window(&window)?;
     // Templates are always JSON (no tabular CSV shape). Pass "json"
     // explicitly so the shared helper's format-validation accepts.
@@ -399,7 +403,7 @@ pub async fn export_config(
     mut data: Value,
     app: tauri::AppHandle,
     window: tauri::Window,
-) -> Result<Value, String> {
+) -> Result<Value, VoiceTyperError> {
     require_main_window(&window)?;
     //defense-in-depth redaction. Walk the JSON tree and
     // replace any value whose key matches the sensitive-key pattern

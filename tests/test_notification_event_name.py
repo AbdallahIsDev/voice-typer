@@ -27,32 +27,11 @@ mock app + mocked ``crash_handler.report_pending_crash``.
 
 from __future__ import annotations
 
-from threading import RLock
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# ─── helpers ──────────────────────────────────────────────────────────────
-
-
-def _make_ipc_server():
-    """Build a minimal IPCServer with a mock app + service.
-
-    Mirrors ``tests/test_bugfix_regressions.py::
-    TestElectronNotificationFieldValidation._make_server`` — same
-    surface (``app``, ``service``, ``_config_mutation_lock``) so the
-    handler mixin can run its validation + publish path without a real
-    VoiceTyperApp.
-    """
-    from voice_typer.server.ipc_server import IPCServer
-
-    app = MagicMock()
-    app._config_mutation_lock = RLock()
-    server = IPCServer.__new__(IPCServer)
-    server.app = app
-    server.service = MagicMock()
-    return server
-
+from tests.fixtures.ipc_test_helpers import make_bare_ipc_server
 
 # ─── system_handlers._handle_show_electron_notification ───────────────────
 
@@ -80,7 +59,7 @@ class TestShowNotificationEventName:
         canonical name that reaches the renderer on both the Electron
         and Tauri paths.
         """
-        server = _make_ipc_server()
+        server = make_bare_ipc_server()
         captured: dict = {}
         resp: dict = {}
         with patch(
@@ -113,7 +92,7 @@ class TestShowNotificationEventName:
         ``type`` and that the data dict has the expected 4 fields
         (no extra ``legacy_event`` / ``original_event_name`` leakage).
         """
-        server = _make_ipc_server()
+        server = make_bare_ipc_server()
         captured: dict = {}
         resp: dict = {}
         with patch(
@@ -145,7 +124,7 @@ class TestShowNotificationEventName:
 
     def test_default_payload_uses_notification_event_name(self):
         """Empty ``data: {}`` must still publish under ``notification``."""
-        server = _make_ipc_server()
+        server = make_bare_ipc_server()
         captured: dict = {}
         resp: dict = {}
         with patch(

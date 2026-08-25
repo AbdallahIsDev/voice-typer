@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.fixtures.history_test_helpers import history_plaintext_mode  # noqa: F401
+
 
 @pytest.fixture
 def db(tmp_path):

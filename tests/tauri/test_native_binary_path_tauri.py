@@ -9,7 +9,21 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
 from voice_typer.server import native_hotkeys
+
+# Hint for xdist schedulers that respect ``xdist_group`` (loadgroup /
+# loadscope): pin every test in this module — and its siblings
+# ``test_binary_path_caching.py``,
+# ``test_native_hotkeys_binary_path.py`` and
+# ``test_native_hotkeys_factory_binary_path.py`` — onto a single
+# worker. All four exercise ``get_native_binary_path``'s process-wide
+# ``lru_cache(maxsize=1)`` (cleared between tests by the conftest
+# autouse cache-reset fixture); grouping them on one worker is
+# defense-in-depth for that shared cache. xdist's default ``load``
+# scheduler does NOT strictly honor this marker — it is a hint, not a
+# correctness guarantee. No-op when xdist isn't active. (C-TEST-5.)
+pytestmark = pytest.mark.xdist_group("native_binary_path")
 
 
 def test_voice_typer_native_dir_lookup_finds_binary(tmp_path, monkeypatch):

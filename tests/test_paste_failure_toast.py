@@ -53,7 +53,7 @@ from voice_typer.server.dictation_pipeline import DictationPipeline
 class _TestApp:
     """Minimal app stub for ``DictationPipeline._copy_and_paste``.
 
-    Mirrors the pattern in ``tests/test_dictation_pipeline_review_fixes.py``
+    Mirrors the pattern in ``tests/app/test_notify_once_flags.py``
     but specialized for the paste-failure path: we need ``clipboard``,
     ``_crash_recovery``, ``_waveform_bubble``, ``tray``, ``_busy_event``,
     and ``_schedule_timer`` to be controllable mocks. Other attributes
@@ -99,7 +99,7 @@ def _new_pipeline(app: _TestApp) -> DictationPipeline:
     """Build a fresh DictationPipeline tied to ``app``.
 
     Mirrors the construction pattern in
-    ``tests/test_dictation_pipeline_review_fixes.py``: bypass
+    ``tests/fixtures/dictation_pipeline_helpers.py``: bypass
     ``DictationPipeline.__init__`` (which requires a full audio
     pipeline) and set only the attributes ``_copy_and_paste``
     actually reads.

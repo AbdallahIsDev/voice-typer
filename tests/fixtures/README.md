@@ -22,14 +22,27 @@ their inline helpers to the canonical import over time (see the
   `join_model_load_thread` (best-effort join of `app.models.
   _model_load_thread` after a test, mirroring the teardown in
   `tests/app/conftest.py:59-61`).
+- `clipboard_helpers.py` — `make_clipboard_manager` (the `__new__`
+  bypass with mocked keyboard + cached flags; `last_copied_text`
+  param covers the sentinel variants) and `make_clipboard_snapshot`.
+- `dictation_pipeline_helpers.py` — `make_test_app` (the minimal
+  non-magic app whose four notify-once flags correctly default via
+  `getattr`) and `new_pipeline` (per-cycle `DictationPipeline` via
+  `__new__`); shared by `tests/app/test_notify_once_flags.py` and
+  `tests/test_transcription_audio_stats.py`.
 - `ipc_test_helpers.py` — DI-mode fakes for `IPCServer`:
-  `make_fake_app`, `make_fake_service`, `make_ipc_server_with_fakes`.
+  `make_fake_app`, `make_fake_service`, `make_ipc_server_with_fakes`,
+  `make_bare_ipc_server` (the `__new__` bypass with the
+  `_dispatch_lock` + `_config_mutation_lock` fix), `make_fake_recorder`
+  (alias over `recorder_test_helpers.make_recorder`),
+  `make_fake_sidecar_ws_server`.
 - `sidecar_ws_test_helpers.py` — `_make_fake_server` for sidecar WS
   tests.
-- `recorder_test_helpers.py` — `make_recorder()` consolidates the 2
-  byte-for-byte copies of the secure-clear path's `_make_recorder` in
-  `tests/test_secure_clear_no_resample_segments.py` and
-  `tests/test_secure_clear_array.py`.
+- `recorder_test_helpers.py` — `make_recorder(config=None,
+  **config_fields)` consolidates the recorder factories across the
+  test tree (config overrides are applied BEFORE the `Recorder`
+  constructor so constructor-read fields like
+  `pre_roll_buffer_seconds` are honoured).
 
 ## Removed fixtures (XS-43)
 

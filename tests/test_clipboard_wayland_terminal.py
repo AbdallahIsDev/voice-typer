@@ -329,15 +329,12 @@ class TestImeCompositionGuard:
     """paste is deferred when IME composition is in progress."""
 
     def _make_cm(self) -> ClipboardManager:
-        cm = ClipboardManager.__new__(ClipboardManager)
-        cm.paste_enabled = True
-        cm._keyboard = MagicMock()
-        cm._last_paste_time = 0.0
-        cm._clipboard_seq = 0
-        cm._clipboard_save_restore_enabled = False
-        cm._last_copied_text = "test"
-        cm._restore_delay_ms = 150
-        return cm
+        """Delegate to the shared canonical factory (XS-42 helper dedup),
+        keeping this suite's save-restore-disabled / "test" sentinel
+        arrangement."""
+        from tests.fixtures.clipboard_helpers import make_clipboard_manager
+
+        return make_clipboard_manager(save_restore=False, last_copied_text="test")
 
     def test_paste_returns_false_when_ime_composing(self, monkeypatch):
         """When ``is_ime_composing()`` returns True, paste returns False."""

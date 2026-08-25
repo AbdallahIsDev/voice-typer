@@ -17,13 +17,15 @@ Fix-Existing mode session:
 - **Finding #108 (Critical)** — ``noise_suppressor.py``
   ``deepfilternet`` path was a silent passthrough: users selecting the
   ``noisy_room`` preset got ZERO neural noise suppression with no UI
-  signal. The fix marks ``is_degraded=True`` AND falls back to
-  ``rnnoise`` at ``__init__`` time (not at ``process()`` time) so the
-  UI can warn the user before the first audio chunk. These tests stub
-  the ``df`` and ``pyrnnoise`` imports to exercise all four
-  combinations (installed / not-installed) and assert the degraded
-  flag, the degraded reason, and the effective ``_method`` after
-  construction.
+  signal. The init-time contract (mark ``is_degraded=True`` AND fall
+  back to ``rnnoise`` at ``__init__``, not at ``process()``) now
+  guards the live GTCRN backend that replaced the retired
+  DeepFilterNet option: when the bundled ONNX model / onnxruntime is
+  unavailable the suppressor still degrades to RNNoise so the UI can
+  warn the user before the first audio chunk. These tests stub the
+  ``GtcrnBackend`` class and the ``pyrnnoise`` import to exercise the
+  success / failure combinations and assert the degraded flag, the
+  degraded reason, and the effective ``_method`` after construction.
 
 - **Finding #245 (H-22, High)** — ``audio_processor.py`` resample
   fallback silently filtered at the wrong rate when ``scipy`` was
@@ -54,20 +56,43 @@ import pytest
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _install_fake_df(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Inject a stub ``df`` module so ``_init_deepfilternet``'s import succeeds.
+def _install_fake_gtcrn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Swap ``GtcrnBackend`` for a lightweight fake (happy path).
 
-    The stub provides ``init_df`` and ``enhance`` callables so the
-    historical ``from df import enhance, init_df`` line would also
-    succeed — but the new ``_init_deepfilternet`` only probes for the
-    top-level module (it doesn't actually call ``init_df`` because
-    processing isn't wired). The stub mirrors the old shape so a future
-    revert of the probe-to-call refactor still passes.
+    The fake records nothing and returns each hop halved — enough for
+    the init-matrix tests to assert the suppressor kept the LIVE
+    method (``_method == "gtcrn"``, ``is_degraded == False``) without
+    loading the real ONNX model. The real-model end-to-end behavior is
+    covered by ``tests/test_noise_suppressor_gtcrn.py``.
     """
-    fake_df = types.ModuleType("df")
-    fake_df.init_df = lambda *a, **kw: (None, None)
-    fake_df.enhance = lambda *a, **kw: None
-    monkeypatch.setitem(sys.modules, "df", fake_df)
+
+    class _FakeGtcrnBackend:
+        def process_hop(self, hop, caches=None):
+            return np.asarray(hop, dtype=np.float32) * 0.5, ()
+
+        def reset(self) -> None:
+            pass
+
+    from voice_typer.server.audio_filters import gtcrn_backend as _gtcrn_module
+
+    monkeypatch.setattr(_gtcrn_module, "GtcrnBackend", _FakeGtcrnBackend)
+
+
+def _install_failing_gtcrn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Swap ``GtcrnBackend`` for one whose constructor always raises.
+
+    Simulates every init-time failure mode at once: onnxruntime
+    missing, the bundled ``gtcrn_simple.onnx`` missing/corrupt, or the
+    session failing its warmup.
+    """
+
+    class _FailingGtcrnBackend:
+        def __init__(self) -> None:
+            raise RuntimeError("gtcrn model unavailable in test")
+
+    from voice_typer.server.audio_filters import gtcrn_backend as _gtcrn_module
+
+    monkeypatch.setattr(_gtcrn_module, "GtcrnBackend", _FailingGtcrnBackend)
 
 
 def _install_fake_pyrnnoise(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -108,102 +133,88 @@ def _remove_module(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestDeepFilterNetInitFallback:
-    """S3-CR-6 (Critical): deepfilternet must fall back to rnnoise at __init__.
+class TestGtcrnInitFallback:
+    """A failed GTCRN init must fall back to rnnoise at __init__.
 
-    Before the fix, ``__init__`` left ``self._method == "deepfilternet"``
-    and ``is_degraded == False`` when the ``df`` package was importable.
-    The first ``process()`` call then silently fell through to
-    passthrough — users in noisy environments got ZERO noise suppression.
-
-    The fix narrows every known method to ``"rnnoise"`` or ``"none"`` at
-    construction time and marks ``is_degraded=True`` so the UI can warn
-    the user before the first audio chunk.
+    The ``noisy_room`` preset selects the bundled GTCRN ONNX streaming
+    model. When that backend cannot load (onnxruntime missing, the
+    bundled ``gtcrn_simple.onnx`` missing/corrupt, session warmup
+    failure), ``__init__`` must narrow the method to ``"rnnoise"``
+    (NOT leave it as ``"gtcrn"`` with a dead backend — the original
+    silent-passthrough bug) and mark ``is_degraded=True`` so the UI can
+    warn the user before the first audio chunk.
     """
 
-    def test_deepfilternet_installed_rnnoise_installed_falls_back_at_init(self, monkeypatch: pytest.MonkeyPatch):
-        """Both libs available → method=rnnoise, degraded=True, df reason."""
-        _install_fake_df(monkeypatch)
+    def test_gtcrn_available_not_degraded(self, monkeypatch: pytest.MonkeyPatch):
+        """Backend loads → method stays gtcrn, NOT degraded, backend live."""
+        _install_fake_gtcrn(monkeypatch)
         _install_fake_pyrnnoise(monkeypatch)
 
         from voice_typer.server.audio_filters.noise_suppressor import NoiseSuppressor
 
-        ns = NoiseSuppressor(method="deepfilternet", sample_rate=16000)
+        ns = NoiseSuppressor(method="gtcrn", sample_rate=16000)
+
+        # Critical assertion: a healthy GTCRN init keeps the selected
+        # method — the noisy_room preset gets real GTCRN suppression,
+        # not a silent fallback.
+        assert ns._method == "gtcrn", f"a successful GTCRN init must keep method='gtcrn'; got {ns._method!r}"
+        assert ns._backend is not None, "the GTCRN backend instance must be kept"
+        assert ns.is_degraded is False, (
+            "is_degraded must be False when the GTCRN backend loads — the UI "
+            "must not warn users that they're on a fallback they aren't on"
+        )
+        assert ns.degraded_reason == ""
+        assert ns.latency_ms == pytest.approx(16.0)
+
+    def test_gtcrn_failure_rnnoise_installed_falls_back_at_init(self, monkeypatch: pytest.MonkeyPatch):
+        """Backend fails, RNNoise available → method=rnnoise, degraded=True, gtcrn reason."""
+        _install_failing_gtcrn(monkeypatch)
+        _install_fake_pyrnnoise(monkeypatch)
+
+        from voice_typer.server.audio_filters.noise_suppressor import NoiseSuppressor
+
+        ns = NoiseSuppressor(method="gtcrn", sample_rate=16000)
 
         # Critical assertion: method is narrowed to rnnoise at __init__
         # (not at process() time). This means process() reaches the
         # rnnoise branch directly and the user gets neural noise
         # suppression instead of silent passthrough.
         assert ns._method == "rnnoise", (
-            f"deepfilternet must fall back to rnnoise at __init__; got _method={ns._method!r}"
+            f"a failed GTCRN init must fall back to rnnoise at __init__; got _method={ns._method!r}"
         )
         assert ns._backend is not None, "rnnoise backend must be initialized"
         assert ns.is_degraded is True, (
             "is_degraded must be True at __init__ so the UI can warn the user "
-            "that deepfilternet isn't wired (currently falls back to rnnoise)"
+            "that the GTCRN model couldn't load (currently falls back to rnnoise)"
         )
-        assert "deepfilternet" in ns.degraded_reason.lower(), (
-            f"degraded_reason must mention deepfilternet; got {ns.degraded_reason!r}"
-        )
+        assert "gtcrn" in ns.degraded_reason.lower(), f"degraded_reason must mention gtcrn; got {ns.degraded_reason!r}"
         assert "rnnoise" in ns.degraded_reason.lower(), (
             f"degraded_reason must mention the rnnoise fallback; got {ns.degraded_reason!r}"
         )
 
-    def test_deepfilternet_installed_rnnoise_missing_degrades_to_none(self, monkeypatch: pytest.MonkeyPatch):
-        """df available but rnnoise missing → method=none, degraded=True,
-        reason mentions BOTH the df fallback AND the rnnoise failure."""
-        _install_fake_df(monkeypatch)
+    def test_gtcrn_failure_rnnoise_missing_degrades_to_none(self, monkeypatch: pytest.MonkeyPatch):
+        """GTCRN fails AND rnnoise missing → method=none, degraded=True,
+        reason mentions BOTH the gtcrn fallback AND the rnnoise failure."""
+        _install_failing_gtcrn(monkeypatch)
         _remove_module(monkeypatch, "pyrnnoise")
 
         from voice_typer.server.audio_filters.noise_suppressor import NoiseSuppressor
 
-        ns = NoiseSuppressor(method="deepfilternet", sample_rate=16000)
+        ns = NoiseSuppressor(method="gtcrn", sample_rate=16000)
 
         assert ns._method == "none", (
-            "when both deepfilternet (not wired) and rnnoise (missing) are unavailable, method must degrade to 'none'"
+            "when both gtcrn (failed to load) and rnnoise (missing) are unavailable, method must degrade to 'none'"
         )
         assert ns.is_degraded is True
-        # The reason must preserve BOTH contexts: the df fallback AND the
-        # rnnoise failure. This is more actionable than silently
+        # The reason must preserve BOTH contexts: the gtcrn fallback AND
+        # the rnnoise failure. This is more actionable than silently
         # overwriting with just the rnnoise message.
         reason = ns.degraded_reason.lower()
-        assert "deepfilternet" in reason, (
-            f"degraded_reason must mention deepfilternet context; got {ns.degraded_reason!r}"
-        )
+        assert "gtcrn" in reason, f"degraded_reason must mention gtcrn context; got {ns.degraded_reason!r}"
         assert "rnnoise" in reason, f"degraded_reason must mention rnnoise fallback failure; got {ns.degraded_reason!r}"
 
-    def test_deepfilternet_missing_rnnoise_installed_falls_back_at_init(self, monkeypatch: pytest.MonkeyPatch):
-        """df missing, rnnoise available → method=rnnoise, degraded=True."""
-        _remove_module(monkeypatch, "df")
-        _install_fake_pyrnnoise(monkeypatch)
-
-        from voice_typer.server.audio_filters.noise_suppressor import NoiseSuppressor
-
-        ns = NoiseSuppressor(method="deepfilternet", sample_rate=16000)
-
-        assert ns._method == "rnnoise"
-        assert ns._backend is not None
-        assert ns.is_degraded is True
-        assert "deepfilternet" in ns.degraded_reason.lower()
-        assert "rnnoise" in ns.degraded_reason.lower()
-
-    def test_deepfilternet_missing_rnnoise_missing_degrades_to_none(self, monkeypatch: pytest.MonkeyPatch):
-        """Both missing → method=none, degraded=True, reason mentions both."""
-        _remove_module(monkeypatch, "df")
-        _remove_module(monkeypatch, "pyrnnoise")
-
-        from voice_typer.server.audio_filters.noise_suppressor import NoiseSuppressor
-
-        ns = NoiseSuppressor(method="deepfilternet", sample_rate=16000)
-
-        assert ns._method == "none"
-        assert ns.is_degraded is True
-        reason = ns.degraded_reason.lower()
-        assert "deepfilternet" in reason
-        assert "rnnoise" in reason
-
     def test_rnnoise_directly_not_degraded_when_installed(self, monkeypatch: pytest.MonkeyPatch):
-        """Sanity: rnnoise alone (no deepfilternet involvement) is NOT degraded."""
+        """Sanity: rnnoise alone (no gtcrn involvement) is NOT degraded."""
         _install_fake_pyrnnoise(monkeypatch)
 
         from voice_typer.server.audio_filters.noise_suppressor import NoiseSuppressor
@@ -214,7 +225,7 @@ class TestDeepFilterNetInitFallback:
         assert ns._backend is not None
         assert ns.is_degraded is False, (
             "rnnoise with pyrnnoise installed must NOT be degraded — only "
-            "deepfilternet selection triggers the degraded flag"
+            "a failed gtcrn init triggers the degraded flag"
         )
         assert ns.degraded_reason == ""
 
@@ -227,11 +238,11 @@ class TestDeepFilterNetInitFallback:
         assert ns.is_degraded is False
         assert ns.degraded_reason == ""
 
-    def test_deepfilternet_process_does_not_silently_passthrough(self, monkeypatch: pytest.MonkeyPatch):
+    def test_gtcrn_failure_process_does_not_silently_passthrough(self, monkeypatch: pytest.MonkeyPatch):
         """Critical regression: process() must NOT return the input unchanged
-        when deepfilternet was selected. The user must get rnnoise-processed
+        when the GTCRN init failed. The user must get rnnoise-processed
         audio (or, if rnnoise is also missing, an explicit degraded signal)."""
-        _install_fake_df(monkeypatch)
+        _install_failing_gtcrn(monkeypatch)
         _install_fake_pyrnnoise(monkeypatch)
 
         from voice_typer.server._audio_constants import RNNOISE_SAMPLE_RATE
@@ -240,7 +251,7 @@ class TestDeepFilterNetInitFallback:
             NoiseSuppressor,
         )
 
-        ns = NoiseSuppressor(method="deepfilternet", sample_rate=RNNOISE_SAMPLE_RATE)
+        ns = NoiseSuppressor(method="gtcrn", sample_rate=RNNOISE_SAMPLE_RATE)
         assert ns._method == "rnnoise"  # narrowed at __init__
 
         # Feed a full rnnoise frame at the native 48kHz rate so no
@@ -255,43 +266,40 @@ class TestDeepFilterNetInitFallback:
         # result equals the input — but the *path* went through
         # _process_rnnoise (not silent passthrough). The key assertion
         # is that ``_method`` stayed "rnnoise" and ``is_degraded`` is
-        # True (deepfilternet wasn't silently used).
+        # True (the GTCRN selection wasn't silently ignored).
         assert result is not None, "process() must return audio (not None)"
         assert result.shape == audio.shape
         assert ns._method == "rnnoise", (
             "process() must not mutate _method away from rnnoise (the init-time fallback should be sticky)"
         )
         assert ns.is_degraded is True, (
-            "is_degraded must remain True after process() — the deepfilternet "
-            "fallback is a permanent degradation, not a one-time signal"
+            "is_degraded must remain True after process() — the GTCRN init "
+            "failure is a permanent degradation, not a one-time signal"
         )
 
-    def test_noisy_room_preset_yields_degraded_suppressor(self, monkeypatch: pytest.MonkeyPatch):
-        """End-to-end: the ``noisy_room`` preset picks deepfilternet; the
-        constructed NoiseSuppressor must be degraded (signaling the
-        deepfilternet → rnnoise fallback) so the UI can warn the user
-        before they speak their first word."""
-        _install_fake_df(monkeypatch)
+    def test_noisy_room_preset_selects_gtcrn(self, monkeypatch: pytest.MonkeyPatch):
+        """End-to-end: the ``noisy_room`` preset picks the live GTCRN
+        backend; the constructed NoiseSuppressor is NOT degraded (the
+        model loads) so the preset's promise — real neural noise
+        suppression in the noisiest environments — actually holds."""
+        _install_fake_gtcrn(monkeypatch)
         _install_fake_pyrnnoise(monkeypatch)
 
         from voice_typer.server.audio_filters.noise_suppressor import NoiseSuppressor
         from voice_typer.server.audio_presets import PRESET_NOISY_ROOM, get_preset_filters
 
         preset_filters = get_preset_filters(PRESET_NOISY_ROOM)
-        assert preset_filters["noise_suppression_method"] == "deepfilternet"
+        assert preset_filters["noise_suppression_method"] == "gtcrn"
 
         ns = NoiseSuppressor(
             method=preset_filters["noise_suppression_method"],
             sample_rate=16000,
         )
-        # Critical assertion: the suppressor is degraded at __init__ time.
-        assert ns.is_degraded is True, (
-            "noisy_room preset selects deepfilternet which is not wired; the "
-            "suppressor must be marked degraded so the UI warns the user"
+        # Critical assertion: the suppressor runs the selected backend.
+        assert ns.is_degraded is False, (
+            "the noisy_room preset selects the bundled GTCRN model; a healthy init must not be marked degraded"
         )
-        assert ns._method == "rnnoise", (
-            "noisy_room preset must effectively use rnnoise (the fallback), not silent passthrough"
-        )
+        assert ns._method == "gtcrn", "the noisy_room preset must actually run GTCRN (not a fallback)"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

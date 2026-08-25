@@ -871,7 +871,7 @@ class TestAppInitManagerFailureWarning:
 
 
 class TestAppExcepthookInstallGuard:
-    """APP-9: ``_crash_handler.install_python_excepthook()`` was called
+    """``_crash_handler.install_python_excepthook()`` was called
     unconditionally in ``__init__``. If the install path raised (e.g.
     a missing Win32 API on an unsupported build), VoiceTyperApp
     construction would fail entirely. The fix wraps the call in
@@ -922,37 +922,37 @@ class TestAppExcepthookInstallGuard:
             VoiceTyperApp()
 
         hook_records = [r for r in caplog.records if "excepthook install failed" in r.message]
-        assert hook_records, (
-            "APP-9: excepthook install failure must be logged at debug level so the failure is diagnosable"
-        )
+        assert hook_records, "excepthook install failure must be logged at debug level so the failure is diagnosable"
         rec = hook_records[0]
         assert rec.levelno == logging.DEBUG, (
-            f"APP-9: excepthook install failure must be logged at DEBUG "
+            f"excepthook install failure must be logged at DEBUG "
             f"level (got {rec.levelname}); the excepthook is best-effort "
             f"and shouldn't spam the production INFO log."
         )
-        assert rec.exc_info is not None, "APP-9: excepthook install failure log must include exc_info=True"
+        assert rec.exc_info is not None, "excepthook install failure log must include exc_info=True"
 
     def test_excepthook_install_source_has_try_except(self):
-        """Source-level invariant: __init__ must wrap the
-        ``install_python_excepthook()`` call in a try/except block."""
+        """Source-level invariant: the threading/crash-init builder must
+        wrap the ``install_python_excepthook()`` call in a try/except
+        block. (The call lives in ``_init_threading_and_crash`` since
+        the ``__init__`` decomposition — the builder is the new home of
+        the former inline ``__init__`` body.)"""
         import inspect
 
         from voice_typer.server.app import VoiceTyperApp
 
-        src = inspect.getsource(VoiceTyperApp.__init__)
+        src = inspect.getsource(VoiceTyperApp._init_threading_and_crash)
         call_idx = src.find("_crash_handler.install_python_excepthook()")
-        assert call_idx != -1, "APP-9: __init__ must call _crash_handler.install_python_excepthook()"
+        assert call_idx != -1, "init must call _crash_handler.install_python_excepthook()"
         before = src[:call_idx].rstrip()
         after = src[call_idx:]
         try_idx = before.rfind("try:")
         assert try_idx != -1, (
-            "APP-9: __init__ must wrap install_python_excepthook() in a "
-            "try/except block so a failure doesn't abort construction"
+            "the excepthook install must be wrapped in a try/except block so a failure doesn't abort construction"
         )
         line_end = after.find("\n")
         rest = after[line_end + 1 :]
         except_idx = rest.find("except")
         assert except_idx != -1 and except_idx < 200, (
-            "APP-9: install_python_excepthook() call must be followed by an except clause within a few lines"
+            "install_python_excepthook() call must be followed by an except clause within a few lines"
         )

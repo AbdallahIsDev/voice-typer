@@ -11,6 +11,16 @@ This module owns:
   plumbing, parsing, matching, restart, and shutdown for all three
   platform backends (macOS / Windows / Linux).
 
+The class derives from :class:`voice_typer.server.hotkeys.base.HotkeyBackend`
+so the native backends are true ``HotkeyBackend`` implementations: the
+shared interface methods (``set_on_release`` / ``set_toggle_on_keyup`` /
+``set_tray``'s no-op default) are inherited instead of mirrored, while the
+subprocess plumbing, restart, and multi-spec pooling surface stay defined
+here. The import direction (native_hotkeys.base → hotkeys.base) is
+acyclic: the ``hotkeys`` package's submodules never import
+``native_hotkeys`` at module level (only ``hotkeys.factory`` does, inside
+a function).
+
 Patch-path compatibility: tests do
 ``monkeypatch.setattr(native_hotkeys, "is_macos", lambda: True)``
 (and is_windows / is_linux).  For the patch to take effect on calls
@@ -28,12 +38,13 @@ import signal
 import subprocess
 import threading
 import time
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar
 
 from voice_typer.server import native_hotkeys as _native_hotkeys_pkg
+from voice_typer.server.hotkeys.base import HotkeyBackend
 from voice_typer.server.tray_hotkey import format_hotkey_label
 
 from .binary_path import get_native_binary_path
@@ -62,8 +73,13 @@ _WATCHDOG_RESPAWN_SECONDS = 60.0
 # ─── Base class ────────────────────────────────────────────────────────────
 
 
-class SubprocessHotkeyBackend(ABC):
+class SubprocessHotkeyBackend(HotkeyBackend):
     """Base class for out-of-process native hotkey backends.
+
+    Derives from :class:`voice_typer.server.hotkeys.base.HotkeyBackend`
+    so a native backend can be used anywhere a ``HotkeyBackend`` is
+    expected (the historical mirror of the interface is gone — the
+    shared methods come from the ABC now).
 
     Subclasses just provide:
     - ``platform_name`` (used in log messages)
@@ -273,18 +289,17 @@ class SubprocessHotkeyBackend(ABC):
         # NOT set this flag, so legitimate respawns still work.
         self._shutdown_requested: bool = False
 
-    # ── HotkeyBackend interface (compatible with hotkeys.HotkeyBackend) ──
-
-    def set_on_release(self, callback: Callable[[], None] | None) -> None:
-        """Set the callback for key release (push-to-talk mode)."""
-        self._on_release_callback = callback
-
-    def set_toggle_on_keyup(self, value: bool) -> None:
-        """In toggle mode, fire the toggle on key-up (release) instead of
-        key-down. Set True by HotkeyDispatcher for the main dictation
-        hotkey so a press-and-hold cannot start-then-stop recording.
-        """
-        self._toggle_on_keyup = value
+    # ── HotkeyBackend interface ──────────────────────────────────────
+    #
+    # ``set_on_release`` / ``set_toggle_on_keyup`` / ``set_tray`` are
+    # INHERITED from ``HotkeyBackend`` (hotkeys/base.py) — the bodies
+    # there assign the exact same instance attributes this class reads
+    # (``_on_release_callback`` / ``_toggle_on_keyup``), and ``set_tray``
+    # is the ABC's intentional no-op default (subprocess backends don't
+    # emit tray notifications themselves; the adapter propagates the
+    # tray reference to legacy backends). Only the methods with real
+    # subprocess semantics (``start`` / ``stop`` / ``is_alive`` /
+    # ``diagnose``) are defined below.
 
     # public setters for the / callbacks. Previously
     # the ``_NativeBackendAdapter`` reached into the private

@@ -161,9 +161,15 @@ def _set_byref_value(byref_obj, value):
 
 class TestSendCtrlVWin32:
     def _make_cm(self):
-        cm = ClipboardManager.__new__(ClipboardManager)
-        cm._keyboard = MagicMock()
-        return cm
+        """Delegate to the shared canonical factory (XS-42 helper dedup).
+
+        ``_send_ctrl_v_win32`` only reads ``self._keyboard`` (via
+        ``_safe_key_press``); the factory's other pre-populated cached
+        flags are inert for this suite.
+        """
+        from tests.fixtures.clipboard_helpers import make_clipboard_manager
+
+        return make_clipboard_manager()
 
     def test_calls_sendinput_with_four_events(self, fake_win32):
         """Happy path: SendInput returns 4 → success, no fallback.

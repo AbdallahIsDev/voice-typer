@@ -138,11 +138,13 @@ export const audioFilterRowDescriptors: readonly AudioFilterRowDescriptor[] = [
 		defaultValue: "rnnoise",
 		options: [
 			{ value: "rnnoise", label: "RNNoise" },
-			{ value: "deepfilternet", label: "DeepFilterNet" },
-			// Fix 7: Speex was documented in the info tooltip but was
-			// missing from the dropdown — selecting it required hand-
-			// editing config.json. Now it's a first-class option.
-			{ value: "speex", label: "Speex" },
+			// GTCRN — the bundled ONNX streaming denoiser
+			// shipped with the app (no extra install, runs
+			// on-device). The historical "deepfilternet"
+			// option was retired with it, and the dead
+			// "speex" option (never implemented, rejected by
+			// the IPC validator) was removed from the list.
+			{ value: "gtcrn", label: "GTCRN" },
 			{ value: "none", labelKey: "settings.audioEnhancement.noneOption" },
 		],
 	},

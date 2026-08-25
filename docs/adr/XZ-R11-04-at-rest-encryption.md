@@ -1,27 +1,34 @@
 # ADR: At-Rest Encryption for User Data (Design-Gated)
 
-> **Status**: Partially implemented (read-side live; write-side deferred).
-> An optional at-rest encryption layer now exists at
-> `voice_typer/server/_text_encryption.py`: Fernet-based (AES-128-CBC +
-> HMAC-SHA-256 — diverging from the AES-256-GCM sketch in §4 below),
-> with the key stored in the OS keystore via the existing
-> `credential_store` keyring integration. The schema carries a
-> backward-compatible `text_is_encrypted` column flag, so plaintext rows
-> remain readable alongside ciphertext ones. Read-side decryption is
-> wired into `history_db.py` (deferred imports; passthrough when the
-> keystore or `cryptography` is unavailable or encryption is disabled).
-> Write-side encryption in `add_transcription` is NOT yet wired — it is
-> deferred (see the "Phased rollout" section below); today the only
-> encrypt-on-write path is the undo-delete `restore()` helper.
-> The `cryptography>=42` dependency is declared in `pyproject.toml`, and
-> the module's guarded import degrades to plaintext when the library is
-> absent instead of failing at import time. This document remains the
-> design gate; it supersedes the "Roadmap" candidate mitigations in
-> [`docs/privacy/encryption-at-rest.md`](../privacy/encryption-at-rest.md)
-> for the chosen path (application-layer column encryption), while leaving the
-> threat-model and per-OS validation matrix in that document normative.
+> **Status**: Implemented (application-layer AES-256-GCM, per-row flag
+> design). The canonical cipher module is
+> `voice_typer/server/_text_crypto.py`
+> (`AESGCM`, 32-byte DEK, 96-bit random nonce, 128-bit tag); the DEK is
+> generated/stored/loaded by `voice_typer/server/credential_store/_dek.py`
+> in the OS keyring under the existing `KEYRING_SERVICE_NAME` service
+> with the reserved `DATA_ENCRYPTION_KEY_USERNAME`
+> (`credential_store/_schema.py`). Ciphertext is stored IN the existing
+> `transcriptions.text` TEXT column as `"enc:v1:" + base64(nonce ||
+> ciphertext || tag)` with a per-row `text_is_encrypted` flag — NOT the
+> `text_enc BLOB` + column-swap sketch in §5 below (the flag design was
+> amended per review: reversible at every step, no column swap, schema
+> migration v4 is DDL-only). Write-side encryption covers all three
+> INSERT paths (batched multi-row, per-row fallback, `restore()`); read
+> seams decrypt in `history_db_internals/search.py`; pre-existing
+> plaintext rows are encrypted by a bounded background backfill on the
+> writer thread. FTS5 stays plaintext-tokenized via guarded triggers
+> (see §6 and the "Implementation notes" section at the end of this
+> document). When the keyring is unavailable the behavior is
+> byte-identical to the pre-encryption plaintext mode; there is NO
+> on-disk DEK fallback (§9.3).
 >
-> **Date**: 2026-11 (design gate)
+> **Historical correction**: an earlier revision of this header claimed
+> a `_text_encryption.py` Fernet module with "read-side live" wiring.
+> That module never existed in the tree (verified against git history
+> during the 2026-08-25 implementation); the claim was wrong and this
+> header now describes the actually-shipped AES-256-GCM design of §4.
+>
+> **Date**: 2026-11 (design gate) / 2026-08-25 (implementation).
 >
 > **Owner**: server-side crypto / privacy track.
 >
@@ -42,7 +49,7 @@ Voice Typer persists user data on disk under the platform config dir
 | `history.db` FTS5 shadow tables (`transcriptions_fts_data`, `_idx`, `_content`, `_config`, `_docsize`) | tokenized dictated text | same file perms as `history.db` | Yes — derived PII |
 | `history.db` metadata columns (`timestamp`, `model`, `device`, `language`, `favorite`) | recording metadata | same | No (operational) |
 | `config.json` | hotkey, model selection, cloud_api_url, `keyring://` reference tokens | POSIX `0o600` via `_secure_atomic_write`; reference tokens instead of secrets when keyring available | No (refs only) |
-| OS keychain entries (`com.voicetyper.keyring` service) | cloud provider API keys (OpenAI / Groq / Deepgram / cloud / llm) | already encrypted at rest by the OS keychain wrapper (DPAPI / Keychain / SecretService). Managed by `voice_typer/server/credentials/`. See [`docs/security/credential-store.md`](../security/credential-store.md). | Yes (already protected) |
+| OS keychain entries (`com.voicetyper.keyring` service) | cloud provider API keys (OpenAI / Groq / Deepgram / cloud / llm) | already encrypted at rest by the OS keychain wrapper (DPAPI / Keychain / SecretService). Managed by `voice_typer/server/credential_store/`. See [`docs/security/credential-store.md`](../security/credential-store.md). | Yes (already protected) |
 | `vocabulary.json`, `templates.json` | user-defined phrases / templates (may contain personal snippets) | `0o600` via `PersistedJSON`; single-slot `.bak`; corrupt-quarantine | Secondary PII |
 | `crash_diagnostics/*.txt` and `.zip` exports | stack traces; **may include last-N dictated transcriptions** (see `diagnostics_export.py` lines 416–420) | `0o600`; retention sweep | Secondary PII |
 | Audio recordings | **Not persisted to disk.** Audio flows through the in-memory ring buffer in `recording/audio_pipeline.py` and is discarded after transcription. No file is written. | n/a | n/a |
@@ -72,7 +79,7 @@ without re-deriving the analysis.
 Encrypt the `transcriptions.text` column at the Python application layer
 using **AES-256-GCM** (authenticated encryption), with the data-encryption
 key (DEK) sourced from the **existing OS keychain integration** in
-`voice_typer/server/credentials/` (same `keyring` library, same
+`voice_typer/server/credential_store/` (same `keyring` library, same
 `KEYRING_SERVICE_NAME = "com.voicetyper.keyring"` service, same plaintext
 fallback policy). Extend `secure_file_io.py` with a small `EncryptedColumn`
 helper so the same atomic-write + TOCTOU-safe-read + 0o600-perms
@@ -195,7 +202,7 @@ The DEK is wrapped by the OS keychain's own at-rest encryption:
 | **macOS** | Keychain (AES-128, key derived from user's login password) | the same OS user after Keychain unlock |
 | **Linux** | libsecret / gnome-keyring (encrypted with the keyring's master password, often unlocked at login) | the same OS user after keyring unlock |
 
-This reuses the **existing** `voice_typer/server/credentials/`
+This reuses the **existing** `voice_typer/server/credential_store/`
 infrastructure (constants, keyring I/O timeout isolation, availability
 probe, plaintext fallback). No new keychain code path is needed — only
 a new reserved username plus a small loader / generator helper.
@@ -220,15 +227,18 @@ a new reserved username plus a small loader / generator helper.
 - `ciphertext` — same length as plaintext (GCM is a stream cipher).
 - `tag` (16 bytes) — appended to the ciphertext by `AESGCM.encrypt`.
 
-Storage in SQLite: change column `transcriptions.text TEXT` →
-`transcriptions.text_enc BLOB`. The schema migration is detailed in §5.
+Storage in SQLite (**as implemented**): the blob is stored as TEXT in
+the EXISTING `transcriptions.text` column, prefixed `"enc:v1:"` with
+the body base64-encoded, and a per-row `text_is_encrypted` flag marks
+which rows are ciphertext (the `text_enc BLOB` column + swap below was
+the original sketch; see §5.1's amendment and §16).
 
 ### 4.5 Module layout (proposed)
 
 Extend existing modules — do NOT introduce a parallel crypto subsystem:
 
 ```
-voice_typer/server/credentials/
+voice_typer/server/credential_store/
   __init__.py            # unchanged exports + new: load_dek / store_dek
   _constants.py          # add: DATA_ENCRYPTION_KEY_USERNAME = "__data_encryption_key__"
   _dek.py                # NEW: load_dek() -> bytes | None
@@ -256,6 +266,17 @@ voice_typer/server/history_db_internals/
 ## 5. Migration plan
 
 ### 5.1 Schema migration (v3 → v4)
+
+> **Amended (as implemented)**: the shipped migration does NOT add a
+> `text_enc BLOB` column and does NOT swap columns. It adds
+> `text_is_encrypted INTEGER DEFAULT 0` to the existing `text` column's
+> table and replaces the three FTS5 triggers with encryption-guarded
+> variants (DDL-only, single transaction, `schema.py:_MIGRATION_V4`,
+> `_CURRENT_SCHEMA_VERSION = 4`). Ciphertext lives in the original
+> `text` column behind the flag — reversible at every step, and the
+> pre-migration backup path (`history.db.pre-migration-v3.bak`) still
+> applies. See "Implementation notes" at the end of this document for
+> the full rationale and the trigger-guard semantics.
 
 The migration is **additive + backfill + column swap**, run inside one
 explicit `BEGIN; … COMMIT;` (matching the pattern in
@@ -441,11 +462,11 @@ Add a small LRU cache on the `HistoryDB` instance:
 The DEK is loaded **once per process** (lazily on first
 `add_transcription` or `get_recent`). After load, it is cached in a
 module-level `_dek_cache: bytes | None` (similar to
-`_plaintext_config_cache` in `credentials/_plaintext.py`). No
+`_plaintext_config_cache` in `credential_store/_plaintext.py`). No
 per-call keychain hit.
 
 The existing `_run_keyring_call` timeout isolation
-(`credentials/_keyring_io.py`) applies: a wedged D-Bus / Keychain on
+(`credential_store/_backend.py`) applies: a wedged D-Bus / Keychain on
 first load falls through to the plaintext fallback (§9) within the
 5s timeout, and the wedge short-circuit kicks in for subsequent
 attempts.
@@ -483,7 +504,7 @@ user's password).
 ## 9. Fallback behavior when keychain is unavailable
 
 The fallback policy **mirrors** the existing credential-store pattern
-(`credentials/store.py:store_secret` lines 154–193): never raise, log
+(`credential_store/_crud.py:store_secret`): never raise, log
 the redacted reason, fall back to plaintext.
 
 Concretely:
@@ -553,7 +574,7 @@ Expose an IPC method `rotate_data_encryption_key()` (in a new
 `service/privacy.py` handler, alongside the existing
 `delete_all_personal_data`). The handler:
 
-1. Calls `credentials.rotate_dek()` — generates new DEK, stores as
+1. Calls `credential_store.rotate_dek()` — generates new DEK, stores as
    current, demotes current to prev.
 2. Enqueues a `_ReencryptAll` work item on the HistoryDB writer
    thread.
@@ -645,7 +666,7 @@ phases so each can be independently reviewed and rolled back:
 
 | Phase | Scope | Risk | Revert path |
 |---|---|---|---|
-| **P1** | Add `cryptography>=42.0` to `pyproject.toml`. Add `credentials/_dek.py` with `load_dek` / `store_dek` / `rotate_dek`. No DB changes. | Low (no DB writes). | Drop the new module; dependency can stay (unused). |
+| **P1** | Add `cryptography>=42.0` to `pyproject.toml`. Add `credential_store/_dek.py` with `load_dek` / `store_dek` / `rotate_dek`. No DB changes. | Low (no DB writes). | Drop the new module; dependency can stay (unused). |
 | **P2** | Add `secure_file_io.EncryptedColumn` (encrypt/decrypt + blob format). Unit tests with fixed DEK + known ciphertext vectors. | Low (pure function). | Drop the class. |
 | **P3** | Schema v4 migration (§5). Additive column + backfill only (no column swap yet). New rows write BOTH `text` (plaintext) and `text_enc` (ciphertext). Reads still use `text`. | Medium (DB write). | Drop column `text_enc` (no data loss — `text` is still authoritative). |
 | **P4** | Flip reads to use `text_enc` (decrypt). Keep `text` as a fallback. | Medium. | Flip reads back to `text`. |
@@ -679,19 +700,19 @@ Per-OS validation (extends the matrix in
   matrix.
 - [`docs/adr/0001-record-architecture-decisions.md`](0001-record-architecture-decisions.md)
   — ADR format.
-- `voice_typer/server/credentials/__init__.py` — public API surface
+- `voice_typer/server/credential_store/__init__.py` — public API surface
   (`load_secret`, `store_secret`, `delete_secret`,
   `migrate_secrets_to_keyring`, `is_keyring_available`,
   `get_keyring_status`). This design adds `load_dek`, `store_dek`,
   `rotate_dek` to the same module.
-- `voice_typer/server/credentials/_constants.py` — `KEYRING_SERVICE_NAME
+- `voice_typer/server/credential_store/_constants.py` — `KEYRING_SERVICE_NAME
   = "com.voicetyper.keyring"`. This design adds
   `DATA_ENCRYPTION_KEY_USERNAME = "__data_encryption_key__"` (and
   `__data_encryption_key_prev__` for rotation).
-- `voice_typer/server/credentials/_keyring_io.py` — `_run_keyring_call`
+- `voice_typer/server/credential_store/_keyring_io.py` — `_run_keyring_call`
   with 5s timeout + orphan/wedge tracking. Reused unchanged for DEK
   load/store.
-- `voice_typer/server/credentials/_availability.py` —
+- `voice_typer/server/credential_store/_availability.py` —
   `is_keyring_available` + re-probe interval. Reused unchanged as the
   encryption-enabled gate.
 - `voice_typer/server/secure_file_io.py` — `_secure_atomic_write`,
@@ -738,5 +759,98 @@ Per-OS validation (extends the matrix in
    `0o600` perms + single-slot `.bak` is currently deemed sufficient.
    Revisit if a user reports a real-world compromise vector via
    vocabulary backup leak.
+
+## 16. Implementation notes (2026-08-25 — supersedes the sketches above where they differ)
+
+The sections above remain the design gate; this section records what
+actually shipped and the deviations, each with its reason.
+
+### 16.1 Module layout (actual)
+
+- `voice_typer/server/credential_store/_schema.py` —
+  `DATA_ENCRYPTION_KEY_USERNAME = "__data_encryption_key__"` (the
+  reserved keyring username of §4.3).
+- `voice_typer/server/credential_store/_dek.py` — `generate_dek` /
+  `store_dek` / `load_dek`. Calls `keyring.set_password` /
+  `keyring.get_password` DIRECTLY through `_run_keyring_call` (timeout
+  isolation + orphan/wedge tracking): `store_secret` rejects providers
+  not in `PROVIDER_TO_CONFIG_FIELD` by design, and the DEK must never
+  flow through the plaintext-`config.json` fallback (§9.3). Base64
+  transport (keyring stores strings); a stored value that does not
+  decode to exactly 32 bytes is treated as absent.
+- `voice_typer/server/_text_crypto.py` — the ONE canonical crypto
+  module (E7): `encrypt_text` / `decrypt_text` / `is_encrypted`, blob
+  format `"enc:v1:" + base64(nonce(12) || ciphertext || tag(16))` in
+  the existing TEXT column, the process-lifetime DEK cache
+  (`resolve_dek` / `get_dek_cached` / `reset_dek_cache`), the
+  `"<decryption failed>"` placeholder policy, and a shared
+  rate-limited logger. `secure_file_io.EncryptedColumn` from the §4.5
+  sketch was NOT built — the DEK lives in the keyring only, so there
+  is no file I/O to wrap.
+- `voice_typer/server/history_db_internals/schema.py` —
+  `_MIGRATION_V4` + `_CURRENT_SCHEMA_VERSION = 4`.
+- `voice_typer/server/history_db_internals/writer.py` — encryption on
+  both INSERT paths (batched multi-row and per-row fallback).
+- `voice_typer/server/history_db_internals/search.py` — flag-aware
+  read seams for get_recent / search / get_favorites /
+  get_latest_text / get_transcription_text.
+- `voice_typer/server/history_db.py` — `restore()` encryption, DEK
+  resolution on the writer thread (`_init_encryption`), the bounded
+  backfill, and the `encryption_status()` surface
+  (`"active"` / `"disabled"` / `"key-unavailable"`).
+
+### 16.2 FTS5 trigger guards (the load-bearing detail)
+
+Rows are ALWAYS inserted with plaintext and flag 0 — the AFTER-INSERT
+trigger indexes the plaintext tokens — and then flipped to ciphertext +
+flag 1 with an UPDATE in the same transaction. For that to work the
+v4 migration recreates all three triggers with WHEN guards:
+
+- `ai_fts`: `WHEN new.text_is_encrypted = 0` — never index ciphertext
+  (protects the corruption-recovery replay path too).
+- `ad_fts`: `WHEN old.text_is_encrypted = 0` — the FTS5 `'delete'`
+  command requires the SAME token stream that was originally indexed;
+  issuing it with ciphertext raises `database disk image is malformed`
+  (verified in-sandbox, SQLite 3.53). Token removal is skipped for
+  encrypted rows; stale rowids are filtered out by the JOIN in every
+  search SQL.
+- `au_fts`: `WHEN NEW.text_is_encrypted = 0 AND OLD.text_is_encrypted = 0`.
+  The stricter form (not merely "flag unchanged") is REQUIRED: a
+  favorite-toggle UPDATE on an encrypted row also has an unchanged
+  flag, and the unguarded variant demonstrably corrupts the index.
+  Real text edits on plaintext rows still re-index normally.
+
+**Residual (documented)**: an FTS5 `'rebuild'` command re-tokenizes
+from the content table, so a rebuild that fires while encrypted rows
+exist replaces their plaintext tokens with ciphertext tokens — FTS
+search then no longer matches those rows (no corruption; the rows
+remain readable and decryptable). `'optimize'` (used by the per-row
+delete path) does not re-read content and is unaffected. The startup
+rebuild is ordered BEFORE backfill encryption, so the common paths are
+covered; a decrypt-aware rebuild (re-populating tokens from decrypted
+text) is a follow-up that requires touching `retention.py` and the
+clear_all/startup paths together.
+
+### 16.3 Key-loss policy (stricter than §9)
+
+§9.3's "re-generates a DEK" fallback is NOT shipped. When encrypted
+rows exist and the DEK cannot be loaded (keychain wiped, backend
+down): reads of flagged rows return `"<decryption failed>"` (never the
+ciphertext, never a crash) plus a rate-limited ERROR; NEW writes stay
+plaintext (flag 0) so no further rows depend on the lost key; and the
+DEK is NEVER regenerated in this state — a fresh key cannot decrypt
+the existing rows and would silently orphan them. A new DEK is
+generated only when the keyring is available AND zero encrypted rows
+exist. `HistoryDB.encryption_status()` distinguishes
+`"key-unavailable"` from first-run `"disabled"`.
+
+### 16.4 Backfill
+
+`HistoryDB._init_encryption` (writer thread, before the ready signal —
+the single DEK keyring read is bounded by the 5s keyring-I/O timeout)
+enqueues `_encrypt_backfill_step` items: each encrypts up to 100
+plaintext rows in one transaction and re-enqueues itself, so foreground
+dictation writes are never starved. Idempotent by flag; resumes across
+launches; skipped entirely when no DEK is available.
 
 *End of design document.*

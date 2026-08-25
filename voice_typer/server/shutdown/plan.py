@@ -1,8 +1,9 @@
 """Declarative shutdown plan + driver (extracted from ``shutdown_controller``).
 
-Houses the :class:`ShutdownStep` / :class:`ShutdownPlan` dataclasses and the
-:func:`run_plan` driver that used to live inline on
-:class:`voice_typer.server.shutdown_controller.ShutdownController`.
+Houses the :class:`ShutdownStep` / :class:`ShutdownPlan` dataclasses, the
+:func:`run_plan` driver, and the plan-builder functions
+(:func:`build_sequenced_plan` / :func:`build_parallel_plan`) that used to
+live inline on :class:`voice_typer.server.shutdown_controller.ShutdownController`.
 
 The dataclasses express the teardown ordering contract — sequenced critical
 flushes (recorder → history_db → crash_recovery) run before the parallel
@@ -13,8 +14,9 @@ or :func:`_run_parallel_with_timeout`) and applies the cross-step barrier
 resource as a leaked upstream worker is skipped (notably ``sd.stop()`` after
 a timed-out ``recorder.stop()`` on WASAPI PortAudio backends).
 
-The controller keeps a thin ``_run_plan`` delegate so existing call sites
-(``controller._run_plan(plan, prior_timed_out)``) and tests
+The controller keeps thin ``_run_plan`` / ``_build_sequenced_plan`` /
+``_build_parallel_plan`` delegates so existing call sites
+(``controller._run_plan(plan, prior_timed_out)`` etc.) and tests
 (``tests/test_shutdown_plan_zr17.py``) continue to work unchanged.
 """
 
@@ -32,6 +34,13 @@ if TYPE_CHECKING:
     from voice_typer.server.shutdown_controller import ShutdownController
 
 log = logging.getLogger(__name__)
+
+# Logger binding for the plan-builder bodies extracted from
+# ``shutdown_controller/_plans.py``: those bodies emitted their deadline-skip
+# warnings on the ``voice_typer.server.shutdown_controller`` logger, and
+# tests filter caplog records by that logger name
+# (tests/test_shutdown_deadline.py) — keep the record logger name identical.
+_sc_log = logging.getLogger("voice_typer.server.shutdown_controller")
 
 # Sequenced steps that contain data-loss-critical flushes. These MUST
 # run even when the 20s shutdown deadline is nearly exhausted, so the
@@ -290,9 +299,228 @@ def run_plan(
     return frozenset(timed_out)
 
 
+def build_sequenced_plan(
+    controller: ShutdownController,
+    deadline: float,
+    skipped: list[str],
+) -> ShutdownPlan:
+    """Build the sequenced critical-teardown plan.
+
+    Extracted from ``ShutdownController._build_sequenced_plan`` (the
+    mixin method is now a thin delegate — the delegate stays so tests
+    that monkeypatch or spy on ``controller._build_sequenced_plan``
+    keep intercepting the call). The sequenced phase
+    runs the dependent teardowns IN ORDER, each wrapped in
+    ``_run_with_timeout`` so a stuck helper doesn't block the rest
+    of cleanup:
+
+      1. ``_teardown_timers_and_recording`` — cancel timers, pop
+          the streaming session, signal cancel. SKIPPED when the
+          deadline is near (non-critical).
+      2. ``_teardown_recorder`` — ``recorder.stop()`` + join the
+          transcription thread (3s timeout). Sets
+          ``_recorder_teardown_done`` so the downstream
+          ``_teardown_sounddevice`` (in the parallel batch) gets a
+          happens-before guarantee on ``_recorder_force_closed``.
+      3. ``_teardown_history_db`` — ``flush()`` + ``close()`` to
+          drain pending writes (including the one the transcription
+          thread just enqueued).
+      4. ``_teardown_crash_recovery`` — ``flush()`` + ``shutdown()``
+          to drain pending crash-recovery snapshots.
+
+    ``_teardown_asr_models`` stays in the parallel batch (built by
+    ``build_parallel_plan``): the sequenced phase completes BEFORE
+    the parallel batch starts, so the transcription thread is
+    already joined by the time the ASR model is unloaded.
+
+    The list-of-tuples form (rather than direct ``ShutdownStep``
+    construction) is kept so source-text contract tests
+    (``tests/test_shutdown_fast_path.py::TestSequentialHistoryAndCrashRecovery``
+    and ``tests/test_shutdown_asr_unload.py::TestTeardownAsrModelsContract``)
+    continue to find the sequenced / parallel symbols + the
+    ``("teardown_<name>",`` entry pattern.
+
+    Parameters
+    ----------
+    controller:
+        The owning :class:`ShutdownController` — the ``_teardown_*``
+        callables are resolved through the controller instance so
+        test spies that patch them by name still take effect.
+    deadline:
+        The overall 20s shutdown deadline (``time.monotonic() +
+        20.0``), used to decide whether to skip the non-critical
+        ``teardown_timers_and_recording`` step.
+    skipped:
+        Mutable list of skipped step names; appended to in place so
+        ``_do_cleanup`` can emit a single summary WARNING at the end.
+    """
+    # Lazy import (mirrors ``run_plan`` below): breaks the would-be
+    # circular import — ``shutdown_controller`` imports this module at
+    # package-init time (``__init__.py``), and tests import
+    # ``voice_typer.server.shutdown.plan`` directly — AND keeps the
+    # lookup dynamic so tests that patch the package-level helpers
+    # still take effect.
+    from voice_typer.server.shutdown_controller import (
+        _shutdown_deadline_near,
+        _shutdown_remaining,
+    )
+
+    # Overall-deadline skip: when the 20s deadline is near (< 5s
+    # remaining) at the start of the sequenced phase,
+    # ``teardown_timers_and_recording`` is SKIPPED (non-critical).
+    # ``teardown_recorder``, ``teardown_history_db``, and
+    # ``teardown_crash_recovery`` ALWAYS run — they contain critical
+    # flushes.
+    sequenced_items: list[tuple[str, object, float, str | None, bool]] = []
+    # SESSION-STATE: clear the session-active marker FIRST so a kill
+    # later in teardown (watchdog ``os._exit(0)``, SIGKILL fallback)
+    # still counts as a clean shutdown. Cheap + idempotent; always
+    # runs regardless of deadline pressure.
+    sequenced_items.append(
+        ("teardown_session_marker", controller._teardown_session_marker, 5.0, None, False),
+    )
+    if _shutdown_deadline_near(deadline):
+        _sc_log.warning(
+            "[SHUTDOWN] deadline near (%.1fs remaining) at sequenced "
+            "phase entry — skipping teardown_timers_and_recording (non-critical)",
+            _shutdown_remaining(deadline),
+        )
+        skipped.append("teardown_timers_and_recording")
+    else:
+        sequenced_items.append(
+            ("teardown_timers_and_recording", controller._teardown_timers_and_recording, 10.0, None, False),
+        )
+    sequenced_items.append(
+        ("teardown_recorder", controller._teardown_recorder, 15.0, None, False),
+    )
+    sequenced_items.append(
+        ("teardown_history_db", controller._teardown_history_db, 15.0, None, False),
+    )
+    sequenced_items.append(
+        ("teardown_crash_recovery", controller._teardown_crash_recovery, 10.0, None, False),
+    )
+    sequenced_plan = ShutdownPlan(
+        phase="sequenced",
+        steps=tuple(ShutdownStep(*item) for item in sequenced_items),
+    )
+    return sequenced_plan
+
+
+def build_parallel_plan(
+    controller: ShutdownController,
+    deadline: float,
+    timed_out: frozenset[str],
+    skipped: list[str],
+) -> ShutdownPlan | None:
+    """Build the parallel-batch plan, applying deadline-near skips.
+
+    Extracted from ``ShutdownController._build_parallel_plan`` (the
+    mixin method is now a thin delegate — the delegate stays so tests
+    that monkeypatch or spy on ``controller._build_parallel_plan``
+    keep intercepting the call). Each helper is
+    isolated — a failure in one does NOT propagate
+    (``_run_parallel_with_timeout`` captures per-call exceptions).
+    Shared 10s deadline: each helper is wrapped in
+    ``_run_with_timeout(..., timeout=10.0)`` by
+    ``_run_parallel_with_timeout``; if a helper exceeds 10s, the
+    worker thread is leaked as a daemon and the orchestrator moves
+    on.
+
+    ``_teardown_asr_models`` is placed FIRST in the parallel batch
+    so the (potentially slow) CUDA context teardown starts as
+    early as possible. It runs AFTER the sequenced critical phase
+    (which joins the transcription thread), so the ASR model is
+    only unloaded once the thread's inference has completed — no
+    race between ``registry.unload()`` and mid-inference torch
+    state.
+
+    Barrier: ``teardown_sounddevice`` declares
+    ``depends_on="teardown_recorder"`` + ``skip_if_dep_timed_out=
+    True``. When the recorder's PortAudio stream failed to close
+    in time, the leaked worker is still accessing the stream and
+    a concurrent ``sd.stop()`` can deadlock on WASAPI backends
+    (stream lock held). The ``_run_plan`` driver skips the step
+    when the dependency is in ``timed_out``.
+
+    Overall-deadline skip: when the 20s deadline is near (< 5s
+    remaining), skip NON-CRITICAL parallel helpers. The critical
+    set is ``{teardown_pid_file, teardown_mutex_handle}`` — they
+    release the single-instance PID file + mutex so the next
+    launch isn't blocked. Everything else is non-critical under a
+    tight deadline — the OS will reap those resources at process
+    exit.
+
+    Parameters
+    ----------
+    controller:
+        The owning :class:`ShutdownController` — the ``_teardown_*``
+        callables are resolved through the controller instance so
+        test spies that patch them by name still take effect.
+    deadline:
+        The overall 20s shutdown deadline, used to decide which
+        non-critical helpers to skip.
+    timed_out:
+        Step names that timed out in the sequenced plan (used by
+        ``_run_plan`` for the barrier — NOT used directly here but
+        threaded through for the subsequent ``_run_plan`` call).
+    skipped:
+        Mutable list of skipped step names; appended to in place.
+
+    Returns
+    -------
+    ShutdownPlan | None
+        The parallel plan, or ``None`` if every helper was skipped
+        (defensive — the critical set ensures at least 2 items
+        always run, so ``None`` is never returned in practice).
+    """
+    # Lazy import (mirrors ``run_plan`` below) — see
+    # ``build_sequenced_plan`` for the cycle-breaking rationale.
+    from voice_typer.server.shutdown_controller import (
+        _shutdown_deadline_near,
+        _shutdown_remaining,
+    )
+
+    _shutdown_critical_parallel: frozenset[str] = frozenset({"teardown_pid_file", "teardown_mutex_handle"})
+    all_parallel_items: list[tuple[str, object, float, str | None, bool]] = [
+        ("teardown_asr_models", controller._teardown_asr_models, 10.0, None, False),
+        ("teardown_restore_volume", controller._teardown_restore_volume, 10.0, None, False),
+        ("teardown_waveform_wiring", controller._teardown_waveform_wiring, 10.0, None, False),
+        ("teardown_sounddevice", controller._teardown_sounddevice, 10.0, "teardown_recorder", True),
+        ("teardown_pid_file", controller._teardown_pid_file, 10.0, None, False),
+        ("teardown_mutex_handle", controller._teardown_mutex_handle, 10.0, None, False),
+        ("teardown_devnull_files", controller._teardown_devnull_files, 10.0, None, False),
+        ("teardown_level_monitor", controller._teardown_level_monitor, 10.0, None, False),
+        ("teardown_hotkeys", controller._teardown_hotkeys, 10.0, None, False),
+        ("teardown_electron", controller._teardown_electron, 10.0, None, False),
+        ("teardown_event_bus", controller._teardown_event_bus, 10.0, None, False),
+    ]
+    parallel_items: list[tuple[str, object, float, str | None, bool]] = []
+    for _desc, _func, _timeout, _dep, _skip in all_parallel_items:
+        if _shutdown_deadline_near(deadline) and _desc not in _shutdown_critical_parallel:
+            _sc_log.warning(
+                "[SHUTDOWN] deadline near (%.1fs remaining) — skipping non-critical %s",
+                _shutdown_remaining(deadline),
+                _desc,
+            )
+            skipped.append(_desc)
+            continue
+        parallel_items.append((_desc, _func, _timeout, _dep, _skip))
+    # Guard against empty parallel_items (defensive — critical set
+    # ensures at least 2 items always run).
+    if not parallel_items:
+        return None
+    parallel_plan = ShutdownPlan(
+        phase="parallel",
+        steps=tuple(ShutdownStep(*item) for item in parallel_items),
+    )
+    return parallel_plan
+
+
 __all__ = [
     "CRITICAL_STEPS",
     "ShutdownPlan",
     "ShutdownStep",
+    "build_parallel_plan",
+    "build_sequenced_plan",
     "run_plan",
 ]

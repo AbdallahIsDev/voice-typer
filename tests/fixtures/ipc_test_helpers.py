@@ -231,6 +231,71 @@ def make_ipc_server_with_fakes() -> tuple[Any, MagicMock, MagicMock]:
     return server, fake_app, fake_service
 
 
+def make_bare_ipc_server(app: MagicMock | None = None, service: MagicMock | None = None) -> Any:
+    """Build a bare ``IPCServer`` via the ``__new__`` bypass.
+
+    Canonical replacement for the ``_make_ipc_server`` helpers that were
+    copy-pasted across ``tests/test_notification_event_name.py``,
+    ``tests/tauri/mig15/test_toast_windows.py``,
+    ``tests/tauri/mig16/test_toast_macos.py`` and
+    ``tests/tauri/mig17/test_toast_linux.py``. Those four copies had
+    drifted: three of them set only ``app`` / ``service`` /
+    ``app._config_mutation_lock``; the fourth (toast_linux) additionally
+    set ``server._dispatch_lock`` because ``__new__`` skips
+    ``__init__`` and ``_dispatch`` acquires that lock — without it a
+    dispatch raises ``AttributeError``. This factory merges both shapes
+    so every caller gets the lock fix.
+
+    The bypass exists so handler-mixin tests can run the validation +
+    publish path without a real ``VoiceTyperApp`` (no torch, no pystray,
+    no real tray) and without paying ``IPCServer.__init__``'s full
+    wiring cost. Only use it when the test touches attributes the
+    mixins read directly; tests that exercise ``_dispatch`` or the
+    server lifecycle should prefer :func:`make_ipc_server_with_fakes`.
+
+    Sets exactly:
+
+    - ``server.app`` — ``MagicMock`` with ``_config_mutation_lock`` set
+      to a fresh ``threading.RLock`` (the config handlers acquire the
+      app-level lock).
+    - ``server.service`` — plain ``MagicMock``.
+    - ``server._dispatch_lock`` — fresh ``threading.RLock`` (mirrors
+      ``IPCServer.__init__``; ``RLock`` so a handler that re-enters
+      ``_dispatch`` on the same thread doesn't self-deadlock).
+
+    Parameters
+    ----------
+    app : MagicMock, optional
+        Pre-built fake app to inject instead of a fresh mock. The
+        ``_config_mutation_lock`` fix-up is applied when the injected
+        app doesn't already expose a real lock.
+    service : MagicMock, optional
+        Pre-built fake service to inject instead of a fresh mock.
+
+    Returns
+    -------
+    Any
+        The bare ``IPCServer`` instance. Configure the mocks via
+        ``server.app`` / ``server.service``.
+    """
+    import threading
+
+    from voice_typer.server.ipc_server import IPCServer
+
+    if app is None:
+        app = MagicMock(name="bare_app")
+    if not isinstance(getattr(app, "_config_mutation_lock", None), type(threading.RLock())):
+        app._config_mutation_lock = threading.RLock()
+    if service is None:
+        service = MagicMock(name="bare_service")
+    server = IPCServer.__new__(IPCServer)
+    server.app = app
+    server.service = service
+    # ``__new__`` skips ``__init__``; ``_dispatch`` acquires this lock.
+    server._dispatch_lock = threading.RLock()
+    return server
+
+
 def make_fake_sidecar_ws_server(**overrides: Any) -> Any:
     """Return the canonical fake sidecar-WS server for WS transport tests.
 
@@ -277,7 +342,9 @@ def make_fake_recorder(**config_overrides: Any) -> Any:
     Parameters
     ----------
     **config_overrides:
-        Applied to ``rec.config`` post-construction, e.g.
+        Applied to ``rec.config`` BEFORE the ``Recorder`` constructor
+        runs (so constructor-read fields like
+        ``pre_roll_buffer_seconds`` are honoured), e.g.
         ``make_fake_recorder(sample_rate=48000)``.
 
     Returns
@@ -287,10 +354,7 @@ def make_fake_recorder(**config_overrides: Any) -> Any:
     """
     from tests.fixtures.recorder_test_helpers import make_recorder as _mk
 
-    rec = _mk()
-    for name, value in config_overrides.items():
-        setattr(rec.config, name, value)
-    return rec
+    return _mk(**config_overrides)
 
 
 __all__ = [
@@ -298,5 +362,6 @@ __all__ = [
     "make_fake_service",
     "make_fake_recorder",
     "make_fake_sidecar_ws_server",
+    "make_bare_ipc_server",
     "make_ipc_server_with_fakes",
 ]

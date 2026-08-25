@@ -29,18 +29,20 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 @pytest.fixture
 def recorder():
-    """Construct a real ``Recorder`` instance with a mock config.
+    """Construct a real ``Recorder`` instance via the shared factory.
 
     The recorder is never ``start()``-ed — the tests exercise
     ``_surface_ring_overflow_warning`` (and ``_process_audio_chunk``'s
-    delegation) directly. ``MagicMock(sample_rate=..., microphone=None)``
-    mirrors the pattern in ``test_recorder_worker_lifecycle.py`` so
-    ``__init__`` does not try to enumerate real audio devices.
+    delegation) directly. Delegates to the canonical
+    ``make_fake_recorder`` (XS-42 helper dedup) so the MagicMock-config
+    construction lives in ONE place; see
+    ``tests/fixtures/recorder_test_helpers.make_recorder`` for the
+    pre-populated config fields and why ``__init__`` does not try to
+    enumerate real audio devices.
     """
-    from voice_typer.server.recording import Recorder
+    from tests.fixtures.ipc_test_helpers import make_fake_recorder
 
-    config = MagicMock(sample_rate=16000, microphone=None)
-    return Recorder(config)
+    return make_fake_recorder()
 
 
 # ── Source-inspection contracts ──────────────────────────────────

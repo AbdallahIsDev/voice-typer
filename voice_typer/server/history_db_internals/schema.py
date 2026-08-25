@@ -10,7 +10,7 @@ Public re-exports (used by tests via ``history_db._MIGRATIONS`` /
 ``history_db._CURRENT_SCHEMA_VERSION``):
 
 - ``_CURRENT_SCHEMA_VERSION``
-- ``_MIGRATION_V2``, ``_MIGRATION_V3``
+- ``_MIGRATION_V2``, ``_MIGRATION_V3``, ``_MIGRATION_V4``
 - ``_MIGRATIONS``
 
 Free functions:
@@ -46,7 +46,7 @@ log = logging.getLogger(__name__)
 #: cluttering the log with a duplicate.
 _announced_db_paths: set[str] = set()
 
-_CURRENT_SCHEMA_VERSION = 3
+_CURRENT_SCHEMA_VERSION = 4
 
 _MIGRATION_V2 = """
     ALTER TABLE transcriptions ADD COLUMN favorite INTEGER DEFAULT 0;
@@ -106,9 +106,73 @@ _MIGRATION_V3 = """
     COMMIT;
 """
 
+# At-rest encryption of the dictated ``text`` column (design gate:
+# docs/adr/XZ-R11-04-at-rest-encryption.md; cipher module:
+# ``voice_typer/server/_text_crypto.py``).
+#
+# This migration is deliberately a PLAIN migration (no embedded
+# ``BEGIN;``) so the migration runner wraps it in one transaction and —
+# critically — runs its partial-prior-state reconciliation over it: the
+# ``text_is_encrypted`` column is already part of the canonical CREATE
+# TABLE above, so on a FRESH database the ALTER must be filtered out
+# (otherwise "duplicate column name" aborts the migration), while on a
+# database created before this feature it is the statement that adds the
+# column. Trigger-bearing statements cannot carry their own
+# ``BEGIN;…COMMIT;`` wrapper AND benefit from that filtering, which is
+# why the runner's split/reassemble path (it joins the split fragments
+# back into semantically identical SQL) is the right shape here.
+#
+# FTS5 guard design (the load-bearing part):
+#
+#   - INSERT path: rows are ALWAYS inserted with plaintext + flag 0, so
+#     ``transcriptions_ai_fts`` indexes plaintext tokens; the writer then
+#     UPDATEs the row to ciphertext + flag 1. The au_fts WHEN guard makes
+#     that flag-flip UPDATE a no-op for FTS (the plaintext tokens stay in
+#     the index — full-text search keeps working for encrypted rows, ADR
+#     §6 decision: FTS shadow tables remain plaintext-tokenized).
+#   - UPDATE guard is ``NEW.text_is_encrypted = 0 AND OLD.text_is_encrypted
+#     = 0`` (not merely "flag unchanged"): a favorite-toggle UPDATE on an
+#     encrypted row also has an unchanged flag, but OLD.text is ciphertext —
+#     issuing the FTS5 'delete' command with tokens that don't match the
+#     originally indexed tokens raises "database disk image is malformed"
+#     (verified in-sandbox against SQLite 3.53). Real text edits on
+#     plaintext rows still re-index normally.
+#   - DELETE guard (``old.text_is_encrypted = 0``): the 'delete' command
+#     for an encrypted row would present ciphertext tokens that were never
+#     indexed — same corruption — so token removal is skipped for
+#     encrypted rows. Stale rowids left in the index are harmless: every
+#     FTS search SQL JOINs back against ``transcriptions``, which filters
+#     dangling rowids out of the result set.
+#
+# All three triggers are DROPped + recreated (IF EXISTS on the drop) because
+# a pre-v4 database carries the unguarded v3 definitions.
+_MIGRATION_V4 = """
+    ALTER TABLE transcriptions ADD COLUMN text_is_encrypted INTEGER DEFAULT 0;
+    DROP TRIGGER IF EXISTS transcriptions_ai_fts;
+    DROP TRIGGER IF EXISTS transcriptions_ad_fts;
+    DROP TRIGGER IF EXISTS transcriptions_au_fts;
+    CREATE TRIGGER transcriptions_ai_fts AFTER INSERT ON transcriptions
+    WHEN new.text_is_encrypted = 0
+    BEGIN
+        INSERT INTO transcriptions_fts(rowid, text) VALUES (new.id, new.text);
+    END;
+    CREATE TRIGGER transcriptions_ad_fts AFTER DELETE ON transcriptions
+    WHEN old.text_is_encrypted = 0
+    BEGIN
+        INSERT INTO transcriptions_fts(transcriptions_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    END;
+    CREATE TRIGGER transcriptions_au_fts AFTER UPDATE ON transcriptions
+    WHEN NEW.text_is_encrypted = 0 AND OLD.text_is_encrypted = 0
+    BEGIN
+        INSERT INTO transcriptions_fts(transcriptions_fts, rowid, text) VALUES ('delete', old.id, old.text);
+        INSERT INTO transcriptions_fts(rowid, text) VALUES (new.id, new.text);
+    END;
+"""
+
 _MIGRATIONS = {
     2: _MIGRATION_V2,
     3: _MIGRATION_V3,
+    4: _MIGRATION_V4,
 }
 
 #: Matches ``ALTER TABLE <name> ADD COLUMN <col>`` so the migration runner

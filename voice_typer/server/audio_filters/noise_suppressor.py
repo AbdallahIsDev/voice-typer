@@ -1,4 +1,4 @@
-"""Multi-backend noise suppressor (RNNoise / DeepFilterNet)."""
+"""Multi-backend noise suppressor (RNNoise / GTCRN)."""
 
 from __future__ import annotations
 
@@ -15,6 +15,11 @@ log = logging.getLogger(__name__)
 
 # RNNoise requires 48kHz, 480-sample frames (10ms at 48kHz).
 _RNNOISE_FRAME_SIZE: int = 480
+
+# GTCRN (the bundled ONNX streaming model) is native 16 kHz and
+# consumes one 256-sample hop per inference call (16 ms at 16 kHz).
+# See ``gtcrn_backend.py`` for the full streaming contract.
+_GTCRN_HOP_SIZE: int = 256
 
 # float32 -> int16 conversion constants. ``_FLOAT_TO_INT16_MAX`` is the
 # maximum representable int16 value (32767). ``_INT16_SCALE`` is the multiplier
@@ -158,12 +163,14 @@ class NoiseSuppressor(AudioFilter):
     Backends (runtime-switchable):
     - ``"rnnoise"`` — ``pyrnnoise`` package, 480-sample frames at 48kHz.
       BSD-licensed, ~1ms per frame. Default.
-    - ``"deepfilternet"`` — ``deepfilternet`` package (requires torch).
-      Higher quality, 2-3x CPU. Premium option.
+    - ``"gtcrn"`` — bundled GTCRN ONNX streaming model (16 kHz,
+      256-sample hops, ~2 ms per hop on CPU). Higher quality than
+      RNNoise; selected by the ``noisy_room`` preset.
     - ``"none"`` — passthrough (no suppression).
 
-    If the selected backend's library is missing, falls back to ``"none"``
-    and sets ``is_degraded=True`` so the UI can warn the user.
+    If the selected backend is unavailable (missing library / model),
+    falls back to ``rnnoise`` (or ``none``) and sets ``is_degraded=True``
+    so the UI can warn the user.
 
     Frame buffering: uses input/output deques (like OBS) to handle
     arbitrary chunk sizes. Returns ``None`` when the output buffer is
@@ -217,6 +224,19 @@ class NoiseSuppressor(AudioFilter):
         self._downsampler: _StreamingResampler | None = None
         self._resampler_rate: int | None = None
 
+        # GTCRN is native 16 kHz (not 48 kHz like RNNoise), so it gets
+        # its OWN lazily-created resampler pair — created by
+        # ``_ensure_gtcrn_resamplers``. At 16 kHz both stay ``None``.
+        self._gtcrn_upsampler: _StreamingResampler | None = None
+        self._gtcrn_downsampler: _StreamingResampler | None = None
+        self._gtcrn_resampler_rate: int | None = None
+        # pre-allocated float32 output buffer for the concatenated GTCRN
+        # hop outputs — the same lazy-resize pattern as
+        # ``_result_48k_buf`` on the RNNoise path (each hop's enhanced
+        # output is written directly into its 256-sample slice, no
+        # per-hop list + final ``np.concatenate``).
+        self._result_16k_buf: np.ndarray | None = None
+
         self._init_backend()
 
     def _init_backend(self) -> None:
@@ -228,8 +248,20 @@ class NoiseSuppressor(AudioFilter):
 
         if method == "rnnoise":
             self._init_rnnoise()
+        elif method == "gtcrn":
+            self._init_gtcrn()
         elif method == "deepfilternet":
-            self._init_deepfilternet()
+            # Legacy config value: the DeepFilterNet backend was replaced
+            # by the bundled GTCRN ONNX streaming model (the upstream
+            # PyPI package is unmaintained and its processing path was
+            # never wired here). ``Config.load()`` remaps the on-disk
+            # value to ``"gtcrn"`` before validation; this alias covers
+            # direct construction (tests, embedders) still passing the
+            # old name so it degrades to the live backend instead of
+            # silently passthroughing.
+            log.info("[NOISE-SUPPRESS] legacy method 'deepfilternet' — using gtcrn")
+            self._method = "gtcrn"
+            self._init_gtcrn()
         else:
             log.warning("[NOISE-SUPPRESS] unknown method %r — using none", method)
             self._method = "none"
@@ -254,106 +286,68 @@ class NoiseSuppressor(AudioFilter):
             self._degraded_reason = f"rnnoise init failed: {exc}"
             self._method = "none"
 
-    def _init_deepfilternet(self) -> None:
-        """Initialize DeepFilterNet backend.
+    def _init_gtcrn(self) -> None:
+        """Initialize the GTCRN backend (bundled ONNX streaming model).
 
-         (Critical): the DeepFilterNet *processing* path is not
-        yet implemented in :meth:`process` — only ``rnnoise`` is wired.
-        Previously, when ``deepfilternet`` was selected (e.g. via the
-        ``noisy_room`` preset) AND the ``df`` package was importable,
-        ``__init__`` left ``self._method == "deepfilternet"`` and
-        ``is_degraded == False``. The first ``process()`` call then
-        silently fell through to passthrough — users in noisy
-        environments got ZERO noise suppression with no UI signal.
-
-        Mitigation (chosen from the finding's option (b)): mark the
-        filter as degraded AND fall back to ``rnnoise`` at *init* time
-        (not at process() time) so:
+        On ANY failure — ``onnxruntime`` missing, the bundled
+        ``gtcrn_simple.onnx`` missing / corrupt, or the session failing
+        its warmup — degrade to ``rnnoise`` at INIT time (the same
+        contract the retired DeepFilterNet placeholder had, except the
+        GTCRN path actually processes audio when it loads):
 
           1. The UI sees ``is_degraded == True`` immediately on
              construction — before the first audio chunk — and can
              surface a warning to the user.
-          2. The user gets actual neural noise suppression via
-             RNNoise instead of nothing (when RNNoise is available).
+          2. The user still gets neural noise suppression via RNNoise
+             (when RNNoise is available).
           3. ``process()`` reaches the rnnoise branch directly on
-             every call (no per-chunk fallback overhead, no
-             surprise ``_method`` mutation on the RT thread).
+             every call (no per-chunk fallback overhead, no surprise
+             ``_method`` mutation on the RT thread).
 
         If ``rnnoise`` is *also* unavailable, ``_init_rnnoise`` will
-        further degrade to ``"none"``. In that case we preserve the
-        DeepFilterNet context in ``_degraded_reason`` (so the user
-        knows BOTH that DeepFilterNet isn't wired AND that the
-        RNNoise fallback also failed) — this is more actionable than
-        silently overwriting with just the RNNoise message.
+        further degrade to ``"none"``. In that case the GTCRN context
+        is preserved in ``_degraded_reason`` (so the user knows BOTH
+        that the GTCRN model couldn't load AND that the RNNoise
+        fallback also failed) — the rnnoise install hint is the more
+        actionable part, but the GTCRN context explains why the
+        ``noisy_room`` preset didn't hold its first choice.
         """
         try:
-            # Probe whether the ``df`` package is importable so the
-            # degraded_reason can tell the user whether installing
-            # deepfilternet would help (it wouldn't — processing is
-            # not wired — but the message distinguishes the two cases
-            # for diagnostics).
-            import df  # noqa: F401  # type: ignore[import-not-found]
+            from voice_typer.server.audio_filters.gtcrn_backend import GtcrnBackend
 
-            df_available = True
-        except ImportError:
-            df_available = False
-        except Exception as exc:  # pragma: no cover - defensive
-            log.warning("[NOISE-SUPPRESS] DeepFilterNet probe failed: %s", exc)
-            df_available = False
-
-        if df_available:
-            log.warning(
-                "[NOISE-SUPPRESS] DeepFilterNet processing is not yet wired; "
-                "falling back to rnnoise so users in noisy environments still "
-                "get neural noise suppression"
-            )
-        else:
-            log.warning(
-                "[NOISE-SUPPRESS] deepfilternet not installed and processing "
-                "is not yet wired; falling back to rnnoise. Install with: "
-                "pip install 'voice-typer[deepfilternet]'"
-            )
-
-        # Mark degraded BEFORE calling _init_rnnoise so the flag is set
-        # even if _init_rnnoise succeeds (which would otherwise leave
-        # _degraded == False, hiding the deepfilternet-not-wired state
-        # from the UI). Save the reason so we can preserve context if
-        # _init_rnnoise further degrades to "none".
-        self._degraded = True
-        df_reason = (
-            "deepfilternet backend not yet implemented — falling back to rnnoise"
-            if df_available
-            else "deepfilternet not installed and not yet implemented — falling back to rnnoise"
-        )
-        self._degraded_reason = df_reason
-
-        # Switch to rnnoise at init time so process() uses the rnnoise
-        # branch directly. ``_init_rnnoise`` may further degrade to
-        # ``"none"`` if pyrnnoise is also missing.
-        self._method = "rnnoise"
-        self._init_rnnoise()
-
-        # If _init_rnnoise succeeded (method is still "rnnoise"), keep
-        # the deepfilternet reason — the user should know they're
-        # getting rnnoise instead of their selected deepfilternet.
-        # If _init_rnnoise failed (method is now "none"), preserve the
-        # deepfilternet context AND surface the rnnoise failure so the
-        # user knows BOTH problems (the more actionable one is the
-        # rnnoise install hint, but the deepfilternet context explains
-        # why the noisy_room preset didn't help).
-        if self._method == "none":
-            # _init_rnnoise overwrote _degraded_reason with the rnnoise
-            # failure. Prepend the deepfilternet context so the user
-            # sees both: "deepfilternet not wired; rnnoise fallback
-            # also failed: <rnnoise reason>".
-            rnnoise_reason = self._degraded_reason
-            self._degraded_reason = f"{df_reason}; rnnoise fallback also unavailable: {rnnoise_reason}"
-        else:
-            # _init_rnnoise succeeded — restore df_reason as the
-            # degraded_reason (don't let _init_rnnoise's success path
-            # accidentally clear _degraded).
+            self._backend = GtcrnBackend()
+        except Exception as exc:
+            log.warning("[NOISE-SUPPRESS] GTCRN init failed: %s — falling back to rnnoise", exc)
+            # Mark degraded BEFORE calling _init_rnnoise so the flag is
+            # set even if _init_rnnoise succeeds (which would otherwise
+            # leave _degraded == False, hiding the GTCRN failure from
+            # the UI). Save the reason so we can preserve context if
+            # _init_rnnoise further degrades to "none".
             self._degraded = True
-            self._degraded_reason = df_reason
+            gtcrn_reason = f"gtcrn init failed: {exc} — falling back to rnnoise"
+            self._degraded_reason = gtcrn_reason
+
+            # Switch to rnnoise at init time so process() uses the
+            # rnnoise branch directly. ``_init_rnnoise`` may further
+            # degrade to ``"none"`` if pyrnnoise is also missing.
+            self._method = "rnnoise"
+            self._init_rnnoise()
+
+            if self._method == "none":
+                # _init_rnnoise overwrote _degraded_reason with the
+                # rnnoise failure. Prepend the GTCRN context so the
+                # user sees both problems at once: "gtcrn init failed;
+                # rnnoise fallback also unavailable: <rnnoise reason>".
+                rnnoise_reason = self._degraded_reason
+                self._degraded_reason = f"{gtcrn_reason}; rnnoise fallback also unavailable: {rnnoise_reason}"
+            else:
+                # _init_rnnoise succeeded — restore gtcrn_reason as the
+                # degraded_reason (don't let _init_rnnoise's success
+                # path accidentally clear _degraded).
+                self._degraded = True
+                self._degraded_reason = gtcrn_reason
+        else:
+            log.info("[NOISE-SUPPRESS] GTCRN backend ready (bundled ONNX streaming model)")
 
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         if self._method == "none" or self._backend is None or audio.size == 0:
@@ -364,17 +358,19 @@ class NoiseSuppressor(AudioFilter):
 
         if self._method == "rnnoise":
             return self._process_rnnoise(samples, sample_rate, original_shape)
+        if self._method == "gtcrn":
+            return self._process_gtcrn(samples, sample_rate, original_shape)
         #  defensive guard: ``_init_backend`` is supposed to
-        # narrow every known method to either ``"rnnoise"`` or
-        # ``"none"`` at construction time (see ``_init_deepfilternet``
-        # for the deepfilternet → rnnoise fallback). Reaching this
+        # narrow every known method to one of ``"rnnoise"`` /
+        # ``"gtcrn"`` / ``"none"`` at construction time (see
+        # ``_init_gtcrn`` for the gtcrn → rnnoise fallback). Reaching this
         # branch means a future backend was added without an init-time
         # fallback — instead of silently passthroughing (the original
         # Critical bug), we fall back to rnnoise here and surface
         # ``is_degraded`` so the UI can warn the user. This branch is
         # not reachable for any currently-supported method
-        # (``rnnoise`` / ``deepfilternet`` / ``none``) — it exists
-        # purely to prevent a regression of
+        # (``rnnoise`` / ``gtcrn`` / ``none``) — it exists
+        # purely to prevent a regression of silent passthrough.
         if not self._degraded:
             self._degraded = True
             self._degraded_reason = f"{self._method} backend not yet implemented — falling back to rnnoise"
@@ -532,6 +528,116 @@ class NoiseSuppressor(AudioFilter):
 
         return result.astype(np.float32, copy=False).reshape(original_shape)
 
+    def _ensure_gtcrn_resamplers(self, sample_rate: int) -> None:
+        """Lazily create (or recreate) the GTCRN streaming resamplers.
+
+        GTCRN is native 16 kHz (unlike RNNoise's 48 kHz), so it needs
+        its OWN resampler pair — separate state from the RNNoise pair
+        so the RNNoise processing path stays untouched. At 16 kHz both
+        resamplers stay ``None`` (no resampling needed); at any other
+        source rate an up/down pair round-trips the audio through
+        16 kHz for the model and back.
+        """
+        if sample_rate == WHISPER_SAMPLE_RATE:
+            if self._gtcrn_resampler_rate != sample_rate:
+                self._gtcrn_upsampler = None
+                self._gtcrn_downsampler = None
+                self._gtcrn_resampler_rate = sample_rate
+            return
+        if self._gtcrn_resampler_rate == sample_rate and self._gtcrn_upsampler is not None:
+            return  # already configured for this rate
+        gcd = math.gcd(WHISPER_SAMPLE_RATE, int(sample_rate))
+        up = WHISPER_SAMPLE_RATE // gcd
+        down = int(sample_rate) // gcd
+        self._gtcrn_upsampler = _StreamingResampler(up, down)
+        self._gtcrn_downsampler = _StreamingResampler(down, up)
+        self._gtcrn_resampler_rate = int(sample_rate)
+
+    def _process_gtcrn(
+        self,
+        samples: np.ndarray,
+        sample_rate: int,
+        original_shape: tuple,
+    ) -> np.ndarray | None:
+        """Process through the GTCRN streaming model with hop buffering.
+
+        GTCRN is native 16 kHz and consumes 256-sample hops. If the
+        source rate differs, round-trip resample with the GTCRN
+        streaming resamplers. Mirrors the RNNoise frame-buffering
+        structure: partial hops are carried in ``self._carry`` between
+        calls; ``None`` is returned while too little audio is buffered.
+
+        Each hop's enhanced block trails the input by ONE hop (the
+        512-point analysis window spans two hops — see
+        ``gtcrn_backend``), so the emitted stream is the denoised
+        input delayed by 16 ms; ``latency_ms`` reports that.
+        """
+        assert self._backend is not None
+
+        self._ensure_gtcrn_resamplers(sample_rate)
+
+        # Resample to the model's native 16 kHz if needed.
+        up = self._gtcrn_upsampler.process(samples) if self._gtcrn_upsampler is not None else samples
+
+        # Prepend carry from previous call and slice into full hops.
+        combined = np.concatenate([self._carry, up])
+        n_full = len(combined) // _GTCRN_HOP_SIZE
+        remainder = len(combined) - n_full * _GTCRN_HOP_SIZE
+
+        if n_full == 0:
+            # Not enough for a full hop — buffer it.
+            self._carry = combined
+            return None  # signal caller to skip this chunk
+
+        # pre-allocated float32 output buffer: each hop's enhanced
+        # output is written directly into its 256-sample slice (no
+        # per-hop list + final concatenate — the same pattern as the
+        # RNNoise ``_result_48k_buf``).
+        total_out = n_full * _GTCRN_HOP_SIZE
+        if self._result_16k_buf is None or self._result_16k_buf.shape[0] < total_out:
+            self._result_16k_buf = np.empty(max(total_out, 1024), dtype=np.float32)
+        result_16k = self._result_16k_buf[:total_out]
+
+        for i in range(n_full):
+            start = i * _GTCRN_HOP_SIZE
+            hop = combined[start : start + _GTCRN_HOP_SIZE]
+            out_slice = result_16k[i * _GTCRN_HOP_SIZE : (i + 1) * _GTCRN_HOP_SIZE]
+            try:
+                enhanced, _ = self._backend.process_hop(hop)
+                np.copyto(out_slice, enhanced)
+            except Exception as exc:
+                # A single failed hop falls back to the ORIGINAL hop
+                # (never crash the audio thread); the init-time
+                # warmup makes this path effectively unreachable.
+                log.debug("[NOISE-SUPPRESS] GTCRN hop failed: %s", exc)
+                np.copyto(out_slice, hop)
+
+        # Save remainder for next call.
+        if remainder > 0:
+            self._carry = combined[n_full * _GTCRN_HOP_SIZE :]
+        else:
+            self._carry = np.array([], dtype=np.float32)
+
+        # Resample back to the source rate if needed.
+        result = self._gtcrn_downsampler.process(result_16k) if self._gtcrn_downsampler is not None else result_16k
+
+        # The resampling may produce slightly different length than
+        # input. Match the input length by padding/truncating (same
+        # contract as the RNNoise path — the shared ``_padded_buf`` is
+        # safe because only one backend is ever active per instance).
+        target_len = len(samples)
+        if len(result) >= target_len:
+            result = result[:target_len]
+        else:
+            if self._padded_buf is None or self._padded_buf.shape[0] < target_len:
+                self._padded_buf = np.zeros(max(target_len, 1024), dtype=np.float32)
+            padded = self._padded_buf[:target_len]
+            padded[: len(result)] = result
+            padded[len(result) :] = 0.0
+            result = padded
+
+        return result.astype(np.float32, copy=False).reshape(original_shape)
+
     def reset(self) -> None:
         # zero the existing state array BEFORE replacing it
         # so partial-frame samples (which can hold ~10ms of the user's
@@ -568,12 +674,31 @@ class NoiseSuppressor(AudioFilter):
             self._upsampler.reset()
         if self._downsampler is not None:
             self._downsampler.reset()
+        # GTCRN state: the model's recurrent caches + overlap-add tail
+        # (a stale tail from the previous session would bleed into the
+        # next one), the 16 kHz resampler pair's filter state, and the
+        # concatenated-output buffer (privacy — same rationale as
+        # ``_result_48k_buf`` above). Gated on the METHOD so the
+        # RNNoise reset path stays byte-identical (a degraded-to-
+        # rnnoise instance holds an RNNoise backend, not a GTCRN one).
+        if self._method == "gtcrn" and self._backend is not None:
+            self._backend.reset()
+        if self._result_16k_buf is not None:
+            self._result_16k_buf.fill(0)
+        if self._gtcrn_upsampler is not None:
+            self._gtcrn_upsampler.reset()
+        if self._gtcrn_downsampler is not None:
+            self._gtcrn_downsampler.reset()
 
     @property
     def latency_ms(self) -> float:
         # ~10ms (one RNNoise frame)
         if self._method == "rnnoise":
             return 10.0
+        # ~16ms (one 256-sample GTCRN hop at 16 kHz — the streaming
+        # STFT's overlap-add algorithmic delay; see gtcrn_backend.py)
+        if self._method == "gtcrn":
+            return 16.0
         return 0.0
 
     @property

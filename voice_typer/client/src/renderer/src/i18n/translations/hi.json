@@ -789,7 +789,7 @@
 			"highPassCutoffInfoSearch": "इससे नीचे की आवृत्तियाँ क्षीण की जाती हैं।",
 			"highPassCutoffAria": "हाई-पास कटऑफ़",
 			"noiseSuppression": "शोर दमन",
-			"noiseSuppressionInfo": "न्यूरल नेटवर्क डिनॉइज़र। RNNoise (डिफ़ॉल्ट, हल्का)। DeepFilterNet (प्रीमियम, बेहतर गुणवत्ता, torch की आवश्यकता)। Speex (सबसे हल्का CPU)।",
+			"noiseSuppressionInfo": "न्यूरल नेटवर्क डिनॉइज़र। RNNoise (डिफ़ॉल्ट, हल्का)। GTCRN (उन्नत न्यूरल डिनॉइज़र, बेहतर गुणवत्ता, डिवाइस पर ही चलता है)। कोई नहीं (शोर दमन बंद करता है)।",
 			"noiseSuppressionInfoSearch": "न्यूरल नेटवर्क डिनॉइज़र।",
 			"noiseSuppressionAria": "शोर दमन विधि",
 			"noneOption": "कोई नहीं",

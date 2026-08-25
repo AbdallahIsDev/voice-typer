@@ -789,7 +789,7 @@
 			"highPassCutoffInfoSearch": "低于此值的频率被衰减。",
 			"highPassCutoffAria": "高通截止",
 			"noiseSuppression": "噪声抑制",
-			"noiseSuppressionInfo": "神经网络降噪器。RNNoise（默认，轻量）。DeepFilterNet（高端，质量更好，需要 torch）。Speex（最省 CPU）。",
+			"noiseSuppressionInfo": "神经网络降噪器。RNNoise（默认，轻量）。GTCRN（高级神经网络降噪器，质量更高，在设备上运行）。无（关闭降噪）。",
 			"noiseSuppressionInfoSearch": "神经网络降噪器。",
 			"noiseSuppressionAria": "噪声抑制方法",
 			"noneOption": "无",

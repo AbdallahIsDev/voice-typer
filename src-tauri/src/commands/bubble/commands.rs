@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::{Emitter, Manager, PhysicalPosition};
 
+use crate::error::VoiceTyperError;
 use crate::state::SidecarState;
 
 use super::math::{
@@ -62,10 +63,10 @@ use super::window::hide_bubble_window;
 /// window would break that UX. The command's effect is confined to
 /// the bubble window itself.
 #[tauri::command]
-pub async fn bubble_show(app: tauri::AppHandle) -> Result<(), String> {
+pub async fn bubble_show(app: tauri::AppHandle) -> Result<(), VoiceTyperError> {
     let window = app
         .get_webview_window("bubble")
-        .ok_or("bubble window not found")?;
+        .ok_or(VoiceTyperError::Host("bubble window not found".into()))?;
     // Durable drag-position restore (mirrors Electron's show-time
     // placement): when the sidecar's config carries a persisted
     // `bubble_x` / `bubble_y` pair that still lies on an attached
@@ -80,7 +81,7 @@ pub async fn bubble_show(app: tauri::AppHandle) -> Result<(), String> {
         crate::commands::bubble::suppress_persist_for_window();
         let _ = window.set_position(PhysicalPosition::new(x, y));
     }
-    window.show().map_err(|e| e.to_string())
+    window.show().map_err(|e| VoiceTyperError::Host(e.to_string()))
 }
 
 /// Emit `bubble:ready` to signal that the bubble page is mounted and
@@ -97,14 +98,14 @@ pub async fn bubble_show(app: tauri::AppHandle) -> Result<(), String> {
 pub async fn bubble_signal_ready(
     app: tauri::AppHandle,
     window: tauri::Window,
-) -> Result<(), String> {
+) -> Result<(), VoiceTyperError> {
     // Only the bubble window may signal bubble readiness (mirrors
     // Electron's assertFromBubble in bubble-handlers.ts). Returns the
     // canonical JSON error envelope so the renderer's reject path
     // handles it identically to a server-side rejection.
     crate::commands::require_bubble_window(&window)?;
     app.emit_to("bubble", "bubble:ready", ())
-        .map_err(|e| e.to_string())
+        .map_err(|e| VoiceTyperError::Host(e.to_string()))
 }
 
 /// Move the bubble window to `(x, y)` in physical pixels (ADR-0020 §9
@@ -213,10 +214,13 @@ fn resolve_cursor_monitor(app: &tauri::AppHandle) -> Result<tauri::window::Monit
 }
 
 #[tauri::command]
-pub async fn bubble_set_position(position: String, app: tauri::AppHandle) -> Result<(), String> {
+pub async fn bubble_set_position(
+    position: String,
+    app: tauri::AppHandle,
+) -> Result<(), VoiceTyperError> {
     let window = app
         .get_webview_window("bubble")
-        .ok_or("bubble window not found")?;
+        .ok_or(VoiceTyperError::Host("bubble window not found".into()))?;
     let monitor = resolve_cursor_monitor(&app)?;
     // This is a PROGRAMMATIC placement (Settings edge toggle / connect-
     // time sync): arm the suppression window BEFORE the move so the
@@ -247,7 +251,7 @@ pub async fn bubble_set_position(position: String, app: tauri::AppHandle) -> Res
         bubble_position_in_work_area(&position, &wa_rect, bubble_w, bubble_h, margin)?;
     window
         .set_position(PhysicalPosition::new(px, py))
-        .map_err(|e| e.to_string())
+        .map_err(|e| VoiceTyperError::Host(e.to_string()))
 }
 
 //Toggle the bubble window's draggable state (ADR-0020 §9 + ).
@@ -268,9 +272,12 @@ pub async fn bubble_set_position(position: String, app: tauri::AppHandle) -> Res
 /// button so an accidental drag doesn't fire). The command's effect
 /// is confined to the bubble window's drag listener.
 #[tauri::command]
-pub async fn bubble_set_draggable(draggable: bool, app: tauri::AppHandle) -> Result<(), String> {
+pub async fn bubble_set_draggable(
+    draggable: bool,
+    app: tauri::AppHandle,
+) -> Result<(), VoiceTyperError> {
     app.emit_to("bubble", "bubble:draggable", draggable)
-        .map_err(|e| e.to_string())
+        .map_err(|e| VoiceTyperError::Host(e.to_string()))
 }
 
 /// Move the bubble window by `(dx, dy)` physical pixels relative to
@@ -307,7 +314,11 @@ pub async fn bubble_set_draggable(draggable: bool, app: tauri::AppHandle) -> Res
 /// (sidecar WS reader, status poll, etc.). The blocking pool absorbs
 /// the IPC latency without contending with the async runtime.
 #[tauri::command]
-pub async fn bubble_move_by(dx: f64, dy: f64, app: tauri::AppHandle) -> Result<Value, String> {
+pub async fn bubble_move_by(
+    dx: f64,
+    dy: f64,
+    app: tauri::AppHandle,
+) -> Result<Value, VoiceTyperError> {
     // Wrap the OS-IPC body in `spawn_blocking` so the async runtime's
     // worker pool is not held for the duration of `outer_position` +
     // `set_position` (two blocking OS-IPC syscalls per mousemove). The
@@ -340,8 +351,10 @@ pub async fn bubble_move_by(dx: f64, dy: f64, app: tauri::AppHandle) -> Result<V
     })
     .await;
     match join_result {
-        Ok(inner) => inner,
-        Err(join_err) => Err(format!("bubble_move_by blocking task failed: {join_err}")),
+        Ok(inner) => Ok(inner?),
+        Err(join_err) => Err(VoiceTyperError::Host(format!(
+            "bubble_move_by blocking task failed: {join_err}"
+        ))),
     }
 }
 
@@ -394,7 +407,7 @@ pub async fn bubble_move_by(dx: f64, dy: f64, app: tauri::AppHandle) -> Result<V
 pub async fn bubble_hide_complete(
     app: tauri::AppHandle,
     window: tauri::Window,
-) -> Result<(), String> {
+) -> Result<(), VoiceTyperError> {
     //only the bubble window may finalize its own hide. A
     // compromised main renderer invoking `bubble_hide_complete` would
     // otherwise skip the show/hide animation cycle and force the
@@ -407,7 +420,7 @@ pub async fn bubble_hide_complete(
     // semantic — `bubble_hide_complete` is the renderer's
     // animation-complete signal; `bubble_dismiss` is the user's '×'
     // button affordance).
-    hide_bubble_window(&app)
+    hide_bubble_window(&app).map_err(VoiceTyperError::from)
 }
 
 //Dismiss the bubble window from its own '×' button ( / ADR-0020 §9).
@@ -435,14 +448,17 @@ pub async fn bubble_hide_complete(
 /// channel (defense-in-depth — both gates must hold for the dismiss to
 /// take effect).
 #[tauri::command]
-pub async fn bubble_dismiss(app: tauri::AppHandle, window: tauri::Window) -> Result<(), String> {
+pub async fn bubble_dismiss(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+) -> Result<(), VoiceTyperError> {
     //only the bubble window may dismiss itself. A compromised
     // main renderer invoking `bubble_dismiss` would otherwise be able to
     // prematurely hide the bubble overlay (the dismiss button only shows
     // in `always_visible` mode, but the Rust gate is
     // mode-agnostic — defense-in-depth).
     crate::commands::require_bubble_window(&window)?;
-    hide_bubble_window(&app)
+    hide_bubble_window(&app).map_err(VoiceTyperError::from)
 }
 
 //Tauri commands: bubble window extensions () ────────────────
@@ -502,10 +518,14 @@ pub async fn bubble_dismiss(app: tauri::AppHandle, window: tauri::Window) -> Res
 /// `MIN_BUBBLE_H`/`MAX_BUBBLE_H` bounds as Electron (see the constants
 /// in `math.rs`) so both hosts produce identical resize behavior.
 #[tauri::command]
-pub async fn bubble_resize(width: f64, height: f64, app: tauri::AppHandle) -> Result<(), String> {
+pub async fn bubble_resize(
+    width: f64,
+    height: f64,
+    app: tauri::AppHandle,
+) -> Result<(), VoiceTyperError> {
     let window = app
         .get_webview_window("bubble")
-        .ok_or("bubble window not found")?;
+        .ok_or(VoiceTyperError::Host("bubble window not found".into()))?;
     //round the f64 measurement to u32 with a saturating
     // cast (NaN/negative → 0, ±inf/huge → u32::MAX). See
     // `round_f64_to_u32_saturating` doc for the per-input behavior.
@@ -520,7 +540,7 @@ pub async fn bubble_resize(width: f64, height: f64, app: tauri::AppHandle) -> Re
     use tauri::PhysicalSize;
     window
         .set_size(PhysicalSize::new(capped_w, capped_h))
-        .map_err(|e| e.to_string())
+        .map_err(|e| VoiceTyperError::Host(e.to_string()))
 }
 
 //Toggle dictation from the bubble's own mic button ( / ADR-0020
@@ -585,7 +605,7 @@ pub async fn bubble_resize(width: f64, height: f64, app: tauri::AppHandle) -> Re
 #[tauri::command]
 pub async fn bubble_toggle_dictation(
     state: tauri::State<'_, Arc<SidecarState>>,
-) -> Result<(), String> {
+) -> Result<(), VoiceTyperError> {
     //rate limiter: max 1 toggle per 500ms. See the doc comment
     // above for the rationale (DoS protection against a buggy or
     // compromised bubble renderer spamming toggle_dictation).

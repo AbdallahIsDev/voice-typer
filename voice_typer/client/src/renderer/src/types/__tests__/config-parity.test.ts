@@ -15,8 +15,11 @@
 //     validator sees them, so the IPC boundary never accepts either).
 //   • TS `noise_suppression_method` union must mirror Python
 //     `NOISE_SUPPRESSION_METHODS` frozenset ({"rnnoise",
-//     "deepfilternet", "none"}). The historical "speex" value was
-//     never implemented and is rejected at the IPC boundary.
+//     "gtcrn", "none"}). The historical "speex" value was
+//     never implemented and is rejected at the IPC boundary;
+//     "deepfilternet" was retired when the bundled GTCRN ONNX
+//     streaming model replaced it (the Python config loader remaps
+//     the legacy on-disk value to "gtcrn" before validation).
 //   • TS `llm_preset` union must mirror Python IPC validator's
 //     `_make_enum_validator({"professional", "casual", "email",
 //     "code"})`.
@@ -76,7 +79,7 @@ describe("XZ-CFG-06: TS ModelSize union mirrors Python ALLOWED_USER_MODELS", () 
 		expect(values).toHaveLength(6);
 	});
 
-	it("FR-4: includes the multilingual 'tiny' variant (positive conditional-type guard)", () => {
+	it("includes the multilingual 'tiny' variant (positive conditional-type guard)", () => {
 		// positive compile-time guard that the multilingual
 		// Whisper variants are present in the TS union. The conditional
 		// resolves to `true` while "tiny" is in `ModelSize`; if a
@@ -113,7 +116,7 @@ describe("XZ-CFG-06: TS ModelSize union mirrors Python ALLOWED_USER_MODELS", () 
 });
 
 describe("XZ-CFG-06: TS audio_preset / noise_suppression_method / llm_preset match Python IPC validators", () => {
-	it("audio_preset does NOT include legacy 'none' or 'recommended' (GT-51: tightened to IPC validator)", () => {
+	it("audio_preset does NOT include legacy 'none' or 'recommended' (tightened to mirror the IPC validator)", () => {
 		//the TS union was tightened to mirror the Python IPC
 		// enum validator in `config_validators.py`, which rejects
 		// 'none' and 'recommended' at the wire boundary. The Python
@@ -150,7 +153,7 @@ describe("XZ-CFG-06: TS audio_preset / noise_suppression_method / llm_preset mat
 		expect(values).toHaveLength(5);
 	});
 
-	it("noise_suppression_method does NOT include 'speex' (GT-51: removed — never implemented, rejected by IPC validator)", () => {
+	it("noise_suppression_method does NOT include 'speex' (removed — never implemented, rejected by IPC validator)", () => {
 		//'speex' was never implemented (no speex backend in
 		// `audio_filters/noise_suppressor.py`) and was rejected at
 		// the IPC boundary. Removed from the TS union to eliminate
@@ -165,7 +168,7 @@ describe("XZ-CFG-06: TS audio_preset / noise_suppression_method / llm_preset mat
 	it("noise_suppression_method includes all 3 Python-allowed values", () => {
 		const values: VoiceTyperConfig["noise_suppression_method"][] = [
 			"rnnoise",
-			"deepfilternet",
+			"gtcrn",
 			"none",
 		];
 		expect(values).toHaveLength(3);

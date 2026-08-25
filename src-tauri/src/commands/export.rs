@@ -27,6 +27,7 @@ use tokio::sync::oneshot;
 // server-side rejection. See `commands::mod::require_main_window` for
 //the  /  envelope shape contract.
 use crate::commands::require_main_window;
+use crate::error::VoiceTyperError;
 
 //Tauri command: export_history () ─────────────────────────
 
@@ -50,7 +51,7 @@ pub async fn export_history(
     format: String,
     app: tauri::AppHandle,
     window: tauri::Window,
-) -> Result<Value, String> {
+) -> Result<Value, VoiceTyperError> {
     require_main_window(&window)?;
     export_data(data, format, app, "voice-typer-history", "Export History").await
 }
@@ -68,7 +69,7 @@ pub async fn export_vocabulary(
     format: String,
     app: tauri::AppHandle,
     window: tauri::Window,
-) -> Result<Value, String> {
+) -> Result<Value, VoiceTyperError> {
     require_main_window(&window)?;
     export_data(
         data,
@@ -84,13 +85,17 @@ pub async fn export_vocabulary(
 /// `tauri-plugin-dialog` save-file dialog, then writes the data as
 /// pretty-printed JSON or CSV to the chosen path. Returns
 /// `{"canceled": true}` when the user cancels the dialog.
+///
+/// Misc host failures (path conversion, encoding, the blocking write)
+/// surface as `VoiceTyperError::Host` — the legacy formatted strings,
+/// byte-identical on the wire.
 pub(crate) async fn export_data(
     data: Value,
     format: String,
     app: tauri::AppHandle,
     default_filename: &str,
     title: &str,
-) -> Result<Value, String> {
+) -> Result<Value, VoiceTyperError> {
     //use the async file-save pattern instead of blocking.
     // The blocking variant parks the Tokio worker thread for the entire
     // duration the user has the save dialog open; with Tauri's default
@@ -118,7 +123,7 @@ pub(crate) async fn export_data(
             serde_json::to_string_pretty(&data).map_err(|e| format!("JSON encode failed: {e}"))?
         }
         "csv" => json_to_csv(&data)?,
-        other => return Err(format!("unsupported format: {}", other)),
+        other => return Err(format!("unsupported format: {}", other).into()),
     };
     // Use the shared `atomic_write_bytes` helper
     // (temp + fsync + rename + parent-dir fsync) instead of

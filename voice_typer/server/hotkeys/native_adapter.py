@@ -37,9 +37,14 @@ class _NativeBackendAdapter(HotkeyBackend):
     """Adapter that wraps a ``SubprocessHotkeyBackend`` to satisfy the
         ``HotkeyBackend`` interface expected by ``HotkeyDispatcher``.
 
-        The native backends in ``native_hotkeys.py`` don't inherit from
-        ``HotkeyBackend`` (they use a separate base class to avoid an import
-        cycle). This adapter bridges the two.
+        The wrapped native backend now inherits from
+        ``HotkeyBackend`` directly (the historical "separate base class
+        to avoid an import cycle" split is gone — the import direction is
+        acyclic), so interface conformance comes for free. The adapter
+        still earns its keep through the semantics the plain interface
+        has no notion of: the native → legacy runtime fallback chain, the
+        macOS Accessibility permission onboarding, and tray-notification
+        propagation.
 
     (runtime fallback chain): when the native backend permanently
         fails (5 retries exhausted), the adapter transparently swaps to a

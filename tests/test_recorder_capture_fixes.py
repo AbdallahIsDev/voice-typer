@@ -31,12 +31,15 @@ import pytest
 
 
 def _make_recorder():
-    """Build a real ``Recorder`` with a MagicMock config (headless)."""
-    from voice_typer.server.recording import Recorder
+    """Build a real ``Recorder`` with a MagicMock config (headless).
 
-    config = MagicMock(sample_rate=16000, microphone=None)
-    r = Recorder(config)
-    return r
+    Delegates to the shared canonical factory (XS-42 helper dedup) —
+    see ``tests/fixtures/recorder_test_helpers.make_recorder`` for the
+    pre-populated config fields.
+    """
+    from tests.fixtures.ipc_test_helpers import make_fake_recorder
+
+    return make_fake_recorder()
 
 
 # ── : RT-callback exception capture ────────────────────────────────

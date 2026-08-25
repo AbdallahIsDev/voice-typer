@@ -104,6 +104,29 @@ detection mechanisms:
 
 Together these replace the Electron path's 120-second-heartbeat-
 timeout watchdog with a faster, more accurate liveness probe.
+
+Module layout
+-------------
+This module is the CANONICAL home of the WS transport: the entrypoint
+(:func:`run`), the auth handshake (``_authenticate``), the dispatch
+factory (``_make_dispatch``), the outbound send path (``_safe_send`` +
+``_encode_ws_frame`` + ``_emit_server_started``), the connection
+orchestrators (``_handle_connection`` / ``_handle_connection_inner``,
+``_read_loop``, ``_start_writer``) and every module-level constant.
+Focused helper concerns live in the
+:mod:`voice_typer.server.sidecar_ws_internals` leaf package and are
+re-exported here (see the "Split leaves" comment near the imports for
+the pin map):
+
+- ``encode_pool`` — WS frame-encode ThreadPoolExecutor lifecycle
+  (``_get_ws_encode_pool``, ``shutdown_encode_pool``).
+- ``graceful_shutdown`` — ``_attach_ws_graceful_shutdown`` /
+  ``_graceful_close_all_conns`` (close(1001) pass + loop stop).
+- ``stdout_banner`` — ``_force_line_buffered_stdout`` (stdout line
+  buffering for the handshake JSON).
+- ``connection`` — per-connection helpers (duplicate-auth invariant,
+  connection semaphore, browser-origin rejection, drop-oldest enqueue,
+  ready emit, event-bus subscriber, initial state snapshot).
 """
 
 from __future__ import annotations
@@ -113,10 +136,8 @@ import contextlib
 import json
 import logging
 import os
-import sys
 import time
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 # Shared TCP/WS auth-handshake helpers (VP-8): frame-shape validation
@@ -158,6 +179,70 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
 # underscore-prefixed name so existing call sites (e.g. `serve(...,
 # _LOOPBACK_HOST, ...)`) keep working unchanged.
 from voice_typer.server._paths import IPC_TOKEN_ENV_VAR, LOOPBACK_HOST as _LOOPBACK_HOST
+
+# ── Split leaves ─────────────────────────────────────────────────────
+# The once-monolithic sidecar_ws.py (2081 LOC, 8+ concerns) was split
+# into focused leaf modules under
+# ``voice_typer/server/sidecar_ws_internals/`` (the history_db.py /
+# history_db_internals/ precedent — deliberately NOT a sidecar_ws/
+# package, which would move this file and break the ~14 test files
+# that pin the literal voice_typer/server/sidecar_ws.py path).
+#
+# This module stays CANONICAL: every module-level constant plus every
+# file-text-pinned function (_safe_send, _encode_ws_frame,
+# _emit_server_started, _authenticate, _make_dispatch, _read_loop,
+# _start_writer, _handle_connection_inner, run) lives here, and the
+# moved symbols are re-exported below so every existing import path AND
+# monkeypatch target keeps working: a
+# ``monkeypatch.setattr(sidecar_ws, "X", ...)`` rebinds THIS module's
+# global, which is exactly what the canonical observers (run(),
+# _handle_connection_inner, _safe_send) resolve via bare-name lookup.
+#
+# Pin map for the re-exported names:
+# - _get_ws_encode_pool / shutdown_encode_pool — referenced by name in
+#   ``_safe_send`` (canonical; whole-module getsource pin in
+#   tests/test_ipc_layer_fixes.py::TestWriterEncodesOnce). The
+#   ``_ws_encode_pool_singleton`` global is NOT re-exported (a value
+#   re-export would go stale the moment the leaf's accessors rebind
+#   it); it lives in sidecar_ws_internals/encode_pool.py with its
+#   accessors.
+# - _graceful_close_all_conns / _attach_ws_graceful_shutdown — driven
+#   via ``sidecar_ws._attach_ws_graceful_shutdown(server)`` by
+#   tests/test_sidecar_ws.py.
+# - _force_line_buffered_stdout — PATCHED by the mig15/mig16/mig17
+#   ws_hmac suites; observed by run() (canonical).
+# - _check_duplicate_auth / _emit_ready_if_first / _install_subscriber
+#   / _emit_initial_state_snapshot — signatures pinned by
+#   tests/test_sidecar_ws_handle_connection_split.py; source pins in
+#   tests/test_sidecar_ws_thread_safety.py;
+#   _install_subscriber + _emit_ready_if_first are PATCHED by
+#   tests/test_sidecar_ws_ready_ordering.py and observed by
+#   _handle_connection_inner (canonical, C-WS-1 ordering site).
+# - _enqueue_safe / _get_ws_connection_semaphore — source + direct-call
+#   pins in tests/test_sidecar_ws_thread_safety.py and
+#   tests/test_sidecar_ws_connection_cap.py.
+# - _reject_browser_origins — direct-call + process_request identity
+#   pins in tests/test_sidecar_ws_origin_check.py; passed by run().
+from voice_typer.server.sidecar_ws_internals.connection import (  # noqa: F401
+    _check_duplicate_auth,
+    _emit_initial_state_snapshot,
+    _emit_ready_if_first,
+    _enqueue_safe,
+    _get_ws_connection_semaphore,
+    _install_subscriber,
+    _reject_browser_origins,
+)
+from voice_typer.server.sidecar_ws_internals.encode_pool import (  # noqa: F401
+    _get_ws_encode_pool,
+    shutdown_encode_pool,
+)
+from voice_typer.server.sidecar_ws_internals.graceful_shutdown import (  # noqa: F401
+    _attach_ws_graceful_shutdown,
+    _graceful_close_all_conns,
+)
+from voice_typer.server.sidecar_ws_internals.stdout_banner import (  # noqa: F401
+    _force_line_buffered_stdout,
+)
 
 log = logging.getLogger("voice_typer.server.sidecar_ws")
 
@@ -305,127 +390,6 @@ def _encode_ws_frame(event: dict) -> bytes:
     return json.dumps(event, ensure_ascii=False).encode("utf-8")
 
 
-# Dedicated ThreadPoolExecutor for WS frame ENCODE offload (json.dumps +
-# .encode on a worker thread). Mirrors the dispatch pool pattern in
-# ``_make_dispatch`` (the ``_ws_dispatch_pool`` block): created lazily
-# on first use, stored on the IPC server as ``server._ws_encode_pool``
-# so ``ShutdownController._do_cleanup`` can reach it via
-# ``app._ipc_server._ws_encode_pool`` and
-# ``shutdown(wait=False, cancel_futures=True)`` to drain / cancel
-# in-flight encodes BEFORE tearing down the recorder / history DB /
-# crash-recovery writer.
-#
-# A module-level singleton cache (``_ws_encode_pool_singleton``) is
-# also kept so the per-connection ``_writer`` task — which has no
-# server reference (its signature is locked to ``(websocket, outbound)``
-# by ``tests/test_sidecar_ws_handle_connection_split.py``) — can reach
-# the same pool. The single-process / single-server lifecycle makes
-# the singleton safe: there is exactly one encode pool per sidecar
-# process. ``_make_dispatch(server)`` seeds the singleton on first
-# call, before any WS connection is accepted.
-#
-# Pre- this used ``loop.run_in_executor(None, _encode_ws_frame, event)``
-# — the asyncio loop's DEFAULT executor, which has no handle
-# ``ShutdownController`` can reach. A long-running encode (a near-cap
-# 1 MiB ``vocabulary_suggestion`` frame at shutdown) would race
-# teardown, half-flush the history DB, and leak a partially-written
-# crash-recovery snapshot. The dedicated pool lets the shutdown path
-# bounded-wait for in-flight encodes (mirroring the dispatch-pool
-# drain).
-_ws_encode_pool_singleton: ThreadPoolExecutor | None = None
-
-
-def _get_ws_encode_pool(server: IPCServer | None = None) -> ThreadPoolExecutor:
-    """Lazily create / return the WS frame-encode thread pool.
-
-    Mirrors the dispatch pool pattern in ``_make_dispatch`` (lines
-    ~550-558): created on first use, stored on the IPC server as
-    ``server._ws_encode_pool`` so the shutdown path can reach it via
-    ``app._ipc_server._ws_encode_pool``. When called WITHOUT a server
-    (the ``_writer`` task's case — its signature is locked to
-    ``(websocket, outbound)``), the module-level singleton cache is
-    used. The first call WITH a server seeds the singleton; subsequent
-    calls without a server reuse it.
-
-    ``max_workers=4`` matches the WS dispatch pool size
-    (``_ws_dispatch_pool``, also 4). The encode workload (~50-100 ms
-    per near-cap frame) can saturate 2 workers under concurrent
-    connections each pushing near-cap frames at 1-5 Hz — a third
-    in-flight encode would queue behind the two workers, stalling the
-    writer task's outbound drain and back-pressuring the dispatch
-    path's response serialization. Aligning the encode pool to 4
-    workers gives headroom for 3-4 concurrent near-cap encodes without
-    contending with the dispatch pool (which spends its CPU on
-    handler work, not encode work).
-    """
-    global _ws_encode_pool_singleton
-    if server is not None:
-        pool = getattr(server, "_ws_encode_pool", None)
-        if pool is None:
-            pool = ThreadPoolExecutor(
-                max_workers=4,
-                thread_name_prefix="sidecar-ws-encode",
-            )
-            # ``setattr`` on a real IPCServer stores the attribute; on
-            # a MagicMock test double it overrides the auto-vivified
-            # child (same pattern as ``_ws_dispatch_pool`` above).
-            server._ws_encode_pool = pool  # type: ignore[attr-defined]
-        # Seed / refresh the module-level singleton so the ``_writer``
-        # task (which has no server reference) can reach the same pool.
-        _ws_encode_pool_singleton = pool
-        return pool
-    # No server reference (called from ``_writer`` which only has
-    # websocket + outbound, or from ``_read_loop``'s response path
-    # where we want to avoid the ``getattr`` overhead on every frame).
-    # Use the module-level cache; create lazily if no server-bearing
-    # call has happened yet (defensive — in production
-    # ``_make_dispatch(server)`` runs in ``run(server)`` BEFORE any
-    # connection is accepted, so the singleton is seeded before
-    # ``_writer`` is started).
-    if _ws_encode_pool_singleton is None:
-        _ws_encode_pool_singleton = ThreadPoolExecutor(
-            max_workers=4,
-            thread_name_prefix="sidecar-ws-encode",
-        )
-    return _ws_encode_pool_singleton
-
-
-def shutdown_encode_pool(server: IPCServer | None = None) -> None:
-    """Drain / cancel in-flight WS frame encodes.
-
-    Called by ``ShutdownController._do_cleanup`` (in
-    ``shutdown_controller.py`` — NOT this file) to drain / cancel
-    in-flight encodes BEFORE tearing down the recorder / history DB /
-    crash-recovery writer. Mirrors the dispatch-pool drain
-    (``_ws_dispatch_pool.shutdown(wait=False, cancel_futures=True)``).
-
-    NOTE: ``shutdown_controller.py`` is OUTSIDE this module's file
-    ownership boundary. A matching ``sidecar_ws.shutdown_encode_pool(
-    ipc_server)`` call must be added to ``_do_cleanup`` in a follow-up
-    by the orchestrator (or by the shutdown_controller.py owner);
-    until then the pool's worker threads are leaked on shutdown
-    (acceptable — the process is exiting anyway, the OS reclaims the
-    threads, and any in-flight encode is aborted by process exit
-    regardless of pool state).
-    """
-    global _ws_encode_pool_singleton
-    pool: ThreadPoolExecutor | None = None
-    if server is not None:
-        pool = getattr(server, "_ws_encode_pool", None)
-        if pool is not None:
-            # Defensive, never fatal.
-            with contextlib.suppress(Exception):
-                server._ws_encode_pool = None  # type: ignore[attr-defined]
-    if pool is None and _ws_encode_pool_singleton is not None:
-        pool = _ws_encode_pool_singleton
-        _ws_encode_pool_singleton = None
-    if pool is not None:
-        try:
-            pool.shutdown(wait=False, cancel_futures=True)
-        except Exception:  # noqa: BLE001 — defensive, never fatal
-            log.warning("[SIDECAR-WS] encode pool shutdown failed", exc_info=True)
-
-
 async def _safe_send(websocket, event: dict) -> str:
     """Encode + size-cap + timeout-protected send for one outbound WS frame.
 
@@ -516,213 +480,6 @@ async def _safe_send(websocket, event: dict) -> str:
     return "sent"
 
 
-async def _graceful_close_all_conns(server: IPCServer) -> None:
-    """Send ``close(code=1001, reason="going away")`` to every
-    authenticated WS connection, then sleep for the close-handshake
-    budget so the peer has time to receive the close frame before the
-    asyncio loop is stopped.
-
-    Runs on the WS loop via :func:`asyncio.run_coroutine_threadsafe`
-    from :func:`ws_graceful_shutdown` (which is invoked from a
-    non-loop thread — the ``ShutdownController._do_cleanup`` thread).
-    Each ``ws.close()`` is awaited sequentially so the close frames
-    are emitted in arrival order; a single wedged peer cannot block
-    the whole close pass because the outer
-    :func:`asyncio.run_coroutine_threadsafe` ``.result(timeout=...)``
-    bounds the total close pass.
-
-    Failures on individual connections are logged at DEBUG and the
-    close pass continues — one dead peer must not prevent the close
-    frame from reaching the other (still-alive) peer.
-    """
-    conns = list(getattr(server, "_ws_authenticated_conns", set()))
-    for ws in conns:
-        try:
-            await ws.close(code=1001, reason="going away")
-        except Exception:
-            log.debug(
-                "[SIDECAR-WS] graceful close failed for one connection",
-                exc_info=True,
-            )
-    # Allow time for the WS close handshake to complete on the wire
-    # before ``loop.stop()`` fires — see
-    # ``_WS_GRACEFUL_CLOSE_HANDSHAKE_SECONDS`` for the rationale.
-    await asyncio.sleep(_WS_GRACEFUL_CLOSE_HANDSHAKE_SECONDS)
-
-
-def _attach_ws_graceful_shutdown(server: IPCServer) -> None:
-    """Install graceful-shutdown hooks on the IPCServer.
-
-    Adds three pieces of WS-state to the server (idempotently —
-    existing values are preserved) and installs a
-    ``ws_graceful_shutdown`` callable plus a ``server.stop`` wrapper:
-
-    - ``server._ws_authenticated_conns``: ``set`` of authenticated
-      websockets, populated by :func:`_handle_connection_inner` after a
-      successful auth and discarded in the connection ``finally`` block.
-      ``ws_graceful_shutdown`` iterates this set to send ``close(1001)``.
-    - ``server._ws_dispatch_futures``: ``set`` of in-flight
-      ``concurrent.futures.Future`` objects. The dispatch path may
-      register futures here so ``ws_graceful_shutdown`` can
-      bounded-wait for them.
-    - ``server._ws_loop``: the asyncio loop running :func:`run._main`.
-      Set in :func:`_handle_connection_inner` (per-connection, but the
-      loop is shared across all connections) and read by
-      ``ws_graceful_shutdown`` to schedule the close coroutine +
-      ``loop.stop``. Without this reference, ``ws_graceful_shutdown``
-      (invoked from a non-loop thread) would have no way to stop the
-      WS loop — the loop would stay alive until process exit, defeating
-      the graceful-shutdown contract.
-
-    The ``server.stop`` wrapper calls ``server.ws_graceful_shutdown()``
-    FIRST (looked up dynamically so tests can replace it post-install),
-    then delegates to the original ``server.stop``. Exceptions from
-    ``ws_graceful_shutdown`` are logged at DEBUG and the original
-    ``stop`` STILL runs — a failure in the WS close path must not
-    prevent the TCP teardown. This satisfies the "BEFORE
-    ``ipc_server.stop()``" requirement WITHOUT modifying
-    ``shutdown_controller.py`` or ``ipc_server.py`` (file ownership
-    boundary — this module owns all WS-state).
-
-    Idempotent: a second call is a no-op (detected via the
-    ``_ws_graceful_shutdown_installed`` marker). Without this guard, a
-    double-install would wrap ``server.stop`` twice, creating a chain
-    of wrappers calling each other on every shutdown.
-    """
-    if getattr(server, "_ws_graceful_shutdown_installed", False):
-        return
-    server._ws_graceful_shutdown_installed = True  # type: ignore[attr-defined]
-
-    # Initialize the WS-state attributes ONLY if they are not already
-    # set. Tests (and a future caller) may pre-populate these before
-    # calling ``_attach_ws_graceful_shutdown``; the install must not
-    # overwrite existing state. ``getattr(..., None)`` returns None for
-    # an unset attribute on a real IPCServer, and returns a MagicMock
-    # child on a MagicMock test double — both are "already set" from
-    # the install's perspective, so we preserve them. The
-    # ``_make_real_server_for_graceful_shutdown`` test helper explicitly
-    # pre-sets these to real ``set()`` instances before calling install.
-    if getattr(server, "_ws_authenticated_conns", None) is None:
-        server._ws_authenticated_conns = set()  # type: ignore[attr-defined]
-    if getattr(server, "_ws_dispatch_futures", None) is None:
-        server._ws_dispatch_futures = set()  # type: ignore[attr-defined]
-
-    def ws_graceful_shutdown() -> None:
-        """Send close(1001) to all authenticated conns, bounded-wait
-        for in-flight dispatch futures, then stop the WS loop.
-
-        Invoked from a non-loop thread (the
-        ``ShutdownController._do_cleanup`` thread via the
-        ``server.stop`` wrapper). The close coroutine is scheduled on
-        the WS loop via :func:`asyncio.run_coroutine_threadsafe` so it
-        runs on the loop that owns the websockets (calling
-        ``ws.close()`` on a different loop is unsafe for real
-        ``websockets`` library connections — their internal state is
-        tied to the loop that created them).
-
-        The dispatch-future drain uses
-        ``concurrent.futures.Future.result(timeout=...)`` which is a
-        blocking call safe to invoke from any thread. Each future gets
-        its own timeout — a single stuck handler cannot block the
-        whole drain pass.
-
-        The loop stop is scheduled via
-        ``loop.call_soon_threadsafe(loop.stop)`` — the only
-        documented thread-safe way to hand work to an asyncio loop
-        from outside it. ``loop.stop`` causes ``loop.run_forever()``
-        (in :func:`run`) to return, which lets ``asyncio.run()``
-        finalize the loop and ``run()`` return to its caller.
-
-        If ``server._ws_loop`` is unset or already closed, the close
-        and stop are skipped (logged at DEBUG) — the drain still runs
-        so any in-flight futures are bounded-waited. This makes
-        ``ws_graceful_shutdown`` safe to call even when the WS path
-        was never entered (e.g. the server ran in TCP-only mode).
-        """
-        loop = getattr(server, "_ws_loop", None)
-
-        # 1. Send close(1001, "going away") to each authenticated conn
-        #    + sleep for the close-handshake budget. The whole close
-        #    pass is one coroutine scheduled on the WS loop so the
-        #    individual ``ws.close()`` calls run on the correct loop.
-        if loop is not None and not loop.is_closed():
-            try:
-                close_future = asyncio.run_coroutine_threadsafe(
-                    _graceful_close_all_conns(server),
-                    loop,
-                )
-                # Bounded-wait: handshake sleep (0.5 s) + per-conn
-                # close calls + slack. If the close pass hangs (e.g. a
-                # wedged peer's ``ws.close()`` blocks), abandon it and
-                # proceed to the drain + loop stop — the host's hard
-                # timeout will force-kill the process anyway.
-                close_future.result(
-                    timeout=_WS_GRACEFUL_CLOSE_HANDSHAKE_SECONDS + _WS_DISPATCH_DRAIN_TIMEOUT_SECONDS + 0.5,
-                )
-            except Exception:
-                log.debug(
-                    "[SIDECAR-WS] graceful close pass failed or timed out — continuing to drain + loop stop",
-                    exc_info=True,
-                )
-        else:
-            log.debug("[SIDECAR-WS] no WS loop reference (or loop closed) — skipping close pass")
-
-        # 2. Bounded-wait for in-flight dispatch futures. Each future
-        #    gets its own timeout so one stuck handler cannot block
-        #    the whole drain. The set is snapshotted to avoid
-        #    mutation-during-iteration if a dispatch completes and
-        #    discards itself from the set while we iterate.
-        futures = list(getattr(server, "_ws_dispatch_futures", set()))
-        for future in futures:
-            try:
-                future.result(timeout=_WS_DISPATCH_DRAIN_TIMEOUT_SECONDS)
-            except Exception:
-                log.debug(
-                    "[SIDECAR-WS] dispatch future did not complete within "
-                    "%.1fs drain timeout — proceeding to loop stop",
-                    _WS_DISPATCH_DRAIN_TIMEOUT_SECONDS,
-                    exc_info=True,
-                )
-
-        # 3. Stop the WS loop. ``call_soon_threadsafe`` is the only
-        #    documented thread-safe way to schedule a callback on a
-        #    running loop from a non-loop thread. ``loop.stop`` causes
-        #    ``loop.run_forever()`` (in :func:`run`) to return.
-        if loop is not None and not loop.is_closed():
-            try:
-                loop.call_soon_threadsafe(loop.stop)
-            except RuntimeError:
-                log.debug(
-                    "[SIDECAR-WS] loop.stop() scheduling failed — loop already closed",
-                    exc_info=True,
-                )
-        else:
-            log.debug("[SIDECAR-WS] no WS loop reference (or loop closed) — cannot stop loop")
-
-    server.ws_graceful_shutdown = ws_graceful_shutdown  # type: ignore[attr-defined]
-
-    # Wrap ``server.stop`` so ``ws_graceful_shutdown`` runs FIRST.
-    # The wrapper looks up ``server.ws_graceful_shutdown`` DYNAMICALLY
-    # (not via the closure-captured reference) so tests that replace
-    # ``server.ws_graceful_shutdown`` post-install observe the
-    # replacement. The original ``stop`` is captured at install time
-    # (before any test replacement).
-    original_stop = server.stop
-
-    def wrapped_stop(*args, **kwargs):
-        try:
-            # Dynamic lookup — see comment above.
-            server.ws_graceful_shutdown()
-        except Exception:
-            log.debug(
-                "[SIDECAR-WS] ws_graceful_shutdown raised — continuing to original stop",
-                exc_info=True,
-            )
-        return original_stop(*args, **kwargs)
-
-    server.stop = wrapped_stop  # type: ignore[attr-defined]
-
-
 # Cooperative shutdown hard timeout (ADR-0020 §10). When the host
 # sends {"type":"shutdown"} the sidecar must release the mic, ack,
 # and exit within this window; if it doesn't, the host force-kills
@@ -764,34 +521,6 @@ def _attach_ws_graceful_shutdown(server: IPCServer) -> None:
 # Importing (rather than redefining) prevents drift between the WS and
 # TCP transports — see ``tests/test_protocol_version_consolidated.py``.
 from voice_typer.server.ipc.protocol_version import PROTOCOL_VERSION  # noqa: E402
-
-
-def _force_line_buffered_stdout() -> None:
-    """Force stdout to line buffering (ADR-0020 §1 Phase-0 blocker).
-
-    When the Tauri host pipes the sidecar's stdout, CPython switches
-    to block buffering, so the ``server_started`` JSON is held in
-    the buffer and the host hangs forever waiting. ``reconfigure``
-    flips the stream back to line buffering so each ``\\n`` flushes.
-
-    Python 3.7+ supports ``sys.stdout.reconfigure``; we guard for
-    older interpreters (the project floor is 3.10 per pyproject.toml
-    so this is always available, but the guard is defensive).
-    """
-    try:
-        sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
-    except (AttributeError, ValueError):
-        # Fallback: reopen stdout with buffering=1 (line-buffered).
-        # This loses the original fd's write-only-on-flush semantics
-        # but is the standard pattern for unbuffered stdio.
-        with contextlib.suppress(Exception):
-            sys.stdout = open(  # noqa: SIM115 - intentional reopen
-                sys.stdout.fileno(),
-                "w",
-                buffering=1,
-                encoding="utf-8",
-                closefd=False,
-            )
 
 
 def _emit_server_started(port: int, protocol: int | None = None) -> None:
@@ -1283,63 +1012,6 @@ def _make_dispatch(server: IPCServer):
     return dispatch
 
 
-def _enqueue_safe(outbound: asyncio.Queue, event: dict) -> None:
-    """Drop-oldest enqueue — MUST run on the event-loop thread.
-
-    ``_push_to_ws`` is an ``event_bus`` subscriber, so it is
-    invoked from whatever thread called ``event_bus.publish()``. The
-    publishers are non-event-loop threads: transcription, hotkey, tray,
-    IPC dispatch workers (``_dispatch`` runs via
-    ``loop.run_in_executor``), and the audio-worker deferred path.
-    ``asyncio.Queue`` is explicitly NOT thread-safe — mutating its
-    internal deque + ``_getawaiter`` / ``_putawaiter`` futures from a
-    non-loop thread corrupts state. Symptoms seen pre-fix: silently
-    dropped events (transcription_final never reached the Tauri host),
-    a deadlocked writer task (``await outbound.get()`` never wakes
-    after a cross-thread ``put_nowait``), or a hard asyncio loop
-    crash killing the sidecar (→ respawn loop).
-
-    This helper does the drop-oldest dance (``full`` / ``get_nowait``
-    / ``put_nowait``). It is marshaled onto the event-loop thread via
-    ``loop.call_soon_threadsafe`` from ``_push_to_ws``, so every
-    queue mutation happens on the loop thread and the asyncio
-    invariants are preserved.
-
-    Notes
-    -----
-    - ``call_soon_threadsafe`` is the documented asyncio API for
-      cross-thread wakeup. It schedules the callback on the loop's
-      ready queue and wakes the loop's selector if it is blocked in
-      ``select()``. This is the same primitive ``asyncio.run_coroutine_threadsafe``
-      is built on.
-    - Drop-oldest (not drop-newest) is preserved so a slow host
-      receives the most RECENT state snapshots (bubble_level,
-      transcription_final) rather than stale ones buffered behind
-      the drop. The host recovers consistency via state_changed
-      re-snapshots on reconnect.
-    """
-    if outbound.full():
-        try:
-            outbound.get_nowait()
-            log.debug("[SIDECAR-WS] outbound queue full — dropped oldest event")
-        except asyncio.QueueEmpty:
-            pass
-    try:
-        outbound.put_nowait(event)
-    except asyncio.QueueFull:
-        log.warning("[SIDECAR-WS] outbound queue still full — dropping event")
-
-
-def _get_ws_connection_semaphore(server: IPCServer) -> asyncio.Semaphore:
-    """lazily create / return the per-server connection semaphore."""
-    sem = getattr(server, "_ws_connection_semaphore", None)
-    if not isinstance(sem, asyncio.Semaphore):
-        sem = asyncio.Semaphore(_MAX_WS_CONNECTIONS)
-        with contextlib.suppress(Exception):
-            server._ws_connection_semaphore = sem
-    return sem
-
-
 async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
     """Per-connection WS handler: auth + read/dispatch loop.
 
@@ -1376,257 +1048,6 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
         await _handle_connection_inner(websocket, server, dispatch, peer)
     finally:
         sem.release()
-
-
-async def _check_duplicate_auth(websocket, server: IPCServer, peer) -> bool:
-    """enforce single-authenticated-connection invariant.
-
-    The host (Rust / Electron) uses respawn rather than reconnect —
-    a second authenticated WS implies a protocol bug (stale socket
-    in the host's connect loop, a race between supervisor respawn
-    and the old sidecar's accept loop, etc.). Both connections
-    would have separate outbound queues + writer tasks + event_bus
-    subscribers, causing duplicate event delivery (every
-    ``event_bus.publish`` reaches both writers). The cleaner fix is
-    to REJECT the new connection with 1008 ("Policy Violation") so
-    the existing authenticated connection continues uninterrupted.
-    The host's reconnect logic treats 1008 as a fatal-sidecar signal
-    and respawns, which is the correct response to a duplicate-auth
-    protocol bug. The previous connection is cleared from
-    ``server._active_ws_connection`` in the ``finally`` block of
-    :func:`_handle_connection_inner` (only if it still points at THIS
-    socket — a race-safe compare).
-
-    Defensive: ``server`` may be a ``MagicMock`` in tests, where
-    ``getattr(server, "_active_ws_connection", None)`` auto-vivifies
-    a child MagicMock (which would falsely trip the duplicate
-    check). The ``is_closed`` probe below treats a non-bool
-    ``.closed`` attribute (or any error reading it) as "closed" so
-    the invariant is enforced only against a REAL open websocket.
-
-    Returns ``True`` if the connection should proceed (no duplicate,
-    and the active-connection slot was claimed). Returns ``False`` if
-    the connection was rejected (duplicate_connection frame sent +
-    socket closed) — the caller MUST return immediately.
-    """
-    with server._lock:
-        existing = getattr(server, "_active_ws_connection", None)
-    is_existing_open = False
-    if existing is not None and existing is not websocket:
-        try:
-            is_existing_open = not bool(getattr(existing, "closed", True))
-        except Exception:
-            is_existing_open = False
-    if is_existing_open:
-        log.warning(
-            "[SIDECAR-WS] duplicate authenticated connection from %s — "
-            "an existing authenticated connection is already active; "
-            "rejecting new connection with 1008 to preserve single-"
-            "connection invariant (XZ-R18-06)",
-            peer,
-        )
-        with contextlib.suppress(Exception):
-            await websocket.send(
-                json.dumps(
-                    {
-                        "type": "error",
-                        "data": {
-                            "code": ErrorCodes.DUPLICATE_CONNECTION,
-                            "message": "another authenticated connection is already active",
-                        },
-                    }
-                )
-            )
-        with contextlib.suppress(Exception):
-            await websocket.close(code=1008, reason="duplicate connection")
-        return False
-    # Mark this as the active connection. Cleared in the ``finally``
-    # block of ``_handle_connection_inner`` (only if it still points at
-    # THIS socket — a concurrent rejection path may have already
-    # swapped it).
-    with server._lock:
-        server._active_ws_connection = websocket
-    return True
-
-
-def _emit_ready_if_first(server: IPCServer) -> None:
-    """ADR-0020 round-2: emit ``ready`` on the first authenticated
-    connection for this ``IPCServer`` instance.
-
-    The Tauri host waits for this event before hydrating the UI
-    (mirrors the Electron path's ``ready`` push at
-    ``ipc_server.py:1899``). Using ``event_bus.publish`` (not
-    ``server.push``) because the WS writer task subscribes to
-    event_bus — ``server.push`` would go to the TCP path's
-    ``_tcp_client`` which is ``None`` in WS mode.
-
-    the caller (:func:`_handle_connection_inner`) MUST call
-    :func:`_install_subscriber` BEFORE this function so the WS
-    subscriber (``_push_to_ws``) is registered on ``event_bus`` when
-    ``publish({"type": "ready"})`` runs. Pre- the order was
-    reversed and the ``ready`` event was published to an empty
-    subscriber set (modulo other transports), so the WS writer task
-    never received it and the Tauri host never got ``ready`` over
-    the WS on first connection.
-
-    the flag is per-instance (``server._ready_emitted``), not
-    module-level, so each fresh ``IPCServer`` starts with the flag
-    ``False`` and emits ``ready`` on its first connection. This was
-    previously a module-level global which leaked state between test
-    runs that reused the same module.
-
-    the read-then-write is guarded by ``server._lock`` (an
-    ``RLock`` defined on ``IPCServer`` at ``__init__``). Two
-    concurrent first-time authentications would otherwise both see
-    ``_ready_emitted == False`` and both publish ``ready``. The host
-    tolerates duplicates, but the duplicate broadcast is wasted work
-    and a minor protocol smell. The lock is also used elsewhere on
-    the server (e.g. ``_send`` / ``push``), so this re-uses an
-    existing primitive rather than adding a new one.
-    """
-    with server._lock:
-        if getattr(server, "_ready_emitted", False):
-            already_emitted = True
-        else:
-            already_emitted = False
-            server._ready_emitted = True
-    if not already_emitted:
-        from voice_typer.server import event_bus
-
-        log.info("[SIDECAR-WS] first authenticated connection — emitting `ready` event")
-        event_bus.publish({"type": "ready"})
-
-
-def _install_subscriber(server: IPCServer, loop: asyncio.AbstractEventLoop, outbound: asyncio.Queue) -> object:
-    """register ``_push_to_ws`` as an
-    ``event_bus`` subscriber (sync API) and emit the initial
-    ``state_changed`` snapshot.
-
-    ``_push_to_ws`` is invoked from WHATEVER thread
-    ``event_bus.publish`` runs on — typically a domain thread (tray,
-    transcription, dictation_pipeline, audio-worker, IPC dispatch
-    workers) that is NOT the asyncio loop thread. ``asyncio.Queue``
-    is documented as NOT thread-safe; the GIL makes immediate deque
-    ops atomic but the ``_getters``/``_putters`` future-scheduling
-    path can miss wakeups. The captured ``loop`` (captured ONCE here
-    —  cleanup: previously re-captured three times with a
-    dead ``_ws_loop`` local) is closed over in ``_push_to_ws`` so the
-    sync subscriber can route all queue mutations through
-    ``loop.call_soon_threadsafe`` (the documented way to bridge a
-    sync caller to an asyncio primitive from a non-loop thread).
-
-    The previous ``server._ws_loop = loop`` write was removed — it
-    had zero production readers (the per-connection closure-captured
-    ``loop`` is the only source of truth used by ``_push_to_ws``),
-    and writing it without ``server._lock`` created a race-on-write
-    hazard for any future diagnostic reader. The WS path runs ONE
-    accept loop on ONE asyncio event loop, so all connections share
-    the same loop; if a future refactor permits multiple loops, the
-    closure-captured ``loop`` remains the per-connection source of
-    truth.
-
-     ( /  parity): the connect-time ``state_changed`` snapshot used to
-    be emitted HERE (right after subscribing). It moved to
-    :func:`_emit_initial_state_snapshot`, which
-    ``_handle_connection_inner`` calls AFTER
-    :func:`_emit_ready_if_first` — see that function for why the
-    order matters (the Tauri host's auth handshake requires ``ready``
-    as the FIRST post-auth frame).
-
-    Returns the ``_push_to_ws`` subscriber callable so the caller can
-    ``event_bus.unsubscribe`` it in the connection ``finally`` block.
-    """
-
-    def _push_to_ws(event: dict) -> None:
-        """Subscriber for event_bus.publish — enqueues for the writer task.
-
-         this subscriber is invoked synchronously in the
-        publisher's thread (``event_bus._deliver`` calls ``fn(event)``
-        directly, modulo the RT-thread deferred path). Because the
-        publisher is typically a non-event-loop thread, we MUST NOT
-        touch ``outbound`` (an ``asyncio.Queue``) here — ``asyncio.Queue``
-        is documented as NOT thread-safe and direct mutation from a
-        non-loop thread corrupts the queue's internal deque + Future
-        state. Instead we schedule ``_enqueue_safe`` on the loop thread
-        via ``call_soon_threadsafe`` — the only documented thread-safe
-        way to hand work to an asyncio loop from outside it. The
-        drop-oldest dance (``full`` / ``get_nowait`` / ``put_nowait``)
-        lives in ``_enqueue_safe`` and runs entirely on the loop thread.
-
-        removed the pre-marshaling queue-overflow check and
-        the ``put_nowait`` fallback. They touched the asyncio.Queue from
-        the publisher's thread — exactly the corruption ``_enqueue_safe``
-        was created to prevent. ``_enqueue_safe`` already does the
-        drop-oldest dance ON the loop thread. Also removed the dead
-        ``except asyncio.QueueFull`` clause (``call_soon_threadsafe``
-        never raises QueueFull).
-
-        ``RuntimeError`` is raised by ``call_soon_threadsafe`` when
-        the loop has been closed (process shutdown / respawn).
-        The writer task has already been cancelled by the connection
-        ``finally`` block, so there is no consumer for the event —
-        drop silently at DEBUG level. This is the documented
-        shutdown contract; we do NOT want a traceback per published
-        event during teardown.
-        """
-        try:
-            loop.call_soon_threadsafe(_enqueue_safe, outbound, event)
-        except RuntimeError:
-            log.debug("[SIDECAR-WS] event dropped during shutdown — event loop closed")
-
-    from voice_typer.server import event_bus
-
-    event_bus.subscribe(_push_to_ws)
-
-    return _push_to_ws
-
-
-def _emit_initial_state_snapshot(server: IPCServer) -> None:
-    """Emit the connect-time ``state_changed`` snapshot ( / parity).
-
-    Published on EVERY authenticated connection (not just the first
-    ``ready``). This mirrors the TCP path's connect-time snapshot at
-    ``ipc_server.py:_handle_tcp_connection`` (~L1003-1017) so a WS
-    reconnect after a transient drop immediately re-hydrates the
-    renderer's tray state badge instead of leaving it stale until the
-    next state transition.
-
-    ORDERING CONTRACT (do not reorder): this MUST be called AFTER
-    :func:`_emit_ready_if_first` in ``_handle_connection_inner``. The
-    Tauri host's ``wait_for_auth_ok`` requires ``ready`` as the FIRST
-    post-auth frame — any other frame type is treated as a protocol
-    violation and triggers a supervisor respawn loop. This snapshot
-    previously lived inside :func:`_install_subscriber`, so it raced
-    in AHEAD of ``ready`` on the wire and killed every Tauri
-    handshake with "WS auth unexpected frame type: state_changed".
-    Binding rule: AGENTS.md constraint C-WS-1.
-
-    Defensive: the tray may not be initialized yet on the very first
-    connection (the app boots the IPC server before the tray icon is
-    constructed). ``getattr(..., None)`` + the ``is not None`` guard
-    skip the emit in that case — the host will pick up the next state
-    transition via the normal ``status_change`` hook.
-    """
-    from voice_typer.server import event_bus
-
-    try:
-        current_state = getattr(server.app.tray, "_state", None)
-        current_msg = getattr(server.app.tray, "_message", "")
-        if current_state is not None:
-            event_bus.publish(
-                {
-                    "type": "state_changed",
-                    "data": {
-                        "status": getattr(current_state, "value", str(current_state)),
-                        "message": current_msg,
-                    },
-                }
-            )
-    except Exception:
-        log.debug(
-            "[SIDECAR-WS] failed to emit initial state_changed on connect",
-            exc_info=True,
-        )
 
 
 def _start_writer(websocket, outbound: asyncio.Queue) -> asyncio.Task:
@@ -1958,39 +1379,6 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
             if getattr(server, "_active_ws_connection", None) is websocket:
                 server._active_ws_connection = None
         log.info("[SIDECAR-WS] connection closed (peer=%s)", peer)
-
-
-async def _reject_browser_origins(connection, request):
-    """Reject WS connections that carry an ``Origin`` header.
-
-    The Rust host (Tauri ``externalBin``) opens its WS client with a raw
-    TCP socket and never sends an ``Origin`` header; browsers ALWAYS
-    attach one. Rejecting any connection WITH an ``Origin`` header closes
-    the browser-attacker CSWSH slot-starvation vector (a malicious page
-    calling ``new WebSocket("ws://127.0.0.1:<port>")`` many times to
-    park the single-connection auth-wait slot) while preserving legit
-    host connections.
-
-    Returns ``None`` to allow the handshake (no Origin header present),
-    or a :class:`websockets.http11.Response` with HTTP 403 to abort the
-    handshake before the auth-wait window even opens (Origin present).
-
-    AP-8: ``process_request`` callback contract per
-    :mod:`websockets.asyncio.server`.
-    """
-    origin = request.headers.get("Origin")
-    if origin is not None:
-        log.debug("[WS] rejected connection with Origin: %s", origin)
-        from websockets.datastructures import Headers
-        from websockets.http11 import Response
-
-        return Response(
-            403,
-            "Forbidden",
-            Headers(Connection="close"),
-            b"origin not allowed\n",
-        )
-    return None
 
 
 def run(server: IPCServer) -> int:

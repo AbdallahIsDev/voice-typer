@@ -53,11 +53,16 @@ from unittest.mock import MagicMock
 # ── Helpers ────────────────────────────────────────────────────────────
 
 
-# The pre-split ``shutdown_controller.py`` is now a package. Each pinned
-# region moved to a specific leaf:
+# The pre-split ``shutdown_controller.py`` is now a package, and the
+# orchestration bodies have since been extracted into the sibling
+# ``shutdown/`` package. Each pinned region moved with its body:
 #   * the ``join_leaked_workers`` re-export import → the package ``__init__.py``
-#   * the sequenced / parallel plan lists        → ``_plans.py``
-#   * the ``_run_plan`` call sites in ``_do_cleanup`` → ``_cleanup.py``
+#   * the sequenced / parallel plan lists        → ``shutdown/plan.py``
+#     (``build_sequenced_plan`` / ``build_parallel_plan``; the mixin
+#     methods on ``shutdown_controller/_plans.py`` are thin delegates)
+#   * the ``_run_plan`` call sites in ``_do_cleanup`` → ``shutdown/cleanup.py``
+#     (``do_cleanup``; the mixin method on ``shutdown_controller/_cleanup.py``
+#     is a thin delegate)
 _SC_PACKAGE_INIT_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
@@ -71,16 +76,16 @@ _SC_PLANS_PATH = os.path.join(
     "..",
     "voice_typer",
     "server",
-    "shutdown_controller",
-    "_plans.py",
+    "shutdown",
+    "plan.py",
 )
 _SC_CLEANUP_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
     "voice_typer",
     "server",
-    "shutdown_controller",
-    "_cleanup.py",
+    "shutdown",
+    "cleanup.py",
 )
 _SHUTDOWN_LIFECYCLE_PATH = os.path.join(
     os.path.dirname(__file__),
@@ -486,8 +491,13 @@ class TestIn19AsrTeardownSecondWave:
         constructor, so the "list body" region is bounded by that
         constructor call, not by a literal closing ``]`` (the parallel
         ``all_parallel_items`` literal appears LATER in the file and its
-        closing ``]`` is the first ``\\n        ]`` match — using that as
-        the bound would swallow the ASR tuple and false-positive)."""
+        closing ``]`` is the first ``\\n    ]`` match — using that as
+        the bound would swallow the ASR tuple and false-positive).
+
+        The plan-builder bodies live in ``shutdown/plan.py``
+        (``build_sequenced_plan`` / ``build_parallel_plan``); the
+        ``shutdown_controller/_plans.py`` mixin methods are thin
+        delegates."""
         s = _plans_src()
         seq_idx = s.find("sequenced_items: list[tuple[str, object, float, str | None, bool]] = []")
         assert seq_idx > -1, "IN-19: sequenced_items list not found"
@@ -506,10 +516,12 @@ class TestIn19AsrTeardownSecondWave:
         s = _plans_src()
         par_idx = s.find("all_parallel_items: list[tuple[str, object, float, str | None, bool]] = [")
         assert par_idx > -1, "IN-19: all_parallel_items list not found"
-        par_end = s.find("\n        ]", par_idx)
+        # The builder body is a module-level function (4-space body
+        # indent), so the list literal closes with ``\n    ]``.
+        par_end = s.find("\n    ]", par_idx)
         assert par_end > -1, "IN-19: could not find end of all_parallel_items list"
         parallel_body = s[par_idx:par_end]
-        assert '("teardown_asr_models", self._teardown_asr_models' in parallel_body, (
+        assert '("teardown_asr_models", controller._teardown_asr_models' in parallel_body, (
             "IN-19: _teardown_asr_models must be INSIDE the all_parallel_items list"
         )
 
@@ -535,11 +547,16 @@ class TestIn19AsrTeardownSecondWave:
         """The parallel plan's ``_run_plan`` call must appear AFTER the
         sequenced plan's ``_run_plan`` call - the parallel batch (with
         ASR teardown) can only start once the sequenced phase (recorder
-        thread join) has returned."""
+        thread join) has returned.
+
+        The ``_do_cleanup`` body lives in ``shutdown/cleanup.py``
+        (``do_cleanup(controller)``), so the calls go through
+        ``controller._run_plan`` — the mixin delegate, preserving the
+        instance-level monkeypatch seam."""
         s = _cleanup_src()
-        sequenced_call = s.find("_timed_out = self._run_plan(sequenced_plan, frozenset())")
+        sequenced_call = s.find("_timed_out = controller._run_plan(sequenced_plan, frozenset())")
         assert sequenced_call > -1, "sequenced plan _run_plan call not found"
-        parallel_call = s.find("self._run_plan(parallel_plan, _timed_out)")
+        parallel_call = s.find("controller._run_plan(parallel_plan, _timed_out)")
         assert parallel_call > -1, "parallel plan _run_plan call not found"
         assert parallel_call > sequenced_call, "IN-19: parallel plan must be run AFTER the sequenced plan returns"
 

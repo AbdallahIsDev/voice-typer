@@ -1,18 +1,21 @@
 """Transcription result normalization for ``TranscriptionEngine``.
 
-Extracted from ``voice_typer/server/transcription.py`` so the engine
-module stays focused on the load/transcribe pipeline. The functions
-here are module-level so they can be unit-tested in isolation.
+CANONICAL home of the segment-decode bodies:
+``TranscriptionEngine._transcribe_unlocked`` /
+``_transcribe_words_unlocked`` are thin one-line delegates to the
+functions here (the engine module stays focused on the
+load/transcribe pipeline). The functions are also unit-testable in
+isolation with stub engines.
 
 * :func:`transcribe_unlocked` — the body of
   :meth:`TranscriptionEngine._transcribe_unlocked`. Drives the
   faster-whisper ``model.transcribe(...)`` call, iterates the segment
   generator (with abort-token check between iterations), collects
-  per-segment logprobs / no_speech_probs, applies the
-  low-audio-hallucination rejection gate, and returns the joined
-  text. PII-safety: per-segment DEBUG logs are gated by
-  ``config.log_transcriptions`` AND wrapped in ``redact_pii`` when
-  emitted.
+  per-segment logprobs / no_speech_probs, builds the compact
+  ``last_quality_summary``, applies the low-audio-hallucination
+  rejection gate, and returns the joined text. PII-safety:
+  per-segment DEBUG logs are gated by ``config.log_transcriptions``
+  AND wrapped in ``redact_pii`` when emitted.
 * :func:`transcribe_words_unlocked` — the body of
   :meth:`TranscriptionEngine._transcribe_words_unlocked`. Streaming
   word-timestamp variant of the above (used by the streaming
@@ -20,10 +23,19 @@ here are module-level so they can be unit-tested in isolation.
 * :func:`format_optional_mean` — formats a list of floats as a
   2-decimal mean, or ``"n/a"`` if empty. Used by the VAD-result log
   line in :func:`transcribe_unlocked`.
+* :func:`build_quality_summary` — the compact per-dictation quality
+  dict built from the already-collected segment stats; re-exported by
+  ``transcription`` for back-compat with callers/tests importing it
+  from there.
+* :func:`reject_low_audio_hallucination` — thin delegator to
+  :func:`hallucination.should_reject_low_audio_hallucination` so the
+  engine method can delegate without importing ``hallucination``.
 
-The engine methods (``_transcribe_unlocked``, ``_transcribe_words_unlocked``,
-``_format_optional_mean``) are now one-line delegators to these
-functions — no behavior change vs the pre-refactor inline bodies.
+TEST PATCH COMPATIBILITY: tests patch
+``voice_typer.server.transcription_result.should_reject_low_audio_hallucination``
+(module global) and it stays effective because
+:func:`reject_low_audio_hallucination` reads the module global at call
+time.
 """
 
 from __future__ import annotations
@@ -98,13 +110,13 @@ def transcribe_unlocked(
 
     Drives the faster-whisper ``model.transcribe(...)`` call, iterates
     the segment generator (with abort-token check between iterations),
-    collects per-segment logprobs / no_speech_probs, applies the
-    low-audio-hallucination rejection gate, and returns the joined
-    text.
+    collects per-segment logprobs / no_speech_probs, builds
+    ``engine.last_quality_summary``, applies the low-audio-hallucination
+    rejection gate, and returns the joined text.
 
     Reads per-cycle state from the engine argument (``engine._model``,
     ``engine.beam_size``, ``engine.language``, ``engine._abort_event``,
-    ``engine.config``).
+    ``engine.config``) and writes the quality summary back to it.
     """
     if engine._model is None:
         raise RuntimeError("Model not loaded. Call load() first.")
@@ -158,6 +170,11 @@ def transcribe_unlocked(
     last_segment_end = None
     avg_logprobs = []
     no_speech_probs = []
+    # Reset the renderer-facing quality summary at the START of each
+    # transcription so a stale summary from a previous dictation can
+    # never be attributed to this one (e.g. when the segment loop is
+    # cut short by an abort and collects no numeric stats).
+    engine.last_quality_summary = None
     # hoist the per-segment ``log_transcriptions`` flag and
     # ``redact_pii`` import OUT of the segment loop. Pre-fix, the
     # ``getattr(engine.config, 'log_transcriptions', False)`` ran once
@@ -267,6 +284,13 @@ def transcribe_unlocked(
         format_optional_mean(no_speech_probs),
     )
 
+    # Compact quality summary for the dictation pipeline → renderer
+    # (``transcription_final`` payload). Built from the stats already
+    # collected above — a handful of float ops per dictation, never
+    # on the paste path. ``None`` when the loop collected no numeric
+    # segment stats so downstream consumers omit the field.
+    engine.last_quality_summary = build_quality_summary(avg_logprobs, no_speech_probs)
+
     result = " ".join(text_parts).strip()
     if reject_low_audio_hallucination(
         engine,
@@ -374,3 +398,34 @@ def transcribe_words_unlocked(
                 )
             )
     return words
+
+
+def build_quality_summary(avg_logprobs: list[float], no_speech_probs: list[float]) -> dict[str, float] | None:
+    """Build the compact per-dictation quality summary for the renderer.
+
+    Computed from the ``avg_logprob`` / ``no_speech_prob`` values the
+    segment loop ALREADY collected — no recomputation, one small dict of
+    floats allocated once per dictation (never on the paste hot path).
+
+    Returns ``None`` when no numeric stats were collected (empty audio,
+    aborted run, or an engine that reports no segment probs) so callers
+    can omit the summary entirely instead of shipping an empty object.
+
+    Keys:
+      - ``mean_logprob``: mean per-segment ``avg_logprob`` (closer to 0 =
+        more confident decoding).
+      - ``min_logprob``: worst single-segment ``avg_logprob``.
+      - ``no_speech_prob_max``: highest per-segment ``no_speech_prob``
+        (high values indicate segments the model considered silent).
+      - ``segments``: how many segments contributed numeric stats.
+    """
+    if not avg_logprobs and not no_speech_probs:
+        return None
+    summary: dict[str, float] = {}
+    if avg_logprobs:
+        summary["mean_logprob"] = sum(avg_logprobs) / len(avg_logprobs)
+        summary["min_logprob"] = min(avg_logprobs)
+        summary["segments"] = float(len(avg_logprobs))
+    if no_speech_probs:
+        summary["no_speech_prob_max"] = max(no_speech_probs)
+    return summary

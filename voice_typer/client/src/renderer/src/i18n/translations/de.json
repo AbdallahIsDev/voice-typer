@@ -795,7 +795,7 @@
 			"highPassCutoffInfoSearch": "Frequenzen unterhalb davon werden abgeschwächt.",
 			"highPassCutoffAria": "Hochpass-Grenzfrequenz",
 			"noiseSuppression": "Rauschunterdrückung",
-			"noiseSuppressionInfo": "Neuronales Netz-Rauschunterdrücker. RNNoise (Standard, leichtgewichtig). DeepFilterNet (Premium, bessere Qualität, erfordert torch). Speex (leichteste CPU).",
+			"noiseSuppressionInfo": "Neuronaler Netz-Rauschunterdrücker. RNNoise (Standard, leichtgewichtig). GTCRN (fortschrittliche neuronale Rauschunterdrückung, höhere Qualität, läuft lokal auf dem Gerät). Keine (deaktiviert die Rauschunterdrückung).",
 			"noiseSuppressionInfoSearch": "Neuronales Netz-Rauschunterdrücker.",
 			"noiseSuppressionAria": "Rauschunterdrückungsmethode",
 			"noneOption": "Keine",

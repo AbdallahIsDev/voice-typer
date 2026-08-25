@@ -58,10 +58,13 @@ class TestConfigMutationLockSharedAcrossIpc:
         # catches removal of the lock deterministically.
         from voice_typer.server.app import VoiceTyperApp
 
-        # VoiceTyperApp must declare _config_mutation_lock
-        src = inspect.getsource(VoiceTyperApp.__init__)
+        # VoiceTyperApp must declare _config_mutation_lock. The lock
+        # construction lives in the hotkeys-and-locks builder (the new
+        # home of the former inline ``__init__`` body after the
+        # ``__init__`` decomposition).
+        src = inspect.getsource(VoiceTyperApp._init_hotkeys_and_locks)
         assert "_config_mutation_lock" in src, (
-            "VoiceTyperApp.__init__ must initialize _config_mutation_lock "
+            "VoiceTyperApp._init_hotkeys_and_locks must initialize _config_mutation_lock "
             "to serialize Config mutations between concurrent IPC set_config calls."
         )
         assert "threading.RLock()" in src

@@ -27,6 +27,8 @@ Module-level helpers (re-exported by
 - :func:`has_cjk_or_wide_chars` — CJK / fullwidth script detection.
 - :func:`sanitize_fts_query` — escape FTS5 special chars.
 - :func:`project_text_row` — post-process a SQLite row for list responses.
+- :func:`_finalize_text_rows` — projection + at-rest-encryption decrypt
+  seam shared by get_recent / search / get_favorites.
 """
 
 from __future__ import annotations
@@ -161,7 +163,14 @@ def sanitize_fts_query(query: str) -> str:
 
 
 def project_text_row(row: sqlite3.Row | tuple) -> dict:
-    """Post-process a SQLite row from get_recent/search/get_favorites."""
+    """Post-process a SQLite row from get_recent/search/get_favorites.
+
+    The ``text_is_encrypted`` marker (added to the list SELECTs for the
+    at-rest-encryption read seam) is popped here so the projected dict
+    shape — and therefore the IPC response contract — is identical to
+    the pre-encryption one. Decryption of flagged rows happens in
+    :func:`_finalize_text_rows`, which runs AFTER this projection.
+    """
     from voice_typer.server import history_db as _hd
 
     d = dict(row)
@@ -174,7 +183,81 @@ def project_text_row(row: sqlite3.Row | tuple) -> dict:
         truncated = full_length_int > _hd._HISTORY_TEXT_PREVIEW_LENGTH
     d["text_truncated"] = truncated
     d["text_full_length"] = full_length_int
+    d.pop("text_is_encrypted", None)
     return d
+
+
+def _finalize_text_rows(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> list[dict]:
+    """Project rows and decrypt flagged-encrypted text in Python.
+
+    At-rest-encryption read seam for the three list methods
+    (get_recent / search / get_favorites). The SQL still applies
+    SUBSTR/LENGTH truncation — that preview is CORRECT for plaintext
+    rows and costs nothing — but for ``text_is_encrypted`` rows the
+    SQL-level SUBSTR would be a slice of base64 ciphertext, so the full
+    ciphertext is re-fetched by id here, decrypted, and truncated to
+    the preview length in Python with ``text_full_length`` /
+    ``text_truncated`` recomputed from the PLAINTEXT length.
+
+    Key-loss policy: when a flagged row exists but no DEK is available,
+    the row is kept (its metadata stays readable and deletable) with
+    text set to the "<decryption failed>" placeholder, and a
+    rate-limited ERROR explains the state. New writes stay plaintext in
+    that mode (writer-side policy), and the DEK is never regenerated
+    while encrypted rows exist.
+    """
+    from voice_typer.server import _text_crypto, history_db as _hd
+
+    # Capture the encryption flag from the RAW rows before projection —
+    # project_text_row pops the marker so the projected dict shape (and
+    # the IPC response contract) stays identical to the pre-encryption
+    # one.
+    out: list[dict] = []
+    flagged_ids: list[int] = []
+    for row in rows:
+        raw = dict(row)
+        if raw.get("text_is_encrypted"):
+            flagged_ids.append(int(raw["id"]))
+        out.append(project_text_row(row))
+    if not flagged_ids:
+        # Common case (plaintext mode): zero extra work.
+        return out
+    dek = _text_crypto.get_dek_cached()
+    flagged_set = set(flagged_ids)
+    if dek is None:
+        _text_crypto.log_key_unavailable_error()
+        placeholder = _text_crypto.DECRYPTION_FAILED_PLACEHOLDER
+        for d in out:
+            if d["id"] in flagged_set:
+                d["text"] = placeholder
+                d["text_full_length"] = len(placeholder)
+                d["text_truncated"] = False
+        return out
+    # Re-fetch the FULL ciphertext for the flagged rows only (the list
+    # SELECT returned a 500-char SUBSTR of it, useless for decryption).
+    # One extra indexed query per page — bounded by the list LIMIT.
+    full_texts: dict[int, str] = {}
+    try:
+        with contextlib.closing(conn.cursor()) as cursor:
+            placeholders = ",".join(["?"] * len(flagged_ids))
+            cursor.execute(
+                f"SELECT id, text FROM transcriptions WHERE id IN ({placeholders})",
+                flagged_ids,
+            )
+            full_texts = {int(r[0]): r[1] for r in cursor.fetchall()}
+    except sqlite3.Error as e:
+        log.warning(
+            "[HISTORY] re-fetching encrypted row texts for decryption failed: %s",
+            e,
+        )
+    preview_len = _hd._HISTORY_TEXT_PREVIEW_LENGTH
+    for d in out:
+        if d["id"] in flagged_set:
+            plaintext = _text_crypto.decrypt_text(full_texts.get(d["id"], ""), dek)
+            d["text"] = plaintext[:preview_len]
+            d["text_full_length"] = len(plaintext)
+            d["text_truncated"] = len(plaintext) > preview_len
+    return out
 
 
 # ──────────────────────────────────────────────────────────────
@@ -219,6 +302,7 @@ def get_recent(
                     id,
                     SUBSTR(text, 1, ?) AS text,
                     LENGTH(text) AS text_full_length,
+                    text_is_encrypted,
                     timestamp,
                     duration,
                     model,
@@ -257,6 +341,7 @@ def get_recent(
                     id,
                     SUBSTR(text, 1, ?) AS text,
                     LENGTH(text) AS text_full_length,
+                    text_is_encrypted,
                     timestamp,
                     duration,
                     model,
@@ -272,7 +357,7 @@ def get_recent(
                 (_hd._HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
             )
         rows = cursor.fetchall()
-    return [project_text_row(row) for row in rows]
+    return _finalize_text_rows(conn, rows)
 
 
 def get_latest_text(db: HistoryDB) -> str:
@@ -282,12 +367,20 @@ def get_latest_text(db: HistoryDB) -> str:
     ``timestamp`` defaults to ``CURRENT_TIMESTAMP``, so transcriptions
     written within the same second tie and the "latest" becomes
     ambiguous. The PK is monotonic.
+
+    At-rest encryption: when the latest row is flagged encrypted, its
+    text is decrypted before returning (key-loss → "<decryption
+    failed>" placeholder — never the raw ciphertext, never a crash).
     """
     try:
         conn = db._get_read_conn()
         with contextlib.closing(conn.cursor()) as cur:
-            cur.execute("SELECT text FROM transcriptions ORDER BY id DESC LIMIT 1")
+            cur.execute("SELECT text, text_is_encrypted FROM transcriptions ORDER BY id DESC LIMIT 1")
             row = cur.fetchone()
+        if row is None:
+            return ""
+        if row[1]:
+            return _decrypt_full_text(row[0] or "")
         return row[0] if row else ""
     except Exception as e:
         log.error("[HISTORY] Failed to get latest transcription: %s", e)
@@ -362,6 +455,7 @@ def search(
                         t.id,
                         SUBSTR(t.text, 1, ?) AS text,
                         LENGTH(t.text) AS text_full_length,
+                        t.text_is_encrypted,
                         t.timestamp,
                         t.duration,
                         t.model,
@@ -406,6 +500,7 @@ def search(
                         t.id,
                         SUBSTR(t.text, 1, ?) AS text,
                         LENGTH(t.text) AS text_full_length,
+                        t.text_is_encrypted,
                         t.timestamp,
                         t.duration,
                         t.model,
@@ -443,6 +538,7 @@ def search(
                         id,
                         SUBSTR(text, 1, ?) AS text,
                         LENGTH(text) AS text_full_length,
+                        text_is_encrypted,
                         timestamp,
                         duration,
                         model,
@@ -473,6 +569,7 @@ def search(
                         id,
                         SUBSTR(text, 1, ?) AS text,
                         LENGTH(text) AS text_full_length,
+                        text_is_encrypted,
                         timestamp,
                         duration,
                         model,
@@ -489,7 +586,7 @@ def search(
                     (_hd._HISTORY_TEXT_PREVIEW_LENGTH, pattern, limit, offset),
                 )
         rows = cursor.fetchall()
-    return [project_text_row(row) for row in rows]
+    return _finalize_text_rows(conn, rows)
 
 
 def get_favorites(
@@ -514,6 +611,7 @@ def get_favorites(
                     id,
                     SUBSTR(text, 1, ?) AS text,
                     LENGTH(text) AS text_full_length,
+                    text_is_encrypted,
                     timestamp,
                     duration,
                     model,
@@ -543,6 +641,7 @@ def get_favorites(
                     id,
                     SUBSTR(text, 1, ?) AS text,
                     LENGTH(text) AS text_full_length,
+                    text_is_encrypted,
                     timestamp,
                     duration,
                     model,
@@ -559,7 +658,7 @@ def get_favorites(
                 (_hd._HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
             )
         rows = cursor.fetchall()
-    return [project_text_row(row) for row in rows]
+    return _finalize_text_rows(conn, rows)
 
 
 def get_today_stats(db: HistoryDB) -> dict:
@@ -640,6 +739,23 @@ def invalidate_today_stats_cache(db: HistoryDB) -> None:
         db._today_stats_cache_ts = 0.0
 
 
+def _decrypt_full_text(blob: str) -> str:
+    """Decrypt a single flagged row's full text (never raises).
+
+    Shared by the full-text read seams (``get_latest_text`` /
+    ``get_transcription_text``). Key-unavailable → rate-limited ERROR +
+    placeholder; DEK available → :func:`decrypt_text` (which itself
+    returns the placeholder on any crypto failure).
+    """
+    from voice_typer.server import _text_crypto
+
+    dek = _text_crypto.get_dek_cached()
+    if dek is None:
+        _text_crypto.log_key_unavailable_error()
+        return _text_crypto.DECRYPTION_FAILED_PLACEHOLDER
+    return _text_crypto.decrypt_text(blob, dek)
+
+
 def get_transcription_text(
     db: HistoryDB,
     transcription_id: int,
@@ -651,18 +767,25 @@ def get_transcription_text(
     Companion to the 500-char ``text`` preview returned by
     ``get_recent`` / ``search`` / ``get_favorites``. Returns
     ``{"id": int, "text": str}`` (empty string if not found).
+
+    At-rest encryption: when the row is flagged encrypted, its text is
+    decrypted before returning (key-loss → "<decryption failed>"
+    placeholder — the raw ciphertext is never surfaced).
     """
     try:
         conn = db._get_read_conn()
         with contextlib.closing(conn.cursor()) as cursor:
             cursor.execute(
-                "SELECT text FROM transcriptions WHERE id = ?",
+                "SELECT text, text_is_encrypted FROM transcriptions WHERE id = ?",
                 (transcription_id,),
             )
             row = cursor.fetchone()
         if row is None:
             return {"id": transcription_id, "text": ""}
-        return {"id": transcription_id, "text": row[0] or ""}
+        text = row[0] or ""
+        if row[1]:
+            text = _decrypt_full_text(text)
+        return {"id": transcription_id, "text": text}
     except Exception as e:
         log.error(
             "[HISTORY] Failed to get transcription text for id=%s: %s",

@@ -34,10 +34,13 @@ from unittest.mock import MagicMock
 # structure WITHOUT importing it (which would pull in VoiceTyperApp +
 # the entire server stack). Same pattern as the  / R6-F7 tests.
 #
-# The pre-split ``shutdown_controller.py`` module is now a package; the
-# pinned regions moved to its leaves: the ``_teardown_*`` delegate
-# methods live in ``_teardowns.py`` and the parallel-batch
-# ``parallel_items`` list lives in ``_plans.py`` (``SequencingMixin``).
+# The pre-split ``shutdown_controller.py`` module is now a package. The
+# pinned regions have moved with their bodies: the ``_teardown_*``
+# delegates live in ``shutdown_controller/_teardowns.py``, and the
+# parallel-batch ``parallel_items`` list now lives in the extracted plan
+# builders in ``shutdown/plan.py`` (``build_parallel_plan`` — moved out
+# of ``shutdown_controller/_plans.py`` during the shutdown-module
+# split; the mixin methods there are thin delegates).
 _CONTROLLER_TEARDOWNS_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
@@ -46,13 +49,13 @@ _CONTROLLER_TEARDOWNS_PATH = os.path.join(
     "shutdown_controller",
     "_teardowns.py",
 )
-_CONTROLLER_PLANS_PATH = os.path.join(
+_PLANS_BODY_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
     "voice_typer",
     "server",
-    "shutdown_controller",
-    "_plans.py",
+    "shutdown",
+    "plan.py",
 )
 _TEARDOWNS_ASR_MODELS_PATH = os.path.join(
     os.path.dirname(__file__),
@@ -71,7 +74,8 @@ def _controller_teardowns_src() -> str:
 
 
 def _controller_plans_src() -> str:
-    with open(_CONTROLLER_PLANS_PATH, encoding="utf-8") as f:
+    """Source of the extracted plan-builder bodies (``shutdown/plan.py``)."""
+    with open(_PLANS_BODY_PATH, encoding="utf-8") as f:
         return f.read()
 
 
@@ -119,12 +123,13 @@ class TestTeardownAsrModelsContract:
         the (potentially slow) CUDA context teardown starts as early
         as possible."""
         s = _controller_plans_src()
-        # Find the ``parallel_items = [`` block. The block opens with
-        # ``parallel_items: list[tuple[str, object, float]] = [`` (the
+        # Find the ``parallel_items`` block in ``build_parallel_plan``
+        # (``shutdown/plan.py``). The block opens with
+        # ``all_parallel_items: list[tuple[...]] = [`` (the
         # type-annotated form) and closes with the matching ``]``.
         # The first tuple inside MUST be ``("teardown_asr_models", ...)``.
         parallel_open_idx = s.find("parallel_items")
-        assert parallel_open_idx > -1, "_do_cleanup must define a parallel_items list for the parallel batch"
+        assert parallel_open_idx > -1, "build_parallel_plan must define a parallel_items list for the parallel batch"
         # Find the opening ``[`` after ``parallel_items``.
         bracket_open = s.find("[", parallel_open_idx)
         assert bracket_open > -1

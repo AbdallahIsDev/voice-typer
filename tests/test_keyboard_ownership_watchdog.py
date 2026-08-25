@@ -31,6 +31,17 @@ from voice_typer.server.keyboard_ownership import keyboard_ownership
 
 from tests.fixtures.ipc_test_helpers import make_fake_app, make_fake_service
 
+# Hint for xdist schedulers that respect ``xdist_group`` (loadgroup /
+# loadscope): pin every test in this module — and its sibling
+# ``test_keyboard_ownership.py`` — onto a single worker. Both modules
+# reset the ``KeyboardOwnership`` class-attribute singleton via autouse
+# fixtures, and the singleton is process-wide state; the marker is
+# defense-in-depth so the two modules that mutate it group onto one
+# worker. xdist's default ``load`` scheduler does NOT strictly honor
+# this marker — it is a hint, not a correctness guarantee. No-op when
+# xdist isn't active. (C-TEST-5.)
+pytestmark = pytest.mark.xdist_group("keyboard_ownership")
+
 
 @pytest.fixture(autouse=True)
 def _reset_ownership():

@@ -35,6 +35,14 @@ _T = TypeVar("_T")
 #: single service, with the provider name as the username key.
 KEYRING_SERVICE_NAME = "com.voicetyper.keyring"
 
+#: Reserved keyring username under which the history at-rest-encryption
+#: data-encryption key (DEK) is stored. Cloud-provider secrets use the
+#: provider name as the username key (see :data:`PROVIDER_TO_CONFIG_FIELD`);
+#: this double-underscore name can never collide with a provider because
+#: ``store_secret`` rejects names not in that map — the DEK deliberately
+#: bypasses ``store_secret`` (see :mod:`._dek`) and is addressed directly.
+DATA_ENCRYPTION_KEY_USERNAME = "__data_encryption_key__"
+
 #: Prior service names used by Voice Typer. :func:`migrate_secrets_to_keyring`
 #: copies any keyring entries stored under these names to
 #: :data:`KEYRING_SERVICE_NAME` and deletes the originals.
@@ -75,6 +83,7 @@ _REASON_MAX_LEN = 200
 
 __all__ = [
     "CONFIG_FIELD_TO_PROVIDER",
+    "DATA_ENCRYPTION_KEY_USERNAME",
     "KEYRING_REF_PREFIX",
     "KEYRING_SERVICE_NAME",
     "PROVIDER_TO_CONFIG_FIELD",

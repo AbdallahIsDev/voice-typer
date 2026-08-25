@@ -1,4 +1,38 @@
-"""Whisper transcription engine using faster-whisper."""
+"""Whisper transcription engine using faster-whisper.
+
+This module is the public facade for the Whisper ASR backend:
+``TranscriptionEngine`` (constructed via the
+``voice_typer.server.transcription`` / ``TranscriptionEngine`` lazy
+string pair in ``asr_registry``), the module-level NVIDIA DLL-path
+state, and every back-compat re-export (``TranscriberProtocol``,
+``release_gpu_memory``, ``_download_with_retry``,
+``_check_disk_space_for_download``, ``cleanup_hf_cache_dir``, ...).
+
+Focused sibling modules hold the extracted bodies — the engine methods
+are thin delegates so every historical monkeypatch path
+(``voice_typer.server.transcription.<name>`` and instance/class method
+patches) keeps working:
+
+* ``transcription_device`` — ``_resolve_device`` /
+  ``_resolve_device_once`` / ``_apply_auto_beam_size`` bodies.
+* ``transcription_cuda_probe`` — ``_probe_cuda_runtime`` /
+  ``_warm_up_model`` bodies.
+* ``transcription_download`` — ``_probe_cache`` /
+  ``_require_model_downloaded`` / ``_whisper_size_cached`` bodies.
+* ``transcription_fallback`` — ``_with_gpu_fallback`` /
+  ``_is_gpu_runtime_error`` / ``transcribe_with_fallback`` bodies.
+* ``transcription_load`` — ``TranscriberProtocol`` (canonical home).
+* ``transcription_result`` — parallel unit-test surface for the
+  segment-decode helpers (see that module's docstring).
+
+Kept inline here (deliberately): the load orchestrators
+(``_load_transcriber_impl`` / ``_build_fallback_chain`` /
+``_reload_under_lock``), the segment-decode loops
+(``_transcribe_unlocked`` / ``_transcribe_words_unlocked``), the
+lock-coupled GC choreography (``_run_deferred_gc`` /
+``_with_lock_and_deferred_gc``), ``unload``, and the quality-summary
+helpers.
+"""
 
 from __future__ import annotations
 
@@ -20,12 +54,10 @@ from typing import Any
 # otherwise the module-level def of ``transcribe`` would resolve
 # ``np.ndarray`` via the proxy and trigger the eager import we are
 # trying to avoid. NOTE: the local ``import numpy as np`` inside
-# ``_generate_probe_audio`` / ``_warmup_engine`` (lines ~478, ~570) is
+# ``transcription_cuda_probe.probe_cuda_runtime`` / ``.warm_up_model`` is
 # intentional — those are hot paths that want to avoid the per-call
 # proxy ``_resolve()`` overhead. They shadow the lazy proxy for the
 # duration of the function.
-from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE as _WHISPER_SAMPLE_RATE
-
 # ``cleanup_hf_cache_dir`` (formerly ``_cleanup_failed_whisper_cache``)
 # is imported from the dedicated ``_hf_cache_cleanup`` facade module —
 # the canonical entry point for HF cache-dir cleanup (previously the
@@ -43,7 +75,11 @@ from voice_typer.server._hf_cache_cleanup import (  # noqa: F401  # noqa: F401
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.asr_errors import (
     ConsentRequiredError,  # noqa: F401  # re-exported for backward compat
-    ModelIntegrityError,
+    # ``ModelIntegrityError`` is raised by the extracted
+    # ``transcription_download.require_model_downloaded`` body; kept as a
+    # re-export so callers/tests importing it from ``transcription`` still
+    # resolve.
+    ModelIntegrityError,  # noqa: F401
     ModelNotDownloadedError,
 )
 from voice_typer.server.asr_utils import (  # noqa: F401
@@ -53,7 +89,7 @@ from voice_typer.server.asr_utils import (  # noqa: F401
     is_oom_error,
     release_gpu_memory,
 )
-from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
+from voice_typer.server.hallucination import should_reject_low_audio_hallucination
 from voice_typer.server.i18n import DEFAULT_LOCALE
 from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
 
@@ -67,7 +103,59 @@ np = lazy_module("numpy")
 # source). Re-exported here so existing ``from voice_typer.server.transcription
 # import TranscriberProtocol`` imports resolve to the SAME class object (identity
 # parity — see ``tests/test_transcriber_protocol_parity.py``).
+#
+# The four blocks below import the extracted engine-helper bodies. The
+# engine methods on ``TranscriptionEngine`` are thin delegates so every
+# historical monkeypatch path (module-level ``voice_typer.server
+# .transcription.<name>`` patches via late binding, and instance/class
+# method patches via engine-object dispatch) keeps working.
+#
+# CUDA-probe + kernel warm-up bodies (``_probe_cuda_runtime`` /
+# ``_warm_up_model``) — the CPU-fallback dispatches through the engine
+# object so instance-level monkeypatches
+# (``engine._reload_under_lock = MagicMock()``) keep taking effect.
+from voice_typer.server.transcription_cuda_probe import (  # noqa: E402
+    probe_cuda_runtime as _probe_cuda_runtime_impl,
+    warm_up_model as _warm_up_model_impl,
+)
+
+# Device-resolution bodies (``_resolve_device`` / ``_resolve_device_once`` /
+# ``_apply_auto_beam_size``) — read ``_configure_nvidia_dll_paths`` /
+# ``_cuda_runtime_available`` / ``_auto_beam_size`` via call-time late
+# binding on THIS module so the ``voice_typer.server.transcription.<name>``
+# monkeypatch paths keep working.
+from voice_typer.server.transcription_device import (  # noqa: E402
+    apply_auto_beam_size as _apply_auto_beam_size_impl,
+    resolve_device as _resolve_device_impl,
+    resolve_device_once as _resolve_device_once_impl,
+)
+
+# HF cache-probe / download-gate bodies (``_probe_cache`` /
+# ``_require_model_downloaded`` / ``_whisper_size_cached``) — the gate
+# NEVER downloads or deletes models automatically.
+from voice_typer.server.transcription_download import (  # noqa: E402
+    probe_cache as _probe_cache_impl,
+    require_model_downloaded as _require_model_downloaded_impl,
+    whisper_size_cached as _whisper_size_cached_impl,
+)
+
+# GPU→CPU fallback orchestration + error classifier + the public
+# transcribe-with-fallback wrapper — all engine-coupled state is
+# dispatched through the engine object.
+from voice_typer.server.transcription_fallback import (  # noqa: E402
+    is_gpu_runtime_error as _is_gpu_runtime_error_impl,
+    transcribe_with_fallback as _transcribe_with_fallback_impl,
+    with_gpu_fallback as _with_gpu_fallback_impl,
+)
 from voice_typer.server.transcription_load import TranscriberProtocol  # noqa: F401, E402
+
+# Segment-decode loop body (``_transcribe_unlocked`` delegate target) —
+# canonical home is ``transcription_result``; imported under the historical
+# local alias so the delegate reads like its sibling ``*_impl`` delegates.
+from voice_typer.server.transcription_result import (  # noqa: E402
+    transcribe_unlocked as _transcribe_unlocked_impl,
+    transcribe_words_unlocked as _transcribe_words_unlocked_impl,
+)
 
 log = logging.getLogger(__name__)
 
@@ -259,52 +347,11 @@ class TranscriptionEngine:
     def _resolve_device(self, device: str) -> tuple[str, str]:
         """Auto-detect best device and compute type.
 
-        previously the CUDA-detection try/except used bare
-        ``Exception``, hiding real setup errors (driver mismatch,
-        missing DLLs). Narrowed to ``(OSError, RuntimeError,
-        ImportError)`` so genuine bugs propagate.
+        Thin delegate to ``transcription_device.resolve_device`` — the
+        try/except is narrowed to ``(OSError, RuntimeError, ImportError)``
+        so genuine setup bugs propagate.
         """
-        if device == "cpu":
-            return "cpu", "int8"
-
-        # Try CUDA
-        if device in ("auto", "cuda"):
-            try:
-                _configure_nvidia_dll_paths()
-                # Windows fast path: when the CUDA runtime DLLs cannot
-                # be loaded (CPU-only torch, missing nvidia-* wheels),
-                # skip the expensive ``import ctranslate2`` + CUDA device
-                # probe — the import alone costs ~20s of CUDA
-                # enumeration and the probe would fail at load time
-                # anyway, forcing a CPU reload.
-                if _cuda_runtime_available() is False:
-                    log.warning(
-                        "[MODEL] CUDA runtime DLLs unavailable on Windows — "
-                        "using CPU directly (skipped ~20s CUDA probe)"
-                    )
-                    if device == "cuda":
-                        log.warning("[MODEL] CUDA requested but DLLs unavailable, falling back to CPU")
-                    log.info("[MODEL] Using CPU for transcription")
-                    return "cpu", "int8"
-                import ctranslate2
-
-                if ctranslate2.get_cuda_device_count() > 0:
-                    log.info("[MODEL] Using CUDA device for transcription")
-                    return "cuda", "float16"
-            except (OSError, RuntimeError, ImportError):
-                # OSError: missing DLL / driver file
-                # RuntimeError: ctranslate2 internal init failure
-                # ImportError: ctranslate2 not installed
-                log.warning(
-                    "[MODEL] CUDA detection failed, falling back to CPU",
-                    exc_info=True,
-                )
-
-            if device == "cuda":
-                log.warning("[MODEL] CUDA requested but not available, falling back to CPU")
-
-        log.info("[MODEL] Using CPU for transcription")
-        return "cpu", "int8"
+        return _resolve_device_impl(self, device)
 
     @property
     def is_loaded(self) -> bool:
@@ -392,31 +439,20 @@ class TranscriptionEngine:
     def _resolve_device_once(self):
         """Resolve the CUDA device if not already resolved.
 
-        Separated from __init__ so the expensive ``import ctranslate2`` and
-        CUDA DLL loading only happens when the model is actually about to
-        load, not during construction.  This saves ~20s on startup when the
-        user hasn't pressed F2 yet.
+        Thin delegate to ``transcription_device.resolve_device_once`` —
+        defers the expensive ``import ctranslate2`` / CUDA DLL load to
+        load time (~20s startup savings).
         """
-        if self._requested_device is None:
-            return
-        device = self._requested_device
-        self._requested_device = None
-        self._device, self._compute_type = self._resolve_device(device)
-        self._apply_auto_beam_size()
+        _resolve_device_once_impl(self)
 
     def _apply_auto_beam_size(self) -> None:
         """Re-resolve ``self.beam_size`` when the user left it on auto.
 
-        Called whenever the resolved device changes (initial load-time
-        resolution and every GPU→CPU fallback) so the effective beam
-        width always matches the current runtime: wide beams only while
-        dictation runs on CUDA with a non-tiny model. An explicitly
-        configured beam (legacy kwarg or ``whisper_beam_size``) is never
-        touched.
+        Thin delegate to ``transcription_device.apply_auto_beam_size`` —
+        re-runs on every resolved-device change so wide beams apply only
+        on CUDA with non-tiny models; explicit beams are never touched.
         """
-        if not getattr(self, "_beam_size_auto", False):
-            return
-        self.beam_size = _auto_beam_size(self.model_size, self._device)
+        _apply_auto_beam_size_impl(self)
 
     def _load_model_outside_lock(self, progress_callback=None):
         """Load model outside the lock so downloads don't block other threads.
@@ -579,160 +615,24 @@ class TranscriptionEngine:
         self._load_transcriber_impl(chain, acquire_lock=False, verb="Reloading")
 
     def _probe_cuda_runtime(self, progress_callback=None):
-        """Probe CUDA with a real transcription to force early cuBLAS/cuDNN loading.
+        """Probe CUDA with a real transcription to force early cuBLAS/cuDNN
+        loading.
 
-        Uses a 1s sine-wave tone and the exact same parameters as
-        ``_transcribe_unlocked`` — including ``vad_filter=True`` and
-        ``without_timestamps=True`` — then **iterates every segment** so
-        the underlying cuBLAS kernels are actually resolved.  If the DLLs
-        can't be loaded, catches the error at startup and falls back to
-        CPU immediately instead of failing mid-recording.
+        Thin delegate to ``transcription_cuda_probe.probe_cuda_runtime`` —
+        1s sine-wave smoke test right after a CUDA load so DLL failures
+        surface at startup (with a clean CPU fallback), not mid-recording.
         """
-        #  (pyrefly): ``self._model`` is declared ``self._model = None``
-        # in __init__ and only assigned a real model instance inside the
-        # load path. The sole caller (line ~554) only invokes us after a
-        # successful load, but pyrefly cannot prove that contract across
-        # method boundaries — so guard explicitly. Returning early here
-        # also makes the function safe to call from tests / future
-        # callers that haven't loaded a model yet.
-        if self._model is None:
-            log.warning("[CUDA-PROBE] Skipping — no model loaded")
-            return
-        import numpy as np
-
-        t = np.arange(int(_WHISPER_SAMPLE_RATE), dtype=np.float32) / _WHISPER_SAMPLE_RATE
-        probe_audio: np.ndarray = np.sin(2 * np.pi * 440 * t, dtype=np.float32) * 0.1
-
-        log.info("[CUDA-PROBE] Running CUDA runtime smoke test (1s sine wave)...")
-        if progress_callback:
-            progress_callback("Running CUDA runtime probe...")
-        try:
-            # Must exercise the same cuBLAS kernels as real dictation.
-            # NOTE: vad_filter=False is deliberate — VAD would reject a
-            # sine wave as non-speech, causing Whisper to be skipped.
-            segments, info = self._model.transcribe(
-                probe_audio,
-                beam_size=self.beam_size,
-                best_of=self.best_of,
-                temperature=0.0,
-                vad_filter=False,
-                language=self.language,
-                condition_on_previous_text=self.condition_on_previous_text,
-                without_timestamps=True,
-            )
-            # Force iteration through ALL segments — model.transcribe()
-            # returns lazily; the real GPU work (and DLL loading) happens
-            # here.
-            for _seg in segments:
-                pass
-            log.info("[CUDA-PROBE] CUDA runtime OK — cuBLAS/cuDNN loaded successfully")
-        except Exception as exc:
-            error_str = str(exc)
-            log.warning(
-                "[CUDA-PROBE] CUDA runtime probe FAILED: %s",
-                error_str,
-            )
-            if any(
-                kw in error_str.lower()
-                for kw in [
-                    "cublas",
-                    "cuda",
-                    "cudnn",
-                    "dll",
-                    "not found",
-                    "cannot be loaded",
-                    "load library",
-                ]
-            ):
-                log.warning(
-                    "[CUDA-PROBE] cuBLAS/cuDNN runtime error detected — falling back to CPU immediately",
-                )
-                # wrap the null-and-reload sequence in
-                # ``with self._lock:`` so a concurrent ``transcribe()`` from
-                # another thread can't observe ``self._model = None`` (or
-                # worse, a half-loaded model mid-reload). Pre-fix, the probe
-                # ran unlocked after the outer ``with self._lock:`` block at
-                # line 551 had exited, leaving a race window where
-                # ``transcribe()`` would raise ``RuntimeError("Model not
-                # loaded")`` or see a partially-initialized model.
-                with self._lock:
-                    try:
-                        del self._model
-                        import gc
-
-                        gc.collect()
-                        # HU-25: ``del self._model`` + ``gc.collect()``
-                        # trigger PyTorch's __del__ hook which releases the
-                        # parameter tensors' CUDA blocks, but the caching
-                        # allocator keeps them until ``release_gpu_memory()``
-                        # (torch.cuda.empty_cache()) runs. That call is
-                        # deferred OUTSIDE this lock via the RACE-023
-                        # ``_pending_gc_collect`` flag — it is set
-                        # EXPLICITLY in this branch, because
-                        # ``_reload_under_lock()`` does NOT set it (only
-                        # ``_with_gpu_fallback`` does, and this CUDA-probe
-                        # path is separate). Calling release_gpu_memory()
-                        # inside this lock was a no-op for VRAM release +
-                        # cost ~10-100ms of sync work (empty_cache blocks
-                        # the calling thread while it iterates the
-                        # allocator) holding the IPC dispatch lock for no
-                        # benefit.
-                    except Exception:
-                        log.debug("[MODEL] GPU model teardown failed", exc_info=True)
-                    self._model = None
-                    self._device = "cpu"
-                    self._compute_type = "int8"
-                    # CPU decode is the slow path — drop back to the
-                    # snappy greedy beam when the width was on auto.
-                    self._apply_auto_beam_size()
-                    # HU-25: arm the deferred GPU release BEFORE the
-                    # reload so a reload failure (model missing /
-                    # ctranslate2 error) can't leak the already-freed CUDA
-                    # blocks — the next caller outside the lock
-                    # (transcribe / unload) runs gc.collect() +
-                    # release_gpu_memory() regardless (OOMs on RTX
-                    # 3060/4060 after repeated CUDA-probe-failure reloads).
-                    self._pending_gc_collect = True
-                    self._reload_under_lock()
-                    log.warning(
-                        "[CUDA-PROBE] Model reloaded on CPU after CUDA probe failure. Loaded via: %s",
-                        self.loaded_via,
-                    )
-            else:
-                raise
+        _probe_cuda_runtime_impl(self, progress_callback)
 
     def _warm_up_model(self) -> None:
-        """PERF-007: Run a warm-up inference with silence to prime CUDA kernels.
+        """Run a warm-up inference with silence to prime CUDA kernels.
 
-        The first CUDA inference typically takes 2-5 seconds longer than
-        subsequent ones because the GPU kernels need to be compiled (JIT)
-        and memory allocated. This method runs a 0.5-second silence
-        transcription after model load so the first real dictation is fast.
-
-        If the model is on CPU or warm-up fails, this is a no-op.
+        Thin delegate to ``transcription_cuda_probe.warm_up_model`` — a
+        0.5s silence transcription after model load so the first real
+        dictation skips the 2-5s JIT kernel-compilation cost. No-op on
+        CPU or on failure.
         """
-        if self._model is None or self._device != "cuda":
-            return
-        try:
-            import numpy as np
-
-            warmup_audio = np.zeros(int(_WHISPER_SAMPLE_RATE * 0.5), dtype=np.float32)
-            segments, _ = self._model.transcribe(
-                warmup_audio,
-                beam_size=1,
-                best_of=1,
-                temperature=0.0,
-                vad_filter=False,
-                language=self.language,
-                without_timestamps=True,
-            )
-            # Force iteration to complete the warm-up
-            for _ in segments:
-                pass
-            log.info("[PERF] Warm-up inference completed — CUDA kernels primed")
-        except Exception as exc:
-            # Warm-up failure is non-critical — log and continue
-            log.debug("[PERF] Warm-up inference skipped: %s", exc)
+        _warm_up_model_impl(self)
 
     def _probe_cache(
         self,
@@ -745,158 +645,37 @@ class TranscriptionEngine:
     ) -> tuple[str | None, bool]:
         """Phase 1: probe the HuggingFace cache (local-only).
 
-        Returns ``(local_dir, integrity_failed)``:
-
-        * ``(path, False)`` — cache hit AND integrity verified. The
-          caller can proceed to load.
-        * ``(None, True)`` — cache hit BUT integrity check failed. The
-          caller must refuse to load (raise ``ModelIntegrityError``)
-          without deleting the tampered files — deletion is an explicit
-          user action (Models page Delete button).
-        * ``(None, False)`` — cache miss (or local probe raised). The
-          caller raises ``ModelNotDownloadedError`` (never downloads).
-
-        ``snapshot_download_fn`` is the ``huggingface_hub.snapshot_download``
-        callable (injected so tests can pass a MagicMock). The call uses
-        ``local_files_only=True`` so no network traffic is generated on
-        the cache-probe path.
+        Thin delegate to ``transcription_download.probe_cache`` — returns
+        ``(local_dir, integrity_failed)`` for the caller to turn into
+        ``ModelNotDownloadedError`` / ``ModelIntegrityError``.
         """
-        try:
-            local_dir = snapshot_download_fn(
-                repo_id=repo_id,
-                revision=revision,
-                allow_patterns=allow_patterns,
-                local_files_only=True,
-            )
-        except Exception:
-            log.debug("[MODEL] HF cache probe failed — will attempt download", exc_info=True)
-            return None, False
-
-        from voice_typer.server.security import verify_model_integrity
-
-        if not verify_model_integrity(local_dir, repo_id):
-            log.error(
-                "[MODEL] Cached model '%s' failed integrity check (cache hit path) — "
-                "refusing to load tampered files (no automatic deletion).",
-                model_size,
-            )
-            if progress_callback:
-                progress_callback("Cached model failed integrity check; delete and re-download from the Models page.")
-            return None, True
-
-        return local_dir, False
+        return _probe_cache_impl(
+            self,
+            snapshot_download_fn,
+            repo_id,
+            revision,
+            allow_patterns,
+            model_size,
+            progress_callback=progress_callback,
+        )
 
     def _require_model_downloaded(self, model_size: str, progress_callback=None) -> None:
         """Ensure the Whisper model is present in the local HF cache.
 
-        The app never downloads models automatically: the user must
-        explicitly click Download on the Models page (or the onboarding
-        wizard) first. This gate refuses to load an uncached model and
-        raises :class:`~voice_typer.server.asr_errors.ModelNotDownloadedError`
-        so callers can point the user at the Models page. A cached-but-
-        tampered model raises
-        :class:`~voice_typer.server.asr_errors.ModelIntegrityError` and is
-        NOT deleted automatically — deletion is an explicit user action
-        (Models page Delete button).
-
-        The probe is local-only (``local_files_only=True``) so no network
-        traffic is generated and no consent is required — consent is only
-        relevant for the explicit download path (``service.download_model``).
+        Thin delegate to ``transcription_download.require_model_downloaded``
+        — the NEVER-auto-download gate (raises ``ModelNotDownloadedError``
+        on miss / ``ModelIntegrityError`` on a tampered hit, no deletion).
         """
-        # Skip the gate for non-Whisper model sizes (e.g. "parakeet" or
-        # "qwen") — those backends have their own load path.
-        if not model_size or model_size in ("parakeet", "qwen"):
-            log.debug(
-                "[MODEL] Skipping download-required check for non-Whisper model '%s'",
-                model_size,
-            )
-            return
-        try:
-            from huggingface_hub import snapshot_download
-
-            repo_id = f"Systran/faster-whisper-{model_size}"
-
-            # SEC-audit-005: Use pinned revision from MODEL_HASHES manifest.
-            from voice_typer.server.security import MODEL_HASHES
-
-            whisper_revision = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
-
-            # Shared allow-pattern list (see ``_model_integrity``).
-            from voice_typer.server._model_integrity import ALLOW_PATTERNS_WHISPER
-
-            if progress_callback:
-                progress_callback(f"Checking model cache for '{model_size}'...")
-            local_dir, integrity_failed = self._probe_cache(
-                snapshot_download,
-                repo_id,
-                whisper_revision,
-                ALLOW_PATTERNS_WHISPER,
-                model_size,
-                progress_callback=progress_callback,
-            )
-            if local_dir is not None and not integrity_failed:
-                log.info("[MODEL] Model '%s' already cached (integrity verified)", model_size)
-                return
-            if integrity_failed:
-                raise ModelIntegrityError(
-                    f"The cached model '{model_size}' failed integrity verification. "
-                    "Delete it and download it again from the Models page to recover.",
-                    model_size=model_size,
-                    backend="whisper",
-                    repo_id=repo_id,
-                )
-            raise ModelNotDownloadedError(
-                f"The Whisper model '{model_size}' is not downloaded yet. "
-                "Open the Models page and click Download before using it.",
-                model_size=model_size,
-                backend="whisper",
-                repo_id=repo_id,
-            )
-        except ImportError:
-            # huggingface_hub unavailable — we cannot verify the cache, so
-            # refuse to load (never auto-download) and point at Models page.
-            raise ModelNotDownloadedError(
-                f"The Whisper model '{model_size}' is not downloaded yet. "
-                "Open the Models page and click Download before using it.",
-                model_size=model_size,
-                backend="whisper",
-            ) from None
+        _require_model_downloaded_impl(self, model_size, progress_callback)
 
     def _whisper_size_cached(self, model_size: str) -> bool:
         """Local-only probe: is ``model_size`` fully present in the HF cache?
 
-        Used by the fallback chain in ``_load_transcriber_impl`` to skip
-        entries whose model has not been downloaded (the app never
-        auto-downloads). Returns ``True`` when the probe is inconclusive
-        (``huggingface_hub`` unavailable) so the load attempt is allowed
-        to proceed — ``WhisperModel`` will surface its own error if the
-        files are genuinely missing.
+        Thin delegate to ``transcription_download.whisper_size_cached`` —
+        used by the fallback chain to skip undownloaded entries; returns
+        ``True`` when the probe is inconclusive so the load proceeds.
         """
-        try:
-            from huggingface_hub import snapshot_download
-
-            repo_id = f"Systran/faster-whisper-{model_size}"
-
-            from voice_typer.server.security import MODEL_HASHES
-
-            revision = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
-
-            from voice_typer.server._model_integrity import ALLOW_PATTERNS_WHISPER
-
-            snapshot_download(
-                repo_id=repo_id,
-                revision=revision,
-                allow_patterns=ALLOW_PATTERNS_WHISPER,
-                local_files_only=True,
-            )
-            return True
-        except ImportError:
-            # Cannot probe — allow the load attempt (WhisperModel will
-            # surface its own error if the files are missing).
-            return True
-        except Exception:
-            # Cache miss (or local probe failure) — never auto-download.
-            return False
+        return _whisper_size_cached_impl(self, model_size)
 
     def transcribe(self, audio: np.ndarray, audio_stats: tuple[float, float, float] | None = None) -> str:
         """Transcribe audio array. Returns cleaned text string.
@@ -933,221 +712,15 @@ class TranscriptionEngine:
                     self._inference_cond.notify_all()
 
     def _transcribe_unlocked(self, audio: np.ndarray, audio_stats: tuple[float, float, float] | None = None) -> str:
-        if self._model is None:
-            raise RuntimeError("Model not loaded. Call load() first.")
+        """Thin delegate to ``transcription_result.transcribe_unlocked``.
 
-        if len(audio) == 0:
-            return ""
-
-        # Log audio statistics for diagnostics
-        duration = len(audio) / _WHISPER_SAMPLE_RATE
-        # reuse pre-computed stats when provided (avoids
-        # 1-3 ms + 3× 1.9 MB transient memory per dictation).
-        if audio_stats is not None:
-            rms, peak, silence_pct = audio_stats
-        else:
-            rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
-            peak = float(np.max(np.abs(audio)))
-            silence_pct = float(np.sum(np.abs(audio) < 0.001) / audio.size * 100)
-        log.info(
-            "[TRANSCRIBE] Input audio: samples=%d, duration=%.1fs, RMS=%.6f, peak=%.6f, silence_pct=%.1f%%",
-            len(audio),
-            duration,
-            rms,
-            peak,
-            silence_pct,
-        )
-        if rms < 0.001:
-            log.warning(
-                "[TRANSCRIBE] Near-silence input (RMS=%.6f). Speech detection is unlikely.",
-                rms,
-            )
-
-        segments, info = self._model.transcribe(
-            audio,
-            beam_size=self.beam_size,
-            best_of=self.best_of,
-            temperature=0.0,
-            vad_filter=True,
-            vad_parameters=dict(
-                min_silence_duration_ms=500,
-                speech_pad_ms=200,
-            ),
-            language=self.language,
-            condition_on_previous_text=self.condition_on_previous_text,
-            without_timestamps=True,
-        )
-
-        # Collect segments and log VAD info
-        text_parts = []
-        segment_count = 0
-        first_segment_start = None
-        last_segment_end = None
-        avg_logprobs = []
-        no_speech_probs = []
-        # Reset the renderer-facing quality summary at the START of each
-        # transcription so a stale summary from a previous dictation can
-        # never be attributed to this one (e.g. when the segment loop is
-        # cut short by an abort and collects no numeric stats).
-        self.last_quality_summary = None
-        # hoist the per-segment ``log_transcriptions`` flag and
-        # ``redact_pii`` import OUT of the segment loop. Pre-fix, the
-        # ``getattr(self.config, 'log_transcriptions', False)`` ran once
-        # per segment and the ``from voice_typer.server.security import
-        # redact_pii`` ran an ``importlib`` cache lookup per segment
-        # (whenever the flag was True). For a 100+ segment long-form
-        # dictation with ``log_transcriptions=True``, the redundant
-        # attribute access + import lookups added ~1ms of pure overhead
-        # before any actual regex work. Hoisting computes the flag once
-        # and reuses the imported function for every segment.
-        _log_transcriptions_flag = self.config is not None and getattr(self.config, "log_transcriptions", False)
-        _redact_pii = None
-        if _log_transcriptions_flag:
-            try:
-                from voice_typer.server.security import redact_pii as _redact_pii
-            except Exception:
-                _redact_pii = None
-        for seg in segments:
-            # Check the abort token BETWEEN segment iterations. The
-            # ``segments`` generator yields one segment at a time, with
-            # each ``next()`` call driving a ctranslate2 decoding step
-            # (typically 0.5-3s per segment). Checking here lets the
-            # ESC / watchdog cancel path break out of the loop within
-            # one segment of being signalled — bounded latency instead
-            # of waiting for the full audio to decode. ``request_abort()``
-            # also best-effort calls ``ctranslate2.Translator.interrupt()``
-            # so the CURRENT segment's C-level call returns promptly.
-            if self._abort_event.is_set():
-                log.info(
-                    "[TRANSCRIBE] Abort requested — stopping segment loop early (completed %d segments, %d text parts)",
-                    segment_count,
-                    len(text_parts),
-                )
-                break
-            segment_count += 1
-            start = seg.start or 0.0
-            end = seg.end or start
-            if first_segment_start is None:
-                first_segment_start = start
-            last_segment_end = end
-            avg_logprob = getattr(seg, "avg_logprob", None)
-            no_speech_prob = getattr(seg, "no_speech_prob", None)
-            if isinstance(avg_logprob, int | float):
-                avg_logprobs.append(float(avg_logprob))
-            if isinstance(no_speech_prob, int | float):
-                no_speech_probs.append(float(no_speech_prob))
-            if seg.text.strip():
-                text_parts.append(seg.text.strip())
-                # SEC-009: gate the per-segment DEBUG log by
-                # ``log_transcriptions`` and apply ``redact_pii`` when
-                # enabled. Pre-fix, raw segment text was logged whenever
-                # DEBUG logging was active (e.g. in diagnostics zips,
-                # dev runs, or when a user files a bug report with
-                # verbose logs) — leaking any PII the user dictated
-                # (medical/financial/address/name content) even though
-                # the operator had not opted into transcription logging.
-                # When ``log_transcriptions`` is False (the default), we
-                # log only the segment char count + timestamps — no text
-                # content. When True, we apply ``redact_pii`` (the same
-                # canonical helper used by ``hallucination.py`` /
-                # ``llm_polish.py`` / ``crash_handler``) so the four
-                # documented PII patterns (email/phone/SSN/CC) are
-                # masked before the segment text hits the log file.
-                _seg_text = seg.text.strip()
-                if _log_transcriptions_flag and _redact_pii is not None:
-                    try:
-                        _safe_seg_text = _redact_pii(_seg_text)
-                    except Exception:
-                        # fall back to a redacted marker only — do NOT
-                        # log the raw text even truncated, because the
-                        # opt-in ``log_transcriptions`` flag is a privacy
-                        # backstop that the user explicitly enabled, and
-                        # ``_redact_pii is None`` (e.g. an import failure
-                        # of the redaction engine) means PII cannot be
-                        # guaranteed masked. Truncating to 80 chars does
-                        # NOT redact — an 80-char window can still
-                        # contain an email address, phone number, or
-                        # SSN fragment. AP-11 fix: log a redacted marker
-                        # + the segment boundaries only.
-                        log.warning(
-                            "[TRANSCRIBE] Segment: [%.1fs - %.1fs] "
-                            "<redaction-engine-failed — segment text NOT "
-                            "logged to preserve PII guarantee; enable "
-                            "voice_typer.server._secrets.redact_pii and "
-                            "retry>",
-                            start,
-                            end,
-                        )
-                        _safe_seg_text = None  # skip the log.debug below
-                    if _safe_seg_text is not None:
-                        log.debug(
-                            "[TRANSCRIBE] Segment: [%.1fs - %.1fs] %s",
-                            start,
-                            end,
-                            _safe_seg_text,
-                        )
-                # When ``log_transcriptions`` is False (the default) or
-                # ``config`` is None, emit NO segment DEBUG log at all —
-                # not even a char-count-only summary. The segment
-                # metadata (char count, timestamps) still indirectly
-                # reveals dictation content patterns (e.g. segment
-                # timing → speech cadence, char count → utterance
-                # length). Privacy contract: zero segment data in logs
-                # unless the operator has explicitly opted in.
-
-        log.info(
-            "[TRANSCRIBE] VAD result: language=%s (prob=%.2f), "
-            "segments=%d, text_segments=%d, avg_logprob=%s, no_speech_prob=%s",
-            info.language,
-            info.language_probability,
-            segment_count,
-            len(text_parts),
-            _format_optional_mean(avg_logprobs),
-            _format_optional_mean(no_speech_probs),
-        )
-
-        # Compact quality summary for the dictation pipeline → renderer
-        # (``transcription_final`` payload). Built from the stats already
-        # collected above — a handful of float ops per dictation, never
-        # on the paste path. ``None`` when the loop collected no numeric
-        # segment stats so downstream consumers omit the field.
-        self.last_quality_summary = build_quality_summary(avg_logprobs, no_speech_probs)
-
-        result = " ".join(text_parts).strip()
-        if self._should_reject_low_audio_hallucination(
-            result=result,
-            rms=rms,
-            peak=peak,
-            silence_pct=silence_pct,
-            duration=duration,
-            first_segment_start=first_segment_start,
-            last_segment_end=last_segment_end,
-        ):
-            # SEC-009: Use the PII-safe logging helper instead of raw text
-            log_transcriptions = self.config is not None and getattr(self.config, "log_transcriptions", False)
-            log_hallucination_rejection(
-                "[TRANSCRIBE]",
-                result,
-                reason="low-audio hallucination",
-                log_transcriptions=log_transcriptions,
-            )
-            log.info(
-                "[TRANSCRIBE] Hallucination stats: duration=%.1fs, RMS=%.6f, peak=%.6f, silence=%.1f%%",
-                duration,
-                rms,
-                peak,
-                silence_pct,
-            )
-            return ""
-        if result:
-            log.info("[TRANSCRIBE] Result: %d chars", len(result))
-        else:
-            log.info(
-                "[TRANSCRIBE] No speech detected (RMS=%.6f, silence=%.1f%%)",
-                rms,
-                silence_pct,
-            )
-        return result
+        The segment-decode loop body lives canonically in
+        ``transcription_result`` (also unit-tested directly there with
+        stub engines). This method keeps the historical monkeypatch seam:
+        instance/class-level patches of ``_transcribe_unlocked``
+        intercept before delegation.
+        """
+        return _transcribe_unlocked_impl(self, audio, audio_stats=audio_stats)
 
     def _run_deferred_gc(self) -> None:
         """Run the deferred gc.collect() + release_gpu_memory() cleanup.
@@ -1199,59 +772,11 @@ class TranscriptionEngine:
     def _with_gpu_fallback(self, inner, audio, *args, **kwargs):
         """Run ``inner(audio, *args, **kwargs)`` with GPU→CPU fallback.
 
-        Extracts the duplicate teardown sequence shared by
-        ``_transcribe_with_fallback_unlocked`` (batch path) and
-        ``_transcribe_words_with_fallback_unlocked`` (streaming path).
-
-        On a GPU runtime error (per ``_is_gpu_runtime_error``):
-          1. Drop the GPU model reference (``del self._model`` + set None).
-          2. Switch device/compute to CPU/int8.
-          3. Reload the model on CPU via ``_reload_under_lock()``.
-          4. Set ``_pending_gc_collect = True`` so the caller runs
-             ``gc.collect()`` + ``release_gpu_memory()`` AFTER releasing
-             the lock (RACE-023).
-          5. Retry ``inner(audio, *args, **kwargs)`` once on CPU.
-
-        The previous words-path teardown called ``release_gpu_memory()``
-        BEFORE ``del self._model`` — a no-op for VRAM release since the
-        ctranslate2 model still held the CUDA context. The unified helper
-        removes that misplaced call; VRAM release now happens in the
-        deferred-gc phase AFTER the model is actually dropped.
-
-        Non-GPU errors are re-raised unchanged. On a CPU device the
-        GPU-error classifier short-circuits at the top of
-        ``_is_gpu_runtime_error`` (returns False), so the fallback never
-        fires — the original exception propagates.
+        Thin delegate to ``transcription_fallback.with_gpu_fallback`` —
+        the shared teardown/reload/retry orchestration for the batch and
+        streaming transcribe paths. Non-GPU errors re-raise unchanged.
         """
-        try:
-            return inner(audio, *args, **kwargs)
-        except Exception as first_err:
-            if not self._is_gpu_runtime_error(first_err):
-                raise
-
-            log.warning(
-                "GPU transcription failed (%s), falling back to CPU",
-                first_err,
-            )
-            # Tear down GPU model, reload on CPU.
-            # RACE-023: gc.collect() and release_gpu_memory() are
-            # deferred outside the lock via ``_pending_gc_collect``
-            # (the caller's ``_with_lock_and_deferred_gc`` or
-            # ``_run_deferred_gc`` call fires them after the lock is
-            # released). Calling ``release_gpu_memory()`` here would be
-            # a no-op — the ctranslate2 model still holds the CUDA
-            # context until ``del self._model`` runs below.
-            with contextlib.suppress(Exception):
-                del self._model
-            self._model = None
-            self._device = "cpu"
-            self._compute_type = "int8"
-            # CPU decode is the slow path — drop back to the snappy
-            # greedy beam when the width was on auto.
-            self._apply_auto_beam_size()
-            self._reload_under_lock()
-            self._pending_gc_collect = True
-            return inner(audio, *args, **kwargs)
+        return _with_gpu_fallback_impl(self, inner, audio, *args, **kwargs)
 
     def transcribe_with_fallback(
         self,
@@ -1260,39 +785,16 @@ class TranscriptionEngine:
     ) -> str:
         """Transcribe with automatic CPU fallback on GPU runtime errors.
 
-        If the first attempt fails with a CUDA/cuBLAS/runtime error and
-        the model was loaded on GPU, reload on CPU and retry once.
+        Thin delegate to ``transcription_fallback.transcribe_with_fallback``
+        — uses the inference-counter lock pattern so ``unload()`` is never
+        blocked by the segment-decoding loop; deferred gc fires outside
+        the lock afterwards.
 
         ``audio_stats`` is an optional pre-computed
         ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
         When provided, the engine skips its own stats computation.
-
-        The lock is released during the segment-decoding loop (mirrors
-        ``transcribe()``). ``unload()`` waits on ``_inference_cond``
-        for ``_active_inference == 0`` before nulling the model, so a
-        stuck backend can be torn down without waiting for the full
-        segment loop to complete.
         """
-        with self._lock:
-            if self._model is None:
-                raise RuntimeError("Model not loaded. Call load() first.")
-            if len(audio) == 0:
-                return ""
-            self._active_inference += 1
-        try:
-            result = self._transcribe_with_fallback_unlocked(audio, audio_stats=audio_stats)
-        finally:
-            with self._inference_cond:
-                self._active_inference -= 1
-                if self._active_inference == 0:
-                    self._inference_cond.notify_all()
-        # RACE-023: perform deferred gc.collect() OUTSIDE the lock.
-        # ``transcribe_with_fallback`` uses the inference-counter pattern
-        # (lock released during transcription) so it can't use
-        # ``_with_lock_and_deferred_gc`` directly — call the shared
-        # helper instead.
-        self._run_deferred_gc()
-        return result
+        return _transcribe_with_fallback_impl(self, audio, audio_stats=audio_stats)
 
     def _transcribe_with_fallback_unlocked(
         self,
@@ -1336,135 +838,23 @@ class TranscriptionEngine:
         return self._with_gpu_fallback(self._transcribe_words_unlocked, audio, offset_seconds)
 
     def _transcribe_words_unlocked(self, audio: np.ndarray, offset_seconds: float):
-        if self._model is None:
-            raise RuntimeError("Model not loaded. Call load() first.")
+        """Thin delegate to ``transcription_result.transcribe_words_unlocked``.
 
-        if len(audio) == 0:
-            return []
-
-        from voice_typer.server.streaming import WordTiming
-
-        segments, _info = self._model.transcribe(
-            audio,
-            beam_size=self.beam_size,
-            best_of=self.best_of,
-            temperature=0.0,
-            vad_filter=True,
-            vad_parameters=dict(
-                min_silence_duration_ms=500,
-                speech_pad_ms=200,
-            ),
-            language=self.language,
-            condition_on_previous_text=self.condition_on_previous_text,
-            word_timestamps=True,
-            without_timestamps=False,
-        )
-
-        words = []
-        segment_count = 0
-        for seg in segments:
-            # Check the abort token BETWEEN segment iterations,
-            # mirroring the batch path (``_transcribe_unlocked`` above).
-            # ``segments`` is a generator that yields one segment at a
-            # time, with each ``next()`` call driving a ctranslate2
-            # decoding step. Without this check, an ESC / watchdog
-            # cancel during streaming word-timestamp transcription would
-            # only take effect after the full audio finished decoding —
-            # unbounded latency instead of within-one-segment latency.
-            if self._abort_event.is_set():
-                log.info(
-                    "[TRANSCRIBE] Abort requested — stopping streaming "
-                    "words segment loop early (completed %d segments, "
-                    "%d words)",
-                    segment_count,
-                    len(words),
-                )
-                break
-            segment_count += 1
-            for word in getattr(seg, "words", None) or []:
-                text = (word.word or "").strip()
-                if not text:
-                    continue
-                start = (word.start or 0.0) + offset_seconds
-                end = (word.end or word.start or 0.0) + offset_seconds
-                words.append(
-                    WordTiming(
-                        word=text,
-                        start_seconds=start,
-                        end_seconds=end,
-                    )
-                )
-        return words
+        The streaming word-timestamp loop lives canonically there
+        (unit-tested directly with stub engines). This method keeps
+        the historical monkeypatch seam: instance/class-level patches
+        of ``_transcribe_words_unlocked`` intercept before delegation.
+        """
+        return _transcribe_words_unlocked_impl(self, audio, offset_seconds)
 
     def _is_gpu_runtime_error(self, exc: Exception) -> bool:
-        """detect GPU/CUDA runtime errors via class hierarchy +
-        attribute checks first, falling back to substring matching
-        only for wrapped/re-raised errors. Previously the substring
-        list was the primary check, misclassifying new error classes
-        (e.g. ROCm) and triggering wrong fallbacks.
+        """detect GPU/CUDA runtime errors.
 
-        Phase 1c (PLAN_ONNX_INTEGRATION.md §6.5): the
-        ``isinstance(exc, torch.cuda.OutOfMemoryError)`` check was
-        replaced with :func:`is_oom_error` (shared ASR utility) so
-        ``transcription.py`` no longer imports ``torch``. The OOM
-        classifier is kept separate from the CUDA classifier
-        (:func:`voice_typer.server.asr_utils.is_cuda_error`) because
-        ``"out of memory"`` alone is too broad — it matches CPU RAM
-        exhaustion which should NOT trigger the GPU→CPU fallback.
+        Thin delegate to ``transcription_fallback.is_gpu_runtime_error``
+        — class hierarchy + attribute checks first, substring matching
+        only as a last resort for wrapped/re-raised errors.
         """
-        if self._device == "cpu":
-            return False
-        # 1. OOM check (replaces torch.cuda.OutOfMemoryError isinstance).
-        #    ``is_oom_error`` is the shared classifier in
-        #    ``voice_typer.server.asr_utils`` — kept separate from the
-        #    CUDA classifier so CPU RAM exhaustion does not false-positive.
-        if is_oom_error(exc):
-            return True
-        # ctranslate2 errors (faster-whisper wraps these)
-        try:
-            import ctranslate2
-
-            # Some ctranslate2 builds don't expose CUDAError as a class.
-            # Guard with isinstance check on the attribute type.
-            for attr_name in ("CUDAError", "RuntimeError"):
-                cls = getattr(ctranslate2, attr_name, None)
-                if isinstance(cls, type) and isinstance(exc, cls):
-                    return True
-        except (ImportError, AttributeError, ValueError):
-            # ImportError: ctranslate2 not installed.
-            # AttributeError: ctranslate2 installed but missing CUDAError/RuntimeError attrs.
-            # ValueError: ctranslate2's import chain (transformers → PIL vision check)
-            #   can raise ValueError("PIL.__spec__ is not set") in environments where
-            #   PIL was imported via a non-standard path. This is environment noise,
-            #   not a real GPU error — fall through to the substring/MRO check below.
-            pass
-        # 2. MRO-based class-name check (catches wrapped exceptions
-        #    whose original class still appears in the MRO).
-        for cls in type(exc).__mro__:
-            cls_name = cls.__name__.lower()
-            if any(kw in cls_name for kw in ["cudnn", "cublas", "cuda", "ctranslate2"]):
-                return True
-            cls_module = getattr(cls, "__module__", "") or ""
-            if any(kw in cls_module.lower() for kw in ["ctranslate2", "cudnn", "cublas"]):
-                return True
-        # 3. Attribute check: some libraries attach a `.cuda_error`
-        #    or `.device` attribute to runtime errors.
-        if getattr(exc, "cuda_error", None) or getattr(exc, "is_cuda_error", False):
-            return True
-        # 4. Fallback to string matching for re-raised / wrapped errors
-        #    where the original class info is lost. This is a last
-        #    resort, not the primary signal.
-        error_str = str(exc).lower()
-        return any(
-            kw in error_str
-            for kw in [
-                "cublas",
-                "cuda",
-                "cudnn",
-                "gpu",
-                "not found or cannot be loaded",
-            ]
-        )
+        return _is_gpu_runtime_error_impl(self, exc)
 
     def _should_reject_low_audio_hallucination(
         self,
@@ -1528,44 +918,9 @@ class TranscriptionEngine:
             log.debug("[MODEL] Error releasing DLL handles", exc_info=True)
 
 
-def _format_optional_mean(values: list[float]) -> str:
-    """Format a list of floats as a 2-decimal mean, or 'n/a' if empty.
-
-    small helper kept as-is because it has two call sites
-    (line 523/524) and inlining would duplicate the empty-list check.
-    Marked LOW priority in the audit — keeping for readability.
-    """
-    if not values:
-        return "n/a"
-    return f"{sum(values) / len(values):.2f}"
-
-
-def build_quality_summary(avg_logprobs: list[float], no_speech_probs: list[float]) -> dict[str, float] | None:
-    """Build the compact per-dictation quality summary for the renderer.
-
-    Computed from the ``avg_logprob`` / ``no_speech_prob`` values the
-    segment loop ALREADY collected — no recomputation, one small dict of
-    floats allocated once per dictation (never on the paste hot path).
-
-    Returns ``None`` when no numeric stats were collected (empty audio,
-    aborted run, or an engine that reports no segment probs) so callers
-    can omit the summary entirely instead of shipping an empty object.
-
-    Keys:
-      - ``mean_logprob``: mean per-segment ``avg_logprob`` (closer to 0 =
-        more confident decoding).
-      - ``min_logprob``: worst single-segment ``avg_logprob``.
-      - ``no_speech_prob_max``: highest per-segment ``no_speech_prob``
-        (high values indicate segments the model considered silent).
-      - ``segments``: how many segments contributed numeric stats.
-    """
-    if not avg_logprobs and not no_speech_probs:
-        return None
-    summary: dict[str, float] = {}
-    if avg_logprobs:
-        summary["mean_logprob"] = sum(avg_logprobs) / len(avg_logprobs)
-        summary["min_logprob"] = min(avg_logprobs)
-        summary["segments"] = float(len(avg_logprobs))
-    if no_speech_probs:
-        summary["no_speech_prob_max"] = max(no_speech_probs)
-    return summary
+# Back-compat re-export: the canonical body lives in
+# ``transcription_result`` (single source); tests and any external
+# callers historically imported it from THIS facade module.
+from voice_typer.server.transcription_result import (  # noqa: E402, F401
+    build_quality_summary,
+)

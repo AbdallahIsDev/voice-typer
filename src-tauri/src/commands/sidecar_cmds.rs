@@ -5,7 +5,8 @@
 //! - `self` — orchestrator: submodule declarations + the crate-visible
 //!   re-exports (`dispatch`, `dispatch_inner`, `DispatchArgs`,
 //!   `dispatch_fire_and_forget`, `shutdown_sidecar`,
-//!   `on_main_window_close`, `DISALLOWED_WINDOW_CODE`).
+//!   `on_main_window_close`, `DISALLOWED_COMMAND_CODE`,
+//!   `DISALLOWED_WINDOW_CODE`, `PENDING_FULL_CODE`).
 //! - [`allowlist`] — the `ALLOWED_COMMANDS` defense-in-depth allowlist
 //!   (`allowed_commands` / `is_command_allowed`), the shared error-code
 //!   and the pending-map constants (`DISALLOWED_COMMAND_CODE`,
@@ -31,17 +32,24 @@ mod window_close;
 
 // Crate-visible re-exports (external callers import these through the
 // `sidecar_cmds` namespace — `main.rs`, `commands/mod.rs`,
-// `sidecar/ws/heartbeat.rs`, `commands/bubble/commands.rs`).
-pub(crate) use allowlist::DISALLOWED_WINDOW_CODE;
+// `sidecar/ws/heartbeat.rs`, `commands/bubble/commands.rs`, `error.rs`).
+// The three error-code constants are re-exported unconditionally so
+// `error.rs` (the single home of the envelope strings) can single-source
+// the codes without inline literals.
+pub(crate) use allowlist::{
+    DISALLOWED_COMMAND_CODE, DISALLOWED_WINDOW_CODE, PENDING_FULL_CODE,
+};
 pub(crate) use dispatch::{dispatch, dispatch_fire_and_forget, dispatch_inner, DispatchArgs};
 pub(crate) use shutdown::shutdown_sidecar;
 pub(crate) use window_close::on_main_window_close;
 
 // Test-only re-exports: the sibling `sidecar_cmds_tests.rs` file (and
 // the Rust unit tests) access these via `use super::{...}`. Production
-// callers reach them through the submodules directly.
+// callers reach them through the submodules directly. `PENDING_FULL_CODE`
+// is NOT here — it moved to the unconditional re-export block above
+// (`error.rs` imports it in production code).
 #[cfg(test)]
-pub(crate) use allowlist::{allowed_commands, is_command_allowed, PENDING_FULL_CODE, PENDING_MAX};
+pub(crate) use allowlist::{allowed_commands, is_command_allowed, PENDING_MAX};
 
 // Unit tests for ALLOWED_COMMANDS + pending-map constants live in the
 // sibling `sidecar_cmds_tests.rs` file (C-TEST-5 — keeps production

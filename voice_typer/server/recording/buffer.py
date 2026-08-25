@@ -55,6 +55,50 @@ def _secure_clear_array(arr: np.ndarray) -> None:
         arr.fill(0)  # best-effort; some array types may not support fill
 
 
+def _secure_clear_handed_off_buffer(buffer: Any) -> None:
+    """zero one handed-off buffer object in place.
+
+    Dispatches on the container kind:
+
+    - Contiguous growable storage (any object exposing its backing
+      array through a ``storage`` attribute — the growable recording
+      buffer): wipe the ENTIRE backing array with one ``fill(0)``, not
+      just the occupied chunk regions. The buffer has been handed off
+      (the caller already swapped in a fresh container and nobody reads
+      the old one afterwards), so a full-storage wipe is safe — and it
+      is the stronger secure-clear posture: the storage is lazily
+      allocated with ``np.empty``, so its unoccupied tail is recycled
+      heap memory that may still hold a previous session's audio.
+      Zeroing only the occupied prefix would let discarded voice data
+      survive the clear in that tail.
+    - ``collections.deque`` of chunks: pop-drain (``popleft`` →
+      ``fill(0)`` → reference dropped) so each chunk becomes garbage
+      the moment it is zeroed.
+    - Any other iterable: defensive in-place iteration over a snapshot
+      (``list(buffer)``).
+    """
+    storage = getattr(buffer, "storage", None)
+    if isinstance(storage, np.ndarray):
+        # Full-storage wipe on discard (crypto-shredding practice: wipe
+        # the whole buffer, not just the logical occupied prefix).
+        storage.fill(0)
+        return
+    if isinstance(buffer, collections.deque):
+        # Pop-drain: free each chunk as soon as it is zeroed.
+        while True:
+            try:
+                chunk = buffer.popleft()
+            except IndexError:
+                break
+            if isinstance(chunk, np.ndarray):
+                chunk.fill(0)
+        return
+    # Non-deque iterables (defensive): in-place iteration semantics.
+    for chunk in list(buffer):
+        if isinstance(chunk, np.ndarray):
+            chunk.fill(0)
+
+
 # A single long-lived "buffer-clear" worker thread replaces the
 # previous per-call ``threading.Thread(name="buffer-clear-bg", daemon=True)``
 # spawn. Under rapid hotkey toggling (e.g. user mashing the record key),
@@ -249,13 +293,14 @@ def _ensure_buffer_clear_worker() -> threading.Thread:
 
 
 def _buffer_clear_worker_loop() -> None:
-    """drain ``_buffer_clear_queue`` and zero each deque's chunks.
+    """drain ``_buffer_clear_queue`` and zero each handed-off buffer.
 
     Loops until a ``None`` sentinel is popped from the queue (sent by
     ``_stop_buffer_clear_worker``). Each non-None item popped is a
-    ``collections.deque`` of audio chunks.
+    handed-off buffer object — a ``collections.deque`` of audio chunks
+    or the contiguous growable recording buffer.
 
-    ER-91: chunks are popped OFF the deque one at a time
+    Deque chunks are popped OFF the deque one at a time
     (``popleft`` → ``fill(0)`` → reference dropped), instead of
     iterating the deque in place. Iterating kept the deque (and every
     chunk in it) alive for the whole zeroing pass — ~30–100 ms at
@@ -264,9 +309,10 @@ def _buffer_clear_worker_loop() -> None:
     peak. With the pop-drain, each chunk becomes garbage the moment
     its ``fill(0)`` returns, so the retained footprint decays
     chunk-by-chunk instead of holding 2×N until the pass ends.
-    Callers hand off the OLD deque after installing a fresh one and
-    (on ``stop()``) after concatenating the captured audio, so nobody
-    reads the popped chunks concurrently.
+    Contiguous growable buffers instead get a FULL-storage wipe (see
+    ``_secure_clear_handed_off_buffer``). Callers hand off the OLD
+    buffer after installing a fresh one and (on ``stop()``) after
+    exporting the captured audio, so nobody reads it concurrently.
 
     Best effort — any exception is swallowed (the deque will be GC'd
     anyway, and we don't want one bad buffer to poison the worker for
@@ -287,22 +333,7 @@ def _buffer_clear_worker_loop() -> None:
                 # exit the loop cleanly so the worker thread can be
                 # joined by tests / shutdown_all().
                 return
-            if isinstance(buffer, collections.deque):
-                # ER-91 pop-drain: free each chunk as soon as it is
-                # zeroed (see docstring).
-                while True:
-                    try:
-                        chunk = buffer.popleft()
-                    except IndexError:
-                        break
-                    if isinstance(chunk, np.ndarray):
-                        chunk.fill(0)
-            else:
-                # Non-deque iterables (defensive): previous in-place
-                # iteration semantics.
-                for chunk in list(buffer):
-                    if isinstance(chunk, np.ndarray):
-                        chunk.fill(0)
+            _secure_clear_handed_off_buffer(buffer)
         except Exception:
             pass  # best-effort; the buffer will be GC'd anyway
         finally:
@@ -319,16 +350,17 @@ def _secure_clear_array_background(buffer: Any) -> None:
         the queue and zeros each chunk.
 
         The old buffer reference is passed in; the caller has already
-        replaced it with a fresh empty container, so the worker can zero the
-        chunks at its leisure without blocking the hot path. Accepted
-        container kinds: a ``collections.deque`` of chunk arrays, any other
-        iterable yielding chunk arrays (e.g. the contiguous recording
-        buffer, which yields per-chunk views), or a bare ndarray.
+        replaced it with a fresh empty container, so the worker can zero
+        it at its leisure without blocking the hot path. Accepted
+        container kinds: the contiguous growable recording buffer (its
+        ENTIRE backing storage is wiped — see
+        ``_secure_clear_handed_off_buffer``), a ``collections.deque`` of
+        chunk arrays, or any other iterable yielding chunk arrays.
 
-        If the queue is full (worker starved for an extended period — should
-        not happen in practice), we fall back to a synchronous clear on the
-        caller's thread with a single warning, preserving the secure-clear
-        guarantee rather than dropping it silently.
+        If the queue is full (worker starved for an extended period —
+        should not happen in practice), we fall back to a synchronous
+        clear on the caller's thread with a single warning, preserving
+        the secure-clear guarantee rather than dropping it silently.
     """
     _ensure_buffer_clear_worker()
     try:
@@ -340,9 +372,8 @@ def _secure_clear_array_background(buffer: Any) -> None:
             "buffer-clear worker may be starved.",
             _BUFFER_CLEAR_QUEUE_MAXSIZE,
         )
-        try:
-            for chunk in buffer:
-                if isinstance(chunk, np.ndarray):
-                    chunk.fill(0)
-        except Exception:
-            pass  # best-effort; the buffer will be GC'd anyway
+        # Same clearing semantics as the worker (full-storage wipe for
+        # contiguous buffers, pop-drain for deques) so the queue-full
+        # fallback is never a weaker secure-clear than the async path.
+        with contextlib.suppress(Exception):
+            _secure_clear_handed_off_buffer(buffer)

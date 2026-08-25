@@ -356,7 +356,7 @@
 			"highPassCutoffInfoSearch": "Les fréquences en dessous sont atténuées.",
 			"highPassCutoffAria": "Coupure passe-haut",
 			"noiseSuppression": "Suppression du bruit",
-			"noiseSuppressionInfo": "Réducteur de bruit neuronal. RNNoise (par défaut, léger). DeepFilterNet (premium, meilleure qualité, nécessite torch). Speex (CPU le plus léger).",
+			"noiseSuppressionInfo": "Réducteur de bruit neuronal. RNNoise (par défaut, léger). GTCRN (réducteur de bruit neuronal avancé, meilleure qualité, fonctionne sur l'appareil). Aucun (désactive la réduction du bruit).",
 			"noiseSuppressionInfoSearch": "Réducteur de bruit neuronal.",
 			"noiseSuppressionAria": "Méthode de suppression du bruit",
 			"noneOption": "Aucun",

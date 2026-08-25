@@ -248,8 +248,8 @@ def test_gp94_tauri_command_count_in_doc_matches_code():
     assert "ONE generic `dispatch`" not in body, "stale 'ONE generic `dispatch`' phrase must be removed."
 
 
-def test_gp94_main_rs_line_count_is_349():
-    """Doc claims 349 lines; main.rs must actually be 349 lines.
+def test_gp94_main_rs_line_count_is_385():
+    """Doc claims 385 lines; main.rs must actually be 385 lines.
 
     Updated 2026-08-13: main.rs grew from 264 → 288 lines as part of
     the runtime-pack split (additional setup wiring for the worker
@@ -275,12 +275,18 @@ def test_gp94_main_rs_line_count_is_349():
     the bubble label + generation-debounced persist schedule). Bodies
     live in ``commands/bubble/persisted_position.rs``. Doc + test pin
     updated in lockstep.
+
+    Updated 2026-08-25: main.rs grew from 378 → 385 lines — the unified
+    command-error enum wiring (``mod error;`` + ``#[cfg(test)] mod
+    error_tests;`` declarations only; all bodies live in ``error.rs`` /
+    ``error_tests.rs``). Still wiring-only. Doc + test pin updated in
+    lockstep.
     """
     doc = _read(ARCH_DOC)
-    assert "378 lines" in doc, "Doc must claim '378 lines' for main.rs."
+    assert "385 lines" in doc, "Doc must claim '385 lines' for main.rs."
     actual = sum(1 for _ in _read(MAIN_RS).splitlines())
-    assert actual == 378, (
-        f"src-tauri/src/main.rs must be 378 lines (actual: {actual}). Update the doc + this test together."
+    assert actual == 385, (
+        f"src-tauri/src/main.rs must be 385 lines (actual: {actual}). Update the doc + this test together."
     )
     # Stale counts must NOT be in the doc.
     assert "264 lines" not in doc, "Stale '264 lines' must be removed from doc."
@@ -288,6 +294,7 @@ def test_gp94_main_rs_line_count_is_349():
     assert "288 lines" not in doc, "Stale '288 lines' must be removed from doc."
     assert "326 lines" not in doc, "Stale '326 lines' must be removed from doc."
     assert "333 lines" not in doc, "Stale '333 lines' must be removed from doc."
+    assert "378 lines" not in doc, "Stale '378 lines' must be removed from doc."
     assert "349 lines" not in doc, "Stale '349 lines' must be removed from doc."
     assert "337 lines" not in doc, "Stale '337 lines' must be removed from doc."
 

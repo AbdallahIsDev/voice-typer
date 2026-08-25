@@ -266,7 +266,7 @@ def _apply_audio_preset(preset: str) -> dict:
     of truth). Presets:
         "auto"        — all filters ON, RNNoise (best for 90% of users)
         "studio"      — minimal processing (quiet room, good mic)
-        "noisy_room"  — aggressive, DeepFilterNet
+        "noisy_room"  — aggressive, GTCRN
         "off"         — all filters OFF
         "custom"      — no automatic changes (user controls each toggle)
 

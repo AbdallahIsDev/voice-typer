@@ -34,11 +34,11 @@ def _make_recorder():
     """Build a Recorder with a MagicMock stream (no real audio hardware)."""
     # conftest's autouse mock_heavy_imports fixture has already installed
     # a MagicMock for sounddevice in sys.modules, so the Recorder can be
-    # imported and constructed headless.
-    from voice_typer.server.recording import Recorder
+    # imported and constructed headless. Construction is delegated to the
+    # shared canonical factory (helper dedup).
+    from tests.fixtures.ipc_test_helpers import make_fake_recorder
 
-    config = MagicMock(sample_rate=16000, microphone=None)
-    r = Recorder(config)
+    r = make_fake_recorder()
     r._recording_event.set()
     r._effective_sr = 16000
     r._stream = MagicMock()

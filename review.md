@@ -36,7 +36,7 @@ plus the base repo's pre-existing comprehensive review.
 
 > **2026-08-23 cleanup (verified against code before editing):**
 > - **REMOVED as completed + verified:** EC-25's `test_perf_review_fixes.py` split is done but entry KEPT as partial; removed entries: ~~S3-CR-21~~ (duplicate of ARCH-12; its unique blocker test_app.py read_text pin is gone), ~~XA-2~~ (StatCard consolidation landed — DashboardStatCard deleted in favor of shared StatCard.tsx; pb-2 alignment fix; About wrapper standardized; labeled Spinner + EmptyState-retry patterns adopted), ~~XA-8~~ (all cited sub-items verified fixed: ErrorBoundary strings via t("errorBoundary.*"), KeyringStatusBadge compact-only aria, sonner containerAriaLabel/closeButtonAriaLabel localized, InfoTooltip `<title>` removed, Spinner decorative prop), ~~AC-66~~ (BusynessCoordinator `_busyness.py` + MicrophoneRegistry `_microphone_registry.py` own the state; back-compat properties on VoiceTyperApp delegate to them), ~~AC-73~~ (decomposition landed — merged into EO-13 with residual), ~~AC-128~~ (credential_store/ package landed — see GQ-70), ~~AC-131~~ (config/__init__.py now 271 LOC over 10 satellite modules — see EO-12).
-> - **UPDATED partials:** ARCH-9 (213 sites / 39 files remain), ARCH-12 (463 calls / 150 files; ban rule landed in CONTRIBUTING.md), TEST-2 (420 sleeps / 156 files), S1-CR-67 (only recording/_RecordingModule left; prewarm + server_platform hacks removed), EC-25 (3 Python catch-alls + relocated-but-unsplit TS catch-alls remain), XV-105 (role pooling LIVE — 3 roles → 1 subprocess; per-spec dedup deferred), XA-5 (8 of 24 sub-items verified fixed, listed inline), XZ-R11-04 (corrected: NO crypto implemented at all — schema column + ADR only).
+> - **UPDATED partials:** ARCH-9 (213 sites / 39 files remain), ARCH-12 (463 calls / 150 files; ban rule landed in CONTRIBUTING.md), TEST-2 (420 sleeps / 156 files), S1-CR-67 (only recording/_RecordingModule left; prewarm + server_platform hacks removed), EC-25 (3 Python catch-alls + relocated-but-unsplit TS catch-alls remain), XV-105 (role pooling LIVE — 3 roles → 1 subprocess; per-spec dedup deferred), XA-5 (8 of 24 sub-items verified fixed, listed inline), XZ-R11-04 (landed 2026-08-25, Session RV: AES-256-GCM at-rest encryption live — _text_crypto.py + DEK via credential_store; completed).
 
 > **Platform warning:** The cloud agent's SUMMARY claimed "all tests pass on Linux." Results in this file tagged **Windows (win32)** are reproduced on this runner and contradict the Linux-only claims. Do NOT trust a Linux-only pass as proof of cross-platform cutover.
 >
@@ -69,303 +69,6 @@ plus the base repo's pre-existing comprehensive review.
 - **Effort**: 🔴 **HIGH** — 495 sleep calls across 239 files. Each one needs individual analysis to determine the correct replacement (event.wait, polling predicate, etc.). ~4+ days.
 - **Confidence for one-shot fix**: 30% — cannot do all in one shot; chip away file-by-file.
 
-### S1-CR-67 — Custom `_RecordingModule` / `_PrewarmModule` / `_ServerPlatformModule` sys.modules hacks
-**Status:** ✅ Fixed (2026-08-25): _RecordingModule class + _MUTABLE_* frozensets DELETED from recording/__init__.py (~140 LOC removed; file 474→298); ~27 test patch sites migrated to submodule-direct targets (voice_typer.server.recording.resampling.* / .buffer.*); production readers (recorder.py preloader registration, _recorder_split.py warm-up branch) read resampling at call time; subprocess-script assertion updated; freshness suite rewritten to pin the clean state; server_platform docstring cross-ref corrected; ADR status → Accepted/COMPLETE.
-- Location: `voice_typer/server/recording/__init__.py:260-349`, `voice_typer/server/prewarm/__init__.py` (289 LOC), `voice_typer/server/server_platform/__init__.py:84-277`
-- Evidence: Three packages install custom module subclasses that override `__getattr__` and `__setattr__` so test patches like `monkeypatch.setattr("voice_typer.server.recording._resample_poly_error", ...)` propagate to submodules. ~500 LOC of `__init__.py` boilerplate exists for test-patch compatibility.
-- Fix: Migrate tests to patch submodules directly; remove custom module classes and `_pkg.X` indirection. · **Found by**: R1
-
----
-
-- R1-LOW: Keyring_status probe block duplication (`service.py:252-269` and `:282-294`)
-- R1-LOW: ARCHITECTURE.md drift
-- R2-LOW: Various dead code, dead re-exports, prop drilling
-- R3-LOW: server_started uses 'event' key vs 'type' (S1-CR-78 captures this)
-- R3-LOW: WS reader treats any id field as dispatch response
-- R3-LOW: Shutdown response frame emitted as spurious Tauri event
-- R3-LOW: Respawn flag not panic-safe
-- R3-LOW: `_push_to_ws` queue manipulation not atomic
-- R5-LOW: Several daemon threads not registered with ThreadRegistry
-- R5-LOW: `sound-manager.ts` gesture listeners only removed on successful resume
-- R5-LOW: `sound-manager.ts` shared `AudioContext` never explicitly closed
-- R5-LOW: `tray_window.py` Electron `subprocess.Popen` object dropped immediately
-- R5-LOW: `streaming.py` `_word_key_index` grows with distinct words per session
-- R6-LOW: 15 security hardening gaps (all defense-in-depth)
-- R7-LOW: CloudEngine consent-gating dead code
-- R7-LOW: `redact_pii()` only catches structured patterns
-- R7-LOW: Stale `mic-test-*.wav` docs
-- R9-LOW: `event_bus._get_deferred_executor` lazy init can leak ThreadPoolExecutors
-- R9-LOW: `prewarm.process_tracker.is_prewarm_running` TOCTOU on PID file + liveness
-- R9-LOW: `Recorder._handle_device_disconnect` spawns unregistered daemon threads
-- R10-LOW: `audio_preset` IPC validator accepts legacy names
-- R10-LOW: No backup of user data files (vocabulary, templates, corrections) before destructive overwrites
-- R10-LOW: `docs/home-directory.md` states crash recovery file is in `crash_recovery/` subdir (covered by S1-CR-124)
-- R10-LOW: UI locale stored only in localStorage, NOT in config.json
-- R13-LOW: Phantom `audiolab==0.5.1` entry in lockfile
-- R13-LOW: Rust crates significantly outdated
-- R13-LOW: `speexdsp` imported but not declared as optional extra
-- R13-LOW: `pywin32` only in `[windows]` extras
-- R15-LOW: Windows single-instance lock release OK; macOS/Linux single-instance is best-effort only
-- R17-LOW: Various hotkey/tray edge cases
-- R18-LOW: Binary Singular/Plural split; no CLDR-based plural rules
-- R18-LOW: Homegrown i18n system; no i18next/react-i18next
-- R18-LOW: RTL support exists for Arabic only; tested
-- R20-LOW: `Any` overuse in Python hotspots
-- R20-LOW: `voice_typer/server/log_rate_limit.py` uses `*args: Any, **kwargs: Any`
-- R20-LOW (positive): `pyproject.toml` carries the only real code TODO; it's tracked
-- R20-LOW (positive): Runbook TODOs are explicit and tracked
-
-### [EC-25] — Test organization: 12+ catch-all test files mixing unrelated domains
-**Resolution:** Partial — the biggest Python catch-all (`test_perf_review_fixes.py`, 941 lines) was SPLIT in commit 357a2259 into `tests/test_perf_audio_window_eq.py` + `tests/test_perf_clipboard_cred_security_fixes.py`. The TS catch-alls were RELOCATED but not per-component split: `ux-components-behavior.test.tsx` + `electron-ipc-build-behavior.test.tsx` now live under `src/renderer/src/__tests__/behavior-rewrite/`, `pages-improvements.test.tsx` under `pages/__tests__/` — still multi-concern files.
-**Status:** ⚠️ Partial (verified 2026-08-23)
-> - ~~2026-08-24 audit~~ CORRECTED 2026-08-24 (late verification): audio_test.py NO LONGER EXISTS - regressions/ is fully domain-split (test_audio/test_concurrency_rms/test_platform_misc/test_crash_recovery/test_electron/...; platform_misc_test renamed test_platform_misc.py). Remaining Python catch-alls SHRANK: test_dictation_pipeline_review_fixes.py 505 lines, test_low_findings_batch.py 376, test_remaining_fixes.py 200 - move classes to matching domain files, then delete. TS residual stands: ux-components-behavior (11 components), electron-ipc-build-behavior (28 concerns), pages-improvements (9 pages).
-**Severity:** 🟡 Medium
-**Category:** Maintainability
-**Description:** Remaining catch-all test files violating rule #20 (tests must go in matching domain module):
-- `test_dictation_pipeline_review_fixes.py` (~619 lines), `test_low_findings_batch.py` (~448 lines), `test_remaining_fixes.py` (~267 lines) — review-round catch-alls, still unsplit
-- TS: `__tests__/behavior-rewrite/ux-components-behavior.test.tsx` (11 components), `__tests__/behavior-rewrite/electron-ipc-build-behavior.test.tsx` (28 concerns), `pages/__tests__/pages-improvements.test.tsx` (9 pages) — relocated into domain dirs but still catch-alls
-**Note:** ~~`test_perf_review_fixes.py`~~ split (357a2259). ~~`test_bugfix_regressions.py`~~ was ALREADY SPLIT in prior round RW-8.
-**Root Cause:** Catch-all accumulation by review round / finding batch.
-**Related Files:** (see description — 15+ test files)**Fix:** Move each class to its matching domain test file. Delete catch-all files after move. For TS, split catch-all test files into per-component test files.
-
----
-
-### [XV-105] — N hotkeys = N native subprocesses (no pooling)
-**Status:** ✅ Verified resolved (2026-08-25): role pooling confirmed live in production (HotkeyDispatcher._shared_backend_pool collapses dictation/ESC-cancel/aux roles into ONE native subprocess; get_active_backend_count() exposes pool size). Per-spec dedup residual remains deferred-by-design until profiling justifies it.
-**Remaining (deferred, TODO at top of hotkey_dispatcher.py):** full per-spec backend pooling — dedup across *distinct* specs that resolve to the same native binary; touches the native binary interface and is deferred until there is evidence of real cost.
-**Description:** N hotkeys = N native subprocesses (no pooling). Category: Scalability / Resource footprint.
-**Root Cause:** verified — factory constructs one adapter per call; no process pooling. *(Fixed for the three roles by `_shared_backend_pool`.)*
-**Related Files:**
-- `voice_typer/server/hotkey_dispatcher.py`
-- `voice_typer/server/native_hotkeys/base.py`
-**Fix (residual):** Extend pooling to per-spec dedup (accept list of specs, emit per-spec match events) when profiling justifies it.
-**Severity:** 🟡 Medium → 🟢 Low (downgraded 2026-08-23 — primary concern addressed)
-
-### XZ-R11-04 — No encryption at rest for dictated text (Medium)
-**Status:** ⚠️ Open — DESIGN + SCHEMA PREP only, no crypto implemented (corrected 2026-08-23; an earlier "read-side live" claim was WRONG). What exists: (a) threat model + mitigation design documented in docs/adr/XZ-R11-04-at-rest-encryption.md (609 lines); (b) forward-compat schema column `text_is_encrypted BOOLEAN DEFAULT 0` in `voice_typer/server/history_db_internals/schema.py:391`. What does NOT exist: zero encryption/decryption code anywhere in `voice_typer/server/` — no cipher, no keystore integration, no reader/writer handling of the flag. History text is still stored plaintext end-to-end.
-**Description:** `history_db.py` stores dictated `text` in plaintext. File perms 0o600 / dir 0o700, `secure_delete=ON`, GDPR delete unlinks after checkpoint. But while running (or after unclean shutdown before checkpoint), text recoverable by same-user/root.
-**Related Files:** `voice_typer/server/history_db.py`, `history_db_internals/{schema,reader,writer,search}.py`, `credential_store/_schema.py`, `_backend.py`, new `_dek.py`; new `server/_text_crypto.py`
-
-**Fix:** Implement per ADR §2/§4 (application-layer ONLY — do NOT build SQLCipher; it was rejected):
-(1) Add DATA_ENCRYPTION_KEY_USERNAME = "__data_encryption_key__" to credential_store/_schema.py; new
-credential_store/_dek.py: generate_dek() (os.urandom(32)), store_dek()/load_dek() via existing store_secret/
-load_secret + _run_keyring_call timeout isolation; NO on-disk DEK fallback (ADR §9.3).
-(2) New server/_text_crypto.py: AES-256-GCM via cryptography AESGCM (dep already top-level, pyproject.toml:307);
-per-row blob = "v1" || 12B random nonce || ciphertext||16B tag stored in `text` with text_is_encrypted=1;
-unknown version or InvalidTag -> log WARNING, return "<decryption failed>" (never crash, never passthrough-decode).
-(3) Key-loss policy: keystore unavailable + encrypted rows exist -> reads return placeholder + surface error state
-(DISTINCT from §9 first-run passthrough); NEVER regenerate a DEK while encrypted rows exist.
-(4) Schema: add _MIGRATION_V4 = ALTER TABLE transcriptions ADD COLUMN text_is_encrypted INTEGER DEFAULT 0
-(pre-existing DBs lack it today — DDL-only at schema.py:391).
-(5) Write side: encrypt in the writer thread before INSERT — BOTH the single-row path AND
-_drain_batchable_inserts (writer.py:275-292 builds its own multi-row INSERT without the flag column).
-(6) Decrypt seam: one helper applied where rows are projected — project_text_row (search.py:163),
-get_transcription_text, get_latest_text; move SUBSTR/LENGTH preview truncation from SQL to
-decrypt-then-truncate in Python (SUBSTR on ciphertext yields garbage previews).
-(7) SEARCH per ADR §6 Decision: FTS5 shadow tables remain PLAINTEXT-tokenized; only transcriptions.text is
-encrypted — feed FTS triggers plaintext at insert-time indexing; guard the encryption UPDATE so the AFTER UPDATE
-trigger does not re-index ciphertext. PROPOSED (ADR gap): route CJK/separator-only queries (search.py LIKE path)
-to a bounded decrypt-and-filter scan over the most recent N rows; document degraded deep-history CJK search.
-(8) Migration/backfill order: P1 _dek.py -> P2 cipher + known-answer tests -> P3 encrypt NEW writes -> P4
-flag-aware decrypt reads -> P5 resumable batched backfill (100 rows/batch, idempotent by flag) on the writer
-thread; schema version bump last. Reversible at every step (flag design — amend ADR §5 away from column swap,
-marked PROPOSED).
-(9) Gates: pytest round-trip + tamper tests green; Windows host cmdkey /list shows
-com.voicetyper.keyring:__data_encryption_key__; macOS security find-generic-password shows it; headless Linux
-shows disabled badge and stays plaintext; correct the stale ADR status header (it claims a _text_encryption.py
-module that never existed) + remap its credentials/ paths to credential_store/.
-VALIDATE ON WINDOWS/MACOS HOST.
-**Severity:** 🟡 Medium
-
----
-
-### [XS-42] — Cross-test helper duplication — 74 test files with factory defs + 166 referencing patterns (GREW from 26; per audit 2026-08-12)
-**Status:** ⚠️ Partial — SCAFFOLDING COMPLETE, migration barely started (verified 2026-08-23). All proposed fixture targets EXIST: `tests/fixtures/app_helpers.py` exports `make_voice_typer_app()` / `make_sine()` / `join_model_load_thread()`, and `tests/fixtures/ipc_test_helpers.py` now also exports `make_fake_sidecar_ws_server()` + `make_fake_recorder()` (alongside `make_ipc_server_with_fakes()` / `make_fake_app()` / `make_fake_service()`). Migration progress: only ~4 test files import `app_helpers`; ~15 files use the shared ipc factories; **~187 local `_make_*`-style factory definitions remain across tests/**. The `_make_ipc_server` × 4 drift resolution is still open.
-**Description:** Copy-pasted factory functions across 74 test files with factory defs (166 files reference the patterns): `_make_ipc_server`, `_make_fake_server`, `_make_recorder`, `_make_app`, `_make_sine`/`make_sine`, `_make_cm`+`_make_snapshot`, `_make_model_cache_dir`, `temp_config`/`tmp_config_dir`, `_make_fake_*` helpers. When `VoiceTyperApp.__init__` changes, dozens of test files need updating. When `IPCServer.__init__` changes, test files using `__new__(IPCServer)` bypass may silently break.
-**Root Cause:** Test helpers were copy-pasted instead of imported from `tests/fixtures/ipc_test_helpers.py` (which exists for this purpose).
-**Progress:** Fixtures landed 2026-08; ~19 test files migrated to shared factories as of 2026-08-23 (~168 file-equivalents remaining).
-**Related Files:**
-- `tests/fixtures/ipc_test_helpers.py`
-- `tests/test_notification_event_name.py`
-- `tests/tauri/mig15/test_toast_windows.py`
-- `tests/tauri/mig16/test_toast_macos.py`
-- `tests/tauri/mig17/test_toast_linux.py`
-- `tests/test_ipc5_error_envelope_parity.py`
-- `tests/test_sidecar_ws_thread_safety.py`
-- `tests/tauri/test_sidecar_ws_unit.py`
-- `tests/tauri/mig15/test_ws_hmac_windows.py`
-- `tests/tauri/mig16/test_ws_hmac_macos.py`
-- `tests/tauri/mig17/test_ws_hmac_linux.py`
-- `tests/test_concurrent_resample_safety.py`
-- `tests/regressions/concurrency_rms_test.py`
-- `tests/test_recorder_device_cache_prewarm.py`
-- `tests/test_secure_clear_array.py`
-- `tests/test_recording_discard.py`
-- `tests/test_api_doc_accuracy.py`
-- `tests/test_b4_config_editor_lock.py`
-- `tests/test_dictation_pipeline_review_fixes.py`
-- `tests/test_audio_processor.py`
-- `tests/test_recorder_double_resample.py`
-- `tests/test_recording_audio_processor.py`
-- `tests/test_clipboard_paste_restore.py`
-- `tests/test_clipboard_borrow_restore.py`
-- `tests/test_import_model_security.py`
-- `tests/test_model_import.py`
-- `tests/test_e2e_smoke.py`
-**Fix:** Promote `tests/fixtures/ipc_test_helpers.py` to also export `make_fake_sidecar_ws_server()` and `make_fake_recorder()` factories. Create `tests/fixtures/app_helpers.py` with `make_voice_typer_app()` and `make_sine()`. Migrate the duplicated test files to import from these. Resolve the `_make_ipc_server` × 4 drift (either delete them and use `make_ipc_server_with_fakes()` or update `make_fake_app()` to re-add `_config_mutation_lock`).
-**Severity:** 🟡 Medium
-**Category:** Testing infrastructure
-
----
-
-### [AC-132] — `tray.py` 985-line spaghetti — 16 distinct concerns (was 1267; partial split landed)
-**Status:** ✅ Fixed (2026-08-25): tray.py 1086→613 phys lines via three new satellites — tray_publish.py (_compute_tooltip/_publish_tray_state/_apply_state/_APP_STATE_TO_ICON_NAME), tray_state.py (set_state core + setters + menu-cache invalidation + elapsed glue), tray_lifecycle.py (run/stop/host-ready republish/wrap_bg_work); dispatch_tray_action extended tray_menu.py; zero test edits (pystray/_make_icon namespace seams preserved via call-time _tray_mod lookups; start()/_launch_bg_work/_drain_pending kept physical in tray.py — source-pinned). All getsource/text pins green; CI cold-start gate reproduced locally (567µs self-time < 50ms cap).
-**Description:** `voice_typer/server/tray.py` 985 lines (the 1267-LOC claim is stale — the file was split into 10+ `tray_*.py` satellite modules; the remaining 985 LOC still exceeds the 800-line threshold). 16 concerns: lifecycle, state setters, pre-run queue, tooltip computation, Tauri publish, native apply, notification dispatch, menu cache, menu construction, page navigation, Electron window delegation, recording elapsed timer, CPU fallback event handler, platform detection, quit confirmation wrapper, backwards-compat aliases.
-**Root Cause:** Verified. Each new feature added to tray.py rather than to one of the already-extracted satellite modules.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/tray.py` (entire file)
-**Fix:** Split into `tray_lifecycle.py`, `tray_state.py`, `tray_publish.py`, `tray_notifications.py`, extend `tray_menu.py`, `tray_elapsed.py`, `tray_event_handlers.py`, `server_platform/wayland_sni.py`, extend `tray_window.py`. `tray.py` becomes ≤300 lines of wiring.
-**Severity:** 🔴 High
-
----
-
-### [AC-136] — `model_manager.py` 2638 (GREW from 1102) + `parakeet_engine.py` 1577 (was 1044) + `service/model.py` 1445 (was 1090) all exceed threshold
-**Status:** ✅ Fixed (2026-08-25): all three files split into mixin-composition packages with facade __init__ preserving every import path — model_manager/ (8 files, 2683→facade+_base/_construction/_notify/_loading/_change/_lifecycle), parakeet_engine/ (7 files incl. defensive asr_utils block intact), service/model/ (7 files; daemon-rationale comment relocated into _downloads.py so its RACE pin passes untouched). Two module-level source pins ported per ARCH-12 policy; one stale threading.Timer patch retargeted to _lifecycle leaf. 535 tests green across the three batteries.
-**Description:** All three files exceed 800 lines. `model_manager.py` (2638 LOC) mixes 6 concerns. `parakeet_engine.py` mixes 9 concerns. `service/model.py` mixes 9 concerns.
-**Root Cause:** Verified.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/model_manager.py` (entire file)
-- `voice_typer/server/parakeet_engine.py` (entire file)
-- `voice_typer/server/service/model.py` (entire file)
-**Fix:** Split `model_manager.py` → 6-file package. Split `parakeet_engine.py` → 9-file package. Split `service/model.py` → 9-file package. All public API names preserved via facade pattern + `__init__.py` re-exports.
-**Severity:** 🔴 High
-
----
-
-### [AC-137] — `crash_handler/` package + `shutdown_controller.py` 1420 + `clipboard_target_safety/` package + `clipboard/manager.py` + `permissions/` package + `text_cleanup.py` 1416 all exceed threshold
-**Status:** ✅ Fixed (2026-08-25): shutdown_controller/ (7 files — deadline/plans/cleanup/teardowns/lifecycle-signals mixins + controller core), text_cleanup/ (4 files — engine/corrections_data/casing; pronoun-I cluster co-located with its global-writer per E13), clipboard/manager/ (5 files — paste/copy/keyboard/errors mixins + delegators kept on manager namespace for _*_impl patches). All public paths preserved; battery totals 232+296+239 green.
-**Description:** All six files exceed 800 lines. Each has a concrete split plan in the per-agent reports.
-**Root Cause:** Verified. Organic growth across many sessions.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/crash_handler.py` (entire file)
-- `voice_typer/server/shutdown_controller.py` (entire file)
-- `voice_typer/server/clipboard_target_safety.py` (entire file)
-- `voice_typer/server/clipboard/manager.py` (entire file)
-- `voice_typer/server/permissions.py` (entire file)
-- `voice_typer/server/text_cleanup.py` (entire file)
-**Fix:** Apply the split plans from AC-86 (crash_handler), AC-128 partial (clipboard_target_safety), AC-127 (permissions), AC-80+AC-81+AC-82 (text_cleanup).
-**Severity:** 🔴 High
-
----
-
-### [AC-139] — TS client `bubble-window.ts` 56 (was 598; split into `windows/bubble/`) + `logging.ts` GONE (split into `logging/` package) + `main-window.ts` 647 (was 501) + `bootstrap.ts` 618 (was 436) + `tcp-connect.ts` 460 (was 321) all mix multiple concerns
-**Status:** ✅ Fixed (2026-08-25): bootstrap.ts 632→42 (bootstrap/ package: session-identity/user-data/csp/error-handlers/runtime), main-window.ts 692→248 (window-chrome/window-events/renderer-telemetry/renderer-recovery/input-nav-guard siblings following the crash-storm pattern), tcp-connect.ts 470→186 (python/tcp/: startup-watchdog/frame-reader/close-handler/retry-scheduler; close body moved ATOMICALLY for positional-ordering pins). 8 pin files retargeted same-commit without weakening; tsc -b --force clean; 336 vitest tests green.
-**Root Cause:** Verified.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/main/windows/bubble-window.ts`
-- `voice_typer/client/src/main/logging/` (8-file package: structuredLogger.ts, printfLogger.ts, rotation.ts, etc.)
-- `voice_typer/client/src/main/windows/main-window.ts``
-- `voice_typer/client/src/main/bootstrap.ts`
-- `voice_typer/client/src/main/python/tcp-connect.ts`**Fix:** Apply the split plans from AC-12+AC-117 (logging), AC-107 (main-window), AC-116 (bootstrap), AC-19 (tcp-connect).
-**Severity:** 🟡 Medium
-
----
-
-### [ER-2] — DeepFilterNet backend unimplemented — `noisy_room` preset delivers zero neural noise suppression
-**Status:** ❌ Not Fixed
-**Not sure. Require verification first.**
-Brainstorm yourself and use the best practices to solve this problem.
-**Re-verified 2026-08-03:** interim mitigation from the Fix line IS applied — `_init_deepfilternet()` (noise_suppressor.py:239-274) now degrades to rnnoise at *init* time (option b): `is_degraded=True` surfaces to the UI immediately and `process()` routes to the rnnoise branch on every call (no per-chunk fallback). Users get real RNNoise suppression instead of silent passthrough. What remains unstarted: the actual DeepFilterNet processing path (frame buffering + `enhance()`), and the `noisy_room` preset still nominally selects `"deepfilternet"` — it works only because of the init-time degradation.
-**Severity:** 🔴 Critical
-**Description:** `noise_suppressor.py:124-139` `process()` calls `_process_rnnoise` for the rnnoise backend, but for DeepFilterNet and Speex backends it sets `is_degraded=True` and returns the audio unchanged (passthrough). The `PRESET_NOISY_ROOM` preset at `audio_presets.py:50-58` explicitly selects `"deepfilternet"` for the noisiest environment. Users in the noisiest environments (the exact use case this preset targets — keyboard/fan/HVAC) get ZERO neural noise suppression. ASR accuracy in these environments degrades severely because the very feature advertised is a no-op.
-**Root Cause:** Verified — `_init_deepfilternet()` only stores the imported functions in a dict; `process()` never calls `enhance()`/`init_df`. The preset explicitly selects "deepfilternet" for the noisiest environment, but the selected backend does nothing.
-**Progress:** Interim rnnoise fallback implemented (2026-08-03); DeepFilterNet wiring not started.
-**Related Files:**
-- `voice_typer/server/audio_filters/noise_suppressor.py`
-- `voice_typer/server/audio_filters/noise_suppressor.py` · `audio_presets.py`
-**Fix:** Replace the dead DeepFilterNet backend with the officially-streaming GTCRN ONNX model
-(web-verified 2026-08-24: DFN PyPI unmaintained since v0.5.6/2023-08, broken on torch>=2.9 [#662],
-full-model ONNX export unsupported upstream [#174/#456]; GTCRN: MIT, active, 48K params,
-PESQ 2.87 > DFN2 2.81 > RNNoise 2.29, native 16kHz, streaming RTF 0.07):
-1. DAY-ONE HONESTY (separate shippable commit): rewrite noiseSuppressionInfo (en.json:860 + ALL 7 other locales,
-C-I18N-1) and the noisy_room descriptions (audio_presets.py:103) to drop the DeepFilterNet-premium claim and say
-aggressive RNNoise filtering until step 4 lands.
-2. New voice_typer/server/audio_filters/gtcrn_backend.py: load bundled models/gtcrn_simple.onnx (~200 KB,
-official streaming export) via ort.InferenceSession(providers=["CPUExecutionProvider"]) following the vad.py
-session pattern; wrap run() exposing (mix[1,257,1,2], conv_cache, tra_cache, inter_cache) -> (enh, caches_out).
-3. In noise_suppressor.py replace _init_deepfilternet() degrade block with _init_gtcrn() (session load; ANY
-failure keeps today's rnnoise-fallback + is_degraded=True path verbatim); add _process_gtcrn(): buffer 16kHz
-input to 256-sample hops via the _carry accumulator, run session per hop with persistent caches, overlap-add
-ISTFT into the existing pre-allocated result buffer.
-4. On successful init set is_degraded=False; point PRESET_NOISY_ROOM[noise_suppression_method] at the live
-backend; restore premium-quality locale copy accurately describing the new denoiser (C-UI-2).
-5. PACKAGING: ship the .onnx beside silero_vad.jit under voice_typer/server/ so
---include-package-data=voice_typer.server picks it up (C-CI-9); zero installer bloat, zero runtime-pack delta,
-ZERO new network egress (C-DATA-1-clean).
-6. PERF + REGRESSION GATES: mean <=20 ms per 16 ms hop on the audio worker thread (RTF<0.5; upstream 0.07)
-before enabling; rename deepfilternet->gtcrn across ALL THREE parity surfaces in one commit
-(NOISE_SUPPRESSION_METHODS allowlist entry, renderer config.ts union, AudioSettingsSection.tsx options) with a
-config migration mapping legacy deepfilternet->gtcrn (speex precedent), rnnoise branch byte-identical fallback.
-
----
-
-### [ER-18] — Audio buffer 2×N duplication during recording (deque + snapshot cache, ~114 MB sustained at 15 min)
-**Status:** ✅ Fixed (2026-08-25): GrowableRecordingBuffer replaces {deque-of-chunks + rebuild-on-demand caches} — one pre-allocated float32 ndarray with geometric doubling (30s initial, hard cap preserving DEFAULT_MAX_BUFFER_CHUNKS duration semantics), deque-compatible API surface (appendleft/maxlen/iteration) so pipeline/backpressure/preroll code is unchanged; snapshots are O(1) zero-copy views (.base identity preserved for the streaming zero-gate via dual-anchor check); stop() drops the O(N) concat entirely; discard/stop background secure-clear ordering preserved. Measured: sustained ~1.0-1.6×N (was 2×N), snapshot churn eliminated (≈38MB memcpy per 5-min session vs ~11GB projected). 772-test battery green ×2 incl. new tests/recording/test_growable_recording_buffer.py (15 tests).
-**Severity:** 🔴 High
-**Description:** `recorder.py:319, 331-332` + `_recorder_split.py:176, 207-209` — `_cached_resampled` and `_cached_no_resample_arr` caches live for the entire recording session. The snapshot cache exists to avoid O(n) re-concatenation on every 4 Hz poll, but it duplicates the entire recording in memory. The deque stores individual chunks; the cache stores a contiguous concatenation/resampled copy of the same data. Sustained RAM during recording (2×N): 16 kHz device with AudioProcessor active = ~114 MB; 48 kHz device, AudioProcessor=None = ~229 MB.
-**Root Cause:** Verified — cache duplication verified; 2×N sustained verified; allocation churn over a 15-min session = ~100 GB of allocations (3600 rebuilds × avg 28 MB).
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording/recorder.py`
-- `voice_typer/server/recording/_recorder_split.py`
-**Fix:** Replace the deque-of-chunks with a single pre-allocated growable ndarray (ring buffer with geometric capacity doubling). `snapshot()` returns a view into the ring buffer (O(1), zero allocation, zero duplication). This halves sustained RAM from 2×N to 1×N. The deque's SPSC atomicity is preserved by using a single-producer/single-consumer ring index pair. (Smaller interim fix: invalidate the cache more aggressively — only keep the cache warm for ~5s of recent audio for the live waveform, not the entire session.)
-
----
-
-### [ER-35] — Double-emit per coalesced `bubble_level` (specific + generic catch-all) — ❌ STILL NOT FIXED (2026-08-12 re-verify)
-**Status:** ✅ Fixed (verified already-fixed — status was STALE): implemented in commit d0a9b292 (2026-08-24) exactly as recommended here — bubble_level emits on the typed channel ONLY (ws.rs carve-out + HIGH_RATE_EVENT_TYPES gate in event_protocol.rs); generic python-event envelope kept for low-rate types; mic_level deliberately stays DUAL (meter regression guard). Documented in ADR-0020 Event Table + §9; pinned by 6 Rust tests + Python phase4 validation.
-**Severity:** 🟡 Medium
-**Description:** `src-tauri/src/sidecar/ws.rs:805-806` — after coalescing `bubble_level` to ≤30 Hz, the reader emits TWO Tauri events per frame: (1) the specific `bubble_level` event with `p.clone()`, (2) a generic `python-event` catch-all that constructs a fresh `serde_json::Value` object via `json!({...})` — a `Map<String, Value>` allocation + insertion + the cloned payload, every frame. Same pattern for EVERY other server event type.
-**Root Cause:** Verified — double-emit is intentional (ADR-0020 §6.3) but the `json!({...})` macro constructs a new `Value` per emit.
-**Progress:** None yet.
-**Related Files:**
-- `src-tauri/src/sidecar/ws.rs`
-**Fix:** Drop the catch-all for `bubble_level` specifically (it's the highest-rate event and the bubble window has a dedicated listener) — emit only the specific event for high-frequency types, fall back to the generic catch-all for low-frequency types. Coordinate with renderer `usePython.ts` to ensure no listener relies on the catch-all for `bubble_level`.
-
----
-
-### [ER-39] — Whisper `beam_size=1` default sacrifices 1-3% WER for speed
-**Status:** ✅ Fixed (2026-08-25): completed the half-landed field — SEC-002 allowlist entry added (whisper_beam_size, int 1-10; snapshot test updated 123→124 as the reviewed deliberate change); automatic device/model-aware default resolved by TranscriptionEngine._apply_auto_beam_size(): wide beam (5) only for non-tiny models on a RESOLVED CUDA device, greedy (1) on tiny models and every CPU path including both GPU→CPU fallbacks; explicit legacy beam_size kwarg or whisper_beam_size>1 always wins and survives fallbacks; renderer type gained optional whisper_beam_size (wire-tolerant). UI exposure deliberately deferred (no advanced-transcription settings group exists; creating one is a product decision beyond this finding). Temperature ladder skipped as 'optional' in the finding — interacts with hallucination filter tuning; noted for future work. New tests/test_transcription_beam_size.py (18 cases).
-**Severity:** 🟡 Medium
-**Description:** `transcription.py:208-209` `TranscriptionEngine.__init__` — `beam_size=1, best_of=1` defaults. Used at transcribe call (line 822-835). faster-whisper docs and OpenAI Whisper paper show `beam_size=5` reduces WER by 1-3% on small.en vs greedy beam_size=1. For a dictation tool, every mis-transcribed word is a manual correction. The default is chosen for speed (greedy ~2× faster than beam=5) but is suboptimal for accuracy. `temperature` is also pinned to 0.0 — no fallback temperature retry on low-confidence segments.
-**Root Cause:** Verified — speed-biased defaults that trade measurable WER.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/transcription.py`
-**Fix:** Either raise default `beam_size` to 5 (configurable), or add a config field `whisper_beam_size` defaulting to 5 for non-tiny models and 1 only for tiny.en / CPU. Optionally enable temperature fallback (`temperature=[0.0, 0.2, 0.5]`) when `avg_logprob < -1.0`.
-
----
-
-### [ER-48] — Stuck transcription thread not fenced after force-recovery (model race)
-**Status:** ✅ Fixed (verified already-fixed — both layers confirmed in code): structural layer force_unload_active() at model_manager (now model_manager/_lifecycle.py, method preserved verbatim through the package split) invoked by transcription_watchdog.py:303; defence-in-depth finalize busy_check fence present in streaming.py. Watchdog escalation log line greppable.
-**Severity:** 🟡 Medium
-**Description:** `transcription_watchdog.py:169-307` `_force_recover_from_stuck_transcription` (re-audited 2026-08-12: the method moved out of recording_controller.py — old path `recording_controller.py:799-853` is stale) — the stuck transcription thread (e.g. ctranslate2 deadlock) continues running in the background. On the next `stop()` (line 515), the old reference is overwritten. If the old thread eventually completes its model call, it runs `DictationPipeline.run()`'s finally block. The old thread is still holding the ctranslate2 model lock. When the new transcription thread calls the model concurrently, ctranslate2 is not thread-safe for concurrent calls on the same model → crash or silent corruption.
-**Root Cause:** Verified — no mechanism to kill or fence the stuck transcription thread. Python threads cannot be force-killed; the only option is to set a flag the thread checks, but ctranslate2's C++ call is not interruptible.
-**Progress:**
-- Structural layer: `ModelManager.force_unload_active()` (`model_manager.py:2568`, invoked by `_force_recover_from_stuck_transcription` at `transcription_watchdog.py:303`) force-clears the busy flag AND ejects the ASR registry slot, so the next cycle captures a FRESH engine instance; the stuck thread keeps only an orphaned reference and any late result it produces is fenced out.
-- Defence-in-depth layer: streaming finalize `busy_check` fence (`streaming.py:1043-1061`, wired via `streaming_session_coordinator.py:183`) returns already-committed text when the backend is busy in another thread at finalize time.
-- Audit (2026-08-24): the finalize fence's TRUE firing scenario is SAME-CYCLE OVERLAP past the bounded join (~10 s cancel timeout — a merely SLOW worker transcription still running when finalize proceeds), NOT orphaned-thread-after-force-recovery. The latter is impossible post-fix: force-recovery clears the busy flag and drops the registry slot, so `is_busy(active)` reads False even while the orphan runs, and the orphan can never touch the fresh engine instance the next cycle loaded.
-**Related Files:**
-- `voice_typer/server/transcription_watchdog.py:169-307`
-- `voice_typer/server/recording_controller.py` (force-recovery caller)
-**Fix:** After force-recovery, set a module-level "model in use" lock that the new transcription thread must acquire before calling the model. The old thread holds the lock; the new thread blocks until the old thread's ctranslate2 call returns and releases it. Prune `_cancelled_cycle_ids` to keep only the last N entries. Consider reloading the model after a force-recovery to ensure clean state.
-
----
-
 ### Summary
 
 **Total canonical findings: 98 (after dedupe).**
@@ -375,82 +78,6 @@ config migration mapping legacy deepfilternet->gtcrn (speex precedent), rnnoise 
 - **Low (~40):** ER-64 through ER-98
 
 Phase 4 (fix) will address all Critical and High severity findings, plus a curated set of Medium severity findings where the fix is well-scoped and the file-disjoint constraint can be satisfied. Low severity findings are bundled by file area for efficient parallel fixing where scope allows.
-
-### [WR-9] — Monolith test files + stray real_torch marker + real network egress in cloud_engines tests
-**Status:** ✅ Residual scope COMPLETE (2026-08-25; monolith splits landed earlier in acf29924): (1) _make_cm/_make_snapshot duplication consolidated into tests/fixtures/clipboard_helpers.py (make_clipboard_manager/make_clipboard_snapshot) — 8 files with byte-identical module-level defs migrated (parameterized/no-arg variants expressed as explicit kwargs at call sites); (2) inline voice_typer.server.config._config_dir patches replaced by shared patch_config_dir_refs helper (tests/fixtures/config_helpers.py) that patches ALL THREE bindings (config/app/_paths) — closing the two documented silent-gap failure modes; tmp_config_dir fixture delegates to it; (3) redundant sys.modules.setdefault block trimmed to the load-bearing PIL trio with rationale comment.
-> - **2026-08-24 audit:** real_torch-marker and network-egress claims now FALSE (marker gone; egress patched everywhere) — remaining scope ONLY: monolith test splits.
-**Description:** `tests/test_clipboard_win32_coverage.py` (1775 lines, 15 test classes) and `tests/test_config.py` (1133 lines, 13 test classes) are textbook Rule 20 spaghetti monoliths mixing many unrelated concerns. `tests/test_config_editor_lock.py:41` carries a stray `pytestmark = pytest.mark.real_torch` that forces a ~17-second real-torch import on every test in the file — but no test in the file uses torch. 9 clipboard test files duplicate the `sys.modules.setdefault("pynput", MagicMock())` block (redundant given the autouse `mock_heavy_imports` fixture in `tests/conftest.py:232-251`). `_make_cm` / `_make_snapshot` helpers are byte-for-byte duplicated between `test_clipboard_borrow_restore.py` and `test_clipboard_paste_restore.py`. 60+ inline `monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)` calls duplicate the existing `tmp_config_dir` fixture from `tests/conftest.py:425-429`. `tests/test_cloud_engines.py` has 3 tests (`test_openai_default_url_allowed`, `test_localhost_self_hosted_allowed`, `test_accepts_valid_model_name`) that make REAL network egress to api.openai.com, localhost:11434, and api.deepgram.com — flaky and risks real cost incursion.
-**Root Cause:** Organic growth — each new clipboard test file copy-pasted the `sys.modules.setdefault` block. The `real_torch` marker was copy-pasted from `test_dictation_pipeline_review_fixes.py`. The cloud_engines tests were written before the redaction tests established the `_opener.open` patch pattern.
-**Progress:**
-- Delete the stray `pytestmark = pytest.mark.real_torch` from `test_config_editor_lock.py:41`. (DONE)
-- Patch `voice_typer.server.cloud_engines._opener.open` with `side_effect=URLError("test-isolated")` in the 3 cloud_engines tests; assert the call was made with the expected URL. (DONE)
-- Spaghetti split of `test_clipboard_win32_coverage.py` + `test_config.py`.
-- Consolidate duplicated helpers.
-**Related Files:**
-- `tests/test_config_editor_lock.py`
-- `tests/test_cloud_engines.py`
-**Fix:** See Progress above.
-**Severity:** 🔴 High
-
----
-
-### ZR-84 — `autostart_launcher.py` (1164 lines) mixes 6 unrelated helper groups (SPLIT REQUIRED)
-**Status:** ✅ Fixed (2026-08-25): autostart_launcher.py 1215→403-line entry facade AT ITS ORIGINAL PATH (OS schedulers embed the script path; macOS/Linux installer asserts assert args[1].endswith("autostart_launcher.py") untouched) over a new voice_typer/server/autostart/ package (log_files/pid_file/port_probe/tauri_spawn/electron_spawn/focus). Patch-point contract preserved via facade-mediated lookups (leaves resolve collaborators through lazy `from voice_typer.server import autostart_launcher as _pkg`) so 16 of 17 monkeypatch target strings work with ZERO test edits; one string-form subprocess.Popen patch migrated to electron_spawn. C-CROSS-3 logger name identical in every leaf; C-CROSS-5 [AUTOSTART] lines verbatim; depth bug fixed in _tauri_manifest_path repo-root probe.
-**Description:** `voice_typer/server/autostart_launcher.py` (1164 LOC) — the OS-login entry point per the module docstring (lines 1-71). Top-level helpers span 6 unrelated concerns:
-- PID file mgmt: `_read_ipc_port_from_pid_file` (129), `_config_dir` (198), `_pid_file` (208), `_write_pid_file` (487) — ~80 LOC
-- Port probing: `_is_port_open` (233), `_wait_for_backend_ready` (255) — ~50 LOC
-- Tauri detection/spawn: `_tauri_binary` (290), `_is_tauri_mode` (356), `_spawn_tauri_host` (396) — ~150 LOC
-- Electron spawn: `_launch_electron_built` (436), `_ensure_built_and_launch` (505), `_spawn_npm_run_dev` (624) — ~140 LOC
-- Focus redirection: `_focus_running_app` (540) — ~85 LOC
-- Logging setup + CLI: `_setup_logging` (220), `_parse_delay` (677) — ~30 LOC
-- Main entry: `launch` (701) is 140 LOC, `main` (843) — ~145 LOC
-
-Already partially split: imports `_build_electron`, `_electron_binary`, `_electron_log_files`, `_npm_command`, `_spawn_flags` from `voice_typer.server._electron_build` — so the extraction pattern is established but incomplete.
-**Root Cause:** Partial refactor. `_electron_build.py` was extracted (good), but the Tauri spawn path, the focus-single-instance path, the PID-file helpers, and the port-readiness probe were left in-place because they pre-date the Tauri cutover and touch cross-cutting state.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/autostart_launcher.py` (1164 lines)
-- `voice_typer/server/_electron_build.py` (existing partial extraction)
-**Fix:**
-- `voice_typer/server/autostart/tauri_spawn.py` (~150 LOC) — `_tauri_binary`, `_is_tauri_mode`, `_spawn_tauri_host`.
-- `voice_typer/server/autostart/electron_spawn.py` (~150 LOC) — `_launch_electron_built`, `_ensure_built_and_launch`, `_spawn_npm_run_dev`. (Could be merged into `_electron_build.py`.)
-- `voice_typer/server/autostart/pid_file.py` (~80 LOC) — `_read_ipc_port_from_pid_file`, `_config_dir`, `_pid_file`, `_write_pid_file`.
-- `voice_typer/server/autostart/port_probe.py` (~50 LOC) — `_is_port_open`, `_wait_for_backend_ready`.
-- `voice_typer/server/autostart/focus.py` (~85 LOC) — `_focus_running_app`.
-- `voice_typer/server/autostart_launcher.py` (~250 LOC, thin) — `_setup_logging`, `_parse_delay`, `launch()`, `main()`. Imports the helpers above.
-**Severity:** 🟡 Medium — every platform-specific spawn tweak (Tauri vs Electron vs npm-dev) lands in the same file as the port probe and the PID file; conflicts at the `launch()`-decision-tree merge point.
-
----
-
-### ZR-86 — `src-tauri/src/sidecar/ws.rs` (1142 lines) — 4 task functions could be split into `ws/` submodule (BORDERLINE)
-**Status:** ✅ Fixed (2026-08-25 residual): spawn_reader_task → ws/reader.rs (411 lines), spawn_writer_task → ws/writer.rs (173 lines), ws.rs 1079→545 keeping ws_connect/auth/orchestration + shared cleanup/generation-guard helpers; visibilities tiered exactly like the existing event_protocol/heartbeat submodules; external crate::sidecar::ws::{reconnect_ws,abort_heartbeat} paths untouched. The mig19 phase4 ws.rs-text pin was extended to union reader/writer files in the SAME commit (mirroring its own event-protocol multi-file precedent) alongside wire_swap/reconnect_ux/toast×3/bridge_parity readers. cargo check clean; 467 Rust tests green; pytest parity set 152 green.
-**Description:** `src-tauri/src/sidecar/ws.rs` (985 LOC total — was 1142). Production is structured as 8 free functions plus the `ALLOWED_EVENT_TYPES` const:
-- `cleanup_and_trigger_respawn` (120) ~40 LOC
-- `trigger_respawn_off_thread` (162) ~28 LOC
-- `respawn_supervisor_sender` (190) ~40 LOC
-- `ws_connect` (230) ~52 LOC
-- `queue_auth_and_store_ws_tx` (283) ~44 LOC
-- `spawn_writer_task` (328) ~45 LOC
-- `wait_for_auth_ok` (374) ~144 LOC
-- `spawn_reader_task` (519) ~238 LOC ← single largest fn
-- `spawn_heartbeat_task` (758) ~135 LOC
-- `translate_event_name` (894) ~30 LOC ← pure name-mapping table
-
-The reader task (519-757) and the heartbeat task (758-893) have no shared internals beyond `SidecarState` — they could live in their own files.
-**Root Cause:** The WS reconnect module accreted 4 task functions end-to-end; each is independent enough to be a submodule but extraction was never prioritized because the file is "single-concept" (WS lifecycle).
-**Progress:** None yet.
-**Related Files:**
-- `src-tauri/src/sidecar/ws.rs` (1142 lines)
-**Fix:**
-- `src-tauri/src/sidecar/ws/mod.rs` (~200 LOC) — `WsStream` alias, `ALLOWED_EVENT_TYPES`, `ws_connect`, `queue_auth_and_store_ws_tx`, `wait_for_auth_ok`, cleanup/respawn helpers.
-- `src-tauri/src/sidecar/ws/reader.rs` (~240 LOC) — `spawn_reader_task`.
-- `src-tauri/src/sidecar/ws/writer.rs` (~50 LOC) — `spawn_writer_task`.
-- `src-tauri/src/sidecar/ws/heartbeat.rs` (~140 LOC) — `spawn_heartbeat_task`.
-- `src-tauri/src/sidecar/ws/event_translate.rs` (~30 LOC) — `translate_event_name` + its unit tests.
-- Tests stay co-located (Rust convention) but move with their function.
-**Severity:** 🟢 Low — borderline; the file is cohesive (single concept) but at 923 LOC of production code it exceeds the 800-line threshold.
-
----
 
 ### NH-43 — `BubbleDismissButton` is keyboard-inaccessible (bubble window is `focusable: false`)
 **Status:** ⚠️ Won\'t Fix (this run — requires main-process global shortcut, deferred)
@@ -463,38 +90,6 @@ The reader task (519-757) and the heartbeat task (758-893) have no shared intern
 - `voice_typer/client/src/main/` (main process global shortcut registration)
 **Fix:** Wire a main-process global shortcut (e.g. `Ctrl+Shift+D`) that routes to the `bubble:dismiss` IPC handler. Document the shortcut in the HelpOverlay. This mirrors the BG-31 recommended solution. VALIDATE ON WINDOWS HOST + MACOS HOST: global shortcut registration behavior differs per OS.
 **Severity:** 🟢 Low
-
----
-
-### YJ-15 — Tauri `VoiceTyperError` enum migration NEVER STARTED ("2 of ~40 commands migrated" claim is FALSE)
-**Status:** ❌ Not Fixed — NEVER STARTED (re-audited 2026-08-12: the `VoiceTyperError` enum DOES NOT EXIST anywhere in `src-tauri/`; the referenced `src-tauri/src/commands/errors.rs` file DOES NOT EXIST. Zero commands migrated — the "bubble_show + bubble_signal_ready migrated as proof-of-concept" claim is FALSE.)
-**Description:** `src-tauri/src/commands/errors.rs:14-16` documents: "only `bubble_show` + `bubble_signal_ready` are migrated in this session as a proof-of-concept. The remaining ~38 command sites still return `Result<T, String>`". The contract doc (line 79) states: "Rust host (`dispatch` Tauri command) — rejects the `invoke` promise on `type: "error"`, translating it to `Err("server error [<code>]: <message>")` so the renderer-side `await api.call(...)` throws before the resolved value is ever inspected. The renderer-side in-code checks are therefore unreachable dead code on the Tauri path".
-**Root Cause:** Verified — migration NEVER started; the error-envelope contract doc describes a plan, not shipped code.
-**Progress:** Deferred — large mechanical migration across 38 commands.
-**Related Files:**
-- `src-tauri/src/commands/errors.rs` (DOES NOT EXIST — this finding is the only reference)
-- `src-tauri/src/commands/*.rs` (all command files)
-- `docs/architecture/error-envelope-contract.md`
-**Fix:** Add `VoiceTyperError` (thiserror — dep already pinned at Cargo.toml:74,
-currently dead) in `src-tauri/src/error.rs`: host variants (`NotConnected`,
-`ShuttingDown`, `Timeout{secs}`, `ChannelClosed`, `PendingFull`, `DisallowedCommand`,
-`DataTooLarge`, `DisallowedWindow`, …) plus catch-all `Server { code: String, data: Value }`
-passing the sidecar envelope through VERBATIM (renderer reads `data.errors[]` + consent
-fields — never truncate to {code,message}). Custom `Serialize` must emit the legacy wire
-shape — the envelope JSON as a STRING (`serialize_str`), never a struct: usePython.ts
-normalizes only `typeof err === "string"` rejections and drops objects to "unknown IPC
-error". `Display` preserves today's exact strings ("server error [code]: msg", "dispatch
-timeout (N)s") so log consumers don't shift. Phase 1 (the actual bug): dispatch.rs +
-require_main_window — replace the `format!("server error […]")` concat (dispatch.rs:411)
-with envelope emission so sidecar codes reach parseTauriErrorEnvelope, matching the
-existing pending_full/disallowed_command branches; keep the flat `cmd,data` signature
-untouched (C-TAURI-3). Phase 2: mechanical migration of the remaining ~27
-`#[tauri::command]` fns (bubble/export/system_cmds/shutdown). Phase 3 (optional):
-non-command helpers (spawn/supervisor/ws/platform, ~35 more Result<T,String> sites).
-Contract test: Rust unit tests pin each variant's serde output to golden strings; a vitest
-test asserts both transports surface identical `.code`/`.errors` for the same fixture codes
-(client.consent_required, validation_error, rate_limited, command_timeout).
-**Severity:** 🟡 Medium
 
 ---
 
@@ -515,7 +110,7 @@ test asserts both transports surface identical `.code`/`.errors` for the same fi
 **Status:** ❌ Not Fixed — deferred (covered by YJ-13, YJ-31, YJ-32, YJ-39 individually)
 **Description:** `wc -l` (re-audited 2026-08-12): `ipc_server.py` 733 shim (was 2808 — split into `ipc/` package), `level_monitor.py` → `level_monitor/` package (was 1313), `dictation_pipeline.py` → `dictation_pipeline/` package (was 1291), `shutdown_controller.py` 1420 (was 1280), `recording_controller.py` 639 (was 1002), `crash_recovery.py` 1292 (was 960), `microphone_watcher.py` 1235 (was 881), `prewarm/process_tracker.py` 1023 (was 837), `event_bus.py` 1169 (was 811), `task_scheduler.py` 976 (was 793).
 **Root Cause:** Verified — RW-9 god-class decomposition incomplete.
-**Progress:** Deferred — covered by individual findings YJ-13, YJ-31, YJ-32, YJ-39.
+**Progress:** Deferred — covered by individual findings YJ-13, YJ-31, YJ-32, YJ-39. UPDATE 2026-08-25: concrete sub-item (2) shutdown_controller.py → extract _do_cleanup EXECUTED via VP-39 (bodies now in shutdown/cleanup.py, shutdown/ws_drain.py, shutdown/plan.py); umbrella entry remains open for sub-items (1)/(3) and the remaining listed files.
 **Related Files:**
 - (see individual findings)
 **Fix:** Continue the RW-9 god-class decomposition. Highest-value splits: (1) `ipc_server.py` → extract `_send` + `_pending_tcp` into `ipc/tcp_writer.py`; extract `_accept_tcp` + `_handle_tcp_connection` into `ipc/tcp_acceptor.py`. (2) `shutdown_controller.py` → extract `_do_cleanup` into a `CleanupOrchestrator` (see YJ-13). (3) `level_monitor.py` → split module globals into a `LevelMonitorSession` class.
@@ -625,8 +220,8 @@ test asserts both transports surface identical `.code`/`.errors` for the same fi
 - **FR-S6:** `voice_typer/server/credential_store.py` (2132 lines, re-verified 2026-08-12 — up from 1277) — Phase 4.5 candidate.
 - **FR-S9:** `src-tauri/src/sidecar/supervisor.rs` — ✅ SPLIT DONE (re-audited 2026-08-12: now 791 lines, down from 1055 — under the 800-line threshold).
 - **FR-S10:** `voice_typer/server/crash_recovery.py` (1292 lines, re-audited 2026-08-12 — was 1034, GREW) — Phase 4.5 candidate (create_diagnostic_bundle 384-LOC method).
-- **FR-S12:** `src-tauri/src/platform/logging.rs` (1737 lines, re-audited 2026-08-12 — was 989, GREW +748; inline tests moved to logging_tests.rs) — Phase 4.5 candidate.
-- **FR-S14:** `voice_typer/server/sidecar_ws.py` (2027 lines, re-verified 2026-08-12 — up from 953) — Phase 4.5 candidate.
+- **FR-S12:** ~~`src-tauri/src/platform/logging.rs` (1737 lines, re-audited 2026-08-12 — was 989, GREW +748; inline tests moved to logging_tests.rs)~~ — ✅ Fixed via GQ-11 2026-08-25 — split landed as the `src-tauri/src/platform/logging/` directory module (mod/init/combined/redact/panic_hook/early/rotating.rs); layout differs by design from the single-file Phase 4.5 candidate framing.
+- **FR-S14:** ~~`voice_typer/server/sidecar_ws.py` (2027 lines, re-verified 2026-08-12 — up from 953)~~ — ✅ Fixed via EO-3 2026-08-25 — split landed as the canonical module + `voice_typer/server/sidecar_ws_internals/` sibling package (encode_pool/graceful_shutdown/stdout_banner/connection); layout differs by design from the proposed `sidecar_ws/{auth,...}` package (~14 test files pin the literal .py path).
 
 ### AB-49 — `audio_quality.analyze_full_audio` allocates 3 full-length temporary arrays (57 MB spike on 5-min recording)
 **Status:** 🚫 Won't Fix
@@ -859,74 +454,6 @@ The following findings are documented in `review.md` as `❌ Not Fixed` — defe
 
 ---
 
-### EO-1 — VoiceTyperApp.__init__ is a 592-line god-constructor mixing 9 controller instantiations + 11 lazy backings + 7 threading primitives (was 512)
-**Status:** ❌ Not Fixed (2026-08-24 audit: 2135 LOC, GREW +15.7%; __init__ spans :333-1047 = 715 lines with 17 sentinels; lazy-property hub :1048-1523)
-> - **2026-08-24 audit:** absorbs HU-44 and VP-24 (duplicate app.py entries).
-**Description:** `voice_typer/server/app.py` — VoiceTyperApp.__init__ spans 592 lines (re-audited 2026-08-12; claim of 512 stale), directly constructing 9 controllers/services (Recorder, RecordingController, ModelManager, TrayIcon, SettingsController, ShutdownController, LifecycleController, ConfigEditorLauncher, HotkeyDispatcher, VolumeController, TimerCoordinator, CrashRecovery), declaring 11 lazy-backing attributes, 7 threading primitives, and 14+ state flags. Comment density inside __init__ is 73% (376 of 512 lines are # comments).
-**User Impact:** When the app starts, it builds every subsystem at once in a single 592-line method. If one subsystem fails to construct (e.g., the recorder can't find a microphone), the entire app fails to start with no clean fallback. Adding a new feature (e.g., a new controller) means editing a 592-line method, risking regressions in unrelated subsystems. Testers cannot construct VoiceTyperApp without paying the cost of all 9 controllers + 11 lazy backings.
-**Root Cause:** Phase 4.5/6/7 extracted the methods that used to live on VoiceTyperApp into separate controller classes, but the construction/wiring of all those controllers stayed inside __init__ as one giant method.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/app.py`
-**Fix:** Decompose against the CURRENT map (2026-08-24 audit: __init__ :333-1047 = 715 lines /
-17 sentinels; lazy-property hub :1048-1523 = 17 pairs; lifecycle :1615-2081; dictation controls
-:1688-1855; mic/model/restart mgmt :1856-2010). Order:
-(1) Split __init__ into private _init_* builders <=50 lines each (_init_threading, _init_audio,
-_init_recording, _init_models, _init_tray, _init_controllers, _init_state_flags); __init__ becomes a
-<=30-line call sequence (AppBuilder-style wiring module if the builders need shared locals).
-(2) Extract the 17 lazy-property pairs into an app_lazy_hub.py mixin (plain properties over sentinel
-attributes - keeps the _LAZY_FAILED sentinel + RETRY_TTL_SECONDS semantics and every ARCH-9 setattr
-seam working; do NOT introduce a descriptor that changes attribute-set behavior).
-(3) Move start/quit/atexit/signal bodies to app_lifecycle.py; move dictation-control methods to
-app_dictation.py; mic/model/restart managers to app_admin.py - VoiceTyperApp keeps thin delegates
-(test-patch surface is load-bearing, see ARCH-9).
-Guards: full monkeypatch-site inventory green (226 setattr sites), app/lifecycle + lazy_properties +
-none_guard + cleanup suites, IN-3 warning-latch test stays green.
-**Severity:** 🔴 High
-**Category:** Spaghetti / monolith detection
-
-### EO-3 — sidecar_ws.py is a 2027-LOC monolith mixing 8+ WS concerns (GREW from 1480)
-**Status:** ❌ Not Fixed (2026-08-24 audit: 2081 LOC; 8 concerns mapped — encode pool :290-553, shutdown attach :553-769, stdout/banner :769-954, _make_dispatch 332-line factory :954-1286, queue-semaphore :1286-1452, ready/subscriber :1452-1632, _start_writer 364-line task :1632-1996, run() entry)
-> - **2026-08-24 audit:** absorbs GQ-24 (duplicate). Split must keep C-WS-1 ordering + C-WS-2 text-frame tests green verbatim.
-**Description:** `voice_typer/server/sidecar_ws.py` (2027 LOC) — single module with 17 top-level functions spanning 8+ disjoint concerns: WS server bootstrap, stdout line-buffering, protocol-version stamping, bearer-token auth (115 LOC), rate-limiter integration + dispatch pool + drain-coordination factory (_make_dispatch 261 LOC), queue drop-oldest marshaler, connection semaphore, connection lifecycle, duplicate-auth invariant, ready-event emit, event-bus subscriber + initial state snapshot (_install_subscriber 115 LOC), writer task, read/dispatch loop + heartbeat fast-path + per-connection rate cap (_read_loop 123 LOC), browser-origin rejection. FR-S14 (review.md:2557) was filed at 953 LOC; file has grown +547 LOC since then.
-**User Impact:** The WebSocket sidecar is the core IPC transport between the Python backend and the renderer. Every WS-path bug fix or invariant addition must touch this 2027-line file; reviewers can't load the relevant concern in isolation; merge conflicts compound. The growth indicates the file is actively regressing, not stabilizing.
-**Root Cause:** Verified — file has grown organically as ADR-0020 rounds 2,3,4 stacked WS-specific invariants (drain coordination, duplicate-auth, heartbeat rate cap, origin rejection, protocol negotiation) onto a file that originally was just run() + _handle_connection. No further split has happened since the Phase 4.5 ipc_server.py decomposition (which moved TCP / dispatcher / registry out but did NOT split sidecar_ws.py).
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/sidecar_ws.py`
-**Fix:** Split into voice_typer/server/sidecar_ws/ package with leaf modules mapped to the audited
-concerns: encode_pool.py (:290-553), shutdown_attach.py (:553-769), stdout_banner.py (:769-954),
-dispatch_factory.py (_make_dispatch 332-line factory :954-1286 + _enqueue_safe), queue_safety.py
-(:1286-1452), session.py (ready/subscriber/snapshot :1452-1632 + _install_subscriber), writer.py
-(_start_writer 364-line task :1632-1996), run.py (entry + _force_line_buffered_stdout). Target <=300
-LOC per leaf. HARD CONSTRAINTS: C-WS-1 ordering tests (ready first post-auth; snapshot after) and
-C-WS-2 str-frame/text-envelope pins must stay green verbatim after every moved symbol; the
-generation-guard helpers shared by reader/writer cleanup paths move together into one module (do not
-split them across leaves); keep voice_typer/server/sidecar_ws.py as a re-export shim so existing
-imports and monkeypatch targets are untouched (E16 create-first).
-**Severity:** 🔴 High
-**Category:** Spaghetti / monolith detection
-
-### EO-4 — transcription.py is a 1459-LOC god-class mixing 9 ASR concerns — absorbs GQ-25, AC-134
-**Status:** ❌ Not Fixed (2026-08-24 audit: 1519 LOC, GREW +4%; single TranscriptionEngine class ~1390 LOC / 38 methods — CUDA probe 120 lines :535-655, core transcribe 217 lines :886-1103)
-**Description:** `voice_typer/server/transcription.py` (1459 LOC) — TranscriptionEngine class with 30+ methods owning 9 distinct concerns: device detection, model loading, HF download, CUDA smoke test, kernel priming, segment decoding, lock + GC choreography, fallback chain, hallucination detection, unload. AC-134 cited this file. (The formerly-orphaned transcription_load.py / transcription_result.py / transcription_download.py modules are now WIRED — imported by transcription.py and dictation_handlers.py.)
-**User Impact:** The ASR engine is the core feature — every dictation goes through it. Untestable in isolation: every unit test must instantiate the full TranscriptionEngine. A change to e.g. CUDA probe logic risks transcription decoding logic.
-**Root Cause:** Verified — organic growth over many sessions; each new concern added methods rather than modules. (The extracted modules are now wired as implementations.)
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/transcription.py`
-**Fix:** Split into a transcription/ package mapped to the audited seams: device.py (device resolve
-:228-330), loader.py (load/fallback-chain :330-535), cuda_probe.py (120-line runtime probe :535-655),
-download.py (HF cache mgmt :688-852 - supersede/absorb the older transcription_load/result/download
-modules so there is ONE canonical layout), transcribe.py (core _transcribe_unlocked :886-1103),
-fallback_policy.py (GPU-fallback + error-classify :1150+), hallucination_filter.py, words.py,
-engine.py = thin TranscriptionEngine facade keeping the public API and every existing import path.
-GC choreography (:1103-1150) stays inside engine.py initially (it is lock-coupled to transcribe).
-HARD CONSTRAINTS: tests/test_golden_path_dictation.py, quality-summary tests, beam_size default pin
-(test_config.py:28) stay green after every moved symbol; create-first per commit; no public-API change.
-**Severity:** 🔴 High
-**Category:** Spaghetti / monolith detection
-
 ### EO-5 — cloud_engines.py is a 1054-LOC monolith mixing 6 cloud-provider concerns (was 1013)
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/server/cloud_engines.py` (1054 LOC — was 1013) — module mixes 6 concerns: provider defaults (_PROVIDER_DEFAULTS map + URL allowlist assertions), HTTP transport (_StreamingMultipartBody class, _read_capped, _audio_to_wav_bytes), retry policy (_transcribe_with_retry 131 LOC), provider-specific request/response shaping (_send_openai_compatible, _send_deepgram, _build_multipart_body, _multipart_parts), connection testing (test_connection), and the CloudEngine class itself. AC-134/AC-136/AC-137 cover transcription.py / parakeet_engine.py / model_manager.py but NOT cloud_engines.py.
@@ -955,49 +482,6 @@ HARD CONSTRAINTS: tests/test_golden_path_dictation.py, quality-summary tests, be
 - `voice_typer/server/recording/session_state.py`
 **Fix:** (1) Split __init__ into 7 focused _init_* helpers (buffer_state, locks, device_state, vad_caches, sample_rate_state, worker_handles, telemetry). (2) Move ownership of state INTO collaborator classes (AudioPipeline owns _chunk_count/_buffer/_lock/_xruns; StreamLifecycle owns _stream; etc.). (3) Migrate source-string tests (FZ-8/ARCH-12/S3-CR-21) from inspect.getsource assertions to behavioral assertions; then delete the 15 delegator methods + 9 property shims. Target: recorder.py ≤ 500 LOC.
 **Severity:** 🔴 Critical
-**Category:** Spaghetti / monolith detection
-
-### EO-11 — hotkeys/ + native_hotkeys/ parallel hierarchies with mirrored ABCs (no shared inheritance, _NativeBackendAdapter 630 LOC bridges them)
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/hotkeys/base.py:21` HotkeyBackend(ABC) vs `voice_typer/server/native_hotkeys/base.py:77` SubprocessHotkeyBackend(ABC) — two separate ABCs with parallel structure (factory, per-platform backends, is_windows/is_linux/is_macos helpers). native_adapter.py:36-43 documents: 'The native backends in native_hotkeys.py don't inherit from HotkeyBackend (they use a separate base class to avoid an import cycle). This adapter bridges the two.' This forces the existence of _NativeBackendAdapter (630 lines) solely to wrap a SubprocessHotkeyBackend to satisfy the HotkeyBackend interface. ~250 of the adapter's 630 lines are pure delegation.
-**User Impact:** Every adapter method (start, stop, set_on_release, set_toggle_on_keyup, is_alive, diagnose) is a thin forwarding wrapper. New methods added to HotkeyBackend must be re-delegated in the adapter or silently no-op'd. The 630-line adapter is a maintenance liability.
-**Root Cause:** Verified — historical split where the native backends were extracted into a separate package without unifying the ABCs.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/hotkeys/base.py`
-- `voice_typer/server/hotkeys/factory.py`
-- `voice_typer/server/hotkeys/native_adapter.py`
-- `voice_typer/server/native_hotkeys/base.py`
-- `voice_typer/server/native_hotkeys/factory.py`
-**Fix:** Option (a), decisively - make SubprocessHotkeyBackend(HotkeyBackend) by importing
-voice_typer.server.hotkeys.base from native_hotkeys/base.py (hotkeys/base.py is already a stdlib-only
-leaf; import direction verified acyclic). No method moves: SubprocessHotkeyBackend already implements
-start/stop(*, shutdown=True)/is_alive/diagnose/set_on_release/set_toggle_on_keyup; set_tray comes free
-from the ABC no-op default. The 593-line adapter does NOT disappear (option (b) was wrong): it holds the
-native->legacy fallback chain (_swap_to_legacy, _create_legacy_backend, _schedule_native_retry),
-macOS Accessibility onboarding, and tray notify propagation - collapse only its pure-delegation
-passthroughs to inherited methods, one commit each, keeping fallback/onboarding/notification paths
-intact. Guards: tests/test_keyboard_ownership.py, test_keyboard_ownership_watchdog.py,
-tests/hotkeys/test_native_adapter.py, test_hotkey_dispatcher.py,
-tests/tauri/mig19/test_wire_swap_recovery.py.
-**Severity:** 🟡 Medium
-**Category:** Overall architecture / Refactoring opportunities
-
-### EO-12 — config/__init__.py is a 2613-LOC stalled-split monolith (GREW from 2286; XZ-R10-13/FR-S1 stale; partial split INTRODUCED classmethod-delegator duplication)
-**Status:** ✅ Resolved (verified 2026-08-23; supersedes AC-131, removed from Base Set) — `config/__init__.py` is now **271 LOC** of wiring/re-exports backed by satellite modules: `_accessors.py`, `_defaults.py`, `_lifecycle.py`, `_migration.py`, `_saving.py`, `_schema.py`, `_systemroot.py` + the earlier loader.py / coercion.py / sanitization.py. `config_validators/__init__.py` is **242 LOC** over allowlist/cross_field/entry_points/hotkey/language/scalar modules. The Config classmethod→module-function forwarding shims remain DELIBERATELY as documented test-patch compatibility (see the in-file comments at config/__init__.py) — no longer a stalled split.
-**Description:** `voice_typer/server/config/__init__.py` (2613 LOC) — XZ-R10-13 (review.md:893) flagged config.py at 2002 LOC and prescribed a 7-way split. The 4.5 split landed only config/loader.py + config/coercion.py + config/sanitization.py + config_internals/{paths,migrations}.py — the prescribed config_dataclass.py / config_saver.py / config_purge.py modules still don't exist (FR-S1 pending). Worse, the split introduced a SECOND class of duplication: each extracted function now has TWO homes (module-level impl + Config classmethod delegator wrapper). 10 classmethod delegator wrappers exist purely so existing test patch sites keep working — they have no production callers.
-**User Impact:** Future config-field additions require edits in 2-4 places (dataclass field, validator entry, IPC allowlist, optional extraction). The split made the file BIGGER, not smaller — partial extraction with re-export shims is net-negative.
-**Root Cause:** Verified — partial-split stalled. The 10 classmethod delegator wrappers exist for test patch sites that monkeypatch Config._coerce_streaming_fields etc.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/config/__init__.py`
-- `voice_typer/server/config/coercion.py`
-- `voice_typer/server/config/loader.py`
-- `voice_typer/server/config/sanitization.py`
-- `voice_typer/server/config_internals/migrations.py`
-- `voice_typer/server/config_internals/paths.py`
-**Fix:** (1) Land the remaining FR-S1 splits: config_dataclass.py, config_saver.py, config_purge.py. (2) Delete the 10 classmethod delegator wrappers; update test patch sites to import the extracted module-level functions directly. (3) Update the line-1 docstring to reflect the actual current package layout.
-**Severity:** 🔴 High
 **Category:** Spaghetti / monolith detection
 
 ### EO-13 — dictation_pipeline/orchestrator.py run() god-method (AC-73 merged here; decomposition LANDED, residual length remains)
@@ -1159,9 +643,9 @@ Compiled 80 deduplicated findings into `/home/z/my-project/voice-typer/review.md
 - **FI-S1**: `history_db.py` 2529 LOC → split class methods into `history_db_internals/{writes,queries,migration,fts_search,retention,lifecycle}.py` (Effort: L)
 - **FI-S2**: ~~`credential_store.py` 2132 LOC~~ ✅ DONE — `credential_store/{_schema,_redact,_outcome,_backend,_plaintext,_crud,_migration}.py` package landed (verified 2026-08-23)
 - **FI-S3**: `config/__init__.py` 2613 LOC → `config/{persistence,migration,validation,secrets}.py` (Effort: L)
-- **FI-S4**: `sidecar_ws.py` 2027 LOC → `sidecar_ws/{auth,dispatch,connection,writer,reader,run}.py` (Effort: L)
+- **FI-S4**: ~~`sidecar_ws.py` 2027 LOC → `sidecar_ws/{auth,dispatch,connection,writer,reader,run}.py`~~ ✅ DONE via EO-3 (2026-08-25) — canonical module + `sidecar_ws_internals/` sibling package landed instead; layout differs by design
 - **FI-S5**: `crash_recovery.py` 1292 LOC (re-audited 2026-08-12; was 1273) → `crash_recovery/{persistence,lost_dictation,load_quarantine}.py` (Effort: M)
-- **FI-S6**: `shutdown_controller.py` 1420 LOC → `shutdown/orchestration.py` (Effort: M)
+- **FI-S6**: ~~`shutdown_controller.py` 1420 LOC → `shutdown/orchestration.py`~~ ✅ DONE via VP-39 (2026-08-25) — `_do_cleanup`/`_do_fast_cleanup` bodies extracted to `shutdown/cleanup.py`; drain to `shutdown/ws_drain.py`; plans to `shutdown/plan.py` (no orchestration.py — layout differs by design)
 - **FI-S7**: `cloud_engines.py` 1054 LOC (was 1013) → `cloud/{_multipart,_http_helpers,_openai_provider,_deepgram_provider}.py` (Effort: M)
 - **FI-S10**: ~~`config_validators/__init__.py` 859 LOC~~ ✅ DONE — now 242 LOC over `allowlist/cross_field/entry_points/hotkey/language/scalar` modules (verified 2026-08-23)
 
@@ -1177,9 +661,9 @@ Compiled 80 deduplicated findings into `/home/z/my-project/voice-typer/review.md
 - **FI-S1**: `history_db.py` 2529 LOC (3.2× threshold, re-verified 2026-08-12) — partial split done (`history_db_internals/`) but HistoryDB class body still large. Execute AC-135 plan: extract class methods into `history_db_internals/{writes,queries,migration,fts_search,retention,lifecycle}.py`. Effort: L.
 - **FI-S2**: ~~`credential_store.py` 2132 LOC (2.7× threshold)~~ ✅ DONE — split landed as the `credential_store/` package (verified 2026-08-23; see GQ-70).
 - **FI-S3**: `config/__init__.py` 2613 LOC (3.3× threshold) — ✅ RESOLVED (verified 2026-08-23): `config/__init__.py` is now 271 LOC over `_accessors/_defaults/_lifecycle/_migration/_saving/_schema/_systemroot` + loader/coercion/sanitization (see EO-12).
-- **FI-S4**: `sidecar_ws.py` 2027 LOC (2.5× threshold) — NO split done. Split into `sidecar_ws/{auth,dispatch,connection,writer,reader,run}.py`. Effort: L.
+- **FI-S4**: ~~`sidecar_ws.py` 2027 LOC (2.5× threshold) — NO split done~~ ✅ DONE via EO-3 (2026-08-25) — split landed as the canonical module + `sidecar_ws_internals/` sibling package; layout differs by design from the proposed `sidecar_ws/{auth,dispatch,connection,writer,reader,run}.py`.
 - **FI-S5**: `crash_recovery.py` 1292 LOC — partial split done (`diagnostics_export.py` extracted) but file still grew. Extract `crash_recovery/{persistence,lost_dictation,load_quarantine}.py`. Effort: M.
-- **FI-S6**: `shutdown_controller.py` 1420 LOC — partial split done (`shutdown/teardowns/` 12 modules) but `_do_cleanup` 174 LOC (lines 336-509, re-audited 2026-08-12; the earlier "392 LOC" claim was stale) still inline. Extract `shutdown/orchestration.py`. Effort: M.
+- **FI-S6**: ~~`shutdown_controller.py` 1420 LOC — partial split done (`shutdown/teardowns/` 12 modules) but `_do_cleanup` 174 LOC (lines 336-509, re-audited 2026-08-12; the earlier "392 LOC" claim was stale) still inline. Extract `shutdown/orchestration.py`.~~ ✅ DONE via VP-39 (2026-08-25) — `_do_cleanup` extraction landed: bodies in `shutdown/cleanup.py` (+ ws_drain.py / plan.py); layout differs by design from a single `shutdown/orchestration.py`.
 - **FI-S7**: `cloud_engines.py` 1054 LOC (was 1013) — extract `cloud/{_multipart,_http_helpers,_openai_provider,_deepgram_provider}.py`. Effort: M.
 - **FI-S10**: ~~`config_validators/__init__.py` 859 LOC~~ ✅ DONE — `allowlist/cross_field/entry_points/hotkey/language/scalar` modules landed; `__init__.py` now 242 LOC (verified 2026-08-23).
 
@@ -1270,29 +754,6 @@ are not present in this file.
 
 ---
 
-### TC-1 — pytest `--dist=loadgroup` configured; 13 `xdist_group` mentions exist (5 real `pytestmark` decorators; was zero)
-**Status:** ⚠️ Not Fixed
-**Description:** `--dist=loadgroup` is configured in Makefile:50,53,56 and .github/workflows/build.yml:137,332,340 (per C-TEST-3), but re-verified 2026-08-12: **13 `xdist_group` mentions across 5 test files** now exist — **5 are real `pytestmark = pytest.mark.xdist_group("...")` module markers** (test_gen_tauri_icons_stub.py, test_build_script_glue.py, test_faster_whisper_linux.py, test_ipc_layer_fixes.py, test_ipc_package_fixes.py); the other 8 are comment/docstring mentions (`rg 'pytest.mark.xdist_group' tests/` = 13). The earlier zero-marker claim is stale; a later audit claiming "ZERO decorators exist" is FALSE — the 5 real `pytestmark` markers are grouped markers, not comment text.
-**User Impact:** When a developer or CI runs the test suite, pytest-xdist distributes tests across CPU workers using the "loadgroup" scheduler; only 5 test files use the `xdist_group` marker, so the vast majority of tests (including those sharing mutable state like the keyboard_ownership singleton or log_rate_limit module-level dicts, currently reset by autouse fixtures) still fall back to round-robin distribution and may run in parallel on different workers, potentially causing flaky failures or masking real race conditions. The developer sees no immediate breakage, but the test infrastructure's design intent (grouping related tests) is only partially adopted.
-**Root Cause:** The `loadgroup` choice was likely copied from a template without accompanying marker adoption.
-**Progress:** None yet.
-**Related Files:**
-- `pyproject.toml`
-- `Makefile`
-- `.github/workflows/build.yml`
-**Fix:** Adopt option (a) - markers are repo idiom already (test_gen_tauri_icons_stub.py:64 et al.;
-pytest-xdist 3.8.0 installed; no-op without xdist). First-marked modules (real cache files identified):
-xdist_group("keyboard_ownership") -> tests/test_keyboard_ownership.py + test_keyboard_ownership_watchdog.py;
-xdist_group("log_rate_limit") -> tests/test_log_rate_limit.py + tests/test_log_rate_limit_lru.py;
-xdist_group("native_binary_path") -> tests/test_binary_path_caching.py,
-tests/test_native_hotkeys_binary_path.py, tests/test_native_hotkeys_factory_binary_path.py,
-tests/tauri/test_native_binary_path_tauri.py. Keep -n auto --dist=loadgroup CLI-level (Makefile + CI) -
-never move flags into pyproject addopts. Document in CONTRIBUTING.md: marker = same-worker hint under
-loadgroup, not a correctness guarantee on other dist modes.
-**Severity:** 🟡 Medium
-**Verification (2026-08-06, Windows win32):**
-`pyproject.toml` has ZERO occurrences of `loadgroup`; 13 `xdist_group` mentions now exist across 5 test files — 5 of them real `pytestmark = pytest.mark.xdist_group(...)` decorators, 8 comment mentions (re-verified 2026-08-12; the zero-marker claim is stale). `--dist=loadgroup` is still live in Makefile:50,53,56 and .github/workflows/build.yml:137,332,340. Neither prescribed option (markers, or documenting intent) was fully done — marker adoption is partial (5 files only).
-
 ### TC-27 — `time.time()` (wall clock) used for polling deadlines in 10 test sites (NTP jump flakiness)
 **Status:** ⚠️ Partial
 **Description:** 10 sites use the *correct* polling-with-deadline pattern (poll predicate + sleep + deadline) but use `time.time()` (wall clock) instead of `time.monotonic()`. `time.time()` is subject to NTP adjustments (step corrections can be ±1s forward or backward), DST transitions, and leap-second smearing. If the wall clock jumps BACKWARD by 1s mid-poll, the loop runs 1s longer than intended — usually benign. If the wall clock jumps FORWARD by 2s, the loop exits early as if the deadline expired — the assertion fires with a misleading "service.quit() was not called within 2s" message even though only 0.1s of wall time actually elapsed.
@@ -1370,50 +831,6 @@ Only 2 of 10 sites switched to `time.monotonic()`. Fixed: `test_ipc_server.py:55
 - `voice_typer/server/config_internals/paths.py`
 **Fix:** Either (a) move the 3 path-safety function bodies from `config_internals/paths.py` into `config_path_safety.py` and have `paths.py` re-import them, OR (b) delete `config_path_safety.py` and update the 4 production callers + 9 test files to import directly from `config_internals.paths`.
 **Severity:** 🟡 Medium
-
-### VP-39 — `ShutdownController` is a 32-method god-class
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/shutdown_controller.py:173-1397` — `ShutdownController` has 32 instance methods. Breakdown: 1 `__init__` (94 LOC), 5 cleanup-orchestration (`_do_cleanup`, `_do_fast_cleanup`, `_drain_ws_dispatch_pool`, `_build_sequenced_plan`, `_build_parallel_plan`, `_run_plan`, `_late_bookbook_tray_stop`), 13 `_teardown_*` methods (lines 1042-1276), 1 public `quit`, 4 atexit/signal (`_arm_shutdown_watchdog`, `_atexit_log`, `_atexit_cleanup`, `_install_signal_handlers`, `_signal_watcher_loop`), 2 Win32 console (`_install_win32_console_handler`, `_win32_console_handler`).
-**User Impact:** Reading the cleanup sequence requires mentally tracking 32 methods; the 13 `_teardown_*` methods are sequentially coupled through the same `app` handle.
-**Root Cause:** Teardown methods accreted on the controller instead of being registered.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/shutdown_controller.py`
-**Fix:** Do NOT build teardown_registry.py - extraction to shutdown/teardowns/* ALREADY LANDED (OI-36):
-all 16 `_teardown_*` bodies are free functions there and the 1-line delegates are LOAD-BEARING TEST SURFACE
-(test_do_cleanup_invokes_all_teardown_helpers monkeypatches them by name; teardowns/__init__.py documents
-the rejection). Keep delegates. Residual slimming, following the lifecycle.py/plan.py sibling convention:
-(1) move `_do_cleanup` (~195 LOC) + `_do_fast_cleanup` (~191) orchestration bodies into shutdown/cleanup.py
-(free functions taking the controller);
-(2) move `_build_sequenced_plan` + `_build_parallel_plan` (~187 LOC) into shutdown/plan.py beside
-ShutdownStep/run_plan;
-(3) move `_drain_ws_dispatch_pool` (~129) into shutdown/ws_drain.py;
-(4) signal/watchdog/atexit clusters stay (bodies already in atexit_safety/lifecycle).
-Target: controller ~700 LOC of docstrings + delegates; zero behavior change. Guards:
-tests/test_shutdown_parallel.py, test_shutdown_asr_unload.py, test_shutdown_controller_de.py,
-test_shutdown_parallel_pool_drain.py.
-**Severity:** 🟡 Medium
-
-### GQ-11 — logging.rs 1737 LOC (was 3232; inline tests moved out) — 7-file split still open
-**Status:** ⚠️ Partial (re-audited 2026-08-12: 1737 LOC, down from 3232; 0 inline #[test] — tests moved to `logging_tests.rs`; the 7-file split is still not executed)
-**Description:** `wc -l` = 3232 lines. `grep -c '^\s*#\[test\]'` = 89 inline `#[test]` fns. Test block = lines 1766 → 3232 = 1467 LOC = 45.4% of the file. The file's own header (lines 6-30) admits 'This file is a 2161-line monolith mixing 6 concerns: init orchestration, `CombinedLogger` multi-sink dispatch, a 515-LOC PII redaction engine (`redact_pii` + 5+ `try_match_*` state machines), `install_panic_hook`, `EarlyLogger` + `EARLY_LOGGER_HANDLE`, and `RotatingFileWriter`' and proposes a 7-file split. AGENTS.md C-TEST-5 explicitly says: 'No inline `#[cfg(test)] mod tests` blocks in `.rs` source files' — rationale explicitly cites `logging.rs`'s 89 inline tests as the reason for the rule.
-**User Impact:** Any change to logging risks merge conflicts. Test discovery is slow. Inline tests bloat the production binary's debug-info even in release builds. Contributors navigating the file waste time scrolling past 1467 lines of tests to find the production logger.
-**Root Cause:** Historical accumulation; the file's own header documents a 7-file split plan that was never executed. C-TEST-5 was added BECAUSE of this file.
-**Progress:** None yet.
-**Related Files:**
-- `src-tauri/src/platform/logging.rs:1-3232`
-**Fix:** SOURCE SPLIT ONLY - tests are already extracted (logging_tests.rs sibling holds all 91 #[test]
-incl. the redact battery; zero inline #[test] remain; the file's own header claim of a pending test-move is
-stale). logging.rs (1748 phys LOC) -> platform/logging/{mod,init,combined,redact,panic_hook,early,rotating}.rs
-per the in-file proposal; init.rs also takes sweep_stale_logs + init_file_logger_or_stderr_fallback;
-combined.rs takes the truthy-env helpers. Mark moved internals pub(crate)/pub(super) so logging_tests.rs'
-`use super::logging::*;` keeps compiling; do NOT create per-submodule test files (C-TEST-5 sibling
-convention satisfied by the existing single logging_tests.rs). Refresh the stale self-header
-("2161-line monolith", "NOT done"). Gate: cargo check + FULL logging_tests.rs run - the C-LOG-1 format
-pins and the redact_pii battery must stay green.
-**Severity:** 🔴 High
-**Verification (2026-08-06, Windows win32):**
-Inline tests moved, 7-file split NOT done. `src-tauri/src/platform/logging.rs` is now 1737 lines with 0 `#[cfg(test)]` (re-audited 2026-08-12; the earlier "1745" was slightly off); `logging_tests.rs` (89 tests) wired at `mod.rs`. The proposed `logging/{mod,init,combined,redact,panic_hook,early,rotating}.rs` split was not executed. The orphaned `log_file.rs`/`log_rotation.rs` DO NOT EXIST — they were deleted (the "orphans not deleted" claim is stale).
 
 ### GQ-15 — bench_startup.py warm-cache contamination makes median misleading
 **Status:** ⚠️ Partial
@@ -1577,23 +994,6 @@ Linux half done, Windows/macOS half missing. `--parallel` flag + backgrounded `&
 - `voice_typer/server/_timeout_utils.py:328`
 **Fix:** Add a soft cap (e.g. `_MAX_LEAKED_WORKERS = 64`) — when exceeded, evict the oldest still-alive check (or just `del _LEAKED_WORKERS[0]` since the daemon thread will be reaped by Python exit anyway). Alternatively, prune dead threads opportunistically inside `_run_with_timeout` itself.
 **Severity:** 🟡 Medium
-
-### GQ-70 — credential_store.py 2132 LOC — 22 functions + 11 module globals, no class
-**Status:** ✅ Resolved (verified 2026-08-23; supersedes AC-128, removed from Base Set) — `credential_store.py` is GONE, replaced by the `voice_typer/server/credential_store/` package: `_schema.py`, `_redact.py`, `_outcome.py`, `_backend.py`, `_plaintext.py`, `_crud.py`, `_migration.py`, with a 255-LOC `__init__.py` re-export facade preserving all public + test-used symbols. The KeyringBackend/PlaintextFallback encapsulation proposed below maps onto `_backend.py` / `_plaintext.py`.
-**Description:** 2132 LOC (re-audited 2026-08-12; was 2121), 22 module-level functions, no class encapsulation. Mixes: (1) keyring timeout/orphan tracking, (2) keyring availability probe + cache, (3) plaintext fallback read/write, (4) GDPR clear, (5) migration logic, (6) lock acquisition helpers. Five module-level globals (`_keyring_state_lock`, `_orphaned_thread_count`, `_consecutive_timeouts`, `_wedged_until`, `_plaintext_config_cache`, `_keyring_available_cache`, `_keyring_backend_name_cache`, `_keyring_reason_cache`, `_keyring_last_probe_ts`, `_keyring_probe_lock`, `_last_store_outcome`) — 11 pieces of mutable module state.
-**User Impact:** Hard to test in isolation; mutable globals make mocking fragile.
-**Root Cause:** Module-level functional style grew without encapsulation.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/credential_store.py:1-2132`
-**Fix:** Extract a `KeyringBackend` class (owns probe cache + orphan tracking + wedge state) and a `PlaintextFallback` class (owns `_plaintext_config_cache`). Keep `migrate_secrets_to_keyring` as a standalone function.
-**Severity:** 🟡 Medium
-
----
-
-## Session GQ Findings — Low-Severity Appendix (Won't Fix)
-
-The following Low-severity findings were identified during Phase 1 investigation. Per the directive: 'Low-severity items may be deferred only if explicitly marked `Won't Fix` with a documented reason in review.md.' These are documented for future opportunistic cleanup but are NOT targeted for fix in this session. Rationale: each has negligible runtime cost (<50ms / <10MB / <1% CPU); spending a dedicated sub-agent on each would be lower-ROI than the Critical/High/Medium fixes above.
 
 ### GQ-L1 — app.py i18n registry mutation at import time (lines 273-285)
 **Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
@@ -1815,13 +1215,13 @@ The following Low-severity findings were identified during Phase 1 investigation
 
 ### GQ-L29 — logging.rs redact_pii fast-path 8 separate contains scans
 **Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
-> - **2026-08-24 audit:** actually up to 10 passes (8 contains + 2 char-run scans) + clean-path clone (logging.rs:551-562); touching requires PII battery re-run.
+> - **2026-08-24 audit:** actually up to 10 passes (8 contains + 2 char-run scans) + clean-path clone (citation re-pointed 2026-08-25 post-GQ-11 split: now `src-tauri/src/platform/logging/redact.rs:63-75` — was logging.rs:551-562); touching requires PII battery re-run.
 **Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
 **User Impact:** Negligible (sub-50ms latency / sub-10MB memory / sub-1% CPU). No measurable user-visible effect; purely a code-quality or micro-perf concern.
 **Root Cause:** See related file:line — typically a copy-paste smell, redundant call, or stale comment.
 **Progress:** None yet.
 **Related Files:**
-- `src-tauri/src/platform/logging.rs:440-473`
+- `src-tauri/src/platform/logging/redact.rs:42-75` (redact_pii fast path; pre-split cite logging.rs:440-473)
 **Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
 **Severity:** 🟢 Low
 
@@ -2063,6 +1463,20 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `voice_typer/server/model_manager.py:1748-1758`
 **Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
 **Severity:** 🟢 Low
+
+### GA-1 — Restore bundled gtcrn_simple.onnx model binary
+**Status:** Open (pending asset delivery).
+**Description:** The bundled GTCRN noise-suppression model binary `voice_typer/server/gtcrn_simple.onnx` is ABSENT from this tree (verified 2026-08-25: file does not exist) — the cloud patch exports text-only diffs and cannot carry binaries, and the 0-byte artifact was removed. ER-2 landed the entire backend against the expected asset: official GTCRN streaming ONNX export, 535190 bytes, MIT license. With the binary missing, `_init_gtcrn` degrades to RNNoise with `is_degraded=True` at every init and the noisy_room preset silently loses its neural denoiser; the sdist MANIFEST.in include line is commented out pending delivery (dated rationale in place) so packaging never references a nonexistent file. Hop-size/layout contract for the incoming asset: 512-sample window / `HOP: int = 256` at voice_typer/server/audio_filters/gtcrn_backend.py:67 (16 ms @ native 16 kHz). Completes ER-2 delivery — cross-reference [ER-2] rather than duplicating its backend scope.
+**User Impact:** noisy_room users get RNNoise fallback quality instead of neural suppression until the asset lands; TestRealModel coverage in tests/test_noise_suppressor_gtcrn.py stays skipped.
+**Root Cause:** Binary asset cannot travel through the text-only patch channel — delivery gap, not a code defect.
+**Progress:** Open — awaiting asset delivery.
+**Related Files:**
+- `MANIFEST.in`
+- `voice_typer/server/audio_filters/gtcrn_backend.py`
+- `voice_typer/server/audio_filters/noise_suppressor.py`
+- `tests/test_noise_suppressor_gtcrn.py`
+**Fix:** Obtain the official GTCRN streaming ONNX export (535190 bytes, MIT) via cloud-workspace re-export INCLUDING untracked binaries — never blind-download an arbitrary upstream export. Place at `voice_typer/server/gtcrn_simple.onnx`; uncomment the MANIFEST.in include line; un-skip `TestRealModel` in tests/test_noise_suppressor_gtcrn.py (skipif guard cites `MODEL_PATH.exists()`, :604-606); validate perf budget ~1.43 ms/hop ≤ 20 ms.
+**Severity:** 🟡 Medium
 
 
 ## Completed

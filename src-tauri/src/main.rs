@@ -32,6 +32,7 @@
 
 mod branding;
 mod commands;
+mod error;
 mod host_events;
 mod migrate;
 mod platform;
@@ -47,6 +48,12 @@ mod util;
 // `#[path]` attribute.
 #[cfg(test)]
 mod state_tests;
+
+// Sibling test home for the unified command error enum (`error.rs`),
+// wired the same way as `state_tests` above (no `#[path]` attribute
+// needed — the sibling file resolves by module-name convention).
+#[cfg(test)]
+mod error_tests;
 
 // Shared test-only state (e.g. the panic-hook serialization lock used
 // by every test that fires a real panic through the process-global

@@ -20,6 +20,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.fixtures.history_test_helpers import history_plaintext_mode  # noqa: F401
+
 # ── Fixtures ────────────────────────────────────────────────────────────
 #
 # The autouse ``mock_heavy_imports`` fixture from tests/conftest.py

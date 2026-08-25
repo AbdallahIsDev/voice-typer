@@ -258,7 +258,25 @@ def arm_shutdown_watchdog(
         # passing, and the single-blocking-sleep remains observable
         # (tests that arm a 0.2s watchdog and sleep 0.6s still see it
         # fire at >=0.2s).
+        _grace_deadline = time.monotonic() + timeout_s
         time.sleep(timeout_s)
+        # If the sleep was patched to a no-op (test suites patch the
+        # GLOBAL ``time.sleep`` — ``monkeypatch.setattr("time.sleep",
+        # ...)``), the grace period has not actually elapsed on the
+        # wall clock and the code below would race the test-suite drain
+        # (``_drain_shutdown_watchdogs`` in tests/conftest.py sets the
+        # cancel event AFTER ``monkeypatch`` restores the REAL
+        # ``os._exit``, so an instantly-fired watchdog could kill the
+        # whole test runner mid-suite). Wait out the remaining grace
+        # period on the cancel event itself: the drain's ``cancel.set()``
+        # wakes us immediately (disarmed, no exit), and if no drain ever
+        # runs we still fire at the true grace deadline — identical to
+        # the production timing. When the sleep was real, the remaining
+        # time is ~0 and this wait is a no-op, so production behavior
+        # is unchanged.
+        _grace_remaining = _grace_deadline - time.monotonic()
+        if _grace_remaining > 0 and cancel_event.wait(_grace_remaining):
+            return
         # If the test-suite drain disarmed us while we slept, return
         # WITHOUT ``os._exit(0)`` — a leaked watchdog must never kill
         # the whole xdist worker mid-suite.

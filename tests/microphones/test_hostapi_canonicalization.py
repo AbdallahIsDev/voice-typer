@@ -148,6 +148,15 @@ def _canonical_names(mics) -> set[str]:
 
 
 class TestWindowsCanonicalization:
+    @pytest.fixture(autouse=True)
+    def _force_windows(self, monkeypatch):
+        """Force the Windows code path: these tests pin WASAPI
+        canonicalization of a real Windows PortAudio dump, but the suite
+        also runs on Linux/macOS where the production filter reads
+        ``sys.platform`` at call time (and would prefer PulseAudio/Core
+        Audio, neither present in the fixture)."""
+        monkeypatch.setattr(sys, "platform", "win32")
+
     def test_multi_api_dump_collapses_to_canonical_wasapi_records(self, monkeypatch):
         _install_fake_sounddevice(monkeypatch, _real_machine_devices(), _real_machine_hostapis())
         from voice_typer.server.server_platform import list_microphones
@@ -437,6 +446,7 @@ class TestCrossHostApiIdResolution:
     def test_end_to_end_through_real_enumeration_pipeline(self, monkeypatch):
         """Full pipeline against fake PortAudio data: enumerate (with
         canonicalization active) → resolve a pre-normalization id."""
+        monkeypatch.setattr(sys, "platform", "win32")
         _install_fake_sounddevice(monkeypatch, _real_machine_devices(), _real_machine_hostapis())
         mic = find_microphone_by_id(f"MME|{_REALTEK}")
         assert mic is not None

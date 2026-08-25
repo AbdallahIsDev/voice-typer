@@ -33,10 +33,18 @@ def _mock_sounddevice(monkeypatch):
 
 
 def _make_recorder(config=None):
+    """Build a real ``Recorder`` (mock config unless one is injected).
+
+    Delegates to the shared canonical factory (XS-42 helper dedup) —
+    see ``tests/fixtures/recorder_test_helpers.make_recorder`` for the
+    pre-populated config fields.
+    """
+    if config is None:
+        from tests.fixtures.ipc_test_helpers import make_fake_recorder
+
+        return make_fake_recorder()
     from voice_typer.server.recording import Recorder
 
-    if config is None:
-        config = MagicMock(sample_rate=16000, microphone=None)
     return Recorder(config)
 
 

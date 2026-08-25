@@ -685,7 +685,10 @@ class _ConfigSchema:
     # historical ``"speex"`` option was never implemented — there is
     # no speex backend in ``audio_filters/noise_suppressor.py`` — and
     # is intentionally omitted so static type-checkers reject it.
-    noise_suppression_method: Literal["rnnoise", "deepfilternet", "none"] = "rnnoise"
+    # (``"deepfilternet"`` was likewise retired when the bundled GTCRN
+    # ONNX streaming model replaced it; ``Config.load()`` remaps the
+    # legacy on-disk value to ``"gtcrn"``.)
+    noise_suppression_method: Literal["rnnoise", "gtcrn", "none"] = "rnnoise"
 
     # NoiseGate (OBS-style, replaces single threshold)
     noise_filter_gate_open_threshold_db: float = -26.0

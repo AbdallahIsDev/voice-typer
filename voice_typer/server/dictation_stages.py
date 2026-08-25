@@ -40,9 +40,11 @@ design rules (NO behavior change):
   owning ``DictationPipeline`` (reached via ``ctx.pipeline``). The
   step methods themselves are unchanged — they keep their existing
   signatures, error handling, and side effects so the existing
-  direct-call tests (``test_dictation_pipeline_review_fixes.py``,
-  ``test_dictation_pipeline_h17_and_s3_cr10_fixes.py``,
-  ``test_dictation_pipeline_check_resources.py``) keep passing.
+  direct-call tests (``tests/app/test_notify_once_flags.py``,
+  ``tests/test_transcription_audio_stats.py``,
+  ``tests/test_dictation_pipeline_stage_timer.py``,
+  ``tests/test_dictation_pipeline_check_resources.py``) keep
+  passing.
 """
 
 from __future__ import annotations

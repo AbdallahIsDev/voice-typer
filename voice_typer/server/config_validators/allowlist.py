@@ -16,7 +16,7 @@ has its own focused home.  It owns:
   :data:`model_registry.MODEL_REGISTRY` at import time so the two
   cannot drift.
 * :data:`NOISE_SUPPRESSION_METHODS` — the canonical noise-suppression
-  backend enum (``"rnnoise" | "deepfilternet" | "none"``); imported by
+  backend enum (``"rnnoise" | "gtcrn" | "none"``); imported by
   ``audio_filters/noise_suppressor.py`` and re-exported via
   ``config/__init__.py``.
 * The pre-built ``_VALIDATOR_*`` instances used inside
@@ -130,7 +130,7 @@ ALLOWED_USER_MODELS: frozenset[str] = frozenset(_MODEL_REGISTRY_FOR_ALLOWLIST.ke
 # Use ``frozenset`` so callers can't accidentally mutate the canonical
 # enum (an ``in`` check is the only supported operation).
 # ──────────────────────────────────────────────────────────────────────────
-NOISE_SUPPRESSION_METHODS: frozenset[str] = frozenset({"rnnoise", "deepfilternet", "none"})
+NOISE_SUPPRESSION_METHODS: frozenset[str] = frozenset({"rnnoise", "gtcrn", "none"})
 
 
 # ──────────────────────────────────────────────────────────────────────────

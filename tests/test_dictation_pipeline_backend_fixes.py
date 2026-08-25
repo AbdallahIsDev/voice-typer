@@ -70,7 +70,7 @@ from voice_typer.server.tray_types import AppState
 class _TestApp:
     """Minimal non-magic test app for DictationPipeline tests.
 
-    Mirrors the pattern in ``test_dictation_pipeline_review_fixes.py``
+    Mirrors the pattern in ``tests/app/test_notify_once_flags.py``
     and ``test_dictation_pipeline_lock_fixes.py``: a custom
     class (instead of ``MagicMock``) so the four notify-once flag
     attributes correctly default to ``False`` via

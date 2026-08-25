@@ -80,29 +80,32 @@ class TestRecorderLazyImport:
 
     def test_recorder_import_lives_inside_init(self) -> None:
         """The ``from voice_typer.server.recording import Recorder``
-        statement appears inside ``VoiceTyperApp.__init__``'s source
-        (inside the STARTUP-9 background ``_build_recorder_subsystem``
-        closure), before the construction assignment
+        statement appears inside the recording-init builder's source
+        (inside the background ``_build_recorder_subsystem`` closure),
+        before the construction assignment
         ``self._recorder_backing = recorder``. The eager
         ``self.recorder = Recorder(...)`` assignment must NOT appear
-        anywhere in ``__init__`` — it moved to the background
-        recorder-init thread.
+        anywhere in the builder — it moved to the background
+        recorder-init thread. (The body lived inline in
+        ``VoiceTyperApp.__init__`` before the ``__init__`` decomposition;
+        ``_init_recording`` is its new home.)
         """
         from voice_typer.server.app import VoiceTyperApp
 
-        init_src = inspect.getsource(VoiceTyperApp.__init__)
-        # The lazy import statement must appear in __init__'s body.
+        init_src = inspect.getsource(VoiceTyperApp._init_recording)
+        # The lazy import statement must appear in the builder's body.
         assert "from voice_typer.server.recording import Recorder" in init_src, (
-            "VoiceTyperApp.__init__ must contain the lazy import "
+            "VoiceTyperApp._init_recording must contain the lazy import "
             "'from voice_typer.server.recording import Recorder' so the "
             "recording package is not imported at module top."
         )
-        # STARTUP-9: the eager construction was moved to the background
-        # recorder-init thread — the old assignment is gone from __init__.
+        # the eager construction was moved to the background
+        # recorder-init thread — the old assignment is gone from the builder.
         assert "self.recorder = Recorder(" not in init_src, (
-            "STARTUP-9 removed the eager 'self.recorder = Recorder(...)' "
-            "from __init__ — the recorder is built on the background "
-            "recorder-init thread and assigned to _recorder_backing."
+            "the eager 'self.recorder = Recorder(...)' was removed "
+            "from the recording-init builder — the recorder is built on "
+            "the background recorder-init thread and assigned to "
+            "_recorder_backing."
         )
         # And the import must appear BEFORE the construction assignment.
         import_idx = init_src.index("from voice_typer.server.recording import Recorder")
@@ -110,7 +113,7 @@ class TestRecorderLazyImport:
         assert import_idx < construct_idx, (
             "The lazy 'from voice_typer.server.recording import Recorder' "
             "statement must appear BEFORE 'self._recorder_backing = "
-            "recorder' inside VoiceTyperApp.__init__."
+            "recorder' inside VoiceTyperApp._init_recording."
         )
 
     def test_recorder_import_absent_from_module_top(self) -> None:

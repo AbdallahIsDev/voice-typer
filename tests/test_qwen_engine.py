@@ -1,7 +1,7 @@
 """Tests for the optional Qwen3-ASR backend."""
 
 import os
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -584,3 +584,42 @@ class TestQwenOnnxFailClosed:
             assert engine.load() is True
         assert engine.is_loaded is True
         assert engine.device == "cpu"
+
+
+# ── Batch transcription API (split from the former review-round catch-all
+# tests/test_remaining_fixes.py) ──────────────────────────────────────
+
+
+class TestBatchTranscription:
+    """PERF-009: Verify batch transcription API for QwenEngine."""
+
+    def test_batch_method_exists(self):
+        """QwenEngine should have a transcribe_batch method."""
+        from voice_typer.server.qwen_engine import QwenEngine
+
+        assert hasattr(QwenEngine, "transcribe_batch")
+
+    def test_batch_empty_input(self):
+        """Batch transcription with empty input returns empty list."""
+        from voice_typer.server.qwen_engine import QwenEngine
+
+        engine = QwenEngine.__new__(QwenEngine)
+        result = engine.transcribe_batch([])
+        assert result == []
+
+    def test_batch_calls_transcribe(self):
+        """Batch transcription should call transcribe for each chunk."""
+        from voice_typer.server.qwen_engine import QwenEngine
+
+        engine = QwenEngine.__new__(QwenEngine)
+        engine._lock = MagicMock()
+        engine._inference_event = MagicMock()
+        engine._model = MagicMock()
+        engine.language = "en"
+
+        # Mock the transcribe method
+        with patch.object(engine, "transcribe", return_value="hello") as mock_t:
+            chunks = [np.zeros(100, dtype=np.float32), np.zeros(100, dtype=np.float32)]
+            results = engine.transcribe_batch(chunks)
+            assert len(results) == 2
+            assert mock_t.call_count == 2

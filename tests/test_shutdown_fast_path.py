@@ -25,19 +25,40 @@ import os
 import threading
 from unittest.mock import MagicMock
 
-# The pre-split ``shutdown_controller.py`` is now a package: the
-# sequenced/parallel plan lists live in ``_plans.py`` (``SequencingMixin``)
-# and the ``_do_cleanup`` / ``_drain_ws_dispatch_pool`` /
-# ``_do_fast_cleanup`` bodies live in ``_cleanup.py`` (``CleanupMixin``).
-_PLANS_PATH = os.path.join(
+# The pre-split ``shutdown_controller.py`` module is now a package,
+# and the orchestration bodies have since been extracted into the
+# sibling ``shutdown/`` package: the sequenced/parallel plan lists live
+# in the ``build_sequenced_plan`` / ``build_parallel_plan`` bodies in
+# ``shutdown/plan.py``; the ``_do_fast_cleanup`` body lives in
+# ``shutdown/cleanup.py`` and the ``_drain_ws_dispatch_pool`` body in
+# ``shutdown/ws_drain.py`` (the ``shutdown_controller/_plans.py`` and
+# ``shutdown_controller/_cleanup.py`` leaves hold thin delegates whose
+# signatures are pinned by the method-existence tests below).
+_PLANS_BODY_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
     "voice_typer",
     "server",
-    "shutdown_controller",
-    "_plans.py",
+    "shutdown",
+    "plan.py",
 )
-_CLEANUP_PATH = os.path.join(
+_FAST_CLEANUP_BODY_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "voice_typer",
+    "server",
+    "shutdown",
+    "cleanup.py",
+)
+_WS_DRAIN_BODY_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "voice_typer",
+    "server",
+    "shutdown",
+    "ws_drain.py",
+)
+_CLEANUP_DELEGATE_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
     "voice_typer",
@@ -63,10 +84,10 @@ class TestSequentialHistoryAndCrashRecovery:
         """The parallel batch (``parallel_items`` list) must NOT contain
         ``_teardown_history_db`` or ``_teardown_crash_recovery`` — they
         live in the ``sequenced_items`` list instead."""
-        s = _src(_PLANS_PATH)
+        s = _src(_PLANS_BODY_PATH)
         # Find the ``parallel_items`` list literal.
         parallel_idx = s.find("parallel_items")
-        assert parallel_idx > -1, "_do_cleanup must define a parallel_items list"
+        assert parallel_idx > -1, "build_parallel_plan must define a parallel_items list"
         # Slice from the opening ``[`` to the matching ``]``.
         list_start = s.find("[", parallel_idx)
         assert list_start > -1
@@ -83,7 +104,7 @@ class TestSequentialHistoryAndCrashRecovery:
     ) -> None:
         """Both helpers must be invoked via the ``sequenced_items`` list
         BEFORE the ``parallel_items`` block."""
-        s = _src(_PLANS_PATH)
+        s = _src(_PLANS_BODY_PATH)
         # The sequenced_items list contains both helpers as tuples.
         seq_history = s.find('"teardown_history_db"', s.find("sequenced_items"))
         assert seq_history > -1, "_teardown_history_db must be in the sequenced_items list"
@@ -109,21 +130,24 @@ class TestOsExitOnStuckWsDrain:
 
     def test_ws_drain_timeout_branch_exists(self) -> None:
         """The ``if join_thread.is_alive():`` branch (the drain-timeout
-        detector) must exist in ``_do_cleanup`` and log a WARNING.
+        detector) must exist in the WS-drain body and log a WARNING.
 
         NOTE: the module docstring ALSO mentions the branch (as a
         ``code``-formatted comment), so a plain ``s.find`` would anchor
         on the docstring occurrence. We anchor inside the
-        ``_drain_ws_dispatch_pool`` method body — the actual code —
-        instead.
+        ``drain_ws_dispatch_pool`` function body — the actual code —
+        instead. (The body was extracted from the
+        ``CleanupMixin._drain_ws_dispatch_pool`` method into
+        ``shutdown/ws_drain.py``; the bounds changed from a method's
+        ``\n    def `` to a module-level function's ``\ndef ``.)
         """
-        s = _src(_CLEANUP_PATH)
-        method_idx = s.find("def _drain_ws_dispatch_pool(self, app) -> None:")
-        assert method_idx > -1, "_drain_ws_dispatch_pool method must exist"
-        next_def = s.find("\n    def ", method_idx + 1)
-        body = s[method_idx:next_def]
-        # The method docstring ALSO mentions the branch; use the LAST
-        # occurrence in the method body — the actual code — so the
+        s = _src(_WS_DRAIN_BODY_PATH)
+        method_idx = s.find("def drain_ws_dispatch_pool(controller, app) -> None:")
+        assert method_idx > -1, "drain_ws_dispatch_pool function must exist"
+        next_def = s.find("\ndef ", method_idx + 1)
+        body = s[method_idx:next_def] if next_def > -1 else s[method_idx:]
+        # The function docstring ALSO mentions the branch; use the LAST
+        # occurrence in the function body — the actual code — so the
         # comment doesn't shadow it.
         drain_timeout_idx = body.rfind("if join_thread.is_alive():")
         assert drain_timeout_idx > -1, (
@@ -139,11 +163,11 @@ class TestOsExitOnStuckWsDrain:
         """``_do_fast_cleanup`` (the Windows logoff/shutdown fast path)
         must end with ``os._exit(0)`` so the Win32 console-control
         callback does not return True to the OS without exiting."""
-        s = _src(_CLEANUP_PATH)
-        fast_path_idx = s.find("def _do_fast_cleanup(self) -> None:")
-        assert fast_path_idx > -1, "_do_fast_cleanup method must be defined (the Windows logoff/shutdown fast path)"
-        # Slice to the next ``def `` (end of the method body).
-        next_def = s.find("\n    def ", fast_path_idx + 1)
+        s = _src(_FAST_CLEANUP_BODY_PATH)
+        fast_path_idx = s.find("def do_fast_cleanup(controller) -> None:")
+        assert fast_path_idx > -1, "do_fast_cleanup body must exist (the Windows logoff/shutdown fast path)"
+        # Slice to the next ``def `` (end of the function body).
+        next_def = s.find("\ndef ", fast_path_idx + 1)
         body = s[fast_path_idx:next_def] if next_def > -1 else s[fast_path_idx:]
         assert "os._exit(0)" in body, (
             "_do_fast_cleanup must call os._exit(0) at the end so the OS force-kill is pre-empted"
@@ -159,18 +183,18 @@ class TestDoFastCleanup:
     def test_do_fast_cleanup_method_exists(self) -> None:
         """``_do_fast_cleanup`` must be defined as a method on
         ``ShutdownController``."""
-        s = _src(_CLEANUP_PATH)
+        s = _src(_CLEANUP_DELEGATE_PATH)
         assert "def _do_fast_cleanup(self) -> None:" in s, "_do_fast_cleanup method must be defined"
 
     def test_do_fast_cleanup_invokes_critical_flushes(self) -> None:
         """``_do_fast_cleanup`` must invoke the critical flushes:
         crash_recovery.flush, history_db.flush, recorder.stop,
         _clear_backend_pid_file, mutex release, restore_volume."""
-        s = _src(_CLEANUP_PATH)
-        helper_idx = s.find("def _do_fast_cleanup(self) -> None:")
+        s = _src(_FAST_CLEANUP_BODY_PATH)
+        helper_idx = s.find("def do_fast_cleanup(controller) -> None:")
         assert helper_idx > -1
-        # Slice to the next ``def `` (end of the method body).
-        next_def = s.find("\n    def ", helper_idx + 1)
+        # Slice to the next ``def `` (end of the function body).
+        next_def = s.find("\ndef ", helper_idx + 1)
         body = s[helper_idx:next_def] if next_def > -1 else s[helper_idx:]
         # Each critical flush is wrapped in try/except; we assert the
         # call site exists.

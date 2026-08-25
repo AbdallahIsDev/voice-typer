@@ -58,10 +58,11 @@ from voice_typer.server.dictation_pipeline import (
 class _TestApp:
     """Minimal non-magic test app for DictationPipeline tests.
 
-    Mirrors the pattern in ``test_dictation_pipeline_backend_fixes.py`` and
-    ``test_dictation_pipeline_review_fixes.py``: a custom class (instead
-    of ``MagicMock``) so the notify-once flag attributes correctly
-    default to ``False`` via ``getattr(..., False)`` — MagicMock would
+    Mirrors the pattern in ``test_dictation_pipeline_backend_fixes.py``
+    and ``tests/fixtures/dictation_pipeline_helpers.py`` (the canonical
+    shared ``_TestApp`` factory): a custom class (instead of
+    ``MagicMock``) so the notify-once flag attributes correctly default
+    to ``False`` via ``getattr(..., False)`` — MagicMock would
     auto-create truthy children for any attribute access.
     """
 
@@ -298,8 +299,7 @@ class TestBusyContextEntered:
         This guards against a future refactor that swaps the direct
         call for ``registry.transcribe_with_fallback(...)`` (which
         would bypass ``active.transcribe_with_fallback`` entirely and
-        break the test coverage in
-        ``test_dictation_pipeline_review_fixes.py``).
+        break the test coverage in this file).
         """
         app = _TestApp()
         app.recording.pop_streaming_session.return_value = None

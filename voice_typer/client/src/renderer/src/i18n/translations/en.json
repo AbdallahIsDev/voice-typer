@@ -824,7 +824,7 @@
 			"highPassCutoffInfoSearch": "Frequencies below this are attenuated.",
 			"highPassCutoffAria": "High-Pass Cutoff",
 			"noiseSuppression": "Noise Suppression",
-			"noiseSuppressionInfo": "Neural network denoiser. RNNoise (default, lightweight). DeepFilterNet (premium, better quality, requires torch). Speex (lightest CPU).",
+			"noiseSuppressionInfo": "Neural network denoiser. RNNoise (default, lightweight). GTCRN (advanced neural denoiser, higher quality, runs on-device). None (disables suppression).",
 			"noiseSuppressionInfoSearch": "Neural network denoiser.",
 			"noiseSuppressionAria": "Noise Suppression Method",
 			"noneOption": "None",

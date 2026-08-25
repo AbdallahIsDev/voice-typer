@@ -30,9 +30,15 @@ from voice_typer.server.recording.recorder import Recorder
 
 
 def _make_recorder() -> Recorder:
-    """Build a real ``Recorder`` with a MagicMock config (no audio device)."""
-    config = MagicMock(sample_rate=16000, microphone=None)
-    return Recorder(config)
+    """Build a real ``Recorder`` with a MagicMock config (no audio device).
+
+    Delegates to the shared canonical factory (XS-42 helper dedup) —
+    see ``tests/fixtures/recorder_test_helpers.make_recorder`` for the
+    pre-populated config fields.
+    """
+    from tests.fixtures.ipc_test_helpers import make_fake_recorder
+
+    return make_fake_recorder()
 
 
 # ── _ensure_mono: correctness + independence ────────────────────────────

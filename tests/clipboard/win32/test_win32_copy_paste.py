@@ -167,19 +167,14 @@ class TestCopyWindowsBranches:
         """Build a ClipboardManager with mocked pynput controller.
 
         ADR-0010 §5.6: ``_clear_thread`` / ``_saved_clipboard`` were
-        deleted from the class. We set ``_restore_delay_ms`` (new in
-        §5.3) so ``paste()``'s restore-delay lookup doesn't blow up if
-        a test triggers the restore path.
+        deleted from the class. ``_restore_delay_ms`` (new in §5.3) is
+        set by the factory so ``paste()``'s restore-delay lookup
+        doesn't blow up if a test triggers the restore path.
+        Delegates to the shared canonical factory (XS-42 helper dedup).
         """
-        cm = ClipboardManager.__new__(ClipboardManager)
-        cm.paste_enabled = True
-        cm._keyboard = MagicMock()
-        cm._last_paste_time = 0.0
-        cm._clipboard_seq = 0
-        cm._last_copied_text = ""
-        cm._clipboard_save_restore_enabled = True
-        cm._restore_delay_ms = 150
-        return cm
+        from tests.fixtures.clipboard_helpers import make_clipboard_manager
+
+        return make_clipboard_manager()
 
     def test_copy_saves_clipboard_before_overwrite_on_windows(self, fake_win32):
         """copy() captures a ClipboardSnapshot of the prior clipboard.
@@ -380,15 +375,12 @@ class TestCopyWindowsBranches:
 
 class TestPasteWindowsBranches:
     def _make_cm(self):
-        cm = ClipboardManager.__new__(ClipboardManager)
-        cm.paste_enabled = True
-        cm._keyboard = MagicMock()
-        cm._last_paste_time = 0.0  # not rate-limited
-        cm._clipboard_seq = 0
-        cm._clipboard_save_restore_enabled = False
-        cm._last_copied_text = "test"
-        cm._restore_delay_ms = 150
-        return cm
+        """Delegate to the shared canonical factory (XS-42 helper dedup),
+        keeping this suite's save-restore-disabled / "test" sentinel
+        arrangement."""
+        from tests.fixtures.clipboard_helpers import make_clipboard_manager
+
+        return make_clipboard_manager(save_restore=False, last_copied_text="test")
 
     def test_paste_recopies_when_seq_changes(self, fake_win32):
         """If clipboard seq changed between copy and paste, re-copy."""

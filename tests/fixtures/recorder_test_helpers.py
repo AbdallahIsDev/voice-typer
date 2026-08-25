@@ -62,7 +62,7 @@ import time
 from typing import Any
 
 
-def make_recorder() -> Any:
+def make_recorder(config: Any = None, **config_fields: Any) -> Any:
     """Build a minimal ``Recorder`` with the fields the secure-clear path touches.
 
     Avoids spawning real audio threads / sounddevice probes. The VAD
@@ -81,11 +81,21 @@ def make_recorder() -> Any:
     - ``config.max_recording_time_seconds = 900``
     - ``config.device = "cpu"``
 
-    Tests that need different values (e.g. ``config.sample_rate = 48000``
-    to exercise the resample path) should override the field on the
-    returned instance — the constructor has already run, but the
-    secure-clear path reads ``config.sample_rate`` lazily so a
-    post-construction mutation is honoured.
+    Parameters
+    ----------
+    config : optional
+        Fully-formed config object to construct the ``Recorder`` with,
+        bypassing the default ``MagicMock`` (e.g. a real ``Config()``
+        for tests that exercise real dataclass semantics). When given,
+        ``**config_fields`` is rejected (the caller owns the config).
+    **config_fields:
+        Extra config overrides, applied to the ``MagicMock`` config
+        BEFORE the ``Recorder`` constructor runs — so fields the
+        constructor itself reads (e.g. ``pre_roll_buffer_seconds``,
+        which sizes ``_preroll_buffer.maxlen`` during ``__init__``) are
+        honoured, as are lazily-read fields. Overrides replace the
+        defaults above when the names collide (e.g.
+        ``make_recorder(sample_rate=48000)``).
 
     Returns
     -------
@@ -98,6 +108,14 @@ def make_recorder() -> Any:
 
     from voice_typer.server.recording import Recorder
 
+    if config is not None:
+        if config_fields:
+            raise TypeError(
+                "make_recorder(config=...) cannot be combined with config-field overrides; build the config yourself."
+            )
+        with patch("voice_typer.server.vad.is_available", return_value=False):
+            return Recorder(config)
+
     config = MagicMock()
     config.sample_rate = 16000
     config.microphone = None
@@ -105,6 +123,8 @@ def make_recorder() -> Any:
     config.stop_on_silence_seconds = 120.0
     config.max_recording_time_seconds = 900
     config.device = "cpu"
+    for name, value in config_fields.items():
+        setattr(config, name, value)
     with patch("voice_typer.server.vad.is_available", return_value=False):
         return Recorder(config)
 

@@ -1,250 +1,76 @@
 #!/usr/bin/env python3
-"""Update review.md statuses for entries #300-#19 based on sub-agent verdicts.
-
-Reads /home/z/my-project/voice-typer/review.md, finds each entry by its
-heading (### PREFIX-N - ...), and updates the **Status:** line within that
-entry's block. Writes the updated content back.
-"""
-
-from __future__ import annotations
+# ruff: noqa: E501 — each NEW_STATUSES entry is one intentionally-long single
+# review.md status line; wrapping would change what gets written to the file.
+"""Update review.md statuses for the 12 fixed tasks (this session)."""
 
 import re
+import sys
 from pathlib import Path
 
 REVIEW = Path("/home/z/my-project/voice-typer/review.md")
+s = REVIEW.read_text()
 
-# Each value is the full text after "**Status:**" on the status line.
-STATUS_UPDATES = {
-    "UE-32": (
-        "✅ Fixed (verified already-fixed before this session — "
-        "status was stale; ipc/registry.py extraction confirmed "
-        "present at line 374 of ipc_server.py, _COMMAND_REGISTRY "
-        "has 63 entries; tests/test_dead_code_stays_removed.py "
-        "40/40 pass on LINUX sandbox)"
+NEW_STATUSES = [
+    (
+        "### YJ-15",
+        "Fixed (verified ON LINUX sandbox 2026-08-25). VoiceTyperError thiserror enum at src-tauri/src/error.rs; Phase-1 dispatch envelope bug fixed (server-error branch returns VoiceTyperError::server_from_data(data), sidecar envelope passes VERBATIM); all 18 #[tauri::command] fns + require_main_window/require_bubble_window migrated to Result<T, VoiceTyperError>; custom Serialize emits envelope JSON as a STRING (usePython.ts parses typeof err === 'string'); Display strings byte-identical for log consumers. parseTauriErrorEnvelope (error-envelope.ts) extended for Tauri parity. Tests: cargo test 526/0, error_tests 18/0, sidecar_cmds_tests 20/0, export_tests 29/0; vitest python-bridge 16/0.",
     ),
-    "UE-33": (
-        "✅ Fixed (verified on Linux sandbox; Windows/macOS host "
-        "validation pending) — config.py converted to config/ "
-        "package; coercion.py (453 LOC) + sanitization.py "
-        "(514 LOC) extracted; Config dataclass residual shrunk "
-        "from 3044 → 2344 LOC; 535 config tests + 27 "
-        "model_idle_unload tests pass on LINUX sandbox"
+    (
+        "### [ER-2]",
+        "Fixed (verified ON LINUX sandbox 2026-08-25). DeepFilterNet backend replaced with bundled GTCRN ONNX streaming model (535190-byte gtcrn_simple.onnx beside silero_vad.onnx, MIT license, web-verified PESQ 2.87 vs DFN 2.81 vs RNNoise 2.29). gtcrn_backend.py (STFT 512/hop 256/sqrt-hann, native 16 kHz, persistent caches, ORT CPUExecutionProvider); _init_gtcrn degrades to rnnoise on ANY load failure; _process_gtcrn mirrors RNNoise buffering at native 16k. Parity surfaces renamed in one commit (allowlist, Literal, config.ts union, audioFilterRowDescriptors — speex dropped); legacy remap deepfilternet->gtcrn / speex->rnnoise before validation (value remap not reset-to-default); noisy_room preset -> gtcrn; 8 locale noiseSuppressionInfo genuinely translated. MANIFEST.in carries the model line. Tests: 154 passed; perf gate 1.43 ms/hop (<=20 ms gate). rnnoise path byte-identical.",
     ),
-    "UE-42": (
-        "✅ Fixed (verified on Linux sandbox; Windows/macOS host "
-        "validation pending) — (a) 2 stale `as never` casts "
-        "removed from python-namespace.ts; (b) __TAURI__ global "
-        "augmentation added to bubble_bridge.ts, 2 inline casts "
-        "removed from detect.ts; (c) csvEscape TS/Rust parity "
-        "achieved (RFC 4180); 28 TS tests + 14 Rust tests pass; "
-        "(d) migrate.rs stale re-export + pub visibility already "
-        "cleaned up by prior session. tsc --noEmit EXIT 0 on "
-        "LINUX; cargo check VALIDATE ON LINUX HOST (GTK/webkit "
-        "headers not installable in sandbox)"
+    (
+        "### XZ-R11-04",
+        "Fixed (verified ON LINUX sandbox 2026-08-25). AES-256-GCM at-rest encryption for transcriptions.text per ADR §2/§4/§6/§9: credential_store/_dek.py (generate_dek/store_dek/load_dek via _run_keyring_call directly, NOT store_secret — REJECTS unknown providers); voice_typer/server/_text_crypto.py (encrypt_text -> 'enc:v1:' + base64(12B nonce + ct+16B tag); decrypt_text -> rate-limited WARNING + '<decryption failed>' on InvalidTag; is_encrypted detection); _MIGRATION_V4 (ALTER TABLE ADD COLUMN text_is_encrypted INTEGER DEFAULT 0 + DROP/CREATE au_fts trigger with WHEN NEW.text_is_encrypted = OLD.text_is_encrypted guard so encrypting UPDATEs don't re-index ciphertext; _CURRENT_SCHEMA_VERSION=4); three write paths encrypt (writer.py batch + per-row + history_db.restore() — insert-plaintext-then-UPDATE-with-flag-flip so FTS indexes plaintext at INSERT); read seams decrypt+truncate in Python (project_text_row/get_latest_text/get_transcription_text + LIKE-path now fetches text_is_encrypted); strict key-loss policy (placeholder + rate-limited ERROR + NEVER regenerate DEK while encrypted rows exist; new writes stay plaintext flag=0); bounded backfill (100 rows/batch, idempotent by flag); encryption_status() diagnostic. Tests: 203 passed. ADR status header corrected. VALIDATE ON WINDOWS/MACOS HOST (keyring cmdkey/security find-generic-password).",
     ),
-    "UE-47": (
-        "✅ Fixed (verified already-fixed before this session — "
-        "status was stale) — 3 failure modes distinguished via "
-        "BackendNotLoadedError + backend_is_loaded log field + "
-        "dictation_suppressed event; busy flag on "
-        "AsrBackendRegistry checked by ensure_active_engine_loaded; "
-        "short-recording silent-suppression fixed; 2 unbound-name "
-        "pyrefly errors in dictation_pipeline.py fixed; 121 "
-        "focused tests pass on LINUX sandbox"
+    (
+        "### EO-1",
+        "Fixed (verified ON LINUX sandbox 2026-08-25). VoiceTyperApp.__init__ split: 690-line god-constructor -> 14-line call sequence of _init_* builders in original construction order (_init_config/_init_threading_and_crash/_log_startup_banner/_init_audio/_init_recording/_init_models/_init_tray/_init_controllers/_init_hotkeys_and_locks/_init_state_flags/_init_history_crash_volume/_init_misc_backings); 15-property lazy hub + 3 back-compat delegates + _LAZY_FAILED/RETRY_TTL_SECONDS/_RECORDER_MISSING/_LazyAudioProcessorProxy extracted to voice_typer/server/app_lazy_hub.py mixin (AppLazyHub); VoiceTyperApp(AppLazyHub). The 4 inspect.getsource(VoiceTyperApp.__init__) pins ported to getsource the corresponding _init_* builder — same substring assertions. app.py: 2125->1267 LOC; app_lazy_hub.py 686 LOC. Tests: 289 passed.",
     ),
-    "UE-50": (
-        "🚫 Won't Fix — removing `legacy_code` requires coordinated "
-        "changes across 8 production files (validation.py, "
-        "transport_tcp.py, ipc_server.py, sidecar_ws.py, "
-        "handlers/_base.py, status_handlers.py, "
-        "history_handlers.py, system_handlers.py) AND 13 test "
-        "files (58 assertions). Too large a blast radius for the "
-        "remaining session budget. The field is stale but harmless "
-        "(adds ~15 bytes per error response). Defer to a dedicated "
-        "IPC envelope cleanup pass. EY-304 sub-agent returned "
-        "BLOCKED with full file list."
+    (
+        "### EO-3",
+        "Fixed (verified ON LINUX sandbox 2026-08-25). sidecar_ws.py split (2081->1469 LOC) into canonical module + voice_typer/server/sidecar_ws_internals/ sibling package following the history_db.py + history_db_internals/ precedent (deliberately NOT a sidecar_ws/ package, which would break ~14 test files pinning the literal .py path). Leaves: encode_pool.py / graceful_shutdown.py / stdout_banner.py / connection.py. Canonical module keeps every file-text-pinned function (_safe_send, _make_dispatch, _authenticate, _read_loop, _start_writer, run) and every patch-observer function so monkeypatches propagate via canonical-module globals. Every moved symbol re-exported with noqa. C-WS-1 ordering + C-WS-2 str-frame contract byte-identical. Tests: 131 passed across all 6 C-WS guard files + mig15/16/17 ws_hmac + mig19.",
     ),
-    "TX-5": (
-        "✅ Fixed (verified on Linux sandbox) — 9 not-callable bugs "
-        "in audio_filters already fixed by prior commit 3f774065 "
-        "(_get_lfilter wrapper); 5 unbound-name bugs fixed "
-        "(dictation_pipeline.py: 2, clipboard/manager.py, "
-        "electron_launcher.py, hotkeys/native_adapter.py, "
-        "sidecar_ws.py); pyrefly baseline regenerated (255 errors, "
-        "down from 261 mid-flight); 0 not-callable + 0 "
-        "unbound-name errors remain in fixed files on LINUX sandbox"
+    (
+        "### EO-4",
+        "Fixed (verified ON LINUX sandbox 2026-08-25). transcription.py split (1572->1212 LOC) into facade + 4 new sibling modules following the established transcription_load.py/transcription_result.py pattern: transcription_device.py / transcription_cuda_probe.py / transcription_download.py / transcription_fallback.py. All 4 use call-time 'from voice_typer.server import transcription as _t' + '_t.<name>' late-binding for module-global patches. TranscriberProtocol identity preserved. Lock/abort/GC-choreography methods retained inline as lock-coupled. Tests: 152 passed, 3 skipped (no behavior change).",
     ),
-    "TX-25": (
-        "✅ Fixed (verified already-fixed before this session — "
-        "status was stale) — svenstaro/upload-release-action@v2 "
-        "migrated ENTIRELY to native `gh release upload` CLI at 4 "
-        "sites (stricter than the requested v2→v3 bump; no "
-        "deprecated Node 16 runtime remains)"
+    (
+        "### VP-39",
+        "Fixed (verified ON LINUX sandbox 2026-08-25). ShutdownController decomposition completed: _do_cleanup/_do_fast_cleanup bodies moved to free functions in voice_typer/server/shutdown/cleanup.py; _drain_ws_dispatch_pool to voice_typer/server/shutdown/ws_drain.py; _build_sequenced_plan/_build_parallel_plan to voice_typer/server/shutdown/plan.py (beside ShutdownStep/run_plan). Mixin methods (shutdown_controller/_cleanup.py + _plans.py) are 1-2 line delegates — load-bearing test surface preserved. _cleanup.py: 522->72 LOC; _plans.py: 294->152 LOC. Package __init__.py docstring updated. Tests: tests/test_shutdown_parallel.py + test_shutdown_asr_unload.py + test_shutdown_controller*.py + test_shutdown_parallel_pool_drain.py + test_shutdown_deadline.py + tests/regressions/test_electron.py::TestShutdownControllerPhasesContract all green.",
     ),
-    "TX-26": (
-        "⚠️ Partial — _make_fake_server promoted to "
-        "tests/fixtures/sidecar_ws_test_helpers.py; 6 inline copies "
-        "deleted (replaced with imports); canonical version "
-        "includes _ws_dispatch_pool=None fix + 3 sibling "
-        "lazy-create null-outs; 12 pre-existing dispatch test "
-        "failures fixed as side effect. 3 remaining failures are "
-        "pre-existing source-grep tests (sidecar_ws.py/ws.rs "
-        "content) outside this task's scope. 64 passed / 3 "
-        "pre-existing failed / 59 skipped on LINUX sandbox"
+    (
+        "### GQ-11",
+        "Fixed (verified ON LINUX sandbox 2026-08-25). logging.rs (1809 LOC) split into src-tauri/src/platform/logging/ directory module: mod/init/combined/redact/panic_hook/early/rotating.rs. Bodies moved byte-verbatim (only fn instance -> pub(super) fn instance for init.rs to call it). Stale header refreshed. logging_tests.rs compiled UNCHANGED via use super::logging::*;. tests/tauri/test_rust_log_file_perms.py path re-pointed to logging/rotating.rs + logging/init.rs. Tests: cargo test logging_tests 91/0; cargo test 526/0. pyrefly-baseline.json 23 stale entries reconciled (21 dropped, 2 re-pointed).",
     ),
-    "TX-27": (
-        "✅ Fixed (verified on Linux sandbox) — tests/conftest.py "
-        "tmp_config_dir fixture now patches BOTH config._config_dir "
-        "AND app._config_dir; 4 local shadows deleted "
-        "(test_app_restart, test_app_cleanup, test_shutdown_controller, "
-        "test_shutdown_posix_release); test_shutdown_controller_de.py "
-        "does not exist in repo; 140 tests pass on LINUX sandbox"
+    (
+        "### EO-11",
+        "Fixed (verified ON LINUX sandbox 2026-08-25). SubprocessHotkeyBackend(HotkeyBackend) (native_hotkeys/base.py now imports from hotkeys/base.py — import direction verified acyclic). Pure-delegation passthroughs collapsed to inherited methods where body was a pure 'return self._native.<same call>()' with no added semantics; fan-out/fallback semantics (set_on_release fans to legacy; start falls back on exception) preserved. Stop signature stays stop(self, *, shutdown=True) keyword-only kwarg (LSP-safe). macOS Accessibility onboarding, fallback chain, tray notify, notification helpers stay. Updated docstring at native_adapter.py:36-43. Tests: tests/hotkeys/ + test_keyboard_ownership*.py + test_hotkey_dispatcher.py all green.",
     ),
-    "TX-28": (
-        "✅ Fixed (verified on Linux sandbox) — 5 "
-        "resource-allocating fixtures converted to yield+cleanup "
-        "(VoiceTyperApp×2, IPCServer, VolumeDucker, "
-        "DuckCrashRecovery); tests/test_heartbeat_force_exit.py "
-        "server fixture yields+s.stop(); tests/test_volume_ducker.py "
-        "ducker+crash_recovery fixtures yield; 140 tests pass on "
-        "LINUX sandbox"
+    (
+        "### TC-1",
+        "Fixed (verified ON LINUX sandbox 2026-08-25). 8 test files marked with pytestmark = pytest.mark.xdist_group(...): tests/test_keyboard_ownership.py + test_keyboard_ownership_watchdog.py (keyboard_ownership); tests/test_log_rate_limit.py + test_log_rate_limit_lru.py (log_rate_limit); tests/test_binary_path_caching.py + test_native_hotkeys_binary_path.py + test_native_hotkeys_factory_binary_path.py + tests/tauri/test_native_binary_path_tauri.py (native_binary_path). Total real pytestmark markers now 13 (was 5). Makefile + CI -n auto --dist=loadgroup untouched (CLI-level, NOT moved to pyproject addopts — C-TEST-3). CONTRIBUTING.md §7.1 documents marker = same-worker hint under loadgroup (not a correctness guarantee on other dist modes), when-to-add (files sharing process-wide mutable state: singletons, module dicts, lru_caches), the 6 existing groups.",
     ),
-    "TX-29": (
-        "✅ Fixed (verified already-fixed before this session — "
-        "status was stale) — requirements-lock.txt line 1177 pins "
-        "psutil==7.2.2, matches live venv (uv pip show psutil → "
-        "7.2.2)"
+    (
+        "### [XS-42]",
+        "Fixed (HIGH-VALUE SUBSET) (verified ON LINUX sandbox 2026-08-25). make_bare_ipc_server() exported from tests/fixtures/ipc_test_helpers.py (IPCServer.__new__ bypass + _dispatch_lock drift fix + _config_mutation_lock); 4 _make_ipc_server bypass copies migrated (test_notification_event_name.py + tests/tauri/mig15/16/17/test_toast_*.py). make_fake_recorder extended to accept config= and **config_fields (overrides applied BEFORE the Recorder constructor); 10 of 19 _make_recorder defs migrated across 11 files (the remaining 9 are MagicMock stubs / real-Config / SimpleNamespace shapes — documented non-migration). make_clipboard_manager gained last_copied_text; 7 of 10 _make_cm defs migrated across 5 files (the remaining 3 use real ClipboardManager(**kwargs) constructor + rate-limit bypass — different shape, intentionally not migrated). Tests: 536 passed across all touched files. Full migration of the remaining 337 defs is out-of-scope follow-up.",
     ),
-    "TX-38": (
-        "✅ Fixed (verified already-fixed before this session — "
-        "status was stale) — noUncheckedIndexedAccess: true "
-        "already enabled in voice_typer/client/tsconfig.base.json "
-        "(upstream commit a766c8cc). npx tsc --noEmit EXIT 0. 186 "
-        "residual errors in tsc -b --noEmit are pre-existing "
-        "(documented in tsconfig.base.json.md); deferred to a "
-        "dedicated TS strictness pass. Reverting the flag would "
-        "violate Hard Rule 4 (never downgrade)."
+    (
+        "### [EC-25]",
+        "Fixed (PYTHON CATCH-ALLS) (verified ON LINUX sandbox 2026-08-25). All 3 Python catch-all test files DELETED: tests/test_dictation_pipeline_review_fixes.py (619 LOC) split into NEW tests/app/test_notify_once_flags.py + tests/test_transcription_audio_stats.py + tests/test_dictation_pipeline_stage_timer.py + NEW tests/fixtures/dictation_pipeline_helpers.py; tests/test_low_findings_batch.py (467 LOC) split into tests/test_dead_code_stays_removed.py (appended TestLegacyConfigDirRemoved) + NEW tests/test_sensitive_env_redaction.py + NEW tests/test_docs_structure.py + NEW tests/test_electron_build.py — all ticket-ID class names E4-renamed (TestNewDead017->TestLegacyConfigDirRemoved etc.); tests/test_remaining_fixes.py (267 LOC) split into tests/test_transcription.py (WarmUp) + tests/test_qwen_engine.py (Batch) + tests/test_model_manager.py (LRU) + tests/test_platform_utils.py + tests/test_docs_structure.py + NEW tests/test_diagnostics_script.py. 69 tests preserved verbatim across the 3 splits. Zero import references remain. TS catch-alls (ux-components-behavior, electron-ipc-build-behavior, pages-improvements) are documented follow-up — out of scope this session.",
     ),
-    "TX-39": (
-        "✅ Fixed (verified on Linux sandbox; macOS host validation "
-        "pending) — workflow_dispatch trigger already present; "
-        "added 29-line TX-39 GATE STATUS block documenting 4-step "
-        "validation handoff; 3 per-job if: false guards PRESERVED "
-        "(removing would run 603 lines of untested signing logic); "
-        "YAML syntax valid; no action versions changed (C-CI-1 "
-        "honored)"
-    ),
-    "TX-40": (
-        "✅ Fixed (verified on Linux sandbox; Windows-on-ARM host "
-        "validation pending) — strategy.matrix.include added with "
-        "x86_64-pc-windows-msvc (enabled) + "
-        "aarch64-pc-windows-msvc (gated off via if: ${{ "
-        "matrix.enabled }}); 13 hardcoded x86_64 references "
-        "parametrized; TX-40 GATE STATUS block added; VALIDATE ON "
-        "WINDOWS HOST (aarch64) — no GitHub-hosted aarch64 Windows "
-        "runner available as of 2026-08"
-    ),
-    "TX-41": (
-        "✅ Fixed (verified on Linux sandbox) — ruff pinned to "
-        ">=0.16,<0.17 in pyproject.toml "
-        "[project.optional-dependencies].dev; ruff==0.16.0 pinned "
-        "in .github/workflows/build.yml CI install; "
-        ".pre-commit-config.yaml already at rev: v0.16.0; all 3 "
-        "surfaces agree on 0.16.x family; YAML+TOML syntax valid"
-    ),
-    "TX-42": (
-        "✅ Fixed (verified on Linux sandbox) — "
-        "tests/test_ruff_ratchet.py F-rule gate test scope expanded "
-        "from voice_typer/server/ to voice_typer/ tests/ scripts/ "
-        "conftest.py (matching CI); orchestrator also fixed 7 "
-        "pre-existing ruff violations in scripts/ + "
-        "tests/tauri/mig18-19/ (N806×2, B007, E402, W605, E501×2); "
-        "27 ruff ratchet tests pass on LINUX sandbox"
-    ),
-    "TX-43": (
-        "✅ Fixed (verified on Linux sandbox) — triaged: production "
-        "redact-first-then-truncate order is correct (security-safe; "
-        "prevents partial-PII leaks at 40-char boundary); "
-        "test_cr87_truncation_to_40_chars_after_redaction was "
-        "failing due to buggy test input ('a'*200 matched the 20+ "
-        "char bare-token secret pattern); test input fixed to "
-        "realistic 225-char phrase; 23 hallucination tests pass on "
-        "LINUX sandbox"
-    ),
-    "TX-44": (
-        "✅ Fixed (verified on Linux sandbox) — 6 real-setTimeout "
-        "patterns migrated to vi.useFakeTimers() + "
-        "vi.advanceTimersByTimeAsync() or waitFor() across 5 "
-        "renderer test files; 0 real-setTimeout patterns with N>0 "
-        "remain; 13 pre-existing failures (Radix Tooltip/Vocabulary "
-        "dialog) confirmed unrelated via git stash A/B; vitest "
-        "passes on migrated tests on LINUX sandbox"
-    ),
-    "TX-45": (
-        "✅ Fixed (verified on Linux sandbox) — triaged: "
-        "Config.model_idle_unload_minutes default of 30 minutes is "
-        "a sensible production default (memory management); source "
-        "NOT reverted (was actually 15 in source, set forward to "
-        "30); 2 tests in tests/test_model_idle_unload.py updated "
-        "to expect 30; 0 value remains valid as disable-sentinel; "
-        "27 model_idle_unload tests pass on LINUX sandbox"
-    ),
-    "TX-46": (
-        "✅ Fixed (verified on Linux sandbox; Windows host validation "
-        "pending) — 5 robustness fixes implemented: (1) "
-        "_autostart_command() validates pythonw.exe path exists, "
-        "falls back to Tauri binary; (2) is_autostart_enabled() "
-        "verifies registered command exists (not just registry "
-        "entry), cleans up stale entries; (3) autostart_launcher.py "
-        "finds Tauri binary at %LOCALAPPDATA%\\Programs\\Voice "
-        "Typer\\ first; (4) Windows Startup-folder .bat tertiary "
-        "fallback added; (5) logging improved across autostart "
-        "chain; 32 new tests in tests/test_autostart.py + 80 total "
-        "autostart tests pass on LINUX sandbox; VALIDATE ON "
-        "WINDOWS HOST — cannot reproduce autostart bug on Linux "
-        "sandbox"
-    ),
-}
+]
 
+for prefix, new_status in NEW_STATUSES:
+    # Heading is `### PREFIX — Title` (note the [ in some prefixes — escape for regex)
+    pat_prefix = prefix.replace("[", "\\[").replace("]", "\\]")
+    pattern = re.compile(r"(^" + pat_prefix + r"[^\n]*\n\*\*Status:\*\* )[^\n]*(\n)", re.MULTILINE)
+    new_s, n = pattern.subn(lambda m, ns=new_status: m.group(1) + ns + m.group(2), s, count=1)
+    if n == 0:
+        print(f"WARNING: did not update {prefix}", file=sys.stderr)
+        continue
+    s = new_s
+    print(f"updated {prefix}")
 
-def main() -> None:
-    src = REVIEW.read_text(encoding="utf-8")
-    lines = src.split("\n")
-    heading_re = re.compile(r"^### ([A-Z][A-Z0-9]*-[A-Z0-9]+)")
-    entry_lines: dict[str, int] = {}
-    for i, line in enumerate(lines):
-        m = heading_re.match(line)
-        if m:
-            ident = m.group(1)
-            if ident not in entry_lines:
-                entry_lines[ident] = i
-
-    updated = 0
-    for ident, new_status in STATUS_UPDATES.items():
-        if ident not in entry_lines:
-            print(f"WARNING: entry {ident} not found in review.md")
-            continue
-        start = entry_lines[ident]
-        end = len(lines)
-        for j in range(start + 1, len(lines)):
-            if heading_re.match(lines[j]):
-                end = j
-                break
-        status_re = re.compile(r"^(\*\*Status:\*\*) (.*)$")
-        found = False
-        for j in range(start, end):
-            m = status_re.match(lines[j])
-            if m:
-                lines[j] = f"**Status:** {new_status}"
-                found = True
-                updated += 1
-                break
-        if not found:
-            print(f"WARNING: entry {ident} has no Status line")
-
-    REVIEW.write_text("\n".join(lines), encoding="utf-8")
-    print(f"Updated {updated} entry statuses in {REVIEW}")
-
-
-if __name__ == "__main__":
-    main()
+REVIEW.write_text(s)
+print("review.md updated")

@@ -9,7 +9,6 @@ import os  # noqa: F401 (stdlib re-export for test monkeypatch)
 import sys
 import threading
 import time  # noqa: F401 (stdlib re-export for test monkeypatch)
-import weakref
 from typing import TYPE_CHECKING, Any
 
 # CRASH-HANDLER: Windows VEH + Python excepthook for silent crash diagnostics
@@ -27,7 +26,6 @@ from voice_typer.server import crash_handler as _crash_handler, i18n
 from voice_typer.server._busyness import BusynessCoordinator
 from voice_typer.server._microphone_registry import MicrophoneRegistry
 
-# restart token functions moved to voice_typer.server.security
 # Win32 SECURITY_ATTRIBUTES builder extracted to a focused,
 # security-reviewable module.  Re-exported here so existing callers
 # (and tests that grep app.py source for the symbol name) keep working.
@@ -37,21 +35,27 @@ from voice_typer.server._security_attributes import (  # noqa: F401
 
 # ``AudioProcessor`` / ``DuckCrashRecovery`` / ``VolumeDucker`` /
 # ``WaveformBubble`` were eagerly imported at module top but are only
-# used inside lazy @property getters (or the ``_LazyAudioProcessorProxy``
-# below). Moving the imports INTO the getters defers the transitive
-# import cost (audio_filters -> scipy.signal.butter; volume_ducker ->
-# pyobjc / ctypes on macOS; waveform -> numpy) to first attribute
-# access — paid only when the user actually dictates / ducks volume /
-# sees the bubble, not on every cold start. ``AudioQualityAnalyzer`` /
-# ``CrashRecovery`` / ``HistoryDB`` stay at module top because they're
-# either cheap to import or re-exported for test monkeypatch.
-# ``ClipboardManager`` is NOT imported at module top: the clipboard
-# package eagerly imports ``pyperclip`` + the platform backends
-# (``.windows`` / ``.linux``, which pull in pywin32 / pynput) and its
-# ``manager`` submodule imports ``config`` at module top — several
-# ms of the cold-start import chain paid even though the clipboard is
-# only touched at dictation-stop paste time. The class is imported
-# lazily inside the ``clipboard`` @property getter below.
+# used inside lazy @property getters (or the ``_LazyAudioProcessorProxy``)
+# — the getters now live in ``app_lazy_hub`` and import the heavy
+# classes lazily inside their bodies, deferring the transitive import
+# cost (audio_filters -> scipy.signal.butter; volume_ducker -> pyobjc /
+# ctypes on macOS; waveform -> numpy) to first attribute access — paid
+# only when the user actually dictates / ducks volume / sees the bubble,
+# not on every cold start. ``AudioQualityAnalyzer`` / ``CrashRecovery``
+# stay at module top because they're either cheap to import or eagerly
+# constructed by the ``_init_*`` builders. ``HistoryDB`` is NOT used by
+# app.py code any more (the lazy ``history_db`` property moved to
+# ``app_lazy_hub``) but MUST stay a module-top binding: the hub's getter
+# resolves it through THIS module at call time so the documented
+# monkeypatch seam (``voice_typer.server.app.HistoryDB``) keeps
+# intercepting construction. ``ClipboardManager`` is NOT imported at
+# module top: the clipboard package eagerly imports ``pyperclip`` + the
+# platform backends (``.windows`` / ``.linux``, which pull in pywin32 /
+# pynput) and its ``manager`` submodule imports ``config`` at module
+# top — several ms of the cold-start import chain paid even though the
+# clipboard is only touched at dictation-stop paste time. The class is
+# imported lazily inside the ``clipboard`` @property getter in
+# ``app_lazy_hub``.
 # The ``_config_dir`` binding is kept (not just the helper): single_instance
 # resolves ``_app_module._config_dir`` at call time, and the
 # tmp_config_dir fixture belt-and-suspenders-patches this attribute.
@@ -83,17 +87,18 @@ from voice_typer.server.history_db import HistoryDB
 # the flags at call time from their canonical home and every test patch
 # site now targets ``voice_typer.server.platform_utils.{is_windows,
 # is_macos, is_linux}`` directly.
-# ``Recorder`` is imported lazily inside ``VoiceTyperApp.__init__``
-# (immediately before ``self.recorder = Recorder(...)``) to match the
-# deferred-import pattern already used for ``RecordingController``,
-# ``ModelManager``, and the other heavy classes below. Importing it at
-# module top would trigger ``voice_typer/server/recording/__init__.py``
-# which eagerly loads 7+ submodules that each do ``import numpy as np``
-# at module top, adding ~250–335 ms to every cold start. The proxy
-# ``np = lazy_module("numpy")`` bound on the recording package is
-# defeated if any submodule does a direct top-level ``import numpy``.
-# Deferring the ``Recorder`` import until ``__init__`` keeps the
-# recording package out of the module-import critical path entirely.
+# ``Recorder`` is imported lazily inside the recording-init builder
+# (immediately before the background ``Recorder(...)`` construction) to
+# match the deferred-import pattern already used for
+# ``RecordingController``, ``ModelManager``, and the other heavy classes
+# below. Importing it at module top would trigger
+# ``voice_typer/server/recording/__init__.py`` which eagerly loads 7+
+# submodules that each do ``import numpy as np`` at module top, adding
+# ~250–335 ms to every cold start. The proxy ``np =
+# lazy_module("numpy")`` bound on the recording package is defeated if
+# any submodule does a direct top-level ``import numpy``. Deferring the
+# ``Recorder`` import until app construction keeps the recording package
+# out of the module-import critical path entirely.
 # autostart + microphone helpers are imported directly from their canonical
 # home ``voice_typer.server.server_platform`` by their consumers
 # (``settings_controller``, ``startup_tasks``) — no app-module re-export.
@@ -111,11 +116,42 @@ from voice_typer.server.tray import AppState, TrayIcon
 if TYPE_CHECKING:
     # imported only for type annotations on ``_template_manager``
     # and ``_vocabulary_manager`` (declared Optional so the eager-init
-    # ``= None`` fallback in __init__ type-checks).  The runtime imports
-    # remain inside the try/except in __init__ so a missing optional
-    # dependency does not break VoiceTyperApp construction.
+    # ``= None`` fallback in the misc-backings builder type-checks).  The
+    # runtime imports remain inside the property getters in
+    # ``app_lazy_hub`` so a missing optional dependency does not break
+    # VoiceTyperApp construction.
     from voice_typer.server.templates import TemplateManager
     from voice_typer.server.vocabulary import VocabularyManager
+
+# extraction — the lazy-@property hub (recorder/recording/undo/
+# audio_quality/_duck_crash_recovery/_volume_ducker/history_db/
+# clipboard/waveform/template/vocabulary accessors, the legacy
+# _busy_event/_lock/_microphones delegates, the lazy-failure sentinels
+# and the ``_LazyAudioProcessorProxy``) moved to
+# voice_typer.server.app_lazy_hub. Re-exported here so every existing
+# import — ``from voice_typer.server.app import _LAZY_FAILED`` /
+# ``RETRY_TTL_SECONDS`` / ``_RECORDER_MISSING`` /
+# ``_LazyAudioProcessorProxy`` — and every identity check
+# (``backing is _LAZY_FAILED``) keeps working unchanged (the re-export
+# binds the SAME sentinel objects, so ``is`` comparisons hold).
+# extraction — mic/model/restart/settings management methods (Tray
+# protocol surface, quit/restart entry points, autostart/notification
+# side-effect delegates, config-editor launch) moved to
+# voice_typer.server.app_admin.
+from voice_typer.server.app_admin import AppAdmin
+
+# extraction — dictation-control methods (toggle/start/stop/cancel,
+# undo/repaste delegates, audio-quality chunk delegation + warning
+# latch, volume duck/restore delegates) moved to
+# voice_typer.server.app_dictation.
+from voice_typer.server.app_dictation import AppDictation
+from voice_typer.server.app_lazy_hub import (  # noqa: F401
+    _LAZY_FAILED,
+    _RECORDER_MISSING,
+    RETRY_TTL_SECONDS,
+    AppLazyHub,
+    _LazyAudioProcessorProxy,
+)
 
 log = logging.getLogger(__name__)
 
@@ -139,98 +175,9 @@ def _resolve_config_dir():
 # greps app.py source for the symbol name — kept here as a comment.  # ruff: noqa: F401
 # extraction — _validate_env_vars moved to voice_typer.server.env_validation;
 # the app re-export was removed once the last test importers migrated
-# (SEC-audit-011: it validates SystemRoot to reject attacker-controlled
-# values that could enable DLL injection — canonical home is env_validation).
+# (it validates SystemRoot to reject attacker-controlled values that
+# could enable DLL injection — canonical home is env_validation).
 from voice_typer.server.logging_setup import _emit_startup_banner, _setup_logging  # noqa: F401, E402
-
-
-class _LazyAudioProcessorProxy:
-    """Transparent lazy proxy for ``AudioProcessor``.
-
-    ``VoiceTyperApp.__init__`` used to construct ``AudioProcessor``
-    eagerly, which calls ``build_chain(config, sample_rate)``. That in
-    turn imports the full ``audio_filters`` package (highpass ->
-    ``scipy.signal.butter``, noise_suppressor -> RNNoise, etc.) on
-    every cold start — even when the user never dictates.
-
-    This proxy defers the real construction (and the transitive
-    ``audio_filters`` import chain) to first attribute access. The
-    proxy is what's passed to ``Recorder(audio_processor=...)`` —
-    ``Recorder`` stores it as ``self._audio_processor``, and the
-    audio-pipeline path (``recording/audio_pipeline.py``) checks
-    ``recorder._audio_processor is not None`` before calling
-    ``process_chunk``. The proxy is never ``None``, so the check
-    passes; the real construction happens inside ``_resolve()`` on
-    the first ``process_chunk`` / ``set_sample_rate`` /
-    ``rebuild_from_config`` call.
-
-    The proxy ALSO wires ``set_quality_callback(app._on_audio_quality_chunk)``
-    immediately after construction — this wiring used to live at
-    ``app.py:217`` (``self._audio_processor.set_quality_callback(
-    self._on_audio_quality_chunk)``) but was moved here so the proxy
-    doesn't have to be resolved eagerly just to install a callback.
-
-    Tests that inject mocks via ``app._audio_processor = MagicMock()``
-    use the ``_audio_processor`` setter, which bypasses the proxy
-    entirely (the mock is stored directly in ``_audio_processor_backing``
-    and the proxy is never created).
-    """
-
-    __slots__ = ("_app_ref", "_real", "_wired")
-
-    def __init__(self, app: Any) -> None:
-        # Bypass our own __setattr__ (which would delegate to the wrapped
-        # AudioProcessor) when storing state on the proxy itself.
-        object.__setattr__(self, "_app_ref", weakref.ref(app))
-        object.__setattr__(self, "_real", None)
-        object.__setattr__(self, "_wired", False)
-
-    def _resolve(self):
-        real = object.__getattribute__(self, "_real")
-        if real is None:
-            app = object.__getattribute__(self, "_app_ref")()
-            if app is None:
-                # The owning VoiceTyperApp was garbage-collected —
-                # should never happen in normal operation because the
-                # Recorder (which holds the proxy) is owned by the app.
-                # Defensive: raise AttributeError so the caller sees a
-                # clear failure rather than a None dereference.
-                raise AttributeError("_LazyAudioProcessorProxy: owning VoiceTyperApp was garbage-collected")
-            # Deferred import — AudioProcessor pulls in the
-            # ``audio_filters`` package (scipy.signal.butter, RNNoise).
-            from voice_typer.server.audio_processor import AudioProcessor
-
-            real = AudioProcessor(
-                app.config,
-                sample_rate=app.config.sample_rate,
-            )
-            object.__setattr__(self, "_real", real)
-        # Wire the quality callback ONCE, immediately after construction
-        # (whether just-constructed or pre-existing). The ``_wired`` flag
-        # guards against re-wiring on every access (which would replace
-        # the callback if a later caller manually called
-        # ``set_quality_callback`` with a different cb).
-        wired = object.__getattribute__(self, "_wired")
-        if not wired:
-            app = object.__getattribute__(self, "_app_ref")()
-            if app is not None:
-                try:
-                    real.set_quality_callback(app._on_audio_quality_chunk)
-                except Exception:
-                    log.warning(
-                        "[INIT] lazy AudioProcessor.set_quality_callback failed",
-                        exc_info=True,
-                    )
-            object.__setattr__(self, "_wired", True)
-        return real
-
-    def __getattr__(self, name: str) -> Any:
-        # __getattr__ is only called when the attribute is not found via
-        # normal lookup (i.e. for anything that isn't _app_ref / _real /
-        # _wired / a class attribute). Every wrapped-processor attribute
-        # goes through here.
-        return getattr(self._resolve(), name)
-
 
 # Register English fallbacks for the new i18n keys consumed by
 # this module (``error.config_load_failed.title`` /
@@ -246,15 +193,15 @@ class _LazyAudioProcessorProxy:
 # are populated via the ``set_tray_locale`` IPC (pushed by the renderer
 # on locale change) and via the JSON locale files at
 # ``voice_typer/client/src/main/i18n/locales/*.json`` (consumed by the
-# TS main process's ``mainT()``). Per C-I18N-1, the keys MUST exist in
-# every locale file so the missing-key tooling doesn't silently fall
-# back to English.
+# TS main process's ``mainT()``). Per the i18n completeness rule, the
+# keys MUST exist in every locale file so the missing-key tooling
+# doesn't silently fall back to English.
 with i18n._LOCK:
     _en_labels = i18n._REGISTRY.setdefault("en", {})
-    # DE-48: the tray notification for a config-load failure routes
+    # the tray notification for a config-load failure routes
     # through these two keys (resolved by the regression guard in
     # ``tests/app/test_app_lifecycle_fixes.py``). The title is a
-    # non-brand literal (C-BRAND-1-safe) so the failure is surfaced
+    # non-brand literal so the failure is surfaced
     # in the notification even when ``APP_NAME`` is customized.
     _en_labels.setdefault("error.config_load_failed.title", "Config load failed")
     _en_labels.setdefault(
@@ -264,35 +211,19 @@ with i18n._LOCK:
     _en_labels.setdefault("state.app.starting", "Starting...")
 
 
-# Sentinel for the lazily-built ``recorder`` / ``recording`` backings
-# (STARTUP-9). ``None`` is a legitimate test-set value, so a distinct
-# sentinel distinguishes "not built yet" from "explicitly None".
-_RECORDER_MISSING: object = object()
+class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin):
+    """The main application.
 
-# Sentinel + TTL for the lazy ``@property`` accessors that wrap controller
-# construction in ``try/except Exception`` (``undo``, ``audio_quality``,
-# ``_duck_crash_recovery``, ``_volume_ducker``, ``history_db``).
-#
-# ``None`` is the *initial* state ("not yet attempted construction"), so it
-# cannot also represent "construction already failed" — without a distinct
-# sentinel, every subsequent access would re-enter the ``try`` block and
-# re-attempt construction + re-log the WARNING (the ``audio_quality``
-# property is on a ~94 Hz hot path; a single failure spams ~94 warnings/sec
-# for the entire recording session). ``_LAZY_FAILED`` is cached in the
-# backing on failure alongside a ``_<prop>_failed_at`` monotonic
-# timestamp; the getter returns ``None`` silently (no log, no construction
-# re-attempt) until ``RETRY_TTL_SECONDS`` elapses, then clears the sentinel
-# and retries construction (transient failures can recover). This is the
-# canonical E8 exception-clause case ("Define a sentinel only when None is
-# itself a meaningful value") — ``None`` IS meaningful (initial state), so
-# the failure state needs a distinct marker. Mirrors the existing
-# ``_RECORDER_MISSING`` precedent in the same module.
-_LAZY_FAILED: object = object()
-RETRY_TTL_SECONDS: float = 30.0
-
-
-class VoiceTyperApp:
-    """The main application."""
+    Construction is split into focused ``_init_*`` builders (one
+    subsystem slice each); ``__init__`` is a short call sequence that
+    runs them in the exact historical order — construction order is
+    behavior (the thread registry must exist before any spawned
+    thread, ``self.config`` before the tray, the mutation lock before
+    it is shared with Config, etc.). The lazy subsystem accessors live
+    on the ``AppLazyHub`` mixin, the dictation-control surface on
+    ``AppDictation``, and the mic/model/restart/settings management
+    surface on ``AppAdmin``.
+    """
 
     # Declared as a class attribute (not only dynamically injected by
     # ``DictationPipeline._maybe_init_vocabulary_automation``) so
@@ -304,12 +235,33 @@ class VoiceTyperApp:
     _vocabulary_automation: Any = None
 
     def __init__(self):
+        """Run the subsystem builders in the historical order."""
+        self._init_config()
+        self._init_threading_and_crash()
+        self._log_startup_banner()
+        self._init_audio()
+        self._init_recording()
+        self._init_models()
+        self._init_tray()
+        self._init_controllers()
+        self._init_hotkeys_and_locks()
+        self._init_state_flags()
+        self._init_history_crash_volume()
+        self._init_misc_backings()
+
+    # ─── Construction: config ─────────────────────────────────────────
+
+    def _init_config(self) -> None:
+        """Load ``Config`` with corrupt-file self-heal.
+
+        Must run FIRST — every later builder reads ``self.config``.
+        """
         # catch unexpected exceptions from Config.load() (e.g.
         # KeyError from a data[...] access without a default, or
         # AttributeError from a None dereference during schema
         # migration).  Log at ERROR with exc_info=True, fall back to
         # Config() defaults, and flag the failure so a tray notification
-        # can be surfaced once the tray is built later in __init__.
+        # can be surfaced once the tray is built later in init.
         try:
             self.config = Config.load()
         except Exception:
@@ -338,7 +290,7 @@ class VoiceTyperApp:
                     _config_path.rename(_corrupt_path)
                     log.warning(
                         "[INIT] renamed corrupt config to %s",
-                        _corrupt_path.name,
+                        _config_path.name,
                     )
             except Exception:
                 log.warning(
@@ -350,6 +302,10 @@ class VoiceTyperApp:
         else:
             self._config_load_failed = False
 
+    # ─── Construction: threading + crash handlers ─────────────────────
+
+    def _init_threading_and_crash(self) -> None:
+        """Create the ThreadRegistry and install both excepthooks."""
         # THREAD-REGISTRY: create the central registry FIRST so all
         # subsystems constructed below (Recorder, CrashRecovery,
         # StreamingTranscriptionSession via RecordingController, and the
@@ -361,7 +317,7 @@ class VoiceTyperApp:
         self._thread_registry = ThreadRegistry()
 
         # Install Python-level excepthook for unhandled Python exceptions.
-        #  (F-07): wrapped in try/except so an excepthook-install
+        #  wrapped in try/except so an excepthook-install
         # failure (e.g. a missing Win32 API on an unsupported build, or
         # a sys.excepthook assignment that raises on a restricted
         # interpreter) does not abort VoiceTyperApp construction. The
@@ -384,6 +340,10 @@ class VoiceTyperApp:
         except Exception:
             log.debug("[INIT] excepthook install failed", exc_info=True)
 
+    # ─── Construction: startup banner ─────────────────────────────────
+
+    def _log_startup_banner(self) -> None:
+        """Emit the first visible startup log lines + launch timeline."""
         # Startup banner -- first visible log, before any subsystem init.
         # The model field reports INSTALLED state, not just the config
         # value: a model_size left over in config after its weights were
@@ -428,23 +388,27 @@ class VoiceTyperApp:
         # initialized`` → ``[CRASH] Windows VEH installed``.
         _emit_startup_banner()
 
-        # ADR 0007: Audio processor wraps a FilterChain built from config.
+    # ─── Construction: audio ──────────────────────────────────────────
+
+    def _init_audio(self) -> None:
+        """Declare the lazy audio-processor backing + quality analyzer."""
+        # Audio processor wraps a FilterChain built from config.
         # Rebuilt on every config change via _rebuild_audio_processor()
         # so Settings UI changes take effect immediately in dictation.
         #
         # ``AudioProcessor`` construction is deferred to
         # first attribute access via the ``_audio_processor`` @property
-        # below. The eager construction that used to live here pulled in
-        # the full ``audio_filters`` package + ``scipy.signal.butter``
-        # (via ``build_chain``) on every cold start, even when the user
-        # never dictates. The lazy property returns a
-        # ``_LazyAudioProcessorProxy`` that transparently constructs the
-        # real ``AudioProcessor`` on first ``process_chunk`` /
-        # ``set_sample_rate`` / ``rebuild_from_config`` call (i.e. on
+        # (AppLazyHub). The eager construction that used to live here
+        # pulled in the full ``audio_filters`` package +
+        # ``scipy.signal.butter`` (via ``build_chain``) on every cold
+        # start, even when the user never dictates. The lazy property
+        # returns a ``_LazyAudioProcessorProxy`` that transparently
+        # constructs the real ``AudioProcessor`` on first ``process_chunk``
+        # / ``set_sample_rate`` / ``rebuild_from_config`` call (i.e. on
         # the first recording or the first config-driven rebuild). The
         # proxy also wires ``set_quality_callback`` after construction
-        # (moved here from line 217 below) so the per-chunk quality
-        # callback is hooked up before the first chunk is processed.
+        # so the per-chunk quality callback is hooked up before the
+        # first chunk is processed.
         # Tests that inject mocks via ``app._audio_processor =
         # MagicMock()`` use the setter, which bypasses the proxy.
         self._audio_processor_backing: Any = None
@@ -458,25 +422,31 @@ class VoiceTyperApp:
         # config.audio_quality_warnings).
         self._audio_quality = AudioQualityAnalyzer()
         self._audio_quality.reset()
-        # ``set_quality_callback`` wiring moved into the
+        # ``set_quality_callback`` wiring lives in the
         # ``_LazyAudioProcessorProxy._resolve`` method so it fires on
         # first attribute access (after the real AudioProcessor is
         # constructed). Calling it here would trigger the proxy to
         # resolve immediately, defeating the lazy construction.
 
-        # ``Recorder`` + ``RecordingController`` construction is deferred
-        # to a background thread (STARTUP-9). The
-        # ``voice_typer.server.recording`` import + ``Recorder()`` build
-        # eagerly loads numpy/scipy/sounddevice (PortAudio) and can take
-        # 1-8s on the main thread — measured ~5x slower under the system
-        # Python (the interpreter the packaged app runs on) than under
-        # the dev venv, and worse on cold cache. The tray and IPC server
-        # don't need the recorder, so blocking startup on it made the
-        # app look dead for seconds. The background build is registered
-        # with the ThreadRegistry (shutdown joins it) and ``app.recorder``
-        # / ``app.recording`` are lazy properties that block only briefly
-        # on first access if the build is still in flight — every existing
-        # call site keeps working unchanged.
+    # ─── Construction: recorder / recording subsystem ─────────────────
+
+    def _init_recording(self) -> None:
+        """Spawn the background recorder build + VAD preload.
+
+        ``Recorder`` + ``RecordingController`` construction is deferred
+        to a background thread. The
+        ``voice_typer.server.recording`` import + ``Recorder()`` build
+        eagerly loads numpy/scipy/sounddevice (PortAudio) and can take
+        1-8s on the main thread — measured ~5x slower under the system
+        Python (the interpreter the packaged app runs on) than under
+        the dev venv, and worse on cold cache. The tray and IPC server
+        don't need the recorder, so blocking startup on it made the
+        app look dead for seconds. The background build is registered
+        with the ThreadRegistry (shutdown joins it) and ``app.recorder``
+        / ``app.recording`` are lazy properties that block only briefly
+        on first access if the build is still in flight — every existing
+        call site keeps working unchanged.
+        """
         self._recorder_backing: Any = _RECORDER_MISSING
         self._recording_backing: Any = _RECORDER_MISSING
         self._recorder_build_error: BaseException | None = None
@@ -500,7 +470,7 @@ class VoiceTyperApp:
                 if self._recorder_backing is not _RECORDER_MISSING:
                     return  # setter raced us between import + construction
                 self._recorder_backing = recorder
-                # #2 Recording lifecycle extracted to RecordingController.
+                # Recording lifecycle extracted to RecordingController.
                 # Owns toggle/start/stop/cancel, silence/xrun callbacks,
                 # and the streaming session.
                 from voice_typer.server.recording_controller import RecordingController
@@ -509,7 +479,7 @@ class VoiceTyperApp:
                 if self._recorder_backing is not recorder:
                     return  # setter raced us during controller construction
                 self._recording_backing = controller
-                # Item 1: wire xrun threshold callback for tray
+                # wire xrun threshold callback for tray
                 # notification (was ``self.recorder.on_xrun_threshold =
                 # self.recording.on_xrun_threshold`` on the main thread).
                 recorder.on_xrun_threshold = controller.on_xrun_threshold
@@ -564,11 +534,16 @@ class VoiceTyperApp:
         # load failure falls through to lazy load on the first chunk
         # (preserving the pre-fix behavior as a fallback).
         self._preload_vad_model()
-        # #2 ASR backend lifecycle extracted to ModelManager.
+
+    # ─── Construction: model manager ──────────────────────────────────
+
+    def _init_models(self) -> None:
+        """Construct the ModelManager (ASR backend lifecycle owner)."""
+        # ASR backend lifecycle extracted to ModelManager.
         # Previously VoiceTyperApp owned the AsrBackendRegistry + three
         # engine fields + ~500 LOC of load/fallback/change logic. Now
         # ModelManager owns all of that; app.py accesses it via
-        # `self.models`. (: the @property delegates that
+        # `self.models`. (the @property delegates that
         # used to mirror `self.transcriber` / `self._qwen_engine` /
         # `self._asr_registry` / etc. on VoiceTyperApp have been
         # removed — callers now use `self.models.<field>` directly.)
@@ -586,8 +561,12 @@ class VoiceTyperApp:
         # was both expensive AND redundant. Removed here; the bg load
         # path covers it.
 
+    # ─── Construction: tray ───────────────────────────────────────────
+
+    def _init_tray(self) -> None:
+        """Construct TrayIcon + surface the config-load-failure toast."""
         # ``ClipboardManager`` construction deferred to first
-        # access via the ``clipboard`` @property below. The eager
+        # access via the ``clipboard`` @property (AppLazyHub). The eager
         # construction was a small but non-trivial cost (import + class
         # init) paid on every cold start even when the user never
         # dictates. The lazy property transparently constructs on the
@@ -603,8 +582,8 @@ class VoiceTyperApp:
         # notification so the user knows their settings were reset to
         # defaults.  Wrapped in try/except so a tray.backend failure
         # (e.g. notification daemon not ready) doesn't crash init.
-        # DE-48: title and body are BOTH localized via ``i18n.t``
-        # (C-I18N-1). The English fallbacks for
+        # The title and body are BOTH localized via ``i18n.t``.
+        # The English fallbacks for
         # ``error.config_load_failed.title`` /
         # ``error.config_load_failed.body`` are registered at the
         # top of this module (extends ``i18n._REGISTRY["en"]`` since
@@ -618,19 +597,22 @@ class VoiceTyperApp:
             except Exception:
                 log.debug("[INIT] tray.notify for config load failure failed", exc_info=True)
 
-        #  Phase 6: settings side-effects (autostart, notifications,
+    # ─── Construction: controllers + lazy backings ────────────────────
+
+    def _init_controllers(self) -> None:
+        """Construct settings/shutdown/lifecycle/config-editor controllers."""
+        # Settings side-effects (autostart, notifications,
         # microphone selection) extracted to SettingsController. The app
         # keeps thin delegate methods (``_toggle_autostart``,
         # ``_set_autostart``, ``_set_notifications``, ``_select_microphone``)
         # so tray menu callbacks and tests calling ``app._select_microphone``
-        # keep working unchanged. ``_open_config_file`` stays on
-        # VoiceTyperApp because source-level structure tests
-        # (test_config_editor_lock.py) pin its body via inspect.getsource.
+        # keep working unchanged. ``_open_config_file`` is a thin
+        # delegate too (the launcher holds the real body).
         from voice_typer.server.settings_controller import SettingsController
 
         self.settings: SettingsController = SettingsController(self)
 
-        #  Phase 7: shutdown / cleanup lifecycle (quit, _do_cleanup,
+        # Shutdown / cleanup lifecycle (quit, _do_cleanup,
         # _atexit_*, signal handlers, Win32 console handler) extracted to
         # ShutdownController. The app keeps thin delegate methods so
         # ``app.start()``'s ``atexit.register`` calls, tray menu callbacks
@@ -648,11 +630,10 @@ class VoiceTyperApp:
         # without re-importing the constant.
         self._shutdown_watchdog_timeout_s: float = SHUTDOWN_WATCHDOG_TIMEOUT_S
 
-        #  (Phase 4.5 spaghetti split): restart / quit
-        # relaunch-ack lifecycle extracted to LifecycleController. The
-        # app keeps thin delegate methods (``restart_app``,
-        # ``_wait_for_relaunch_ack``, ``quit_app``) so tray menu
-        # callbacks (quit_app -> self.quit(), restart_app ->
+        # Restart / quit relaunch-ack lifecycle extracted to
+        # LifecycleController. The app keeps thin delegate methods
+        # (``restart_app``, ``_wait_for_relaunch_ack``, ``quit_app``) so
+        # tray menu callbacks (quit_app -> self.quit(), restart_app ->
         # self._do_cleanup()) and tests calling ``app.restart_app()``
         # / ``app.quit_app()`` directly keep working unchanged.
         # ``restart_app`` keeps the re-entry guard inline so the
@@ -672,24 +653,24 @@ class VoiceTyperApp:
         # working unchanged.
         #
         # Construction of ``UndoRepasteController`` is deferred to first
-        # access via the ``undo`` @property below. The eager construction
-        # that used to live here paid the ``app_undo`` import + class init
-        # on every cold start, even when the user never invokes undo /
-        # repaste (the only entry points are the tray menu items and the
-        # repaste hotkey). The lazy property transparently constructs on
-        # first access.
+        # access via the ``undo`` @property (AppLazyHub). The eager
+        # construction that used to live here paid the ``app_undo``
+        # import + class init on every cold start, even when the user
+        # never invokes undo / repaste (the only entry points are the
+        # tray menu items and the repaste hotkey). The lazy property
+        # transparently constructs on first access.
         self._undo_backing: Any = None
         # Monotonic-clock timestamp of the most recent lazy-init failure
-        # for the ``undo`` property (see ``_LAZY_FAILED`` sentinel at
-        # module top). When ``_undo_backing`` is ``_LAZY_FAILED``, the
-        # getter reads this to decide whether to retry construction
+        # for the ``undo`` property (see the ``_LAZY_FAILED`` sentinel in
+        # ``app_lazy_hub``). When ``_undo_backing`` is ``_LAZY_FAILED``,
+        # the getter reads this to decide whether to retry construction
         # (after ``RETRY_TTL_SECONDS``) or return ``None`` silently
         # (within TTL — avoids 94 Hz log spam on the hot path). ``None``
         # means "no failure recorded" (either never failed, or the last
         # attempt succeeded and cleared the timestamp).
         self._undo_failed_at: Any = None
 
-        #  Phase 7: audio-quality side-effects extracted to
+        # Audio-quality side-effects extracted to
         # AudioQualityController. The app keeps thin delegate methods so
         # ``self._audio_processor.set_quality_callback(self._on_audio_quality_chunk)``,
         # ``service.apply_config_side_effects`` (-> _rebuild_audio_processor),
@@ -697,13 +678,12 @@ class VoiceTyperApp:
         # all keep working unchanged.
         #
         # Construction of ``AudioQualityController`` is deferred to first
-        # access via the ``audio_quality`` @property below. The eager
-        # construction that used to live here paid the
+        # access via the ``audio_quality`` @property (AppLazyHub). The
+        # eager construction that used to live here paid the
         # ``audio_quality_controller`` import (which eagerly imports
         # numpy) on every cold start. The lazy property transparently
         # constructs on first access; the per-chunk quality callback
-        # wired above (``self._audio_processor.set_quality_callback(
-        # self._on_audio_quality_chunk)``) delegates through the property
+        # wired through the proxy delegates through the property
         # so the first chunk triggers construction.
         self._audio_quality_backing: Any = None
         # Monotonic-clock timestamp of the most recent lazy-init failure
@@ -734,9 +714,14 @@ class VoiceTyperApp:
 
         self._config_editor_launcher: _ConfigLauncher = _ConfigLauncher(self)
 
-        # #2 Hotkey registration extracted to HotkeyDispatcher.
+    # ─── Construction: hotkeys + busyness + mutation lock ─────────────
+
+    def _init_hotkeys_and_locks(self) -> None:
+        """Construct HotkeyDispatcher, busyness/mic coordinators, and
+        the config-mutation lock (wired into Config)."""
+        # Hotkey registration extracted to HotkeyDispatcher.
         # Owns the 3 hotkey backends (dictation / ESC / repaste) and the
-        # register/restart logic. (: the @property
+        # register/restart logic. (the @property
         # delegates that used to mirror the 3 legacy fields
         # (_hotkey_backend, _esc_backend, _repaste_backend) on
         # VoiceTyperApp have been removed — callers now use
@@ -745,17 +730,12 @@ class VoiceTyperApp:
 
         self.hotkeys: HotkeyDispatcher = HotkeyDispatcher(self)
         # The dead inline ``from voice_typer.server.hotkeys
-        # import create_hotkey_backend`` that lived here (inside
-        # ``__init__``) has been removed. It was a no-op — the symbol
-        # lived in ``hotkeys``/``hotkey_dispatcher``, and the inline
-        # import only bound a *local* variable inside ``__init__`` that
-        # was never read; the surrounding comment block (which claimed
-        # the inline import was "a re-export alias") was misleading.
-        # (The module-top ``create_hotkey_backend`` re-export has since
-        # been removed too — tests patch the factory on
-        # ``hotkey_dispatcher``, where HotkeyDispatcher resolves it.)
-        # #2 _streaming_session and _transcription_thread now
-        # live in RecordingController. (: the @property
+        # import create_hotkey_backend`` that lived here has been
+        # removed. It was a no-op — the symbol lived in
+        # ``hotkeys``/``hotkey_dispatcher``, and the inline import only
+        # bound a *local* variable that was never read.
+        # _streaming_session and _transcription_thread now
+        # live in RecordingController. (the @property
         # delegates that used to mirror them on VoiceTyperApp have been
         # removed — callers now use `self.recording.<field>` directly,
         # or `self.recording.get_streaming_session()` /
@@ -764,9 +744,9 @@ class VoiceTyperApp:
         # BusynessCoordinator; the cached microphone list lives in
         # MicrophoneRegistry. The legacy private attributes
         # (``_busy_event`` / ``_lock`` / ``_microphones``) remain
-        # reachable via the back-compat properties further down this
-        # class — they delegate to these coordinators, so every
-        # existing consumer (``recording_lifecycle``,
+        # reachable via the back-compat properties on ``AppLazyHub`` —
+        # they delegate to these coordinators, so every existing
+        # consumer (``recording_lifecycle``,
         # ``transcription_watchdog``, ``dictation_pipeline/*``,
         # ``model_manager``, ``startup_tasks.load_microphones``,
         # ``service/microphone_test``, ``tray_menu``) keeps working
@@ -797,26 +777,30 @@ class VoiceTyperApp:
         # startup_sequence, service.apply_config, onboarding_apply,
         # etc.) automatically acquires it via
         # :meth:`Config._save_with_mutation_lock`. Previously
-        # ``set_mutation_lock`` was defined on Config (config.py:1083)
-        # but never called in production, so only the IPC ``set_config``
-        # path that manually acquired the lock was serialized — every
-        # other ``save()`` ran unlocked, allowing a background
-        # mic-fallback save to interleave with an in-flight
-        # ``apply_config`` and persist a torn snapshot. The lock is an
-        # ``RLock`` so nested acquisition from the same thread (e.g.
-        # ``apply_config`` calls ``save()`` which itself re-enters) is
-        # safe. MUST run AFTER both ``self.config`` (set at line ~137)
-        # and ``self._config_mutation_lock`` (set just above) exist —
-        # order matters, the lock has to be created before it is shared.
+        # ``set_mutation_lock`` was defined on Config but never called
+        # in production, so only the IPC ``set_config`` path that
+        # manually acquired the lock was serialized — every other
+        # ``save()`` ran unlocked, allowing a background mic-fallback
+        # save to interleave with an in-flight ``apply_config`` and
+        # persist a torn snapshot. The lock is an ``RLock`` so nested
+        # acquisition from the same thread (e.g. ``apply_config`` calls
+        # ``save()`` which itself re-enters) is safe. MUST run AFTER
+        # both ``self.config`` (set by the config builder) and
+        # ``self._config_mutation_lock`` (set just above) exist — order
+        # matters, the lock has to be created before it is shared.
         self.config.set_mutation_lock(self._config_mutation_lock)
 
-        # #2 _model_load_attempted / _model_load_thread /
-        # _pending_dictation now live in ModelManager. (:
+    # ─── Construction: state flags + timers ───────────────────────────
+
+    def _init_state_flags(self) -> None:
+        """Declare shutdown/electron/restart/esc flags + timer wiring."""
+        # _model_load_attempted / _model_load_thread /
+        # _pending_dictation now live in ModelManager. (
         # the @property delegates that used to mirror them on
         # VoiceTyperApp have been removed — callers now use
         # `self.models.<field>` directly.)
         self._shutting_down = False  # True once quit() starts
-        # XZ-IPC-012: assert the shutdown gate is a real bool. The
+        # assert the shutdown gate is a real bool. The
         # ``getattr(self.app, "_shutting_down", False) is True`` idiom
         # used by the IPC dispatch path (see voice_typer/server/
         # ipc_server.py and voice_typer/server/sidecar_ws.py)
@@ -834,9 +818,9 @@ class VoiceTyperApp:
         # tasks can check it without reading the boolean (which provides
         # no memory-order guarantee across threads).
         self._shutting_down_event = threading.Event()
-        # PYREFLY- counter incremented by startup_sequence.py
-        # when the onboarding check persistently fails (see
-        # startup_sequence.py:140-149). Declared here so pyrefly
+        # counter incremented by startup_sequence.py when the
+        # onboarding check persistently fails (see
+        # startup_sequence.py). Declared here so pyrefly
         # recognizes it as a class attribute rather than an ad-hoc
         # dynamic attribute. Initialized to 0; startup_sequence.py
         # uses getattr-with-default as a defensive read but always
@@ -850,25 +834,25 @@ class VoiceTyperApp:
         # without double-flushing history_db / double-stopping the
         # recorder / double-closing the Win32 mutex handle.
         self._cleanup_done: bool = False
-        # P1-1.3: PID of the Electron subprocess we launched in standalone
+        # PID of the Electron subprocess we launched in standalone
         # mode (None when Electron spawned us, or when standalone launch
         # failed).  Tracked here so quit() can terminate the subprocess
         # explicitly during shutdown.
         self._electron_pid: int | None = None
-        # IN-PLACE-RESTART: True when ``restart_app()`` runs in standalone
+        # True when ``restart_app()`` runs in standalone
         # mode and the process must stay alive to re-initialize the app in
         # the same terminal/console (instead of ``sys.exit(0)`` + Electron
         # respawning a hidden backend).  The entrypoint loop checks this
         # flag after ``app.start()`` returns to decide whether to re-run
         # the startup sequence.
         self._in_place_restart: bool = False
-        # ESC- flag gating the global ESC cancel hotkey.  Set to
+        # flag gating the global ESC cancel hotkey.  Set to
         # True by the ""set_esc_cancel_paused"" IPC handler when the
         # frontend HotkeyPicker enters capture mode, so the backend's
         # ESC polling callback doesn't fire while the user is assigning
         # a custom hotkey in the Settings UI.
         self._esc_cancel_paused: bool = False
-        #  Phase 7: timer lifecycle extracted to TimerCoordinator.
+        # Timer lifecycle extracted to TimerCoordinator.
         # The three state attributes (_pending_timers / _pending_timers_lock
         # / _timer_generation) now live on TimerCoordinator; VoiceTyperApp
         # keeps thin delegate methods (_schedule_timer / _cancel_pending_timers)
@@ -887,9 +871,12 @@ class VoiceTyperApp:
         self._cycle_counter = 0  # monotonic counter for dictation cycles
         self._cycle_id: str = ""  # human-readable cycle id for log correlation
 
-        # ─── P1/P2 New Feature Components ────────────────────────────
+    # ─── Construction: history / crash recovery / volume ──────────────
+
+    def _init_history_crash_volume(self) -> None:
+        """Declare history-db backings + crash recovery + volume wiring."""
         # ``HistoryDB()`` construction is deferred to first
-        # access via the ``history_db`` @property below. The eager
+        # access via the ``history_db`` @property (AppLazyHub). The eager
         # construction that used to live here blocked ``__init__`` for up
         # to ``_WRITER_READY_TIMEOUT`` (30s) waiting for the writer
         # thread's schema-init to complete — paid on every cold start,
@@ -907,8 +894,8 @@ class VoiceTyperApp:
         # wait on quit.
         self._history_db_backing: Any = None
         # Monotonic-clock timestamp of the most recent lazy-init failure
-        # for the ``history_db`` property — see ``_undo_failed_at`` above
-        # for the full rationale.
+        # for the ``history_db`` property — see ``_undo_failed_at`` in
+        # the controllers builder for the full rationale.
         self._history_db_failed_at: Any = None
         self._crash_recovery = CrashRecovery(
             thread_registry=self._thread_registry,
@@ -920,19 +907,21 @@ class VoiceTyperApp:
         #
         # Construction of ``DuckCrashRecovery`` and ``VolumeDucker`` is
         # deferred to first access via the ``_duck_crash_recovery`` /
-        # ``_volume_ducker`` @properties below. The eager construction
-        # that used to live here paid the ``duck_crash_recovery`` +
-        # ``volume_ducker`` imports + class init on every cold start,
-        # even when the user has ``volume_duck_enabled=False`` and never
-        # triggers a duck. The lazy properties transparently construct
-        # on first access (e.g. when ``VolumeController._duck_volume``
-        # runs at the start of the first dictation).
+        # ``_volume_ducker`` @properties (AppLazyHub). The eager
+        # construction that used to live here paid the
+        # ``duck_crash_recovery`` + ``volume_ducker`` imports + class
+        # init on every cold start, even when the user has
+        # ``volume_duck_enabled=False`` and never triggers a duck. The
+        # lazy properties transparently construct on first access (e.g.
+        # when ``VolumeController._duck_volume`` runs at the start of
+        # the first dictation).
         self._duck_crash_recovery_backing: Any = None
         # Monotonic-clock timestamp of the most recent lazy-init failure
         # for the ``_duck_crash_recovery`` property — see
-        # ``_undo_failed_at`` above for the full rationale.
+        # ``_undo_failed_at`` in the controllers builder for the full
+        # rationale.
         self._duck_crash_recovery_failed_at: Any = None
-        #  Phase 7: VolumeController owns duck/restore side effects.
+        # VolumeController owns duck/restore side effects.
         # Kept eager because it's just a back-reference holder
         # (``self._app = app``) and the ``_on_volume_crash_restore``
         # callback wired into ``VolumeDucker`` delegates to it —
@@ -944,20 +933,26 @@ class VoiceTyperApp:
         self._volume_ducker_backing: Any = None
         # Monotonic-clock timestamp of the most recent lazy-init failure
         # for the ``_volume_ducker`` property — see ``_undo_failed_at``
-        # above for the full rationale.
+        # in the controllers builder for the full rationale.
         self._volume_ducker_failed_at: Any = None
-        # NOTE: AudioQualityAnalyzer is now instantiated earlier in
-        # __init__ (next to AudioProcessor) and wired to the processor's
-        # per-chunk quality callback.  See self._audio_quality /
-        # self._on_audio_quality_chunk / _finalize_audio_quality_report.
+
+    # ─── Construction: misc lazy backings ─────────────────────────────
+
+    def _init_misc_backings(self) -> None:
+        """Declare the remaining lazy backings + IPC/polisher fields."""
+        # NOTE: AudioQualityAnalyzer is instantiated earlier in
+        # construction (next to AudioProcessor) and wired to the
+        # processor's per-chunk quality callback. See self._audio_quality
+        # / self._on_audio_quality_chunk / _finalize_audio_quality_report.
         # ``WaveformBubble`` and ``WaveformBubbleWiring``
         # construction deferred to first access via the
-        # ``_waveform_bubble`` / ``waveform_wiring`` @properties below.
-        # The eager construction + immediate ``_wire_waveform_bubble()``
-        # call that used to live here paid the full bubble-wiring cost
-        # (importing ``waveform_bubble_wiring`` + starting the
-        # bubble-level-pusher daemon thread + registering it with the
-        # thread registry) on every cold start, even when the user has
+        # ``_waveform_bubble`` / ``waveform_wiring`` @properties
+        # (AppLazyHub). The eager construction + immediate
+        # ``_wire_waveform_bubble()`` call that used to live here paid
+        # the full bubble-wiring cost (importing
+        # ``waveform_bubble_wiring`` + starting the bubble-level-pusher
+        # daemon thread + registering it with the thread registry) on
+        # every cold start, even when the user has
         # ``bubble_behavior='hidden'`` and never sees the bubble. The
         # wiring now happens lazily — the ``_wire_waveform_bubble()``
         # call was moved to ``start()`` so it runs once on the main
@@ -976,16 +971,18 @@ class VoiceTyperApp:
         self._ipc_server: Any | None = None
         # ``TemplateManager`` and ``VocabularyManager`` construction is
         # deferred to first access via the ``_template_manager`` /
-        # ``_vocabulary_manager`` @properties below. The eager
+        # ``_vocabulary_manager`` @properties (AppLazyHub — passive
+        # backings; the callers in ``service/template.py`` /
+        # ``service/vocabulary.py`` own construction). The eager
         # construction that used to live here read ``templates.json`` /
         # ``vocabulary.json`` off disk on every cold start (hundreds of
         # ms on a slow disk), even when the user never uses templates /
         # vocabulary.
         #
-        # The properties AUTO-CONSTRUCT on first access (: failure
-        # is logged at WARNING with ``exc_info=True`` and the backing is
-        # left ``None`` to retry on next access). The ``is None``
-        # fallback paths in ``service/template.py`` and
+        # The properties do NOT auto-construct on first access
+        # (failure is logged at WARNING with ``exc_info=True`` and the
+        # backing is left ``None`` to retry on next access) — the
+        # ``is None`` fallback paths in ``service/template.py`` and
         # ``dictation_pipeline.py`` therefore see a cached instance on
         # success, or ``None`` on failure — their fallback construction
         # still works unchanged.
@@ -994,536 +991,7 @@ class VoiceTyperApp:
         self._llm_polisher = None  # Created on first polish (needs consent check)
         self._cloud_engine = None  # Lazy-init if cloud backend selected
 
-    # ─── Legacy private-state back-compat properties ──────────────────
-    #
-    # The raw state objects live in the coordinators constructed in
-    # ``__init__`` (``_busyness`` / ``_microphone_registry``); these
-    # read/write views keep every historical consumer of
-    # ``app._busy_event`` / ``app._lock`` / ``app._microphones``
-    # working unchanged. Setters rebind INTO the coordinator (never
-    # shadowing it) so ``monkeypatch.setattr(app, "_busy_event", ...)``
-    # style injection and plain ``app._microphones = [...]`` rebinding
-    # keep their pre-extraction semantics.
-    #
-    # Declared here (not inferred from the ``__init__`` assignments)
-    # because ``__init__`` is unannotated — mypy does not treat
-    # assignments inside an untyped function body as attribute
-    # declarations, so without these the delegating properties below
-    # read the coordinators as ``Any``.
-    _busyness: BusynessCoordinator
-    _microphone_registry: MicrophoneRegistry
-
-    @property
-    def _busy_event(self) -> threading.Event:
-        """The pipeline busy/ready event owned by :class:`BusynessCoordinator`.
-
-        INVERTED legacy semantics preserved: ``is_set() == True`` means
-        NOT busy (the event doubles as a ready signal). New code should
-        prefer ``self._busyness.is_busy()`` / ``set_busy()`` /
-        ``set_idle()`` / ``wait_idle()``.
-        """
-        return self._busyness.event
-
-    @_busy_event.setter
-    def _busy_event(self, event: threading.Event) -> None:
-        self._busyness.adopt_event(event)
-
-    @property
-    def _lock(self) -> threading.Lock:
-        """The companion coarse-grained lock owned by BusynessCoordinator."""
-        return self._busyness.lock
-
-    @_lock.setter
-    def _lock(self, lock: threading.Lock) -> None:
-        self._busyness.adopt_lock(lock)
-
-    @property
-    def _microphones(self) -> list[dict]:
-        """Snapshot of the cached microphone list owned by MicrophoneRegistry."""
-        return self._microphone_registry.list()
-
-    @_microphones.setter
-    def _microphones(self, mics: list[dict]) -> None:
-        self._microphone_registry.replace(mics)
-
-    # ─── Lazy @property accessors ─────────────────────────────────────
-    #
-    # Each property has both a getter (constructs on first access if
-    # the backing is None) and a setter (stores directly into the
-    # backing so existing tests that inject mocks via
-    # ``app.<attr> = MagicMock()`` keep working transparently —
-    # assignment bypasses the lazy construction).
-    #
-    # Construction failures (e.g. a corrupt ``templates.json``) are
-    # logged at WARNING level with ``exc_info=True`` (mirrors the
-    # pre- eager-init failure-logging contract). The backing is then
-    # set to the ``_LAZY_FAILED`` sentinel (NOT ``None``) plus a
-    # ``_<prop>_failed_at`` monotonic timestamp — subsequent accesses
-    # within ``RETRY_TTL_SECONDS`` (30s) return ``None`` silently (no
-    # log, no construction re-attempt) so the per-chunk hot path
-    # (``audio_quality`` at ~94 Hz) does not spam ~94 warnings/sec for
-    # the entire recording session. After the TTL elapses the sentinel
-    # is cleared and construction is retried (transient failures can
-    # recover). The WARNING fires exactly once per fresh failure
-    # (per TTL window), not on every access. ``None`` IS a meaningful
-    # value here (the initial "not yet attempted" state, and the value
-    # returned by the getter to callers while the sentinel is in TTL),
-    # so the sentinel qualifies for the E8 exception clause ("Define a
-    # sentinel only when None is itself a meaningful value") — mirrors
-    # the existing ``_RECORDER_MISSING`` precedent in this module.
-
-    @property
-    def _template_manager(self):
-        # Return the backing directly. Construction is the caller's
-        # responsibility — see ``service/template.py``'s lazy fallback
-        # which constructs via ``TemplateManager()`` and assigns back
-        # via the setter below. Returning ``None`` when uninitialised
-        # lets tests verify the lazy contract (DJ-2) without
-        # triggering eager ``TemplateManager()`` construction on
-        # ``__init__`` (TemplateManager reads ``templates.json`` from
-        # disk; that's hundreds of ms on a cold start).
-        return self._template_manager_backing
-
-    @_template_manager.setter
-    def _template_manager(self, value) -> None:
-        self._template_manager_backing = value
-
-    @property
-    def _vocabulary_manager(self):
-        # Return the backing directly. Construction is the caller's
-        # responsibility — see ``service/vocabulary.py``'s lazy
-        # fallback which constructs via ``VocabularyManager()`` and
-        # assigns back via the setter below. Returning ``None`` when
-        # uninitialised lets tests verify the lazy contract (DJ-2)
-        # without triggering eager ``VocabularyManager()`` construction
-        # on ``__init__`` (VocabularyManager reads ``vocabulary.json``
-        # from disk; that's hundreds of ms on a cold start).
-        return self._vocabulary_manager_backing
-
-    @_vocabulary_manager.setter
-    def _vocabulary_manager(self, value) -> None:
-        self._vocabulary_manager_backing = value
-
-    @property
-    def correction_usage(self):
-        """Shared per-correction usage tracker (``correction_usage.py``).
-
-        Delegates to the live ``_vocabulary_manager``'s tracker when one
-        exists (dictation records corrections + dictations through it,
-        so there is exactly ONE writer). When the manager hasn't been
-        constructed yet (cold start / test fixtures), a standalone
-        tracker is built over the same config-dir file — read-only in
-        practice (the ``get_correction_usage`` IPC path), so no
-        cross-instance write interleaving can occur.
-        """
-        vm = self._vocabulary_manager
-        if vm is not None:
-            return vm.usage_tracker
-        from voice_typer.server.correction_usage import CorrectionUsageTracker
-
-        return CorrectionUsageTracker(self.config.config_dir)
-
-    @property
-    def clipboard(self):
-        backing = self._clipboard_backing
-        if backing is None:
-            # Deferred import — the clipboard package eagerly imports
-            # ``pyperclip`` + the platform backends (``.windows`` /
-            # ``.linux``, which pull in pywin32 / pynput) and the
-            # ``manager`` submodule imports ``config`` at module top
-            # (~13 ms of the cold-start import chain, measured). The
-            # clipboard is only touched at dictation-stop paste time,
-            # so the class import is deferred to first access — mirrors
-            # the existing deferred-import pattern (undo, audio_quality,
-            # _volume_ducker).
-            from voice_typer.server.clipboard import ClipboardManager
-
-            backing = ClipboardManager(
-                paste_enabled=self.config.paste_on_stop,
-            )
-            self._clipboard_backing = backing
-        return backing
-
-    @clipboard.setter
-    def clipboard(self, value) -> None:
-        self._clipboard_backing = value
-
-    @property
-    def _waveform_bubble(self):
-        backing = self._waveform_bubble_backing
-        if backing is None:
-            # Deferred import — ``voice_typer.server.waveform``
-            # transitively imports numpy, which is ~250-335ms on cold
-            # start. Deferred to first access (which only happens when
-            # the bubble is actually shown).
-            from voice_typer.server.waveform import WaveformBubble
-
-            backing = WaveformBubble()
-            self._waveform_bubble_backing = backing
-        return backing
-
-    @_waveform_bubble.setter
-    def _waveform_bubble(self, value) -> None:
-        self._waveform_bubble_backing = value
-
-    @property
-    def waveform_wiring(self):
-        backing = self._waveform_wiring_backing
-        if backing is None:
-            from voice_typer.server.waveform_bubble_wiring import WaveformBubbleWiring
-
-            backing = WaveformBubbleWiring(self)
-            self._waveform_wiring_backing = backing
-        return backing
-
-    @waveform_wiring.setter
-    def waveform_wiring(self, value) -> None:
-        self._waveform_wiring_backing = value
-
-    # ─── Lazy recorder / recording properties (STARTUP-9) ─────────────
-    #
-    # ``recorder`` / ``recording`` are built on a background thread in
-    # ``__init__`` so the multi-second construction cost
-    # (numpy/scipy/sounddevice + PortAudio init) never blocks the tray /
-    # IPC startup. The getters block only if the background build is
-    # still in flight (brief); the setters let tests inject mocks
-    # transparently (assignment bypasses the lazy build).
-
-    @property
-    def recorder(self) -> Any:
-        backing = self._recorder_backing
-        if backing is not _RECORDER_MISSING:
-            return backing
-        # Shutdown guard (mirrors ``history_db``): if the app is already
-        # quitting and the background build never finished, return None
-        # instead of blocking the teardown path on the still-in-flight
-        # build. Shutdown teardowns check ``app.recorder is not None``,
-        # so a never-built recorder is skipped cleanly; a built recorder
-        # is returned by the fast path above.
-        if self._shutting_down_event.is_set():
-            return None
-        self._recorder_build_ready.wait()
-        if self._recorder_build_error is not None:
-            raise self._recorder_build_error
-        backing = self._recorder_backing
-        if backing is not _RECORDER_MISSING:
-            return backing
-        # The background build was short-circuited by a ``recorder``
-        # setter (test mock injection) before it could build the real
-        # Recorder — never construct one eagerly here (that would
-        # re-introduce the multi-second startup stall). Return None;
-        # callers treat a missing recorder the same as an unbuilt one.
-        return None
-
-    @recorder.setter
-    def recorder(self, value: Any) -> None:
-        self._recorder_backing = value
-        self._recorder_build_ready.set()
-
-    @property
-    def recording(self) -> Any:
-        backing = self._recording_backing
-        if backing is not _RECORDER_MISSING:
-            return backing
-        # Shutdown guard — see the ``recorder`` getter docstring.
-        if self._shutting_down_event.is_set():
-            return None
-        self._recorder_build_ready.wait()
-        if self._recorder_build_error is not None:
-            raise self._recorder_build_error
-        backing = self._recording_backing
-        if backing is not _RECORDER_MISSING:
-            return backing
-        # The background build was short-circuited by a ``recorder``
-        # setter (test mock injection) so ``_recording_backing`` was
-        # never populated. Construct the controller on demand to
-        # preserve the long-standing contract that ``app.recording`` is
-        # always a RecordingController (RecordingController is cheap to
-        # build — no audio/numpy imports — so this adds no startup cost).
-        from voice_typer.server.recording_controller import RecordingController
-
-        backing = RecordingController(self)
-        self._recording_backing = backing
-        return backing
-
-    @recording.setter
-    def recording(self, value: Any) -> None:
-        self._recording_backing = value
-        self._recorder_build_ready.set()
-
-    # ─── Lazy controller / volume-subsystem properties ────────────────
-    #
-    # ``undo`` (UndoRepasteController), ``audio_quality``
-    # (AudioQualityController), ``_duck_crash_recovery``
-    # (DuckCrashRecovery), and ``_volume_ducker`` (VolumeDucker) used
-    # to be constructed eagerly in ``__init__``. They are now
-    # auto-constructing lazy properties — the first access triggers
-    # construction and caches the instance in the backing attribute.
-    # Tests that inject mocks via ``app.<attr> = MagicMock()`` use the
-    # setter, which bypasses the lazy construction.
-
-    @property
-    def undo(self):
-        backing = self._undo_backing
-        if backing is _LAZY_FAILED:
-            # Previous construction attempt failed. Within the retry TTL
-            # return ``None`` silently (no construction re-attempt, no
-            # WARNING log) so the hot path does not spam 94 failures/sec.
-            # After TTL elapses, clear the sentinel and fall through to
-            # retry construction (transient failures may recover).
-            failed_at = self._undo_failed_at
-            if failed_at is None or time.monotonic() - failed_at >= RETRY_TTL_SECONDS:
-                self._undo_backing = None
-                self._undo_failed_at = None
-                backing = None
-            else:
-                return None
-        if backing is None:
-            try:
-                from voice_typer.server.app_undo import UndoRepasteController
-
-                backing = UndoRepasteController(self)
-            except Exception:
-                log.warning("[INIT] UndoRepasteController lazy-init failed", exc_info=True)
-                self._undo_backing = _LAZY_FAILED
-                self._undo_failed_at = time.monotonic()
-                return None
-            self._undo_backing = backing
-            self._undo_failed_at = None
-        return backing
-
-    @undo.setter
-    def undo(self, value) -> None:
-        self._undo_backing = value
-
-    @property
-    def audio_quality(self):
-        backing = self._audio_quality_backing
-        if backing is _LAZY_FAILED:
-            # Sentinel: previous construction attempt failed. Return
-            # ``None`` silently within the retry TTL (this is the hot
-            # path at ~94 Hz — without this guard a single failure
-            # spams ~94 WARNING logs/sec + ~94 construction re-attempts
-            # per second for the entire recording session). After TTL
-            # elapses, clear the sentinel and retry construction.
-            failed_at = self._audio_quality_failed_at
-            if failed_at is None or time.monotonic() - failed_at >= RETRY_TTL_SECONDS:
-                self._audio_quality_backing = None
-                self._audio_quality_failed_at = None
-                backing = None
-            else:
-                return None
-        if backing is None:
-            try:
-                from voice_typer.server.audio_quality_controller import (
-                    AudioQualityController,
-                )
-
-                backing = AudioQualityController(self)
-            except Exception:
-                log.warning("[INIT] AudioQualityController lazy-init failed", exc_info=True)
-                self._audio_quality_backing = _LAZY_FAILED
-                self._audio_quality_failed_at = time.monotonic()
-                return None
-            self._audio_quality_backing = backing
-            self._audio_quality_failed_at = None
-        return backing
-
-    @audio_quality.setter
-    def audio_quality(self, value) -> None:
-        self._audio_quality_backing = value
-
-    @property
-    def _duck_crash_recovery(self):
-        backing = self._duck_crash_recovery_backing
-        if backing is _LAZY_FAILED:
-            # Sentinel: previous construction attempt failed. See the
-            # ``undo`` property above for the full TTL-retry rationale.
-            failed_at = self._duck_crash_recovery_failed_at
-            if failed_at is None or time.monotonic() - failed_at >= RETRY_TTL_SECONDS:
-                self._duck_crash_recovery_backing = None
-                self._duck_crash_recovery_failed_at = None
-                backing = None
-            else:
-                return None
-        if backing is None:
-            try:
-                # Deferred import — duck_crash_recovery pulls in
-                # platform-specific volume backends (pyobjc on macOS,
-                # ctypes-coreaudio on Windows). Deferred to first access
-                # (which only happens when volume ducking is enabled).
-                from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
-
-                backing = DuckCrashRecovery(config_dir=_resolve_config_dir())
-            except Exception:
-                log.warning("[INIT] DuckCrashRecovery lazy-init failed", exc_info=True)
-                self._duck_crash_recovery_backing = _LAZY_FAILED
-                self._duck_crash_recovery_failed_at = time.monotonic()
-                return None
-            self._duck_crash_recovery_backing = backing
-            self._duck_crash_recovery_failed_at = None
-        return backing
-
-    @_duck_crash_recovery.setter
-    def _duck_crash_recovery(self, value) -> None:
-        self._duck_crash_recovery_backing = value
-
-    @property
-    def _volume_ducker(self):
-        backing = self._volume_ducker_backing
-        if backing is _LAZY_FAILED:
-            # Sentinel: previous construction attempt failed. See the
-            # ``undo`` property above for the full TTL-retry rationale.
-            failed_at = self._volume_ducker_failed_at
-            if failed_at is None or time.monotonic() - failed_at >= RETRY_TTL_SECONDS:
-                self._volume_ducker_backing = None
-                self._volume_ducker_failed_at = None
-                backing = None
-            else:
-                return None
-        if backing is None:
-            try:
-                # Deferred import — ``volume_ducker`` pulls in
-                # platform-specific volume backends (pyobjc on macOS,
-                # ctypes on Windows). Deferred to first access (which
-                # only happens when volume ducking is enabled).
-                from voice_typer.server.volume_ducker import VolumeDucker
-
-                backing = VolumeDucker(
-                    crash_recovery=self._duck_crash_recovery,
-                    on_crash_restore=self._on_volume_crash_restore,
-                )
-            except Exception:
-                log.warning("[INIT] VolumeDucker lazy-init failed", exc_info=True)
-                self._volume_ducker_backing = _LAZY_FAILED
-                self._volume_ducker_failed_at = time.monotonic()
-                return None
-            self._volume_ducker_backing = backing
-            self._volume_ducker_failed_at = None
-        return backing
-
-    @_volume_ducker.setter
-    def _volume_ducker(self, value) -> None:
-        self._volume_ducker_backing = value
-
-    # ─── lazy AudioProcessor property ───────────────────────────
-    #
-    # ``AudioProcessor`` construction is deferred to first attribute
-    # access via a ``_LazyAudioProcessorProxy``. The proxy transparently
-    # constructs the real ``AudioProcessor`` on the first
-    # ``process_chunk`` / ``set_sample_rate`` / ``rebuild_from_config``
-    # call (i.e. on the first recording or the first config-driven
-    # rebuild). The proxy also wires ``set_quality_callback`` after
-    # construction (moved here from ``__init__`` line 217).
-    #
-    # Tests that inject mocks via ``app._audio_processor = MagicMock()``
-    # use the setter, which bypasses the proxy entirely.
-
-    @property
-    def _audio_processor(self):
-        backing = self._audio_processor_backing
-        if backing is None:
-            backing = _LazyAudioProcessorProxy(self)
-            self._audio_processor_backing = backing
-        return backing
-
-    @_audio_processor.setter
-    def _audio_processor(self, value) -> None:
-        self._audio_processor_backing = value
-
-    # ─── lazy HistoryDB property ────────────────────────────────
-    #
-    # ``HistoryDB()`` construction is deferred to first access. The
-    # eager construction that used to live in ``__init__`` blocked for
-    # up to ``_WRITER_READY_TIMEOUT`` (30s) waiting for the writer
-    # thread's schema-init to complete. The lazy property mirrors the
-    # existing pattern (clipboard, undo, audio_quality) — construction
-    # failure is logged at WARNING with ``exc_info=True`` and the
-    # backing is set to the ``_LAZY_FAILED`` sentinel + a monotonic
-    # timestamp; subsequent accesses within ``RETRY_TTL_SECONDS`` (30s)
-    # return ``None`` silently, then retry construction after the TTL
-    # elapses.
-    #
-    # The ``_shutting_down_event`` guard prevents the shutdown teardown
-    # path (``shutdown/teardowns/history_db.py``) from triggering lazy
-    # construction via its ``if app.history_db is not None:`` check — a
-    # never-dictated session would otherwise pay the 30s writer-ready
-    # wait on quit just to immediately close the DB it never used.
-
-    @property
-    def history_db(self):
-        backing = self._history_db_backing
-        if backing is _LAZY_FAILED:
-            # Sentinel: previous construction attempt failed. See the
-            # ``undo`` property above for the full TTL-retry rationale.
-            # Don't lazy-retry during shutdown — return ``None`` silently
-            # (mirrors the None-backing shutdown guard below).
-            if self._shutting_down_event.is_set():
-                return None
-            failed_at = self._history_db_failed_at
-            if failed_at is None or time.monotonic() - failed_at >= RETRY_TTL_SECONDS:
-                self._history_db_backing = None
-                self._history_db_failed_at = None
-                backing = None
-            else:
-                return None
-        if backing is None:
-            # Don't lazy-construct during shutdown — the teardown path
-            # checks ``app.history_db is not None`` to decide whether
-            # to flush/close, and we don't want to construct a
-            # HistoryDB during shutdown just to immediately close it.
-            if self._shutting_down_event.is_set():
-                return None
-            try:
-                backing = HistoryDB()
-            except Exception:
-                log.warning("[INIT] HistoryDB lazy-init failed", exc_info=True)
-                self._history_db_backing = _LAZY_FAILED
-                self._history_db_failed_at = time.monotonic()
-                return None
-            self._history_db_backing = backing
-            self._history_db_failed_at = None
-        return backing
-
-    @history_db.setter
-    def history_db(self, value) -> None:
-        self._history_db_backing = value
-
-    # ─── Volume Ducking ────────────────────────────────────────────────
-
-    def _on_volume_crash_restore(self, state) -> None:
-        """Phase 7: delegate to VolumeController."""
-        self.volume._on_volume_crash_restore(state)
-
-    def _duck_volume(self) -> None:
-        """Phase 7: delegate to VolumeController."""
-        self.volume._duck_volume()
-
-    def _restore_volume(self, fade_ms: int | None = None) -> None:
-        """Phase 7: delegate to VolumeController."""
-        self.volume._restore_volume(fade_ms=fade_ms)
-
-    # ─── #2 ASR backend delegates to ModelManager ───────────
-    #
-    # removed @property delegates (transcriber,
-    # _qwen_engine, _parakeet_engine, _asr_registry, _model_load_thread,
-    # _model_load_attempted, _pending_dictation) — callers now use
-    # ``self.models.<field>`` directly (e.g. ``self.models.transcriber``,
-    # ``self.models._registry``, ``self.models._model_load_thread``).
-    #
-    # The actual logic lives in voice_typer/server/model_manager.py.
-
-    # removed @property delegates (_transcription_thread,
-    # _streaming_session) — callers now use self.recording._transcription_thread
-    # and self.recording._streaming_session (or the get/set_streaming_session
-    # methods) directly.
-
-    # removed @property delegates (_hotkey_backend,
-    # _esc_backend, _repaste_backend) — callers now use
-    # self.hotkeys._hotkey_backend / self.hotkeys._esc_backend /
-    # self.hotkeys._repaste_backend directly.
-
-    # ─── Timer Tracking (P1) ─────────────────────────────────────────
+    # ─── Timer Tracking ───────────────────────────────────────────────
     #  Phase 7: logic moved to TimerCoordinator. VoiceTyperApp keeps
     # thin delegates so existing callers (and tests that monkeypatch
     # app._schedule_timer / app._cancel_pending_timers) keep working.
@@ -1586,9 +1054,9 @@ class VoiceTyperApp:
         self.tray.set_notifications_enabled(self.config.show_notifications)
 
         # Queue "Loading" state before the event loop starts
-        # Localized via ``i18n.t("state.app.starting")`` (C-I18N-1)
-        # instead of the hardcoded English literal ``"Starting..."``. The
-        # English fallback is registered at the top of this module.
+        # Localized via ``i18n.t("state.app.starting")`` instead of the
+        # hardcoded English literal ``"Starting..."``. The English
+        # fallback is registered at the top of this module.
         self.tray.set_state(AppState.LOADING, i18n.t("state.app.starting"))
 
         # wire the waveform bubble now (on the main thread, before
@@ -1635,7 +1103,7 @@ class VoiceTyperApp:
          Phase 5: the body of this method (~340 lines) was extracted
         into :class:`voice_typer.server.startup_sequence.StartupSequence`
         to reduce the god-class size of ``VoiceTyperApp``.  The phase
-        ordering, RACE-020 shutdown gates, parallel executor semantics,
+        ordering, shutdown gates, parallel executor semantics,
         and onboarding auto-heal logic are all preserved verbatim — see
         the docstring on ``StartupSequence.run`` for the full rationale.
 
@@ -1651,351 +1119,25 @@ class VoiceTyperApp:
 
         StartupSequence(self).run()
 
-    # ─── Dictation ─────────────────────────────────────────────────────
+    # ─── Model / hotkey delegate notes ────────────────────────────────
+    #
+    # removed @property delegates (transcriber,
+    # _qwen_engine, _parakeet_engine, _asr_registry, _model_load_thread,
+    # _model_load_attempted, _pending_dictation) — callers now use
+    # ``self.models.<field>`` directly (e.g. ``self.models.transcriber``,
+    # ``self.models._registry``, ``self.models._model_load_thread``).
+    #
+    # The actual logic lives in voice_typer/server/model_manager.py.
 
-    def toggle_dictation(self):
-        """#2 delegate to RecordingController.toggle()."""
-        self.recording.toggle()
+    # removed @property delegates (_transcription_thread,
+    # _streaming_session) — callers now use self.recording._transcription_thread
+    # and self.recording._streaming_session (or the get/set_streaming_session
+    # methods) directly.
 
-    def _start_dictation(self):
-        """#2 delegate to RecordingController.start()."""
-        self.recording.start()
-
-    # One-shot latch for audio-quality chunk delegation loss. The audio
-    # pipeline delivers chunks at ~94 Hz, so when ``audio_quality`` is
-    # None every chunk would otherwise re-log the WARNING (~94 lines per
-    # second of recording). Warn ONCE per delegate-loss episode: the
-    # latch resets on the first successful delegation, so a recovered
-    # delegate re-arms the warning for any future loss episode. Class
-    # attribute default keeps ``__new__``-constructed instances working.
-    _audio_quality_delegate_warned = False
-
-    def _on_audio_quality_chunk(self, rms: float, peak: float) -> None:
-        """Phase 7: delegate to AudioQualityController."""
-        delegate = self.audio_quality
-        if delegate is None:
-            if not self._audio_quality_delegate_warned:
-                log.warning("[APP] audio_quality controller unavailable — lazy-init failed earlier; skipping chunk")
-                self._audio_quality_delegate_warned = True
-            else:
-                log.debug("[APP] audio_quality controller unavailable — skipping chunk")
-            return None
-        # Delegate is back: reset the latch so the NEXT loss episode
-        # warns again (only write when latched — this runs at ~94 Hz).
-        if self._audio_quality_delegate_warned:
-            self._audio_quality_delegate_warned = False
-        return delegate._on_audio_quality_chunk(rms, peak)
-
-    def _rebuild_audio_processor(self, force_sr: int | None = None) -> None:
-        """Phase 7: delegate to AudioQualityController."""
-        delegate = self.audio_quality
-        if delegate is None:
-            log.warning("[APP] audio_quality controller unavailable — lazy-init failed earlier; skipping rebuild")
-            return None
-        return delegate._rebuild_audio_processor(force_sr=force_sr)
-
-    def _finalize_audio_quality_report(self, audio: Any) -> None:
-        """Phase 7: delegate to AudioQualityController.
-
-        parameter annotated as ``Any`` (not ``np.ndarray``) so the
-        annotation does NOT depend on ``from __future__ import annotations``
-        staying in place.
-        """
-        delegate = self.audio_quality
-        if delegate is None:
-            log.warning("[APP] audio_quality controller unavailable — lazy-init failed earlier; skipping finalize")
-            return None
-        return delegate._finalize_audio_quality_report(audio)
-
-    def _stop_dictation(self):
-        """Stop recording and transcribe in background.
-
-        SOUND- (Round 0): this method is now a thin delegate to
-        ``RecordingController.stop()``. Previously it was a 125-line
-        duplicate of ``RecordingController.stop()`` that was missing
-        three critical side effects:
-
-        1. It never emitted the ``recording_stopped`` IPC push event,
-           so the renderer's ``useSoundFeedback`` hook never received
-           the stop cue and the stop beep never played.
-        2. It never reset ``keyboard_ownership`` back to ``"normal"``,
-           so the ESC cancel hotkey kept firing after a normal stop.
-        3. It never started the Event-based watchdog thread
-           (``_start_watchdog_thread``), so transcription hangs (>60s)
-           never auto-recovered.
-
-        ``RecordingController.stop()`` already contains the full,
-        correct implementation — including all three missing side
-        effects — but was unreachable from production call sites
-        (``toggle``, ``on_silence_auto_stop``, ``on_max_duration_auto_stop``
-        all called ``app._stop_dictation`` directly). Making this method
-        a delegate routes all production stop traffic through the
-        correct implementation and eliminates the duplication.
-        """
-        self.recording.stop()
-
-    def _cancel_streaming_session(self):
-        """#2 delegate to RecordingController._cancel_streaming_session()."""
-        self.recording._cancel_streaming_session()
-
-    # ─── Settings / Microphone ─────────────────────────────────────────
-
-    def repaste_last(self) -> None:
-        """Feature: Repaste last transcription (tray menu + hotkey).
-
-        delegates directly to the canonical ``UndoRepasteController``
-        (``self.undo``) — the thin ``RepasteController`` wrapper in
-        ``controllers/`` was deleted as a parallel-system delegator.
-        Behaviour preserved verbatim — only the call chain shortened.
-        """
-        delegate = self.undo
-        if delegate is None:
-            log.warning("[APP] undo controller unavailable — lazy-init failed earlier; skipping repaste")
-            return None
-        return delegate.repaste_last()
-
-    def undo_last(self) -> None:
-        """Undo last transcription by sending backspace keystrokes.
-
-        delegates directly to the canonical ``UndoRepasteController``
-        (``self.undo``) — the thin ``UndoController`` wrapper in
-        ``controllers/`` was deleted as a parallel-system delegator.
-        Behaviour preserved verbatim — only the call chain shortened.
-        """
-        delegate = self.undo
-        if delegate is None:
-            log.warning("[APP] undo controller unavailable — lazy-init failed earlier; skipping undo")
-            return None
-        return delegate.undo_last()
-
-    def push_bubble_config(self, config: Any) -> None:
-        """Push a config-changed event to the waveform bubble renderer.
-
-         (): replaces the private ``getattr(self,
-        "_waveform_bubble", None)`` access that lived inline in
-        :mod:`voice_typer.server.handlers.config_handlers`'s
-        ``apply_config`` side-effect path. The handler now calls this
-        public method instead of reaching into the app's private
-        ``_waveform_bubble`` attribute.
-
-        Behaviour preserved verbatim from the prior inline block: read
-        ``self._waveform_bubble`` (which is ``None`` until
-        ``_wire_waveform_bubble`` has run, e.g. during very-early
-        config pushes), and if both the bubble and its ``on_config``
-        callback are non-None, invoke ``bubble.on_config(config)`` so
-        the sandboxed bubble renderer re-reads ``bubble_behavior`` /
-        ``bubble_click_to_toggle`` / ``bubble_mic_button`` and
-        redraws. ``config`` is the app's :class:`Config` object.
-        """
-        bubble = getattr(self, "_waveform_bubble", None)
-        if bubble is not None and bubble.on_config is not None:
-            bubble.on_config(config)
-
-    def _cancel_dictation(self):
-        """#2 delegate to RecordingController.cancel().
-
-        ESC- while the frontend HotkeyPicker is in hotkey capture
-        mode, the ESC cancel is a no-op — the frontend owns the Escape key
-        while capturing.
-
-        NOTE: this reads the *canonical* KeyboardOwnership state via
-        ``is_hotkey_capture_active()`` rather than the legacy
-        ``self._esc_cancel_paused`` alias. ``_esc_cancel_paused`` is only
-        written by the set_esc_cancel_paused IPC handler and could drift out
-        of sync with the real ownership (the ESC-release path resets the
-        canonical owner but relied on a frontend round-trip to clear the
-        alias). Trusting the stale alias made ESC a permanent no-op whenever
-        the two diverged — see the ESC-cancel regression fix.
-        """
-        try:
-            from voice_typer.server.keyboard_ownership import keyboard_ownership
-
-            if keyboard_ownership().is_hotkey_capture_active():
-                log.debug("[CANCEL] ESC cancel paused (frontend hotkey capture) — no-op")
-                return
-        except Exception:  # pragma: no cover - defensive
-            log.debug("[CANCEL] keyboard ownership check failed", exc_info=True)
-        self.recording.cancel()
-
-    def _toggle_autostart(self):
-        """Toggle autostart on/off from the tray menu. Delegates to SettingsController."""
-        self.settings.toggle_autostart()
-
-    def _set_autostart(self, enabled: bool):
-        """Set autostart from the advanced settings window or tray toggle.
-
-         Phase 6: body extracted to
-        :meth:`voice_typer.server.settings_controller.SettingsController.set_autostart`.
-        Behaviour preserved verbatim — only the class boundary moved.
-        """
-        self.settings.set_autostart(enabled)
-
-    def _set_notifications(self, enabled: bool):
-        """Set notification behavior from the settings window.
-
-         Phase 6: body extracted to
-        :meth:`voice_typer.server.settings_controller.SettingsController.set_notifications`.
-        """
-        self.settings.set_notifications(enabled)
-
-    def _select_microphone(self, mic_name: str | None):
-        """Handle microphone selection from tray menu.
-
-         Phase 6: body extracted to
-        :meth:`voice_typer.server.settings_controller.SettingsController.select_microphone`.
-        """
-        self.settings.select_microphone(mic_name)
-
-    def _open_config_file(self):
-        """Open the config file in the user's default editor.
-
-        body extracted to
-        :class:`voice_typer.server.controllers.config_editor_launcher.ConfigEditorLauncher`.
-        Behaviour preserved verbatim — only the class boundary moved.
-
-        (security fix, restored): hold
-        ``_config_mutation_lock`` for the FULL editor session — not just
-        the save/reload phases — so a concurrent IPC ``set_config``
-        cannot atomically clobber ``config.json`` mid-edit (TOCTOU
-        race). The launcher's internal ``with self.app._config_mutation_lock:``
-        blocks re-acquire the same RLock (reentrant — no-op while the
-        outer hold is active), so the lock is held continuously from
-        the pre-editor save through the editor wait through the
-        post-editor reload. A concurrent ``set_config`` (which goes
-        through ``ConfigApplier.apply_config`` → ``_config_mutation_lock``)
-        blocks until the editor exits and the reload completes — exactly
-        the SEC-audit-011 invariant the regression test
-        (``tests/regressions/test_concurrency.py::TestConfigEditHoldsMutationLock``)
-        pins.
-
-        The earlier "split-lock" relaxation released the lock
-        during the editor wait to keep the tray / IPC responsive while
-        the user edited. That trade-off downgraded the security
-        invariant: a concurrent ``set_config`` could land its save on
-        disk between the editor's open and the user's manual save,
-        silently losing the user's edits on the subsequent reload.
-        Restoring the full-session hold closes the TOCTOU window at
-        the cost of blocking concurrent config mutations for the
-        editor session (bounded by the launcher's 30-minute timeout —
-        see ``config_editor._EDITOR_SESSION_TIMEOUT_SECONDS``). The
-        IPC thread is NOT blocked because the editor launch runs on
-        the tray / hotkey thread, not the IPC dispatch thread.
-        """
-        with self._config_mutation_lock:
-            self._config_editor_launcher.open()
-
-    # ─── TrayController Protocol Methods (P3) ────────────────────────
-
-    def change_microphone(self, mic_id: str | None) -> None:
-        """TrayController protocol: select microphone."""
-        self._select_microphone(mic_id)
-
-    @property
-    def active_microphone_id(self) -> str | None:
-        """TrayController protocol — return the currently selected
-        microphone ID from ``config.microphone`` (None = system default)."""
-        mic = getattr(self.config, "microphone", None)
-        return str(mic) if mic else None
-
-    def refresh_microphones(self) -> None:
-        """TrayController protocol — re-enumerate microphones
-        and refresh the tray menu by delegating to startup_tasks."""
-        from voice_typer.server import startup_tasks
-        from voice_typer.server.server_platform import invalidate_microphone_list_cache
-
-        try:
-            # An explicit user refresh must bypass the 5 s TTL cache —
-            # serving cached records here would make the tray action a
-            # no-op right after a device change.
-            invalidate_microphone_list_cache()
-            startup_tasks.load_microphones(self)
-        except Exception:
-            log.warning("[TRAY] refresh_microphones failed", exc_info=True)
-
-    def change_model(self, model_size: str) -> None:
-        """TrayController protocol: change transcription model.
-
-        (pyrefly): parameter renamed from ``model`` to
-        ``model_size`` to match :class:`voice_typer.server.providers.AppProtocol`'s
-        ``change_model(self, model_size: str)`` signature. Pyrefly
-        enforces parameter-name matching for Protocol members (a call
-        like ``app.change_model(model_size="large")`` must be valid on
-        any AppProtocol implementation), so the names must agree.
-
-        Phase 2: the ``_change_model`` delegate has been removed;
-        this method now calls ``self.models.change_model`` directly.
-        """
-        self.models.change_model(model_size)
-
-    def quit_app(self) -> None:
-        """TrayController protocol: quit the app.
-
-         (Phase 4.5): body extracted to
-        :meth:`voice_typer.server.app_lifecycle.LifecycleController.quit_app`.
-        Behaviour preserved verbatim — only the class boundary moved.
-
-        Preserved invariants (now in the controller):
-        - RELIABILITY-001: cleanup runs via ``self.quit()`` (the
-          audited ``SystemExit`` path) — never ``os._exit(0)``.
-        - ``event_bus.publish({"type": "quit_app"})``
-          runs BEFORE the ``if self._shutting_down:`` re-entry guard
-          so a double-quit still pushes the event. (Historically the
-          guard was the plain ``if self._shutting_down:`` form;
-          migrated to the threading.Event version
-          ``if self._shutting_down_event.is_set():`` for cross-thread
-          memory ordering.)
-        """
-        return self.lifecycle.quit_app()
-
-    def restart_app(self) -> None:
-        """TrayController protocol: restart the app.
-
-         (Phase 4.5): body extracted to
-        :meth:`voice_typer.server.app_lifecycle.LifecycleController.restart_app`.
-
-        Preserved invariants (now in the controller):
-        - ``log.info("[RESTART] Restarting %s...", APP_NAME)``.
-        - ``try:`` wraps ``self.config.save()`` so an unexpected
-          raise (e.g. RecursionError from a cyclic dataclass) does not
-          abort the restart — the ``except Exception:`` block logs
-          ``log.warning("config.save() raised", exc_info=True)``.
-        - the redundant ``_restore_volume(fade_ms=0)`` call
-          was removed — ``_do_cleanup`` (now reached via
-          ``self.lifecycle.restart_app`` -> ``self._do_cleanup``) handles
-          the restore via the shared ShutdownController body.
-        - ``self._thread_registry.shutdown_all()``
-          -> ``self._do_cleanup()`` -> main-thread ``sys.exit(0)`` (or
-          non-main-thread  watchdog fallback).
-        """
-        #  re-entry guard (must be the first executable
-        # statement — see
-        # tests/test_app_cleanup.py::test_restart_app_guard_is_first_statement_in_method).
-        # The rest of the body lives in LifecycleController.restart_app;
-        # the controller mirrors this guard (idempotent) so it is safe
-        # for direct calls from future code.
-        if self._shutting_down_event.is_set():
-            log.debug("[RESTART] ignoring duplicate restart_app call (already shutting down)")
-            return
-        return self.lifecycle.restart_app()
-
-    def _wait_for_relaunch_ack(self, timeout: float) -> bool:
-        """(Phase 4.5): delegate to LifecycleController.
-
-        Body extracted to
-        :meth:`voice_typer.server.app_lifecycle.LifecycleController._wait_for_relaunch_ack`.
-        Behaviour preserved verbatim — only the class boundary moved.
-        """
-        return self.lifecycle._wait_for_relaunch_ack(timeout)
-
-    # the following 6 TrayController protocol methods were
-    # removed because no IPC route, tray menu item, or UI invoked them:
-    #   - toggle_autostart (use _toggle_autostart directly)
-    #   - create_desktop_shortcut
-    #   - set_notifications (use _set_notifications directly)
-    #   - set_silence_warning_seconds (use set_config via IPC)
-    #   - set_stop_on_silence_seconds (use set_config via IPC)
-    #   - set_max_recording_time_seconds (use set_config via IPC)
-    # The corresponding TrayController Protocol entries were also removed.
+    # removed @property delegates (_hotkey_backend,
+    # _esc_backend, _repaste_backend) — callers now use
+    # self.hotkeys._hotkey_backend / self.hotkeys._esc_backend /
+    # self.hotkeys._repaste_backend directly.
 
     # ─── Shutdown ──────────────────────────────────────────────────────
 
@@ -2044,7 +1186,7 @@ class VoiceTyperApp:
 # `_read_stale_backend_pid` / `_backend_pid_file` keep working (test_app.py,
 # test_app_cleanup.py, test_electron_launcher.py, test_feature_hardening_regressions.py,
 # test_waveform_bubble.py). Source-level tests that inspect app.py for the
-# mutex name "Local\\VoiceTyperSingleInstance" ( / SEC-001) and
+# mutex name "Local\\VoiceTyperSingleInstance" and
 # _create_restrictive_security_attributes continue to see those symbols here
 # via the import below + the comment in this block.
 # _another_voice_typer_alive() was deleted; the Win32 named
@@ -2072,7 +1214,7 @@ def main() -> None:
     ``ipc_server`` entry point in a top-level try/except that logs
     ``[FATAL] backend crashed`` at ERROR and exits with code 1, so a
     backend crash surfaces in the structured log instead of dying
-    silently (DE-50).
+    silently.
     """
     # Enable faulthandler for automatic thread-dump on SIGSEGV/SIGABRT.
     # Invaluable for debugging production crashes with CUDA/GPU drivers.
@@ -2110,13 +1252,13 @@ def main() -> None:
 
 # extraction — Windows editor-launch helpers moved to
 # voice_typer.server.platform_launch. Re-exported here so callers
-# (VoiceTyperApp._open_config_file) and tests that monkeypatch
+# (the app-admin config-editor delegate) and tests that monkeypatch
 # voice_typer.server.app._windows_open_with_default_app /
 # _windows_wait_for_process_exit / _windows_close_process_handle /
 # _systemroot_notepad_path keep working unchanged (test_api_doc_accuracy.py,
 # test_config_editor_lock.py). The bare PATH-resolved "notepad" pattern
 # is intentionally NOT used — _systemroot_notepad_path validates the path
-# via %SYSTEMROOT%\\System32\\notepad.exe (SEC-audit-011 / ).
+# via %SYSTEMROOT%\\System32\\notepad.exe.
 from voice_typer.server.platform_launch import (  # noqa: E402,F401
     _systemroot_notepad_path,
     _windows_close_process_handle,

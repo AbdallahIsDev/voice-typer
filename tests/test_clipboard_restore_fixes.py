@@ -46,7 +46,6 @@ from __future__ import annotations
 import contextlib
 import subprocess
 import sys
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -97,25 +96,30 @@ def _make_cm(
 ) -> ClipboardManager:
     """Build a ClipboardManager with mocked keyboard and cached flags set.
 
-    Construct via ``__new__`` to skip the pynput-import cost.
+    Delegates to the shared canonical factory (helper dedup) —
+    see ``tests/fixtures/clipboard_helpers.make_clipboard_manager``.
     """
-    cm = ClipboardManager.__new__(ClipboardManager)
-    cm.paste_enabled = paste_enabled
-    cm._keyboard = MagicMock()
-    cm._last_paste_time = 0.0  # not rate-limited
-    cm._clipboard_seq = 0
-    cm._last_copied_text = ""
-    cm._clipboard_save_restore_enabled = save_restore
-    cm._restore_delay_ms = restore_delay_ms
-    return cm
+    from tests.fixtures.clipboard_helpers import make_clipboard_manager
+
+    return make_clipboard_manager(
+        paste_enabled=paste_enabled,
+        save_restore=save_restore,
+        restore_delay_ms=restore_delay_ms,
+    )
 
 
 def _make_snapshot(platform: str = "linux-x11") -> ClipboardSnapshot:
-    """Build a fake ClipboardSnapshot for tests that need a non-None value."""
-    return ClipboardSnapshot(
+    """Build a fake ClipboardSnapshot for tests that need a non-None value.
+
+    Delegates to the shared canonical factory (helper dedup),
+    keeping this suite's historical ``text/plain;charset=utf-8``
+    content type.
+    """
+    from tests.fixtures.clipboard_helpers import make_clipboard_snapshot
+
+    return make_clipboard_snapshot(
         platform=platform,
-        items=[("text/plain;charset=utf-8", b"prior clipboard content")],
-        captured_at=time.monotonic(),
+        content_type="text/plain;charset=utf-8",
     )
 
 

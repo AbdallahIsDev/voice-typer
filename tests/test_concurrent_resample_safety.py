@@ -26,10 +26,16 @@ from voice_typer.server.recording import Recorder
 
 
 def _make_recorder() -> Recorder:
-    """Create a Recorder with minimal setup for snapshot testing."""
+    """Create a Recorder with minimal setup for snapshot testing.
+
+    Recorder construction is delegated to the shared canonical factory
+    (XS-42 helper dedup) with a real ``Config`` injected.
+    """
+    from tests.fixtures.recorder_test_helpers import make_recorder
+
     cfg = Config()
     cfg.sample_rate = 16000
-    rec = Recorder(cfg)
+    rec = make_recorder(config=cfg)
     rec._effective_sr = 16000
     rec._cached_target_sr = 16000
     return rec

@@ -985,3 +985,97 @@ class TestHistoryDbInternalsRecoveryModuleStaysRemoved:
             "as dead code; restore the deletion (and re-route any caller to the "
             "live `HistoryDB` methods on `voice_typer.server.history_db`)."
         )
+
+
+# === Legacy config dir removal (split from the LOW-findings batch
+# catch-all test module) ============================================
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+# ``voice_typer/server/config.py`` was split into a package
+# (``config/__init__.py`` + ``config/{coercion,loader,sanitization}.py``)
+# plus sibling modules (``config_applier.py``, ``config_editor.py``,
+# ``config_path_safety.py``, ``config_sanitizer.py``,
+# ``config_validators.py``) and the ``config_internals/`` package
+# (``__init__.py``, ``migrations.py``, ``paths.py``). The legacy
+# ``_legacy_config_dir`` function could have lived in any of these after
+# the split, so we scan them all rather than asserting on a single
+# (now-nonexistent) file.
+CONFIG_MODULE_PATHS = [
+    *(
+        p
+        for d in (
+            REPO_ROOT / "voice_typer" / "server" / "config",
+            REPO_ROOT / "voice_typer" / "server" / "config_internals",
+        )
+        for p in sorted(d.glob("*.py"))
+        if d.is_dir()
+    ),
+    *sorted((REPO_ROOT / "voice_typer" / "server").glob("config*.py")),
+]
+
+
+class TestLegacyConfigDirRemoved:
+    """``_legacy_config_dir`` was dead and is now deleted."""
+
+    def test_config_py_does_not_define_legacy_config_dir(self):
+        """The function definition must be gone from all config module sources.
+
+        ``config.py`` was previously a single file; it has since been
+        split into a package + sibling modules. We scan every config
+        module file for the deleted function definition so the test
+        catches a re-introduction regardless of which module it lands
+        in after a future refactor.
+        """
+        assert CONFIG_MODULE_PATHS, (
+            "Expected at least one config module file under "
+            "voice_typer/server/config/ and voice_typer/server/config*.py — "
+            "module layout may have changed again; update CONFIG_MODULE_PATHS."
+        )
+        offenders: list[str] = []
+        for path in CONFIG_MODULE_PATHS:
+            try:
+                source = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if "def _legacy_config_dir" in source:
+                offenders.append(str(path.relative_to(REPO_ROOT)))
+        assert not offenders, (
+            "Config modules still define _legacy_config_dir — the dead-code removal "
+            "should have deleted it (no callers in the repo, no entry "
+            f"points in pyproject.toml, no setup.py). Offenders: {offenders}"
+        )
+
+    def test_legacy_config_dir_not_importable(self):
+        """``from voice_typer.server.config import _legacy_config_dir``
+        must raise ``ImportError`` / ``AttributeError`` now that the
+        function is gone.
+        """
+        from voice_typer.server import config as config_mod
+
+        assert not hasattr(config_mod, "_legacy_config_dir"), (
+            "voice_typer.server.config still exposes _legacy_config_dir"
+        )
+
+    def test_no_callers_of_legacy_config_dir_anywhere_in_repo(self):
+        """Sanity: no Python file in the repo should still reference
+        ``_legacy_config_dir`` (the function is gone).
+        """
+        offenders: list[str] = []
+        for py_file in (REPO_ROOT / "voice_typer").rglob("*.py"):
+            try:
+                text = py_file.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if "_legacy_config_dir" in text:
+                offenders.append(str(py_file.relative_to(REPO_ROOT)))
+        assert not offenders, f"Files still reference the deleted _legacy_config_dir: {offenders}"
+
+    def test_config_module_still_imports_cleanly(self):
+        """Deleting the function must not break the module's imports."""
+        from voice_typer.server import config  # noqa: F401
+
+        # Sanity: the module exposes the functions that DO have callers.
+        assert hasattr(config, "_config_dir"), (
+            "config._config_dir must still be importable (the dead-code removal "
+            "only deleted the dead _legacy_config_dir, not _config_dir)"
+        )

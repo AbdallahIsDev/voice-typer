@@ -54,9 +54,11 @@ test_quit_calls_do_cleanup`` and
 Package layout (this module is the compatibility facade):
 
 - :mod:`._deadline`          — module-level deadline-budget helpers.
-- :mod:`._plans`             — ``SequencingMixin`` (plan builders +
-                              plan runner + late bookend).
-- :mod:`._cleanup`           — ``CleanupMixin`` (cleanup bodies).
+- :mod:`._plans`             — ``SequencingMixin`` (thin plan-builder
+                              delegates; bodies in ``shutdown/plan.py``).
+- :mod:`._cleanup`           — ``CleanupMixin`` (thin delegates; bodies
+                              in ``shutdown/cleanup.py`` +
+                              ``shutdown/ws_drain.py``).
 - :mod:`._teardowns`         — ``TeardownsMixin`` (thin teardown delegates).
 - :mod:`._lifecycle_signals` — ``SignalsMixin`` (quit / watchdog /
                               atexit / signal-handler delegates).

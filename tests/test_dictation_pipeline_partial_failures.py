@@ -39,7 +39,9 @@ from voice_typer.server.dictation_pipeline import DictationPipeline
 class _TestApp:
     """Minimal non-magic test app for DictationPipeline tests.
 
-    Mirrors the ``_TestApp`` in ``test_dictation_pipeline_review_fixes.py``.
+    Mirrors the ``_TestApp`` in
+    ``tests/fixtures/dictation_pipeline_helpers.py`` (the canonical
+    shared factory location for ``DictationPipeline`` tests).
     The four (now six, post-XZ-R18-02/05) notify-once flags are
     intentionally NOT pre-declared so ``getattr(app, "_flag", False)``
     defaults to ``False`` (matching ``VoiceTyperApp``'s behavior).

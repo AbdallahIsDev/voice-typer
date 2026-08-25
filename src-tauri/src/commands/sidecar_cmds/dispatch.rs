@@ -5,6 +5,7 @@
 //! (EO-35 split).
 
 use crate::commands::require_main_window;
+use crate::error::VoiceTyperError;
 use crate::state::SidecarState;
 // (): poison-safe Mutex helper. Replaces inline
 // `.lock().unwrap()` so a poisoned mutex (a prior panic while holding
@@ -20,9 +21,7 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio_tungstenite::tungstenite::Message;
 
-use super::allowlist::{
-    is_command_allowed, DISALLOWED_COMMAND_CODE, PENDING_FULL_CODE, PENDING_MAX,
-};
+use super::allowlist::{is_command_allowed, PENDING_MAX};
 
 // per-command dispatch timeout routing ──────────────────────
 //
@@ -90,7 +89,7 @@ pub(crate) struct DispatchArgs {
 pub(crate) async fn dispatch_inner(
     args: DispatchArgs,
     state: Arc<SidecarState>,
-) -> Result<Value, String> {
+) -> Result<Value, VoiceTyperError> {
     // the dispatch body is extracted into the shared
     // `dispatch_frame` helper below so the tray menu handler
     // (`tray.rs::on_menu_event`) can call it directly instead of
@@ -138,20 +137,20 @@ pub(crate) async fn dispatch_inner(
 ///
 /// Returns `Err` if `ws_tx` is `None` (sidecar disconnected) or if
 /// `try_send` fails (channel full or writer task exited). Both error
-/// strings mirror the shape used by `dispatch_frame` so the renderer's
+/// variants mirror the shape used by `dispatch_frame` so the renderer's
 /// existing reject path handles them identically.
 pub(crate) fn dispatch_fire_and_forget(
     state: &Arc<SidecarState>,
     cmd: &str,
     data: Option<Value>,
-) -> Result<(), String> {
+) -> Result<(), VoiceTyperError> {
     let frame = json!({
         "type": cmd,
         "data": data.unwrap_or(json!({})),
         "id": 0u64,
     });
     let ws_tx_opt = mutex_lock(&state.ws_tx).clone();
-    let ws_tx = ws_tx_opt.ok_or_else(|| "sidecar not connected".to_string())?;
+    let ws_tx = ws_tx_opt.ok_or(VoiceTyperError::NotConnected)?;
     // `ws_tx` is a bounded `mpsc::Sender` — use `try_send`
     // (synchronous) rather than `.send().await` (which would require an
     // async context AND block on the writer-task consumer). Returns
@@ -159,7 +158,9 @@ pub(crate) fn dispatch_fire_and_forget(
     // `TrySendError::Closed` if the writer task exited.
     ws_tx
         .try_send(Message::Text(frame.to_string().into()))
-        .map_err(|e| format!("WS send failed: {e}"))?;
+        .map_err(|e| VoiceTyperError::SendFailed {
+            message: e.to_string(),
+        })?;
     Ok(())
 }
 
@@ -210,7 +211,7 @@ async fn dispatch_frame(
     state: &Arc<SidecarState>,
     cmd: &str,
     data: Option<Value>,
-) -> Result<Value, String> {
+) -> Result<Value, VoiceTyperError> {
     let id = state.next_id.fetch_add(1, Ordering::SeqCst);
     // debug-level entry log for correlation. The WS reader
     // logs the matching `id` on fulfillment so a slow / dropped
@@ -230,7 +231,7 @@ async fn dispatch_frame(
             id,
             cmd
         );
-        return Err("sidecar shutting down".into());
+        return Err(VoiceTyperError::ShuttingDown);
     }
 
     // (Medium): cap `args.data` serialized size BEFORE
@@ -279,14 +280,10 @@ async fn dispatch_frame(
             data_str.len(),
             DISPATCH_DATA_MAX_BYTES
         );
-        let err = json!({
-            "type": "error",
-            "data": {
-                "code": "data_too_large",
-                "message": "dispatch data payload exceeds size cap"
-            }
-        });
-        return Err(err.to_string());
+        // the `DataTooLarge` variant's Display AND wire string are the
+        // same envelope JSON this branch used to inline — single-sourced
+        // in `error.rs`.
+        return Err(VoiceTyperError::DataTooLarge);
     }
 
     // Build the WS frame manually using the pre-serialized
@@ -311,7 +308,7 @@ async fn dispatch_frame(
                 id,
                 cmd
             );
-            return Err("sidecar not connected".to_string());
+            return Err(VoiceTyperError::NotConnected);
         }
     };
 
@@ -340,14 +337,11 @@ async fn dispatch_frame(
             // `disallowed_command` branch in `dispatch` (line ~687) so
             // the renderer's existing error-envelope switch can branch
             // on `code === "pending_full"` without a special case.
-            let err = json!({
-                "type": "error",
-                "data": {
-                    "code": PENDING_FULL_CODE,
-                    "message": "Sidecar dispatch queue is full; please retry"
-                }
-            });
-            return Err(err.to_string());
+            //
+            // the `PendingFull` variant's Display AND wire string are
+            // the same envelope JSON this branch used to inline —
+            // single-sourced in `error.rs`.
+            return Err(VoiceTyperError::PendingFull);
         }
         pending.insert(id, tx);
     }
@@ -368,11 +362,13 @@ async fn dispatch_frame(
     if let Err(e) = ws_tx.try_send(Message::Text(frame_str.into())) {
         let mut pending = state.pending.lock().await;
         pending.remove(&id);
-        let err_msg = match &e {
+        let err = match &e {
             tokio::sync::mpsc::error::TrySendError::Closed(_) => {
-                "sidecar not connected".to_string()
+                VoiceTyperError::NotConnected
             }
-            tokio::sync::mpsc::error::TrySendError::Full(_) => format!("WS send failed: {e}"),
+            tokio::sync::mpsc::error::TrySendError::Full(_) => VoiceTyperError::SendFailed {
+                message: e.to_string(),
+            },
         };
         log::warn!(
             "[dispatch] id={} cmd={} WS send failed: {} (pending entry removed)",
@@ -380,7 +376,7 @@ async fn dispatch_frame(
             cmd,
             e
         );
-        return Err(err_msg);
+        return Err(err);
     }
 
     // Await the response with a timeout.
@@ -408,7 +404,23 @@ async fn dispatch_frame(
                     code,
                     msg
                 );
-                return Err(format!("server error [{}]: {}", code, msg));
+                // Pass the sidecar's error envelope through VERBATIM:
+                // the `Server` variant serializes to
+                // `{"type":"error","data":<data>}` so structured
+                // payload fields the renderer branches on
+                // (`data.errors[]`, `consent_field`, `engine_name`,
+                // `model_id`, …) reach the webview intact. The former
+                // `format!("server error [{}]: {}", code, msg)` concat
+                // destroyed them — that flat string now lives only in
+                // the variant's log-facing `Display` (the `log::warn!`
+                // line above preserves it for tray / heartbeat
+                // consumers). See `error.rs` + the error-envelope
+                // contract doc.
+                let data = response
+                    .get_mut("data")
+                    .map(Value::take)
+                    .unwrap_or(json!({}));
+                return Err(VoiceTyperError::server_from_data(data));
             }
             // Move the `data` field out of `response` instead of
             // deep-cloning it. `Value::take` swaps the field with
@@ -431,7 +443,7 @@ async fn dispatch_frame(
                 id,
                 cmd
             );
-            Err("dispatch response channel closed".into())
+            Err(VoiceTyperError::ChannelClosed)
         }
         Err(_) => {
             // Timeout — remove the pending entry.
@@ -443,7 +455,7 @@ async fn dispatch_frame(
                 cmd,
                 timeout_secs
             );
-            Err(format!("dispatch timeout ({}s)", timeout_secs))
+            Err(VoiceTyperError::Timeout { secs: timeout_secs })
         }
     }
 }
@@ -454,7 +466,7 @@ pub async fn dispatch(
     data: Option<Value>,
     state: tauri::State<'_, Arc<SidecarState>>,
     window: tauri::Window,
-) -> Result<Value, String> {
+) -> Result<Value, VoiceTyperError> {
     // FLAT-ARGS CONTRACT (do not re-wrap into a struct param): the
     // renderer invokes `invoke('dispatch', { cmd, data })` — see
     // `python-namespace.ts` and the allowlist.rs doc comment. Tauri v2
@@ -484,7 +496,7 @@ pub async fn dispatch(
             "rejected dispatch command with length {} (>64 char cap)",
             args.cmd.len()
         );
-        return Err("command name too long".into());
+        return Err(VoiceTyperError::Host("command name too long".into()));
     }
 
     // window-label guard. The bubble renderer is a sandboxed
@@ -517,14 +529,10 @@ pub async fn dispatch(
             "[DISPATCH-ALLOWLIST] rejected disallowed dispatch command: {:?} (not in ALLOWED_COMMANDS)",
             args.cmd
         );
-        let err = json!({
-            "type": "error",
-            "data": {
-                "code": DISALLOWED_COMMAND_CODE,
-                "message": "Command not in allowlist"
-            }
-        });
-        return Err(err.to_string());
+        // the `DisallowedCommand` variant's Display AND wire string are
+        // the same envelope JSON this branch used to inline —
+        // single-sourced in `error.rs` (codes from `allowlist.rs`).
+        return Err(VoiceTyperError::DisallowedCommand);
     }
 
     // Delegate to the internal dispatch path (no allowlist check —

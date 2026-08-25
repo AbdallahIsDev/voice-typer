@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+import sys
 import threading
+import types
 from pathlib import Path
 
 import pytest
@@ -330,6 +332,24 @@ class TestDelegationContracts:
         replaces what the save path invokes (Windows branch simulated)."""
         acl_calls: list[str] = []
         monkeypatch.setattr(config_mod, "is_windows", lambda: True)
+
+        # The ``is_windows`` patch propagates BY DESIGN into
+        # ``config_internals.paths._acquire_config_lock_cross_process``
+        # (that helper resolves ``is_windows`` through the config module
+        # namespace), so ``save()`` takes the Windows lock branch and
+        # executes ``import msvcrt`` — a Windows-only stdlib module that
+        # does not exist on Linux. Stub it so the simulated-Windows save
+        # path completes end-to-end (same fake-module pattern as
+        # tests/test_credential_store_migration_lock.py). Only the lock
+        # attributes paths.py touches are needed; the locking primitive
+        # itself is a no-op success because this test pins the ACL-helper
+        # delegation, not the cross-process lock contract.
+        fake_msvcrt = types.ModuleType("msvcrt")
+        fake_msvcrt.locking = lambda fd, mode, nbytes: None  # type: ignore[attr-defined]
+        fake_msvcrt.LK_LOCK = 0  # type: ignore[attr-defined]
+        fake_msvcrt.LK_NBLCK = 1  # type: ignore[attr-defined]
+        fake_msvcrt.LK_UNLCK = 2  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
 
         def spy_acl(path):
             acl_calls.append(str(path))

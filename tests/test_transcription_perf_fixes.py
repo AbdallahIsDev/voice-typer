@@ -46,7 +46,7 @@ def _mock_faster_whisper(monkeypatch):
     monkeypatch.setitem(sys.modules, "ctranslate2", mock_ct2)
 
 
-# ── IN-4: TranscriptionEngine releases lock during inference ──
+# ── TranscriptionEngine releases lock during inference ──
 
 
 class TestInferenceCounterReleasesLockDuringInference:
@@ -62,7 +62,7 @@ class TestInferenceCounterReleasesLockDuringInference:
 
         engine = TranscriptionEngine(model_size="small.en", device="cpu")
         assert engine._active_inference == 0, (
-            "IN-4: TranscriptionEngine.__init__ must initialise _active_inference = 0 so unload() can wait on the cond."
+            "TranscriptionEngine.__init__ must initialise _active_inference = 0 so unload() can wait on the cond."
         )
 
     def test_init_creates_inference_cond_wrapping_lock(self):
@@ -70,14 +70,11 @@ class TestInferenceCounterReleasesLockDuringInference:
         from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="cpu")
-        assert isinstance(engine._inference_cond, threading.Condition), (
-            "IN-4: _inference_cond must be a threading.Condition."
-        )
+        assert isinstance(engine._inference_cond, threading.Condition), "_inference_cond must be a threading.Condition."
         # The Condition's lock must be the engine's _lock so wait()
         # releases the same lock that transcribe() acquires.
         assert engine._inference_cond._lock is engine._lock, (
-            "IN-4: _inference_cond must wrap self._lock so wait()/notify() "
-            "coordinate with the lock acquired in transcribe()."
+            "_inference_cond must wrap self._lock so wait()/notify() coordinate with the lock acquired in transcribe()."
         )
 
     def test_transcribe_increments_counter_under_lock(self):
@@ -105,7 +102,7 @@ class TestInferenceCounterReleasesLockDuringInference:
         assert result == "hello"
         # Counter was 1 during the call.
         assert captured_counter == [1], (
-            f"IN-4: _active_inference must be 1 during model.transcribe() "
+            f"_active_inference must be 1 during model.transcribe() "
             f"(got {captured_counter}). The lock must be released BEFORE "
             f"the segment loop, but the counter must remain incremented "
             f"so unload() waits."
@@ -135,7 +132,7 @@ class TestInferenceCounterReleasesLockDuringInference:
         result = engine.transcribe_with_fallback(np.zeros(16000, dtype=np.float32))
         assert result == "hello"
         assert captured_counter == [1], (
-            f"IN-4: transcribe_with_fallback must increment _active_inference "
+            f"transcribe_with_fallback must increment _active_inference "
             f"to 1 during model.transcribe() (got {captured_counter})."
         )
         assert engine._active_inference == 0
@@ -162,14 +159,14 @@ class TestInferenceCounterReleasesLockDuringInference:
         result = engine.transcribe_words(np.zeros(16000, dtype=np.float32))
         assert len(result) >= 1
         assert captured_counter == [1], (
-            f"IN-4: transcribe_words must increment _active_inference "
+            f"transcribe_words must increment _active_inference "
             f"to 1 during model.transcribe() (got {captured_counter})."
         )
         assert engine._active_inference == 0
 
     def test_lock_not_held_during_model_transcribe(self):
         """The lock MUST NOT be held during ``model.transcribe()``.
-        This is the core IN-4 fix — previously the entire
+        This is the core fix — previously the entire
         ``_transcribe_unlocked`` call (10-30s for a long dictation) ran
         under ``self._lock``, blocking ``unload()`` / ``is_loaded`` /
         parallel transcribes."""
@@ -183,7 +180,7 @@ class TestInferenceCounterReleasesLockDuringInference:
 
         def transcribe_side_effect(*args, **kwargs):
             # Try to acquire the lock non-blocking — if it succeeds, the
-            # lock was NOT held (which is what we want post-IN-4).
+            # lock was NOT held (which is what we want now).
             acquired = engine._lock.acquire(blocking=False)
             lock_held_during_call.append(not acquired)
             if acquired:
@@ -195,7 +192,7 @@ class TestInferenceCounterReleasesLockDuringInference:
 
         engine.transcribe_with_fallback(np.zeros(16000, dtype=np.float32))
         assert lock_held_during_call == [False], (
-            f"IN-4: _lock must NOT be held during model.transcribe() "
+            f"_lock must NOT be held during model.transcribe() "
             f"(held={lock_held_during_call}). The lock should be released "
             f"before the segment loop so unload() can acquire the cond."
         )
@@ -231,7 +228,7 @@ class TestUnloadWaitsForInference:
 
         # unload() should NOT complete while _active_inference > 0.
         assert not unload_done.wait(timeout=0.2), (
-            "IN-4: unload() must block on _inference_cond while "
+            "unload() must block on _inference_cond while "
             "_active_inference > 0 (rather than nulling the model "
             "mid-inference)."
         )
@@ -245,7 +242,7 @@ class TestUnloadWaitsForInference:
             engine._inference_cond.notify_all()
 
         assert unload_done.wait(timeout=2.0), (
-            "IN-4: unload() must complete promptly after _active_inference returns to 0 and the cond is notified."
+            "unload() must complete promptly after _active_inference returns to 0 and the cond is notified."
         )
         # The model is now nulled.
         assert engine._model is None
@@ -258,12 +255,12 @@ class TestUnloadWaitsForInference:
 
         src = inspect.getsource(TranscriptionEngine.unload)
         assert "_inference_cond" in src, (
-            "IN-4: unload() must acquire _inference_cond (a Condition "
+            "unload() must acquire _inference_cond (a Condition "
             "wrapping _lock) so wait() atomically releases the lock and "
             "blocks; transcribe()'s finally block then notifies the cond."
         )
         assert "while self._active_inference > 0" in src, (
-            "IN-4: unload() must wait on _inference_cond while _active_inference > 0 before nulling self._model."
+            "unload() must wait on _inference_cond while _active_inference > 0 before nulling self._model."
         )
 
 
@@ -276,28 +273,32 @@ class TestTranscribeSourceReleasesLockDuringInference:
         from voice_typer.server.transcription import TranscriptionEngine
 
         src = inspect.getsource(TranscriptionEngine.transcribe)
-        assert "self._active_inference += 1" in src, (
-            "IN-4: transcribe() must increment _active_inference under the lock."
-        )
+        assert "self._active_inference += 1" in src, "transcribe() must increment _active_inference under the lock."
         assert "self._inference_cond" in src, (
-            "IN-4: transcribe() must decrement _active_inference under _inference_cond in a finally block."
+            "transcribe() must decrement _active_inference under _inference_cond in a finally block."
         )
 
     def test_transcribe_with_fallback_source_uses_counter_pattern(self):
-        from voice_typer.server.transcription import TranscriptionEngine
-
-        src = inspect.getsource(TranscriptionEngine.transcribe_with_fallback)
-        assert "self._active_inference += 1" in src, (
-            "IN-4: transcribe_with_fallback() must increment _active_inference."
+        """The transcribe-with-fallback body now lives in
+        ``voice_typer.server.transcription_fallback.transcribe_with_fallback``
+        (the engine method is a thin delegator), so the source guard
+        reads the canonical free-function body. Same contract: the
+        counter pattern must increment under the lock and decrement
+        under ``_inference_cond`` in a finally block."""
+        from voice_typer.server.transcription_fallback import (
+            transcribe_with_fallback as fallback_body,
         )
-        assert "self._inference_cond" in src, "IN-4: transcribe_with_fallback() must decrement under _inference_cond."
+
+        src = inspect.getsource(fallback_body)
+        assert "engine._active_inference += 1" in src, "transcribe_with_fallback() must increment _active_inference."
+        assert "engine._inference_cond" in src, "transcribe_with_fallback() must decrement under _inference_cond."
 
     def test_transcribe_words_source_uses_counter_pattern(self):
         from voice_typer.server.transcription import TranscriptionEngine
 
         src = inspect.getsource(TranscriptionEngine.transcribe_words)
-        assert "self._active_inference += 1" in src, "IN-4: transcribe_words() must increment _active_inference."
-        assert "self._inference_cond" in src, "IN-4: transcribe_words() must decrement under _inference_cond."
+        assert "self._active_inference += 1" in src, "transcribe_words() must increment _active_inference."
+        assert "self._inference_cond" in src, "transcribe_words() must decrement under _inference_cond."
 
 
 # ── IN-5: ParakeetEngine reads PARAKEET_BATCH_SIZE at construction time ──

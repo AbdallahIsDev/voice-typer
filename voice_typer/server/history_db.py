@@ -195,6 +195,14 @@ _TODAY_STATS_CACHE_TTL_S = 15.0
 # maximum characters of ``text`` returned in list responses.
 _HISTORY_TEXT_PREVIEW_LENGTH = 500
 
+# At-rest encryption: number of pre-existing plaintext rows converted to
+# ciphertext per background backfill step (schema v4+). Each step is a
+# queued writer item that re-enqueues itself between batches, so a huge
+# legacy DB never starves foreground dictation writes; the backfill is
+# idempotent by the ``text_is_encrypted`` flag and resumes across
+# launches. 100 rows ≈ a few ms of AES-256-GCM — imperceptible per batch.
+_ENCRYPTION_BACKFILL_BATCH = 100
+
 # hard upper bound on the ``limit`` parameter for the public list
 # methods (get_recent / search / get_favorites). Prevents a single
 # IPC call from materialising an unbounded result set (each row
@@ -308,6 +316,7 @@ from voice_typer.server.history_db_internals.schema import (  # noqa: E402,F401 
     _CURRENT_SCHEMA_VERSION,
     _MIGRATION_V2,
     _MIGRATION_V3,
+    _MIGRATION_V4,
     _MIGRATIONS,
 )
 
@@ -654,6 +663,25 @@ class HistoryDB:
         # diagnostics and paired with an ``event_bus`` event so the
         # renderer can show a toast.
         self._fts5_rebuild_failures: int = 0
+        # True when this session's startup FTS5 'rebuild' actually ran
+        # (schema_meta flag NULL or '1'). A rebuild re-tokenizes from the
+        # content table, so rows that were already encrypted at rest end
+        # up with CIPHERTEXT tokens in the index — ``_init_encryption``
+        # responds by queueing a decrypt-aware re-index (see
+        # ``_reindex_encrypted_fts_step``) to restore the §6 invariant
+        # (FTS shadow tables stay plaintext-tokenized).
+        self._fts5_rebuild_ran: bool = False
+        # Ascending-id watermark for ``_reindex_encrypted_fts_step`` —
+        # lets the decrypt-aware FTS re-index resume across its bounded
+        # batches without re-processing rows or holding their ids.
+        self._fts_reindex_watermark: int = 0
+        # At-rest-encryption status — one of "active" / "disabled" /
+        # "key-unavailable" (see :meth:`encryption_status`). Set by
+        # ``_init_encryption`` on the writer thread after schema init;
+        # "disabled" is the pre-resolution default so a HistoryDB whose
+        # writer never gets that far (init failure) reports the same
+        # state as plaintext mode.
+        self._encryption_status: str = "disabled"
         # periodic prune daemon for ``_all_read_connections``.
         # Pre-fix, ``_prune_dead_read_connections_locked`` was REACTIVE
         # — only fired when a NEW connection was created on a thread
@@ -1054,6 +1082,12 @@ class HistoryDB:
                     )
                 conn.commit()
             log.debug("[HISTORY] FTS5 startup rebuild succeeded")
+            # A rebuild re-tokenizes every row from the CONTENT table —
+            # rows that are encrypted at rest get CIPHERTEXT tokens in
+            # the index, breaking FTS search for them. Remember that the
+            # rebuild ran so ``_init_encryption`` (which resolves the DEK
+            # right after this) can queue the decrypt-aware re-index.
+            self._fts5_rebuild_ran = True
         except sqlite3.Error as e:
             log.warning(
                 "[HISTORY] FTS5 startup rebuild failed: %s — segments from failed deletes may persist",
@@ -1074,6 +1108,244 @@ class HistoryDB:
                         "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('fts5_rebuild_failed', '1')"
                     )
                 conn.commit()
+
+    # ──────────────────────────────────────────────────────────────
+    # At-rest encryption (see docs/adr/XZ-R11-04-at-rest-encryption.md)
+    # ──────────────────────────────────────────────────────────────
+
+    def _init_encryption(self, conn: sqlite3.Connection) -> None:
+        """Resolve the DEK once per process and kick the backfill.
+
+        Runs on the writer thread BEFORE ``_writer_ready`` is signaled
+        (see ``history_db_internals.writer._writer_loop``), so the
+        encryption state is deterministic the moment ``HistoryDB()``
+        returns — no reader can observe a flagged row while the key is
+        still unresolved. The one keyring read is bounded by the
+        existing 5s keyring-I/O timeout isolation; the BACKFILL itself
+        is a queued writer item and never blocks startup. Never raises
+        (failures are logged; the DB falls back to the documented
+        plaintext behavior).
+
+        Key-loss policy (stricter than ADR §9, per review): a DEK is
+        generated only when the keyring is available AND no encrypted
+        rows exist. When encrypted rows exist but the DEK cannot be
+        loaded, the status becomes ``"key-unavailable"`` — reads return
+        the ``"<decryption failed>"`` placeholder, NEW writes stay
+        plaintext (flag 0), and the DEK is NEVER regenerated (a fresh
+        key could not decrypt the existing rows).
+        """
+        from voice_typer.server import _text_crypto
+
+        try:
+            has_encrypted = self._has_encrypted_rows(conn)
+            dek = _text_crypto.resolve_dek(has_encrypted)
+            self._encryption_status = _text_crypto.encryption_status(dek, has_encrypted)
+            log.info(
+                "[HISTORY] at-rest encryption status: %s",
+                self._encryption_status,
+            )
+            if dek is not None and self._has_plaintext_rows(conn):
+                # Legacy rows exist alongside the active key — encrypt
+                # them in bounded background batches (never blocks
+                # startup: the step is a queued writer item that
+                # re-enqueues itself between batches).
+                log.info(
+                    "[HISTORY] scheduling background encryption of existing plaintext history rows (batches of %d)",
+                    _ENCRYPTION_BACKFILL_BATCH,
+                )
+                self._enqueue_backfill_step()
+            if dek is not None and self._fts5_rebuild_ran and self._has_encrypted_rows(conn):
+                # The startup FTS5 'rebuild' re-tokenized the content
+                # table, so encrypted rows now carry CIPHERTEXT tokens in
+                # the index. Restore the §6 invariant (FTS stays
+                # plaintext-tokenized) with a decrypt-aware re-index.
+                log.info(
+                    "[HISTORY] startup FTS5 rebuild re-tokenized encrypted rows "
+                    "with ciphertext — scheduling decrypt-aware re-index"
+                )
+                self._enqueue_reindex_step()
+        except Exception as e:  # noqa: BLE001 — crypto must never kill the writer
+            log.warning(
+                "[HISTORY] at-rest-encryption initialization failed (%s) — history continues in plaintext mode",
+                type(e).__name__,
+            )
+
+    def encryption_status(self) -> str:
+        """Return the at-rest-encryption state of this HistoryDB.
+
+        One of:
+
+        - ``"active"`` — a DEK is available; new rows are encrypted and
+          flagged rows decrypt transparently on read.
+        - ``"disabled"`` — no DEK and nothing encrypted (keyring
+          unavailable on first run): behavior is byte-identical to the
+          pre-encryption plaintext mode (zero-regression guarantee).
+        - ``"key-unavailable"`` — encrypted rows exist but the DEK
+          cannot be loaded (keyring wiped/unavailable): reads return
+          the ``"<decryption failed>"`` placeholder, new writes stay
+          plaintext, and the DEK is never regenerated in this state.
+        """
+        return self._encryption_status
+
+    def _has_encrypted_rows(self, conn: sqlite3.Connection) -> bool:
+        """Return True when at least one row is flagged encrypted."""
+        with contextlib.closing(conn.cursor()) as cursor:
+            cursor.execute("SELECT 1 FROM transcriptions WHERE text_is_encrypted = 1 LIMIT 1")
+            return cursor.fetchone() is not None
+
+    def _has_plaintext_rows(self, conn: sqlite3.Connection) -> bool:
+        """Return True when at least one non-empty row is still plaintext."""
+        with contextlib.closing(conn.cursor()) as cursor:
+            cursor.execute("SELECT 1 FROM transcriptions WHERE text_is_encrypted = 0 AND text <> '' LIMIT 1")
+            return cursor.fetchone() is not None
+
+    def _enqueue_backfill_step(self) -> None:
+        """Queue one bounded plaintext→ciphertext backfill batch (fire-and-forget).
+
+        Enqueued from the writer thread itself (init + the tail of each
+        step), so the batches serialize with normal writes in FIFO
+        order — a batch can never race a live INSERT. Queue-full is
+        swallowed: the remaining rows simply stay plaintext until the
+        next launch (the backfill is idempotent — it selects by flag).
+        """
+        with contextlib.suppress(queue.Full):
+            self._queue.put_nowait((self._encrypt_backfill_step, None))
+
+    def _encrypt_backfill_step(self, conn: sqlite3.Connection) -> int:
+        """Encrypt up to ``_ENCRYPTION_BACKFILL_BATCH`` plaintext rows.
+
+        Idempotent (rows are selected by ``text_is_encrypted = 0``) and
+        resumable: when a full batch is processed, the next batch is
+        re-enqueued so the writer thread yields to foreground writes
+        between batches. The UPDATE is the flag-flip form guarded in the
+        ``au_fts`` trigger, so the FTS index keeps the plaintext tokens
+        these rows were originally indexed with — search stays correct
+        before, during, and after the backfill.
+
+        Returns the number of rows encrypted in this step.
+        """
+        from voice_typer.server import _text_crypto
+
+        dek = _text_crypto.get_dek_cached()
+        if dek is None:
+            return 0
+        try:
+            with contextlib.closing(conn.cursor()) as cursor:
+                rows = cursor.execute(
+                    "SELECT id, text FROM transcriptions "
+                    "WHERE text_is_encrypted = 0 AND text <> '' "
+                    "ORDER BY id ASC LIMIT ?",
+                    (_ENCRYPTION_BACKFILL_BATCH,),
+                ).fetchall()
+                for row_id, text in rows:
+                    cipher = _text_crypto.encrypt_text(text, dek)
+                    # The ``AND text_is_encrypted = 0`` guard makes the
+                    # UPDATE idempotent even if a stale duplicate step
+                    # is queued twice.
+                    cursor.execute(
+                        "UPDATE transcriptions SET text = ?, text_is_encrypted = 1 "
+                        "WHERE id = ? AND text_is_encrypted = 0",
+                        (cipher, row_id),
+                    )
+                conn.commit()
+        except sqlite3.Error as e:
+            log.warning(
+                "[HISTORY] history-encryption backfill batch failed (%s) — will resume on next launch",
+                e,
+            )
+            with contextlib.suppress(sqlite3.Error):
+                conn.rollback()
+            return 0
+        encrypted = len(rows)
+        if encrypted > 0:
+            log.debug(
+                "[HISTORY] encrypted %d existing history row(s) at rest",
+                encrypted,
+            )
+        if encrypted >= _ENCRYPTION_BACKFILL_BATCH:
+            # More plaintext rows remain — yield to foreground writes
+            # and continue in the next queued step.
+            self._enqueue_backfill_step()
+        return encrypted
+
+    def _enqueue_reindex_step(self) -> None:
+        """Queue one bounded decrypt-aware FTS re-index batch (fire-and-forget)."""
+        with contextlib.suppress(queue.Full):
+            self._queue.put_nowait((self._reindex_encrypted_fts_step, None))
+
+    def _reindex_encrypted_fts_step(self, conn: sqlite3.Connection) -> int:
+        """Restore plaintext FTS tokens for encrypted rows after a 'rebuild'.
+
+        The FTS5 ``'rebuild'`` command drops all segments and re-tokenizes
+        from the CONTENT table — for a row whose ``text`` column holds
+        ciphertext that means the index now contains ciphertext tokens,
+        so full-text search no longer matches the row's real words. This
+        step repairs the invariant (ADR §6: FTS shadow tables stay
+        plaintext-tokenized) for up to ``_ENCRYPTION_BACKFILL_BATCH``
+        encrypted rows per invocation:
+
+        1. issue the FTS5 ``'delete'`` command with the row's CIPHERTEXT
+           (exactly what the rebuild indexed — a token match, so the
+           delete is safe), then
+        2. re-INSERT the DECRYPTED plaintext so the row is searchable
+           again.
+
+        Progression uses an ascending-id watermark (rows never lose the
+        encrypted flag mid-run), so each batch resumes where the
+        previous one stopped and the step terminates when a short batch
+        is seen — no repeated work, no unbounded memory. Only runs when
+        a DEK is cached (in key-loss mode there is no plaintext to
+        index — search over those rows is already degraded by design).
+        Re-enqueues itself while full batches remain, so it never
+        starves foreground writes.
+
+        Returns the number of rows re-indexed in this step.
+        """
+        from voice_typer.server import _text_crypto
+
+        dek = _text_crypto.get_dek_cached()
+        if dek is None:
+            return 0
+        watermark = self._fts_reindex_watermark
+        try:
+            with contextlib.closing(conn.cursor()) as cursor:
+                rows = cursor.execute(
+                    "SELECT id, text FROM transcriptions "
+                    "WHERE text_is_encrypted = 1 AND id > ? ORDER BY id ASC LIMIT ?",
+                    (watermark, _ENCRYPTION_BACKFILL_BATCH),
+                ).fetchall()
+                for row_id, ciphertext in rows:
+                    # 'delete' with the ciphertext that the rebuild
+                    # indexed (token match — removes exactly those
+                    # tokens), then insert the decrypted plaintext.
+                    cursor.execute(
+                        "INSERT INTO transcriptions_fts(transcriptions_fts, rowid, text) VALUES ('delete', ?, ?)",
+                        (row_id, ciphertext),
+                    )
+                    cursor.execute(
+                        "INSERT INTO transcriptions_fts(rowid, text) VALUES (?, ?)",
+                        (row_id, _text_crypto.decrypt_text(ciphertext, dek)),
+                    )
+                    watermark = row_id
+                conn.commit()
+        except sqlite3.Error as e:
+            log.warning(
+                "[HISTORY] decrypt-aware FTS re-index batch failed (%s) — "
+                "encrypted rows may stay unsearchable until the next rebuild",
+                e,
+            )
+            with contextlib.suppress(sqlite3.Error):
+                conn.rollback()
+            return 0
+        self._fts_reindex_watermark = watermark
+        if len(rows) >= _ENCRYPTION_BACKFILL_BATCH:
+            self._enqueue_reindex_step()
+        elif rows:
+            log.debug(
+                "[HISTORY] decrypt-aware FTS re-index complete through id=%d",
+                watermark,
+            )
+        return len(rows)
 
     def _mark_fts5_rebuild_failed(self, conn: sqlite3.Connection) -> None:
         """Persist the ``fts5_rebuild_failed`` flag so the next launch
@@ -1921,8 +2193,16 @@ class HistoryDB:
         ``record`` should be the dict shape returned by ``get_recent``
         (id is ignored — a new row with a new id is inserted).
 
+        At-rest encryption: mirrors the add_transcription write path —
+        the row is inserted with PLAINTEXT (so the AFTER-INSERT FTS
+        trigger indexes it) and then flipped to ciphertext +
+        ``text_is_encrypted=1`` in the same transaction when a DEK is
+        cached; without a DEK the row stays plaintext (flag 0).
+
         Returns the new row id, or -1 on failure.
         """
+        from voice_typer.server import _text_crypto
+
         text = str(record.get("text", ""))
         duration = float(record.get("duration", 0) or 0)
         model = str(record.get("model", "") or "")
@@ -1942,16 +2222,26 @@ class HistoryDB:
             """,
                     (text, duration, model, device, word_count, char_count, language, favorite),
                 )
-            conn.commit()
-            new_id = cursor.lastrowid
-            if new_id is None:
-                return -1
-            log.info(
-                "[HISTORY] Restored transcription as id=%d (%d chars)",
-                new_id,
-                char_count,
-            )
-            return new_id
+                new_id = cursor.lastrowid
+                if new_id is None:
+                    conn.commit()
+                    return -1
+                dek = _text_crypto.get_dek_cached()
+                if dek is not None:
+                    # Flag-flip UPDATE inside the same transaction: the
+                    # guarded AFTER-UPDATE FTS trigger skips the index,
+                    # keeping the plaintext tokens the INSERT just indexed.
+                    cursor.execute(
+                        "UPDATE transcriptions SET text = ?, text_is_encrypted = 1 WHERE id = ?",
+                        (_text_crypto.encrypt_text(text, dek), new_id),
+                    )
+                conn.commit()
+                log.info(
+                    "[HISTORY] Restored transcription as id=%d (%d chars)",
+                    new_id,
+                    char_count,
+                )
+                return new_id
 
         result = self._submit_write(_do_restore, wait=True)
         if result is None:

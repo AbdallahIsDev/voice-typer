@@ -15,6 +15,19 @@ from voice_typer.server.keyboard_ownership import (
     keyboard_ownership,
 )
 
+# Hint for xdist schedulers that respect ``xdist_group`` (loadgroup /
+# loadscope): pin every test in this module — and its sibling
+# ``test_keyboard_ownership_watchdog.py`` — onto a single worker. Both
+# modules reset the ``KeyboardOwnership`` class-attribute singleton via
+# autouse fixtures, and the singleton is process-wide state, so letting
+# the two modules run on different workers of the same process pool
+# (or interleaving them with other modules that touch the singleton)
+# is exactly what the resets exist to defend against; the marker is
+# defense-in-depth for same-worker grouping. xdist's default ``load``
+# scheduler does NOT strictly honor this marker — it is a hint, not a
+# correctness guarantee. No-op when xdist isn't active. (C-TEST-5.)
+pytestmark = pytest.mark.xdist_group("keyboard_ownership")
+
 
 @pytest.fixture(autouse=True)
 def _reset_ownership():

@@ -789,7 +789,7 @@
 			"highPassCutoffInfoSearch": "Частоты ниже этой границы ослабляются.",
 			"highPassCutoffAria": "Частота среза ФВЧ",
 			"noiseSuppression": "Подавление шума",
-			"noiseSuppressionInfo": "Нейросетевой шумоподавитель. RNNoise (по умолчанию, лёгкий). DeepFilterNet (премиум, лучшее качество, требует torch). Speex (самый лёгкий для CPU).",
+			"noiseSuppressionInfo": "Нейросетевой шумоподавитель. RNNoise (по умолчанию, лёгкий). GTCRN (продвинутый нейросетевой шумоподавитель, более высокое качество, работает на устройстве). Нет (отключает шумоподавление).",
 			"noiseSuppressionInfoSearch": "Нейросетевой шумоподавитель.",
 			"noiseSuppressionAria": "Метод подавления шума",
 			"noneOption": "Нет",

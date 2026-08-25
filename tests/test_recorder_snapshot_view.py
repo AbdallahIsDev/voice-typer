@@ -51,10 +51,12 @@ def _make_recorder(sample_rate: int = 16000, effective_sr: int | None = None) ->
     ``test_snapshot_returns_audio_without_clearing_buffer``: a MagicMock
     config, ``_recording_event`` set, ``_effective_sr`` /
     ``_post_filter_sr`` primed, and a MagicMock ``_stream`` so ``stop()``
-    doesn't try to talk to PortAudio.
+    doesn't try to talk to PortAudio. Construction is delegated to the
+    shared canonical factory (XS-42 helper dedup).
     """
-    config = MagicMock(sample_rate=sample_rate, microphone=None)
-    r = Recorder(config)
+    from tests.fixtures.ipc_test_helpers import make_fake_recorder
+
+    r = make_fake_recorder(sample_rate=sample_rate)
     r._recording_event.set()
     r._effective_sr = effective_sr if effective_sr is not None else sample_rate
     # mirror _effective_sr (no audio_processor in these tests)

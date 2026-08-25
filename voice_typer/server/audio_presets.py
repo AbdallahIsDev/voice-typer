@@ -7,7 +7,7 @@ preset logic lives here; the frontend fetches presets via IPC.
 Presets (ADR 0007 §5.5):
     auto       — Best for 90% of users. All filters ON, RNNoise.
     studio     — Quiet room, good mic. Minimal processing.
-    noisy_room — Keyboard/fan/HVAC. Aggressive, DeepFilterNet.
+    noisy_room — Keyboard/fan/HVAC. Aggressive, GTCRN.
     off        — Raw audio, no filtering.
     custom     — User controls each filter individually.
 """
@@ -54,7 +54,11 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     PRESET_NOISY_ROOM: {
         "noise_filter_highpass": True,
-        "noise_suppression_method": "deepfilternet",  # best quality
+        # GTCRN — the bundled ONNX streaming denoiser (higher quality
+        # than RNNoise; ~2 ms per 16 ms hop on CPU). Replaces the
+        # retired DeepFilterNet option this preset historically
+        # selected (whose processing path was never wired).
+        "noise_suppression_method": "gtcrn",  # best quality
         "noise_filter_gate": True,
         "noise_filter_eq": True,
         "noise_filter_compressor": True,
@@ -100,7 +104,7 @@ PRESET_INFO: dict[str, dict[str, str]] = {
     },
     PRESET_NOISY_ROOM: {
         "label": "Noisy Room",
-        "description": "Keyboard, fan, or HVAC noise. Aggressive filtering with DeepFilterNet.",
+        "description": "Keyboard, fan, or HVAC noise. Aggressive filtering with the GTCRN neural denoiser.",
     },
     PRESET_OFF: {
         "label": "Off",

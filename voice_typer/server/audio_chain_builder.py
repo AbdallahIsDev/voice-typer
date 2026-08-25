@@ -60,7 +60,7 @@ def build_chain(config: Any, sample_rate: int = WHISPER_SAMPLE_RATE) -> FilterCh
             )
         )
 
-    # 3. Noise suppressor (RNNoise / DeepFilterNet / Speex)
+    # 3. Noise suppressor (RNNoise / GTCRN)
     method = config.noise_suppression_method
     if method != "none":
         filters.append(

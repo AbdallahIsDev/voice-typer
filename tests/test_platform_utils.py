@@ -57,3 +57,27 @@ class TestPlatformDetection:
             assert name == "macos"
         elif is_linux():
             assert name == "linux"
+
+
+class TestPlatformUtils:
+    """Verify centralized platform utilities.
+
+    Split from the former review-round catch-all
+    ``tests/test_remaining_fixes.py``.
+    """
+
+    def test_platform_utils_module_exists(self):
+        """voice_typer.server.platform_utils should exist."""
+        from voice_typer.server import platform_utils
+
+        assert hasattr(platform_utils, "is_windows")
+        assert hasattr(platform_utils, "is_macos")
+        assert hasattr(platform_utils, "is_linux")
+
+    def test_platform_utils_returns_bool(self):
+        """Platform utility functions should return booleans."""
+        from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
+
+        assert isinstance(is_windows(), bool)
+        assert isinstance(is_macos(), bool)
+        assert isinstance(is_linux(), bool)

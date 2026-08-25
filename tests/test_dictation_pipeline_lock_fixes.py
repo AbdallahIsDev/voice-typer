@@ -55,11 +55,12 @@ from voice_typer.server.dictation_pipeline import DictationPipeline
 class _TestApp:
     """Minimal non-magic test app for DictationPipeline tests.
 
-    Mirrors the pattern in ``test_dictation_pipeline_review_fixes.py``:
-    a custom class (instead of ``MagicMock``) so the four notify-once
-    flag attributes correctly default to ``False`` via
-    ``getattr(..., False)`` — MagicMock would auto-create truthy
-    children for any attribute access.
+    Mirrors the pattern in
+    ``tests/fixtures/dictation_pipeline_helpers.py`` (the canonical
+    shared ``_TestApp`` factory): a custom class (instead of
+    ``MagicMock``) so the four notify-once flag attributes correctly
+    default to ``False`` via ``getattr(..., False)`` — MagicMock
+    would auto-create truthy children for any attribute access.
     """
 
     def __init__(self) -> None:

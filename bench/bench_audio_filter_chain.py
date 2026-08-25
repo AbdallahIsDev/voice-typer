@@ -55,9 +55,9 @@ def _make_config(noise_suppression: str = "none") -> object:
     """Build a config object with all chain filters enabled.
 
     ``noise_suppression="none"`` skips the (optional, expensive)
-    RNNoise/DeepFilterNet path so the benchmark can run in environments
-    without those libraries installed. Set to ``"rnnoise"`` to exercise
-    that path when available.
+    RNNoise/GTCRN path so the benchmark can run in environments
+    without those libraries installed. Set to ``"rnnoise"`` or
+    ``"gtcrn"`` to exercise that path when available.
 
     scipy availability: when scipy is NOT installed (e.g. in a minimal
     sandbox venv), the IIR-based filters (HighPass, Notch, Equalizer,
@@ -250,7 +250,7 @@ def main() -> int:
     parser.add_argument(
         "--noise-suppression",
         default="none",
-        choices=("none", "rnnoise", "deepfilternet", "speex"),
+        choices=("none", "rnnoise", "gtcrn"),
         help="Noise suppressor method (default: none — exercises only always-on filters)",
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of human-readable")

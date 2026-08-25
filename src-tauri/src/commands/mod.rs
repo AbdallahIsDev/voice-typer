@@ -23,8 +23,12 @@ pub(crate) mod system_cmds;
 // no caller. Both the re-exports and the `#[allow(unused_imports)]`
 // annotations are deleted here; `cargo check` confirms `generate_handler!`
 // still resolves every command via the direct submodule imports.
-pub(crate) use sidecar_cmds::DISALLOWED_WINDOW_CODE;
 pub(crate) use sidecar_cmds::{dispatch_inner, DispatchArgs};
+
+//the unified command error type. Every `#[tauri::command]` in this
+// tree returns `Result<T, VoiceTyperError>`; see `error.rs` for the
+// Display-vs-Serialize split (log strings vs renderer wire strings).
+use crate::error::VoiceTyperError;
 
 //canonical main-window guard (ADR-0020 §7 + §9 + SEC-026) ────
 //
@@ -59,23 +63,18 @@ pub(crate) fn main_window_label_check(label: &str) -> bool {
 //gate a `#[tauri::command]` on the calling window being the main
 /// window. Logs a `[window-guard]` warning on rejection so the security
 /// audit trail shows the rejected call attempt + the offending window
-/// label. Returns `Err(<json envelope string>)` for non-main windows so
-/// the renderer's reject path handles it identically to a server-side
-/// rejection.
-pub(crate) fn require_main_window(window: &tauri::Window) -> Result<(), String> {
+/// label. Returns `Err(VoiceTyperError::disallowed_main_window())` for
+/// non-main windows — the variant serializes to the same
+/// `{"type":"error","data":{"code":"disallowed_window",...}}`
+/// envelope string the renderer's reject path has always parsed, so it
+/// is handled identically to a server-side rejection.
+pub(crate) fn require_main_window(window: &tauri::Window) -> Result<(), VoiceTyperError> {
     if !main_window_label_check(window.label()) {
         log::warn!(
             "[window-guard] command rejected from non-main window: {}",
             window.label()
         );
-        let err = serde_json::json!({
-            "type": "error",
-            "data": {
-                "code": DISALLOWED_WINDOW_CODE,
-                "message": "command only allowed from main window"
-            }
-        });
-        return Err(err.to_string());
+        return Err(VoiceTyperError::disallowed_main_window());
     }
     Ok(())
 }
@@ -83,22 +82,16 @@ pub(crate) fn require_main_window(window: &tauri::Window) -> Result<(), String> 
 /// Gate a `#[tauri::command]` on the calling window being the bubble
 /// window. Mirrors `require_main_window` but for bubble-only commands
 /// (e.g. `bubble_signal_ready` — the bubble renderer's readiness signal).
-/// Returns the same canonical JSON error envelope so the renderer's
-/// reject path handles it identically to a server-side rejection.
-pub(crate) fn require_bubble_window(window: &tauri::Window) -> Result<(), String> {
+/// Returns `Err(VoiceTyperError::disallowed_bubble_window())` — the same
+/// canonical JSON error envelope on the wire, so the renderer's reject
+/// path handles it identically to a server-side rejection.
+pub(crate) fn require_bubble_window(window: &tauri::Window) -> Result<(), VoiceTyperError> {
     if window.label() != "bubble" {
         log::warn!(
             "[window-guard] command rejected from non-bubble window: {}",
             window.label()
         );
-        let err = serde_json::json!({
-            "type": "error",
-            "data": {
-                "code": DISALLOWED_WINDOW_CODE,
-                "message": "command only allowed from bubble window"
-            }
-        });
-        return Err(err.to_string());
+        return Err(VoiceTyperError::disallowed_bubble_window());
     }
     Ok(())
 }

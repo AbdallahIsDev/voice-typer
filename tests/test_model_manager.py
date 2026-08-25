@@ -617,3 +617,81 @@ class TestLRUEviction:
         # (the registry unregister + tracking removal still happen so
         # a subsequent _ensure_engine constructs a fresh engine).
         assert "whisper" not in mm._model_access_times
+
+
+# ── LRU model eviction (split from the former review-round catch-all
+# tests/test_remaining_fixes.py) ──────────────────────────────────────
+
+
+class TestLRUModelEviction:
+    """PERF-015: Verify LRU model eviction in ModelManager."""
+
+    def test_evict_method_exists(self):
+        """ModelManager should have _evict_lru_model and touch_model methods."""
+        from voice_typer.server.model_manager import ModelManager
+
+        assert hasattr(ModelManager, "_evict_lru_model")
+        assert hasattr(ModelManager, "touch_model")
+
+    def test_no_eviction_below_limit(self):
+        """Eviction should not happen when models <= _MAX_LOADED_MODELS."""
+        from voice_typer.server.model_manager import ModelManager
+
+        mm = ModelManager.__new__(ModelManager)
+        mm._model_access_times = {"whisper": 1.0, "qwen": 2.0}
+        mm._model_lru_lock = MagicMock()
+        mm._model_lru_lock.__enter__ = MagicMock(return_value=None)
+        mm._model_lru_lock.__exit__ = MagicMock(return_value=False)
+        mm._MAX_LOADED_MODELS = 2
+        mm._registry = MagicMock()
+        # Should not try to unload anything
+        mm._evict_lru_model()
+        mm._registry.get.assert_not_called()
+
+    def test_eviction_unloads_oldest(self):
+        """Eviction should unload the least recently used model."""
+        import time
+
+        from voice_typer.server.model_manager import ModelManager
+
+        mm = ModelManager.__new__(ModelManager)
+        now = time.monotonic()
+        mm._model_access_times = {
+            "whisper": now - 100,  # oldest
+            "qwen": now - 10,
+            "parakeet": now,
+        }
+        mm._MAX_LOADED_MODELS = 2
+        mm._model_lru_lock = MagicMock()
+        mm._model_lru_lock.__enter__ = MagicMock(return_value=None)
+        mm._model_lru_lock.__exit__ = MagicMock(return_value=False)
+
+        # Eviction unloads via the registry (so the busy-check in
+        # ``AsrBackendRegistry.unload`` is honoured) and then unregisters
+        # the backend + drops it from the LRU tracking.
+        mm._registry = MagicMock()
+
+        mm._evict_lru_model()
+        # Should have unloaded the oldest (whisper) through the registry.
+        mm._registry.unload.assert_called_once_with("whisper")
+        # Should have removed the oldest from access times
+        assert "whisper" not in mm._model_access_times
+
+    def test_touch_updates_timestamp(self):
+        """touch_model should update the access timestamp."""
+        import time
+
+        from voice_typer.server.model_manager import ModelManager
+
+        mm = ModelManager.__new__(ModelManager)
+        mm._model_access_times = {}
+        mm._model_lru_lock = MagicMock()
+        mm._model_lru_lock.__enter__ = MagicMock(return_value=None)
+        mm._model_lru_lock.__exit__ = MagicMock(return_value=False)
+
+        before = time.monotonic()
+        mm.touch_model("whisper")
+        after = time.monotonic()
+
+        assert "whisper" in mm._model_access_times
+        assert before <= mm._model_access_times["whisper"] <= after

@@ -977,6 +977,42 @@ Adding a new **ASR engine** has its own touchpoint set: see
   `pytest --slow` (CI runs them in a separate best-effort job). Keep
   the default suite fast — do not use `slow` to paper over fixable
   slowness (sleep-polling, oversized fixtures).
+- **Parallelism — `xdist_group` markers:** `make test` and CI run
+  pytest with `-n auto --dist=loadgroup` (pytest-xdist; see C-TEST-3 —
+  do not remove). Under `loadgroup`, every test whose module carries a
+  module-level marker
+
+  ```python
+  pytestmark = pytest.mark.xdist_group("<group_name>")
+  ```
+
+  is pinned to a **single worker**, so files that share process-wide
+  mutable state run on the same worker instead of being scattered
+  round-robin. The marker is a **grouping hint, not a correctness
+  guarantee**: xdist's default `load` scheduler does NOT honor it, and
+  it is a no-op when xdist isn't active — shared-state isolation still
+  has to come from autouse reset fixtures. Never move `-n auto
+  --dist=loadgroup` into `pyproject.toml` `addopts` (that would force
+  parallelism on single-test debugging runs); the flags stay
+  CLI-level in the `Makefile` and CI only. **When to add a marker:**
+  two or more test files that mutate the same process-wide state —
+  class-attribute singletons, module-level dicts,
+  `functools.lru_cache` on module functions. Existing groups (reuse
+  these names; don't invent near-duplicates):
+  `keyboard_ownership` (`test_keyboard_ownership.py`,
+  `test_keyboard_ownership_watchdog.py` — the `KeyboardOwnership`
+  singleton), `log_rate_limit` (`test_log_rate_limit.py`,
+  `test_log_rate_limit_lru.py` — module-level counter/summary dicts),
+  `native_binary_path` (`test_binary_path_caching.py`,
+  `test_native_hotkeys_binary_path.py`,
+  `test_native_hotkeys_factory_binary_path.py`,
+  `tests/tauri/test_native_binary_path_tauri.py` — the
+  `get_native_binary_path` `lru_cache(maxsize=1)`), `ipc_layer_fixes`
+  (`test_ipc_layer_fixes.py`, `test_ipc_package_fixes.py`),
+  `gen_tauri_icons_stub` (`tests/tauri/test_gen_tauri_icons_stub.py`,
+  `tests/tauri/mig18/test_build_script_glue.py`), and
+  `faster_whisper_linux`
+  (`tests/tauri/mig17/test_faster_whisper_linux.py`).
 - **Coverage threshold:** 65 %, enforced by `--cov-fail-under=65` in
   `pyproject.toml`. If your change drops coverage below 65 %, add
   tests or mark unreachable branches with `# pragma: no cover`.

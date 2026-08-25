@@ -580,16 +580,16 @@ class TestTranscribeWords:
         mock_model = MagicMock()
 
         def transcribe(*args, **kwargs):
-            # Counter pattern (IN-4): the lock is RELEASED during the
+            # Counter pattern: the lock is RELEASED during the
             # multi-second GPU inference so ``is_loaded`` / ``unload``
             # aren't blocked; ``_active_inference`` is incremented
             # before release and decremented in the ``finally`` block.
             assert lock.depth == 0, (
-                "IN-4: transcribe_with_fallback must release _lock during "
+                "transcribe_with_fallback must release _lock during "
                 f"model.transcribe() (counter pattern). Got lock.depth={lock.depth}."
             )
             assert engine._active_inference == 1, (
-                "IN-4: _active_inference must be 1 during model.transcribe() "
+                "_active_inference must be 1 during model.transcribe() "
                 f"(incremented under _lock before release). Got {engine._active_inference}."
             )
             return ([MagicMock(text="locked")], MagicMock())
@@ -732,10 +732,17 @@ from voice_typer.server.recording import Recorder  # noqa: E402
 from voice_typer.server.transcription import TranscriptionEngine  # noqa: E402
 
 
-def _make_recorder__010() -> Recorder:
+def _make_recorder() -> Recorder:
+    """Create a Recorder with minimal setup for audio-stats tests.
+
+    Recorder construction is delegated to the shared canonical factory
+    (helper dedup) with a real ``Config`` injected.
+    """
+    from tests.fixtures.recorder_test_helpers import make_recorder
+
     cfg = Config()
     cfg.sample_rate = 16000
-    rec = Recorder(cfg)
+    rec = make_recorder(config=cfg)
     rec._effective_sr = 16000
     rec._cached_target_sr = 16000
     return rec
@@ -745,14 +752,14 @@ class TestRecorderStoresAudioStats:
     """NEW-PERF-010: Recorder.stop() must store the stats for reuse."""
 
     def test_last_audio_stats_initially_none(self):
-        rec = _make_recorder__010()
+        rec = _make_recorder()
         assert rec._last_audio_stats is None
 
     def test_stop_populates_last_audio_stats(self):
         """After stop(), ``_last_audio_stats`` must be a (rms, peak,
         silence_pct) tuple matching the computed values.
         """
-        rec = _make_recorder__010()
+        rec = _make_recorder()
         # Populate the buffer with a known signal.
         chunk = np.full((1024, 1), 0.5, dtype=np.float32)
         with rec._lock:
@@ -845,7 +852,12 @@ class TestTranscriptionEngineAcceptsAudioStats:
         # We verify by checking the source instead.
         import inspect
 
-        source = inspect.getsource(TranscriptionEngine._transcribe_unlocked)
+        from voice_typer.server.transcription_result import transcribe_unlocked as _canonical_body
+
+        # The body was extracted to ``transcription_result`` (the facade
+        # method is a thin delegate) — pin the canonical home, where both
+        # substrings below live verbatim.
+        source = inspect.getsource(_canonical_body)
         assert "if audio_stats is not None:" in source, "_transcribe_unlocked must check audio_stats before recomputing"
         assert "rms, peak, silence_pct = audio_stats" in source, (
             "_transcribe_unlocked must unpack the provided audio_stats"
@@ -888,3 +900,63 @@ class TestPipelinePassesStatsThrough:
         assert "audio_stats=self._audio_stats" in source, (
             "DictationPipeline._transcribe must pass audio_stats to transcribe_with_fallback"
         )
+
+
+# ── Warm-up inference after model load (split from the former review-round
+# catch-all tests/test_remaining_fixes.py) ────────────────────────────
+
+
+class TestWarmUpInference:
+    """PERF-007: Verify warm-up inference after model load."""
+
+    def test_warm_up_method_exists(self):
+        """TranscriptionEngine should have a _warm_up_model method."""
+        from voice_typer.server.transcription import TranscriptionEngine
+
+        assert hasattr(TranscriptionEngine, "_warm_up_model")
+
+    def test_warm_up_no_model(self):
+        """Warm-up should be a no-op when no model is loaded."""
+        from voice_typer.server.transcription import TranscriptionEngine
+
+        engine = TranscriptionEngine.__new__(TranscriptionEngine)
+        engine._model = None
+        engine._device = "cuda"
+        # Should not raise
+        engine._warm_up_model()
+
+    def test_warm_up_cpu_model(self):
+        """Warm-up should be skipped for CPU models."""
+        from voice_typer.server.transcription import TranscriptionEngine
+
+        engine = TranscriptionEngine.__new__(TranscriptionEngine)
+        engine._model = MagicMock()
+        engine._device = "cpu"
+        # Should not call transcribe
+        engine._warm_up_model()
+        engine._model.transcribe.assert_not_called()
+
+    def test_warm_up_cuda_model(self):
+        """Warm-up should call transcribe for CUDA models."""
+        from voice_typer.server.transcription import TranscriptionEngine
+
+        engine = TranscriptionEngine.__new__(TranscriptionEngine)
+        engine._model = MagicMock()
+        engine._device = "cuda"
+        engine.language = "en"
+        mock_segments = iter([MagicMock(text="")])
+        engine._model.transcribe.return_value = (mock_segments, MagicMock())
+        engine._warm_up_model()
+        engine._model.transcribe.assert_called_once()
+
+    def test_warm_up_failure_non_critical(self):
+        """Warm-up failure should not propagate exceptions."""
+        from voice_typer.server.transcription import TranscriptionEngine
+
+        engine = TranscriptionEngine.__new__(TranscriptionEngine)
+        engine._model = MagicMock()
+        engine._device = "cuda"
+        engine.language = "en"
+        engine._model.transcribe.side_effect = RuntimeError("GPU error")
+        # Should not raise
+        engine._warm_up_model()

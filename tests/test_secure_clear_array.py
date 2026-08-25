@@ -34,6 +34,8 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+from tests.fixtures.ipc_test_helpers import make_fake_recorder
+
 # ─── 1. Importability ────────────────────────────────────────────────────
 
 
@@ -126,30 +128,16 @@ def test_secure_clear_array_on_empty_array_is_noop():
 
 
 # ─── 3. Integration: ``Recorder.start()`` zeros cached arrays ────────────
+# (the recorder factory is the shared ``make_fake_recorder`` — the
+# byte-identical local ``_make_recorder`` copy was removed in the XS-42
+# helper-dedup pass; see
+# ``tests/fixtures/recorder_test_helpers.make_recorder`` for the
+# pre-populated config fields and the VAD mock rationale)
 
 
 def _make_recorder() -> MagicMock:
-    """Build a minimal Recorder with the fields the secure-clear path
-    touches.  Avoids spawning real audio threads / sounddevice probes.
-
-    The VAD availability check is mocked out because importing torch
-    takes ~17s on this sandbox (see vad.is_available), which blows the
-    per-test timeout.  The secure-clear path doesn't depend on VAD, so
-    mocking the check is safe.
-    """
-    from unittest.mock import patch
-
-    from voice_typer.server.recording import Recorder
-
-    config = MagicMock()
-    config.sample_rate = 16000
-    config.microphone = None
-    config.silence_warning_seconds = 20.0
-    config.stop_on_silence_seconds = 120.0
-    config.max_recording_time_seconds = 900
-    config.device = "cpu"
-    with patch("voice_typer.server.vad.is_available", return_value=False):
-        return Recorder(config)
+    """Backwards-compatible alias over the shared factory (XS-42)."""
+    return make_fake_recorder()
 
 
 def test_recorder_start_zeros_cached_resampled_array():

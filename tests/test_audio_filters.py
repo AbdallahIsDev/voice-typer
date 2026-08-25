@@ -558,9 +558,9 @@ class TestPresets:
         assert filters["noise_filter_gate"] is False
         assert filters["noise_filter_eq"] is True
 
-    def test_noisy_room_uses_deepfilternet(self):
+    def test_noisy_room_uses_gtcrn(self):
         filters = PRESETS[PRESET_NOISY_ROOM]
-        assert filters["noise_suppression_method"] == "deepfilternet"
+        assert filters["noise_suppression_method"] == "gtcrn"
         assert filters["noise_filter_notch"] is True
 
     def test_apply_preset_auto(self):

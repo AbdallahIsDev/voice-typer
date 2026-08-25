@@ -93,9 +93,15 @@ class TestSendCtrlVWin32ReturnValue:
     """S2-assert ``_send_ctrl_v_win32`` returns an explicit bool."""
 
     def _make_cm(self):
-        cm = ClipboardManager.__new__(ClipboardManager)
-        cm._keyboard = MagicMock()
-        return cm
+        """Delegate to the shared canonical factory (XS-42 helper dedup).
+
+        ``_send_ctrl_v_win32`` only reads ``self._keyboard`` (via
+        ``_safe_key_press``); the factory's other pre-populated cached
+        flags are inert for this suite.
+        """
+        from tests.fixtures.clipboard_helpers import make_clipboard_manager
+
+        return make_clipboard_manager()
 
     def test_returns_true_on_full_success(self, fake_win32_for_return_value):
         """S2-SendInput returning 4 → _send_ctrl_v_win32 returns True.
@@ -165,15 +171,12 @@ class TestPasteReturnsTrueOnFullSuccess:
     """
 
     def _make_cm(self):
-        cm = ClipboardManager.__new__(ClipboardManager)
-        cm.paste_enabled = True
-        cm._keyboard = MagicMock()
-        cm._last_paste_time = 0.0
-        cm._clipboard_seq = 0
-        cm._clipboard_save_restore_enabled = False
-        cm._last_copied_text = "test"
-        cm._restore_delay_ms = 150
-        return cm
+        """Delegate to the shared canonical factory (XS-42 helper dedup),
+        keeping this suite's save-restore-disabled / "test" sentinel
+        arrangement."""
+        from tests.fixtures.clipboard_helpers import make_clipboard_manager
+
+        return make_clipboard_manager(save_restore=False, last_copied_text="test")
 
     def test_paste_returns_true_on_sendinput_full_success(self, fake_win32_for_return_value):
         """S2-paste() returns True when SendInput returns 4.

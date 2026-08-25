@@ -82,13 +82,17 @@ _SIDECAR_WS_PATH = os.path.join(
     "server",
     "sidecar_ws.py",
 )
+# The ``_drain_ws_dispatch_pool`` body (the WS-drain half of
+# ``_do_cleanup``'s early bookend) was extracted from the
+# ``shutdown_controller/_cleanup.py`` leaf into
+# ``shutdown/ws_drain.py``; the mixin method there is a thin delegate.
 _SHUTDOWN_CONTROLLER_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
     "voice_typer",
     "server",
-    "shutdown_controller",
-    "_cleanup.py",
+    "shutdown",
+    "ws_drain.py",
 )
 
 
@@ -223,8 +227,9 @@ class TestSourceContracts:
         assert wait_idx > -1
         # Slice a generous window after the wait.
         block = src[wait_idx : wait_idx + 1200]
-        assert "DJ-9" in block, "DJ-9: the drain-timeout branch must reference DJ-9 in its log"
-        assert "log.warning" in block, "DJ-9: the drain-timeout branch must log at WARNING level"
+        assert "WS dispatch drain Event did not" in block, "the drain-timeout branch must log the un-drained Event race"
+        assert "proceeding" in block, "the drain-timeout branch must proceed instead of blocking shutdown"
+        assert "log.warning" in block, "the drain-timeout branch must log at WARNING level"
 
 
 # behavioral — dispatch path ───────────────────────────────

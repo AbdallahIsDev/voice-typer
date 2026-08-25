@@ -80,10 +80,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from threading import RLock
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
+
+from tests.fixtures.ipc_test_helpers import make_bare_ipc_server
 
 # ─── Path constants ───────────────────────────────────────────────────────
 # Resolve once at import time so each test doesn't repeat the dance. The
@@ -128,25 +129,6 @@ def _read_ws_bridge_rs() -> str:
     for name in ("reader.rs", "writer.rs"):
         parts.append(_read(WS_RS.parent / "ws" / name))
     return "\n\n".join(parts)
-
-
-def _make_ipc_server():
-    """Build a minimal ``IPCServer`` with a mock app + service.
-
-    Mirrors ``tests/test_notification_event_name.py::_make_ipc_server``
-    (same surface: ``app``, ``service``, ``_config_mutation_lock``) so
-    the ``SystemHandlersMixin`` can run its validation + publish path
-    without a real ``VoiceTyperApp``. This keeps the test headless (no
-    torch, no pystray, no real tray).
-    """
-    from voice_typer.server.ipc_server import IPCServer
-
-    app = MagicMock()
-    app._config_mutation_lock = RLock()
-    server = IPCServer.__new__(IPCServer)
-    server.app = app
-    server.service = MagicMock()
-    return server
 
 
 # ─── Test 1: main.rs registers tauri_plugin_notification::init() ──────────
@@ -515,7 +497,7 @@ class TestIpcHandlerPublishesNotificationViaEventBus:
         directly — the same pattern used by
         ``tests/handlers/test_handler_group_b_fixes.py``.
         """
-        server = _make_ipc_server()
+        server = make_bare_ipc_server()
         captured: dict = {}
         with patch(
             "voice_typer.server.event_bus.publish",
@@ -543,7 +525,7 @@ class TestIpcHandlerPublishesNotificationViaEventBus:
         sidecars that still emit the legacy name during a rolling
         upgrade — the NEW Python sidecar must NOT emit it.
         """
-        server = _make_ipc_server()
+        server = make_bare_ipc_server()
         captured: dict = {}
         with patch(
             "voice_typer.server.event_bus.publish",
@@ -607,7 +589,7 @@ class TestNotificationPayloadShape:
           - Two extra fields (``duration_ms``, ``critical``) control
             the toast's auto-close timeout and priority.
         """
-        server = _make_ipc_server()
+        server = make_bare_ipc_server()
         captured: dict = {}
         with patch(
             "voice_typer.server.event_bus.publish",
@@ -645,7 +627,7 @@ class TestNotificationPayloadShape:
         what the renderer's notification handler reads). Renaming would
         break the renderer.
         """
-        server = _make_ipc_server()
+        server = make_bare_ipc_server()
         captured: dict = {}
         with patch(
             "voice_typer.server.event_bus.publish",
@@ -671,7 +653,7 @@ class TestNotificationPayloadShape:
         ``message`` to empty string, ``duration_ms`` to 0, ``critical``
         to False). This is what fires when the renderer invokes the
         command without explicit args."""
-        server = _make_ipc_server()
+        server = make_bare_ipc_server()
         captured: dict = {}
         with patch(
             "voice_typer.server.event_bus.publish",

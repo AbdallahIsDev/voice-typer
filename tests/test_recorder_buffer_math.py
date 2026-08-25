@@ -23,8 +23,6 @@ behaviour is unchanged — see ``test_default_16khz_preserves_existing_behavior`
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 import pytest
 
 REPO_ROOT_CONTEXT = "voice_typer.server.recording"  # noqa: N816 (readability)
@@ -91,17 +89,16 @@ def _make_recorder(max_rec: int = 1800, preroll_seconds: float = 1.0):
     selects the system default device, so the candidate loop calls
     ``_resolve_effective_sample_rate(None)`` which queries
     ``sd.query_devices(kind="input")`` — the device our mock patches.
+    Construction is delegated to the shared canonical factory (XS-42
+    helper dedup) with the buffer-math-relevant fields overridden.
     """
-    from voice_typer.server.recording import Recorder
+    from tests.fixtures.ipc_test_helpers import make_fake_recorder
 
-    config = MagicMock(
-        sample_rate=16000,  # Whisper target rate
-        microphone=None,  # system default
+    return make_fake_recorder(
         max_recording_time_seconds=max_rec,
         pre_roll_buffer_seconds=preroll_seconds,
         recording_channels=1,
     )
-    return Recorder(config)
 
 
 # main recording buffer scales with effective_sr ────────

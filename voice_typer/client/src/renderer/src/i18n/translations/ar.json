@@ -795,7 +795,7 @@
 			"highPassCutoffInfoSearch": "الترددات أقل من هذا تُضعَّف.",
 			"highPassCutoffAria": "تردد قطع المرور العالي",
 			"noiseSuppression": "كتم الضوضاء",
-			"noiseSuppressionInfo": "مكتشف ضوضاء بشبكة عصبية. RNNoise (افتراضي، خفيف). DeepFilterNet (متميز، جودة أفضل، يتطلب torch). Speex (الأخف على CPU).",
+			"noiseSuppressionInfo": "مزيل ضوضاء بشبكة عصبية. RNNoise (الافتراضي، خفيف). GTCRN (مزيل ضوضاء عصبي متقدم، جودة أعلى، يعمل على الجهاز). لا شيء (يعطّل إزالة الضوضاء).",
 			"noiseSuppressionInfoSearch": "مكتشف ضوضاء بشبكة عصبية.",
 			"noiseSuppressionAria": "طريقة كتم الضوضاء",
 			"noneOption": "لا شيء",

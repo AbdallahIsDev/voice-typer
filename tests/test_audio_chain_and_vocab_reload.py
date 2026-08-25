@@ -76,7 +76,7 @@ def vocab_mixin(live_vm):
     ``VocabularyMixin`` is a ``ServiceMixinBase`` subclass — it has no
     ``__init__`` of its own, so we can construct it via ``__new__`` and
     bind ``self._app`` manually. This mirrors how
-    ``tests/test_dictation_pipeline_review_fixes.py`` builds minimal
+    ``tests/app/test_notify_once_flags.py`` builds minimal
     mixin fixtures without booting the full ``VoiceTyperService``.
     """
     from voice_typer.server.service.vocabulary import VocabularyMixin

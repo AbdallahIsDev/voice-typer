@@ -99,6 +99,19 @@ def _writer_loop(db: HistoryDB) -> None:
             with contextlib.suppress(sqlite3.Error):
                 conn.close()
         return
+    # At-rest encryption: resolve the DEK (one keyring read, bounded by
+    # the 5s keyring-I/O timeout isolation) and kick the plaintext→
+    # ciphertext backfill BEFORE readiness is signaled. Running it here
+    # — rather than after the ready signal — makes the encryption state
+    # deterministic the moment ``HistoryDB()`` returns: no reader can
+    # observe a flagged row with an UNRESOLVED key (which would surface
+    # a bogus "<decryption failed>" placeholder during the keyring
+    # read). The backfill itself is a queued writer item (never blocks
+    # startup); only the single DEK load sits in the init window, and
+    # it is skipped entirely on migration failure.
+    if db._init_error is None:
+        with contextlib.suppress(Exception):
+            db._init_encryption(conn)
     db._writer_ready.set()
     # if schema init set _init_error (e.g. migration
     # failure), don't enter the main write loop. The DB is in an
@@ -210,6 +223,60 @@ def _execute_write_item(
             conn.rollback()
 
 
+def _encrypt_batch_rows(
+    cursor: sqlite3.Cursor,
+    batch: list[Any],
+    last_row_id: int | None,
+) -> None:
+    """Flip freshly-inserted rows from plaintext to ciphertext in place.
+
+    At-rest-encryption write side (ADR §2/§6; cipher module
+    ``voice_typer/server/_text_crypto.py``). The rows were just inserted
+    with PLAINTEXT and ``text_is_encrypted=0`` so the AFTER-INSERT FTS
+    trigger indexed the plaintext tokens; this helper UPDATEs each row to
+    ``encrypt_text(text)`` + ``text_is_encrypted=1``. The guarded
+    AFTER-UPDATE trigger (see ``schema._MIGRATION_V4``) skips the FTS
+    delete+reinsert for that flag flip, so the plaintext tokens stay in
+    the index and full-text search keeps matching encrypted rows.
+
+    Row ids: a multi-row INSERT under AUTOINCREMENT assigns consecutive
+    rowids and ``cursor.lastrowid`` is the LAST one (verified in-sandbox;
+    the single writer thread guarantees no interleaving), so row ``i`` of
+    ``n`` has id ``last_row_id - n + 1 + i``. Each UPDATE's rowcount is
+    checked — a zero means the id arithmetic went stale (should be
+    impossible), which is logged loudly rather than silently encrypting
+    the wrong row.
+
+    Runs inside the caller's transaction: the INSERT and the encryption
+    UPDATEs commit atomically, so readers never observe the intermediate
+    plaintext row.
+    """
+    from voice_typer.server import _text_crypto
+
+    dek = _text_crypto.get_dek_cached()
+    if dek is None or last_row_id is None:
+        # No DEK (keyring unavailable / key-loss / not yet resolved):
+        # the rows stay plaintext with flag 0 — byte-identical to the
+        # pre-encryption behavior (zero regression when the keychain is
+        # absent, C-DATA-1 / ADR §9.1).
+        return
+    n = len(batch)
+    for i, it in enumerate(batch):
+        row_id = last_row_id - n + 1 + i
+        cipher = _text_crypto.encrypt_text(it.text, dek)
+        cursor.execute(
+            "UPDATE transcriptions SET text = ?, text_is_encrypted = 1 WHERE id = ?",
+            (cipher, row_id),
+        )
+        if cursor.rowcount != 1:
+            log.error(
+                "[HISTORY_DB] encryption flag-flip UPDATE matched %d rows for "
+                "id=%d (expected 1) — row may remain PLAINTEXT on disk",
+                cursor.rowcount,
+                row_id,
+            )
+
+
 def _drain_batchable_inserts(
     db: HistoryDB,
     conn: sqlite3.Connection,
@@ -286,14 +353,20 @@ def _drain_batchable_inserts(
                             it.language,
                         )
                     )
+                # The INSERT always carries PLAINTEXT (the FTS AFTER-INSERT
+                # trigger indexes it); when a DEK is cached, the rows are
+                # flipped to ciphertext by _encrypt_batch_rows before the
+                # single COMMIT below — readers never see the intermediate
+                # plaintext state.
                 cursor.execute(
                     f"INSERT INTO transcriptions "
                     f"(text, duration, model, device, word_count, char_count, language) "
                     f"VALUES {placeholders}",
                     params,
                 )
-                conn.commit()
                 last_row_id = cursor.lastrowid
+                _encrypt_batch_rows(cursor, batch, last_row_id)
+                conn.commit()
                 for it in batch:
                     if it.future is not None:
                         with contextlib.suppress(concurrent.futures.InvalidStateError):
@@ -322,8 +395,9 @@ def _drain_batchable_inserts(
                             it.language,
                         ),
                     )
-                    conn.commit()
                     row_id = cursor.lastrowid
+                    _encrypt_batch_rows(cursor, [it], row_id)
+                    conn.commit()
                     if it.future is not None:
                         with contextlib.suppress(concurrent.futures.InvalidStateError):
                             it.future.set_result(row_id if row_id is not None else -1)

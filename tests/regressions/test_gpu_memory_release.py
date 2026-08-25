@@ -138,14 +138,20 @@ class TestEnginesCallReleaseGpuMemory:
         """The GPU→CPU fallback paths in TranscriptionEngine must release
         GPU memory before reloading on CPU.
 
-        NEW-MEM-001 refactor: the batch and streaming fallback methods
+        The batch and streaming fallback methods
         (``_transcribe_with_fallback_unlocked`` /
-        ``_transcribe_words_with_fallback_unlocked``) now delegate to the
+        ``_transcribe_words_with_fallback_unlocked``) delegate to the
         shared ``_with_gpu_fallback`` helper, which sets
         ``_pending_gc_collect = True``; the actual
         ``release_gpu_memory()`` runs in ``_run_deferred_gc`` AFTER the
-        model reference is dropped (RACE-023 — calling it earlier was a
-        no-op because the ctranslate2 model still held the CUDA context).
+        model reference is dropped (calling it earlier was a no-op
+        because the ctranslate2 model still held the CUDA context).
+
+        The ``_with_gpu_fallback`` and ``_probe_cuda_runtime`` bodies
+        now live in ``transcription_fallback.with_gpu_fallback`` and
+        ``transcription_cuda_probe.probe_cuda_runtime`` (the engine
+        methods are thin delegators), so those two source guards read
+        the canonical free-function bodies.
         """
         import inspect
 
@@ -162,9 +168,11 @@ class TestEnginesCallReleaseGpuMemory:
             "_transcribe_words_with_fallback_unlocked must delegate to _with_gpu_fallback (NEW-MEM-001)"
         )
         # The unified fallback helper arms the deferred release.
-        src_fb = inspect.getsource(TranscriptionEngine._with_gpu_fallback)
+        from voice_typer.server.transcription_fallback import with_gpu_fallback
+
+        src_fb = inspect.getsource(with_gpu_fallback)
         assert "_pending_gc_collect = True" in src_fb, (
-            "_with_gpu_fallback must set _pending_gc_collect so the deferred "
+            "with_gpu_fallback must set _pending_gc_collect so the deferred "
             "gc path releases GPU memory (NEW-MEM-001 / RACE-023)"
         )
         # The deferred gc actually performs release_gpu_memory().
@@ -172,13 +180,15 @@ class TestEnginesCallReleaseGpuMemory:
         assert "release_gpu_memory()" in src_gc, (
             "_run_deferred_gc must call release_gpu_memory() after the model is dropped (NEW-MEM-001 / RACE-023)"
         )
-        # The CUDA-probe early fallback path arms the RACE-023 deferred
-        # release (HU-25): it must set ``_pending_gc_collect`` so the
+        # The CUDA-probe early fallback path arms the deferred
+        # release: it must set ``_pending_gc_collect`` so the
         # next caller outside the lock runs release_gpu_memory() — the
         # direct in-lock call was removed as a no-op for VRAM release.
-        src3 = inspect.getsource(TranscriptionEngine._probe_cuda_runtime)
+        from voice_typer.server.transcription_cuda_probe import probe_cuda_runtime
+
+        src3 = inspect.getsource(probe_cuda_runtime)
         assert "_pending_gc_collect = True" in src3, (
-            "_probe_cuda_runtime fallback path must arm the deferred GPU "
+            "probe_cuda_runtime fallback path must arm the deferred GPU "
             "release (_pending_gc_collect = True) so release_gpu_memory() "
             "runs outside the lock (HU-25 / RACE-023 / NEW-MEM-001)"
         )

@@ -25,18 +25,33 @@ def make_clipboard_manager(
     paste_enabled: bool = True,
     save_restore: bool = True,
     restore_delay_ms: int = 150,
+    last_copied_text: str = "",
 ) -> ClipboardManager:
     """Build a ClipboardManager with mocked keyboard and cached flags set.
 
     Constructed via ``__new__`` so no real ``__init__`` side effects run
     (no pynput import, no controller instantiation).
+
+    Parameters
+    ----------
+    paste_enabled:
+        ``cm.paste_enabled`` — gates the auto-paste path.
+    save_restore:
+        ``cm._clipboard_save_restore_enabled`` — gates the
+        capture/restore dance around copy/paste.
+    restore_delay_ms:
+        ``cm._restore_delay_ms`` — the restore delay (ADR-0010 §5.3).
+    last_copied_text:
+        ``cm._last_copied_text`` — the cached "what we last copied"
+        value; several suites set ``"test"`` so the seq-change
+        re-copy branch sees a known sentinel.
     """
     cm = ClipboardManager.__new__(ClipboardManager)
     cm.paste_enabled = paste_enabled
     cm._keyboard = MagicMock()
     cm._last_paste_time = 0.0  # not rate-limited
     cm._clipboard_seq = 0
-    cm._last_copied_text = ""
+    cm._last_copied_text = last_copied_text
     cm._clipboard_save_restore_enabled = save_restore
     cm._restore_delay_ms = restore_delay_ms
     return cm

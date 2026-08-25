@@ -260,10 +260,13 @@ class TestParallelPoolDrain:
             return original_fn(items)
 
         monkeypatch.setattr(
-            # The early-bookend call site lives on CleanupMixin in the
-            # ``_cleanup`` leaf of the controller package — patch the
-            # name where that body resolves it.
-            "voice_typer.server.shutdown_controller._cleanup._run_parallel_with_timeout",
+            # The early-bookend call site lives in the extracted
+            # ``shutdown/ws_drain.py`` body (``drain_ws_dispatch_pool``)
+            # — patch the name where that body resolves it. (It
+            # previously lived on ``CleanupMixin`` in the ``_cleanup``
+            # leaf of the controller package; the mixin method there is
+            # now a thin delegate.)
+            "voice_typer.server.shutdown.ws_drain._run_parallel_with_timeout",
             spy,
         )
 

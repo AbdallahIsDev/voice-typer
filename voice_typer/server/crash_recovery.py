@@ -173,7 +173,13 @@ def _run_save_with_timeout(inst: "CrashRecovery", timeout: float, *, durability:
 
     def _worker() -> None:
         try:
-            inst._save_sync(durability=durability)
+            # ``set_final_save_done=True`` closes the redundant-write
+            # race where a concurrent worker thread (blocked on
+            # ``_save_lock`` waiting for this atexit-save to release)
+            # would otherwise observe ``_final_save_done = False`` and
+            # re-write the file. See ``_save_sync``'s docstring for
+            # the full rationale.
+            inst._save_sync(durability=durability, set_final_save_done=True)
         except BaseException as exc:  # noqa: BLE001 — re-raised below
             worker_exc.append(exc)
         finally:
@@ -475,7 +481,7 @@ class CrashRecovery:
         except Exception as exc:
             log.debug("[RECOVERY] Failed to quarantine corrupt file: %s", exc)
 
-    def _save_sync(self, *, durability: bool = False) -> None:
+    def _save_sync(self, *, durability: bool = False, set_final_save_done: bool = False) -> None:
         """Save recovery entries to disk synchronously.
 
         This is called only from the background save thread.  All
@@ -525,10 +531,29 @@ class CrashRecovery:
         (guarded by ``_save_lock``) makes the second call a no-op
         so the atomic-write + rename happens exactly once on the
         shutdown path. The flag is set ONLY by ``_atexit_flush_all``
-        (NOT by this function or ``shutdown()``) — so ``shutdown()``'s
+        (NOT by ``shutdown()`` or ``__del__``) — so ``shutdown()``'s
         final save does NOT suppress a subsequent ``__del__`` save
         for post-shutdown mutations. The flag is reset to ``False``
         by ``_enqueue_save`` when a new mutation arrives post-shutdown.
+
+        ``set_final_save_done`` (default ``False``)
+        atomically sets ``_final_save_done = True`` INSIDE
+        ``_save_lock`` after a successful write. Passed as ``True``
+        ONLY by the atexit path (via ``_run_save_with_timeout``) so
+        the flag-set happens before any concurrent worker thread
+        (blocked on ``_save_lock`` waiting for the atexit-save to
+        release) can observe ``_final_save_done = False`` and write
+        the file again — the redundant-write race that
+        ``test_del_skips_when_atexit_already_saved`` reproduces
+        order-dependently under xdist. ``shutdown()``, ``__del__``,
+        the worker thread, and ``_enqueue_save``'s sync fallback all
+        pass the default ``False`` so the design invariant ("only
+        atexit sets the flag") holds; ``_atexit_flush_all`` ALSO sets
+        the flag outside the lock after ``_run_save_with_timeout``
+        returns so the test's ``assert _final_save_done is True``
+        passes even when the atexit-save times out (the
+        still-blocked atexit-save ``_worker`` thread eventually
+        acquires the lock, reads ``True``, returns without writing).
 
         the lock acquisition is now INSIDE a top-level
         ``try/except Exception:`` so a lock-acquisition failure (e.g.
@@ -593,9 +618,29 @@ class CrashRecovery:
                     # path.  The atexit handler and __del__ may pass
                     # durability=True for the final shutdown save.
                     _secure_atomic_write(self._path, snapshot, durability=durability)
-                    # NOTE — the flag is NOT set here. Only
-                    # ``_atexit_flush_all`` sets the flag (after its own
-                    # successful save). This ensures:
+                    # When called from the atexit path
+                    # (``set_final_save_done=True``), set the flag
+                    # INSIDE ``_save_lock`` after the successful write
+                    # so a concurrent worker thread blocked on
+                    # ``_save_lock`` (waiting for the atexit-save to
+                    # release) observes ``_final_save_done = True`` and
+                    # short-circuits instead of redundantly re-writing
+                    # the file. Without this, there's a race window
+                    # between the atexit-save releasing the lock and
+                    # ``_atexit_flush_all`` setting the flag outside
+                    # the lock — the worker thread can win that race
+                    # (it's directly waiting on the lock acquire,
+                    # while the test thread has to wake from
+                    # ``done.wait()``, return from
+                    # ``_run_save_with_timeout``, then reach the
+                    # flag-set line). Reproduces order-dependently under
+                    # xdist in ``test_del_skips_when_atexit_already_saved``.
+                    #
+                    # NOTE — the flag is NOT set here for the DEFAULT
+                    # (``set_final_save_done=False``) callers. Only
+                    # ``_atexit_flush_all`` (via
+                    # ``_run_save_with_timeout``) passes ``True``. This
+                    # ensures:
                     #   • ``shutdown()``'s final save does NOT suppress a
                     #     subsequent ``__del__`` save for post-shutdown
                     #     mutations (regression-tested by
@@ -607,6 +652,8 @@ class CrashRecovery:
                     # The abnormal-exit path (atexit + __del__, no
                     # shutdown) produces 1 write (atexit), since __del__
                     # observes the flag and skips.
+                    if set_final_save_done:
+                        self._final_save_done = True
                 except Exception:
                     log.exception("[RECOVERY] Failed to save")
         except Exception:

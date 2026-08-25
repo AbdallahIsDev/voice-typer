@@ -138,12 +138,12 @@ from __future__ import annotations
 
 import json
 import re
-import threading  # noqa: F401 — re-exported for _make_ipc_server _dispatch_lock
 from pathlib import Path
-from threading import RLock
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
+
+from tests.fixtures.ipc_test_helpers import make_bare_ipc_server
 
 # ─── Path constants ───────────────────────────────────────────────────────
 # Resolve once at import time so each test doesn't repeat the dance. The
@@ -190,30 +190,6 @@ def _read_ws_bridge_rs() -> str:
     for name in ("reader.rs", "writer.rs"):
         parts.append(_read(WS_RS.parent / "ws" / name))
     return "\n\n".join(parts)
-
-
-def _make_ipc_server():
-    """Build a minimal ``IPCServer`` with a mock app + service.
-
-    Mirrors ``tests/test_notification_event_name.py::_make_ipc_server``
-    (same surface: ``app``, ``service``, ``_config_mutation_lock``) so
-    the ``SystemHandlersMixin`` can run its validation + publish path
-    without a real ``VoiceTyperApp``. This keeps the test headless (no
-    torch, no pystray, no real tray).
-    """
-    from voice_typer.server.ipc_server import IPCServer
-
-    app = MagicMock()
-    app._config_mutation_lock = RLock()
-    server = IPCServer.__new__(IPCServer)
-    # ``IPCServer.__init__`` creates ``_dispatch_lock``
-    # as a ``threading.RLock``. ``__new__`` skips ``__init__``, so the
-    # attribute is missing and ``_dispatch`` raises ``AttributeError``.
-    # Create it explicitly so the dispatch path can acquire the lock.
-    server._dispatch_lock = threading.RLock()
-    server.app = app
-    server.service = MagicMock()
-    return server
 
 
 # ─── Test 1: main.rs registers tauri_plugin_notification::init() ──────────
@@ -507,7 +483,7 @@ class TestNotificationPayloadShape:
             still emits for the legacy Electron code path (and as the
             reference shape the Rust host mirrors).
         """
-        server = _make_ipc_server()
+        server = make_bare_ipc_server()
         captured: dict = {}
         with patch(
             "voice_typer.server.event_bus.publish",
@@ -552,7 +528,7 @@ class TestNotificationPayloadShape:
         field would break the renderer on macOS + Windows + Linux
         simultaneously.
         """
-        server = _make_ipc_server()
+        server = make_bare_ipc_server()
         captured: dict = {}
         with patch(
             "voice_typer.server.event_bus.publish",
@@ -580,7 +556,7 @@ class TestNotificationPayloadShape:
         ``message`` to empty string, ``duration_ms`` to 0, ``critical``
         to False). This is what fires when the renderer invokes the
         command without explicit args."""
-        server = _make_ipc_server()
+        server = make_bare_ipc_server()
         captured: dict = {}
         with patch(
             "voice_typer.server.event_bus.publish",
@@ -609,7 +585,7 @@ class TestNotificationPayloadShape:
         Do Not Disturb). A string value would always be truthy in JS,
         causing every notification to be escalated to critical urgency —
         which would bypass Do Not Disturb without the user's consent."""
-        server = _make_ipc_server()
+        server = make_bare_ipc_server()
         captured: dict = {}
         with patch(
             "voice_typer.server.event_bus.publish",
@@ -636,7 +612,7 @@ class TestNotificationPayloadShape:
         implement a JS-side ``setTimeout`` fallback for the in-app
         toast). A string value would break the renderer's
         ``setTimeout(..., data.duration_ms)`` call (NaN → no auto-dismiss)."""
-        server = _make_ipc_server()
+        server = make_bare_ipc_server()
         captured: dict = {}
         with patch(
             "voice_typer.server.event_bus.publish",

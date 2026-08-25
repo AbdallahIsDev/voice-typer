@@ -90,6 +90,27 @@ _CONFIG_QUARANTINE_SUFFIX_SEQ: "itertools.count" = itertools.count()
 _unknown_key_warnings: set[tuple[str, frozenset[str]]] = set()
 _unknown_key_warnings_lock = threading.Lock()
 
+#: Legacy enum VALUES remapped to their live successors BEFORE validation
+#: on every load. Unlike ``_reset_invalid_enum_fields`` (which drops an
+#: out-of-enum value back to the dataclass DEFAULT), a remap preserves
+#: the user's *choice* across a backend rename — someone who explicitly
+#: selected the premium denoiser keeps a premium denoiser.
+#:
+#: Entries map config field name → {legacy on-disk value: live value}.
+#: ``noise_suppression_method``: ``"deepfilternet"`` was retired when
+#: the bundled GTCRN ONNX streaming model replaced the unmaintained
+#: DeepFilterNet package; ``"speex"`` was never implemented (the
+#: historical dead option) and maps to the default backend. The remap
+#: runs before ``validate_config`` / construction so the migrated value
+#: loads cleanly with a single informational warning (no scary
+#: "invalid value" error, no reset-to-default).
+_LEGACY_ENUM_REMAPS: dict[str, dict[str, str]] = {
+    "noise_suppression_method": {
+        "deepfilternet": "gtcrn",
+        "speex": "rnnoise",
+    },
+}
+
 
 def _read_raw_json_impl(config_file) -> dict | None:
     """Read + parse ``config_file`` as JSON; return the parsed dict (or None).
@@ -307,6 +328,27 @@ def _load_config(cls) -> "Config":
         cls._validate_qwen_model_path(data)
         cls._validate_corrections_path(data)
         cls._validate_privacy_consents(data)
+
+        # Remap legacy enum VALUES to their live successors BEFORE
+        # validation / construction (VALUE remap, not reset-to-default —
+        # see ``_LEGACY_ENUM_REMAPS`` above). Each remap appends an
+        # informational warning to ``_load_warnings`` so the renderer
+        # can surface "your config was migrated" alongside the other
+        # load-time notices.
+        for _field, _remap in _LEGACY_ENUM_REMAPS.items():
+            _legacy_value = data.get(_field)
+            if isinstance(_legacy_value, str) and _legacy_value in _remap:
+                _live_value = _remap[_legacy_value]
+                log.info(
+                    "[CONFIG] %s=%r is a legacy value — remapping to %r",
+                    _field,
+                    _legacy_value,
+                    _live_value,
+                )
+                data.setdefault("_load_warnings", []).append(
+                    f"Config field {_field!r} migrated from legacy value {_legacy_value!r} to {_live_value!r}"
+                )
+                data[_field] = _live_value
 
         # credential_store integration.
         # 1. If secrets haven't been migrated yet, run the

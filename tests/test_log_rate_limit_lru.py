@@ -42,6 +42,18 @@ import pytest
 from voice_typer.server import log_rate_limit
 from voice_typer.server.log_rate_limit import log_rate_limited, reset
 
+# Hint for xdist schedulers that respect ``xdist_group`` (loadgroup /
+# loadscope): pin every test in this module — and its sibling
+# ``test_log_rate_limit.py`` — onto a single worker. Both modules
+# mutate the process-wide module-level dicts in
+# ``voice_typer.server.log_rate_limit`` (``_RATE_LIMIT_COUNTS`` and the
+# summary dicts), reset via autouse fixtures; grouping them on one
+# worker is defense-in-depth for that shared state. xdist's default
+# ``load`` scheduler does NOT strictly honor this marker — it is a
+# hint, not a correctness guarantee. No-op when xdist isn't active.
+# (C-TEST-5.)
+pytestmark = pytest.mark.xdist_group("log_rate_limit")
+
 
 class FakeLogger:
     """Minimal logger stub that records ``log`` and ``debug`` calls.

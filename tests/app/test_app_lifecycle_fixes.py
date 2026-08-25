@@ -7,7 +7,7 @@ Each test class exercises one finding:
   ``self.config.save()`` raises an unexpected exception (e.g.
   ``RecursionError`` from ``asdict`` on a cyclic dataclass, or
   ``MemoryError`` during a huge credential_store migration).
-* ``DE-48`` — ``VoiceTyperApp.__init__`` must not crash the entire
+* ``VoiceTyperApp.__init__`` must not crash the entire
   backend if ``Config.load()`` propagates an unexpected exception
   (``KeyError`` / ``AttributeError`` / ``MemoryError`` — the
   deliberate "do not silently swallow" propagation in
@@ -184,7 +184,7 @@ class TestConfigSaveRaisesInRestartApp:
 
 
 class TestConfigLoadRaisesInInit:
-    """DE-48: ``VoiceTyperApp.__init__`` catches any ``Exception`` from
+    """``VoiceTyperApp.__init__`` catches any ``Exception`` from
     ``Config.load()``, logs at ERROR with ``exc_info=True``, falls back
     to ``Config()`` defaults, and surfaces a tray notification."""
 
@@ -212,13 +212,11 @@ class TestConfigLoadRaisesInInit:
 
         # Config must be a default Config instance, NOT None.
         assert isinstance(instance.config, Config), (
-            "DE-48: __init__ must fall back to Config() defaults when "
-            "Config.load() raises; got: " + repr(instance.config)
+            "__init__ must fall back to Config() defaults when Config.load() raises; got: " + repr(instance.config)
         )
         # The flag must be set so the deferred tray notification fires.
         assert instance._config_load_failed is True, (
-            "DE-48: __init__ must set _config_load_failed=True when "
-            "Config.load() raises so the tray notification is deferred"
+            "__init__ must set _config_load_failed=True when Config.load() raises so the tray notification is deferred"
         )
         # Cleanup the instance to avoid resource leaks.
         with contextlib.suppress(Exception):
@@ -245,19 +243,18 @@ class TestConfigLoadRaisesInInit:
         try:
             error_records = [r for r in caplog.records if "Config.load() raised" in r.message]
             assert error_records, (
-                "DE-48: __init__ must log an ERROR containing 'Config.load() raised' when Config.load() raises"
+                "__init__ must log an ERROR containing 'Config.load() raised' when Config.load() raises"
             )
             assert error_records[0].levelno == logging.ERROR, (
-                "DE-48: the Config.load failure must be logged at ERROR level "
+                "the Config.load failure must be logged at ERROR level "
                 "(not WARNING/DEBUG) so it's visible in the default-INFO "
                 "production log"
             )
             assert error_records[0].exc_info is not None, (
-                "DE-48: the Config.load failure log must include exc_info=True "
-                "so the traceback lands in the log for triage"
+                "the Config.load failure log must include exc_info=True so the traceback lands in the log for triage"
             )
             assert isinstance(error_records[0].exc_info[1], AttributeError), (
-                "DE-48: the logged exception must be the AttributeError from Config.load"
+                "the logged exception must be the AttributeError from Config.load"
             )
         finally:
             with contextlib.suppress(Exception):
@@ -301,7 +298,7 @@ class TestConfigLoadRaisesInInit:
         try:
             # The tray notification must have been called.
             assert notify_calls, (
-                "DE-48: __init__ must call self.tray.notify when Config.load() raises (after the tray is built)"
+                "__init__ must call self.tray.notify when Config.load() raises (after the tray is built)"
             )
             # The message must mention the config load failure.
             # Resolve the i18n keys at the test's active locale (default
@@ -313,7 +310,7 @@ class TestConfigLoadRaisesInInit:
             expected_title = i18n.t("error.config_load_failed.title")
             expected_body = i18n.t("error.config_load_failed.body")
             assert expected_title in titles_msgs or expected_body in titles_msgs, (
-                "DE-48: the tray notification must mention the config-load "
+                "the tray notification must mention the config-load "
                 "failure (expected i18n-resolved title or body for the "
                 "active locale); got: " + repr(notify_calls)
             )
@@ -351,7 +348,7 @@ class TestConfigLoadRaisesInInit:
 
         try:
             assert instance._config_load_failed is False, (
-                "DE-48: _config_load_failed must be False when Config.load() succeeds"
+                "_config_load_failed must be False when Config.load() succeeds"
             )
             # No config-load-failure notification. The notification now
             # routes through ``i18n.t("error.config_load_failed.*")`` —
@@ -369,7 +366,7 @@ class TestConfigLoadRaisesInInit:
                 or config_fail_body in (m or "")
             ]
             assert config_fail_notifies == [], (
-                "DE-48: __init__ must NOT call tray.notify with a config-load "
+                "__init__ must NOT call tray.notify with a config-load "
                 "failure message when Config.load() succeeds; got: " + repr(config_fail_notifies)
             )
         finally:
@@ -412,31 +409,31 @@ class TestConfigLoadRaisesInInit:
                 instance._do_cleanup()
 
     def test_source_has_try_except_around_config_load(self):
-        """Source-level invariant: ``Config.load()`` in ``__init__``
-        must be wrapped in ``try:/except Exception:`` with an
-        ``ERROR``-level log and a ``Config()`` fallback."""
+        """Source-level invariant: ``Config.load()`` in the config-init
+        builder must be wrapped in ``try:/except Exception:`` with an
+        ``ERROR``-level log and a ``Config()`` fallback. (The call lives
+        in ``_init_config`` since the ``__init__`` decomposition — the
+        builder is the new home of the former inline ``__init__`` body.)"""
         from voice_typer.server.app import VoiceTyperApp
 
-        src = inspect.getsource(VoiceTyperApp.__init__)
+        src = inspect.getsource(VoiceTyperApp._init_config)
         # Search for the actual call (``self.config = Config.load()``),
         # not the comment-text occurrences of ``Config.load()``.
         load_idx = src.find("self.config = Config.load()")
-        assert load_idx != -1, "__init__ must assign self.config = Config.load()"
+        assert load_idx != -1, "_init_config must assign self.config = Config.load()"
         try_idx = src.rfind("try:", 0, load_idx)
-        assert try_idx != -1, "DE-48: 'self.config = Config.load()' in __init__ must be wrapped in a try: block"
+        assert try_idx != -1, "'self.config = Config.load()' in _init_config must be wrapped in a try: block"
         except_idx = src.find("except Exception:", load_idx)
         assert except_idx != -1, (
-            "DE-48: 'self.config = Config.load()' in __init__ must be followed by an 'except Exception:' clause"
+            "'self.config = Config.load()' in _init_config must be followed by an 'except Exception:' clause"
         )
         except_block = src[except_idx:]
         # Must log at ERROR.
-        assert "log.error" in except_block, "DE-48: the except block must use log.error (not log.warning or log.debug)"
+        assert "log.error" in except_block, "the except block must use log.error (not log.warning or log.debug)"
         # Must include exc_info=True.
-        assert "exc_info=True" in except_block, (
-            "DE-48: the except block must pass exc_info=True so the traceback is logged"
-        )
+        assert "exc_info=True" in except_block, "the except block must pass exc_info=True so the traceback is logged"
         # Must fall back to Config() defaults.
-        assert "Config()" in except_block, "DE-48: the except block must fall back to Config() defaults"
+        assert "Config()" in except_block, "the except block must fall back to Config() defaults"
 
 
 # re-entry guard uses _shutting_down_event.is_set() ────────────
