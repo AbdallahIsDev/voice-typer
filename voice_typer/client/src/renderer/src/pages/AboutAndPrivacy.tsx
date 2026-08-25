@@ -38,7 +38,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState } from "react";
 import { APP_NAME } from "@/branding";
 import PageHeading from "@/components/common/PageHeading";
-import { ReadonlyRow } from "@/components/common/ReadonlyRow";
 import { Logo } from "@/components/layout/Logo";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
@@ -56,23 +55,14 @@ const APP_VERSION = pkg.version as string;
  *
  * Mirrors `UpdateCheckResult` in
  * `voice_typer/server/service/update_check.py` (`total=False`, so every
- * field is optional here too) — the handler
+ * field is optional) — the handler
  * (`_handle_check_offline_pack_update` in `server/ipc/lifecycle.py`)
- * returns it as a plain dict over the bridge.
+ * returns it as a plain dict over the bridge. Only the field the page
+ * actually consults is listed; the server may send more.
  */
 interface PackUpdateCheckResult {
-	success?: boolean;
-	local_version?: string | null;
-	remote_version?: string | null;
-	update_available?: boolean;
-	download_triggered?: boolean;
 	consent_required?: boolean;
-	error?: string;
-	reason?: string;
 }
-
-/** Lifecycle of the user-initiated pack update check. */
-type PackUpdatePhase = "idle" | "checking" | "done";
 
 /** Privacy topics — icon + existing i18n title/description keys. */
 const PRIVACY_TOPICS = [
@@ -115,20 +105,20 @@ export default function AboutAndPrivacyPage() {
 	// Runtime-pack update check — user-initiated only. No fetch on
 	// mount: the check hits the GitHub Releases manifest (C-DATA-1
 	// category-2 allowed update check) and may trigger a consent-gated
-	// background download, so it must never fire implicitly.
-	const [packPhase, setPackPhase] = useState<PackUpdatePhase>("idle");
-	const [packResult, setPackResult] = useState<PackUpdateCheckResult | null>(
-		null,
-	);
+	// background download, so it must never fire implicitly. There is
+	// deliberately NO status readout on this page — the button label
+	// flips to "Checking…" while in flight, and the shared consent gate
+	// opens at the moment the backend refuses the download for missing
+	// consent.
+	const [packChecking, setPackChecking] = useState(false);
 
 	const runPackUpdateCheck = async () => {
-		setPackPhase("checking");
+		setPackChecking(true);
 		try {
 			const result = (await callRef.current(
 				"check_offline_pack_update",
 				{},
 			)) as PackUpdateCheckResult;
-			setPackResult(result);
 			// Point-of-use consent gate: the backend found an update but
 			// refused to start the download because
 			// `offline_pack_consent` is off. Ask via the SHARED consent
@@ -144,13 +134,11 @@ export default function AboutAndPrivacyPage() {
 					onAllow: () => void runPackUpdateCheck(),
 				});
 			}
-		} catch (err) {
-			setPackResult({
-				success: false,
-				error: err instanceof Error ? err.message : String(err),
-			});
+		} catch {
+			// Silent by design — there is no status readout to update;
+			// the user can simply click the button again.
 		} finally {
-			setPackPhase("done");
+			setPackChecking(false);
 		}
 	};
 
@@ -181,49 +169,6 @@ export default function AboutAndPrivacyPage() {
 		};
 	}, []);
 
-	// Resolve the row value + optional detail line from the current
-	// phase + last response. Computed INSIDE the component body so the
-	// strings follow the active locale (B-REVIEW-3 pattern).
-	let packStatusText: string;
-	let packDetail: string | null = null;
-	if (packPhase === "idle") {
-		packStatusText = t("about.runtimePackNotChecked");
-	} else if (packPhase === "checking") {
-		packStatusText = t("about.checking");
-	} else if (packResult?.consent_required) {
-		// Update found but the download was refused by the consent gate
-		// (server returns success=false + consent_required=true). The
-		// shared consent dialog was opened by `runPackUpdateCheck` —
-		// this row stays informational ("update available"), never a
-		// persistent "go enable consent" instruction.
-		packStatusText =
-			packResult.remote_version != null
-				? t("about.updateAvailable", { version: packResult.remote_version })
-				: t("about.runtimePackFailed");
-	} else if (packResult && packResult.success === true) {
-		if (packResult.update_available) {
-			packStatusText =
-				packResult.remote_version != null
-					? t("about.updateAvailable", { version: packResult.remote_version })
-					: t("about.runtimePackFailed");
-			if (packResult.download_triggered) {
-				packDetail = t("about.runtimePackDownloadStarted");
-			}
-		} else if (packResult.local_version != null) {
-			packStatusText = t("about.runtimePackUpToDate", {
-				version: packResult.local_version,
-			});
-		} else {
-			packStatusText = t("about.unknown");
-		}
-	} else {
-		packStatusText = t("about.runtimePackFailed");
-		const message = packResult?.error;
-		if (typeof message === "string" && message.length > 0) {
-			packDetail = message;
-		}
-	}
-
 	return (
 		<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col space-y-6 px-16 pt-28 pb-6">
 			<PageHeading
@@ -233,7 +178,7 @@ export default function AboutAndPrivacyPage() {
 
 			{/* Product identity card — compact, native-app About block.
 			    No marketing copy, no hero section: identity, capability
-			    split, version, platforms. */}
+			    split, version + update check. */}
 			<div className="rounded-xl border border-border/10 bg-(--bg-subtle)">
 				{/* Identity row: logo + name + capability summary. */}
 				<div className="flex items-center gap-3 px-5 pt-5">
@@ -290,44 +235,27 @@ export default function AboutAndPrivacyPage() {
 					</div>
 				</div>
 
-				{/* Meta rows: version + platforms. */}
-				<div className="mt-5 border-t border-border/10 py-1.5">
-					<ReadonlyRow
-						variant="label-emphasized"
-						label={t("about.version")}
-						value={t("about.versionValue", { version: APP_VERSION })}
-					/>
-					<ReadonlyRow
-						variant="label-emphasized"
-						label={t("about.platforms")}
-						value={t("about.platformsValue")}
-					/>
-					{/* Runtime pack — installed pack status + a
-					    user-initiated update check against the release
-					    manifest (C-DATA-1 category-2 allowed update check;
-					    fires ONLY on button click, never on mount). */}
-					<ReadonlyRow
-						variant="label-emphasized"
-						label={t("about.runtimePack")}
-						value={packStatusText}
-					/>
-					<div className="flex flex-wrap items-center gap-3 px-3.5 pb-2.5 pt-1">
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={handleCheckPackUpdate}
-							disabled={packPhase === "checking"}
-						>
-							{packPhase === "checking"
-								? t("about.checking")
-								: t("about.checkForUpdates")}
-						</Button>
-						{packDetail && (
-							<p className="min-w-0 flex-1 text-xs leading-snug text-(--text-muted)">
-								{packDetail}
-							</p>
-						)}
-					</div>
+				{/* Version + update check — the card's single meta row: the
+			    version text with the (smaller) update-check button beside
+			    it at a 24px gap (user spec). The check is user-initiated
+			    against the release manifest (C-DATA-1 category-2 allowed
+			    update check; fires ONLY on button click, never on
+			    mount). */}
+				<div className="mt-5 flex flex-wrap items-center gap-6 border-t border-border/10 px-5 py-4">
+					<span className="text-sm font-medium text-(--text-primary)">
+						{t("about.version")}
+					</span>
+					<span className="text-sm text-(--text-muted)">
+						{t("about.versionValue", { version: APP_VERSION })}
+					</span>
+					<Button
+						variant="outline"
+						size="xs"
+						onClick={handleCheckPackUpdate}
+						disabled={packChecking}
+					>
+						{packChecking ? t("about.checking") : t("about.checkForUpdates")}
+					</Button>
 				</div>
 			</div>
 

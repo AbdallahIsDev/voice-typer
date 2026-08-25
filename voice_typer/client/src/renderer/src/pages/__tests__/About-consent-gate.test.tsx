@@ -100,9 +100,9 @@ describe("About & Privacy page — offline-pack consent gate (point-of-use)", ()
 		});
 
 		// No persistent "go enable it in Settings" instruction — the
-		// row stays informational ("update available").
+		// refusal surfaces ONLY as the point-of-use dialog (there is no
+		// status readout on the page to carry it).
 		expect(screen.queryByText(/enable them in Settings/i)).toBeNull();
-		expect(screen.getByText(/2\.0\.0/)).toBeTruthy();
 	});
 
 	it("re-runs the pack check after Allow (the retry that triggers the download)", async () => {
@@ -144,9 +144,16 @@ describe("About & Privacy page — offline-pack consent gate (point-of-use)", ()
 		await waitFor(() => {
 			expect(checkCount).toBe(2);
 		});
+		// The retried check ran to completion (button re-enabled) — the
+		// page shows no status readout, so the call count IS the signal.
 		await waitFor(() => {
-			// The retried check succeeded and triggered the download.
-			expect(screen.getByText(/Downloading the update/i)).toBeTruthy();
+			expect(
+				(
+					screen.getByRole("button", {
+						name: "Check for Updates",
+					}) as HTMLButtonElement
+				).disabled,
+			).toBe(false);
 		});
 	});
 
@@ -197,8 +204,17 @@ describe("About & Privacy page — offline-pack consent gate (point-of-use)", ()
 		await renderAbout();
 		clickCheck();
 
+		// The check ran to completion (button re-enabled) and opened NO
+		// dialog — a clean result is silent by design (no status
+		// readout exists on the page).
 		await waitFor(() => {
-			expect(screen.getByText(/Up to date/)).toBeTruthy();
+			expect(
+				(
+					screen.getByRole("button", {
+						name: "Check for Updates",
+					}) as HTMLButtonElement
+				).disabled,
+			).toBe(false);
 		});
 		expect(useConsentGateStore.getState().request).toBeNull();
 	});

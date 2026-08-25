@@ -186,7 +186,7 @@ describe("About & Privacy page — product identity (merged)", () => {
 		expect(screen.getByText("Cloud (optional)")).toBeTruthy();
 	});
 
-	it("renders the Version and Platforms rows", async () => {
+	it("renders the Version row with the inline Check for Updates button beside it", async () => {
 		const { default: AboutPage } = await import("@/pages/AboutAndPrivacy");
 		render(<AboutPage />);
 
@@ -199,9 +199,16 @@ describe("About & Privacy page — product identity (merged)", () => {
 		// Version row (value is v{version} from package.json).
 		expect(screen.getByText("Version")).toBeTruthy();
 		expect(screen.getByText(/^v\d+\.\d+\.\d+/)).toBeTruthy();
-		// Platforms row — the cross-platform claim.
-		expect(screen.getByText("Platforms")).toBeTruthy();
-		expect(screen.getByText("Windows, macOS, and Linux")).toBeTruthy();
+		// The update-check button sits INLINE beside the version (same
+		// row, 24px gap) in the compact xs size.
+		const checkButton = screen.getByRole("button", {
+			name: "Check for Updates",
+		});
+		expect(checkButton).toBeTruthy();
+		expect(checkButton.getAttribute("data-size")).toBe("xs");
+		// The Platforms row was removed — version + button only.
+		expect(screen.queryByText("Platforms")).toBeNull();
+		expect(screen.queryByText("Windows, macOS, and Linux")).toBeNull();
 	});
 
 	it("does NOT render Diagnostics or Resources sections (moved out in the IA split)", async () => {
@@ -260,7 +267,7 @@ describe("About & Privacy page — product identity (merged)", () => {
 		expect(screen.queryByText("View prewarm log")).toBeNull();
 	});
 
-	it("renders the runtime-pack row with a manual Check for Updates control", async () => {
+	it("keeps ONLY the version meta row — no Platforms / Offline engine pack status rows", async () => {
 		const { default: AboutPage } = await import("@/pages/AboutAndPrivacy");
 		render(<AboutPage />);
 
@@ -270,14 +277,14 @@ describe("About & Privacy page — product identity (merged)", () => {
 			).toBeTruthy();
 		});
 
-		// The Updates section was removed in the IA split, then
-		// intentionally RESTORED as a compact runtime-pack status row +
-		// user-triggerable check: the pack auto-update path only checks
-		// silently on network-online transitions, so users had no way
-		// to see pack currency or force a check. This pin guards the
-		// restored surface against future removal.
-		expect(screen.getByText("Offline engine pack")).toBeTruthy();
-		expect(screen.getByText("Check for Updates")).toBeTruthy();
+		// The runtime-pack STATUS row was removed (user spec): the
+		// update check is triggered via the inline button beside the
+		// version, and no pack status text is rendered anywhere.
+		expect(screen.queryByText("Offline engine pack")).toBeNull();
+		expect(screen.queryByText("Not checked yet")).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "Check for Updates" }),
+		).toBeTruthy();
 	});
 });
 
