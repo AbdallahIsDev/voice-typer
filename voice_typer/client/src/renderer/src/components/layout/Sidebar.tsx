@@ -49,27 +49,32 @@ interface NavChild {
 	icon?: IconSvgElement;
 }
 
-// 3-group nav hierarchy (Main / Power features / System). Splitting
-// the flat NAV_ITEMS list into semantically meaningful groups gives
-// users a faster mental model of the app: day-to-day usage (Main),
-// advanced/power features (Power), and low-priority system
-// destinations (System). Each group renders as its own
+// 2-group nav hierarchy. Splitting the flat NAV_ITEMS list into
+// semantically meaningful groups gives users a faster mental model of
+// the app: the default page + content tools (header-less top group),
+// and low-priority system/device/info destinations (System). Each
+// group renders as its own
 // <section aria-label=...> (no <hr> dividers between groups). The
 // System group is PINNED TO THE BOTTOM of the sidebar via flex auto
 // margin (see NavGroup.pinnedToBottom) so the importance hierarchy —
-// frequent destinations on top, system/info at the bottom — is
+// frequent destinations on top, system/device/info at the bottom — is
 // encoded by the layout itself, in both sidebar states.
+//
+// TWO groups, deliberately:
+//   1. Top group — NO visible header (hideLabel): the default page set
+//      speaks for itself. Day-to-day destinations (Home / History /
+//      Analytics) first, then the content tools (Models / Templates /
+//      Vocabulary).
+//   2. System group (visible heading) — app + device configuration and
+//      information: Settings, Microphone (input-device configuration
+//      belongs beside app settings), About & Privacy.
 const MAIN_NAV_ITEMS: NavItem[] = [
 	{ id: "home", icon: Home04Icon },
 	{ id: "history", icon: HistoryIcon },
 	{ id: "analytics", icon: Analytics01Icon },
-];
-
-const POWER_NAV_ITEMS: NavItem[] = [
+	{ id: "models", icon: AiBrain03Icon },
 	{ id: "templates", icon: File02Icon },
 	{ id: "vocabulary", icon: BookOpen02Icon },
-	{ id: "models", icon: AiBrain03Icon },
-	{ id: "microphone", icon: Mic02Icon },
 ];
 
 // Settings submenu — the 4 child tabs (General / AI & Audio /
@@ -97,6 +102,10 @@ const SETTINGS_CHILDREN: NavChild[] = [
 
 const SYSTEM_NAV_ITEMS: NavItem[] = [
 	{ id: "settings", icon: Settings03Icon, children: SETTINGS_CHILDREN },
+	// Microphone — input-device configuration (selection, quality,
+	// test). It is device setup rather than a day-to-day destination,
+	// so it lives in the System cluster directly under Settings.
+	{ id: "microphone", icon: Mic02Icon },
 	// About & Privacy — ONE combined destination (the former About and
 	// Privacy pages merged): product identity (what the app is,
 	// version, platforms) plus the data-handling disclosure (how audio
@@ -137,11 +146,6 @@ const NAV_GROUPS: NavGroup[] = [
 		hideLabel: true,
 	},
 	{
-		labelKey: "nav.group.power",
-		fallback: "Power features",
-		items: POWER_NAV_ITEMS,
-	},
-	{
 		labelKey: "nav.group.system",
 		fallback: "System",
 		items: SYSTEM_NAV_ITEMS,
@@ -158,11 +162,7 @@ const NAV_GROUPS: NavGroup[] = [
 // buttons are not in the DOM (radix Collapsible.Content unmounts on
 // close), so the roving-tabindex querySelectorAll('button[data-nav-item]')
 // naturally skips them — no extra filter needed.
-const ALL_NAV_ITEMS: NavItem[] = [
-	...MAIN_NAV_ITEMS,
-	...POWER_NAV_ITEMS,
-	...SYSTEM_NAV_ITEMS,
-];
+const ALL_NAV_ITEMS: NavItem[] = [...MAIN_NAV_ITEMS, ...SYSTEM_NAV_ITEMS];
 
 // Per-page keyboard shortcuts surfaced ONLY for accessibility + the
 // collapsed-sidebar tooltip: the expanded nav items render NO visible

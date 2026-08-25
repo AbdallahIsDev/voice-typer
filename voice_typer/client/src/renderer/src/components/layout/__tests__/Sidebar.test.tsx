@@ -4,7 +4,7 @@
  *
  * - : active nav item uses a 2px left accent bar + soft accent
  *   background (replacing the weak full-border treatment).
- * - : nav items are grouped (Main / Power features / System)
+ * - : nav items are grouped (header-less Main group + System group)
  *   with visible section labels.
  * - : aria-keyshortcuts is exposed on Home ("Control+h") and
  *   Settings ("Control+,") since App.tsx binds those shortcuts.
@@ -147,27 +147,28 @@ describe("Sidebar", () => {
 
 	//nav grouping ──────────────────────────────────────────
 
-	it("PROD-7: renders two group labels (Power features, System) — 'Main' is hidden", () => {
+	it("renders ONE group label (System) — the top group is header-less", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
-		expect(screen.getByText("Power features")).toBeTruthy();
 		expect(screen.getByText("System")).toBeTruthy();
-		// "Main" is no longer rendered as visible text (the group
-		// heading is hidden; the section's aria-label is preserved for
-		// screen-reader navigation).
+		// The top group's heading is not rendered at all (no "Main" and
+		// no "Power features" — the two-group layout has a single visible
+		// heading), while the section's aria-label is preserved for
+		// screen-reader navigation.
 		expect(screen.queryByText("Main")).toBeNull();
+		expect(screen.queryByText("Power features")).toBeNull();
 	});
 
-	it("PROD-7: groups are rendered as <section> elements with aria-label matching the group label", () => {
+	it("groups are rendered as <section> elements with aria-label matching the group label", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		const mainSection = findNavButton("Home").closest("section");
-		const powerSection = findNavButton("Templates").closest("section");
 		const systemSection = findNavButton("Settings").closest("section");
 		expect(mainSection?.getAttribute("aria-label")).toBe("Main");
-		expect(powerSection?.getAttribute("aria-label")).toBe("Power features");
 		expect(systemSection?.getAttribute("aria-label")).toBe("System");
+		// Only TWO groups exist.
+		expect(document.querySelectorAll("aside section").length).toBe(2);
 	});
 
-	it("PROD-7: Home/History/Analytics are in the Main group; Templates/Vocabulary/Models/Microphone in Power features; Settings + About & Privacy in System", () => {
+	it("Home/History/Analytics/Models/Templates/Vocabulary are in the header-less Main group; Settings/Microphone/About & Privacy in System", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		const groupOf = (label: string) =>
 			findNavButton(label).closest("section")?.getAttribute("aria-label");
@@ -175,13 +176,12 @@ describe("Sidebar", () => {
 		expect(groupOf("Home")).toBe("Main");
 		expect(groupOf("History")).toBe("Main");
 		expect(groupOf("Analytics")).toBe("Main");
-
-		expect(groupOf("Templates")).toBe("Power features");
-		expect(groupOf("Vocabulary")).toBe("Power features");
-		expect(groupOf("Models")).toBe("Power features");
-		expect(groupOf("Microphone")).toBe("Power features");
+		expect(groupOf("Models")).toBe("Main");
+		expect(groupOf("Templates")).toBe("Main");
+		expect(groupOf("Vocabulary")).toBe("Main");
 
 		expect(groupOf("Settings")).toBe("System");
+		expect(groupOf("Microphone")).toBe("System");
 		expect(groupOf("About & Privacy")).toBe("System");
 	});
 
@@ -298,7 +298,7 @@ describe("Sidebar", () => {
 		}
 	});
 
-	it("PROD-7: the System group is pinned to the sidebar bottom (mt-auto); Main and Power features are not", () => {
+	it("the System group is pinned to the sidebar bottom (mt-auto); the Main group is not", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		const sectionClassOf = (label: string) =>
 			findNavButton(label).closest("section")?.className ?? "";

@@ -163,21 +163,20 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 		settings: "Control+,",
 	};
 
-	// The flat order of nav items across all groups (Main → Power →
+	// The flat order of nav items across all groups (header-less Main →
 	// System), matching ALL_NAV_ITEMS in Sidebar.tsx. Used to
 	// assert ArrowDown cycles through items in the right order.
 	const EXPECTED_NAV_ORDER: string[] = [
-		// Main
+		// Main (header-less top group)
 		"home",
 		"history",
 		"analytics",
-		// Power
+		"models",
 		"templates",
 		"vocabulary",
-		"models",
-		"microphone",
-		// System
+		// System (pinned bottom group)
 		"settings",
+		"microphone",
 		"aboutAndPrivacy",
 	];
 
@@ -230,7 +229,7 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 		expect(document.activeElement).toBe(activeButton);
 	});
 
-	it("ArrowDown cycles through all nav items in flat order (Main → Power → System)", async () => {
+	it("ArrowDown cycles through all nav items in flat order (Main → System)", async () => {
 		const user = userEvent.setup();
 		render(wrap(<Sidebar currentPage="home" onNavigate={() => {}} />));
 

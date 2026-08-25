@@ -218,8 +218,8 @@ describe("Sidebar — collapse rail geometry & transition model", () => {
 				d.className.includes("transition-[max-height]"),
 			);
 		const headingLabel = (heading: Element) => heading.querySelector("span");
-		// Power features + System (the "Main" heading stays hidden).
-		expect(headings().length).toBe(2);
+		// System only — the top group is header-less (single visible heading).
+		expect(headings().length).toBe(1);
 		for (const heading of headings()) {
 			// Outer container: vertical SPACE collapse only (max-height,
 			// 200ms ease-out) + clipping so the shrinking box never
@@ -258,7 +258,7 @@ describe("Sidebar — collapse rail geometry & transition model", () => {
 		// Headings stay MOUNTED when collapsed (they animate to zero
 		// height instead of vanishing and shifting the groups below) and
 		// leave the accessibility tree via aria-hidden.
-		expect(headings().length).toBe(2);
+		expect(headings().length).toBe(1);
 		for (const heading of headings()) {
 			expect(heading.className).toContain("max-h-0");
 			expect(heading.getAttribute("aria-hidden")).toBe("true");

@@ -1311,6 +1311,55 @@ Rationale: Pinned by the 2026-08-24 revamp so the page stays inside the existing
 Applies to: All agents, all modes, all sub-agents.
 ```
 
+```
+C-MIC-7
+Rule: Do NOT "deduplicate" microphones by display name alone, and do NOT reintroduce per-host-API duplicate records. `list_microphones()` MUST return the canonical host-API view (Windows → WASAPI, macOS → Core Audio, Linux → PulseAudio when present), with graceful fallback to the unfiltered list when the preferred host API enumerates zero devices. PortAudio exposes every endpoint once per host API (MME/DirectSound/WASAPI/WDM-KS on Windows — 4 views of the same device); the canonical-API view IS the device identity strategy (no cross-API unique id exists). Same-name records WITHIN the canonical API are genuinely distinct devices and stay distinct (`#N` ids).
+Rationale: 2026-08-25 fix — 17 raw PortAudio records represented 3 real devices (12 UI duplicates); PortAudio's own docs recommend displaying devices from one host API at a time; MME additionally truncates names at 31 chars.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-MIC-8
+Rule: Do NOT hide or filter legitimate microphones — virtual (AudioRelay, WO Mic, VB-Cable…), USB, Bluetooth, or similarly-named devices — as a side effect of cleanup, deduplication, or "list hygiene". Disabled OS endpoints that the OS's own input UI does not offer (e.g. WDM-KS-only Line In / Stereo Mix while disabled in Windows) are out of scope for the canonical view by definition; the moment the OS offers them, the canonical enumeration includes them automatically.
+Rationale: The canonical host-API view equals the OS Settings input list 1:1 — any extra filtering on top risks hiding a device the user explicitly selected (see C-MIC-2).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-MIC-9
+Rule: Do NOT deduplicate `System Default` against the physical device it currently resolves to, and do NOT drop it from any microphone surface. System Default is a separate SELECTION SEMANTIC (follows the OS default dynamically); the physical device list is additive alongside it.
+Rationale: Collapsing them would freeze the user to one device and break the OS-default-following behavior.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-MIC-10
+Rule: Do NOT add a second microphone-enumeration path for any consumer. The Microphone page, tray submenu, onboarding, and any future surface MUST consume the one canonical `list_microphones()` model (via `app._microphones` / `tray.set_microphones`). Tray/page divergence or a consumer-local `sd.query_devices()` call reintroduces the duplicate-device class of bug.
+Rationale: 2026-08-25 audit confirmed the single-source chain (list_microphones → app._microphones → {IPC get_microphones, tray.set_microphones}); the tray is a pure pass-through by design and pinned by tests.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-MIC-11
+Rule: Do NOT render long option descriptions permanently in the Microphone Quality selector. Descriptions live behind the shared `InfoTooltip` (`components/feedback/InfoTooltip.tsx`) — one help trigger beside the section label, one per option row. Do NOT create a second tooltip primitive, do NOT duplicate the same description in multiple places, and do NOT add an info icon beside the collapsed header's current-value line.
+Rationale: 2026-08-25 compaction — always-visible paragraphs tripled the component height and repeated the Auto description twice; the shared Settings tooltip pattern keeps the rows scannable.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-MIC-12
+Rule: Do NOT style the microphone level fill with anything but the solid primary token (`bg-primary`), and do NOT put borders, inner padding, or per-level color ladders on the LevelBar fill/track pair. The track is neutral (`bg-border`), the fill is flush full-height `scaleX`-animated primary; clipping is signaled by the ⚠ glyph and aria tier text, never by recoloring the fill. The rAF loop must write ONLY the transform (never `backgroundColor`).
+Rationale: 2026-08-25 fix — the accent/primary/destructive ladder plus a track border made the fill look diluted and surrounded by a layer; the duplicated color function in the hook was an E7 violation.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-MIC-13
+Rule: Do NOT introduce redundant status labels where selection state is already communicated by the surrounding UI (e.g. a "Selected microphone" pill next to the mic name on the test card). Selection is shown by the radio list, the card context, and aria state; recording state by the Stop button + countdown + live feedback.
+Rationale: 2026-08-25 removal — the badge duplicated information, added a decorative highlight, and left an awkward gap; redundant labels invite drift from the actual state.
+Applies to: All agents, all modes, all sub-agents.
+```
+
 ---
 
 ## How the adds / edits constraints
