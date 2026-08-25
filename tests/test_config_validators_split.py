@@ -4,7 +4,7 @@ This file pins the config_validators split contract so a future refactor cannot
 silently regress it:
 
 1. **Allowlist snapshot** — :data:`IPC_CONFIG_ALLOWLIST` must contain
-   the same 123 keys with the same per-field validators. The key set
+   the same 124 keys with the same per-field validators. The key set
    is a frozen snapshot embedded in this test; the validators are
    checked by identity against the imported ``_VALIDATOR_*``
    instances (so a future change that swaps a validator for a fresh
@@ -56,6 +56,7 @@ _PRE_SPLIT_ALLOWLIST_KEYS: frozenset[str] = frozenset(
         "autostart",
         "beam_size",
         "best_of",
+        "whisper_beam_size",
         "bubble_behavior",
         "bubble_click_to_toggle",
         "bubble_draggable",
@@ -177,9 +178,9 @@ class TestAllowlistSnapshot:
     """SEC-002 byte-for-byte parity for ``IPC_CONFIG_ALLOWLIST``."""
 
     def test_allowlist_size_unchanged(self) -> None:
-        """The allowlist must still contain exactly 123 keys."""
-        assert len(IPC_CONFIG_ALLOWLIST) == 123, (
-            f"IPC_CONFIG_ALLOWLIST size drifted: expected 123, got {len(IPC_CONFIG_ALLOWLIST)}. "
+        """The allowlist must still contain exactly 124 keys."""
+        assert len(IPC_CONFIG_ALLOWLIST) == 124, (
+            f"IPC_CONFIG_ALLOWLIST size drifted: expected 124, got {len(IPC_CONFIG_ALLOWLIST)}. "
             "SEC-002 contract (AGENTS.md §6.3) — adding/removing keys is a "
             "security-sensitive change that must be reviewed explicitly."
         )

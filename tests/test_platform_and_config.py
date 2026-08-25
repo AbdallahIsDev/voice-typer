@@ -211,8 +211,9 @@ class TestElectronUserDataPathMatchesConfigDir:
     def test_main_sets_user_data_path(self):
         # REF-2 split: userData wiring moved from main/index.ts to
         # bootstrap.ts (bootstrapRuntime sets app.setPath("userData")).
-        bootstrap_ts = (REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "bootstrap.ts").read_text(
-            encoding="utf-8"
+        bootstrap_ts = "".join(
+            p.read_text(encoding="utf-8")
+            for p in sorted((REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "bootstrap").glob("*.ts"))
         )
         assert 'app.setPath("userData"' in bootstrap_ts
 

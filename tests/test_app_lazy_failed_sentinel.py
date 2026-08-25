@@ -53,10 +53,10 @@ import pytest
 @pytest.fixture
 def app(tmp_config_dir, monkeypatch):
     """Create a VoiceTyperApp with mocked dependencies for sentinel tests."""
-    monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-    monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+    monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
+    monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
 
     from voice_typer.server.app import VoiceTyperApp
 

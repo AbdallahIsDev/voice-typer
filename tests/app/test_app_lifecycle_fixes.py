@@ -194,13 +194,13 @@ class TestConfigLoadRaisesInInit:
         propagation in Config.load), ``__init__`` must catch it and
         construct with ``Config()`` defaults so the rest of init can
         proceed."""
-        from voice_typer.server import app as app_module
+        from voice_typer.server import app as app_module, server_platform
         from voice_typer.server.config import Config
 
-        monkeypatch.setattr(app_module, "is_autostart_enabled", lambda: False)
-        monkeypatch.setattr(app_module, "enable_autostart", lambda: True)
-        monkeypatch.setattr(app_module, "disable_autostart", lambda: True)
-        monkeypatch.setattr(app_module, "list_microphones", lambda: [])
+        monkeypatch.setattr(server_platform, "is_autostart_enabled", lambda: False)
+        monkeypatch.setattr(server_platform, "enable_autostart", lambda: True)
+        monkeypatch.setattr(server_platform, "disable_autostart", lambda: True)
+        monkeypatch.setattr(server_platform, "list_microphones", lambda: [])
 
         # Force Config.load to raise an unexpected exception.
         def _boom():
@@ -226,13 +226,13 @@ class TestConfigLoadRaisesInInit:
 
     def test_init_logs_error_with_exc_info_when_config_load_raises(self, tmp_config_dir, monkeypatch, caplog):
         """The exception must be logged at ERROR with ``exc_info=True``."""
-        from voice_typer.server import app as app_module
+        from voice_typer.server import app as app_module, server_platform
         from voice_typer.server.config import Config
 
-        monkeypatch.setattr(app_module, "is_autostart_enabled", lambda: False)
-        monkeypatch.setattr(app_module, "enable_autostart", lambda: True)
-        monkeypatch.setattr(app_module, "disable_autostart", lambda: True)
-        monkeypatch.setattr(app_module, "list_microphones", lambda: [])
+        monkeypatch.setattr(server_platform, "is_autostart_enabled", lambda: False)
+        monkeypatch.setattr(server_platform, "enable_autostart", lambda: True)
+        monkeypatch.setattr(server_platform, "disable_autostart", lambda: True)
+        monkeypatch.setattr(server_platform, "list_microphones", lambda: [])
 
         def _boom():
             raise AttributeError("simulated None deref in Config.load")
@@ -267,13 +267,13 @@ class TestConfigLoadRaisesInInit:
         """After ``self.tray`` is built, ``__init__`` must call
         ``tray.notify`` with a user-facing message about the config
         load failure."""
-        from voice_typer.server import app as app_module, i18n
+        from voice_typer.server import app as app_module, i18n, server_platform
         from voice_typer.server.config import Config
 
-        monkeypatch.setattr(app_module, "is_autostart_enabled", lambda: False)
-        monkeypatch.setattr(app_module, "enable_autostart", lambda: True)
-        monkeypatch.setattr(app_module, "disable_autostart", lambda: True)
-        monkeypatch.setattr(app_module, "list_microphones", lambda: [])
+        monkeypatch.setattr(server_platform, "is_autostart_enabled", lambda: False)
+        monkeypatch.setattr(server_platform, "enable_autostart", lambda: True)
+        monkeypatch.setattr(server_platform, "disable_autostart", lambda: True)
+        monkeypatch.setattr(server_platform, "list_microphones", lambda: [])
 
         def _boom():
             raise MemoryError("simulated OOM in Config.load")
@@ -325,12 +325,12 @@ class TestConfigLoadRaisesInInit:
         """Sanity: when ``Config.load()`` succeeds, ``__init__`` must
         NOT call ``tray.notify`` for a config-load failure (the flag
         must be False and the notification branch skipped)."""
-        from voice_typer.server import app as app_module
+        from voice_typer.server import app as app_module, server_platform
 
-        monkeypatch.setattr(app_module, "is_autostart_enabled", lambda: False)
-        monkeypatch.setattr(app_module, "enable_autostart", lambda: True)
-        monkeypatch.setattr(app_module, "disable_autostart", lambda: True)
-        monkeypatch.setattr(app_module, "list_microphones", lambda: [])
+        monkeypatch.setattr(server_platform, "is_autostart_enabled", lambda: False)
+        monkeypatch.setattr(server_platform, "enable_autostart", lambda: True)
+        monkeypatch.setattr(server_platform, "disable_autostart", lambda: True)
+        monkeypatch.setattr(server_platform, "list_microphones", lambda: [])
 
         notify_calls = []
         original_init = app_module.TrayIcon.__init__
@@ -380,13 +380,13 @@ class TestConfigLoadRaisesInInit:
         """If ``tray.notify`` itself raises (e.g. tray backend not
         fully initialized), ``__init__`` must NOT re-raise — the
         user already has the ERROR log line + traceback for triage."""
-        from voice_typer.server import app as app_module
+        from voice_typer.server import app as app_module, server_platform
         from voice_typer.server.config import Config
 
-        monkeypatch.setattr(app_module, "is_autostart_enabled", lambda: False)
-        monkeypatch.setattr(app_module, "enable_autostart", lambda: True)
-        monkeypatch.setattr(app_module, "disable_autostart", lambda: True)
-        monkeypatch.setattr(app_module, "list_microphones", lambda: [])
+        monkeypatch.setattr(server_platform, "is_autostart_enabled", lambda: False)
+        monkeypatch.setattr(server_platform, "enable_autostart", lambda: True)
+        monkeypatch.setattr(server_platform, "disable_autostart", lambda: True)
+        monkeypatch.setattr(server_platform, "list_microphones", lambda: [])
 
         def _boom():
             raise RuntimeError("simulated bug in Config.load")

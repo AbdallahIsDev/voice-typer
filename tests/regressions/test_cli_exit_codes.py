@@ -95,9 +95,9 @@ class TestCrashPathUsesExitCrash:
 
         # Stub out heavy pieces of main().
         monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", lambda: app_mock)
-        monkeypatch.setattr("voice_typer.server.app._setup_logging", lambda: None)
+        monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
         monkeypatch.setattr(
-            "voice_typer.server.app._ensure_single_instance",
+            "voice_typer.server.single_instance._ensure_single_instance",
             lambda silent=False: object(),
         )
         # Stub IPCServer so it doesn't try to bind or spawn threads.
@@ -136,9 +136,9 @@ class TestCrashPathUsesExitCrash:
         app_mock = MagicMock()
         app_mock.start.side_effect = AssertionError("app.start() should not be called when --port is invalid")
         monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", lambda: app_mock)
-        monkeypatch.setattr("voice_typer.server.app._setup_logging", lambda: None)
+        monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
         monkeypatch.setattr(
-            "voice_typer.server.app._ensure_single_instance",
+            "voice_typer.server.single_instance._ensure_single_instance",
             lambda silent=False: object(),
         )
 

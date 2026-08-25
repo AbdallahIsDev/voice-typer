@@ -223,7 +223,7 @@ class TestStartupSequenceCrashNotificationEventName:
                 "voice_typer.server.session_state.was_previous_session_abnormal",
                 return_value=True,
             ),
-            patch("voice_typer.server.app._config_dir", return_value=MagicMock()),
+            patch("voice_typer.server.config._config_dir", return_value=MagicMock()),
         ):
             # Call only the crash-diagnostics phase directly to avoid
             # the _shutting_down abort in later phases; this isolates the
@@ -279,7 +279,7 @@ class TestStartupSequenceCrashNotificationEventName:
                 "voice_typer.server.session_state.was_previous_session_abnormal",
                 return_value=False,
             ),
-            patch("voice_typer.server.app._config_dir", return_value=MagicMock()),
+            patch("voice_typer.server.config._config_dir", return_value=MagicMock()),
         ):
             seq = startup_sequence.StartupSequence(app)
             seq._phase_2_crash_diagnostics()
@@ -307,7 +307,7 @@ class TestStartupSequenceCrashNotificationEventName:
                 "voice_typer.server.crash_handler.report_pending_crash",
                 return_value=None,
             ),
-            patch("voice_typer.server.app._config_dir", return_value=MagicMock()),
+            patch("voice_typer.server.config._config_dir", return_value=MagicMock()),
         ):
             seq = startup_sequence.StartupSequence(app)
             seq._phase_2_crash_diagnostics()

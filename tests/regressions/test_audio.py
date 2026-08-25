@@ -710,7 +710,7 @@ class TestAudioMicDeviceChangePoller:
         # ``microphones_changed`` IPC event.
         with (
             patch(
-                "voice_typer.server.app.list_microphones",
+                "voice_typer.server.server_platform.list_microphones",
                 return_value=[
                     {"id": 1, "name": "Mic A"},
                     {"id": 3, "name": "Mic C"},

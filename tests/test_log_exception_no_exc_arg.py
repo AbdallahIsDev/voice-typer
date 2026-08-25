@@ -6,7 +6,13 @@ import pytest
 
 # Source files to check (excluding recorder.py which is owned by )
 SOURCE_FILES = [
-    "voice_typer/server/parakeet_engine.py",
+    "voice_typer/server/parakeet_engine/__init__.py",
+    "voice_typer/server/parakeet_engine/_constants.py",
+    "voice_typer/server/parakeet_engine/_helpers.py",
+    "voice_typer/server/parakeet_engine/_load.py",
+    "voice_typer/server/parakeet_engine/_shims.py",
+    "voice_typer/server/parakeet_engine/_transcribe.py",
+    "voice_typer/server/parakeet_engine/engine.py",
     "voice_typer/server/qwen_engine.py",
     "voice_typer/server/asr_registry.py",
     "voice_typer/server/transcription.py",

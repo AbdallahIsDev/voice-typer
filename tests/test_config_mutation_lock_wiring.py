@@ -49,10 +49,10 @@ def _make_app(tmp_config_dir, monkeypatch):
     Mirrors the ``app`` fixture in ``tests/app/conftest.py`` but inlined
     so this test file is self-contained (no fixture cross-deps).
     """
-    monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-    monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+    monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
+    monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
 
     from voice_typer.server.app import VoiceTyperApp
 
@@ -196,9 +196,9 @@ class TestSetMutationLockRewiredAfterReload:
 
         # Force the Linux branch so the launcher uses subprocess.run
         # which we can trivially monkeypatch into a no-op.
-        monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.is_macos", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.is_linux", lambda: True)
+        monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: False)
+        monkeypatch.setattr("voice_typer.server.platform_utils.is_macos", lambda: False)
+        monkeypatch.setattr("voice_typer.server.platform_utils.is_linux", lambda: True)
 
         # No-op the actual editor subprocess so the launcher returns
         # immediately. The user "made no edits" so the on-disk config

@@ -538,10 +538,14 @@ class TestSystemRootValidation:
         assert callable(_validate_systemroot)
 
     def test_systemroot_validation_called_in_app(self):
-        """SEC-audit-011: _validate_systemroot is called in _validate_env_vars."""
-        import voice_typer.server.app as app_module
+        """SEC-audit-011: _validate_systemroot is called in _validate_env_vars.
 
-        with open(app_module.__file__) as f:
+        The check lives in the canonical ``env_validation`` module (the
+        app-module re-export was removed with the test-seam cleanup).
+        """
+        import voice_typer.server.env_validation as env_validation_module
+
+        with open(env_validation_module.__file__) as f:
             source = f.read()
         assert "_validate_systemroot" in source
 

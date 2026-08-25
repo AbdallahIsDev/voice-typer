@@ -476,7 +476,7 @@ class TestSyncAutostartHook:
     """``sync_autostart`` invokes the marker-gated sweep on every startup."""
 
     def test_sync_autostart_invokes_legacy_sweep(self, tmp_config_dir, monkeypatch):
-        from voice_typer.server import app as _app_module, server_platform as _pkg
+        from voice_typer.server import server_platform as _pkg
         from voice_typer.server.startup_tasks import sync_autostart
 
         captured: dict = {}
@@ -486,7 +486,7 @@ class TestSyncAutostartHook:
             return {"swept": True, "removed": {"runkeys": ["VoiceTyper_old"], "tasks": [], "bats": []}}
 
         monkeypatch.setattr(_pkg, "sweep_legacy_autostart_entries", _fake_sweep)
-        monkeypatch.setattr(_app_module, "is_autostart_enabled", lambda: True)
+        monkeypatch.setattr(_pkg, "is_autostart_enabled", lambda: True)
 
         app = MagicMock()
         app.config.autostart = True

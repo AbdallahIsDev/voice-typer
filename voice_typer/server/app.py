@@ -18,26 +18,16 @@ from voice_typer.server import crash_handler as _crash_handler, i18n
 # Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests
 # and for runtime lookups from voice_typer.server.startup_tasks.  # ruff: noqa: F401
 # numpy was eagerly imported at module top but never used directly in
-# this module. The eager import added ~250-335ms cumulative to every
-# cold start because numpy performs heavy C-extension initialization at
-# import time. The lazy ``lazy_module`` proxy defers the real import to
-# first attribute access; if no caller ever touches ``np`` from this
-# module (the current state), numpy is never imported on this code path
-# at all. The proxy is transparent — see ``_lazy_import.py``'s
-# ``__getattr__`` / ``__setattr__`` docstrings for the test-patch
-# compatibility rationale (``monkeypatch.setattr(app.np, "array", ...)``
-# still propagates to the real ``numpy`` module in ``sys.modules``).
+# this module (~250-335ms of cold-start C-extension init per import);
+# the ``np = lazy_module("numpy")`` binding has since been removed — no
+# caller ever touched ``np`` from this module and no test patches it.
 # ``from __future__ import annotations`` above is REQUIRED so any future
 # ``np.ndarray`` annotation in this file stays as an unevaluated string
-# (PEP 563) and does NOT trigger the eager import we just eliminated.
+# (PEP 563) and does NOT trigger a numpy import at module load.
 from voice_typer.server._busyness import BusynessCoordinator
-from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server._microphone_registry import MicrophoneRegistry
 
 # restart token functions moved to voice_typer.server.security
-# COMPAT-001: backward-compat re-export for tests/test_pii_redaction.py
-# which imports _PIIRedactionFilter from app. The class lives in
-# voice_typer.server.security as PIIRedactionFilter (no underscore).
 # Win32 SECURITY_ATTRIBUTES builder extracted to a focused,
 # security-reviewable module.  Re-exported here so existing callers
 # (and tests that grep app.py source for the symbol name) keep working.
@@ -62,9 +52,12 @@ from voice_typer.server._security_attributes import (  # noqa: F401
 # ms of the cold-start import chain paid even though the clipboard is
 # only touched at dictation-stop paste time. The class is imported
 # lazily inside the ``clipboard`` @property getter below.
+# The ``_config_dir`` binding is kept (not just the helper): single_instance
+# resolves ``_app_module._config_dir`` at call time, and the
+# tmp_config_dir fixture belt-and-suspenders-patches this attribute.
 from voice_typer.server.audio_quality import AudioQualityAnalyzer
 from voice_typer.server.branding import APP_NAME
-from voice_typer.server.config import Config, _config_dir
+from voice_typer.server.config import Config, _config_dir  # noqa: F401
 from voice_typer.server.crash_recovery import CrashRecovery
 from voice_typer.server.history_db import HistoryDB
 
@@ -79,27 +72,17 @@ from voice_typer.server.history_db import HistoryDB
 # ``importlib.import_module("voice_typer.server.transcription")``, so
 # the canonical patch target is the ``transcription`` module, not
 # ``app``.
-# ``create_hotkey_backend`` re-exported here so the
-# 8+ test files that monkeypatch ``voice_typer.server.app.create_hotkey_backend``
-# (e.g. tests/test_volume_lifecycle.py:73-78, tests/test_hotkey_dispatcher_*.py)
-# keep working without per-test migration to the canonical location
-# ``voice_typer.server.hotkeys.create_hotkey_backend``.
+# ``create_hotkey_backend`` re-export removed: the last app-namespace
+# patch site (tests/test_platform_fix_regressions.py) now targets the
+# canonical ``voice_typer.server.hotkey_dispatcher.create_hotkey_backend``,
+# matching where HotkeyDispatcher actually resolves the factory. This
 # documents the broader pattern of test-seam re-exports being
-# progressively removed (TranscriptionEngine was the first);
-# create_hotkey_backend stays because the migration cost is high
-# and the production-side patch target is the same function.
-from voice_typer.server.hotkeys import create_hotkey_backend  # noqa: F401, E402  (re-exported for tests)
-
-# Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests.  # ruff: noqa: F401
-# use centralized platform helpers instead of raw sys.platform checks.
-# signal_handlers.install_win32_console_handler and various tests monkeypatch
-# voice_typer.server.app.is_windows — keep the re-export so they keep working.
-from voice_typer.server.platform_utils import (  # noqa: F401
-    is_linux,
-    is_macos,
-    is_windows,
-)
-
+# progressively removed (TranscriptionEngine was the first).
+# The ``voice_typer.server.platform_utils`` platform-flag re-export
+# (``is_windows``/``is_macos``/``is_linux``) was removed: consumers import
+# the flags at call time from their canonical home and every test patch
+# site now targets ``voice_typer.server.platform_utils.{is_windows,
+# is_macos, is_linux}`` directly.
 # ``Recorder`` is imported lazily inside ``VoiceTyperApp.__init__``
 # (immediately before ``self.recorder = Recorder(...)``) to match the
 # deferred-import pattern already used for ``RecordingController``,
@@ -111,34 +94,19 @@ from voice_typer.server.platform_utils import (  # noqa: F401
 # defeated if any submodule does a direct top-level ``import numpy``.
 # Deferring the ``Recorder`` import until ``__init__`` keeps the
 # recording package out of the module-import critical path entirely.
-from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter  # noqa: F401
-
-# autostart + microphone helpers are re-exported from server_platform so
-# voice_typer.server.settings_controller and voice_typer.server.startup_tasks
-# can import them dynamically via ``voice_typer.server.app``, and so tests
-# that monkeypatch ``voice_typer.server.app.{is_autostart_enabled,...}``
-# (tests/app/conftest.py, tests/test_*.py, etc.) can find them here.
-from voice_typer.server.server_platform import (  # noqa: F401
-    disable_autostart,
-    enable_autostart,
-    is_autostart_enabled,
-    list_microphones,
-)
-
-# create_launcher_shortcut + list_microphones are re-exported here (and consumed
-# from voice_typer.server.startup_tasks) so tests that monkeypatch
-# voice_typer.server.app.list_microphones / create_launcher_shortcut keep working.  # ruff: noqa: F401
-from voice_typer.server.streaming import (
-    StreamingTranscriptionSession,  # noqa: F401  (re-exported for tests/test_app.py monkeypatch)
-)
-from voice_typer.server.text_cleanup import (  # noqa: F401 (re-exported for tests)
-    clean_transcribed_text,
-    configure_corrections,
-)
+# autostart + microphone helpers are imported directly from their canonical
+# home ``voice_typer.server.server_platform`` by their consumers
+# (``settings_controller``, ``startup_tasks``) — no app-module re-export.
+# The former test-seam re-export was removed after every patch site was
+# migrated to ``voice_typer.server.server_platform.{is_autostart_enabled,
+# enable_autostart, disable_autostart, list_microphones}``.
+# ``StreamingTranscriptionSession`` / ``clean_transcribed_text`` /
+# ``configure_corrections`` re-exports removed: their last app-namespace
+# patch sites were migrated to the canonical modules (dictation ->
+# ``streaming_session_coordinator``, cleanup -> ``text_cleanup``;
+# corrections wiring is asserted via ``startup_sequence``).
 from voice_typer.server.thread_registry import ThreadRegistry
 from voice_typer.server.tray import AppState, TrayIcon
-
-np = lazy_module("numpy")
 
 if TYPE_CHECKING:
     # imported only for type annotations on ``_template_manager``
@@ -151,6 +119,14 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+
+def _resolve_config_dir():
+    """Call-time indirection so patches on config._config_dir propagate."""
+    from voice_typer.server import config as _config_module
+
+    return _config_module._config_dir()
+
+
 # extraction — _setup_logging moved to voice_typer.server.logging_setup.
 # Re-exported here so callers (voice_typer.server.ipc_server.main,
 # voice_typer.server.prewarm.run) and tests that monkeypatch
@@ -161,13 +137,10 @@ log = logging.getLogger(__name__)
 # logging_setup.py now but the source-string assertion in
 # tests/regressions/test_platform_misc.py::test_container_detect_called_in_startup
 # greps app.py source for the symbol name — kept here as a comment.  # ruff: noqa: F401
-# extraction — _validate_env_vars moved to voice_typer.server.env_validation.
-# Re-exported here so tests doing `from voice_typer.server.app import _validate_env_vars`
-# keep working (test_plat_fixes.py / regressions/test_platform_misc.py).
-# SEC-audit-011: _validate_env_vars calls _validate_systemroot from
-# voice_typer.server.config to reject attacker-controlled SystemRoot values
-# that could enable DLL injection.  # ruff: noqa: F401
-from voice_typer.server.env_validation import _validate_env_vars  # noqa: F401, E402
+# extraction — _validate_env_vars moved to voice_typer.server.env_validation;
+# the app re-export was removed once the last test importers migrated
+# (SEC-audit-011: it validates SystemRoot to reject attacker-controlled
+# values that could enable DLL injection — canonical home is env_validation).
 from voice_typer.server.logging_setup import _emit_startup_banner, _setup_logging  # noqa: F401, E402
 
 
@@ -344,13 +317,12 @@ class VoiceTyperApp:
             # Self-heal: rename the existing config file to
             # ``config.json.corrupt-<timestamp>.bak`` so the next restart
             # loads fresh defaults instead of re-failing on the same
-            # corrupt file. We use the existing ``_config_dir`` symbol
-            # (already imported at the top of this module from
-            # ``voice_typer.server.config``) rather than
+            # corrupt file. We use the canonical ``_config_dir``
+            # accessor (via ``_resolve_config_dir()``) rather than
             # ``voice_typer.server._paths.config_dir`` so the
             # ``tmp_config_dir`` test fixture (which patches
-            # ``config._config_dir`` and ``app._config_dir``) takes
-            # effect — using ``_paths.config_dir()`` here would resolve
+            # ``voice_typer.server.config._config_dir``) takes
+            # effect: using ``_paths.config_dir()`` here would resolve
             # the REAL user config dir during tests and rename the
             # user's actual config. Best-effort: if the rename itself
             # fails (permissions, readonly mount), we still fall back to
@@ -358,7 +330,7 @@ class VoiceTyperApp:
             # re-attempt Config.load() against the same corrupt file
             # and re-trigger this path.
             try:
-                _config_path = _config_dir() / "config.json"
+                _config_path = _resolve_config_dir() / "config.json"
                 if _config_path.exists():
                     import time as _time
 
@@ -775,17 +747,13 @@ class VoiceTyperApp:
         # The dead inline ``from voice_typer.server.hotkeys
         # import create_hotkey_backend`` that lived here (inside
         # ``__init__``) has been removed. It was a no-op — the symbol
-        # was already imported at module top (line ~120, see the
-        # ``# noqa: F401, E402 (re-exported for tests)`` import there)
-        # so the module attribute ``voice_typer.server.app
-        # .create_hotkey_backend`` was already bound. The inline import
-        # only bound a *local* variable inside ``__init__`` that was
-        # never read, and the surrounding comment block (which claimed
+        # lived in ``hotkeys``/``hotkey_dispatcher``, and the inline
+        # import only bound a *local* variable inside ``__init__`` that
+        # was never read; the surrounding comment block (which claimed
         # the inline import was "a re-export alias") was misleading.
-        # Test monkeypatch sites that patch
-        # ``voice_typer.server.app.create_hotkey_backend`` are
-        # unaffected — they patch the module attribute, which comes
-        # from the module-top import, not this deleted inline one.
+        # (The module-top ``create_hotkey_backend`` re-export has since
+        # been removed too — tests patch the factory on
+        # ``hotkey_dispatcher``, where HotkeyDispatcher resolves it.)
         # #2 _streaming_session and _transcription_thread now
         # live in RecordingController. (: the @property
         # delegates that used to mirror them on VoiceTyperApp have been
@@ -1386,7 +1354,7 @@ class VoiceTyperApp:
                 # (which only happens when volume ducking is enabled).
                 from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
 
-                backing = DuckCrashRecovery(config_dir=_config_dir())
+                backing = DuckCrashRecovery(config_dir=_resolve_config_dir())
             except Exception:
                 log.warning("[INIT] DuckCrashRecovery lazy-init failed", exc_info=True)
                 self._duck_crash_recovery_backing = _LAZY_FAILED

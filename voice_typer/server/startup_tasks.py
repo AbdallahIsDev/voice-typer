@@ -14,11 +14,12 @@ functions directly (e.g.
 ``monkeypatch.setattr(startup_tasks, "sync_autostart", ...)``).
 
 A note on monkeypatching: tests like ``test_autostart_syncs_with_platform``
-replace ``voice_typer.server.app.is_autostart_enabled`` /
+replace ``voice_typer.server.server_platform.is_autostart_enabled`` /
 ``enable_autostart`` / ``disable_autostart`` / ``list_microphones`` at
 call time. To keep those patches effective, the platform-helper names are
-looked up dynamically from the ``voice_typer.server.app`` module inside
-the relevant functions rather than being captured at import time.
+imported inside the relevant functions (deferred import from the
+canonical ``server_platform`` module) rather than being captured at
+import time.
 """
 
 from __future__ import annotations
@@ -97,9 +98,10 @@ def sync_autostart(app: AppProtocol) -> dict:
         ``enable_autostart`` IPC call.
 
         Note: this function still calls the bool-returning
-        ``app.enable_autostart`` / ``app.disable_autostart`` (not the rich
-        ``enable_autostart_ex``) so existing tests that monkeypatch
-        ``voice_typer.server.app.enable_autostart`` continue to take
+        ``server_platform.enable_autostart`` / ``server_platform.disable_autostart``
+        (not the rich ``enable_autostart_ex``) so existing tests that
+        monkeypatch ``voice_typer.server.server_platform.enable_autostart``
+        continue to take
         effect. The error string is therefore only populated when the
         bool function raises (defensive — the production ``enable_autostart``
         catches exceptions internally and returns False, so ``error`` will
@@ -107,10 +109,14 @@ def sync_autostart(app: AppProtocol) -> dict:
         routes through ``enable_autostart_ex`` directly will populate
         ``error`` with the real failure reason.
     """
-    # Look up the platform helpers from the app module at call time so
-    # tests that monkeypatch voice_typer.server.app.{is_autostart_enabled,
+    # Import the platform helpers at call time so tests that monkeypatch
+    # voice_typer.server.server_platform.{is_autostart_enabled,
     # enable_autostart, disable_autostart} still take effect.
-    from voice_typer.server import app as _app_module
+    from voice_typer.server.server_platform import (
+        disable_autostart,
+        enable_autostart,
+        is_autostart_enabled,
+    )
 
     # One-time per-install cleanup of legacy autostart entries
     # (AUTOSTART-LEGACY): pre-PLAT-RUN fixed names + the buggy
@@ -150,10 +156,10 @@ def sync_autostart(app: AppProtocol) -> dict:
     # enable/disable success flag, so callers no longer need to re-query.
     result: dict = {"registered": False, "error": None, "actual_post_sync": False}
     try:
-        actual = _app_module.is_autostart_enabled()
+        actual = is_autostart_enabled()
         if app.config.autostart and not actual:
             log.info("[CONFIG] Config says autostart=true but it is disabled -- enabling")
-            registered = _app_module.enable_autostart()
+            registered = enable_autostart()
             # capture the post-enable state. enable_autostart()
             # returns True on success; on failure (exception caught
             # internally) it returns False — we surface that as
@@ -174,7 +180,7 @@ def sync_autostart(app: AppProtocol) -> dict:
             )
         elif not app.config.autostart and actual:
             log.info("[CONFIG] Config says autostart=false but it is enabled -- disabling")
-            removed = _app_module.disable_autostart()
+            removed = disable_autostart()
             # ``registered`` in the result dict reflects "is the
             # autostart entry now in the desired state?". After a
             # successful disable, the entry is NO LONGER registered,
@@ -373,16 +379,16 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
     a manual "Refresh" click. The comparison is done via ``old_ids``
     and ``new_ids`` sets.
     """
-    # Look up list_microphones from the app module at call time so tests
-    # that monkeypatch voice_typer.server.app.list_microphones still
-    # take effect.
-    from voice_typer.server import app as _app_module
+    # Import list_microphones at call time so tests that monkeypatch
+    # voice_typer.server.server_platform.list_microphones still take
+    # effect.
+    from voice_typer.server.server_platform import list_microphones
 
     # RACE-020: abort early if shutting down
     if shutdown_event is not None and shutdown_event.is_set():
         return
     try:
-        mics = _app_module.list_microphones()
+        mics = list_microphones()
         # AUDIO-MIC: detect device changes by comparing the new
         # list against the cached one. If the set of device IDs
         # changed (USB mic plugged/unplugged), notify the UI via

@@ -265,10 +265,10 @@ def _make_app(tmp_config_dir, monkeypatch):
     so this test file is self-contained and doesn't depend on
     test_app.py's fixture state.
     """
-    monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-    monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+    monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
+    monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
 
     # No-op the Windows-only icacls ACL enforcement in Config.save(). On a
     # real Windows host, ``config.is_windows()`` reads the true platform
@@ -303,9 +303,9 @@ def _force_platform(monkeypatch, platform: str) -> None:
         "linux": (False, False, True),
     }
     win, mac, lin = flags[platform]
-    monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: win)
-    monkeypatch.setattr("voice_typer.server.app.is_macos", lambda: mac)
-    monkeypatch.setattr("voice_typer.server.app.is_linux", lambda: lin)
+    monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: win)
+    monkeypatch.setattr("voice_typer.server.platform_utils.is_macos", lambda: mac)
+    monkeypatch.setattr("voice_typer.server.platform_utils.is_linux", lambda: lin)
 
 
 def _lock_owned(app) -> bool:

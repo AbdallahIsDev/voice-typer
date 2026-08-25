@@ -247,7 +247,12 @@ def main() -> None:
     # extracted to ``parse_ipc_args()`` above so ``main()`` no longer
     # mixes CLI parsing with app construction / transport dispatch.
 
-    from voice_typer.server.app import VoiceTyperApp, _ensure_single_instance, _setup_logging
+    # Import from the canonical homes (not via the app-module re-exports)
+    # so tests patch ``voice_typer.server.logging_setup._setup_logging`` /
+    # ``voice_typer.server.single_instance._ensure_single_instance``.
+    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.logging_setup import _setup_logging
+    from voice_typer.server.single_instance import _ensure_single_instance
 
     port, ws_mode = parse_ipc_args()
 

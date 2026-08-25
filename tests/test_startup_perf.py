@@ -33,16 +33,16 @@ def app_for_startup_perf(tmp_config_dir, monkeypatch):
     pystray, pynput, etc.) are mocked by the autouse
     ``mock_heavy_imports`` fixture in ``tests/conftest.py``.
     """
-    # Use raising=False so the patches work even if the symbols are
-    # not yet re-exported on ``voice_typer.server.app`` (they are
-    # looked up dynamically inside ``startup_tasks.sync_autostart`` /
-    # ``startup_tasks.load_microphones`` via ``_app_module.<name>``).
-    from voice_typer.server import app as _app_mod
+    # Patch the canonical home of the platform helpers: they are
+    # imported at call time inside ``startup_tasks.sync_autostart`` /
+    # ``startup_tasks.load_microphones`` from
+    # ``voice_typer.server.server_platform``.
+    from voice_typer.server import server_platform
 
-    monkeypatch.setattr(_app_mod, "is_autostart_enabled", lambda: False, raising=False)
-    monkeypatch.setattr(_app_mod, "enable_autostart", lambda: True, raising=False)
-    monkeypatch.setattr(_app_mod, "disable_autostart", lambda: True, raising=False)
-    monkeypatch.setattr(_app_mod, "list_microphones", lambda: [], raising=False)
+    monkeypatch.setattr(server_platform, "is_autostart_enabled", lambda: False)
+    monkeypatch.setattr(server_platform, "enable_autostart", lambda: True)
+    monkeypatch.setattr(server_platform, "disable_autostart", lambda: True)
+    monkeypatch.setattr(server_platform, "list_microphones", lambda: [])
 
     from voice_typer.server.app import VoiceTyperApp
 
@@ -62,21 +62,19 @@ def app_for_startup_perf(tmp_config_dir, monkeypatch):
 def _patch_app_platform_helpers(monkeypatch):
     """Patch the platform helpers that ``VoiceTyperApp.__init__`` touches.
 
-    Uses ``raising=False`` because ``voice_typer.server.app`` does not
-    re-export these symbols at module load (they're looked up dynamically
-    inside ``startup_tasks.sync_autostart`` / ``load_microphones`` via
-    ``_app_module.<name>``). The pre-existing ``tests/app/conftest.py``
-    fixture uses ``monkeypatch.setattr("voice_typer.server.app.X", ...)``
-    with the default ``raising=True``, which would raise ``AttributeError``
-    if the symbol isn't already on the module — we use the module-object
-    form + ``raising=False`` so the patch always succeeds.
+    The helpers live on their canonical module
+    ``voice_typer.server.server_platform`` and are imported at call time
+    inside ``startup_tasks.sync_autostart`` / ``load_microphones``, so
+    that is the module to patch (the pre-existing ``tests/app/conftest.py``
+    fixture uses string-target ``monkeypatch.setattr`` against the same
+    canonical paths).
     """
-    from voice_typer.server import app as _app_mod
+    from voice_typer.server import server_platform
 
-    monkeypatch.setattr(_app_mod, "is_autostart_enabled", lambda: False, raising=False)
-    monkeypatch.setattr(_app_mod, "enable_autostart", lambda: True, raising=False)
-    monkeypatch.setattr(_app_mod, "disable_autostart", lambda: True, raising=False)
-    monkeypatch.setattr(_app_mod, "list_microphones", lambda: [], raising=False)
+    monkeypatch.setattr(server_platform, "is_autostart_enabled", lambda: False)
+    monkeypatch.setattr(server_platform, "enable_autostart", lambda: True)
+    monkeypatch.setattr(server_platform, "disable_autostart", lambda: True)
+    monkeypatch.setattr(server_platform, "list_microphones", lambda: [])
 
 
 # no eager TemplateManager / VocabularyManager ────────────────

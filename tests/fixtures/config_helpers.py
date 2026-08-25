@@ -21,9 +21,11 @@ def patch_config_dir_refs(monkeypatch, path: Path) -> None:
     Patches all three known bindings:
 
     - ``voice_typer.server.config._config_dir`` — the canonical accessor;
-    - ``voice_typer.server.app._config_dir`` — the bound reference inside
-      ``app.py`` (import-time from-import; patching only the canonical
-      name leaves this pointing at the real function);
+      app.py routes its internal calls through ``_resolve_config_dir()``
+      (call-time indirection), so this patch intercepts every app path;
+    - ``voice_typer.server.app._config_dir`` — belt-and-suspenders for
+      consumers that deliberately resolve via the app module at call
+      time (``single_instance`` reads ``_app_module._config_dir()``);
     - ``voice_typer.server._paths._config_dir`` — the lazy resolver's
       memoized callable (once a previous test has triggered resolution,
       this attribute pins the REAL function and silently ignores the

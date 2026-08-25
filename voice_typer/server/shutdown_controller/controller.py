@@ -51,9 +51,9 @@ class ShutdownController(CleanupMixin, SequencingMixin, TeardownsMixin, SignalsM
       (daemon thread + queue sentinel), ``app.tray`` (pystray loop
       break), ``app._electron_pid`` (subprocess terminate),
       ``app._mutex_handle`` (Win32 named mutex CloseHandle).
-    - Read platform helpers (``is_windows``) dynamically from
-      ``voice_typer.server.app`` so tests that monkeypatch
-      ``voice_typer.server.app.is_windows`` still take effect.
+    - Read platform helpers (``is_windows``) at call time from
+      ``voice_typer.server.platform_utils`` so tests that monkeypatch
+      them there still take effect.
     - Read ``_clear_backend_pid_file`` dynamically from
       ``voice_typer.server.app`` so tests that monkeypatch that
       re-export still take effect. (``register_devnull_file`` /

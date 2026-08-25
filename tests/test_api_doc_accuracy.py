@@ -270,9 +270,9 @@ class TestWindowsOpenConfigFile:
     def test_opens_with_default_app_first_when_associated(self, tmp_config_dir, monkeypatch):
         """Primary path uses the default-app open (association-respecting)."""
         app = make_voice_typer_app(tmp_config_dir, monkeypatch)
-        monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.is_macos", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.is_linux", lambda: False)
+        monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: True)
+        monkeypatch.setattr("voice_typer.server.platform_utils.is_macos", lambda: False)
+        monkeypatch.setattr("voice_typer.server.platform_utils.is_linux", lambda: False)
 
         open_calls: list = []
         monkeypatch.setattr(
@@ -334,9 +334,9 @@ class TestWindowsOpenConfigFile:
     def test_falls_back_to_systemroot_notepad_when_no_association(self, tmp_config_dir, monkeypatch):
         """No .json handler -> SystemRoot-validated Notepad, not bare notepad."""
         app = make_voice_typer_app(tmp_config_dir, monkeypatch)
-        monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.is_macos", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.is_linux", lambda: False)
+        monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: True)
+        monkeypatch.setattr("voice_typer.server.platform_utils.is_macos", lambda: False)
+        monkeypatch.setattr("voice_typer.server.platform_utils.is_linux", lambda: False)
 
         # Simulate "no associated handler": default-app open returns no handle.
         monkeypatch.setattr("voice_typer.server.app._windows_open_with_default_app", lambda path: None)

@@ -414,7 +414,7 @@ class TranscriptionEngine:
         configured beam (legacy kwarg or ``whisper_beam_size``) is never
         touched.
         """
-        if not self._beam_size_auto:
+        if not getattr(self, "_beam_size_auto", False):
             return
         self.beam_size = _auto_beam_size(self.model_size, self._device)
 

@@ -109,12 +109,12 @@ def fake_app(tmp_config_dir, monkeypatch):
     - ``voice_typer.server.app._clear_backend_pid_file`` — no-op recorder.
     - ``voice_typer.server.app._close_devnull_files`` — no-op.
     - ``voice_typer.server.app._register_devnull_file`` — no-op.
-    - ``voice_typer.server.app.is_windows`` — returns False (POSIX test env).
+    - ``voice_typer.server.platform_utils.is_windows`` — returns False (POSIX test env).
     """
     monkeypatch.setattr("voice_typer.server.app._clear_backend_pid_file", lambda: None, raising=False)
     monkeypatch.setattr("voice_typer.server.app._close_devnull_files", lambda: None, raising=False)
     monkeypatch.setattr("voice_typer.server.app._register_devnull_file", lambda f: None, raising=False)
-    monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False, raising=False)
+    monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: False, raising=False)
     return _FakeApp()
 
 
@@ -149,10 +149,10 @@ class TestShutdownControllerWiring:
         # raising=False — these app-module attributes may have
         # been removed/renamed in a prior refactor; the monkeypatch is
         # a defensive no-op when they're absent.
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False, raising=False)
-        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True, raising=False)
-        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True, raising=False)
-        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [], raising=False)
+        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False, raising=False)
+        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True, raising=False)
+        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True, raising=False)
+        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [], raising=False)
 
         from voice_typer.server.app import VoiceTyperApp
 
@@ -163,10 +163,10 @@ class TestShutdownControllerWiring:
     def test_shutdown_back_references_app(self, tmp_config_dir, monkeypatch):
         """``ShutdownController._app`` must be the ``VoiceTyperApp`` instance."""
         # raising=False — see test_app_has_shutdown_attribute.
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False, raising=False)
-        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True, raising=False)
-        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True, raising=False)
-        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [], raising=False)
+        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False, raising=False)
+        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True, raising=False)
+        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True, raising=False)
+        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [], raising=False)
 
         from voice_typer.server.app import VoiceTyperApp
 
@@ -756,7 +756,7 @@ class TestInstallWin32ConsoleHandler:
     def test_noop_when_not_windows(self, controller, fake_app, monkeypatch):
         """When ``is_windows()`` returns False, the handler must return
         immediately without setting ``_console_handler`` / ``_kernel32``."""
-        monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False)
+        monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: False)
         controller._install_win32_console_handler()
         # _console_handler / _kernel32 should NOT have been set on the app.
         assert not hasattr(fake_app, "_console_handler") or fake_app._console_handler is None
@@ -765,7 +765,7 @@ class TestInstallWin32ConsoleHandler:
     def test_noop_when_pythonw_exe(self, controller, fake_app, monkeypatch):
         """Even on Windows, ``_install_win32_console_handler`` must skip
         when running under ``pythonw.exe`` (no console attached)."""
-        monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: True)
+        monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: True)
         monkeypatch.setattr(sys, "executable", "/fake/path/pythonw.exe")
         controller._install_win32_console_handler()
         # _console_handler / _kernel32 should NOT have been set.

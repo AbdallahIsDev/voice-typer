@@ -98,6 +98,16 @@ TAURI_LINUX_AARCH64 = _REPO_ROOT / "src-tauri" / "tauri.linux-aarch64.conf.json"
 
 # autostart launcher source file.
 AUTOSTART_LAUNCHER = _REPO_ROOT / "voice_typer" / "server" / "autostart_launcher.py"
+# Tauri-mode helpers live in the autostart/ package leaves since the
+# launcher split; pin against the union so either location satisfies.
+_AUTOSTART_PKG = _REPO_ROOT / "voice_typer" / "server" / "autostart"
+
+
+def _launcher_text() -> str:
+    parts = [AUTOSTART_LAUNCHER.read_text(encoding="utf-8")]
+    parts.extend(p.read_text(encoding="utf-8") for p in sorted(_AUTOSTART_PKG.glob("*.py")))
+    return "\n".join(parts)
+
 
 # The 5 canonical candidate paths that the postinst / prerm probe loops
 # MUST check (per  /  /  task spec).
@@ -658,7 +668,7 @@ class TestAutostartLauncherTauriMode:
     def test_autostart_launcher_references_tauri_env_var(self):
         """The launcher references the ``VOICE_TYPER_TAURI`` env var."""
         assert AUTOSTART_LAUNCHER.is_file()
-        text = AUTOSTART_LAUNCHER.read_text()
+        text = _launcher_text()
         assert "VOICE_TYPER_TAURI" in text, (
             "autostart_launcher.py must check the VOICE_TYPER_TAURI env var "
             " to detect Tauri mode. The Tauri Rust host sets this "
@@ -669,7 +679,7 @@ class TestAutostartLauncherTauriMode:
     def test_autostart_launcher_has_is_tauri_mode_helper(self):
         """The launcher defines a ``_is_tauri_mode()`` helper."""
         assert AUTOSTART_LAUNCHER.is_file()
-        text = AUTOSTART_LAUNCHER.read_text()
+        text = _launcher_text()
         assert re.search(r"def\s+_is_tauri_mode\s*\(\s*\)\s*->\s*bool\s*:", text), (
             "autostart_launcher.py must define a `_is_tauri_mode() -> bool` "
             "helper  that checks both VOICE_TYPER_TAURI env var "
@@ -679,7 +689,7 @@ class TestAutostartLauncherTauriMode:
     def test_autostart_launcher_checks_sys_executable_basename(self):
         """The Tauri-mode helper also checks ``sys.executable`` basename."""
         assert AUTOSTART_LAUNCHER.is_file()
-        text = AUTOSTART_LAUNCHER.read_text()
+        text = _launcher_text()
         # Must reference sys.executable AND the Tauri host binary name.
         assert "sys.executable" in text
         assert "voice-typer-tauri" in text, (
@@ -690,7 +700,7 @@ class TestAutostartLauncherTauriMode:
     def test_autostart_launcher_has_tauri_binary_helper(self):
         """The launcher defines a ``_tauri_binary()`` helper to locate the host binary."""
         assert AUTOSTART_LAUNCHER.is_file()
-        text = AUTOSTART_LAUNCHER.read_text()
+        text = _launcher_text()
         assert re.search(r"def\s+_tauri_binary\s*\(\s*\)\s*->\s*str\s*\|\s*None\s*:", text), (
             "autostart_launcher.py must define a `_tauri_binary() -> str | None` "
             "helper  that looks up voice-typer-tauri on PATH and in "
@@ -700,7 +710,7 @@ class TestAutostartLauncherTauriMode:
     def test_autostart_launcher_has_spawn_tauri_host_helper(self):
         """The launcher defines a ``_spawn_tauri_host()`` helper."""
         assert AUTOSTART_LAUNCHER.is_file()
-        text = AUTOSTART_LAUNCHER.read_text()
+        text = _launcher_text()
         assert re.search(r"def\s+_spawn_tauri_host\s*\(", text), (
             "autostart_launcher.py must define a `_spawn_tauri_host()` "
             "helper  that spawns the voice-typer-tauri binary."
@@ -709,7 +719,7 @@ class TestAutostartLauncherTauriMode:
     def test_autostart_launcher_exits_1_when_tauri_binary_missing(self):
         """In Tauri mode, the launcher exits 1 if voice-typer-tauri is not found."""
         assert AUTOSTART_LAUNCHER.is_file()
-        text = AUTOSTART_LAUNCHER.read_text()
+        text = _launcher_text()
         assert "_is_tauri_mode()" in text, "launch() must call _is_tauri_mode() to detect Tauri mode ."
         assert "_spawn_tauri_host" in text, "launch() must call _spawn_tauri_host() in Tauri mode ."
         # The Tauri branch must contain a `return 1` on spawn failure.
@@ -731,7 +741,7 @@ class TestAutostartLauncherTauriMode:
     def test_autostart_launcher_preserves_electron_path(self):
         """must NOT break the existing Electron path."""
         assert AUTOSTART_LAUNCHER.is_file()
-        text = AUTOSTART_LAUNCHER.read_text()
+        text = _launcher_text()
         assert "_ensure_built_and_launch" in text, (
             "autostart_launcher.py must still call _ensure_built_and_launch "
             "in the Electron path ( must not break the Electron path "

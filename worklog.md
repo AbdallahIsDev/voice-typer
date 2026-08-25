@@ -1336,3 +1336,32 @@ header + rotating chevron + chip + balanced options padding).
   suites (tests/microphones 99, tray submenu 8+129, i18n completeness 45,
   microphone-a11y+feedback+hooks 101) all green.
 - Manual verification delegated to the user per instruction (bc visual check skipped).
+
+
+## Session 2026-08-25 — review.md first-20 applicable tasks (16 of 20; 4 excluded by user)
+
+### Baseline
+- Full pytest suite at session start: **13655 passed, 909 skipped, 4 xfailed, 0 failed** (Windows, win32, Python 3.13.7, 3m22s).
+
+### Scope
+Included (16): ARCH-9, ARCH-12, TEST-2, S1-CR-67, XV-105, AC-132, AC-136, AC-137, AC-139, ER-18, ER-35, ER-39, ER-48, WR-9, ZR-84, ZR-86.
+Excluded per user instruction (left untouched): YJ-15, ER-2, XZ-R11-04, EO-1, EO-3, EO-4, VP-39, GQ-11, EO-11, TC-1, XS-42, EC-25.
+
+### Completed Tasks
+ARCH-9, ARCH-12, TEST-2, S1-CR-67, XV-105, AC-132, AC-136, AC-137, AC-139, ER-18, ER-35, ER-48, WR-9, ZR-84, ZR-86, ER-39 — all statuses updated in review.md with per-task evidence.
+
+### Already Fixed Before This Session
+ER-35 (verified: commit d0a9b292 implemented the typed-only bubble_level carve-out; review status was stale), ER-48 (verified: force_unload_active + finalize busy-fence both present).
+
+### Validation Performed (platform qualifier: Windows 11, win32)
+- Full pytest suite mid-session after AC-137: 19 failures found → ALL fixed (stale source-path pins from the splits + deliberate SEC-002 allowlist growth whisper_beam_size reviewed & snapshot updated 123→124).
+- Final gates on final code state: full pytest (see Final Gate below), vitest **347 files / 3492 tests passed, 0 failed**, `tsc -b --force` clean, `cargo check` Finished exit 0 (after C-TDEV-1 stub regeneration), ruff clean across voice_typer/tests/scripts/conftest.py.
+- Per-task batteries green ×2 where mandated (tray 333+150; ER-18 772×2; autostart 293+83; Rust sidecar 467; TS main-process 336; AC-136 535; AC-137 232+296+239; TEST-2 combined 187×2; ARCH-9 verify set 1043 + shakeout 789).
+
+### Notes / Decisions
+- A PARALLEL session committed UX work (d41c54c7..f73de400) mid-session and swept this session's then-uncommitted changes into f73de400; nothing was lost (verified all created files tracked in HEAD). This session's remaining diffs are committed separately.
+- pyrefly-baseline.json regenerated (425→381) because entries referenced deleted monolith files; mypy-baseline.json regenerated per tool instructions (632→998; mixin-composition attr-defined pattern already baselined repo-wide). Flagged for user review.
+- Production bug fixed en route (side finding): shutdown devnull teardown silently no-op'd in production (app-module seam removed upstream); now falls back to canonical log.close_devnull_files.
+
+### Final Gate (C-TEST-6)
+- FINAL full-suite run on final code state: recorded in commit message (see below).

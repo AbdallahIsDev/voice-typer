@@ -231,12 +231,12 @@ def install_win32_console_handler(controller: ShutdownController) -> None:
         console attached, so SetConsoleCtrlHandler is a no-op that
         spews "no console" warnings in the log.
     """
-    # Look up the platform helper from the app module at call time
-    # so tests that monkeypatch voice_typer.server.app.is_windows
-    # still take effect (mirrors the SettingsController convention).
-    from voice_typer.server import app as _app_module
+    # Import the platform helper at call time so tests that monkeypatch
+    # voice_typer.server.platform_utils.is_windows still take effect
+    # (mirrors the SettingsController convention).
+    from voice_typer.server.platform_utils import is_windows
 
-    if not _app_module.is_windows():
+    if not is_windows():
         return
     app = controller._app
 

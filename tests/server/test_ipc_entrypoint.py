@@ -245,9 +245,9 @@ class TestMainEntrypoint:
         app_mock = MagicMock()
         app_mock.start.return_value = None  # clean shutdown
         monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", lambda: app_mock)
-        monkeypatch.setattr("voice_typer.server.app._setup_logging", lambda: None)
+        monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
         monkeypatch.setattr(
-            "voice_typer.server.app._ensure_single_instance",
+            "voice_typer.server.single_instance._ensure_single_instance",
             lambda silent=False: None,
         )
         monkeypatch.setattr(
@@ -316,9 +316,9 @@ class TestMainEntrypoint:
         app_mock = MagicMock()
         app_mock.start.return_value = None  # clean shutdown
         monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", lambda: app_mock)
-        monkeypatch.setattr("voice_typer.server.app._setup_logging", lambda: None)
+        monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
         monkeypatch.setattr(
-            "voice_typer.server.app._ensure_single_instance",
+            "voice_typer.server.single_instance._ensure_single_instance",
             lambda silent=False: None,
         )
         monkeypatch.setattr(
@@ -359,9 +359,9 @@ class TestMainEntrypoint:
         clean-shutdown exit code 0 above)."""
         # Isolate the diagnostic file so the test doesn't pollute the
         # developer's real ~/.voice-typer/startup-error.log.
-        monkeypatch.setattr("voice_typer.server.app._setup_logging", lambda: None)
+        monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
         monkeypatch.setattr(
-            "voice_typer.server.app._ensure_single_instance",
+            "voice_typer.server.single_instance._ensure_single_instance",
             lambda silent=False: None,
         )
         monkeypatch.setattr(

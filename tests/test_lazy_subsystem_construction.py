@@ -37,17 +37,18 @@ from unittest.mock import MagicMock
 def _patch_app_platform_helpers(monkeypatch):
     """Patch the platform helpers that ``VoiceTyperApp.__init__`` touches.
 
-    Mirrors the helper in ``tests/test_startup_perf.py``. Uses
-    ``raising=False`` because ``voice_typer.server.app`` looks up
-    these symbols dynamically inside ``startup_tasks.sync_autostart``
-    / ``load_microphones`` via ``_app_module.<name>``.
+    Mirrors the helper in ``tests/test_startup_perf.py``. The helpers are
+    resolved at call time from their canonical home
+    ``voice_typer.server.server_platform`` (deferred imports inside
+    ``startup_tasks.sync_autostart`` / ``load_microphones``), so that is
+    the module to patch.
     """
-    from voice_typer.server import app as _app_mod
+    from voice_typer.server import server_platform
 
-    monkeypatch.setattr(_app_mod, "is_autostart_enabled", lambda: False, raising=False)
-    monkeypatch.setattr(_app_mod, "enable_autostart", lambda: True, raising=False)
-    monkeypatch.setattr(_app_mod, "disable_autostart", lambda: True, raising=False)
-    monkeypatch.setattr(_app_mod, "list_microphones", lambda: [], raising=False)
+    monkeypatch.setattr(server_platform, "is_autostart_enabled", lambda: False)
+    monkeypatch.setattr(server_platform, "enable_autostart", lambda: True)
+    monkeypatch.setattr(server_platform, "disable_autostart", lambda: True)
+    monkeypatch.setattr(server_platform, "list_microphones", lambda: [])
 
 
 # ─── PASSIVE accessors: _template_manager / _vocabulary_manager ────────

@@ -14,9 +14,9 @@ import sys
 
 def test_pii_redaction_email():
     """Email addresses are redacted from log messages."""
-    from voice_typer.server.app import _PIIRedactionFilter
+    from voice_typer.server.security import PIIRedactionFilter
 
-    f = _PIIRedactionFilter()
+    f = PIIRedactionFilter()
     record = logging.LogRecord("test", logging.INFO, "", 0, "User test@example.com logged in", (), None)
     f.filter(record)
     assert "[EMAIL]" in record.msg
@@ -25,9 +25,9 @@ def test_pii_redaction_email():
 
 def test_pii_redaction_phone():
     """Phone numbers are redacted from log messages."""
-    from voice_typer.server.app import _PIIRedactionFilter
+    from voice_typer.server.security import PIIRedactionFilter
 
-    f = _PIIRedactionFilter()
+    f = PIIRedactionFilter()
     record = logging.LogRecord("test", logging.INFO, "", 0, "Call 555-123-4567 now", (), None)
     f.filter(record)
     assert "[PHONE]" in record.msg
@@ -36,9 +36,9 @@ def test_pii_redaction_phone():
 
 def test_pii_redaction_ssn():
     """SSN-like patterns are redacted from log messages."""
-    from voice_typer.server.app import _PIIRedactionFilter
+    from voice_typer.server.security import PIIRedactionFilter
 
-    f = _PIIRedactionFilter()
+    f = PIIRedactionFilter()
     record = logging.LogRecord("test", logging.INFO, "", 0, "SSN: 123-45-6789", (), None)
     f.filter(record)
     assert "[SSN]" in record.msg
@@ -47,9 +47,9 @@ def test_pii_redaction_ssn():
 
 def test_pii_redaction_no_false_positives():
     """Normal text passes through unchanged."""
-    from voice_typer.server.app import _PIIRedactionFilter
+    from voice_typer.server.security import PIIRedactionFilter
 
-    f = _PIIRedactionFilter()
+    f = PIIRedactionFilter()
     original = "The quick brown fox jumped over the lazy dog"
     record = logging.LogRecord("test", logging.INFO, "", 0, original, (), None)
     f.filter(record)

@@ -29,7 +29,7 @@ ago doesn't trip on the next transient failure.
 These tests pin the helpers' behaviour in isolation (no full
 ``StartupSequence.run()`` invocation needed, so they don't depend on
 the heavy ``app_for_startup`` fixture that has a pre-existing
-``monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled")``
+``monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled")``
 setup error on Linux).
 """
 

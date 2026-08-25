@@ -141,8 +141,8 @@ class TestCoreModulesExtractedFromApp:
         _hotkey_backend, _streaming_session, etc.) have been removed from
         VoiceTyperApp. Callers must access the extracted modules directly
         via ``app.models``, ``app.hotkeys``, ``app.recording``."""
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
         from voice_typer.server.app import VoiceTyperApp
 
         app = VoiceTyperApp()

@@ -60,9 +60,9 @@ def _patch_main_dependencies(config_dir: Path):
     """
     return (
         patch("voice_typer.server.ipc_server._set_process_metadata"),
-        patch("voice_typer.server.app._setup_logging"),
+        patch("voice_typer.server.logging_setup._setup_logging"),
         patch(
-            "voice_typer.server.app._ensure_single_instance",
+            "voice_typer.server.single_instance._ensure_single_instance",
             return_value=None,
         ),
         patch("voice_typer.server.app.VoiceTyperApp", side_effect=_boom),

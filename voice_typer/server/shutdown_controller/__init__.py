@@ -35,7 +35,7 @@ A note on monkeypatching (mirrors the convention in
 ``app`` fixture in ``tests/test_app.py`` and the regression tests in
 ``tests/test_app_cleanup.py`` patch
 ``voice_typer.server.app._clear_backend_pid_file`` (and
-``voice_typer.server.app.is_windows`` in other suites) at call time.
+``voice_typer.server.platform_utils.is_windows`` in other suites) at call time.
 To keep those patches effective, the helpers are looked up DYNAMICALLY
 from the ``voice_typer.server.app`` module inside each method rather
 than being captured at import time.

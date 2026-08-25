@@ -267,35 +267,35 @@ class TestEnvVarValidation:
     """PLAT-008: _validate_env_vars rejects invalid values."""
 
     def test_valid_boolean_values_are_accepted(self, monkeypatch):
-        from voice_typer.server.app import _validate_env_vars
+        from voice_typer.server.env_validation import _validate_env_vars
 
         monkeypatch.setenv("VOICE_TYPER_QUIET", "true")
         _validate_env_vars()
         assert os.environ.get("VOICE_TYPER_QUIET") == "true"
 
     def test_invalid_boolean_values_are_removed(self, monkeypatch):
-        from voice_typer.server.app import _validate_env_vars
+        from voice_typer.server.env_validation import _validate_env_vars
 
         monkeypatch.setenv("VOICE_TYPER_QUIET", "invalid_value")
         _validate_env_vars()
         assert "VOICE_TYPER_QUIET" not in os.environ
 
     def test_invalid_restart_token_is_removed(self, monkeypatch):
-        from voice_typer.server.app import _validate_env_vars
+        from voice_typer.server.env_validation import _validate_env_vars
 
         monkeypatch.setenv("VOICE_TYPER_RESTART", "'; DROP TABLE users; --")
         _validate_env_vars()
         assert "VOICE_TYPER_RESTART" not in os.environ
 
     def test_valid_restart_token_is_accepted(self, monkeypatch):
-        from voice_typer.server.app import _validate_env_vars
+        from voice_typer.server.env_validation import _validate_env_vars
 
         monkeypatch.setenv("VOICE_TYPER_RESTART", "abc123_def")
         _validate_env_vars()
         assert os.environ.get("VOICE_TYPER_RESTART") == "abc123_def"
 
     def test_invalid_config_dir_is_removed(self, monkeypatch):
-        from voice_typer.server.app import _validate_env_vars
+        from voice_typer.server.env_validation import _validate_env_vars
 
         # Path with shell metacharacters (null bytes can't be set in
         # os.environ on POSIX — Python raises ValueError). Use a path
@@ -311,7 +311,7 @@ class TestEnvVarValidation:
         assert "VOICE_TYPER_CONFIG_DIR" not in os.environ
 
     def test_invalid_ipc_token_is_removed(self, monkeypatch):
-        from voice_typer.server.app import _validate_env_vars
+        from voice_typer.server.env_validation import _validate_env_vars
 
         monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "'; rm -rf /")
         _validate_env_vars()
@@ -555,17 +555,15 @@ class TestMutexHandleClose:
         monkeypatch.setitem(sys.modules, "PIL.ImageDraw", MagicMock())
         monkeypatch.setitem(sys.modules, "pyperclip", MagicMock())
         monkeypatch.setattr("atexit.register", lambda *a, **kw: None)
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
 
         from voice_typer.server.hotkeys import PynputHotkey
 
-        monkeypatch.setattr(
-            "voice_typer.server.app.create_hotkey_backend",
-            lambda hotkey_str: PynputHotkey(hotkey_str),
-        )
+        # app.create_hotkey_backend re-export removed — the dispatcher
+        # resolves the factory from its own module namespace.
         monkeypatch.setattr(
             "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
             lambda hotkey_str: PynputHotkey(hotkey_str),

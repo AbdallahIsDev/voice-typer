@@ -57,7 +57,9 @@ import pytest
 # ``voice_typer.server.audio_filters.base`` (outside this sub-agent's
 # assigned file set).
 TARGET_MODULES: list[tuple[str, str]] = [
-    ("voice_typer.server.app", "np"),
+    # app.py no longer binds ``np`` at all (no direct numpy usage in the
+    # module; its import graph is still covered by the graph-level test
+    # below), so it has no attribute to pin here.
     ("voice_typer.server.audio_processor", "np"),
     ("voice_typer.server.audio_quality", "np"),
     ("voice_typer.server.transcription", "np"),

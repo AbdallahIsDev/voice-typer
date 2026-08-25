@@ -36,10 +36,10 @@ def app_for_settings(tmp_config_dir, monkeypatch):
     Mirrors the ``app`` fixture in ``tests/test_app.py`` but kept local
     so this file is self-contained.
     """
-    monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-    monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+    monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
+    monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
 
     from voice_typer.server.app import VoiceTyperApp
 
@@ -136,11 +136,11 @@ class TestSettingsControllerSetAutostart:
         # patches them; here we use recorders to verify the controller
         # actually calls them).
         monkeypatch.setattr(
-            "voice_typer.server.app.enable_autostart",
+            "voice_typer.server.server_platform.enable_autostart",
             lambda: enable_called.append(True),
         )
         monkeypatch.setattr(
-            "voice_typer.server.app.disable_autostart",
+            "voice_typer.server.server_platform.disable_autostart",
             lambda: disable_called.append(True),
         )
         # Replace tray with a MagicMock so we can assert call counts.
@@ -158,11 +158,11 @@ class TestSettingsControllerSetAutostart:
         disable_called = []
 
         monkeypatch.setattr(
-            "voice_typer.server.app.enable_autostart",
+            "voice_typer.server.server_platform.enable_autostart",
             lambda: enable_called.append(True),
         )
         monkeypatch.setattr(
-            "voice_typer.server.app.disable_autostart",
+            "voice_typer.server.server_platform.disable_autostart",
             lambda: disable_called.append(True),
         )
         app_for_settings.tray = MagicMock()
@@ -181,7 +181,7 @@ class TestSettingsControllerSetAutostart:
         def _boom():
             raise RuntimeError("permission denied")
 
-        monkeypatch.setattr("voice_typer.server.app.enable_autostart", _boom)
+        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", _boom)
         app_for_settings.tray = MagicMock()
 
         # Must not raise
@@ -309,7 +309,7 @@ class TestSettingsControllerToggleAutostart:
     and delegates to ``set_autostart``."""
 
     def test_toggle_when_disabled_enables(self, app_for_settings, monkeypatch):
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
         captured = []
         monkeypatch.setattr(
             app_for_settings.settings,
@@ -322,7 +322,7 @@ class TestSettingsControllerToggleAutostart:
         assert captured == [True], "toggle_autostart when disabled must call set_autostart(True)"
 
     def test_toggle_when_enabled_disables(self, app_for_settings, monkeypatch):
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: True)
         captured = []
         monkeypatch.setattr(
             app_for_settings.settings,

@@ -560,12 +560,14 @@ class TestRestartAppStopsBackends:
         ]:
             sys.modules.setdefault(mod_name, MagicMock())
 
+        from voice_typer.server import server_platform
+
         with (
             patch.object(app_module, "_config_dir", return_value=tmp_path),
-            patch.object(app_module, "is_autostart_enabled", return_value=False, create=True),
-            patch.object(app_module, "enable_autostart", create=True),
-            patch.object(app_module, "disable_autostart", create=True),
-            patch.object(app_module, "list_microphones", return_value=[], create=True),
+            patch.object(server_platform, "is_autostart_enabled", return_value=False),
+            patch.object(server_platform, "enable_autostart"),
+            patch.object(server_platform, "disable_autostart"),
+            patch.object(server_platform, "list_microphones", return_value=[]),
         ):
             app = app_module.VoiceTyperApp()
             # production ``_teardown_hotkey_backends`` (in

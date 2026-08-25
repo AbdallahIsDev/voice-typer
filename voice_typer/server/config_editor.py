@@ -38,11 +38,13 @@ thread forever if the editor hung. The primary Windows
 ``ShellExecuteEx`` path was already bounded by  in
 ``voice_typer.server.platform_launch._windows_wait_for_process_exit``.
 
-The platform helpers (``is_windows``/``is_macos``/``is_linux``) and the
-Windows launch helpers (``_windows_open_with_default_app`` etc.) are
-resolved from the owning app's module namespace at call time so existing
-tests that ``monkeypatch.setattr("voice_typer.server.app.is_windows",
-...)`` continue to work unchanged.
+The platform flags (``is_windows``/``is_macos``/``is_linux``) are
+imported at call time from their canonical home
+(``voice_typer.server.platform_utils``) so tests that monkeypatch them
+there continue to work unchanged. The Windows launch helpers
+(``_windows_open_with_default_app`` etc.) are still resolved through the
+app-module re-export seam (see ``_resolve``) — tests patch those on
+``voice_typer.server.app``.
 """
 
 from __future__ import annotations
@@ -165,9 +167,10 @@ def _wait_for_editor_subprocess(proc: subprocess.Popen, config_path: Any) -> Non
 
 
 def _resolve(name: str, default: Callable[..., Any]) -> Callable[..., Any]:
-    """Resolve a helper from the ``voice_typer.server.app`` module, falling
-    back to ``default`` if the app module isn't importable yet (e.g. during
-    early import). Tests monkeypatch these names on the app module."""
+    """Resolve a Windows launch helper from the ``voice_typer.server.app``
+    module's re-export seam, falling back to ``default`` if the app module
+    isn't importable yet (e.g. during early import). Tests monkeypatch
+    these helper names on the app module."""
 
     app_mod = sys.modules.get("voice_typer.server.app")
     if app_mod is not None:
@@ -178,14 +181,12 @@ def _resolve(name: str, default: Callable[..., Any]) -> Callable[..., Any]:
 def _current_platform() -> str:
     """Return the current platform key (``"windows"``/``"macos"``/``"linux"``).
 
-    Resolves ``is_windows`` / ``is_macos`` from the owning app module at
-    call time (mirrors the historical dynamic-lookup convention) so
-    tests that monkeypatch ``voice_typer.server.app.is_windows`` etc.
-    continue to take effect.
+    Imports ``is_windows`` / ``is_macos`` at call time from their
+    canonical home (``voice_typer.server.platform_utils``) so tests that
+    monkeypatch them there continue to take effect.
     """
+    from voice_typer.server.platform_utils import is_macos, is_windows
 
-    is_windows = _resolve("is_windows", _default_is_windows)
-    is_macos = _resolve("is_macos", _default_is_macos)
     if is_windows():
         return "windows"
     if is_macos():
@@ -466,18 +467,6 @@ class ConfigEditorLauncher:
 # Lazily-imported defaults so this module is importable standalone (the
 # app module re-exports these names, so in production the _resolve call
 # above always finds them on the app module).
-def _default_is_windows() -> bool:
-    from voice_typer.server.platform_utils import is_windows
-
-    return is_windows()
-
-
-def _default_is_macos() -> bool:
-    from voice_typer.server.platform_utils import is_macos
-
-    return is_macos()
-
-
 def _default_windows_open_with_default_app(path: str):  # type: ignore[no-untyped-def]
     from voice_typer.server.platform_launch import _windows_open_with_default_app
 

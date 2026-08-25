@@ -138,7 +138,7 @@ def fake_app(tmp_config_dir, monkeypatch):
     - ``voice_typer.server.app._clear_backend_pid_file`` — no-op.
     - ``voice_typer.server.app._close_devnull_files`` — no-op.
     - ``voice_typer.server.app._register_devnull_file`` — no-op.
-    - ``voice_typer.server.app.is_windows`` — returns False (POSIX test env).
+    - ``voice_typer.server.platform_utils.is_windows`` — returns False (POSIX test env).
     - ``voice_typer.server.electron_launcher.terminate_electron`` — recorder.
     """
     import voice_typer.server.app as _app_module

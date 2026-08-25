@@ -1,9 +1,9 @@
 """Environment variable validation.
 
-Extracted from ``voice_typer/server/app.py`` (REF-3). Re-exported from
-``app.py`` as ``_validate_env_vars`` so existing callers (notably
-``voice_typer.server.logging_setup._setup_logging``) and tests that do
-``from voice_typer.server.app import _validate_env_vars`` keep working.
+Extracted from ``voice_typer/server/app.py`` (REF-3). The canonical
+import path is this module — ``voice_typer.server.logging_setup`` (and
+tests) import ``_validate_env_vars`` from here directly; the former
+``app.py`` re-export was removed once its last test importers migrated.
 
 SEC-audit-011: this module calls ``_validate_systemroot`` from
 :mod:`voice_typer.server.config` to reject attacker-controlled SystemRoot

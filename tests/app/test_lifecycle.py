@@ -468,10 +468,10 @@ class TestAppStartupIntegration:
 
     def test_startup_reaches_do_startup_without_crash(self, tmp_config_dir, monkeypatch):
         """Verify _do_startup runs without crashing (integration)."""
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
 
         # Make transcriber.load() a no-op (don't actually load a model)
         monkeypatch.setattr("voice_typer.server.transcription.TranscriptionEngine", MagicMock())
@@ -497,10 +497,10 @@ class TestAppStartupIntegration:
 
     def test_tray_icon_created_on_start(self, tmp_config_dir, monkeypatch):
         """Verify tray.start() creates an icon with menu= wrapped in pystray.Menu."""
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
 
         from tests.test_tray import _FakeIcon, _FakeMenu, _FakeMenuItem
 
@@ -676,10 +676,10 @@ class TestStartupNoCrash:
 
     def test_app_construction_no_crash(self, tmp_config_dir, monkeypatch):
         """VoiceTyperApp() should construct without crashing."""
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
         monkeypatch.setattr("voice_typer.server.transcription.TranscriptionEngine", MagicMock())
 
         from voice_typer.server.app import VoiceTyperApp
@@ -695,10 +695,10 @@ class TestStartupNoCrash:
 
     def test_tray_start_creates_icon(self, tmp_config_dir, monkeypatch):
         """app.tray.start(bg_work=None) should create the tray icon without crashing."""
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
         monkeypatch.setattr("voice_typer.server.transcription.TranscriptionEngine", MagicMock())
 
         # Ensure tray module uses fakes
@@ -757,10 +757,10 @@ class TestAppInitManagerFailureWarning:
     def _make_app(monkeypatch, tmp_config_dir):
         """Minimal app with the lazy manager backings + tray + config
         the pipeline steps read."""
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
 
         from voice_typer.server.app import VoiceTyperApp
 
@@ -880,10 +880,10 @@ class TestAppExcepthookInstallGuard:
     def test_excepthook_install_failure_does_not_break_init(self, monkeypatch, tmp_config_dir):
         """If install_python_excepthook raises, VoiceTyperApp must
         still construct successfully (the excepthook is best-effort)."""
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
 
         from voice_typer.server import crash_handler
 
@@ -904,10 +904,10 @@ class TestAppExcepthookInstallGuard:
         default-INFO production log."""
         import logging
 
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
 
         from voice_typer.server import crash_handler
 

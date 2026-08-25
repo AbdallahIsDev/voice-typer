@@ -735,10 +735,10 @@ def mock_heavy_imports(monkeypatch, request):
     #
     # Per-test (NOT session) because: (a) it imports
     # ``voice_typer.server.hotkeys``, which some local overrides
-    # (test_volume_lifecycle.py) re-implement with a different patch
-    # target (``app.create_hotkey_backend`` vs
-    # ``hotkey_dispatcher.create_hotkey_backend``); keeping it per-test
-    # preserves the shadow semantics.
+    # (test_volume_lifecycle.py) re-implement with their own patch on
+    # the same canonical target
+    # (``hotkey_dispatcher.create_hotkey_backend``); keeping it
+    # per-test preserves the shadow semantics.
     try:
         from voice_typer.server.hotkeys import PynputHotkey
 
@@ -1193,18 +1193,19 @@ def tmp_config_dir(tmp_path, monkeypatch):
     """Temporary config directory with ``_config_dir`` monkeypatched.
 
     Patches BOTH ``voice_typer.server.config._config_dir`` (the
-    canonical accessor) AND ``voice_typer.server.app._config_dir`` (the
-    bound reference inside ``app.py``).
+    canonical accessor) AND ``voice_typer.server.app._config_dir``.
 
-    ``app.py`` imports ``_config_dir`` via
-    ``from voice_typer.server.config import ... _config_dir``, which
-    binds the function object into the ``app`` module's namespace at
-    import time. Patching only ``config._config_dir`` leaves
-    ``app._config_dir`` pointing at the original function — so code
-    paths inside ``app.py`` that call ``_config_dir()`` directly (e.g.
-    ``DuckCrashRecovery(config_dir=_config_dir())`` near the standalone
-    launch path) silently write to the real
-    ``~/.local/share/voice-typer/`` directory instead of ``tmp_path``.
+    ``config._config_dir`` is the one that matters today:
+    ``app.py`` routes its internal calls through ``_resolve_config_dir()``
+    (call-time indirection), so a canonical-name patch intercepts every
+    app path (``Config.load``, corrupt-config rename,
+    ``DuckCrashRecovery(config_dir=...)``, ...).
+
+    ``app._config_dir`` is kept patched as belt-and-suspenders for the
+    remaining consumers that deliberately resolve via the app module at
+    call time — ``voice_typer.server.single_instance`` reads
+    ``_app_module._config_dir()`` so pid-file/lock paths land in the
+    temp dir too.
 
     Previously 4 test files (``test_app_restart.py``,
     ``test_app_cleanup.py``, ``test_shutdown_controller.py``,

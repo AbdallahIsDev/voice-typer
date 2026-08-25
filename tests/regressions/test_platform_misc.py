@@ -42,13 +42,17 @@ class TestPlatformUtilsDeadCodeRemoved:
         assert not hasattr(platform_utils, "_init_env_var_schema"), "_init_env_var_schema must be removed."
         assert not hasattr(platform_utils, "_ENV_VAR_SCHEMA"), "_ENV_VAR_SCHEMA must be removed."
 
-    def test_app_validate_env_vars_still_exists(self):
-        from voice_typer.server import app
+    def test_validate_env_vars_canonical_in_env_validation(self):
+        from voice_typer.server import app, env_validation
 
-        # The canonical implementation must still exist in app.py
-        # (it's a module-level function, not a method)
-        assert hasattr(app, "_validate_env_vars"), (
-            "app.py must still have _validate_env_vars as the single source of truth for env-var validation."
+        # The canonical implementation lives in env_validation (the
+        # ``app`` re-export was removed with its last test importer).
+        assert hasattr(env_validation, "_validate_env_vars"), (
+            "env_validation must be the single source of truth for env-var validation."
+        )
+        # And the stale app-namespace re-export must stay gone.
+        assert not hasattr(app, "_validate_env_vars"), (
+            "app.py must not re-export _validate_env_vars; import it from env_validation."
         )
 
     def test_platform_utils_still_exports_platform_helpers(self):
@@ -303,14 +307,17 @@ class TestPlatMacBlocked:
     def test_macos_code_exists(self):
         """macOS-specific code must exist in the codebase.
 
-        KEEP — pins PLAT-MAC (app.py contains darwin or is_macos
-        references). A behavioral test would need to run on macOS and
-        observe the macOS code path, which is heavy (platform-specific);
-        the source-string check catches removal of all macOS branches.
+        KEEP - pins PLAT-MAC (platform_utils contains darwin/is_macos
+        references; the historical pin on app.py moved here when the
+        app-module platform-flag re-export seam was removed). A
+        behavioral test would need to run on macOS and observe the
+        macOS code path, which is heavy (platform-specific); the
+        source-string check catches removal of the macOS platform-flag
+        surface.
         """
-        from voice_typer.server import app
+        from voice_typer.server import platform_utils
 
-        src = inspect.getsource(app)
+        src = inspect.getsource(platform_utils)
         assert "darwin" in src or "is_macos" in src
 
     def test_macos_ci_runner_exists(self):

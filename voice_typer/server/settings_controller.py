@@ -28,11 +28,11 @@ Not extracted in this round:
 A note on monkeypatching (mirrors the convention in
 ``startup_tasks.py``): tests like the ``app`` fixture in
 ``tests/test_app.py`` replace
-``voice_typer.server.app.is_autostart_enabled`` /
+``voice_typer.server.server_platform.is_autostart_enabled`` /
 ``enable_autostart`` / ``disable_autostart`` at call time. To keep
-those patches effective, the platform-helper names are looked up
-DYNAMICALLY from the ``voice_typer.server.app`` module inside each
-method rather than being captured at import time.
+those patches effective, the platform-helper names are imported inside
+each method (deferred import from the canonical ``server_platform``
+module) rather than being captured at import time.
 """
 
 from __future__ import annotations
@@ -71,12 +71,12 @@ class SettingsController:
 
         Delegates to :meth:`set_autostart` (P2 dedup).
         """
-        # Look up the platform helper from the app module at call time so
-        # tests that monkeypatch voice_typer.server.app.is_autostart_enabled
+        # Import the platform helper at call time so tests that
+        # monkeypatch voice_typer.server.server_platform.is_autostart_enabled
         # still take effect.
-        from voice_typer.server import app as _app_module
+        from voice_typer.server.server_platform import is_autostart_enabled
 
-        self.set_autostart(not _app_module.is_autostart_enabled())
+        self.set_autostart(not is_autostart_enabled())
 
     def set_autostart(self, enabled: bool) -> None:
         """Set autostart from the advanced settings window or tray toggle.
@@ -87,18 +87,18 @@ class SettingsController:
         wrapped in ``_config_mutation_lock`` for atomicity
                 w.r.t. IPC ``set_config`` mutations (RLock, re-entry safe).
         """
-        # Look up the platform helpers from the app module at call time so
-        # tests that monkeypatch voice_typer.server.app.{enable_autostart,
+        # Import the platform helpers at call time so tests that
+        # monkeypatch voice_typer.server.server_platform.{enable_autostart,
         # disable_autostart} still take effect.
-        from voice_typer.server import app as _app_module
+        from voice_typer.server.server_platform import disable_autostart, enable_autostart
 
         app = self._app
         with app._config_mutation_lock:
             try:
                 if enabled:
-                    _app_module.enable_autostart()
+                    enable_autostart()
                 else:
-                    _app_module.disable_autostart()
+                    disable_autostart()
                 app.config.autostart = enabled
                 if not app.config.save():
                     log.warning("[CONFIG] Failed to save autostart setting to disk")

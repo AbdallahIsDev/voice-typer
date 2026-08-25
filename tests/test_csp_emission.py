@@ -44,6 +44,9 @@ MAIN_INDEX_TS_PATH = CLIENT_DIR / "src" / "main" / "index.ts"
 # main/index.ts (now wiring-only) into main/bootstrap.ts. Tests that
 # check for CSP setup must read BOTH files.
 MAIN_BOOTSTRAP_TS_PATH = CLIENT_DIR / "src" / "main" / "bootstrap.ts"
+# The bootstrap facade was split into a bootstrap/ package; CSP setup
+# lives in the csp leaf. Pin against facade + package leaves.
+_MAIN_BOOTSTRAP_PKG = CLIENT_DIR / "src" / "main" / "bootstrap"
 
 
 def _read_main_process_src() -> str:
@@ -56,6 +59,8 @@ def _read_main_process_src() -> str:
         parts.append(MAIN_INDEX_TS_PATH.read_text(encoding="utf-8"))
     if MAIN_BOOTSTRAP_TS_PATH.is_file():
         parts.append(MAIN_BOOTSTRAP_TS_PATH.read_text(encoding="utf-8"))
+    if _MAIN_BOOTSTRAP_PKG.is_dir():
+        parts.extend(p.read_text(encoding="utf-8") for p in sorted(_MAIN_BOOTSTRAP_PKG.glob("*.ts")))
     return "\n".join(parts)
 
 

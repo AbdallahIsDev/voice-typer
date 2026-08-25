@@ -176,27 +176,27 @@ class TestConfigEditHoldsMutationLock:
         import time as _time
         from unittest.mock import MagicMock
 
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
         # Force the LINUX editor-launch path deterministically.  The
-        # platform flags are resolved from the APP module
-        # (``voice_typer.server.app.is_windows`` — a re-export of
-        # ``platform_utils.is_windows``), NOT from
-        # ``config_editor._default_is_windows`` (which is only a fallback
-        # when the app module is absent).  The previous monkeypatches on
-        # ``_default_is_windows`` / ``_default_is_macos`` were
+        # platform flags are imported at call time by
+        # ``config_editor._current_platform`` from their canonical home
+        # ``voice_typer.server.platform_utils``, so that is the module to
+        # patch.  (Historically the flags were resolved through the
+        # ``voice_typer.server.app`` re-export seam, and before that via
+        # ``config_editor._default_is_windows`` — patches there were
         # ineffective on a real Windows host, so the platform stayed
         # "windows": the fake ``subprocess.run`` below only intercepted
         # the ``icacls`` ACL call from ``Config.save()``, and after
         # ``editor_close`` Phase 2 launched a REAL editor via
         # ShellExecuteEx whose ``WaitForSingleObject`` can block for 30
-        # minutes — holding ``_config_mutation_lock`` far past the test's
-        # 15s budget.  Observed as an intermittent full-suite failure.
-        monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.is_macos", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.is_linux", lambda: True)
+        # minutes - holding ``_config_mutation_lock`` far past the test's
+        # 15s budget.  Observed as an intermittent full-suite failure.)
+        monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: False)
+        monkeypatch.setattr("voice_typer.server.platform_utils.is_macos", lambda: False)
+        monkeypatch.setattr("voice_typer.server.platform_utils.is_linux", lambda: True)
         # Suppress the Windows ACL-tightening subprocess (``icacls``)
         # that ``Config.save()`` fires on a real Windows host — it is
         # incidental to the lock behavior under test and would otherwise

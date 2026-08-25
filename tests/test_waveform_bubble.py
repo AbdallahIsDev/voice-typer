@@ -446,10 +446,9 @@ class TestAppMainWiresIpcHook:
         # instantiates IPCServer and calls start() on it.
         calls = {"ipc_started": 0, "app_started": 0}
 
-        monkeypatch.setattr(app_module, "_setup_logging", lambda: None)
+        monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
         monkeypatch.setattr(
-            app_module,
-            "_ensure_single_instance",
+            "voice_typer.server.single_instance._ensure_single_instance",
             lambda **kw: object(),
         )
 
@@ -508,10 +507,9 @@ class TestAppMainWiresIpcHook:
         # call ipc_server.main() instead of app.main().
         # We need to stub the same things ipc_server.main() calls:
         # _setup_logging, _ensure_single_instance (from app), VoiceTyperApp.
-        monkeypatch.setattr(app_module, "_setup_logging", lambda: None)
+        monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
         monkeypatch.setattr(
-            app_module,
-            "_ensure_single_instance",
+            "voice_typer.server.single_instance._ensure_single_instance",
             lambda **kw: object(),
         )
 

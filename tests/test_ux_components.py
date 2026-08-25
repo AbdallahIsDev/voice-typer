@@ -6,6 +6,14 @@ from __future__ import annotations
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _service_model_pkg_src() -> str:
+    """Concatenated source of the split service/model package leaves."""
+    pkg = REPO_ROOT / "voice_typer" / "server" / "service" / "model"
+    return "".join(p.read_text(encoding="utf-8") for p in sorted(pkg.glob("*.py")))
+
+
 CLIENT_SRC = REPO_ROOT / "voice_typer" / "client" / "src"
 RENDERER_SRC = CLIENT_SRC / "renderer" / "src"
 
@@ -55,10 +63,13 @@ class TestGetStatusExposesLoadedVia:
 
 
 class TestAboutDiagnosticsPageExists:
-    """About/Diagnostics page exists and is routed."""
+    """About (product identity + diagnostics) page exists and is routed.
+
+    About was merged into the combined About & Privacy page.
+    """
 
     def test_about_page_exists(self):
-        assert (RENDERER_SRC / "pages" / "About.tsx").exists()
+        assert (RENDERER_SRC / "pages" / "AboutAndPrivacy.tsx").exists()
 
 
 class TestDeleteModelRouteRemovesFiles:
@@ -123,7 +134,7 @@ class TestModelDownloadSupportsCancel:
     def test_service_has_cancel_model_download_method(self):
         # service.py split into a service/ package — cancel_model_download
         # lives in service/model.py.
-        model_py = (REPO_ROOT / "voice_typer" / "server" / "service" / "model.py").read_text(encoding="utf-8")
+        model_py = _service_model_pkg_src()
         assert "def cancel_model_download" in model_py
 
     def test_service_has_download_cancel_events(self):
@@ -134,7 +145,7 @@ class TestModelDownloadSupportsCancel:
         per-download dict (``_download_cancel_events``) plus the
         ``_register_download`` helper are the production API.
         """
-        model_py = (REPO_ROOT / "voice_typer" / "server" / "service" / "model.py").read_text(encoding="utf-8")
+        model_py = _service_model_pkg_src()
         assert "_download_cancel_events" in model_py
         assert "_register_download" in model_py
         assert '"cancelled": True' in model_py

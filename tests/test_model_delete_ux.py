@@ -149,9 +149,12 @@ class TestModelDeleteRationale:
         future change makes it soft-delete, the rationale (and this test)
         must be revisited.
         """
-        service_py = REPO_ROOT / "voice_typer" / "server" / "service" / "model.py"
-        assert service_py.is_file(), "voice_typer/server/service/model.py missing"
-        src = service_py.read_text(encoding="utf-8")
+        service_py = REPO_ROOT / "voice_typer" / "server" / "service" / "model"
+        if service_py.is_dir():
+            src = "".join(p.read_text(encoding="utf-8") for p in sorted(service_py.glob("*.py")))
+        else:
+            src = service_py.with_suffix(".py").read_text(encoding="utf-8")
+        assert src, "service/model source not found"
 
         # Locate the delete_model method body.
         fn_idx = src.find("def delete_model(")

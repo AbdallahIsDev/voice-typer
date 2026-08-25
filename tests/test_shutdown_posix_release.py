@@ -79,7 +79,7 @@ def fake_app(tmp_config_dir, monkeypatch):
     monkeypatch.setattr("voice_typer.server.app._clear_backend_pid_file", lambda: None, raising=False)
     monkeypatch.setattr("voice_typer.server.app._close_devnull_files", lambda: None, raising=False)
     monkeypatch.setattr("voice_typer.server.app._register_devnull_file", lambda f: None, raising=False)
-    monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False, raising=False)
+    monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: False, raising=False)
     return _FakeApp()
 
 

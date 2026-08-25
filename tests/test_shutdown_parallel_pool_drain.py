@@ -122,7 +122,7 @@ def _stub_shutdown_environment(tmp_config_dir, monkeypatch):
         lambda f: None,
         raising=False,
     )
-    monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False, raising=False)
+    monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: False, raising=False)
 
 
 # ipc_server.stop + WS pool drain run concurrently ────────────

@@ -159,7 +159,8 @@ def fake_app(monkeypatch):
     fake_app_module._clear_backend_pid_file = MagicMock()
     fake_app_module._close_devnull_files = MagicMock()
     fake_app_module._register_devnull_file = MagicMock()
-    fake_app_module.is_windows = lambda: False
+    # signal_handlers resolves the platform flag from platform_utils now.
+    monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: False)
     fake_app_module._config_dir = lambda: "/tmp/voice-typer-test-race-fixes"
     monkeypatch.setitem(sys.modules, "voice_typer.server.app", fake_app_module)
 
@@ -653,9 +654,7 @@ class TestWin32ConsoleHandlerInstallIdempotent:
         # ``getattr(voice_typer.server, "app")`` — that fails because
         # the ``fake_app`` fixture installs the MagicMock only in
         # ``sys.modules``, not as an attribute on the parent package.
-        from voice_typer.server import app as _app_module
-
-        monkeypatch.setattr(_app_module, "is_windows", lambda: True)
+        monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: True)
         # Avoid the pythonw.exe short-circuit.
         monkeypatch.setattr(sys, "executable", "/fake/path/python.exe")
 
@@ -724,9 +723,7 @@ class TestWin32ConsoleHandlerInstallIdempotent:
         block. Putting the guard inside the try block would re-enter
         ctypes every call and risk a fresh install on a transient
         ctypes failure."""
-        from voice_typer.server import app as _app_module
-
-        monkeypatch.setattr(_app_module, "is_windows", lambda: True)
+        monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: True)
         monkeypatch.setattr(sys, "executable", "/fake/path/python.exe")
 
         import ctypes

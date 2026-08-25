@@ -23,7 +23,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _read(path: str) -> str:
-    return (REPO_ROOT / path).read_text(encoding="utf-8")
+    target = REPO_ROOT / path
+    if target.is_dir():
+        return "".join(p.read_text(encoding="utf-8") for p in sorted(target.glob("*.py")))
+    return target.read_text(encoding="utf-8")
 
 
 class TestPruneModelCacheRemoved:
@@ -58,7 +61,7 @@ class TestPruneModelCacheRemoved:
         assert "prune_model_cache" not in src, "transcription.py must not reference the removed auto-eviction helper."
 
     def test_no_automatic_eviction_in_parakeet_source(self):
-        src = _read("voice_typer/server/parakeet_engine.py")
+        src = _read("voice_typer/server/parakeet_engine")
         assert "prune_model_cache" not in src, "parakeet_engine.py must not reference the removed auto-eviction helper."
 
 
@@ -87,7 +90,7 @@ class TestCleanupHelperStillAvailableForExplicitDownloads:
         )
 
     def test_parakeet_load_path_never_deletes(self):
-        src = _read("voice_typer/server/parakeet_engine.py")
+        src = _read("voice_typer/server/parakeet_engine")
         assert "cleanup_hf_cache_dir(" not in src, (
             "parakeet_engine.py must not call cleanup_hf_cache_dir on load — "
             "a tampered cache raises ModelIntegrityError and is left for the "

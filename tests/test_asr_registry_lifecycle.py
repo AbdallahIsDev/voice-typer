@@ -156,8 +156,8 @@ class TestAsrRegistryInitializedInAppInit:
         ``app.models._registry`` / ``app.models.registry``.
         """
         # Mock heavy deps so __init__ doesn't fail
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
         from voice_typer.server.app import VoiceTyperApp
 
         app = VoiceTyperApp()
