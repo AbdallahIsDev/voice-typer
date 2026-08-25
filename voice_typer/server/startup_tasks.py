@@ -366,6 +366,130 @@ def ensure_desktop_shortcut(app: AppProtocol) -> None:
         log.debug("[STARTUP] Desktop shortcut creation skipped: %s", e)
 
 
+def _reconcile_configured_microphone(app: AppProtocol, mics: list[dict]) -> None:
+    """Validate ``app.config.microphone`` against the live device list.
+
+    config.json is the CANONICAL settings store; the persisted value is
+    either ``None`` (System Default — the documented canonical meaning) or
+    a stable device id emitted by :func:`list_microphones`
+    (``"<host api>|<name>[#N]"``, plus legacy shapes resolvable by
+    :func:`find_microphone_by_id`).
+
+    Runs during startup (and any tray-driven re-enumeration) so a stale,
+    renamed, or unplugged persisted selection is reconciled BEFORE the
+    renderer ever loads the Microphone page — the page renders the
+    already-corrected state instead of discovering it as a side effect of
+    being opened. The recovery is silent to the user (an internal
+    configuration inconsistency, not a user-facing error); operators get
+    a WARNING diagnostic naming the stale id and the recovery action.
+
+    Never raises: enumeration/reconciliation failures must not break mic
+    loading (mirrors the surrounding best-effort contract).
+    """
+    from voice_typer.server.server_platform import find_microphone_by_id
+
+    try:
+        mic_id = app.config.microphone
+    except AttributeError:
+        return
+    # Only str/None are meaningful persisted values. Anything else is an
+    # in-memory test fake / corrupt runtime state that IPC validators own —
+    # never silently rewritten here.
+    if mic_id is not None and not isinstance(mic_id, str):
+        return
+    if mic_id is None:
+        log.debug("[MIC] Startup microphone check: System Default (no persisted selection)")
+        return
+    if not mics:
+        # An EMPTY enumeration is NOT evidence that the configured device
+        # is gone (failed PortAudio query / headless environment). Never
+        # fall back on it — wait for a successful enumeration.
+        log.debug("[MIC] Skipping microphone reconciliation: no devices enumerated")
+        return
+
+    resolved: dict | None = None
+    try:
+        resolved = find_microphone_by_id(mic_id)
+    except Exception:
+        log.debug("[MIC] Microphone resolution failed for %r", mic_id, exc_info=True)
+
+    if resolved is not None:
+        canonical = str(resolved.get("id", ""))
+        if canonical and canonical != mic_id:
+            # Legacy id shape (bare index / compound form) resolved to a
+            # live device via find_microphone_by_id's fallback strategies
+            # — persist its NEW stable id so every consumer agrees on one
+            # representation going forward.
+            lock = getattr(app, "_config_mutation_lock", None)
+            with contextlib.ExitStack() as stack:
+                if lock is not None:
+                    stack.enter_context(lock)
+                app.config.microphone = canonical
+                saved = app.config.save()
+            if saved:
+                log.info(
+                    "[MIC] Migrated legacy microphone id %r -> stable id %r (%s)",
+                    mic_id,
+                    canonical,
+                    resolved.get("name", "?"),
+                )
+                _publish_mic_reconciled(app, {"microphone": canonical})
+            else:
+                log.warning(
+                    "[MIC] Failed to persist legacy-id migration %r -> %r",
+                    mic_id,
+                    canonical,
+                )
+        else:
+            log.info(
+                "[MIC] Startup microphone check: configured device available: %s (%s)",
+                resolved.get("name", "?"),
+                mic_id,
+            )
+        return
+
+    # Stale selection → SILENT user-facing recovery + diagnostic log.
+    # No tray notification, no renderer snack: this is an internal config
+    # inconsistency fixed at startup, not something the user did.
+    lock = getattr(app, "_config_mutation_lock", None)
+    with contextlib.ExitStack() as stack:
+        if lock is not None:
+            stack.enter_context(lock)
+        app.config.microphone = None
+        saved = app.config.save()
+    if saved:
+        log.warning(
+            "[MIC] Configured microphone %r is not available on this machine "
+            "(%d input device(s) found) — recovered to System Default and "
+            "persisted null.",
+            mic_id,
+            len(mics),
+        )
+        _publish_mic_reconciled(app, {"microphone": None})
+    else:
+        log.error(
+            "[MIC] Configured microphone %r is unavailable and persisting the "
+            "System Default fallback FAILED — stale id left on disk; will "
+            "retry at next startup.",
+            mic_id,
+        )
+
+
+def _publish_mic_reconciled(app: AppProtocol, updates: dict) -> None:
+    """Push a ``config_changed`` event after startup reconciliation.
+
+    Lets connected renderers refresh their cached config without opening
+    the Microphone page (same envelope shape as the IPC set_config push).
+    Best-effort — no subscribers is fine.
+    """
+    try:
+        from voice_typer.server import event_bus
+
+        event_bus.publish({"type": "config_changed", "data": updates})
+    except Exception:
+        log.debug("[MIC] config_changed publish failed", exc_info=True)
+
+
 def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = None) -> None:
     """Enumerate microphones and update the tray menu.
 
@@ -389,6 +513,19 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
         return
     try:
         mics = list_microphones()
+        # Startup reconciliation: validate the PERSISTED selection against
+        # the freshly enumerated devices so a stale/unavailable id falls
+        # back to System Default (silently, with a diagnostic log) before
+        # any consumer — tray, recorder, renderer — reads it. Must run on
+        # EVERY enumeration path (startup AND tray refresh), not only once,
+        # so the persisted value always matches reality.
+        try:
+            _reconcile_configured_microphone(app, mics)
+        except Exception:
+            # Belt-and-braces: a reconciler bug must never downgrade the
+            # enumeration into "Could not enumerate microphones" (which
+            # would leave tray + renderer without any device list).
+            log.warning("[MIC] Microphone reconciliation failed", exc_info=True)
         # AUDIO-MIC: detect device changes by comparing the new
         # list against the cached one. If the set of device IDs
         # changed (USB mic plugged/unplugged), notify the UI via

@@ -1427,3 +1427,42 @@ Every task added to the `## High Priority` section of `review.md` MUST satisfy a
 4. **Non-redundant** - do not duplicate an existing review.md entry, an already-fixed behavior, or another task in the same section; when a task's investigation surface overlaps another task, cross-reference instead of duplicating.
 
 Task selection MUST favor improvements with significant product impact while minimizing unnecessary file/component overlap between independently delegated tasks (so parallel sub-agents do not conflict). When in doubt, verify before writing, and record verification. This rule is itself append-only and must never be overwritten or weakened by an agent.
+
+---
+
+## Category: Configuration Canonicality & Microphone Startup Reconciliation
+
+```
+C-CONF-1
+Rule: Do NOT create a second source of truth for application settings. `config.json` (managed by `voice_typer/server/config`) is THE canonical store; every producer and consumer of a setting (Settings UI, Microphone page, backend commands, tray, onboarding, autostart) must read/write through the Config instance and persist via its save path. Never mirror settings into renderer-local storage as an authority, and never write config values from Electron/Tauri hosts directly.
+Rationale: Parallel stores drift silently; the renderer already receives authoritative updates through get_config + config_changed pushes.
+Applies to: All agents, all modes.
+```
+
+```
+C-CONF-2
+Rule: Do NOT leave microphone-selection validation to the Microphone page. The persisted `config.microphone` value MUST be validated/reconciled against the live device enumeration during startup (see `_reconcile_configured_microphone` in `voice_typer/server/startup_tasks.py`, invoked from `load_microphones`). The page renders already-reconciled state; its mount-time reconcile is only a mid-session hot-unplug safety net.
+Rationale: Page-side-only reconciliation made stale selections survive restarts and produced noisy user-visible recovery exactly when the user opened the page.
+Applies to: All agents, all modes.
+```
+
+```
+C-CONF-3
+Rule: Do NOT surface startup reconciliation of a stale/unavailable microphone to the user (no tray notification, no snack). Stale → System Default is SILENT for users; the diagnostic trail is one WARNING log line naming the stale id, the device count, and the recovery action (`[MIC] Configured microphone ... recovered to System Default`). A VALID configured device must be left untouched and logged healthy at INFO.
+Rationale: A stale persisted id is an internal configuration inconsistency, not a user error; warning dialogs train users to dismiss real errors.
+Applies to: All agents, all modes.
+```
+
+```
+C-CONF-4
+Rule: Do NOT change the canonical meaning of `"microphone": null`. null IS the intentional representation of "use System Default" end-to-end (validators allow str|None, resolvers/Recorder treat None as OS default, C-MIC-1 pins fresh-install default). Never replace it with a sentinel string or persist a concrete default-device id in its place. When a legacy id shape resolves to a live device, migrate it forward to the stable `"<host api>|<name>[#N]"` id instead of leaving both representations around.
+Rationale: One unambiguous representation keeps config.json, backend state, UI state, and actual device selection in agreement.
+Applies to: All agents, all modes.
+```
+
+```
+C-CONF-5
+Rule: Do NOT make runtime initialization overwrite valid persisted settings with defaults/stale values without an explicit migration/defaulting reason (corrupt-file quarantine, first-run defaults, versioned migration with .bak backup — all existing, all logged). Known accepted edge: an OLDER build loading a NEWER-schema config.json drops unknown keys at its next explicit save (warned once per process in config/loader.py `_filter_unknown_keys_impl`; newer-than-build keys are preserved until that save). Dev (`npm run dev`) and built runtimes intentionally share ONE profile dir (`~/.voice-typer` legacy-first); concurrent double-writes are prevented by the Electron single-instance lock + Python `Local\VoiceTyperSingleInstance` mutex — do not add per-runtime profile splits or second locks without a product decision.
+Rationale: Distinguishes genuine bugs from the documented stale-build downgrade; protects the single-profile/single-instance architecture agents might "fix" wrongly.
+Applies to: All agents, all modes.
+```
