@@ -221,8 +221,7 @@ class OfflinePackConsentRequiredError(RuntimeError):
     def __init__(self, message: str | None = None, *, version: str | None = None) -> None:
         self.version = version
         super().__init__(
-            message
-            or f"Runtime pack consent not given — refusing to download pack {version or '<unknown>'}."
+            message or f"Runtime pack consent not given — refusing to download pack {version or '<unknown>'}."
         )
 
 
@@ -698,12 +697,7 @@ class OfflinePackLock:
                 parts = existing.split(":", 1)
                 pid = int(parts[0]) if parts[0].isdigit() else None
                 started_at = float(parts[1]) if len(parts) > 1 and _is_float(parts[1]) else 0.0
-                if (
-                    pid is not None
-                    and _is_process_alive(pid)
-                    and started_at > 0
-                    and (time.time() - started_at) < 86400
-                ):
+                if pid is not None and _is_process_alive(pid) and started_at > 0 and (time.time() - started_at) < 86400:
                     return False  # live + recent — wait
                 # Stale — truncate and steal.
                 fh.seek(0)
@@ -1022,15 +1016,9 @@ def download_offline_pack_with_resume(
                     if now - last_progress >= 0.5:
                         speed = (downloaded_bytes - last_bytes) / max(1e-9, now - last_progress)
                         eta = (
-                            (total_bytes - downloaded_bytes) / speed
-                            if speed > 0 and total_bytes is not None
-                            else None
+                            (total_bytes - downloaded_bytes) / speed if speed > 0 and total_bytes is not None else None
                         )
-                        pct = (
-                            int(100 * downloaded_bytes / total_bytes)
-                            if total_bytes
-                            else 0
-                        )
+                        pct = int(100 * downloaded_bytes / total_bytes) if total_bytes else 0
                         _publish_event(
                             event_bus,
                             "offline_pack_download_progress",
@@ -1165,9 +1153,7 @@ class BackgroundChecksum:
         if self._thread is not None:
             return
         self._done.clear()
-        self._thread = threading.Thread(
-            target=self._run, name=f"pack-checksum-{self.version}", daemon=True
-        )
+        self._thread = threading.Thread(target=self._run, name=f"pack-checksum-{self.version}", daemon=True)
         self._thread.start()
 
     def _run(self) -> None:

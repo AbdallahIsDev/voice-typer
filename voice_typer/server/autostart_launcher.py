@@ -4,6 +4,14 @@ Called by the OS autostart entry (Windows Registry Run key, macOS
 LaunchAgent, or Linux ``.desktop``) at login, and by the ``create_launcher_shortcut``
 Desktop / Start Menu entries.
 
+This file is the OS-facing ENTRY FACADE: OS schedulers embed this exact
+script path, so it stays at ``voice_typer/server/autostart_launcher.py``
+while the implementation lives in the :mod:`voice_typer.server.autostart`
+package (``log_files``, ``pid_file``, ``port_probe``, ``tauri_spawn``,
+``electron_spawn``, ``focus``). Every public/private helper is
+re-exported below so existing import sites and monkeypatch targets
+(``voice_typer.server.autostart_launcher.X``) keep working unchanged.
+
 Architecture
 ------------
 The launcher supports two production shapes:
@@ -72,18 +80,10 @@ invoke for diagnostics::
 
 from __future__ import annotations
 
-import contextlib
-import hashlib
-import hmac
-import json
 import logging
 import os
-import platform
-import socket
-import subprocess
 import sys
 import time
-from pathlib import Path
 
 from voice_typer.server import _paths
 from voice_typer.server._electron_build import (
@@ -96,8 +96,95 @@ from voice_typer.server._electron_build import (
     _npm_command,
     _spawn_flags,
 )
-from voice_typer.server.branding import APP_NAME
-from voice_typer.server.platform_utils import is_macos, is_windows
+from voice_typer.server.autostart.electron_spawn import (
+    _ensure_built_and_launch,
+    _launch_electron_built,
+    _spawn_npm_run_dev,
+)
+from voice_typer.server.autostart.focus import _focus_running_app
+from voice_typer.server.autostart.log_files import _close_log_files, _tauri_log_files
+from voice_typer.server.autostart.pid_file import (
+    _config_dir,
+    _pid_file,
+    _read_ipc_port_from_pid_file,
+    _write_pid_file,
+)
+from voice_typer.server.autostart.port_probe import (
+    _POST_SPAWN_PORT_POLL_INTERVAL,
+    _POST_SPAWN_PORT_POLL_TIMEOUT,
+    _is_port_open,
+    _wait_for_backend_ready,
+    _wait_for_ipc_ready,
+)
+from voice_typer.server.autostart.tauri_spawn import (
+    _TAURI_LAUNCHER_INSTALL_PATHS,
+    _client_dir_exists,
+    _expand_tauri_install_template,
+    _is_tauri_mode,
+    _launch_tauri_app,
+    _spawn_tauri_host,
+    _tauri_binary,
+    _tauri_manifest_key,
+    _tauri_manifest_path,
+    verify_tauri_binary_or_skip,
+)
+
+__all__ = [
+    "IPC_HOST",
+    "IPC_PORT",
+    "CLIENT_DIR",
+    "_POST_SPAWN_PORT_POLL_INTERVAL",
+    "_POST_SPAWN_PORT_POLL_TIMEOUT",
+    "_TAURI_LAUNCHER_INSTALL_PATHS",
+    "_close_log_files",
+    "_config_dir",
+    "_client_dir_exists",
+    "_electron_binary",
+    "_electron_log_files",
+    "_ensure_built_and_launch",
+    "_expand_tauri_install_template",
+    "_focus_running_app",
+    "_is_port_open",
+    "_is_tauri_mode",
+    "_launch_electron_built",
+    "_launch_tauri_app",
+    "_launcher_child_env",
+    "_log_sensitive_env_keys",
+    "_main_entry_built",
+    "_npm_command",
+    "_parse_delay",
+    "_pid_file",
+    "_prewarm_would_help",
+    "_read_ipc_port_from_pid_file",
+    "_setup_logging",
+    "_spawn_flags",
+    "_spawn_npm_run_dev",
+    "_spawn_tauri_host",
+    "_tauri_binary",
+    "_tauri_log_files",
+    "_tauri_manifest_key",
+    "_tauri_manifest_path",
+    "_wait_for_backend_ready",
+    "_wait_for_ipc_ready",
+    "_write_pid_file",
+    "launch",
+    "main",
+    "verify_tauri_binary_or_skip",
+]
+
+# Directory layout:
+#   <root>/
+#     voice_typer/
+#       server/
+#         autostart_launcher.py   <- this file (entry facade)
+#         autostart/              <- implementation subpackage
+#       client/                    <- Electron app
+# CLIENT_DIR (above) is re-exported from _electron_build so tests that
+# monkeypatch ``voice_typer.server.autostart_launcher.CLIENT_DIR`` still
+# work; leaf modules resolve it through this facade at call time.
+
+IPC_HOST = "127.0.0.1"
+IPC_PORT = _paths.IPC_PORT
 
 # The OS invokes this file as a BARE SCRIPT (``pythonw.exe
 # autostart_launcher.py`` at logon), so ``__name__`` is ``"__main__"`` here
@@ -108,145 +195,9 @@ from voice_typer.server.platform_utils import is_macos, is_windows
 # ever appeared in ``voice-typer.log`` despite the launcher running. Use
 # the explicit dotted name (same pattern as ``voice_typer/worker/__main__.py``)
 # so launcher lines land in the app log and autostart attempts are
-# traceable.
+# traceable. The leaf modules under ``voice_typer/server/autostart/``
+# share this exact logger name (same underlying Logger object).
 log = logging.getLogger("voice_typer.server.autostart_launcher")
-
-
-def _tauri_log_files() -> dict:
-    """Return DEVNULL for the Tauri host's stdout/stderr (O4: no duplicate capture).
-
-    Mirrors :func:`voice_typer.server._electron_build._electron_log_files`.
-    The Tauri host + Python backend already write structured logs to
-    ``logs/`` (``voice-typer-rust.log`` on the Rust side, ``voice-typer.log``
-    on the Python side); raw child stdout/stderr capture
-    (``tauri-stdout.log`` / ``tauri-stderr.log``) only duplicated those
-    lines without adding diagnostic value.
-    """
-    return {
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
-        "stdin": subprocess.DEVNULL,
-    }
-
-
-def _close_log_files(sk: dict) -> None:
-    """Close Electron log file handles in the parent process.
-
-    Called after ``subprocess.Popen`` to close the parent's copies of
-    the stdout/stderr log files.  The child process has inherited the
-    file descriptors, so the files remain open for the child's lifetime.
-    Without this, the parent leaks file handles and triggers
-    ``ResourceWarning`` on GC.
-    """
-    for key in ("stdout", "stderr"):
-        fd = sk.get(key)
-        if fd is not None and fd is not subprocess.DEVNULL:
-            with contextlib.suppress(Exception):
-                fd.close()
-
-
-# Directory layout (mirrors ``_electron_build.CLIENT_DIR``):
-#   <root>/
-#     voice_typer/
-#       server/
-#         autostart_launcher.py   <- this file
-#       client/                    <- Electron app
-# CLIENT_DIR is re-exported from _electron_build so tests that monkeypatch
-# ``voice_typer.server.autostart_launcher.CLIENT_DIR`` still work.
-
-IPC_HOST = "127.0.0.1"
-IPC_PORT = _paths.IPC_PORT
-
-
-def _read_ipc_port_from_pid_file() -> int | None:
-    """MED-Y /  (partial): read the backend's IPC
-    port from the backend PID file if the writer included a ``port=``
-    line.
-
-    The backend PID file is the canonical source of truth for "is a
-    Voice Typer backend running on this machine?" — it is written by
-    :func:`voice_typer.server.single_instance._write_backend_pid_file`
-    after the single-instance mutex is acquired. The current writer
-    emits ONLY the PID (``{pid}\\n``); a future change to that function
-    will extend the format to also include ``port=<n>\\n`` so the
-    autostart launcher does not have to assume the default port 9876
-    (which may have been auto-incremented if 9876 was busy).
-
-    This function parses the PID file looking for a ``port=<n>`` line.
-    Returns the port as an int if found, otherwise ``None`` (the caller
-    falls back to :data:`IPC_PORT`).
-
-    NOTE: the full fix requires :mod:`voice_typer.server.single_instance`
-    to write the port line — see ``review.md`` MED-Y.
-    This function alone is forward-compatible: once
-    ``single_instance._write_backend_pid_file`` is updated to also emit
-    the port, the autostart launcher will pick it up without further
-    changes here.
-
-    The function never raises — a missing/unreadable/malformed PID file
-    simply yields ``None`` and the caller falls back to the default.
-    """
-    try:
-        from voice_typer.server.app import _backend_pid_file
-
-        pid_file = _backend_pid_file()
-        if not pid_file.exists():
-            return None
-        # Read the file once and scan for a ``port=<n>`` line. We
-        # tolerate both the legacy single-int format (no port line)
-        # and the future multi-line
-        # ``launcher=..\\nchild=..\\nport=..\\n`` format.
-        text = pid_file.read_text()
-    except OSError:
-        return None
-    except Exception:
-        # Defensive: the PID file is shared state and a partial write
-        # could surface as any error. Never let a port-read failure
-        # propagate to launch() — fall back to IPC_PORT instead.
-        return None
-
-    for line in text.splitlines():
-        line = line.strip()
-        if line.startswith("port="):
-            port_str = line[len("port=") :].strip()
-            try:
-                port = int(port_str)
-            except ValueError:
-                continue
-            # Reject obviously invalid port numbers (0 is reserved on
-            # most OSes; >65535 is out of range).
-            if 1 <= port <= 65535:
-                return port
-    return None
-
-
-# Where to write the PID file (under the app's data dir).
-# delegates to voice_typer.server._paths so the path respects the
-# platform-aware _config_dir() logic (Windows %APPDATA%, macOS
-# ~/Library/Application Support, Linux $XDG_DATA_HOME, the
-# VOICE_TYPER_CONFIG_DIR override, and the legacy ~/.voice-typer
-# migration check) instead of the previous hardcoded Path.home() /
-# ".voice-typer".
-def _config_dir() -> Path:
-    """Return the voice-typer data directory.
-
-    thin wrapper around :func:`voice_typer.server._paths.config_dir`
-        kept for backwards compatibility — tests monkeypatch this name to
-        redirect PID-file writes to a tmp dir.
-    """
-    return _paths.config_dir()
-
-
-def _pid_file() -> Path:
-    """Return the path to the autostart launcher's PID file.
-
-    derives from :func:`_config_dir` so tests that monkeypatch
-        this module's ``_config_dir`` continue to redirect the PID file as
-        well. (The previous ``_paths.pid_file`` helper was removed in
-    production code never adopted it; this local helper
-        remains the single source of truth for the autostart PID file.)
-    """
-    return _config_dir() / "run" / "autostart.pid"
 
 
 def _setup_logging() -> None:
@@ -260,714 +211,6 @@ def _setup_logging() -> None:
     from voice_typer.server.log import setup_logging as _setup_logging_shared
 
     _setup_logging_shared(log_dir)
-
-
-def _is_port_open(host: str, port: int) -> bool:
-    """Return True if *host:port* accepts TCP connections."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(1.0)
-        return s.connect_ex((host, port)) == 0
-
-
-# How long to wait for the freshly-spawned backend to bind its IPC port
-# before the launcher exits. The launcher's job is to spawn + detach the
-# child; the OS autostart parent (Windows Run key, macOS LaunchAgent,
-# Linux ``.desktop``) waits for the launcher to exit before considering
-# login complete. Polling the IPC port lets the launcher exit AS SOON AS
-# the backend is ready (typically 200-500 ms on a warm start with
-# prewarm) instead of a fixed 2 s sleep — saving up to 1.5 s on the
-# user's login critical path. The 5 s ceiling preserves the original
-# "give the child time to detach" safety net for slow systems where the
-# backend takes longer to start (cold start without prewarm, slow disk,
-# antivirus scan).
-_POST_SPAWN_PORT_POLL_TIMEOUT = 5.0
-_POST_SPAWN_PORT_POLL_INTERVAL = 0.1
-
-
-def _wait_for_backend_ready(
-    timeout: float = _POST_SPAWN_PORT_POLL_TIMEOUT,
-    *,
-    deadline_s: float | None = None,
-    poll_interval_s: float | None = None,
-) -> bool | None:
-    """Bounded poll for the backend's IPC port to open after spawning.
-
-    Polls ``_is_port_open`` every ``_POST_SPAWN_PORT_POLL_INTERVAL``
-    seconds (or ``poll_interval_s`` if provided) for up to ``timeout``
-    seconds (or ``deadline_s`` if provided). Returns as soon as the
-    port opens (early-exit on fast systems) or after the timeout
-    (preserves the original "give the child time to detach" safety
-    net on slow systems). Never raises — a port that never opens is
-    the backend's problem to surface (crash dialog, log), not the
-    launcher's.
-
-    Two calling conventions are supported:
-
-    * Legacy: ``_wait_for_backend_ready(timeout=5.0)`` — used by the
-      call sites in :func:`launch` (returns ``None``).
-    * Test-friendly: ``_wait_for_ipc_ready(deadline_s=5.0,
-      poll_interval_s=0.25)`` — returns ``True`` on port-open,
-      ``False`` on deadline. See
-      ``tests/test_perf_fixes.py::TestWaitForIpcReady``.
-
-    The IPC port is re-read from the backend PID file on every
-    iteration (via ``_read_ipc_port_from_pid_file``) so the poll picks
-    up the actual port the backend bound to (which may differ from
-    :data:`IPC_PORT` if 9876 was busy and the backend auto-incremented).
-
-    The loop is bounded by an iteration count (derived from
-    ``deadline / interval``) rather than a ``time.monotonic()`` deadline
-    so that tests which monkeypatch ``time.sleep`` to a no-op don't
-    busy-wait for the full ``deadline`` in real time — the loop runs
-    ``int(deadline / interval)`` iterations and exits regardless of
-    wall-clock elapsed time.
-    """
-    effective_deadline = _POST_SPAWN_PORT_POLL_TIMEOUT if deadline_s is None else deadline_s
-    effective_interval = _POST_SPAWN_PORT_POLL_INTERVAL if poll_interval_s is None else poll_interval_s
-    # If neither explicit kwarg was passed, this is the legacy
-    # call-site path (launch()) which does not care about the return
-    # value.  In that case return None for backwards compatibility.
-    return_bool = deadline_s is not None
-    max_iterations = max(1, int(effective_deadline / effective_interval))
-    for _ in range(max_iterations):
-        ipc_port = _read_ipc_port_from_pid_file() or IPC_PORT
-        if _is_port_open(IPC_HOST, ipc_port):
-            return True if return_bool else None
-        time.sleep(effective_interval)
-    return False if return_bool else None
-
-
-# legacy / alternate-name alias. The test suite in
-# ``tests/test_perf_fixes.py::TestWaitForIpcReady`` expects this
-# exact name; the production code (which uses the
-# ``_wait_for_backend_ready`` name throughout) is the canonical
-# implementation. Both names point to the same callable so either
-# contract works.
-_wait_for_ipc_ready = _wait_for_backend_ready
-
-
-def _client_dir_exists() -> bool:
-    """Return True if the Electron client directory (with package.json) exists."""
-    return CLIENT_DIR.is_dir() and (CLIENT_DIR / "package.json").exists()
-
-
-# Well-known install paths per OS, in DISCOVERY ORDER. Tokens:
-# - ``{APP}``  → APP_NAME (the installer product name, e.g. "Voice Typer")
-# - ``{HOME}`` → Path.home()
-# - ``%LOCALAPPDATA%`` / ``%PROGRAMFILES%`` → resolved from the environment
-#   at call time (a missing LOCALAPPDATA makes that candidate skipped;
-#   PROGRAMFILES falls back to ``C:\\Program Files`` — both mirror the
-#   pre-refactor behavior).
-# This table is the launcher side of the autostart↔manifest drift pair
-# pinned by
-# ``tests/tauri/test_config_script_drift.py::TestLauncherInstallPathsMatchManifest``
-# against ``tauri-binaries.json`` → ``binaries.*._install_paths`` (order
-# matters — LOCALAPPDATA is first on Windows because the NSIS installer
-# defaults to ``installMode=currentUser``). Any change here MUST be
-# mirrored in the manifest, and vice versa.
-_TAURI_LAUNCHER_INSTALL_PATHS: dict[str, tuple[str, ...]] = {
-    "windows": (
-        r"%LOCALAPPDATA%\Programs\{APP}\voice-typer-tauri.exe",
-        r"%PROGRAMFILES%\{APP}\voice-typer-tauri.exe",
-    ),
-    "macos": (
-        "/Applications/{APP}.app/Contents/MacOS/voice-typer-tauri",
-        "{HOME}/Applications/{APP}.app/Contents/MacOS/voice-typer-tauri",
-    ),
-    "linux": (
-        "/usr/bin/voice-typer-tauri",
-        "/usr/local/bin/voice-typer-tauri",
-        "{HOME}/.local/bin/voice-typer-tauri",
-    ),
-}
-
-
-def _expand_tauri_install_template(template: str) -> Path | None:
-    """Expand one :data:`_TAURI_LAUNCHER_INSTALL_PATHS` template into a Path.
-
-    Returns ``None`` when a required env var is unavailable — that
-    candidate is then skipped (mirrors the pre-refactor behavior where
-    a missing ``LOCALAPPDATA`` simply didn't contribute a candidate).
-    """
-    if "%LOCALAPPDATA%" in template:
-        local_appdata = os.environ.get("LOCALAPPDATA")
-        if not local_appdata:
-            return None
-        template = template.replace("%LOCALAPPDATA%", local_appdata)
-    elif "%PROGRAMFILES%" in template:
-        program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
-        template = template.replace("%PROGRAMFILES%", program_files)
-    elif "{HOME}" in template:
-        template = template.replace("{HOME}", str(Path.home()))
-    return Path(template.replace("{APP}", APP_NAME))
-
-
-def _tauri_binary() -> str | None:
-    """Return the path to the installed Voice Typer Tauri binary, or ``None``.
-
-    The Tauri cutover ships a native binary (built from
-    ``src-tauri/Cargo.toml`` → ``voice-typer-tauri``) instead of the
-    Electron ``node_modules/`` tree. This helper locates that binary
-    so the autostart launcher can spawn it directly at login — without
-    it, the launcher would try ``electron .`` against a missing
-    ``node_modules/`` and autostart-at-login would silently break.
-
-    Lookup order:
-
-    1. ``VT_TAURI_BINARY`` env var — explicit override used by
-       installers / users that place the binary at a non-standard path.
-    2. Well-known install paths per OS, in the order listed in
-       :data:`_TAURI_LAUNCHER_INSTALL_PATHS` (which is pinned to the
-       ``_install_paths`` of ``tauri-binaries.json`` by the drift test
-       ``tests/tauri/test_config_script_drift.py`` — the manifest is
-       the single source of truth for both the path set and the
-       discovery priority).
-
-    On POSIX the candidate must additionally be executable
-    (``os.access(..., X_OK)``) — a stale non-executable file at one of
-    these paths shouldn't fool us into thinking Tauri is installed.
-
-    Returns ``None`` in dev checkouts and CI environments where the
-    Tauri binary hasn't been installed system-wide; the launcher then
-    falls back to the legacy Electron path.
-    """
-    env_path = os.environ.get("VT_TAURI_BINARY")
-    if env_path and Path(env_path).is_file():
-        log.debug("[AUTOSTART] _tauri_binary: using VT_TAURI_BINARY env override: %s", env_path)
-        return env_path
-
-    candidates: list[Path] = []
-    if is_windows():
-        platform_key = "windows"
-    elif is_macos():
-        platform_key = "macos"
-    else:  # Linux / other POSIX
-        platform_key = "linux"
-    for template in _TAURI_LAUNCHER_INSTALL_PATHS[platform_key]:
-        cand = _expand_tauri_install_template(template)
-        if cand is not None:
-            candidates.append(cand)
-
-    for cand in candidates:
-        if not cand.is_file():
-            continue
-        if not is_windows() and not os.access(cand, os.X_OK):
-            continue
-        log.debug("[AUTOSTART] _tauri_binary: resolved Tauri binary at install path: %s", cand)
-        return str(cand)
-    log.debug("[AUTOSTART] _tauri_binary: no Tauri binary found at any install path (dev/CI mode)")
-    return None
-
-
-def _is_tauri_mode() -> bool:
-    """Return ``True`` if the launcher should spawn the Tauri binary.
-
-    Tauri mode is active when ANY of the following holds:
-
-    - ``VOICE_TYPER_TAURI=1`` (or the legacy alias ``VT_TAURI_AUTOSTART=1``)
-      is set in the env (explicit opt-in by the Tauri Rust host before
-      spawning the Python sidecar, or by the autostart registration
-      when registering the launcher entry under a Tauri install), OR
-    - the basename of ``sys.executable`` contains ``voice-typer-tauri``
-      (we are already running inside the Tauri sidecar process), OR
-    - a Tauri binary is found at a known install path AND the Electron
-      dev binary (``node_modules/electron/dist/electron``) is NOT
-      present locally.
-
-    The third condition ensures dev checkouts that DO ship a local
-    Electron ``node_modules`` tree keep using the Electron path even
-    when the user has also installed the Tauri binary system-wide —
-    the developer's intent is to exercise the Electron build, not the
-    installed Tauri binary. In production Tauri installs (no
-    ``node_modules/`` shipped), the Tauri binary wins.
-    """
-    if os.environ.get("VOICE_TYPER_TAURI") == "1":
-        return True
-    if os.environ.get("VT_TAURI_AUTOSTART") == "1":
-        return True
-    # also detect Tauri mode from sys.executable basename —
-    # the Tauri Rust host renames the Python sidecar executable to
-    # ``voice-typer-tauri`` when freezing, so this is a reliable signal
-    # that we are running inside a Tauri install.
-    exe_basename = os.path.basename(sys.executable).lower()
-    if "voice-typer-tauri" in exe_basename:
-        return True
-    if _tauri_binary() is None:
-        return False
-    # Tauri binary exists; prefer it only when the local Electron
-    # dev binary is absent (production Tauri install).
-    return _electron_binary() is None
-
-
-def _tauri_manifest_path() -> Path | None:
-    """Locate ``tauri-binaries.json`` next to this module.
-
-    The manifest ships with the installed app (it is written by
-    ``scripts/build/update_tauri_manifests.py`` during CI and read
-    back into the repo so the launcher can find it at runtime). The
-    launcher looks in two places, in order:
-
-    1. An explicit ``VT_TAURI_MANIFEST`` env override (used by
-       installers that place the manifest at a non-standard path, and
-       by tests).
-    2. ``<repo-root>/tauri-binaries.json`` — the canonical committed
-       location (mirrors ``tests/test_tauri_binaries_manifest.py``
-       which resolves the same relative path from the repo root).
-
-    Returns ``None`` when the manifest cannot be found; the caller
-    (``verify_tauri_binary_or_skip``) then fails closed.
-    """
-    override = os.environ.get("VT_TAURI_MANIFEST")
-    if override:
-        p = Path(override)
-        if p.is_file():
-            return p
-        log.warning("[AUTOSTART] VT_TAURI_MANIFEST set but not a file: %s", override)
-    # Repo root = three parents up from voice_typer/server/autostart_launcher.py.
-    repo_root = Path(__file__).resolve().parents[2]
-    candidate = repo_root / "tauri-binaries.json"
-    if candidate.is_file():
-        return candidate
-    return None
-
-
-def _tauri_manifest_key() -> str:
-    """Compute the per-(platform, arch) manifest key for this machine.
-
-    Mirrors the contract documented in ``tauri-binaries.json``
-    ``_manifest_loader_contract``: ``<platform>-<arch>`` where
-    platform is ``platform.system().lower()`` (with ``darwin``
-    collapsed to ``macos``) and arch is ``platform.machine().lower()``
-    (with ``amd64`` normalized to ``x86_64``); macOS uses the single
-    key ``macos`` (universal binary).
-    """
-    system = platform.system().lower()
-    machine = platform.machine().lower()
-    if system == "darwin":
-        return "macos"
-    if machine in ("amd64", "x86_64"):
-        arch = "x86_64"
-    elif machine in ("aarch64", "arm64"):
-        arch = "aarch64"
-    else:
-        arch = machine
-    return f"{system}-{arch}"
-
-
-def verify_tauri_binary_or_skip(path: str | Path) -> bool:
-    """Verify the Tauri host binary against ``tauri-binaries.json``.
-
-    Implements the ``_manifest_loader_contract`` documented in
-    ``tauri-binaries.json`` (CR-002 fail-closed semantics, mirroring
-    ``voice_typer/server/native_hotkeys/binary_path.py::verify_native_binary_or_skip``):
-
-    - If the manifest cannot be located → FAIL CLOSED (return False).
-    - If the binary name has no manifest entry → FAIL CLOSED.
-    - If the per-(platform, arch) sha256 sub-key is missing or empty
-      → FAIL CLOSED (production builds MUST populate every sub-key
-      via ``scripts/build/update_tauri_manifests.py``; an empty hash
-      means the binary was not built by the release pipeline and must
-      not be trusted).
-    - Otherwise hash the binary with SHA-256 and compare
-      (``hmac.compare_digest``); on mismatch → FAIL CLOSED.
-
-    The ``VT_TAURI_BINARY`` env override (``_tauri_binary``) is NOT a
-    bypass: this helper is called with the resolved path regardless of
-    where it came from, so an attacker cannot use the env var to
-    sidestep the integrity gate.
-    """
-    binary = Path(path)
-    manifest_path = _tauri_manifest_path()
-    if manifest_path is None:
-        log.error(
-            "[AUTOSTART] FAIL CLOSED: tauri-binaries.json not found; "
-            "refusing to spawn %s. Run scripts/build/update_tauri_manifests.py "
-            "to generate the manifest.",
-            binary,
-        )
-        return False
-    try:
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        log.exception("[AUTOSTART] FAIL CLOSED: cannot read manifest %s", manifest_path)
-        return False
-    entry = (data.get("binaries") or {}).get(binary.name)
-    if not isinstance(entry, dict):
-        log.error(
-            "[AUTOSTART] FAIL CLOSED: no manifest entry for %s in %s.",
-            binary.name,
-            manifest_path,
-        )
-        return False
-    sha256_dict = entry.get("sha256")
-    if not isinstance(sha256_dict, dict):
-        log.error(
-            "[AUTOSTART] FAIL CLOSED: manifest entry %s has no per-arch sha256 dict.",
-            binary.name,
-        )
-        return False
-    key = _tauri_manifest_key()
-    expected = sha256_dict.get(key)
-    if not expected:
-        log.error(
-            "[AUTOSTART] FAIL CLOSED: no sha256 for %s/%s (manifest entry %s) "
-            "— binary not built by the release pipeline. Run "
-            "scripts/build/update_tauri_manifests.py to populate it.",
-            key,
-            binary.name,
-            manifest_path,
-        )
-        return False
-    try:
-        actual = hashlib.sha256(binary.read_bytes()).hexdigest()
-    except OSError:
-        log.exception("[AUTOSTART] FAIL CLOSED: cannot hash %s", binary)
-        return False
-    if not hmac.compare_digest(actual, expected):
-        log.error(
-            "[AUTOSTART] FAIL CLOSED: SHA-256 mismatch for %s (expected %s, "
-            "got %s) — binary tampered or stale; refusing to spawn.",
-            binary,
-            expected,
-            actual,
-        )
-        return False
-    log.debug("[AUTOSTART] Tauri binary %s verified against %s", binary, manifest_path)
-    return True
-
-
-def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | None:
-    """Spawn the Tauri host binary (``voice-typer-tauri``) with ``VT_START_HIDDEN`` if *hidden*.
-
-        The Tauri app's ``tauri-plugin-single-instance`` plugin (declared
-        in ``src-tauri/tauri.conf.json``) handles the focus / fresh-start
-        distinction itself: a second spawn of the same binary causes the
-        first instance to be focused and the second to exit. So unlike the
-        Electron path (which spawns a LEAN electron with ``VT_FOCUS_ONLY=1``
-        to trigger ``requestSingleInstanceLock``), here we always spawn the
-        full Tauri binary — the single-instance plugin does the rest.
-
-        Returns the child process on success, or ``None`` on failure (the
-    caller logs and exits 1 — no silent Electron fallback per ).
-    """
-    # CR-002 fail-closed integrity gate: the Tauri host binary MUST
-    # verify against ``tauri-binaries.json`` before it is spawned —
-    # otherwise a tampered or stale binary (or the ``VT_TAURI_BINARY``
-    # env override, which is NOT a bypass) would launch unchecked.
-    if not verify_tauri_binary_or_skip(binary):
-        log.error(
-            "[AUTOSTART] refusing to spawn Tauri binary %s — integrity verification failed (fail-closed).",
-            binary,
-        )
-        return None
-    # ``_launcher_child_env`` force-disables ANSI colour + npm notices
-    # (the child's output is redirected to the electron/tauri log files).
-    env = _launcher_child_env()
-    if hidden:
-        env["VT_START_HIDDEN"] = "1"
-    # same-app restart — full env intentionally inherited
-    # (see _launch_electron_built for rationale). Only sensitive KEY
-    # NAMES are logged for audit; values are never printed.
-    _log_sensitive_env_keys(env, context="autostart")
-    sk: dict = {}
-    sk.update(_tauri_log_files())
-    sk.update(_spawn_flags(hidden=hidden))
-    try:
-        child = subprocess.Popen([binary], env=env, **sk)
-        log.info(
-            "[AUTOSTART] spawned tauri app %s (child pid=%s, hidden=%s)",
-            binary,
-            getattr(child, "pid", "?"),
-            hidden,
-        )
-        return child
-    except Exception:
-        log.exception("[AUTOSTART] tauri spawn failed: %s", binary)
-        return None
-    finally:
-        _close_log_files(sk)
-
-
-# Backward-compat alias — older test imports use the previous name.
-# Both names refer to the same function object.
-_launch_tauri_app = _spawn_tauri_host
-
-
-def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen | None:
-    """Launch the pre-built Electron app with ``electron .``.
-
-    Parameters
-    ----------
-    exe : str
-        Path to the electron binary.
-    hidden : bool
-        If True, sets ``VT_START_HIDDEN=1`` so the dashboard starts
-        in the background (tray + bubble only).
-
-    Returns the child process on success, or None on failure.
-    """
-    # RACE-009: redirect Electron stdout/stderr to log files so
-    # crashes are diagnosable. Pre-fix this used DEVNULL.
-    sk = dict(cwd=str(CLIENT_DIR))
-    sk.update(_electron_log_files())
-    sk.update(_spawn_flags(hidden=hidden))
-    # intentional — same-app restart needs the same env.
-    # The child here is the Voice Typer Electron frontend itself (not a
-    # less-trusted process). It needs the full env for native module
-    # loading, PATH resolution, and platform-specific init. Unlike the
-    # Python IPC server restart path, Electron does NOT expose env vars
-    # via IPC, so the risk of key exfiltration is lower. Stripping the
-    # env would break the app's own functionality. The risk model would
-    # only change if we ever spawn a DIFFERENT, less-trusted binary here.
-    # ``_launcher_child_env`` force-disables ANSI colour + npm notices
-    # (the child's output is redirected to the electron/tauri log files).
-    env = _launcher_child_env()
-    if hidden:
-        env["VT_START_HIDDEN"] = "1"
-    # surface (without values) any sensitive env keys the
-    # child will inherit, so a future leak in a downstream log is
-    # auditable. Only KEY NAMES are logged — values are never printed.
-    _log_sensitive_env_keys(env, context="autostart")
-    try:
-        child = subprocess.Popen([exe, "."], env=env, **sk)
-        log.info(
-            "[AUTOSTART] spawned electron . (child pid=%s, hidden=%s)",
-            getattr(child, "pid", "?"),
-            hidden,
-        )
-        # Close parent copies of log file handles — the child has
-        # inherited them, so they remain open for the child's lifetime.
-        # Without this, the parent leaks file handles and triggers
-        # ResourceWarning on GC.
-        _close_log_files(sk)
-        return child
-    except Exception:
-        log.exception("[AUTOSTART] electron . failed")
-        return None
-
-
-def _write_pid_file(launcher_pid: int, child_pid: int | None) -> None:
-    """Persist our PID + the child's PID in ``autostart.pid``.
-
-    SEC-003: Uses _secure_atomic_write to ensure 0o600 permissions
-    on POSIX and O_NOFOLLOW symlink protection.
-
-    The child PID is captured at the call sites via
-    ``getattr(child, "pid", None)``; a non-int value (a test-double
-    return, an exotic spawn result) must NEVER be persisted — it would
-    poison the file with a garbage ``child=`` value that no reader can
-    parse. Non-int child PIDs are normalized to ``None``.
-    """
-    if not isinstance(launcher_pid, int):
-        launcher_pid = 0
-    if not isinstance(child_pid, int):
-        child_pid = None
-    try:
-        _config_dir().mkdir(parents=True, exist_ok=True)
-        _pid_file().parent.mkdir(exist_ok=True, mode=0o700)
-        from voice_typer.server.config import _secure_atomic_write
-
-        _secure_atomic_write(
-            _pid_file(),
-            f"launcher={launcher_pid}\nchild={child_pid or ''}\n",
-        )
-    except OSError as exc:
-        log.warning("[AUTOSTART] could not write pid file: %s", exc)
-
-
-def _ensure_built_and_launch(hidden: bool = False) -> bool:
-    """Launch the pre-built Electron app with ``electron .``.
-
-    Returns True if the app was launched successfully, False otherwise.
-
-    The app is NEVER built from source here — the packaged install
-    ships pre-built bundles (``out/main/index.js`` + renderer + preload)
-    and the dev path
-    uses ``npm run dev`` via :func:`_spawn_npm_run_dev`. When the
-    pre-built output is missing we fail fast so the caller falls back
-    to the dev path instead of silently invoking a build.
-
-    Strategy:
-      1. Find the dev-mode electron binary (``node_modules/electron/dist/``).
-      2. Verify the build output (main + renderer + preload bundles)
-         exists — if any is missing, return False (no auto-build).
-      3. Launch ``electron .`` with the compiled bundles.
-      4. If any step fails, return False so the caller can decide what
-         to do (fall back to dev mode, show error, etc.).
-    """
-    exe = _electron_binary()
-    if not exe:
-        log.warning("[AUTOSTART] electron binary not found -- cannot launch built app")
-        return False
-
-    if not _main_entry_built():
-        log.warning(
-            "[AUTOSTART] No pre-built output found -- launch via the dev path (npm run dev) or a packaged install"
-        )
-        return False
-
-    child = _launch_electron_built(exe, hidden=hidden)
-    if child is None:
-        return False
-
-    _write_pid_file(os.getpid(), getattr(child, "pid", None))
-    return True
-
-
-def _focus_running_app() -> bool:
-    """Wake an already-running instance via its single-instance lock.
-
-    Electron path: spawns a LEAN second ``electron .`` process.  That
-    process:
-      1. loads the prebuilt main bundle,
-      2. calls requestSingleInstanceLock() → returns false,
-      3. quits, which is what triggers the FIRST instance's
-         ``second-instance`` event → it shows + focuses the dashboard.
-
-    Tauri path: spawns the Tauri binary itself.  Tauri's
-    ``tauri-plugin-single-instance`` plugin (declared in
-    ``src-tauri/tauri.conf.json``) detects the duplicate instance,
-    focuses the first, and quits the second — same effect as the
-    Electron lean-spawn pattern, but without a separate lean binary.
-
-    This is the cheap path (~100ms, no Vite, no extra ports) for "user
-    clicked Start Menu while app is already in the background."  Returns
-    True if the focus probe was spawned, False if it couldn't be.
-    """
-    # Tauri focus path: spawn the Tauri binary — the single-instance
-    # plugin handles the focus + second-instance-quit dance.
-    focus_tauri = _is_tauri_mode()
-    if focus_tauri:
-        binary = _tauri_binary()
-        if not binary:
-            log.info("[AUTOSTART] tauri focus: binary missing; cannot focus existing instance")
-            return False
-        # CR-002 fail-closed integrity gate — same contract as
-        # ``_spawn_tauri_host`` (the focus probe spawns the real binary).
-        if not verify_tauri_binary_or_skip(binary):
-            log.error(
-                "[AUTOSTART] tauri focus: refusing to spawn %s — integrity verification failed (fail-closed).",
-                binary,
-            )
-            return False
-        # ``_launcher_child_env`` force-disables ANSI colour + npm notices
-        # (the child's output is redirected to the electron/tauri log files).
-        env = _launcher_child_env()
-        env["VT_FOCUS_ONLY"] = "1"
-        # same-app restart — full env intentionally
-        # inherited (see _launch_electron_built for rationale). Only
-        # sensitive KEY NAMES are logged for audit; values are never
-        # printed.
-        _log_sensitive_env_keys(env, context="autostart")
-        sk: dict = {}
-        sk.update(_tauri_log_files())
-        sk.update(_spawn_flags(hidden=False))  # focus probe is intentionally foreground
-        try:
-            child = subprocess.Popen([binary], env=env, **sk)
-            log.info(
-                "[AUTOSTART] spawned tauri focus probe (pid=%s)",
-                getattr(child, "pid", "?"),
-            )
-            return True
-        except Exception:
-            log.exception("[AUTOSTART] failed to spawn tauri focus probe")
-            return False
-        finally:
-            _close_log_files(sk)
-
-    # Legacy Electron focus path.
-    exe = _electron_binary()
-    if not exe or not _main_entry_built():
-        # No lean binary available — caller falls back to npm run dev,
-        # which itself will fail the lock and focus the existing window
-        # (at the cost of spinning up a Vite server briefly).
-        log.info("[AUTOSTART] lean electron unavailable; will use npm run dev to focus")
-        return False
-
-    spawn_kwargs: dict = dict(cwd=str(CLIENT_DIR))
-    # RACE-009: redirect Electron stdout/stderr to log files.
-    spawn_kwargs.update(_electron_log_files())
-    # _focus_running_app() always spawns the lean electron in the
-    # foreground (hidden=False) so the user sees the focused window.
-    spawn_kwargs.update(_spawn_flags(hidden=False))
-    try:
-        # ``electron .`` runs the app pointed at by package.json "main",
-        # i.e. ./out/main/index.js.  VT_FOCUS_ONLY is a marker env var the
-        # duplicate reads to know it should not attempt any heavy init.
-        # same-app restart — full env intentionally inherited
-        # (see _spawn_electron above for rationale). Only sensitive KEY
-        # NAMES are logged for audit; values are never printed.
-        # ``_launcher_child_env`` force-disables ANSI colour + npm notices
-        # (the child's output is redirected to the electron/tauri log files).
-        env = _launcher_child_env()
-        env["VT_FOCUS_ONLY"] = "1"
-        _log_sensitive_env_keys(env, context="autostart")
-        child = subprocess.Popen([exe, "."], env=env, **spawn_kwargs)
-        log.info(
-            "[AUTOSTART] spawned lean electron to focus running instance (pid=%s)",
-            getattr(child, "pid", "?"),
-        )
-        _close_log_files(spawn_kwargs)
-        return True
-    except Exception:
-        log.exception("[AUTOSTART] failed to spawn lean electron for focus")
-        _close_log_files(spawn_kwargs)
-        return False
-
-
-def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
-    """Launch ``npm run dev`` (Vite dev server + Electron).
-
-    This is the LAST-RESORT fallback path, used only when the build
-    fails or when ``--dev`` is explicitly passed.
-    """
-    spawn_kwargs: dict = dict(cwd=str(CLIENT_DIR))
-    # RACE-009: redirect Electron stdout/stderr to log files.
-    spawn_kwargs.update(_electron_log_files())
-    spawn_kwargs.update(_spawn_flags(hidden=hidden))
-    # same-app restart — full env intentionally inherited
-    # (see _spawn_electron above for rationale). Only sensitive KEY
-    # NAMES are logged for audit; values are never printed.
-    # ``_launcher_child_env`` force-disables ANSI colour + npm notices
-    # (the child's output is redirected to the electron/tauri log files).
-    env = _launcher_child_env()
-    if hidden:
-        env["VT_START_HIDDEN"] = "1"
-    _log_sensitive_env_keys(env, context="autostart")
-
-    try:
-        # S-7: prefer list form over shell=True.
-        cmd = _npm_command("dev")
-        if cmd is None:
-            # S-7: npm truly not resolvable — log and bail (no shell=True).
-            log.error(
-                "[AUTOSTART] npm not found on PATH; cannot launch dev mode. Install Node.js / npm or add it to PATH."
-            )
-            _close_log_files(spawn_kwargs)
-            return None
-        child = subprocess.Popen(
-            cmd,
-            env=env,
-            **spawn_kwargs,
-        )
-        # Close parent copies of log file handles — the child has
-        # inherited them, so they remain open for the child's lifetime.
-        _close_log_files(spawn_kwargs)
-        log.info(
-            "[AUTOSTART] spawned 'npm run dev' in %s (child pid=%s, hidden=%s)",
-            CLIENT_DIR,
-            getattr(child, "pid", "?"),
-            hidden,
-        )
-        return child
-    except FileNotFoundError:
-        log.exception("[AUTOSTART] npm not found")
-        _close_log_files(spawn_kwargs)
-        return None
-    except Exception:
-        log.exception("[AUTOSTART] failed to spawn npm run dev")
-        _close_log_files(spawn_kwargs)
-        return None
 
 
 def _prewarm_would_help() -> bool:

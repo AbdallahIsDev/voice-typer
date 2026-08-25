@@ -18,12 +18,21 @@ def teardown_devnull_files(controller) -> None:
     Looks up ``_close_devnull_files`` dynamically from the app
     module so tests that monkeypatch
     ``voice_typer.server.app._close_devnull_files`` still take
-    effect.
+    effect. If the app module no longer carries that attribute
+    (the test-seam re-export was cleaned up), falls back to the
+    canonical ``voice_typer.server.log.close_devnull_files`` so the
+    teardown actually closes the streams in production instead of
+    silently no-oping behind the ``except`` below.
     """
     try:
         from voice_typer.server import app as _app_module
 
-        _app_module._close_devnull_files()
+        closer = getattr(_app_module, "_close_devnull_files", None)
+        if closer is None:
+            from voice_typer.server.log import close_devnull_files
+
+            closer = close_devnull_files
+        closer()
     except Exception:
         log.debug("[CLEANUP] close devnull files failed", exc_info=True)
 

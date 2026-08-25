@@ -129,9 +129,7 @@ async def test_transcribe_offline_dispatch_emits_result_event(monkeypatch) -> No
         )
         stop_event = asyncio.Event()
         shutdown_timer = worker_main._ShutdownTimer()
-        await worker_main._handle_connection(
-            ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer
-        )
+        await worker_main._handle_connection(ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer)
 
     # The result event must have been pushed BEFORE the shutdown ack.
     frames = [json.loads(f) for f in ws._sent_frames]
@@ -163,9 +161,7 @@ async def test_transcribe_offline_dispatch_string_sample_rate(monkeypatch) -> No
         )
         stop_event = asyncio.Event()
         shutdown_timer = worker_main._ShutdownTimer()
-        await worker_main._handle_connection(
-            ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer
-        )
+        await worker_main._handle_connection(ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer)
 
     fake.transcribe_file.assert_called_once_with("/tmp/t.wav", 48000, "en")
 
@@ -182,9 +178,7 @@ async def test_transcribe_offline_dispatch_engine_error_still_emits_result(monke
         )
         stop_event = asyncio.Event()
         shutdown_timer = worker_main._ShutdownTimer()
-        await worker_main._handle_connection(
-            ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer
-        )
+        await worker_main._handle_connection(ws, prewarm_ran=True, stop_event=stop_event, shutdown_timer=shutdown_timer)
 
     frames = [json.loads(f) for f in ws._sent_frames]
     result_frames = [f for f in frames if f.get("type") == "transcribe_offline_result"]

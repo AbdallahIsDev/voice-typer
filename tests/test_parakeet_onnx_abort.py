@@ -173,9 +173,9 @@ class TestParakeetOnnxAbortBetweenChunks:
             "Expected empty result when abort is set before the loop — no "
             f"chunks should have been decoded. Got: {result!r}"
         )
-        engine._model.recognize.assert_not_called(), (
-            "model.recognize() must NOT be called when _abort_event is set "
-            "before the chunk loop starts."
+        (
+            engine._model.recognize.assert_not_called(),
+            ("model.recognize() must NOT be called when _abort_event is set before the chunk loop starts."),
         )
 
     def test_abort_between_chunks_stops_loop_early(self):
@@ -206,8 +206,7 @@ class TestParakeetOnnxAbortBetweenChunks:
         # Only the first chunk should have been transcribed (abort
         # fired after chunk 1, loop breaks before chunk 2).
         assert call_state["n"] == 1, (
-            f"Expected 1 recognize() call (abort after chunk 1 stops the loop), "
-            f"got {call_state['n']}."
+            f"Expected 1 recognize() call (abort after chunk 1 stops the loop), got {call_state['n']}."
         )
 
     def test_abort_check_is_at_loop_top(self):
@@ -245,9 +244,7 @@ class TestParakeetOnnxAbortBetweenChunks:
             f"Got {engine._model.recognize.call_count} recognize() calls."
         )
         # Result is non-empty (the merge of identical texts).
-        assert result == "hello world", (
-            f"Expected merged result 'hello world', got: {result!r}"
-        )
+        assert result == "hello world", f"Expected merged result 'hello world', got: {result!r}"
 
     def test_abort_gate_present_in_source(self):
         """Source-level guard: ``_transcribe_chunks`` must contain the
@@ -309,6 +306,5 @@ class TestParakeetOnnxAbortNoRunOptionsPlumbing:
             "so the call cannot reach the in-flight decode."
         )
         assert "run_options" not in src, (
-            "request_abort() must NOT reference run_options at all — the "
-            "stash was removed as dead code."
+            "request_abort() must NOT reference run_options at all — the stash was removed as dead code."
         )

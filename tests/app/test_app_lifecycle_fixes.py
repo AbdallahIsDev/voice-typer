@@ -729,22 +729,15 @@ class TestMainWrapsIpcMain:
         called = []
         import voice_typer.server.ipc_server as ipc_server_module
 
-        monkeypatch.setattr(
-            ipc_server_module, "main", lambda: called.append(True)
-        )
+        monkeypatch.setattr(ipc_server_module, "main", lambda: called.append(True))
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.app"):
             app_module.main()
 
         assert called, "main() must still invoke ipc_main() when faulthandler.enable() fails"
-        warning_records = [
-            r
-            for r in caplog.records
-            if "faulthandler not available" in r.message
-        ]
+        warning_records = [r for r in caplog.records if "faulthandler not available" in r.message]
         assert warning_records, (
-            "main() must log a WARNING containing 'faulthandler not available' "
-            "when faulthandler.enable() raises"
+            "main() must log a WARNING containing 'faulthandler not available' when faulthandler.enable() raises"
         )
         assert warning_records[0].levelno == logging.WARNING, (
             "the faulthandler fallback must be logged at WARNING (not DEBUG)"

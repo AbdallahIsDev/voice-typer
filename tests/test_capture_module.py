@@ -22,6 +22,8 @@ import numpy as np
 import pytest
 from voice_typer.server.recording.capture import AudioCallbackDispatcher
 
+from tests.fixtures.wait_helpers import wait_until
+
 # ── Fakes ───────────────────────────────────────────────────────────────
 
 
@@ -325,8 +327,8 @@ class TestAudioWorkerLoop:
         t = self._start_worker(dispatcher, fake)
         # Wake the worker so it processes the chunk.
         fake._worker_wake_event.set()
-        # Give it a moment to drain, then stop.
-        time.sleep(0.05)
+        # Wait for the drain, then stop.
+        assert wait_until(lambda: len(fake._process_audio_chunk_calls) == 1)
         self._stop_and_join(fake, t)
         assert len(fake._process_audio_chunk_calls) == 1
         args = fake._process_audio_chunk_calls[0]
@@ -340,7 +342,7 @@ class TestAudioWorkerLoop:
         dispatcher = AudioCallbackDispatcher(fake)
         t = self._start_worker(dispatcher, fake)
         fake._worker_wake_event.set()
-        time.sleep(0.05)
+        assert wait_until(lambda: len(fake._process_audio_chunk_calls) == 3)
         self._stop_and_join(fake, t)
         # All 3 chunks drained, in FIFO (insertion) order.
         assert len(fake._process_audio_chunk_calls) == 3
@@ -360,7 +362,7 @@ class TestAudioWorkerLoop:
         dispatcher = AudioCallbackDispatcher(fake)
         t = self._start_worker(dispatcher, fake)
         fake._worker_wake_event.set()
-        time.sleep(0.05)
+        assert wait_until(lambda: len(fake._process_audio_chunk_calls) == 2)
         self._stop_and_join(fake, t)
         # Both chunks were attempted (even though both raised).
         assert len(fake._process_audio_chunk_calls) == 2
@@ -375,9 +377,10 @@ class TestAudioWorkerLoop:
             fake._ring_buffer.append((np.zeros(4, dtype=np.float32), 4, f"t{i}", f"s{i}", float(i)))
         dispatcher = AudioCallbackDispatcher(fake)
         t = self._start_worker(dispatcher, fake)
-        # Wake, give it a tiny window, then stop.
+        # Wake, wait until the worker is mid-drain (at least one chunk
+        # processed), then stop — the drain loop must still complete.
         fake._worker_wake_event.set()
-        time.sleep(0.02)
+        assert wait_until(lambda: len(fake._process_audio_chunk_calls) >= 1)
         # Stop should set after wake — the drain loop completes first.
         fake._worker_stop_event.set()
         fake._worker_wake_event.set()
@@ -392,11 +395,12 @@ class TestAudioWorkerLoop:
         fake = _FakeRecorder()
         dispatcher = AudioCallbackDispatcher(fake)
         t = self._start_worker(dispatcher, fake)
-        # Worker is blocked on _worker_wake_event.wait(timeout=0.05).
+        # Wait until the worker thread is up and parked on its wait.
+        assert wait_until(lambda: t.is_alive())
         # Set the wake event and confirm the worker doesn't crash.
-        time.sleep(0.05)
+        # (Aliveness is persistent state — a wake-handling crash would
+        # keep the thread dead regardless of when we check.)
         fake._worker_wake_event.set()
-        time.sleep(0.02)
         assert t.is_alive(), "worker should still be running (no stop set)"
         # Now stop it cleanly.
         self._stop_and_join(fake, t)
@@ -441,7 +445,7 @@ class TestDispatchAndWorkerIntegration:
             daemon=True,
         )
         t.start()
-        time.sleep(0.05)
+        assert wait_until(lambda: len(fake._process_audio_chunk_calls) == 3)
         fake._worker_stop_event.set()
         fake._worker_wake_event.set()
         t.join(timeout=2.0)

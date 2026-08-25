@@ -250,9 +250,7 @@ class TestReturnType:
 
     def test_returns_is_online(self, hook_source: str):
         """``isOnline`` is in the return object."""
-        assert re.search(r"return\s*\{[^}]*\bisOnline\b", hook_source, re.DOTALL), (
-            "hook must return { isOnline, ... }"
-        )
+        assert re.search(r"return\s*\{[^}]*\bisOnline\b", hook_source, re.DOTALL), "hook must return { isOnline, ... }"
 
     def test_returns_last_online_at(self, hook_source: str):
         """``lastOnlineAt`` is in the return object."""
@@ -275,9 +273,7 @@ class TestReturnType:
 
     def test_returns_error(self, hook_source: str):
         """``error`` is in the return object (last IPC error, or null)."""
-        assert re.search(r"return\s*\{[^}]*\berror\b", hook_source, re.DOTALL), (
-            "hook must return { error, ... }"
-        )
+        assert re.search(r"return\s*\{[^}]*\berror\b", hook_source, re.DOTALL), "hook must return { error, ... }"
 
 
 # ── SSRF / no direct network ────────────────────────────────────────────
@@ -300,7 +296,8 @@ class TestNoDirectNetwork:
         # why we DON'T use fetch). Match ``fetch(`` outside of comments.
         # Strip comments (lines starting with ``//`` or ``*``).
         code_only = "\n".join(
-            line for line in hook_source.splitlines()
+            line
+            for line in hook_source.splitlines()
             if not line.strip().startswith("//") and not line.strip().startswith("*")
         )
         assert "fetch(" not in code_only, (
@@ -312,13 +309,11 @@ class TestNoDirectNetwork:
     def test_no_xmlhttprequest(self, hook_source: str):
         """No ``XMLHttpRequest`` in the hook."""
         assert "XMLHttpRequest" not in hook_source, (
-            "hook must NOT use XMLHttpRequest — all network requests must "
-            "go through the Python IPC bridge"
+            "hook must NOT use XMLHttpRequest — all network requests must go through the Python IPC bridge"
         )
 
     def test_no_axios(self, hook_source: str):
         """No ``axios`` import in the hook."""
         assert "axios" not in hook_source, (
-            "hook must NOT import axios — all network requests must go "
-            "through the Python IPC bridge"
+            "hook must NOT import axios — all network requests must go through the Python IPC bridge"
         )

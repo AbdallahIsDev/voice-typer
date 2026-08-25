@@ -131,32 +131,21 @@ def test_windows_legacy_alias_updated(native_dir: Path) -> None:
     unm.update_manifest(native_dir)
 
     manifest = json.loads((native_dir / "binaries.json").read_text())
-    assert (
-        manifest["binaries"]["windows-key-listener.exe"]["sha256"] == expected
-    )
-    assert (
-        manifest["binaries"]["windows-key-listener-x86_64.exe"]["sha256"]
-        == expected
-    )
+    assert manifest["binaries"]["windows-key-listener.exe"]["sha256"] == expected
+    assert manifest["binaries"]["windows-key-listener-x86_64.exe"]["sha256"] == expected
     # aarch64 entry is NOT touched.
-    assert (
-        manifest["binaries"]["windows-key-listener-aarch64.exe"]["sha256"] == ""
-    )
+    assert manifest["binaries"]["windows-key-listener-aarch64.exe"]["sha256"] == ""
 
 
 def test_arch_suffixed_binary_updates_legacy_alias(native_dir: Path) -> None:
     """A binary emitted under its arch-suffixed name also updates the legacy alias."""
-    _write_binary(
-        native_dir, "linux-key-listener-x86_64", b"arch-suffixed-payload"
-    )
+    _write_binary(native_dir, "linux-key-listener-x86_64", b"arch-suffixed-payload")
     expected = hashlib.sha256(b"arch-suffixed-payload").hexdigest()
 
     unm.update_manifest(native_dir)
 
     manifest = json.loads((native_dir / "binaries.json").read_text())
-    assert (
-        manifest["binaries"]["linux-key-listener-x86_64"]["sha256"] == expected
-    )
+    assert manifest["binaries"]["linux-key-listener-x86_64"]["sha256"] == expected
     assert manifest["binaries"]["linux-key-listener"]["sha256"] == expected
 
 
@@ -193,9 +182,7 @@ def test_preserves_version_and_min_proto_version(native_dir: Path) -> None:
     manifest = json.loads((native_dir / "binaries.json").read_text())
     manifest["binaries"]["linux-key-listener-x86_64"]["version"] = "9.9.9"
     manifest["binaries"]["linux-key-listener-x86_64"]["min_proto_version"] = 42
-    (native_dir / "binaries.json").write_text(
-        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
-    )
+    (native_dir / "binaries.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     _write_binary(native_dir, "linux-key-listener", b"payload")
     unm.update_manifest(native_dir)
@@ -255,41 +242,25 @@ def test_multiple_binaries_all_updated(native_dir: Path) -> None:
     unm.update_manifest(native_dir)
 
     manifest = json.loads((native_dir / "binaries.json").read_text())
-    assert (
-        manifest["binaries"]["linux-key-listener"]["sha256"]
-        == hashlib.sha256(b"linux-payload").hexdigest()
-    )
-    assert (
-        manifest["binaries"]["linux-key-listener-x86_64"]["sha256"]
-        == hashlib.sha256(b"linux-payload").hexdigest()
-    )
-    assert (
-        manifest["binaries"]["windows-key-listener.exe"]["sha256"]
-        == hashlib.sha256(b"windows-payload").hexdigest()
-    )
+    assert manifest["binaries"]["linux-key-listener"]["sha256"] == hashlib.sha256(b"linux-payload").hexdigest()
+    assert manifest["binaries"]["linux-key-listener-x86_64"]["sha256"] == hashlib.sha256(b"linux-payload").hexdigest()
+    assert manifest["binaries"]["windows-key-listener.exe"]["sha256"] == hashlib.sha256(b"windows-payload").hexdigest()
     assert (
         manifest["binaries"]["windows-key-listener-x86_64.exe"]["sha256"]
         == hashlib.sha256(b"windows-payload").hexdigest()
     )
-    assert (
-        manifest["binaries"]["macos-key-listener"]["sha256"]
-        == hashlib.sha256(b"macos-payload").hexdigest()
-    )
+    assert manifest["binaries"]["macos-key-listener"]["sha256"] == hashlib.sha256(b"macos-payload").hexdigest()
 
 
 def test_aarch64_binary_does_not_update_legacy(native_dir: Path) -> None:
     """aarch64 arch-suffixed names have NO legacy alias — only direct entry."""
-    _write_binary(
-        native_dir, "linux-key-listener-aarch64", b"aarch64-payload"
-    )
+    _write_binary(native_dir, "linux-key-listener-aarch64", b"aarch64-payload")
     expected = hashlib.sha256(b"aarch64-payload").hexdigest()
 
     unm.update_manifest(native_dir)
 
     manifest = json.loads((native_dir / "binaries.json").read_text())
-    assert (
-        manifest["binaries"]["linux-key-listener-aarch64"]["sha256"] == expected
-    )
+    assert manifest["binaries"]["linux-key-listener-aarch64"]["sha256"] == expected
     # Legacy ``linux-key-listener`` (always x86_64) MUST NOT be touched
     # by an aarch64 build — that would let an aarch64 binary satisfy
     # verification for an x86_64 host.
@@ -318,7 +289,5 @@ def test_main_returns_one_when_manifest_missing(tmp_path: Path) -> None:
 
 
 def test_main_returns_one_on_too_many_args(native_dir: Path) -> None:
-    rc = unm.main(
-        ["update_native_manifests.py", str(native_dir), "extra"]
-    )
+    rc = unm.main(["update_native_manifests.py", str(native_dir), "extra"])
     assert rc == 1

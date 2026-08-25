@@ -597,13 +597,17 @@ class TestPersistedIdRoundTripAcrossReboot:
     ("reboot") → both resolvers find the SAME physical device."""
 
     def test_resolve_mic_id_to_device_index_survives_index_shuffle(self, monkeypatch):
+        # All devices share the canonical host API: a record enumerated
+        # only on a non-canonical API is dropped by host-API
+        # normalization before ids are persisted (covered in
+        # test_hostapi_canonicalization.py).
         before_devices = [
             _sd_device(3, "Microphone (Realtek Audio)", hostapi=1),
-            _sd_device(5, "Blue Yeti", hostapi=0),
+            _sd_device(5, "Blue Yeti", hostapi=1),
             _sd_device(8, "USB Mic", hostapi=1),
         ]
         after_devices = [
-            _sd_device(9, "Blue Yeti", hostapi=0),
+            _sd_device(9, "Blue Yeti", hostapi=1),
             _sd_device(10, "USB Mic", hostapi=1),
             _sd_device(14, "Microphone (Realtek Audio)", hostapi=1),
         ]

@@ -591,9 +591,7 @@ def test_discard_zeros_cached_resampled_segments_in_place(monkeypatch):
     rec._recording_event.set()
     rec.discard()
 
-    assert rec._cached_resampled_segments == [], (
-        "Recorder.discard() must reset _cached_resampled_segments to []."
-    )
+    assert rec._cached_resampled_segments == [], "Recorder.discard() must reset _cached_resampled_segments to []."
     assert rec._cached_resampled_concat_dirty is False
     _assert_array_memory_zeroed(segment_a, ctx="segment_a after discard()")
     _assert_array_memory_zeroed(segment_b, ctx="segment_b after discard()")

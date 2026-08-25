@@ -43,6 +43,8 @@ import pytest
 from voice_typer.server.volume_backend_base import VolumeBackend, VolumeState
 from voice_typer.server.volume_ducker import VolumeDucker
 
+from tests.fixtures.wait_helpers import wait_until
+
 # ── Controllable FakeBackend ────────────────────────────────────────────
 
 
@@ -100,19 +102,6 @@ class ControllableBackend(VolumeBackend):
     # Test helper — flip the speaker activity at runtime.
     def set_speaker_active(self, active: bool) -> None:
         self._speaker_active = active
-
-
-# ── Helper: wait for a condition with timeout ───────────────────────────
-
-
-def _wait_for(condition, timeout=2.0, interval=0.02):
-    """Poll `condition()` until it returns True or timeout expires."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if condition():
-            return True
-        time.sleep(interval)
-    return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -176,7 +165,7 @@ class TestMonitorLifecycle:
 
         ducker.restore()
         # Give the monitor thread a moment to exit.
-        assert _wait_for(lambda: not ducker.is_monitor_running, timeout=1.0), "Monitor should stop after restore()"
+        assert wait_until(lambda: not ducker.is_monitor_running, timeout=1.0), "Monitor should stop after restore()"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -205,7 +194,7 @@ class TestRetroactiveDuck:
         backend.set_speaker_active(True)
 
         # Wait for the monitor to detect audio and retroactively duck.
-        assert _wait_for(lambda: ducker.actually_ducked, timeout=2.0), (
+        assert wait_until(lambda: ducker.actually_ducked, timeout=2.0), (
             "Monitor should have retroactively ducked after audio started"
         )
 
@@ -216,7 +205,7 @@ class TestRetroactiveDuck:
         assert ducker.actually_ducked is True
 
         # Monitor should have exited (its job is done).
-        assert _wait_for(lambda: not ducker.is_monitor_running, timeout=1.0)
+        assert wait_until(lambda: not ducker.is_monitor_running, timeout=1.0)
 
         ducker.restore()
 
@@ -236,7 +225,7 @@ class TestRetroactiveDuck:
         assert not cr.path.exists()  # smart-duck skip → no file
 
         backend.set_speaker_active(True)
-        assert _wait_for(lambda: ducker.actually_ducked, timeout=2.0)
+        assert wait_until(lambda: ducker.actually_ducked, timeout=2.0)
         assert cr.path.exists(), "Retroactive duck should have written crash-recovery file"
 
         ducker.restore()
@@ -251,13 +240,11 @@ class TestRetroactiveDuck:
         ducker.initialize()
 
         ducker.duck(0.25)
-        # Poll for several poll intervals — audio never starts, so the
-        # monitor should never duck.
-        deadline = time.monotonic() + 1.0
-        while time.monotonic() < deadline:
-            if ducker.actually_ducked:
-                break
-            time.sleep(0.02)
+        # Negative wait: poll for several poll intervals — audio never
+        # starts, so the monitor must never duck.
+        assert not wait_until(lambda: ducker.actually_ducked, timeout=1.0), (
+            "Monitor should NOT have ducked if audio never started"
+        )
 
         assert not ducker.actually_ducked, "Monitor should NOT have ducked if audio never started"
         assert backend.fade_calls == []
@@ -276,9 +263,9 @@ class TestRetroactiveDuck:
         ducker.duck(0.25)
 
         backend.set_speaker_active(True)
-        assert _wait_for(lambda: ducker.actually_ducked, timeout=2.0)
+        assert wait_until(lambda: ducker.actually_ducked, timeout=2.0)
         # Monitor should exit after the successful retroactive duck.
-        assert _wait_for(lambda: not ducker.is_monitor_running, timeout=1.0), (
+        assert wait_until(lambda: not ducker.is_monitor_running, timeout=1.0), (
             "Monitor should exit after retroactive duck succeeds"
         )
 
@@ -302,7 +289,7 @@ class TestMonitorDisableMidDictation:
         assert ducker.is_monitor_running
 
         ducker.set_smart_duck_enabled(False)
-        assert _wait_for(lambda: not ducker.is_monitor_running, timeout=1.0), (
+        assert wait_until(lambda: not ducker.is_monitor_running, timeout=1.0), (
             "Monitor should stop when smart-duck is disabled"
         )
 
@@ -320,16 +307,14 @@ class TestMonitorDisableMidDictation:
         ducker.initialize()
         ducker.duck(0.25)
         ducker.set_smart_duck_enabled(False)
-        assert _wait_for(lambda: not ducker.is_monitor_running, timeout=1.0)
+        assert wait_until(lambda: not ducker.is_monitor_running, timeout=1.0)
 
         # Audio starts — but monitor is gone, so no retroactive duck.
         backend.set_speaker_active(True)
-        # Poll for a few intervals — monitor is gone, so no duck.
-        deadline = time.monotonic() + 1.0
-        while time.monotonic() < deadline:
-            if ducker.actually_ducked:
-                break
-            time.sleep(0.02)
+        # Negative wait: monitor is gone, so no duck.
+        assert not wait_until(lambda: ducker.actually_ducked, timeout=1.0), (
+            "retroactive duck must not happen after smart-duck was disabled"
+        )
         assert not ducker.actually_ducked
         assert backend.fade_calls == []
 
@@ -361,7 +346,7 @@ class TestMonitorSecondDuck:
 
         # Audio starts — retroactive duck should use the NEW level (0.15).
         backend.set_speaker_active(True)
-        assert _wait_for(lambda: ducker.actually_ducked, timeout=2.0)
+        assert wait_until(lambda: ducker.actually_ducked, timeout=2.0)
         assert (0.15, 150) in backend.fade_calls, (
             f"Retroactive duck should use the updated level 0.15; got {backend.fade_calls}"
         )
@@ -399,7 +384,7 @@ class TestMonitorErrorHandling:
         backend.is_speaker_active = flaky
 
         # Monitor should survive the errors and eventually duck.
-        assert _wait_for(lambda: ducker.actually_ducked, timeout=3.0), (
+        assert wait_until(lambda: ducker.actually_ducked, timeout=3.0), (
             "Monitor should retry after is_speaker_active exceptions and eventually duck when audio starts"
         )
 
@@ -444,7 +429,7 @@ class TestPollInterval:
         # Start audio immediately.
         backend.set_speaker_active(True)
         start = time.monotonic()
-        assert _wait_for(lambda: ducker.actually_ducked, timeout=2.0)
+        assert wait_until(lambda: ducker.actually_ducked, timeout=2.0)
         elapsed = time.monotonic() - start
 
         # With 50ms poll, should duck within ~150ms (one poll + fade).
@@ -470,7 +455,7 @@ class TestMonitorConcurrency:
         # Restore immediately — race with the monitor's first poll.
         ducker.restore()
         # Wait for the monitor to stop (poll instead of fixed sleep).
-        assert _wait_for(lambda: not ducker.is_monitor_running, timeout=2.0)
+        assert wait_until(lambda: not ducker.is_monitor_running, timeout=2.0)
 
         assert not ducker.is_monitor_running
         assert not ducker.actually_ducked
@@ -505,7 +490,7 @@ class TestMonitorConcurrency:
 
         assert not errors
         # Monitor should not be running after all cycles complete.
-        assert _wait_for(lambda: not ducker.is_monitor_running, timeout=1.0)
+        assert wait_until(lambda: not ducker.is_monitor_running, timeout=1.0)
 
     @pytest.mark.slow
     def test_thread_join_before_start_race_regression(self):

@@ -53,12 +53,34 @@ from unittest.mock import MagicMock
 # ── Helpers ────────────────────────────────────────────────────────────
 
 
-_SHUTDOWN_CONTROLLER_PATH = os.path.join(
+# The pre-split ``shutdown_controller.py`` is now a package. Each pinned
+# region moved to a specific leaf:
+#   * the ``join_leaked_workers`` re-export import → the package ``__init__.py``
+#   * the sequenced / parallel plan lists        → ``_plans.py``
+#   * the ``_run_plan`` call sites in ``_do_cleanup`` → ``_cleanup.py``
+_SC_PACKAGE_INIT_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
     "voice_typer",
     "server",
-    "shutdown_controller.py",
+    "shutdown_controller",
+    "__init__.py",
+)
+_SC_PLANS_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "voice_typer",
+    "server",
+    "shutdown_controller",
+    "_plans.py",
+)
+_SC_CLEANUP_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "voice_typer",
+    "server",
+    "shutdown_controller",
+    "_cleanup.py",
 )
 _SHUTDOWN_LIFECYCLE_PATH = os.path.join(
     os.path.dirname(__file__),
@@ -92,7 +114,17 @@ _WATCHDOG_PATH = os.path.join(
 
 
 def _shutdown_src() -> str:
-    with open(_SHUTDOWN_CONTROLLER_PATH, encoding="utf-8") as f:
+    with open(_SC_PACKAGE_INIT_PATH, encoding="utf-8") as f:
+        return f.read()
+
+
+def _plans_src() -> str:
+    with open(_SC_PLANS_PATH, encoding="utf-8") as f:
+        return f.read()
+
+
+def _cleanup_src() -> str:
+    with open(_SC_CLEANUP_PATH, encoding="utf-8") as f:
         return f.read()
 
 
@@ -456,7 +488,7 @@ class TestIn19AsrTeardownSecondWave:
         ``all_parallel_items`` literal appears LATER in the file and its
         closing ``]`` is the first ``\\n        ]`` match — using that as
         the bound would swallow the ASR tuple and false-positive)."""
-        s = _shutdown_src()
+        s = _plans_src()
         seq_idx = s.find("sequenced_items: list[tuple[str, object, float, str | None, bool]] = []")
         assert seq_idx > -1, "IN-19: sequenced_items list not found"
         seq_ctor = s.find("sequenced_plan = ShutdownPlan(", seq_idx)
@@ -471,7 +503,7 @@ class TestIn19AsrTeardownSecondWave:
     def test_asr_teardown_in_parallel_plan(self) -> None:
         """``_teardown_asr_models`` must be in the parallel batch (the
         first tuple of ``all_parallel_items``)."""
-        s = _shutdown_src()
+        s = _plans_src()
         par_idx = s.find("all_parallel_items: list[tuple[str, object, float, str | None, bool]] = [")
         assert par_idx > -1, "IN-19: all_parallel_items list not found"
         par_end = s.find("\n        ]", par_idx)
@@ -488,7 +520,7 @@ class TestIn19AsrTeardownSecondWave:
         region is bounded by the ``sequenced_plan = ShutdownPlan(...)``
         constructor (see test_asr_teardown_not_in_sequenced_plan for
         why the literal ``]`` bound would overreach)."""
-        s = _shutdown_src()
+        s = _plans_src()
         seq_idx = s.find("sequenced_items: list[tuple[str, object, float, str | None, bool]] = []")
         assert seq_idx > -1, "IN-19: sequenced_items list not found"
         seq_ctor = s.find("sequenced_plan = ShutdownPlan(", seq_idx)
@@ -504,7 +536,7 @@ class TestIn19AsrTeardownSecondWave:
         sequenced plan's ``_run_plan`` call - the parallel batch (with
         ASR teardown) can only start once the sequenced phase (recorder
         thread join) has returned."""
-        s = _shutdown_src()
+        s = _cleanup_src()
         sequenced_call = s.find("_timed_out = self._run_plan(sequenced_plan, frozenset())")
         assert sequenced_call > -1, "sequenced plan _run_plan call not found"
         parallel_call = s.find("self._run_plan(parallel_plan, _timed_out)")
@@ -556,12 +588,10 @@ class TestIn20ToggleLockReleasedDuringModelLoad:
         next_def = s.find("\n    def ", start_impl_idx + 1)
         body = s[start_impl_idx:next_def]
         assert "controller._toggle_lock.release()" in body, (
-            "IN-20: _toggle_lock.release() must appear in _start_impl "
-            "(released for the duration of the worker join)"
+            "IN-20: _toggle_lock.release() must appear in _start_impl (released for the duration of the worker join)"
         )
         assert "worker.join(timeout=" in body, (
-            "IN-20: _start_impl must bounded-join the worker "
-            "(worker.join(timeout=...))"
+            "IN-20: _start_impl must bounded-join the worker (worker.join(timeout=...))"
         )
         assert "controller._toggle_lock.acquire()" in body, (
             "IN-20: _toggle_lock.acquire() must re-acquire the lock in _start_impl"

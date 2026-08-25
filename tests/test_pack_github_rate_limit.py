@@ -75,9 +75,7 @@ class TestRateLimitRetry:
         sleeps: list[float] = []
         monkeypatch.setattr(offline_pack.time, "sleep", lambda s: sleeps.append(s))
         full = b"pack-content" * 100
-        fake, calls, expected = _make_rate_limited_transport(
-            fail_count=10, reset_at=None, full_body=full
-        )
+        fake, calls, expected = _make_rate_limited_transport(fail_count=10, reset_at=None, full_body=full)
         dest = tmp_path / "pack-v1.partial"
         with pytest.raises(offline_pack.OfflinePackRateLimitError):
             offline_pack.download_offline_pack_with_resume(
@@ -97,9 +95,7 @@ class TestRateLimitRetry:
         monkeypatch.setattr(offline_pack.time, "sleep", lambda s: None)
         full = b"pack-content" * 100
         expected = hashlib.sha256(full).hexdigest()
-        fake, calls, _ = _make_rate_limited_transport(
-            fail_count=1, reset_at=None, full_body=full
-        )
+        fake, calls, _ = _make_rate_limited_transport(fail_count=1, reset_at=None, full_body=full)
         dest = tmp_path / "pack-v1.partial"
         ok = offline_pack.download_offline_pack_with_resume(
             "https://github.com/owner/repo/releases/download/v1/offline_pack.zip",
@@ -123,9 +119,7 @@ class TestRateLimitRetry:
         expected = hashlib.sha256(full).hexdigest()
         # fail_count=10 ensures we hit the 1st backoff (1.0s); with
         # reset_at=now+10, sleep should be ~10s, not 1s.
-        fake, _, _ = _make_rate_limited_transport(
-            fail_count=10, reset_at=reset_at, full_body=full
-        )
+        fake, _, _ = _make_rate_limited_transport(fail_count=10, reset_at=reset_at, full_body=full)
         dest = tmp_path / "pack-v1.partial"
         with pytest.raises(offline_pack.OfflinePackRateLimitError):
             offline_pack.download_offline_pack_with_resume(
@@ -145,9 +139,7 @@ class TestRateLimitRetry:
         reset_at = time.time() - 100  # past
         full = b"x" * 100
         expected = hashlib.sha256(full).hexdigest()
-        fake, _, _ = _make_rate_limited_transport(
-            fail_count=10, reset_at=reset_at, full_body=full
-        )
+        fake, _, _ = _make_rate_limited_transport(fail_count=10, reset_at=reset_at, full_body=full)
         dest = tmp_path / "pack-v1.partial"
         with pytest.raises(offline_pack.OfflinePackRateLimitError):
             offline_pack.download_offline_pack_with_resume(

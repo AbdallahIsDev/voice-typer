@@ -103,9 +103,7 @@ class TestPaste:
         # whole xdist worker and break every time-budgeted teardown
         # drain afterwards. monkeypatch restores the real attribute
         # after this test.
-        monkeypatch.setattr(
-            mod.time, "monotonic", MagicMock(return_value=100.3)
-        )
+        monkeypatch.setattr(mod.time, "monotonic", MagicMock(return_value=100.3))
 
         result = cm.paste()
 

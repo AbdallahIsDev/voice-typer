@@ -482,9 +482,15 @@ class TestShutdownControllerPhasesContract:
 
         from voice_typer.server import shutdown_controller as sc_mod
 
-        tree = ast.parse(ast.unparse(ast.parse(Path(sc_mod.__file__).read_text())))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef) and node.name == "ShutdownController":
+        # The pre-split single-module controller is now a package;
+        # ``_do_cleanup`` lives on ``CleanupMixin`` in ``_cleanup.py``.
+        # Scan every leaf of the package for a class carrying it.
+        pkg_dir = Path(sc_mod.__file__).parent
+        for leaf_path in sorted(pkg_dir.glob("*.py")):
+            tree = ast.parse(ast.unparse(ast.parse(leaf_path.read_text())))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
+                    continue
                 for item in node.body:
                     if isinstance(item, ast.FunctionDef) and item.name == "_do_cleanup":
                         line_span = item.end_lineno - item.lineno + 1

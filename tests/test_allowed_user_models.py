@@ -30,16 +30,13 @@ class TestAllowedUserModels:
         from voice_typer.server.config_validators import ALLOWED_USER_MODELS
 
         assert "tiny" in ALLOWED_USER_MODELS, (
-            "'tiny' (the default model) is not in ALLOWED_USER_MODELS — "
-            "the default itself would be reset on load."
+            "'tiny' (the default model) is not in ALLOWED_USER_MODELS — the default itself would be reset on load."
         )
         assert "large-v3" in ALLOWED_USER_MODELS, (
-            "'large-v3' is not in ALLOWED_USER_MODELS — users "
-            "who pick it would be silently reset."
+            "'large-v3' is not in ALLOWED_USER_MODELS — users who pick it would be silently reset."
         )
         assert "large-v3-turbo" in ALLOWED_USER_MODELS, (
-            "'large-v3-turbo' is not in ALLOWED_USER_MODELS — users "
-            "who pick it would be silently reset."
+            "'large-v3-turbo' is not in ALLOWED_USER_MODELS — users who pick it would be silently reset."
         )
 
     def test_removed_models_not_in_allowed_set(self):
@@ -49,8 +46,7 @@ class TestAllowedUserModels:
 
         for removed in ("tiny.en", "small.en", "medium.en", "base", "small", "medium", "turbo", "distil-large-v3"):
             assert removed not in ALLOWED_USER_MODELS, (
-                f"{removed!r} was removed from the catalog (2026-08-15) "
-                "but is still in ALLOWED_USER_MODELS."
+                f"{removed!r} was removed from the catalog (2026-08-15) but is still in ALLOWED_USER_MODELS."
             )
 
     def test_every_onboarding_model_option_is_allowed(self):
@@ -79,8 +75,7 @@ class TestAllowedUserModels:
 
         c = Config.load()
         assert c.model_size == model_size, (
-            f"Config.load() reset model_size from '{model_size}' to "
-            f"'{c.model_size}' — valid choices must be preserved."
+            f"Config.load() reset model_size from '{model_size}' to '{c.model_size}' — valid choices must be preserved."
         )
 
     def test_load_still_normalizes_truly_unsupported_models(self, tmp_config_dir):

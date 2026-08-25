@@ -392,10 +392,7 @@ def test_is_autostart_linux_true_when_exec_program_exists(linux_platform):
     desktop_path = linux_platform.autostart_dir / "voice-typer.desktop"
     desktop_path.parent.mkdir(parents=True, exist_ok=True)
     desktop_path.write_text(
-        "[Desktop Entry]\n"
-        "Type=Application\n"
-        "Name=Voice Typer\n"
-        "Exec=/bin/true --hidden\n",
+        "[Desktop Entry]\nType=Application\nName=Voice Typer\nExec=/bin/true --hidden\n",
         encoding="utf-8",
     )
     assert sp._is_autostart_linux() is True, (

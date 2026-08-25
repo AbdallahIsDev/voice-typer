@@ -393,7 +393,7 @@ def _build_aumid_powershell_script(lnk_path: Path, aumid: str) -> str:
         + "using System.Runtime.InteropServices;\n"
         + "using System.Text;\n"
         + "public static class LnkAumid {\n"
-        + "    [ComImport, Guid(\"00021401-0000-0000-C000-000000000046\")]\n"
+        + '    [ComImport, Guid("00021401-0000-0000-C000-000000000046")]\n'
         + "    private class CShellLink { }\n"
         + '    [ComImport, Guid("000214F9-0000-0000-C000-000000000046"), '
         + "InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\n"
@@ -464,7 +464,7 @@ def _build_aumid_powershell_script(lnk_path: Path, aumid: str) -> str:
         + "        if (!string.IsNullOrEmpty(iconPath)) sl.SetIconLocation(iconPath, 0);\n"
         + "        IPropertyStore ps = (IPropertyStore)link;\n"
         + "        PROPERTYKEY key;\n"
-        + "        key.fmtid = new Guid(\"9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3\");\n"
+        + '        key.fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3");\n'
         + "        key.pid = 5;\n"
         + "        PROPVARIANT pv;\n"
         + "        pv.vt = 31;\n"
@@ -536,10 +536,7 @@ def _set_lnk_app_user_model_id(lnk_path: Path) -> bool:
         raw = lnk_path.read_bytes()
         # PKEY_AppUserModel_ID fmtid 9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3
         # as little-endian bytes (GUID mixed-endian field order).
-        if (
-            bytes.fromhex("55284c9f799f394ba8d0e1d42de1d5f3") in raw
-            and _APP_USER_MODEL_ID.encode("utf-16-le") in raw
-        ):
+        if bytes.fromhex("55284c9f799f394ba8d0e1d42de1d5f3") in raw and _APP_USER_MODEL_ID.encode("utf-16-le") in raw:
             return True
     except OSError:
         # unreadable .lnk — fall through to the PowerShell stamp which

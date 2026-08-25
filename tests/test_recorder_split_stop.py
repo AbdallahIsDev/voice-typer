@@ -440,10 +440,9 @@ class TestBufferSnapshotUnderLock:
     the captured chunks OUTSIDE the lock (so the audio worker's
     append path is not blocked for the 50–300 ms concat duration)."""
 
-    def test_buffer_swapped_for_fresh_empty_deque(self, monkeypatch):
-        import collections
-
+    def test_buffer_swapped_for_fresh_empty_container(self, monkeypatch):
         import voice_typer.server.recording as rec_pkg
+        from voice_typer.server.recording._recorder_split import GrowableRecordingBuffer
 
         monkeypatch.setattr(rec_pkg, "_secure_clear_array_background", lambda _old: None)
 
@@ -454,10 +453,11 @@ class TestBufferSnapshotUnderLock:
 
         stop_recording(recorder)
 
-        # The deque was swapped for a fresh empty one.
+        # The old storage was swapped for a fresh EMPTY contiguous buffer.
         assert recorder._buffer is not original_buffer
-        assert isinstance(recorder._buffer, collections.deque)
+        assert isinstance(recorder._buffer, GrowableRecordingBuffer)
         assert len(recorder._buffer) == 0
+        assert recorder._buffer.total_samples == 0
         # Maxlen is preserved (or defaulted to DEFAULT_MAX_BUFFER_CHUNKS).
         from voice_typer.server.recording.recorder import DEFAULT_MAX_BUFFER_CHUNKS
 
@@ -480,22 +480,26 @@ class TestBufferSnapshotUnderLock:
         assert recorder._buffer.maxlen == custom_maxlen
 
     def test_secure_clear_array_background_called_with_old_buffer(self, monkeypatch):
-        """G4-H-06: the old deque is securely zeroed in a background
+        """G4-H-06: the old storage is securely zeroed in a background
         daemon thread (so stop() returns immediately and the secure
         clear happens off the hot path)."""
         import voice_typer.server.recording as rec_pkg
+        from voice_typer.server.recording._recorder_split import GrowableRecordingBuffer
 
         bg_clear = MagicMock()
         monkeypatch.setattr(rec_pkg, "_secure_clear_array_background", bg_clear)
 
-        original_chunks = [np.ones(50, dtype=np.float32)]
-        recorder = _build_mock_recorder(buffer_chunks=original_chunks)
-        original_buffer = recorder._buffer
+        recorder = _build_mock_recorder(buffer_chunks=[])
+        buf = GrowableRecordingBuffer(maxlen=30000, nominal_sample_rate=16000)
+        buf.append(np.ones(50, dtype=np.float32))
+        recorder._buffer = buf
 
         stop_recording(recorder)
 
         bg_clear.assert_called_once()
-        assert bg_clear.call_args.args[0] is original_buffer
+        # The buffer that held the audio at stop time is exactly the
+        # object handed to the background zeroing worker.
+        assert bg_clear.call_args.args[0] is buf
 
     def test_concatenate_called_with_captured_chunks(self):
         """The captured chunks are concatenated OUTSIDE the lock into
@@ -779,14 +783,15 @@ class TestSourceStringContracts:
 
     def test_constants_import_in_function_body(self):
         """The function body lazily imports the join-timeout
-        constants and ``DEFAULT_MAX_BUFFER_CHUNKS`` from
-        ``.recorder`` (mirroring ``discard_recording`` and
-        ``start_recording``)."""
+        constants from ``.recorder`` (mirroring ``discard_recording``
+        and ``start_recording``). (``DEFAULT_MAX_BUFFER_CHUNKS`` is no
+        longer imported here: the contiguous-storage swap derives the
+        fresh buffer's maxlen from the old buffer object instead of a
+        module constant.)"""
         src = inspect.getsource(stop_recording)
         body = self._body_after_docstring(src)
         assert "_AUDIO_WORKER_JOIN_TIMEOUT_S" in body
         assert "_EVENT_WORKER_JOIN_TIMEOUT_S" in body
-        assert "DEFAULT_MAX_BUFFER_CHUNKS" in body
 
     def test_signature_is_recorder_to_ndarray(self):
         """Pin the function signature so a future refactor can't

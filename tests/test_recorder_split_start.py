@@ -550,16 +550,15 @@ class TestResamplerWarmUp:
             effective_sr=48000,  # differs from target_sr
             open_success=True,
         )
-        # Patch the package-level mutable globals so the warm-up
-        # branch fires. The lazy import inside ``start_recording``
-        # reads these via ``_recording_pkg._resample_poly`` — the
-        # custom module class routes through to ``resampling._*``,
-        # so monkeypatching the package name propagates to the
-        # function call site.
-        import voice_typer.server.recording as rec_pkg
+        # Patch the resampling submodule's mutable globals so the
+        # warm-up branch fires. ``start_recording`` reads them via a
+        # deferred ``from voice_typer.server.recording import resampling``
+        # at call time, so monkeypatching the submodule propagates to
+        # the function call site.
+        from voice_typer.server.recording import resampling as rec_resampling
 
-        monkeypatch.setattr(rec_pkg, "_resample_poly", None, raising=False)
-        monkeypatch.setattr(rec_pkg, "_resample_poly_error", None, raising=False)
+        monkeypatch.setattr(rec_resampling, "_resample_poly", None, raising=False)
+        monkeypatch.setattr(rec_resampling, "_resample_poly_error", None, raising=False)
 
         start_recording(recorder)
 
@@ -582,7 +581,7 @@ class TestResamplerWarmUp:
             effective_sr=48000,
             open_success=True,
         )
-        import voice_typer.server.recording as rec_pkg
+        from voice_typer.server.recording import resampling as rec_pkg
 
         # Pretend scipy is already loaded — skip the synchronous warm-up.
         monkeypatch.setattr(rec_pkg, "_resample_poly", object(), raising=False)
@@ -602,7 +601,7 @@ class TestResamplerWarmUp:
             effective_sr=48000,
             open_success=True,
         )
-        import voice_typer.server.recording as rec_pkg
+        from voice_typer.server.recording import resampling as rec_pkg
 
         monkeypatch.setattr(rec_pkg, "_resample_poly", None, raising=False)
         monkeypatch.setattr(rec_pkg, "_resample_poly_error", RuntimeError("scipy missing"), raising=False)
@@ -940,25 +939,37 @@ class TestSourceRewritingContract:
 
 
 class TestLazyPackageImport:
-    """The function does ``from voice_typer.server import recording as
-    _recording_pkg`` lazily (mirroring ``discard_recording``) to avoid
-    a circular import. The ``_recording_pkg._resample_poly`` /
-    ``_resample_poly_error`` lookups go through the package's custom
-    module class, so monkeypatching the package names propagates to
-    the function call site.
+    """``start_recording`` performs its patchable collaborator imports
+    lazily, INSIDE the function body, to avoid a circular import
+    (recorder.py imports this module at module top). The mutable
+    resampler state moved to the ``recording.resampling`` submodule, so
+    the call-time import contract now targets ``...recording.resampling``
+    (tests monkeypatch ``voice_typer.server.recording.resampling._resample_poly``
+    and the function must re-read it at call time). The former
+    ``from voice_typer.server import recording as _recording_pkg`` lazy
+    import was REMOVED from ``start_recording`` by the contiguous-storage
+    change's lint pass: after the resampling migration nothing in the
+    function read through the package namespace anymore (the lazy
+    ``_recording_pkg`` imports remain only in ``discard_recording`` /
+    ``stop_recording``, which still route secure-clears through it).
     """
 
     def test_lazy_import_in_function_body(self):
-        """The function body contains a lazy import of the package
-        namespace — pin this so a future refactor doesn't move it
-        to module top (which would create a circular import).
+        """The function body contains a call-time import of the mutable
+        resampling namespace — pin this so a future refactor doesn't move
+        it to module top (which would create a circular import).
         """
         body = _source_without_docstring(start_recording)
-        assert "from voice_typer.server import recording as _recording_pkg" in body, (
-            "start_recording must do the lazy package import inside its "
+        assert "from voice_typer.server.recording import resampling as _recording_resampling" in body, (
+            "start_recording must do the lazy resampling import inside its "
             "body — moving it to module top would re-introduce the "
             "circular import that recorder.py's top-level import of this "
             "module creates."
+        )
+        # And the dead package-namespace import must stay gone.
+        assert "from voice_typer.server import recording as _recording_pkg" not in body, (
+            "start_recording no longer reads through the package "
+            "namespace; an unused lazy import here would be dead code."
         )
 
 

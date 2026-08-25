@@ -548,17 +548,15 @@ class TestRestartAppStopsBackends:
     def test_restart_calls_stop_on_all_three_backends(self, monkeypatch, tmp_path):
         from voice_typer.server import app as app_module
 
+        # sounddevice / faster_whisper / pynput / pystray / pyperclip are
+        # already stubbed by the session + autouse mock_heavy_imports
+        # fixtures in tests/conftest.py. PIL is deliberately NOT mocked
+        # at that level (see tests/clipboard/conftest.py rationale), so
+        # constructing a real VoiceTyperApp here needs the PIL trio.
         for mod_name in [
-            "sounddevice",
-            "faster_whisper",
-            "faster_whisper.WhisperModel",
-            "pynput",
-            "pynput.keyboard",
-            "pystray",
             "PIL",
             "PIL.Image",
             "PIL.ImageDraw",
-            "pyperclip",
         ]:
             sys.modules.setdefault(mod_name, MagicMock())
 

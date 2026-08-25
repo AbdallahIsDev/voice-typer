@@ -49,12 +49,15 @@ from unittest.mock import MagicMock
 import pytest
 from voice_typer.server.shutdown_controller import ShutdownController
 
+# The pre-split ``shutdown_controller.py`` is now a package; the
+# ``_do_fast_cleanup`` source contracts live in its ``_cleanup.py`` leaf.
 _SHUTDOWN_CONTROLLER_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
     "voice_typer",
     "server",
-    "shutdown_controller.py",
+    "shutdown_controller",
+    "_cleanup.py",
 )
 _SIGNAL_HANDLERS_PATH = os.path.join(
     os.path.dirname(__file__),
@@ -410,10 +413,11 @@ class TestFastCleanupSource:
         # Find the _do_fast_cleanup body.
         idx = src.find("def _do_fast_cleanup(self) -> None:")
         assert idx > -1, "UE-1: _do_fast_cleanup method must exist"
-        # Slice to the next ``def `` (end of the method body).
+        # Slice to the next ``def `` (end of the method body). In the
+        # split package, ``_do_fast_cleanup`` is the LAST method of the
+        # ``_cleanup.py`` leaf — fall back to end-of-source.
         next_def = src.find("\n    def ", idx + 1)
-        assert next_def > -1, "UE-1: _do_fast_cleanup must be followed by another method"
-        body = src[idx:next_def]
+        body = src[idx:next_def] if next_def > -1 else src[idx:]
         # The last non-comment, non-blank line in the body must be
         # ``os._exit(0)``.
         code_lines = [line for line in body.splitlines() if line.strip() and not line.strip().startswith("#")]

@@ -153,6 +153,8 @@ def _read_sidecar_cmds_module() -> str:
     """
     files = [_SIDECAR_CMDS_RS] + sorted(_SIDECAR_CMDS_DIR.glob("*.rs"))
     return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
+
+
 _SUPERVISOR_RS = _REPO_ROOT / "src-tauri" / "src" / "sidecar" / "supervisor.rs"
 _UTIL_RS = _REPO_ROOT / "src-tauri" / "src" / "util.rs"
 _STATE_RS = _REPO_ROOT / "src-tauri" / "src" / "state.rs"
@@ -217,9 +219,7 @@ class TestShutdownSidecarSource:
         concurrently) doesn't try to respawn mid-shutdown.
         """
         body = _shutdown_sidecar_body()
-        assert "shutting_down" in body, (
-            "shutdown_sidecar must reference state.shutting_down (the atomic flag)"
-        )
+        assert "shutting_down" in body, "shutdown_sidecar must reference state.shutting_down (the atomic flag)"
         assert ".swap(true" in body, (
             "shutdown_sidecar must set state.shutting_down = true (atomic flag) so supervisor doesn't respawn during shutdown"  # noqa: E501
         )
@@ -450,14 +450,10 @@ class TestMacOSSignalBehavior:
         assert "SidecarHandle::ShellPlugin(c)" in src, (
             "kill() must match SidecarHandle::ShellPlugin(c) and call child.kill()"
         )
-        assert "SidecarHandle::DevMode(c)" in src, (
-            "kill() must match SidecarHandle::DevMode(c) and call c.kill().await"
-        )
+        assert "SidecarHandle::DevMode(c)" in src, "kill() must match SidecarHandle::DevMode(c) and call c.kill().await"
         # ShellPlugin arm `take()`s the inner Option then calls
         # `child.kill()` (sync — CommandChild::kill is sync).
-        assert "c.take()" in src, (
-            "ShellPlugin arm must take() the inner Option<CommandChild> before kill"
-        )
+        assert "c.take()" in src, "ShellPlugin arm must take() the inner Option<CommandChild> before kill"
         assert "child.kill()" in src, (
             "ShellPlugin arm must call child.kill() (CommandChild::kill is sync, sends SIGTERM on macOS)"
         )
@@ -718,9 +714,7 @@ class TestSupervisorSource:
         """
         src = _read(_SUPERVISOR_RS)
         # The circuit-breaker cap constant.
-        assert "MAX_RESTART_ATTEMPTS" in src, (
-            "supervisor must define MAX_RESTART_ATTEMPTS (the full-app relaunch cap)"
-        )
+        assert "MAX_RESTART_ATTEMPTS" in src, "supervisor must define MAX_RESTART_ATTEMPTS (the full-app relaunch cap)"
         # The breaker trip check.
         assert ">= MAX_RESTART_ATTEMPTS" in src, (
             "supervisor must trip the breaker via `restart_count >= MAX_RESTART_ATTEMPTS`"
@@ -921,9 +915,7 @@ class TestPythonShutdownHandler:
         """
         server, _app, service = self._make_server()
         result = server._handle_shutdown(data=None, resp={"id": 1})
-        assert result["type"] == "result", (
-            "shutdown handler must return a {\"type\":\"result\",...} ack"
-        )
+        assert result["type"] == "result", 'shutdown handler must return a {"type":"result",...} ack'
         assert result["data"] == {"ack": True}, (
             'shutdown handler must return {"data":{"ack":True}} — the host '
             "correlates this ack with the shutdown frame it just sent"
@@ -974,6 +966,8 @@ class TestPythonShutdownHandler:
         wire = json.dumps(envelope)
         assert '"ack": true' in wire, f"ack must serialize to JSON true, got wire form: {wire}"
         assert json.loads(wire) == envelope
+
+
 # ─── Cooperative shutdown hard timeout (ADR-0020 §10) ────────────────
 
 

@@ -416,7 +416,18 @@ RUST_ALLOWED_EVENT_TYPES: tuple[str, ...] = tuple(
 RUST_EVENT_SET: frozenset[str] = frozenset(RUST_ALLOWED_EVENT_TYPES)
 RUST_LISTEN_EVENTS: frozenset[str] = frozenset(_rust_listen_event_names())
 BUBBLE_TRANSLATE_SOURCES: frozenset[str] = frozenset(_translate_event_sources(_read(EVENT_PROTOCOL_RS)))
-WS_RS_TEXT = _read(WS_RS)
+# reader/writer module split: ``bubble_level``'s quoted literal (the
+# typed-only explicit emit in the coalesced fast path) moved into
+# ws/reader.rs — concatenate the bridge modules so the bubble-route
+# check below sees the full delivery surface.
+WS_RS_TEXT = "\n\n".join(
+    [_read(WS_RS)]
+    + [
+        _read(WS_RS.parent / "ws" / name)
+        for name in ("reader.rs", "writer.rs")
+        if (WS_RS.parent / "ws" / name).is_file()
+    ]
+)
 
 ELECTRON_PUSH_HANDLERS: frozenset[str] = frozenset(_push_handler_keys(_read(HANDLE_MESSAGE_TS)))
 ELECTRON_BUBBLE_ONLY_TYPES: frozenset[str] = frozenset(

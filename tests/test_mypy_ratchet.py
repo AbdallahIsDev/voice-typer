@@ -89,10 +89,7 @@ def _mypy_lines(codes: list[str]) -> str:
     ``path:line: error: message [code]``. A trailing newline is appended
     so the input behaves like real ``mypy`` output.
     """
-    lines = [
-        f"voice_typer/server/probe.py:{i + 1}: error: synthetic error [{code}]"
-        for i, code in enumerate(codes)
-    ]
+    lines = [f"voice_typer/server/probe.py:{i + 1}: error: synthetic error [{code}]" for i, code in enumerate(codes)]
     return "\n".join(lines) + ("\n" if lines else "")
 
 
@@ -280,8 +277,7 @@ class TestCompareLogic:
         stdin = _mypy_lines(["attr-defined"] * 3 + ["name-defined", "assignment"])
         result = _run_script(["--stdin"], stdin=stdin)
         assert result.returncode == 1, (
-            f"Expected exit 1 (new code grew total), got {result.returncode}.\n"
-            f"stdout:\n{result.stdout}"
+            f"Expected exit 1 (new code grew total), got {result.returncode}.\nstdout:\n{result.stdout}"
         )
         assert "FAIL" in result.stdout
 

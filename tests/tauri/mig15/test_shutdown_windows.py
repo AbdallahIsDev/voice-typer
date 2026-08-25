@@ -118,6 +118,8 @@ def _read_sidecar_cmds_module() -> str:
     """
     files = [_SIDECAR_CMDS_RS] + sorted(_SIDECAR_CMDS_DIR.glob("*.rs"))
     return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
+
+
 _SUPERVISOR_RS = _REPO_ROOT / "src-tauri" / "src" / "sidecar" / "supervisor.rs"
 _UTIL_RS = _REPO_ROOT / "src-tauri" / "src" / "util.rs"
 _STATE_RS = _REPO_ROOT / "src-tauri" / "src" / "state.rs"

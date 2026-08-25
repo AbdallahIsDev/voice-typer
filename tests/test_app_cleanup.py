@@ -85,16 +85,16 @@ def _stub_restart_environment(app, monkeypatch):
         lambda msg: None,
     )
     # Skip the 300ms pre-exit sleep in restart_app.
-    monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+    monkeypatch.setattr("time.sleep", lambda s: None)
     # Mock sys.exit to raise SystemExit (which we catch in tests) rather
     # than actually exiting the pytest process.
     monkeypatch.setattr(
-        "voice_typer.server.app.sys.exit",
+        "sys.exit",
         lambda code=0: (_ for _ in ()).throw(SystemExit(code)),
     )
     # Belt-and-suspenders: don't let os._exit kill the pytest process
     # if a future regression reintroduces it.
-    monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+    monkeypatch.setattr("os._exit", lambda code: None)
 
     # Mock the cleanup collaborators so we can assert they were called.
     # recorder.recording=True so _do_cleanup calls recorder.stop().
@@ -338,8 +338,7 @@ class TestDoCleanupIdempotency:
         app._do_cleanup()
 
         assert not (tmp_config_dir / session_state.SESSION_MARKER_FILENAME).exists(), (
-            "SESSION-STATE: clean shutdown must clear the session marker "
-            "so the next launch is not reported as a crash"
+            "SESSION-STATE: clean shutdown must clear the session marker so the next launch is not reported as a crash"
         )
 
     def test_do_cleanup_idempotent_when_recorder_stop_raises(self, app, monkeypatch):
@@ -569,7 +568,7 @@ class TestRelaunchAckEventDriven:
 
         sleep_calls = []
         monkeypatch.setattr(
-            "voice_typer.server.app.time.sleep",
+            "time.sleep",
             lambda s: sleep_calls.append((s, threading.current_thread().name)),
         )
 
@@ -612,7 +611,7 @@ class TestRelaunchAckEventDriven:
 
         sleep_calls = []
         monkeypatch.setattr(
-            "voice_typer.server.app.time.sleep",
+            "time.sleep",
             lambda s: sleep_calls.append((s, threading.current_thread().name)),
         )
 

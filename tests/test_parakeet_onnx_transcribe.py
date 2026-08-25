@@ -103,12 +103,8 @@ class TestParakeetOnnxParity:
         import wave
 
         with wave.open(str(_FIXTURE_WAV), "rb") as wf:
-            assert wf.getframerate() == 16000, (
-                f"Fixture WAV must be 16 kHz mono (got {wf.getframerate()} Hz)"
-            )
-            assert wf.getnchannels() == 1, (
-                f"Fixture WAV must be mono (got {wf.getnchannels()} channels)"
-            )
+            assert wf.getframerate() == 16000, f"Fixture WAV must be 16 kHz mono (got {wf.getframerate()} Hz)"
+            assert wf.getnchannels() == 1, f"Fixture WAV must be mono (got {wf.getnchannels()} channels)"
             raw = wf.readframes(wf.getnframes())
             audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
 
@@ -146,9 +142,7 @@ class TestParakeetOnnxParity:
             text = engine.transcribe(silence)
             # Either empty or very short (hallucination filter may or
             # may not fire depending on the model's silence behavior).
-            assert len(text.split()) <= 3, (
-                f"Expected empty/short text for silence, got: {text!r}"
-            )
+            assert len(text.split()) <= 3, f"Expected empty/short text for silence, got: {text!r}"
         finally:
             engine.unload()
 

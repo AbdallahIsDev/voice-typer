@@ -225,9 +225,7 @@ def _load_embed_tokens(path: Path, hidden_size: int) -> np.ndarray:
     """Load the float16 ``embed_tokens.bin`` matrix ``[vocab, hidden]``."""
     raw = np.fromfile(path, dtype=np.float16)
     if raw.size % hidden_size != 0:
-        raise ValueError(
-            f"embed_tokens.bin size {raw.size} is not a multiple of hidden_size {hidden_size}"
-        )
+        raise ValueError(f"embed_tokens.bin size {raw.size} is not a multiple of hidden_size {hidden_size}")
     return raw.reshape(-1, hidden_size)
 
 
@@ -337,8 +335,7 @@ class QwenOnnxModel:
         self._tokenizer = Tokenizer.from_file(str(tok_path))
 
         log.info(
-            "[QWEN-ONNX] sessions loaded: encoder=%s decoder_init=%s decoder_step=%s "
-            "(hidden=%d, providers=%s)",
+            "[QWEN-ONNX] sessions loaded: encoder=%s decoder_init=%s decoder_step=%s (hidden=%d, providers=%s)",
             paths["encoder"].name,
             paths["decoder_init"].name,
             paths["decoder_step"].name,
@@ -390,8 +387,7 @@ class QwenOnnxModel:
         audio_start, audio_end = _audio_pad_range(prompt_ids)
         if audio_features.shape[1] != (audio_end - audio_start):
             raise ValueError(
-                f"Audio feature length {audio_features.shape[1]} != "
-                f"audio_pad count {audio_end - audio_start}"
+                f"Audio feature length {audio_features.shape[1]} != audio_pad count {audio_end - audio_start}"
             )
         input_embeds[audio_start:audio_end] = audio_features[0]
         input_embeds = input_embeds[np.newaxis, :, :]
@@ -432,9 +428,7 @@ class QwenOnnxModel:
         input_ids = np.array(prompt_ids, dtype=np.int64)[np.newaxis, :]
         position_ids = np.arange(len(prompt_ids), dtype=np.int64)[np.newaxis, :]
 
-        logits, present_keys, present_values = self._run_decoder_init(
-            input_ids, position_ids, audio_features
-        )
+        logits, present_keys, present_values = self._run_decoder_init(input_ids, position_ids, audio_features)
         next_token = int(np.argmax(logits[0, -1, :]))
         output_tokens = [next_token]
         if next_token in _EOS_TOKEN_IDS:
@@ -487,8 +481,7 @@ class QwenOnnxModel:
         audio_token_count = _get_feat_extract_output_lengths(mel.shape[2])
         if audio_features.shape[1] != audio_token_count:
             log.warning(
-                "[QWEN-ONNX] encoder returned %d tokens, prompt expects %d — "
-                "clamping prompt to encoder output",
+                "[QWEN-ONNX] encoder returned %d tokens, prompt expects %d — clamping prompt to encoder output",
                 audio_features.shape[1],
                 audio_token_count,
             )
@@ -525,6 +518,4 @@ def is_onnx_model_dir(model_path: str | Path) -> bool:
     encoder = base / "encoder.onnx"
     if not encoder.is_file():
         encoder = base / "encoder.int4.onnx"
-    return encoder.is_file() and (base / "embed_tokens.bin").is_file() and (
-        base / "tokenizer.json"
-    ).is_file()
+    return encoder.is_file() and (base / "embed_tokens.bin").is_file() and (base / "tokenizer.json").is_file()

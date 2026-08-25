@@ -176,9 +176,7 @@ class OnboardingMixin(ServiceMixinBase):
             "microphone": getattr(_cfg, "microphone", None) if _cfg is not None else None,
             "hotkey": getattr(_cfg, "hotkey", None) if _cfg is not None else None,
             "model_size": getattr(_cfg, "model_size", None) if _cfg is not None else None,
-            "onboarding_completed": (
-                getattr(_cfg, "onboarding_completed", False) if _cfg is not None else False
-            ),
+            "onboarding_completed": (getattr(_cfg, "onboarding_completed", False) if _cfg is not None else False),
         }
         try:
             # Capture the previous model_size so we can skip the

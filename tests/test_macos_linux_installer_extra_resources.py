@@ -146,8 +146,7 @@ class TestElectronBuilderWindowsSectionUntouched:
         win = cfg.get("win", {}) or {}
         win_blob = str(win)
         assert "voice-typer-backend.app" not in win_blob, (
-            "win: section must NOT contain the macOS .app path — that's "
-            "mac:-only entry. windows-installer owns win:."
+            "win: section must NOT contain the macOS .app path — that's mac:-only entry. windows-installer owns win:."
         )
 
     def test_win_section_does_not_have_linux_backend_path(self):

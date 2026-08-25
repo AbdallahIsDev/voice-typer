@@ -156,7 +156,9 @@ def run() -> int:
 
     _worker_config_dir = _resolve_config_dir()
     _worker_session_id = _setup_worker_logging(
-        _worker_config_dir, debug=args.debug, process_name="worker",
+        _worker_config_dir,
+        debug=args.debug,
+        process_name="worker",
     )
     # C-LOG-1: the [STARTUP] logging initialized banner is the ONLY
     # sanctioned per-line occurrence of the session id — emitted once
@@ -168,7 +170,10 @@ def run() -> int:
         "[STARTUP] logging initialized: file=%s, level=%s, json=%s, debug=%s, quiet=%s, session=%s",
         _get_log_file_path(_worker_config_dir, process_name="worker"),
         logging.getLevelName(logging.getLogger("voice_typer").level),
-        _worker_json_mode, args.debug, False, _worker_session_id,
+        _worker_json_mode,
+        args.debug,
+        False,
+        _worker_session_id,
     )
 
     # Single-instance lock (defense-in-depth; Tauri host owns authoritative).

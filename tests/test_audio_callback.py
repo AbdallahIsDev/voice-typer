@@ -29,6 +29,7 @@ from unittest.mock import MagicMock
 import numpy as np
 
 from tests.fixtures.recorder_test_helpers import wait_for_workers_stopped
+from tests.fixtures.wait_helpers import wait_until
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -152,11 +153,7 @@ class TestSilentInputThreadStorm:
                 r._current_callback(indata, 512, None, 0)
 
             # Wait for the audio worker to drain the ring buffer.
-            deadline = time.perf_counter() + 3.0
-            while time.perf_counter() < deadline:
-                if len(r._ring_buffer) == 0:
-                    break
-                time.sleep(0.01)
+            assert wait_until(lambda: len(r._ring_buffer) == 0, timeout=3.0)
 
             assert len(r._ring_buffer) == 0, "audio worker should drain all 100 zero-filled chunks"
             assert spawn_count["n"] <= 1, (
@@ -189,11 +186,7 @@ class TestSilentInputThreadStorm:
             loud = np.ones((512, 1), dtype=np.float32) * 0.1
             for _ in range(12):
                 r._current_callback(loud, 512, None, 0)
-            deadline = time.perf_counter() + 2.0
-            while time.perf_counter() < deadline:
-                if len(r._ring_buffer) == 0:
-                    break
-                time.sleep(0.01)
+            assert wait_until(lambda: len(r._ring_buffer) == 0, timeout=2.0)
             assert spawn_count["n"] == 0, (
                 f"non-zero chunks should not spawn disconnect handlers, got {spawn_count['n']}"
             )
@@ -202,11 +195,7 @@ class TestSilentInputThreadStorm:
             # disconnect block → _device_disconnected is False →
             # spawns 1 handler.
             r._current_callback(np.zeros((512, 1), dtype=np.float32), 512, None, 0)
-            deadline = time.perf_counter() + 2.0
-            while time.perf_counter() < deadline:
-                if len(r._ring_buffer) == 0:
-                    break
-                time.sleep(0.01)
+            assert wait_until(lambda: len(r._ring_buffer) == 0, timeout=2.0)
             assert spawn_count["n"] == 1, (
                 f"first zero-filled chunk after warmup should spawn "
                 f"exactly 1 disconnect handler (the guard must not "
@@ -233,19 +222,11 @@ class TestSilentInputThreadStorm:
             loud = np.ones((512, 1), dtype=np.float32) * 0.1
             for _ in range(12):
                 r._current_callback(loud, 512, None, 0)
-            deadline = time.perf_counter() + 2.0
-            while time.perf_counter() < deadline:
-                if len(r._ring_buffer) == 0:
-                    break
-                time.sleep(0.01)
+            assert wait_until(lambda: len(r._ring_buffer) == 0, timeout=2.0)
 
             zero = np.zeros((512, 1), dtype=np.float32)
             r._current_callback(zero, 512, None, 0)
-            deadline = time.perf_counter() + 2.0
-            while time.perf_counter() < deadline:
-                if len(r._ring_buffer) == 0:
-                    break
-                time.sleep(0.01)
+            assert wait_until(lambda: len(r._ring_buffer) == 0, timeout=2.0)
             assert spawn_count["n"] == 1, f"first zero-filled chunk should spawn 1 handler, got {spawn_count['n']}"
 
             # Simulate successful restart: clear the disconnect flag
@@ -256,11 +237,7 @@ class TestSilentInputThreadStorm:
             # Next zero-filled chunk should trigger a NEW disconnect
             # detection (the guard must not permanently suppress).
             r._current_callback(zero, 512, None, 0)
-            deadline = time.perf_counter() + 2.0
-            while time.perf_counter() < deadline:
-                if len(r._ring_buffer) == 0:
-                    break
-                time.sleep(0.01)
+            assert wait_until(lambda: len(r._ring_buffer) == 0, timeout=2.0)
             assert spawn_count["n"] == 2, (
                 f"after successful restart (flag cleared), the next "
                 f"zero-filled chunk should spawn a NEW handler, got "
@@ -324,9 +301,7 @@ class TestEventWorkerLifecycle:
         # GT-23-style load guard: a worker that outlived a timed-out join
         # leaves a stale ref (stop() fast-paths when idle and cannot reap
         # it) — poll the shared guard before asserting the ref cleared.
-        assert wait_for_workers_stopped(r, stop=r.stop), (
-            "stop() must set _event_worker_thread to None after joining"
-        )
+        assert wait_for_workers_stopped(r, stop=r.stop), "stop() must set _event_worker_thread to None after joining"
 
     def test_event_worker_thread_stops_on_discard(self, monkeypatch):
         import voice_typer.server.recording as recording_mod
@@ -342,9 +317,7 @@ class TestEventWorkerLifecycle:
         r.discard()
 
         # GT-23-style load guard — see the stop() variant above.
-        assert wait_for_workers_stopped(r, stop=r.stop), (
-            "discard() must set _event_worker_thread to None after joining"
-        )
+        assert wait_for_workers_stopped(r, stop=r.stop), "discard() must set _event_worker_thread to None after joining"
 
     def test_event_worker_can_restart_after_stop(self, monkeypatch):
         """After stop(), a subsequent start() must start a NEW event
@@ -428,11 +401,7 @@ class TestNonBlockingCallback:
             # Wait for the audio worker to drain the ring buffer.
             # If _process_audio_chunk blocked on publish (pre-),
             # the ring buffer would not drain for ~1 second.
-            deadline = time.perf_counter() + 2.0
-            while time.perf_counter() < deadline:
-                if len(r._ring_buffer) == 0:
-                    break
-                time.sleep(0.005)
+            assert wait_until(lambda: len(r._ring_buffer) == 0, timeout=2.0)
             elapsed_ms = (time.perf_counter() - t0) * 1000
 
             assert len(r._ring_buffer) == 0, (
@@ -495,11 +464,7 @@ class TestAllEventsPublished:
                 r._last_clip_log_time = 0.0  # reset 1 Hz throttle
                 r._current_callback(clipping, 512, None, 0)
                 # Wait for this chunk to be processed by the worker.
-                deadline = time.perf_counter() + 2.0
-                while time.perf_counter() < deadline:
-                    if len(r._ring_buffer) == 0:
-                        break
-                    time.sleep(0.005)
+                assert wait_until(lambda: len(r._ring_buffer) == 0, timeout=2.0)
         finally:
             # stop() drains the event queue (drain=True) and publishes
             # every queued event before returning.
@@ -634,11 +599,7 @@ class TestHoistedImports:
             clipping = np.ones((512, 1), dtype=np.float32)
             r._last_clip_log_time = 0.0  # bypass the 1 Hz throttle
             r._current_callback(clipping, 512, None, 0)
-            deadline = time.perf_counter() + 2.0
-            while time.perf_counter() < deadline:
-                if len(r._ring_buffer) == 0:
-                    break
-                time.sleep(0.005)
+            assert wait_until(lambda: len(r._ring_buffer) == 0, timeout=2.0)
 
             assert event_bus_imports == [], (
                 "_process_audio_chunk triggered an inline import of "
@@ -692,11 +653,7 @@ class TestHoistedImports:
             clipping = np.ones((512, 1), dtype=np.float32)
             r._last_clip_log_time = 0.0  # bypass the 1 Hz throttle
             r._current_callback(clipping, 512, None, 0)
-            deadline = time.perf_counter() + 2.0
-            while time.perf_counter() < deadline:
-                if len(r._ring_buffer) == 0:
-                    break
-                time.sleep(0.005)
+            assert wait_until(lambda: len(r._ring_buffer) == 0, timeout=2.0)
 
             assert vad_imports == [], (
                 "_process_audio_chunk triggered an inline import of "
@@ -752,11 +709,7 @@ class TestHoistedImports:
 
             # Wait for the audio worker to drain the ring buffer —
             # this guarantees _process_audio_chunk has finished.
-            deadline = time.perf_counter() + 2.0
-            while time.perf_counter() < deadline:
-                if len(r._ring_buffer) == 0:
-                    break
-                time.sleep(0.005)
+            assert wait_until(lambda: len(r._ring_buffer) == 0, timeout=2.0)
 
             # event_bus.publish must NOT have been called from the
             # audio-worker thread. Any call from "audio-worker" means

@@ -215,9 +215,7 @@ class TestResetOnboardingFailCount:
         # fail_count=0 instead of deleting the file).
         from voice_typer.server import onboarding_status as os_status
 
-        os_status.write_status(
-            isolated_config_dir, started=True, completed=True, fail_count=5, last_fail_ts=5.0
-        )
+        os_status.write_status(isolated_config_dir, started=True, completed=True, fail_count=5, last_fail_ts=5.0)
         ss_mod._reset_onboarding_fail_count()
         data = os_status.read_status(isolated_config_dir)
         assert data["fail_count"] == 0

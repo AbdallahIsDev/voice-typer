@@ -1,16 +1,18 @@
-"""regression tests for the recorder segment-list pruning
+"""regression tests for the recorder snapshot storage invariants
 and start/stop latency fixes.
 
 Covers three focused contracts:
 
-(a) **segment list compaction** (memory):
-    ``take_snapshot`` must compact ``_cached_resampled_segments`` and
-    ``_cached_no_resample_segments`` to a single-element list when the
-    list grows beyond ``_SEGMENT_LIST_COMPACTION_THRESHOLD`` (=64).
-    Without compaction the lists grow unbounded — one entry per
-    snapshot that saw new chunks — leaving every per-snapshot segment
-    alive until ``stop()``, a ~3× memory multiplier on a 30-min
-    dictation.
+(a) **contiguous snapshot storage** (memory):
+    ``take_snapshot`` must serve every no-resample snapshot as a zero-copy
+    view over ONE pre-allocated growable float32 buffer, and must NOT
+    accumulate per-snapshot state (the historical segment-list +
+    lazy-concat caches are gone — replaced by the contiguous storage whose
+    geometric growth is amortized O(1) per appended sample). These tests
+    replace the former ``TestSegmentListCompaction`` pins: the segment
+    machinery (and its ``_SEGMENT_LIST_COMPACTION_THRESHOLD == 64``
+    constant) was REMOVED by the single-contiguous-storage redesign, which
+    makes unbounded per-snapshot list growth impossible by construction.
 
 (b) ** — teardown poll skip fast-path** (latency):
     ``StreamLifecycle.teardown_stream_body`` must skip the 300ms
@@ -51,14 +53,13 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 from voice_typer.server.recording._recorder_split import (
-    _SEGMENT_LIST_COMPACTION_THRESHOLD,
     stop_recording,
     take_snapshot,
 )
 from voice_typer.server.recording.stream_lifecycle import StreamLifecycle
 
 # ---------------------------------------------------------------------------
-# (a) segment list compaction triggers at N=64
+# (a) contiguous snapshot storage — no per-snapshot growth
 # ---------------------------------------------------------------------------
 
 
@@ -105,53 +106,33 @@ def _make_recorder_for_snapshot(
     return rec
 
 
-class TestSegmentListCompaction:
-    """``take_snapshot`` compacts the segment lists at N=64.
+class TestContiguousSnapshotStorage:
+    """``take_snapshot`` must not accumulate per-snapshot state.
 
-    Without compaction the lists grow unbounded — a 30-min 16 kHz mono
-    dictation at 16 Hz × 4 Hz poll produces ~7,200 segments, each
-    pointing at a separate numpy buffer. The 3× memory multiplier is
-    the cost of the per-segment bookkeeping vs. a single contiguous
-    buffer. The compaction replaces the list with
-    ``[np.concatenate(segments)]`` when it exceeds the threshold,
-    bounding the list to N+1 entries.
+    The contiguous-storage redesign replaced the segment lists + lazy
+    concat caches with ONE growable float32 buffer: snapshots are views
+    over its filled region, and new samples extend it in place. These
+    tests pin the invariants that make unbounded per-snapshot growth
+    impossible by construction (the property the old compaction machinery
+    existed to approximate).
     """
 
-    def test_threshold_constant_is_64(self):
-        """Source-inspection guard: the compaction threshold must
-        equal 64. If a future change bumps the threshold, update this
-        test (and the threshold mirror in any other test file)
-        deliberately."""
-        assert _SEGMENT_LIST_COMPACTION_THRESHOLD == 64, (
-            f"_SEGMENT_LIST_COMPACTION_THRESHOLD must be 64, got "
-            f"{_SEGMENT_LIST_COMPACTION_THRESHOLD}. If you changed it, "
-            f"update this test deliberately."
-        )
-
-    def test_no_resample_segment_list_compacts_at_threshold(self):
-        """After N+1 snapshots with new chunks, the no-resample
-        segment list must be compacted to a single entry (the
-        concatenated prefix). The snapshot data must still be correct
-        (sum of all appended chunks)."""
+    def test_no_resample_snapshots_leave_no_per_snapshot_state(self):
+        """After many snapshots with new chunks on the no-resample path
+        (the COMMON production path), no segment list may grow — the
+        snapshot must be served from the single contiguous buffer."""
         sample_rate = 16000
         rec = _make_recorder_for_snapshot(sample_rate=sample_rate, effective_sr=sample_rate)
-        # _buffer_sr == target_sr → no-resample path (the COMMON path
-        # in production because AudioProcessor resamples to 16 kHz
-        # before appending).
         rec._buffer_sr = sample_rate
 
-        # Use a real deque so ``len()`` / ``itertools.islice`` work.
         import collections
 
         rec._buffer = collections.deque(maxlen=10_000)
 
-        threshold = _SEGMENT_LIST_COMPACTION_THRESHOLD
-        # Each snapshot appends one new chunk to the buffer. After
-        # threshold+1 snapshots, the segment list must have been
-        # compacted (len == 1).
         chunk_value = 0
         expected_total_samples = 0
-        for i in range(threshold + 1):
+        snap = None
+        for i in range(70):  # well past the historical 64-entry threshold
             chunk_value = float(i + 1) * 0.01
             rec._buffer.append(np.full(4, chunk_value, dtype=np.float32))
             expected_total_samples += 4
@@ -161,22 +142,22 @@ class TestSegmentListCompaction:
                 f"snapshot {i}: expected {expected_total_samples} samples, got {snap.size}"
             )
 
-        # After threshold+1 snapshots, the segment list must be
-        # compacted to a single entry (the concatenated prefix).
-        assert len(rec._cached_no_resample_segments) == 1, (
-            f" regression: _cached_no_resample_segments must be "
-            f"compacted to 1 entry after {threshold + 1} snapshots with "
-            f"new chunks, got {len(rec._cached_no_resample_segments)} "
-            f"entries. The list is growing unbounded — the 3× memory "
-            f"multiplier regression."
+        assert rec._cached_resampled_segments == [], (
+            "contiguous storage: _cached_resampled_segments must stay empty — "
+            "per-snapshot segment accumulation is the ~3x memory multiplier "
+            "regression this design eliminates."
         )
-        # The single entry must be the concatenated prefix.
-        assert rec._cached_no_resample_segments[0].size == expected_total_samples
+        assert rec._cached_no_resample_segments == [], (
+            "contiguous storage: _cached_no_resample_segments must stay empty."
+        )
+        # The snapshot is a view over the single contiguous storage.
+        assert np.shares_memory(snap, rec._buffer.storage)
 
-    def test_resample_segment_list_compacts_at_threshold(self, monkeypatch):
-        """After N+1 snapshots with new chunks on the RESAMPLE path,
-        the resampled segment list must be compacted to a single
-        entry. The snapshot data must still be correct."""
+    def test_resample_snapshots_extend_one_contiguous_cache(self, monkeypatch):
+        """On the resample path the incremental cache must be ONE capacity
+        array extended in place (geometric growth), not a per-snapshot
+        segment list; snapshot values must remain correct across many
+        snapshots."""
         sample_rate = 16000
         rec = _make_recorder_for_snapshot(sample_rate=sample_rate, effective_sr=48000)
         # _buffer_sr != target_sr → resample path.
@@ -194,11 +175,9 @@ class TestSegmentListCompaction:
 
         rec._buffer = collections.deque(maxlen=10_000)
 
-        threshold = _SEGMENT_LIST_COMPACTION_THRESHOLD
-        # Each snapshot appends one new chunk. Resample decimates 3:1,
-        # so each 6-sample chunk becomes 2 samples after resample.
         expected_total_samples = 0
-        for i in range(threshold + 1):
+        snap = None
+        for i in range(70):
             rec._buffer.append(np.ones((6, 1), dtype=np.float32) * (i + 1))
             expected_total_samples += 2  # 6 samples / 3 = 2 samples
             snap = take_snapshot(rec)
@@ -206,21 +185,20 @@ class TestSegmentListCompaction:
                 f"snapshot {i}: expected {expected_total_samples} samples, got {snap.size}"
             )
 
-        # After threshold+1 snapshots, the resampled segment list must
-        # be compacted to a single entry.
-        assert len(rec._cached_resampled_segments) == 1, (
-            f" regression: _cached_resampled_segments must be "
-            f"compacted to 1 entry after {threshold + 1} snapshots with "
-            f"new chunks, got {len(rec._cached_resampled_segments)} "
-            f"entries."
+        assert rec._cached_resampled_segments == [], (
+            "contiguous storage: _cached_resampled_segments must stay empty on the resample path too."
         )
-        assert rec._cached_resampled_segments[0].size == expected_total_samples
+        assert np.shares_memory(snap, rec._cached_resampled)
+        # Values: chunk i contributes ones*(i+1) decimated by 3 → each of
+        # its 2 samples equals (i+1).
+        expected = np.repeat(np.arange(1, 71, dtype=np.float32), 2)
+        np.testing.assert_array_equal(snap, expected)
 
     def test_compaction_preserves_snapshot_values(self):
-        """After compaction, the snapshot must still return the
-        correct concatenated audio — the compaction must not lose or
+        """After many snapshots, the snapshot must still return the
+        correct concatenated audio — the storage must not lose or
         duplicate any samples. This pins the data-correctness
-        invariant across the compaction boundary."""
+        invariant across growth reallocations."""
         sample_rate = 16000
         rec = _make_recorder_for_snapshot(sample_rate=sample_rate, effective_sr=sample_rate)
         rec._buffer_sr = sample_rate
@@ -229,28 +207,27 @@ class TestSegmentListCompaction:
 
         rec._buffer = collections.deque(maxlen=10_000)
 
-        threshold = _SEGMENT_LIST_COMPACTION_THRESHOLD
-        # Append threshold+1 distinct chunks; capture the expected
-        # concatenated values for verification after compaction.
+        # Append distinct chunks; capture the expected concatenated
+        # values for verification after the storage has grown.
         expected_values: list[float] = []
-        for i in range(threshold + 1):
+        for i in range(70):
             chunk = np.array([float(i + 1)], dtype=np.float32)
             rec._buffer.append(chunk)
             expected_values.append(float(i + 1))
             take_snapshot(rec)
 
-        # The post-compaction snapshot must contain ALL the values.
+        # The final snapshot must contain ALL the values.
         snap = take_snapshot(rec)
         np.testing.assert_array_equal(
             snap,
             np.array(expected_values, dtype=np.float32),
         )
 
-    def test_segment_list_never_exceeds_threshold_plus_one(self):
-        """The segment list must NEVER exceed threshold+1 entries —
-        compaction fires the moment len > threshold, so the worst-case
-        list length is threshold+1 (right before the next compaction).
-        This pins the bounded-growth invariant."""
+    def test_segment_state_never_grows_with_snapshot_count(self):
+        """Per-snapshot state must stay FLAT as the snapshot count grows —
+        the bounded-growth invariant (formerly pinned via the 64-entry
+        compaction threshold, now guaranteed by construction: there is no
+        per-snapshot container left)."""
         sample_rate = 16000
         rec = _make_recorder_for_snapshot(sample_rate=sample_rate, effective_sr=sample_rate)
         rec._buffer_sr = sample_rate
@@ -259,22 +236,11 @@ class TestSegmentListCompaction:
 
         rec._buffer = collections.deque(maxlen=10_000)
 
-        threshold = _SEGMENT_LIST_COMPACTION_THRESHOLD
-        # Run 3× threshold snapshots — compaction should fire ~3 times,
-        # and the list length must never exceed threshold+1.
-        max_observed = 0
-        for i in range(threshold * 3):
+        for i in range(200):
             rec._buffer.append(np.array([float(i)], dtype=np.float32))
             take_snapshot(rec)
-            max_observed = max(
-                max_observed,
-                len(rec._cached_no_resample_segments),
-            )
-        assert max_observed <= threshold + 1, (
-            f" regression: segment list grew to {max_observed} "
-            f"entries (max allowed = threshold+1 = {threshold + 1}). "
-            f"Compaction is not firing on every overshoot."
-        )
+            assert len(rec._cached_no_resample_segments) == 0
+            assert len(rec._cached_resampled_segments) == 0
 
 
 # ---------------------------------------------------------------------------

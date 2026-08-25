@@ -22,8 +22,14 @@
  * the component inside a ``<TooltipProvider>`` so Radix Tooltip's
  * context requirement is satisfied in isolation.
  */
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { InfoTooltip } from "@/components/feedback/InfoTooltip";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -120,6 +126,43 @@ describe("InfoTooltip — contextLabel disambiguation (BG-R13)", () => {
 		const tooltip = await screen.findByRole("tooltip");
 		expect(tooltip).toBeInTheDocument();
 		expect(tooltip.textContent).toContain("Detailed help text");
+	});
+
+	it("inline variant renders a role-less focusable span that stops propagation", async () => {
+		// The inline variant exists for triggers INSIDE another button
+		// (accordion trigger): a nested real <button> is invalid DOM and
+		// its activation would toggle the ancestor.
+		const onClickAncestor = vi.fn();
+		const onKeyAncestor = vi.fn();
+		render(
+			withProvider(
+				// biome-ignore lint/a11y/noStaticElementInteractions: the div STANDS IN for the accordion trigger button — the test asserts the inline span's events never reach it.
+				<div onClick={onClickAncestor} onKeyDown={onKeyAncestor}>
+					<InfoTooltip
+						text="Header help"
+						contextLabel="Microphone Quality"
+						triggerAs="inline"
+					/>
+				</div>,
+			),
+		);
+		const trigger = screen.getByLabelText("More info about Microphone Quality");
+		expect(trigger.tagName).toBe("SPAN");
+		expect(trigger.getAttribute("tabindex")).toBe("0");
+		expect(trigger).not.toHaveAttribute("role");
+
+		// Focus still opens the tooltip (Radix opens on focus regardless
+		// of element type).
+		trigger.focus();
+		await waitFor(() =>
+			expect(screen.getAllByRole("tooltip").length).toBeGreaterThan(0),
+		);
+
+		// Clicks and keys never reach the wrapping interactive ancestor.
+		fireEvent.click(trigger);
+		expect(onClickAncestor).not.toHaveBeenCalled();
+		fireEvent.keyDown(trigger, { key: "Enter" });
+		expect(onKeyAncestor).not.toHaveBeenCalled();
 	});
 
 	it("ZU-32: does NOT mount its own <TooltipProvider data-slot='tooltip-provider'> (per-caller provider removed)", () => {

@@ -25,7 +25,7 @@ class TestAppUndoLastBatching:
         app._last_transcription = "a" * 25
         sleep_calls = []
         monkeypatch.setattr(
-            "voice_typer.server.app.time.sleep",
+            "time.sleep",
             lambda s: sleep_calls.append(s),
         )
 
@@ -45,7 +45,7 @@ class TestAppUndoLastBatching:
         app._last_transcription = "hello"  # 5 chars, 1 chunk
         sleep_calls = []
         monkeypatch.setattr(
-            "voice_typer.server.app.time.sleep",
+            "time.sleep",
             lambda s: sleep_calls.append(s),
         )
 
@@ -61,7 +61,7 @@ class TestAppUndoLastBatching:
         sending backspaces (so a second undo is a no-op)."""
         app._last_transcription = "hello world"
         monkeypatch.setattr(
-            "voice_typer.server.app.time.sleep",
+            "time.sleep",
             lambda s: None,
         )
 
@@ -91,7 +91,7 @@ class TestAppUndoLastGraphemeCount:
 
         app._last_transcription = text
         monkeypatch.setattr(
-            "voice_typer.server.app.time.sleep",
+            "time.sleep",
             lambda s: None,
         )
 

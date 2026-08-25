@@ -317,20 +317,25 @@ def test_no_type_ignore_return_value_in_model_py() -> None:
     """
     import io
     import tokenize
+    from pathlib import Path
 
     import voice_typer.server.service.model as model_mod
 
-    src = inspect.getsource(model_mod)
+    # The mixin was split into a package — scan every leaf so the ban
+    # keeps covering the implementation, not just the facade.
+    pkg_dir = Path(model_mod.__file__).resolve().parent
     bad_ignores: list[str] = []
-    tokens = tokenize.tokenize(io.BytesIO(src.encode("utf-8")).readline)
-    for tok in tokens:
-        if tok.type != tokenize.COMMENT:
-            continue
-        comment_text = tok.string
-        if "type: ignore" in comment_text and "return-value" in comment_text:
-            bad_ignores.append(f"{model_mod.__name__}:{tok.start[0]}: {comment_text}")
+    for leaf in sorted(pkg_dir.glob("*.py")):
+        src = leaf.read_text(encoding="utf-8")
+        tokens = tokenize.tokenize(io.BytesIO(src.encode("utf-8")).readline)
+        for tok in tokens:
+            if tok.type != tokenize.COMMENT:
+                continue
+            comment_text = tok.string
+            if "type: ignore" in comment_text and "return-value" in comment_text:
+                bad_ignores.append(f"{leaf.name}:{tok.start[0]}: {comment_text}")
     assert not bad_ignores, (
-        "Found ``# type: ignore[return-value]`` comments in service/model.py "
+        "Found ``# type: ignore[return-value]`` comments in the service/model package "
         f"({len(bad_ignores)} occurrence(s)). These hide real shape mismatches "
         "between the consent-gate dict and the DownloadOutcome TypedDict. "
         "Fix: change _require_huggingface_consent's return type to "

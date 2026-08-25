@@ -237,6 +237,10 @@ describe("useMicrophoneLevelMonitor rAF loop pauses on idle", () => {
 		// fill animates via ``transform: scaleX()`` (see LevelBar.tsx),
 		// NOT ``width``.
 		expect(fill?.style.transform).toContain("scaleX(0.5");
+		// The fill colour is LevelBar's static ``bg-primary`` class —
+		// the rAF loop must NOT write an inline ``backgroundColor``
+		// (the old per-tier colour ladder is gone).
+		expect(fill?.style.backgroundColor).toBe("");
 		// `levelRef` should also reflect the new value (the push
 		// handler mutates the ref).
 		expect(captures.hook?.levelRef.current).toBe(0.5);

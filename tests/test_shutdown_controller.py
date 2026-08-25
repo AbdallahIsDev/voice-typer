@@ -905,15 +905,9 @@ class TestShutdownWatchdog:
         # Drain must cancel it without waiting 30s and without os._exit.
         _drain_shutdown_watchdogs()
 
-        assert exit_calls == [], (
-            f"drain must cancel the watchdog before os._exit; got exit_calls={exit_calls}"
-        )
-        assert not list(_LIVE_SHUTDOWN_WATCHDOG_THREADS), (
-            "drained watchdog threads must be removed from the registry"
-        )
-        assert not list(_WATCHDOG_CANCEL_EVENTS), (
-            "drained watchdog cancel events must be removed from the registry"
-        )
+        assert exit_calls == [], f"drain must cancel the watchdog before os._exit; got exit_calls={exit_calls}"
+        assert not list(_LIVE_SHUTDOWN_WATCHDOG_THREADS), "drained watchdog threads must be removed from the registry"
+        assert not list(_WATCHDOG_CANCEL_EVENTS), "drained watchdog cancel events must be removed from the registry"
 
 
 # recorder _force_closed shutdown barrier ────────────────────

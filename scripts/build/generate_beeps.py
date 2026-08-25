@@ -305,8 +305,7 @@ def main() -> int:
         except (FileNotFoundError, RuntimeError) as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             print(
-                "Hint: run `python scripts/build/generate_beeps.py --write` "
-                "to regenerate the constants.",
+                "Hint: run `python scripts/build/generate_beeps.py --write` to regenerate the constants.",
                 file=sys.stderr,
             )
             return 1
@@ -318,8 +317,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             print(
-                "Hint: run `python scripts/build/generate_beeps.py --write` "
-                "to regenerate the constants.",
+                "Hint: run `python scripts/build/generate_beeps.py --write` to regenerate the constants.",
                 file=sys.stderr,
             )
             return 1
@@ -331,8 +329,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             print(
-                "Hint: run `python scripts/build/generate_beeps.py --write` "
-                "to regenerate the constants.",
+                "Hint: run `python scripts/build/generate_beeps.py --write` to regenerate the constants.",
                 file=sys.stderr,
             )
             return 1
@@ -344,8 +341,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             print(
-                "Hint: run `python scripts/build/generate_beeps.py --write` "
-                "to regenerate the constants.",
+                "Hint: run `python scripts/build/generate_beeps.py --write` to regenerate the constants.",
                 file=sys.stderr,
             )
             return 1

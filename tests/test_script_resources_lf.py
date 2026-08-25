@@ -56,9 +56,7 @@ def _iter_script_resources() -> list[Path]:
             files.extend(
                 path
                 for path in sorted(directory.rglob("*"))
-                if path.is_file()
-                and "__pycache__" not in path.parts
-                and not path.name.startswith(".")
+                if path.is_file() and "__pycache__" not in path.parts and not path.name.startswith(".")
             )
     return files
 
@@ -135,9 +133,7 @@ class TestScriptResourceLf:
             capture_output=True,
             text=True,
         )
-        assert result.returncode == 0, (
-            f"`git check-attr text eol -- {rel}` failed: {result.stderr}"
-        )
+        assert result.returncode == 0, f"`git check-attr text eol -- {rel}` failed: {result.stderr}"
         output = result.stdout
         assert "text: set" in output and "eol: lf" in output, (
             f"{rel}: .gitattributes must resolve `text eol=lf` for this file, "

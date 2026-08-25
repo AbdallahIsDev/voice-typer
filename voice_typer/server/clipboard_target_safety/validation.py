@@ -653,10 +653,7 @@ def _is_secure_input_enabled() -> bool:
     # paste keystroke was dropped.
     if not _pkg._MACOS_SECURE_INPUT_WARNED:
         _pkg._MACOS_SECURE_INPUT_WARNED = True
-        _pkg._log().warning(
-            "[CLIPBOARD] Paste target has Secure Input enabled — "
-            "synthesized keystroke was dropped"
-        )
+        _pkg._log().warning("[CLIPBOARD] Paste target has Secure Input enabled — synthesized keystroke was dropped")
         try:
             from voice_typer.server import event_bus
 
@@ -665,8 +662,7 @@ def _is_secure_input_enabled() -> bool:
                     "type": "paste_deferred",
                     "data": {
                         "reason": "secure_input",
-                        "message": "Paste target has secure input enabled — "
-                        "keystroke was dropped",
+                        "message": "Paste target has secure input enabled — keystroke was dropped",
                     },
                 }
             )
@@ -677,7 +673,6 @@ def _is_secure_input_enabled() -> bool:
             )
     else:
         _pkg._log().debug(
-            "[CLIPBOARD] Paste target has Secure Input enabled — "
-            "keystroke dropped (already warned this session)"
+            "[CLIPBOARD] Paste target has Secure Input enabled — keystroke dropped (already warned this session)"
         )
     return True

@@ -65,13 +65,15 @@ def mock_heavy_imports(monkeypatch):
     monkeypatch.setitem(sys.modules, "pyperclip", MagicMock())
 
     # Block the app's atexit handler from polluting test output.
-    monkeypatch.setattr("voice_typer.server.app.atexit.register", lambda *a, **kw: None)
+    monkeypatch.setattr("atexit.register", lambda *a, **kw: None)
 
     # Force PynputHotkey backend so tests can mock pynput.keyboard.GlobalHotKeys.
+    # Patch the dispatcher's own binding — HotkeyDispatcher resolves the
+    # factory from its module namespace, not through the app module.
     from voice_typer.server.hotkeys import PynputHotkey
 
     monkeypatch.setattr(
-        "voice_typer.server.app.create_hotkey_backend",
+        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
         lambda hotkey_str: PynputHotkey(hotkey_str),
     )
 
@@ -434,7 +436,7 @@ class TestQuitRestoresVolumeInstantly:
         app.recording._transcription_thread = None
         app.tray = MagicMock()
         # Stub sys.exit so quit() doesn't actually terminate the test runner.
-        with patch("voice_typer.server.app.sys.exit"):
+        with patch("sys.exit"):
             app.quit()
 
         # Restore should have used fade_ms=0

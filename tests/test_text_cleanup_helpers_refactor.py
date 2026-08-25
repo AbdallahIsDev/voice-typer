@@ -38,11 +38,17 @@ from __future__ import annotations
 import json
 
 import pytest
-from voice_typer.server import text_cleanup
+
+# The pre-split ``text_cleanup.py`` is now a package split by concern.
+# This file pins corrections-loading + Roman-numeral state, which live on
+# the ``_corrections_data`` leaf; the lock/threading namespace pins and
+# the end-to-end entry point live on ``_engine``.
 from voice_typer.server.text_cleanup import (
     _apply_phrase_substitutions,
     _capitalize_pronoun_i,
     _correct_whisper_phrases,
+    _corrections_data as text_cleanup,
+    _engine as tc_engine,
     _load_bundled_corrections,
     _load_external_corrections,
     _load_user_corrections,
@@ -71,7 +77,7 @@ def _configure_corrections():
 
 
 class TestAc80ThreadingImportAntipattern:
-    """ ``_active_state_lock`` is now ``threading.Lock()``,
+    """``_active_state_lock`` is now ``threading.Lock()``,
     not ``__import__("threading").Lock()``. The lock object itself is
     functionally identical (both produce a ``threading.Lock`` instance);
     the difference is purely stylistic — a top-of-module ``import
@@ -82,10 +88,10 @@ class TestAc80ThreadingImportAntipattern:
     def test_threading_is_top_level_import(self):
         """``threading`` is in the module's namespace as a top-level
         import (not accessed via ``__import__``)."""
-        assert hasattr(text_cleanup, "threading"), "expected `threading` to be a top-level import in text_cleanup"
+        assert hasattr(tc_engine, "threading"), "expected `threading` to be a top-level import in text_cleanup"
         import threading as _threading
 
-        assert text_cleanup.threading is _threading
+        assert tc_engine.threading is _threading
 
     def test_active_state_lock_is_threading_lock_instance(self):
         """``_active_state_lock`` is a ``threading.Lock`` instance."""
@@ -93,19 +99,20 @@ class TestAc80ThreadingImportAntipattern:
         # ``threading.Lock`` is a factory function; the resulting lock
         # is an instance of ``threading.LockType`` (CPython) or
         # ``_thread.lock``. Check the type name as a portable proxy.
-        assert type(text_cleanup._active_state_lock).__name__ == "lock"
+        assert type(tc_engine._active_state_lock).__name__ == "lock"
         # The lock is acquired/released like a normal Lock.
-        with text_cleanup._active_state_lock:
+        with tc_engine._active_state_lock:
             assert True
 
     def test_no_more_dunder_import_call_for_threading(self):
         """The module source no longer contains ``__import__("threading")``."""
-        import inspect
+        import pathlib
 
-        source = inspect.getsource(text_cleanup)
-        assert '__import__("threading")' not in source, (
-            'regression: ``__import__("threading")`` is back in the source'
-        )
+        import voice_typer.server.text_cleanup as tc_pkg
+
+        pkg_dir = pathlib.Path(tc_pkg.__file__).parent
+        source = "\n".join(p.read_text(encoding="utf-8") for p in sorted(pkg_dir.glob("*.py")))
+        assert '__import__("threading")' not in source, 'regression: ``__import__("threading")`` is back in the source'
 
 
 # ─── _apply_phrase_substitutions unifies the two functions ──────
@@ -519,6 +526,6 @@ class TestAc84RomanNumeralWordSetExtensibility:
         configure_corrections(config_dir=tmp_path)
         # "emperor napoleon i conquered europe" → "napoleon" is an
         # extension context word → 'i' stays lowercase.
-        out = text_cleanup.clean_transcribed_text("emperor napoleon i conquered europe")
+        out = tc_engine.clean_transcribed_text("emperor napoleon i conquered europe")
         assert "napoleon i" in out
         assert "napoleon I" not in out

@@ -241,9 +241,25 @@ def supervisor_source() -> str:
 
 @pytest.fixture(scope="module")
 def ws_source() -> str:
-    """Full text of src-tauri/src/sidecar/ws.rs (read once per module)."""
+    """Full text of the Rust WS bridge: ``ws.rs`` PLUS its
+    ``ws/reader.rs`` / ``ws/writer.rs`` task submodules (read once per
+    module).
+
+    reader/writer module split (mirrors the ``ws_event_protocol_source``
+    / ``ws_respawn_scheduler_source`` fixtures): the reader loop, its
+    Close/Err arms, the disconnect cleanup block (
+    ``supervisor_relaunching`` emit, ``*ws_tx_guard = None``,
+    shutting_down gate) moved into ``ws/reader.rs``; the writer cleanup
+    block into ``ws/writer.rs``. Concatenating keeps the reader-loop
+    source-inspection assertions below checked across the split.
+    """
     assert WS_RS.is_file(), f"missing: {WS_RS}"
-    return WS_RS.read_text(encoding="utf-8")
+    parts = [WS_RS.read_text(encoding="utf-8")]
+    for name in ("reader.rs", "writer.rs"):
+        sibling = WS_RS.parent / "ws" / name
+        assert sibling.is_file(), f"missing: {sibling} — the ws.rs module split was rolled back"
+        parts.append(sibling.read_text(encoding="utf-8"))
+    return "\n\n".join(parts)
 
 
 @pytest.fixture(scope="module")

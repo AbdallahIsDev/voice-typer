@@ -853,3 +853,42 @@ def maybe_publish_tray_menu(tray) -> bool:
     )
     tray._tray_id_map = _id_map
     return publish_tray_menu(model)
+
+
+def dispatch_tray_action(tray, item_id: str) -> bool:
+    """Dispatch a Tauri tray-click IPC to the registered callback.
+
+    ADR-0020 §6.5 / §16: the Tauri Rust host emits a ``tray_click``
+    IPC for every native menu item click; ``ipc_server.py`` calls
+    this method with the item's ``id``. The ``id → callback`` map is
+    populated by :func:`maybe_publish_tray_menu` on every menu
+    publish, so this function simply looks up the id and invokes the
+    registered callback.
+
+    Returns ``True`` if the id was found and the callback was
+    invoked, ``False`` if the id is unknown (the IPC layer turns a
+    False return into a ``server.unknown_tray_item`` error envelope).
+    Before the first menu publish, ``tray._tray_id_map`` is ``{}``
+    (initialised in ``TrayIcon.__init__``, which also documents why
+    the default is empty) so every click returns False — the Tauri
+    host should publish the initial menu via ``_wrap_bg_work`` before
+    any click can land.
+
+    Callback exceptions are caught and logged so a single broken
+    callback (e.g. a controller method that raises) doesn't take
+    down the IPC server thread. The return value is still True on a
+    known id — the click was *dispatched*, the callback's success is
+    a separate concern (the renderer surfaces errors via toasts).
+    """
+    callback = tray._tray_id_map.get(item_id)
+    if callback is None:
+        return False
+    try:
+        callback()
+    except Exception:
+        log.warning(
+            "[TRAY] dispatch_tray_action callback raised for item_id=%r",
+            item_id,
+            exc_info=True,
+        )
+    return True

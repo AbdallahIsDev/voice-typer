@@ -37,6 +37,16 @@ function flatten(obj: Record<string, unknown>, prefix = ""): void {
 }
 flatten(enMessages as Record<string, unknown>);
 
+// Non-optional lookup for assertion arguments — a missing key is a test
+// setup bug, not an empty matcher.
+function enText(key: string): string {
+	const value = enFlat.get(key);
+	if (value === undefined) {
+		throw new Error(`Missing en.json key: ${key}`);
+	}
+	return value;
+}
+
 // Hoist the spy so the vi.mock factory can reference it.
 const { tSpy } = vi.hoisted(() => ({
 	tSpy: vi.fn((key: string, params?: Record<string, string>) => {
@@ -75,6 +85,56 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 
 vi.mock("@/components/audio/AudioFilterChain", () => ({
 	AudioFilterChain: () => <div data-testid="audio-filter-chain" />,
+}));
+
+// InfoTooltip's real implementation mounts a Radix Tooltip.Root, which
+// requires the app-global TooltipProvider boundary (App.tsx). These
+// PresetAccordionSelector tests only need the trigger contract — a
+// focusable trigger whose accessible name is composed through t() exactly
+// like the real component ("More info about {label}") — so a plain
+// stand-in keeps them provider-free. Radix hover/focus behaviour itself
+// is pinned in components/feedback/__tests__/InfoTooltip.test.tsx.
+// The mock mirrors the real triggerAs contract: "button" (default) →
+// role=button; "inline" → a focusable role-less span whose clicks do
+// NOT propagate (the real inline span stops propagation so activating
+// it never toggles the wrapping accordion/row).
+vi.mock("@/components/feedback/InfoTooltip", () => ({
+	InfoTooltip: ({
+		text,
+		contextLabel,
+		triggerAs,
+	}: {
+		text: string;
+		contextLabel?: string;
+		triggerAs?: "button" | "inline";
+	}) => {
+		const ariaLabel = tSpy("a11y.moreInfoAbout", {
+			label: contextLabel ?? "",
+		});
+		if (triggerAs === "inline") {
+			return (
+				// biome-ignore lint/a11y/noStaticElementInteractions: mirrors the real inline trigger (focusable span whose clicks never select the row).
+				// biome-ignore lint/a11y/useKeyWithClickEvents: mirrors the real inline trigger — click propagation is suppressed; keyboard opens the tooltip via focus.
+				// biome-ignore lint/a11y/useAriaPropsSupportedByRole: mirrors the real inline trigger (aria-label as the sole accessible name, no role).
+				<span
+					// biome-ignore lint/a11y/noNoninteractiveTabindex: mirrors the real inline trigger (focusable by design; tooltip opens on focus).
+					tabIndex={0}
+					data-testid="info-tooltip-trigger"
+					data-tooltip-text={text}
+					aria-label={ariaLabel}
+					onClick={(event) => event.stopPropagation()}
+				/>
+			);
+		}
+		return (
+			<button
+				type="button"
+				data-testid="info-tooltip-trigger"
+				data-tooltip-text={text}
+				aria-label={ariaLabel}
+			/>
+		);
+	},
 }));
 
 import { MicrophoneListItem } from "@/components/microphone/MicrophoneListItem";
@@ -127,7 +187,7 @@ afterEach(() => {
 //Mic list radio rows: each row exposes an accessible name, checked
 // state tracks the selection, and items are REALLY disabled during a test.
 // ──────────────────────────────────────────────────────────────────────
-describe("BG-45: mic selection rows expose radio semantics with per-row accessible names", () => {
+describe("mic selection rows expose radio semantics with per-row accessible names", () => {
 	it("renders one radiogroup whose radios carry the device names (System Default included)", () => {
 		render(
 			<AvailableMicrophonesList
@@ -186,7 +246,7 @@ describe("BG-45: mic selection rows expose radio semantics with per-row accessib
 // role=status, hides the decorative bullet from AT, and uses the
 // theme warning token (no hardcoded palette classes).
 // ──────────────────────────────────────────────────────────────────────
-describe("BG-71: TestReviewPanel quality block is announced to AT", () => {
+describe("TestReviewPanel quality block is announced to AT", () => {
 	const qualityWithIssues = {
 		volume_level: "good" as const,
 		volume_rms: 0.1,
@@ -346,7 +406,7 @@ describe("TestReviewPanel test-transcription display", () => {
 //AvailableMicrophonesList keeps real list semantics (ul/li) around the
 // unified radio rows.
 // ──────────────────────────────────────────────────────────────────────
-describe("BG-72: AvailableMicrophonesList renders a real list with ul/li + roles", () => {
+describe("AvailableMicrophonesList renders a real list with ul/li + roles", () => {
 	it("wraps the mic rows in a <ul role=list>", () => {
 		render(
 			<AvailableMicrophonesList
@@ -407,7 +467,7 @@ describe("BG-72: AvailableMicrophonesList renders a real list with ul/li + roles
 //PresetAccordionSelector memoizes getPresetOptions() instead of
 // calling it inline per render.
 // ──────────────────────────────────────────────────────────────────────
-describe("BG-94: PresetAccordionSelector memoizes getPresetOptions() to a single call per mount", () => {
+describe("PresetAccordionSelector memoizes getPresetOptions() to a single call per mount", () => {
 	it("calls t('settings.audioEnhancement.presetAuto') exactly once on initial render", () => {
 		// The option array is built inside useMemo(() =>
 		// getPresetOptions(), []) so each preset label/description key is
@@ -489,13 +549,11 @@ describe("BG-94: PresetAccordionSelector memoizes getPresetOptions() to a single
 
 		// Collapsed header shows the section label + CURRENT selection.
 		expect(screen.getByText("Microphone Quality")).toBeTruthy();
-		expect(screen.getByTestId("mic-preset-current").textContent).toBe(
-			"Studio (clean environment)",
-		);
+		expect(screen.getByTestId("mic-preset-current").textContent).toBe("Studio");
 
 		// Expand, then pick another preset via its radio.
 		fireEvent.click(screen.getByRole("button", { expanded: false }));
-		fireEvent.click(screen.getByRole("radio", { name: "Off (raw audio)" }));
+		fireEvent.click(screen.getByRole("radio", { name: "OFF" }));
 		expect(handlePresetChange).toHaveBeenCalledWith("off");
 
 		// After the prop flips, the collapsed label follows.
@@ -509,9 +567,7 @@ describe("BG-94: PresetAccordionSelector memoizes getPresetOptions() to a single
 				onConfigChange={() => {}}
 			/>,
 		);
-		expect(screen.getByTestId("mic-preset-current").textContent).toBe(
-			"Off (raw audio)",
-		);
+		expect(screen.getByTestId("mic-preset-current").textContent).toBe("OFF");
 	});
 
 	it("reveals the Custom-filters disclosure only under the custom preset", () => {
@@ -566,6 +622,91 @@ describe("BG-94: PresetAccordionSelector memoizes getPresetOptions() to a single
 		expect(
 			document.querySelector('[data-testid="audio-filter-chain"]'),
 		).toBeTruthy();
+	});
+});
+
+// ──────────────────────────────────────────────────────────────────────
+//PresetAccordionSelector compact rows: option descriptions are NOT
+// permanently visible — each option exposes a keyboard-focusable
+// InfoTooltip trigger instead, and interacting with that trigger never
+// changes the selected preset.
+// ──────────────────────────────────────────────────────────────────────
+describe("PresetAccordionSelector descriptions live behind InfoTooltip triggers", () => {
+	const baseProps = {
+		config: minimalConfig,
+		showAdvanced: false,
+		onToggleAdvanced: () => {},
+		onConfigChange: () => {},
+	};
+
+	it("does not keep any option description permanently visible in the DOM", () => {
+		render(
+			<PresetAccordionSelector
+				preset="auto"
+				{...baseProps}
+				onPresetChange={() => {}}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+		expect(
+			screen.queryByText(
+				enText("settings.audioEnhancement.presetAutoDescription"),
+			),
+		).toBeNull();
+		expect(
+			screen.queryByText(
+				enText("settings.audioEnhancement.presetOffDescription"),
+			),
+		).toBeNull();
+	});
+
+	it("exposes one info trigger per option plus one for the section, each named for its context", () => {
+		render(
+			<PresetAccordionSelector
+				preset="auto"
+				{...baseProps}
+				onPresetChange={() => {}}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+		// 5 option triggers (role=button) + the header trigger, which is
+		// the INLINE span variant (it lives inside the AccordionTrigger
+		// button, where a nested button would be invalid DOM) — asserted
+		// via its aria-label, not a role.
+		const infoTriggers = screen.getAllByRole("button", {
+			name: /^More info about/,
+		});
+		expect(infoTriggers.length).toBe(5);
+		const headerTrigger = screen.getByLabelText(
+			"More info about Microphone Quality",
+		);
+		expect(headerTrigger.tagName).toBe("SPAN");
+		expect(headerTrigger.getAttribute("tabindex")).toBe("0");
+		expect(screen.getByLabelText("More info about Studio")).toBeTruthy();
+	});
+
+	it("clicking an info trigger never changes the preset, while a plain row click still selects", () => {
+		const handlePresetChange = vi.fn();
+		render(
+			<PresetAccordionSelector
+				preset="auto"
+				{...baseProps}
+				onPresetChange={handlePresetChange}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+		fireEvent.click(screen.getByLabelText("More info about OFF"));
+		expect(handlePresetChange).not.toHaveBeenCalled();
+
+		// Clicking the row body (not the radio control itself) selects.
+		fireEvent.click(screen.getByTestId("mic-preset-option-studio"));
+		expect(handlePresetChange).toHaveBeenCalledWith("studio");
 	});
 });
 

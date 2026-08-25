@@ -254,7 +254,7 @@ class TestTauriConfigResources:
             )
 
     def test_tauri_linux_x86_64_lists_native_key_listener(self):
-        """ (sanity): x86_64 Linux override lists ``linux-key-listener``.
+        """(sanity): x86_64 Linux override lists ``linux-key-listener``.
 
         This was already correct pre-; the test guards against
         future regressions.
@@ -538,13 +538,10 @@ class TestPrermRemovesAutostart:
         text = path.read_text()
         # Must reference the autostart .desktop filename.
         assert "voice-typer.desktop" in text, (
-            f"{label} must reference 'voice-typer.desktop' so the per-user "
-            "autostart entry is removed on uninstall ."
+            f"{label} must reference 'voice-typer.desktop' so the per-user autostart entry is removed on uninstall ."
         )
         # Must reference the autostart directory pattern.
-        assert ".config/autostart" in text, (
-            f"{label} must reference the autostart directory '.config/autostart' ."
-        )
+        assert ".config/autostart" in text, f"{label} must reference the autostart directory '.config/autostart' ."
         # Must use `find -delete` or `rm -f` to actually remove the file.
         assert ("find" in text and "-delete" in text) or "rm -f" in text, (
             f"{label} must actually remove the autostart .desktop file (via `find -delete` or `rm -f`)."
@@ -732,7 +729,7 @@ class TestAutostartLauncherTauriMode:
         )
 
     def test_autostart_launcher_preserves_electron_path(self):
-        """ must NOT break the existing Electron path."""
+        """must NOT break the existing Electron path."""
         assert AUTOSTART_LAUNCHER.is_file()
         text = AUTOSTART_LAUNCHER.read_text()
         assert "_ensure_built_and_launch" in text, (
@@ -807,13 +804,12 @@ class TestPrewarmCleanupPortedToRpm:
         text = PRERM_RPM.read_text(encoding="utf-8")
         # Called inside the getent passwd while-loop for every non-system user.
         assert 'remove_prewarm_for_home "$home_dir"' in text, (
-            "prerm.rpm must call `remove_prewarm_for_home \"$home_dir\"` "
+            'prerm.rpm must call `remove_prewarm_for_home "$home_dir"` '
             "inside the user iteration loop  — mirrors the Debian prerm."
         )
         # Also called for /root explicitly (rare sudo -E case).
         assert "remove_prewarm_for_home /root" in text, (
-            "prerm.rpm must call `remove_prewarm_for_home /root` explicitly "
-            " — mirrors the Debian prerm."
+            "prerm.rpm must call `remove_prewarm_for_home /root` explicitly  — mirrors the Debian prerm."
         )
 
     def test_prerm_debian_still_has_remove_prewarm_for_home(self):
@@ -928,12 +924,12 @@ class TestProcessTerminationBeforeCleanup:
         autostart_call_pos = text.find('remove_autostart_for_home "$home_dir"')
         assert pkill_pos != -1, f"{label} must contain `pkill -TERM -x voice-typer-tauri` "
         assert autostart_call_pos != -1, (
-            f"{label} must call `remove_autostart_for_home \"$home_dir\"` "
+            f'{label} must call `remove_autostart_for_home "$home_dir"` '
             "(the autostart cleanup that the pkill must precede)."
         )
         assert pkill_pos < autostart_call_pos, (
             f"{label}: the `pkill -TERM -x voice-typer-tauri` call MUST "
-            f"appear BEFORE `remove_autostart_for_home \"$home_dir\"` "
+            f'appear BEFORE `remove_autostart_for_home "$home_dir"` '
             "(terminate processes before file removal). "
             f"pkill_pos={pkill_pos}, autostart_call_pos={autostart_call_pos}."
         )
@@ -962,10 +958,7 @@ class TestProcessTerminationBeforeCleanup:
                 continue
             if re.search(r"pkill\s+-TERM", line):
                 non_comment_pkill_lines.append(line)
-        assert non_comment_pkill_lines, (
-            f"{label}: must contain at least one non-comment "
-            "`pkill -TERM` line ."
-        )
+        assert non_comment_pkill_lines, f"{label}: must contain at least one non-comment `pkill -TERM` line ."
         for line in non_comment_pkill_lines:
             assert "|| true" in line, (
                 f"{label}: pkill line `{line.strip()}` must be guarded by "
@@ -1011,9 +1004,7 @@ class TestDesktopDbAndIconCacheRefresh:
     def test_postinst_has_gtk_update_icon_cache(self):
         """postinst calls ``gtk-update-icon-cache -q /usr/share/icons/hicolor``."""
         text = POSTINST.read_text(encoding="utf-8")
-        assert re.search(
-            r"gtk-update-icon-cache\s+-q\s+/usr/share/icons/hicolor", text
-        ), (
+        assert re.search(r"gtk-update-icon-cache\s+-q\s+/usr/share/icons/hicolor", text), (
             "postinst must call `gtk-update-icon-cache -q /usr/share/icons/hicolor` "
             " so the hicolor icon is indexed by the desktop environment "
             "immediately after install. The icon ships in the bundle but isn't "
@@ -1024,8 +1015,7 @@ class TestDesktopDbAndIconCacheRefresh:
         end_of_configure = text.find(";;", configure_pos)
         gtk_pos = text.find("gtk-update-icon-cache", configure_pos)
         assert gtk_pos != -1 and gtk_pos < end_of_configure, (
-            "postinst: `gtk-update-icon-cache` MUST appear INSIDE the "
-            "`configure)` case block ."
+            "postinst: `gtk-update-icon-cache` MUST appear INSIDE the `configure)` case block ."
         )
 
     def test_postinst_does_not_call_update_desktop_database_outside_case(self):
@@ -1096,26 +1086,21 @@ class TestPostinstRpmGatedOnFirstInstall:
         text = POSTINST_RPM.read_text(encoding="utf-8")
         # The gate must use $1 -eq 1 (numeric comparison for RPM's $1 count).
         assert re.search(r'if\s+\[\s*"\$1"\s+-eq\s+1\s*\]\s*;\s*then', text), (
-            "postinst.rpm must wrap its body in `if [ \"$1\" -eq 1 ]; then ... fi` "
+            'postinst.rpm must wrap its body in `if [ "$1" -eq 1 ]; then ... fi` '
             " — RPM %post passes $1=1 on first install, $1=2 on upgrade. "
             "The body should only run on first install (mirror prerm.rpm's "
-            "`if [ \"$1\" = \"0\" ]` uninstall-gate pattern)."
+            '`if [ "$1" = "0" ]` uninstall-gate pattern).'
         )
 
     def test_postinst_rpm_gate_closes_with_fi(self):
         """The ``if [ "$1" -eq 1 ]`` gate closes with ``fi`` before ``exit 0``."""
         text = POSTINST_RPM.read_text(encoding="utf-8")
         gate_match = re.search(r'if\s+\[\s*"\$1"\s+-eq\s+1\s*\]\s*;\s*then', text)
-        assert gate_match is not None, (
-            "postinst.rpm must have `if [ \"$1\" -eq 1 ]; then` ."
-        )
+        assert gate_match is not None, 'postinst.rpm must have `if [ "$1" -eq 1 ]; then` .'
         # Find the matching `fi` AFTER the gate.
         gate_pos = gate_match.start()
         fi_pos = text.find("\nfi", gate_pos)
-        assert fi_pos != -1, (
-            "postinst.rpm: the `if [ \"$1\" -eq 1 ]; then` gate must be "
-            "closed with `fi` ."
-        )
+        assert fi_pos != -1, 'postinst.rpm: the `if [ "$1" -eq 1 ]; then` gate must be closed with `fi` .'
         # `exit 0` must come AFTER `fi` (so the script always exits 0,
         # whether the gate was taken or not).
         exit_pos = text.find("exit 0", fi_pos)
@@ -1134,8 +1119,8 @@ class TestPostinstRpmGatedOnFirstInstall:
         fi_pos = text.find("\nfi", gate_pos)
         install_pos = text.find('python3 "$INSTALL_SCRIPT"', gate_pos)
         assert install_pos != -1 and install_pos < fi_pos, (
-            "postinst.rpm: the `python3 \"$INSTALL_SCRIPT\"` call must be "
-            "INSIDE the `if [ \"$1\" -eq 1 ]; then ... fi` gate  "
+            'postinst.rpm: the `python3 "$INSTALL_SCRIPT"` call must be '
+            'INSIDE the `if [ "$1" -eq 1 ]; then ... fi` gate  '
             "so install_permissions.py only runs on first install, not "
             "on upgrade."
         )
@@ -1186,10 +1171,7 @@ class TestMaintainerScriptsExecutable:
             capture_output=True,
             text=True,
         )
-        assert result.returncode == 0, (
-            f"`git ls-files -s {rel}` failed (exit {result.returncode}): "
-            f"{result.stderr}"
-        )
+        assert result.returncode == 0, f"`git ls-files -s {rel}` failed (exit {result.returncode}): {result.stderr}"
         output = result.stdout.strip()
         assert output, (
             f"{label}: `git ls-files -s {rel}` returned no output — the "

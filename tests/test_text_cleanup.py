@@ -153,7 +153,7 @@ class TestExternalCorrectionsFallback:
 
     def test_load_external_corrections_returns_none_when_no_file(self, tmp_path, monkeypatch):
         """When no corrections file exists, _load_external_corrections returns None."""
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _corrections_data as text_cleanup
 
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
         result = text_cleanup._load_external_corrections(config_dir=tmp_path)
@@ -161,7 +161,7 @@ class TestExternalCorrectionsFallback:
 
     def test_load_external_corrections_returns_none_when_no_config_dir(self, monkeypatch):
         """When config_dir is None and corrections_path is None, returns None."""
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _corrections_data as text_cleanup
 
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", text_cleanup.Path("/nonexistent.json"))
         result = text_cleanup._load_external_corrections(config_dir=None, corrections_path=None)
@@ -171,7 +171,7 @@ class TestExternalCorrectionsFallback:
         """When corrections file exists, returns merged corrections."""
         import json
 
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _corrections_data as text_cleanup
 
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
         corrections_file = tmp_path / "voice-typer-corrections.json"
@@ -190,7 +190,7 @@ class TestExternalCorrectionsFallback:
 
     def test_load_external_corrections_returns_none_on_invalid_path(self, tmp_path, monkeypatch):
         """When corrections_path points to a non-existent file, returns None."""
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _corrections_data as text_cleanup
 
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
         result = text_cleanup._load_external_corrections(corrections_path="/nonexistent/file.json")
@@ -752,7 +752,7 @@ class TestPhraseCorrectionPerformance:
         """
         import re
 
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         text_cleanup.configure_corrections()
         # When active phrases exist, ``_get_phrases_regex`` must return
@@ -782,7 +782,7 @@ class TestPhraseCorrectionPerformance:
         input unchanged. Verifies the substring-check filter produces the
         same result as the original regex-search filter would have.
         """
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         text_cleanup.configure_corrections()
         # Text that contains none of the known phrase corrections.
@@ -792,7 +792,7 @@ class TestPhraseCorrectionPerformance:
 
     def test_phrase_correction_still_applies(self):
         """XV-42 refactor preserves the core phrase-correction behaviour."""
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         text_cleanup.configure_corrections()
         # 'they working' -> "it's working" is in the bundled corrections.
@@ -801,7 +801,7 @@ class TestPhraseCorrectionPerformance:
 
     def test_case_preserving_replacement_still_works(self):
         """XV-42 refactor preserves the L19 case-preserving substitution."""
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         text_cleanup.configure_corrections()
         # 'they working' is in corrections; uppercase input should map to
@@ -824,7 +824,7 @@ class TestPhraseCorrectionPerformance:
         """
         import re
 
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         text_cleanup.configure_corrections()
         # NOTE: these must be LOWERCASE to match the production code's
@@ -859,7 +859,7 @@ class TestPhraseCorrectionPerformance:
         text that the second phrase would match, and verify the second
         phrase is NOT applied (because it wasn't in the original).
         """
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         saved = text_cleanup._active_phrases
         # The combined-regex cache (``_phrases_re_cache``) is keyed on
@@ -888,7 +888,7 @@ class TestSingleTokenization:
 
     def test_token_based_helpers_exist_and_are_callable(self):
         """The four ``*_tokens`` helpers exist and operate on token lists."""
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         for name in (
             "_clean_self_corrections_tokens",
@@ -906,7 +906,7 @@ class TestSingleTokenization:
 
     def test_text_based_wrappers_still_work(self):
         """The original text-based helpers are preserved as thin wrappers."""
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         text_cleanup.configure_corrections()
         # These should produce the same output as before the refactor.
@@ -934,21 +934,21 @@ class TestPrecompiledRegexes:
     def test_misspell_wrap_regex_is_precompiled(self):
         import re
 
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         assert isinstance(text_cleanup._RE_MISSPELL_WRAP, re.Pattern)
 
     def test_sentence_split_regex_is_precompiled(self):
         import re
 
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         assert isinstance(text_cleanup._RE_SENTENCE_SPLIT, re.Pattern)
 
     def test_word_chars_regex_is_precompiled(self):
         import re
 
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         assert isinstance(text_cleanup._RE_WORD_CHARS, re.Pattern)
 
@@ -961,12 +961,13 @@ class TestPrecompiledRegexes:
         positives.
         """
         import ast
-        import inspect
+        import pathlib
         import textwrap
 
-        from voice_typer.server import text_cleanup
+        import voice_typer.server.text_cleanup as tc_pkg
 
-        src = textwrap.dedent(inspect.getsource(text_cleanup))
+        pkg_dir = pathlib.Path(tc_pkg.__file__).parent
+        src = "\n".join(textwrap.dedent(p.read_text(encoding="utf-8")) for p in sorted(pkg_dir.glob("*.py")))
         tree = ast.parse(src)
 
         forbidden = {"match", "search", "findall", "split", "fullmatch"}
@@ -989,7 +990,7 @@ class TestPrecompiledRegexes:
     def test_looks_like_question_uses_precompiled_patterns(self):
         """_looks_like_question end-to-end still classifies questions
         correctly after switching to precompiled regexes."""
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         assert text_cleanup._looks_like_question("can you help me") is True
         assert text_cleanup._looks_like_question("the sky is blue") is False

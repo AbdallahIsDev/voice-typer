@@ -53,9 +53,7 @@ class TestAcceptLoopSpawnsWorkerPerConnection:
     ``self._tcp_worker_pool.submit(...)`` so a slow client cannot block
     the accept loop."""
 
-    def test_accept_loop_submits_each_connection_to_worker_pool(
-        self, monkeypatch, caplog
-    ):
+    def test_accept_loop_submits_each_connection_to_worker_pool(self, monkeypatch, caplog):
         """When a client connects, ``_accept_tcp`` must call
         ``pool.submit(self._run_tcp_handler_safely, conn, addr, token)``
         exactly once per accepted connection.
@@ -70,12 +68,8 @@ class TestAcceptLoopSpawnsWorkerPerConnection:
         # background thread).
         from concurrent.futures import ThreadPoolExecutor
 
-        server._tcp_worker_pool = ThreadPoolExecutor(
-            max_workers=2, thread_name_prefix="tcp-worker-test"
-        )
-        server._tcp_dispatch_pool = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="tcp-dispatch-test"
-        )
+        server._tcp_worker_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tcp-worker-test")
+        server._tcp_dispatch_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tcp-dispatch-test")
 
         submit_calls: list[tuple] = []
 
@@ -124,13 +118,10 @@ class TestAcceptLoopSpawnsWorkerPerConnection:
             args, _kwargs = submit_calls[0]
             # The first positional arg is the handler method.
             assert args[0].__name__ == "_run_tcp_handler_safely", (
-                f"pool.submit must be called with _run_tcp_handler_safely; "
-                f"got {args[0]}"
+                f"pool.submit must be called with _run_tcp_handler_safely; got {args[0]}"
             )
             # The second positional arg is the connection socket.
-            assert args[1] is server_sock, (
-                "pool.submit must be called with the accepted connection socket"
-            )
+            assert args[1] is server_sock, "pool.submit must be called with the accepted connection socket"
         finally:
             with contextlib.suppress(Exception):
                 client_sock.close()
@@ -155,9 +146,7 @@ class TestAcceptLoopRespectsConnectionCap:
     closes the just-accepted connection to avoid a socket leak.
     """
 
-    def test_accept_loop_closes_connection_when_pool_rejects_submission(
-        self, monkeypatch
-    ):
+    def test_accept_loop_closes_connection_when_pool_rejects_submission(self, monkeypatch):
         """When ``pool.submit`` raises ``RuntimeError`` (pool shut down),
         the accepted connection must be closed and the accept loop must
         break."""
@@ -207,9 +196,12 @@ class TestAcceptLoopRespectsConnectionCap:
                 "accept should be called exactly once (loop breaks after "
                 f"RuntimeError); got {accept_call_count[0]} calls"
             )
-            mock_conn.close.assert_called(), (
-                "the accepted connection must be closed when pool.submit "
-                "raises RuntimeError (socket-leak prevention)"
+            (
+                mock_conn.close.assert_called(),
+                (
+                    "the accepted connection must be closed when pool.submit "
+                    "raises RuntimeError (socket-leak prevention)"
+                ),
             )
         finally:
             with contextlib.suppress(Exception):
@@ -282,14 +274,12 @@ class TestWriteTimeoutEscalation:
 
         # Client must be marked dead.
         assert server._tcp_client is None, (
-            "_send must mark _tcp_client = None when the write timeout fires "
-            "(dead-client escalation path)"
+            "_send must mark _tcp_client = None when the write timeout fires (dead-client escalation path)"
         )
 
         # The pending snapshot must be re-merged.
         assert len(server._pending_tcp) >= 2, (
-            f"pending entries must be re-merged after the write timeout; "
-            f"got {len(server._pending_tcp)} entries"
+            f"pending entries must be re-merged after the write timeout; got {len(server._pending_tcp)} entries"
         )
         assert '{"pending": "old1"}' in server._pending_tcp
         assert '{"pending": "old2"}' in server._pending_tcp
@@ -333,8 +323,7 @@ class TestAcceptLoopSourceContract:
             "shut down) and close the connection to avoid a socket leak."
         )
         assert "conn.close()" in source, (
-            "_accept_tcp must close the accepted connection when pool.submit "
-            "raises RuntimeError."
+            "_accept_tcp must close the accepted connection when pool.submit raises RuntimeError."
         )
 
 
@@ -422,8 +411,7 @@ class TestAcceptTcpWindowsExclusiveBind:
 
         assert created, "_accept_tcp must create a socket before binding"
         assert (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) in created[0].options, (
-            "on POSIX, _accept_tcp must set SO_REUSEADDR (skips TIME_WAIT "
-            "rebinds) — P1-1.4 only removes it on Windows"
+            "on POSIX, _accept_tcp must set SO_REUSEADDR (skips TIME_WAIT rebinds) — P1-1.4 only removes it on Windows"
         )
 
     def test_accept_tcp_source_guards_so_reuseaddr_by_platform(self):

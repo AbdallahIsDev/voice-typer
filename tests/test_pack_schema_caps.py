@@ -70,10 +70,7 @@ def _valid_manifest(file_sizes: list[int], *, version: str = "v1.2.3") -> dict:
     return {
         "version": version,
         "sha256": _sha256(),
-        "files": [
-            {"name": f"file_{i}.bin", "sha256": _sha256(), "size": size}
-            for i, size in enumerate(file_sizes)
-        ],
+        "files": [{"name": f"file_{i}.bin", "sha256": _sha256(), "size": size} for i, size in enumerate(file_sizes)],
         "min_proto_version": 1,
     }
 
@@ -165,8 +162,7 @@ class TestPerFileSizeCapAcceptance:
         path = _write_manifest(tmp_path, manifest)
         result = offline_pack.load_offline_pack_manifest(path)
         assert result is not None, (
-            "expected load_pack_manifest to accept a manifest with all files "
-            "under the 500 MB cap, got None"
+            "expected load_pack_manifest to accept a manifest with all files under the 500 MB cap, got None"
         )
         assert result["version"] == "v1.2.3"
         assert len(result["files"]) == 5

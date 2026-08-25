@@ -27,7 +27,7 @@ import pytest
 
 
 class TestReadCapped:
-    """ #1-#2: ``_read_capped`` body-size cap.
+    """#1-#2: ``_read_capped`` body-size cap.
 
     The function streams ``resp.read(64 * 1024)`` until EOF, aborting
     with ``RuntimeError`` if the running total exceeds ``max_bytes``.
@@ -52,8 +52,7 @@ class TestReadCapped:
         result = _read_capped(resp, max_bytes=1024)
 
         assert result == b"abc", (
-            f"expected b'abc', got {result!r} — _read_capped must "
-            "concatenate all chunks below the cap."
+            f"expected b'abc', got {result!r} — _read_capped must concatenate all chunks below the cap."
         )
         # Both reads happened (the second one is the EOF probe).
         assert resp.read.call_count == 2
@@ -88,24 +87,21 @@ class TestReadCapped:
         # server-side ERROR log is self-explanatory.
         msg = str(exc_info.value)
         assert "100000" in msg, (
-            "RuntimeError message must name the cap (100000) so the "
-            "abort reason is unambiguous in logs."
+            "RuntimeError message must name the cap (100000) so the abort reason is unambiguous in logs."
         )
         assert "OOM" in msg or "exceeded" in msg.lower(), (
             f"RuntimeError message must mention OOM / exceeded — got {msg!r}."
         )
         # Exactly 2 reads happened (the third, EOF-probing read never
         # fired because the cap raised on the second).
-        assert resp.read.call_count == 2, (
-            f"expected 2 reads before cap abort, got {resp.read.call_count}"
-        )
+        assert resp.read.call_count == 2, f"expected 2 reads before cap abort, got {resp.read.call_count}"
 
 
 # ── _parse_retry_after ─────────────────────────────────────────────
 
 
 class TestParseRetryAfter:
-    """ #3-#5: ``_parse_retry_after`` RFC 7231 §7.1.3 parser.
+    """#3-#5: ``_parse_retry_after`` RFC 7231 §7.1.3 parser.
 
     Accepts either an integer number of seconds OR an HTTP-date, caps
     the wait at 60 seconds, and falls back to a 2s default for
@@ -121,9 +117,7 @@ class TestParseRetryAfter:
         from voice_typer.server.cloud_engines import _parse_retry_after
 
         result = _parse_retry_after("30")
-        assert result == 30.0, (
-            f"expected 30.0 for integer '30', got {result!r}"
-        )
+        assert result == 30.0, f"expected 30.0 for integer '30', got {result!r}"
         # Sanity: the return type is float (so ``time.sleep`` accepts it
         # without an int→float coercion that could mask a regression).
         assert isinstance(result, float)
@@ -170,9 +164,7 @@ class TestParseRetryAfter:
 
         # Allow a small tolerance (1s) for any rounding in the
         # date-format → datetime → delta pipeline.
-        assert abs(result - 30.0) < 1.0, (
-            f"expected ~30.0s for HTTP-date 30s in the future, got {result!r}"
-        )
+        assert abs(result - 30.0) < 1.0, f"expected ~30.0s for HTTP-date 30s in the future, got {result!r}"
 
     def test_parse_retry_after_caps_at_60s(self):
         """#5: a Retry-After value larger than 60s must be capped

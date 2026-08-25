@@ -85,18 +85,10 @@ class TestSharedHelperWiredIntoBothTransports:
 
     def test_tcp_transport_uses_shared_helpers(self):
         src = inspect.getsource(importlib.import_module("voice_typer.server.ipc.transport_tcp"))
-        assert "extract_auth_token(" in src, (
-            "transport_tcp must call extract_auth_token (shared ipc/auth.py helper)"
-        )
-        assert "tokens_equal(" in src, (
-            "transport_tcp must call tokens_equal (shared ipc/auth.py helper)"
-        )
+        assert "extract_auth_token(" in src, "transport_tcp must call extract_auth_token (shared ipc/auth.py helper)"
+        assert "tokens_equal(" in src, "transport_tcp must call tokens_equal (shared ipc/auth.py helper)"
 
     def test_ws_transport_uses_shared_helpers(self):
         src = inspect.getsource(importlib.import_module("voice_typer.server.sidecar_ws"))
-        assert "extract_auth_token(" in src, (
-            "sidecar_ws must call extract_auth_token (shared ipc/auth.py helper)"
-        )
-        assert "tokens_equal(" in src, (
-            "sidecar_ws must call tokens_equal (shared ipc/auth.py helper)"
-        )
+        assert "extract_auth_token(" in src, "sidecar_ws must call extract_auth_token (shared ipc/auth.py helper)"
+        assert "tokens_equal(" in src, "sidecar_ws must call tokens_equal (shared ipc/auth.py helper)"

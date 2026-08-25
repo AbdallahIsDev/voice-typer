@@ -25,17 +25,30 @@ import os
 import threading
 from unittest.mock import MagicMock
 
-_SHUTDOWN_CONTROLLER_PATH = os.path.join(
+# The pre-split ``shutdown_controller.py`` is now a package: the
+# sequenced/parallel plan lists live in ``_plans.py`` (``SequencingMixin``)
+# and the ``_do_cleanup`` / ``_drain_ws_dispatch_pool`` /
+# ``_do_fast_cleanup`` bodies live in ``_cleanup.py`` (``CleanupMixin``).
+_PLANS_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
     "voice_typer",
     "server",
-    "shutdown_controller.py",
+    "shutdown_controller",
+    "_plans.py",
+)
+_CLEANUP_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "voice_typer",
+    "server",
+    "shutdown_controller",
+    "_cleanup.py",
 )
 
 
-def _src() -> str:
-    with open(_SHUTDOWN_CONTROLLER_PATH, encoding="utf-8") as f:
+def _src(path: str) -> str:
+    with open(path, encoding="utf-8") as f:
         return f.read()
 
 
@@ -50,7 +63,7 @@ class TestSequentialHistoryAndCrashRecovery:
         """The parallel batch (``parallel_items`` list) must NOT contain
         ``_teardown_history_db`` or ``_teardown_crash_recovery`` — they
         live in the ``sequenced_items`` list instead."""
-        s = _src()
+        s = _src(_PLANS_PATH)
         # Find the ``parallel_items`` list literal.
         parallel_idx = s.find("parallel_items")
         assert parallel_idx > -1, "_do_cleanup must define a parallel_items list"
@@ -70,7 +83,7 @@ class TestSequentialHistoryAndCrashRecovery:
     ) -> None:
         """Both helpers must be invoked via the ``sequenced_items`` list
         BEFORE the ``parallel_items`` block."""
-        s = _src()
+        s = _src(_PLANS_PATH)
         # The sequenced_items list contains both helpers as tuples.
         seq_history = s.find('"teardown_history_db"', s.find("sequenced_items"))
         assert seq_history > -1, "_teardown_history_db must be in the sequenced_items list"
@@ -104,7 +117,7 @@ class TestOsExitOnStuckWsDrain:
         ``_drain_ws_dispatch_pool`` method body — the actual code —
         instead.
         """
-        s = _src()
+        s = _src(_CLEANUP_PATH)
         method_idx = s.find("def _drain_ws_dispatch_pool(self, app) -> None:")
         assert method_idx > -1, "_drain_ws_dispatch_pool method must exist"
         next_def = s.find("\n    def ", method_idx + 1)
@@ -114,8 +127,7 @@ class TestOsExitOnStuckWsDrain:
         # comment doesn't shadow it.
         drain_timeout_idx = body.rfind("if join_thread.is_alive():")
         assert drain_timeout_idx > -1, (
-           "the ws-drain timeout branch (if join_thread.is_alive():) must exist "
-           "in _drain_ws_dispatch_pool"
+            "the ws-drain timeout branch (if join_thread.is_alive():) must exist in _drain_ws_dispatch_pool"
         )
         # Slice a generous window for the block.
         block = body[drain_timeout_idx : drain_timeout_idx + 800]
@@ -127,7 +139,7 @@ class TestOsExitOnStuckWsDrain:
         """``_do_fast_cleanup`` (the Windows logoff/shutdown fast path)
         must end with ``os._exit(0)`` so the Win32 console-control
         callback does not return True to the OS without exiting."""
-        s = _src()
+        s = _src(_CLEANUP_PATH)
         fast_path_idx = s.find("def _do_fast_cleanup(self) -> None:")
         assert fast_path_idx > -1, "_do_fast_cleanup method must be defined (the Windows logoff/shutdown fast path)"
         # Slice to the next ``def `` (end of the method body).
@@ -147,14 +159,14 @@ class TestDoFastCleanup:
     def test_do_fast_cleanup_method_exists(self) -> None:
         """``_do_fast_cleanup`` must be defined as a method on
         ``ShutdownController``."""
-        s = _src()
+        s = _src(_CLEANUP_PATH)
         assert "def _do_fast_cleanup(self) -> None:" in s, "_do_fast_cleanup method must be defined"
 
     def test_do_fast_cleanup_invokes_critical_flushes(self) -> None:
         """``_do_fast_cleanup`` must invoke the critical flushes:
         crash_recovery.flush, history_db.flush, recorder.stop,
         _clear_backend_pid_file, mutex release, restore_volume."""
-        s = _src()
+        s = _src(_CLEANUP_PATH)
         helper_idx = s.find("def _do_fast_cleanup(self) -> None:")
         assert helper_idx > -1
         # Slice to the next ``def `` (end of the method body).

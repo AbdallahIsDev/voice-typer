@@ -139,28 +139,49 @@ class TestPublicApiPreservation:
 
     EXPECTED_METHODS = {
         # Core CRUD
-        "register", "unregister", "get", "get_active", "active_name",
-        "available_backends", "create", "unload",
+        "register",
+        "unregister",
+        "get",
+        "get_active",
+        "active_name",
+        "available_backends",
+        "create",
+        "unload",
         # Load orchestration
-        "load_active", "load_with_fallback", "transcribe_with_fallback",
+        "load_active",
+        "load_with_fallback",
+        "transcribe_with_fallback",
         # Circuit breaker
-        "_is_disabled", "failure_count", "reset_failures",
-        "_record_success", "_record_failure", "_persist_disabled",
+        "_is_disabled",
+        "failure_count",
+        "reset_failures",
+        "_record_success",
+        "_record_failure",
+        "_persist_disabled",
         "_fire_last_resort_subscribers",
         # Busy flag
-        "is_busy", "set_busy", "clear_busy", "busy_context",
+        "is_busy",
+        "set_busy",
+        "clear_busy",
+        "busy_context",
         "force_clear_busy",
         # Subscriber management
-        "on_backend_disabled", "add_backend_disabled_subscriber",
+        "on_backend_disabled",
+        "add_backend_disabled_subscriber",
         "remove_backend_disabled_subscriber",
-        "on_last_resort", "add_last_resort_subscriber",
+        "on_last_resort",
+        "add_last_resort_subscriber",
         "remove_last_resort_subscriber",
     }
 
     EXPECTED_STATE_ATTRS = {
-        "_disabled_backends", "_failure_counts", "_last_resort_notified",
-        "_on_backend_disabled_subscribers", "_on_last_resort_subscribers",
-        "_busy_backends", "_MAX_CONSECUTIVE_FAILURES",
+        "_disabled_backends",
+        "_failure_counts",
+        "_last_resort_notified",
+        "_on_backend_disabled_subscribers",
+        "_on_last_resort_subscribers",
+        "_busy_backends",
+        "_MAX_CONSECUTIVE_FAILURES",
     }
 
     def test_all_expected_methods_exist(self):
@@ -193,6 +214,7 @@ class TestPublicApiPreservation:
             ConfigProtocol,
             ProgressCallback,
         )
+
         assert AsrBackend is not None
         assert ConfigProtocol is not None
         assert ProgressCallback is not None
@@ -204,6 +226,7 @@ class TestPublicApiPreservation:
             BackendDisabledCallback,
             LastResortCallback,
         )
+
         assert BackendDisabledCallback is not None
         assert LastResortCallback is not None
 
@@ -233,8 +256,7 @@ class TestStateDelegation:
         registry = _make_registry()
         registry._failure_counts["parakeet"] = 5
         assert registry._breaker._failure_counts["parakeet"] == 5, (
-            "registry._failure_counts must be the SAME dict object "
-            "as registry._breaker._failure_counts."
+            "registry._failure_counts must be the SAME dict object as registry._breaker._failure_counts."
         )
 
     def test_busy_backends_property_returns_busy_flag_set(self):
@@ -243,8 +265,7 @@ class TestStateDelegation:
         registry = _make_registry()
         registry._busy_backends.add("parakeet")
         assert "parakeet" in registry._busy._busy_backends, (
-            "registry._busy_backends must be the SAME set object "
-            "as registry._busy._busy_backends."
+            "registry._busy_backends must be the SAME set object as registry._busy._busy_backends."
         )
 
     def test_last_resort_notified_property_returns_breaker_value(self):
@@ -254,8 +275,7 @@ class TestStateDelegation:
         assert registry._last_resort_notified is False
         registry._breaker._last_resort_notified = True
         assert registry._last_resort_notified is True, (
-            "registry._last_resort_notified must delegate to "
-            "registry._breaker._last_resort_notified."
+            "registry._last_resort_notified must delegate to registry._breaker._last_resort_notified."
         )
 
 
@@ -313,8 +333,7 @@ class TestPatchObjectContract:
             registry.load_active(progress_callback=lambda msg: None)
 
         assert mock_failure.called, (
-            "patch.object(registry, '_record_failure') must intercept "
-            "the call from load_active on load failure."
+            "patch.object(registry, '_record_failure') must intercept the call from load_active on load failure."
         )
 
 
@@ -355,26 +374,17 @@ class TestFileSizeConstraint:
     def test_circuit_breaker_py_under_400_lines(self):
         """``asr/circuit_breaker.py`` must be ≤ 400 lines."""
         count = self._count_lines("asr/circuit_breaker.py")
-        assert count <= self.MAX_LINES, (
-            f"asr/circuit_breaker.py must be ≤ {self.MAX_LINES} lines "
-            f"(got {count})."
-        )
+        assert count <= self.MAX_LINES, f"asr/circuit_breaker.py must be ≤ {self.MAX_LINES} lines (got {count})."
 
     def test_busy_flag_py_under_400_lines(self):
         """``asr/busy_flag.py`` must be ≤ 400 lines."""
         count = self._count_lines("asr/busy_flag.py")
-        assert count <= self.MAX_LINES, (
-            f"asr/busy_flag.py must be ≤ {self.MAX_LINES} lines "
-            f"(got {count})."
-        )
+        assert count <= self.MAX_LINES, f"asr/busy_flag.py must be ≤ {self.MAX_LINES} lines (got {count})."
 
     def test_asr_registry_py_under_400_lines(self):
         """``asr_registry.py`` (the facade) must be ≤ 400 lines."""
         count = self._count_lines("asr_registry.py")
-        assert count <= self.MAX_LINES, (
-            f"asr_registry.py must be ≤ {self.MAX_LINES} lines "
-            f"(got {count})."
-        )
+        assert count <= self.MAX_LINES, f"asr_registry.py must be ≤ {self.MAX_LINES} lines (got {count})."
 
     def test_former_monolith_shrunk(self):
         """The former 1072-line ``asr_registry.py`` must have shrunk

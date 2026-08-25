@@ -41,9 +41,7 @@ class TestNewTerminalProcessNames:
     )
     def test_new_terminal_name_recognized(self, name: str):
         """Each new terminal name must be in ``_TERMINAL_PROCESS_NAMES``."""
-        assert name in clip_mod._TERMINAL_PROCESS_NAMES, (
-            f" regression: {name!r} must be in _TERMINAL_PROCESS_NAMES"
-        )
+        assert name in clip_mod._TERMINAL_PROCESS_NAMES, f" regression: {name!r} must be in _TERMINAL_PROCESS_NAMES"
 
     def test_existing_terminal_names_preserved(self):
         """Existing entries must not be removed by the new additions."""
@@ -90,9 +88,7 @@ class TestWaylandTerminalPaste:
 
         assert len(captured) == 1, f"expected one wtype call, got {captured}"
         cmd = captured[0]
-        assert cmd[:3] == ["wtype", "-k", "ctrl+shift+v"], (
-            f"terminal paste must send 'ctrl+shift+v'; got {cmd!r}"
-        )
+        assert cmd[:3] == ["wtype", "-k", "ctrl+shift+v"], f"terminal paste must send 'ctrl+shift+v'; got {cmd!r}"
 
     def test_non_terminal_paste_sends_ctrl_v(self, monkeypatch):
         """default ``is_terminal=False`` → wtype gets ``ctrl+v``."""
@@ -109,9 +105,7 @@ class TestWaylandTerminalPaste:
 
         assert len(captured) == 1
         cmd = captured[0]
-        assert cmd[:3] == ["wtype", "-k", "ctrl+v"], (
-            f"non-terminal paste must send 'ctrl+v'; got {cmd!r}"
-        )
+        assert cmd[:3] == ["wtype", "-k", "ctrl+v"], f"non-terminal paste must send 'ctrl+v'; got {cmd!r}"
 
     def test_settle_delay_invoked_before_wtype(self, monkeypatch):
         """``time.sleep`` is called before the wtype subprocess."""
@@ -132,13 +126,9 @@ class TestWaylandTerminalPaste:
         clip_mod._linux_paste_via_wtype("hello", is_terminal=True)
 
         # The settle delay must run BEFORE the wtype subprocess.
-        assert run_order == ["sleep", "run"], (
-            f"sleep must precede wtype; got order={run_order!r}"
-        )
+        assert run_order == ["sleep", "run"], f"sleep must precede wtype; got order={run_order!r}"
         # 10-20 ms range per the finding.
-        assert 0.010 <= sleep_calls[0] <= 0.020, (
-            f"settle delay must be 10-20 ms; got {sleep_calls[0]!r}"
-        )
+        assert 0.010 <= sleep_calls[0] <= 0.020, f"settle delay must be 10-20 ms; got {sleep_calls[0]!r}"
 
     def test_paste_raises_on_wtype_nonzero_exit(self, monkeypatch):
         """Non-zero wtype exit raises RuntimeError."""
@@ -154,6 +144,7 @@ class TestWaylandTerminalPaste:
 
     def test_paste_propagates_timeout_expired(self, monkeypatch):
         """``subprocess.TimeoutExpired`` is re-raised, not swallowed."""
+
         def fake_run(cmd, **kw):
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=5)
 
@@ -197,9 +188,7 @@ class TestSendShiftInsertWin32:
         """SendInput returning 4 → ``_send_shift_insert_win32`` returns True."""
         fake_win32_shift_insert["user32"].SendInput.return_value = 4
         result = clip_mod._send_shift_insert_win32()
-        assert result is True, (
-            f"must return True on full success; got {result!r}"
-        )
+        assert result is True, f"must return True on full success; got {result!r}"
 
     def test_returns_false_on_partial_success(self, fake_win32_shift_insert):
         """SendInput returning 1..3 → returns False (no double-paste)."""
@@ -207,9 +196,7 @@ class TestSendShiftInsertWin32:
         # SendInput (2-event KEYUP cleanup) return value ignored.
         fake_win32_shift_insert["user32"].SendInput.side_effect = [2, 2]
         result = clip_mod._send_shift_insert_win32()
-        assert result is False, (
-            f"must return False on partial success; got {result!r}"
-        )
+        assert result is False, f"must return False on partial success; got {result!r}"
 
     def test_returns_true_on_zero_with_fallback(self, fake_win32_shift_insert):
         """SendInput returning 0 → fallback invoked, returns True."""
@@ -270,19 +257,13 @@ class TestWin32ExcludeClipboardFromMonitoring:
         with patch("ctypes.windll", mock_windll, create=True):
             result = clip_mod._win32_exclude_clipboard_from_monitoring()
 
-        assert result is True, (
-            f"must return True when SetClipboardData succeeds; got {result!r}"
-        )
+        assert result is True, f"must return True when SetClipboardData succeeds; got {result!r}"
         # Verify the format name passed to RegisterClipboardFormatW.
-        mock_user32.RegisterClipboardFormatW.assert_called_once_with(
-            "ExcludeClipboardContentFromMonitorProcessing"
-        )
+        mock_user32.RegisterClipboardFormatW.assert_called_once_with("ExcludeClipboardContentFromMonitorProcessing")
         # Verify GlobalAlloc was called with a 1-byte payload.
         mock_kernel32.GlobalAlloc.assert_called_once()
         alloc_args = mock_kernel32.GlobalAlloc.call_args
-        assert alloc_args.args[1] == 1, (
-            f"GlobalAlloc payload must be 1 byte; got {alloc_args.args[1]!r}"
-        )
+        assert alloc_args.args[1] == 1, f"GlobalAlloc payload must be 1 byte; got {alloc_args.args[1]!r}"
 
     def test_returns_false_when_setclipboarddata_fails(self, monkeypatch):
         """SetClipboardData returning NULL → False, and GlobalFree is called."""
@@ -336,9 +317,7 @@ class TestWin32ExcludeClipboardFromMonitoring:
 
         result = cm.copy("hello world")
 
-        assert called == [True], (
-            "copy() must call _win32_exclude_clipboard_from_monitoring on Windows"
-        )
+        assert called == [True], "copy() must call _win32_exclude_clipboard_from_monitoring on Windows"
         # copy() returns None or a snapshot on success.
         assert result is None or hasattr(result, "restore")
 
@@ -368,19 +347,13 @@ class TestImeCompositionGuard:
         monkeypatch.setattr(clip_mod, "is_windows", lambda: True)
         monkeypatch.setattr(clip_mod, "is_macos", lambda: False)
         monkeypatch.setattr(clip_mod, "is_linux", lambda: False)
-        monkeypatch.setattr(
-            ClipboardManager, "_is_safe_paste_target", staticmethod(lambda: True)
-        )
-        monkeypatch.setattr(
-            ClipboardManager, "_detect_focused_process", staticmethod(lambda: None)
-        )
+        monkeypatch.setattr(ClipboardManager, "_is_safe_paste_target", staticmethod(lambda: True))
+        monkeypatch.setattr(ClipboardManager, "_detect_focused_process", staticmethod(lambda: None))
 
         # Mock is_ime_composing() to return True.
         fake_ime_module = MagicMock()
         fake_ime_module.is_ime_composing.return_value = True
-        monkeypatch.setitem(
-            sys.modules, "voice_typer.server.hotkeys.windows.ime_guard", fake_ime_module
-        )
+        monkeypatch.setitem(sys.modules, "voice_typer.server.hotkeys.windows.ime_guard", fake_ime_module)
 
         # Mock event_bus so the toast publish doesn't fail.
         fake_event_bus = MagicMock()
@@ -402,9 +375,7 @@ class TestImeCompositionGuard:
 
         result = cm.paste()
 
-        assert result is False, (
-            f"paste must return False when IME is composing; got {result!r}"
-        )
+        assert result is False, f"paste must return False when IME is composing; got {result!r}"
         # The toast event must have been published.
         fake_event_bus.publish.assert_called_once()
         event = fake_event_bus.publish.call_args.args[0]
@@ -418,18 +389,12 @@ class TestImeCompositionGuard:
         monkeypatch.setattr(clip_mod, "is_windows", lambda: True)
         monkeypatch.setattr(clip_mod, "is_macos", lambda: False)
         monkeypatch.setattr(clip_mod, "is_linux", lambda: False)
-        monkeypatch.setattr(
-            ClipboardManager, "_is_safe_paste_target", staticmethod(lambda: True)
-        )
-        monkeypatch.setattr(
-            ClipboardManager, "_detect_focused_process", staticmethod(lambda: None)
-        )
+        monkeypatch.setattr(ClipboardManager, "_is_safe_paste_target", staticmethod(lambda: True))
+        monkeypatch.setattr(ClipboardManager, "_detect_focused_process", staticmethod(lambda: None))
 
         fake_ime_module = MagicMock()
         fake_ime_module.is_ime_composing.return_value = False
-        monkeypatch.setitem(
-            sys.modules, "voice_typer.server.hotkeys.windows.ime_guard", fake_ime_module
-        )
+        monkeypatch.setitem(sys.modules, "voice_typer.server.hotkeys.windows.ime_guard", fake_ime_module)
 
         mock_time = MagicMock()
         mock_time.monotonic.return_value = 100.0
@@ -444,9 +409,7 @@ class TestImeCompositionGuard:
 
         result = cm.paste()
 
-        assert result is True, (
-            f"paste must proceed when IME is NOT composing; got {result!r}"
-        )
+        assert result is True, f"paste must proceed when IME is NOT composing; got {result!r}"
 
 
 # ─── macOS Secure Input detection ──────────────────────────
@@ -491,9 +454,7 @@ class TestSecureInputDetection:
 
         result = _is_secure_input_enabled()
 
-        assert result is True, (
-            f"must return True when ioreg reports SecureInput; got {result!r}"
-        )
+        assert result is True, f"must return True when ioreg reports SecureInput; got {result!r}"
         # The toast event must have been published.
         fake_event_bus.publish.assert_called_once()
         event = fake_event_bus.publish.call_args.args[0]

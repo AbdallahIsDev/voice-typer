@@ -189,8 +189,8 @@ class TestTauriBinariesManifest:
         sha = data["binaries"][binary_name]["sha256"]
         assert isinstance(sha, dict), (
             f"`{binary_name}.sha256` must be a per-(platform, arch) "
-            f"dict (e.g. {{\"linux-x86_64\": \"<hex>\", \"linux-aarch64\": "
-            f"\"<hex>\"}}), got {type(sha).__name__}. A flat string is a "
+            f'dict (e.g. {{"linux-x86_64": "<hex>", "linux-aarch64": '
+            f'"<hex>"}}), got {type(sha).__name__}. A flat string is a '
             f"schema regression — the loader consults the per-arch sub-key."
         )
 
@@ -240,8 +240,7 @@ class TestTauriBinariesManifest:
                     f"always 64 chars."
                 )
                 assert all(c in "0123456789abcdef" for c in sha), (
-                    f"`{binary_name}.sha256['{arch_key}']` must be "
-                    f"lowercase hex (got non-hex chars)."
+                    f"`{binary_name}.sha256['{arch_key}']` must be lowercase hex (got non-hex chars)."
                 )
 
     @pytest.mark.parametrize("binary_name", _REQUIRED_BINARY_ENTRIES)
@@ -289,8 +288,7 @@ class TestTauriBinariesManifest:
             "dict `sha256` schema."
         )
         assert data["_schema_version"] == 2, (
-            f"`_schema_version` must be 2 (per-(platform, arch) dict "
-            f"sha256 schema); got {data['_schema_version']!r}."
+            f"`_schema_version` must be 2 (per-(platform, arch) dict sha256 schema); got {data['_schema_version']!r}."
         )
 
     def test_manifest_has_schema_changelog(self) -> None:
@@ -325,6 +323,5 @@ class TestTauriBinariesManifest:
         )
         contract = data["_manifest_loader_contract"]
         assert isinstance(contract, str) and "platform" in contract.lower(), (
-            "`_manifest_loader_contract` must reference the "
-            "platform/arch lookup logic."
+            "`_manifest_loader_contract` must reference the platform/arch lookup logic."
         )

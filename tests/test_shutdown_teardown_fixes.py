@@ -397,7 +397,7 @@ class TestWindowsTerminateProcessFallback:  # noqa: N801
         # form.
         assert ('sys.platform == "win32"' in body) or ("is_windows()" in body), (
             "UE-1-F6: the TerminateProcess fallback must be guarded by "
-            "``sys.platform == \"win32\"`` (or the canonical "
+            '``sys.platform == "win32"`` (or the canonical '
             "``platform_utils.is_windows()`` guard) — POSIX uses SIGKILL"
         )
         # marker must be present for traceability.

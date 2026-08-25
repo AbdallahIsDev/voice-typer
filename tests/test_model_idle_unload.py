@@ -432,7 +432,7 @@ class TestTouchReschedulesTimer:
 
         try:
             with patch(
-                "voice_typer.server.model_manager.threading.Timer",
+                "voice_typer.server.model_manager._lifecycle.threading.Timer",
                 side_effect=_spy_timer,
             ):
                 mm.touch_active_model()

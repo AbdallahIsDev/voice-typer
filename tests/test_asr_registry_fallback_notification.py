@@ -508,13 +508,10 @@ class TestLastResortEventGate:
 
         # Return contract preserved (the fix is additive).
         assert result is not None, "get_active() must still return the last-resort backend"
-        assert notifications == [], (
-            "a suppressing gate must skip the subscriber fan-out — "
-            f"got {notifications!r}"
+        assert notifications == [], f"a suppressing gate must skip the subscriber fan-out — got {notifications!r}"
+        assert not any(e.get("type") == "asr_last_resort_unloaded" for e in published), (
+            f"a suppressing gate must skip the event_bus publish. Got {published!r}."
         )
-        assert not any(
-            e.get("type") == "asr_last_resort_unloaded" for e in published
-        ), f"a suppressing gate must skip the event_bus publish. Got {published!r}."
 
     def test_gate_false_keeps_existing_behavior(self, monkeypatch):
         """A gate returning False must preserve the existing behavior —
@@ -533,12 +530,10 @@ class TestLastResortEventGate:
         registry.set_last_resort_event_gate(lambda name: False)
         registry.get_active()
 
-        assert notifications == ["parakeet"], (
-            "a non-suppressing gate must NOT block the subscriber fan-out"
+        assert notifications == ["parakeet"], "a non-suppressing gate must NOT block the subscriber fan-out"
+        assert any(e.get("type") == "asr_last_resort_unloaded" for e in published), (
+            "a non-suppressing gate must NOT block the event_bus publish"
         )
-        assert any(
-            e.get("type") == "asr_last_resort_unloaded" for e in published
-        ), "a non-suppressing gate must NOT block the event_bus publish"
 
     def test_gate_receives_configured_backend_name(self):
         """The gate must receive the configured backend name (same value
@@ -579,12 +574,10 @@ class TestLastResortEventGate:
         registry._breaker.clear_last_resort_notified()
         registry.get_active()
 
-        assert notifications == ["parakeet"], (
-            "after clearing the gate, the subscriber fan-out must fire again"
+        assert notifications == ["parakeet"], "after clearing the gate, the subscriber fan-out must fire again"
+        assert any(e.get("type") == "asr_last_resort_unloaded" for e in published), (
+            "after clearing the gate, the event_bus publish must fire again"
         )
-        assert any(
-            e.get("type") == "asr_last_resort_unloaded" for e in published
-        ), "after clearing the gate, the event_bus publish must fire again"
 
     def test_gate_does_not_gate_asr_backend_disabled(self, monkeypatch):
         """The gate is scoped to the LAST-RESORT fan-out only — it must
@@ -638,12 +631,10 @@ class TestLastResortEventGate:
             result = registry.get_active()
 
         assert result is not None, "return contract preserved"
-        assert notifications == ["parakeet"], (
-            "a raising gate must fail open — subscribers must still fire"
+        assert notifications == ["parakeet"], "a raising gate must fail open — subscribers must still fire"
+        assert any(e.get("type") == "asr_last_resort_unloaded" for e in published), (
+            "a raising gate must fail open — the event_bus publish must still fire"
         )
-        assert any(
-            e.get("type") == "asr_last_resort_unloaded" for e in published
-        ), "a raising gate must fail open — the event_bus publish must still fire"
         assert any("event gate raised" in rec.message for rec in caplog.records), (
             "the gate exception must be logged (message contains 'event gate raised')"
         )
@@ -681,9 +672,7 @@ class TestBackendDisabledEventGate:
         registry, _ = _make_registry_with_only_unloaded_primary()
 
         disable_calls: list[tuple] = []
-        registry.add_backend_disabled_subscriber(
-            lambda name, count: disable_calls.append((name, count))
-        )
+        registry.add_backend_disabled_subscriber(lambda name, count: disable_calls.append((name, count)))
         published: list[dict] = []
         monkeypatch.setattr(
             "voice_typer.server.event_bus.publish",
@@ -694,12 +683,11 @@ class TestBackendDisabledEventGate:
         self._trip(registry)
 
         assert disable_calls == [], (
-            "a suppressing gate must skip the backend-disabled subscriber "
-            f"fan-out — got {disable_calls!r}"
+            f"a suppressing gate must skip the backend-disabled subscriber fan-out — got {disable_calls!r}"
         )
-        assert not any(
-            e.get("type") == "asr_backend_disabled" for e in published
-        ), f"a suppressing gate must skip the event_bus publish. Got {published!r}."
+        assert not any(e.get("type") == "asr_backend_disabled" for e in published), (
+            f"a suppressing gate must skip the event_bus publish. Got {published!r}."
+        )
         # State mutation is NOT gated — the backend must still be
         # disabled so load_with_fallback skips it (gate only suppresses
         # the notification surface).
@@ -715,9 +703,7 @@ class TestBackendDisabledEventGate:
         registry, _ = _make_registry_with_only_unloaded_primary()
 
         disable_calls: list[tuple] = []
-        registry.add_backend_disabled_subscriber(
-            lambda name, count: disable_calls.append((name, count))
-        )
+        registry.add_backend_disabled_subscriber(lambda name, count: disable_calls.append((name, count)))
         published: list[dict] = []
         monkeypatch.setattr(
             "voice_typer.server.event_bus.publish",
@@ -728,12 +714,11 @@ class TestBackendDisabledEventGate:
         self._trip(registry)
 
         assert disable_calls == [("parakeet", 3)], (
-            "a non-suppressing gate must NOT block the backend-disabled "
-            f"subscriber fan-out — got {disable_calls!r}"
+            f"a non-suppressing gate must NOT block the backend-disabled subscriber fan-out — got {disable_calls!r}"
         )
-        assert any(
-            e.get("type") == "asr_backend_disabled" for e in published
-        ), "a non-suppressing gate must NOT block the event_bus publish"
+        assert any(e.get("type") == "asr_backend_disabled" for e in published), (
+            "a non-suppressing gate must NOT block the event_bus publish"
+        )
 
     def test_gate_receives_backend_name(self):
         """The gate must receive the backend name so ModelManager can
@@ -741,9 +726,7 @@ class TestBackendDisabledEventGate:
         registry, _ = _make_registry_with_only_unloaded_primary()
 
         received: list[str] = []
-        registry.set_backend_disabled_event_gate(
-            lambda name: received.append(name) or False
-        )
+        registry.set_backend_disabled_event_gate(lambda name: received.append(name) or False)
         self._trip(registry)
 
         assert received == ["parakeet"], (
@@ -757,9 +740,7 @@ class TestBackendDisabledEventGate:
         registry, _ = _make_registry_with_only_unloaded_primary()
 
         disable_calls: list[tuple] = []
-        registry.add_backend_disabled_subscriber(
-            lambda name, count: disable_calls.append((name, count))
-        )
+        registry.add_backend_disabled_subscriber(lambda name, count: disable_calls.append((name, count)))
         published: list[dict] = []
         monkeypatch.setattr(
             "voice_typer.server.event_bus.publish",
@@ -779,12 +760,11 @@ class TestBackendDisabledEventGate:
         self._trip(registry)
 
         assert disable_calls == [("parakeet", 3)], (
-            "after clearing the gate, the backend-disabled subscriber "
-            f"fan-out must fire again — got {disable_calls!r}"
+            f"after clearing the gate, the backend-disabled subscriber fan-out must fire again — got {disable_calls!r}"
         )
-        assert any(
-            e.get("type") == "asr_backend_disabled" for e in published
-        ), "after clearing the gate, the event_bus publish must fire again"
+        assert any(e.get("type") == "asr_backend_disabled" for e in published), (
+            "after clearing the gate, the event_bus publish must fire again"
+        )
 
     def test_gate_exception_fails_open(self, monkeypatch, caplog):
         """A gate that raises must FAIL OPEN — the genuine alert is
@@ -793,9 +773,7 @@ class TestBackendDisabledEventGate:
         registry, _ = _make_registry_with_only_unloaded_primary()
 
         disable_calls: list[tuple] = []
-        registry.add_backend_disabled_subscriber(
-            lambda name, count: disable_calls.append((name, count))
-        )
+        registry.add_backend_disabled_subscriber(lambda name, count: disable_calls.append((name, count)))
         published: list[dict] = []
         monkeypatch.setattr(
             "voice_typer.server.event_bus.publish",
@@ -809,16 +787,13 @@ class TestBackendDisabledEventGate:
         with caplog.at_level("WARNING"):
             self._trip(registry)
 
-        assert disable_calls == [("parakeet", 3)], (
-            "a raising gate must fail open — subscribers must still fire"
+        assert disable_calls == [("parakeet", 3)], "a raising gate must fail open — subscribers must still fire"
+        assert any(e.get("type") == "asr_backend_disabled" for e in published), (
+            "a raising gate must fail open — the event_bus publish must still fire"
         )
-        assert any(
-            e.get("type") == "asr_backend_disabled" for e in published
-        ), "a raising gate must fail open — the event_bus publish must still fire"
-        assert any(
-            "backend-disabled event gate raised" in rec.message
-            for rec in caplog.records
-        ), "the gate exception must be logged (message contains 'backend-disabled event gate raised')"
+        assert any("backend-disabled event gate raised" in rec.message for rec in caplog.records), (
+            "the gate exception must be logged (message contains 'backend-disabled event gate raised')"
+        )
 
     def test_backend_disabled_gate_does_not_gate_last_resort(self, monkeypatch):
         """Scope boundary (reverse direction of
@@ -847,9 +822,9 @@ class TestBackendDisabledEventGate:
             "the backend-disabled gate must NOT suppress the last-resort "
             f"subscriber fan-out (scope boundary). Got {notifications!r}."
         )
-        assert any(
-            e.get("type") == "asr_last_resort_unloaded" for e in published
-        ), "the backend-disabled gate must NOT suppress the last-resort event_bus publish"
+        assert any(e.get("type") == "asr_last_resort_unloaded" for e in published), (
+            "the backend-disabled gate must NOT suppress the last-resort event_bus publish"
+        )
 
 
 class TestLastResortSubscriberApi:
@@ -970,9 +945,7 @@ class TestLastResortWarningLogOncePerTransition:
 
     @staticmethod
     def _records(caplog) -> list:
-        return [
-            r for r in caplog.records if "unloaded backend" in r.getMessage()
-        ]
+        return [r for r in caplog.records if "unloaded backend" in r.getMessage()]
 
     def test_warning_fires_once_for_repeated_calls(self, caplog):
         """10 consecutive ``get_active()`` calls while the backend is

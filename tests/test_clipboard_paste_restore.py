@@ -50,7 +50,8 @@ import pytest
 # tests/clipboard/conftest.py (single source of truth —  dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
-from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
+
+from tests.fixtures.clipboard_helpers import make_clipboard_manager, make_clipboard_snapshot  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Display-env isolation
@@ -76,36 +77,6 @@ def _mock_display_env(monkeypatch):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_cm(
-    *,
-    paste_enabled: bool = True,
-    save_restore: bool = True,
-    restore_delay_ms: int = 150,
-) -> ClipboardManager:
-    """Build a ClipboardManager with mocked keyboard and cached flags set.
-
-    Mirrors the helper in ``test_clipboard_borrow_restore.py`` so we
-    can construct a manager without paying the pynput-import cost.
-    """
-    cm = ClipboardManager.__new__(ClipboardManager)
-    cm.paste_enabled = paste_enabled
-    cm._keyboard = MagicMock()
-    cm._last_paste_time = 0.0  # not rate-limited
-    cm._clipboard_seq = 0
-    cm._last_copied_text = ""
-    cm._clipboard_save_restore_enabled = save_restore
-    cm._restore_delay_ms = restore_delay_ms
-    return cm
-
-
-def _make_snapshot() -> ClipboardSnapshot:
-    return ClipboardSnapshot(
-        platform="linux-x11",
-        items=[("text/plain", b"prior clipboard content")],
-        captured_at=time.monotonic(),
-    )
 
 
 def _drain_pending_restores() -> None:
@@ -192,8 +163,8 @@ class TestPasteRestoresAndUnregisters:
         snapshot was never restored, and the entry stayed in
         ``_pending_restores`` forever.
         """
-        cm = _make_cm(restore_delay_ms=10)  # 10ms so the test is fast
-        snap = _make_snapshot()
+        cm = make_clipboard_manager(restore_delay_ms=10)  # 10ms so the test is fast
+        snap = make_clipboard_snapshot()
         mock_pyper = MagicMock()
         # Clipboard still has the pasted text → restore path runs.
         mock_pyper.paste.return_value = "the new dictation"
@@ -238,8 +209,8 @@ class TestPasteRestoresAndUnregisters:
         After  fix: the ``finally`` block fires on the skip path
         too.
         """
-        cm = _make_cm(restore_delay_ms=10)
-        snap = _make_snapshot()
+        cm = make_clipboard_manager(restore_delay_ms=10)
+        snap = make_clipboard_snapshot()
         mock_pyper = MagicMock()
         # Clipboard changed (user copied something else) → skip restore.
         mock_pyper.paste.return_value = "user copied different text"
@@ -282,8 +253,8 @@ class TestPasteRestoresAndUnregisters:
         After  fix: the ``finally`` block fires on the exception
         path too.
         """
-        cm = _make_cm(restore_delay_ms=10)
-        snap = _make_snapshot()
+        cm = make_clipboard_manager(restore_delay_ms=10)
+        snap = make_clipboard_snapshot()
         mock_pyper = MagicMock()
         mock_pyper.paste.return_value = "the dictation"
         exits = _enter_all(_patch_paste_plumbing())
@@ -320,7 +291,7 @@ class TestPasteRestoresAndUnregisters:
         Before  fix: this would have left 25 entries lingering
         (one per paste) for the lifetime of the process.
         """
-        cm = _make_cm(restore_delay_ms=5)
+        cm = make_clipboard_manager(restore_delay_ms=5)
         mock_pyper = MagicMock()
         mock_pyper.paste.return_value = "dictation"
         exits = _enter_all(_patch_paste_plumbing())
@@ -332,7 +303,7 @@ class TestPasteRestoresAndUnregisters:
                 patch.object(clip_mod, "log"),
             ):
                 for _ in range(25):
-                    snap = _make_snapshot()
+                    snap = make_clipboard_snapshot()
                     snapshots.append(snap)
                     with patch.object(snap, "restore", return_value=True):
                         cm.paste(snapshot=snap, pasted_text="dictation")
@@ -360,7 +331,7 @@ class TestPasteRestoresAndUnregisters:
         needed). This documents the pre-existing branch and ensures
         our fix doesn't accidentally register a None entry.
         """
-        cm = _make_cm(restore_delay_ms=10)
+        cm = make_clipboard_manager(restore_delay_ms=10)
         exits = _enter_all(_patch_paste_plumbing())
         try:
             with patch.object(clip_mod, "log"):
@@ -389,8 +360,8 @@ class TestDelayedRestoreSignature:
     """
 
     def test_delayed_restore_accepts_pending_entry_kwarg(self):
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
         entry = ("sentinel-entry",)
         with (
             patch.object(clip_mod, "_paste_from_clipboard", return_value="x"),
@@ -410,8 +381,8 @@ class TestDelayedRestoreSignature:
     def test_delayed_restore_accepts_pending_entry_positional(self):
         """The production call site at paste() line 1018-1020 passes
         ``pending_entry`` positionally. Verify that path works too."""
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
         entry = ("sentinel-entry-positional",)
         with (
             patch.object(clip_mod, "_paste_from_clipboard", return_value="x"),
@@ -433,8 +404,8 @@ class TestDelayedRestoreSignature:
         pending_entry). The new signature must remain backward
         compatible (``pending_entry`` defaults to None → no removal).
         """
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
         with (
             patch.object(clip_mod, "_paste_from_clipboard", return_value="x"),
             patch.object(snap, "restore", return_value=True) as mock_restore,

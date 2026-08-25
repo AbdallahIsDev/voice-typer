@@ -209,8 +209,7 @@ def run_plan(
                 remaining = deadline - time.monotonic()
                 if remaining < _DEADLINE_NEAR_THRESHOLD:
                     log.warning(
-                        "[SHUTDOWN] skipping non-critical step %s — "
-                        "shutdown deadline approaching (%.1fs remaining)",
+                        "[SHUTDOWN] skipping non-critical step %s — shutdown deadline approaching (%.1fs remaining)",
                         step.name,
                         max(0.0, remaining),
                     )

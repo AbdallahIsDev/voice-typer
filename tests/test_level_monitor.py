@@ -32,6 +32,8 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+from tests.fixtures.wait_helpers import wait_for_event, wait_until
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Test fixtures
 # ═══════════════════════════════════════════════════════════════════════════
@@ -54,6 +56,13 @@ def _reset_level_monitor_state():
     lm._monitor_peak = 0.0
     lm._monitor_mic_id = None
     lm._level_processor = None
+    # Reset the processor-config stash + cosmetic-bar flag too — without
+    # these, a prior test's ``update_level_processor`` stash clobbers the
+    # next test's injected mock on ``start_monitoring`` (it rebuilds the
+    # processor from the stash), and a leaked filtered-mode opt-in flips
+    # whether the filter chain runs for later tests.
+    lm._level_processor_config = None
+    lm._level_bar_filtered = False
     lm._dropped_level_chunks = 0
     lm._last_drop_log_time = 0.0
     lm._level_ring_buffer.clear()
@@ -150,11 +159,7 @@ class TestOnlyRawChunksPopulated:
         holder["callback"](chunk, 512, None, None)
 
         # Wait for the worker thread to process the chunk.
-        deadline = time.perf_counter() + 1.0
-        while time.perf_counter() < deadline:
-            if len(lm._test_raw_chunks) > 0:
-                break
-            time.sleep(0.01)
+        assert wait_until(lambda: len(lm._test_raw_chunks) > 0, timeout=1.0)
 
         # only _test_raw_chunks should have been appended to.
         assert len(lm._test_raw_chunks) == 1, (
@@ -188,11 +193,7 @@ class TestOnlyRawChunksPopulated:
             holder["callback"](chunk, 512, None, None)
 
         # Wait for the worker to process.
-        deadline = time.perf_counter() + 1.0
-        while time.perf_counter() < deadline:
-            if len(lm._test_raw_chunks) >= 3:
-                break
-            time.sleep(0.01)
+        assert wait_until(lambda: len(lm._test_raw_chunks) >= 3, timeout=1.0)
         assert len(lm._test_raw_chunks) >= 3
 
         result = lm.stop_test_recording()
@@ -242,11 +243,7 @@ class TestOnlyRawChunksPopulated:
             holder["callback"](chunk, 512, None, None)
 
         # Wait for the worker.
-        deadline = time.perf_counter() + 1.0
-        while time.perf_counter() < deadline:
-            if len(lm._test_raw_chunks) >= 5:
-                break
-            time.sleep(0.01)
+        assert wait_until(lambda: len(lm._test_raw_chunks) >= 5, timeout=1.0)
 
         # only ONE copy of each chunk is stored.
         assert len(lm._test_raw_chunks) == 5
@@ -289,12 +286,25 @@ class TestHeavyWorkOutsideLock:
         holder = _wire_stream_with_callback_capture(monkeypatch)
 
         # Install a slow filter (50ms per chunk — simulates RNNoise).
+        # The filter signals when it has been ENTERED so the test waits
+        # on real readiness instead of a fixed grace sleep.
+        slow_filter_started = threading.Event()
+
+        def slow_filter(chunk):
+            slow_filter_started.set()
+            time.sleep(0.05)
+            return chunk
+
         slow_processor = MagicMock()
-        slow_processor.process_chunk.side_effect = lambda chunk: (
-            __import__("time").sleep(0.05),
-            chunk,
-        )[-1]
+        slow_processor.process_chunk.side_effect = slow_filter
         lm._level_processor = slow_processor
+        # Cosmetic-bar mode (the default) SKIPS the filter chain entirely,
+        # so the worker would never enter the slow filter. Opt into the
+        # filtered level bar — the same code path in _process_level_chunk —
+        # and clear the config stash so start_monitoring's rebuild can't
+        # clobber the injected mock.
+        lm._level_processor_config = None
+        lm._level_bar_filtered = True
 
         lm.start_monitoring(mic_id=None)
         try:
@@ -302,8 +312,8 @@ class TestHeavyWorkOutsideLock:
             chunk = np.ones((512, 1), dtype=np.float32) * 0.25
             holder["callback"](chunk, 512, None, None)
 
-            # Give the worker a moment to start processing.
-            time.sleep(0.02)
+            # Wait until the worker has entered the slow filter.
+            assert wait_for_event(slow_filter_started, timeout=1.0), "worker never entered the slow filter"
 
             # While the worker is busy (in the slow filter, OUTSIDE the
             # lock), get_level() should return immediately (well under
@@ -342,15 +352,24 @@ class TestHeavyWorkOutsideLock:
 
         holder = _wire_stream_with_callback_capture(monkeypatch)
 
-        # 50ms per chunk — simulates RNNoise on a slow CPU.
-        slow_processor = MagicMock()
+        # 50ms per chunk — simulates RNNoise on a slow CPU. The filter
+        # signals when it has been ENTERED so the test waits on real
+        # readiness instead of a fixed grace sleep.
+        slow_filter_started = threading.Event()
 
         def slow_filter(chunk):
+            slow_filter_started.set()
             time.sleep(0.05)
             return chunk
 
+        slow_processor = MagicMock()
         slow_processor.process_chunk.side_effect = slow_filter
         lm._level_processor = slow_processor
+        # Opt into the filtered level bar (cosmetic-bar mode skips the
+        # filter chain) and clear the config stash so start_monitoring's
+        # rebuild can't clobber the injected mock.
+        lm._level_processor_config = None
+        lm._level_bar_filtered = True
 
         lm.start_monitoring(mic_id=None)
         try:
@@ -361,8 +380,8 @@ class TestHeavyWorkOutsideLock:
             for _ in range(5):
                 holder["callback"](chunk, 512, None, None)
 
-            # Give the worker a moment to start processing the first chunk.
-            time.sleep(0.02)
+            # Wait until the worker has entered the (first) slow filter.
+            assert wait_for_event(slow_filter_started, timeout=1.0), "worker never entered the slow filter"
 
             # Sample get_level() 3 times spread across the drain window.
             # Each call MUST return in well under 10ms — the slow filter
@@ -398,11 +417,17 @@ class TestHeavyWorkOutsideLock:
 
         holder = _wire_stream_with_callback_capture(monkeypatch)
 
+        # Slow filter (50ms) that signals when the worker has entered it,
+        # so the test waits on real readiness instead of a fixed grace sleep.
+        slow_filter_started = threading.Event()
+
+        def slow_filter(chunk):
+            slow_filter_started.set()
+            time.sleep(0.05)
+            return chunk
+
         slow_processor = MagicMock()
-        slow_processor.process_chunk.side_effect = lambda chunk: (
-            __import__("time").sleep(0.05),
-            chunk,
-        )[-1]
+        slow_processor.process_chunk.side_effect = slow_filter
         lm._level_processor = slow_processor
 
         lm._monitor_sample_rate = 16000
@@ -412,9 +437,9 @@ class TestHeavyWorkOutsideLock:
             chunk = np.ones((512, 1), dtype=np.float32) * 0.25
             holder["callback"](chunk, 512, None, None)
 
-            # Wait for the worker to start processing (so we know it's
-            # holding the slow filter call).
-            time.sleep(0.02)
+            # Wait until the worker has entered the slow filter (so we
+            # know it's holding the slow filter call).
+            assert wait_for_event(slow_filter_started, timeout=1.0), "worker never entered the slow filter"
 
             # stop_test_recording() acquires _monitor_lock to clear
             # _test_mode. With , this should NOT block on the
@@ -455,11 +480,7 @@ class TestHeavyWorkOutsideLock:
             holder["callback"](chunk, 512, None, None)
 
             # Wait for the worker to process it.
-            deadline = time.perf_counter() + 1.0
-            while time.perf_counter() < deadline:
-                if lm._monitor_level > 0:
-                    break
-                time.sleep(0.01)
+            assert wait_until(lambda: lm._monitor_level > 0, timeout=1.0)
 
             # The level should reflect the halved amplitude (0.25 * smoothing).
             # First-chunk smoothing: level = 0 * 0.6 + 0.25 * 0.4 = 0.1.
@@ -491,11 +512,10 @@ class TestHeavyWorkOutsideLock:
             holder["callback"](chunk, 512, None, None)
 
             # Wait for the worker to process it.
-            deadline = time.perf_counter() + 1.0
-            while time.perf_counter() < deadline:
-                if len(lm._test_raw_chunks) > 0 and len(lm._test_rms_history) > 0:
-                    break
-                time.sleep(0.01)
+            assert wait_until(
+                lambda: len(lm._test_raw_chunks) > 0 and len(lm._test_rms_history) > 0,
+                timeout=1.0,
+            )
 
             # quality metrics from RAW audio (0.5), not filtered (0.0).
             assert len(lm._test_rms_history) > 0
@@ -530,6 +550,7 @@ class TestHeavyWorkOutsideLock:
         # Slow filter (50ms) so we can observe the worker's lock state.
         filter_started = threading.Event()
         filter_in_progress = threading.Event()
+        lock_check_done = threading.Event()
 
         def slow_filter(chunk):
             filter_started.set()
@@ -538,6 +559,7 @@ class TestHeavyWorkOutsideLock:
                 lm._monitor_lock.release()
             else:
                 filter_in_progress.set()  # lock is held by someone else
+            lock_check_done.set()
             time.sleep(0.05)
             return chunk
 
@@ -570,18 +592,16 @@ class TestHeavyWorkOutsideLock:
             # holding _monitor_lock (the heavy work runs outside the lock).
             # filter_in_progress is set ONLY if the lock was held by someone
             # else during the filter — which shouldn't happen because the
-            # main thread isn't holding it.
-            time.sleep(0.02)  # let the filter check the lock state
+            # main thread isn't holding it. The filter sets lock_check_done
+            # right AFTER its acquire/release probe, so waiting on it makes
+            # the read below deterministic (no fixed grace sleep).
+            assert lock_check_done.wait(timeout=1.0), "filter never finished its lock-state check"
             assert not filter_in_progress.is_set(), (
                 "XV-55: _monitor_lock was held during the slow filter call — heavy work must run OUTSIDE the lock"
             )
 
             # Wait for the worker to finish.
-            deadline = time.perf_counter() + 1.0
-            while time.perf_counter() < deadline:
-                if lm._monitor_level > 0:
-                    break
-                time.sleep(0.01)
+            wait_until(lambda: lm._monitor_level > 0, timeout=1.0)
         finally:
             lm.stop_monitoring()
 
@@ -795,13 +815,13 @@ class TestDroppedChunksLogging:
             chunk = np.ones((512, 1), dtype=np.float32) * 0.25
             holder["callback"](chunk, 512, None, None)
             # Wait for the worker to wake + drain the delta into the
-            # cumulative counter. Poll up to 2s (replaces a fixed
-            # time.sleep(0.1) that was too short under CI load).
-            _deadline = time.monotonic() + 2.0
-            while _lm_worker._total_dropped_level_chunks <= initial_total:
-                if time.monotonic() > _deadline:
-                    break
-                time.sleep(0.01)
+            # cumulative counter (replaces a fixed time.sleep(0.1) that
+            # was too short under CI load). No assert here — the
+            # assertion below owns the failure; this test is xfail.
+            wait_until(
+                lambda: _lm_worker._total_dropped_level_chunks > initial_total,
+                timeout=2.0,
+            )
 
             # The cumulative counter MUST have increased — proving the
             # overflow registered AND the worker drained the per-burst
@@ -1067,7 +1087,10 @@ class TestCancelTestRecordingLock:
         cancel_thread = threading.Thread(target=call_cancel, daemon=True)
         cancel_thread.start()
 
-        # Give cancel_thread time to reach the lock acquisition point.
+        # Intentionally kept: there is no observable predicate for
+        # "cancel_thread is parked on _monitor_lock" (the acquisition is
+        # internal), and the assertions below are only meaningful once it
+        # has reached that point.
         time.sleep(0.1)
 
         # cancel_test_recording must be blocked (the lock is held

@@ -201,9 +201,7 @@ def test_notch_reset_zeros_state():
     # assertion below would be vacuously true.
     _b, _a, zi_before = notch._state
     assert zi_before is not None
-    assert not np.all(zi_before == 0), (
-        "zi must be non-zero BEFORE reset (else the test is vacuous)."
-    )
+    assert not np.all(zi_before == 0), "zi must be non-zero BEFORE reset (else the test is vacuous)."
 
     # Act: reset.
     notch.reset()
@@ -221,14 +219,11 @@ def test_notch_reset_zeros_state():
     # exactly representable in float32, so the production code's
     # ``zi[0] = ANTIDENORMAL_EPSILON`` reads back exactly).
     assert zi_after[0] == np.float32(ANTIDENORMAL_EPSILON), (
-        f"zi[0] must equal ANTIDENORMAL_EPSILON ({ANTIDENORMAL_EPSILON}); "
-        f"got {zi_after[0]}."
+        f"zi[0] must equal ANTIDENORMAL_EPSILON ({ANTIDENORMAL_EPSILON}); got {zi_after[0]}."
     )
     # All other elements (zi[1:]) must be exactly zero.
     if zi_after.size > 1:
-        assert np.all(zi_after[1:] == 0), (
-            f"zi[1:] must be all-zero after reset; got {zi_after[1:]}."
-        )
+        assert np.all(zi_after[1:] == 0), f"zi[1:] must be all-zero after reset; got {zi_after[1:]}."
 
 
 def test_notch_reset_before_process_does_not_crash():

@@ -166,6 +166,7 @@ def _serialize_icon_stub_generator():
     with lock:
         yield
 
+
 # Per-platform helpers invoked (directly or indirectly) by the orchestrator.
 SIDECAR_SCRIPTS = {
     "windows": BUILD_DIR / "build_sidecar_windows.sh",

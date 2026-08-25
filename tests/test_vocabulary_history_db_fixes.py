@@ -324,9 +324,7 @@ class TestCheckpointIntervalDocs:
             "_run_checkpoint comment must reference '_WAL_CHECKPOINT_INTERVAL' "
             "(the constant) instead of a hardcoded literal — drift-free."
         )
-        assert "every 60s" not in src, (
-            "_run_checkpoint comment still says 'every 60s' — the stale cadence."
-        )
+        assert "every 60s" not in src, "_run_checkpoint comment still says 'every 60s' — the stale cadence."
 
     def test_run_checkpoint_retry_comment_references_constant_not_hardcoded(self):
         """The comment about 'next checkpoint attempt will retry'

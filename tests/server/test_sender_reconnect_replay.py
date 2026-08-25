@@ -107,19 +107,13 @@ class TestQueueAccumulationDuringDisconnect:
         for i in range(5):
             server.push({"type": "test_event", "data": {"i": i}})
 
-        assert len(server._pending_tcp) == 5, (
-            f"expected 5 queued events; got {len(server._pending_tcp)}"
-        )
+        assert len(server._pending_tcp) == 5, f"expected 5 queued events; got {len(server._pending_tcp)}"
 
         # Verify FIFO order — the first entry should be i=0, the last i=4.
         first = json.loads(server._pending_tcp[0])
         last = json.loads(server._pending_tcp[-1])
-        assert first["data"]["i"] == 0, (
-            f"FIFO: first queued event should be i=0; got {first}"
-        )
-        assert last["data"]["i"] == 4, (
-            f"FIFO: last queued event should be i=4; got {last}"
-        )
+        assert first["data"]["i"] == 0, f"FIFO: first queued event should be i=0; got {first}"
+        assert last["data"]["i"] == 4, f"FIFO: last queued event should be i=4; got {last}"
 
     def test_no_sendall_while_disconnected(self):
         """While disconnected, ``_send`` must NOT attempt any socket
@@ -172,10 +166,7 @@ class TestBatchedReplayOnReconnect:
         )
         # Decode and verify all 4 events were sent.
         sent_lines = [line for line in written_data.decode("utf-8").split("\n") if line]
-        assert len(sent_lines) == 4, (
-            f"expected 4 sent lines (3 queued + 1 new); got {len(sent_lines)}: "
-            f"{sent_lines}"
-        )
+        assert len(sent_lines) == 4, f"expected 4 sent lines (3 queued + 1 new); got {len(sent_lines)}: {sent_lines}"
 
         sent_types = [json.loads(line)["type"] for line in sent_lines]
         # The new message is written FIRST (via ``tcp_client.write(line_bytes)``
@@ -183,14 +174,12 @@ class TestBatchedReplayOnReconnect:
         # documented behavior: the current push event is delivered
         # immediately, and the backlog follows it.
         assert sent_types == ["new_event", "queued", "queued", "queued"], (
-            f"expected new_event first, then 3 queued (backlog drain); "
-            f"got {sent_types}"
+            f"expected new_event first, then 3 queued (backlog drain); got {sent_types}"
         )
 
         # _pending_tcp must be empty after the drain.
         assert len(server._pending_tcp) == 0, (
-            f"_pending_tcp must be empty after a successful drain; "
-            f"got {len(server._pending_tcp)} entries"
+            f"_pending_tcp must be empty after a successful drain; got {len(server._pending_tcp)} entries"
         )
 
     def test_replay_uses_single_sendall_for_batch(self):
@@ -212,8 +201,7 @@ class TestBatchedReplayOnReconnect:
         # message (written + flushed first) + 1 for the whole 50-entry
         # drain batch.
         assert tcp_client.conn.sendall.call_count == 2, (
-            f"expected 2 sendall calls (1 new + 1 batched drain); "
-            f"got {tcp_client.conn.sendall.call_count}"
+            f"expected 2 sendall calls (1 new + 1 batched drain); got {tcp_client.conn.sendall.call_count}"
         )
 
 
@@ -246,30 +234,20 @@ class TestMaxReplayCountCap:
 
         # The 5 older entries must be re-merged into _pending_tcp.
         assert len(server._pending_tcp) == 5, (
-            f"expected 5 re-merged older entries after drain-cap overflow; "
-            f"got {len(server._pending_tcp)}"
+            f"expected 5 re-merged older entries after drain-cap overflow; got {len(server._pending_tcp)}"
         )
         for entry in older:
-            assert entry in server._pending_tcp, (
-                f"older entry {entry} must be re-merged after drain-cap overflow"
-            )
+            assert entry in server._pending_tcp, f"older entry {entry} must be re-merged after drain-cap overflow"
 
         # The 100 recent + 1 new must have been sent (101 entries).
-        written_data = b"".join(
-            call.args[0] if call.args else b""
-            for call in tcp_client.conn.sendall.call_args_list
-        )
+        written_data = b"".join(call.args[0] if call.args else b"" for call in tcp_client.conn.sendall.call_args_list)
         sent_lines = [line for line in written_data.decode("utf-8").split("\n") if line]
-        assert len(sent_lines) == 101, (
-            f"expected 101 sent lines (100 recent + 1 new); got {len(sent_lines)}"
-        )
+        assert len(sent_lines) == 101, f"expected 101 sent lines (100 recent + 1 new); got {len(sent_lines)}"
 
     def test_drain_cap_constant(self):
         """Sanity: ``_TCP_PENDING_DRAIN_CAP`` must be 100 (the documented
         cap for batched drain per ``_send`` call)."""
-        assert _TCP_PENDING_DRAIN_CAP == 100, (
-            f"_TCP_PENDING_DRAIN_CAP must be 100; got {_TCP_PENDING_DRAIN_CAP}"
-        )
+        assert _TCP_PENDING_DRAIN_CAP == 100, f"_TCP_PENDING_DRAIN_CAP must be 100; got {_TCP_PENDING_DRAIN_CAP}"
 
 
 # ─── 4. drop oldest on overflow ──────────────────────────────────────
@@ -294,12 +272,10 @@ class TestDropOldestOnOverflow:
 
         # The buffer must be capped at 1000.
         assert len(server._pending_tcp) <= _TCP_PENDING_BUFFER_CAP, (
-            f"_pending_tcp must be capped at {_TCP_PENDING_BUFFER_CAP}; "
-            f"got {len(server._pending_tcp)}"
+            f"_pending_tcp must be capped at {_TCP_PENDING_BUFFER_CAP}; got {len(server._pending_tcp)}"
         )
         assert len(server._pending_tcp) == _TCP_PENDING_BUFFER_CAP, (
-            f"expected exactly {_TCP_PENDING_BUFFER_CAP} entries after "
-            f"pushing 1050; got {len(server._pending_tcp)}"
+            f"expected exactly {_TCP_PENDING_BUFFER_CAP} entries after pushing 1050; got {len(server._pending_tcp)}"
         )
 
         # The oldest 50 entries (i=0..49) must have been dropped.
@@ -307,18 +283,13 @@ class TestDropOldestOnOverflow:
         first = json.loads(server._pending_tcp[0])
         last = json.loads(server._pending_tcp[-1])
         assert first["data"]["i"] == 50, (
-            f"oldest surviving entry should be i=50 (50 oldest were dropped); "
-            f"got i={first['data']['i']}"
+            f"oldest surviving entry should be i=50 (50 oldest were dropped); got i={first['data']['i']}"
         )
-        assert last["data"]["i"] == 1049, (
-            f"newest entry should be i=1049; got i={last['data']['i']}"
-        )
+        assert last["data"]["i"] == 1049, f"newest entry should be i=1049; got i={last['data']['i']}"
 
     def test_buffer_cap_constant(self):
         """Sanity: ``_TCP_PENDING_BUFFER_CAP`` must be 1000."""
-        assert _TCP_PENDING_BUFFER_CAP == 1000, (
-            f"_TCP_PENDING_BUFFER_CAP must be 1000; got {_TCP_PENDING_BUFFER_CAP}"
-        )
+        assert _TCP_PENDING_BUFFER_CAP == 1000, f"_TCP_PENDING_BUFFER_CAP must be 1000; got {_TCP_PENDING_BUFFER_CAP}"
 
 
 # ─── 5. write buffer reset on socket replacement ─────────────────────
@@ -381,21 +352,20 @@ class TestWriteBufferResetOnSocketReplacement:
 
         # _reset_write_buffer must have been called (the drain failed and
         # the partially-buffered entries must be discarded).
-        tcp_client._reset_write_buffer.assert_called(), (
-            "_reset_write_buffer must be called when the drain flush fails "
-            "so partially-buffered entries don't leak into the next _send call"
+        (
+            tcp_client._reset_write_buffer.assert_called(),
+            (
+                "_reset_write_buffer must be called when the drain flush fails "
+                "so partially-buffered entries don't leak into the next _send call"
+            ),
         )
 
         # The write buffer must be empty after the reset.
-        assert write_buffer == [], (
-            "write buffer must be empty after _reset_write_buffer was called "
-            "on drain failure"
-        )
+        assert write_buffer == [], "write buffer must be empty after _reset_write_buffer was called on drain failure"
 
         # The undrained pending entries must be re-merged.
         assert len(server._pending_tcp) >= 1, (
-            f"undrained pending entries must be re-merged after drain failure; "
-            f"got {len(server._pending_tcp)} entries"
+            f"undrained pending entries must be re-merged after drain failure; got {len(server._pending_tcp)} entries"
         )
 
     def test_write_buffer_cleared_on_successful_reconnect(self):
@@ -436,8 +406,7 @@ class TestWriteBufferResetOnSocketReplacement:
 
         # The new client must have received the queued + new events.
         written_data = b"".join(
-            call.args[0] if call.args else b""
-            for call in second_client.conn.sendall.call_args_list
+            call.args[0] if call.args else b"" for call in second_client.conn.sendall.call_args_list
         )
         sent_lines = [line for line in written_data.decode("utf-8").split("\n") if line]
         sent_types = [json.loads(line)["type"] for line in sent_lines]

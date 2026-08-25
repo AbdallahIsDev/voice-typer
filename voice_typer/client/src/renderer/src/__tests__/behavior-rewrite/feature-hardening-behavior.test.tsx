@@ -579,7 +579,9 @@ describe("Microphone — rewrite of test_microphone_uses_shared_snackbar_hook", 
 
 	it("calls showSnack via the shared useSnackbar hook when the mic test fails (delegates to sonner.toast.error, not inline JSX)", async () => {
 		const { default: MicrophonePage } = await import("@/pages/Microphone");
-		render(<MicrophonePage />);
+		// The mic-test card renders InfoTooltips (quality selector) — the
+		// page must mount inside the provider, exactly as App.tsx wraps it.
+		renderWithProviders(<MicrophonePage />);
 
 		// Wait for the page to load — the "Start Test" button renders
 		// once get_config + get_microphones resolve and the loading

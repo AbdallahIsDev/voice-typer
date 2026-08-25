@@ -214,10 +214,7 @@ class TestXrunRollingWindowLogThrottling:
                 pipeline.handle_xrun_status(2)
 
         # XRUNs 2-4 throttled — log fired only on the 1st.
-        first_batch_logs = [
-            r for r in caplog.records
-            if "PortAudio status flag" in r.getMessage()
-        ]
+        first_batch_logs = [r for r in caplog.records if "PortAudio status flag" in r.getMessage()]
         assert len(first_batch_logs) == 1, (
             f"Expected exactly 1 log on the first 4 XRUNs (only the 1st via "
             f"the `_xruns == 1` clause); got {len(first_batch_logs)}."
@@ -233,13 +230,10 @@ class TestXrunRollingWindowLogThrottling:
             pipeline.handle_xrun_status(2)
 
         second_batch_logs = [
-            r
-            for r in caplog.records[records_before_5th:]
-            if "PortAudio status flag" in r.getMessage()
+            r for r in caplog.records[records_before_5th:] if "PortAudio status flag" in r.getMessage()
         ]
         assert len(second_batch_logs) == 1, (
-            "Expected the 5th XRUN (rolling-window threshold crossed) to "
-            f"log once; got {len(second_batch_logs)}."
+            f"Expected the 5th XRUN (rolling-window threshold crossed) to log once; got {len(second_batch_logs)}."
         )
 
         # Sanity: counter tracked every XRUN regardless of logging.
@@ -263,13 +257,8 @@ class TestXrunRollingWindowLogThrottling:
             pipeline.handle_xrun_status(2)
             pipeline.handle_xrun_status(2)
 
-        portaudio_logs = [
-            r for r in caplog.records
-            if "PortAudio status flag" in r.getMessage()
-        ]
-        assert len(portaudio_logs) == 1, (
-            f"Expected exactly 1 log (only on 1st XRUN); got {len(portaudio_logs)}."
-        )
+        portaudio_logs = [r for r in caplog.records if "PortAudio status flag" in r.getMessage()]
+        assert len(portaudio_logs) == 1, f"Expected exactly 1 log (only on 1st XRUN); got {len(portaudio_logs)}."
         # Sanity: counter tracked every XRUN regardless of logging.
         assert recorder._xruns == 4
 

@@ -1274,3 +1274,65 @@ real user profile), driven over CDP with browser-control; screenshots in
   dedup risks hiding a user-selected device per C-MIC-2) — candidate future UX enhancement
   (host-API suffix badge on duplicates).
 - pip-audit run via `uv tool run` (pip-audit not installed in venv).
+
+
+## Session: Mic follow-ups — dedup, tray, quality polish, compact header (2026-08-25)
+
+### Follow-up 1: duplicate microphones (root cause + fix)
+- REPRODUCED with runtime dump: PortAudio enumerates each endpoint once per host API —
+  17 raw records (MME/DirectSound/WASAPI/WDM-KS) = 3 real devices; MME truncates names at
+  31 chars; WDM-KS adds disabled endpoints (Line In/Stereo Mix) the OS UI does not offer.
+- Fix (microphone_list.py): canonical host-API normalization (Windows→WASAPI, macOS→Core
+  Audio, Linux→PulseAudio-when-present; graceful full-list fallback), default flag from the
+  preferred API's own default_input_device, last-resort name-match id recovery (split-once,
+  pipe-in-name safe, never guesses cross-named endpoints). Live dump: exactly 3 devices.
+- Tray: build_microphones_submenu is a pass-through of the shared enumeration (proven by
+  tests/test_tray_microphone_submenu.py incl. 12-dup regression fixture) — zero tray edits.
+- W0: PortAudio proposal 007 ("display devices from one host API at a time");
+  python-sounddevice #45/#360 (no cross-API unique id).
+
+### Follow-up 2: page polish
+- Removed "Selected microphone" badge + later the redundant selectedMicDesc desc line
+  (desc now only for System Default, whose text is informative).
+- LevelBar: neutral borderless track + solid bg-primary fill; rounded caps at EVERY level
+  via counter-scaled radius (--level var + calc(3px/max(var(--level),0.03))/3px) — rAF
+  still writes ONLY the transform (PERF preserved); getLevelColor ladder deleted (E7).
+- Device-lost banner REMOVED entirely (user decision: the App-level degradation toast is
+  the single notification); store + meter pause + select-clears-flag behavior kept.
+- Quality selector: labels Auto/Studio/Noisy Room/OFF/Advanced (8 locales + translate-i18n
+  seed map), descriptions only in InfoTooltip tooltips, radios right-aligned (DOM-first,
+  order-last ms-auto), header ? inline beside label (InfoTooltip triggerAs="inline" — new
+  additive variant; Radix-blessed span-inside-trigger per radix-ui#3212).
+- Shared accordion fix: inner content no longer freezes the open-time measured height
+  (stale-height trailing void when content shrank while open).
+
+### Follow-up 3 (this pass): compact single-row header + rotating chevron
+- Collapsed = ONE row: [MICROPHONE QUALITY + ?] left, [active-filter chip (SelectTrigger-
+  style shell, keeps data-testid=mic-preset-current) + rotating ArrowDown01Icon] right.
+- Chevron: single icon, group-data-[state=open]/accordion-trigger:rotate-180 +
+  transition-transform duration-200 (collapsed=down/expandable, expanded=up/collapsible).
+  Primitive's PlusSignIcon hidden on THIS instance only ([&_[data-slot=...]]:hidden);
+  ui/accordion.tsx untouched (C-MODELS-4 intact for Models page). W0: shadcn #777 +
+  Radix accordion docs (data-state rotate convention).
+- Expanded options: one deliberate px-2 on the RadioGroup (24px total insets).
+- 2 parallel investigators dispatched (implementation audit completed; interaction-
+  verifier failed twice on provider outage — checklist covered manually: keyboard path
+  trigger→?→row infos→radios unchanged; chip is non-interactive span inside the trigger
+  accessible name; chevron aria-hidden; RTL logical props only).
+
+### Rules appended
+AGENTS.md C-MIC-7..C-MIC-15 (identity-based dedup via canonical host API; never hide
+virtual mics; System Default separate; single enumeration source for page+tray; tooltip-
+only descriptions; primary-color rounded fill; no redundant status labels; single-row
+header + rotating chevron + chip + balanced options padding).
+
+### Validation (final state, Windows 11)
+- vitest FULL: 3492 passed / 0 failed; typecheck:ci clean; biome clean; build OK.
+- pytest FULL: 13694 passed / 28 failed — ALL 28 in the concurrently-active unrelated
+  workstream's domains (clipboard/wayland source-pins, CSP/Electron main, parakeet/
+  hf-cache, linux-installer Tauri autostart, model-delete, notifications, shutdown,
+  transcription GPU, ux-components, ruff/mypy/pyrefly ratchets inflated by their new
+  files). Zero failures in microphone/enumeration/tray/i18n/consent scope; targeted
+  suites (tests/microphones 99, tray submenu 8+129, i18n completeness 45,
+  microphone-a11y+feedback+hooks 101) all green.
+- Manual verification delegated to the user per instruction (bc visual check skipped).

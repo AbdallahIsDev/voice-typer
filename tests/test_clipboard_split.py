@@ -200,6 +200,7 @@ class TestDelegatorContract:
         original = mgr_mod._delayed_restore_impl
         calls: list[tuple] = []
         try:
+
             def spy(mgr, snapshot, pasted_text, delay, pending_entry=None):
                 calls.append((mgr, snapshot, pasted_text, delay, pending_entry))
 
@@ -214,6 +215,7 @@ class TestDelegatorContract:
         original = mgr_mod._restore_now_impl
         calls: list[tuple] = []
         try:
+
             def spy(mgr, snapshot):
                 calls.append((mgr, snapshot))
 
@@ -231,22 +233,24 @@ class TestDelegatorContract:
 
 
 class TestManagerSlimmed:
-    """ goal: ``manager.py`` should be materially smaller than the
+    """goal: ``manager.py`` should be materially smaller than the
     pre-split 1417 LOC. We don't assert a hard ~400 LOC target (the
     ``paste()`` method's source-string pins require it to stay in
     ``ClipboardManager``'s class body), but it MUST be well under 1417."""
 
     def test_manager_py_is_smaller_than_pre_split(self):
-        mgr_path = Path(mgr_mod.__file__)
-        loc = sum(1 for _ in mgr_path.open(encoding="utf-8"))
+        # The manager is now a package; measure the whole package so the
+        # "not a monolith again" upper bound still holds across leaves.
+        mgr_pkg_dir = Path(mgr_mod.__file__).parent
+        loc = sum(1 for leaf in sorted(mgr_pkg_dir.glob("*.py")) for _ in leaf.open(encoding="utf-8"))
         assert loc < 1417, (
-            f"manager.py must be smaller than the pre-split 1417 LOC; got {loc}. "
+            f"manager package must be smaller than the pre-split 1417 LOC; got {loc}. "
             " split did not actually remove code."
         )
         # Sanity floor: the slim manager must still contain __init__,
         # refresh_config, copy, paste, and the delegators — at least 400 LOC.
         assert loc >= 400, (
-            f"manager.py is suspiciously small ({loc} LOC) — did the split "
+            f"manager package is suspiciously small ({loc} LOC) — did the split "
             "accidentally delete preserved methods (copy/paste/__init__)?"
         )
 

@@ -74,6 +74,8 @@ export interface VoiceTyperConfig {
 	device: "cuda" | "cpu";
 	beam_size: number;
 	best_of: number;
+	/** Whisper-specific beam width; 1 = automatic device/model-aware default. Optional for wire tolerance with older sidecars. */
+	whisper_beam_size?: number;
 	condition_on_previous_text: boolean;
 
 	// Hidden streaming

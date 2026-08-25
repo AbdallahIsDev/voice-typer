@@ -242,6 +242,7 @@ class TestStopDispatchPoolSelfJoin:
         worker_released = threading.Event()
 
         try:
+
             def _quit_handler() -> None:
                 # Mirrors the dispatch worker executing quit_app → app.quit()
                 # → _do_cleanup(): it stays blocked until stop() returns.
@@ -291,15 +292,11 @@ class TestStopDispatchPoolSelfJoin:
                 pool._threads = real_threads
 
         try:
-            assert lifecycle_mod._in_pool_worker(pool) is False, (
-                "main thread is not a pool worker — must be False"
-            )
+            assert lifecycle_mod._in_pool_worker(pool) is False, "main thread is not a pool worker — must be False"
             pool.submit(_probe).result(timeout=5.0)
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
-        assert observed.get("inside") is True, (
-            "a running pool worker must be detected as inside the pool"
-        )
+        assert observed.get("inside") is True, "a running pool worker must be detected as inside the pool"
         assert observed.get("inside_empty_set") is True, (
             "a running pool worker must still be detected when ``pool._threads`` "
             "is momentarily empty (CPython 3.12 worker-start race) — without the "

@@ -312,7 +312,9 @@ describe("XV-154: logging.ts file-size cache", () => {
 // ────────────────────────────────────────────────────────────────────
 
 describe("XV-155: main-window ERROR routes through log.error (runtime.log)", () => {
-	const src = readSrc("../windows/main-window.ts");
+	// The console-message handler lives in `renderer-telemetry.ts` (split
+	// out of `main-window.ts`); the pin follows the moved body.
+	const src = readSrc("../windows/renderer-telemetry.ts");
 
 	it("source: ERROR branch uses log.error (routes to runtime.log)", () => {
 		// Find the console-message handler.
@@ -367,7 +369,9 @@ describe("XV-156: shutdown-path timers unref status", () => {
 
 	it("tcp-connect.ts: _tcpStartupTimeoutTimer is NOT unref'd", () => {
 		// The actual source does not call .unref() on the startup timer.
-		const src = readSrc("../python/tcp-connect.ts");
+		// The timer lives in the `python/tcp/startup-watchdog.ts` leaf
+		// (split out of `tcp-connect.ts`); the pin follows the moved body.
+		const src = readSrc("../python/tcp/startup-watchdog.ts");
 		expect(src).not.toMatch(/_tcpStartupTimeoutTimer\.unref\(\)/);
 	});
 
@@ -378,7 +382,9 @@ describe("XV-156: shutdown-path timers unref status", () => {
 	});
 
 	it("tcp-connect.ts: _tcpRetryTimer is NOT unref'd (must fire on schedule)", () => {
-		const src = readSrc("../python/tcp-connect.ts");
+		// The retry timer lives in the `python/tcp/retry-scheduler.ts`
+		// leaf; the pin follows the moved body.
+		const src = readSrc("../python/tcp/retry-scheduler.ts");
 		// The retry timer must NOT be unref'd.
 		expect(src).not.toMatch(/_tcpRetryTimer\s*=\s*setTimeout[\s\S]*?\.unref/);
 	});
@@ -674,7 +680,9 @@ describe("XV-149: StringDecoder prevents U+FFFD on chunk-split UTF-8", () => {
 	});
 
 	it("tcp-connect.ts keeps tcpBuffer binary and decodes complete lines only", () => {
-		const src = readSrc("../python/tcp-connect.ts");
+		// The reassembly code lives in the `python/tcp/frame-reader.ts`
+		// leaf (split out of `tcp-connect.ts`); the pin follows the body.
+		const src = readSrc("../python/tcp/frame-reader.ts");
 		// The old buggy pattern decoded each partial chunk via
 		// chunk.toString(), surfacing U+FFFD on UTF-8 char splits.
 		// The merged fix keeps tcpBuffer as a Buffer (Buffer.concat),

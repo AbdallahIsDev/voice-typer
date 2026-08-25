@@ -128,9 +128,7 @@ class TestModelStatusCache:
         # First call: populates the cache.  tiny should be reported
         # as downloaded because we created the cache subdir above.
         first_status = service.get_model_status()
-        assert first_status["tiny"]["downloaded"] is True, (
-            "Pre-condition: tiny should be downloaded before delete"
-        )
+        assert first_status["tiny"]["downloaded"] is True, "Pre-condition: tiny should be downloaded before delete"
 
         # Now wrap os.path.isdir with a counting proxy so we can
         # assert the next get_model_status actually re-queries.
@@ -186,7 +184,7 @@ class TestModelStatusCache:
         # so patching that binding controls the cache's view of "now".
         fake_now = [0.0]
         monkeypatch.setattr(
-            "voice_typer.server.service.model.time.monotonic",
+            "voice_typer.server.service.model._status.time.monotonic",
             lambda: fake_now[0],
         )
 

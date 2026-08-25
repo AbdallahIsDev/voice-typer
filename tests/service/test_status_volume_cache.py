@@ -74,9 +74,7 @@ def status_mixin_with_mock_ducker():
 class TestVolumeBackendStatusCache:
     """Tests for the per-instance ``_volume_backend_status_cache``."""
 
-    def test_first_call_invokes_initialize_once(
-        self, status_mixin_with_mock_ducker
-    ):
+    def test_first_call_invokes_initialize_once(self, status_mixin_with_mock_ducker):
         """The first call to ``get_volume_backend_status`` invokes
         ``ducker.initialize()`` exactly once and populates the cache."""
         mixin, ducker = status_mixin_with_mock_ducker
@@ -91,9 +89,7 @@ class TestVolumeBackendStatusCache:
         assert result["supports_per_session"] is False
         assert result["backend"] == "MagicMock"
 
-    def test_subsequent_calls_use_cache_without_reinvoking_initialize(
-        self, status_mixin_with_mock_ducker
-    ):
+    def test_subsequent_calls_use_cache_without_reinvoking_initialize(self, status_mixin_with_mock_ducker):
         """Subsequent calls return the cached dict and do NOT invoke
         ``ducker.initialize()`` again.
 
@@ -134,9 +130,7 @@ class TestVolumeBackendStatusCache:
             mixin.get_volume_backend_status()
         assert ducker.initialize.call_count == 1
 
-    def test_force_refresh_reinvokes_initialize_and_updates_cache(
-        self, status_mixin_with_mock_ducker
-    ):
+    def test_force_refresh_reinvokes_initialize_and_updates_cache(self, status_mixin_with_mock_ducker):
         """``_force_refresh=True`` bypasses the cache, re-runs
         ``initialize()``, and refreshes the cached status.
 
@@ -172,9 +166,7 @@ class TestVolumeBackendStatusCache:
         assert ducker.initialize.call_count == 2
         assert again["name"] == "CoreAudio (pyobjc)"
 
-    def test_init_failure_does_not_populate_cache(
-        self, status_mixin_with_mock_ducker
-    ):
+    def test_init_failure_does_not_populate_cache(self, status_mixin_with_mock_ducker):
         """When ``initialize()`` raises on the first call, the cache
         is NOT populated so the next poll retries.
 
@@ -215,9 +207,7 @@ class TestVolumeBackendStatusCache:
         # Now the cache should be populated.
         assert mixin._volume_backend_status_cache is not None
 
-    def test_force_refresh_caches_even_on_init_failure(
-        self, status_mixin_with_mock_ducker
-    ):
+    def test_force_refresh_caches_even_on_init_failure(self, status_mixin_with_mock_ducker):
         """``_force_refresh=True`` caches the best-effort status even
         when ``initialize()`` raises.
 
@@ -247,9 +237,7 @@ class TestVolumeBackendStatusCache:
         mixin.get_volume_backend_status()
         assert ducker.initialize.call_count == 1
 
-    def test_returned_dict_is_a_copy_not_the_cached_reference(
-        self, status_mixin_with_mock_ducker
-    ):
+    def test_returned_dict_is_a_copy_not_the_cached_reference(self, status_mixin_with_mock_ducker):
         """The returned dict is a shallow copy of the cache, so callers
         can't mutate the cached state.
 
@@ -269,22 +257,16 @@ class TestVolumeBackendStatusCache:
         # The cache should NOT reflect the mutation.
         cached = mixin._volume_backend_status_cache
         assert "is_windows" not in cached, (
-            " regression: mutation on the returned dict leaked "
-            "into the cache. The method should return a copy."
+            " regression: mutation on the returned dict leaked into the cache. The method should return a copy."
         )
-        assert cached["name"] == "fake (test)", (
-            " regression: name mutation on the returned dict "
-            "leaked into the cache."
-        )
+        assert cached["name"] == "fake (test)", " regression: name mutation on the returned dict leaked into the cache."
 
         # The next call returns a fresh copy without the mutation.
         second = mixin.get_volume_backend_status()
         assert "is_windows" not in second
         assert second["name"] == "fake (test)"
 
-    def test_missing_volume_ducker_returns_disabled_sentinel(
-        self, status_mixin_with_mock_ducker
-    ):
+    def test_missing_volume_ducker_returns_disabled_sentinel(self, status_mixin_with_mock_ducker):
         """When ``_app._volume_ducker`` is absent (early startup,
         test fixtures), the method returns the ``disabled`` sentinel
         and does NOT populate the cache.
@@ -305,9 +287,7 @@ class TestVolumeBackendStatusCache:
         # initialize() was never called.
         assert ducker.initialize.call_count == 0
 
-    def test_cache_is_per_instance_not_shared_across_instances(
-        self, status_mixin_with_mock_ducker
-    ):
+    def test_cache_is_per_instance_not_shared_across_instances(self, status_mixin_with_mock_ducker):
         """Each :class:`StatusMixin` instance has its own cache.
 
         Two separate ``VoiceTyperService`` instances (e.g. in a
@@ -346,9 +326,7 @@ class TestVolumeBackendStatusCache:
         # mixin_a's cache is unchanged.
         assert mixin_a._volume_backend_status_cache["name"] == "fake (test)"
 
-    def test_force_refresh_default_is_false(
-        self, status_mixin_with_mock_ducker
-    ):
+    def test_force_refresh_default_is_false(self, status_mixin_with_mock_ducker):
         """The ``_force_refresh`` parameter defaults to ``False``,
         preserving the poll-path caching contract.
 

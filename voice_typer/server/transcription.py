@@ -127,6 +127,28 @@ _nvidia_config_lock = threading.Lock()
 _nvidia_dll_paths = _NvidiaDllPathManager()
 
 
+# Wide-beam default applied automatically on CUDA for non-tiny models.
+# Beam search trades decode speed (~2x slower than greedy) for a 1-3%
+# WER improvement on common benchmarks — an acceptable trade only where
+# decode is fast enough that dictation stays responsive (GPU) and the
+# model family is accurate enough to benefit from it.
+AUTO_CUDA_BEAM_SIZE = 5
+
+
+def _auto_beam_size(model_size: str, device: str) -> int:
+    """Beam width used when the user has not configured one explicitly.
+
+    Returns the wide accuracy-biased beam only for non-tiny models on a
+    resolved CUDA device; tiny models and every CPU path keep the fast
+    greedy default of 1 so low-end hardware stays responsive.
+    """
+    if device != "cuda":
+        return 1
+    if str(model_size).lower().startswith("tiny"):
+        return 1
+    return AUTO_CUDA_BEAM_SIZE
+
+
 class TranscriptionEngine:
     """Wraps faster-whisper model loading and transcription."""
 
@@ -159,11 +181,20 @@ class TranscriptionEngine:
         # ``self.beam_size`` in ``_transcribe_unlocked`` /
         # ``_transcribe_words_unlocked`` / ``_probe_cuda_runtime``.
         effective_beam_size = beam_size
+        beam_explicitly_configured = beam_size > 1
         if config is not None:
             cfg_whisper_beam_size = getattr(config, "whisper_beam_size", None)
             if cfg_whisper_beam_size is not None and cfg_whisper_beam_size != 1:
                 effective_beam_size = cfg_whisper_beam_size
+                beam_explicitly_configured = True
         self.beam_size = effective_beam_size
+        # When neither the legacy ``beam_size`` kwarg nor the preferred
+        # ``whisper_beam_size`` field was raised by the user, the beam
+        # width is resolved automatically once the real device is known
+        # (see ``_apply_auto_beam_size``): accuracy-biased wide beams on
+        # CUDA for non-tiny models, the snappy greedy default everywhere
+        # else (tiny models, all CPU paths).
+        self._beam_size_auto = not beam_explicitly_configured
         self.best_of = best_of
         self.condition_on_previous_text = condition_on_previous_text
         self._model = None
@@ -371,6 +402,21 @@ class TranscriptionEngine:
         device = self._requested_device
         self._requested_device = None
         self._device, self._compute_type = self._resolve_device(device)
+        self._apply_auto_beam_size()
+
+    def _apply_auto_beam_size(self) -> None:
+        """Re-resolve ``self.beam_size`` when the user left it on auto.
+
+        Called whenever the resolved device changes (initial load-time
+        resolution and every GPU→CPU fallback) so the effective beam
+        width always matches the current runtime: wide beams only while
+        dictation runs on CUDA with a non-tiny model. An explicitly
+        configured beam (legacy kwarg or ``whisper_beam_size``) is never
+        touched.
+        """
+        if not self._beam_size_auto:
+            return
+        self.beam_size = _auto_beam_size(self.model_size, self._device)
 
     def _load_model_outside_lock(self, progress_callback=None):
         """Load model outside the lock so downloads don't block other threads.
@@ -636,6 +682,9 @@ class TranscriptionEngine:
                     self._model = None
                     self._device = "cpu"
                     self._compute_type = "int8"
+                    # CPU decode is the slow path — drop back to the
+                    # snappy greedy beam when the width was on auto.
+                    self._apply_auto_beam_size()
                     # HU-25: arm the deferred GPU release BEFORE the
                     # reload so a reload failure (model missing /
                     # ctranslate2 error) can't leak the already-freed CUDA
@@ -1197,6 +1246,9 @@ class TranscriptionEngine:
             self._model = None
             self._device = "cpu"
             self._compute_type = "int8"
+            # CPU decode is the slow path — drop back to the snappy
+            # greedy beam when the width was on auto.
+            self._apply_auto_beam_size()
             self._reload_under_lock()
             self._pending_gc_collect = True
             return inner(audio, *args, **kwargs)

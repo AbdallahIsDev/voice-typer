@@ -580,7 +580,8 @@ class TestFastCleanupUnconditionalFlush:
             "..",
             "voice_typer",
             "server",
-            "shutdown_controller.py",
+            "shutdown_controller",
+            "_cleanup.py",
         )
         with open(shutdown_controller_path, encoding="utf-8") as f:
             src = f.read()

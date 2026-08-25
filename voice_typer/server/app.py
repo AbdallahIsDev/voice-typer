@@ -1933,8 +1933,13 @@ class VoiceTyperApp:
         """TrayController protocol — re-enumerate microphones
         and refresh the tray menu by delegating to startup_tasks."""
         from voice_typer.server import startup_tasks
+        from voice_typer.server.server_platform import invalidate_microphone_list_cache
 
         try:
+            # An explicit user refresh must bypass the 5 s TTL cache —
+            # serving cached records here would make the tray action a
+            # no-op right after a device change.
+            invalidate_microphone_list_cache()
             startup_tasks.load_microphones(self)
         except Exception:
             log.warning("[TRAY] refresh_microphones failed", exc_info=True)

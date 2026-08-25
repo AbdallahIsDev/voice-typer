@@ -244,10 +244,7 @@ class CircuitBreaker:
         with self._lock:
             count = self._failure_counts.get(name, 0) + 1
             self._failure_counts[name] = count
-            tripped = (
-                count >= self._MAX_CONSECUTIVE_FAILURES
-                and name not in self._disabled_backends
-            )
+            tripped = count >= self._MAX_CONSECUTIVE_FAILURES and name not in self._disabled_backends
             if tripped:
                 self._disabled_backends.add(name)
                 log.warning(
@@ -267,9 +264,7 @@ class CircuitBreaker:
             # deliberate-unload windows onto the ``asr_backend_disabled``
             # surface (a backend mid-switch isn't genuinely broken). The
             # state mutation above (disable + persist) is NOT undone.
-            if self._fan_out_suppressed(
-                self._backend_disabled_event_gate, name, "backend-disabled"
-            ):
+            if self._fan_out_suppressed(self._backend_disabled_event_gate, name, "backend-disabled"):
                 return
 
             # Fire per-registry subscribers. Defensive — a subscriber
@@ -349,9 +344,7 @@ class CircuitBreaker:
         """
         # Fail-open suppression gate: ModelManager mirrors the tray
         # notification's suppressions to the renderer-toast surface.
-        if self._fan_out_suppressed(
-            self._last_resort_event_gate, name, "last-resort"
-        ):
+        if self._fan_out_suppressed(self._last_resort_event_gate, name, "last-resort"):
             return
 
         # Snapshot subscribers under the lock so a subscriber that calls

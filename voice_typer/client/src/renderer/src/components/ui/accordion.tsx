@@ -87,7 +87,14 @@ function AccordionContent({
 		>
 			<div
 				className={cn(
-					"h-(--radix-accordion-content-height) pt-0 pb-4 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4",
+					// NO fixed height here: the open/close animations drive the
+					// OUTER element's height via the --radix-accordion-content-height
+					// keyframes, so the inner wrapper must stay auto-sized. A fixed
+					// ``h-(--radix-accordion-content-height)`` froze the OPEN-time
+					// measurement — any content that shrinks while open (preset
+					// switch, disclosure collapse) left a large trailing void
+					// inside the expanded panel.
+					"pt-0 pb-4 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4",
 					className,
 				)}
 			>

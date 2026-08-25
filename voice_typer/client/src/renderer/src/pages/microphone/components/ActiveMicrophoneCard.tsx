@@ -118,29 +118,26 @@ export function ActiveMicrophoneCard({
 			)}
 		>
 			{/* Mic header */}
-			<div className="flex items-center justify-between">
-				<div className="flex items-center gap-3 min-w-0">
-					<HugeiconsIcon
-						icon={Mic02Icon}
-						strokeWidth={1.625}
-						className="h-4 w-4 shrink-0"
-					/>
-					<div className="min-w-0">
-						<p className="text-sm font-semibold text-(--text-primary) truncate">
-							{activeMicName}
-						</p>
+			<div className="flex items-center gap-3 min-w-0">
+				<HugeiconsIcon
+					icon={Mic02Icon}
+					strokeWidth={1.625}
+					className="h-4 w-4 shrink-0"
+				/>
+				<div className="min-w-0">
+					<p className="text-sm font-semibold text-(--text-primary) truncate">
+						{activeMicName}
+					</p>
+					{/* Description only for System Default — its text carries
+					information (which device the OS routes to). For a selected
+					device a "Selected microphone" line is redundant with the
+					radio list + card context (C-MIC-13), so no desc renders. */}
+					{isSystemDefault && (
 						<p className="text-xs text-(--text-muted)">
-							{isSystemDefault
-								? t("microphone.systemDefaultDesc")
-								: t("microphone.selectedMicDesc")}
+							{t("microphone.systemDefaultDesc")}
 						</p>
-					</div>
+					)}
 				</div>
-				<span className="inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-semibold border border-primary/20 bg-primary/10 text-primary">
-					{testRunning
-						? t("microphone.recordingStatus")
-						: t("microphone.selected")}
-				</span>
 			</div>
 
 			{/* : LevelBarContainer bundles the level-driven children

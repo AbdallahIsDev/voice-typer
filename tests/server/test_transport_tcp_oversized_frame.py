@@ -127,12 +127,9 @@ class TestOversizedFrameRejected:
 
         # An ERROR log must have been emitted mentioning the size cap.
         error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
-        assert error_records, (
-            "the oversized frame drop must be logged at ERROR level"
-        )
+        assert error_records, "the oversized frame drop must be logged at ERROR level"
         assert any(
-            "exceeds" in r.getMessage() and str(_TCP_MAX_OUTBOUND_BYTES) in r.getMessage()
-            for r in error_records
+            "exceeds" in r.getMessage() and str(_TCP_MAX_OUTBOUND_BYTES) in r.getMessage() for r in error_records
         ), (
             f"the ERROR log must mention the cap ({_TCP_MAX_OUTBOUND_BYTES}) "
             f"and 'exceeds'; got {[(r.levelname, r.getMessage()) for r in error_records]!r}"
@@ -207,15 +204,12 @@ class TestFrameAtLimitAccepted:
         tcp_client.conn.sendall.assert_called()
 
         # The client must still be alive (no error occurred).
-        assert server._tcp_client is tcp_client, (
-            "client must stay alive when the frame is at the limit (not over)"
-        )
+        assert server._tcp_client is tcp_client, "client must stay alive when the frame is at the limit (not over)"
 
         # _pending_tcp must be empty (no re-merge needed — the frame was
         # sent successfully and there were no pending entries).
         assert len(server._pending_tcp) == 0, (
-            f"_pending_tcp must be empty after a successful at-limit send; "
-            f"got {len(server._pending_tcp)} entries"
+            f"_pending_tcp must be empty after a successful at-limit send; got {len(server._pending_tcp)} entries"
         )
 
 

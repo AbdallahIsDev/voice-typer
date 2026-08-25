@@ -286,7 +286,7 @@ export default function App() {
 	// and shows ONE actionable localized notification naming what
 	// degraded + what to do:
 	//   - device_lost also flips the shared Microphone-page state
-	//     (meter pause + recovery banner) via deviceLostStore.
+	//     (meter pause) via deviceLostStore.
 	//   - llm_polish_failed covers the silent "transcription delivered
 	//     raw" path of the optional AI-polish step.
 	//   - asr_backend_disabled covers the recoverable engine-fallback

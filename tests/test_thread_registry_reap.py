@@ -30,11 +30,13 @@ from voice_typer.server.thread_registry import (
 )
 
 
-def _make_short_lived_thread() -> threading.Thread:
-    """Return a started daemon thread that exits almost immediately."""
+def _make_short_lived_thread(exit_gate: threading.Event) -> threading.Thread:
+    """Return a started daemon thread that stays alive until ``exit_gate``
+    is set (bounded by a 2s cap), so tests control the exact moment of
+    thread death instead of racing a fixed-lifetime sleep."""
 
     def _run() -> None:
-        time.sleep(0.01)
+        exit_gate.wait(timeout=2.0)
 
     t = threading.Thread(target=_run, name="short-lived", daemon=True)
     t.start()
@@ -57,12 +59,12 @@ class TestReapDead:
         """Dead entries are removed; live entries are kept."""
         reg = ThreadRegistry()
         stop = threading.Event()
-        live_t = _make_short_lived_thread()  # exits in 0.01s
+        live_gate = threading.Event()
+        live_t = _make_short_lived_thread(live_gate)
 
         # Make a thread that stays alive until we signal it.
         def _live_run():
-            while not stop.is_set():
-                time.sleep(0.01)
+            stop.wait()
 
         alive_t = threading.Thread(target=_live_run, name="alive", daemon=True)
         alive_t.start()
@@ -70,9 +72,12 @@ class TestReapDead:
         try:
             reg.register("short-lived", live_t, stop_event=None, join_timeout=1.0)
             reg.register("alive", alive_t, stop_event=None, join_timeout=1.0)
-            _wait_for_exit(live_t)
-            # Both entries are present (reap_dead hasn't been called).
+            # Both entries are present while both threads are alive
+            # (reap_dead hasn't been called).
             assert set(reg.list_all()) == {"short-lived", "alive"}
+            # Now let the short-lived thread exit and confirm its death.
+            live_gate.set()
+            _wait_for_exit(live_t)
             # list_active excludes the dead thread.
             assert reg.list_active() == ["alive"]
 
@@ -95,8 +100,7 @@ class TestReapDead:
         stop = threading.Event()
 
         def _run():
-            while not stop.is_set():
-                time.sleep(0.01)
+            stop.wait()
 
         t = threading.Thread(target=_run, name="alive", daemon=True)
         t.start()
@@ -112,9 +116,12 @@ class TestReapDead:
     def test_reap_dead_returns_count(self):
         """``reap_dead()`` returns the number of entries removed."""
         reg = ThreadRegistry()
-        threads = [_make_short_lived_thread() for _ in range(3)]
+        gates = [threading.Event() for _ in range(3)]
+        threads = [_make_short_lived_thread(gate) for gate in gates]
         for i, t in enumerate(threads):
             reg.register(f"short-{i}", t, stop_event=None, join_timeout=1.0)
+        for gate in gates:
+            gate.set()
         for t in threads:
             _wait_for_exit(t)
         removed = reg.reap_dead()
@@ -133,19 +140,22 @@ class TestRegisterCallsReapDead:
         """A subsequent ``register()`` call reaps dead entries from
         prior registrations."""
         reg = ThreadRegistry()
-        t1 = _make_short_lived_thread()
+        t1_gate = threading.Event()
+        t1 = _make_short_lived_thread(t1_gate)
         reg.register("worker", t1, stop_event=None, join_timeout=1.0)
-        _wait_for_exit(t1)
-        # The dead entry is still in the registry.
+        # The entry is present while its thread is alive.
         assert reg.list_all() == ["worker"]
+        # Let the thread exit and confirm the dead entry is still in the
+        # registry (reap only happens on the next register).
+        t1_gate.set()
+        _wait_for_exit(t1)
         assert reg.list_active() == []
 
         # Register a new thread — this should reap the dead entry.
         stop = threading.Event()
 
         def _run():
-            while not stop.is_set():
-                time.sleep(0.01)
+            stop.wait()
 
         t2 = threading.Thread(target=_run, name="worker-v2", daemon=True)
         t2.start()
@@ -162,8 +172,11 @@ class TestRegisterCallsReapDead:
         (no warning) — the dead entry was reaped, so the
         existing-entry check doesn't fire."""
         reg = ThreadRegistry()
-        t1 = _make_short_lived_thread()
+        t1_gate = threading.Event()
+        t1 = _make_short_lived_thread(t1_gate)
         reg.register("worker", t1, stop_event=None, join_timeout=1.0)
+        # Let the thread exit so the re-registration below sees a dead entry.
+        t1_gate.set()
         _wait_for_exit(t1)
         assert not t1.is_alive()
 
@@ -174,8 +187,7 @@ class TestRegisterCallsReapDead:
         stop = threading.Event()
 
         def _run():
-            while not stop.is_set():
-                time.sleep(0.01)
+            stop.wait()
 
         t2 = threading.Thread(target=_run, name="worker-v2", daemon=True)
         t2.start()
@@ -200,8 +212,7 @@ class TestRegisterCallsReapDead:
         stop2 = threading.Event()
 
         def _run(stop):
-            while not stop.is_set():
-                time.sleep(0.01)
+            stop.wait()
 
         t1 = threading.Thread(target=_run, args=(stop1,), name="worker-1", daemon=True)
         t2 = threading.Thread(target=_run, args=(stop2,), name="worker-2", daemon=True)
@@ -239,9 +250,13 @@ class TestReapDeadThreadSafety:
             try:
                 for i in range(20):
                     stop = threading.Event()
-                    t = _make_short_lived_thread()
+                    exit_gate = threading.Event()
+                    t = _make_short_lived_thread(exit_gate)
                     reg.register(f"worker-{i}", t, stop_event=stop, join_timeout=0.05)
-                    # Don't stop the thread — let it die naturally.
+                    # Release the gate so the thread dies on its own
+                    # (the registry never stops it) — reap_dead() then
+                    # has dead entries to reap concurrently.
+                    exit_gate.set()
             except Exception as e:
                 errors.append(e)
 

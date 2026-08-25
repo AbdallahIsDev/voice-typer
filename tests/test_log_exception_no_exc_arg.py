@@ -15,6 +15,12 @@ SOURCE_FILES = [
     "voice_typer/server/onboarding.py",
     "voice_typer/server/task_scheduler.py",
     "voice_typer/server/autostart_launcher.py",
+    "voice_typer/server/autostart/log_files.py",
+    "voice_typer/server/autostart/pid_file.py",
+    "voice_typer/server/autostart/port_probe.py",
+    "voice_typer/server/autostart/tauri_spawn.py",
+    "voice_typer/server/autostart/electron_spawn.py",
+    "voice_typer/server/autostart/focus.py",
     "voice_typer/server/electron_launcher.py",
 ]
 

@@ -216,8 +216,8 @@ class TestRec8BufferOpsLockContract:
 
         src = inspect.getsource(discard_recording)
         assert "with recorder._lock:" in src, "REC-8: discard_recording does not acquire recorder._lock"
-        assert "recorder._buffer = collections.deque(" in src, (
-            "REC-8: discard_recording does not rebind recorder._buffer"
+        assert "recorder._buffer = _fresh_recording_buffer_like(" in src, (
+            "REC-8: discard_recording does not swap in a fresh recording buffer"
         )
 
     def test_stop_recording_locks_buffer_rebind(self):
@@ -227,7 +227,9 @@ class TestRec8BufferOpsLockContract:
 
         src = inspect.getsource(stop_recording)
         assert "with recorder._lock:" in src, "REC-8: stop_recording does not acquire recorder._lock"
-        assert "recorder._buffer = collections.deque(" in src, "REC-8: stop_recording does not rebind recorder._buffer"
+        assert "recorder._buffer = _fresh_recording_buffer_like(" in src, (
+            "REC-8: stop_recording does not swap in a fresh recording buffer"
+        )
 
     def test_start_acquires_start_lock(self):
         import inspect

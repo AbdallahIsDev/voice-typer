@@ -66,6 +66,7 @@ log = logging.getLogger(__name__)
 # fraction, we assume the user manually changed it during dictation.
 _MANUAL_OVERRIDE_THRESHOLD = 0.05
 
+
 # Default polling interval for the smart-duck background monitor.
 # 500ms is a balance: fast enough to catch audio within half a second,
 # slow enough to not spam the backend (macOS osascript is 200-500ms

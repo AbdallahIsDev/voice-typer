@@ -132,9 +132,7 @@ def _read_ws_rs_source() -> str:
 
 def _read_spawn_rs_source() -> str:
     """Read the spawn module sources (spawn.rs + spawn/*.rs, EO-33 split)."""
-    files = [_SPAWN_RS_PATH] + sorted(
-        _SPAWN_RS_PATH.parent.joinpath("spawn").glob("*.rs")
-    )
+    files = [_SPAWN_RS_PATH] + sorted(_SPAWN_RS_PATH.parent.joinpath("spawn").glob("*.rs"))
     return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
 
 
@@ -314,8 +312,7 @@ def test_authenticate_uses_hmac_compare_digest():
     )
     # sidecar_ws must route its comparison through the shared helper.
     assert "tokens_equal" in source, (
-        "sidecar_ws.py must route its token comparison through "
-        "ipc.auth.tokens_equal (the shared constant-time helper)."
+        "sidecar_ws.py must route its token comparison through ipc.auth.tokens_equal (the shared constant-time helper)."
     )
     # And the shared helper must compare the provided + expected tokens
     # (not a hardcoded constant).
@@ -893,9 +890,7 @@ def test_rust_auth_frame_has_no_arch_branch():
     assert '"token": token' in source, (
         'ws.rs must construct the auth frame with "token": token — got a different shape.'
     )
-    assert 'protocol_version' in source, (
-        "ws.rs must include the additive protocol_version field in the auth frame."
-    )
+    assert "protocol_version" in source, "ws.rs must include the additive protocol_version field in the auth frame."
 
     # Scan for cfg(target_arch) anywhere in ws.rs — the WS client
     # (auth, reader, writer, reconnect) must be arch-agnostic. The

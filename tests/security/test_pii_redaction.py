@@ -210,9 +210,7 @@ class TestControlCharEscapingInRedactedText:
         assert "\\n" in record.msg, f"newline must be escaped by the filter: {record.msg!r}"
         # Traceback path: structural newlines preserved.
         assert record.exc_text is not None, "exc_text must be populated for exc_info records"
-        assert "\n" in record.exc_text, (
-            f"traceback must keep its multi-line structure: {record.exc_text!r}"
-        )
+        assert "\n" in record.exc_text, f"traceback must keep its multi-line structure: {record.exc_text!r}"
 
     def test_pii_still_redacted_alongside_escaping(self) -> None:
         """Escaping must not regress the PII patterns — an email inside

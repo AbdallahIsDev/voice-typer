@@ -492,6 +492,7 @@ class TestTrayStopTimeoutFallback:
         # the test fast, we monkeypatch ``_run_with_timeout`` to use a
         # 0.1 s timeout for the tray.stop call only.
         import voice_typer.server.shutdown_controller as _sc
+        import voice_typer.server.shutdown_controller._plans as _sc_plans
 
         original_run_with_timeout = _sc._run_with_timeout
 
@@ -500,7 +501,9 @@ class TestTrayStopTimeoutFallback:
                 return original_run_with_timeout(description, func, timeout=0.1)
             return original_run_with_timeout(description, func, timeout=timeout)
 
-        monkeypatch.setattr(_sc, "_run_with_timeout", _fast_run_with_timeout)
+        # The tray-stop bookend body lives on SequencingMixin in the
+        # ``_plans`` leaf — patch the name where that body resolves it.
+        monkeypatch.setattr(_sc_plans, "_run_with_timeout", _fast_run_with_timeout)
 
         blocked = threading.Event()
 
@@ -565,6 +568,7 @@ class TestTrayStopTimeoutFallback:
         # Speed up the test by patching _run_with_timeout to use a 0.1 s
         # timeout for tray.stop only.
         import voice_typer.server.shutdown_controller as _sc
+        import voice_typer.server.shutdown_controller._plans as _sc_plans
 
         original_run_with_timeout = _sc._run_with_timeout
 
@@ -573,7 +577,9 @@ class TestTrayStopTimeoutFallback:
                 return original_run_with_timeout(description, func, timeout=0.1)
             return original_run_with_timeout(description, func, timeout=timeout)
 
-        monkeypatch.setattr(_sc, "_run_with_timeout", _fast_run_with_timeout)
+        # The tray-stop bookend body lives on SequencingMixin in the
+        # ``_plans`` leaf — patch the name where that body resolves it.
+        monkeypatch.setattr(_sc_plans, "_run_with_timeout", _fast_run_with_timeout)
 
         blocked = threading.Event()
 

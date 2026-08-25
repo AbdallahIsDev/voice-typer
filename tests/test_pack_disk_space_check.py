@@ -81,9 +81,7 @@ class TestCheckPackDiskSpace:
 
     def test_disk_usage_oserror_swallowed(self, tmp_path: Path, monkeypatch):
         """A failed ``disk_usage`` stat does NOT block the download."""
-        monkeypatch.setattr(
-            shutil, "disk_usage", lambda p: (_ for _ in ()).throw(OSError("stat failed"))
-        )
+        monkeypatch.setattr(shutil, "disk_usage", lambda p: (_ for _ in ()).throw(OSError("stat failed")))
         # Should NOT raise — best-effort check.
         offline_pack.check_offline_pack_disk_space(tmp_path)
 

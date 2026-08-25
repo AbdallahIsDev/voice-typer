@@ -125,7 +125,7 @@ def test_worker_is_daemon():
     recording._secure_clear_array_background(_make_buffer())
     _drain_queue(timeout=5.0)
 
-    worker = recording._buffer_clear_worker
+    worker = recording.buffer._buffer_clear_worker
     assert worker is not None, "worker was not lazily started"
     assert worker.daemon is True, "buffer-clear worker must be a daemon"
     assert worker.name == "buffer-clear-bg", f"expected name 'buffer-clear-bg', got {worker.name!r}"
@@ -182,14 +182,14 @@ def test_worker_singleton_reused_across_calls():
 
     # Force lazy start (or pick up the existing singleton from prior tests).
     recording._secure_clear_array_background(_make_buffer())
-    worker_after_first = recording._buffer_clear_worker
+    worker_after_first = recording.buffer._buffer_clear_worker
     assert worker_after_first is not None, "worker should be lazily started"
     _drain_queue(timeout=5.0)
 
     # 20 subsequent calls must NOT replace the cached worker reference.
     for _ in range(20):
         recording._secure_clear_array_background(_make_buffer())
-        assert recording._buffer_clear_worker is worker_after_first, (
+        assert recording.buffer._buffer_clear_worker is worker_after_first, (
             "buffer-clear worker should be reused across calls, not recreated"
         )
 

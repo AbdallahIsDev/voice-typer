@@ -152,18 +152,21 @@ describe("R6-F7: bootstrap.ts uncaughtException calls stopPython", () => {
 	});
 
 	it("bootstrap.ts source imports stopPython", () => {
+		// The error-handler implementation lives in the
+		// `bootstrap/error-handlers.ts` leaf (split out of `bootstrap.ts`);
+		// the pin follows the moved body.
 		const src = fs.readFileSync(
-			path.resolve(__dirname, "../bootstrap.ts"),
+			path.resolve(__dirname, "../bootstrap/error-handlers.ts"),
 			"utf-8",
 		);
 		expect(src).toMatch(
-			/import\s+\{[^}]*stopPython[^}]*\}\s+from\s+["']\.\/python["']/,
+			/import\s+\{[^}]*stopPython[^}]*\}\s+from\s+["']\.\.\/python["']/,
 		);
 	});
 
 	it("bootstrap.ts source calls stopPython() inside the uncaughtException handler", () => {
 		const src = fs.readFileSync(
-			path.resolve(__dirname, "../bootstrap.ts"),
+			path.resolve(__dirname, "../bootstrap/error-handlers.ts"),
 			"utf-8",
 		);
 		//locate the onUncaught handler definition
@@ -179,7 +182,7 @@ describe("R6-F7: bootstrap.ts uncaughtException calls stopPython", () => {
 
 	it("bootstrap.ts source calls stopPython() inside the unhandledRejection handler", () => {
 		const src = fs.readFileSync(
-			path.resolve(__dirname, "../bootstrap.ts"),
+			path.resolve(__dirname, "../bootstrap/error-handlers.ts"),
 			"utf-8",
 		);
 		//same check for the onRejection handler.

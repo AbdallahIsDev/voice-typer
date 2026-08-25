@@ -31,6 +31,8 @@ from voice_typer.server.thread_registry import (
     ThreadRegistryEntry,
 )
 
+from tests.fixtures.wait_helpers import wait_for_event, wait_until
+
 # ─── Helpers ─────────────────────────────────────────────────────────────
 
 
@@ -919,14 +921,25 @@ class TestJoinPreviousTimeout:
         joins without signaling."""
         reg = ThreadRegistry()
 
+        # The old thread's exit is gated by an event the test controls,
+        # so the "still alive" assertion below is deterministic (no race
+        # against a fixed-lifetime sleep). With ``stop_event=None`` the
+        # registry never signals it — it must die on its own.
+        t1_exit = threading.Event()
+
         def _quick():
-            time.sleep(0.05)
+            t1_exit.wait(timeout=2.0)
 
         t1 = threading.Thread(target=_quick, daemon=True, name="old")
         t1.start()
         try:
             reg.register("w", t1, stop_event=None, join_timeout=1.0)
             assert t1.is_alive()
+
+            # Let the old thread finish on its own (no signal), confirm
+            # its death, then hand the name over via join_previous.
+            t1_exit.set()
+            assert wait_until(lambda: not t1.is_alive()), "old thread did not exit after its gate was released"
 
             stop2 = threading.Event()
             t2 = _make_worker(stop2)
@@ -1111,10 +1124,9 @@ class TestSpawnAndRegister:
                 stop_event=stop,
                 join_timeout=2.0,
             )
-            for _ in range(100):
-                if received:
-                    break
-                time.sleep(0.01)
+            # Wait until the spawned worker has actually run and recorded
+            # its forwarded args/kwargs.
+            assert wait_until(lambda: bool(received)), f"worker never ran; received={received}"
             assert received.get("kwargs") == {"label": "test"}, f"kwargs not forwarded; got {received}"
             assert received.get("args") == (stop,), f"args not forwarded; got {received}"
         finally:
@@ -1177,7 +1189,9 @@ class TestSpawnAndRegister:
         done = threading.Event()
 
         def _quick():
-            time.sleep(0.05)
+            # Fire-and-forget worker: signals completion immediately (the
+            # ``done`` Event below provides all synchronization — no
+            # simulated-work sleep needed).
             done.set()
 
         try:
@@ -1187,7 +1201,7 @@ class TestSpawnAndRegister:
                 stop_event=None,
                 join_timeout=2.0,
             )
-            done.wait(timeout=2.0)
+            assert wait_for_event(done, timeout=2.0)
             t.join(timeout=2.0)
             assert not t.is_alive()
             reg.shutdown_all()

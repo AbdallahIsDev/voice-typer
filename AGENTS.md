@@ -1367,6 +1367,20 @@ Rationale: 2026-08-25 removal — the badge duplicated information, added a deco
 Applies to: All agents, all modes, all sub-agents.
 ```
 
+```
+C-MIC-14
+Rule: Do NOT regress the Microphone Quality selector's settled UI contract: (1) the header's info icon sits immediately beside the "Microphone Quality" label INSIDE the AccordionTrigger via the shared `InfoTooltip` `triggerAs="inline"` span variant (never an absolutely-positioned overlay anchored to the AccordionItem — `top-1/2` on the item slides into the option list during the expand animation; never a nested real `<button>` — invalid DOM + toggles the accordion); (2) each option row is `[title + its own info icon] … [radio far right]` — the radio stays FIRST in DOM (Radix roving tabindex/reading order) and moves visually via `order-last ms-auto`; (3) one horizontal padding system only (the shared AccordionContent px-4 == trigger px-4; rows carry no extra px); (4) option labels stay concise (Auto / Studio / Noisy Room / OFF / Advanced) with descriptions available ONLY through the tooltips; (5) the LevelBar fill keeps its rounded caps at EVERY level via the counter-scaled radius (`--level` var + `border-radius: calc(3px / max(var(--level), 0.03)) / 3px`) while the rAF loop continues to write ONLY the transform.
+Rationale: 2026-08-25 polish pass — the overlay icon visually migrated into the option list mid-animation (looked like a duplicate ? beside an option), radios/labels/padding drifted from the Settings pattern, and scaleX squashed the fill's caps.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-MIC-15
+Rule: Do NOT regress the Microphone Quality selector's COMPACT SINGLE-ROW header (refines C-MIC-14's two-line header and carves a per-instance exception out of C-MODELS-4): the collapsed state is ONE AccordionTrigger row — left group `[MICROPHONE QUALITY label + inline ? tooltip]`, right group `[active-filter chip (non-interactive span, keeps data-testid="mic-preset-current") + rotating chevron]`. The chevron is a single `ArrowDown01Icon` that rotates via `group-data-[state=open]/accordion-trigger:rotate-180` + `transition-transform duration-200` (collapsed = points down/can expand; expanded = points up/can collapse) — never a swapped glyph, never two icons. The primitive's persistent PlusSignIcon is hidden ON THIS INSTANCE ONLY via `[&_[data-slot=accordion-trigger-icon]]:hidden` (ui/accordion.tsx itself stays untouched — every other accordion keeps its `+`). The value chip is a plain span (SelectTrigger-style shell: rounded-md border-border/10 bg-background) — never a nested button. The expanded options container carries exactly ONE deliberate extra inset (`px-2` on the RadioGroup; total 24px) — no per-row padding layer. Do not reintroduce the two-line stacked header, a `+`/static icon, or edge-touching option content.
+Rationale: 2026-08-25 compaction pass (user decision) — one-line header halved the collapsed height; the rotating chevron + grouped value chip match the app's SelectTrigger/disclosure language; the per-instance icon hide keeps C-MODELS-4 intact for the Models page accordions.
+Applies to: All agents, all modes, all sub-agents.
+```
+
 ---
 
 ## How the adds / edits constraints

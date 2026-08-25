@@ -23,7 +23,6 @@ short-circuit semantics.
 
 from __future__ import annotations
 
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -41,7 +40,8 @@ from voice_typer.server.clipboard import (
 from voice_typer.server.clipboard.restore import (  # noqa: E402
     _MAX_PENDING_RESTORES,
 )
-from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
+
+from tests.fixtures.clipboard_helpers import make_clipboard_manager, make_clipboard_snapshot  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Display-env isolation (mirror test_clipboard_borrow_restore.py)
@@ -67,33 +67,6 @@ def _mock_display_env(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def _make_cm(
-    *,
-    paste_enabled: bool = True,
-    save_restore: bool = True,
-    restore_delay_ms: int = 150,
-) -> ClipboardManager:
-    """Build a ClipboardManager with mocked keyboard and cached flags set."""
-    cm = ClipboardManager.__new__(ClipboardManager)
-    cm.paste_enabled = paste_enabled
-    cm._keyboard = MagicMock()
-    cm._last_paste_time = 0.0  # not rate-limited
-    cm._clipboard_seq = 0
-    cm._last_copied_text = ""
-    cm._clipboard_save_restore_enabled = save_restore
-    cm._restore_delay_ms = restore_delay_ms
-    return cm
-
-
-def _make_snapshot() -> ClipboardSnapshot:
-    """Build a fake ClipboardSnapshot for tests that need a non-None value."""
-    return ClipboardSnapshot(
-        platform="linux-x11",
-        items=[("text/plain", b"prior clipboard content")],
-        captured_at=time.monotonic(),
-    )
-
-
 # ===========================================================================
 # _register_pending_restore
 # ===========================================================================
@@ -101,12 +74,12 @@ def _make_snapshot() -> ClipboardSnapshot:
 
 class TestRegisterPendingRestore:
     def test_returns_none_when_snapshot_is_none(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         assert cm._register_pending_restore(None, None, None) is None
 
     def test_appends_entry_when_snapshot_provided(self):
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
         entry = cm._register_pending_restore(snap, 0.5, "hello")
         assert entry is not None
         assert entry[0] is cm  # self ref
@@ -118,33 +91,33 @@ class TestRegisterPendingRestore:
             assert entry in clip_mod._pending_restores
 
     def test_falls_back_to_last_copied_text_when_pasted_text_is_none(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         cm._last_copied_text = "fallback text"
-        snap = _make_snapshot()
+        snap = make_clipboard_snapshot()
         entry = cm._register_pending_restore(snap, None, None)
         assert entry is not None
         assert entry[2] == "fallback text"
 
     def test_falls_back_to_restore_delay_ms_when_restore_delay_is_none(self):
-        cm = _make_cm(restore_delay_ms=300)
-        snap = _make_snapshot()
+        cm = make_clipboard_manager(restore_delay_ms=300)
+        snap = make_clipboard_snapshot()
         entry = cm._register_pending_restore(snap, None, "text")
         assert entry is not None
         assert entry[3] == 0.3  # 300ms / 1000.0
 
     def test_cap_hit_force_restores_oldest_entry(self):
-        cm = _make_cm()
-        oldest_snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        oldest_snap = make_clipboard_snapshot()
         oldest_snap.restore = MagicMock()
         # Pre-populate the registry up to the cap.
         with clip_mod._pending_restores_lock:
             clip_mod._pending_restores.clear()
             for _ in range(_MAX_PENDING_RESTORES):
-                clip_mod._pending_restores.append((cm, _make_snapshot(), "old text", 0.5))
+                clip_mod._pending_restores.append((cm, make_clipboard_snapshot(), "old text", 0.5))
         # The first entry should be force-restored when we append one more.
         with clip_mod._pending_restores_lock:
             clip_mod._pending_restores[0] = (cm, oldest_snap, "oldest", 0.5)
-        new_snap = _make_snapshot()
+        new_snap = make_clipboard_snapshot()
         entry = cm._register_pending_restore(new_snap, 0.5, "new text")
         assert entry is not None
         oldest_snap.restore.assert_called_once()
@@ -154,15 +127,15 @@ class TestRegisterPendingRestore:
 
     def test_cap_hit_logs_warning_on_force_restore_failure(self, caplog):
         """E13: errors are NEVER suppressed — force-restore failure is logged."""
-        cm = _make_cm()
-        broken_snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        broken_snap = make_clipboard_snapshot()
         broken_snap.restore = MagicMock(side_effect=RuntimeError("clipboard locked"))
         with clip_mod._pending_restores_lock:
             clip_mod._pending_restores.clear()
             for _ in range(_MAX_PENDING_RESTORES):
-                clip_mod._pending_restores.append((cm, _make_snapshot(), "old text", 0.5))
+                clip_mod._pending_restores.append((cm, make_clipboard_snapshot(), "old text", 0.5))
             clip_mod._pending_restores[0] = (cm, broken_snap, "broken", 0.5)
-        new_snap = _make_snapshot()
+        new_snap = make_clipboard_snapshot()
         with patch.object(clip_mod, "log") as mock_log:
             cm._register_pending_restore(new_snap, 0.5, "new text")
         # The exception path calls _cb.log.exception (which is clip_mod.log.exception).
@@ -176,8 +149,8 @@ class TestRegisterPendingRestore:
 
 class TestSpawnRestoreDaemon:
     def test_starts_daemon_thread(self):
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
         entry = (cm, snap, "text", 0.1)
         with patch("threading.Thread") as mock_thread_cls:
             cm._spawn_restore_daemon(snap, "text", 0.1, entry)
@@ -193,8 +166,8 @@ class TestSpawnRestoreDaemon:
         """E13: no silent failure — OSError / RuntimeError on Thread.start
         removes the orphaned entry from _pending_restores so the snapshot
         doesn't leak for the process lifetime."""
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
         entry = (cm, snap, "text", 0.1)
         # Append the entry to the registry first (as _register_pending_restore would).
         with clip_mod._pending_restores_lock:
@@ -219,12 +192,12 @@ class TestSpawnRestoreDaemon:
 
 class TestCheckPynputAvailable:
     def test_returns_true_when_controller_available(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with patch.object(clip_mod, "_Controller", object()):
             assert cm._check_pynput_available() is True
 
     def test_returns_true_on_windows_even_without_controller(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "_Controller", None),
             patch.object(clip_mod, "is_windows", return_value=True),
@@ -232,7 +205,7 @@ class TestCheckPynputAvailable:
             assert cm._check_pynput_available() is True
 
     def test_returns_true_on_linux_wayland_with_wtype(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "_Controller", None),
             patch.object(clip_mod, "is_windows", return_value=False),
@@ -243,7 +216,7 @@ class TestCheckPynputAvailable:
             assert cm._check_pynput_available() is True
 
     def test_returns_false_and_warns_when_no_mechanism(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "_Controller", None),
             patch.object(clip_mod, "is_windows", return_value=False),
@@ -263,7 +236,7 @@ class TestCheckPynputAvailable:
 
 class TestCheckRateLimit:
     def test_returns_true_when_outside_rate_window(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         cm._last_paste_time = 0.0
         with patch.object(clip_mod, "time") as mock_time:
             mock_time.monotonic.return_value = 100.0  # 100s since last paste
@@ -272,7 +245,7 @@ class TestCheckRateLimit:
         assert reason is None
 
     def test_returns_false_and_logs_when_within_rate_window(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         cm._last_paste_time = 100.0
         with (
             patch.object(clip_mod, "time") as mock_time,
@@ -295,13 +268,13 @@ class TestCheckRateLimit:
 
 class TestCheckPasteEnabled:
     def test_returns_true_when_enabled(self):
-        cm = _make_cm(paste_enabled=True)
+        cm = make_clipboard_manager(paste_enabled=True)
         ok, reason = cm._check_paste_enabled(force=False)
         assert ok is True
         assert reason is None
 
     def test_returns_false_and_logs_when_disabled_no_force(self):
-        cm = _make_cm(paste_enabled=False)
+        cm = make_clipboard_manager(paste_enabled=False)
         with patch.object(clip_mod, "log") as mock_log:
             ok, reason = cm._check_paste_enabled(force=False)
         assert ok is False
@@ -309,7 +282,7 @@ class TestCheckPasteEnabled:
         mock_log.info.assert_called_once_with("[CLIPBOARD] Paste disabled by config -- skipping keystroke")
 
     def test_force_bypasses_disabled_gate(self):
-        cm = _make_cm(paste_enabled=False)
+        cm = make_clipboard_manager(paste_enabled=False)
         ok, reason = cm._check_paste_enabled(force=True)
         assert ok is True
         assert reason is None
@@ -322,7 +295,7 @@ class TestCheckPasteEnabled:
 
 class TestRecheckSeqMismatch:
     def test_no_op_on_non_windows(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         cm._clipboard_seq = 42
         with (
             patch.object(clip_mod, "is_windows", return_value=False),
@@ -332,7 +305,7 @@ class TestRecheckSeqMismatch:
         mock_copy.assert_not_called()
 
     def test_recopies_when_seq_changed_on_windows(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         cm._clipboard_seq = 42
         with (
             patch.object(clip_mod, "is_windows", return_value=True),
@@ -351,7 +324,7 @@ class TestRecheckSeqMismatch:
 
     def test_logs_error_on_recopy_failure(self):
         """E13: re-copy exception is logged (no silent except: pass)."""
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         cm._clipboard_seq = 42
         with (
             patch.object(clip_mod, "is_windows", return_value=True),
@@ -372,12 +345,12 @@ class TestRecheckSeqMismatch:
 
 class TestComputePasteDelay:
     def test_returns_zero_on_non_windows(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with patch.object(clip_mod, "is_windows", return_value=False):
             assert cm._compute_paste_delay() == 0.0
 
     def test_returns_zero_on_windows_non_rdp(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "is_windows", return_value=True),
             patch(
@@ -398,7 +371,7 @@ class TestComputePasteDelay:
                 assert cm._compute_paste_delay() == 0.0
 
     def test_returns_100ms_on_windows_rdp(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         import sys
 
         mock_mod = MagicMock()
@@ -422,14 +395,14 @@ class TestComputePasteDelay:
 
 class TestCheckTargetSafety:
     def test_returns_true_none_when_safe(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with patch.object(cm, "_is_safe_paste_target", return_value=True):
             is_safe, hwnd = cm._check_target_safety()
         assert is_safe is True
         assert hwnd is None  # hwnd captured separately by _capture_target_handle
 
     def test_returns_false_none_and_logs_when_unsafe(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(cm, "_is_safe_paste_target", return_value=False),
             patch.object(clip_mod, "log") as mock_log,
@@ -447,12 +420,12 @@ class TestCheckTargetSafety:
 
 class TestCheckImeComposition:
     def test_returns_true_on_non_windows(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with patch.object(clip_mod, "is_windows", return_value=False):
             assert cm._check_ime_composition() is True
 
     def test_returns_true_when_no_ime_active_on_windows(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         import sys
 
         mock_mod = MagicMock()
@@ -470,7 +443,7 @@ class TestCheckImeComposition:
         )
     )
     def test_returns_false_and_logs_when_ime_active_on_windows(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         import sys
 
         mock_ime_mod = MagicMock()
@@ -504,7 +477,7 @@ class TestCheckImeComposition:
     )
     def test_fails_open_when_ime_probe_raises(self):
         """E13: lazy-import failure is logged (no silent except: pass); returns True (fail open)."""
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "is_windows", return_value=True),
             patch("voice_typer.server.clipboard.manager.__import__", side_effect=ImportError("no imm32")),
@@ -522,13 +495,13 @@ class TestCheckImeComposition:
 
 class TestPostDelayRecheck:
     def test_returns_true_without_sleep_when_delay_is_zero(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with patch.object(clip_mod, "time") as mock_time:
             assert cm._post_delay_recheck(0.0) is True
         mock_time.sleep.assert_not_called()
 
     def test_sleeps_and_returns_true_when_safe_after_delay(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "time") as mock_time,
             patch.object(cm, "_is_safe_paste_target", return_value=True),
@@ -537,7 +510,7 @@ class TestPostDelayRecheck:
         mock_time.sleep.assert_called_once_with(0.1)
 
     def test_returns_false_and_logs_when_target_became_unsafe_during_delay(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "time") as mock_time,
             patch.object(cm, "_is_safe_paste_target", return_value=False),
@@ -557,7 +530,7 @@ class TestPostDelayRecheck:
 
 class TestCaptureTargetHandle:
     def test_returns_hwnd_on_windows(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         mock_windll = MagicMock()
         mock_windll.user32.GetForegroundWindow.return_value = 0xDEADBEEF
         with (
@@ -570,7 +543,7 @@ class TestCaptureTargetHandle:
         assert safe_macos_pid is None
 
     def test_returns_pid_on_macos(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "is_windows", return_value=False),
             patch.object(clip_mod, "is_macos", return_value=True),
@@ -581,7 +554,7 @@ class TestCaptureTargetHandle:
         assert safe_macos_pid == 12345
 
     def test_returns_zeros_on_linux(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "is_windows", return_value=False),
             patch.object(clip_mod, "is_macos", return_value=False),
@@ -604,7 +577,7 @@ class TestLogRichEditor:
         )
     )
     def test_logs_when_process_is_rich_editor(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "_RICH_EDITOR_PROCESS_NAMES", {"winword"}),
             patch.object(clip_mod, "log") as mock_log,
@@ -616,7 +589,7 @@ class TestLogRichEditor:
         assert "WINWORD.EXE" in args[1]
 
     def test_no_log_when_process_is_not_rich_editor(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "_RICH_EDITOR_PROCESS_NAMES", {"winword"}),
             patch.object(clip_mod, "log") as mock_log,
@@ -625,7 +598,7 @@ class TestLogRichEditor:
         mock_log.info.assert_not_called()
 
     def test_no_log_when_process_is_none(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with patch.object(clip_mod, "log") as mock_log:
             cm._log_rich_editor(None)
         mock_log.info.assert_not_called()
@@ -639,11 +612,11 @@ class TestLogRichEditor:
 class TestRecheckToctou:
     def test_fails_open_when_no_hwnd_captured(self):
         """Non-Windows or ctypes probe failed → no hwnd to compare → fail open."""
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         assert cm._recheck_toctou(0, "Ctrl+V") is True
 
     def test_returns_true_when_hwnd_unchanged(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         mock_windll = MagicMock()
         mock_windll.user32.GetForegroundWindow.return_value = 0x12345
         with patch("ctypes.windll", mock_windll, create=True):
@@ -651,7 +624,7 @@ class TestRecheckToctou:
 
     def test_returns_false_and_logs_when_hwnd_changed(self):
         """Windows TOCTOU: user Alt+Tabbed between capture and send → abort."""
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         mock_windll = MagicMock()
         # safe_hwnd captured at 0x12345; current hwnd (re-fetch) is 0xDEAD.
         mock_windll.user32.GetForegroundWindow.return_value = 0xDEAD
@@ -667,7 +640,7 @@ class TestRecheckToctou:
 
     def test_terminal_key_label_logged_for_terminal_target(self):
         """Verbatim log variant for terminal path uses 'Shift+Insert'."""
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         mock_windll = MagicMock()
         mock_windll.user32.GetForegroundWindow.return_value = 0xDEAD
         with (
@@ -685,7 +658,7 @@ class TestRecheckToctou:
         )
     )
     def test_fails_open_when_ctypes_re_fetch_raises(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with patch("ctypes.windll", MagicMock(side_effect=OSError("ctypes broken")), create=True):
             # safe_hwnd != 0, but re-fetch raises → fail open (safety check already ran).
             assert cm._recheck_toctou(0x12345, "Ctrl+V") is True
@@ -698,16 +671,16 @@ class TestRecheckToctou:
 
 class TestRecheckMacosToctou:
     def test_fails_open_when_no_pid_captured(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         assert cm._recheck_macos_toctou(None) is True
 
     def test_returns_true_when_pid_unchanged(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with patch.object(cm, "_get_frontmost_pid_macos", return_value=12345):
             assert cm._recheck_macos_toctou(12345) is True
 
     def test_returns_false_and_logs_when_pid_changed(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(cm, "_get_frontmost_pid_macos", return_value=99999),
             patch.object(clip_mod, "log") as mock_log,
@@ -718,7 +691,7 @@ class TestRecheckMacosToctou:
         assert any("Frontmost macOS app changed during paste" in str(c) for c in warning_calls)
 
     def test_fails_open_when_re_fetch_returns_none(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with patch.object(cm, "_get_frontmost_pid_macos", return_value=None):
             assert cm._recheck_macos_toctou(12345) is True
 
@@ -743,7 +716,7 @@ class TestDispatchKeystroke:
         )
     )
     def test_terminal_macos_sends_cmd_v(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "is_macos", return_value=True),
             patch.object(clip_mod, "is_windows", return_value=False),
@@ -758,7 +731,7 @@ class TestDispatchKeystroke:
         mock_press.assert_called_once_with(clip_mod._Key.cmd, "v")
 
     def test_terminal_macos_aborts_on_toctou_failure(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "is_macos", return_value=True),
             patch.object(clip_mod, "is_windows", return_value=False),
@@ -779,7 +752,7 @@ class TestDispatchKeystroke:
         )
     )
     def test_nonterminal_other_sends_ctrl_v(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "is_macos", return_value=False),
             patch.object(clip_mod, "is_windows", return_value=False),
@@ -799,7 +772,7 @@ class TestDispatchKeystroke:
         )
     )
     def test_terminal_other_sends_shift_insert(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "is_macos", return_value=False),
             patch.object(clip_mod, "is_windows", return_value=False),
@@ -813,7 +786,7 @@ class TestDispatchKeystroke:
         mock_press.assert_called_once_with(clip_mod._Key.shift, clip_mod._Key.insert)
 
     def test_nonterminal_windows_sends_ctrl_v_via_sendinput(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "is_macos", return_value=False),
             patch.object(clip_mod, "is_windows", return_value=True),
@@ -829,7 +802,7 @@ class TestDispatchKeystroke:
 
     def test_nonterminal_windows_partial_success_returns_false_and_logs(self):
         """E13: partial-success SendInput (1..3 events) is logged + returns False."""
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "is_macos", return_value=False),
             patch.object(clip_mod, "is_windows", return_value=True),
@@ -847,7 +820,7 @@ class TestDispatchKeystroke:
         )
 
     def test_terminal_windows_aborts_on_toctou_failure(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "is_macos", return_value=False),
             patch.object(clip_mod, "is_windows", return_value=True),
@@ -862,7 +835,7 @@ class TestDispatchKeystroke:
         mock_send.assert_not_called()
 
     def test_nonterminal_wayland_uses_wtype_without_terminal_flag(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "is_macos", return_value=False),
             patch.object(clip_mod, "is_windows", return_value=False),
@@ -876,7 +849,7 @@ class TestDispatchKeystroke:
         mock_wtype.assert_called_once_with("wayland text")
 
     def test_terminal_wayland_uses_wtype_with_terminal_flag(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "is_macos", return_value=False),
             patch.object(clip_mod, "is_windows", return_value=False),
@@ -897,9 +870,9 @@ class TestDispatchKeystroke:
 
 class TestFinalizePaste:
     def test_updates_last_paste_time_and_logs_audit(self):
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         cm._last_paste_time = 0.0
-        snap = _make_snapshot()
+        snap = make_clipboard_snapshot()
         with (
             patch.object(clip_mod, "time") as mock_time,
             patch.object(clip_mod, "log") as mock_log,
@@ -927,7 +900,7 @@ class TestPasteOrchestratorIntegration:
 
     def test_check_target_safety_failure_short_circuits_dispatch(self):
         """Spec §7: 'Test that a failure in _check_target_safety short-circuits _dispatch_keystroke.'"""
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with (
             patch.object(clip_mod, "_Controller", object()),
             patch.object(clip_mod, "is_windows", return_value=False),
@@ -947,8 +920,8 @@ class TestPasteOrchestratorIntegration:
 
     def test_register_pending_restore_called_before_dispatch_keystroke(self):
         """Spec §7: 'Test that _register_pending_restore is called BEFORE _dispatch_keystroke (ordering guarantee).'"""
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
         call_order: list[str] = []
 
         def track_register(*args, **kwargs):
@@ -994,7 +967,7 @@ class TestPasteOrchestratorIntegration:
         between capture (in ``_capture_target_handle``) and the
         pre-keystroke re-check (in ``_recheck_toctou``).
         """
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         mock_windll = MagicMock()
         # IME guard no longer consumes GetForegroundWindow when clip_mod.is_windows
         # is mocked alone (hotkeys.is_windows stays False on Linux). Mock

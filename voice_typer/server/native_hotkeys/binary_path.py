@@ -138,6 +138,8 @@ def _windows_arch_suffix() -> str:
         return "aarch64"
     # Default: AMD64, x86_64, x64, EM64T, etc. — all map to x86_64 suffix.
     return "x86_64"
+
+
 class _ArchAwareBinaryNameMap(dict):
     """Dict keyed by ``(platform, machine)`` with a legacy string-key shim.
 

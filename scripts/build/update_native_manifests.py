@@ -82,9 +82,7 @@ _LEGACY_TO_ARCH_SUFFIX: dict[str, str] = {
 }
 
 # Reverse map: arch-suffixed x86_64 name → legacy non-suffixed name.
-_ARCH_SUFFIX_TO_LEGACY: dict[str, str] = {
-    v: k for k, v in _LEGACY_TO_ARCH_SUFFIX.items()
-}
+_ARCH_SUFFIX_TO_LEGACY: dict[str, str] = {v: k for k, v in _LEGACY_TO_ARCH_SUFFIX.items()}
 
 # Every binary name this script knows how to hash. The manifest may
 # contain additional entries (e.g. ``linux-key-listener-aarch64``) that
@@ -260,9 +258,7 @@ def main(argv: list[str]) -> int:
         return 1
 
     if not updated:
-        log.warning(
-            "no known binaries found in %s — manifest left untouched", native_dir
-        )
+        log.warning("no known binaries found in %s — manifest left untouched", native_dir)
     else:
         log.info("manifest updated: %d entr(y|ies) at %s", len(updated), manifest_path)
     return 0

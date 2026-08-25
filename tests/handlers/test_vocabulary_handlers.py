@@ -156,9 +156,7 @@ class TestSaveVocabularyDuplicateRejection:
     def test_duplicate_entry_returns_structured_envelope(self, ipc_server, fake_service):
         from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 
-        fake_service.save_vocabulary_with_diff.side_effect = (
-            VocabularyDuplicateError("to 2", 3)
-        )
+        fake_service.save_vocabulary_with_diff.side_effect = VocabularyDuplicateError("to 2", 3)
         resp = ipc_server._handle_save_vocabulary(
             {"phrase_corrections": [["to 2", "to"]]},
             {},

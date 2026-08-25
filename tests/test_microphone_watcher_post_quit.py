@@ -256,10 +256,13 @@ class TestPostQuitToWindowsArgtypes:
         watcher = MicrophoneDeviceWatcher(on_change=lambda: None)
         watcher._windows_hwnd = 0x1234  # would normally trigger the call
 
-        with caplog.at_level(
-            logging.DEBUG,
-            logger="voice_typer.server.microphone_watcher",
-        ), patch("ctypes.windll", _NoUser32Windll(), create=True):
+        with (
+            caplog.at_level(
+                logging.DEBUG,
+                logger="voice_typer.server.microphone_watcher",
+            ),
+            patch("ctypes.windll", _NoUser32Windll(), create=True),
+        ):
             watcher._post_quit_to_windows()
 
         debug_msgs = [r.message for r in caplog.records if r.levelno <= logging.DEBUG]

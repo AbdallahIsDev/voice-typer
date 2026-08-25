@@ -14,6 +14,8 @@ import pytest
 from voice_typer.server.config import Config
 from voice_typer.server.text_cleanup import configure_corrections
 
+from tests.fixtures.config_helpers import patch_config_dir_refs  # noqa: E402
+
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX symlink tests")
 class TestSymlinkConfigAttack:
@@ -34,7 +36,7 @@ class TestSymlinkConfigAttack:
         except OSError:
             pytest.skip("Cannot create symlinks on this system")
 
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: config_dir)
+        patch_config_dir_refs(monkeypatch, config_dir)
 
         # Load and save config — the symlink target should NOT be overwritten
         c = Config.load()
@@ -128,7 +130,7 @@ class TestSymlinkConfigAttack:
         except OSError:
             pytest.skip("Cannot create symlinks on this system")
 
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: link_dir)
+        patch_config_dir_refs(monkeypatch, link_dir)
 
         # Config operations should work through the symlinked directory
         c = Config(hotkey="<f5>")

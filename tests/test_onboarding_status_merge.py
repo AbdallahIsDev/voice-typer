@@ -34,9 +34,7 @@ class TestReadStatus:
         assert not (tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).exists()
 
     def test_reads_written_document(self, tmp_path: Path) -> None:
-        os_mod.write_status(
-            tmp_path, started=True, completed=True, fail_count=3, last_fail_ts=1.5
-        )
+        os_mod.write_status(tmp_path, started=True, completed=True, fail_count=3, last_fail_ts=1.5)
         data = os_mod.read_status(tmp_path)
         assert data["started"] is True
         assert data["completed"] is True
@@ -44,26 +42,20 @@ class TestReadStatus:
         assert data["last_fail_ts"] == 1.5
 
     def test_corrupt_document_falls_back_to_defaults(self, tmp_path: Path) -> None:
-        (tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).write_text(
-            "not json {{{", encoding="utf-8"
-        )
+        (tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).write_text("not json {{{", encoding="utf-8")
         data = os_mod.read_status(tmp_path)
         assert data["completed"] is False
         assert data["fail_count"] == 0
 
     def test_partial_document_merges_defaults(self, tmp_path: Path) -> None:
-        (tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).write_text(
-            json.dumps({"fail_count": 7}), encoding="utf-8"
-        )
+        (tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).write_text(json.dumps({"fail_count": 7}), encoding="utf-8")
         data = os_mod.read_status(tmp_path)
         assert data["fail_count"] == 7
         assert data["started"] is False
         assert data["completed"] is False
 
     def test_non_dict_root_falls_back_to_defaults(self, tmp_path: Path) -> None:
-        (tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).write_text(
-            json.dumps([1, 2, 3]), encoding="utf-8"
-        )
+        (tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).write_text(json.dumps([1, 2, 3]), encoding="utf-8")
         data = os_mod.read_status(tmp_path)
         assert data["completed"] is False
         assert data["fail_count"] == 0
@@ -90,9 +82,7 @@ class TestReadStatus:
         assert "count" not in data
         # After a write, the file carries only the canonical key.
         os_mod.write_status(tmp_path, started=False)
-        raw = json.loads(
-            (tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).read_text(encoding="utf-8")
-        )
+        raw = json.loads((tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).read_text(encoding="utf-8"))
         assert raw["fail_count"] == 29
         assert "count" not in raw
 
@@ -102,12 +92,8 @@ class TestReadStatus:
 
 class TestLegacyMigration:
     def _seed_legacy(self, tmp_path: Path) -> None:
-        (tmp_path / ".onboarding_complete").write_text(
-            json.dumps({"completed": True, "version": 1}), encoding="utf-8"
-        )
-        (tmp_path / ".onboarding_started").write_text(
-            json.dumps({"started": True, "version": 1}), encoding="utf-8"
-        )
+        (tmp_path / ".onboarding_complete").write_text(json.dumps({"completed": True, "version": 1}), encoding="utf-8")
+        (tmp_path / ".onboarding_started").write_text(json.dumps({"started": True, "version": 1}), encoding="utf-8")
         (tmp_path / ".onboarding_fail_count").write_text(
             json.dumps({"count": 29, "last_fail_ts": 1786059143.8}), encoding="utf-8"
         )
@@ -139,9 +125,7 @@ class TestLegacyMigration:
         # update — so the completed flag from the legacy marker survives.
         self._seed_legacy(tmp_path)
         os_mod.write_status(tmp_path, started=False)
-        data = json.loads(
-            (tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).read_text(encoding="utf-8")
-        )
+        data = json.loads((tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).read_text(encoding="utf-8"))
         assert data["completed"] is True  # preserved from legacy
         assert data["started"] is False  # overwritten by the update
         assert data["fail_count"] == 29  # preserved from legacy
@@ -190,9 +174,7 @@ class TestWriteAndReset:
             encoding="utf-8",
         )
         os_mod.write_status(tmp_path, started=True)
-        data = json.loads(
-            (tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).read_text(encoding="utf-8")
-        )
+        data = json.loads((tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).read_text(encoding="utf-8"))
         assert data["started"] is True
         assert data["future_field"] == 42
 

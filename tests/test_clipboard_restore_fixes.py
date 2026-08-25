@@ -1212,7 +1212,12 @@ class TestSourceStringPin:
         import inspect
         import re
 
-        manager_src = inspect.getsource(ClipboardManager)
+        # After the manager package split, paste() and its helpers live
+        # on PasteMixin (manager/_paste.py) — scan the composed class
+        # plus its mixins so the pin survives the class assembly.
+        from voice_typer.server.clipboard.manager import PasteMixin
+
+        manager_src = "\n".join(inspect.getsource(c) for c in (ClipboardManager, PasteMixin))
         # The source MUST contain a ``recopy_text`` local that prefers
         # ``pasted_text`` over ``self._last_copied_text``.
         # We look for the pattern in the re-copy block.
@@ -1236,7 +1241,12 @@ class TestSourceStringPin:
         import inspect
         import re
 
-        manager_src = inspect.getsource(ClipboardManager)
+        # After the manager package split, paste() and its helpers live
+        # on PasteMixin (manager/_paste.py) — scan the composed class
+        # plus its mixins so the pin survives the class assembly.
+        from voice_typer.server.clipboard.manager import PasteMixin
+
+        manager_src = "\n".join(inspect.getsource(c) for c in (ClipboardManager, PasteMixin))
         # The wtype_text local must be computed from pasted_text.
         m = re.search(
             r"wtype_text\s*=\s*pasted_text\s+if\s+pasted_text\s+is\s+not\s+None\s+else\s+self\._last_copied_text",

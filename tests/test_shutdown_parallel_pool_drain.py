@@ -216,9 +216,7 @@ class TestParallelPoolDrain:
         )
 
         # (c)(2) Both must have been called.
-        assert len(ipc_stop_start) == 1, (
-            f"ipc_server.stop must be called exactly once; got {len(ipc_stop_start)} calls"
-        )
+        assert len(ipc_stop_start) == 1, f"ipc_server.stop must be called exactly once; got {len(ipc_stop_start)} calls"
         assert len(ws_drain_start) == 1, (
             f"ws_dispatch_pool shutdown(wait=True) must be called exactly once; got {len(ws_drain_start)} calls"
         )
@@ -262,7 +260,10 @@ class TestParallelPoolDrain:
             return original_fn(items)
 
         monkeypatch.setattr(
-            "voice_typer.server.shutdown_controller._run_parallel_with_timeout",
+            # The early-bookend call site lives on CleanupMixin in the
+            # ``_cleanup`` leaf of the controller package — patch the
+            # name where that body resolves it.
+            "voice_typer.server.shutdown_controller._cleanup._run_parallel_with_timeout",
             spy,
         )
 

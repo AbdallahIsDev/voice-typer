@@ -260,7 +260,7 @@ class TestGetExpectedSha256:
         assert get_expected_sha256("linux-key-listener-aarch64") is None
 
     def test_windows_x86_64_sha256_is_pre_populated(self):
-        """ (Critical): the Windows x86_64 sha256 MUST be pre-populated
+        """(Critical): the Windows x86_64 sha256 MUST be pre-populated
         in the manifest with ``f4552b30baeeefdf951411d2c24aca16057669e4ca49ff23a0c261bbc2631ee9``
         (computed from the committed ``windows-key-listener.exe``).
 
@@ -1141,7 +1141,7 @@ class TestLegacyNameManifestLookup:
 
 
 class TestPerArchSha256ManifestSchema:
-    """ (High): the legacy manifest entries (``linux-key-listener``,
+    """(High): the legacy manifest entries (``linux-key-listener``,
     ``windows-key-listener.exe``) now carry a per-arch
     ``sha256_by_arch`` dict (``{"x86_64": "...", "aarch64": "..."}``)
     in ADDITION to the legacy flat ``sha256`` string field.
@@ -1174,9 +1174,7 @@ class TestPerArchSha256ManifestSchema:
             "'sha256_by_arch' dict so the manifest can disambiguate the "
             "same legacy file name across x86_64 and aarch64 arches."
         )
-        assert isinstance(entry["sha256_by_arch"], dict), (
-            "'linux-key-listener.sha256_by_arch' must be a dict."
-        )
+        assert isinstance(entry["sha256_by_arch"], dict), "'linux-key-listener.sha256_by_arch' must be a dict."
 
     def test_windows_legacy_entry_has_sha256_by_arch_field(self):
         """the ``windows-key-listener.exe`` legacy entry MUST
@@ -1190,9 +1188,7 @@ class TestPerArchSha256ManifestSchema:
             "'sha256_by_arch' dict so the manifest can disambiguate the "
             "same legacy file name across x86_64 and aarch64 arches."
         )
-        assert isinstance(entry["sha256_by_arch"], dict), (
-            "'windows-key-listener.exe.sha256_by_arch' must be a dict."
-        )
+        assert isinstance(entry["sha256_by_arch"], dict), "'windows-key-listener.exe.sha256_by_arch' must be a dict."
 
     def test_arch_suffixed_entries_do_not_need_sha256_by_arch(self):
         """arch-suffixed entries (``linux-key-listener-x86_64``,
@@ -1213,10 +1209,7 @@ class TestPerArchSha256ManifestSchema:
             # Arch-suffixed entries MAY have a sha256_by_arch field
             # (forward-compat) but are not required to. We just verify
             # the flat sha256 field is present.
-            assert "sha256" in entry, (
-                f"arch-suffixed entry '{name}' must still have "
-                f"the flat 'sha256' string field."
-            )
+            assert "sha256" in entry, f"arch-suffixed entry '{name}' must still have the flat 'sha256' string field."
 
     def test_sha256_by_arch_has_x86_64_and_aarch64_keys(self):
         """each legacy entry's ``sha256_by_arch`` dict MUST
@@ -1259,7 +1252,7 @@ class TestPerArchSha256ManifestSchema:
             )
 
     def test_sha256_by_arch_aarch64_is_empty_in_dev_tree(self):
-        """ + the ``sha256_by_arch.aarch64`` value is
+        """+ the ``sha256_by_arch.aarch64`` value is
         empty in the dev tree because aarch64 builds are new
         and the ``update_native_manifests.py`` script (Fix-4) has not
         yet populated them. Production builds MUST populate them via
@@ -1290,9 +1283,7 @@ class TestPerArchSha256ManifestSchema:
         manifest = load_binary_manifest()
         assert manifest is not None
         expected = manifest["binaries"]["linux-key-listener"]["sha256_by_arch"]["x86_64"]
-        assert expected, (
-            "linux-key-listener.sha256_by_arch.x86_64 must be populated"
-        )
+        assert expected, "linux-key-listener.sha256_by_arch.x86_64 must be populated"
         actual = hashlib.sha256(real_binary.read_bytes()).hexdigest()
         assert actual == expected, (
             f"linux-key-listener.sha256_by_arch.x86_64 is STALE: "
@@ -1301,7 +1292,7 @@ class TestPerArchSha256ManifestSchema:
         )
 
     def test_windows_x86_64_sha256_by_arch_matches_actual_binary(self):
-        """ + the
+        """+ the
         ``windows-key-listener.exe.sha256_by_arch.x86_64`` value MUST
         match the actual on-disk ``windows-key-listener.exe`` binary.
         Catches a stale manifest if the Windows x86_64 binary is
@@ -1314,9 +1305,7 @@ class TestPerArchSha256ManifestSchema:
         manifest = load_binary_manifest()
         assert manifest is not None
         expected = manifest["binaries"]["windows-key-listener.exe"]["sha256_by_arch"]["x86_64"]
-        assert expected, (
-            "windows-key-listener.exe.sha256_by_arch.x86_64 must be populated"
-        )
+        assert expected, "windows-key-listener.exe.sha256_by_arch.x86_64 must be populated"
         actual = hashlib.sha256(real_binary.read_bytes()).hexdigest()
         assert actual == expected, (
             f"windows-key-listener.exe.sha256_by_arch.x86_64 is STALE: "

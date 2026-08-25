@@ -30,10 +30,11 @@ delays (1–10 ms) so the full suite runs in well under a second.
 from __future__ import annotations
 
 import threading
-import time
 
 import pytest
 from voice_typer.server.timer_coordinator import TimerCoordinator
+
+from tests.fixtures.wait_helpers import wait_until
 
 
 @pytest.fixture
@@ -233,15 +234,13 @@ class TestGenerationGuard:
         coordinator._cancel_pending_timers()  # gen 0 -> 1
         coordinator._schedule_timer(0.05, fired_b.set)  # captures gen 1
         coordinator._cancel_pending_timers()  # gen 1 -> 2
-        # Poll both flags with a bounded deadline (3x the 0.05s
-        # scheduled delay) instead of a fixed ``time.sleep(0.15)``. We
-        # poll in a single loop so the test exits as soon as EITHER
-        # stale callback fires (faster CI feedback on regression).
-        deadline = time.monotonic() + 0.15
-        while time.monotonic() < deadline:
-            if fired_a.is_set() or fired_b.is_set():
-                break
-            time.sleep(0.005)
+        # Negative wait with a bounded deadline (3x the 0.05s scheduled
+        # delay) instead of a fixed ``time.sleep(0.15)``. Exits early on
+        # failure (faster CI feedback); honors the 0.05s scheduled delay
+        # on success.
+        assert not wait_until(lambda: fired_a.is_set() or fired_b.is_set(), timeout=0.15), (
+            "stale callbacks fired after cancel (Timer A and/or Timer B)"
+        )
         assert not fired_a.is_set(), "Timer A (gen 0) must be suppressed"
         assert not fired_b.is_set(), "Timer B (gen 1) must be suppressed"
 
@@ -400,12 +399,11 @@ class TestThreadSafety:
         # if the lock is NOT held (regression), the observer sets the
         # flag and we exit early with a failure.
         assert clear_started.wait(timeout=1.0), "cancel did not enter the slow clear() — fixture setup wrong"
-        observe_deadline = time.monotonic() + 0.05
-        while time.monotonic() < observe_deadline:
-            if got_lock_during_clear.is_set():
-                break
-            time.sleep(0.005)
-        assert not got_lock_during_clear.is_set(), (
+        # Negative wait: poll ``got_lock_during_clear`` for a short
+        # window (50ms) so the observer has a chance to attempt (and
+        # block on) the lock — if the lock is NOT held (regression), the
+        # observer sets the flag and we exit early with a failure.
+        assert not wait_until(got_lock_during_clear.is_set, timeout=0.05), (
             "_cancel_pending_timers must hold _pending_timers_lock during the "
             "snapshot+clear+generation-increment critical section (an observer "
             "acquired the lock while clear() was still blocked)"

@@ -41,7 +41,16 @@ CONFIG_MODULE_PATHS = [
     ),
     *sorted((REPO_ROOT / "voice_typer" / "server").glob("config*.py")),
 ]
-TEXT_CLEANUP_PY = REPO_ROOT / "voice_typer" / "server" / "text_cleanup.py"
+# The pre-split ``text_cleanup.py`` is now a package; the pinned regex
+# lives in its ``_engine.py`` leaf. Source scans cover EVERY leaf so the
+# source-of-truth contract survives further internal reshuffles.
+TEXT_CLEANUP_PKG_DIR = REPO_ROOT / "voice_typer" / "server" / "text_cleanup"
+
+
+def _text_cleanup_sources() -> str:
+    return "\n".join(sorted(p.read_text(encoding="utf-8") for p in TEXT_CLEANUP_PKG_DIR.glob("*.py")))
+
+
 GDPR_EXPORT_DOC = REPO_ROOT / "docs" / "privacy" / "gdpr-export.md"
 GDPR_DELETE_DOC = REPO_ROOT / "docs" / "privacy" / "gdpr-delete.md"
 
@@ -226,15 +235,25 @@ class TestNewPriv003SensitiveEnvRedaction:
         electron spawn, the focus-running-app lean electron spawn, and
         the npm-run-dev fallback). All three must call the helper.
         """
+        # The spawn paths live in the autostart subpackage since the
+        # launcher was split into an entry facade + leaf modules; scan
+        # the facade AND every leaf so the guard covers all of them.
         from voice_typer.server import autostart_launcher
+        from voice_typer.server.autostart import (
+            electron_spawn,
+            focus,
+            tauri_spawn,
+        )
 
-        source = inspect.getsource(autostart_launcher)
+        source = "\n".join(inspect.getsource(m) for m in (autostart_launcher, electron_spawn, focus, tauri_spawn))
         occurrences = source.count("_log_sensitive_env_keys")
-        # One occurrence per spawn path (3 spawn paths) + the import
-        # statement = 4. We require at least 3 (one per spawn path)
+        # One occurrence per spawn path (3 Electron/Tauri spawn paths,
+        # plus the Tauri host + focus-probe spawns) + the re-export
+        # imports. We require at least 3 (one per original spawn path)
         # to be robust to future import-style changes.
         assert occurrences >= 3, (
-            f"autostart_launcher.py must call _log_sensitive_env_keys in "
+            f"the autostart launcher (facade + autostart/ package) must call "
+            f"_log_sensitive_env_keys in "
             f"all 3 spawn paths; found {occurrences} references "
             f"(expected >= 3)"
         )
@@ -276,7 +295,7 @@ class TestNewUx026PunctuationCheatSheetSourceOfTruth:
         still cover the six canonical punctuation characters
         ``, . ; : ! ?`` — these are what the cheat sheet advertises.
         """
-        source = TEXT_CLEANUP_PY.read_text(encoding="utf-8")
+        source = _text_cleanup_sources()
         # The regex character class is `[,.;:!?]`.
         assert r"re.compile(r'\s+([,.;:!?])')" in source or (r're.compile(r"\s+([,.;:!?])")' in source), (
             "text_cleanup.py must still define "
@@ -290,7 +309,7 @@ class TestNewUx026PunctuationCheatSheetSourceOfTruth:
         source of truth is text_cleanup.py refers to the regex, not
         to a word map — confirm no such map exists that we missed).
         """
-        source = TEXT_CLEANUP_PY.read_text(encoding="utf-8")
+        source = _text_cleanup_sources()
         # If someone later adds a "spoken punctuation word" dict, the
         # cheat sheet should switch to it. For now, no such dict exists.
         assert "SPOKEN_PUNCT" not in source

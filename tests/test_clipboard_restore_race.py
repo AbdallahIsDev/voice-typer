@@ -48,7 +48,6 @@ import pytest
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
 # tests/clipboard/conftest.py (single source of truth —  dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
-from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 from voice_typer.server.clipboard.manager import (  # noqa: E402
     _force_restore_pending_at_exit,
     _pending_restores,
@@ -58,6 +57,8 @@ from voice_typer.server.clipboard_snapshot import (  # noqa: E402
     ClipboardSnapshot,
     _restore_lock,
 )
+
+from tests.fixtures.clipboard_helpers import make_clipboard_manager, make_clipboard_snapshot  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Display-env isolation  — mirrors test_clipboard_borrow_restore.py
@@ -85,37 +86,6 @@ def _isolate_pending_restores():
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_cm(
-    *,
-    paste_enabled: bool = True,
-    save_restore: bool = True,
-    restore_delay_ms: int = 150,
-) -> ClipboardManager:
-    """Build a ClipboardManager with mocked keyboard and cached flags set.
-
-    Mirrors the helper in ``test_clipboard_borrow_restore.py`` so we can
-    construct a manager without paying the pynput-import cost.
-    """
-    cm = ClipboardManager.__new__(ClipboardManager)
-    cm.paste_enabled = paste_enabled
-    cm._keyboard = MagicMock()
-    cm._last_paste_time = 0.0  # not rate-limited
-    cm._clipboard_seq = 0
-    cm._last_copied_text = ""
-    cm._clipboard_save_restore_enabled = save_restore
-    cm._restore_delay_ms = restore_delay_ms
-    return cm
-
-
-def _make_snapshot() -> ClipboardSnapshot:
-    """Build a fake ClipboardSnapshot for tests that need a non-None value."""
-    return ClipboardSnapshot(
-        platform="linux-x11",
-        items=[("text/plain", b"prior clipboard content")],
-        captured_at=time.monotonic(),
-    )
 
 
 # ===========================================================================
@@ -147,8 +117,8 @@ class TestAtexitVsDaemonSameSnapshot:
         on remove) and NOT call ``snapshot.restore()`` — atexit will
         restore synchronously.
         """
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
         entry = (cm, snap, "the dictation", 0.0)
 
         # Register the entry as paste() would.
@@ -196,8 +166,8 @@ class TestAtexitVsDaemonSameSnapshot:
         finishes before atexit fires" ordering — the end-state contract
         is the same: 1 restore from daemon, 0 from atexit.
         """
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
         entry = (cm, snap, "the dictation", 0.0)
 
         # Register the entry as paste() would.
@@ -243,8 +213,8 @@ class TestAtexitVsDaemonSameSnapshot:
         threads so they BOTH reach the claim step "simultaneously"
         before either proceeds — the worst-case race window.
         """
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
         entry = (cm, snap, "the dictation", 0.0)
 
         # Register the entry.
@@ -556,10 +526,10 @@ class TestAtexitIteratesAllPending:
         ``None`` as "couldn't read the clipboard, restore anyway" (see
         the ``if current is None or current == pasted_text`` branch).
         """
-        cm = _make_cm()
-        snap_a = _make_snapshot()
-        snap_b = _make_snapshot()
-        snap_c = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap_a = make_clipboard_snapshot()
+        snap_b = make_clipboard_snapshot()
+        snap_c = make_clipboard_snapshot()
         entries = [
             (cm, snap_a, "dictation A", 0.0),
             (cm, snap_b, "dictation B", 0.0),
@@ -607,9 +577,9 @@ class TestAtexitIteratesAllPending:
         entries (which would be restored again on a subsequent atexit
         fire — but atexit only fires once, so this is defense-in-depth).
         """
-        cm = _make_cm()
-        snap_a = _make_snapshot()
-        snap_b = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap_a = make_clipboard_snapshot()
+        snap_b = make_clipboard_snapshot()
         entries = [
             (cm, snap_a, "dictation A", 0.0),
             (cm, snap_b, "dictation B", 0.0),
@@ -678,9 +648,9 @@ class TestAtexitAndDaemonDifferentEntries:
         critical section simultaneously — without the lock, they would
         overlap; with the lock, they serialize.
         """
-        cm = _make_cm()
-        snap_a = _make_snapshot()  # daemon restores this
-        snap_b = _make_snapshot()  # atexit restores this
+        cm = make_clipboard_manager()
+        snap_a = make_clipboard_snapshot()  # daemon restores this
+        snap_b = make_clipboard_snapshot()  # atexit restores this
 
         entry_a = (cm, snap_a, "dictation A", 0.0)
         entry_b = (cm, snap_b, "dictation B", 0.0)
@@ -781,8 +751,8 @@ class TestRestoreLockNoDeadlock:
         ``_pending_restores_lock`` from another thread while the daemon
         is inside ``snapshot.restore()`` — it must succeed (no deadlock).
         """
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
         entry = (cm, snap, "dictation", 0.0)
 
         with _pending_restores_lock:
@@ -839,8 +809,8 @@ class TestRestoreLockNoDeadlock:
         Verify by acquiring ``_pending_restores_lock`` from another
         thread while atexit is inside ``snapshot.restore()``.
         """
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
         entry = (cm, snap, "dictation", 0.0)
 
         with _pending_restores_lock:

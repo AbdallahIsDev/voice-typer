@@ -170,9 +170,10 @@ def test_spawn_site_passes_four_args() -> None:
 
     # The clipboard package was split (): the spawn site may live
     # in ``__init__.py`` or in a submodule (e.g. ``manager.py``). Walk
-    # all .py files in the package and look for the spawn.
+    # all .py files in the package AND its subpackages (the manager
+    # split put paste() in ``manager/_paste.py``) and look for the spawn.
     pkg_dir = Path(cb.__file__).parent
-    candidates = sorted(pkg_dir.glob("*.py"))
+    candidates = sorted(pkg_dir.rglob("*.py"))
 
     found_args = None
     for path in candidates:

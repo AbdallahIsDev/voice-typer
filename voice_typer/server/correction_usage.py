@@ -198,11 +198,7 @@ class CorrectionUsageTracker:
                     present.add((cat, key))
             elif cat in _LIST_CATEGORIES and isinstance(raw, list):
                 for item in raw:
-                    if (
-                        isinstance(item, (list, tuple))
-                        and len(item) >= 2
-                        and isinstance(item[0], str)
-                    ):
+                    if isinstance(item, (list, tuple)) and len(item) >= 2 and isinstance(item[0], str):
                         present.add((cat, item[0]))
         with self._lock:
             entries = self._data.get("entries")

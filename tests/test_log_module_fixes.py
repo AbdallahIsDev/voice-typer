@@ -239,8 +239,7 @@ class TestUe4F8QuietFileHandlerLevel:
         try:
             setup_logging(tmp_path)
             assert self._file_handler().level == logging.INFO, (
-                f"default file handler level must be INFO; got "
-                f"{logging.getLevelName(self._file_handler().level)}"
+                f"default file handler level must be INFO; got {logging.getLevelName(self._file_handler().level)}"
             )
         finally:
             reset()
@@ -254,8 +253,7 @@ class TestUe4F8QuietFileHandlerLevel:
         try:
             setup_logging(tmp_path, debug=True)
             assert self._file_handler().level == logging.DEBUG, (
-                f"debug=True should raise file handler to DEBUG; got "
-                f"{logging.getLevelName(self._file_handler().level)}"
+                f"debug=True should raise file handler to DEBUG; got {logging.getLevelName(self._file_handler().level)}"
             )
         finally:
             reset()
@@ -302,15 +300,11 @@ class TestUe4F9SecureHandlerDedup:
         try:
             setup_logging(tmp_path)
             before = [
-                h
-                for h in logging.getLogger("voice_typer").handlers
-                if isinstance(h, _SecureTruncatingFileHandler)
+                h for h in logging.getLogger("voice_typer").handlers if isinstance(h, _SecureTruncatingFileHandler)
             ]
             setup_logging(tmp_path)
             after = [
-                h
-                for h in logging.getLogger("voice_typer").handlers
-                if isinstance(h, _SecureTruncatingFileHandler)
+                h for h in logging.getLogger("voice_typer").handlers if isinstance(h, _SecureTruncatingFileHandler)
             ]
             assert len(before) == 1
             assert len(after) == 1, (
@@ -492,8 +486,7 @@ class TestUe4F13LockFailureNoPathLeak:
             with caplog.at_level(logging.DEBUG, logger=log_module.log.name):
                 lock_fd = handler._acquire_rotation_lock()
             assert lock_fd is None, (
-                "test setup failed: _acquire_rotation_lock should "
-                "return None when the underlying open() raises"
+                "test setup failed: _acquire_rotation_lock should return None when the underlying open() raises"
             )
         finally:
             with __import__("contextlib").suppress(Exception):
@@ -560,8 +553,7 @@ class TestUe4F15PiiFilterHandlerOnlyAttachment:
             for h in vt_root.handlers:
                 pii_on_handler = [f for f in h.filters if isinstance(f, PIIRedactionFilter)]
                 assert pii_on_handler, (
-                    f"handler {h!r} must have a "
-                    f"PIIRedactionFilter attached (handler-only attachment)"
+                    f"handler {h!r} must have a PIIRedactionFilter attached (handler-only attachment)"
                 )
         finally:
             reset()

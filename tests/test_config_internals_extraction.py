@@ -34,6 +34,8 @@ from voice_typer.server.config_internals.migrations import (
     _backup_before_migration_impl,
 )
 
+from tests.fixtures.config_helpers import patch_config_dir_refs  # noqa: E402
+
 
 @pytest.fixture
 def isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -42,7 +44,7 @@ def isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
     """
     config_dir = tmp_path / "voice-typer"
     config_dir.mkdir()
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: config_dir, raising=True)
+    patch_config_dir_refs(monkeypatch, config_dir)
     return config_dir
 
 

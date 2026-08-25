@@ -24,7 +24,6 @@ import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import { useDeviceLostStore } from "@/stores/deviceLostStore";
 import { ActiveMicrophoneCard } from "./microphone/components/ActiveMicrophoneCard";
 import { AvailableMicrophonesList } from "./microphone/components/AvailableMicrophonesList";
-import { MicrophoneDeviceLostBanner } from "./microphone/components/MicrophoneDeviceLostBanner";
 import { MicrophonePermissionBanner } from "./microphone/components/MicrophonePermissionBanner";
 import { useMicrophoneData } from "./microphone/hooks/useMicrophoneData";
 import { useMicrophonePermission } from "./microphone/hooks/useMicrophonePermission";
@@ -62,21 +61,16 @@ export default function MicrophonePage() {
 	const { micPermission } = useMicrophonePermission();
 
 	// Device-lost state — written ONCE by the App-level
-	// ``useDeviceLostToast`` subscriber (single event → single
-	// mechanism). While a loss is flagged the level monitor is paused
-	// (futile to monitor a vanished stream) and the recovery banner
-	// below replaces the dead meter with a Retry affordance.
+	// ``useDeviceLostToast`` subscriber (single event → single mechanism:
+	// the toast notification IS the user-facing device-lost signal; there
+	// is deliberately NO persistent in-page banner for it). While a loss
+	// is flagged the level monitor is paused (futile to monitor a
+	// vanished stream); selecting a microphone clears the flag, which
+	// un-pauses the meter, and the ``microphones_changed`` hot-swap
+	// handler auto-falls-back to System Default when the device is
+	// genuinely gone.
 	const lostSource = useDeviceLostStore((s) => s.lostSource);
 	const clearLost = useDeviceLostStore((s) => s.clearLost);
-
-	// Recovery affordance: clear the lost flag + refresh the device
-	// list. Flipping the flag false un-pauses the level monitor (its
-	// effect re-runs and restarts monitoring); if the mic is still gone
-	// the backend re-emits ``device_lost`` and the banner returns.
-	const handleDeviceRecovery = useCallback(() => {
-		clearLost();
-		void loadData();
-	}, [clearLost, loadData]);
 
 	// Runtime-pack readiness — drives the "Preparing offline engine…"
 	// banner below. The mic test itself uses RMS only and works without
@@ -240,19 +234,6 @@ export default function MicrophonePage() {
 			<div className="space-y-6">
 				<MicrophonePermissionBanner micPermission={micPermission} />
 
-				{/* Device-lost recovery — shown while the backend has
-			    flagged the active microphone as lost. The level monitor
-			    is paused for the same condition; Retry clears the flag +
-			    refreshes the device list, which restarts monitoring.
-			    Suppressed while OS mic permission is denied: a revoked
-			    permission fails the backend stream too (→ device_lost),
-			    and stacking two role=alert banners for one root cause
-			    drowns the actionable one (grant permission). */}
-				<MicrophoneDeviceLostBanner
-					visible={lostSource !== null && micPermission !== "denied"}
-					onRetry={handleDeviceRecovery}
-				/>
-
 				{/* Runtime-pack readiness banner — §4.8 / §4.9. Visible only
 				when the pack isn't ready AND the user has actually
 				started a test or picked a microphone. The mic test
@@ -267,7 +248,8 @@ export default function MicrophonePage() {
 				{/* ``meterRef`` wrapper. The level monitor's rAF
 					loop queries inside this div for the ``LevelBar``'s fill
 					node (``[role="progressbar"] > div``) and imperatively
-					writes the latest level/colour at ≤60 Hz — bypassing
+					writes the latest level (scaleX transform) at ≤60 Hz —
+					bypassing
 					React's re-render cycle so a 30 Hz ``mic_level`` push
 					no longer re-renders the entire Microphone page subtree.
 					The wrapper itself is a no-op layout element (no extra

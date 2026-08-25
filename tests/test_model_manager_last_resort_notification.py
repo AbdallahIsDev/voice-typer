@@ -162,12 +162,10 @@ class TestLastResortNotificationShown:
         # The download instruction must be present and point at the
         # models page (the app never auto-downloads models).
         assert "models page" in message, (
-            "last-resort notification must point the user at the models "
-            f"page. Got message: {message!r}"
+            f"last-resort notification must point the user at the models page. Got message: {message!r}"
         )
         assert "download a model" in message, (
-            "last-resort notification must include the download "
-            f"instruction. Got message: {message!r}"
+            f"last-resort notification must include the download instruction. Got message: {message!r}"
         )
         # 2026-08-15 user request: the message must be GENERIC — it must
         # NOT name the backend/model (the stale ``model_size`` in config
@@ -175,12 +173,10 @@ class TestLastResortNotificationShown:
         # user into thinking that specific model is the one being
         # handled).
         assert "whisper" not in message.lower(), (
-            "last-resort notification must NOT name the backend. "
-            f"Got message: {message!r}"
+            f"last-resort notification must NOT name the backend. Got message: {message!r}"
         )
         assert "Open the models page to download a model" in message, (
-            "last-resort notification must carry the generic download "
-            f"instruction. Got message: {message!r}"
+            f"last-resort notification must carry the generic download instruction. Got message: {message!r}"
         )
 
     def test_notification_not_shown_when_backend_is_ready(self):
@@ -328,8 +324,7 @@ class TestLastResortNotificationClickable:
         )
         message = data.get("message", "")
         assert "models page" in message, (
-            "notification message must still point the user at the models "
-            f"page. Got: {message!r}"
+            f"notification message must still point the user at the models page. Got: {message!r}"
         )
         assert data.get("title") == APP_NAME
 
@@ -417,15 +412,11 @@ class TestLastResortEventGateWired:
         mm, app = _make_mm()
         mm._mark_deliberately_unloaded("whisper")
         published: list[dict] = []
-        monkeypatch.setattr(
-            "voice_typer.server.event_bus.publish", published.append
-        )
+        monkeypatch.setattr("voice_typer.server.event_bus.publish", published.append)
 
         _trigger_last_resort(mm)
 
-        assert not any(
-            e.get("type") == "asr_last_resort_unloaded" for e in published
-        ), (
+        assert not any(e.get("type") == "asr_last_resort_unloaded" for e in published), (
             "deliberate unload must suppress the asr_last_resort_unloaded "
             f"event_bus publish (renderer toast). Got {published!r}."
         )
@@ -438,19 +429,14 @@ class TestLastResortEventGateWired:
         mm, app = _make_mm()
         mm._sync_load_in_progress = True
         published: list[dict] = []
-        monkeypatch.setattr(
-            "voice_typer.server.event_bus.publish", published.append
-        )
+        monkeypatch.setattr("voice_typer.server.event_bus.publish", published.append)
         try:
             _trigger_last_resort(mm)
         finally:
             mm._sync_load_in_progress = False
 
-        assert not any(
-            e.get("type") == "asr_last_resort_unloaded" for e in published
-        ), (
-            "load-in-progress must suppress the asr_last_resort_unloaded "
-            f"event_bus publish. Got {published!r}."
+        assert not any(e.get("type") == "asr_last_resort_unloaded" for e in published), (
+            f"load-in-progress must suppress the asr_last_resort_unloaded event_bus publish. Got {published!r}."
         )
         app.tray.notify.assert_not_called()
 
@@ -460,15 +446,13 @@ class TestLastResortEventGateWired:
         mm, app = _make_mm()
         app._shutting_down = True
         published: list[dict] = []
-        monkeypatch.setattr(
-            "voice_typer.server.event_bus.publish", published.append
-        )
+        monkeypatch.setattr("voice_typer.server.event_bus.publish", published.append)
 
         _trigger_last_resort(mm)
 
-        assert not any(
-            e.get("type") == "asr_last_resort_unloaded" for e in published
-        ), "shutting down must suppress the asr_last_resort_unloaded publish"
+        assert not any(e.get("type") == "asr_last_resort_unloaded" for e in published), (
+            "shutting down must suppress the asr_last_resort_unloaded publish"
+        )
         app.tray.notify.assert_not_called()
 
     def test_genuine_broken_backend_publishes_event(self, monkeypatch):
@@ -477,17 +461,12 @@ class TestLastResortEventGateWired:
         and the tray both alert the user."""
         mm, app = _make_mm()
         published: list[dict] = []
-        monkeypatch.setattr(
-            "voice_typer.server.event_bus.publish", published.append
-        )
+        monkeypatch.setattr("voice_typer.server.event_bus.publish", published.append)
 
         _trigger_last_resort(mm)
 
         events = [e for e in published if e.get("type") == "asr_last_resort_unloaded"]
-        assert len(events) == 1, (
-            "a genuine last-resort fall-through must publish the event "
-            f"once. Got {published!r}."
-        )
+        assert len(events) == 1, f"a genuine last-resort fall-through must publish the event once. Got {published!r}."
         assert events[0]["data"]["backend"] == "whisper"
         app.tray.notify.assert_called_once()
 
@@ -497,9 +476,7 @@ class TestLastResortEventGateWired:
         renderer toast, like the tray, is rate-limited per backend."""
         mm, app = _make_mm()
         published: list[dict] = []
-        monkeypatch.setattr(
-            "voice_typer.server.event_bus.publish", published.append
-        )
+        monkeypatch.setattr("voice_typer.server.event_bus.publish", published.append)
 
         _trigger_last_resort(mm)
         assert len([e for e in published if e.get("type") == "asr_last_resort_unloaded"]) == 1
@@ -518,22 +495,17 @@ class TestLastResortEventGateWired:
         the event — the user is still pointed at the Models page."""
         mm, app = _make_mm()
         published: list[dict] = []
-        monkeypatch.setattr(
-            "voice_typer.server.event_bus.publish", published.append
-        )
+        monkeypatch.setattr("voice_typer.server.event_bus.publish", published.append)
 
         _trigger_last_resort(mm)
         assert len([e for e in published if e.get("type") == "asr_last_resort_unloaded"]) == 1
 
         # Expire the cooldown (simulate 15+ minutes passing).
-        mm._last_resort_notified_at["whisper"] = time.monotonic() - (
-            mm._LAST_RESORT_NOTIFY_COOLDOWN_SECS + 1.0
-        )
+        mm._last_resort_notified_at["whisper"] = time.monotonic() - (mm._LAST_RESORT_NOTIFY_COOLDOWN_SECS + 1.0)
         mm._registry._breaker.clear_last_resort_notified()
         mm._registry.get_active()
         assert len([e for e in published if e.get("type") == "asr_last_resort_unloaded"]) == 2, (
-            "after the cooldown, a new last-resort transition must "
-            "re-publish the event (renderer toast re-alerts)"
+            "after the cooldown, a new last-resort transition must re-publish the event (renderer toast re-alerts)"
         )
         assert app.tray.notify.call_count == 2
 
@@ -553,9 +525,7 @@ class TestLastResortNotificationRateLimit:
         # Simulate the latch reset (the probe / load_with_fallback retry).
         mm._registry._breaker.clear_last_resort_notified()
         mm._registry.get_active()
-        assert app.tray.notify.call_count == 1, (
-            "repeat last-resort transition within the cooldown must be suppressed"
-        )
+        assert app.tray.notify.call_count == 1, "repeat last-resort transition within the cooldown must be suppressed"
 
     def test_renotifies_after_cooldown_expires(self):
         """Once the cooldown elapses, a new transition re-notifies (the
@@ -565,14 +535,10 @@ class TestLastResortNotificationRateLimit:
         assert app.tray.notify.call_count == 1
 
         # Expire the cooldown (simulate 15+ minutes passing).
-        mm._last_resort_notified_at["whisper"] = time.monotonic() - (
-            mm._LAST_RESORT_NOTIFY_COOLDOWN_SECS + 1.0
-        )
+        mm._last_resort_notified_at["whisper"] = time.monotonic() - (mm._LAST_RESORT_NOTIFY_COOLDOWN_SECS + 1.0)
         mm._registry._breaker.clear_last_resort_notified()
         mm._registry.get_active()
-        assert app.tray.notify.call_count == 2, (
-            "after the cooldown, a new last-resort transition must re-notify"
-        )
+        assert app.tray.notify.call_count == 2, "after the cooldown, a new last-resort transition must re-notify"
 
     def test_rate_limit_is_per_backend(self):
         """A broken parakeet must not be rate-limited by an earlier
@@ -591,8 +557,7 @@ class TestLastResortNotificationRateLimit:
         mm._registry._breaker.clear_last_resort_notified()
         mm._registry.get_active()
         assert app.tray.notify.call_count == 2, (
-            "rate limit must be per-backend; parakeet must not inherit "
-            "whisper's cooldown"
+            "rate limit must be per-backend; parakeet must not inherit whisper's cooldown"
         )
 
 
@@ -620,9 +585,7 @@ class TestBackendDisabledEventGateWired:
         share ONE suppression decision."""
         mm, _ = _make_mm()
         gate = mm._registry._breaker._backend_disabled_event_gate
-        assert gate is not None, (
-            "ModelManager.__init__ must install the backend-disabled event gate"
-        )
+        assert gate is not None, "ModelManager.__init__ must install the backend-disabled event gate"
         assert gate == mm._should_suppress_backend_disabled_notification, (
             "ModelManager.__init__ must wire "
             "_should_suppress_backend_disabled_notification onto the "
@@ -642,15 +605,11 @@ class TestBackendDisabledEventGateWired:
         mm, _ = _make_mm()
         mm._mark_deliberately_unloaded("whisper")
         published: list[dict] = []
-        monkeypatch.setattr(
-            "voice_typer.server.event_bus.publish", published.append
-        )
+        monkeypatch.setattr("voice_typer.server.event_bus.publish", published.append)
 
         self._trip_backend_disabled(mm)
 
-        assert not any(
-            e.get("type") == "asr_backend_disabled" for e in published
-        ), (
+        assert not any(e.get("type") == "asr_backend_disabled" for e in published), (
             "deliberate unload must suppress the asr_backend_disabled "
             f"event_bus publish (renderer event). Got {published!r}."
         )
@@ -667,19 +626,14 @@ class TestBackendDisabledEventGateWired:
         mm, _ = _make_mm()
         mm._sync_load_in_progress = True
         published: list[dict] = []
-        monkeypatch.setattr(
-            "voice_typer.server.event_bus.publish", published.append
-        )
+        monkeypatch.setattr("voice_typer.server.event_bus.publish", published.append)
         try:
             self._trip_backend_disabled(mm)
         finally:
             mm._sync_load_in_progress = False
 
-        assert not any(
-            e.get("type") == "asr_backend_disabled" for e in published
-        ), (
-            "load-in-progress must suppress the asr_backend_disabled "
-            f"event_bus publish. Got {published!r}."
+        assert not any(e.get("type") == "asr_backend_disabled" for e in published), (
+            f"load-in-progress must suppress the asr_backend_disabled event_bus publish. Got {published!r}."
         )
 
     def test_genuine_broken_backend_publishes_backend_disabled(self, monkeypatch):
@@ -689,17 +643,12 @@ class TestBackendDisabledEventGateWired:
         windows, never a real alert."""
         mm, _ = _make_mm()
         published: list[dict] = []
-        monkeypatch.setattr(
-            "voice_typer.server.event_bus.publish", published.append
-        )
+        monkeypatch.setattr("voice_typer.server.event_bus.publish", published.append)
 
         self._trip_backend_disabled(mm)
 
-        assert any(
-            e.get("type") == "asr_backend_disabled" for e in published
-        ), (
-            "a genuinely broken backend must still publish "
-            f"asr_backend_disabled. Got {published!r}."
+        assert any(e.get("type") == "asr_backend_disabled" for e in published), (
+            f"a genuinely broken backend must still publish asr_backend_disabled. Got {published!r}."
         )
 
     def test_last_resort_cooldown_does_not_suppress_backend_disabled(self, monkeypatch):
@@ -726,15 +675,11 @@ class TestBackendDisabledEventGateWired:
         )
 
         published: list[dict] = []
-        monkeypatch.setattr(
-            "voice_typer.server.event_bus.publish", published.append
-        )
+        monkeypatch.setattr("voice_typer.server.event_bus.publish", published.append)
         # …but a genuine backend-disabled trip must STILL publish.
         self._trip_backend_disabled(mm)
 
-        assert any(
-            e.get("type") == "asr_backend_disabled" for e in published
-        ), (
+        assert any(e.get("type") == "asr_backend_disabled" for e in published), (
             "a recent last-resort notification must NOT suppress a "
             "genuine asr_backend_disabled event (cooldown is "
             f"last-resort-only). Got {published!r}."

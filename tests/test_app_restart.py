@@ -93,7 +93,7 @@ def _stub_restart_environment(app, monkeypatch, *, spy_sys_exit):
         lambda msg: None,
     )
     # Skip the 300ms pre-exit sleep in restart_app.
-    monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+    monkeypatch.setattr("time.sleep", lambda s: None)
 
     # Mock sys.exit: record the call AND raise SystemExit so that
     # behaviour mirrors the real sys.exit (which raises SystemExit). The
@@ -103,11 +103,11 @@ def _stub_restart_environment(app, monkeypatch, *, spy_sys_exit):
         spy_sys_exit.append(code)
         raise SystemExit(code)
 
-    monkeypatch.setattr("voice_typer.server.app.sys.exit", _fake_sys_exit)
+    monkeypatch.setattr("sys.exit", _fake_sys_exit)
 
     # Belt-and-suspenders: don't let os._exit kill the pytest process
     # if a future regression reintroduces it.
-    monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+    monkeypatch.setattr("os._exit", lambda code: None)
 
     # Mock the cleanup collaborators so we can assert they were called.
     # recorder.recording=True so _do_cleanup calls recorder.stop().

@@ -838,9 +838,7 @@ class TestSetTrayLocale:
         assert resp["data"]["field"] == "labels"
         assert registered == []
 
-    def test_happy_path_switches_server_global_locale_and_merges_labels(
-        self, ipc_server, monkeypatch
-    ):
+    def test_happy_path_switches_server_global_locale_and_merges_labels(self, ipc_server, monkeypatch):
         """HU-17: ``set_tray_locale`` must also switch the server-GLOBAL
         ``i18n`` locale and merge the pushed notification labels so tray
         notifications (``error.config_load_failed.*`` /
@@ -863,9 +861,7 @@ class TestSetTrayLocale:
                 {
                     "locale": "fr",
                     "labels": {
-                        "error.config_load_failed.body": (
-                            "Échec du chargement de la configuration"
-                        ),
+                        "error.config_load_failed.body": ("Échec du chargement de la configuration"),
                         "state.app.starting": "Démarrage...",
                     },
                 },
@@ -875,15 +871,14 @@ class TestSetTrayLocale:
             # The server-global locale must follow the renderer's.
             assert server_i18n.get_locale() == "fr"
             # The pushed labels must resolve through i18n.t().
-            assert (
-                server_i18n.t("error.config_load_failed.body")
-                == "Échec du chargement de la configuration"
-            ), "merged label must resolve for the active locale"
+            assert server_i18n.t("error.config_load_failed.body") == "Échec du chargement de la configuration", (
+                "merged label must resolve for the active locale"
+            )
             assert server_i18n.t("state.app.starting") == "Démarrage..."
             # The English fallbacks must be preserved (merge, not replace).
-            assert any(
-                v == "Starting..." for v in server_i18n._REGISTRY["en"].values()
-            ), "merge must not wipe the English fallback registry"
+            assert any(v == "Starting..." for v in server_i18n._REGISTRY["en"].values()), (
+                "merge must not wipe the English fallback registry"
+            )
         finally:
             server_i18n.set_locale(saved_locale)
             if saved_fr:

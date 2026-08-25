@@ -92,7 +92,10 @@ class TestSnapshotResamplePathReturnsView:
 
         # First snapshot populates the cache.
         first = r.snapshot()
-        cached_after_first = r._cached_resampled
+        # Contiguous storage: ``_cached_resampled`` owns a grown capacity
+        # array and ``_cached_resampled_len`` tracks the filled prefix —
+        # compare against the prefix, not the raw capacity allocation.
+        cached_after_first = r._cached_resampled[: r._cached_resampled_len]
 
         # Second snapshot, no new chunks → must return a VIEW of the cache.
         second = r.snapshot()
@@ -131,15 +134,15 @@ class TestSnapshotResamplePathReturnsView:
         snap = r.snapshot()
         cached = r._cached_resampled
 
-        # The return value must be a view of the (rebuilt) cache.
+        # The return value must be a view of the (extended) cache.
         assert np.shares_memory(snap, cached), (
             "XZ-8: snapshot() on the resample path (with new chunks) must "
-            "return a VIEW of the rebuilt _cached_resampled, not a copy. "
+            "return a VIEW of the extended _cached_resampled, not a copy. "
             f"Got owndata={snap.flags.owndata}."
         )
-        # And the values must be correct: 2 chunks of 6 samples each,
-        # decimated 48000→16000 (factor 3) → 2 samples per chunk → 4 total.
-        assert snap.size == cached.size
+        # Contiguous storage: the filled prefix length is tracked
+        # separately from the capacity allocation.
+        assert snap.size == r._cached_resampled_len
         assert snap.size > 0
         # Only the new chunk should have been resampled (cache hit on prefix).
         assert len(calls) == 2, (
@@ -187,14 +190,15 @@ class TestSnapshotNoResamplePathReturnsView:
     target_sr) must return a VIEW, never a copy."""
 
     def test_no_new_chunks_returns_view_of_cached_array(self):
-        """When the buffer length hasn't changed since the last
-        snapshot, the return must be a view of
-        ``_cached_no_resample_arr``."""
+        """When no new chunks have arrived since the last snapshot, the
+        return must be a view of the contiguous recording buffer's
+        storage (``recorder._buffer.storage`` — the single pre-allocated
+        growable array that replaced ``_cached_no_resample_arr``)."""
         r = _make_recorder(sample_rate=16000, effective_sr=16000)
         r._buffer = [np.array([[1.0], [2.0], [3.0]], dtype=np.float32)]
 
-        first = r.snapshot()  # builds the no-resample cache
-        cached = r._cached_no_resample_arr
+        first = r.snapshot()  # storage is contiguous now; nothing to build
+        cached = r._buffer.storage
         assert cached is not None
 
         # Second snapshot, no new chunks → must hit the cache and return a view.
@@ -202,29 +206,29 @@ class TestSnapshotNoResamplePathReturnsView:
 
         assert np.shares_memory(second, cached), (
             "XZ-8: snapshot() on the no-resample path (no new chunks) must "
-            "return a VIEW of _cached_no_resample_arr, not a copy. Got "
+            "return a VIEW of _buffer.storage, not a copy. Got "
             f"owndata={second.flags.owndata}."
         )
         np.testing.assert_array_equal(second, first)
         np.testing.assert_array_equal(second, np.array([1.0, 2.0, 3.0], dtype=np.float32))
 
-    def test_with_new_chunks_returns_view_of_rebuilt_array(self):
-        """When new chunks arrive, the no-resample path rebuilds the
-        cache via ``np.concatenate(chunks)``. The RETURN value must be
-        a view of that rebuilt array, not a copy."""
+    def test_with_new_chunks_returns_view_of_extended_storage(self):
+        """When new chunks arrive, the contiguous storage is extended in
+        place (geometric growth). The RETURN value must be a view of that
+        storage, not a copy."""
         r = _make_recorder(sample_rate=16000, effective_sr=16000)
         r._buffer = [np.array([[1.0], [2.0]], dtype=np.float32)]
-        r.snapshot()  # populate cache
+        r.snapshot()
 
-        # Append a new chunk → cache is invalidated and rebuilt.
+        # Append a new chunk → storage may reallocate; snapshot extends.
         r._buffer.append(np.array([[3.0]], dtype=np.float32))
         snap = r.snapshot()
-        cached = r._cached_no_resample_arr
+        cached = r._buffer.storage
 
         assert cached is not None
         assert np.shares_memory(snap, cached), (
             "XZ-8: snapshot() on the no-resample path (with new chunks) "
-            "must return a VIEW of the rebuilt _cached_no_resample_arr, "
+            "must return a VIEW of the extended _buffer.storage, "
             f"not a copy. Got owndata={snap.flags.owndata}."
         )
         np.testing.assert_array_equal(snap, np.array([1.0, 2.0, 3.0], dtype=np.float32))

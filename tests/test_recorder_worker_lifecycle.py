@@ -446,7 +446,9 @@ class TestConcurrentStartStopNoLeak:
         t1.start()
         t2.start()
         # Hammer for 500ms — long enough to expose the race pre-fix.
-        time.sleep(0.5)
+        # (Event.wait doubles as the fixed-duration window: nothing else
+        # sets the flag, so this is a paced wait without a bare sleep.)
+        stop_flag.wait(0.5)
         stop_flag.set()
         t1.join(timeout=5.0)
         t2.join(timeout=5.0)
@@ -507,7 +509,8 @@ class TestConcurrentStartStopNoLeak:
         t2 = threading.Thread(target=discarder, name="gt23-discarder")
         t1.start()
         t2.start()
-        time.sleep(0.5)
+        # Same fixed-duration hammer window as the stop() variant above.
+        stop_flag.wait(0.5)
         stop_flag.set()
         t1.join(timeout=5.0)
         t2.join(timeout=5.0)
@@ -930,6 +933,10 @@ class TestStreamLifecycleLock:
         t.start()
 
         try:
+            # Fixed grace, intentionally kept: the handler must be parked
+            # on the held _stream_lifecycle_lock BEFORE the generation bump,
+            # and its progress past the bouncer has no observable predicate
+            # to poll (the lock acquisition is internal to the handler).
             time.sleep(0.3)
             r._stop_generation = 1
         finally:

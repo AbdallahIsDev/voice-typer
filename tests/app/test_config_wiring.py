@@ -231,10 +231,8 @@ class TestExternalCorrectionsWiring:
             called_with["config_dir"] = config_dir
 
         # Patch the name in startup_sequence's namespace ( Phase 5 moved
-        # the call there). Also patch app's namespace for backwards compat
-        # in case any other code path still reaches it via app.configure_corrections.
+        # the call there).
         monkeypatch.setattr("voice_typer.server.startup_sequence.configure_corrections", spy)
-        monkeypatch.setattr("voice_typer.server.app.configure_corrections", spy)
         app._settings_window = None
         # Phase 1: was ``app._sync_prewarm_task = MagicMock()``
         # (test-seam delegate removed); patch the standalone function.
@@ -329,9 +327,9 @@ class TestSettingsWindowIntegration:
 
         popen_calls = []
         monkeypatch.setattr(_sp, "Popen", lambda *a, **kw: popen_calls.append((a, kw)))
-        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        monkeypatch.setattr("os._exit", lambda code: None)
         monkeypatch.setattr(sys, "argv", ["voice_typer", "--port", "9876"])
-        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+        monkeypatch.setattr("time.sleep", lambda s: None)
         app.hotkeys._hotkey_backend = MagicMock()
         app.hotkeys._esc_backend = MagicMock()
         app.hotkeys._repaste_backend = MagicMock()
@@ -378,8 +376,8 @@ class TestSettingsWindowIntegration:
         that produced cascading "Error: Timeout" and "Python socket
         closed" errors.  The full-relaunch approach eliminates all of
         them: the entire OS process is replaced."""
-        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
-        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+        monkeypatch.setattr("os._exit", lambda code: None)
+        monkeypatch.setattr("time.sleep", lambda s: None)
         monkeypatch.setattr(sys, "argv", ["voice_typer"])
         app.hotkeys._hotkey_backend = MagicMock()
         app.hotkeys._esc_backend = MagicMock()

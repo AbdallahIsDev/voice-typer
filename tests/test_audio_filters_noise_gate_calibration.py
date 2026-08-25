@@ -110,12 +110,10 @@ class TestCalibrationSetsOpenThreshold:
         assert gate._calibrated is True, "gate must be calibrated after target samples"
         assert gate._calibration_count == _CAL_TARGET
         assert gate._open_threshold == pytest.approx(expected_open_mul, rel=1e-5), (
-            f"open_threshold: expected {expected_open_mul} "
-            f"({expected_open_db:.3f} dB), got {gate._open_threshold}"
+            f"open_threshold: expected {expected_open_mul} ({expected_open_db:.3f} dB), got {gate._open_threshold}"
         )
         assert gate._close_threshold == pytest.approx(expected_close_mul, rel=1e-5), (
-            f"close_threshold: expected {expected_close_mul} "
-            f"({expected_close_db:.3f} dB), got {gate._close_threshold}"
+            f"close_threshold: expected {expected_close_mul} ({expected_close_db:.3f} dB), got {gate._close_threshold}"
         )
 
     def test_calibration_uses_quadratic_mean_of_concatenated_rms(
@@ -145,9 +143,7 @@ class TestCalibrationSetsOpenThreshold:
         expected_open_db = expected_noise_floor_db + _ADAPTIVE_OPEN_OFFSET_DB
 
         assert gate._calibrated is True
-        assert gate._open_threshold == pytest.approx(
-            db_to_mul(expected_open_db), rel=1e-5
-        )
+        assert gate._open_threshold == pytest.approx(db_to_mul(expected_open_db), rel=1e-5)
 
     def test_calibration_clamps_to_max_when_noise_floor_near_zero_db(
         self,
@@ -167,9 +163,7 @@ class TestCalibrationSetsOpenThreshold:
         # open_db (clamped to 0) <= close_db (0) → open_db = close_db + 1 = 1.
         # So _open_threshold = db_to_mul(1.0) ≈ 1.122.
         expected_open_db = 1.0  # close_db (0) + 1.0 (fallback)
-        assert gate._open_threshold == pytest.approx(
-            db_to_mul(expected_open_db), rel=1e-5
-        )
+        assert gate._open_threshold == pytest.approx(db_to_mul(expected_open_db), rel=1e-5)
 
     def test_calibration_clamps_to_min_when_noise_floor_very_low(
         self,
@@ -187,12 +181,8 @@ class TestCalibrationSetsOpenThreshold:
         # close_db = -120 + 0 = -120, clamped to -90.
         # open_db (-90) <= close_db (-90) → open_db = -90 + 1 = -89.
         assert gate._calibrated is True
-        assert gate._open_threshold == pytest.approx(
-            db_to_mul(-89.0), rel=1e-5
-        )
-        assert gate._close_threshold == pytest.approx(
-            db_to_mul(-90.0), rel=1e-5
-        )
+        assert gate._open_threshold == pytest.approx(db_to_mul(-89.0), rel=1e-5)
+        assert gate._close_threshold == pytest.approx(db_to_mul(-90.0), rel=1e-5)
 
 
 # ── 2. silent chunks fall back to initial open threshold ────────────
@@ -235,12 +225,8 @@ class TestSilentChunksFallbackToInitial:
         assert gate._calibration_sumsq == 0.0, "silent chunks must keep sumsq at 0"
         # The fallback uses the initial-open-threshold's dB as the
         # noise floor — NOT -inf from mul_to_db(0).
-        assert gate._open_threshold == pytest.approx(
-            db_to_mul(expected_open_db), rel=1e-5
-        )
-        assert gate._close_threshold == pytest.approx(
-            db_to_mul(expected_close_db), rel=1e-5
-        )
+        assert gate._open_threshold == pytest.approx(db_to_mul(expected_open_db), rel=1e-5)
+        assert gate._close_threshold == pytest.approx(db_to_mul(expected_close_db), rel=1e-5)
 
     def test_silent_chunks_do_not_produce_inf_threshold(self) -> None:
         """Regression: a literal ``mul_to_db(0)`` returns -inf, and
@@ -255,10 +241,7 @@ class TestSilentChunksFallbackToInitial:
         # open_threshold must be a positive, finite number — not 0
         # and not NaN/inf.
         assert math.isfinite(gate._open_threshold)
-        assert gate._open_threshold > 0.0, (
-            "open_threshold must be > 0 (a 0 threshold would silence "
-            "all audio)."
-        )
+        assert gate._open_threshold > 0.0, "open_threshold must be > 0 (a 0 threshold would silence all audio)."
 
 
 # ── 3. calibration completes once and is idempotent ─────────────────

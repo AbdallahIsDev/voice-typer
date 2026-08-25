@@ -458,14 +458,12 @@ class TestPolishPrivacyNotice:
             if r.levelno == logging.INFO and "Templates were applied before LLM polish" in r.getMessage()
         ]
         assert notices, (
-            "_apply_llm_polish must log a privacy NOTICE when "
-            "templates were applied and LLM polish is enabled"
+            "_apply_llm_polish must log a privacy NOTICE when templates were applied and LLM polish is enabled"
         )
         # The notice must mention  / redact_pii so operators can
         # trace the defense-in-depth chain.
         assert "CR-10" in notices[0].getMessage() or "redact_pii" in notices[0].getMessage(), (
-            "privacy NOTICE must reference / redact_pii "
-            "so operators can trace the defense-in-depth chain"
+            "privacy NOTICE must reference / redact_pii so operators can trace the defense-in-depth chain"
         )
 
     def test_no_notice_when_templates_not_applied(self, caplog):

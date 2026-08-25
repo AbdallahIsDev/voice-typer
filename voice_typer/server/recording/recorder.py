@@ -447,7 +447,22 @@ class Recorder(VadShimMixin, RecorderInitMixin):
         # ``self._worker_thread`` and stopped by ``_stop_audio_worker()``.
         self._thread_registry = thread_registry
         self._stream: sd.InputStream | None = None
-        self._buffer: collections.deque = collections.deque(maxlen=DEFAULT_MAX_BUFFER_CHUNKS)
+        # Contiguous recording storage (replaces the deque-of-chunks).
+        # ONE pre-allocated growable float32 ndarray: appends copy each
+        # chunk in under ``_lock`` (~16 Hz small memcpys on the audio
+        # worker), snapshots are O(1) views, and stop() hands off an
+        # already-contiguous array. ``maxlen`` keeps the CHUNK-count
+        # semantics of the old ``deque(maxlen=DEFAULT_MAX_BUFFER_CHUNKS)``
+        # (duration cap + backpressure detection); see
+        # :class:`GrowableRecordingBuffer` for the full capacity policy.
+        # Typed ``Any`` because the mic hot-swap path transiently swaps in
+        # a plain ``collections.deque`` mid-session; every reader
+        # normalizes via ``_ensure_growable_buffer`` under the lock.
+        self._buffer: Any = _recorder_split.GrowableRecordingBuffer(
+            maxlen=DEFAULT_MAX_BUFFER_CHUNKS,
+            nominal_sample_rate=config.sample_rate,
+            on_extra_eviction=self._note_buffer_capacity_eviction,
+        )
         # PERF: running total of buffered samples (sum of ``len(chunk)``
         # across ``_buffer``). Maintained as an O(1) counter incremented
         # under ``_lock`` in ``AudioPipeline.append_to_buffer_locked`` so
@@ -559,6 +574,11 @@ class Recorder(VadShimMixin, RecorderInitMixin):
 
         # H15/M8: Cached resampled prefix for snapshot() to avoid O(n²) resampling
         self._cached_resampled: np.ndarray = np.array([], dtype=np.float32)
+        # Contiguous storage: ``_cached_resampled`` OWNS a geometrically
+        # grown capacity buffer and ``_cached_resampled_len`` tracks the
+        # filled prefix. (Previously the attribute was rebuilt via
+        # segment-list concatenation on demand.)
+        self._cached_resampled_len: int = 0
         self._cached_native_chunk_count: int = 0
         # cache key must include the audio dtype + sample rates
         # so a float32 vs int16 mismatch (theoretically possible if the
@@ -807,15 +827,21 @@ class Recorder(VadShimMixin, RecorderInitMixin):
         # is skipped; on a slow system it may still be loading scipy,
         # in which case shutdown_all()'s join gives it up to
         # ``_SCIPY_PRELOADER_JOIN_TIMEOUT_S`` to finish before continuing.
-        _recording_pkg._start_scipy_preloader()
+        # The mutable preloader state lives on the .resampling submodule;
+        # read it there at call time so tests patching
+        # ``voice_typer.server.recording.resampling._scipy_preloader_thread``
+        # are honored.
+        from voice_typer.server.recording import resampling as _recording_resampling
+
+        _recording_resampling._start_scipy_preloader()
         if (
             self._thread_registry is not None
-            and _recording_pkg._scipy_preloader_thread is not None
-            and _recording_pkg._scipy_preloader_thread.is_alive()
+            and _recording_resampling._scipy_preloader_thread is not None
+            and _recording_resampling._scipy_preloader_thread.is_alive()
         ):
             self._thread_registry.register(
                 name="scipy-preloader",
-                thread=_recording_pkg._scipy_preloader_thread,
+                thread=_recording_resampling._scipy_preloader_thread,
                 stop_event=None,
                 join_timeout=_SCIPY_PRELOADER_JOIN_TIMEOUT_S,
             )
@@ -2637,6 +2663,20 @@ class Recorder(VadShimMixin, RecorderInitMixin):
             delta,
             current,
         )
+
+    def _note_buffer_capacity_eviction(self, samples: int) -> None:
+        """Counter hook for capacity-driven buffer evictions.
+
+        The audio worker's append path (``AudioPipeline.append_to_buffer_locked``)
+        already compensates ``_total_buffered_samples`` for exactly ONE
+        maxlen-mirrored chunk eviction per append (it peeks ``buf[0]``
+        before appending). When the contiguous storage evicts ADDITIONAL
+        samples because its hard-cap estimate was exceeded (adversarially
+        mixed chunk sizes — never in normal operation), this hook keeps
+        the running counter in sync so ``current_duration_seconds`` stays
+        truthful.
+        """
+        self._total_buffered_samples -= int(samples)
 
     def _secure_clear_caches(self) -> None:
         """securely zero cached audio arrays BEFORE reassignment.

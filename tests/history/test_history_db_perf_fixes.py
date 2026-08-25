@@ -61,12 +61,9 @@ class TestTimestampIdCoveringIndex:
     def test_idx_timestamp_id_exists_after_init(self, db):
         """The composite covering index must be created by init_schema."""
         conn = db._get_read_conn()
-        rows = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_timestamp_id'"
-        ).fetchall()
+        rows = conn.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_timestamp_id'").fetchall()
         assert len(rows) == 1, (
-            "idx_timestamp_id index must exist after schema init; "
-            f"found indexes: {[r[0] for r in rows]}"
+            f"idx_timestamp_id index must exist after schema init; found indexes: {[r[0] for r in rows]}"
         )
 
     def test_idx_timestamp_id_is_composite_timestamp_id(self, db):
@@ -80,8 +77,7 @@ class TestTimestampIdCoveringIndex:
         # not the auxiliary PK columns SQLite appends.
         key_cols = [(r[2], r[3]) for r in rows if r[5] == 1]
         assert key_cols == [("timestamp", 1), ("id", 1)], (
-            "idx_timestamp_id must be ON (timestamp DESC, id DESC); "
-            f"got key cols: {key_cols}"
+            f"idx_timestamp_id must be ON (timestamp DESC, id DESC); got key cols: {key_cols}"
         )
 
     def test_idx_timestamp_id_is_idempotent_rebuild(self, tmp_path):
@@ -210,9 +206,7 @@ class TestFtsLimitPushDown:
         # Results must be ordered by id DESC (autoincrement, all same
         # second so timestamp ties — id DESC is the tiebreaker).
         ids = [r["id"] for r in results]
-        assert ids == sorted(ids, reverse=True), (
-            f"Results must be in id DESC order; got {ids}"
-        )
+        assert ids == sorted(ids, reverse=True), f"Results must be in id DESC order; got {ids}"
 
     def test_search_respects_limit_with_pushdown(self, seeded_db):
         """LIMIT must be honoured even when FTS has many more matches."""
@@ -228,13 +222,9 @@ class TestFtsLimitPushDown:
         assert len(page2) == 5
         page1_ids = {r["id"] for r in page1}
         page2_ids = {r["id"] for r in page2}
-        assert page1_ids.isdisjoint(page2_ids), (
-            "Page 1 and page 2 must not overlap"
-        )
+        assert page1_ids.isdisjoint(page2_ids), "Page 1 and page 2 must not overlap"
 
-    def test_search_returns_all_matches_when_limit_exceeds_matches(
-        self, seeded_db
-    ):
+    def test_search_returns_all_matches_when_limit_exceeds_matches(self, seeded_db):
         """If FTS has fewer matches than ``limit``, return all matches."""
         results = seeded_db.search("commonword", limit=500)
         assert len(results) == 100
@@ -266,6 +256,7 @@ class TestFtsLimitPushDown:
         db = HistoryDB(db_path=tmp_path / "ordered.db")
         try:
             base = datetime.now()
+
             # Insert 20 rows where id and timestamp are CORRELATED
             # (id=1 oldest, id=20 newest). The FTS subquery returns
             # rowids DESC = [20, 19, ..., 1]; outer ORDER BY timestamp
@@ -324,9 +315,7 @@ class TestDelegationSplit:
         # project_text_row with a real sqlite3.Row from an in-memory DB.
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
-        row = conn.execute(
-            "SELECT 1 as id, 'x' as text, 5 as text_full_length"
-        ).fetchone()
+        row = conn.execute("SELECT 1 as id, 'x' as text, 5 as text_full_length").fetchone()
         projected = history_db._project_text_row(row)
         # _HISTORY_TEXT_PREVIEW_LENGTH is 500, so 5 is not truncated.
         assert projected["text_truncated"] is False
@@ -355,9 +344,7 @@ class TestDelegationSplit:
             db.get_recent(limit=5)
         finally:
             monkeypatch.setattr(search, "get_recent", original)
-        assert called["count"] == 1, (
-            "get_recent must delegate to history_db_internals.search.get_recent"
-        )
+        assert called["count"] == 1, "get_recent must delegate to history_db_internals.search.get_recent"
 
     def test_search_delegates_to_search_module(self, db, monkeypatch):
         """``HistoryDB.search`` must delegate to
@@ -452,9 +439,7 @@ class TestDelegationSplit:
             monkeypatch.setattr(search, "get_latest_text", original)
         assert called["count"] == 1
 
-    def test_get_transcription_text_delegates_to_search_module(
-        self, db, monkeypatch
-    ):
+    def test_get_transcription_text_delegates_to_search_module(self, db, monkeypatch):
         """``HistoryDB.get_transcription_text`` must delegate."""
         from voice_typer.server.history_db_internals import search
 
@@ -571,12 +556,9 @@ class TestTodayStatsTimezoneQueryPreserved:
         db.get_today_stats()
 
         # Find the today-stats SQL among the captured calls.
-        today_stats_sqls = [
-            s for s in executed_sqls if "COUNT" in s and "transcriptions" in s
-        ]
+        today_stats_sqls = [s for s in executed_sqls if "COUNT" in s and "transcriptions" in s]
         assert today_stats_sqls, (
-            "get_today_stats must execute a COUNT(*) FROM transcriptions query; "
-            f"captured SQLs: {executed_sqls}"
+            f"get_today_stats must execute a COUNT(*) FROM transcriptions query; captured SQLs: {executed_sqls}"
         )
         sql = today_stats_sqls[0]
         assert "DATETIME('now', 'localtime', 'start of day', 'utc')" in sql, (

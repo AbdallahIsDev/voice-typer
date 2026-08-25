@@ -75,14 +75,17 @@ def vocab_mixin(live_vm):
 def _full_payload(vm, extra_misspellings=None, extra_phrases=None):
     """Build the category-bucketed payload the renderer sends: the
     current merged state (bundled + user) plus optional extras."""
-    data = {cat: vm.get_category(cat) for cat in (
-        "misspellings",
-        "phrase_corrections",
-        "extra_word_patterns",
-        "technical_terms",
-        "names",
-        "products",
-    )}
+    data = {
+        cat: vm.get_category(cat)
+        for cat in (
+            "misspellings",
+            "phrase_corrections",
+            "extra_word_patterns",
+            "technical_terms",
+            "names",
+            "products",
+        )
+    }
     if extra_misspellings:
         data["misspellings"] = {**data["misspellings"], **extra_misspellings}
     if extra_phrases:
@@ -154,9 +157,7 @@ class TestSaveRejectsNewDuplicates:
         list delete) collapses the group to one entry — allowed."""
         phrases = live_vm.get_category("phrase_corrections")
         payload = _full_payload(live_vm)
-        payload["phrase_corrections"] = [
-            p for p in phrases if not (len(p) >= 2 and p[0] == " to 2")
-        ]
+        payload["phrase_corrections"] = [p for p in phrases if not (len(p) >= 2 and p[0] == " to 2")]
         result = vocab_mixin.save_vocabulary_with_diff(payload)
         assert "imported_categories" in result
 

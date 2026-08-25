@@ -149,10 +149,13 @@ class TestParakeetOnnxNoWarmup:
         # The constructed model's recognize() must NOT have been called.
         mock_model = engine._model
         assert mock_model is not None, "load() must construct self._model"
-        mock_model.recognize.assert_not_called(), (
-            "load() must NOT call model.recognize() — the ONNX backend has "
-            "no warmup pass. The first recognize() happens on the first "
-            "transcribe() (the user's first dictation)."
+        (
+            mock_model.recognize.assert_not_called(),
+            (
+                "load() must NOT call model.recognize() — the ONNX backend has "
+                "no warmup pass. The first recognize() happens on the first "
+                "transcribe() (the user's first dictation)."
+            ),
         )
 
     def test_engine_has_no_torch_class_attribute(self):

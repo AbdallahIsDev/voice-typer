@@ -47,6 +47,8 @@ import pytest
 from voice_typer.server.ipc_server import IPCServer
 from voice_typer.server.tray import AppState
 
+from tests.fixtures.wait_helpers import wait_until
+
 # === Common module-level constants (identical across files) ===
 
 
@@ -65,6 +67,22 @@ def _free_port() -> int:
     port = s.getsockname()[1]
     s.close()
     return port
+
+
+def _probe_tcp_listening(port: int, timeout_s: float = 0.25) -> bool:
+    """Return True when a TCP connect to ``127.0.0.1:<port>`` succeeds.
+
+    Used as a wait_until predicate — a successful connect proves the
+    server's accept loop is listening on the port.
+    """
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout_s)
+        s.connect(("127.0.0.1", port))
+        s.close()
+        return True
+    except (TimeoutError, ConnectionRefusedError, OSError):
+        return False
 
 
 def _read_response_line(sock: socket.socket, timeout: float = 2.0) -> dict:
@@ -202,17 +220,7 @@ def live_server(tmp_path, monkeypatch):
     server.start_tcp(port)
 
     # Wait for the server to be ready (listening on the port).
-    deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline:
-        try:
-            test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            test_sock.settimeout(0.25)
-            test_sock.connect(("127.0.0.1", port))
-            test_sock.close()
-            break
-        except (TimeoutError, ConnectionRefusedError, OSError):
-            time.sleep(0.02)
-    else:
+    if not wait_until(lambda: _probe_tcp_listening(port), timeout=2.0):
         server.stop()
         pytest.fail(f"IPC server did not start listening on port {port} within 2s")
 
@@ -222,11 +230,7 @@ def live_server(tmp_path, monkeypatch):
     server.stop()
     # Wait briefly for the accept thread to exit so it doesn't leak
     # into the next test.
-    deadline = time.monotonic() + 1.0
-    while time.monotonic() < deadline:
-        if server._tcp_server_socket is None:
-            break
-        time.sleep(0.02)
+    wait_until(lambda: server._tcp_server_socket is None, timeout=1.0)
     # close the HistoryDB writer thread and shut down the
     # CrashRecovery saver thread so their daemon threads don't accumulate
     # across the full pytest run (on Windows the accumulated threads trip
@@ -392,8 +396,12 @@ class TestTcpConnectionLifecycle:
         assert resp["id"] == 1
         c1.close()
 
-        # Brief pause to let server detect the disconnect
-        time.sleep(0.1)
+        # Wait until the server has reaped the disconnected client (the
+        # authenticated-client slot is cleared by the read-loop teardown)
+        # before reconnecting.
+        assert wait_until(lambda: server._tcp_client is None, timeout=2.0), (
+            "server did not reap the disconnected client"
+        )
 
         # Second connection —  guarantees the accept loop
         # continues after a disconnect.
@@ -417,6 +425,10 @@ class TestTcpConnectionLifecycle:
         )  # linger 0 = RST on close
         c1.close()
 
+        # Fixed pause: the RST-killed handler ran UNAUTHENTICATED, so it
+        # never installed ``_tcp_client`` — its death has no observable
+        # server-side state to poll. The c2 round-trip below is the real
+        # assertion; this grace only sequences the crash before it.
         time.sleep(0.1)
 
         # New client should still be able to connect and auth.
@@ -445,26 +457,16 @@ class TestTcpServerStop:
         server.start_tcp(port)
 
         # Wait for the server to start listening.
-        deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline:
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(0.25)
-                s.connect(("127.0.0.1", port))
-                s.close()
-                break
-            except (TimeoutError, ConnectionRefusedError, OSError):
-                time.sleep(0.02)
-        else:
-            server.stop()
-            pytest.fail("Server didn't start")
+        assert wait_until(lambda: _probe_tcp_listening(port), timeout=2.0), "Server didn't start"
 
         # Now stop the server.
         server.stop()
 
         # The listening socket should be closed.  Connecting should fail
         # (or the connection should be immediately closed).
-        time.sleep(0.2)  # give the accept loop time to exit
+        # Wait for the accept loop to actually exit (the socket ref is
+        # cleared when the loop unwinds) before probing the port.
+        wait_until(lambda: server._tcp_server_socket is None, timeout=1.0)
         try:
             c = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             c.settimeout(0.5)
@@ -497,26 +499,13 @@ class TestTcpServerStop:
         server.start_tcp(port)
 
         # Wait for the server to start.
-        deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline:
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(0.25)
-                s.connect(("127.0.0.1", port))
-                s.close()
-                break
-            except (TimeoutError, ConnectionRefusedError, OSError):
-                time.sleep(0.02)
+        wait_until(lambda: _probe_tcp_listening(port), timeout=2.0)
 
         # Before stop: _tcp_server_socket is set.
         assert server._tcp_server_socket is not None
         server.stop()
         # After stop: cleared (or being cleared — give it a moment).
-        deadline = time.monotonic() + 1.0
-        while time.monotonic() < deadline:
-            if server._tcp_server_socket is None:
-                break
-            time.sleep(0.02)
+        wait_until(lambda: server._tcp_server_socket is None, timeout=1.0)
         assert server._tcp_server_socket is None, "_tcp_server_socket was not cleared after stop()"
 
 
@@ -552,17 +541,7 @@ class TestTcpTokenUnsetFailClosed:
 
             # Wait for the server to be listening (it binds even when
             # the token is unset, so the connect succeeds).
-            deadline = time.monotonic() + 2.0
-            while time.monotonic() < deadline:
-                try:
-                    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    probe.settimeout(0.25)
-                    probe.connect(("127.0.0.1", port))
-                    probe.close()
-                    break
-                except (TimeoutError, ConnectionRefusedError, OSError):
-                    time.sleep(0.02)
-            else:
+            if not wait_until(lambda: _probe_tcp_listening(port), timeout=2.0):
                 server.stop()
                 pytest.fail(f"IPC server did not start listening on port {port} within 2s")
 
@@ -602,16 +581,7 @@ class TestTcpTokenUnsetFailClosed:
         server.start_tcp(port)
 
         # Wait for listening.
-        deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline:
-            try:
-                probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                probe.settimeout(0.25)
-                probe.connect(("127.0.0.1", port))
-                probe.close()
-                break
-            except (TimeoutError, ConnectionRefusedError, OSError):
-                time.sleep(0.02)
+        wait_until(lambda: _probe_tcp_listening(port), timeout=2.0)
 
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client.connect(("127.0.0.1", port))

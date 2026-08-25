@@ -63,6 +63,8 @@ def _read_sidecar_cmds_module() -> str:
     """
     files = [SIDECAR_CMDS_RS] + sorted(SIDECAR_CMDS_DIR.glob("*.rs"))
     return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
+
+
 ALLOWED_COMMANDS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
 
 # commands present in the TS allowlist but intentionally

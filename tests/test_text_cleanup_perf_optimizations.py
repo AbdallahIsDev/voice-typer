@@ -23,10 +23,10 @@ Covers two optimisations in :mod:`voice_typer.server.text_cleanup`:
 from __future__ import annotations
 
 import pytest
-from voice_typer.server import text_cleanup
 from voice_typer.server.text_cleanup import (
     _capitalize_pronoun_i,
     _correct_whisper_phrases,
+    _engine as text_cleanup,
     _next_word_starting_at,
     _prev_word_ending_at,
     _remove_extra_words,

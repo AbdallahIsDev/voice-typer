@@ -138,7 +138,7 @@ class MockHeavyImportsWarning(UserWarning):
 
     Categories of patches that can emit this warning:
 
-    - ``atexit_register``: the ``voice_typer.server.app.atexit.register``
+    - ``atexit_register``: the ``atexit.register``
       patch failed (module renamed or attribute moved).
     - ``force_pynput_hotkey_backend``: the hoisted hotkey-backend patch
       failed.
@@ -705,14 +705,14 @@ def mock_heavy_imports(monkeypatch, request):
     # shadow semantics of the four local overrides.
     try:
         monkeypatch.setattr(
-            "voice_typer.server.app.atexit.register",
+            "atexit.register",
             lambda *a, **kw: None,
         )
     except (ImportError, AttributeError) as exc:
         _warn_once(
             "atexit_register",
             "mock_heavy_imports: could not patch "
-            "'voice_typer.server.app.atexit.register' "
+            "'atexit.register' "
             f"({type(exc).__name__}: {exc}); atexit handlers may fire "
             "during tests.",
         )
@@ -988,7 +988,7 @@ def _drain_shutdown_watchdogs():
     resort. Tests that exercise the non-main-thread path (e.g.
     ``tests/test_app_restart.py`` runs ``restart_app()`` on a worker
     thread, and its ``_stub_restart_environment`` only patches
-    ``voice_typer.server.app.os._exit`` — NOT the module-level ``os``
+    ``os._exit`` — the module-level ``os``
     in ``shutdown/lifecycle.py``) arm that watchdog and never let the
     process exit. ~2s later the watchdog fires the REAL ``os._exit(0)``
     and kills the whole xdist worker with no traceback
@@ -1213,18 +1213,9 @@ def tmp_config_dir(tmp_path, monkeypatch):
     have been deleted in favour of this single canonical fixture so
     the project-wide fixture is the source of truth.
     """
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
-    # ``_paths._config_dir`` memoizes the first resolved callable; if a
-    # previous test already triggered the lazy resolver, this module
-    # attribute points at the REAL (lru_cached) function, not the
-    # monkeypatched ``config._config_dir`` above. Patching it here
-    # (monkeypatch auto-undone after the test) keeps
-    # ``_paths.config_dir()`` consistent with this fixture's tmp_path
-    # AND prevents the patched lambda from leaking into later tests.
-    import voice_typer.server._paths as _paths_mod
+    from tests.fixtures.config_helpers import patch_config_dir_refs
 
-    monkeypatch.setattr(_paths_mod, "_config_dir", lambda: tmp_path)
+    patch_config_dir_refs(monkeypatch, tmp_path)
     return tmp_path
 
 

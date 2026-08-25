@@ -345,9 +345,21 @@ def supervisor_rs_source() -> str:
 
 @pytest.fixture(scope="module")
 def ws_rs_source() -> str:
-    """Read src-tauri/src/sidecar/ws.rs as text (for static assertions)."""
+    """Read the Rust WS bridge source: ws.rs plus its ws/reader.rs /
+    ws/writer.rs task submodules (for static assertions).
+
+    reader/writer module split: the disconnect-path
+    ``supervisor_relaunching`` emit moved into ``ws/reader.rs``'s
+    cleanup block, so the static assertions below read the union of
+    the three bridge files.
+    """
     assert _WS_RS.is_file(), f"ws.rs not found: {_WS_RS}"
-    return _WS_RS.read_text(encoding="utf-8")
+    parts = [_WS_RS.read_text(encoding="utf-8")]
+    for name in ("reader.rs", "writer.rs"):
+        sibling = _WS_RS.parent / "ws" / name
+        assert sibling.is_file(), f"{sibling} not found — the ws.rs reader/writer module split was rolled back"
+        parts.append(sibling.read_text(encoding="utf-8"))
+    return "\n\n".join(parts)
 
 
 # ─── Test 1: ConnectionStatus union includes the required literals ─────

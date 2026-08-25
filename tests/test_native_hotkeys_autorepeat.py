@@ -78,9 +78,7 @@ class TestKeyAutoRepeatFilter:
         b._handle_line("KEY_DOWN:CapsLock")
         b._handle_line("KEY_DOWN:CapsLock")  # auto-repeat — suppressed
         b._handle_line("KEY_DOWN:CapsLock")  # auto-repeat — suppressed
-        assert fired == ["press"], (
-            f"auto-repeat KEY_DOWN should be suppressed; got {fired}"
-        )
+        assert fired == ["press"], f"auto-repeat KEY_DOWN should be suppressed; got {fired}"
 
     def test_key_up_resets_state_allows_new_keydown(self, monkeypatch):
         """After a KEY_UP, the next KEY_DOWN is a fresh press and fires."""
@@ -171,9 +169,7 @@ class TestModifierAutoRepeatFilter:
         b._handle_line("MOD_DOWN:Alt")
         b._handle_line("MOD_DOWN:Alt")  # auto-repeat — suppressed
         b._handle_line("MOD_DOWN:Alt")  # auto-repeat — suppressed
-        assert fired == ["press"], (
-            f"auto-repeat MOD_DOWN should be suppressed; got {fired}"
-        )
+        assert fired == ["press"], f"auto-repeat MOD_DOWN should be suppressed; got {fired}"
 
     def test_mod_up_resets_state_allows_new_moddown(self, monkeypatch):
         """After a MOD_UP, the next MOD_DOWN is a fresh press and fires.
@@ -294,11 +290,7 @@ class TestVersionHandler:
         b._expected_version = "1.0.0"
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.native_hotkeys"):
             b._handle_line("VERSION:1.0.0")
-        warnings = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.WARNING and "mismatch" in r.getMessage().lower()
-        ]
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "mismatch" in r.getMessage().lower()]
         assert warnings == [], f"no mismatch warning expected; got {warnings}"
 
     def test_no_expected_version_skips_comparison(self, monkeypatch, caplog):
@@ -310,11 +302,7 @@ class TestVersionHandler:
         assert b._expected_version is None
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.native_hotkeys"):
             b._handle_line("VERSION:99.99.99")
-        warnings = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.WARNING and "mismatch" in r.getMessage().lower()
-        ]
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "mismatch" in r.getMessage().lower()]
         assert warnings == [], f"no warning expected; got {warnings}"
         # But _binary_version IS still recorded.
         assert b._binary_version == "99.99.99"

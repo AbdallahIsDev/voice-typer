@@ -285,8 +285,7 @@ class TestStartupSequenceCrashNotificationEventName:
             seq._phase_2_crash_diagnostics()
 
         assert captured == [], (
-            "crash files from a cleanly-ended previous session must be "
-            f"archived silently, not notified: {captured!r}"
+            f"crash files from a cleanly-ended previous session must be archived silently, not notified: {captured!r}"
         )
         app.tray.notify_safety.assert_not_called()
 

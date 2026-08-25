@@ -488,15 +488,9 @@ class DisconnectHandler:
             # audio callback never touch this deque (only this method
             # does, and it runs under ``_stream_lifecycle_lock``), so
             # no lock is needed beyond the one already held.
-            while (
-                recorder._restart_timestamps
-                and recorder._restart_timestamps[0] < _now - _window
-            ):
+            while recorder._restart_timestamps and recorder._restart_timestamps[0] < _now - _window:
                 recorder._restart_timestamps.popleft()
-            if (
-                len(recorder._restart_timestamps)
-                >= recorder._flapping_max_restarts
-            ):
+            if len(recorder._restart_timestamps) >= recorder._flapping_max_restarts:
                 log.error(
                     "[RECORDING] Flapping device detected — %d restarts within "
                     "the %.1fs flap-detection window. Firing on_device_lost so "
@@ -524,9 +518,7 @@ class DisconnectHandler:
                     with contextlib.suppress(Exception):
                         _device_lost_cb()
                 else:
-                    _silence_stop_cb = getattr(
-                        recorder, "on_silence_auto_stop", None
-                    )
+                    _silence_stop_cb = getattr(recorder, "on_silence_auto_stop", None)
                     if callable(_silence_stop_cb):
                         with contextlib.suppress(Exception):
                             _silence_stop_cb()

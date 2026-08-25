@@ -5,25 +5,26 @@ Restart / Quit. Left-click + "Open App" launches (or focuses) the
 Electron app; all settings / history / templates live in the Electron
 window only.
 
-Module-split history — each concern lives in its own module;
+Module-split history — each concern lives in its own satellite module;
 ``TrayIcon`` below is a thin orchestrator of one-line delegates:
-  - menu building → ``tray_menu.py``
-  - types → ``tray_types.py``
-  - icon rendering → ``tray_icon.py``
-  - i18n → ``tray_i18n.py``
-  - Wayland SNI detection → ``tray_wayland_detect.py``
-  - elapsed-recording timer → ``tray_elapsed_timer.py``
-  - window management → ``tray_window.py``
-  - notifications → ``tray_notifications.py``
+menu building + Tauri click dispatch → ``tray_menu.py``; types →
+``tray_types.py``; icon rendering → ``tray_icon.py``; i18n →
+``tray_i18n.py``; Wayland SNI detection → ``tray_wayland_detect.py``;
+elapsed-timer core → ``tray_elapsed_timer.py``; window management →
+``tray_window.py``; notifications → ``tray_notifications.py``;
+lifecycle glue (bg-work wrap, host-ready republish, run, stop) →
+``tray_lifecycle.py``; state mutations + cached-field setters +
+elapsed glue → ``tray_state.py``; tooltip computation / Tauri publish /
+pystray apply → ``tray_publish.py``.
 
-Phase 4.5 spaghetti split: extracted the
-window-management + notification methods to ``tray_window.py`` and
-``tray_notifications.py``; this pass trims the verbose docstrings so the
-class is a thin orchestrator (target ≤600 lines). Every public + private
-method signature is preserved; every extracted method is a one-line
-delegate. No behavior change. Delegate methods are kept on the class so
-monkeypatch.setattr + source-grep tests + event_bus.subscribe/unsubscribe
-(bound-method equality) keep working.
+Every public + private method signature is preserved; every extracted
+method is a one-line delegate. No behavior change. Delegate methods are
+kept on the class so monkeypatch.setattr + source-grep tests +
+event_bus.subscribe/unsubscribe (bound-method equality) keep working.
+``start()``, ``_launch_bg_work`` and ``_drain_pending`` stay physical
+on the class — their bodies are source-pinned by tests (single bg-thread
+spawn site + call-site counts, daemon-thread rationale, fallback
+notification allowlist docstring contract).
 
 Threading: ``start()`` creates the icon + launches background work on a
 daemon thread (non-blocking). ``run()`` blocks the main thread with
@@ -36,7 +37,10 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
+
+# Kept as an attribute patch point: tests do
+# ``monkeypatch.setattr(tray_module.time, "monotonic", ...)``.
+import time  # noqa: F401
 from collections.abc import Callable
 
 # PERF-COLDSTART-001: lazy import — pystray's xorg backend calls
@@ -45,11 +49,6 @@ from collections.abc import Callable
 # so monkeypatches of voice_typer.server.tray.pystray keep working.
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server._paths import APP_SLUG
-from voice_typer.server.branding import APP_NAME
-from voice_typer.server.i18n import t as _i18n_t
-
-# Re-exports (noqa: F401) for backward compat with tests/code that
-# imports these symbols from voice_typer.server.tray directly.
 from voice_typer.server.tray_elapsed_timer import ElapsedTimer  # noqa: F401
 from voice_typer.server.tray_i18n import (  # noqa: E402,F401
     _TRAY_LABELS_EN,
@@ -67,6 +66,7 @@ from voice_typer.server.tray_menu import (  # noqa: F401
     display_hotkey,
     wrap_callback,
 )
+from voice_typer.server.tray_publish import _APP_STATE_TO_ICON_NAME  # noqa: F401
 from voice_typer.server.tray_types import AppState, TrayController
 from voice_typer.server.tray_wayland_detect import (  # noqa: F401
     is_linux_wayland_without_sni,
@@ -75,20 +75,6 @@ from voice_typer.server.tray_wayland_detect import (  # noqa: F401
 pystray = lazy_module("pystray")
 
 log = logging.getLogger(__name__)
-
-
-# ADR-0020 §6.5: maps internal AppState → logical icon name accepted by
-# the Tauri Rust host's tray_state listener (whitelists
-# "idle" | "recording" | "transcribing" | "error"). LOADING/CANCELLING
-# fall back to a neighboring state (no dedicated asset).
-_APP_STATE_TO_ICON_NAME: dict[AppState, str] = {
-    AppState.IDLE: "idle",
-    AppState.RECORDING: "recording",
-    AppState.TRANSCRIBING: "transcribing",
-    AppState.ERROR: "error",
-    AppState.LOADING: "idle",
-    AppState.CANCELLING: "error",
-}
 
 
 class TrayIcon:
@@ -122,39 +108,11 @@ class TrayIcon:
         self._pending_states: list[tuple[AppState, str]] = []
         self._pending_notifications: list[tuple[str, str]] = []
         self._queue_lock = threading.Lock()
-        # Protects ``_cached_menu`` / ``_menu_cache_valid`` /
-        # ``_microphones`` (read+written by ``build_menu_for_tray`` on the
-        # pystray thread and by ``invalidate_menu_cache`` from background
-        # threads). On Windows, ``pystray.Icon._update_menu()`` calls
-        # ``DestroyMenu`` / ``CreatePopupMenu`` — not guaranteed
-        # thread-safe — so the lock serializes the rebuild.
-        #
-        # RLock (not Lock): ``invalidate_menu_cache`` acquires this lock
-        # and THEN calls ``tray._icon._update_menu()``. pystray's
-        # ``_update_menu`` iterates the icon's menu, and the menu was
-        # created as ``pystray.Menu(self._build_menu)`` — a single
-        # callable. pystray's ``Menu.items`` property INVOKES that
-        # callable when the menu is iterated, so ``_update_menu()``
-        # synchronously re-enters ``build_menu_for_tray`` on the SAME
-        # thread, which acquires ``_menu_lock`` again. With a plain
-        # ``Lock`` that is a self-deadlock: the dispatch-pool worker
-        # thread hangs forever holding the lock, and repeated
-        # ``set_tray_locale`` calls wedge all workers, so every IPC
-        # command (get_config etc.) times out at 15s while inline
-        # heartbeats keep the connection alive. An RLock lets the same
-        # thread re-enter while still serializing against OTHER threads
-        # (concurrent right-click builds on the pystray loop thread),
-        # preserving the FR-22 cross-thread guarantee. Mirrors the
-        # reentrancy rationale of ``_icon_lock`` below.
+        # Lock rationale lives beside each lock's consumers:
+        # ``_menu_lock`` RLock re-entrancy → tray_state.invalidate_menu_cache_locked;
+        # ``_icon_lock`` WinError-1402 serialization → tray_publish.apply_state;
+        # publish dedup + dedicated Lock → tray_publish.publish_tray_state.
         self._menu_lock = threading.RLock()
-        # Protects ``self._icon`` access in ``_apply_state`` +
-        # ``stop()``. Between ``self._icon.stop()`` returning and
-        # ``self._icon = None`` executing, a concurrent ``_apply_state``
-        # can read ``self._icon`` as non-None and then call
-        # ``self._icon.icon = ...`` on a torn-down Icon — the documented
-        # WinError 1402 trigger. RLock (not Lock) because ``_apply_state``
-        # may re-enter through ``_compute_tooltip`` and any future
-        # callback path that re-enters the icon's setter.
         self._icon_lock = threading.RLock()
         self._bg_work_fn: Callable | None = None
         self._bg_thread: threading.Thread | None = None
@@ -165,37 +123,17 @@ class TrayIcon:
         self._cached_menu = None  # P4 #30: menu cache
         self._menu_cache_valid = False
         # Tauri-side ``id → callback`` map populated by
-        # ``_maybe_publish_tray_menu`` (tray_menu.py). Read by
-        # ``dispatch_tray_action`` to route a Tauri tray-click IPC back
-        # to the right controller/window callback. Defaults to ``{}``
-        # so ``dispatch_tray_action`` returns False (unknown item)
-        # before the first menu publish lands.
+        # ``_maybe_publish_tray_menu`` (tray_menu.py); read by
+        # ``dispatch_tray_action``. Defaults to ``{}`` so clicks that
+        # land before the first menu publish return False (unknown item).
         self._tray_id_map: dict[str, Callable] = {}
-        # cache-skip — skip ``_make_icon`` redraw when
-        # ``state == _last_applied_state``. The 1s elapsed-recording tick
-        # calls ``_apply_state`` every second; pre-this
-        # re-malloc'd a fresh PIL image + pystray icon handle on every
-        # tick (and tickled the WinError 1402 stale-handle bug on Windows).
-        # The tooltip (``self._icon.title``) is still updated unconditionally
-        # so the elapsed ``mm:ss`` stays live.
+        # Redraw/publish dedup caches; invariants documented at the
+        # consuming code (tray_publish.apply_state caches the last
+        # applied state; tray_publish.publish_tray_state caches the
+        # last published ``(icon_name, tooltip)`` tuple under
+        # ``_publish_lock``).
         self._last_applied_state: AppState | None = None
-        # last-published (icon_name, tooltip) tuple for publish
-        # dedup. ``_publish_tray_state`` skips the emit entirely when
-        # both fields match the cache; ``stop()`` clears it so a
-        # restarted tray re-publishes its initial state. The cache key
-        # is the FULL tuple (not just icon_name) so a tooltip-only
-        # change still emits. Only set on a successful publish — a
-        # failed publish is NOT cached so the next call retries.
         self._last_published: tuple[str, str] | None = None
-        # serializes the check-then-publish-then-cache sequence in
-        # ``_publish_tray_state`` so two concurrent callers (the 1s
-        # elapsed-recording tick vs a state-change IPC) cannot both
-        # pass the cache check and both emit. Held ONLY across the
-        # tuple comparison + the event-bus publish, NOT across
-        # ``_compute_tooltip`` or the icon-name lookup. A dedicated
-        # Lock (not ``_icon_lock`` / ``_menu_lock``) so the publish
-        # path isn't over-serialized against the icon-teardown or
-        # menu-rebuild paths.
         self._publish_lock = threading.Lock()
 
     # ─── Public API ─────────────────────────────────────────────────────
@@ -206,85 +144,36 @@ class TrayIcon:
         return self._state
 
     def set_state(self, state: AppState, message: str = "") -> None:
-        """Update tray icon state and tooltip.
+        """Update tray icon state and tooltip (delegate to tray_state.set_state)."""
+        from voice_typer.server.tray_state import set_state as _set_state
 
-        Short-circuit at the top — when ``state`` AND
-        ``message`` are both unchanged, every downstream unit of work
-        (menu-cache invalidation, elapsed-timer start/stop, icon
-        redraw, event emit, menu push) is skipped. Callers that
-        re-issue the same state (IPC reconnect replay,
-        ``refresh_config`` with no actual change, ``_on_parakeet_cpu_fallback``
-        re-fires) pay only a tuple-equality check.
-
-        only invalidate the menu cache on TRANSCRIBING ⇄
-        non-TRANSCRIBING (Force Cancel visibility flips); RECORDING ⇄
-        IDLE only changes the icon. : RECORDING ⇄ IDLE start/stop
-        the elapsed timer (: monotonic clock). ADR-0020 §6.5: push
-        icon+tooltip to Tauri; on TRANSCRIBING change also push the menu.
-        """
-        if state == self._state and message == self._message:
-            return
-        prev_state = self._state
-        self._state = state
-        self._message = message
-        # RECORDING ⇄ non-RECORDING and TRANSCRIBING ⇄
-        # non-TRANSCRIBING both invalidate the menu cache + push the
-        # menu (the "Stop Dictation" label flips on RECORDING
-        # enter/exit, "Force Cancel" appears on TRANSCRIBING
-        # enter/exit). Transitions INSIDE the {RECORDING, TRANSCRIBING}
-        # membership set (RECORDING → TRANSCRIBING) change nothing
-        # label-visible, so no invalidation / publish fires.
-        record_or_transcribe_changed = (prev_state in (AppState.RECORDING, AppState.TRANSCRIBING)) != (
-            state in (AppState.RECORDING, AppState.TRANSCRIBING)
-        )
-        if record_or_transcribe_changed:
-            self._menu_cache_valid = False
-        if state == AppState.RECORDING and prev_state != AppState.RECORDING:
-            self._recording_started_at = time.monotonic()
-            self._start_elapsed_timer()
-        elif state != AppState.RECORDING and prev_state == AppState.RECORDING:
-            self._cancel_elapsed_timer()
-            self._recording_started_at = None
-        if self._icon:
-            self._apply_state(state, message)
-        else:
-            with self._queue_lock:
-                self._pending_states.append((state, message))
-        self._publish_tray_state()
-        if record_or_transcribe_changed:
-            self._maybe_publish_tray_menu()
+        return _set_state(self, state, message)
 
     def set_microphones(self, mics: list[dict] | None) -> None:
-        """Cache the mic device list + invalidate the menu cache.
+        """Cache the mic device list + invalidate the menu cache (delegate)."""
+        from voice_typer.server.tray_state import set_microphones as _set_mics
 
-        None/empty normalized to []. ADR-0020 §6.5: push to Tauri.
-
-        Uses ``_invalidate_menu_cache_locked`` (not the eager
-        ``invalidate_menu_cache``) so the cache-validity flag is cleared
-        under ``_menu_lock`` without forcing a pystray ``_update_menu``
-        call — the Tauri publish path doesn't need the Win32 menu handle
-        rebuilt, and on pystray the next right-click rebuilds lazily.
-        """
-        self._microphones = list(mics) if mics else []
-        self._invalidate_menu_cache_locked()
-        self._maybe_publish_tray_menu()
+        return _set_mics(self, mics)
 
     def set_autostart_enabled(self, enabled: bool) -> None:
-        """Update the cached autostart state."""
-        self._autostart_enabled = enabled
-        self._invalidate_menu_cache_locked()
+        """Update the cached autostart state (delegate)."""
+        from voice_typer.server.tray_state import set_autostart_enabled as _fn
+
+        return _fn(self, enabled)
 
     def set_notifications_enabled(self, enabled: bool) -> None:
-        """Update the cached notifications state."""
-        self._notifications_enabled = enabled
-        self._invalidate_menu_cache_locked()
+        """Update the cached notifications state (delegate)."""
+        from voice_typer.server.tray_state import (
+            set_notifications_enabled as _fn,
+        )
+
+        return _fn(self, enabled)
 
     def set_hotkey(self, hotkey: str) -> None:
-        """Update the stored hotkey string for the next menu rebuild."""
-        self._hotkey = hotkey
-        self._invalidate_menu_cache_locked()
-        self._maybe_publish_tray_menu()
-        self._publish_tray_state()
+        """Update the stored hotkey string for the next menu rebuild (delegate)."""
+        from voice_typer.server.tray_state import set_hotkey as _fn
+
+        return _fn(self, hotkey)
 
     @staticmethod
     def _is_linux_wayland_without_sni() -> bool:
@@ -292,32 +181,17 @@ class TrayIcon:
         return is_linux_wayland_without_sni()
 
     def refresh_config(self, config) -> None:
-        """Replace the cached Config reference and rebuild the menu."""
-        self._config = config
-        self._hotkey = getattr(config, "hotkey", self._hotkey) or self._hotkey
-        self._invalidate_menu_cache_locked()
-        self._maybe_publish_tray_menu()
-        self._publish_tray_state()
+        """Replace the cached Config reference and rebuild the menu (delegate)."""
+        from voice_typer.server.tray_state import refresh_config as _fn
+
+        return _fn(self, config)
 
     def _wrap_bg_work(self, bg_work: Callable | None) -> Callable | None:
-        """ADR-0020 §6.5: wrap bg_work so the initial tray menu is published
-        to Tauri after background setup. Returns None when bg_work is None
-        (preserves ``if self._bg_work_fn:`` guards). try/finally so the
-        menu is published even if bg_work raises."""
-        if bg_work is None:
-            return None
+        """Wrap bg_work so the initial tray menu publishes post-setup
+        (delegate to tray_lifecycle.wrap_bg_work)."""
+        from voice_typer.server.tray_lifecycle import wrap_bg_work as _fn
 
-        def _wrapped() -> None:
-            try:
-                bg_work()
-            finally:
-                try:
-                    self._maybe_publish_tray_menu()
-                    self._publish_tray_state()
-                except Exception:
-                    log.debug("[TRAY] post-bg_work tray publish failed", exc_info=True)
-
-        return _wrapped
+        return _fn(self, bg_work)
 
     def start(self, bg_work: Callable | None = None) -> None:
         """Create the tray icon and start background work (non-blocking).
@@ -337,12 +211,10 @@ class TrayIcon:
 
             _event_bus.subscribe(self._on_parakeet_cpu_fallback)
         except Exception:
-            # Promote DEBUG → WARNING. The CPU-fallback
-            # notification is safety-critical (alerts the user that a
-            # model swap to CPU mode happened); silently swallowing the
-            # subscribe failure at DEBUG hid cases where event_bus was
-            # mis-imported or the handler signature drifted, leaving
-            # users with no fallback alert.
+            # Promote DEBUG → WARNING: the CPU-fallback notification is
+            # safety-critical (alerts the user that a model swap to CPU
+            # mode happened); a swallowed subscribe failure left users
+            # with no fallback alert.
             log.warning(
                 "[TRAY] could not subscribe to parakeet_cpu_fallback — CPU-fallback alerts will NOT be surfaced",
                 exc_info=True,
@@ -374,15 +246,11 @@ class TrayIcon:
             return
 
         # Tauri sidecar runtime: the native tray is owned by the Rust host
-        # (created in src-tauri/src/tray.rs::create_tray and driven by the
-        # ``tray_menu`` / ``tray_state`` events this process publishes over
-        # the WS bridge — ADR-0020 §6.5). Creating a pystray icon here too
-        # yielded TWO tray icons on Windows and routed notifications through
-        # the pystray icon instead of the host's notification plugin. The
-        # ``maybe_publish_tray_menu`` docstring already documented this
-        # invariant ("under the Tauri runtime the pystray Icon is never
-        # created"); start() simply never implemented it. Degrade to the
-        # same unavailable-path used by headless hosts: no icon, bg_work
+        # (ADR-0020 §6.5 — created in src-tauri/src/tray.rs::create_tray and
+        # driven by the ``tray_menu`` / ``tray_state`` WS events this process
+        # publishes; see tray_menu.maybe_publish_tray_menu for the full
+        # two-tray-icons / mis-routed-notifications rationale). Degrade to
+        # the same unavailable-path used by headless hosts: no icon, bg_work
         # still launched, pending states drained by run()'s 60s loop, and
         # notifications re-routed to the host event bus (see
         # tray_notifications.do_notify).
@@ -454,179 +322,49 @@ class TrayIcon:
         self._bg_thread.start()
 
     def _subscribe_host_ready_republish(self) -> None:
-        """Subscribe a listener that re-publishes the tray menu on host (re)connect.
+        """Subscribe a menu+state replay listener on host (re)connect (delegate)."""
+        from voice_typer.server.tray_lifecycle import (
+            subscribe_host_ready_republish as _fn,
+        )
 
-        The ``tray_menu`` publish is fire-and-forget: ``publish_tray_menu``
-        emits through ``event_bus`` and only subscribers registered AT THAT
-        MOMENT receive it. The sidecar WS subscriber (``sidecar_ws.
-        _install_subscriber``) installs per connection, so the one-shot
-        publish from ``_wrap_bg_work``'s finally block races the first
-        handshake — when bg_work finishes before the host authenticates,
-        the event lands on an empty subscriber set, the Rust host keeps
-        its placeholder menu forever, and nothing re-publishes.
-
-        Subscribing to the sidecar's ``ready`` event (published AFTER the
-        WS subscriber is installed — see sidecar_ws C-WS-1 ordering) turns
-        every fresh host connection into a menu+state replay. This covers
-        both the startup race and supervisor respawns/reconnects. Safe
-        under Tauri only (guarded by the same ``TAURI_SIDECAR`` gate as
-        ``publish_tray_menu``); on Electron this subscriber is never
-        registered.
-        """
-        try:
-            from voice_typer.server import event_bus as _event_bus
-
-            _event_bus.subscribe(self._on_host_ready)
-        except Exception:
-            log.warning(
-                "[TRAY] could not subscribe host-ready republish — the Tauri tray "
-                "menu may stay at its placeholder until the next state change",
-                exc_info=True,
-            )
+        return _fn(self)
 
     def _on_host_ready(self, event: dict) -> None:
-        """Republish menu + state when the host connection signals ready."""
-        if not isinstance(event, dict) or event.get("type") != "ready":
-            return
-        import os as _os
+        """Republish menu + state when the host connection signals ready (delegate)."""
+        from voice_typer.server.tray_lifecycle import on_host_ready as _fn
 
-        if _os.environ.get("TAURI_SIDECAR") != "1":
-            return
-        try:
-            self._maybe_publish_tray_menu()
-            self._publish_tray_state()
-            log.debug("[TRAY] host ready — tray menu + state re-published")
-        except Exception:
-            log.debug("[TRAY] host-ready tray republish failed", exc_info=True)
+        return _fn(self, event)
 
     def run(self) -> None:
-        """Block the main thread with pystray's event loop.
+        """Block the main thread with pystray's event loop (delegate to
+        tray_lifecycle.run; unavailable path drains pending queues every 60s)."""
+        from voice_typer.server.tray_lifecycle import run as _run
 
-        when the tray is unavailable, block on ``_run_event``
-        (set by stop()) instead of raising. RuntimeError is retained only
-        when start() was never called (programming error). On the
-        unavailable path, drain pending queues every 60s (state is
-        already published to Tauri via _publish_tray_state).
-        """
-        if self._tray_unavailable and self._icon is None:
-            log.info(
-                "[TRAY] Tray unavailable — main thread blocking on Event "
-                "(stop() will release, pending queues drained every 60s). "
-                "Hotkey + IPC server still active."
-            )
-            while not self._run_event.wait(timeout=60):
-                self._drain_pending()
-            return
-
-        if self._icon is None:
-            raise RuntimeError("call start() before run()")
-
-        # Flush queued state + notifications.
-        with self._queue_lock:
-            for state, msg in self._pending_states:
-                self._apply_state(state, msg)
-            self._pending_states.clear()
-        with self._queue_lock:
-            for title, message in self._pending_notifications:
-                self._do_notify(title, message)
-            self._pending_notifications.clear()
-
-        log.info("[TRAY] Tray icon created; event loop running (main thread)")
-        try:
-            self._icon.run()
-        except Exception:
-            # pystray can fail at RUNTIME even though ``start()``
-            # succeeded - e.g. ``PermissionError: [WinError 5] Access
-            # is denied`` when ``_create_window`` runs in a
-            # restricted / non-interactive session (observed in the
-            # ``voice-typer`` terminal run). ``start()`` only catches
-            # the ``OSError`` from ``pystray.Icon(...)`` construction,
-            # NOT failures inside the event loop, so the exception
-            # previously propagated up through ``app.start()`` to
-            # ``[FATAL] app.start() raised`` - the WHOLE backend (IPC
-            # server, hotkeys, recorder) crashed. Degrade to the
-            # tray-unavailable blocking path instead: the app stays
-            # usable via hotkey + IPC server + Electron window, and
-            # ``stop()`` releases the ``_run_event``.
-            log.warning(
-                "[TRAY] Tray event loop failed at runtime - degrading to "
-                "tray-unavailable mode. Hotkey, IPC server, and Electron "
-                "window continue to work; tray icon + notifications are "
-                "disabled.",
-                exc_info=True,
-            )
-            self._icon = None
-            self._tray_unavailable = True
-            while not self._run_event.wait(timeout=60):
-                self._drain_pending()
+        return _run(self)
 
     def stop(self) -> None:
-        """Stop the tray icon and exit the event loop (idempotent).
+        """Stop the tray icon and exit the event loop, idempotently
+        (delegate to tray_lifecycle.stop; teardown serialized by
+        ``_icon_lock`` against concurrent ``_apply_state``)."""
+        from voice_typer.server.tray_lifecycle import stop as _stop
 
-        release ``_run_event``. Unsubscribe
-        parakeet_cpu_fallback (set.discard — safe if never registered).
-
-        ``self._icon.stop()`` + ``self._icon = None`` are
-        serialized by ``self._icon_lock`` so a concurrent
-        ``_apply_state`` (e.g. from the 1s elapsed-recording tick or a
-        state-change IPC) cannot read ``self._icon`` as non-None
-        between ``stop()`` returning and the ``= None`` assignment
-        landing — the documented WinError 1402 (torn-down Icon) race.
-        ``_icon_lock`` is an RLock so a re-entrant callback from within
-        ``Icon.stop()`` (if any backend ever invokes one) cannot
-        self-deadlock.
-        """
-        # Hold the lock across the teardown pair so _apply_state's
-        # re-check inside the lock is the authoritative guard.
-        with self._icon_lock:
-            if self._icon:
-                self._icon.stop()
-                self._icon = None
-        self._cancel_elapsed_timer()
-        self._run_event.set()
-        # clear the icon-state cache so a restarted tray
-        # redraws the icon on the first ``_apply_state`` (no stale cache).
-        self._last_applied_state = None
-        # clear the publish dedup cache so a restarted tray
-        # re-publishes its initial state (no stale suppression).
-        self._last_published = None
-
-        try:
-            from voice_typer.server import event_bus as _event_bus
-
-            _event_bus.unsubscribe(self._on_parakeet_cpu_fallback)
-        except Exception:
-            log.debug("[TRAY] could not unsubscribe parakeet_cpu_fallback", exc_info=True)
-
-        try:
-            from voice_typer.server import event_bus as _event_bus
-
-            _event_bus.unsubscribe(self._on_host_ready)
-        except Exception:
-            log.debug("[TRAY] could not unsubscribe host-ready republish", exc_info=True)
-
-        log.info("[TRAY] Tray icon stopped")
+        return _stop(self)
 
     # ─── Notifications (delegates to tray_notifications.py) ────────────
 
     def notify(self, title: str, message: str) -> None:
         """Show a notification if notifications are enabled (delegate).
 
-         delegates to tray_notifications.notify. This
-        body does NOT publish via the event bus (that path lives in the
-        show_electron_notification IPC handler); the actual toast call
-        ``self._icon.notify(message, title)`` lives in
-        tray_notifications.do_notify (reached via _do_notify).
+        This body does NOT publish via the event bus (double-toast
+        guard); that path lives in the show_electron_notification IPC
+        handler. The pystray toast path lives in tray_notifications.
         """
         from voice_typer.server.tray_notifications import notify as _notify
 
         return _notify(self, title, message)
 
     def notify_safety(self, title: str, message: str) -> None:
-        """Show a notification that bypasses the toggle (safety-critical).
-
-        delegates to tray_notifications.notify_safety.
-        """
+        """Show a safety-critical notification bypassing the toggle (delegate)."""
         from voice_typer.server.tray_notifications import (
             notify_safety as _notify_safety,
         )
@@ -651,163 +389,6 @@ class TrayIcon:
         )
 
         return _on_fallback(self, event)
-
-    # ─── Internals: state + tooltip ────────────────────────────────────
-
-    def _compute_tooltip(self, state: AppState, message: str) -> str:
-        """Compute the tray tooltip: ``<APP_NAME> — <msg|state> [(CPU fallback)]
-        [(mm:ss)] [<model>] (<hotkey>)``. Shared by _apply_state +
-        _publish_tray_state so pystray + Tauri stay in sync."""
-        title = APP_NAME
-        if message:
-            title += f" — {message}"
-        elif state != AppState.IDLE:
-            # Localized AppState label (``state.recording`` etc.) so the
-            # fallback suffix follows the renderer locale like the
-            # per-call messages do — the renderer pushes localized values
-            # for ``state.<value>`` via ``set_tray_locale``
-            # (``trayLabelsForLocale`` maps them to ``trayState.*``).
-            # English output is byte-identical (en registry value == the
-            # raw enum value).
-            title += f" — {_i18n_t('state.' + state.value)}"
-        if self._cpu_fallback_active:
-            title += " (CPU fallback)"
-        if state == AppState.RECORDING and self._recording_started_at is not None:
-            elapsed = time.monotonic() - self._recording_started_at
-            title += f" ({self._format_elapsed(elapsed)})"
-        # Model name suffix — only when the configured model is ACTUALLY
-        # on disk. A stale ``model_size`` (selected before the model was
-        # deleted / never downloaded) must not be advertised next to
-        # "Loading model..." or an ERROR message — that misleads the user
-        # into thinking the named model is being (or failed being) loaded.
-        # The probe is TTL-cached (5s) and cheap (one stat).
-        if self._config:  # model name
-            from voice_typer.server.tray_models import is_active_model_downloaded
-
-            model = getattr(self._config, "model_size", "")
-            if model and is_active_model_downloaded(self._config):
-                title += f" [{model}]"
-        hotkey = self._display_hotkey()  # hotkey
-        if hotkey:
-            title += f" ({hotkey})"
-        # Win32 ``NOTIFYICONDATAW.szTip`` has a 128-char limit (127 +
-        # NUL) — truncate to 127 chars (with a trailing ``…`` if
-        # truncated) so the OS layer doesn't silently cut the tooltip.
-        # ``…`` is a single codepoint (U+2026), so ``title[:126] + "…"``
-        # is exactly 127 chars. Deterministic for the same input, so
-        # the ``_last_published`` dedup tuple stays stable.
-        if len(title) > 127:
-            title = title[:126] + "…"
-        return title
-
-    def _publish_tray_state(self) -> None:
-        """ADR-0020 §6.5: push icon+tooltip to Tauri (emit tray_state event
-        instead of mutating pystray Icon). No-op on Electron/pystray.
-        Best-effort (hot path).
-
-        Suppress redundant publishes — the cache key is the
-        FULL ``(icon_name, tooltip)`` tuple (not just icon_name), so a
-        tooltip-only change still emits. A failed publish is NOT
-        cached, so the next call retries (no silent drop)."""
-        from voice_typer.server.tray_menu import publish_tray_state
-
-        icon_name = _APP_STATE_TO_ICON_NAME.get(self._state, "idle")
-        tooltip = self._compute_tooltip(self._state, self._message)
-        # ``_publish_lock`` serializes the check-then-publish-then-cache
-        # sequence so two concurrent callers (the 1s elapsed-recording
-        # tick vs a state-change IPC) cannot both pass the cache check
-        # and both emit. Held ONLY across the tuple comparison + the
-        # publish (NOT across ``_compute_tooltip`` or the icon-name
-        # lookup, which are pure and may run concurrently).
-        with self._publish_lock:
-            # identical last-published state → skip the emit
-            # entirely (redundant tray_state events cause the Tauri
-            # host to re-run tray.set_icon / tray.set_tooltip, which on
-            # Windows is a DestroyIcon / LoadIcon round-trip per call).
-            if self._last_published == (icon_name, tooltip):
-                return
-            try:
-                ok = publish_tray_state(icon=icon_name, tooltip=tooltip)
-            except Exception:
-                log.debug(
-                    "[TRAY] publish_tray_state failed (state=%s)",
-                    self._state.value if hasattr(self._state, "value") else self._state,
-                    exc_info=True,
-                )
-                # Do NOT cache a failed publish — the next call must
-                # retry.
-                return
-            # Only cache a successful publish (best-effort
-            # publish_tray_state returns False instead of raising on
-            # the sidecar-disconnected path — a False return must NOT
-            # suppress the next retry).
-            if ok:
-                self._last_published = (icon_name, tooltip)
-
-    def _apply_state(self, state: AppState, message: str) -> None:
-        """Apply state to the live icon (safe from any thread).
-
-         skip the ``_make_icon`` redraw when
-        ``state == self._last_applied_state`` — the icon PNG depends only
-        on ``state``, not on the ``message`` / elapsed time. The 1s
-        elapsed-recording tick re-enters here every second; the
-        cache-skip avoids re-malloc'ing a fresh PIL image + pystray icon
-        handle on every tick (and avoids tickling the WinError 1402
-        stale-handle bug —  / ). The tooltip assignment is
-        UNCONDITIONAL so the elapsed ``mm:ss`` stays live.
-
-        The entire body is serialized by ``self._icon_lock`` so
-        that a concurrent ``stop()`` cannot tear down ``self._icon``
-        (``self._icon.stop()`` then ``self._icon = None``) between this
-        method's ``if not self._icon: return`` check and the subsequent
-        ``self._icon.icon = ...`` / ``self._icon.title = ...`` writes.
-        Without the lock, the gap was the documented WinError 1402
-        trigger (writing to a torn-down Icon). The caller's
-        ``if self._icon:`` check (e.g. in ``set_state``) is racy on its
-        own — the re-check inside the lock is the authoritative guard.
-        """
-        with self._icon_lock:
-            if not self._icon:
-                return
-            # only redraw the icon on a state CHANGE.
-            if state != self._last_applied_state:
-                try:
-                    self._icon.icon = _make_icon(state)
-                except OSError as exc:
-                    # pystray Windows DestroyIcon stale-handle
-                    # bug (WinError 1402) during rapid icon updates — clear the
-                    # private _icon_handle so pystray re-creates it next call
-                    # (pystray pinned to >=0.19,<0.20 in pyproject.toml).
-                    #
-                    # if a future pystray release (0.20+) removes or
-                    # renames the private ``_icon_handle`` attribute, the
-                    # workaround becomes a silent no-op — the OSError is
-                    # still raised on every icon update but the workaround
-                    # can't fire, so WinError 1402 resurfaces for users with
-                    # no diagnostic surface. Log a WARNING in that case so
-                    # the silent workaround failure shows up in diagnostics
-                    # (the regression test
-                    # ``tests/test_pystray_icon_handle_regression.py`` guards
-                    # this exact attribute via ``hasattr(pystray.Icon,
-                    # "_icon_handle")``).
-                    if hasattr(self._icon, "_icon_handle"):
-                        self._icon._icon_handle = None
-                    else:
-                        log.warning(
-                            "[TRAY] pystray.Icon no longer exposes the private "
-                            "`_icon_handle` attribute — DestroyIcon workaround "
-                            "disabled (OSError: %r). The tray will keep running "
-                            "but rapid icon updates on Windows may hit WinError "
-                            "1402. Replace the "
-                            "private attribute access with a public "
-                            "`reset_icon_handle()` API when upstream exposes "
-                            "it, and bump pystray to the release that ships it.",
-                            exc,
-                        )
-                self._last_applied_state = state
-            # Tooltip is UNCONDITIONAL — elapsed mm:ss must stay live on the
-            # 1s recording tick even when the icon was skipped.
-            self._icon.title = self._compute_tooltip(state, message)
 
     def _drain_pending(self) -> None:
         """Drain pending state/notification queues (tray-unavailable run path).
@@ -880,76 +461,86 @@ class TrayIcon:
                     }
                 )
 
-    # ─── elapsed-recording timer ──────────────────────
+    # ─── Internals: state + tooltip (delegates to tray_publish.py) ─────
+
+    def _compute_tooltip(self, state: AppState, message: str) -> str:
+        """Compute the tray tooltip ``<APP_NAME> — <msg|state> …`` (delegate)."""
+        from voice_typer.server.tray_publish import compute_tooltip as _fn
+
+        return _fn(self, state, message)
+
+    def _publish_tray_state(self) -> None:
+        """ADR-0020 §6.5: push icon+tooltip to Tauri, deduped under
+        ``_publish_lock`` (delegate to tray_publish.publish_tray_state)."""
+        from voice_typer.server.tray_publish import publish_tray_state as _fn
+
+        return _fn(self)
+
+    def _apply_state(self, state: AppState, message: str) -> None:
+        """Apply state to the live icon, serialized by ``_icon_lock``
+        (delegate to tray_publish.apply_state)."""
+        from voice_typer.server.tray_publish import apply_state as _fn
+
+        return _fn(self, state, message)
+
+    # ─── elapsed-recording timer (delegates to tray_state.py) ──────────
 
     @staticmethod
     def _format_elapsed(seconds: float) -> str:
-        """Format seconds as mm:ss (under 1h) or h:mm:ss (1h+); delegates to
-        ElapsedTimer.format_elapsed; kept for backward compat."""
-        return ElapsedTimer.format_elapsed(seconds)
+        """mm:ss (under 1h) / h:mm:ss (1h+) — delegate to tray_state.format_elapsed."""
+        from voice_typer.server.tray_state import format_elapsed as _fmt
+
+        return _fmt(seconds)
 
     def _on_elapsed_tick(self) -> None:
-        """refresh tooltip with latest elapsed time (1s tick while
-        RECORDING). Re-applies state to pystray Icon + publishes to Tauri."""
-        if self._icon is not None:
-            self._apply_state(self._state, self._message)
-        self._publish_tray_state()
+        """Refresh tooltip with latest elapsed time (1s tick while RECORDING)."""
+        from voice_typer.server.tray_state import on_elapsed_tick as _fn
+
+        return _fn(self)
 
     def _set_elapsed_timer_ref(self, timer: threading.Thread | None) -> None:
-        """Sync self._elapsed_timer with the helper's Timer."""
-        self._elapsed_timer = timer
+        from voice_typer.server.tray_state import set_elapsed_timer_ref as _fn
+
+        return _fn(self, timer)
 
     def _start_elapsed_timer(self) -> None:
-        """Start/restart the 1s elapsed-recording timer (delegates to ElapsedTimer
-        helper; no-op if helper missing — backward compat with _FakeTray)."""
-        helper = getattr(self, "_elapsed_timer_helper", None)
-        if helper is not None:
-            helper.start()
+        from voice_typer.server.tray_state import start_elapsed_timer as _fn
+
+        return _fn(self)
 
     def _cancel_elapsed_timer(self) -> None:
-        """Cancel the elapsed-recording timer if running (idempotent)."""
-        helper = getattr(self, "_elapsed_timer_helper", None)
-        if helper is not None:
-            helper.cancel()
+        from voice_typer.server.tray_state import cancel_elapsed_timer as _fn
+
+        return _fn(self)
 
     # ─── Window management (delegates to tray_window.py) ──────────────
 
     @staticmethod
     def _bring_electron_to_front() -> bool:
-        """#13: Delegates to tray_window.bring_electron_to_front()."""
         from voice_typer.server.tray_window import bring_electron_to_front
 
         return bring_electron_to_front()
 
     def open_electron_window(self) -> None:
-        """#13: Delegates to tray_window.open_electron_window()."""
         from voice_typer.server.tray_window import open_electron_window as _open
 
         _open()
 
     def _open_page(self, path: str) -> None:
-        """Publish a navigate event so the renderer opens path (delegate).
+        """Publish a navigate event so the renderer opens path.
 
-         delegates to tray_window.open_page. Tests
-        that monkeypatch.setattr(tray, "_open_page", fake) keep working."""
+        Tests that monkeypatch.setattr(tray, "_open_page", fake) keep
+        working because the method stays on the class."""
         from voice_typer.server.tray_window import open_page
 
         return open_page(path)
 
     def _open_models_page(self) -> None:
-        """Open Electron window + navigate to /models (delegate).
-
-         delegates to tray_window.open_models_page,
-        which calls self._open_page('/models') so patch keeps working."""
         from voice_typer.server.tray_window import open_models_page
 
         return open_models_page(self)
 
     def _confirm_quit_while_recording(self) -> None:
-        """Quit immediately, regardless of recording state (delegate).
-
-         delegates to
-        tray_window.confirm_quit_while_recording."""
         from voice_typer.server.tray_window import (
             confirm_quit_while_recording,
         )
@@ -959,98 +550,39 @@ class TrayIcon:
     # ─── Menu building (delegates to tray_menu.py) ─────────────────────
 
     def invalidate_menu_cache(self) -> None:
-        """Mark the menu cache as stale (delegate to tray_menu.invalidate_menu_cache).
-
-        EAGER variant: also forces ``self._icon._update_menu()`` so the
-        Win32 HMENU is rebuilt before the next right-click (pystray on
-        Windows only invokes ``_build_menu`` at icon creation, so the
-        cached HMENU would otherwise stay stale until restart). Reserve
-        for explicit user-facing refresh actions (model download
-        completed, autostart toggled from Settings, etc.).
-        """
+        """Mark the menu cache as stale (EAGER variant — also forces
+        ``self._icon._update_menu()``; reserved for explicit user-facing
+        refresh actions). Delegate to tray_menu.invalidate_menu_cache;
+        the lazy setters use ``_invalidate_menu_cache_locked`` instead."""
         from voice_typer.server.tray_menu import invalidate_menu_cache
 
         return invalidate_menu_cache(self)
 
     def _invalidate_menu_cache_locked(self) -> None:
-        """Clear ``_menu_cache_valid`` under ``_menu_lock`` without
-        touching pystray.
+        """Clear ``_menu_cache_valid`` under ``_menu_lock``, no pystray touch
+        (delegate to tray_state.invalidate_menu_cache_locked)."""
+        from voice_typer.server.tray_state import invalidate_menu_cache_locked as _fn
 
-        LAZY variant: the lazy setters (``set_microphones``,
-        ``set_autostart_enabled``, ``set_notifications_enabled``,
-        ``set_hotkey``, ``refresh_config``) mutate cached state and need
-        to flag the menu cache as stale so the next right-click rebuilds.
-        They previously wrote ``self._menu_cache_valid = False`` directly
-        WITHOUT holding ``_menu_lock`` — racing a concurrent
-        ``build_menu_for_tray`` (pystray right-click on the icon's loop
-        thread) that had already observed the (stale) True flag and
-        returned the cached tuple. The next right-click then rebuilt
-        correctly, leaving a one-click staleness window.
-
-        Holding the lock when clearing the flag closes that window: a
-        concurrent ``build_menu_for_tray`` either finishes before we
-        acquire the lock (and the NEXT build sees False → rebuilds) or
-        waits until we release (and then sees False → rebuilds). The
-        flag-clear is now happens-before the next cache check.
-
-        This does NOT call ``_icon._update_menu()`` — the eager variant
-        is reserved for explicit refresh actions because the Win32
-        DestroyMenu/CreatePopupMenu round-trip is unnecessary when the
-        Tauri host owns the native tray (``self._icon is None``) and
-        the next pystray right-click rebuilds lazily anyway.
-        """
-        with self._menu_lock:
-            self._menu_cache_valid = False
+        return _fn(self)
 
     def dispatch_tray_action(self, item_id: str) -> bool:
-        """Dispatch a Tauri tray-click IPC to the registered callback.
+        """Dispatch a Tauri tray-click IPC via ``_tray_id_map`` (delegate to
+        tray_menu.dispatch_tray_action; unknown ids return False)."""
+        from voice_typer.server.tray_menu import dispatch_tray_action as _dispatch
 
-        ADR-0020 §6.5 / §16: the Tauri Rust host emits a ``tray_click``
-        IPC for every native menu item click; ``ipc_server.py`` calls
-        this method with the item's ``id``. The ``id → callback`` map is
-        populated by ``_maybe_publish_tray_menu`` (tray_menu.py) on
-        every menu publish, so this method simply looks up the id and
-        invokes the registered callback.
-
-        Returns ``True`` if the id was found and the callback was
-        invoked, ``False`` if the id is unknown (the IPC layer turns a
-        False return into a ``server.unknown_tray_item`` error envelope).
-        Before the first menu publish, ``self._tray_id_map`` is ``{}``
-        (initialised in ``__init__``) so every click returns False — the
-        Tauri host should publish the initial menu via
-        ``_wrap_bg_work`` before any click can land.
-
-        Callback exceptions are caught and logged so a single broken
-        callback (e.g. a controller method that raises) doesn't take
-        down the IPC server thread. The return value is still True on a
-        known id — the click was *dispatched*, the callback's success is
-        a separate concern (the renderer surfaces errors via toasts).
-        """
-        callback = self._tray_id_map.get(item_id)
-        if callback is None:
-            return False
-        try:
-            callback()
-        except Exception:
-            log.warning(
-                "[TRAY] dispatch_tray_action callback raised for item_id=%r",
-                item_id,
-                exc_info=True,
-            )
-        return True
+        return _dispatch(self, item_id)
 
     def _build_menu(self) -> tuple:
-        """Build the tray menu (Models + Microphones submenus + shortcuts).
+        """Build the tray menu (delegate to tray_menu.build_menu_for_tray).
 
-         delegates to tray_menu.build_menu_for_tray.
         Lambdas consult self.* at CALL TIME so patches keep working."""
         from voice_typer.server.tray_menu import build_menu_for_tray
 
         return build_menu_for_tray(self)
 
     def _maybe_publish_tray_menu(self) -> bool:
-        """ADR-0020 §6.5: push serialized tray menu to Tauri (delegate to
-        tray_menu.maybe_publish_tray_menu). No-op on Electron/pystray."""
+        """ADR-0020 §6.5: push serialized tray menu to Tauri (delegate);
+        no-op on Electron/pystray."""
         from voice_typer.server.tray_menu import maybe_publish_tray_menu
 
         return maybe_publish_tray_menu(self)
@@ -1062,12 +594,7 @@ class TrayIcon:
         return build_microphones_submenu(self)
 
     def _build_models_submenu(self) -> list:
-        """Build a list of model MenuItems — cached models + More models link.
-
-         delegates to tray_menu.build_models_submenu,
-        which calls tray_models.build_models_menu_items for the actual
-        MenuItem construction (: in-memory Config, not re-parsed).
-        """
+        """Build a list of model MenuItems — cached models + More models link."""
         from voice_typer.server.tray_menu import build_models_submenu
 
         # build_models_menu_items (tray_models.py) is the MenuItem builder.

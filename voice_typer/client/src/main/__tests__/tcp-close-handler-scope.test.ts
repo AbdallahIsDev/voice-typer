@@ -37,12 +37,13 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * Read the `tcp-connect.ts` source text once. The path resolves
- * relative to this test file.
+ * Read the close-handler source text once. The body moved atomically
+ * into the `python/tcp/close-handler.ts` leaf (split out of
+ * `tcp-connect.ts`); the pin path follows it.
  */
 function readTcpConnectSrc(): string {
 	return fs.readFileSync(
-		path.resolve(__dirname, "../python/tcp-connect.ts"),
+		path.resolve(__dirname, "../python/tcp/close-handler.ts"),
 		"utf-8",
 	);
 }

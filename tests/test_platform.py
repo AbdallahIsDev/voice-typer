@@ -49,9 +49,7 @@ class TestAutostartCommand:
         tokens = cmd.split()
         assert len(tokens) >= 2, f"expected at least 2 tokens (python + launcher), got: {cmd}"
         exe = tokens[0].strip('"')
-        assert Path(exe).exists(), (
-            f"first token must be an existing executable on disk, got: {exe!r} (cmd: {cmd})"
-        )
+        assert Path(exe).exists(), f"first token must be an existing executable on disk, got: {exe!r} (cmd: {cmd})"
         assert "autostart_launcher.py" in cmd
 
 
@@ -332,11 +330,7 @@ class TestSetLnkAppUserModelId:
     def _stamped_lnk(self, tmp_path):
         """Create a fake .lnk that already contains the AUMID property block."""
         lnk = tmp_path / "Voice Typer.lnk"
-        lnk.write_bytes(
-            self._AUMID_GUID_BYTES
-            + b"\x00\x00"
-            + "VoiceTyper".encode("utf-16-le")
-        )
+        lnk.write_bytes(self._AUMID_GUID_BYTES + b"\x00\x00" + "VoiceTyper".encode("utf-16-le"))
         return lnk
 
     def test_skips_powershell_when_property_already_present(self, tmp_path, monkeypatch):
@@ -419,9 +413,7 @@ class TestSetLnkAppUserModelId:
         import voice_typer.server.server_platform as mod
 
         lnk = tmp_path / "Voice Typer.lnk"
-        script = mod.desktop_shortcut._build_aumid_powershell_script(
-            lnk, "VoiceTyper"
-        )
+        script = mod.desktop_shortcut._build_aumid_powershell_script(lnk, "VoiceTyper")
         # C# here-string is literal (no interpolation).
         assert "@'" in script and "'@" in script
         # The .lnk path and AUMID are single-quoted PowerShell literals.
@@ -434,7 +426,7 @@ class TestSetLnkAppUserModelId:
         assert "} catch {" in script
         assert "exit $hr" in script
         # The property key written is the AppUserModel.ID fmtid/pid.
-        assert '9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3' in script
+        assert "9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3" in script
         assert "key.pid = 5" in script
 
 

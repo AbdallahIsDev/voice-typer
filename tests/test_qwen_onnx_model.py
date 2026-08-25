@@ -44,6 +44,7 @@ _MODULE_AUDIO_PAD = 151676
 
 # ─── helpers ─────────────────────────────────────────────────────────
 
+
 def make_onnx_dir(
     tmp_path: Path,
     *,
@@ -140,11 +141,7 @@ def scripted_sessions(
         return (out,)
 
     def init_run(feed, call):
-        length = (
-            feed["input_ids"].shape[1]
-            if decoder_format == "v3"
-            else feed["input_embeds"].shape[1]
-        )
+        length = feed["input_ids"].shape[1] if decoder_format == "v3" else feed["input_embeds"].shape[1]
         logits = np.full((1, length, vocab), -100.0, dtype=np.float32)
         logits[0, -1, first_token] = 0.0
         kv = np.zeros((1, 1, length, 8), dtype=np.float32)
@@ -157,15 +154,17 @@ def scripted_sessions(
         kv = np.zeros((1, 1, 1, 8), dtype=np.float32)
         return (logits, kv, kv)
 
-    inputs = ("input_ids", "position_ids", "audio_features", "audio_offset") if decoder_format == "v3" else (
-        "input_embeds",
-        "position_ids",
+    inputs = (
+        ("input_ids", "position_ids", "audio_features", "audio_offset")
+        if decoder_format == "v3"
+        else (
+            "input_embeds",
+            "position_ids",
+        )
     )
     return {
         "encoder": FakeSession(run_fn=encoder_run, input_names=("mel",)),
-        "decoder_init": FakeSession(
-            run_fn=init_run, input_names=inputs
-        ),
+        "decoder_init": FakeSession(run_fn=init_run, input_names=inputs),
         "decoder_step": FakeSession(
             run_fn=step_run, input_names=("input_embeds", "position_ids", "past_keys", "past_values")
         ),
@@ -388,9 +387,7 @@ class TestTranscribe:
         # v1 embeds the WHOLE prompt server-side, so the embed matrix
         # must cover the special-token ids (up to <|audio_pad|> = 151676).
         (d / "embed_tokens.bin").unlink()
-        np.zeros((qom._AUDIO_PAD_TOKEN_ID + 2, 4), dtype=np.float16).tofile(
-            d / "embed_tokens.bin"
-        )
+        np.zeros((qom._AUDIO_PAD_TOKEN_ID + 2, 4), dtype=np.float16).tofile(d / "embed_tokens.bin")
         sessions = scripted_sessions(vocab=64, decoder_format="v1")
         model = QwenOnnxModel(str(d))
         with patch_ort(sessions), patch_tokenizer():

@@ -67,9 +67,7 @@ assert _SIDECAR_WS_PATH.exists(), f"sidecar_ws.py not found at {_SIDECAR_WS_PATH
 # ``voice_typer.server.ipc.auth`` helper (used by both the TCP and WS
 # transports). Source-grep tests that assert the comparison must read
 # this file, not just sidecar_ws.py.
-_AUTH_HELPER_PATH = (
-    Path(__file__).resolve().parents[3] / "voice_typer" / "server" / "ipc" / "auth.py"
-)
+_AUTH_HELPER_PATH = Path(__file__).resolve().parents[3] / "voice_typer" / "server" / "ipc" / "auth.py"
 assert _AUTH_HELPER_PATH.exists(), f"ipc/auth.py not found at {_AUTH_HELPER_PATH}"
 
 
@@ -260,8 +258,7 @@ def test_authenticate_uses_hmac_compare_digest():
         "Found neither — possible timing side-channel regression."
     )
     assert "from voice_typer.server.ipc.auth import" in source, (
-        "sidecar_ws.py must import tokens_equal from the shared "
-        "voice_typer.server.ipc.auth module (VP-8)."
+        "sidecar_ws.py must import tokens_equal from the shared voice_typer.server.ipc.auth module (VP-8)."
     )
     route_pattern = r"tokens_equal\s*\(\s*provided\s*,\s*expected_token\s*\)"
     assert re.search(route_pattern, source), (

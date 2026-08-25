@@ -88,12 +88,15 @@ class TestElectronLogFilesBehavioral:
 
         # Mock subprocess.Popen so we don't actually launch Electron.
         # It must return a MagicMock with a .pid attribute so the
-        # launchers' pid-tracking code works.
+        # launchers' pid-tracking code works. Resolved through the
+        # electron_spawn leaf (the module whose spawn paths call Popen)
+        # since the launcher split — ``.subprocess`` here IS the shared
+        # stdlib module, so the patch is global and reverted on teardown.
         fake_proc = MagicMock(name="Popen")
         fake_proc.pid = 12345
         fake_proc.poll.return_value = None  # still running
         monkeypatch.setattr(
-            "voice_typer.server.autostart_launcher.subprocess.Popen",
+            "voice_typer.server.autostart.electron_spawn.subprocess.Popen",
             lambda *a, **kw: fake_proc,
         )
 

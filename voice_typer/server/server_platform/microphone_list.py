@@ -127,9 +127,13 @@ def _stable_device_id(host_api: str, name: str, seen: set[str]) -> str:
 
     Uniqueness within one enumeration is guaranteed by appending ``#2``,
     ``#3``, ... when a (host API, name) pair repeats (two identical USB
-    mics plugged in at once). Deterministic across processes: the same
-    device set always produces the same ids, so a persisted id survives
-    reboots as long as the physical device set is unchanged.
+    mics plugged in at once). Stable across reboots for an UNCHANGED
+    device set, with one caveat: for same-name twins the ``#N`` suffix
+    follows PortAudio's enumeration order, which a replug may swap —
+    a persisted ``"#2"`` id then addresses the OTHER physical twin.
+    The base-id fallback in ``find_microphone_by_id`` still lands on
+    *a* twin (best-effort for an inherently ambiguous situation); it
+    never resolves to a different-NAMED device.
     """
     base = f"{host_api}|{name}"
     candidate = base
@@ -169,6 +173,37 @@ def _resolve_legacy_compound_id(wanted: str) -> dict | None:
     return None
 
 
+def _match_canonical_mic_by_name(mic_id: str) -> dict | None:
+    """Last-resort id resolution: exact display-name match, nothing more.
+
+    Persisted stable ids pin the host API that was canonical when they
+    were saved; after host-API normalization that API may no longer be
+    enumerated at all (``"MME|Microphone (Realtek(R) Audio)"`` with WASAPI
+    now canonical). When every exact/base-id/legacy strategy above has
+    failed, strip any ``#N`` suffix, take the segment after the FIRST
+    ``|`` as the display name, and accept ONLY an unambiguous exact-name
+    match among the live canonical devices.
+
+    Names whose endpoint naming differs across host APIs do NOT match
+    (e.g. WDM-KS ``"Microphone (Realtek HD Audio Mic input)"`` vs its
+    WASAPI twin ``"Microphone (Realtek(R) Audio)"``) → ``None`` → system
+    default + caller warning. Resolving to a *wrong* device would be
+    worse than falling back to the default.
+    """
+    if "|" not in mic_id:
+        return None
+    base = mic_id.split("#", 1)[0]
+    # Split ONCE: the display name is everything after the first "|".
+    # Device names may themselves contain "|" — taking parts[1] of a
+    # full split would resolve "WASAPI|A|B" against an unrelated device
+    # literally named "A".
+    name = base.split("|", 1)[1].strip()
+    if not name:
+        return None
+    matches = [m for m in _pkg.list_microphones() if m.get("name") == name]
+    return matches[0] if len(matches) == 1 else None
+
+
 def resolve_mic_id_to_device_index(mic_id: str | int | None) -> int | None:
     """Resolve a persisted/IPC microphone id to a live PortAudio index.
 
@@ -203,6 +238,44 @@ def resolve_mic_id_to_device_index(mic_id: str | int | None) -> int | None:
         return None
 
 
+# ─── Canonical host-API selection ──────────────────────────────────────
+#
+# PortAudio enumerates every OS audio endpoint once PER HOST API, so a
+# single physical microphone appears up to four times in
+# ``sd.query_devices()`` (MME / DirectSound / WASAPI / WDM-KS on Windows).
+# The OS audio UI shows exactly one view of each endpoint; MME truncates
+# names at 31 chars and WDM-KS additionally exposes disabled endpoints.
+# PortAudio's own multi-host-API proposal says clients should display
+# devices from ONE host API at a time, and python-sounddevice has no
+# cross-API unique id — so picking a canonical host API per platform is
+# the strongest identity strategy available.
+
+
+def _preferred_host_api_substring() -> str | None:
+    """Return the host-API name fragment canonical for this platform.
+
+    Resolved through :mod:`voice_typer.server.platform_utils` at call time
+    so test monkeypatches of ``sys.platform`` propagate. ``None`` means no
+    canonical filter is defined for the platform (keep all records).
+    """
+    from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
+
+    if is_windows():
+        # Matches the Windows Settings "Input" page (MMDevice endpoints)
+        # with full, untruncated names.
+        return "WASAPI"
+    if is_macos():
+        return "Core Audio"
+    if is_linux():
+        return "PulseAudio"
+    return None
+
+
+# Last logged (host_api, kept, dropped) summary so the info line below
+# fires once per enumeration CHANGE instead of on every TTL expiry.
+_LAST_CANON_SUMMARY: tuple[str, int, int] | None = None
+
+
 def _list_microphones_uncached() -> list[dict]:
     """Return available input devices with stable identifiers.
 
@@ -218,6 +291,14 @@ def _list_microphones_uncached() -> list[dict]:
         }
     Returns empty list on failure.
 
+    Canonical host-API normalization: PortAudio exposes each endpoint once
+    per host API; the platform's preferred host API (Windows → WASAPI,
+    macOS → Core Audio, Linux → PulseAudio) is kept when it yields any
+    device, and every other host API's duplicate view of the same
+    endpoints is dropped. When the preferred API yields nothing (broken
+    PortAudio install, exotic setup) the unfiltered list is returned —
+    never empty, never hiding all devices.
+
     This is the underlying PortAudio query; :func:`list_microphones`
     wraps it with a 5 s TTL cache.
     """
@@ -232,11 +313,16 @@ def _list_microphones_uncached() -> list[dict]:
         # syscall. Querying all host APIs once and building an
         # ``idx → name`` dict turns N syscalls into one.
         host_api_names: dict[int, str] = {}
+        host_api_defaults: dict[int, int] = {}
         try:
             for hai, hapi_raw in enumerate(sd.query_hostapis()):
                 hapi = _sd_dev_as_dict(hapi_raw)
                 if hapi is not None:
                     host_api_names[hai] = hapi.get("name", "")
+                    try:
+                        host_api_defaults[hai] = int(hapi.get("default_input_device", -1))
+                    except (TypeError, ValueError):
+                        host_api_defaults[hai] = -1
         except Exception:
             log.debug("[PLATFORM] host API enumeration failed", exc_info=True)
         devices = []
@@ -294,10 +380,67 @@ def _list_microphones_uncached() -> list[dict]:
                     name,
                     dev.get("default_samplerate", "?"),
                 )
-        return devices
+        return _canonicalize_host_apis(devices, host_api_names, host_api_defaults)
     except Exception:
         log.debug("Could not enumerate microphones", exc_info=True)
         return []
+
+
+def _canonicalize_host_apis(
+    devices: list[dict],
+    host_api_names: dict[int, str],
+    host_api_defaults: dict[int, int],
+) -> list[dict]:
+    """Reduce the per-host-API duplicate views to the platform's canonical one.
+
+    When the preferred host API owns at least one enumerated input device,
+    only its records are returned and the ``default`` flag is recomputed
+    from that host API's own ``default_input_device`` (the PortAudio global
+    default can live on a non-canonical host API — e.g. an MME record — so
+    comparing against it would leave the canonical list without any
+    default). Two same-name records within the canonical API stay distinct
+    via their ``#N`` ids; exactly one of them can carry the default index.
+    Falls back to the unfiltered list whenever the preferred API is empty,
+    keeping the existing global-default flags untouched. Edge: if the
+    preferred API is active but reports no default input device
+    (``default_input_device == -1``), the recomputation is skipped and the
+    canonical list may carry NO default flag — the UI degrades to no
+    "Default" badge rather than flagging a wrong device.
+    """
+    global _LAST_CANON_SUMMARY
+
+    preferred = _preferred_host_api_substring()
+    if preferred is None:
+        return devices
+
+    preferred_lower = preferred.lower()
+    subset = [d for d in devices if preferred_lower in d["host_api"].lower()]
+    if not subset:
+        # Graceful degradation: a preferred host API with no devices must
+        # never empty the list.
+        return devices
+
+    preferred_default = -1
+    for hai, api_name in host_api_names.items():
+        if preferred_lower in api_name.lower():
+            candidate = host_api_defaults.get(hai, -1)
+            if candidate >= 0:
+                preferred_default = candidate
+                break
+    if preferred_default >= 0:
+        for dev in subset:
+            dev["default"] = dev["index"] == preferred_default
+
+    summary = (preferred, len(subset), len(devices) - len(subset))
+    if summary != _LAST_CANON_SUMMARY:
+        log.info(
+            "[PLATFORM] Canonical %s microphones: kept %d, dropped %d duplicate host-API records",
+            preferred,
+            len(subset),
+            len(devices) - len(subset),
+        )
+        _LAST_CANON_SUMMARY = summary
+    return subset
 
 
 def list_microphones() -> list[dict]:
@@ -366,7 +509,13 @@ def find_microphone_by_id(mic_id: str) -> dict | None:
     - disambiguated stable id whose twin set changed
       (``"MME|USB Mic#2"``, exact match gone because one identical unit
       was unplugged) → the device carrying the base id ``"MME|USB Mic"``
-      — best-effort recovery instead of silently dropping to default.
+      — best-effort recovery instead of silently dropping to default;
+    - stable id whose host API is no longer enumerated (``"MME|Mic"`` or
+      ``"Windows WDM-KS|Mic"`` after host-API canonicalization) →
+      unambiguous exact-name match via
+      :func:`_match_canonical_mic_by_name`; endpoint names that differ
+      across host APIs stay unresolved (system default) rather than
+      guessing.
 
     In all legacy/recovery cases the returned dict carries the NEW
     stable id so the caller can persist it going forward.
@@ -388,4 +537,7 @@ def find_microphone_by_id(mic_id: str) -> dict | None:
         for mic in _pkg.list_microphones():
             if mic["id"] == base:
                 return mic
-    return _resolve_legacy_compound_id(wanted)
+    resolved = _resolve_legacy_compound_id(wanted)
+    if resolved is not None:
+        return resolved
+    return _match_canonical_mic_by_name(wanted)

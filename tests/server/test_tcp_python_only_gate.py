@@ -133,8 +133,7 @@ class TestTcpPythonOnlyGate:
         errors = [e for e in _envelopes(fake) if e.get("type") == "error"]
         assert errors, f"{cmd} must be rejected with an error envelope; got {fake.sent_text()!r}"
         assert errors[-1]["data"]["code"] == ErrorCodes.UNKNOWN_COMMAND, (
-            f"python-only command must surface as server.unknown_command; "
-            f"got {errors[-1]!r}"
+            f"python-only command must surface as server.unknown_command; got {errors[-1]!r}"
         )
 
         # The command must NEVER reach the dispatcher.
@@ -148,12 +147,7 @@ class TestTcpPythonOnlyGate:
         (the gate ``continue``s, it does not tear down the session)."""
         token = "pyonly-survive-token"
         auth_line = json.dumps({"type": "auth", "token": token}) + "\n"
-        lines = (
-            json.dumps({"type": "shutdown", "id": 1})
-            + "\n"
-            + json.dumps({"type": "get_status", "id": 2})
-            + "\n"
-        )
+        lines = json.dumps({"type": "shutdown", "id": 1}) + "\n" + json.dumps({"type": "get_status", "id": 2}) + "\n"
         fake = _FakeSocket(auth_line + lines)
 
         pyonly_server._handle_tcp_connection(fake, ("127.0.0.1", 9999), expected_token=token)

@@ -140,7 +140,7 @@ describe("GT-60: will-quit has an else branch that exits immediately when python
 
 describe("bootstrap.ts _productionExit stops Python BEFORE app.quit() (no unconditional SIGKILL)", () => {
 	it("calls stopPython() BEFORE app.quit()", () => {
-		const src = readSrc("../bootstrap.ts");
+		const src = readSrc("../bootstrap/error-handlers.ts");
 		const fnIdx = src.indexOf("function _productionExit");
 		expect(fnIdx).toBeGreaterThan(-1);
 		const block = src.slice(fnIdx, fnIdx + 1600);
@@ -155,7 +155,7 @@ describe("bootstrap.ts _productionExit stops Python BEFORE app.quit() (no uncond
 	});
 
 	it("does NOT contain an unconditional synchronous pythonProcess?.kill('SIGKILL')", () => {
-		const src = readSrc("../bootstrap.ts");
+		const src = readSrc("../bootstrap/error-handlers.ts");
 		const fnIdx = src.indexOf("function _productionExit");
 		expect(fnIdx).toBeGreaterThan(-1);
 		const block = src.slice(fnIdx, fnIdx + 1600);
@@ -170,7 +170,7 @@ describe("bootstrap.ts _productionExit stops Python BEFORE app.quit() (no uncond
 	});
 
 	it("wraps stopPython() in try/catch so a failure cannot block the exit", () => {
-		const src = readSrc("../bootstrap.ts");
+		const src = readSrc("../bootstrap/error-handlers.ts");
 		const fnIdx = src.indexOf("function _productionExit");
 		expect(fnIdx).toBeGreaterThan(-1);
 		const block = src.slice(fnIdx, fnIdx + 1600);
@@ -178,7 +178,7 @@ describe("bootstrap.ts _productionExit stops Python BEFORE app.quit() (no uncond
 	});
 
 	it("arms a PROCESS_EXIT_BACKSTOP_MS backstop that is .unref()'d", () => {
-		const src = readSrc("../bootstrap.ts");
+		const src = readSrc("../bootstrap/error-handlers.ts");
 		const fnIdx = src.indexOf("function _productionExit");
 		expect(fnIdx).toBeGreaterThan(-1);
 		const block = src.slice(fnIdx, fnIdx + 1600);

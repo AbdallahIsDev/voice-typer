@@ -45,12 +45,17 @@ def fake_assets(tmp_path: Path) -> dict[str, Path]:
     for name, content in [
         ("VoiceTyper-Setup-1.2.3.exe", b"fake-nsis-installer"),
         ("pack-1.2.3.zip", b"fake-pack-zip"),
-        ("pack-manifest.json", json.dumps({
-            "version": "1.2.3",
-            "sha256": "a" * 64,
-            "files": [{"name": "worker.exe", "sha256": "b" * 64, "size": 1024}],
-            "min_proto_version": 1,
-        }).encode("utf-8")),
+        (
+            "pack-manifest.json",
+            json.dumps(
+                {
+                    "version": "1.2.3",
+                    "sha256": "a" * 64,
+                    "files": [{"name": "worker.exe", "sha256": "b" * 64, "size": 1024}],
+                    "min_proto_version": 1,
+                }
+            ).encode("utf-8"),
+        ),
     ]:
         p = tmp_path / name
         p.write_bytes(content)
@@ -249,34 +254,41 @@ class TestGhReleaseExists:
     def test_exists_returns_true_on_exit_zero(self):
         def runner(cmd, **kw):
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
         assert pub.gh_release_exists("v1.2.3", repo="owner/repo", runner=runner) is True
 
     def test_exists_returns_false_on_nonzero(self):
         def runner(cmd, **kw):
             return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="not found")
+
         assert pub.gh_release_exists("v1.2.3", repo="owner/repo", runner=runner) is False
 
     def test_release_url_returns_url_on_success(self):
         """``gh_release_url`` uses ``--jq '.url'`` so ``gh`` returns the URL
         as a plain string (not JSON). The fake runner simulates that."""
+
         def runner(cmd, **kw):
             return subprocess.CompletedProcess(
-                cmd, 0,
+                cmd,
+                0,
                 stdout="https://github.com/owner/repo/releases/tag/v1.2.3",
                 stderr="",
             )
+
         url = pub.gh_release_url("v1.2.3", repo="owner/repo", runner=runner)
         assert url == "https://github.com/owner/repo/releases/tag/v1.2.3"
 
     def test_release_url_returns_none_on_failure(self):
         def runner(cmd, **kw):
             return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="not found")
+
         url = pub.gh_release_url("v1.2.3", repo="owner/repo", runner=runner)
         assert url is None
 
     def test_release_url_returns_none_on_empty_stdout(self):
         def runner(cmd, **kw):
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
         url = pub.gh_release_url("v1.2.3", repo="owner/repo", runner=runner)
         assert url is None
 
@@ -324,9 +336,7 @@ class TestPublishReleaseGhBackend:
         assert result.success is True
         # Verify no ``create`` command was issued.
         create_cmds = [c for c in calls if "create" in c]
-        assert create_cmds == [], (
-            f"gh release create should NOT be called when release exists; got {create_cmds}"
-        )
+        assert create_cmds == [], f"gh release create should NOT be called when release exists; got {create_cmds}"
         # Verify the upload command WAS issued.
         upload_cmds = [c for c in calls if "upload" in c]
         assert len(upload_cmds) == 1
@@ -336,6 +346,7 @@ class TestPublishReleaseGhBackend:
         fake_assets: dict[str, Path],
     ):
         """When ``gh release create`` fails, the result has ``success=False``."""
+
         def runner(cmd, **kw):
             if "view" in cmd:
                 return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="not found")
@@ -358,6 +369,7 @@ class TestPublishReleaseGhBackend:
         fake_assets: dict[str, Path],
     ):
         """When ``gh release upload`` fails, the result has ``success=False``."""
+
         def runner(cmd, **kw):
             if "view" in cmd and "--jq" in cmd:
                 return subprocess.CompletedProcess(
@@ -406,9 +418,11 @@ class TestPublishReleaseApiBackend:
         """``GH_TOKEN`` env var is used when ``token=None``."""
         monkeypatch.setenv("GH_TOKEN", "fake-token-123")
         # Mock the API request to return success.
-        with patch.object(pub, "_api_request"), \
-             patch.object(pub, "api_create_release") as mock_create, \
-             patch.object(pub, "api_upload_asset") as mock_upload:
+        with (
+            patch.object(pub, "_api_request"),
+            patch.object(pub, "api_create_release") as mock_create,
+            patch.object(pub, "api_upload_asset") as mock_upload,
+        ):
             mock_create.return_value = (
                 "https://github.com/owner/repo/releases/tag/v1.2.3",
                 "https://uploads.github.com/repos/owner/repo/releases/123/assets",
@@ -427,8 +441,10 @@ class TestPublishReleaseApiBackend:
     def test_upload_failure_recorded(self, fake_assets: dict[str, Path], monkeypatch):
         """A per-asset upload failure is recorded in ``result.errors``."""
         monkeypatch.setenv("GH_TOKEN", "fake-token-123")
-        with patch.object(pub, "api_create_release") as mock_create, \
-             patch.object(pub, "api_upload_asset") as mock_upload:
+        with (
+            patch.object(pub, "api_create_release") as mock_create,
+            patch.object(pub, "api_upload_asset") as mock_upload,
+        ):
             mock_create.return_value = (
                 "https://github.com/owner/repo/releases/tag/v1.2.3",
                 "https://uploads.github.com/repos/owner/repo/releases/123/assets",
@@ -457,9 +473,7 @@ class TestBackendAutoSelection:
         monkeypatch.setattr(pub.shutil, "which", lambda name: "/usr/bin/gh")
         # Patch the gh backend to avoid actually running ``gh``.
         with patch.object(pub, "_publish_via_gh") as mock_gh:
-            mock_gh.return_value = pub.PublishResult(
-                success=True, tag="v1.2.3", backend="gh"
-            )
+            mock_gh.return_value = pub.PublishResult(success=True, tag="v1.2.3", backend="gh")
             result = pub.publish_release(
                 tag="v1.2.3",
                 assets=list(fake_assets.values()),
@@ -474,9 +488,7 @@ class TestBackendAutoSelection:
         monkeypatch.setattr(pub.shutil, "which", lambda name: None)
         monkeypatch.setenv("GH_TOKEN", "fake-token-123")
         with patch.object(pub, "_publish_via_api") as mock_api:
-            mock_api.return_value = pub.PublishResult(
-                success=True, tag="v1.2.3", backend="api"
-            )
+            mock_api.return_value = pub.PublishResult(success=True, tag="v1.2.3", backend="api")
             result = pub.publish_release(
                 tag="v1.2.3",
                 assets=list(fake_assets.values()),
@@ -553,13 +565,20 @@ class TestCli:
         """``--notes`` and ``--notes-file`` together → exit code 2."""
         notes_file = tmp_path / "notes.md"
         notes_file.write_text("release notes")
-        exit_code = pub.main([
-            "--tag", "v1.2.3",
-            "--pack-onefile", str(fake_assets["pack-1.2.3.zip"]),
-            "--notes", "some notes",
-            "--notes-file", str(notes_file),
-            "--backend", "gh",
-        ])
+        exit_code = pub.main(
+            [
+                "--tag",
+                "v1.2.3",
+                "--pack-onefile",
+                str(fake_assets["pack-1.2.3.zip"]),
+                "--notes",
+                "some notes",
+                "--notes-file",
+                str(notes_file),
+                "--backend",
+                "gh",
+            ]
+        )
         assert exit_code == 2
 
     def test_json_output_format(
@@ -572,14 +591,21 @@ class TestCli:
         runner, _ = fake_runner_success
         # Patch ``run_gh`` to use the fake runner.
         with patch.object(pub, "run_gh", side_effect=runner):
-            exit_code = pub.main([
-                "--tag", "v1.2.3",
-                "--pack-onefile", str(fake_assets["pack-1.2.3.zip"]),
-                "--pack-manifest", str(fake_assets["pack-manifest.json"]),
-                "--repo", "owner/repo",
-                "--backend", "gh",
-                "--json",
-            ])
+            exit_code = pub.main(
+                [
+                    "--tag",
+                    "v1.2.3",
+                    "--pack-onefile",
+                    str(fake_assets["pack-1.2.3.zip"]),
+                    "--pack-manifest",
+                    str(fake_assets["pack-manifest.json"]),
+                    "--repo",
+                    "owner/repo",
+                    "--backend",
+                    "gh",
+                    "--json",
+                ]
+            )
         assert exit_code == 0
         captured = capsys.readouterr()
         result = json.loads(captured.out)
@@ -594,11 +620,16 @@ class TestCli:
         capsys,
     ):
         """A missing asset path → exit code 1 (failure)."""
-        exit_code = pub.main([
-            "--tag", "v1.2.3",
-            "--pack-onefile", str(tmp_path / "nonexistent.zip"),
-            "--backend", "gh",
-        ])
+        exit_code = pub.main(
+            [
+                "--tag",
+                "v1.2.3",
+                "--pack-onefile",
+                str(tmp_path / "nonexistent.zip"),
+                "--backend",
+                "gh",
+            ]
+        )
         assert exit_code == 1
 
 
@@ -613,9 +644,7 @@ class TestIdempotency:
         existing assets with the same name."""
         assets = list(fake_assets.values())
         cmd = pub.build_gh_upload_command("v1.2.3", assets, repo="owner/repo")
-        assert "--clobber" in cmd, (
-            "default upload command must include --clobber for idempotent re-runs"
-        )
+        assert "--clobber" in cmd, "default upload command must include --clobber for idempotent re-runs"
 
     def test_existing_release_does_not_fail_publish(
         self,

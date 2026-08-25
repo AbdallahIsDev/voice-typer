@@ -81,9 +81,7 @@ class TestPermissionsJsonSchema:
         with zipfile.ZipFile(bundle_path, "r") as zf:
             names = zf.namelist()
 
-        assert "permissions.json" in names, (
-            f"diagnostic bundle missing 'permissions.json' entry; got names: {names}"
-        )
+        assert "permissions.json" in names, f"diagnostic bundle missing 'permissions.json' entry; got names: {names}"
 
     def test_permissions_json_has_required_keys(self, recovery) -> None:
         """``permissions.json`` MUST contain the three required keys
@@ -105,9 +103,7 @@ class TestPermissionsJsonSchema:
         # required. We assert the success-path contract here.
         if "error" not in data:
             for key in ("keyboard_permission_state", "microphone_permission_state", "pyobjc_available"):
-                assert key in data, (
-                    f"permissions.json missing required key {key!r}; got: {data!r}"
-                )
+                assert key in data, f"permissions.json missing required key {key!r}; got: {data!r}"
 
     def test_keyboard_permission_state_is_well_typed(self, recovery) -> None:
         """``keyboard_permission_state`` MUST be a string matching one
@@ -159,9 +155,7 @@ class TestPermissionsJsonSchema:
 
         if "error" not in data:
             pyobjc = data.get("pyobjc_available")
-            assert isinstance(pyobjc, bool), (
-                f"pyobjc_available must be a bool; got {type(pyobjc).__name__}: {pyobjc!r}"
-            )
+            assert isinstance(pyobjc, bool), f"pyobjc_available must be a bool; got {type(pyobjc).__name__}: {pyobjc!r}"
 
 
 # ── Linux-only keys (install_manifest + dev_input_event0_readable) ───
@@ -256,9 +250,7 @@ class TestProbeFailureResilience:
     failure MUST NOT abort the entire bundle creation.
     """
 
-    def test_bundle_still_created_when_keyboard_probe_raises(
-        self, recovery, monkeypatch
-    ) -> None:
+    def test_bundle_still_created_when_keyboard_probe_raises(self, recovery, monkeypatch) -> None:
         """If ``check_keyboard_permission`` raises, the bundle must
         still be created and ``permissions.json`` must contain an
         ``error`` key (rather than the schema keys)."""
@@ -281,9 +273,7 @@ class TestProbeFailureResilience:
         with zipfile.ZipFile(bundle_path, "r") as zf:
             data = json.loads(zf.read("permissions.json"))
 
-        assert "error" in data, (
-            f"permissions.json must contain an 'error' key when the probe raises; got: {data!r}"
-        )
+        assert "error" in data, f"permissions.json must contain an 'error' key when the probe raises; got: {data!r}"
         assert "simulated probe failure" in str(data["error"]), (
             f"permissions.json error must contain the probe failure message; got: {data['error']!r}"
         )

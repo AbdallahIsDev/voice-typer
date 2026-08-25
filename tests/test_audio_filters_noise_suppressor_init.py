@@ -132,13 +132,9 @@ class TestLazyResamplerInitMemoization:
         # The RNNoise backend was constructed (lazy import succeeded via
         # the fake module).
         assert ns._backend is not None, (
-            "RNNoise backend must be constructed when pyrnnoise is "
-            "available (fake module injected)"
+            "RNNoise backend must be constructed when pyrnnoise is available (fake module injected)"
         )
-        assert ns.is_degraded is False, (
-            "NoiseSuppressor must NOT be degraded when RNNoise init "
-            "succeeds"
-        )
+        assert ns.is_degraded is False, "NoiseSuppressor must NOT be degraded when RNNoise init succeeds"
 
         # Spy on _StreamingResampler.__init__ to count constructions.
         init_calls: list[tuple[int, int]] = []
@@ -156,12 +152,8 @@ class TestLazyResamplerInitMemoization:
         # Capture the resampler identities after the first call.
         upsampler_after_first = ns._upsampler
         downsampler_after_first = ns._downsampler
-        assert upsampler_after_first is not None, (
-            "upsampler must be constructed after the first process() call"
-        )
-        assert downsampler_after_first is not None, (
-            "downsampler must be constructed after the first process() call"
-        )
+        assert upsampler_after_first is not None, "upsampler must be constructed after the first process() call"
+        assert downsampler_after_first is not None, "downsampler must be constructed after the first process() call"
 
         # Second process() call — memoization guard must skip recreation.
         result2 = ns.process(audio, 16000)
@@ -184,12 +176,10 @@ class TestLazyResamplerInitMemoization:
         # 3. The resampler object identity is stable (same object, not a
         # fresh one).
         assert ns._upsampler is upsampler_after_first, (
-            "upsampler object identity must be stable across "
-            "process() calls (memoized, not recreated)"
+            "upsampler object identity must be stable across process() calls (memoized, not recreated)"
         )
         assert ns._downsampler is downsampler_after_first, (
-            "downsampler object identity must be stable across "
-            "process() calls (memoized, not recreated)"
+            "downsampler object identity must be stable across process() calls (memoized, not recreated)"
         )
 
         # Sanity: both process() calls produced output (not None).
@@ -233,13 +223,9 @@ class TestSampleRateResamplerConstruction:
         ns = NoiseSuppressor(method="rnnoise", sample_rate=44100)
 
         # Before process() — resamplers are NOT yet constructed (lazy).
-        assert ns._upsampler is None, (
-            "upsampler must NOT be constructed before the first "
-            "process() call (lazy init)"
-        )
+        assert ns._upsampler is None, "upsampler must NOT be constructed before the first process() call (lazy init)"
         assert ns._downsampler is None, (
-            "downsampler must NOT be constructed before the first "
-            "process() call (lazy init)"
+            "downsampler must NOT be constructed before the first process() call (lazy init)"
         )
 
         # 44100 is not the RNNoise native rate (48000) — resamplers
@@ -251,18 +237,15 @@ class TestSampleRateResamplerConstruction:
 
         # 1. Upsampler constructed (44100 != 48000 → resampling needed).
         assert ns._upsampler is not None, (
-            "upsampler must be constructed when process() sample "
-            "rate (44100) != RNNOISE_SAMPLE_RATE (48000)"
+            "upsampler must be constructed when process() sample rate (44100) != RNNOISE_SAMPLE_RATE (48000)"
         )
         # 2. Downsampler constructed (round-trip back to 44100).
         assert ns._downsampler is not None, (
-            "downsampler must be constructed for the 48k→44100 "
-            "round-trip back to the source rate"
+            "downsampler must be constructed for the 48k→44100 round-trip back to the source rate"
         )
         # 3. _resampler_rate is set to the process sample rate.
         assert ns._resampler_rate == 44100, (
-            f"_resampler_rate must be set to the process sample "
-            f"rate (44100); got {ns._resampler_rate}"
+            f"_resampler_rate must be set to the process sample rate (44100); got {ns._resampler_rate}"
         )
 
     def test_no_resampler_at_native_rate(
@@ -283,12 +266,10 @@ class TestSampleRateResamplerConstruction:
 
         # Both resamplers stay None (native rate — no resampling needed).
         assert ns._upsampler is None, (
-            "upsampler must stay None at the RNNoise native rate "
-            "(48000) — no resampling needed"
+            "upsampler must stay None at the RNNoise native rate (48000) — no resampling needed"
         )
         assert ns._downsampler is None, (
-            "downsampler must stay None at the RNNoise native rate "
-            "(48000) — no resampling needed"
+            "downsampler must stay None at the RNNoise native rate (48000) — no resampling needed"
         )
         # _resampler_rate is set so a subsequent rate change is detected.
         assert ns._resampler_rate == 48000
@@ -354,8 +335,7 @@ class TestInitFailureClearError:
 
         # 2. degraded_reason contains "rnnoise" (which backend failed).
         assert "rnnoise" in ns.degraded_reason.lower(), (
-            f"degraded_reason must mention 'rnnoise' so the user "
-            f"knows WHICH backend failed; got {ns.degraded_reason!r}"
+            f"degraded_reason must mention 'rnnoise' so the user knows WHICH backend failed; got {ns.degraded_reason!r}"
         )
 
         # 3. degraded_reason contains the original exception message.
@@ -367,14 +347,12 @@ class TestInitFailureClearError:
 
         # 4. _method fell back to "none" (passthrough).
         assert ns._method == "none", (
-            f"_method must fall back to 'none' (passthrough) when "
-            f"RNNoise init fails; got {ns._method!r}"
+            f"_method must fall back to 'none' (passthrough) when RNNoise init fails; got {ns._method!r}"
         )
 
         # 5. _backend is None (no RNNoise instance kept).
         assert ns._backend is None, (
-            "_backend must be None when RNNoise init fails (no "
-            "instance to keep — the constructor raised)"
+            "_backend must be None when RNNoise init fails (no instance to keep — the constructor raised)"
         )
 
     def test_import_error_degraded_reason_mentions_rnnoise(
@@ -393,6 +371,7 @@ class TestInitFailureClearError:
         test forces the ImportError by replacing the module with one
         whose ``RNNoise`` attribute access raises ImportError.
         """
+
         # Force ImportError on ``from pyrnnoise import RNNoise`` by
         # injecting a module that raises on attribute access. Using a
         # MagicMock with a side_effect on __getattr__ won't work for
@@ -409,13 +388,9 @@ class TestInitFailureClearError:
         ns = NoiseSuppressor(method="rnnoise", sample_rate=16000)
 
         assert ns.is_degraded is True, (
-            "NoiseSuppressor must be degraded when pyrnnoise import "
-            "fails (ImportError caught)"
+            "NoiseSuppressor must be degraded when pyrnnoise import fails (ImportError caught)"
         )
         assert "rnnoise" in ns.degraded_reason.lower(), (
-            f"degraded_reason must mention 'rnnoise' on import "
-            f"failure; got {ns.degraded_reason!r}"
+            f"degraded_reason must mention 'rnnoise' on import failure; got {ns.degraded_reason!r}"
         )
-        assert ns._method == "none", (
-            "_method must fall back to 'none' on import failure"
-        )
+        assert ns._method == "none", "_method must fall back to 'none' on import failure"

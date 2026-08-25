@@ -64,8 +64,7 @@ def test_security_md_states_current_counts() -> None:
     # across wrapped lines (the count triple spans a `> ` blockquote
     # that wraps mid-sentence).
     flat = "\n".join(
-        line.lstrip().lstrip(">").strip() if line.lstrip().startswith(">") else line
-        for line in text.splitlines()
+        line.lstrip().lstrip(">").strip() if line.lstrip().startswith(">") else line for line in text.splitlines()
     )
     flat = re.sub(r"\s+", " ", flat)
     # Look for the "N Python ↔ N TS ↔ N Rust" prose triple.

@@ -21,10 +21,31 @@ const modules = [
 	{ name: "python/handle-message.ts", path: "../python/handle-message.ts" },
 	{ name: "python/start-python.ts", path: "../python/start-python.ts" },
 	{ name: "python/tcp-connect.ts", path: "../python/tcp-connect.ts" },
+	// `python/tcp/*` leaves (split out of tcp-connect.ts) that log.
+	{
+		name: "python/tcp/startup-watchdog.ts",
+		path: "../python/tcp/startup-watchdog.ts",
+	},
+	{ name: "python/tcp/frame-reader.ts", path: "../python/tcp/frame-reader.ts" },
+	{
+		name: "python/tcp/retry-scheduler.ts",
+		path: "../python/tcp/retry-scheduler.ts",
+	},
 	{ name: "python/relaunch-app.ts", path: "../python/relaunch-app.ts" },
 	{ name: "index.ts", path: "../index.ts" },
 	{ name: "ipc/bubble-handlers.ts", path: "../ipc/bubble-handlers.ts" },
-	{ name: "bootstrap.ts", path: "../bootstrap.ts" },
+	// `bootstrap.ts` is now a pure re-export facade (no logging of its
+	// own); the log call sites moved into its leaves, which are pinned
+	// individually below.
+	{
+		name: "bootstrap/user-data.ts",
+		path: "../bootstrap/user-data.ts",
+	},
+	{
+		name: "bootstrap/error-handlers.ts",
+		path: "../bootstrap/error-handlers.ts",
+	},
+	{ name: "bootstrap/runtime.ts", path: "../bootstrap/runtime.ts" },
 ];
 
 describe("DE-87: main-process modules use structured log.* (not raw console.*)", () => {

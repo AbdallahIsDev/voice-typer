@@ -219,9 +219,7 @@ class TestCacheProbeLogLinesUseFormatDuration:
     (AGENTS.md C-LOG-2).
     """
 
-    def test_warm_package_files_log_line_carries_duration_suffix(
-        self, tmp_path, caplog, monkeypatch
-    ):
+    def test_warm_package_files_log_line_carries_duration_suffix(self, tmp_path, caplog, monkeypatch):
         """``_warm_package_files`` emits ``[PREWARM] file-warmed <pkg>:
         <MB> <duration>`` on completion. The space-separated
         ``<duration>`` suffix MUST come from ``format_duration()`` —
@@ -253,36 +251,25 @@ class TestCacheProbeLogLinesUseFormatDuration:
                 return fake_spec
             return real_find_spec(name, *args, **kwargs)
 
-        monkeypatch.setattr(
-            cache_probe.importlib.util, "find_spec", fake_find_spec
-        )
+        monkeypatch.setattr(cache_probe.importlib.util, "find_spec", fake_find_spec)
 
         # Stub _pkg._warm_file so the test doesn't actually page-cache
         # bytes (keeps the test fast + platform-independent). Returns
         # 1 MiB so the "%.0f MB" rendering is "1 MB" — the assertion
         # below pins the rendered shape so a future revert can't slip
         # in a different unit (KiB, GiB) either.
-        monkeypatch.setattr(
-            cache_probe._pkg, "_warm_file", lambda path: 1024 * 1024
-        )
+        monkeypatch.setattr(cache_probe._pkg, "_warm_file", lambda path: 1024 * 1024)
 
-        with caplog.at_level(
-            logging.INFO, logger="voice_typer.server.prewarm"
-        ):
+        with caplog.at_level(logging.INFO, logger="voice_typer.server.prewarm"):
             total = cache_probe._warm_package_files("fakepkg")
 
         # Sanity: the stubbed _warm_file was called exactly once.
         assert total == 1024 * 1024, (
-            f"expected 1 MiB total from stubbed _warm_file, got {total} — "
-            f"the stub may not have been called."
+            f"expected 1 MiB total from stubbed _warm_file, got {total} — the stub may not have been called."
         )
 
         # Find the lifecycle-completion log line.
-        matching = [
-            r.getMessage()
-            for r in caplog.records
-            if "file-warmed" in r.getMessage()
-        ]
+        matching = [r.getMessage() for r in caplog.records if "file-warmed" in r.getMessage()]
         assert matching, (
             "expected an INFO log line containing 'file-warmed' from "
             "_warm_package_files(); got records: "
@@ -299,9 +286,7 @@ class TestCacheProbeLogLinesUseFormatDuration:
             f"would strip the space separator and break this assertion."
         )
 
-    def test_warm_imports_log_line_carries_duration_suffix(
-        self, caplog, monkeypatch
-    ):
+    def test_warm_imports_log_line_carries_duration_suffix(self, caplog, monkeypatch):
         """``_warm_imports`` emits ``[PREWARM] worker warm-imports
         complete: <N> packages (<list>) <duration>`` on completion.
         Same C-LOG-2 contract as above — the space-separated
@@ -311,9 +296,7 @@ class TestCacheProbeLogLinesUseFormatDuration:
         # loop runs exactly once + we don't depend on real packages
         # being installed (onnxruntime / ctranslate2 etc. are NOT in
         # the dev sandbox per FG-SESSION-START).
-        monkeypatch.setattr(
-            cache_probe, "_WORKER_WARM_PACKAGES", ("fakepkg",)
-        )
+        monkeypatch.setattr(cache_probe, "_WORKER_WARM_PACKAGES", ("fakepkg",))
         # Stub _warm_package_files to return >0 bytes so the package
         # appears in the `warmed` list (otherwise the log line still
         # fires, but with "0 packages (none)" which is a less
@@ -321,20 +304,12 @@ class TestCacheProbeLogLinesUseFormatDuration:
         # duration suffix entirely would still fail this test, but
         # pinning the populated-list shape makes the assertion message
         # clearer).
-        monkeypatch.setattr(
-            cache_probe, "_warm_package_files", lambda pkg: 1024 * 1024
-        )
+        monkeypatch.setattr(cache_probe, "_warm_package_files", lambda pkg: 1024 * 1024)
 
-        with caplog.at_level(
-            logging.INFO, logger="voice_typer.server.prewarm"
-        ):
+        with caplog.at_level(logging.INFO, logger="voice_typer.server.prewarm"):
             cache_probe._warm_imports()
 
-        matching = [
-            r.getMessage()
-            for r in caplog.records
-            if "worker warm-imports complete" in r.getMessage()
-        ]
+        matching = [r.getMessage() for r in caplog.records if "worker warm-imports complete" in r.getMessage()]
         assert matching, (
             "expected an INFO log line containing 'worker warm-imports "
             "complete' from _warm_imports(); got records: "

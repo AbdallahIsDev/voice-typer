@@ -52,9 +52,7 @@ _INSTALL_SCRIPT = _REPO_ROOT / "scripts" / "linux" / "install_permissions.py"
 
 def _load_install_permissions_module():
     """Load ``scripts/linux/install_permissions.py`` as an isolated module."""
-    spec = importlib.util.spec_from_file_location(
-        "install_permissions_gsettings_under_test", _INSTALL_SCRIPT
-    )
+    spec = importlib.util.spec_from_file_location("install_permissions_gsettings_under_test", _INSTALL_SCRIPT)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -90,9 +88,7 @@ class TestParseGsettingsArray:
 
     def test_multiple_options(self, ip_module):
         """Multiple options preserved in order."""
-        result = ip_module._parse_gsettings_array(
-            "['altwin:swap_alt_win', 'caps:none']"
-        )
+        result = ip_module._parse_gsettings_array("['altwin:swap_alt_win', 'caps:none']")
         assert result == ["altwin:swap_alt_win", "caps:none"]
 
     def test_whitespace_only(self, ip_module):
@@ -111,9 +107,7 @@ class TestFormatGsettingsArray:
         assert ip_module._format_gsettings_array(["caps:none"]) == "['caps:none']"
 
     def test_multiple_items(self, ip_module):
-        result = ip_module._format_gsettings_array(
-            ["altwin:swap_alt_win", "caps:none"]
-        )
+        result = ip_module._format_gsettings_array(["altwin:swap_alt_win", "caps:none"])
         assert result == "['altwin:swap_alt_win', 'caps:none']"
 
 
@@ -149,10 +143,7 @@ class TestFormatCommaOptions:
         assert ip_module._format_comma_options(["caps:none"]) == "caps:none"
 
     def test_multiple(self, ip_module):
-        assert (
-            ip_module._format_comma_options(["caps:none", "altwin:swap_alt_win"])
-            == "caps:none,altwin:swap_alt_win"
-        )
+        assert ip_module._format_comma_options(["caps:none", "altwin:swap_alt_win"]) == "caps:none,altwin:swap_alt_win"
 
 
 class TestMergeOption:
@@ -268,9 +259,7 @@ class TestGnomeFlow:
 
         def fake_run(cmd, *args, **kwargs):
             if "get" in cmd:
-                return subprocess.CompletedProcess(
-                    args=cmd, returncode=0, stdout="@as []", stderr=""
-                )
+                return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="@as []", stderr="")
             captured_set_calls.append(cmd)
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
@@ -325,12 +314,7 @@ class TestKdeFlow:
         fake_home = tmp_path
         kxkbrc = fake_home / ".config" / "kxkbrc"
         kxkbrc.parent.mkdir(parents=True)
-        kxkbrc.write_text(
-            "[Layout]\n"
-            "LayoutList=us\n"
-            "Options=altwin:swap_alt_win\n"
-            "Use=true\n"
-        )
+        kxkbrc.write_text("[Layout]\nLayoutList=us\nOptions=altwin:swap_alt_win\nUse=true\n")
         fake_pw = type("FakePw", (), {"pw_dir": str(fake_home), "pw_uid": 1000, "pw_gid": 1000})()
         monkeypatch.setattr(ip_module.pwd, "getpwnam", lambda u: fake_pw)
         # shutil.chown would fail in tests (no root); stub it.
@@ -390,9 +374,7 @@ class TestKdeFlow:
             None,
         )
         assert options_line is not None, f"Options= line missing:\n{new_text}"
-        assert options_line.count("caps:none") == 1, (
-            f"caps:none must appear exactly once, got: {options_line}"
-        )
+        assert options_line.count("caps:none") == 1, f"caps:none must appear exactly once, got: {options_line}"
 
 
 # ─── Sway flow  ─────────────────────────────────────────────────────
@@ -409,9 +391,7 @@ class TestSwayFlow:
         sway_config = fake_home / ".config" / "sway" / "config"
         sway_config.parent.mkdir(parents=True)
         sway_config.write_text(
-            "set $mod Mod4\n"
-            "input * xkb_options altwin:swap_alt_win\n"
-            "bindsym Mod4+Return exec foot\n"
+            "set $mod Mod4\ninput * xkb_options altwin:swap_alt_win\nbindsym Mod4+Return exec foot\n"
         )
         fake_pw = type("FakePw", (), {"pw_dir": str(fake_home), "pw_uid": 1000, "pw_gid": 1000})()
         monkeypatch.setattr(ip_module.pwd, "getpwnam", lambda u: fake_pw)
@@ -469,10 +449,7 @@ class TestSwayFlow:
 
         new_text = sway_config.read_text()
         # The active (non-commented) line must contain caps:none exactly once.
-        active_lines = [
-            line for line in new_text.splitlines()
-            if line.strip().startswith("input * xkb_options")
-        ]
+        active_lines = [line for line in new_text.splitlines() if line.strip().startswith("input * xkb_options")]
         assert len(active_lines) == 1, f"expected 1 active xkb_options line, got {active_lines}"
         assert active_lines[0].count("caps:none") == 1
 
@@ -489,8 +466,9 @@ class TestUninstallRestore:
         monkeypatch.setattr(
             ip_module,
             "run",
-            lambda cmd, check=True: captured.append(cmd)
-            or subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr=""),
+            lambda cmd, check=True: (
+                captured.append(cmd) or subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+            ),
         )
 
         manifest = {
@@ -511,8 +489,9 @@ class TestUninstallRestore:
         monkeypatch.setattr(
             ip_module,
             "run",
-            lambda cmd, check=True: captured.append(cmd)
-            or subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr=""),
+            lambda cmd, check=True: (
+                captured.append(cmd) or subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+            ),
         )
 
         manifest = {
@@ -586,9 +565,7 @@ class TestUninstallRestore:
 
         manifest = {
             "target_user": "alice",
-            "caps_lock_originals": {
-                "sway_xkb_options_line": "input * xkb_options altwin:swap_alt_win"
-            },
+            "caps_lock_originals": {"sway_xkb_options_line": "input * xkb_options altwin:swap_alt_win"},
         }
         ip_module._restore_sway_config_options(manifest)
 

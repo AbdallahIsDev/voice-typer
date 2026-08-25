@@ -839,10 +839,7 @@ class TestRunCatchesBackendNotLoadedError:
         # text the notification shows) instead of a bare
         # "Transcription failed" label — so check the "model was not
         # loaded" hint appears in the ERROR-state message.
-        assert any(
-            args[0] == AppState.ERROR and "model was not loaded" in str(args[1])
-            for args in set_state_calls
-        ), (
+        assert any(args[0] == AppState.ERROR and "model was not loaded" in str(args[1]) for args in set_state_calls), (
             "UE-47: run()'s except Exception block must set tray to ERROR "
             "state with the friendly 'model was not loaded' reason. Got "
             f"set_state calls: {[str(args) for args in set_state_calls]}"

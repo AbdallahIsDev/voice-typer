@@ -323,7 +323,7 @@ def app_with_service(tmp_config_dir, monkeypatch):
     monkeypatch.setitem(sys.modules, "pyperclip", MagicMock())
 
     # Prevent the app's atexit handler from polluting test output.
-    monkeypatch.setattr("voice_typer.server.app.atexit.register", lambda *a, **kw: None)
+    monkeypatch.setattr("atexit.register", lambda *a, **kw: None)
 
     # Stub autostart helpers so __init__ doesn't touch the OS.
     monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)

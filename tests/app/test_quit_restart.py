@@ -23,7 +23,7 @@ def _stub_restart_for_log_test(app, monkeypatch):
     )
     monkeypatch.setattr("time.sleep", lambda s: None)
     monkeypatch.setattr(
-        "voice_typer.server.app.sys.exit",
+        "sys.exit",
         lambda code=0: (_ for _ in ()).throw(SystemExit(code)),
     )
     monkeypatch.setattr("os._exit", lambda code: None)
@@ -283,7 +283,7 @@ class TestRestartAppCleanupPath:
         monkeypatch.setattr(sys, "argv", ["voice_typer"])
         monkeypatch.setattr("time.sleep", lambda s: None)
         monkeypatch.setattr("os._exit", lambda code: None)
-        monkeypatch.setattr("voice_typer.server.app.sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
+        monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
         # shutdown_controller now nulls the backend attrs after
         # stop() — capture mocks in locals so assertions still work.
         hotkey_backend = MagicMock()
@@ -311,7 +311,7 @@ class TestRestartAppCleanupPath:
         monkeypatch.setattr(sys, "argv", ["voice_typer"])
         monkeypatch.setattr("time.sleep", lambda s: None)
         monkeypatch.setattr("os._exit", lambda code: None)
-        monkeypatch.setattr("voice_typer.server.app.sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
+        monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
         app.hotkeys._hotkey_backend = MagicMock()
         app.hotkeys._esc_backend = MagicMock()
         app.hotkeys._repaste_backend = MagicMock()
@@ -334,7 +334,7 @@ class TestRestartAppCleanupPath:
         monkeypatch.setattr(sys, "argv", ["voice_typer"])
         monkeypatch.setattr("time.sleep", lambda s: None)
         monkeypatch.setattr("os._exit", lambda code: os_exit_calls.append(code))
-        monkeypatch.setattr("voice_typer.server.app.sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
+        monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
         app.hotkeys._hotkey_backend = MagicMock()
         app.hotkeys._esc_backend = MagicMock()
         app.hotkeys._repaste_backend = MagicMock()

@@ -309,7 +309,7 @@ def _buffer_clear_worker_loop() -> None:
             _buffer_clear_queue.task_done()
 
 
-def _secure_clear_array_background(buffer: collections.deque) -> None:
+def _secure_clear_array_background(buffer: Any) -> None:
     """SEC-audit-008: Zero all chunks in a buffer on a background worker.
 
     previously this function spawned a fresh daemon thread per
@@ -319,8 +319,11 @@ def _secure_clear_array_background(buffer: collections.deque) -> None:
         the queue and zeros each chunk.
 
         The old buffer reference is passed in; the caller has already
-        replaced it with a fresh deque, so the worker can zero the chunks
-        at its leisure without blocking the hot path.
+        replaced it with a fresh empty container, so the worker can zero the
+        chunks at its leisure without blocking the hot path. Accepted
+        container kinds: a ``collections.deque`` of chunk arrays, any other
+        iterable yielding chunk arrays (e.g. the contiguous recording
+        buffer, which yields per-chunk views), or a bare ndarray.
 
         If the queue is full (worker starved for an extended period — should
         not happen in practice), we fall back to a synchronous clear on the

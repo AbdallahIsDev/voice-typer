@@ -2,7 +2,14 @@
 
 ## Status
 
-<Proposed — chip-away migration in progress (Wave 1 of N).>
+<Accepted — COMPLETE for the recording package (2026-08-25). The
+`_RecordingModule` custom module class, the `_MUTABLE_*` frozensets,
+and every package-namespace patch site have been removed;
+production readers (`recorder.py`, `_recorder_split.py`) import
+`voice_typer.server.recording.resampling` at call time and tests patch
+submodules directly. `prewarm/__init__.py` and `server_platform/__init__.py`
+keep only the milder `_pkg.X` call-time indirection — no custom module
+classes remain anywhere in the codebase.>
 
 ## Context
 

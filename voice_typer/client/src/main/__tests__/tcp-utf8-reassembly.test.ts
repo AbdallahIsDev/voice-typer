@@ -162,10 +162,20 @@ vi.mock("../python/send-to-python", () => ({
 // ────────────────────────────────────────────────────────────────────
 
 function readTcpConnectSrc(): string {
-	return fs.readFileSync(
-		path.resolve(__dirname, "../python/tcp-connect.ts"),
+	// The reassembly contract spans two leaves of the tcp split:
+	// frame-reader.ts owns the Buffer.concat / indexOf(0x0a) /
+	// subarray+toString("utf8") decode, and close-handler.ts owns the
+	// Buffer.alloc(0) reset on close. Asserting against their combined
+	// source preserves every original assertion's strength.
+	const frameReader = fs.readFileSync(
+		path.resolve(__dirname, "../python/tcp/frame-reader.ts"),
 		"utf-8",
 	);
+	const closeHandler = fs.readFileSync(
+		path.resolve(__dirname, "../python/tcp/close-handler.ts"),
+		"utf-8",
+	);
+	return `${frameReader}\n${closeHandler}`;
 }
 
 // ────────────────────────────────────────────────────────────────────

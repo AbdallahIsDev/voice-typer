@@ -159,12 +159,9 @@ class TestRefreshMicrophonesFailurePath:
             # Must not raise — the failure path is caught and logged.
             app.refresh_microphones()
 
-        warning_records = [
-            r for r in caplog.records if "[TRAY] refresh_microphones failed" in r.message
-        ]
+        warning_records = [r for r in caplog.records if "[TRAY] refresh_microphones failed" in r.message]
         assert warning_records, (
-            "refresh_microphones must log '[TRAY] refresh_microphones failed' "
-            "when load_microphones raises"
+            "refresh_microphones must log '[TRAY] refresh_microphones failed' when load_microphones raises"
         )
         assert warning_records[0].exc_info is not None, (
             "the failure warning must include exc_info (log.warning(..., exc_info=True))"
@@ -181,9 +178,7 @@ class TestRefreshMicrophonesFailurePath:
 
         app.refresh_microphones()
 
-        assert calls == [app], (
-            "refresh_microphones must call startup_tasks.load_microphones(self)"
-        )
+        assert calls == [app], "refresh_microphones must call startup_tasks.load_microphones(self)"
 
 
 # ─── Integration: real startup path ────────────────────────────────────

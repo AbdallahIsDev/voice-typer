@@ -440,8 +440,7 @@ def built_html_files():
             _rmtree_force(out_dir)
         except PermissionError as exc:
             pytest.skip(
-                f"out/renderer locked by another process (concurrent build / "
-                f"dev server) — skipping build test: {exc!r}"
+                f"out/renderer locked by another process (concurrent build / dev server) — skipping build test: {exc!r}"
             )
 
     env_path = f"{str(Path(node).parent)}:{__import__('os').environ.get('PATH', '')}"

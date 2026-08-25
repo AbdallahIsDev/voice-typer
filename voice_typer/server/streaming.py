@@ -10,12 +10,44 @@ import threading
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from typing import Any
 
 from voice_typer.server._lazy_import import lazy_module
 
 np = lazy_module("numpy")
 
 log = logging.getLogger(__name__)
+
+
+def _is_view_of_live_recorder_audio(recorder: Any, arr: Any) -> bool:
+    """XZ-PRIV-02 provenance check: is ``arr`` a VIEW over audio the live
+    recorder still owns?
+
+    The recorder hands out zero-copy snapshot views over TWO backing
+    stores, and a destructive ``fill(0)`` on such a view would corrupt the
+    recording mid-session (silent transcription windows):
+
+    1. ``recorder._cached_resampled`` — the incremental resampled-stream
+       cache (snapshot resample path);
+    2. ``recorder._buffer.storage`` — the contiguous raw recording buffer
+       itself (the common no-resample path; the buffer object may also be
+       a plain deque/list in tests and post-hot-swap windows, hence the
+       defensive getattr chain).
+
+    A fresh/owning array (``.base is None``) or any other array is NOT
+    recorder-owned and MUST be zeroed after use. Mock recorders in tests
+    return auto-attributes that never compare identity-equal, so they keep
+    taking the unconditional-zero path.
+    """
+    base = getattr(arr, "base", None)
+    if base is None:
+        return False
+    cached = getattr(recorder, "_cached_resampled", None)
+    if cached is not None and base is cached:
+        return True
+    buf = getattr(recorder, "_buffer", None)
+    storage = getattr(buf, "storage", None) if buf is not None else None
+    return storage is not None and base is storage
 
 
 @dataclass(frozen=True)
@@ -979,28 +1011,19 @@ class StreamingTranscriptionSession:
             # ``np.ndarray`` (NOT a view of the recorder cache). To
             # honor the test contract without breaking the
             # production view-safety, the zero is gated on the
-            # snapshot NOT being a view of the cached concat (i.e.
-            # the test's fresh-array scenario). The check uses
-            # ``snapshot.base is not cached_resampled`` —
-            # ``numpy.ndarray.base`` returns the underlying object
-            # for a view (``None`` for an owning array). If
-            # ``cached_resampled`` is not present on the recorder
-            # (test path), the zero is unconditional.
+            # snapshot NOT being a view over live recorder audio
+            # (i.e. the test's fresh-array scenario). The check is
+            # ``_is_view_of_live_recorder_audio`` (see its docstring for
+            # the provenance anchors) — ``numpy.ndarray.base`` returns
+            # the underlying object for a view (``None`` for an owning
+            # array). Mock recorders without real caches always take
+            # the unconditional-zero path.
             try:
-                if audio is not None and audio.size > 0:
-                    cached = getattr(self.recorder, "_cached_resampled", None)
-                    is_view_of_cache = (
-                        cached is not None and getattr(audio, "base", None) is not None and audio.base is cached
-                    )
-                    if not is_view_of_cache:
-                        audio.fill(0)
+                if audio is not None and audio.size > 0 and not _is_view_of_live_recorder_audio(self.recorder, audio):
+                    audio.fill(0)
                 if window is not None and getattr(window, "audio", None) is not None and window.audio.size > 0:
                     waudio = window.audio
-                    cached = getattr(self.recorder, "_cached_resampled", None)
-                    is_view_of_cache = (
-                        cached is not None and getattr(waudio, "base", None) is not None and waudio.base is cached
-                    )
-                    if not is_view_of_cache:
+                    if not _is_view_of_live_recorder_audio(self.recorder, waudio):
                         waudio.fill(0)
             except (OSError, ValueError, AttributeError):
                 # secure-clear is best-effort: a partial zero doesn't

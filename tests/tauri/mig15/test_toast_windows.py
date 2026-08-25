@@ -112,6 +112,24 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _read_ws_bridge_rs() -> str:
+    """Read the Rust WS bridge source: ws.rs plus its ws/reader.rs /
+    ws/writer.rs task submodules.
+
+    reader/writer module split: the reader body (the
+    ``translate_event_name(event_type)`` call site, the specific-event
+    ``emit(emit_name, payload.clone())`` emit, and the generic
+    ``python-event`` envelope fan-out asserted below) moved into
+    ``ws/reader.rs``; the writer task into ``ws/writer.rs``.
+    Concatenating keeps the source-inspection assertions green across
+    the split.
+    """
+    parts = [_read(WS_RS)]
+    for name in ("reader.rs", "writer.rs"):
+        parts.append(_read(WS_RS.parent / "ws" / name))
+    return "\n\n".join(parts)
+
+
 def _make_ipc_server():
     """Build a minimal ``IPCServer`` with a mock app + service.
 
@@ -290,7 +308,7 @@ class TestWsRsRenamesElectronNotificationToNotification:
         the CR-8 source-side rename), so the canonical event relies on
         the generic pass-through.
         """
-        src = _read(WS_RS)
+        src = _read_ws_bridge_rs()
         assert "let emit_name = translate_event_name(event_type);" in src, (
             "ws.rs must derive the emitted name via `translate_event_name(event_type)` "
             "— the generic rename helper that passes the canonical 'notification' "
@@ -306,7 +324,7 @@ class TestWsRsRenamesElectronNotificationToNotification:
         (``payload.clone()``), not just an empty event. Otherwise the
         webview's notification handler receives no title/body and the
         toast renders blank."""
-        src = _read(WS_RS)
+        src = _read_ws_bridge_rs()
         # The current emit form (from the reader task):
         #   let _ = app_for_reader.emit(emit_name, payload.clone());
         assert "emit(emit_name, payload.clone())" in src, (
@@ -337,7 +355,7 @@ class TestWsRsEmitsLegacyElectronNotificationForBackwardCompat:
         ``notification`` alias branch was REMOVED for the same reason —
         unknown events pass through ``translate_event_name`` unchanged.
         """
-        src = _read(WS_RS)
+        src = _read_ws_bridge_rs()
         # The current form (from the reader task):
         #   let emit_name = translate_event_name(event_type);
         assert "let emit_name = translate_event_name(event_type);" in src, (
@@ -352,7 +370,7 @@ class TestWsRsEmitsLegacyElectronNotificationForBackwardCompat:
         so direct listeners like ``appWindow.on('electron_notification')``
         keep firing. The generic ``python-event`` envelope is NOT
         sufficient — direct listeners don't subscribe to that."""
-        src = _read(WS_RS)
+        src = _read_ws_bridge_rs()
         # The emit form (from ws.rs:130):
         #   let _ = app_for_reader.emit(emit_name, payload.clone());
         assert "emit(emit_name" in src, (
@@ -368,7 +386,7 @@ class TestWsRsEmitsLegacyElectronNotificationForBackwardCompat:
         secondary path by which the renderer learns about a notification
         event — both paths must be present for the toast wiring to be
         complete."""
-        src = _read(WS_RS)
+        src = _read_ws_bridge_rs()
         assert 'emit("python-event"' in src, (
             "ws.rs must also emit the generic 'python-event' envelope "
             "(ADR-0020 §6.3) — this is the catch-all path the usePython "

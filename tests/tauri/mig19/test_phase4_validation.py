@@ -153,6 +153,11 @@ IPC_MAIN_PY = REPO_ROOT / "voice_typer" / "server" / "ipc" / "entrypoint.py"
 SIDECAR_WS_PY = REPO_ROOT / "voice_typer" / "server" / "sidecar_ws.py"
 WS_RS = REPO_ROOT / "src-tauri" / "src" / "sidecar" / "ws.rs"
 WS_EVENT_PROTOCOL_RS = REPO_ROOT / "src-tauri" / "src" / "sidecar" / "ws" / "event_protocol.rs"
+# reader/writer module split: the spawn_reader_task / spawn_writer_task
+# bodies moved out of ws.rs into these submodules (mirroring the earlier
+# event_protocol split). Source-inspection helpers below read them too.
+WS_READER_RS = REPO_ROOT / "src-tauri" / "src" / "sidecar" / "ws" / "reader.rs"
+WS_WRITER_RS = REPO_ROOT / "src-tauri" / "src" / "sidecar" / "ws" / "writer.rs"
 ADR_0020 = REPO_ROOT / "docs" / "adr" / "0020-desktop-runtime-migration-analysis.md"
 
 # ── ADR-0020 §2 — frozen 68-command table (the v1 wire contract) ─────────
@@ -737,13 +742,32 @@ def test_validate_dict_payload_is_referenced_in_adr():
 
 
 def _read_ws_rs() -> str:
-    """Read the Rust WS bridge source. The file MUST exist — its
-    absence means the Tauri migration was rolled back mid-flight."""
+    """Read the Rust WS bridge source: the ``ws.rs`` parent module PLUS
+    its ``ws/reader.rs`` / ``ws/writer.rs`` task submodules. The parent
+    file MUST exist — its absence means the Tauri migration was rolled
+    back mid-flight.
+
+    reader/writer module split (mirrors the earlier
+    ``_read_ws_event_protocol_rs`` pattern): the ``spawn_reader_task``
+    body (``bubble_level`` typed-only coalescing carve-out,
+    ``bubble_coalesce_should_emit`` call site,
+    ``translate_event_name(event_type)`` call site, python-event
+    fan-out, disconnect cleanup block) moved into ``ws/reader.rs``;
+    the writer task into ``ws/writer.rs``. Concatenating the three
+    files keeps every source-inspection assertion below checked
+    across the split.
+    """
     assert WS_RS.is_file(), (
         f"src-tauri/src/sidecar/ws.rs is missing at {WS_RS} — the Tauri "
         "WS bridge has been removed (ADR-0020 regression)."
     )
-    return WS_RS.read_text(encoding="utf-8")
+    parts = [WS_RS.read_text(encoding="utf-8")]
+    for sibling in (WS_READER_RS, WS_WRITER_RS):
+        assert sibling.is_file(), (
+            f"{sibling} is missing — the ws.rs reader/writer module split was rolled back mid-flight."
+        )
+        parts.append(sibling.read_text(encoding="utf-8"))
+    return "\n\n".join(parts)
 
 
 def _read_ws_event_protocol_rs() -> str:

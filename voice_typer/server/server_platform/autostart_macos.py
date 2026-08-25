@@ -222,9 +222,7 @@ def _enable_autostart_macos() -> bool:
     stderr_lower = stderr_text.lower()
 
     bootstrap_succeeded = (
-        completed.returncode == 0
-        and "loader.error" not in stderr_lower
-        and "exited with" not in stderr_lower
+        completed.returncode == 0 and "loader.error" not in stderr_lower and "exited with" not in stderr_lower
     )
 
     if not bootstrap_succeeded:

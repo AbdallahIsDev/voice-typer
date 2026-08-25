@@ -79,9 +79,7 @@ def _capture_main(
     monkeypatch.setattr(crc, "_load_current_coverage", lambda: coverage_pct)
 
     # _parse_coverage_xml must NEVER touch the real repo's coverage.xml.
-    monkeypatch.setattr(
-        crc, "_parse_coverage_xml", lambda _path: coverage_pct
-    )
+    monkeypatch.setattr(crc, "_parse_coverage_xml", lambda _path: coverage_pct)
     # _run_coverage_json is the fallback path; stub it so we never shell
     # out to a real `coverage` binary during tests.
     monkeypatch.setattr(crc, "_run_coverage_json", lambda: coverage_pct)
@@ -135,24 +133,17 @@ def _baseline_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 class TestStrictFailsOnMissingData:
     """``--strict`` must exit 1 when coverage data is unavailable."""
 
-    def test_strict_exits_1_when_no_coverage_data(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_strict_exits_1_when_no_coverage_data(self, monkeypatch: pytest.MonkeyPatch) -> None:
         rc, out = _capture_main(
             ["--strict"],
             monkeypatch=monkeypatch,
             coverage_pct=None,
         )
-        assert rc == 1, (
-            f"--strict should exit 1 when coverage data is unavailable, "
-            f"got {rc}.\nstdout:\n{out}"
-        )
+        assert rc == 1, f"--strict should exit 1 when coverage data is unavailable, got {rc}.\nstdout:\n{out}"
         assert "FAIL" in out
         assert "--strict" in out
 
-    def test_strict_message_documents_skip_default(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_strict_message_documents_skip_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The --strict failure message should hint at the default skip behavior."""
         rc, out = _capture_main(
             ["--strict"],
@@ -171,24 +162,19 @@ class TestStrictFailsOnMissingData:
 class TestDefaultSkipsOnMissingData:
     """default behavior (no --strict) must keep exit-0 skip."""
 
-    def test_default_exits_0_when_no_coverage_data(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_default_exits_0_when_no_coverage_data(self, monkeypatch: pytest.MonkeyPatch) -> None:
         rc, out = _capture_main(
             [],
             monkeypatch=monkeypatch,
             coverage_pct=None,
         )
         assert rc == 0, (
-            f"Default (no --strict) should exit 0 (skip) when coverage "
-            f"data is unavailable, got {rc}.\nstdout:\n{out}"
+            f"Default (no --strict) should exit 0 (skip) when coverage data is unavailable, got {rc}.\nstdout:\n{out}"
         )
         assert "PASS" in out
         assert "skip" in out.lower()
 
-    def test_default_explicit_no_strict_exits_0(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_default_explicit_no_strict_exits_0(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Passing ``--strict=False`` is not a thing (argparse store_true);
         the absence of the flag IS the non-strict mode. Verify explicitly."""
         # No --strict flag on the command line at all.
@@ -228,10 +214,7 @@ class TestStrictNoEffectWhenDataPresent:
             coverage_pct=70.0,
             baseline=self._BASELINE,
         )
-        assert rc == 0, (
-            f"--strict with data present should PASS when ratchet holds, "
-            f"got {rc}.\nstdout:\n{out}"
-        )
+        assert rc == 0, f"--strict with data present should PASS when ratchet holds, got {rc}.\nstdout:\n{out}"
         assert "PASS" in out
 
     def test_strict_with_data_present_fails_on_regression(
@@ -244,10 +227,7 @@ class TestStrictNoEffectWhenDataPresent:
             coverage_pct=60.0,
             baseline=self._BASELINE,
         )
-        assert rc == 1, (
-            f"--strict with data present should FAIL on regression, "
-            f"got {rc}.\nstdout:\n{out}"
-        )
+        assert rc == 1, f"--strict with data present should FAIL on regression, got {rc}.\nstdout:\n{out}"
         assert "FAIL" in out
         assert "REGRESSION" in out
 
@@ -303,12 +283,10 @@ class TestStrictNoEffectWhenDataPresent:
                 baseline=baseline,
             )
             assert rc_strict == expected_rc, (
-                f"--strict: current={current}, baseline={baseline_pct} "
-                f"expected rc={expected_rc}, got {rc_strict}"
+                f"--strict: current={current}, baseline={baseline_pct} expected rc={expected_rc}, got {rc_strict}"
             )
             assert rc_default == expected_rc, (
-                f"default: current={current}, baseline={baseline_pct} "
-                f"expected rc={expected_rc}, got {rc_default}"
+                f"default: current={current}, baseline={baseline_pct} expected rc={expected_rc}, got {rc_default}"
             )
 
 
@@ -324,9 +302,7 @@ class TestStrictRegenerateNoData:
     (skip) before reaching regenerate.
     """
 
-    def test_strict_regenerate_no_data_exits_1(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_strict_regenerate_no_data_exits_1(self, monkeypatch: pytest.MonkeyPatch) -> None:
         rc, out = _capture_main(
             ["--strict", "--regenerate"],
             monkeypatch=monkeypatch,
@@ -338,9 +314,7 @@ class TestStrictRegenerateNoData:
         )
         assert "FAIL" in out
 
-    def test_default_regenerate_no_data_exits_0(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_default_regenerate_no_data_exits_0(self, monkeypatch: pytest.MonkeyPatch) -> None:
         rc, _out = _capture_main(
             ["--regenerate"],
             monkeypatch=monkeypatch,
@@ -371,9 +345,7 @@ class TestHelpDocumentsStrict:
             crc.main(["--help"])
         assert exc_info.value.code == 0
         help_text = buf.getvalue()
-        assert "--strict" in help_text, (
-            f"--help output should document --strict.\nhelp:\n{help_text}"
-        )
+        assert "--strict" in help_text, f"--help output should document --strict.\nhelp:\n{help_text}"
         # The help text should explain WHEN to use --strict (CI).
         assert "CI" in help_text or "strict" in help_text.lower()
 

@@ -793,13 +793,11 @@ class TestOptionalNumericFieldsNoSpuriousWarnings:
         warnings = cfg.last_load_warnings or []
         bubble_warnings = [w for w in warnings if "bubble_x" in w and "resetting to default" in w]
         assert bubble_warnings, (
-            "VT-1: a genuinely invalid bubble_x value must still warn + reset. "
-            f"Got warnings: {warnings!r}"
+            f"VT-1: a genuinely invalid bubble_x value must still warn + reset. Got warnings: {warnings!r}"
         )
         assert cfg.bubble_x is None  # reset to the dataclass default
         duration_warnings = [w for w in warnings if "test_duration_seconds" in w and "resetting to default" in w]
         assert duration_warnings, (
-            "VT-1: a genuinely invalid test_duration_seconds value must still "
-            f"warn + reset. Got warnings: {warnings!r}"
+            f"VT-1: a genuinely invalid test_duration_seconds value must still warn + reset. Got warnings: {warnings!r}"
         )
         assert cfg.test_duration_seconds is None

@@ -34,15 +34,25 @@ from unittest.mock import MagicMock
 # structure WITHOUT importing it (which would pull in VoiceTyperApp +
 # the entire server stack). Same pattern as the  / R6-F7 tests.
 #
-# ``_SHUTDOWN_CONTROLLER_PATH`` is kept for the parallel-batch ordering
-# test (the parallel_items list lives in ``_do_cleanup`` on the
-# controller). The helper body lives in the extracted teardowns module.
-_SHUTDOWN_CONTROLLER_PATH = os.path.join(
+# The pre-split ``shutdown_controller.py`` module is now a package; the
+# pinned regions moved to its leaves: the ``_teardown_*`` delegate
+# methods live in ``_teardowns.py`` and the parallel-batch
+# ``parallel_items`` list lives in ``_plans.py`` (``SequencingMixin``).
+_CONTROLLER_TEARDOWNS_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
     "voice_typer",
     "server",
-    "shutdown_controller.py",
+    "shutdown_controller",
+    "_teardowns.py",
+)
+_CONTROLLER_PLANS_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "voice_typer",
+    "server",
+    "shutdown_controller",
+    "_plans.py",
 )
 _TEARDOWNS_ASR_MODELS_PATH = os.path.join(
     os.path.dirname(__file__),
@@ -55,8 +65,13 @@ _TEARDOWNS_ASR_MODELS_PATH = os.path.join(
 )
 
 
-def _controller_src() -> str:
-    with open(_SHUTDOWN_CONTROLLER_PATH, encoding="utf-8") as f:
+def _controller_teardowns_src() -> str:
+    with open(_CONTROLLER_TEARDOWNS_PATH, encoding="utf-8") as f:
+        return f.read()
+
+
+def _controller_plans_src() -> str:
+    with open(_CONTROLLER_PLANS_PATH, encoding="utf-8") as f:
         return f.read()
 
 
@@ -88,7 +103,7 @@ class TestTeardownAsrModelsContract:
         """The helper must be defined as a method on
         ``ShutdownController`` (the delegate) AND as a standalone
         function in the extracted teardowns module (the body)."""
-        s = _controller_src()
+        s = _controller_teardowns_src()
         # Method definition with the exact name + ``self`` first arg.
         assert "def _teardown_asr_models(self" in s, "_teardown_asr_models(self) method must be defined"
         # The extracted body must also exist.
@@ -103,7 +118,7 @@ class TestTeardownAsrModelsContract:
         batch; ``_teardown_asr_models`` is the first PARALLEL item so
         the (potentially slow) CUDA context teardown starts as early
         as possible."""
-        s = _controller_src()
+        s = _controller_plans_src()
         # Find the ``parallel_items = [`` block. The block opens with
         # ``parallel_items: list[tuple[str, object, float]] = [`` (the
         # type-annotated form) and closes with the matching ``]``.

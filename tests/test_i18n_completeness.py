@@ -49,6 +49,15 @@ ALLOWED_UNTRANSLATED = {
     # (Sibling keys ARE distinct: settingsAppearance "Apariencia",
     # settingsPrivacy "Privacidad".)
     "nav.settingsGeneral",
+    # settings.audioEnhancement.presetAuto / presetStudio — "Auto" and
+    # "Studio" are the standard German/Spanish/French audio terms (the
+    # same loanwords English uses); the de/es/fr values are genuine
+    # translations, not untranslated copies. Sibling keys ARE distinct
+    # (presetNoisyRoom "Lauter Raum"/"Habitación ruidosa"/"Pièce
+    # bruyante", presetOff "Aus"/"Desactivado"/"Désactivé", presetCustom
+    # "Erweitert"/"Avanzado"/"Avancé").
+    "settings.audioEnhancement.presetAuto",
+    "settings.audioEnhancement.presetStudio",
     # (client_root_i18n): "⚠ Error" — universal warning symbol +
     # technical term, identical across all locales (same rationale as
     # home.error). The bubble renders this as a small status badge

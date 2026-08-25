@@ -262,7 +262,7 @@ class TestWhisperSkipWhenQwenActive:
         monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
-        monkeypatch.setattr("voice_typer.server.app.atexit.register", lambda *a, **kw: None)
+        monkeypatch.setattr("atexit.register", lambda *a, **kw: None)
         from voice_typer.server.hotkeys import PynputHotkey
 
         # ``create_hotkey_backend`` was moved from ``app.py`` to

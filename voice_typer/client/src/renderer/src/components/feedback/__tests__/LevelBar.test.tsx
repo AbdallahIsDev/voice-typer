@@ -119,4 +119,57 @@ describe("LevelBar — compositor-friendly scaleX fill", () => {
 		expect(cls).toContain("transition-[transform,opacity]");
 		expect(cls).not.toContain("transition-all");
 	});
+
+	it("fills solid primary regardless of level tier (no colour ladder)", () => {
+		for (const lvl of [0.1, 0.45, 0.85]) {
+			render(<LevelBar level={lvl} playing={false} />);
+			expect(getFill().className).toContain("bg-primary");
+			cleanup();
+		}
+	});
+
+	it("never sets an inline backgroundColor on the fill", () => {
+		render(<LevelBar level={0.85} playing={false} />);
+		expect(getFill().style.backgroundColor).toBe("");
+	});
+
+	it("counter-scales the cap radius so caps stay round at every level", () => {
+		// scaleX compresses painted geometry — a fixed border-radius would
+		// render squared caps at small levels. The fill divides the
+		// horizontal radius by the level (CSS var --level) so the
+		// POST-transform caps stay 3px semicircles; vertical stays 3px.
+		render(<LevelBar level={0.25} playing={false} />);
+		const fill = getFill();
+		expect(fill.style.getPropertyValue("--level")).toBe("0.25");
+		expect(fill.style.borderRadius).toBe(
+			"calc(3px / max(var(--level), 0.03)) / 3px",
+		);
+		// Full scale → plain 3px/3px (a perfect capsule end).
+		cleanup();
+		render(<LevelBar level={1} playing={false} />);
+		expect(getFill().style.getPropertyValue("--level")).toBe("1");
+		// Negative levels clamp to 0 like the transform does.
+		cleanup();
+		render(<LevelBar level={-0.2} playing={false} />);
+		expect(getFill().style.getPropertyValue("--level")).toBe("0");
+	});
+});
+
+describe("LevelBar — neutral borderless track", () => {
+	it("renders the track without any border classes", () => {
+		render(<LevelBar level={0} playing={false} />);
+		const cls = getProgressbar().className;
+		// Token-level check — ``bg-border`` legitimately contains the
+		// substring "border"; only a ``border``-prefixed utility would
+		// draw an outline.
+		expect(cls.split(/\s+/).some((c) => c.startsWith("border"))).toBe(false);
+	});
+
+	it("uses the neutral bg-border track when idle and the muted swap when frozen", () => {
+		render(<LevelBar level={0} playing={false} />);
+		expect(getProgressbar().className).toContain("bg-border");
+		cleanup();
+		render(<LevelBar level={0} playing={true} />);
+		expect(getProgressbar().className).toContain("bg-(--text-muted)/10");
+	});
 });

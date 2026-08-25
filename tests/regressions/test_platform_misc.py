@@ -217,18 +217,19 @@ class TestDaemonThreadRationaleDocumented:
     def test_service_download_thread_has_rationale(self):
         # KEEP — pins RACE-008 rationale comment on the service.py
         # model-download daemon thread. Same rationale as the win32 variant.
-        # The model-download daemon thread lives in the split
-        # service/model.py (the service package is composed from domain
-        # modules via multiple inheritance).
-        from voice_typer.server.service import model as service_model
+        # The model-download daemon thread lives in the split service/model
+        # package (composed from domain mixin modules) — search every leaf.
+        from pathlib import Path
 
-        # The download thread is inside a method — search the whole module.
-        src = inspect.getsource(service_model)
+        import voice_typer.server.service.model as service_model_pkg
+
+        pkg_dir = Path(service_model_pkg.__file__).resolve().parent
+        src = "".join(p.read_text(encoding="utf-8") for p in sorted(pkg_dir.glob("*.py")))
         # Assert the rationale PHRASE — the RACE-008 ticket token is
         # stripped by C-STYLE-1 cleanup, but the daemon=True rationale
         # comment on the download thread must never be removed.
         assert "daemon=True is acceptable" in src, (
-            "service/model.py must keep a daemon=True rationale comment on the download daemon thread."
+            "service/model package must keep a daemon=True rationale comment on the download daemon thread."
         )
 
 

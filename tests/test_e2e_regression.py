@@ -323,12 +323,10 @@ class TestPrewarmFiltersImportsByActiveBackend:
         # torch / transformers MUST NOT have been warmed (worker is
         # torch-free).
         assert "torch" not in warmed_packages, (
-            f"_warm_imports must NOT warm torch (worker is torch-free). "
-            f"warmed_packages={warmed_packages!r}"
+            f"_warm_imports must NOT warm torch (worker is torch-free). warmed_packages={warmed_packages!r}"
         )
         assert "transformers" not in warmed_packages, (
-            f"_warm_imports must NOT warm transformers (worker is torch-free). "
-            f"warmed_packages={warmed_packages!r}"
+            f"_warm_imports must NOT warm transformers (worker is torch-free). warmed_packages={warmed_packages!r}"
         )
 
 

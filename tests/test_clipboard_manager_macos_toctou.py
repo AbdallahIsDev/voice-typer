@@ -41,26 +41,7 @@ from unittest.mock import MagicMock, patch
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 
-
-def _make_cm() -> ClipboardManager:
-    """Build a ClipboardManager with mocked pynput controller.
-
-    Mirrors the ``_make_cm`` helper pattern in
-    ``tests/clipboard/win32/test_win32_copy_paste.py`` (TestCopyWindowsBranches): bypass the
-    real ``__init__`` (which calls ``_cb._ensure_pynput_imported()`` and
-    instantiates ``_cb._Controller()``) and install a ``MagicMock``
-    keyboard directly. Sets ``_restore_delay_ms`` so ``paste()``'s
-    restore-delay lookup (if a snapshot is provided) doesn't blow up.
-    """
-    cm = ClipboardManager.__new__(ClipboardManager)
-    cm.paste_enabled = True
-    cm._keyboard = MagicMock()
-    cm._last_paste_time = 0.0  # not rate-limited
-    cm._clipboard_seq = 0
-    cm._last_copied_text = ""
-    cm._clipboard_save_restore_enabled = False  # no snapshot → no restore thread
-    cm._restore_delay_ms = 150
-    return cm
+from tests.fixtures.clipboard_helpers import make_clipboard_manager  # noqa: E402
 
 
 def _install_fake_appkit(*, pid_side_effect) -> MagicMock:
@@ -117,7 +98,7 @@ class TestMacosToctouPidRecheck:
         (potentially a password) from being pasted into the wrong
         window.
         """
-        cm = _make_cm()
+        cm = make_clipboard_manager(save_restore=False)
         # Two calls to _get_frontmost_pid_macos:
         #   1. safety check (manager.py:1083) → 1234
         #   2. TOCTOU re-check (manager.py:1153) → 5678
@@ -184,7 +165,7 @@ class TestMacosToctouPidRecheck:
         the fail-open ``None`` path) — neither verifies the happy path
         where the PID is available AND unchanged.
         """
-        cm = _make_cm()
+        cm = make_clipboard_manager(save_restore=False)
         # Two calls to _get_frontmost_pid_macos, both return the same PID.
         appkit = _install_fake_appkit(pid_side_effect=[1234, 1234])
 

@@ -93,8 +93,7 @@ class TestProbeCudaRuntime:
         # Call probe — must return None without raising.
         result = cuda_engine._probe_cuda_runtime()
         assert result is None, (
-            "_probe_cuda_runtime must return None when _model is None "
-            "(early-return contract at line 520-522)."
+            "_probe_cuda_runtime must return None when _model is None (early-return contract at line 520-522)."
         )
         # Sanity: device/compute_type untouched (no fallback ran).
         assert cuda_engine._device == "cuda"
@@ -135,23 +134,17 @@ class TestProbeCudaRuntime:
         assert result is None, "_probe_cuda_runtime returns None on success."
         # model.transcribe was called exactly once with the sine-wave probe.
         assert mock_model.transcribe.call_count == 1, (
-            f"expected exactly 1 transcribe call, got "
-            f"{mock_model.transcribe.call_count}"
+            f"expected exactly 1 transcribe call, got {mock_model.transcribe.call_count}"
         )
         # Device stays CUDA — the fallback did NOT fire.
         assert cuda_engine._device == "cuda", (
-            "on probe success _device must remain 'cuda' — the fallback "
-            "must NOT fire."
+            "on probe success _device must remain 'cuda' — the fallback must NOT fire."
         )
-        assert cuda_engine._compute_type == "float16", (
-            "on probe success _compute_type must remain 'float16'."
-        )
+        assert cuda_engine._compute_type == "float16", "on probe success _compute_type must remain 'float16'."
         # _reload_under_lock must NOT have been called.
         cuda_engine._reload_under_lock.assert_not_called()
 
-    def test_probe_cuda_runtime_cublas_error_triggers_cpu_fallback(
-        self, cuda_engine
-    ):
+    def test_probe_cuda_runtime_cublas_error_triggers_cpu_fallback(self, cuda_engine):
         """#3: a cuBLAS load failure must trigger CPU fallback.
 
         The error substring list at line 557-568 includes
@@ -172,6 +165,7 @@ class TestProbeCudaRuntime:
         AND that the reload was called exactly once.
         """
         mock_model = MagicMock()
+
         # Raise the cuBLAS error during the segment iteration, not
         # during the transcribe() call itself — mirrors the real
         # failure mode (the lazy generator doesn't try to load cuBLAS
@@ -203,12 +197,8 @@ class TestProbeCudaRuntime:
             cuda_engine._probe_cuda_runtime()
 
         # All three state transitions fired.
-        assert cuda_engine._device == "cpu", (
-            "cuBLAS error must trigger _device = 'cpu' fallback."
-        )
-        assert cuda_engine._compute_type == "int8", (
-            "cuBLAS error must trigger _compute_type = 'int8' fallback."
-        )
+        assert cuda_engine._device == "cpu", "cuBLAS error must trigger _device = 'cpu' fallback."
+        assert cuda_engine._compute_type == "int8", "cuBLAS error must trigger _compute_type = 'int8' fallback."
         # Model was nulled before reload so a concurrent transcribe()
         # can't observe a half-loaded model.
         assert cuda_engine._model is None or cuda_engine._model is mock_model, (
@@ -218,17 +208,14 @@ class TestProbeCudaRuntime:
         )
         # The reload was called exactly once.
         assert cuda_engine._reload_under_lock.call_count == 1, (
-            "_reload_under_lock must be called exactly once on cuBLAS "
-            "fallback."
+            "_reload_under_lock must be called exactly once on cuBLAS fallback."
         )
         # HU-25: the RACE-023 deferred release must be armed so the next
         # caller outside the lock (transcribe / unload) runs
         # gc.collect() + release_gpu_memory() — otherwise the freed CUDA
         # blocks stay cached in the allocator and VRAM is never returned
         # to the OS after repeated CUDA-probe-failure reloads.
-        assert cuda_engine._pending_gc_collect is True, (
-            "cuBLAS fallback must set _pending_gc_collect = True (HU-25)"
-        )
+        assert cuda_engine._pending_gc_collect is True, "cuBLAS fallback must set _pending_gc_collect = True (HU-25)"
 
     def test_probe_cuda_runtime_non_cuda_error_propagates(self, cuda_engine):
         """#4: a non-CUDA exception must propagate (NOT swallowed).
@@ -259,10 +246,6 @@ class TestProbeCudaRuntime:
             cuda_engine._probe_cuda_runtime()
 
         # The fallback must NOT have fired for a non-CUDA error.
-        assert cuda_engine._device == "cuda", (
-            "non-CUDA error must NOT trigger device fallback."
-        )
-        assert cuda_engine._compute_type == "float16", (
-            "non-CUDA error must NOT trigger compute_type fallback."
-        )
+        assert cuda_engine._device == "cuda", "non-CUDA error must NOT trigger device fallback."
+        assert cuda_engine._compute_type == "float16", "non-CUDA error must NOT trigger compute_type fallback."
         cuda_engine._reload_under_lock.assert_not_called()

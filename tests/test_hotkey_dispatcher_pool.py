@@ -95,9 +95,7 @@ def test_get_active_backend_count_returns_zero_initially():
 # ─── register() twice with same hotkey reuses the pooled backend ───────────
 
 
-def test_register_twice_same_hotkey_reuses_pooled_backend(
-    dispatcher: HotkeyDispatcher, monkeypatch
-):
+def test_register_twice_same_hotkey_reuses_pooled_backend(dispatcher: HotkeyDispatcher, monkeypatch):
     """Calling ``register()`` twice with the SAME hotkey must NOT call
     ``create_hotkey_backend`` twice. The second call hits the per-spec
     pool fast path in ``_create_and_start_main_backend`` and returns
@@ -105,9 +103,7 @@ def test_register_twice_same_hotkey_reuses_pooled_backend(
     new_backend = MagicMock()
     new_backend.is_alive.return_value = True
     factory = MagicMock(return_value=new_backend)
-    monkeypatch.setattr(
-        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory
-    )
+    monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
 
     # First register — pool is empty, factory called once.
     result1 = dispatcher.register()
@@ -120,13 +116,9 @@ def test_register_twice_same_hotkey_reuses_pooled_backend(
     # so the factory is NOT called again and the same backend is reused.
     result2 = dispatcher.register()
     assert result2 is True
-    assert factory.call_count == 1, (
-        f"Expected factory called once (pool fast-path); got {factory.call_count}"
-    )
+    assert factory.call_count == 1, f"Expected factory called once (pool fast-path); got {factory.call_count}"
     assert dispatcher._hotkey_backend is new_backend
-    assert dispatcher.get_active_backend_count() == 1, (
-        "Pool size must stay at 1 when the same spec is re-registered"
-    )
+    assert dispatcher.get_active_backend_count() == 1, "Pool size must stay at 1 when the same spec is re-registered"
 
     # start() was called once (first register). The pool fast-path
     # returns BEFORE the start() call, so the second register does NOT
@@ -134,9 +126,7 @@ def test_register_twice_same_hotkey_reuses_pooled_backend(
     new_backend.start.assert_called_once()
 
 
-def test_register_with_different_hotkeys_creates_distinct_backends(
-    dispatcher: HotkeyDispatcher, monkeypatch
-):
+def test_register_with_different_hotkeys_creates_distinct_backends(dispatcher: HotkeyDispatcher, monkeypatch):
     """``restart()`` to a DIFFERENT hotkey spec creates a NEW backend
     (different spec = different pool entry). The OLD backend is
     untracked and stopped; the NEW backend is tracked. Final pool
@@ -148,9 +138,7 @@ def test_register_with_different_hotkeys_creates_distinct_backends(
     new_backend = MagicMock()
     new_backend.is_alive.return_value = True
     factory = MagicMock(return_value=new_backend)
-    monkeypatch.setattr(
-        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory
-    )
+    monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
 
     dispatcher.restart("<f3>")
 
@@ -170,9 +158,7 @@ def test_register_with_different_hotkeys_creates_distinct_backends(
 # ─── failed start does not leave a stale pool entry ────────────────────────
 
 
-def test_register_failure_does_not_pollute_pool(
-    dispatcher: HotkeyDispatcher, monkeypatch
-):
+def test_register_failure_does_not_pollute_pool(dispatcher: HotkeyDispatcher, monkeypatch):
     """If ``start()`` raises, the failed backend must NOT be added to
     ``_shared_backend_pool`` — otherwise a subsequent ``register()``
     with the same spec would return a dead backend from the pool.
@@ -192,9 +178,7 @@ def test_register_failure_does_not_pollute_pool(
     assert dispatcher._shared_backend_pool == {}
 
 
-def test_restart_failure_then_restore_tracks_restored_backend(
-    dispatcher: HotkeyDispatcher, monkeypatch
-):
+def test_restart_failure_then_restore_tracks_restored_backend(dispatcher: HotkeyDispatcher, monkeypatch):
     """``restart()`` to a bad spec fails, then restores the OLD spec.
     The restored backend IS tracked in the pool. The failed-spec
     backend (whose start() raised) is NOT tracked."""
@@ -208,9 +192,7 @@ def test_restart_failure_then_restore_tracks_restored_backend(
     restored_backend = MagicMock()
     restored_backend.is_alive.return_value = True
     factory = MagicMock(side_effect=[broken_backend, restored_backend])
-    monkeypatch.setattr(
-        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory
-    )
+    monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
 
     dispatcher.restart("<bad>")
 
@@ -236,9 +218,7 @@ def test_get_active_backend_count_purges_dead_entries(dispatcher: HotkeyDispatch
     assert "<f9>" not in dispatcher._shared_backend_pool
 
 
-def test_create_main_backend_purges_stale_entry_then_recreates(
-    dispatcher: HotkeyDispatcher, monkeypatch
-):
+def test_create_main_backend_purges_stale_entry_then_recreates(dispatcher: HotkeyDispatcher, monkeypatch):
     """If the pool has a DEAD entry for the requested spec,
     ``_create_and_start_main_backend`` must purge it and call the
     factory to create a fresh backend (NOT return the dead one)."""
@@ -249,9 +229,7 @@ def test_create_main_backend_purges_stale_entry_then_recreates(
     fresh_backend = MagicMock()
     fresh_backend.is_alive.return_value = True
     factory = MagicMock(return_value=fresh_backend)
-    monkeypatch.setattr(
-        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory
-    )
+    monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
 
     dispatcher.register()
 
@@ -288,9 +266,7 @@ def test_stop_all_clears_pool(dispatcher: HotkeyDispatcher, monkeypatch):
 # ─── ESC / repaste tracking (no fast-path; track only) ─────────────────────
 
 
-def test_register_esc_tracks_esc_backend_in_pool(
-    dispatcher: HotkeyDispatcher, monkeypatch
-):
+def test_register_esc_tracks_esc_backend_in_pool(dispatcher: HotkeyDispatcher, monkeypatch):
     """``register_esc`` adds the ESC backend to ``_shared_backend_pool``
     under ``"<esc>"`` after ``start()`` succeeds. The pool count
     reflects the ESC backend as a distinct subprocess (the
@@ -300,9 +276,7 @@ def test_register_esc_tracks_esc_backend_in_pool(
     esc_backend = MagicMock()
     esc_backend.is_alive.return_value = True
     factory = MagicMock(return_value=esc_backend)
-    monkeypatch.setattr(
-        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory
-    )
+    monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
 
     dispatcher.register_esc()
 
@@ -330,9 +304,7 @@ def test_unregister_esc_untracks_from_pool(dispatcher: HotkeyDispatcher, monkeyp
     assert dispatcher.get_active_backend_count() == 0
 
 
-def test_unregister_esc_removes_pooled_extra_matcher(
-    dispatcher: HotkeyDispatcher, monkeypatch
-):
+def test_unregister_esc_removes_pooled_extra_matcher(dispatcher: HotkeyDispatcher, monkeypatch):
     """BROKEN-2 REGRESSION: ``unregister_esc`` must remove the pooled
     ``"esc"`` extra matcher from the STILL-ALIVE shared backend.
 
@@ -362,6 +334,7 @@ def test_unregister_esc_removes_pooled_extra_matcher(
     assert dispatcher._esc_spec is None
     # The pooled extra matcher was removed from the shared backend.
     shared_native.remove_extra_matcher.assert_called_once_with("esc")
+
 
 def test_shared_native_returns_none_when_adapter_in_fallback(dispatcher):
     """BROKEN-3: ``_shared_native()`` reports ``None`` when the shared
@@ -397,12 +370,8 @@ def test_shared_native_swap_to_legacy_resyncs_aux_roles(dispatcher, monkeypatch)
     esc2.is_alive.return_value = True
     repaste2 = MagicMock(name="repaste2")
     repaste2.is_alive.return_value = True
-    factory = MagicMock(
-        side_effect=[dictation_backend, esc1, repaste1, esc2, repaste2]
-    )
-    monkeypatch.setattr(
-        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory
-    )
+    factory = MagicMock(side_effect=[dictation_backend, esc1, repaste1, esc2, repaste2])
+    monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
     dispatcher._app.config.esc_cancel_enabled = True
     dispatcher._app.config.repaste_hotkey = "<ctrl>+<shift>+<v>"
 
@@ -437,9 +406,7 @@ def test_shared_native_recovery_resyncs_aux_roles(dispatcher, monkeypatch):
     esc2 = MagicMock(name="esc2")
     esc2.is_alive.return_value = True
     factory = MagicMock(side_effect=[dictation_backend, esc1, esc2])
-    monkeypatch.setattr(
-        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory
-    )
+    monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
     dispatcher._app.config.esc_cancel_enabled = True
 
     dispatcher.register()
@@ -457,9 +424,7 @@ def test_shared_native_recovery_resyncs_aux_roles(dispatcher, monkeypatch):
     assert esc2._native._delegated is True
 
 
-def test_register_with_esc_disabled_removes_pooled_extra_matcher(
-    dispatcher: HotkeyDispatcher, monkeypatch
-):
+def test_register_with_esc_disabled_removes_pooled_extra_matcher(dispatcher: HotkeyDispatcher, monkeypatch):
     """BROKEN-2 REGRESSION (register path): re-running ``register()``
     with ``esc_cancel_enabled`` turned OFF must remove the pooled
     ``"esc"`` extra matcher from the shared backend — otherwise the
@@ -493,9 +458,7 @@ def test_register_with_esc_disabled_removes_pooled_extra_matcher(
     shared_native.remove_extra_matcher.assert_called_once_with("esc")
 
 
-def test_register_repaste_tracks_repaste_backend_in_pool(
-    dispatcher: HotkeyDispatcher, monkeypatch
-):
+def test_register_repaste_tracks_repaste_backend_in_pool(dispatcher: HotkeyDispatcher, monkeypatch):
     """``register_repaste`` adds the repaste backend to the pool under
     the configured repaste hotkey spec."""
     dispatcher._app.config.repaste_hotkey = "<ctrl>+<shift>+<v>"
@@ -516,9 +479,7 @@ def test_register_repaste_tracks_repaste_backend_in_pool(
 # ─── combined: dictation + ESC + repaste all tracked distinctly ────────────
 
 
-def test_full_registration_tracks_all_three_specs(
-    dispatcher: HotkeyDispatcher, monkeypatch
-):
+def test_full_registration_tracks_all_three_specs(dispatcher: HotkeyDispatcher, monkeypatch):
     """``register()`` with ESC and repaste enabled tracks all THREE
     distinct specs in the pool. The pool count is 3 (one entry per
     distinct spec).
@@ -542,12 +503,8 @@ def test_full_registration_tracks_all_three_specs(
     esc_backend.is_alive.return_value = True
     repaste_backend = MagicMock(name="repaste")
     repaste_backend.is_alive.return_value = True
-    factory = MagicMock(
-        side_effect=[dictation_backend, esc_backend, repaste_backend]
-    )
-    monkeypatch.setattr(
-        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory
-    )
+    factory = MagicMock(side_effect=[dictation_backend, esc_backend, repaste_backend])
+    monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
 
     result = dispatcher.register()
     assert result is True
@@ -559,9 +516,7 @@ def test_full_registration_tracks_all_three_specs(
     assert dispatcher.get_active_backend_count() == 3
 
 
-def test_stop_all_clears_pool_after_full_registration(
-    dispatcher: HotkeyDispatcher, monkeypatch
-):
+def test_stop_all_clears_pool_after_full_registration(dispatcher: HotkeyDispatcher, monkeypatch):
     """``stop_all`` clears ALL three pool entries after a full
     registration (dictation + ESC + repaste)."""
     dispatcher._app.config.esc_cancel_enabled = True
@@ -573,12 +528,8 @@ def test_stop_all_clears_pool_after_full_registration(
     esc_backend.is_alive.return_value = True
     repaste_backend = MagicMock(name="repaste")
     repaste_backend.is_alive.return_value = True
-    factory = MagicMock(
-        side_effect=[dictation_backend, esc_backend, repaste_backend]
-    )
-    monkeypatch.setattr(
-        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory
-    )
+    factory = MagicMock(side_effect=[dictation_backend, esc_backend, repaste_backend])
+    monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
 
     dispatcher.register()
     assert dispatcher.get_active_backend_count() == 3
@@ -592,9 +543,7 @@ def test_stop_all_clears_pool_after_full_registration(
 # ─── restart untracks old backend before stopping ─────────────────────────
 
 
-def test_restart_untracks_old_backend_before_stopping(
-    dispatcher: HotkeyDispatcher, monkeypatch
-):
+def test_restart_untracks_old_backend_before_stopping(dispatcher: HotkeyDispatcher, monkeypatch):
     """``restart()`` untracks the OLD backend from the pool BEFORE
     calling ``stop()``. This ensures the pool count drops as soon as
     the backend is logically dead, even if ``stop()`` hangs."""
@@ -613,9 +562,7 @@ def test_restart_untracks_old_backend_before_stopping(
     new_backend = MagicMock(name="new")
     new_backend.is_alive.return_value = True
     factory = MagicMock(return_value=new_backend)
-    monkeypatch.setattr(
-        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory
-    )
+    monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
 
     dispatcher.restart("<f3>")
 

@@ -554,7 +554,7 @@ class TestMutexHandleClose:
         monkeypatch.setitem(sys.modules, "PIL.Image", MagicMock())
         monkeypatch.setitem(sys.modules, "PIL.ImageDraw", MagicMock())
         monkeypatch.setitem(sys.modules, "pyperclip", MagicMock())
-        monkeypatch.setattr("voice_typer.server.app.atexit.register", lambda *a, **kw: None)
+        monkeypatch.setattr("atexit.register", lambda *a, **kw: None)
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)

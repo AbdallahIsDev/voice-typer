@@ -99,9 +99,7 @@ REQUIRED_FIELDS = ("total_count", "by_code")
 # bucketed under "(untyped)". The file part is anchored with \S so an
 # indented continuation / context line (which mypy prefixes with
 # whitespace) can never be miscounted as a new error.
-_ERROR_RE = re.compile(
-    r"^(?P<file>\S.*?):(?P<line>\d+): error: (?P<message>.*?)(?: \[(?P<code>[a-z][a-z-]*)\])?$"
-)
+_ERROR_RE = re.compile(r"^(?P<file>\S.*?):(?P<line>\d+): error: (?P<message>.*?)(?: \[(?P<code>[a-z][a-z-]*)\])?$")
 
 
 def run_mypy() -> str:
@@ -354,8 +352,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--stdin",
         action="store_true",
-        help="Read mypy output from stdin instead of running mypy. Useful for "
-        "tests and one-off checks.",
+        help="Read mypy output from stdin instead of running mypy. Useful for tests and one-off checks.",
     )
     args = parser.parse_args(argv)
 

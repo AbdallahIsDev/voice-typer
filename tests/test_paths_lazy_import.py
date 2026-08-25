@@ -154,12 +154,10 @@ def test_importing_paths_does_not_eagerly_pull_in_config() -> None:
     """
     _purge_paths_and_config()
     assert "voice_typer.server.config" not in sys.modules, (
-        "test setup bug: voice_typer.server.config should be absent "
-        "from sys.modules before the _paths import"
+        "test setup bug: voice_typer.server.config should be absent from sys.modules before the _paths import"
     )
     assert "voice_typer.server._paths" not in sys.modules, (
-        "test setup bug: voice_typer.server._paths should be absent "
-        "from sys.modules before the import"
+        "test setup bug: voice_typer.server._paths should be absent from sys.modules before the import"
     )
     importlib.import_module("voice_typer.server._paths")
     assert "voice_typer.server.config" not in sys.modules, (
@@ -186,14 +184,14 @@ def test_paths_module_initial_config_dir_is_none() -> None:
     _paths = importlib.import_module("voice_typer.server._paths")
     # Debug: print state for diagnosis
     import sys
+
     print(f"\nDEBUG: _paths id={id(_paths)}, _config_dir={_paths._config_dir!r}")
     print(
-        "DEBUG: voice_typer.server._paths attr = "
-        f"{getattr(sys.modules.get('voice_typer.server'), '_paths', 'MISSING')}"
+        f"DEBUG: voice_typer.server._paths attr = {getattr(sys.modules.get('voice_typer.server'), '_paths', 'MISSING')}"
     )
     print(f"DEBUG: voice_typer.server._paths in sys.modules = {'voice_typer.server._paths' in sys.modules}")
-    if 'voice_typer.server._paths' in sys.modules:
-        cached = sys.modules['voice_typer.server._paths']
+    if "voice_typer.server._paths" in sys.modules:
+        cached = sys.modules["voice_typer.server._paths"]
         print(f"DEBUG: cached module id={id(cached)}, is _paths: {cached is _paths}")
         print(f"DEBUG: cached._config_dir = {cached._config_dir!r}")
     assert _paths._config_dir is None, (
@@ -295,9 +293,7 @@ def test_first_helper_call_triggers_lazy_import(tmp_path: Path) -> None:
     )
 
 
-def test_helpers_return_paths_under_pinned_config_dir(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_helpers_return_paths_under_pinned_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The existing ``monkeypatch.setattr(_paths, "_config_dir",
     lambda: tmp_path)`` pattern short-circuits the lazy resolver.
 

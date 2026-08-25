@@ -49,6 +49,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.fixtures.config_helpers import patch_config_dir_refs  # noqa: E402
+
 # ── Helpers ─────────────────────────────────────────────────────────────
 
 
@@ -259,7 +261,7 @@ class TestTemplateManagerReplaceAll:
         from voice_typer.server.templates import TemplateManager
 
         mp = pytest.MonkeyPatch()
-        mp.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        patch_config_dir_refs(mp, tmp_path)
         try:
             tm = TemplateManager(config_dir=tmp_path)
             tm.add("old-trigger", "old-output")
@@ -294,7 +296,7 @@ class TestTemplateManagerReplaceAll:
         from voice_typer.server.templates import TemplateManager
 
         mp = pytest.MonkeyPatch()
-        mp.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        patch_config_dir_refs(mp, tmp_path)
         try:
             tm = TemplateManager(config_dir=tmp_path)
             tm.add("old-trigger", "old-output")
@@ -327,7 +329,7 @@ class TestTemplateManagerReplaceAll:
         from voice_typer.server.templates import TemplateManager
 
         mp = pytest.MonkeyPatch()
-        mp.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        patch_config_dir_refs(mp, tmp_path)
         try:
             tm = TemplateManager(config_dir=tmp_path)
             tm.add("survivor", "survives-the-failed-save")
@@ -370,7 +372,7 @@ class TestTemplateManagerReplaceAll:
         from voice_typer.server.templates import TemplateManager
 
         mp = pytest.MonkeyPatch()
-        mp.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        patch_config_dir_refs(mp, tmp_path)
         try:
             tm = TemplateManager(config_dir=tmp_path)
             tm.add("a", "out-a")
@@ -396,7 +398,7 @@ class TestTemplateManagerReplaceAll:
         from voice_typer.server.templates import TemplateManager
 
         mp = pytest.MonkeyPatch()
-        mp.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        patch_config_dir_refs(mp, tmp_path)
         try:
             tm = TemplateManager(config_dir=tmp_path)
             # Seed with a baseline set.

@@ -463,21 +463,13 @@ class TestStartDictationConsentPush:
             ctrl.start()
 
         # Fail closed: the recorder must NOT have been started.
-        assert app.recorder.start.call_count == 0, (
-            "GDPR gate must refuse to start the recorder without consent."
-        )
+        assert app.recorder.start.call_count == 0, "GDPR gate must refuse to start the recorder without consent."
         # The consent_required event was published with the stable id.
         consent_events = [
-            c.args[0]
-            for c in publish.call_args_list
-            if c.args and c.args[0].get("type") == "consent_required"
+            c.args[0] for c in publish.call_args_list if c.args and c.args[0].get("type") == "consent_required"
         ]
-        assert len(consent_events) == 1, (
-            f"expected exactly 1 consent_required publish; got {len(consent_events)}"
-        )
-        assert (
-            consent_events[0]["data"]["consent_field"] == "voice_biometric_consent"
-        )
+        assert len(consent_events) == 1, f"expected exactly 1 consent_required publish; got {len(consent_events)}"
+        assert consent_events[0]["data"]["consent_field"] == "voice_biometric_consent"
 
     def test_consent_granted_does_not_publish_consent_event(self):
         ctrl, app = _make_controller()
@@ -487,13 +479,9 @@ class TestStartDictationConsentPush:
             ctrl.start()
 
         consent_events = [
-            c.args[0]
-            for c in publish.call_args_list
-            if c.args and c.args[0].get("type") == "consent_required"
+            c.args[0] for c in publish.call_args_list if c.args and c.args[0].get("type") == "consent_required"
         ]
-        assert consent_events == [], (
-            "Consent granted: no consent_required event expected."
-        )
+        assert consent_events == [], "Consent granted: no consent_required event expected."
 
 
 # inverted _busy_event semantics documentation (deferred) ────

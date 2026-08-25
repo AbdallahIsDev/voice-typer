@@ -110,8 +110,10 @@ describe("R6-F6: source-level contract for start-python.ts timer cleanup", () =>
 	});
 
 	it("tcp-connect.ts source stores the timer on state._tcpRetryTimer", () => {
+		// The retry timer lives in the `python/tcp/retry-scheduler.ts`
+		// leaf (split out of `tcp-connect.ts`); the pin follows the body.
 		const src = fs.readFileSync(
-			path.resolve(__dirname, "../python/tcp-connect.ts"),
+			path.resolve(__dirname, "../python/tcp/retry-scheduler.ts"),
 			"utf-8",
 		);
 		expect(src).toContain("state._tcpRetryTimer = setTimeout(");

@@ -23,7 +23,7 @@ class TestPhraseRegexCache:
     def test_pattern_is_cached(self):
         """Two calls with the same ``_active_phrases`` list return the
         same ``re.Pattern`` object (no rebuild)."""
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         saved = text_cleanup._active_phrases
         try:
@@ -42,7 +42,7 @@ class TestPhraseRegexCache:
     def test_cache_invalidates_on_list_replace(self):
         """Replacing ``_active_phrases`` with a new list object rebuilds
         the regex on the next call (identity-based invalidation)."""
-        from voice_typer.server import text_cleanup
+        from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         saved = text_cleanup._active_phrases
         try:

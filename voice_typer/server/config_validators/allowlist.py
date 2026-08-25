@@ -195,6 +195,10 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "device": (str, _make_enum_validator(frozenset({"cuda", "cpu"}))),
     "beam_size": (int, _make_int_validator(lo=1, hi=10)),
     "best_of": (int, _make_int_validator(lo=1, hi=10)),
+    # Whisper-specific beam width (preferred over the legacy
+    # ``beam_size`` field). 1 keeps the automatic device/model-aware
+    # default resolved by the engine; values >1 pin the width explicitly.
+    "whisper_beam_size": (int, _make_int_validator(lo=1, hi=10)),
     "condition_on_previous_text": (bool, _bool_validator),
     # ── Streaming (hidden) ────────────────────────────────────────────
     "streaming_transcription": (bool, _bool_validator),

@@ -338,9 +338,7 @@ class TestLoadPathCacheGate:
             "huggingface_hub",
             type(sys)("huggingface_hub"),
         )
-        sys.modules["huggingface_hub"].snapshot_download = MagicMock(
-            side_effect=FileNotFoundError("not in cache")
-        )
+        sys.modules["huggingface_hub"].snapshot_download = MagicMock(side_effect=FileNotFoundError("not in cache"))
         from voice_typer.server.asr_errors import ModelNotDownloadedError
 
         with pytest.raises(ModelNotDownloadedError, match="not downloaded"):

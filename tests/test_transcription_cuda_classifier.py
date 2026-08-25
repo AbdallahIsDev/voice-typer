@@ -86,7 +86,7 @@ class TestIsGpuRuntimeErrorClassifier:
     """
 
     def test_ctranslate2_cuda_error_class_match(self, cuda_engine, monkeypatch):
-        """ #2 (check #2): a real ``ctranslate2.CUDAError`` subclass
+        """#2 (check #2): a real ``ctranslate2.CUDAError`` subclass
         must match via the isinstance check at line 1410-1413.
 
         The production code does::
@@ -123,7 +123,7 @@ class TestIsGpuRuntimeErrorClassifier:
         )
 
     def test_mro_class_name_match(self, cuda_engine):
-        """ #3 (check #3): an exception whose class name contains
+        """#3 (check #3): an exception whose class name contains
         "cuda" must match via the MRO class-name check at line 1424-1430.
 
         The production code iterates ``type(exc).__mro__`` and lowercases
@@ -142,6 +142,7 @@ class TestIsGpuRuntimeErrorClassifier:
         ``ctranslate2`` — the ctranslate2 isinstance loop (#2) must
         fall through so the MRO check (#3) is the one that fires.
         """
+
         # ctranslate2 fixture leaves CUDAError/RuntimeError as
         # MagicMock attributes (not types), so the isinstance check at
         # line 1412 returns False and the loop falls through to the
@@ -163,7 +164,7 @@ class TestIsGpuRuntimeErrorClassifier:
         )
 
     def test_attribute_check_cuda_error_flag(self, cuda_engine):
-        """ #4 (check #4): an exception carrying a ``.cuda_error``
+        """#4 (check #4): an exception carrying a ``.cuda_error``
         attribute must match via the attribute check at line 1433-1434.
 
         The production code does::
@@ -199,6 +200,5 @@ class TestIsGpuRuntimeErrorClassifier:
         assert "gpu" not in str(exc).lower()
 
         assert cuda_engine._is_gpu_runtime_error(exc) is True, (
-            "an exception with .cuda_error set must be classified as a "
-            "GPU runtime error (check #4)."
+            "an exception with .cuda_error set must be classified as a GPU runtime error (check #4)."
         )

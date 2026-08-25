@@ -30,16 +30,15 @@ logic is exercised end-to-end without actually touching the clipboard.
 from __future__ import annotations
 
 import sys
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import (
-    ClipboardManager,  # noqa: E402
     manager as manager_mod,  # noqa: E402
 )
-from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
+
+from tests.fixtures.clipboard_helpers import make_clipboard_manager, make_clipboard_snapshot  # noqa: E402
 
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
 # tests/clipboard/conftest.py (single source of truth —  dedup).
@@ -66,33 +65,6 @@ def _isolate_pending_restores():
 
 
 # ── Helpers (mirrors test_clipboard_pending_restores_cap.py) ────────────────
-
-
-def _make_cm(
-    *,
-    paste_enabled: bool = True,
-    save_restore: bool = True,
-    restore_delay_ms: int = 150,
-) -> ClipboardManager:
-    """Build a ClipboardManager with mocked keyboard and cached flags set."""
-    cm = ClipboardManager.__new__(ClipboardManager)
-    cm.paste_enabled = paste_enabled
-    cm._keyboard = MagicMock()
-    cm._last_paste_time = 0.0  # not rate-limited
-    cm._clipboard_seq = 0
-    cm._last_copied_text = ""
-    cm._clipboard_save_restore_enabled = save_restore
-    cm._restore_delay_ms = restore_delay_ms
-    return cm
-
-
-def _make_snapshot(platform: str = "linux-x11") -> ClipboardSnapshot:
-    """Build a fake ClipboardSnapshot for tests that need a non-None value."""
-    return ClipboardSnapshot(
-        platform=platform,
-        items=[("text/plain;charset=utf-8", b"prior clipboard content")],
-        captured_at=time.monotonic(),
-    )
 
 
 # ===========================================================================
@@ -128,8 +100,8 @@ class TestPendingRestoresCapForceRestore:
     def test_cap_not_hit_does_not_force_restore(self) -> None:
         """When the list is below the cap, no force-restore happens — the
         new entry is simply appended."""
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
         entry = (cm, snap, "pasted", 0.0)
 
         with (
@@ -146,7 +118,7 @@ class TestPendingRestoresCapForceRestore:
             # inside _delayed_restore succeeds and snapshot.restore() runs).
             with clip_mod._pending_restores_lock:
                 for i in range(5):
-                    other_snap = _make_snapshot()
+                    other_snap = make_clipboard_snapshot()
                     clip_mod._pending_restores.append((cm, other_snap, f"old-{i}", 0.0))
                 clip_mod._pending_restores.append(entry)
 
@@ -162,18 +134,18 @@ class TestPendingRestoresCapForceRestore:
     def test_cap_hit_force_restores_oldest_snapshot(self) -> None:
         """When the list is AT the cap (64 entries), appending the 65th
         force-restores the OLDEST entry's snapshot BEFORE appending the new."""
-        cm = _make_cm()
-        new_snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        new_snap = make_clipboard_snapshot()
 
         # Populate the list to exactly the cap. Use DISTINCT snapshots so
         # we can verify the OLDEST is the one restored.
-        oldest_snap = _make_snapshot()
+        oldest_snap = make_clipboard_snapshot()
         oldest_snap_restore = MagicMock(return_value=True)
         oldest_snap.restore = oldest_snap_restore  # type: ignore[method-assign]
         with clip_mod._pending_restores_lock:
             clip_mod._pending_restores.append((cm, oldest_snap, "oldest", 0.0))
             for i in range(manager_mod._MAX_PENDING_RESTORES - 1):
-                other_snap = _make_snapshot()
+                other_snap = make_clipboard_snapshot()
                 other_snap_restore = MagicMock(return_value=True)
                 other_snap.restore = other_snap_restore  # type: ignore[method-assign]
                 clip_mod._pending_restores.append((cm, other_snap, f"other-{i}", 0.0))
@@ -233,17 +205,17 @@ class TestPendingRestoresCapForceRestore:
         """If the force-restore raises (e.g. Win32 OpenClipboard hang), the
         append STILL happens — we don't lose the new entry just because
         the oldest couldn't be restored."""
-        cm = _make_cm()
-        new_snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        new_snap = make_clipboard_snapshot()
 
         # Populate the list to the cap with an oldest snapshot whose
         # restore() raises.
-        oldest_snap = _make_snapshot()
+        oldest_snap = make_clipboard_snapshot()
         oldest_snap.restore = MagicMock(side_effect=RuntimeError("OpenClipboard hung"))  # type: ignore[method-assign]
         with clip_mod._pending_restores_lock:
             clip_mod._pending_restores.append((cm, oldest_snap, "oldest", 0.0))
             for i in range(manager_mod._MAX_PENDING_RESTORES - 1):
-                other_snap = _make_snapshot()
+                other_snap = make_clipboard_snapshot()
                 other_snap.restore = MagicMock(return_value=True)  # type: ignore[method-assign]
                 clip_mod._pending_restores.append((cm, other_snap, f"other-{i}", 0.0))
 
@@ -285,15 +257,15 @@ class TestPendingRestoresCapForceRestore:
     def test_cap_hit_restores_exactly_one_oldest_not_all(self) -> None:
         """When the cap is hit, ONLY the single oldest entry is force-restored
         (not all of them). The list size stays at the cap after the append."""
-        cm = _make_cm()
-        new_snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        new_snap = make_clipboard_snapshot()
 
         # Populate the list with the cap of entries, each with a
         # distinct snapshot whose restore() we can track.
         snaps_with_restores = []
         with clip_mod._pending_restores_lock:
             for i in range(manager_mod._MAX_PENDING_RESTORES):
-                snap = _make_snapshot()
+                snap = make_clipboard_snapshot()
                 m = MagicMock(return_value=True)
                 snap.restore = m  # type: ignore[method-assign]
                 snaps_with_restores.append((snap, m))

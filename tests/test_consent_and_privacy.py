@@ -351,9 +351,7 @@ class TestWhisperLoadRefusesUncachedModel:
         with pytest.raises(ModelNotDownloadedError, match="not downloaded"):
             engine._require_model_downloaded("small.en")
         assert calls, "the local cache probe must run"
-        assert all(c.get("local_files_only") for c in calls), (
-            "the load path must never trigger a network download"
-        )
+        assert all(c.get("local_files_only") for c in calls), "the load path must never trigger a network download"
 
     def test_cache_miss_raises_even_with_consent(self, monkeypatch):
         """Consent is irrelevant on the load path: even with
@@ -397,9 +395,7 @@ class TestWhisperLoadRefusesUncachedModel:
         engine = self._make_engine()
         with pytest.raises(ModelIntegrityError):
             engine._require_model_downloaded("small.en")
-        assert cleaned == [], (
-            "a tampered cache must NOT be deleted automatically"
-        )
+        assert cleaned == [], "a tampered cache must NOT be deleted automatically"
 
     def test_cached_and_verified_model_passes(self, monkeypatch):
         """Cached + integrity-verified → the gate passes (no raise)."""

@@ -27,7 +27,6 @@ suite.
 from __future__ import annotations
 
 import threading
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -40,6 +39,8 @@ from voice_typer.server.clipboard import (  # noqa: E402
     ClipboardManager,
 )
 from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
+
+from tests.fixtures.clipboard_helpers import make_clipboard_manager, make_clipboard_snapshot  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Display-env isolation
@@ -68,33 +69,6 @@ def _mock_display_env(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def _make_cm(
-    *,
-    paste_enabled: bool = True,
-    save_restore: bool = True,
-    restore_delay_ms: int = 150,
-) -> ClipboardManager:
-    """Build a ClipboardManager with mocked keyboard and cached flags set."""
-    cm = ClipboardManager.__new__(ClipboardManager)
-    cm.paste_enabled = paste_enabled
-    cm._keyboard = MagicMock()
-    cm._last_paste_time = 0.0  # not rate-limited
-    cm._clipboard_seq = 0
-    cm._last_copied_text = ""
-    cm._clipboard_save_restore_enabled = save_restore
-    cm._restore_delay_ms = restore_delay_ms
-    return cm
-
-
-def _make_snapshot() -> ClipboardSnapshot:
-    """Build a fake ClipboardSnapshot for tests that need a non-None value."""
-    return ClipboardSnapshot(
-        platform="linux-x11",
-        items=[("text/plain", b"prior clipboard content")],
-        captured_at=time.monotonic(),
-    )
-
-
 # ===========================================================================
 # copy() — snapshot capture paths (ADR-0010 §5.2)
 # ===========================================================================
@@ -105,10 +79,10 @@ class TestCopySnapshotCapture:
 
     def test_copy_returns_snapshot_when_save_restore_enabled(self):
         """copy() returns the ClipboardSnapshot captured before overwrite."""
-        cm = _make_cm(save_restore=True)
+        cm = make_clipboard_manager(save_restore=True)
         mock_pyper = MagicMock()
         mock_pyper.paste.return_value = "new text"  # verification match
-        sentinel = _make_snapshot()
+        sentinel = make_clipboard_snapshot()
         with (
             patch.object(clip_mod, "pyperclip", mock_pyper),
             patch.object(clip_mod, "log"),
@@ -124,7 +98,7 @@ class TestCopySnapshotCapture:
 
     def test_copy_returns_none_when_save_restore_disabled(self):
         """When save_restore is off, copy() does NOT call capture()."""
-        cm = _make_cm(save_restore=False)
+        cm = make_clipboard_manager(save_restore=False)
         mock_pyper = MagicMock()
         mock_pyper.paste.return_value = "new text"
         with (
@@ -143,7 +117,7 @@ class TestCopySnapshotCapture:
 
     def test_copy_raises_clipboard_copy_error_on_failure(self):
         """A genuine pyperclip.copy() failure raises ClipboardCopyError."""
-        cm = _make_cm(save_restore=False)
+        cm = make_clipboard_manager(save_restore=False)
         mock_pyper = MagicMock()
         mock_pyper.copy.side_effect = OSError("clipboard locked")
         with (
@@ -160,8 +134,8 @@ class TestCopySnapshotCapture:
         ADR-0010 §5.2: "The snapshot, if captured, is restored before
         raising so the clipboard is never left torn."
         """
-        cm = _make_cm(save_restore=True)
-        sentinel = _make_snapshot()
+        cm = make_clipboard_manager(save_restore=True)
+        sentinel = make_clipboard_snapshot()
         mock_pyper = MagicMock()
         mock_pyper.copy.side_effect = OSError("copy failed")
         with (
@@ -190,8 +164,8 @@ class TestPasteRestoreScheduling:
 
     def test_paste_schedules_restore_thread(self):
         """paste(snapshot=...) starts a daemon thread to restore later."""
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
 
         # Avoid the real paste-keystroke path: stub _send_ctrl_v_win32 and
         # the safety check so paste() returns True after scheduling.
@@ -228,7 +202,7 @@ class TestPasteRestoreScheduling:
 
     def test_paste_force_bypasses_paste_enabled_gate(self):
         """force=True bypasses paste_enabled=False (used by repaste_last)."""
-        cm = _make_cm(paste_enabled=False)
+        cm = make_clipboard_manager(paste_enabled=False)
         with (
             patch.object(clip_mod, "is_windows", return_value=False),
             patch.object(clip_mod, "is_macos", return_value=False),
@@ -257,7 +231,7 @@ class TestPasteRestoreScheduling:
 
     def test_paste_returns_false_when_paste_enabled_false_without_force(self):
         """Without force=True, paste_enabled=False returns False."""
-        cm = _make_cm(paste_enabled=False)
+        cm = make_clipboard_manager(paste_enabled=False)
         with patch.object(clip_mod, "is_windows", return_value=False), patch.object(clip_mod, "time") as mock_time:
             mock_time.monotonic.return_value = 100.0
             result = cm.paste()
@@ -274,15 +248,15 @@ class TestRestoreNow:
 
     def test_restore_now_restores_immediately(self):
         """restore_now(snapshot) calls snapshot.restore() right away."""
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
         with patch.object(snap, "restore", return_value=True) as mock_restore, patch.object(clip_mod, "log"):
             cm.restore_now(snap)
         mock_restore.assert_called_once()
 
     def test_restore_now_with_none_is_noop(self):
         """restore_now(None) does nothing and does not raise."""
-        cm = _make_cm()
+        cm = make_clipboard_manager()
         with patch.object(clip_mod, "log"):
             # Must not raise.
             cm.restore_now(None)
@@ -298,8 +272,8 @@ class TestDelayedRestore:
 
     def test_delayed_restore_skips_when_clipboard_changed(self):
         """If the clipboard was changed by the user, restore is skipped."""
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
         mock_pyper = MagicMock()
         # Clipboard no longer matches pasted_text → skip restore.
         mock_pyper.paste.return_value = "user's new copy"
@@ -315,8 +289,8 @@ class TestDelayedRestore:
 
     def test_delayed_restore_restores_when_clipboard_unchanged(self):
         """If the clipboard still holds the pasted text, restore is called."""
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
         mock_pyper = MagicMock()
         # Clipboard still has the pasted text → restore proceeds.
         mock_pyper.paste.return_value = "original text"
@@ -331,7 +305,7 @@ class TestDelayedRestore:
         mock_restore.assert_called_once()
 
     def test_delayed_restore_accepts_4_arg_pending_entry_from_paste_call_site(self):
-        """ regression guard: ``paste()`` spawns the daemon thread
+        """regression guard: ``paste()`` spawns the daemon thread
         with 4 positional args ``(snapshot, expected, delay, _pending_entry)``,
         so ``_delayed_restore`` MUST accept 4 positional args without
         raising ``TypeError``.
@@ -376,8 +350,8 @@ class TestDelayedRestore:
         # (2) Behavioral contract: calling with the 4-arg shape must
         # not raise TypeError. This is the exact call shape ``paste()``
         # uses at the Thread() constructor.
-        cm = _make_cm()
-        snap = _make_snapshot()
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
         pending_entry = (cm, snap, "original text", 0.0)
         mock_pyper = MagicMock()
         mock_pyper.paste.return_value = "original text"
@@ -402,7 +376,7 @@ class TestRefreshConfig:
 
     def test_refresh_config_syncs_paste_enabled_from_paste_on_stop(self):
         """§2.12: paste_on_stop=False → paste_enabled=False (mirror)."""
-        cm = _make_cm(paste_enabled=True)
+        cm = make_clipboard_manager(paste_enabled=True)
         cfg = MagicMock()
         cfg.paste_on_stop = False
         cfg.clipboard_save_restore = True
@@ -412,7 +386,7 @@ class TestRefreshConfig:
 
     def test_refresh_config_updates_restore_delay_ms(self):
         """refresh_config picks up the new clipboard_restore_delay_ms value."""
-        cm = _make_cm(restore_delay_ms=150)
+        cm = make_clipboard_manager(restore_delay_ms=150)
         cfg = MagicMock()
         cfg.paste_on_stop = True
         cfg.clipboard_save_restore = True
@@ -422,7 +396,7 @@ class TestRefreshConfig:
 
     def test_refresh_config_updates_save_restore_enabled(self):
         """refresh_config picks up the new clipboard_save_restore value."""
-        cm = _make_cm(save_restore=True)
+        cm = make_clipboard_manager(save_restore=True)
         cfg = MagicMock()
         cfg.paste_on_stop = True
         cfg.clipboard_save_restore = False

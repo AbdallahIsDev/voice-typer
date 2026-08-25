@@ -260,9 +260,7 @@ class TestCloudEngineTestConnection:
         engine = CloudEngine(provider="openai", api_key="sk-test", consent_given=False)
         with patch(
             "voice_typer.server.cloud_engines.assert_url_allowed",
-            side_effect=AssertionError(
-                "consent gate must return before the URL-allowlist check"
-            ),
+            side_effect=AssertionError("consent gate must return before the URL-allowlist check"),
         ):
             success, msg = engine.test_connection()
         assert success is False
@@ -295,13 +293,9 @@ class TestCloudEngineTestConnection:
         # The consent gate let the engine through to the probe (which
         # then failed on the isolated network) — proving the gate did
         # NOT over-block.
-        assert mock_url.called, (
-            "consent-given engine must reach the URL-allowlist check in test_connection"
-        )
+        assert mock_url.called, "consent-given engine must reach the URL-allowlist check in test_connection"
         assert success is False
-        assert "consent" not in msg.lower(), (
-            "the network-failure message must not be a consent refusal"
-        )
+        assert "consent" not in msg.lower(), "the network-failure message must not be a consent refusal"
 
 
 # ── RELIABILITY-004: URL allowlist + API key redaction ───────────────────
@@ -1064,8 +1058,7 @@ class TestCloudEngineTestConnectionBranches:
             success, msg = engine.test_connection()
 
         assert success is True, (
-            f"a 200 response on the Deepgram path must report success=True "
-            f"(got success={success!r}, msg={msg!r})"
+            f"a 200 response on the Deepgram path must report success=True (got success={success!r}, msg={msg!r})"
         )
         assert "deepgram" in msg.lower()
         assert "200" in msg, f"message must name the HTTP 200 status: {msg!r}"
@@ -1077,15 +1070,11 @@ class TestCloudEngineTestConnectionBranches:
         assert req.get_method() == "POST"
         auth_header = req.headers.get("Authorization", "")
         assert auth_header.startswith("Token "), (
-            f"Deepgram test_connection must use 'Token <key>' auth scheme, "
-            f"got {auth_header!r}"
+            f"Deepgram test_connection must use 'Token <key>' auth scheme, got {auth_header!r}"
         )
-        content_type = req.headers.get("Content-type", "") or req.headers.get(
-            "Content-Type", ""
-        )
+        content_type = req.headers.get("Content-type", "") or req.headers.get("Content-Type", "")
         assert "audio/wav" in content_type, (
-            f"Deepgram test_connection must send audio/wav Content-Type, "
-            f"got {content_type!r}"
+            f"Deepgram test_connection must send audio/wav Content-Type, got {content_type!r}"
         )
 
     def test_test_connection_401_returns_key_rejected(self):
@@ -1126,10 +1115,7 @@ class TestCloudEngineTestConnectionBranches:
         ):
             success, msg = engine.test_connection()
 
-        assert success is False, (
-            f"HTTP 401 must report success=False (key rejected), got "
-            f"success={success!r}"
-        )
+        assert success is False, f"HTTP 401 must report success=False (key rejected), got success={success!r}"
         assert "401" in msg, f"message must name the HTTP 401 status: {msg!r}"
         assert "rejected" in msg.lower() or "api key" in msg.lower(), (
             f"message must surface the key-rejection diagnostic, got {msg!r}"
@@ -1183,8 +1169,7 @@ class TestCloudEngineTestConnectionBranches:
 
         # Connection itself succeeded — server answered.
         assert success is True, (
-            f"HTTP 503 must report success=True (connection itself succeeded), "
-            f"got success={success!r}"
+            f"HTTP 503 must report success=True (connection itself succeeded), got success={success!r}"
         )
         # Warning surface: status code + "temporarily unavailable" hint.
         assert "503" in msg, f"message must name the HTTP 503 status: {msg!r}"

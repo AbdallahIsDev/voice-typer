@@ -224,7 +224,13 @@ class TestStreamingIntegration:
         app.tray = MagicMock()
 
         session_cls = MagicMock()
-        monkeypatch.setattr("voice_typer.server.app.StreamingTranscriptionSession", session_cls, raising=False)
+        # Patch where the coordinator actually resolves the class (the
+        # app-module re-export is inert for this path).
+        monkeypatch.setattr(
+            "voice_typer.server.streaming_session_coordinator.StreamingTranscriptionSession",
+            session_cls,
+            raising=False,
+        )
 
         app._start_dictation()
 

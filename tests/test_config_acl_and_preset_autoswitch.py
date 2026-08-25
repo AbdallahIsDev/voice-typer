@@ -449,8 +449,7 @@ class TestEnforceWindowsOwnerOnlyAcl:
             f"got {order}"
         )
         assert order.index("lock") > order.index(f"acl:{tmp_config_dir}"), (
-            "The dir ACL must be enforced before the lock file is opened. "
-            f"Got order: {order}"
+            f"The dir ACL must be enforced before the lock file is opened. Got order: {order}"
         )
 
         # The dir ACL must run ONCE per config dir (only when save()
@@ -461,6 +460,5 @@ class TestEnforceWindowsOwnerOnlyAcl:
         cfg.hotkey = "<f9>"  # mark dirty so the second save is real
         assert cfg.save() is True
         assert order.count(f"acl:{tmp_config_dir}") == 1, (
-            "The config DIR must be tightened exactly once (only when save() "
-            f"creates the directory); got {order}"
+            f"The config DIR must be tightened exactly once (only when save() creates the directory); got {order}"
         )

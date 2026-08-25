@@ -214,9 +214,7 @@ class TestSileroVadSlicesLongChunksIntoSubchunks:
         audio = np.ones(1136, dtype=np.float32) * 0.1
         prob = vad.compute_vad_prob(audio, sample_rate=16000)
 
-        assert len(session.calls) == 2, (
-            f"Expected 2 sub-chunk calls for 1136 samples, got {len(session.calls)}"
-        )
+        assert len(session.calls) == 2, f"Expected 2 sub-chunk calls for 1136 samples, got {len(session.calls)}"
         for call in session.calls:
             assert call["input"].shape == (1, 512)
         assert prob == pytest.approx(0.5)
@@ -238,9 +236,7 @@ class TestSileroVadSlicesLongChunksIntoSubchunks:
         prob = vad.compute_vad_prob(audio, sample_rate=16000)
         # Max of [0.2, 0.85] = 0.85 — speech in the second sub-chunk
         # is detected. Under OLD truncation, prob would be 0.2 (missed).
-        assert prob == pytest.approx(0.85), (
-            f"Expected max prob 0.85 (speech in 2nd sub-chunk), got {prob}"
-        )
+        assert prob == pytest.approx(0.85), f"Expected max prob 0.85 (speech in 2nd sub-chunk), got {prob}"
         vad.reset()
 
     def test_very_long_chunk_processes_all_subchunks(self, monkeypatch):
@@ -256,9 +252,7 @@ class TestSileroVadSlicesLongChunksIntoSubchunks:
         audio = np.ones(5120, dtype=np.float32) * 0.1
         prob = vad.compute_vad_prob(audio, sample_rate=16000)
 
-        assert len(session.calls) == 10, (
-            f"Expected 10 sub-chunk calls for 5120 samples, got {len(session.calls)}"
-        )
+        assert len(session.calls) == 10, f"Expected 10 sub-chunk calls for 5120 samples, got {len(session.calls)}"
         for call in session.calls:
             assert call["input"].shape == (1, 512)
         assert prob == pytest.approx(0.6)
@@ -277,9 +271,7 @@ class TestSileroVadSlicesLongChunksIntoSubchunks:
         audio = np.ones(1500, dtype=np.float32) * 0.1
         prob = vad.compute_vad_prob(audio, sample_rate=16000)
 
-        assert len(session.calls) == 2, (
-            f"Expected 2 sub-chunk calls for 1500 samples, got {len(session.calls)}"
-        )
+        assert len(session.calls) == 2, f"Expected 2 sub-chunk calls for 1500 samples, got {len(session.calls)}"
         for call in session.calls:
             assert call["input"].shape == (1, 512)
         assert prob == pytest.approx(0.4)
@@ -522,8 +514,7 @@ class TestVADModule:
 
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert len(warnings) == 1, (
-            "onnxruntime-missing WARNING must be rate-limited to 1 occurrence "
-            f"across 5 calls; got {len(warnings)}"
+            f"onnxruntime-missing WARNING must be rate-limited to 1 occurrence across 5 calls; got {len(warnings)}"
         )
         vad.reset()
 
@@ -536,9 +527,7 @@ class TestVADModule:
         from voice_typer.server import vad
 
         vad.reset()
-        monkeypatch.setattr(
-            vad, "_VAD_MODEL_PATH", Path("/nonexistent/silero_vad.onnx")
-        )
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path("/nonexistent/silero_vad.onnx"))
         # ORT is importable (mock) so we exercise the missing-file branch,
         # not the ImportError short-circuit.
         _install_fake_ort(monkeypatch, FakeOrtSession(prob_sequence=[0.5]))
@@ -549,8 +538,7 @@ class TestVADModule:
 
         errors = [r for r in caplog.records if r.levelno == logging.ERROR]
         assert len(errors) == 1, (
-            "missing-model ERROR must be rate-limited to 1 occurrence "
-            f"across 5 calls; got {len(errors)}"
+            f"missing-model ERROR must be rate-limited to 1 occurrence across 5 calls; got {len(errors)}"
         )
         vad.reset()
 
@@ -569,9 +557,7 @@ class TestVADModule:
 
         vad.reset()
         mock_ort = MagicMock(name="fake_onnxruntime")
-        mock_ort.InferenceSession = MagicMock(
-            side_effect=RuntimeError("corrupt onnx model")
-        )
+        mock_ort.InferenceSession = MagicMock(side_effect=RuntimeError("corrupt onnx model"))
         monkeypatch.setitem(sys.modules, "onnxruntime", mock_ort)
         monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path(__file__))
 
@@ -581,8 +567,7 @@ class TestVADModule:
 
         errors = [r for r in caplog.records if r.levelno == logging.ERROR]
         assert len(errors) == 1, (
-            "load-failure ERROR must be rate-limited (1st + every Nth "
-            f"only); got {len(errors)} across 5 calls"
+            f"load-failure ERROR must be rate-limited (1st + every Nth only); got {len(errors)} across 5 calls"
         )
         assert vad._model is None, "failure must not cache a model"
         vad.reset()
@@ -866,8 +851,7 @@ class TestPreloadWarmup:
         # post-warmup ``state + 1.0`` value the fake would otherwise
         # have left behind.
         assert np.array_equal(vad._state, np.zeros((2, 1, 128), dtype=np.float32)), (
-            "preload() must reset_states() after warmup so the first "
-            "real audio chunk starts from a clean LSTM state"
+            "preload() must reset_states() after warmup so the first real audio chunk starts from a clean LSTM state"
         )
         vad.reset()
 

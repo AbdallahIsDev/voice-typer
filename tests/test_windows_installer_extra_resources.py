@@ -170,8 +170,7 @@ def test_index_ts_pythonargs_looks_up_embedded_backend() -> None:
     # Must be Windows-gated (either `case "win32":` or a
     # `platform === "win32"` branch — the helper's platform param).
     assert 'case "win32"' in src or 'platform === "win32"' in src, (
-        "pythonArgs() packaged-mode lookup must be Windows-gated so "
-        "macOS/Linux branches are not affected."
+        "pythonArgs() packaged-mode lookup must be Windows-gated so macOS/Linux branches are not affected."
     )
     # Must spawn the bundled exe with --port (no -m flag — the frozen
     # exe is already the IPC server entry point).

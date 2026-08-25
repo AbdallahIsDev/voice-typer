@@ -32,6 +32,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+# Warm import: ``VocabularyManager.apply_to_text`` lazily imports the
+# text_cleanup package on first call, and that first import executes the
+# package leaves' module-level ``re.compile`` calls. The ER-37 tests
+# count ``re.compile`` calls inside a patched window — importing the
+# package here (before any patching) keeps those import-time compiles
+# out of the count, exactly as when the module was a single preloaded
+# file.
+import voice_typer.server.text_cleanup  # noqa: E402,F401
+
+from tests.fixtures.clipboard_helpers import make_clipboard_manager  # noqa: E402
+
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
 # tests/clipboard/conftest.py (single source of truth —  dedup).
 
@@ -188,21 +199,6 @@ def _mock_display_env(monkeypatch):
     yield
 
 
-def _make_cm():
-    """Build a ClipboardManager with mocked keyboard (skip pynput import)."""
-    from voice_typer.server import clipboard as clip_mod
-
-    cm = clip_mod.ClipboardManager.__new__(clip_mod.ClipboardManager)
-    cm.paste_enabled = True
-    cm._keyboard = MagicMock()
-    cm._last_paste_time = 0.0  # not rate-limited
-    cm._clipboard_seq = 0
-    cm._last_copied_text = ""
-    cm._clipboard_save_restore_enabled = True
-    cm._restore_delay_ms = 10
-    return cm
-
-
 def _drain_pending_restores() -> None:
     from voice_typer.server import clipboard as clip_mod
 
@@ -233,7 +229,7 @@ def test_pending_restores_no_leak_when_thread_start_fails() -> None:
     from voice_typer.server.clipboard import ClipboardManager
     from voice_typer.server.clipboard_snapshot import ClipboardSnapshot
 
-    cm = _make_cm()
+    cm = make_clipboard_manager(restore_delay_ms=10)
     snap = ClipboardSnapshot(
         platform="linux-x11",
         items=[("text/plain", b"prior clipboard content")],
@@ -294,7 +290,7 @@ def test_pending_restores_no_leak_warning_logged() -> None:
     from voice_typer.server.clipboard import ClipboardManager
     from voice_typer.server.clipboard_snapshot import ClipboardSnapshot
 
-    cm = _make_cm()
+    cm = make_clipboard_manager(restore_delay_ms=10)
     snap = ClipboardSnapshot(
         platform="linux-x11",
         items=[("text/plain", b"prior")],

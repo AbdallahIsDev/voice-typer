@@ -268,15 +268,12 @@ class TestPublicEnvVarNamesNotRedacted:
         ``[ENV] Invalid value for <NAME>=<redacted>`` log line."""
         # Bare name.
         assert redact_secret(name) == name, (
-            f"env var name {name!r} was redacted by redact_secret; "
-            f"got {redact_secret(name)!r}"
+            f"env var name {name!r} was redacted by redact_secret; got {redact_secret(name)!r}"
         )
         # Inside a realistic log line (mirrors env_validation.py).
         line = f"[ENV] Invalid value for {name}=<redacted> -- expected valid path."
         out = redact_secret(line)
-        assert name in out, (
-            f"env var name {name!r} was redacted inside a log line; got {out!r}"
-        )
+        assert name in out, f"env var name {name!r} was redacted inside a log line; got {out!r}"
 
     def test_whitelisted_env_var_name_survives_redact_api_keys(self):
         """``redact_api_keys`` (the lower-level helper) also preserves
@@ -334,13 +331,11 @@ class TestPublicEnvVarNamesNotRedacted:
         was attached during the full test run."""
         cases = [
             (
-                "[ENV] Invalid value for VOICE_TYPER_CONFIG_DIR=<redacted> "
-                "-- expected valid path. Resetting to empty.",
+                "[ENV] Invalid value for VOICE_TYPER_CONFIG_DIR=<redacted> -- expected valid path. Resetting to empty.",
                 "VOICE_TYPER_CONFIG_DIR",
             ),
             (
-                "[SIDECAR-ENV] expected env var VOICE_TYPER_IPC_TOKEN is unset "
-                "(expected <non-empty>)",
+                "[SIDECAR-ENV] expected env var VOICE_TYPER_IPC_TOKEN is unset (expected <non-empty>)",
                 "VOICE_TYPER_IPC_TOKEN",
             ),
             (
@@ -349,8 +344,7 @@ class TestPublicEnvVarNamesNotRedacted:
                 "HUGGING_FACE_HUB_TOKEN",
             ),
             (
-                "[ENV] Invalid value for HF_HOME=<redacted> -- expected valid "
-                "path. Resetting to empty.",
+                "[ENV] Invalid value for HF_HOME=<redacted> -- expected valid path. Resetting to empty.",
                 "HF_HOME",
             ),
             (
@@ -360,10 +354,7 @@ class TestPublicEnvVarNamesNotRedacted:
         ]
         for line, name in cases:
             out = redact_secret(line)
-            assert name in out, (
-                f"env var name {name!r} was redacted from log line; "
-                f"input={line!r}; output={out!r}"
-            )
+            assert name in out, f"env var name {name!r} was redacted from log line; input={line!r}; output={out!r}"
 
 
 class TestRedactUrl:

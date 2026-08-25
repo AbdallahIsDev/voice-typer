@@ -703,8 +703,7 @@ class TestAudioFilterBase:
         """
         f = _MinimalFilter()
         assert f.degraded_reason == "", (
-            "AudioFilter.degraded_reason must default to empty "
-            "string when is_degraded is False"
+            "AudioFilter.degraded_reason must default to empty string when is_degraded is False"
         )
 
     def test_base_latency_ms_defaults_zero(self) -> None:
@@ -718,6 +717,5 @@ class TestAudioFilterBase:
         """
         f = _MinimalFilter()
         assert f.latency_ms == 0.0, (
-            "AudioFilter.latency_ms must default to 0.0 — "
-            "sample-by-sample filters add zero latency"
+            "AudioFilter.latency_ms must default to 0.0 — sample-by-sample filters add zero latency"
         )

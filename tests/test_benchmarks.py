@@ -43,9 +43,7 @@ pytest.importorskip("pytest_benchmark")
 # worker?). Both must be true: xdist installed + worker env var set
 # → we're inside an xdist worker process.
 _has_xdist_installed = importlib.util.find_spec("xdist") is not None
-_has_xdist_workers = _has_xdist_installed and bool(
-    os.environ.get("PYTEST_XDIST_WORKER")
-)
+_has_xdist_workers = _has_xdist_installed and bool(os.environ.get("PYTEST_XDIST_WORKER"))
 pytestmark = [
     pytest.mark.skipif(
         _has_xdist_workers,
@@ -62,9 +60,7 @@ pytestmark = [
     # so this filter only catches warnings emitted DURING test
     # execution — but that's the only layer we can control from a test
     # module without touching conftest.py / pyproject.toml.
-    pytest.mark.filterwarnings(
-        "ignore::pytest_benchmark.logger.PytestBenchmarkWarning"
-    ),
+    pytest.mark.filterwarnings("ignore::pytest_benchmark.logger.PytestBenchmarkWarning"),
 ]
 
 # Proactively install a process-wide warning filter for

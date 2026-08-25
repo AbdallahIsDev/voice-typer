@@ -225,9 +225,7 @@ class TestCrashDumpFileContentRedacted:
         from the exception value."""
         marker = self._trigger_crash(tmp_path)
         content = marker.read_text(encoding="utf-8")
-        assert "john.doe@example.com" not in content, (
-            f"raw PII must not appear in crash marker; got: {content!r}"
-        )
+        assert "john.doe@example.com" not in content, f"raw PII must not appear in crash marker; got: {content!r}"
         assert "john.doe" not in content, f"partial PII (email local part) must not appear; got: {content!r}"
         # The redacted form (or a safe sentinel) must appear instead.
         assert "[EMAIL]" in content or "<redacted:" in content, (
@@ -246,12 +244,8 @@ class TestCrashDumpFileContentRedacted:
         marker = tmp_path / f"python_crash.{os.getpid()}.txt"
         assert marker.exists()
         content = marker.read_text(encoding="utf-8")
-        assert "sk-abcdefghijklmnopqrstuvwx" not in content, (
-            f"secret must not appear in crash marker; got: {content!r}"
-        )
-        assert "***" in content or "<redacted:" in content, (
-            f"crash marker must mask the secret; got: {content!r}"
-        )
+        assert "sk-abcdefghijklmnopqrstuvwx" not in content, f"secret must not appear in crash marker; got: {content!r}"
+        assert "***" in content or "<redacted:" in content, f"crash marker must mask the secret; got: {content!r}"
 
     def test_marker_keeps_exc_type_for_deduplication(self, tmp_path: Path, restore_excepthook):
         """The marker still carries the exception TYPE name (safe) so

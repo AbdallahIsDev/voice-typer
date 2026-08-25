@@ -231,9 +231,7 @@ class TestResultModuleRedactionFailureFallback:
         )
         # NO DEBUG segment log may be emitted with a truncated fallback copy.
         segment_debug = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.DEBUG and "[TRANSCRIBE] Segment" in r.getMessage()
+            r for r in caplog.records if r.levelno == logging.DEBUG and "[TRANSCRIBE] Segment" in r.getMessage()
         ]
         assert segment_debug == [], (
             f"HU-13: segment DEBUG log must be skipped on redaction failure; "
@@ -252,13 +250,10 @@ class TestResultModuleRedactionFailureFallback:
             transcribe_unlocked(engine, audio)
 
         segment_logs = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.DEBUG and "[TRANSCRIBE] Segment" in r.getMessage()
+            r for r in caplog.records if r.levelno == logging.DEBUG and "[TRANSCRIBE] Segment" in r.getMessage()
         ]
         assert len(segment_logs) == 1, (
-            f"Expected exactly one segment DEBUG log when log_transcriptions=True; "
-            f"got {len(segment_logs)}"
+            f"Expected exactly one segment DEBUG log when log_transcriptions=True; got {len(segment_logs)}"
         )
         msg = segment_logs[0].getMessage()
         assert "user@example.com" not in msg, f"Raw email leaked into DEBUG log: {msg!r}"
@@ -289,9 +284,7 @@ class TestResultModuleRedactionFailureFallback:
         assert result == PII_SAMPLE_TEXT
         assert PII_SAMPLE_TEXT not in caplog.text
         segment_logs = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.DEBUG and "[TRANSCRIBE] Segment" in r.getMessage()
+            r for r in caplog.records if r.levelno == logging.DEBUG and "[TRANSCRIBE] Segment" in r.getMessage()
         ]
         assert segment_logs == [], (
             f"HU-13: segment DEBUG log must not emit when redaction engine is unavailable; "

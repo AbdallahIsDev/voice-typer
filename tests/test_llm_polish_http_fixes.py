@@ -461,8 +461,9 @@ class TestCallApiHttpErrorBranches:
             hdrs=None,
             fp=None,
         )
-        with patch("voice_typer.server.llm_polish._opener.open", side_effect=err), pytest.raises(
-            CloudServerError, match=r"HTTP 500"
+        with (
+            patch("voice_typer.server.llm_polish._opener.open", side_effect=err),
+            pytest.raises(CloudServerError, match=r"HTTP 500"),
         ):
             polisher._call_api("Hello world test", "You are a text editor.")
 
@@ -496,9 +497,10 @@ class TestCallApiHttpErrorBranches:
             hdrs=None,
             fp=None,
         )
-        with patch("voice_typer.server.llm_polish._opener.open", side_effect=err), pytest.raises(
-            CloudEngineError, match=r"HTTP 401"
-        ) as exc_info:
+        with (
+            patch("voice_typer.server.llm_polish._opener.open", side_effect=err),
+            pytest.raises(CloudEngineError, match=r"HTTP 401") as exc_info,
+        ):
             polisher._call_api("Hello world test", "You are a text editor.")
 
         # CloudServerError is a subclass of CloudEngineError; assert
@@ -533,8 +535,9 @@ class TestCallApiHttpErrorBranches:
         from voice_typer.server.asr_errors import CloudNetworkError
 
         err = URLError("getaddrinfo failed")
-        with patch("voice_typer.server.llm_polish._opener.open", side_effect=err), pytest.raises(
-            CloudNetworkError, match=r"LLM API error"
+        with (
+            patch("voice_typer.server.llm_polish._opener.open", side_effect=err),
+            pytest.raises(CloudNetworkError, match=r"LLM API error"),
         ):
             polisher._call_api("Hello world test", "You are a text editor.")
 
@@ -558,10 +561,13 @@ class TestCallApiHttpErrorBranches:
             CloudServerError,
         )
 
-        with patch(
-            "voice_typer.server.llm_polish._opener.open",
-            side_effect=ValueError("unexpected decode error"),
-        ), pytest.raises(CloudEngineError, match=r"LLM API error") as exc_info:
+        with (
+            patch(
+                "voice_typer.server.llm_polish._opener.open",
+                side_effect=ValueError("unexpected decode error"),
+            ),
+            pytest.raises(CloudEngineError, match=r"LLM API error") as exc_info,
+        ):
             polisher._call_api("Hello world test", "You are a text editor.")
 
         # The generic exception must NOT be mis-mapped to a more

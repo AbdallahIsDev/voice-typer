@@ -42,9 +42,7 @@ def _sine_chunk(n: int, freq: float = 440.0, amp: float = 0.5) -> np.ndarray:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _compressor_reference_process(
-    comp: Compressor, audio: np.ndarray, sample_rate: int
-) -> np.ndarray:
+def _compressor_reference_process(comp: Compressor, audio: np.ndarray, sample_rate: int) -> np.ndarray:
     """Fresh-allocation reference (mirrors the pre-optimization gain stage).
 
     Uses ``np.power(10.0, gain_db / 20.0) * output_gain`` (3 fresh arrays),
@@ -63,13 +61,9 @@ def _compressor_reference_process(
     release_b = comp._release_b
     release_a = comp._release_a
     zi = np.array([comp._envelope], dtype=np.float64)
-    attack_env, _ = pytest.importorskip("scipy.signal").lfilter(
-        attack_b, attack_a, abs_x, zi=zi
-    )
+    attack_env, _ = pytest.importorskip("scipy.signal").lfilter(attack_b, attack_a, abs_x, zi=zi)
     zi = np.array([comp._envelope], dtype=np.float64)
-    release_env, _ = pytest.importorskip("scipy.signal").lfilter(
-        release_b, release_a, abs_x, zi=zi
-    )
+    release_env, _ = pytest.importorskip("scipy.signal").lfilter(release_b, release_a, abs_x, zi=zi)
     env = np.maximum(attack_env, release_env)
 
     above_floor = env > 1e-10
@@ -168,9 +162,7 @@ class TestCompressorByteIdentical:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _limiter_reference_process(
-    lim: Limiter, audio: np.ndarray, sample_rate: int
-) -> np.ndarray:
+def _limiter_reference_process(lim: Limiter, audio: np.ndarray, sample_rate: int) -> np.ndarray:
     """Fresh-allocation reference (mirrors the pre-optimization gain stage)."""
     samples = np.ravel(audio).astype(np.float32, copy=False)
     n = len(samples)
@@ -180,13 +172,9 @@ def _limiter_reference_process(
     abs_x = np.abs(samples).astype(np.float64)
 
     zi = np.array([lim._envelope], dtype=np.float64)
-    attack_env, _ = pytest.importorskip("scipy.signal").lfilter(
-        lim._attack_b, lim._attack_a, abs_x, zi=zi
-    )
+    attack_env, _ = pytest.importorskip("scipy.signal").lfilter(lim._attack_b, lim._attack_a, abs_x, zi=zi)
     zi = np.array([lim._envelope], dtype=np.float64)
-    release_env, _ = pytest.importorskip("scipy.signal").lfilter(
-        lim._release_b, lim._release_a, abs_x, zi=zi
-    )
+    release_env, _ = pytest.importorskip("scipy.signal").lfilter(lim._release_b, lim._release_a, abs_x, zi=zi)
     env = np.maximum(attack_env, release_env)
 
     above_floor = env > 1e-10
@@ -484,9 +472,7 @@ def _make_stub_ns(sample_rate: int = RNNOISE_SAMPLE_RATE):
     return ns
 
 
-def _ns_reference_process_rnnoise(
-    ns: NoiseSuppressor, samples: np.ndarray, sample_rate: int
-) -> np.ndarray | None:
+def _ns_reference_process_rnnoise(ns: NoiseSuppressor, samples: np.ndarray, sample_rate: int) -> np.ndarray | None:
     """Fresh-allocation reference for ``_process_rnnoise`` (pre-optimization).
 
     Uses ``output_frames.append(cleaned_i16[0].astype(np.float32) /

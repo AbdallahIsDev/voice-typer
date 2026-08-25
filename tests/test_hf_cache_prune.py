@@ -43,8 +43,7 @@ class TestPruneModelCacheRemoved:
 
         for name in ("_prune_oldest_repos", "_repo_size_bytes", "_MAX_MODEL_CACHE_GB"):
             assert not hasattr(asr_utils, name), (
-                f"asr_utils.{name} must be REMOVED along with the "
-                "auto-eviction it supported."
+                f"asr_utils.{name} must be REMOVED along with the auto-eviction it supported."
             )
 
     def test_no_source_references_prune_model_cache(self):
@@ -56,15 +55,11 @@ class TestPruneModelCacheRemoved:
 
     def test_no_automatic_eviction_in_transcription_source(self):
         src = _read("voice_typer/server/transcription.py")
-        assert "prune_model_cache" not in src, (
-            "transcription.py must not reference the removed auto-eviction helper."
-        )
+        assert "prune_model_cache" not in src, "transcription.py must not reference the removed auto-eviction helper."
 
     def test_no_automatic_eviction_in_parakeet_source(self):
         src = _read("voice_typer/server/parakeet_engine.py")
-        assert "prune_model_cache" not in src, (
-            "parakeet_engine.py must not reference the removed auto-eviction helper."
-        )
+        assert "prune_model_cache" not in src, "parakeet_engine.py must not reference the removed auto-eviction helper."
 
 
 class TestCleanupHelperStillAvailableForExplicitDownloads:
@@ -85,13 +80,10 @@ class TestCleanupHelperStillAvailableForExplicitDownloads:
         src = _read("voice_typer/server/transcription.py")
         # The import re-export and docstring comments are fine; a CALL is not.
         call_sites = [
-            line
-            for line in src.splitlines()
-            if "cleanup_hf_cache_dir(" in line and not line.strip().startswith("#")
+            line for line in src.splitlines() if "cleanup_hf_cache_dir(" in line and not line.strip().startswith("#")
         ]
         assert not call_sites, (
-            "transcription.py must not call cleanup_hf_cache_dir — "
-            "deleting a model is an explicit user action."
+            "transcription.py must not call cleanup_hf_cache_dir — deleting a model is an explicit user action."
         )
 
     def test_parakeet_load_path_never_deletes(self):

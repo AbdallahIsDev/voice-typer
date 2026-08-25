@@ -35,6 +35,8 @@ from unittest.mock import MagicMock
 import pytest
 from voice_typer.server.shutdown_controller import ShutdownController
 
+from tests.fixtures.wait_helpers import wait_until
+
 # ── Tests ────────────────────────────────────────────────────────────────
 
 
@@ -62,12 +64,13 @@ class TestWsDispatchPoolDrain:
             return "done"
 
         # Submit the handler — it starts running immediately (max_workers=1).
+
         future = pool.submit(sleepy_handler)
 
-        # Give the worker a moment to actually start the task (otherwise
+        # Wait until the worker has actually STARTED the task — otherwise
         # it might still be QUEUED and cancel_futures=True would cancel
-        # it, defeating the test's premise).
-        time.sleep(0.1)
+        # it, defeating the test's premise.
+        assert wait_until(future.running, timeout=2.0), "handler never started running"
 
         start = time.monotonic()
 
@@ -103,8 +106,9 @@ class TestWsDispatchPoolDrain:
             time.sleep(10.0)
             return "done"
 
-        pool.submit(very_sleepy_handler)
-        time.sleep(0.1)  # Let the worker start the task.
+        sleepy_future = pool.submit(very_sleepy_handler)
+        # Wait until the worker has actually started the task.
+        assert wait_until(sleepy_future.running, timeout=2.0), "handler never started running"
 
         start = time.monotonic()
 
@@ -171,7 +175,10 @@ class TestWsDispatchPoolDrain:
         first = pool.submit(blocker)
         # Second task is QUEUED.
         second = pool.submit(lambda: "second")
-        time.sleep(0.1)  # Let the worker start the first task.
+        # Wait until the worker has actually started the FIRST task so
+        # the second one is deterministically QUEUED when the shutdown
+        # below fires.
+        assert wait_until(first.running, timeout=2.0), "first task never started running"
 
         # cancel_futures=True cancels the QUEUED second task.
         pool.shutdown(wait=False, cancel_futures=True)
@@ -309,12 +316,12 @@ class TestDoCleanupDrainsWsPoolViaProductionPath:
         def sleepy_handler() -> None:
             time.sleep(6.0)
 
-        ws_pool.submit(sleepy_handler)
-        # Let the worker actually start the task (otherwise it'd be
+        sleepy_future = ws_pool.submit(sleepy_handler)
+        # Wait until the worker actually starts the task (otherwise it'd be
         # QUEUED and cancel_futures=True would cancel it, defeating the
         # test's premise — the production WARNING only fires when a
         # RUNNING handler exceeds the deadline).
-        time.sleep(0.1)
+        assert wait_until(sleepy_future.running, timeout=2.0), "handler never started running"
 
         # Build a fake_app with the real WS pool, all other subsystems mocked.
         fake_app = _FakeAppForDoCleanup()

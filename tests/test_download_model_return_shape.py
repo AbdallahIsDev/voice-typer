@@ -44,8 +44,7 @@ def test_unknown_model_return_includes_model_field() -> None:
     assert result["success"] is False
     assert "Unknown model" in result["error"]
     assert result["model"] == "nonexistent-model", (
-        "unknown-model return must include `model` so consumers "
-        "don't have to thread the input through the IPC layer."
+        "unknown-model return must include `model` so consumers don't have to thread the input through the IPC layer."
     )
 
 

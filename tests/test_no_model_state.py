@@ -29,18 +29,14 @@ class TestConfigLoadPreservesNoModelState:
         no \"config corrected\" warning (it's a real state, not garbage)."""
         from voice_typer.server.config import Config
 
-        (tmp_config_dir / "config.json").write_text(
-            json.dumps({"model_size": NO_MODEL_SIZE})
-        )
+        (tmp_config_dir / "config.json").write_text(json.dumps({"model_size": NO_MODEL_SIZE}))
 
         c = Config.load()
         assert c.model_size == NO_MODEL_SIZE, (
-            f"model_size must stay {NO_MODEL_SIZE!r} (no model selected), "
-            f"got {c.model_size!r}"
+            f"model_size must stay {NO_MODEL_SIZE!r} (no model selected), got {c.model_size!r}"
         )
         assert not c.last_load_warnings, (
-            "loading the no-model state must not emit a config-correction "
-            f"warning, got: {c.last_load_warnings}"
+            f"loading the no-model state must not emit a config-correction warning, got: {c.last_load_warnings}"
         )
 
     def test_invalid_model_size_still_resets_to_default(self, tmp_config_dir):
@@ -49,9 +45,7 @@ class TestConfigLoadPreservesNoModelState:
         from voice_typer.server.config import Config
         from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
 
-        (tmp_config_dir / "config.json").write_text(
-            json.dumps({"model_size": "not-a-real-model"})
-        )
+        (tmp_config_dir / "config.json").write_text(json.dumps({"model_size": "not-a-real-model"}))
 
         c = Config.load()
         assert c.model_size == DEFAULT_MODEL_SIZE
@@ -96,10 +90,7 @@ class TestTrayNoModelState:
 
         assert data, "submenu should still enumerate candidates"
         for name, _downloaded, is_active, _change_fn in data:
-            assert not is_active, (
-                f"'{name}' must not be marked active when model_size == \"\" "
-                "(no model selected)"
-            )
+            assert not is_active, f"'{name}' must not be marked active when model_size == \"\" (no model selected)"
 
     def test_is_active_model_downloaded_false_when_no_model(self):
         """The active-model probe returns False for the no-model state so
@@ -154,6 +145,4 @@ class TestModelManagerNoModelRefusal:
         _Recorder(_App()).load_background()
 
         assert captured, "load refusal must have run"
-        assert "No model selected" in captured[0], (
-            f"refusal message must say 'No model selected', got: {captured[0]}"
-        )
+        assert "No model selected" in captured[0], f"refusal message must say 'No model selected', got: {captured[0]}"

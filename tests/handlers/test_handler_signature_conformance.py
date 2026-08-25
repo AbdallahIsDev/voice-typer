@@ -251,9 +251,7 @@ class TestRestoreHistoryNarrowing:
     reject upstream but the handler now defends against explicitly).
     """
 
-    def test_restore_history_with_long_text_returns_payload_too_large(
-        self, tmp_config_dir: Path
-    ) -> None:
+    def test_restore_history_with_long_text_returns_payload_too_large(self, tmp_config_dir: Path) -> None:
         """A ``record['text']`` longer than 8192 chars MUST trigger the
         ``client.payload_too_large`` error envelope, NOT raise an
         ``AttributeError`` (the pre-YJ-1 behaviour when ``record`` was
@@ -296,9 +294,7 @@ class TestRestoreHistoryNarrowing:
         # the payload before reaching the service layer).
         fake_service.restore_history.assert_not_called()
 
-    def test_restore_history_with_non_dict_record_returns_invalid_payload(
-        self, tmp_config_dir: Path
-    ) -> None:
+    def test_restore_history_with_non_dict_record_returns_invalid_payload(self, tmp_config_dir: Path) -> None:
         """A ``record`` value that is not a dict (e.g. a list) MUST
         trigger the ``client.invalid_field`` envelope from the schema
         validation, NOT the defensive ``client.invalid_payload`` guard.
@@ -328,9 +324,7 @@ class TestRestoreHistoryNarrowing:
         assert data["code"] == "client.invalid_field"
         fake_service.restore_history.assert_not_called()
 
-    def test_restore_history_with_valid_short_text_calls_service(
-        self, tmp_config_dir: Path
-    ) -> None:
+    def test_restore_history_with_valid_short_text_calls_service(self, tmp_config_dir: Path) -> None:
         """A valid record with a short text field MUST pass the cap and
         invoke ``service.restore_history``. Guards against an accidental
         inversion of the length check (``>`` vs ``<``)."""

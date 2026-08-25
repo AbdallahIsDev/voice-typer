@@ -46,8 +46,7 @@ class TestSetIdle:
         watcher._is_idle = False  # start from non-idle
         watcher.set_idle(True)
         assert watcher._is_idle is True, (
-            "set_idle(True) must set self._is_idle = True so the "
-            "macOS/Linux polling paths widen to the idle cadence."
+            "set_idle(True) must set self._is_idle = True so the macOS/Linux polling paths widen to the idle cadence."
         )
 
     def test_set_idle_false_sets_is_idle_false(self):
@@ -96,12 +95,8 @@ class TestSetIdle:
         """The default intervals must be 12 s (idle) and 3 s (active)
         — the values documented in the ``set_idle`` docstring."""
         watcher = MicrophoneDeviceWatcher(on_change=lambda: None)
-        assert watcher._idle_poll_interval_s == 12.0, (
-            "the default idle poll interval must be 12.0 s."
-        )
-        assert watcher._active_poll_interval_s == 3.0, (
-            "the default active poll interval must be 3.0 s."
-        )
+        assert watcher._idle_poll_interval_s == 12.0, "the default idle poll interval must be 12.0 s."
+        assert watcher._active_poll_interval_s == 3.0, "the default active poll interval must be 3.0 s."
 
 
 class TestRunMacosIdleCadence:
@@ -122,18 +117,14 @@ class TestRunMacosIdleCadence:
         """``_run_macos``'s source must reference
         ``_idle_poll_interval_s`` so the idle cadence is actually used."""
         src = inspect.getsource(MicrophoneDeviceWatcher._run_macos)
-        assert "_idle_poll_interval_s" in src, (
-            "_run_macos must use self._idle_poll_interval_s for the "
-            "idle cadence."
-        )
+        assert "_idle_poll_interval_s" in src, "_run_macos must use self._idle_poll_interval_s for the idle cadence."
 
     def test_run_macos_source_references_active_poll_interval(self):
         """``_run_macos``'s source must reference
         ``_active_poll_interval_s`` so the active cadence is actually used."""
         src = inspect.getsource(MicrophoneDeviceWatcher._run_macos)
         assert "_active_poll_interval_s" in src, (
-            "_run_macos must use self._active_poll_interval_s for the "
-            "active cadence."
+            "_run_macos must use self._active_poll_interval_s for the active cadence."
         )
 
 
@@ -158,8 +149,7 @@ class TestRunLinuxSecondaryPollIdleCadence:
         ``_idle_poll_interval_s`` so the idle cadence is actually used."""
         src = inspect.getsource(MicrophoneDeviceWatcher._run_linux)
         assert "_idle_poll_interval_s" in src, (
-            "_run_linux must use self._idle_poll_interval_s for the "
-            "secondary poll idle cadence."
+            "_run_linux must use self._idle_poll_interval_s for the secondary poll idle cadence."
         )
 
     def test_run_linux_source_references_active_poll_interval(self):
@@ -167,8 +157,7 @@ class TestRunLinuxSecondaryPollIdleCadence:
         ``_active_poll_interval_s`` so the active cadence is actually used."""
         src = inspect.getsource(MicrophoneDeviceWatcher._run_linux)
         assert "_active_poll_interval_s" in src, (
-            "_run_linux must use self._active_poll_interval_s for the "
-            "secondary poll active cadence."
+            "_run_linux must use self._active_poll_interval_s for the secondary poll active cadence."
         )
 
     def test_run_linux_does_not_reference_dead_constant(self):
@@ -192,8 +181,7 @@ class TestSetIdleIsPublic:
         """``set_idle`` must be a callable method on the watcher instance."""
         watcher = MicrophoneDeviceWatcher(on_change=lambda: None)
         assert callable(getattr(watcher, "set_idle", None)), (
-            "set_idle must be a public method so RecordingController "
-            "can call it when a recording starts/stops."
+            "set_idle must be a public method so RecordingController can call it when a recording starts/stops."
         )
 
     def test_set_idle_does_not_raise(self):

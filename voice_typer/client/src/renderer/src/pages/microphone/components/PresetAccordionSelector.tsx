@@ -1,12 +1,15 @@
 // Accordion-style "Microphone Quality" preset selector — Microphone
 // page only.
 //
-// Collapsed, the header shows the section label + the CURRENT selection;
-// expanding reveals a RadioGroup of the five presets (single source of
-// truth for the preset set: `voice_typer/server/audio_presets.py` — the
-// labels/descriptions here mirror AudioPresetSelector's data but the
-// component is intentionally NOT imported so the Settings surface and
-// this one can evolve independently).
+// Collapsed, the header shows the section label + a general help
+// InfoTooltip + the CURRENT selection; expanding reveals a RadioGroup
+// of the five presets (single source of truth for the preset set:
+// `voice_typer/server/audio_presets.py` — the labels/descriptions here
+// mirror AudioPresetSelector's data but the component is intentionally
+// NOT imported so the Settings surface and this one can evolve
+// independently). Each option's description lives in a per-row
+// InfoTooltip instead of being permanently visible — keeps the
+// accordion compact and kills the duplicated header paragraph.
 //
 // Selecting a radio applies the preset immediately (ADR 0007: backend
 // maps preset → filter chain). When the Custom preset is active, the
@@ -23,6 +26,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type { MouseEvent } from "react";
 import { useMemo } from "react";
 import { AudioFilterChain } from "@/components/audio/AudioFilterChain";
+import { InfoTooltip } from "@/components/feedback/InfoTooltip";
 import type { AudioPreset } from "@/components/microphone/AudioPresetSelector";
 import {
 	Accordion,
@@ -88,9 +92,12 @@ function getPresetOptions(): PresetOption[] {
 const ACCORDION_ITEM_VALUE = "microphone-quality";
 
 /**
- * Row-click handler for a preset option. Clicks originating on the
- * radio control itself are left to Radix (onValueChange); handling them
- * here too would apply the preset twice for one click.
+ * Row-click handler for a preset option. Clicks originating on any
+ * native <button> inside the row are left alone: the Radix radio
+ * control handles selection itself via onValueChange (handling it here
+ * too would apply the preset twice for one click), and the row's
+ * InfoTooltip trigger opens the description tooltip — it must never
+ * change the preset as a side effect.
  */
 function makeOptionClickHandler(
 	preset: AudioPreset,
@@ -98,9 +105,7 @@ function makeOptionClickHandler(
 	value: AudioPreset,
 ): (event: MouseEvent<HTMLDivElement>) => void {
 	return (event) => {
-		if (
-			(event.target as HTMLElement).closest('[data-slot="radio-group-item"]')
-		) {
+		if ((event.target as HTMLElement).closest("button")) {
 			return;
 		}
 		if (preset === value) return;
@@ -133,31 +138,72 @@ export function PresetAccordionSelector({
 			>
 				<AccordionTrigger
 					// No aria-label override: the visible trigger content (section
-					// label + CURRENT selection) IS the accessible name, so screen
-					// readers announce the selected preset in the collapsed state.
-					className="items-center gap-3 px-4 py-3 hover:bg-foreground/5 hover:no-underline focus-visible:ring-ring/30 **:data-[slot=accordion-trigger-icon]:text-(--text-muted)"
+					// label + CURRENT selection field) IS the accessible name, so
+					// screen readers announce the selected preset in the collapsed
+					// state. Single compact row: label + ? on the left, the
+					// active-filter field + rotating chevron grouped on the right
+					// (base justify-between spreads them). px-4 keeps both insets
+					// equal and matches the option rows' content boundary.
+					// The primitive's persistent PlusSignIcon is hidden on THIS
+					// instance (user decision for this selector) and replaced by
+					// the dedicated rotating chevron below — the primitive itself
+					// is untouched, so every other accordion keeps its "+".
+					className="items-center gap-3 px-4 py-2.5 hover:bg-foreground/5 hover:no-underline focus-visible:ring-ring/30 [&_[data-slot=accordion-trigger-icon]]:hidden **:data-[slot=accordion-trigger-icon]:text-(--text-muted)"
 				>
-					<span className="flex flex-col items-start gap-1 min-w-0 text-start">
+					<span className="flex items-center gap-1.5 min-w-0">
 						<span className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">
 							{t("settings.audioEnhancement.microphoneQuality")}
 						</span>
+						{/* Inline (span) trigger: this tooltip lives INSIDE the
+						AccordionTrigger <button>, where a nested real <button>
+						would be invalid DOM and would toggle the accordion.
+						Anchored in normal flow beside the label — it can never
+						slide into the option list during the expand animation. */}
+						<InfoTooltip
+							triggerAs="inline"
+							text={t("settings.audioEnhancement.microphoneQualityInfo")}
+							contextLabel={t("settings.audioEnhancement.microphoneQuality")}
+						/>
+					</span>
+					{/* Active-filter field + chevron: a NON-interactive chip
+					(plain span — the whole row is the one control) that visually
+					communicates the current selection, grouped with the expand
+					control it belongs to. Mirrors the SelectTrigger shell
+					(bg-background lifts it off the bg-(--bg-subtle) card). The
+					chevron is decorative (the trigger owns aria-expanded) and
+					rotates via the primitive's data-state — collapsed points
+					down (can expand), expanded points up (can collapse). */}
+					<span className="flex items-center gap-2 shrink-0">
 						<span
-							className="text-sm font-medium text-(--text-primary) truncate"
+							className="inline-flex max-w-40 items-center rounded-md border border-border/10 bg-background px-2.5 py-1 text-xs font-medium text-(--text-primary)"
 							data-testid="mic-preset-current"
 						>
-							{current?.label ?? preset}
+							<span className="truncate">{current?.label ?? preset}</span>
 						</span>
+						<HugeiconsIcon
+							icon={ArrowDown01Icon}
+							strokeWidth={1.625}
+							aria-hidden="true"
+							className="size-4 shrink-0 text-(--text-muted) transition-transform duration-200 group-data-[state=open]/accordion-trigger:rotate-180"
+						/>
 					</span>
 				</AccordionTrigger>
-				<AccordionContent className="px-4 pb-4 pt-0">
-					<div className="space-y-2">
-						<p className="text-xs text-(--text-muted)">
-							{current?.description ?? ""}
-						</p>
+				{/* No extra padding on AccordionContent itself: the shared
+				primitive already pads horizontally (px-4) and vertically
+				(inner pb-4) — a second layer there produced a double
+				indent/double bottom gap vs the header. The RadioGroup adds
+				ONE deliberate px-2 so option text and right-aligned radios
+				sit at 24px insets — balanced breathing room, never touching
+				the container edges. The hairline separates options from
+				header. Rows keep the radio FIRST in DOM (Radix
+				roving-tabindex/reading order) and push it to the visual far
+				end via ms-auto, aligning its inset with the header chevron. */}
+				<AccordionContent>
+					<div className="border-t border-border/10 pt-2">
 						<RadioGroup
 							value={preset}
 							onValueChange={(v) => onPresetChange(v as AudioPreset)}
-							className="gap-0.5"
+							className="gap-0.5 px-2"
 							data-testid="mic-preset-radio-group"
 						>
 							{presetOptions.map((option) => (
@@ -165,7 +211,10 @@ export function PresetAccordionSelector({
 								// biome-ignore lint/a11y/useKeyWithClickEvents: keyboard activation goes through the focused radio itself (Space/arrows via Radix); a keydown mirror here would double-fire the selection.
 								<div
 									key={option.value}
-									className="flex items-start gap-3 rounded-lg px-2 py-2 cursor-pointer transition-colors hover:bg-foreground/5"
+									className={cn(
+										"flex items-center gap-3 rounded-lg px-0 py-2 min-h-9 cursor-pointer transition-colors hover:bg-foreground/5",
+										option.value === preset && "bg-foreground/5",
+									)}
 									data-testid={`mic-preset-option-${option.value}`}
 									onClick={makeOptionClickHandler(
 										preset,
@@ -175,19 +224,33 @@ export function PresetAccordionSelector({
 								>
 									{/* Explicit aria-label keeps the radio's accessible
 								    name to the preset LABEL — an implicit-label
-								    fallback would concatenate the whole row text. */}
+								    fallback would concatenate the whole row text.
+								    The radio stays FIRST in DOM (Radix roving
+								    tabindex + screen-reader reading order hit the
+								    control before the descriptive text) and is
+								    moved to the visual far end via order-last +
+								    ms-auto, aligning its inset with the header "+"
+								    glyph. */}
 									<RadioGroupItem
 										value={option.value}
-										className="mt-0.5"
 										aria-label={option.label}
+										className="order-last ms-auto"
 									/>
-									<span className="flex flex-col gap-0.5 min-w-0">
-										<span className="text-sm font-medium text-(--text-primary)">
+									{/* Title + its own info trigger form the left
+								    content group; the info icon sits immediately
+								    after the title (Settings pattern), never at the
+								    far end and never inside the radio's hit area.
+								    The inline span's stopPropagation (owned by
+								    InfoTooltip) keeps clicks/keys off the row
+								    handler. */}
+									<span className="flex items-center gap-1.5 min-w-0">
+										<span className="text-sm font-medium text-(--text-primary) truncate">
 											{option.label}
 										</span>
-										<span className="text-xs text-(--text-muted)">
-											{option.description}
-										</span>
+										<InfoTooltip
+											text={option.description}
+											contextLabel={option.label}
+										/>
 									</span>
 								</div>
 							))}

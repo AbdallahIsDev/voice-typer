@@ -36,11 +36,7 @@ def helper_text() -> str:
 
 
 def _non_comment_lines(text: str) -> list[str]:
-    return [
-        line
-        for line in text.splitlines()
-        if not line.lstrip().lower().startswith(("rem", "::"))
-    ]
+    return [line for line in text.splitlines() if not line.lstrip().lower().startswith(("rem", "::"))]
 
 
 class TestTauriSignCmdSafe:
@@ -48,9 +44,7 @@ class TestTauriSignCmdSafe:
         assert cmd_text.strip(), "tauri-sign.cmd is empty"
 
     def test_wrapper_rejects_dynamic_sign_command(self, cmd_text: str) -> None:
-        offenders = [
-            line for line in _non_comment_lines(cmd_text) if "%WIN_SIGN_COMMAND%" in line
-        ]
+        offenders = [line for line in _non_comment_lines(cmd_text) if "%WIN_SIGN_COMMAND%" in line]
         assert not offenders, f"unsafe WIN_SIGN_COMMAND expansion: {offenders}"
 
     def test_wrapper_is_a_guarded_helper_adapter(self, cmd_text: str) -> None:
@@ -72,9 +66,7 @@ class TestTauriSignCmdSafe:
 
 class TestAuthenticodeSigningHelper:
     def test_helper_is_present(self, helper_text: str) -> None:
-        assert HELPER_PATH.is_file() and helper_text.strip(), (
-            f"Windows signing helper not found at {HELPER_PATH}"
-        )
+        assert HELPER_PATH.is_file() and helper_text.strip(), f"Windows signing helper not found at {HELPER_PATH}"
 
     def test_helper_uses_branding_source_of_truth(self, helper_text: str) -> None:
         assert "voice_typer/server/branding.py" in helper_text

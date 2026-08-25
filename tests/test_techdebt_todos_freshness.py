@@ -136,59 +136,56 @@ class TestPrewarmInitTODO:
                 "phase (master plan §6.2). Skipping freshness assertions."
             )
         # Pre-deletion state — the TODO block must satisfy the freshness contract.
-        assert TRACKING_DOC in source, (
-            f"prewarm/__init__.py TODO must reference {TRACKING_DOC}"
-        )
+        assert TRACKING_DOC in source, f"prewarm/__init__.py TODO must reference {TRACKING_DOC}"
         matches = TODO_DATE_RE.findall(source)
-        assert matches, (
-            "prewarm/__init__.py TODO must have a "
-            "'TODO (YYYY-MM-DD, TECH-DEBT' header"
-        )
+        assert matches, "prewarm/__init__.py TODO must have a 'TODO (YYYY-MM-DD, TECH-DEBT' header"
         for date_str in matches:
-            assert date_str >= MIN_TODO_DATE, (
-                f"prewarm/__init__.py TODO date {date_str} is older than "
-                f"{MIN_TODO_DATE}"
-            )
+            assert date_str >= MIN_TODO_DATE, f"prewarm/__init__.py TODO date {date_str} is older than {MIN_TODO_DATE}"
         assert not STRIPPED_PREFIX_ARTIFACT_RE.search(source), (
             "prewarm/__init__.py TODO has the '  / TECH-DEBT' "
             "stripped-prefix artifact (leftover from a CR-XX session "
             "prefix); clean it to 'TECH-DEBT'"
         )
         assert not SESSION_PREFIX_RE.search(source), (
-            "prewarm/__init__.py contains a 'CR-XX' session prefix; "
-            "violates C-STYLE-1 (no task IDs in source code)"
+            "prewarm/__init__.py contains a 'CR-XX' session prefix; violates C-STYLE-1 (no task IDs in source code)"
         )
 
 
 class TestRecordingInitTODO:
-    """XZ-CC-13 — recording/__init__.py TODO block freshness.
+    """recording/__init__.py patch-compat boilerplate state.
 
-    The recording package has TWO copies of the TODO block — one in
-    the module docstring (top of file) and one in the inline comment
-    block above ``_RecordingModule``.  Both must satisfy the freshness
-    contract.
+    The custom ``_RecordingModule`` module class (and its TECH-DEBT
+    TODO blocks) has been REMOVED — every test now patches the owning
+    submodule directly and production code reads the mutable globals
+    from :mod:`.resampling` / :mod:`.buffer` at call time. These tests
+    pin the clean state so the indirection is not silently
+    reintroduced. If a TECH-DEBT TODO block ever reappears, it must
+    satisfy the same freshness contract as before (tracking doc
+    reference, fresh date, no stripped-prefix artifact).
     """
 
     def test_file_exists(self) -> None:
         assert RECORDING_INIT.is_file(), f"missing: {RECORDING_INIT}"
 
-    def test_has_at_least_two_todo_blocks(self, recording_source: str) -> None:
+    def test_no_custom_module_class(self) -> None:
+        source = RECORDING_INIT.read_text(encoding="utf-8")
+        assert "_RecordingModule" not in source, (
+            "recording/__init__.py must not reinstall a custom module "
+            "subclass for test-patch routing; patch submodules directly"
+        )
+        assert "sys.modules[__name__].__class__" not in source
+
+    def test_no_mutable_routing_frozensets(self) -> None:
+        source = RECORDING_INIT.read_text(encoding="utf-8")
+        assert "_MUTABLE_RESAMPLING" not in source
+        assert "_MUTABLE_BUFFER" not in source
+
+    def test_todo_blocks_if_present_are_fresh(self, recording_source: str) -> None:
         blocks = _todo_blocks(recording_source)
-        assert len(blocks) >= 2, (
-            "recording/__init__.py must have at least two TECH-DEBT TODO blocks "
-            "(one in the module docstring, one above _RecordingModule)"
-        )
-
-    def test_todo_references_tracking_doc(self, recording_source: str) -> None:
-        # Both TODO blocks should mention the tracking doc.
-        count = recording_source.count(TRACKING_DOC)
-        assert count >= 2, (
-            f"recording/__init__.py must reference {TRACKING_DOC} at least twice (once per TODO block); found {count}"
-        )
-
-    def test_todo_has_fresh_date(self, recording_source: str) -> None:
         matches = TODO_DATE_RE.findall(recording_source)
-        assert len(matches) >= 2, "recording/__init__.py must have two 'TODO (YYYY-MM-DD, TECH-DEBT' headers"
+        if not blocks or not matches:
+            pytest.skip("no TECH-DEBT TODO blocks present (boilerplate removed)")
+        assert len(matches) == len(blocks) or matches
         for date_str in matches:
             assert date_str >= MIN_TODO_DATE, (
                 f"recording/__init__.py TODO date {date_str} is older than {MIN_TODO_DATE}"

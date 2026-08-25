@@ -494,7 +494,10 @@ class TestCorrectionsLimits:
         """
         import re
 
-        from voice_typer.server import text_cleanup
+        # The mutable regex-cache state lives on the ``_engine`` leaf of
+        # the text_cleanup package — poke it there so the reading
+        # functions see the replacement.
+        from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         saved = text_cleanup._active_phrases
         try:
@@ -581,7 +584,9 @@ class TestSecureFileWrites:
 
     def test_autostart_launcher_uses_secure_write(self):
         """SEC-003: _write_pid_file uses _secure_atomic_write."""
-        import voice_typer.server.autostart_launcher as mod
+        # _write_pid_file lives in the autostart subpackage since the
+        # launcher was split into a facade + leaf modules.
+        import voice_typer.server.autostart.pid_file as mod
 
         with open(mod.__file__) as f:
             source = f.read()
@@ -644,7 +649,10 @@ class TestSecureReadUsage:
 
     def test_text_cleanup_uses_secure_read(self):
         """SEC-002: text_cleanup._load_external_corrections uses _secure_read_text."""
-        import voice_typer.server.text_cleanup as mod
+        # The corrections loaders (which perform the secure reads) moved
+        # into the ``_corrections_data`` leaf of the text_cleanup package
+        # split; scan the module where the actual read happens.
+        import voice_typer.server.text_cleanup._corrections_data as mod
 
         with open(mod.__file__) as f:
             source = f.read()

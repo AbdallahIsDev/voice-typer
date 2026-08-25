@@ -182,6 +182,10 @@ class SessionState:
         # session's total and over-report duration on the first poll.
         recorder._total_buffered_samples = 0
         recorder._cached_resampled = np.array([], dtype=np.float32)
+        # contiguous storage: the resampled cache's filled-prefix length
+        # must reset alongside the array (the attribute owns a grown
+        # capacity buffer between sessions otherwise).
+        recorder._cached_resampled_len = 0
         recorder._cached_native_chunk_count = 0
         # also reset the cache key so a new session doesn't
         # reuse a stale prefix from a different sample rate.
@@ -473,6 +477,7 @@ class SessionState:
                 exc_info=True,
             )
         recorder._cached_resampled = np.array([], dtype=np.float32)
+        recorder._cached_resampled_len = 0
         recorder._cached_no_resample_arr = None
         recorder._cached_native_chunk_count = 0
         recorder._cached_no_resample_len = -1
@@ -548,11 +553,19 @@ class SessionState:
             needed_chunks = int(max_rec / chunk_seconds) + 1000  # +1K safety
             current_maxlen = recorder._buffer.maxlen or 0
             if needed_chunks > current_maxlen:
-                # Preserve any data already in the buffer (defensive —
-                # start() clears the buffer at line ~1220, so this is
-                # normally empty) when resizing.
-                old_data = list(recorder._buffer)
-                recorder._buffer = collections.deque(old_data, maxlen=needed_chunks)
+                if hasattr(recorder._buffer, "set_hard_cap"):
+                    # Contiguous storage: raise the chunk-count cap and the
+                    # derived sample hard-cap IN PLACE — the filled window
+                    # is preserved automatically (single backing array).
+                    recorder._buffer.maxlen = needed_chunks
+                    recorder._buffer.set_hard_cap(needed_chunks * 2 * blocksize)
+                else:
+                    # Legacy container (plain deque swapped in by the
+                    # hot-swap path): preserve any data already in the
+                    # buffer (defensive — start() clears the buffer, so
+                    # this is normally empty) when resizing.
+                    old_data = list(recorder._buffer)
+                    recorder._buffer = collections.deque(old_data, maxlen=needed_chunks)
                 log.debug(
                     "[RECORDING] Buffer sized for %ds max recording at %d Hz "
                     "(blocksize=%d, chunk_seconds=%.4f): %d chunks",

@@ -55,7 +55,7 @@ def _extract_model_default(ts_source: str) -> str:
         ts_source,
     )
     assert m is not None, (
-        "constants.ts is missing `export const MODEL_DEFAULT = \"...\";`. "
+        'constants.ts is missing `export const MODEL_DEFAULT = "...";`. '
         "Either the constant was renamed (update this test) or removed "
         "(update the onboarding wizard to source the default elsewhere)."
     )
@@ -65,8 +65,7 @@ def _extract_model_default(ts_source: str) -> str:
 def test_constants_ts_model_default_matches_backend_default() -> None:
     """The TS-side ``MODEL_DEFAULT`` must equal ``DEFAULT_MODEL_SIZE``."""
     assert CONSTANTS_TS_PATH.exists(), (
-        f"constants.ts not found at {CONSTANTS_TS_PATH} — has the renderer's "
-        "onboarding directory moved?"
+        f"constants.ts not found at {CONSTANTS_TS_PATH} — has the renderer's onboarding directory moved?"
     )
     ts_source = CONSTANTS_TS_PATH.read_text(encoding="utf-8")
     ts_value = _extract_model_default(ts_source)

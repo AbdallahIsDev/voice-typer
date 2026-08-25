@@ -26,12 +26,7 @@ import pytest
 # Resolve the script path relative to the repo root (tests/ is one
 # level below the root; scripts/build/generate_beeps.py is two levels
 # below the root).
-_SCRIPT_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "scripts"
-    / "build"
-    / "generate_beeps.py"
-)
+_SCRIPT_PATH = Path(__file__).resolve().parent.parent / "scripts" / "build" / "generate_beeps.py"
 
 
 def _load_generate_beeps():
@@ -42,9 +37,7 @@ def _load_generate_beeps():
     Each call returns a fresh module instance so monkeypatching
     ``SOUND_MANAGER_PATH`` in one test does not bleed into another.
     """
-    spec = importlib.util.spec_from_file_location(
-        "generate_beeps_under_test", _SCRIPT_PATH
-    )
+    spec = importlib.util.spec_from_file_location("generate_beeps_under_test", _SCRIPT_PATH)
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -61,8 +54,8 @@ def _write_sound_manager(path: Path, start_url: str, stop_url: str) -> None:
     """
     path.write_text(
         "/* preamble */\n"
-        f"const START_BEEP_WAV =\n\t\"{start_url}\";\n"
-        f"const STOP_BEEP_WAV =\n\t\"{stop_url}\";\n"
+        f'const START_BEEP_WAV =\n\t"{start_url}";\n'
+        f'const STOP_BEEP_WAV =\n\t"{stop_url}";\n'
         "/* epilogue */\n",
         encoding="utf-8",
     )
@@ -85,8 +78,7 @@ def test_check_passes_on_real_sound_manager(capsys):
         sys.argv = original_argv
     out = capsys.readouterr()
     assert rc == 0, (
-        f"--check should pass on the real sound-manager.ts; got rc={rc}.\n"
-        f"stderr:\n{out.err}\nstdout:\n{out.out}"
+        f"--check should pass on the real sound-manager.ts; got rc={rc}.\nstderr:\n{out.err}\nstdout:\n{out.out}"
     )
 
 
@@ -134,13 +126,8 @@ def test_check_fails_when_constants_are_identical(monkeypatch, tmp_path, capsys)
     finally:
         sys.argv = original_argv
     err = capsys.readouterr().err
-    assert rc == 1, (
-        f"--check should fail when committed constants are identical; "
-        f"got rc={rc}.\nstderr:\n{err}"
-    )
-    assert "identical" in err.lower(), (
-        f"stderr should mention 'identical'; got:\n{err}"
-    )
+    assert rc == 1, f"--check should fail when committed constants are identical; got rc={rc}.\nstderr:\n{err}"
+    assert "identical" in err.lower(), f"stderr should mention 'identical'; got:\n{err}"
 
 
 def test_check_fails_when_constants_drift(monkeypatch, tmp_path, capsys):
@@ -165,14 +152,11 @@ def test_check_fails_when_constants_drift(monkeypatch, tmp_path, capsys):
         sys.argv = original_argv
     err = capsys.readouterr().err
     assert rc == 1, (
-        f"--check should fail when committed constants drift from "
-        f"the generated URLs; got rc={rc}.\nstderr:\n{err}"
+        f"--check should fail when committed constants drift from the generated URLs; got rc={rc}.\nstderr:\n{err}"
     )
     # The error message should mention "match" or "drift" — both
     # branches of the failure-message wording are acceptable.
-    assert "match" in err.lower() or "drift" in err.lower(), (
-        f"stderr should mention match/drift; got:\n{err}"
-    )
+    assert "match" in err.lower() or "drift" in err.lower(), f"stderr should mention match/drift; got:\n{err}"
 
 
 def test_check_fails_when_sound_manager_missing(monkeypatch, tmp_path, capsys):

@@ -70,12 +70,10 @@ production code in the submodules to see the new value.  Without
 the ``_pkg.X`` indirection, the submodule's binding (captured at
 import time) would be unchanged — the test would silently no-op.
 
-The same pattern exists in :mod:`voice_typer.server.prewarm` and
-(in a slightly different form) in :mod:`voice_typer.server.recording`
-(which additionally installs a custom ``_RecordingModule`` class for
-the mutable-state routing case).  All three packages together
-account for ~500 LOC of ``__init__.py`` boilerplate that exists
-purely for test-patch compatibility.
+The same ``_pkg.X`` pattern exists in :mod:`voice_typer.server.prewarm`.
+(:mod:`voice_typer.server.recording` previously used a custom module
+subclass for mutable-state routing, but that indirection has been
+removed — its tests patch submodules directly.)
 
 TODO (2026-07-28,  / TECH-DEBT — OPEN, no migration in progress):
 This ``__init__.py`` boilerplate exists for test-patch compatibility

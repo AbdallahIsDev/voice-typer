@@ -736,17 +736,21 @@ class TestResampleFallback:
         """Resample should be retried after the retry interval timeout."""
         import time
 
-        import voice_typer.server.recording as rec_mod
+        from voice_typer.server.recording import resampling as resampling_mod
 
         # Set the error time far enough in the past that retry is allowed
-        rec_mod._resample_poly_error = RuntimeError("transient error")
+        monkeypatch.setattr(resampling_mod, "_resample_poly_error", RuntimeError("transient error"))
         # use time.monotonic() to match the source code at
         # recording.py:163 (which reads time.monotonic() - error_time).
         # Pre-fix this used time.time() (wall clock) which differs from
         # the monotonic clock by an arbitrary offset — under NTP/DST
         # adjustments the wall clock can jump backwards and cause the
         # retry-timeout comparison to behave unexpectedly.
-        rec_mod._resample_poly_error_time = time.monotonic() - rec_mod._RESAMPLE_RETRY_INTERVAL - 1
+        monkeypatch.setattr(
+            resampling_mod,
+            "_resample_poly_error_time",
+            time.monotonic() - resampling_mod._RESAMPLE_RETRY_INTERVAL - 1,
+        )
 
         call_count = [0]
 
@@ -758,23 +762,23 @@ class TestResampleFallback:
         monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", succeeding_get_resample)
 
         # After the timeout, the error should be cleared and retry allowed
-        assert rec_mod._resample_poly_error is not None  # Error was set
+        assert resampling_mod._resample_poly_error is not None  # Error was set
 
     def test_resample_not_retried_before_timeout(self, monkeypatch):
         """Resample should NOT be retried before the retry interval has elapsed."""
         import time
 
-        import voice_typer.server.recording as rec_mod
+        from voice_typer.server.recording import resampling as resampling_mod
 
         # Set the error time very recently (within retry interval)
-        rec_mod._resample_poly_error = RuntimeError("recent error")
+        monkeypatch.setattr(resampling_mod, "_resample_poly_error", RuntimeError("recent error"))
         # use time.monotonic() to match source code at
         # recording.py:163. See test_resample_retry_after_timeout for
         # the full rationale.
-        rec_mod._resample_poly_error_time = time.monotonic()
+        monkeypatch.setattr(resampling_mod, "_resample_poly_error_time", time.monotonic())
 
         # The error should still be set (not cleared for retry yet)
-        assert rec_mod._resample_poly_error is not None
+        assert resampling_mod._resample_poly_error is not None
 
     def test_fallback_to_np_interp_when_scipy_unavailable(self, monkeypatch):
         """When scipy.signal.resample_poly raises ResampleUnavailable,
@@ -988,9 +992,9 @@ class TestScipyPreloaderDeferredSpawn:
             "    f'B-3 regression: scipy-preloader thread spawned at '\n"
             "    f'module import time. Threads: {names}'\n"
             ")\n"
-            "assert recording._scipy_preloader_thread is None, (\n"
+            "assert recording.resampling._scipy_preloader_thread is None, (\n"
             "    f'B-3 regression: _scipy_preloader_thread is set after '\n"
-            "    f'import: {recording._scipy_preloader_thread!r}'\n"
+            "    f'import: {recording.resampling._scipy_preloader_thread!r}'\n"
             ")\n"
             "print('OK')\n"
         )
@@ -1014,11 +1018,11 @@ class TestScipyPreloaderDeferredSpawn:
         from voice_typer.server import recording
 
         # Reset state — other tests may have left a preloader running.
-        monkeypatch.setattr(recording, "_scipy_preloader_thread", None)
-        monkeypatch.setattr(recording, "_resample_poly", None)
+        monkeypatch.setattr(recording.resampling, "_scipy_preloader_thread", None)
+        monkeypatch.setattr(recording.resampling, "_resample_poly", None)
 
         recording._start_scipy_preloader()
-        first_thread = recording._scipy_preloader_thread
+        first_thread = recording.resampling._scipy_preloader_thread
         assert first_thread is not None, "first call should start a thread"
         assert first_thread.is_alive() or first_thread.is_alive() is False
         # ^ Thread may have already finished (scipy import is fast on
@@ -1032,7 +1036,7 @@ class TestScipyPreloaderDeferredSpawn:
 
         with _mock.patch.object(first_thread, "is_alive", return_value=True):
             recording._start_scipy_preloader()
-            assert recording._scipy_preloader_thread is first_thread, (
+            assert recording.resampling._scipy_preloader_thread is first_thread, (
                 "B-3 idempotency regression: second call to "
                 "_start_scipy_preloader() spawned a new thread while "
                 "the first was still alive."
@@ -1045,11 +1049,11 @@ class TestScipyPreloaderDeferredSpawn:
         from voice_typer.server import recording
 
         # Simulate scipy already loaded.
-        monkeypatch.setattr(recording, "_scipy_preloader_thread", None)
-        monkeypatch.setattr(recording, "_resample_poly", lambda *a, **kw: None)
+        monkeypatch.setattr(recording.resampling, "_scipy_preloader_thread", None)
+        monkeypatch.setattr(recording.resampling, "_resample_poly", lambda *a, **kw: None)
 
         recording._start_scipy_preloader()
-        assert recording._scipy_preloader_thread is None, (
+        assert recording.resampling._scipy_preloader_thread is None, (
             "B-3 regression: _start_scipy_preloader spawned a thread even though _resample_poly was already cached."
         )
 
@@ -1545,16 +1549,20 @@ class TestRec8BufferOpsLocked:
         # The buffer-clear + rebind logic was extracted from the
         # pre-refactor ``Recorder._start_impl`` (which no longer exists)
         # into the ``discard_recording`` and ``take_snapshot`` functions
-        # in ``_recorder_split`` (the buffer.clear() lives in
-        # ``discard_recording``; the buffer rebind lives in both
-        # ``discard_recording`` and ``take_snapshot``). The source-string
-        # contract pins the ``with recorder._lock:`` +
-        # ``recorder._buffer = collections.deque(...)`` literal pair on
-        # the actual implementation sites.
+        # in ``_recorder_split`` (the buffer swap lives in
+        # ``discard_recording``). The source-string contract pins the
+        # ``with recorder._lock:`` + contiguous-buffer swap literal pair
+        # on the actual implementation site: the old buffer is captured,
+        # a fresh empty buffer is swapped in under the lock, and the old
+        # backing array is zeroed by the background secure-clear worker
+        # (SEC-audit-008).
         discard_src = inspect.getsource(discard_recording)
         assert "with recorder._lock:" in discard_src, "discard_recording does not acquire recorder._lock for buffer ops"
-        assert "recorder._buffer = collections.deque(" in discard_src, (
-            "discard_recording does not rebind recorder._buffer"
+        assert "recorder._buffer = _fresh_recording_buffer_like(" in discard_src, (
+            "discard_recording does not swap in a fresh recording buffer"
+        )
+        assert "_secure_clear_array_background(_old_buffer)" in discard_src, (
+            "discard_recording does not securely zero the discarded buffer"
         )
         # ``start_recording`` delegates the cache-clearance + session
         # reset to ``Recorder._secure_clear_session_caches`` /
@@ -1582,16 +1590,20 @@ class TestRec8BufferOpsLocked:
             stop_recording,
         )
 
-        # The buffer rebind (``recorder._buffer = collections.deque(...)``)
+        # The buffer swap (``recorder._buffer = _fresh_recording_buffer_like(...)``)
         # is wrapped in ``with recorder._lock:`` at BOTH sites that
         # perform it: ``discard_recording`` (the discard path) and
-        # ``stop_recording`` (the stop path). Verify the literal pair
-        # at each site so a future regression that drops the lock
-        # acquisition on either path surfaces here.
+        # ``stop_recording`` (the stop path — O(1) fresh-buffer swap
+        # inside the lock; the old buffer is frozen and exported outside
+        # it). Verify the literal pair at each site so a future
+        # regression that drops the lock acquisition on either path
+        # surfaces here.
         for fn in (discard_recording, stop_recording):
             src = inspect.getsource(fn)
             assert "with recorder._lock:" in src, f"{fn.__name__} does not acquire recorder._lock for buffer rebind"
-            assert "recorder._buffer = collections.deque(" in src, f"{fn.__name__} does not rebind recorder._buffer"
+            assert "recorder._buffer = _fresh_recording_buffer_like(" in src, (
+                f"{fn.__name__} does not swap in a fresh recording buffer"
+            )
 
 
 class TestAudio69RebuildOnSampleRateMismatch:

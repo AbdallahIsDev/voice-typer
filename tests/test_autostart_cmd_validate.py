@@ -35,9 +35,7 @@ def _write_plist(path: Path, program_args: list[str] | None) -> None:
     args_xml = ""
     if program_args is not None:
         args_xml = (
-            "<key>ProgramArguments</key><array>"
-            + "".join(f"<string>{a}</string>" for a in program_args)
-            + "</array>"
+            "<key>ProgramArguments</key><array>" + "".join(f"<string>{a}</string>" for a in program_args) + "</array>"
         )
     path.write_text(
         '<?xml version="1.0" encoding="UTF-8"?>'

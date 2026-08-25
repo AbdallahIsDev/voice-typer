@@ -159,8 +159,10 @@ vi.mock("../python/send-to-python", () => ({
 }));
 
 function readTcpConnectSrc(): string {
+	// The overflow branch lives in the `python/tcp/frame-reader.ts` leaf
+	// (split out of `tcp-connect.ts`); the source-text pins follow it.
 	return fs.readFileSync(
-		path.resolve(__dirname, "../python/tcp-connect.ts"),
+		path.resolve(__dirname, "../python/tcp/frame-reader.ts"),
 		"utf-8",
 	);
 }

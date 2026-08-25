@@ -152,6 +152,24 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _read_ws_bridge_rs() -> str:
+    """Read the Rust WS bridge source: ws.rs plus its ws/reader.rs /
+    ws/writer.rs task submodules.
+
+    reader/writer module split: the reader body (the
+    ``translate_event_name(event_type)`` call site, the specific-event
+    ``emit(emit_name, payload.clone())`` emit, and the generic
+    ``python-event`` envelope fan-out asserted below) moved into
+    ``ws/reader.rs``; the writer task into ``ws/writer.rs``.
+    Concatenating keeps the source-inspection assertions green across
+    the split.
+    """
+    parts = [_read(WS_RS)]
+    for name in ("reader.rs", "writer.rs"):
+        parts.append(_read(WS_RS.parent / "ws" / name))
+    return "\n\n".join(parts)
+
+
 def _make_ipc_server():
     """Build a minimal ``IPCServer`` with a mock app + service.
 
@@ -352,7 +370,7 @@ class TestWsRsRenamesElectronNotificationToNotification:
         ``ws.rs`` must therefore NOT contain the old alias branch, and
         ``notification`` must still be an allowed + emitted event type.
         """
-        src = _read(WS_RS)
+        src = _read_ws_bridge_rs()
         assert 'event_type == "electron_notification"' not in src, (
             "ws.rs must NOT have a legacy electron_notification alias branch "
             "— the Python sidecar now publishes 'notification' directly and "
@@ -372,7 +390,7 @@ class TestWsRsRenamesElectronNotificationToNotification:
         (``emit_name = translate_event_name(event_type)``), which passes
         ``notification`` through unchanged WITH its payload.
         """
-        src = _read(WS_RS)
+        src = _read_ws_bridge_rs()
         assert "emit(emit_name, payload.clone())" in src, (
             "ws.rs must emit the event WITH the payload (payload.clone()), "
             "not just an empty event — otherwise the macOS banner renders blank."
@@ -386,7 +404,7 @@ class TestWsRsRenamesElectronNotificationToNotification:
         via ``app.listen("relaunch_app", ...)``. Verified here because
         the same match expression that carries the notification alias
         MUST NOT carry this rename anymore (regression check)."""
-        src = _read(WS_RS)
+        src = _read_ws_bridge_rs()
         assert '"relaunch_electron" => "relaunch_app"' not in src, (
             "ws.rs must NOT rename 'relaunch_electron' → 'relaunch_app' — "
             "the Python sidecar now publishes 'relaunch_app' directly "
@@ -884,7 +902,7 @@ class TestSourceInspectionBeltAndBraces:
         which the renderer learns about a notification event — both
         paths (specific-event emit + python-event envelope) must be
         present for the toast wiring to be complete on macOS."""
-        src = _read(WS_RS)
+        src = _read_ws_bridge_rs()
         assert 'emit("python-event"' in src, (
             "ws.rs must also emit the generic 'python-event' envelope "
             "(ADR-0020 §6.3) — this is the catch-all path the usePython "
@@ -896,7 +914,7 @@ class TestSourceInspectionBeltAndBraces:
         so direct listeners like ``appWindow.on('notification')`` keep
         firing. The generic ``python-event`` envelope is NOT sufficient
         — direct listeners don't subscribe to that."""
-        src = _read(WS_RS)
+        src = _read_ws_bridge_rs()
         assert "emit(emit_name" in src, (
             "ws.rs must emit the specific event using `emit_name` (the "
             "result of the match arm) — this is what carries the canonical "
@@ -914,7 +932,7 @@ class TestSourceInspectionBeltAndBraces:
         the legacy ``relaunch_electron``/``electron_notification`` renames
         are gone (the Python sidecar now publishes the canonical names
         directly)."""
-        src = _read(WS_RS)
+        src = _read_ws_bridge_rs()
         assert re.search(r"let\s+emit_name\s*=\s*translate_event_name\s*\(\s*event_type\s*\)\s*;", src), (
             "ws.rs must forward every event type via "
             "`let emit_name = translate_event_name(event_type);` (PVT-2 cleanup — "

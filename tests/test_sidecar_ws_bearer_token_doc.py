@@ -157,7 +157,7 @@ def test_authenticate_uses_hmac_compare_digest_at_runtime() -> None:
     # ``hmac.compare_digest``). Accept either form — the contract is
     # "constant-time comparison via hmac", and a regression to a plain
     # ``==`` fails BOTH anchors.
-    assert ("hmac.compare_digest" in source or "tokens_equal" in source), (
+    assert "hmac.compare_digest" in source or "tokens_equal" in source, (
         "_authenticate must use hmac.compare_digest (directly or via the "
         "shared ipc.auth.tokens_equal helper) for constant-time token "
         "comparison (XZ-R4-001 fix is docstring-only; runtime behaviour is "

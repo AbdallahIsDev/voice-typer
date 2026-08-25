@@ -87,7 +87,8 @@ _SHUTDOWN_CONTROLLER_PATH = os.path.join(
     "..",
     "voice_typer",
     "server",
-    "shutdown_controller.py",
+    "shutdown_controller",
+    "_cleanup.py",
 )
 
 

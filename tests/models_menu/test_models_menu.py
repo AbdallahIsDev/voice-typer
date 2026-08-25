@@ -96,10 +96,10 @@ class TestTrayModelLabelsCarryFamilyGlyphs:
             def __init__(self, text, _fn, **kwargs):
                 captured.append(text)
 
-        with patch("voice_typer.server.asr_setup.ensure_hf_env", lambda: None), patch(
-            "voice_typer.server.tray_models._check_hf_model_downloaded", lambda *a, **k: True
-        ), patch(
-            "voice_typer.server.tray_models._check_qwen_model_downloaded", lambda *a, **k: True
+        with (
+            patch("voice_typer.server.asr_setup.ensure_hf_env", lambda: None),
+            patch("voice_typer.server.tray_models._check_hf_model_downloaded", lambda *a, **k: True),
+            patch("voice_typer.server.tray_models._check_qwen_model_downloaded", lambda *a, **k: True),
         ):
             build_models_menu_items(
                 lambda: tmp_path,

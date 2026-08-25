@@ -578,11 +578,11 @@ const arMore = {
 		"تكوين الإعدادات المسبقة لسلسلة التصفية.",
 	"settings.audioEnhancement.microphoneQualityAria":
 		"إعداد جودة الميكروفون المسبق",
-	"settings.audioEnhancement.presetAuto": "تلقائي (موصى به)",
-	"settings.audioEnhancement.presetStudio": "استوديو (بيئة نظيفة)",
+	"settings.audioEnhancement.presetAuto": "تلقائي",
+	"settings.audioEnhancement.presetStudio": "استوديو",
 	"settings.audioEnhancement.presetNoisyRoom": "غرفة مزعجة (لوحة مفاتيح/مروحة)",
-	"settings.audioEnhancement.presetOff": "إيقاف (صوت خام)",
-	"settings.audioEnhancement.presetCustom": "مخصص (متقدم)",
+	"settings.audioEnhancement.presetOff": "إيقاف",
+	"settings.audioEnhancement.presetCustom": "متقدم",
 	"settings.audioEnhancement.presetAutoDescription":
 		"الخادم الخلفي يختار أفضل سلسلة تصفية لمستوى الضوضاء المكتشف والعتاد. موصى به لمعظم المستخدمين.",
 	"settings.audioEnhancement.presetStudioDescription":

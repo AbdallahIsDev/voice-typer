@@ -207,9 +207,7 @@ class TestParakeetCpuFallbackAbortGate:
             result = engine.transcribe_with_fallback(audio)
 
         # The CPU fallback must have run on CPU and returned the text.
-        assert result == "cpu result", (
-            f"Expected 'cpu result' from the CPU fallback path, got: {result!r}"
-        )
+        assert result == "cpu result", f"Expected 'cpu result' from the CPU fallback path, got: {result!r}"
         # GPU model's recognize() was called once (raised OOM).
         assert gpu_model.recognize.call_count == 1
         # CPU model's recognize() was called once (the re-transcribe).
