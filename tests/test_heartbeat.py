@@ -340,7 +340,7 @@ class TestHeartbeatThreadLifecycle:
         inherit it — without an explicit ``delenv`` the four lifecycle tests
         below would observe the skip path (``_heartbeat_thread is None``) and
         fail with "0 threads spawned" / "0 calls". Mirrors the same ``delenv``
-        pattern used in ``tests/test_ipc_server_lifecycle_fixes.py``.
+        pattern used in ``tests/test_ipc_server.py``.
         """
         monkeypatch.delenv("TAURI_SIDECAR", raising=False)
         yield

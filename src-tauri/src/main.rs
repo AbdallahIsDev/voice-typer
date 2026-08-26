@@ -86,6 +86,7 @@ use commands::sidecar_cmds::{dispatch, on_main_window_close, shutdown_sidecar};
 // export_config) and the renderer_log_error sink.
 use commands::system_cmds::{
     export_config, export_templates, open_logs, open_model_import_dialog, renderer_log_error,
+    set_host_locale,
 };
 use platform::logging::init_file_logger_or_stderr_fallback;
 use platform::paths::config_dir;
@@ -187,6 +188,9 @@ fn main() {
             export_config,
             //renderer_log_error sink.
             renderer_log_error,
+            //renderer-pushed locale for host-side native-surface
+            // localization (Electron `i18n:set-locale` parity).
+            set_host_locale,
         ])
         .setup(|app| {
             // Custom-title-bar parity with Electron's main window (see

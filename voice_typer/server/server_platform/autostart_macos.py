@@ -16,17 +16,19 @@ three macOS autostart primitives:
 Patch-path compatibility
 ------------------------
 Tests patch ``get_autostart_dir`` via
-``monkeypatch.setattr(platform_mod, "get_autostart_dir", lambda: tmp_path)``
-(in :mod:`tests.test_platform`) and patch ``_os_uid`` via
-``monkeypatch.setattr(platform_mod, "_os_uid", lambda: 501)``.  Both
-are looked up via ``_pkg.X()`` at call time so the patches take effect.
+``monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)``
+(in :mod:`tests.test_platform`) and patch ``_os_uid`` HERE (it is defined in
+this module): ``monkeypatch.setattr(autostart_macos, "_os_uid", lambda: 501)``.
+``get_autostart_dir`` is owned by :mod:`.autostart` and read through the
+bound module attribute (``_autostart_mod.get_autostart_dir()``) at call
+time; ``_os_uid`` resolves as a plain module-global lookup at call time.
 
 ``Path.home()`` and ``subprocess.run`` are patched globally (via
 ``monkeypatch.setattr(Path, "home", ...)`` and
 ``monkeypatch.setattr(subprocess, "run", fake_run)`` in the mig16
 ``darwin_platform`` fixture) — both resolve to the same stdlib module
 objects that this file imports, so the global patches propagate without
-any ``_pkg`` indirection.
+any extra indirection.
 
 ``inspect.getsource`` compatibility
 -----------------------------------
@@ -47,11 +49,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Patch-path bridge: route lookups of ``get_autostart_dir`` and
-# ``_os_uid`` through the package namespace so test patches of the form
-# ``monkeypatch.setattr("voice_typer.server.server_platform.X", ...)``
-# keep affecting production code defined here.
-from voice_typer.server import _paths, server_platform as _pkg
+# Patch-path bindings. ``_autostart_mod`` binds the owning sibling module
+# so ``get_autostart_dir`` resolves through ITS attribute at call time
+# (tests patch that module). ``_os_uid`` is defined in THIS module and
+# resolves as a plain module-global lookup (tests patch
+# ``autostart_macos._os_uid``).
+from voice_typer.server import _paths
+from voice_typer.server.server_platform import autostart as _autostart_mod
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +63,7 @@ log = logging.getLogger(__name__)
 def _enable_autostart_macos() -> bool:
     from xml.sax.saxutils import escape
 
-    plist_dir = _pkg.get_autostart_dir()
+    plist_dir = _autostart_mod.get_autostart_dir()
     plist_dir.mkdir(parents=True, exist_ok=True)
     plist_path = plist_dir / "com.voicetyper.plist"
     launcher = Path(__file__).resolve().parent.parent / "autostart_launcher.py"
@@ -186,7 +190,7 @@ def _enable_autostart_macos() -> bool:
         # bootstrap returns a confusing non-zero exit on an otherwise
         # loadable plist.
         completed = subprocess.run(
-            ["launchctl", "bootstrap", f"gui/{_pkg._os_uid()}", str(plist_path)],
+            ["launchctl", "bootstrap", f"gui/{_os_uid()}", str(plist_path)],
             check=False,
             capture_output=True,
             timeout=5.0,
@@ -285,7 +289,7 @@ def _enable_autostart_macos() -> bool:
 
 
 def _disable_autostart_macos() -> bool:
-    plist_path = _pkg.get_autostart_dir() / "com.voicetyper.plist"
+    plist_path = _autostart_mod.get_autostart_dir() / "com.voicetyper.plist"
     # Unload the running job BEFORE deleting the plist, otherwise the
     # job keeps running until next logout even though it's "disabled".
     # Prefer the modern `launchctl bootout` (macOS 10.10+) and fall back
@@ -293,7 +297,7 @@ def _disable_autostart_macos() -> bool:
     # best-effort — failure here just means the job lingers until logout.
     label = "com.voicetyper"
     for args in (
-        ["launchctl", "bootout", f"gui/{_pkg._os_uid()}/{label}"],
+        ["launchctl", "bootout", f"gui/{_os_uid()}/{label}"],
         ["launchctl", "remove", label],
     ):
         with contextlib.suppress(Exception):
@@ -377,7 +381,7 @@ def _is_autostart_macos() -> bool:
     reports disabled so Settings shows the true state instead of a
     misleading "Autostart: enabled".
     """
-    plist_path = _pkg.get_autostart_dir() / "com.voicetyper.plist"
+    plist_path = _autostart_mod.get_autostart_dir() / "com.voicetyper.plist"
     if not plist_path.exists():
         return False
     return _plist_program_arguments_exist(plist_path)

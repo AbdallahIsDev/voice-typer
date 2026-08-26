@@ -21,14 +21,11 @@
  *
  * Local (non-exported) helpers:
  *   - `_runtimeLogPath` — the memoization slot.
- *   - `formatArgsForFile()` — coerces console-style args to a single
- *     space-joined string for file output. Called ONCE per
- *     `log.warn` / `log.error` invocation (single-format discipline —
- *     the formatted string is shared between the stdout tee and the
- *     file tee to avoid double-running the per-arg `redactPii` passes).
  *   - `writeStdout()` — writes one line to stdout with the standard
  *     timestamp + level prefix. Accepts a pre-formatted args string
- *     (the output of `formatArgsForFile`) rather than the raw args.
+ *     (the output of `structuredLogger.ts::redactArgsForFile` — the
+ *     single shared formatting primitive for every file/stdout tee)
+ *     rather than the raw args.
  *   - `mainRuntimeLogger` — the persistent runtime log file writer
  *     (appends WARN/ERROR to `electron-runtime.log` via
  *     `appendLogLine`). Accepts a pre-formatted args string.
@@ -36,17 +33,23 @@
  * Imports: `path`, `computeConfigDir` from `../config-dir`, the color
  * constants (`INFO_CLR` / `WARN_CLR` / `ERROR_CLR` / `RESET`), the
  * `RUNTIME_LOG_MAX_BYTES` cap, `ts` + `appendLogLine` from
- * `./rotation`, and `PERSIST_INFO` + `appendLifecycleLine` from
- * `./structuredLogger` (so the printf-style `log.info` can mirror the
- * opt-in INFO persistence wired up on `logger.info`).
+ * `./rotation`, and `PERSIST_INFO` + `appendLifecycleLine` +
+ * `redactArgsForFile` from `./structuredLogger` (so the printf-style
+ * `log.*` formats through the same single primitive as the structured
+ * logger's sinks, and its `log.info` can mirror the opt-in INFO
+ * persistence wired up on `logger.info`).
  */
 import path from "node:path";
 
 import { computeConfigDir } from "../config-dir";
 import { DIM, ERROR_CLR, INFO_CLR, RESET, WARN_CLR } from "./colors";
 import { RUNTIME_LOG_MAX_BYTES } from "./constants";
-import { appendLogLine, fileTimestamp, redactPii, ts } from "./rotation";
-import { appendLifecycleLine, PERSIST_INFO } from "./structuredLogger";
+import { appendLogLine, fileTimestamp, ts } from "./rotation";
+import {
+	appendLifecycleLine,
+	PERSIST_INFO,
+	redactArgsForFile,
+} from "./structuredLogger";
 
 /**
  * The shape of the structured `log` logger exported below. Exported as a
@@ -141,50 +144,18 @@ export function _resetRuntimeLogPathForTest(): void {
 }
 
 /**
- * Coerce a list of console-style args to a single space-joined string
- * for file output. Mirrors `console.*`'s space-joined behavior. Errors
- * are stringified with their stack (when available) so the file log
- * preserves the same detail as stdout. Non-stringifiable values fall
- * back to `String(value)` to never throw.
- *
- * Every arg is run through `redactPii` (PII / API-key / URL
- * credential redaction) before joining so the file log never leaks
- * user-spoken text or secrets. The stdout tee (in `writeStdout`) also
- * routes through this helper so stdout + file get the same redaction
- * (no asymmetric leak where stdout has the raw text but the file
- * doesn't, or vice versa). Idempotent on already-redacted text so
- * callers that pre-redact (e.g. `cleanConsoleMsg` chains) don't
- * double-redact.
- */
-function formatArgsForFile(args: unknown[]): string {
-	return args
-		.map((a) => {
-			if (a instanceof Error) {
-				return redactPii(a.stack ?? `${a.name}: ${a.message}`);
-			}
-			if (typeof a === "string") return redactPii(a);
-			try {
-				return redactPii(JSON.stringify(a));
-			} catch {
-				return redactPii(String(a));
-			}
-		})
-		.join(" ");
-}
-
-/**
  * Write a single line to stdout with the standard timestamp + level
  * prefix. Routes to `console.error` / `console.warn` / `console.log`
  * so Node's stderr/stdout split is preserved (Electron's crash log
  * captures stderr; INFO goes to stdout).
  *
- * Accepts a PRE-FORMATTED args string (the output of `formatArgsForFile`)
- * rather than the raw `unknown[]` args. This lets `log.warn` /
- * `log.error` compute the formatted string ONCE and pass it to both
- * `writeStdout` (stdout tee) and `mainRuntimeLogger.write` (file tee)
- * — eliminating the previous double-format penalty where every WARN/
- * ERROR line ran `formatArgsForFile` (and its per-arg `redactPii`
- * passes) twice on identical input.
+ * Accepts a PRE-FORMATTED args string (the output of the shared
+ * `structuredLogger.ts::redactArgsForFile` primitive) rather than the
+ * raw `unknown[]` args. This lets `log.warn` / `log.error` compute the
+ * formatted string ONCE and pass it to both `writeStdout` (stdout tee)
+ * and `mainRuntimeLogger.write` (file tee) — eliminating any double-
+ * format penalty where every WARN/ERROR line would run the per-arg
+ * `redactPii` passes twice on identical input.
  */
 function writeStdout(
 	level: "INFO" | "DEBUG" | "WARN" | "ERROR",
@@ -229,13 +200,12 @@ function writeStdout(
  */
 const mainRuntimeLogger = {
 	/**
-	 * Accepts a PRE-FORMATTED args string (the output of `formatArgsForFile`)
-	 * rather than the raw `unknown[]` args. This lets `log.warn` /
-	 * `log.error` compute the formatted string ONCE and pass it to both
-	 * `writeStdout` (stdout tee) and this writer (file tee) — eliminating
-	 * the previous double-format penalty where every WARN/ERROR line
-	 * ran `formatArgsForFile` (and its per-arg `redactPii` passes)
-	 * twice on identical input.
+	 * Accepts a PRE-FORMATTED args string (the output of the shared
+	 * `structuredLogger.ts::redactArgsForFile` primitive) rather than
+	 * the raw `unknown[]` args. This lets `log.warn` / `log.error`
+	 * compute the formatted string ONCE and pass it to both
+	 * `writeStdout` (stdout tee) and this writer (file tee) — the
+	 * per-arg redaction passes run exactly once per line.
 	 */
 	write(level: "WARN" | "ERROR", formattedArgs: string): void {
 		const logPath = getRuntimeLogPath();
@@ -288,12 +258,12 @@ const mainRuntimeLogger = {
  */
 export const log: LogShape = {
 	info(...args: unknown[]): void {
-		// Compute the formatted args ONCE. Pre-refactor `writeStdout`
-		// called `formatArgsForFile` internally; now we compute it
-		// here and pass the result so `log.warn` / `log.error` (below)
-		// can share the same formatted string between the stdout tee
-		// and the file tee (single-format discipline).
-		const formatted = formatArgsForFile(args);
+		// Compute the formatted args ONCE through the shared
+		// `redactArgsForFile` primitive (single-format discipline):
+		// the result feeds both tees that need a formatted string
+		// (stdout here; the runtime-log file tee on warn/error below)
+		// so the per-arg redaction passes never run twice.
+		const formatted = redactArgsForFile(args);
 		writeStdout("INFO", INFO_CLR, formatted);
 		// INFO not written to file (avoid bloat).
 		//
@@ -302,7 +272,7 @@ export const log: LogShape = {
 		// primary logger used by `bubble-window.ts`, `relaunch-app.ts`,
 		// and the bootstrap crash path, so supporting the opt-in here
 		// is just as important as on `logger.info`. Coerces args to
-		// strings via `String(...)` (matching `formatArgsForFile`'s
+		// strings via `String(...)` (matching `redactArgsForFile`'s
 		// non-Error fallback) — rich object formatting would change
 		// the existing stdout behavior, so we keep it lossy here.
 		//
@@ -317,23 +287,22 @@ export const log: LogShape = {
 	debug(...args: unknown[]): void {
 		// Single-format discipline, same as `info` above. Stdout only —
 		// DEBUG not written to file (avoid bloat).
-		const formatted = formatArgsForFile(args);
+		const formatted = redactArgsForFile(args);
 		writeStdout("DEBUG", DIM, formatted);
 	},
 	warn(...args: unknown[]): void {
-		// Compute the formatted args ONCE — pre-refactor `writeStdout`
-		// AND `mainRuntimeLogger.write` each called `formatArgsForFile`
-		// internally, so every WARN line paid for two PII-redaction
-		// passes over the same args. Now both tees share the same
-		// pre-formatted string.
-		const formatted = formatArgsForFile(args);
+		// Compute the formatted args ONCE through the shared
+		// `redactArgsForFile` primitive so both tees (stdout +
+		// `electron-runtime.log`) share the same pre-formatted string
+		// and the per-arg PII-redaction passes run exactly once.
+		const formatted = redactArgsForFile(args);
 		writeStdout("WARN", WARN_CLR, formatted);
 		mainRuntimeLogger.write("WARN", formatted);
 	},
 	error(...args: unknown[]): void {
 		// Compute the formatted args ONCE — see `warn` above for the
 		// single-format discipline rationale.
-		const formatted = formatArgsForFile(args);
+		const formatted = redactArgsForFile(args);
 		writeStdout("ERROR", ERROR_CLR, formatted);
 		mainRuntimeLogger.write("ERROR", formatted);
 	},

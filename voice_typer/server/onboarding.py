@@ -462,7 +462,7 @@ class OnboardingController:
     def get_microphones(self) -> list[dict]:
         """Get available microphones for Step 2."""
         try:
-            from voice_typer.server.server_platform import list_microphones
+            from voice_typer.server.server_platform.microphone_list import list_microphones
 
             return list_microphones()
         except Exception:

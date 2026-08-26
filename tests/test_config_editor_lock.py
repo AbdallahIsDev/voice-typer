@@ -265,10 +265,10 @@ def _make_app(tmp_config_dir, monkeypatch):
     so this test file is self-contained and doesn't depend on
     test_app.py's fixture state.
     """
-    monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
-    monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
+    monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
+    monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
     # No-op the Windows-only icacls ACL enforcement in Config.save(). On a
     # real Windows host, ``config.is_windows()`` reads the true platform

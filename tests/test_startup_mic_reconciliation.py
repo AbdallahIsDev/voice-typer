@@ -78,7 +78,7 @@ def resolver():
 
     r = Resolver()
     with patch(
-        "voice_typer.server.server_platform.find_microphone_by_id",
+        "voice_typer.server.server_platform.microphone_list.find_microphone_by_id",
         side_effect=lambda mic_id: (r.calls.append(str(mic_id)), r.result)[1],
     ):
         yield r
@@ -194,7 +194,7 @@ class TestReconcileConfiguredMicrophone:
 
         with (
             patch(
-                "voice_typer.server.server_platform.find_microphone_by_id",
+                "voice_typer.server.server_platform.microphone_list.find_microphone_by_id",
                 side_effect=RuntimeError("portaudio exploded"),
             ),
             patch("voice_typer.server.event_bus.publish"),
@@ -217,7 +217,7 @@ class TestLoadMicrophonesIntegration:
 
         with (
             patch(
-                "voice_typer.server.server_platform.list_microphones",
+                "voice_typer.server.server_platform.microphone_list.list_microphones",
                 return_value=[{"id": "WASAPI|Other", "name": "Other"}],
             ),
             patch("voice_typer.server.event_bus.publish") as mock_publish,
@@ -237,7 +237,7 @@ class TestLoadMicrophonesIntegration:
 
         with (
             patch(
-                "voice_typer.server.server_platform.list_microphones",
+                "voice_typer.server.server_platform.microphone_list.list_microphones",
                 return_value=[{"id": "WASAPI|Other", "name": "Other"}],
             ),
             patch.object(startup_tasks, "_reconcile_configured_microphone", boom),

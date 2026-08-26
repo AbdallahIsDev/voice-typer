@@ -179,10 +179,10 @@ class TestConfigEditHoldsMutationLock:
         import time as _time
         from unittest.mock import MagicMock
 
-        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
         # Force the LINUX editor-launch path deterministically.  The
         # platform flags are imported at call time by
         # ``config_editor._current_platform`` from their canonical home

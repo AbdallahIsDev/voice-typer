@@ -65,14 +65,24 @@ vi.mock("../rotation", () => ({
 // Mock `../structuredLogger` so `PERSIST_INFO` is `false` (default) and
 // `appendLifecycleLine` is a no-op spy. This isolates the test to the
 // stdout + file-tee paths (no INFO persistence branch interference).
+// The REAL `redactArgsForFile` is preserved (via importActual) because
+// printfLogger now delegates its formatting to that shared primitive —
+// it internally calls the mocked rotation module's `redactPii`, so the
+// call-count proxy below still works exactly as before.
 const structuredMocks = vi.hoisted(() => ({
 	appendLifecycleLineSpy: vi.fn(),
 }));
-vi.mock("../structuredLogger", () => ({
-	PERSIST_INFO: false,
-	appendLifecycleLine: (...args: unknown[]) =>
-		structuredMocks.appendLifecycleLineSpy(...args),
-}));
+vi.mock("../structuredLogger", async () => {
+	const actual = await vi.importActual<typeof import("../structuredLogger")>(
+		"../structuredLogger",
+	);
+	return {
+		redactArgsForFile: actual.redactArgsForFile,
+		PERSIST_INFO: false,
+		appendLifecycleLine: (...args: unknown[]) =>
+			structuredMocks.appendLifecycleLineSpy(...args),
+	};
+});
 
 // Suppress console output during the test (the printf logger mirrors to
 // console.warn / console.error / console.log — we don't want the test
@@ -159,7 +169,7 @@ describe("printfLogger formats args exactly once per log.warn / log.error", () =
 		expect(fileLine.endsWith("\n")).toBe(true);
 	});
 
-	it("redactPii is actually invoked (not just imported) — confirms formatArgsForFile ran", async () => {
+	it("redactPii is actually invoked (not just imported) — confirms the shared format primitive ran", async () => {
 		const { log } = await import("../printfLogger");
 		log.warn("secret-token-test");
 		// Verify redactPii was called with the arg string (proving the

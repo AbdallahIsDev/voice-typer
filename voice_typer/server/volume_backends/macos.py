@@ -12,6 +12,7 @@ import subprocess
 import sys
 from types import SimpleNamespace
 
+from voice_typer.server.platform_utils import is_macos
 from voice_typer.server.volume_backend_base import VolumeBackend, VolumeState
 
 log = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ def _try_import_coreaudio() -> SimpleNamespace:
     surface stays stdlib-only — the same pattern used by
     :mod:`voice_typer.server.microphone_watcher_coreaudio`.
     """
-    if sys.platform != "darwin":
+    if not is_macos():
         raise ImportError(
             "MacVolumeBackend's CoreAudio path is only available on macOS "
             f"(current platform: {sys.platform}). The osascript fallback "

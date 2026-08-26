@@ -44,6 +44,10 @@ lockstep.
 
 from __future__ import annotations
 
+import logging
+
+import pytest
+
 
 class TestOnboardingIsFirstRun:
     """``_handle_onboarding_is_first_run`` — returns first-run flag."""
@@ -469,3 +473,267 @@ class TestXzEh002ServiceErrorRedaction:
         resp = ipc_server._handle_onboarding_set_microphone({"mic_id": "usb_1"}, {})
         assert resp["type"] == "ack"
         assert resp["data"]["error"] is None
+
+
+# ==============================================================================
+# Merged from tests/test_config_onboarding_handler_fixes.py —
+#   onboarding-handler regression pins (start re-run guard, service-error WARNING breadcrumbs, mark_started failure
+#   logged not swallowed)
+# ==============================================================================
+
+
+class TestOnboardingStartRerunGuard:
+    """DE-39: ``_handle_onboarding_start`` refuses to re-run the wizard
+    after completion unless the caller passes ``{"force": true}``."""
+
+    def test_first_run_true_proceeds_normally(self, ipc_server, fake_service):
+        """When ``onboarding_is_first_run`` returns True, the handler
+        delegates to ``service.onboarding_start`` as before."""
+        fake_service.onboarding_is_first_run.return_value = {"is_first_run": True}
+        fake_service.onboarding_start.return_value = {
+            "step": 0,
+            "total_steps": 6,
+            "step_name": "Welcome",
+        }
+
+        resp = ipc_server._handle_onboarding_start({}, {})
+
+        assert resp["type"] == "onboarding_step"
+        assert resp["data"]["step_name"] == "Welcome"
+        fake_service.onboarding_start.assert_called_once()
+
+    def test_first_run_false_without_force_returns_already_complete_error(self, ipc_server, fake_service):
+        """When onboarding is already complete and no ``force`` flag is
+        passed, the handler returns an error envelope with
+        ``code: 'onboarding_already_complete'`` — and does NOT call
+        ``service.onboarding_start``."""
+        fake_service.onboarding_is_first_run.return_value = {"is_first_run": False}
+
+        resp = ipc_server._handle_onboarding_start({}, {})
+
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "onboarding_already_complete", (
+            f"DE-39: expected code 'onboarding_already_complete'; got: {resp['data'].get('code')!r}"
+        )
+        assert "force" in resp["data"]["message"].lower(), "DE-39: error message must mention the force flag"
+        fake_service.onboarding_start.assert_not_called()
+
+    def test_first_run_false_with_force_proceeds(self, ipc_server, fake_service):
+        """When ``force: true`` is passed, the handler re-runs the
+        wizard even though onboarding is already complete (used by
+        Settings → Troubleshooting → Re-run Setup Wizard)."""
+        fake_service.onboarding_is_first_run.return_value = {"is_first_run": False}
+        fake_service.onboarding_start.return_value = {
+            "step": 0,
+            "total_steps": 6,
+            "step_name": "Welcome",
+        }
+
+        resp = ipc_server._handle_onboarding_start({"force": True}, {})
+
+        assert resp["type"] == "onboarding_step"
+        assert resp["data"]["step_name"] == "Welcome"
+        fake_service.onboarding_start.assert_called_once()
+
+    def test_first_run_false_with_force_falsy_string_does_not_proceed(self, ipc_server, fake_service):
+        """``force`` must be a real boolean True — the string
+        ``"false"`` is truthy in Python but the handler uses
+        ``bool(data.get("force", False))`` which coerces it to True.
+
+        Wait — actually, ``bool("false")`` is True in Python because
+        non-empty strings are truthy. So this test asserts that a
+        NON-empty string value for ``force`` does proceed (matching
+        Python truthiness). The guard only blocks when ``force`` is
+        falsy (None, False, 0, empty string, missing key)."""
+        fake_service.onboarding_is_first_run.return_value = {"is_first_run": False}
+        fake_service.onboarding_start.return_value = {
+            "step": 0,
+            "total_steps": 6,
+            "step_name": "Welcome",
+        }
+
+        # Empty string → falsy → guard fires.
+        resp = ipc_server._handle_onboarding_start({"force": ""}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "onboarding_already_complete"
+
+    def test_non_dict_data_does_not_crash_guard(self, ipc_server, fake_service):
+        """DE-39: the guard must not crash when ``data`` is None or a
+        non-dict (renderer may send no payload). The handler coerces
+        to ``{}`` before reading ``force``."""
+        fake_service.onboarding_is_first_run.return_value = {"is_first_run": False}
+
+        # None payload — must not raise TypeError.
+        resp = ipc_server._handle_onboarding_start(None, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "onboarding_already_complete"
+
+    def test_guard_logs_warning_when_blocking(self, ipc_server, fake_service, caplog):
+        """DE-39: when the guard blocks, the handler logs a WARNING so
+        operators can see the rejection in ``voice-typer.log``."""
+        fake_service.onboarding_is_first_run.return_value = {"is_first_run": False}
+
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.ipc_server"):
+            ipc_server._handle_onboarding_start({}, {})
+
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "onboarding_start" in r.getMessage() and "already" in r.getMessage()
+        ]
+        assert warnings, "DE-39: rejection must be logged at WARNING for operator visibility"
+
+
+class TestServiceErrorsLogged:
+    """DE-40: when a service returns ``{"error": ...}``, the handler
+    must log a WARNING with the command name and the error string."""
+
+    @pytest.mark.parametrize(
+        "handler_name, service_method, payload",
+        [
+            (
+                "_handle_onboarding_set_microphone",
+                "onboarding_set_microphone",
+                {"mic_id": "ghost"},
+            ),
+            (
+                "_handle_onboarding_set_hotkey",
+                "onboarding_set_hotkey",
+                {"hotkey": "<f4>"},
+            ),
+            (
+                "_handle_onboarding_set_model",
+                "onboarding_set_model",
+                {"model": "tiny.en"},
+            ),
+            (
+                "_handle_onboarding_set_backend",
+                "onboarding_set_backend",
+                {"backend": "local"},
+            ),
+            ("_handle_onboarding_skip", "onboarding_skip", {}),
+            ("_handle_onboarding_apply", "onboarding_apply", {}),
+        ],
+    )
+    def test_service_error_is_logged_at_warning(
+        self,
+        ipc_server,
+        fake_service,
+        caplog,
+        handler_name,
+        service_method,
+        payload,
+    ):
+        """Each of the 6 onboarding handlers that delegate ack-vs-error
+        to the service's return dict shape must log the service-returned
+        error at WARNING so the failure leaves a server-side breadcrumb."""
+        service_mock = getattr(fake_service, service_method)
+        service_mock.return_value = {"error": "service-layer failure"}
+        handler = getattr(ipc_server, handler_name)
+
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.ipc_server"):
+            resp = handler(payload, {})
+
+        # Response shape is unchanged —  only adds a log line.
+        assert resp["type"] == "error"
+        assert resp["data"] == {"error": "service-layer failure"}
+
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING
+            and service_method in r.getMessage()
+            and "service returned error" in r.getMessage()
+            and "service-layer failure" in r.getMessage()
+        ]
+        assert warnings, (
+            f"DE-40: {handler_name} must log a WARNING with the command name and the service-returned error string"
+        )
+
+    def test_service_success_does_not_log_warning(self, ipc_server, fake_service, caplog):
+        """DE-40: when the service returns success (no ``error`` key),
+        NO warning is logged — the handler's ack-vs-error branch only
+        logs on the error path."""
+        fake_service.onboarding_apply.return_value = {"ok": True}
+
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.ipc_server"):
+            resp = ipc_server._handle_onboarding_apply({}, {})
+
+        assert resp["type"] == "ack"
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING
+            and "onboarding_apply" in r.getMessage()
+            and "service returned error" in r.getMessage()
+        ]
+        assert not warnings, "DE-40: success path must not emit the service-error warning"
+
+
+class TestMarkStartedFailureLogged:
+    """DE-41: ``OnboardingController().mark_started()`` failures in
+    ``_handle_onboarding_start`` are logged at WARNING with
+    ``exc_info=True`` instead of being silently swallowed."""
+
+    def test_mark_started_failure_logs_warning_with_exc_info(self, ipc_server, fake_service, monkeypatch, caplog):
+        """When ``mark_started`` raises, the handler must emit a WARNING
+        with ``exc_info=True`` (was ``except Exception: pass``)."""
+        fake_service.onboarding_is_first_run.return_value = {"is_first_run": True}
+        fake_service.onboarding_start.return_value = {
+            "step": 0,
+            "total_steps": 6,
+            "step_name": "Welcome",
+        }
+
+        # Force mark_started to raise.
+        from voice_typer.server import onboarding as onboarding_mod
+
+        def _boom(self):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(onboarding_mod.OnboardingController, "mark_started", _boom)
+
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.ipc_server"):
+            resp = ipc_server._handle_onboarding_start({}, {})
+
+        # Response is still success — mark_started is best-effort and
+        # must not abort the wizard.
+        assert resp["type"] == "onboarding_step"
+
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING
+            and "onboarding_start" in r.getMessage()
+            and "mark_started failed" in r.getMessage()
+        ]
+        assert warnings, "DE-41: mark_started failure must be logged at WARNING"
+        # exc_info must be attached so the traceback lands in voice-typer.log.
+        assert any(r.exc_info is not None for r in warnings), (
+            "DE-41: warning must carry exc_info=True so the traceback is logged"
+        )
+
+    def test_mark_started_success_does_not_log_warning(self, ipc_server, fake_service, monkeypatch, caplog):
+        """When ``mark_started`` succeeds, NO warning is logged."""
+        fake_service.onboarding_is_first_run.return_value = {"is_first_run": True}
+        fake_service.onboarding_start.return_value = {
+            "step": 0,
+            "total_steps": 6,
+            "step_name": "Welcome",
+        }
+
+        from voice_typer.server import onboarding as onboarding_mod
+
+        def _ok(self):
+            return None
+
+        monkeypatch.setattr(onboarding_mod.OnboardingController, "mark_started", _ok)
+
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.ipc_server"):
+            resp = ipc_server._handle_onboarding_start({}, {})
+
+        assert resp["type"] == "onboarding_step"
+        warnings = [
+            r for r in caplog.records if r.levelno == logging.WARNING and "mark_started failed" in r.getMessage()
+        ]
+        assert not warnings, "DE-41: success path must not emit the mark_started warning"

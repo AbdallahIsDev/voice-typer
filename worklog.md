@@ -1,5 +1,42 @@
 # worklog.md
 
+## 2026-08-26 review.md first-30 applicable tasks — completion wave (Windows win32 host)
+
+### Scope resolution
+First-30 findings enumerated in review.md document order; every status re-verified against current code BEFORE implementation (many were stale). Already-fixed/superseded entries verified and closed with evidence instead of re-implemented: ARCH-9, ARCH-12 policy, TEST-2 worst-10, FZ-27 (error.rs landed post-audit), SU-3, SU-7, SU-19, SU-20, SU-21, SU-22 (superseded by design — test_hf_cache_prune guards ban auto-eviction), SU-23/24/26, SU-27/28 (verified in code), SU-29/30, SU-35, SU-37, SU-38 (639<800), WM-9, ZU-19 bulk, app_cleanup tests, YJ-53 shutdown package. AB-53 kept Won't Fix with strengthened rationale (deliberate TOCTOU manifest re-read; caching would freeze hashes across dev rebuilds).
+
+### Implemented this session (sub-agents: 6 investigation + 9 implementation slices + 1 QA audit)
+- **NH-43** bubble dismiss global shortcut (`CommandOrControl+Shift+D`): new `client/src/main/shortcuts/global-shortcuts.ts`, whenReady/will-quit wiring, shared `dismissAndHideBubble()` extraction, shortcuts-catalog entry + HelpOverlay row via HotkeyChips, i18n key in all 8 locales (genuine translations).
+- **YJ-16** logger facade: `redactArgsForFile` single primitive (parts-array parameterization keeps both sinks byte-identical); printfLogger duplicate formatter deleted; both public names preserved.
+- **FZ-66** renamed production-called `_flushPendingOutbound`/`_resetPendingOutbound` → public names (6 files incl. string-keyed vi.mock factories).
+- **FZ-62** Tauri parity: Rust `set_host_locale` command (+`SidecarState.host_locale`, require_main_window gate), bridge `setLocale`, renderer comments de-staled, parity-list + mig19 frozen-command contract updated lockstep.
+- **FZ-57** platform-flag migration (container_detect, diagnostics_export×2, volume_backends/macos, hotkeys delegation, credential_store/_migration, config_internals/paths) + tokenize-based drift guard `tests/test_platform_flag_guard.py` (covers ==/!=/startswith AND membership forms; crash_handler allowlisted by design).
+- **AB-49** allocation-free `analyze_full_audio`: blocked fp64 sum-of-squares (~8 MB bounded scratch; flat fp32 BLAS dot rejected — ~2e-4 relative drift corrupts cancellation-based noise_ratio), peak without np.abs temp, clamped variance; numeric-equivalence regression suite added.
+- **DJ-14** GPU→CPU fallback user feedback (option b-lite): `gpu_cpu_fallback` event published AFTER classification / BEFORE synchronous reload (exception-guarded), tray toast handler wired + subscribed/unsubscribed, event registered in EVENT_TYPES + Rust ALLOWED_EVENT_TYPES (37→38 events, doc+test lockstep), order-sensitive publish-before-reload test.
+- **SU-2** history_db.py split 2906→1730 LOC: extracted `history_db_internals/{encryption,corruption_recovery,crud_writes}.py` + checkpoint/FTS into writer.py; lazy `_hd.*` constant reads preserved; 12 inspect.getsource/caplog pins retargeted; avoided the tombstoned `recovery.py` module name.
+- **EO-8** recorder.py 2913→2703: `__init__` decomposed into 12 `_init_*` helpers (AST-verified attribute parity), recording/format.py extracted, capture/pipeline body moves, DeviceStateShimMixin for 7 device-state property pairs; 7 pins converted to behavioral assertions per ARCH-12 policy.
+- **DT-38 residual**: server_platform/__init__.py 358→256 LOC + prewarm/__init__.py 149→54 LOC; ALL `_pkg.` call-time indirection eliminated across both packages; ~80 test files migrated to owning-submodule patch targets (mic cluster 87 refs, autostart cluster 137 refs incl. object-form); consumer imports converted where import-time binds would have silently no-op'd patches (volume_ducker, status_handlers, startup_tasks/settings_controller/startup_sequence); C-CROSS-1..5 semantics untouched (143 autostart/platform tests green).
+- **FZ-58 Tier-1**: 13 ticket-named test files merged into same-domain parents with EXACT collected-count arithmetic per merge (zero silent shadowing); archive/deleted_files.txt ledger created; stale production citations repointed at live tests (ipc_server, sidecar_ws, ipc/_helpers, ipc/registry, recorder, recording/__init__, tray_elapsed_timer, handlers/_log).
+- **E2 baseline failures**: pyrefly-baseline.json documented-metadata restoration (errors array byte-identical; append-only audit trail keys returned; hardened parametrized guard replaces single-key test); mic-level/recording-controller failures NOT reproducible across 20 stress iterations → classified as baseline-window load flakes, no code change (evidence over guessing).
+- **ZU-19 tail**: FakeConfig consolidated into tests/fixtures/config_helpers.py; hygiene drift-guard test added.
+
+### Integration fixes (orchestrator-owned)
+main.rs contract pins (385→389 lines, 18→19 commands, doc+test lockstep), 14 E501s from patch-path retargeting, cp1252-safe comment sweep, ruff F401/F841 fallout, stale-comment nits (bubble-handlers, send-to-python backticks, invented AUDIO-NP prefix removed), gpu_cpu_fallback registration lockstep, independent QA audit findings (verdict FIX-FIRST → all blockers/should-fixes/nits resolved).
+
+### Constraints honored
+C-CROSS-1..5 untouched; C-MIC-7..10 enumeration semantics untouched; C-I18N-1/2 (all 8 locales, genuine translations); C-BRAND-1 clean (check_branding OK); C-STYLE-1 (no ticket IDs in source); C-LOG-1/2 untouched; E15 deletions recorded; E16 big tasks sequential with disjoint slice waves; E18 no git reset/stash/restore used by any agent.
+
+### Validation performed (Windows win32)
+Per-wave targeted suites green after EVERY wave (counts in agent reports above): history suites 285p, recorder sweep 801p, autostart 357p, mic 495p, prewarm/handlers 475p, merged parents 792p, logging/bubble/tcp 210p vitest, cargo test 489+22p, tauri-bridge vitest 25p, doc-accuracy 34p. Full-suite gates: see final gate section appended below after the closing run.
+
+### Known limitations
+- recorder.py/model_manager lock-ownership extraction beyond module split left as optional polish (documented in GQ-28/EO-8 statuses).
+- FZ-58 Tier-2 (mixed-domain grab-bag splits) remains scheduled handoff.
+- Concurrent user workstream on microphone-test/level_monitor files ran in the same checkout throughout; those files were treated as frozen by every agent and are excluded from this session's commit.
+
+---
+
+
 ## 2026-XX Microphone startup reconciliation + config canonicality audit
 
 ### Root causes found

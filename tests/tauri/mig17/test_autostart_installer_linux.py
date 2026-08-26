@@ -178,8 +178,9 @@ def linux_platform(monkeypatch, tmp_path):
     Patches:
       - ``sys.platform`` → "linux" (defensive; the Linux test host already
         has this value, but the fixture is portable to macOS/Windows hosts)
-      - ``voice_typer.server.server_platform.SYSTEM`` → "linux" (module-level
-        constant read at function-call time by enable/disable/is_enabled)
+      - ``voice_typer.server.server_platform.platform_flags.SYSTEM`` →
+        "linux" (the platform-dispatch constant read at function-call
+        time by enable/disable/is_enabled)
       - ``$XDG_CONFIG_HOME`` → ``tmp_path / "config"`` (so the autostart
         .desktop file is written under the tmp dir, NOT the test host's real
         ``~/.config/autostart/``)
@@ -196,8 +197,9 @@ def linux_platform(monkeypatch, tmp_path):
     """
     monkeypatch.setattr(sys, "platform", "linux")
     from voice_typer.server import server_platform
+    from voice_typer.server.server_platform import platform_flags
 
-    monkeypatch.setattr(server_platform, "SYSTEM", "linux")
+    monkeypatch.setattr(platform_flags, "SYSTEM", "linux")
 
     config_home = tmp_path / "config"
     config_home.mkdir(parents=True, exist_ok=True)

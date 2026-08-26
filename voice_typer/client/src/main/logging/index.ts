@@ -105,7 +105,7 @@ export {
 // `redactPii` is re-exported here so external callers
 // (notably `windows/main-window.ts`'s `appendRendererError` call site,
 // which writes via direct `appendLogLine` and bypasses
-// `formatArgsForFile`) can apply the same PII / API-key / URL
+// `redactArgsForFile`) can apply the same PII / API-key / URL
 // redaction that the format helpers apply internally. Internal callers
 // (`printfLogger.ts`, `structuredLogger.ts`) import directly from
 // `./rotation` to avoid the barrel re-export overhead on the hot log

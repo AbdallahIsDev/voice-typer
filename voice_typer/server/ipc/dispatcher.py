@@ -13,8 +13,7 @@ method bodies.
 
 Source-string-pinning tests (``tests/test_ipc_server.py``,
 ``tests/server/test_ipc_server_regressions.py``,
-``tests/test_ipc_tray_click_validation.py``,
-``tests/test_ipc_server_lifecycle_fixes.py``) use
+``tests/test_ipc_tray_click_validation.py``) use
 ``inspect.getsource(IPCServer._dispatch)`` / ``._handle_tray_click`` /
 ``._handle_shutdown`` and assert substrings appear in the source.
 Because ``IPCServer._dispatch`` resolves through MRO to

@@ -218,7 +218,7 @@ class TestNameBasedDeviceResolution:
 
         # Patch find_microphone_by_name to return a different index.
         fake_match = {"id": "7", "index": 7, "name": "USB Mic A", "host_api": "CoreAudio"}
-        import voice_typer.server.server_platform as server_platform_mod
+        import voice_typer.server.server_platform.microphone_list as server_platform_mod
 
         monkeypatch.setattr(server_platform_mod, "find_microphone_by_name", lambda name: fake_match)
 
@@ -230,7 +230,7 @@ class TestNameBasedDeviceResolution:
         dm = _make_device_manager()
         dm.recorder.config.microphone = "5|Gone Mic|CoreAudio"
 
-        import voice_typer.server.server_platform as server_platform_mod
+        import voice_typer.server.server_platform.microphone_list as server_platform_mod
 
         monkeypatch.setattr(server_platform_mod, "find_microphone_by_name", lambda name: None)
 
@@ -244,7 +244,7 @@ class TestNameBasedDeviceResolution:
         dm.recorder.config.microphone = "5|USB Mic A|CoreAudio"
 
         import voice_typer.server.recording.device_manager as dm_mod
-        import voice_typer.server.server_platform as server_platform_mod
+        import voice_typer.server.server_platform.microphone_list as server_platform_mod
 
         # Name lookup fails.
         monkeypatch.setattr(server_platform_mod, "find_microphone_by_name", lambda name: None)
@@ -277,7 +277,7 @@ class TestNameBasedDeviceResolution:
         dm.recorder.config.microphone = "5|Gone Mic|CoreAudio"
 
         import voice_typer.server.recording.device_manager as dm_mod
-        import voice_typer.server.server_platform as server_platform_mod
+        import voice_typer.server.server_platform.microphone_list as server_platform_mod
 
         monkeypatch.setattr(server_platform_mod, "find_microphone_by_name", lambda name: None)
 
@@ -337,7 +337,7 @@ class TestNameBasedDeviceResolution:
         dm.recorder.config.microphone = "5|Gone Mic|CoreAudio"
 
         import voice_typer.server.recording.device_manager as dm_mod
-        import voice_typer.server.server_platform as server_platform_mod
+        import voice_typer.server.server_platform.microphone_list as server_platform_mod
 
         monkeypatch.setattr(server_platform_mod, "find_microphone_by_name", lambda name: None)
 

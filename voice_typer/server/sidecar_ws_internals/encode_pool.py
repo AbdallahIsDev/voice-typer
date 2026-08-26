@@ -6,7 +6,7 @@ Extracted verbatim from :mod:`voice_typer.server.sidecar_ws` (the
 names so ``sidecar_ws._get_ws_encode_pool`` and
 ``sidecar_ws.shutdown_encode_pool`` keep resolving. The encode FUNCTION
 (``_encode_ws_frame``) stays in the canonical module — its body is
-pinned by ``tests/test_ipc_layer_fixes.py::TestWriterEncodesOnce``
+pinned by ``tests/test_ipc_server.py::TestWriterEncodesOnce``
 (``inspect.getsource(sidecar_ws)`` whole-module source check).
 
 The singleton global lives HERE (with its accessor functions) — it is

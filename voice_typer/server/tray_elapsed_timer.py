@@ -21,7 +21,7 @@ the ``is None`` / ``is not None`` checks are identical).
 ``TrayIcon._format_elapsed`` / ``_start_elapsed_timer`` /
 ``_cancel_elapsed_timer`` methods as thin delegators for backward
 compatibility with tests that monkeypatch them directly
-(``tests/test_er_fix_h.py``).
+(``tests/test_elapsed_timer_single_thread.py``).
 """
 
 from __future__ import annotations

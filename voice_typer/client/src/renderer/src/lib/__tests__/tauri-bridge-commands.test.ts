@@ -4,11 +4,16 @@
  * ADR-0020 §2 (bridge parity), §6 (bubble), §16 (frozen contract).
  *
  * These tests verify that `tauri-bridge.ts` correctly invokes the
- * 8 Rust host commands added in  + :
+ * Rust host commands added alongside each bridge method:
  *
  *   (export commands):
  *   - `window.window_.exportHistory(data, format)` → `invoke('export_history', { data, format })`
  *   - `window.window_.exportVocabulary(data, format)` → `invoke('export_vocabulary', { data, format })`
+ *
+ *   (locale push):
+ *   - `window.window_.setLocale(locale)` → `invoke('set_host_locale', { locale })`
+ *     (Electron `i18n:set-locale` parity — the Rust host stores the
+ *      value in `SidecarState::host_locale`)
  *
  *   (bubble commands):
  *   - `window.bubble.show()` → `invoke('bubble_show')`
@@ -100,6 +105,10 @@ interface WindowBridgeState {
 			data: Record<string, unknown>,
 			format: "json" | "csv",
 		) => Promise<{ success: boolean; path?: string; error?: string }>;
+		setLocale?: (locale: string) => Promise<{
+			ok: boolean;
+			error?: string;
+		}>;
 	};
 }
 
@@ -414,6 +423,44 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		bubble?.dismiss?.();
 
 		expect(stub.core.invoke).toHaveBeenCalledWith("bubble_dismiss");
+	});
+
+	//locale push ─────────────────────────────────────
+
+	it("window_.setLocale invokes 'set_host_locale' with { locale } and passes the envelope through", async () => {
+		const stub = makeTauriStub();
+		(window as unknown as WindowBridgeState).__TAURI__ = stub;
+
+		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
+
+		const windowBridge = (window as unknown as WindowBridgeState).window_;
+		expect(windowBridge?.setLocale).toBeDefined();
+
+		stub.core.invoke.mockResolvedValueOnce({ ok: true });
+		const result = await windowBridge?.setLocale?.("fr-FR");
+
+		expect(stub.core.invoke).toHaveBeenCalledWith("set_host_locale", {
+			locale: "fr-FR",
+		});
+		expect(result).toEqual({ ok: true });
+	});
+
+	it("window_.setLocale maps a rejection to { ok: false, error } (never throws)", async () => {
+		const stub = makeTauriStub();
+		(window as unknown as WindowBridgeState).__TAURI__ = stub;
+
+		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
+
+		const windowBridge = (window as unknown as WindowBridgeState).window_;
+		stub.core.invoke.mockRejectedValueOnce(new Error("command unavailable"));
+		const result = await windowBridge?.setLocale?.("de-DE");
+
+		expect(stub.core.invoke).toHaveBeenCalledWith("set_host_locale", {
+			locale: "de-DE",
+		});
+		expect(result).toEqual({ ok: false, error: "command unavailable" });
 	});
 
 	//Electron-mode no-op (Phase 3 UI port invariant) ──

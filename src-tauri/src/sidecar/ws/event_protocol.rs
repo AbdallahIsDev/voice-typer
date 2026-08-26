@@ -96,6 +96,7 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     "download_progress",
     // Engine fallback:
     "parakeet_cpu_fallback",
+    "gpu_cpu_fallback",
     // Paste error:
     "paste_failed",
     // ── Additional server-published events not in the original spec

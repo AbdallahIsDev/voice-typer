@@ -33,7 +33,7 @@ attributes on :class:`IPCServer` (in the 2,100-line
 ``ipc_server.py`` god-module), and ``_READONLY_COMMANDS`` lived in
 ``voice_typer/server/ipc/_helpers.py``. The split made the
 "three layers must agree" parity contract (pinned by
-``tests/test_ec4_python_command_registry_parity.py`` and
+``tests/test_ipc_server.py`` and
 ``tests/test_ipc_command_registry_sync.py``) harder to reason about:
 the reader had to know where each constant lived.
 
@@ -42,7 +42,7 @@ same keys, same values. :class:`IPCServer` re-exports them as class
 attributes for backward compatibility (so every existing
 ``IPCServer._COMMAND_REGISTRY`` / ``IPCServer._PYTHON_ONLY_COMMANDS``
 call site — pinned by ``tests/test_ipc_shutdown_registry.py``,
-``tests/test_ec4_python_command_registry_parity.py``,
+``tests/test_ipc_server.py``,
 ``tests/test_ipc_command_registry_sync.py``,
 ``tests/tauri/mig19/test_phase4_validation.py``,
 ``tests/tauri/test_tauri_sidecar_gate.py``,
@@ -159,7 +159,7 @@ _READONLY_COMMANDS: frozenset[str] = frozenset(
 #   let a compromised renderer spoof tray clicks.
 #
 # This frozenset is the single source of truth for the
-# ``test_ec4_python_command_registry_parity`` regression test
+# ``the registry-parity assertions in tests/test_ipc_server.py`` regression test
 # which asserts that the Python registry, the TS allowlist, and
 # the Rust allowlist agree on membership (modulo this documented
 # exception set).

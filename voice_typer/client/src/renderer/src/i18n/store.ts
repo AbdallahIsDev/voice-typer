@@ -284,9 +284,11 @@ export function registerTranslations(
  *     items localise.
  *
  * Both IPC pushes are best-effort (the bridge surfaces may be missing
- * during module-init or under Tauri), so ``setLocale`` must NOT crash
- * when ``window.window_`` / ``window.python`` is undefined or when the
- * IPC promise rejects.
+ * during module-init), so ``setLocale`` must NOT crash when
+ * ``window.window_`` / ``window.python`` is undefined or when the IPC
+ * promise rejects. The ``setLocale`` push resolves on both runtimes:
+ * Electron keeps the locale in its main process, and the Tauri host
+ * stores it in ``SidecarState::host_locale``.
  */
 export function setLocale(locale: Locale): void {
 	let next: Locale = locale;

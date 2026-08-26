@@ -89,7 +89,7 @@ def _stub_restart_side_effects(stub_app: _StubApp, monkeypatch) -> None:
     test sandbox (event_bus.publish, sys.exit).
 
     Mirrors ``_stub_restart_environment`` in
-    ``tests/app/test_app_lifecycle_fixes.py`` but operates on the
+    ``tests/app/test_lifecycle.py`` but operates on the
     stub_app + LifecycleController pair rather than the full
     VoiceTyperApp fixture.
     """

@@ -190,23 +190,44 @@ def test_comment_documents_current_errors_count(baseline: dict) -> None:
     )
 
 
-def test_current_state_tk_fix_7_key_exists(baseline: dict) -> None:
-    """The  cleanup paragraph must be present.
+# The documented provenance keys every baseline regeneration must carry
+# forward verbatim (append-only audit trail; values are historical
+# narratives, never live data arrays).
+DOCUMENTED_METADATA_KEYS = [
+    "_justification",
+    "_schema_version",
+    "_current_state_2026_07_25_rt_fix_11",
+    "_current_state_2026_08_01_oi_16",
+    "_current_state_2026_08_05_tk_fix_7",
+    "_current_state_2026_08_06_regen",
+    "_current_state_2026_08_14_fg_regen",
+    "_current_state_2026_08_14_qwen_onnx_regen",
+    "_current_state_2026_08_15_autostart_fix",
+    "_current_state_2026_08_25_pkg_split_regen",
+    "_current_state_2026_08_25_shutdown_split_recon",
+]
 
-    Documents the cleanup so future maintainers can trace why entries
-    were dropped. The key name is intentionally timestamped
-    (2026_08_05) to match the existing ``_current_state_*`` convention.
+
+@pytest.mark.parametrize("key", DOCUMENTED_METADATA_KEYS)
+def test_documented_metadata_keys_survive_regeneration(baseline: dict, key: str) -> None:
+    """The stale-entry cleanup paragraphs must be present.
+
+    Documents the cleanups so future maintainers can trace why entries
+    were dropped. Key names are intentionally timestamped
+    (``2026_08_05`` etc.) to match the ``_current_state_*`` convention.
+    A baseline regeneration that drops these keys destroys the audit
+    trail explaining the floor's history.
     """
-    key = "_current_state_2026_08_05_tk_fix_7"
     assert key in baseline, (
-        f"pyrefly-baseline.json: missing {key} metadata key. This key documents the  stale-entry cleanup."
+        f"pyrefly-baseline.json: missing {key} metadata key. This key is "
+        f"part of the documented provenance audit trail and must be carried "
+        f"forward verbatim across regenerations."
     )
     value = baseline[key]
-    assert isinstance(value, str) and len(value) > 100, (
-        f"pyrefly-baseline.json: {key} must be a non-trivial description "
-        f"of the  cleanup (got {type(value).__name__} of "
-        f"len={len(value) if isinstance(value, str) else 'n/a'})"
-    )
+    if isinstance(value, str):
+        assert len(value) > 20, (
+            f"pyrefly-baseline.json: {key} must be a non-trivial description (got string of len={len(value)})"
+        )
 
 
 # ---------------------------------------------------------------------

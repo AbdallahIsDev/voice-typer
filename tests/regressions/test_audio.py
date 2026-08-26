@@ -236,17 +236,17 @@ class TestInCallbackDeadFieldRemoved:
     """
 
     def test_in_callback_field_does_not_exist(self):
-        """``Recorder.__init__`` must NOT declare ``_in_callback``.
+        """A constructed ``Recorder`` must NOT have a ``_in_callback`` attr.
 
         RW-8: KEEP — pins AUDIO-009/AUDIO-015 dead-code removal.
-        Source-string check is the only way to catch reintroduction
-        of the dead field (a behavioral test can't observe a field
-        that does nothing).
+        Behavioral form: constructing the Recorder must not create the
+        dead field anywhere (the historical declaration lived in
+        ``__init__``, now decomposed into ``_init_*`` helpers).
         """
-        from voice_typer.server import recording as rec_mod
+        from tests.fixtures.recorder_test_helpers import make_recorder
 
-        src = inspect.getsource(rec_mod.Recorder.__init__)
-        assert "self._in_callback" not in src, (
+        recorder = make_recorder()
+        assert not hasattr(recorder, "_in_callback"), (
             "AUDIO-009 regression: ``self._in_callback`` is declared but "
             "never read. The live guard is ``_is_in_audio_callback`` — "
             "remove the dead declaration."
@@ -256,15 +256,18 @@ class TestInCallbackDeadFieldRemoved:
         """The live guard ``_is_in_audio_callback`` must still exist.
 
         RW-8: KEEP — pins AUDIO-015 (live guard preserved while the
-        dead _in_callback field was removed). Could be ported to a
-        behavioral test that calls _is_in_audio_callback() and verifies
-        it returns a bool, but the source-string check is simpler and
-        catches removal of the attribute directly.
+        dead _in_callback field was removed). Behavioral form: the
+        attribute is a real ``threading.Event`` on a constructed
+        Recorder.
         """
-        from voice_typer.server import recording as rec_mod
+        import threading
 
-        src = inspect.getsource(rec_mod.Recorder.__init__)
-        assert "_is_in_audio_callback" in src, "The live guard ``_is_in_audio_callback`` must remain declared."
+        from tests.fixtures.recorder_test_helpers import make_recorder
+
+        recorder = make_recorder()
+        assert isinstance(recorder._is_in_audio_callback, threading.Event), (
+            "The live guard ``_is_in_audio_callback`` must remain declared."
+        )
 
 
 class TestVadGreyZonePreservesCounters:
@@ -710,7 +713,7 @@ class TestAudioMicDeviceChangePoller:
         # ``microphones_changed`` IPC event.
         with (
             patch(
-                "voice_typer.server.server_platform.list_microphones",
+                "voice_typer.server.server_platform.microphone_list.list_microphones",
                 return_value=[
                     {"id": 1, "name": "Mic A"},
                     {"id": 3, "name": "Mic C"},
@@ -785,7 +788,12 @@ class TestAudioClipRealtimeIpcEvent:
         # helper for readability). We check both methods so the test
         # survives either layout.
         chunk_src = inspect.getsource(recording.Recorder._process_audio_chunk)
-        detect_src = inspect.getsource(recording.Recorder._detect_and_emit_clipping)
+        # Body lives on the collaborator since the god-class split; the
+        # Recorder delegator + the AudioPipeline body together carry the
+        # invariant.
+        from voice_typer.server.recording.audio_pipeline import AudioPipeline
+
+        detect_src = inspect.getsource(AudioPipeline.detect_and_emit_clipping)
         combined = chunk_src + "\n" + detect_src
         assert "audio_clip" in combined, (
             "AUDIO-CLIP: recording callback must push an 'audio_clip' IPC event when clipping is detected."

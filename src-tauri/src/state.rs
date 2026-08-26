@@ -165,6 +165,18 @@ pub(crate) struct SidecarState {
     /// starts awaiting `notified()` is consumed by the very next
     /// `notified()` call — no race window.
     pub(crate) shutdown_notify: Notify,
+    /// Locale pushed by the main-window renderer via the
+    /// `set_host_locale` command (`window.window_.setLocale(locale)`
+    /// in the Tauri bridge). Mirrors Electron's `i18n:set-locale`
+    /// main-process storage, where the pushed locale localizes native
+    /// dialogs (single-instance error, critical-error dialog,
+    /// model-folder picker, export save-as dialogs). The host may
+    /// later consume this value to localize its own native surfaces;
+    /// today it is the parity sink — the renderer's locale push
+    /// resolves with the same `{ok: bool}` envelope on both runtimes
+    /// instead of being rejected under Tauri. `None` until the first
+    /// push arrives.
+    pub(crate) host_locale: Mutex<Option<String>>,
 }
 
 impl SidecarState {
@@ -187,6 +199,9 @@ impl SidecarState {
             // ws_generation starts at 0; first reconnect bumps to 1.
             ws_generation: AtomicU64::new(0),
             shutdown_notify: Notify::new(),
+            // Renderer-pushed locale (parity sink for the
+            // `window_.setLocale` bridge method); None until pushed.
+            host_locale: Mutex::new(None),
         }
     }
 }

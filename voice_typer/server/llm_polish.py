@@ -70,7 +70,7 @@ _opener = build_secure_opener()
 # means only the first ~1024 tokens ever come back) and slow (the API
 # round-trip alone took several seconds for huge payloads). 8000 chars
 # comfortably covers normal prose dictation while preventing the worst
-# pathological cases. See ``tests/test_llm_polish_http_fixes.py``.
+# pathological cases. See ``tests/test_llm_polish.py``.
 MAX_INPUT_CHARS = 8000
 
 # configurable API call timeout. The previous hard-coded ``timeout=30``

@@ -181,10 +181,6 @@ def pytest_configure(config):
     are deselected by default (see ``pytest_collection_modifyitems``)
     and only run when ``--slow`` is passed.
 
-    The former ``real_torch`` marker is intentionally NOT registered -
-    the eviction branch it gated was removed in Phase 1c and no test
-    requests it anymore (see CONTRIBUTING.md "Slow tests" section).
-
     also register a project-wide hypothesis profile named ``ci`` with
     ``deadline=None`` and load it unconditionally. Hypothesis's default
     ``deadline`` is 200ms per test case; on a loaded CI runner (or even
@@ -579,7 +575,11 @@ def mock_heavy_imports_session():
         # ``VolumeDucker.duck()``/``restore()`` already short-circuit
         # on a ``None`` backend — so this only neutralizes ACCIDENTAL
         # real backends.
-        mp.setattr("voice_typer.server.server_platform.get_volume_backend", lambda: None)
+        # Patch the OWNING submodule: ``VolumeDucker.initialize`` lazily
+        # imports ``get_volume_backend`` from
+        # ``voice_typer.server.server_platform.volume_factory``, so this is
+        # the module attribute production actually reads.
+        mp.setattr("voice_typer.server.server_platform.volume_factory.get_volume_backend", lambda: None)
 
         yield
     finally:

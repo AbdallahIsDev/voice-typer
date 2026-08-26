@@ -149,8 +149,8 @@ vi.mock("../python/handle-message", () => ({
 
 vi.mock("../python/send-to-python", () => ({
 	sendToPython: vi.fn(() => Promise.resolve()),
-	_flushPendingOutbound: vi.fn(),
-	_resetPendingOutbound: vi.fn(),
+	flushPendingOutbound: vi.fn(),
+	resetPendingOutbound: vi.fn(),
 }));
 
 // tcpConnect is imported dynamically inside beforeEach (after vi.resetModules)

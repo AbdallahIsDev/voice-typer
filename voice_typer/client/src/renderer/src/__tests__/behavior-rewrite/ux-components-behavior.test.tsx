@@ -1581,7 +1581,9 @@ describe("App help overlay content — rewrite of shortcut-list + input-gate tes
 		// Use getAllByText for "?" because it may appear in multiple
 		// places (shortcut key + close hint).
 		expect(screen.getAllByText("Tab").length).toBeGreaterThanOrEqual(2);
-		expect(screen.getByText("Shift")).toBeTruthy();
+		// "Shift" chips come from BOTH the "Tab / Shift+Tab" nav row AND
+		// the Ctrl+Shift+D bubble-dismiss row, so query for all matches.
+		expect(screen.getAllByText("Shift").length).toBeGreaterThanOrEqual(2);
 		expect(screen.getByText("Space")).toBeTruthy();
 		expect(screen.getByText("Esc")).toBeTruthy();
 		expect(screen.getAllByText("?").length).toBeGreaterThanOrEqual(1);

@@ -177,8 +177,9 @@ def win32_platform(monkeypatch, fake_winreg):
     """Pretend we're on Windows for the duration of the test."""
     monkeypatch.setattr(sys, "platform", "win32")
     from voice_typer.server import server_platform
+    from voice_typer.server.server_platform import platform_flags
 
-    monkeypatch.setattr(server_platform, "SYSTEM", "win32")
+    monkeypatch.setattr(platform_flags, "SYSTEM", "win32")
     return server_platform
 
 

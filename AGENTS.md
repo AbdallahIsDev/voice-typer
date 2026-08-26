@@ -741,6 +741,13 @@ Rationale: Rule 19 in PROMPT.md; prevents the 2277-line spaghetti regression.
 Applies to: All agents, all modes.
 ```
 
+```
+C-ARCH-2
+Rule: Do NOT reintroduce package-level test-patch indirection (`_pkg.X` call-time lookups, custom module subclasses like `_RecordingModule`, or package-attr patch targets) in `voice_typer/server/server_platform/`, `prewarm/`, or `recording/`. The canonical contract is: tests patch the OWNING SUBMODULE's attribute (`monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", ...)`); production resolves cross-module names through sibling MODULE-OBJECT attribute reads at call time; each package `__init__.py` stays a pure re-export surface (server_platform keeps its stdlib-proxy imports solely because dotted patches like `...server_platform.subprocess.run` must resolve to the real stdlib module). New packages with test-patch seams MUST follow this shape from day one.
+Rationale: The CR-67-era indirection layers (~900 LOC across 3 packages + ~90 test files of package-path patches) made `_` prefixes meaningless, broke inspect.getsource, and required a multi-session migration to remove (completed 2026-08-26). Reintroducing the pattern restarts that debt.
+Applies to: All agents, all modes, all sub-agents.
+```
+
 ---
 
 ## Category: Cross-Platform Behavior

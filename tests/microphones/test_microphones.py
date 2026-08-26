@@ -34,7 +34,7 @@ class TestRefreshMicrophonesForce:
             return mics_by_call.pop(0)
 
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.list_microphones",
+            "voice_typer.server.server_platform.microphone_list.list_microphones",
             _fake_list_microphones,
         )
         return service

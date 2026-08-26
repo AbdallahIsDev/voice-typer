@@ -10,8 +10,11 @@
 //! secret-shaped keys before the Rust host writes the JSON to disk, in
 //! case the Python sidecar's own redaction path regresses.
 
-use super::{is_sensitive_key, redact_config_secrets, REDACTED_MARKER};
+use super::{is_sensitive_key, redact_config_secrets, set_host_locale_core, REDACTED_MARKER};
+use crate::commands::main_window_label_check;
+use crate::state::{lock, SidecarState};
 use serde_json::json;
+use std::sync::Arc;
 
 //is_sensitive_key ───────────────────────────────────────
 //
@@ -198,4 +201,68 @@ fn test_redact_config_secrets_non_object_root() {
     let count = redact_config_secrets(&mut v);
     assert_eq!(count, 0);
     assert_eq!(v, "just a string");
+}
+
+//set_host_locale ────────────────────────────────────────
+//
+// Pins the locale-storage contract mirrored from Electron's
+// `i18n:set-locale` IPC handler: bare-string payload in,
+// `{ok: bool, error?}` envelope out, and domain-level failures
+// RESOLVE (ok:false) instead of rejecting — matching the Electron
+// handler's resolve-not-reject behavior.
+//
+// The command wrapper's `require_main_window(&window)` guard needs a
+// live `tauri::Window`, which cannot be constructed in unit tests; its
+// decision logic is pinned below via `main_window_label_check` — the
+// same pure predicate the guard itself uses.
+
+#[test]
+fn test_set_host_locale_empty_returns_ok_false_envelope() {
+    let state = Arc::new(SidecarState::new());
+    let result = set_host_locale_core(String::from("   "), &state);
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["error"], "empty locale");
+    assert!(
+        lock(&state.host_locale).is_none(),
+        "whitespace-only locale must not be stored"
+    );
+    // Fully empty string takes the same path.
+    let result = set_host_locale_core(String::new(), &state);
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["error"], "empty locale");
+}
+
+#[test]
+fn test_set_host_locale_valid_stores_and_returns_ok_true() {
+    let state = Arc::new(SidecarState::new());
+    // Starts empty — nothing pushed yet.
+    assert!(lock(&state.host_locale).is_none());
+    let result = set_host_locale_core(String::from("de-DE"), &state);
+    assert_eq!(result["ok"], true);
+    assert!(
+        result.get("error").is_none(),
+        "success envelope must omit the error key"
+    );
+    assert_eq!(
+        lock(&state.host_locale).as_deref(),
+        Some("de-DE"),
+        "valid locale must land in SidecarState::host_locale"
+    );
+}
+
+#[test]
+fn test_set_host_locale_overwrites_previous_value() {
+    let state = Arc::new(SidecarState::new());
+    assert_eq!(set_host_locale_core(String::from("fr"), &state)["ok"], true);
+    assert_eq!(set_host_locale_core(String::from("ar"), &state)["ok"], true);
+    assert_eq!(lock(&state.host_locale).as_deref(), Some("ar"));
+}
+
+#[test]
+fn test_set_host_locale_window_gate_uses_main_label_predicate() {
+    // The command rejects any caller whose window label is not "main"
+    // (the sandboxed bubble window must not write host state). The
+    // guard delegates to this exact predicate.
+    assert!(main_window_label_check("main"));
+    assert!(!main_window_label_check("bubble"));
 }

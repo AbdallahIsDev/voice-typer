@@ -98,9 +98,9 @@ def sync_autostart(app: AppProtocol) -> dict:
         ``enable_autostart`` IPC call.
 
         Note: this function still calls the bool-returning
-        ``server_platform.enable_autostart`` / ``server_platform.disable_autostart``
+        ``autostart.enable_autostart`` / ``autostart.disable_autostart``
         (not the rich ``enable_autostart_ex``) so existing tests that
-        monkeypatch ``voice_typer.server.server_platform.enable_autostart``
+        monkeypatch ``voice_typer.server.server_platform.autostart.enable_autostart``
         continue to take
         effect. The error string is therefore only populated when the
         bool function raises (defensive — the production ``enable_autostart``
@@ -109,14 +109,11 @@ def sync_autostart(app: AppProtocol) -> dict:
         routes through ``enable_autostart_ex`` directly will populate
         ``error`` with the real failure reason.
     """
-    # Import the platform helpers at call time so tests that monkeypatch
-    # voice_typer.server.server_platform.{is_autostart_enabled,
-    # enable_autostart, disable_autostart} still take effect.
-    from voice_typer.server.server_platform import (
-        disable_autostart,
-        enable_autostart,
-        is_autostart_enabled,
-    )
+    # Import the autostart facade module at call time so tests that
+    # monkeypatch voice_typer.server.server_platform.autostart.{
+    # is_autostart_enabled, enable_autostart, disable_autostart} still
+    # take effect (the attribute is resolved on that module at each call).
+    from voice_typer.server.server_platform import autostart as _autostart
 
     # One-time per-install cleanup of legacy autostart entries
     # (AUTOSTART-LEGACY): pre-PLAT-RUN fixed names + the buggy
@@ -156,10 +153,10 @@ def sync_autostart(app: AppProtocol) -> dict:
     # enable/disable success flag, so callers no longer need to re-query.
     result: dict = {"registered": False, "error": None, "actual_post_sync": False}
     try:
-        actual = is_autostart_enabled()
+        actual = _autostart.is_autostart_enabled()
         if app.config.autostart and not actual:
             log.info("[CONFIG] Config says autostart=true but it is disabled -- enabling")
-            registered = enable_autostart()
+            registered = _autostart.enable_autostart()
             # capture the post-enable state. enable_autostart()
             # returns True on success; on failure (exception caught
             # internally) it returns False — we surface that as
@@ -180,7 +177,7 @@ def sync_autostart(app: AppProtocol) -> dict:
             )
         elif not app.config.autostart and actual:
             log.info("[CONFIG] Config says autostart=false but it is enabled -- disabling")
-            removed = disable_autostart()
+            removed = _autostart.disable_autostart()
             # ``registered`` in the result dict reflects "is the
             # autostart entry now in the desired state?". After a
             # successful disable, the entry is NO LONGER registered,
@@ -386,7 +383,7 @@ def _reconcile_configured_microphone(app: AppProtocol, mics: list[dict]) -> None
     Never raises: enumeration/reconciliation failures must not break mic
     loading (mirrors the surrounding best-effort contract).
     """
-    from voice_typer.server.server_platform import find_microphone_by_id
+    from voice_typer.server.server_platform.microphone_list import find_microphone_by_id
 
     try:
         mic_id = app.config.microphone
@@ -504,9 +501,9 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
     and ``new_ids`` sets.
     """
     # Import list_microphones at call time so tests that monkeypatch
-    # voice_typer.server.server_platform.list_microphones still take
-    # effect.
-    from voice_typer.server.server_platform import list_microphones
+    # voice_typer.server.server_platform.microphone_list.list_microphones
+    # still take effect.
+    from voice_typer.server.server_platform.microphone_list import list_microphones
 
     # RACE-020: abort early if shutting down
     if shutdown_event is not None and shutdown_event.is_set():

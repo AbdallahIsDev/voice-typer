@@ -228,7 +228,7 @@ def test_select_writable_sendall_called_with_correct_data() -> None:
 
     msg = {"type": "test_event", "id": 42, "text": "hello"}
     # Production now uses compact JSON (no whitespace, ensure_ascii=False)
-    # per XV-83 — see ``test_ipc_layer_fixes::TestCompactJsonSerialization``.
+    # per XV-83 — see ``tests/test_ipc_server.py::TestCompactJsonSerialization``.
     expected_line = json.dumps(msg, ensure_ascii=False, separators=(",", ":")) + "\n"
 
     with _patch_select_writable(tcp_client.conn):

@@ -229,7 +229,7 @@ class TestCacheProbeLogLinesUseFormatDuration:
         matches at line END.
         """
         # Build a fake package directory with one warmable file. The
-        # file is never actually read — _pkg._warm_file is stubbed
+        # file is never actually read — cache_probe._warm_file is stubbed
         # below — but it must exist on disk so the rglob walk in
         # _warm_package_files yields it (the suffix filter + skip-dir
         # filter must accept it).
@@ -253,12 +253,13 @@ class TestCacheProbeLogLinesUseFormatDuration:
 
         monkeypatch.setattr(cache_probe.importlib.util, "find_spec", fake_find_spec)
 
-        # Stub _pkg._warm_file so the test doesn't actually page-cache
-        # bytes (keeps the test fast + platform-independent). Returns
-        # 1 MiB so the "%.0f MB" rendering is "1 MB" — the assertion
-        # below pins the rendered shape so a future revert can't slip
-        # in a different unit (KiB, GiB) either.
-        monkeypatch.setattr(cache_probe._pkg, "_warm_file", lambda path: 1024 * 1024)
+        # Stub _warm_file on the cache_probe submodule (where
+        # _warm_package_files looks it up) so the test doesn't actually
+        # page-cache bytes (keeps the test fast + platform-independent).
+        # Returns 1 MiB so the "%.0f MB" rendering is "1 MB" — the
+        # assertion below pins the rendered shape so a future revert can't
+        # slip in a different unit (KiB, GiB) either.
+        monkeypatch.setattr(cache_probe, "_warm_file", lambda path: 1024 * 1024)
 
         with caplog.at_level(logging.INFO, logger="voice_typer.server.prewarm"):
             total = cache_probe._warm_package_files("fakepkg")

@@ -198,7 +198,7 @@ class TestBackupBeforeMigrationSecure:
 
         monkeypatch.setattr(history_db, "_secure_copy_db_file", boom)
 
-        with caplog.at_level(logging.WARNING, logger="voice_typer.server.history_db"):
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.history_db_internals.corruption_recovery"):
             # Must NOT raise.
             db._backup_before_migration(current_version=2)
 
@@ -226,14 +226,23 @@ class TestSecureCopyDbFileSingleDefinition:
         import inspect
 
         from voice_typer.server import history_db
+        from voice_typer.server.history_db_internals import corruption_recovery
 
-        module_source = inspect.getsource(history_db)
-        count = module_source.count("def _secure_copy_db_file(")
-        assert count == 1, (
+        # The single definition now lives in the internals module; the
+        # facade re-exports it (no duplicate definition anywhere).
+        facade_source = inspect.getsource(history_db)
+        impl_source = inspect.getsource(corruption_recovery)
+        total = facade_source.count("def _secure_copy_db_file(") + impl_source.count("def _secure_copy_db_file(")
+        assert total == 1, (
             f"FR-29 regression: expected exactly 1 definition of "
-            f"_secure_copy_db_file, found {count}. The module must not "
-            f"contain duplicate definitions (the second silently shadows "
-            f"the first)."
+            f"_secure_copy_db_file across history_db + "
+            f"history_db_internals.corruption_recovery, found {total}. The "
+            f"module must not contain duplicate definitions (the second "
+            f"silently shadows the first)."
+        )
+        assert history_db._secure_copy_db_file is corruption_recovery._secure_copy_db_file, (
+            "history_db._secure_copy_db_file must be the SAME function object as "
+            "the corruption_recovery definition (re-export, not a copy)."
         )
 
     def test_secure_copy_db_file_call_sites_resolve_to_single_def(self):

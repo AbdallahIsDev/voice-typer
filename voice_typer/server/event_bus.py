@@ -107,6 +107,13 @@ Events emitted via ``event_bus.publish`` (the modern path):
   ``parakeet_engine.py`` when GPU transcription fails and the engine
   falls back to CPU. The tray shows a "(CPU fallback)" status suffix.
   Payload: ``{device:str (="cpu"), reason:str}``.
+* ``gpu_cpu_fallback`` — emitted by ``transcription_fallback.py``
+  (Whisper path) when a GPU inference error triggers the synchronous
+  CPU reload, published BEFORE the teardown so the tray can surface
+  "switching to CPU" feedback during the multi-second reload.
+  Consumed in-process by ``tray_notifications.on_gpu_cpu_fallback``;
+  also allowlisted in the Rust ``ALLOWED_EVENT_TYPES`` slice for wire
+  parity. Payload: ``{device:str (="cpu"), reason:str}``.
 
 Master plan §7.4 — runtime-pack / worker IPC events (13 new event
 types introduced by the slim-core / runtime-pack split). The
@@ -198,7 +205,7 @@ server):
   former is a per-transition signal with just ``status``; the latter
   is the connect-time snapshot with a ``message`` field.
 
-Total: 37 events — the live count is ``len(EVENT_TYPES)`` and this
+Total: 38 events — the live count is ``len(EVENT_TYPES)`` and this
 sentence is kept in lockstep with it by
 ``tests/test_event_bus.py::TestCanonicalCatalogue
 ::test_catalogue_total_count_updated``. Update this docstring whenever
@@ -289,6 +296,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "tray_state",
         "consent_required",
         "parakeet_cpu_fallback",
+        "gpu_cpu_fallback",
         # IPCServer.push-only (included so assertion doesn't false-positive):
         "state_changed",
         "status_change",

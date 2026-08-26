@@ -34,6 +34,18 @@ import ``sys`` and do the comparison itself.
 
 from __future__ import annotations
 
+import sys
+
 from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
-__all__ = ["is_windows", "is_macos", "is_linux"]
+# Canonical platform-dispatch snapshot ("win32" / "darwin" / "linux").
+#
+# Owns the single ``SYSTEM`` definition for the ``server_platform``
+# package. Submodules that dispatch on the raw platform read this
+# attribute through THIS module at call time
+# (``platform_flags.SYSTEM``), so tests fake the platform by patching
+# ``voice_typer.server.server_platform.platform_flags.SYSTEM`` — one
+# stable target for every consumer.
+SYSTEM = sys.platform
+
+__all__ = ["is_windows", "is_macos", "is_linux", "SYSTEM"]

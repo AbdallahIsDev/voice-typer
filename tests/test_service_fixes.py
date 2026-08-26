@@ -273,7 +273,7 @@ class TestMicrophonesCacheEmptyList:
             return [{"name": "should-not-be-returned", "index": 0}]
 
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.list_microphones",
+            "voice_typer.server.server_platform.microphone_list.list_microphones",
             fake_list_microphones,
         )
 
@@ -301,7 +301,7 @@ class TestMicrophonesCacheEmptyList:
             return []
 
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.list_microphones",
+            "voice_typer.server.server_platform.microphone_list.list_microphones",
             fake_list_microphones,
         )
 
@@ -324,7 +324,7 @@ class TestMicrophonesCacheEmptyList:
             return real_mics
 
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.list_microphones",
+            "voice_typer.server.server_platform.microphone_list.list_microphones",
             fake_list_microphones,
         )
 

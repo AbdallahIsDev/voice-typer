@@ -107,7 +107,7 @@ class TestPlatRunAutostartTaskHashed:
         # and test_two_different_executables_get_different_hashes test the
         # hash function behavior, but don't catch a regression where the
         # task name stops using the hash. Source-string check catches that.
-        from voice_typer.server import server_platform as platform
+        from voice_typer.server.server_platform import autostart as platform
 
         src = inspect.getsource(platform)
         assert "_install_hash_suffix" in src, "_install_hash_suffix helper must exist."

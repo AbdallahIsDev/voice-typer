@@ -155,7 +155,7 @@ Status legend: ✅ done (this wave) · ⏳ in-progress · ⏳ pending · ⏭️ 
 | `tests/test_recording_and_audio.py` | 11 | ⏳ pending | |
 | `tests/test_recorder_mono_and_disconnect_fixes.py` | 10 | ⏳ pending | |
 | `tests/test_platform_and_config.py` | 9 | ⏳ pending | |
-| `tests/test_ipc_layer_fixes.py` | 9 | ⏳ pending | |
+| `tests/test_ipc_layer_fixes.py` → merged into `tests/test_ipc_server.py` | 9 | ⏳ pending | FZ-58 Tier-1 merge relocated the pins; source-text migration still pending. |
 | `tests/test_dead_code_stays_removed.py` | 9 | ⏳ pending | |
 | `tests/test_transcription_perf_fixes.py` | 8 | ⏳ pending | |
 | `tests/test_recording.py` | 8 | ⏳ pending | |

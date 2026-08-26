@@ -317,9 +317,9 @@ class TestCheckpointIntervalDocs:
         ``_WAL_CHECKPOINT_INTERVAL`` (the constant) instead of a
         hardcoded ``300s`` literal — drift-free documentation.
         """
-        from voice_typer.server.history_db import HistoryDB
+        from voice_typer.server.history_db_internals.writer import _run_checkpoint as _run_checkpoint_impl
 
-        src = inspect.getsource(HistoryDB._run_checkpoint)
+        src = inspect.getsource(_run_checkpoint_impl)
         assert "_WAL_CHECKPOINT_INTERVAL" in src, (
             "_run_checkpoint comment must reference '_WAL_CHECKPOINT_INTERVAL' "
             "(the constant) instead of a hardcoded literal — drift-free."
@@ -332,9 +332,9 @@ class TestCheckpointIntervalDocs:
         ``_WAL_CHECKPOINT_INTERVAL`` (the constant) instead of a
         hardcoded ``300s`` literal — drift-free documentation.
         """
-        from voice_typer.server.history_db import HistoryDB
+        from voice_typer.server.history_db_internals.writer import _run_checkpoint as _run_checkpoint_impl
 
-        src = inspect.getsource(HistoryDB._run_checkpoint)
+        src = inspect.getsource(_run_checkpoint_impl)
         assert "_WAL_CHECKPOINT_INTERVAL" in src, (
             "_run_checkpoint OperationalError-handling comment must "
             "reference '_WAL_CHECKPOINT_INTERVAL' (the constant) instead of a hardcoded literal — drift-free."
@@ -350,9 +350,9 @@ class TestCheckpointIntervalDocs:
         ``_WAL_CHECKPOINT_INTERVAL`` (so it prints '300s'), NOT a
         hardcoded ``60``.
         """
-        from voice_typer.server.history_db import HistoryDB
+        from voice_typer.server.history_db_internals.writer import _run_checkpoint as _run_checkpoint_impl
 
-        src = inspect.getsource(HistoryDB._run_checkpoint)
+        src = inspect.getsource(_run_checkpoint_impl)
         # The format string + the constant reference must both be
         # present in the log.debug call.
         assert "will retry in %.0fs" in src, (
@@ -372,9 +372,9 @@ class TestCheckpointIntervalDocs:
         ``_run_checkpoint`` or in the WAL-checkpoint cadence docs.
         """
         # _run_checkpoint source must have zero '60s' references.
-        from voice_typer.server.history_db import HistoryDB
+        from voice_typer.server.history_db_internals.writer import _run_checkpoint as _run_checkpoint_impl
 
-        run_checkpoint_src = inspect.getsource(HistoryDB._run_checkpoint)
+        run_checkpoint_src = inspect.getsource(_run_checkpoint_impl)
         assert "60s" not in run_checkpoint_src, (
             "_run_checkpoint must not reference '60s' anywhere — the "
             "actual cadence is 300s. Found stale 60s reference:\n" + run_checkpoint_src
@@ -435,7 +435,7 @@ class TestCheckpointLogBehaviour:
             # PRAGMA wal_checkpoint.
             rigged = MagicMock(spec=sqlite3.Connection)
             rigged.execute.side_effect = sqlite3.OperationalError("database table is locked (simulated)")
-            with caplog.at_level(logging.DEBUG, logger="voice_typer.server.history_db"):
+            with caplog.at_level(logging.DEBUG, logger="voice_typer.server.history_db_internals.writer"):
                 # _run_checkpoint must not raise — OperationalError is
                 # caught and logged at DEBUG level.
                 db._run_checkpoint(rigged)

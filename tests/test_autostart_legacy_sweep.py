@@ -37,6 +37,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
+# ``get_autostart_dir`` / ``is_autostart_enabled`` / the Task Scheduler
+# name constant are owned by the ``autostart`` facade module.
+from voice_typer.server.server_platform import autostart as _ast
+
 # ---------------------------------------------------------------------------
 # Fixtures: fake winreg
 # ---------------------------------------------------------------------------
@@ -119,16 +123,20 @@ class TestRunKeyLegacySweep:
     def _make_sweep_inert(monkeypatch):
         """Keep the task/bat sweeps out of run-key tests.
 
-        On a real Windows dev host ``server_platform.is_windows()`` is
+        On a real Windows dev host ``autostart_windows.is_windows()`` is
         True and ``task_scheduler.is_supported()`` is True, so the
         orchestrator would spawn real PowerShell + enumerate the real
         Startup folder during pytest. Stub them so only the (fake-winreg)
         run-key sweep runs.
         """
-        from voice_typer.server import server_platform as _pkg
+        # Patch on the OWNING modules: ``is_windows`` is bound into the
+        # ``autostart_windows`` namespace; production reads
+        # ``_resolve_tauri_binary_for_autostart`` through the ``autostart``
+        # facade module (bound as ``_autostart_mod`` there).
+        from voice_typer.server.server_platform import autostart_windows as _awindows
 
-        monkeypatch.setattr(_pkg, "is_windows", lambda: False)
-        monkeypatch.setattr(_pkg, "_resolve_tauri_binary_for_autostart", lambda: None)
+        monkeypatch.setattr(_awindows, "is_windows", lambda: False)
+        monkeypatch.setattr(_ast, "_resolve_tauri_binary_for_autostart", lambda: None)
 
     def test_removes_legacy_same_install_runkey(self, tmp_path, monkeypatch, fake_winreg):
         """A legacy ``VoiceTyper_<oldhash>`` value whose command embeds this
@@ -297,9 +305,10 @@ class TestTaskSweep:
     def _install_task_fakes(self, monkeypatch, xml_for_task):
         """Stub the platform + scheduler + PowerShell surfaces so the unit
         test never touches the real Task Scheduler / subprocess."""
-        from voice_typer.server import server_platform as _pkg, task_scheduler as _ts
+        from voice_typer.server import task_scheduler as _ts
+        from voice_typer.server.server_platform import autostart_windows as _awindows
 
-        monkeypatch.setattr(_pkg, "is_windows", lambda: True)
+        monkeypatch.setattr(_awindows, "is_windows", lambda: True)
         monkeypatch.setattr(_ts, "is_supported", lambda: True)
 
         delete_calls: list[str] = []
@@ -335,7 +344,7 @@ class TestTaskSweep:
         from voice_typer.server.server_platform.autostart_windows import _sweep_legacy_tasks
 
         launcher = _pkg._install_identifier()
-        current_name = _pkg._APP_AUTOSTART_TASK_NAME
+        current_name = _ast._APP_AUTOSTART_TASK_NAME
 
         def _xml_for(name):
             if name == current_name:
@@ -393,14 +402,14 @@ class TestTaskSweep:
         """The completion marker is NOT written when the task enumeration
         fails — the sweep is retried on the next startup (a transient
         PowerShell failure can't permanently skip the task cleanup)."""
-        from voice_typer.server import server_platform as _pkg, task_scheduler as _ts
-        from voice_typer.server.server_platform import sweep_legacy_autostart_entries
+        from voice_typer.server import task_scheduler as _ts
+        from voice_typer.server.server_platform import autostart_windows as _awindows, sweep_legacy_autostart_entries
 
         # Fake winreg makes the orchestrator's probe pass; simulate a
         # Windows host so the task sweep actually attempts to run.
-        monkeypatch.setattr(_pkg, "is_windows", lambda: True)
-        monkeypatch.setattr(_pkg, "get_autostart_dir", lambda: tmp_path)
-        monkeypatch.setattr(_pkg, "_resolve_tauri_binary_for_autostart", lambda: None)
+        monkeypatch.setattr(_awindows, "is_windows", lambda: True)
+        monkeypatch.setattr(_ast, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(_ast, "_resolve_tauri_binary_for_autostart", lambda: None)
         monkeypatch.setattr(_ts, "is_supported", lambda: True)
         fake_run = MagicMock()
         fake_run.returncode = 1
@@ -426,12 +435,12 @@ class TestStartupBatSweep:
     and other installs' files."""
 
     def _install_bat_fakes(self, monkeypatch, autostart_dir: Path):
-        from voice_typer.server import server_platform as _pkg
+        from voice_typer.server.server_platform import autostart_windows as _awindows
 
-        monkeypatch.setattr(_pkg, "is_windows", lambda: True)
-        monkeypatch.setattr(_pkg, "get_autostart_dir", lambda: autostart_dir)
-        monkeypatch.setattr(_pkg, "_resolve_tauri_binary_for_autostart", lambda: None)
-        return _pkg
+        monkeypatch.setattr(_awindows, "is_windows", lambda: True)
+        monkeypatch.setattr(_ast, "get_autostart_dir", lambda: autostart_dir)
+        monkeypatch.setattr(_ast, "_resolve_tauri_binary_for_autostart", lambda: None)
+        return _awindows
 
     def test_removes_same_install_legacy_bat(self, tmp_path, monkeypatch):
         """A legacy ``VoiceTyper_<oldhash>.bat`` whose content embeds this
@@ -439,8 +448,8 @@ class TestStartupBatSweep:
         .bat files survive."""
         from voice_typer.server.server_platform.autostart_windows import _sweep_legacy_startup_bats
 
-        _pkg = self._install_bat_fakes(monkeypatch, tmp_path)
-        launcher = _pkg._install_identifier()
+        _awin = self._install_bat_fakes(monkeypatch, tmp_path)
+        launcher = _ast._install_identifier()
 
         legacy = tmp_path / "VoiceTyper_deadbeef.bat"
         legacy_cmd = f'start "" /B "{sys.executable}" "{launcher}" --hidden --delay 15'
@@ -448,7 +457,7 @@ class TestStartupBatSweep:
             f"@echo off\r\nset VT_START_HIDDEN=1\r\n{legacy_cmd}\r\n",
             encoding="utf-8",
         )
-        current = tmp_path / _pkg._startup_bat_name()
+        current = tmp_path / _awin._startup_bat_name()
         current.write_text(
             f'@echo off\r\nset VT_START_HIDDEN=1\r\nstart "" /B "{launcher}" --hidden --delay 15\r\n',
             encoding="utf-8",
@@ -486,7 +495,7 @@ class TestSyncAutostartHook:
             return {"swept": True, "removed": {"runkeys": ["VoiceTyper_old"], "tasks": [], "bats": []}}
 
         monkeypatch.setattr(_pkg, "sweep_legacy_autostart_entries", _fake_sweep)
-        monkeypatch.setattr(_pkg, "is_autostart_enabled", lambda: True)
+        monkeypatch.setattr(_ast, "is_autostart_enabled", lambda: True)
 
         app = MagicMock()
         app.config.autostart = True

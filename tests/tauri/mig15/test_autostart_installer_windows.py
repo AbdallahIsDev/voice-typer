@@ -111,16 +111,18 @@ def win32_platform(monkeypatch, fake_winreg):
 
     Patches:
       - ``sys.platform`` → "win32" (used by platform_utils.is_windows)
-      - ``voice_typer.server.server_platform.SYSTEM`` → "win32" (module-level
-        constant read at function-call time by enable/disable/is_enabled)
+      - ``voice_typer.server.server_platform.platform_flags.SYSTEM`` →
+        "win32" (the platform-dispatch constant read at function-call
+        time by enable/disable/is_enabled)
       - installs ``fake_winreg`` so ``import winreg`` succeeds
 
     Returns the (already-imported) ``server_platform`` module.
     """
     monkeypatch.setattr(sys, "platform", "win32")
     from voice_typer.server import server_platform
+    from voice_typer.server.server_platform import platform_flags
 
-    monkeypatch.setattr(server_platform, "SYSTEM", "win32")
+    monkeypatch.setattr(platform_flags, "SYSTEM", "win32")
     return server_platform
 
 
@@ -195,28 +197,30 @@ def test_enable_autostart_on_windows_uses_windows_path_not_plist_or_desktop(monk
     macos_calls: list[int] = []
     linux_calls: list[int] = []
 
+    from voice_typer.server.server_platform import autostart_linux, autostart_macos, autostart_windows
+
     monkeypatch.setattr(
-        server_platform,
+        autostart_windows,
         "_register_app_autostart_task",
         lambda: (task_calls.append(1), True)[1],
     )
     monkeypatch.setattr(
-        server_platform,
+        autostart_windows,
         "_register_app_autostart_runkey",
         lambda: (runkey_calls.append(1), True)[1],
     )
     monkeypatch.setattr(
-        server_platform,
+        autostart_windows,
         "_register_app_autostart_startup",
         lambda: (startup_calls.append(1), True)[1],
     )
     monkeypatch.setattr(
-        server_platform,
+        autostart_macos,
         "_enable_autostart_macos",
         lambda: (macos_calls.append(1), False)[1],
     )
     monkeypatch.setattr(
-        server_platform,
+        autostart_linux,
         "_enable_autostart_linux",
         lambda: (linux_calls.append(1), False)[1],
     )
@@ -242,9 +246,10 @@ def test_enable_autostart_windows_falls_back_to_task_scheduler(monkeypatch, fake
     """
     server_platform = win32_platform
     from voice_typer.server import task_scheduler
+    from voice_typer.server.server_platform import autostart_windows
 
     # Run key fails → Task Scheduler fallback must be tried.
-    monkeypatch.setattr(server_platform, "_register_app_autostart_runkey", lambda: False)
+    monkeypatch.setattr(autostart_windows, "_register_app_autostart_runkey", lambda: False)
 
     # Track schtasks invocations.
     schtasks_calls: list[list[str]] = []
@@ -268,7 +273,7 @@ def test_enable_autostart_windows_falls_back_to_task_scheduler(monkeypatch, fake
     )
     # Stub XML builder so the test doesn't depend on sys.executable resolution.
     monkeypatch.setattr(
-        server_platform,
+        autostart_windows,
         "_build_app_autostart_task_xml",
         lambda: "<Task><Triggers><LogonTrigger/></Triggers></Task>",
     )
@@ -293,17 +298,18 @@ def test_disable_autostart_windows_removes_both(monkeypatch, fake_winreg, win32_
     the app after the user disables autostart).
     """
     server_platform = win32_platform
+    from voice_typer.server.server_platform import autostart_windows
 
     task_removed: list[int] = []
     reg_removed: list[int] = []
 
     monkeypatch.setattr(
-        server_platform,
+        autostart_windows,
         "_unregister_app_autostart_task",
         lambda: (task_removed.append(1), True)[1],
     )
     monkeypatch.setattr(
-        server_platform,
+        autostart_windows,
         "_unregister_app_autostart_runkey",
         lambda: (reg_removed.append(1), True)[1],
     )
@@ -342,13 +348,15 @@ def test_is_autostart_enabled_windows_either_mechanism(
     mechanism succeeded at registration time.
     """
     server_platform = win32_platform
+    from voice_typer.server.server_platform import autostart_windows
+
     monkeypatch.setattr(
-        server_platform,
+        autostart_windows,
         "_is_app_autostart_task_registered",
         lambda: task_registered,
     )
     monkeypatch.setattr(
-        server_platform,
+        autostart_windows,
         "_is_app_autostart_runkey_registered",
         lambda: runkey_registered,
     )

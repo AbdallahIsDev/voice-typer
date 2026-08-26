@@ -21,7 +21,7 @@ elsewhere in this suite.
 import inspect
 
 import voice_typer.server.history_db as history_db_mod
-from voice_typer.server.history_db import HistoryDB
+from voice_typer.server.history_db_internals.writer import _run_checkpoint as _run_checkpoint_impl
 
 
 def test_wal_checkpoint_interval_constant_exists_and_is_positive():
@@ -55,17 +55,21 @@ def test_wal_checkpoint_interval_constant_is_documented_in_neighbor_comment():
 
 
 def test_run_checkpoint_docstring_references_constant():
-    """``HistoryDB._run_checkpoint`` docstring must reference the
+    """The ``_run_checkpoint`` implementation's docstring must reference the
     ``_WAL_CHECKPOINT_INTERVAL`` constant — NOT a hardcoded numeric
     cadence like ``60s`` or ``300s``.
 
     XV-95 root cause: a prior version of the docstring hardcoded
     ``"60s"`` after the interval was bumped to ``300s``. Pinning the
     constant reference here prevents the same drift from recurring.
+
+    The implementation now lives in
+    ``history_db_internals.writer._run_checkpoint`` (the class method is
+    a thin delegate), so the source contract pins the implementation.
     """
-    doc = HistoryDB._run_checkpoint.__doc__ or ""
+    doc = _run_checkpoint_impl.__doc__ or ""
     assert "_WAL_CHECKPOINT_INTERVAL" in doc, (
-        "HistoryDB._run_checkpoint docstring must reference the "
+        "_run_checkpoint docstring must reference the "
         "_WAL_CHECKPOINT_INTERVAL constant (XV-95 drift prevention). "
         f"Got docstring: {doc!r}"
     )
@@ -86,10 +90,10 @@ def test_run_checkpoint_log_message_interpolates_constant():
     string was misleading operators. The fix is to pass the constant
     itself as the log argument.
     """
-    src = inspect.getsource(HistoryDB._run_checkpoint)
+    src = inspect.getsource(_run_checkpoint_impl)
     # The log call should mention the constant by name, not a literal.
     assert "_WAL_CHECKPOINT_INTERVAL" in src, (
-        "HistoryDB._run_checkpoint source must reference "
+        "_run_checkpoint source must reference "
         "_WAL_CHECKPOINT_INTERVAL (e.g. in the 'will retry in %.0fs' log "
         "call). XV-95: don't hardcode a numeric cadence."
     )
@@ -118,7 +122,7 @@ def test_run_checkpoint_comments_reference_constant_not_hardcoded():
     rationale as XV-95: a future bump would silently leave the comments
     stale.
     """
-    src = inspect.getsource(HistoryDB._run_checkpoint)
+    src = inspect.getsource(_run_checkpoint_impl)
     # Find every cadence-flavored sentence in the comments and require
     # that the constant name appears nearby. We approximate this by
     # forbidding any literal "300s" / "60s" inside the function body

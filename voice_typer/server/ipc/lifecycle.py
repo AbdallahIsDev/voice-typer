@@ -14,7 +14,7 @@ The mixin accesses instance state (``self._running``, ``self._lock``,
 ``self._tcp_mode``, etc.) which is declared on :class:`IPCServer` itself —
 the mixin provides only the method bodies.
 
-Source-string-pinning tests (``tests/test_ipc_server_lifecycle_fixes.py``,
+Source-string-pinning tests (``tests/test_ipc_server.py``,
 ``tests/test_ipc_send_shutdown_allowlist.py``,
 ``tests/test_security_fixes.py``,
 ``tests/security/test_tcp_accept_worker_pool.py``) use

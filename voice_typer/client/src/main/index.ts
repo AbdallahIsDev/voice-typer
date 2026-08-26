@@ -47,6 +47,10 @@ import { registerPowerMonitorHandlers } from "./power";
 import { startPython, stopPython } from "./python";
 import { ESCALATE_TIMER_MS, KILL_TIMER_MS } from "./python/stop-python";
 import {
+	registerGlobalShortcuts,
+	unregisterGlobalShortcuts,
+} from "./shortcuts/global-shortcuts";
+import {
 	acquireSingleInstanceLock,
 	clearElectronPidFile,
 } from "./single_instance";
@@ -154,6 +158,11 @@ app.whenReady().then(() => {
 	// is not usable before the app is ready. Idempotent: safe to
 	// call more than once (tests, future double-call sites).
 	registerPowerMonitorHandlers();
+	// register the OS-global bubble-dismiss accelerator
+	// (CommandOrControl+Shift+D). Same whenReady constraint as the
+	// powerMonitor registration above — `globalShortcut` is not usable
+	// before the app is ready. Idempotent.
+	registerGlobalShortcuts();
 
 	//pre-create the dashboard BrowserWindow IMMEDIATELY after
 	// bootstrapRuntime, BEFORE startPython(). Previously the window
@@ -303,6 +312,10 @@ app.on("before-quit", () => {
 //if pythonProcess is already null, exit immediately.
 let _willQuitStopPythonFired = false;
 app.on("will-quit", (event) => {
+	// Release the OS-global accelerator FIRST so a quit that hangs in
+	// the stopPython gate below never leaves Ctrl+Shift+D firing
+	// against a half-dead process. Idempotent — safe on repeat events.
+	unregisterGlobalShortcuts();
 	if (_willQuitStopPythonFired) return;
 	_willQuitStopPythonFired = true;
 	event.preventDefault();

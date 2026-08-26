@@ -210,6 +210,7 @@ class TrayIcon:
             from voice_typer.server import event_bus as _event_bus
 
             _event_bus.subscribe(self._on_parakeet_cpu_fallback)
+            _event_bus.subscribe(self._on_gpu_cpu_fallback)
         except Exception:
             # Promote DEBUG → WARNING: the CPU-fallback notification is
             # safety-critical (alerts the user that a model swap to CPU
@@ -386,6 +387,14 @@ class TrayIcon:
         """Handle parakeet_cpu_fallback events (delegate)."""
         from voice_typer.server.tray_notifications import (
             on_parakeet_cpu_fallback as _on_fallback,
+        )
+
+        return _on_fallback(self, event)
+
+    def _on_gpu_cpu_fallback(self, event: dict) -> None:
+        """Handle gpu_cpu_fallback events (delegate)."""
+        from voice_typer.server.tray_notifications import (
+            on_gpu_cpu_fallback as _on_fallback,
         )
 
         return _on_fallback(self, event)

@@ -10,18 +10,18 @@ Phase 4.5 /  — extracted from the original
 Patch-path compatibility
 ------------------------
 Tests patch ``list_microphones`` via
-``monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", ...)``
+``monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", ...)``
 and then call ``find_microphone_by_name`` / ``find_microphone_by_id``.
-For the patch to take effect, those two helpers must look up
-``list_microphones`` through the package namespace at call time — hence
-``from voice_typer.server import server_platform as _pkg`` and the
-``_pkg.list_microphones()`` reference below.
+Those two helpers reference ``list_microphones`` as a plain module-global
+name, resolved through THIS module's ``__dict__`` at call time — so a
+patch on ``microphone_list.list_microphones`` takes effect without any
+package-namespace indirection.
 
 ``_is_non_mic_device`` (used by ``list_microphones``) lives in
 :mod:`.remote_session`; it is NOT patched by any test, so a direct import
-is safe (and avoids the import-time circular dependency that
-``_pkg._is_non_mic_device`` would create — :mod:`.remote_session` is
-loaded before this module).
+is safe (and avoids the import-time circular dependency that routing the
+lookup through the package namespace would create — :mod:`.remote_session`
+is loaded before this module).
 
 ``inspect.getsource`` compatibility
 -----------------------------------
@@ -38,15 +38,6 @@ import threading
 import time
 from typing import Any
 
-# Patch-path bridge: route lookups of ``list_microphones`` through the
-# package namespace so test patches of the form
-# ``monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", ...)``
-# keep affecting production code defined here (specifically the
-# ``find_microphone_by_name`` / ``find_microphone_by_id`` callers).  The
-# package ``__init__.py`` re-exports ``list_microphones`` from this
-# module; we look it up at call time rather than binding at import time
-# so the patch takes effect.
-from voice_typer.server import server_platform as _pkg
 from voice_typer.server._audio_constants import SILERO_VAD_SAMPLE_RATES
 
 from .remote_session import _is_invalid_device_name, _is_non_mic_device
@@ -160,14 +151,14 @@ def _resolve_legacy_compound_id(wanted: str) -> dict | None:
         return None
     saved_name = parts[1].strip()
     if saved_name:
-        match = _pkg.find_microphone_by_name(saved_name)
+        match = find_microphone_by_name(saved_name)
         if match is not None:
             return match
     try:
         legacy_index = int(parts[0])
     except ValueError:
         return None
-    for mic in _pkg.list_microphones():
+    for mic in list_microphones():
         if mic.get("index") == legacy_index:
             return mic
     return None
@@ -200,7 +191,7 @@ def _match_canonical_mic_by_name(mic_id: str) -> dict | None:
     name = base.split("|", 1)[1].strip()
     if not name:
         return None
-    matches = [m for m in _pkg.list_microphones() if m.get("name") == name]
+    matches = [m for m in list_microphones() if m.get("name") == name]
     return matches[0] if len(matches) == 1 else None
 
 
@@ -488,7 +479,7 @@ def list_microphones() -> list[dict]:
 def find_microphone_by_name(partial_name: str) -> dict | None:
     """Find a microphone whose name contains *partial_name* (case-insensitive)."""
     lower = partial_name.lower()
-    for mic in _pkg.list_microphones():
+    for mic in list_microphones():
         if lower in mic["name"].lower():
             return mic
     return None
@@ -521,7 +512,7 @@ def find_microphone_by_id(mic_id: str) -> dict | None:
     stable id so the caller can persist it going forward.
     """
     wanted = str(mic_id)
-    for mic in _pkg.list_microphones():
+    for mic in list_microphones():
         if mic["id"] == wanted:
             return mic
     if wanted.isdigit():
@@ -529,12 +520,12 @@ def find_microphone_by_id(mic_id: str) -> dict | None:
             legacy_index = int(wanted)
         except ValueError:
             return None
-        for mic in _pkg.list_microphones():
+        for mic in list_microphones():
             if mic.get("index") == legacy_index:
                 return mic
     if "#" in wanted:
         base = wanted.split("#", 1)[0]
-        for mic in _pkg.list_microphones():
+        for mic in list_microphones():
             if mic["id"] == base:
                 return mic
     resolved = _resolve_legacy_compound_id(wanted)

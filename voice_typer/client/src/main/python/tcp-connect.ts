@@ -21,7 +21,7 @@ import { log } from "../logging";
 import { state } from "../state";
 import { createWindows } from "../windows";
 import { broadcastToMainWindow } from "../windows/main-window";
-import { _flushPendingOutbound, sendToPython } from "./send-to-python";
+import { flushPendingOutbound, sendToPython } from "./send-to-python";
 import { installTcpCloseHandler } from "./tcp/close-handler";
 import { handleTcpData } from "./tcp/frame-reader";
 // Re-exported below as a declared function so source-text pins that
@@ -135,7 +135,7 @@ export function tcpConnect(port: number): void {
 			// MAX_PENDING_REQUESTS cap) surface to the original
 			// caller's ``reject`` — the flush loop does not swallow
 			// them.
-			_flushPendingOutbound();
+			flushPendingOutbound();
 			//start the heartbeat interval now that the
 			// backend is connected.  Send an immediate heartbeat
 			// so the backend's watchdog arms quickly (otherwise

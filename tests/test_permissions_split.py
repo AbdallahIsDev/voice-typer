@@ -63,8 +63,8 @@ import pytest
 # ── 1. Backward compatibility: all previously-importable names ───────
 
 
-# Names that ``tests/test_permissions.py`` and
-# ``tests/test_permissions_group_fixes.py`` read or call on the
+# Names that ``tests/test_permissions.py`` (including the merged
+# microphone-permission regression suite) read or call on the
 # ``permissions`` module. Compiled from:
 #   grep -rn "permissions\." tests/test_permissions*.py
 PUBLIC_FUNCTIONS = [

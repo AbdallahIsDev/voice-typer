@@ -8,13 +8,12 @@ current platform.
 
 Patch-path compatibility
 ------------------------
-Tests do not patch ``get_volume_backend`` via the dotted
-``voice_typer.server.server_platform.get_volume_backend`` path on this
-module's local binding — instead, ``tests/test_volume_ducker.py`` does
-``plat.get_volume_backend = lambda: None`` (assignment on the package's
-``__dict__``).  Consumers (``volume_ducker.py``) import the function
-lazily inside a method, so they pick up the patched package binding at
-call time.  No ``_pkg`` indirection is required inside this module.
+``get_volume_backend`` is genuinely defined HERE — tests patch it via
+``monkeypatch.setattr(volume_factory, "get_volume_backend", ...)`` or
+the dotted ``"voice_typer.server.server_platform.volume_factory.get_volume_backend"``
+path.  Consumers (``volume_ducker.py``) import it lazily from this
+module inside a method, so they pick up the patched binding at call
+time.
 
 ``inspect.getsource`` compatibility
 -----------------------------------
@@ -31,11 +30,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:  # pragma: no cover - type-checker-only
     from voice_typer.server.volume_backend_base import VolumeBackend
 
-# Patch-path bridge: route lookups of ``SYSTEM`` through the package
-# namespace so test patches of the form
-# ``monkeypatch.setattr("voice_typer.server.server_platform.SYSTEM", "linux")``
+# Patch-path bridge: read ``SYSTEM`` through the owning
+# :mod:`.platform_flags` module attribute at call time so test patches of
+# the form
+# ``monkeypatch.setattr("voice_typer.server.server_platform.platform_flags.SYSTEM", "linux")``
 # keep affecting production code defined here.
-from voice_typer.server import server_platform as _pkg
+from voice_typer.server.server_platform import platform_flags as _platform_flags
 
 log = logging.getLogger(__name__)
 
@@ -68,21 +68,21 @@ def get_volume_backend() -> VolumeBackend | None:
           - ``linux``  → :class:`LinuxVolumeBackend` (pactl → wpctl → amixer)
     """
     try:
-        if _pkg.SYSTEM == "win32":
+        if _platform_flags.SYSTEM == "win32":
             from voice_typer.server.volume_backends import WinVolumeBackend
 
             return WinVolumeBackend()
-        elif _pkg.SYSTEM == "darwin":
+        elif _platform_flags.SYSTEM == "darwin":
             from voice_typer.server.volume_backends import MacVolumeBackend
 
             return MacVolumeBackend()
-        elif _pkg.SYSTEM == "linux":
+        elif _platform_flags.SYSTEM == "linux":
             from voice_typer.server.volume_backends import LinuxVolumeBackend
 
             return LinuxVolumeBackend()
         else:
-            log.debug("[VOLUME] Unsupported platform: %s", _pkg.SYSTEM)
+            log.debug("[VOLUME] Unsupported platform: %s", _platform_flags.SYSTEM)
             return None
     except Exception as exc:
-        log.warning("[VOLUME] Failed to create backend for %s: %s", _pkg.SYSTEM, exc)
+        log.warning("[VOLUME] Failed to create backend for %s: %s", _platform_flags.SYSTEM, exc)
         return None

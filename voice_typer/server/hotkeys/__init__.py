@@ -60,12 +60,11 @@ from voice_typer.server.hotkeys.base import HotkeyBackend
 from voice_typer.server.hotkeys.factory import create_hotkey_backend
 from voice_typer.server.hotkeys.native_adapter import _NativeBackendAdapter
 
-
 # =====================================================================
 # CRITICAL — DO NOT REMOVE (2026-07-20)
 # =====================================================================
 # These three platform predicates (is_windows, is_linux, is_macos) MUST
-# be defined at package level here. They are NOT dead code.
+# remain importable at package level here. They are NOT dead code.
 #
 # Submodules (factory.py, native_adapter.py, capture.py, pynput_backend.py)
 # delegate to them via wrapper lambdas like:
@@ -79,26 +78,17 @@ from voice_typer.server.hotkeys.native_adapter import _NativeBackendAdapter
 # which silently disables ALL hotkeys (caps_lock, ESC cancel, repaste, etc.)
 # without crashing the app — the user just gets a non-functional hotkey layer.
 #
-# They are callables (not bare bools) so test patches take effect on every
-# call, and so ``monkeypatch.setattr("...sys.platform", "linux")`` propagates
-# through ``sys.platform`` lookups to every submodule caller.
+# They are zero-arg callables resolved through THIS module's namespace on
+# every call, so both patch styles keep working:
+#   * ``monkeypatch.setattr("...hotkeys.is_windows", ...)`` replaces the
+#     package attribute that the submodule wrappers read at call time;
+#   * ``monkeypatch.setattr("...hotkeys.sys.platform", ...)`` propagates
+#     because the platform_utils bodies read ``sys.platform`` at call time.
+#
+# The bodies live in platform_utils.py (the centralized platform
+# detection helpers); this re-export keeps the historical import surface
+# ``from voice_typer.server.hotkeys import is_windows`` intact.
 # =====================================================================
-# previously these were ``is_windows = lambda: sys.platform == "win32"``
-# assignments with ``noqa: E731`` suppressions (PEP 8 E731 discourages
-# assigning lambdas to names). Replaced with regular ``def``s — same
-# call-site behaviour (zero-arg callable), no lint suppression.
-def is_windows() -> bool:
-    return sys.platform == "win32"
-
-
-def is_linux() -> bool:
-    return sys.platform.startswith("linux")
-
-
-def is_macos() -> bool:
-    return sys.platform == "darwin"
-
-
 from voice_typer.server.hotkeys.pynput_backend import (  # noqa: E402
     PynputHotkey,
     _parse_hotkey_to_pynput,
@@ -117,6 +107,7 @@ from voice_typer.server.hotkeys.win32_vk import (  # noqa: E402
     parse_hotkey_to_win32,
 )
 from voice_typer.server.hotkeys.windows_native import WindowsNativeHotkey  # noqa: E402
+from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
 __all__ = [
     "sys",
@@ -137,4 +128,7 @@ __all__ = [
     "_MOD_CONTROL",
     "_MOD_SHIFT",
     "_MOD_WIN",
+    "is_windows",
+    "is_linux",
+    "is_macos",
 ]

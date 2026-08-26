@@ -69,6 +69,21 @@ def with_gpu_fallback(engine, inner, audio, *args, **kwargs):
             "GPU transcription failed (%s), falling back to CPU",
             first_err,
         )
+        # Surface a user-facing notification BEFORE the synchronous CPU
+        # reload below freezes this thread for 5-50s. Mirrors the
+        # parakeet engine's ``parakeet_cpu_fallback`` event contract
+        # (same payload shape); consumed in-process by
+        # tray_notifications.on_gpu_cpu_fallback. Best-effort: a publish
+        # failure must never break the fallback itself.
+        with contextlib.suppress(Exception):
+            from voice_typer.server import event_bus
+
+            event_bus.publish(
+                {
+                    "type": "gpu_cpu_fallback",
+                    "data": {"device": "cpu", "reason": str(first_err)[:200]},
+                }
+            )
         # Tear down GPU model, reload on CPU.
         # gc.collect() and release_gpu_memory() are deferred outside
         # the lock via ``engine._pending_gc_collect`` (the caller's

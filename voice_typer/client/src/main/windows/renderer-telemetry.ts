@@ -66,7 +66,7 @@ export function registerRendererTelemetry(win: BrowserWindow): void {
 			// credentials in renderer error messages don't
 			// land unredacted in `electron-renderer-errors.log`.
 			// The stdout path above (via `log.error(msg)`)
-			// already goes through `formatArgsForFile`'s
+			// already goes through `redactArgsForFile`'s
 			// redaction, but `appendRendererError` writes via
 			// direct `appendLogLine` and bypasses that — so the
 			// redaction must be applied explicitly here.

@@ -376,7 +376,7 @@ _CANONICAL_MICS = [
 
 def _patch_canonical_mics(monkeypatch, mics=None):
     monkeypatch.setattr(
-        "voice_typer.server.server_platform.list_microphones",
+        "voice_typer.server.server_platform.microphone_list.list_microphones",
         lambda: [dict(m) for m in (mics if mics is not None else _CANONICAL_MICS)],
     )
 

@@ -63,10 +63,10 @@ if TYPE_CHECKING:
 # The ``noqa: F401`` markers flag these as intentional re-exports: the
 # names are used by this module's ``IPCServer`` body AND by external
 # ``from voice_typer.server.ipc_server import X`` imports (pinned by
-# ``tests/test_pick_available_port.py``, ``tests/test_cr_fixes.py``,
-# ``tests/test_ipc4_rate_limiter_dual_window.py``,
-# ``tests/test_r4_f18_rate_limiter_concurrent_init.py``,
-# ``tests/test_server.py``, ``tests/test_dead_code_stays_removed.py``
+# ``tests/test_pick_available_port.py``,
+# ``tests/test_ipc_rate_limiter_dual_window.py``,
+# ``tests/test_ipc_rate_limiter_concurrent_init.py``,
+# ``tests/test_dead_code_stays_removed.py``
 # and ``tests/tauri/mig19/test_phase4_validation.py``).  Object identity
 # (``ipc_server._RateLimiter is ipc.rate_limiter._RateLimiter``) is the
 # single-source-of-truth guarantee — see
@@ -184,7 +184,7 @@ from voice_typer.server.ipc.rate_limiter import (  # noqa: F401
 # below) so every ``IPCServer._COMMAND_REGISTRY`` /
 # ``IPCServer._PYTHON_ONLY_COMMANDS`` call site — pinned by
 # ``tests/test_ipc_shutdown_registry.py``,
-# ``tests/test_ec4_python_command_registry_parity.py``,
+# ``tests/test_ipc_server.py``,
 # ``tests/test_ipc_command_registry_sync.py``,
 # ``tests/tauri/mig19/test_phase4_validation.py``,
 # ``tests/tauri/test_tauri_sidecar_gate.py`` — keeps working unchanged.
@@ -216,8 +216,8 @@ from voice_typer.server.ipc.validation import (  # noqa: F401
 #
 # this is a THIN RE-EXPORT — the canonical implementation lives in
 # ``voice_typer.server.ipc.rate_limiter._get_rate_limiter``. Tests in
-# ``tests/test_r4_f18_rate_limiter_concurrent_init.py`` and
-# ``tests/test_cr_fixes.py`` monkey-patch ``ipc_server._RateLimiter`` with
+# ``tests/test_ipc_rate_limiter_concurrent_init.py`` monkey-patch
+# ``ipc_server._RateLimiter`` with
 # a counting stand-in to widen the race window ( / ). The
 # re-export delegates to the canonical implementation with the patched
 # ``_RateLimiter`` class injected via ``_cls=``, so the patched class is
@@ -322,7 +322,7 @@ from voice_typer.server.ipc.dispatcher import DispatcherMixin  # noqa: E402
 # ``tests/server/test_ipc_server_regressions.py``,
 # ``tests/test_electron_ipc_and_build.py``,
 # ``tests/regressions/test_cli_exit_codes.py``,
-# ``tests/app/test_app_lifecycle_fixes.py`` — keep working unchanged.
+# ``tests/app/test_lifecycle.py`` — keep working unchanged.
 # The tests' substring checks (``_frame: FrameType | None``,
 # ``sys.exit(EXIT_CRASH)``, ``server._tcp_mode = True``,
 # ``startup-error.log``, ``write_startup_diagnostic(``,
@@ -408,7 +408,7 @@ class IPCServer(
     # re-aliased here as class attributes so every existing
     # ``IPCServer._COMMAND_REGISTRY`` / ``IPCServer._PYTHON_ONLY_COMMANDS``
     # call site (pinned by ``tests/test_ipc_shutdown_registry.py``,
-    # ``tests/test_ec4_python_command_registry_parity.py``,
+    # ``tests/test_ipc_server.py``,
     # ``tests/test_ipc_command_registry_sync.py``,
     # ``tests/tauri/mig19/test_phase4_validation.py``,
     # ``tests/tauri/test_tauri_sidecar_gate.py``) keeps working
@@ -647,7 +647,6 @@ class IPCServer(
         # ``getattr(self, "_cached_shutting_down", False)`` so test
         # fixtures that bypass ``__init__`` (e.g.
         # ``IPCServer.__new__(IPCServer)`` in
-        # ``tests/test_ipc_layer_fixes.py`` and
         # ``tests/test_ipc_server.py``) keep working without explicitly
         # setting the field — they get the ``False`` default, matching
         # the previous ``getattr(self.app, "_shutting_down", False)``

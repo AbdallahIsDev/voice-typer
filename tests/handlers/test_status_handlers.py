@@ -142,11 +142,12 @@ class TestGetPrewarmStatus:
     """``_handle_get_prewarm_status`` — returns the OS file cache state."""
 
     def test_happy_path_returns_prewarm_status(self, ipc_server, monkeypatch):
-        """The handler delegates to ``prewarm.get_prewarm_status()`` —
-        patch it so the test doesn't actually probe the filesystem.
+        """The handler delegates to ``prewarm.status.get_prewarm_status()``
+        (module-attr call-time read) — patch it so the test doesn't
+        actually probe the filesystem.
         """
         monkeypatch.setattr(
-            "voice_typer.server.prewarm.get_prewarm_status",
+            "voice_typer.server.prewarm.status.get_prewarm_status",
             lambda: {
                 "label": "Hot",
                 "cache_ratio": 0.95,
@@ -161,7 +162,7 @@ class TestGetPrewarmStatus:
 
     def test_prewarm_module_raises_returns_error(self, ipc_server, monkeypatch):
         monkeypatch.setattr(
-            "voice_typer.server.prewarm.get_prewarm_status",
+            "voice_typer.server.prewarm.status.get_prewarm_status",
             lambda: (_ for _ in ()).throw(RuntimeError("sentinel missing")),
         )
         resp = ipc_server._handle_get_prewarm_status({}, {})

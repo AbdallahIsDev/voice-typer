@@ -63,7 +63,7 @@ What stays in ``ipc_server.py`` (and why):
   ``__main__.py``).
 
 - ``_get_rate_limiter`` — MUST stay in ``ipc_server.py`` because
-  :mod:`tests.test_r4_f18_rate_limiter_concurrent_init` monkey-patches
+  :mod:`tests/server/test_ipc_rate_limiter_chokepoints.py` monkey-patches
   ``ipc_server._RateLimiter`` and relies on the function looking up
   ``_RateLimiter`` from ``ipc_server``'s module globals at call time.
   Moving it here would silently break that test contract.

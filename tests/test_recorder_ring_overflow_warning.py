@@ -63,9 +63,9 @@ class TestSourceInspection:
         )
 
     def test_warning_helper_emits_log_warning(self):
-        from voice_typer.server.recording import Recorder
+        from voice_typer.server.recording.capture import AudioCallbackDispatcher
 
-        src = inspect.getsource(Recorder._surface_ring_overflow_warning)
+        src = inspect.getsource(AudioCallbackDispatcher.surface_ring_overflow_warning)
         assert "log.warning" in src, "_surface_ring_overflow_warning must emit a WARNING log."
 
     def test_warning_helper_does_not_call_event_bus_publish(self):
@@ -78,19 +78,44 @@ class TestSourceInspection:
         an ``event_bus.publish`` call.
         """
         from voice_typer.server.recording import Recorder
+        from voice_typer.server.recording.capture import AudioCallbackDispatcher
 
-        src = inspect.getsource(Recorder._surface_ring_overflow_warning)
+        def _strip_docstring(src: str) -> str:
+            """Drop the leading docstring so prose mentions of the
+            forbidden literal (documenting this very contract) do not
+            trip the negative assertion. Mirrors the helper in
+            ``tests/test_capture_worker_lifecycle.py``."""
+            start = src.find('"""')
+            if start == -1:
+                return src
+            end = src.find('"""', start + 3)
+            if end == -1:
+                return src
+            return src[end + 3 :]
+
+        # Body lives on the collaborator since the god-class split;
+        # scan BOTH the delegator and the body so neither half can
+        # reintroduce a direct publish.
+        src = (
+            _strip_docstring(inspect.getsource(Recorder._surface_ring_overflow_warning))
+            + "\n"
+            + _strip_docstring(inspect.getsource(AudioCallbackDispatcher.surface_ring_overflow_warning))
+        )
         assert "event_bus.publish" not in src, (
             "_surface_ring_overflow_warning must not call event_bus.publish "
             "directly (contract — route IPC events through _event_queue.put)."
         )
 
     def test_init_declares_warning_bookkeeping_attrs(self):
-        from voice_typer.server.recording import Recorder
+        from tests.fixtures.ipc_test_helpers import make_fake_recorder
 
-        src = inspect.getsource(Recorder.__init__)
-        assert "_last_seen_dropped_ring_chunks" in src, "Recorder.__init__ must declare _last_seen_dropped_ring_chunks."
-        assert "_ring_overflow_warn_ts" in src, "Recorder.__init__ must declare _ring_overflow_warn_ts."
+        recorder = make_fake_recorder()
+        assert recorder._last_seen_dropped_ring_chunks == 0, (
+            "Recorder construction must declare _last_seen_dropped_ring_chunks at 0."
+        )
+        assert recorder._ring_overflow_warn_ts == 0.0, (
+            "Recorder construction must declare _ring_overflow_warn_ts at 0.0."
+        )
 
 
 # ── Behavioral tests ─────────────────────────────────────────────

@@ -58,10 +58,10 @@ vi.mock("../state", () => ({
 }));
 
 import {
-	_flushPendingOutbound,
 	_pendingOutboundLengthForTest,
 	_resetIpcBackpressure,
-	_resetPendingOutbound,
+	flushPendingOutbound,
+	resetPendingOutbound,
 	sendToPython,
 } from "../python/send-to-python";
 import { state } from "../state";
@@ -96,7 +96,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 		// biome-ignore lint/suspicious/noExplicitAny: mock socket for tests
 		state.tcpSocket = { write: mocks.socketWrite } as any;
 		_resetIpcBackpressure();
-		_resetPendingOutbound("test isolation");
+		resetPendingOutbound("test isolation");
 	});
 
 	describe("queueing when socket is null + _hadConnectedBefore is true", () => {
@@ -122,7 +122,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 			const flushed = vi.fn();
 			pending.then(flushed);
 
-			_flushPendingOutbound();
+			flushPendingOutbound();
 			// Queue is drained.
 			expect(_pendingOutboundLengthForTest()).toBe(0);
 			// The queued message was written to the socket.
@@ -145,7 +145,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 			state._hadConnectedBefore = true;
 
 			// Don't await — they'll be pending until flush. Attach a
-			// no-op .catch so the next test's _resetPendingOutbound
+			// no-op .catch so the next test's resetPendingOutbound
 			// doesn't surface as an unhandled rejection (the queued
 			// promises are rejected by the beforeEach cleanup).
 			for (const msg of [
@@ -155,7 +155,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 				{ type: "set_config", config: { theme: "light" } },
 			]) {
 				sendToPython(msg).catch(() => {
-					/* will be rejected by _resetPendingOutbound in beforeEach */
+					/* will be rejected by resetPendingOutbound in beforeEach */
 				});
 			}
 
@@ -235,7 +235,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 			// Fill the queue with 16 idempotent commands.
 			for (let i = 0; i < 16; i++) {
 				sendToPython({ type: "get_config" }).catch(() => {
-					/* will be rejected by _resetPendingOutbound in beforeEach */
+					/* will be rejected by resetPendingOutbound in beforeEach */
 				});
 			}
 			expect(_pendingOutboundLengthForTest()).toBe(16);
@@ -256,7 +256,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 			state._hadConnectedBefore = true;
 			for (let i = 0; i < 16; i++) {
 				sendToPython({ type: "get_config" }).catch(() => {
-					/* will be rejected by _resetPendingOutbound in beforeEach */
+					/* will be rejected by resetPendingOutbound in beforeEach */
 				});
 			}
 			await expect(sendToPython({ type: "get_status" })).rejects.toThrow(
@@ -265,26 +265,26 @@ describe("Outbound replay queue (DJ-87)", () => {
 		});
 	});
 
-	describe("_flushPendingOutbound()", () => {
+	describe("flushPendingOutbound()", () => {
 		it("drains the queue in FIFO order, sending each entry via sendToPython", async () => {
 			state.tcpSocket = null;
 			state._hadConnectedBefore = true;
 
 			sendToPython({ type: "get_config" }).catch(() => {
-				/* will be rejected by _resetPendingOutbound in beforeEach */
+				/* will be rejected by resetPendingOutbound in beforeEach */
 			});
 			sendToPython({ type: "get_status" }).catch(() => {
-				/* will be rejected by _resetPendingOutbound in beforeEach */
+				/* will be rejected by resetPendingOutbound in beforeEach */
 			});
 			sendToPython({ type: "heartbeat" }).catch(() => {
-				/* will be rejected by _resetPendingOutbound in beforeEach */
+				/* will be rejected by resetPendingOutbound in beforeEach */
 			});
 			expect(_pendingOutboundLengthForTest()).toBe(3);
 
 			// Restore the socket — flush should send all three in order.
 			// biome-ignore lint/suspicious/noExplicitAny: mock socket for tests
 			state.tcpSocket = { write: mocks.socketWrite } as any;
-			_flushPendingOutbound();
+			flushPendingOutbound();
 
 			expect(_pendingOutboundLengthForTest()).toBe(0);
 			expect(mocks.socketWrite).toHaveBeenCalledTimes(3);
@@ -297,7 +297,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 		it("is a no-op when the queue is empty", () => {
 			// biome-ignore lint/suspicious/noExplicitAny: mock socket for tests
 			state.tcpSocket = { write: mocks.socketWrite } as any;
-			_flushPendingOutbound();
+			flushPendingOutbound();
 			expect(mocks.socketWrite).not.toHaveBeenCalled();
 			expect(_pendingOutboundLengthForTest()).toBe(0);
 		});
@@ -309,13 +309,13 @@ describe("Outbound replay queue (DJ-87)", () => {
 			const original = sendToPython({ type: "get_config" });
 			const onResolved = vi.fn();
 			original.then(onResolved, () => {
-				/* will be rejected by _resetPendingOutbound if the test
+				/* will be rejected by resetPendingOutbound if the test
 				 * doesn't reach the replyToNextPending call */
 			});
 
 			// biome-ignore lint/suspicious/noExplicitAny: mock socket for tests
 			state.tcpSocket = { write: mocks.socketWrite } as any;
-			_flushPendingOutbound();
+			flushPendingOutbound();
 
 			// Reply to the re-sent entry.
 			replyToNextPending({ ok: true, data: { theme: "dark" } });
@@ -337,7 +337,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 
 			// biome-ignore lint/suspicious/noExplicitAny: mock socket for tests
 			state.tcpSocket = { write: mocks.socketWrite } as any;
-			_flushPendingOutbound();
+			flushPendingOutbound();
 
 			// Simulate a Python-side error reply.
 			const firstEntry = state.pendingRequests.entries().next();
@@ -359,10 +359,10 @@ describe("Outbound replay queue (DJ-87)", () => {
 			state._hadConnectedBefore = true;
 
 			sendToPython({ type: "get_config" }).catch(() => {
-				/* will be rejected by _resetPendingOutbound in beforeEach */
+				/* will be rejected by resetPendingOutbound in beforeEach */
 			});
 			sendToPython({ type: "get_status" }).catch(() => {
-				/* will be rejected by _resetPendingOutbound in beforeEach */
+				/* will be rejected by resetPendingOutbound in beforeEach */
 			});
 
 			// Restore the socket but immediately drop it again inside
@@ -383,7 +383,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 				// biome-ignore lint/suspicious/noExplicitAny: mock socket for tests
 			} as any;
 
-			_flushPendingOutbound();
+			flushPendingOutbound();
 
 			// One entry was sent (the first one); the second was
 			// re-queued because the socket dropped mid-flush.
@@ -392,7 +392,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 		});
 	});
 
-	describe("_resetPendingOutbound()", () => {
+	describe("resetPendingOutbound()", () => {
 		it("rejects every queued entry with the given reason", async () => {
 			state.tcpSocket = null;
 			state._hadConnectedBefore = true;
@@ -408,7 +408,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 			p2.catch(r2);
 			p3.catch(r3);
 
-			_resetPendingOutbound("Application is restarting");
+			resetPendingOutbound("Application is restarting");
 
 			expect(_pendingOutboundLengthForTest()).toBe(0);
 			await vi.waitFor(() =>
@@ -428,7 +428,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 		});
 
 		it("is a no-op when the queue is empty", () => {
-			_resetPendingOutbound("nothing to clear");
+			resetPendingOutbound("nothing to clear");
 			expect(_pendingOutboundLengthForTest()).toBe(0);
 		});
 	});

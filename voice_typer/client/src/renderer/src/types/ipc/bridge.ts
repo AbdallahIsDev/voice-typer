@@ -73,13 +73,14 @@ export interface WindowBridge {
 		path?: string;
 		error?: string;
 	}>;
-	// Push the renderer's current locale to the main process so it can
+	// Push the renderer's current locale to the host process so it can
 	// localise native dialogs (single-instance error, critical-error
 	// dialog, model-folder picker, export save-as dialogs). Registered
 	// in `main/ipc/window-handlers.ts` as the `i18n:set-locale` IPC
-	// handler. Optional because the Tauri bridge does not currently
-	// install it (Tauri-side dialogs are localised via the OS locale,
-	// not a renderer-pushed value).
+	// handler (Electron) and implemented by the Tauri bridge as the
+	// `set_host_locale` command (stored in `SidecarState::host_locale`).
+	// Optional because not every runtime context installs `window_`
+	// (the sandboxed bubble window omits the namespace entirely).
 	setLocale?: (locale: string) => Promise<unknown>;
 	//Restart the Python backend process only (Electron stays alive).
 	// Used by the "Lost connection" Retry escalation AFTER a plain

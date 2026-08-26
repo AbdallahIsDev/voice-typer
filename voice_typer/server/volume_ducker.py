@@ -186,7 +186,10 @@ class VolumeDucker(SmartDuckMonitorMixin):
             return self._backend is not None
 
         if self._backend is None:
-            from voice_typer.server.server_platform import get_volume_backend
+            # Lazy import from the OWNING submodule (still resolved at
+            # call time, so tests patching
+            # ``volume_factory.get_volume_backend`` take effect).
+            from voice_typer.server.server_platform.volume_factory import get_volume_backend
 
             self._backend = get_volume_backend()
 

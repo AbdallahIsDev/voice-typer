@@ -1335,8 +1335,8 @@ class TestRec5StartLock:
 
         from voice_typer.server.recording import Recorder
 
-        init_src = inspect.getsource(Recorder.__init__)
-        assert "_start_lock" in init_src, "regression: _start_lock not declared in Recorder.__init__"
+        init_src = inspect.getsource(Recorder._init_locks_and_flags)
+        assert "_start_lock" in init_src, "regression: _start_lock not declared in Recorder construction"
         start_src = inspect.getsource(Recorder.start)
         assert "_start_lock" in start_src, "regression: start() does not acquire _start_lock"
         discard_src = inspect.getsource(Recorder.discard)

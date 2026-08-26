@@ -103,8 +103,9 @@ from voice_typer.server.history_db import HistoryDB
 # home ``voice_typer.server.server_platform`` by their consumers
 # (``settings_controller``, ``startup_tasks``) — no app-module re-export.
 # The former test-seam re-export was removed after every patch site was
-# migrated to ``voice_typer.server.server_platform.{is_autostart_enabled,
-# enable_autostart, disable_autostart, list_microphones}``.
+# migrated to the owning submodules
+# (``server_platform.autostart.{is_autostart_enabled, enable_autostart,
+# disable_autostart}``, ``server_platform.microphone_list.list_microphones``).
 # ``StreamingTranscriptionSession`` / ``clean_transcribed_text`` /
 # ``configure_corrections`` re-exports removed: their last app-namespace
 # patch sites were migrated to the canonical modules (dictation ->
@@ -200,7 +201,7 @@ with i18n._LOCK:
     _en_labels = i18n._REGISTRY.setdefault("en", {})
     # the tray notification for a config-load failure routes
     # through these two keys (resolved by the regression guard in
-    # ``tests/app/test_app_lifecycle_fixes.py``). The title is a
+    # ``tests/app/test_lifecycle.py``). The title is a
     # non-brand literal so the failure is surfaced
     # in the notification even when ``APP_NAME`` is customized.
     _en_labels.setdefault("error.config_load_failed.title", "Config load failed")

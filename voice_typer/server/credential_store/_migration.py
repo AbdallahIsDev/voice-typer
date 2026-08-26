@@ -53,12 +53,16 @@ _MIGRATION_LOCK_SLOW_WAIT_WARN_SECONDS = 2.0
 
 
 def _is_windows() -> bool:
-    """Local platform check — avoids importing platform_utils at module
-    load time (which would transitively pull in heavier modules).
-    """
-    import sys as _sys
+    """Local platform check — delegates to ``platform_utils.is_windows``.
 
-    return _sys.platform == "win32"
+    The helper import stays function-local (this file's convention) so
+    module load pulls in nothing beyond stdlib. The delegation reads
+    ``sys.platform`` at call time, preserving the monkeypatch semantics
+    tests rely on.
+    """
+    from voice_typer.server.platform_utils import is_windows
+
+    return is_windows()
 
 
 def _acquire_migration_lock(lock_file):

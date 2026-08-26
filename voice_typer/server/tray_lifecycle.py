@@ -212,6 +212,13 @@ def stop(tray: TrayIcon) -> None:
     try:
         from voice_typer.server import event_bus as _event_bus
 
+        _event_bus.unsubscribe(tray._on_gpu_cpu_fallback)
+    except Exception:
+        log.debug("[TRAY] could not unsubscribe gpu_cpu_fallback", exc_info=True)
+
+    try:
+        from voice_typer.server import event_bus as _event_bus
+
         _event_bus.unsubscribe(tray._on_host_ready)
     except Exception:
         log.debug("[TRAY] could not unsubscribe host-ready republish", exc_info=True)

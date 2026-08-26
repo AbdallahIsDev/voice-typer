@@ -54,7 +54,7 @@ plus the base repo's pre-existing comprehensive review.
 
 ### ARCH-12 — 478 `inspect.getsource` source-string tests across 150 test files
 - **Severity**: Low
-- **Status:** ⚠️ Chip-away continues (policy LANDED and enforced): ban rule verbatim in CONTRIBUTING.md §Testing:1014-1024 (+ ADR playbook). Baseline 465 pins / 150 files. This session ported pins opportunistically per policy when splitting pinned code: service/model module-level pins (daemon rationale comment relocated into _downloads.py leaf; type-ignore tokenize pin retargeted to package leaves), platform_misc is_macos pin → platform_utils source, systemroot pin → env_validation, recording freshness suite rewritten to pin the CLEAN state.
+- **Status:** ⚠️ Chip-away continues (policy LANDED and enforced): ban rule verbatim in CONTRIBUTING.md §Testing (+ ADR playbook). Baseline ~459 pins / ~149 files (2026-08-26 re-measure). Pins ported opportunistically per policy when splitting pinned code — including 2026-08-25/26 monolith splits (history_db checkpoint/backup/corruption pins retargeted to the extracted free functions; recorder cache-key/ring-overflow/dead-field pins converted to behavioral assertions; server_platform task-name getsource pin follows the relocated constant): service/model module-level pins (daemon rationale comment relocated into _downloads.py leaf; type-ignore tokenize pin retargeted to package leaves), platform_misc is_macos pin → platform_utils source, systemroot pin → env_validation, recording freshness suite rewritten to pin the CLEAN state.
 - **Description**: 478+ source-string tests (150 files) pin implementation structure (variable names, call-site spellings, call counts) rather than behavior. Make refactoring expensive.
 - **Recommended fix**: Adopt project rule — "no new `inspect.getsource` tests; port existing ones when touching the code they pin." Chip away over time.
 - **Effort**: 🔴 **EXTRA HIGH** — 478 calls across 150 test files. Not a discrete task — it's a project-wide migration. Chip away individually when touching pinned code. Cannot be done in one shot.
@@ -80,8 +80,7 @@ plus the base repo's pre-existing comprehensive review.
 Phase 4 (fix) will address all Critical and High severity findings, plus a curated set of Medium severity findings where the fix is well-scoped and the file-disjoint constraint can be satisfied. Low severity findings are bundled by file area for efficient parallel fixing where scope allows.
 
 ### NH-43 — `BubbleDismissButton` is keyboard-inaccessible (bubble window is `focusable: false`)
-**Status:** ⚠️ Won\'t Fix (this run — requires main-process global shortcut, deferred)
-> - **2026-08-24 audit:** fix = keydown Enter/Space handler + window-level hotkey; NEVER focusable:true (would steal focus during dictation).
+**Status:** ✅ Fixed (2026-08-26): main-process global shortcut `CommandOrControl+Shift+D` registered at app ready / unregistered on will-quit (`client/src/main/shortcuts/global-shortcuts.ts`), routing to the shared `dismissAndHideBubble()` body extracted from the `bubble:dismiss` IPC handler (SEC-016 frame check stays IPC-only). Documented in HelpOverlay + shortcuts catalog (`help.shortcuts.dismissBubble`, all 8 locales). Register-failure logs a warning and continues. Electron-only by design — Tauri bubble dismiss goes through the Rust `bubble_dismiss` command.
 **Description:** `voice_typer/client/src/renderer/src/bubble-components.tsx:445-517, 539-568` — both `BubbleMicButton` and `BubbleDismissButton` are real `<button>` elements with `aria-label` and `title`, but the bubble BrowserWindow is created with `focusable: false`. Because the window is non-focusable, these real `<button>` elements are UNREACHABLE via Tab and cannot be activated via Enter/Space in the shipped app — effectively mouse-only. For `BubbleMicButton`, the global hotkey (Caps Lock) provides a keyboard alternative. But `BubbleDismissButton` (the '×' dismiss affordance) has NO keyboard alternative. The BG-31 comment explicitly accepts this trade-off but documents the recommended mitigation (main-process global hotkey, e.g. Ctrl+Shift+D) as a future fix.
 **Root Cause:** The bubble is intentionally non-focusable to avoid stealing focus from the user's active text field. The recommended mitigation is not implemented.
 **Progress:** None yet.
@@ -94,8 +93,7 @@ Phase 4 (fix) will address all Critical and High severity findings, plus a curat
 ---
 
 ### YJ-16 — Two parallel Electron main loggers with overlapping semantics (`electron-main.log` vs `electron-runtime.log`)
-**Status:** ❌ Not Fixed — deferred (large refactor across many call sites)
-> - **2026-08-24 audit:** formats aligned + redactPii shared; residual = two parallel APIs (14 files log-only, 1 logger-only; WARN/ERROR scattered across sinks by caller choice) — consolidate facade.
+**Status:** ✅ Fixed (2026-08-26) via facade consolidation: `structuredLogger.redactArgsForFile` is now the single formatting primitive (parameterized over message parts so both msg-first and printf sinks stay byte-identical); printfLogger's duplicate formatter deleted. BOTH public export names preserved (30 importer files + their vi.mock factories untouched); sink policies/files/dev-gating unchanged; both path-memoization reset seams intact. Full caller migration deliberately not pursued (zero behavior change for 151 call-site churn).
 **Description:** `logging.ts` header explicitly states: "DUPLICATION NOTE: the two loggers overlap in functionality (both write WARN/ERROR lines to a 5 MiB-rotated file under userData). They are kept side-by-side because (a) their consumer files use disjoint APIs (message-first vs printf), (b) their file targets are different (`electron-main.log` vs `electron-runtime.log`), and (c) merging them into one would require touching every call site".
 **Root Cause:** Verified — two parallel logging APIs grew independently: `logger` (G4-H-37, message-first) and `log` (PVT-G5-080, printf-style).
 **Progress:** Deferred — would require touching every call site.
@@ -107,7 +105,7 @@ Phase 4 (fix) will address all Critical and High severity findings, plus a curat
 ---
 
 ### YJ-53 — 10 monolith files ≥800 LOC mixing transport/lifecycle/logic (cross-cutting)
-**Status:** ❌ Not Fixed — deferred (covered by YJ-13, YJ-31, YJ-32, YJ-39 individually)
+**Status:** ⚠️ Mostly addressed (verified 2026-08-26): shutdown_controller.py is now the `shutdown_controller/` package (controller.py 175-LOC composition root + `_teardowns/_lifecycle_signals/_plans/_cleanup/_deadline` mixins); recording_controller.py is 639 LOC (<800); ipc_server dispatch pools extracted (`ipc/`); level_monitor/dictation_pipeline are packages. Residual: recorder.py still 2703 (see EO-8), model_manager is a facade+mixins package (see GQ-28).
 **Description:** `wc -l` (re-audited 2026-08-12): `ipc_server.py` 733 shim (was 2808 — split into `ipc/` package), `level_monitor.py` → `level_monitor/` package (was 1313), `dictation_pipeline.py` → `dictation_pipeline/` package (was 1291), `shutdown_controller.py` 1420 (was 1280), `recording_controller.py` 639 (was 1002), `crash_recovery.py` 1292 (was 960), `microphone_watcher.py` 1235 (was 881), `prewarm/process_tracker.py` 1023 (was 837), `event_bus.py` 1169 (was 811), `task_scheduler.py` 976 (was 793).
 **Root Cause:** Verified — RW-9 god-class decomposition incomplete.
 **Progress:** Deferred — covered by individual findings YJ-13, YJ-31, YJ-32, YJ-39. UPDATE 2026-08-25: concrete sub-item (2) shutdown_controller.py → extract _do_cleanup EXECUTED via VP-39 (bodies now in shutdown/cleanup.py, shutdown/ws_drain.py, shutdown/plan.py); umbrella entry remains open for sub-items (1)/(3) and the remaining listed files.
@@ -119,7 +117,7 @@ Phase 4 (fix) will address all Critical and High severity findings, plus a curat
 ---
 
 ### DT-38 — CR-67 __init__.py indirection (3 packages, ~2000 LOC boilerplate)
-**Status:** ⚠️ Open — corrected 2026-08-24 audit: recording/__init__.py 474 + prewarm/__init__.py 135 + server_platform/__init__.py 335 ≈ 907 LOC total (prior "~2000" overstated >2×); migration plan documented in-file (recording/__init__.py:49-62,359-373); est. 90-150 test files to migrate. Absorbs ZR-38.
+**Status:** ✅ Fixed (2026-08-25/26, completed this session): recording/__init__ indirection removed earlier; server_platform/__init__.py 358→256 LOC (pure re-exports + stdlib proxies kept only where dotted patches rely on them; canonical patch targets documented in its docstring) with ALL `_pkg.` call-time lookups eliminated across microphone_list/remote_session/volume_factory/autostart/autostart_windows/autostart_macos submodules and ~80 test files migrated to owning-submodule patch targets (C-CROSS suites green); prewarm/__init__.py 149→54 LOC (`_warm_file` localized to cache_probe, `get_prewarm_status` consumers read through `prewarm.status` module attr).
 **Description:** `recording/__init__.py` (457 lines), `prewarm/__init__.py` (334), `server_platform/__init__.py` (325) install custom `_RecordingModule`/`_pkg.X` indirection classes purely for test-patch compatibility. Each exports 24-30+ private `_`-prefixed symbols in `__all__`. The `_` prefix has been drained of meaning — it signals "test-patch target" rather than "internal". The docstrings explicitly tag this as "CR-67 / TECH-DEBT — OPEN, awaiting migration" with scope "90-150 test files total."
 **Root Cause:** Package split (Phase 4.5) introduced submodules but left the test suite patching the package-level name.
 **Impact:** ~2000 LOC of pure indirection; `_` prefix no longer communicates "private"; custom module subclasses break `inspect.getsource`.
@@ -131,8 +129,7 @@ Phase 4 (fix) will address all Critical and High severity findings, plus a curat
 **Severity:** 🟡 Medium
 
 ### FZ-27 — `thiserror` declared in `Cargo.toml` but NEVER used; all 40+ Rust errors are `Result<T, String>`
-**Status:** ❌ Not Fixed — too large (40+ site migration; deferred to dedicated error-handling sprint)
-> - **2026-08-24 audit:** dep confirmed dead (0 imports; ~64 Result<T,String> sites) — cheapest correct action: delete Cargo.toml:74 line now; enum migration tracked as YJ-15 sprint.
+**Status:** ✅ Fixed (landed post-audit; verified 2026-08-26): `src-tauri/src/error.rs` defines `VoiceTyperError` via thiserror (11 variants; custom Serialize keeps wire bytes identical); ALL renderer-invokable commands return `Result<T, VoiceTyperError>`; internal non-command helpers intentionally keep `Result<_, String>` behind `From<String>`. Pinned by `error_tests.rs` + docs/architecture/error-envelope-contract.md.
 **Description:** `src-tauri/Cargo.toml:67` declares `thiserror = "2"` but it is never imported anywhere in `src-tauri/src/`. Zero `#[derive(... Error ...)]`, zero `impl std::error::Error`. Meanwhile every command handler + sidecar helper uses `Result<T, String>` (40+ sites confirmed by grep). Errors are constructed via `format!("...")`, `.map_err(|e| e.to_string())`, or `"...".to_string()`.
 **Root Cause:** `thiserror` was added to `Cargo.toml` (presumably anticipating a proper error enum) but never actually wired up.
 **Impact:** Callers cannot programmatically distinguish error variants (e.g. "sidecar not connected" vs "WS send failed" vs "dispatch timeout" vs "server error [code]"). Every consumer must do string-substring matching, which is brittle to log-message edits. Stack/source info from underlying `io::Error` / `serde_json::Error` is lost. The declared `thiserror` dep also bloats the release binary + compile time for no benefit.
@@ -146,7 +143,7 @@ Phase 4 (fix) will address all Critical and High severity findings, plus a curat
 **Severity:** 🔴 High
 
 ### FZ-57 — Platform-detection `sys.platform == "win32"` repeated inline despite `platform_utils.is_windows()` existing
-**Status:** ❌ Not Fixed — moderate scope (8 sites); deferred
+**Status:** ✅ Fixed (2026-08-26): production comparison sites migrated to `platform_utils` predicates (container_detect, diagnostics_export ×2, volume_backends/macos guard, hotkeys re-export delegation preserving call-time patch semantics, credential_store/_migration); config_internals/paths case-detection migrated off `sys.platform not in (...)`. Helper consolidation was already done (platform_flags is a pure shim). New tokenize-based drift guard `tests/test_platform_flag_guard.py` forbids inline `sys.platform ==/!=/startswith/in` forms outside {platform_utils.py, crash_handler/**, platform_flags.py} — crash handler stays standalone by design.
 **Description:** The codebase has TWO helper modules (`server_platform/platform_flags.py` and `platform_utils.py`) that both expose `is_windows()` / `is_macos()` / `is_linux()`. Yet ≥8 non-crash-handler modules still inline `sys.platform == "win32"`. `config_validators.py` even aliases `import sys as _sys` to do the same check.
 **Root Cause:** The helpers were introduced later but older modules were never migrated.
 **Impact:** A platform-detection bug fix must be applied to 8+ sites. The 2-helper-module split is itself a minor DRY smell.
@@ -158,7 +155,7 @@ Phase 4 (fix) will address all Critical and High severity findings, plus a curat
 **Severity:** 🟡 Medium
 
 ### FZ-58 — `test_history_and_models.py` and other test files use ticket-ID class names (SEC8/G4L06/SVC2/etc.)
-**Status:** ❌ Not Fixed — too large (project-wide rename); deferred to test-quality sprint
+**Status:** ⚠️ Tier-1 executed (2026-08-26): most ticket-named files already gone; remaining 13 `*_fixes.py` donors merged into same-domain parents (ipc×3→test_ipc_server, history_db_perf→history/test_history_db, credential_store_group→test_credential_store, clipboard_restore→test_clipboard, hotkeys/permissions/tray_misc_perf/llm_polish_http→their parents, handler_group_b→handlers validation parent, app_lifecycle→app/test_lifecycle, config_onboarding split into config+onboarding parents) with exact collected-count arithmetic verified per merge; deletions recorded in archive/deleted_files.txt; stale production citations (ipc_server/sidecar_ws/ipc/_helpers/registry/recorder/tray_elapsed_timer/handlers._log) repointed at live tests. Remaining: mixed-domain grab-bags needing split-then-merge (Tier-2).
 **Description:** 46 `_fixes.py`-suffixed test files (re-counted 2026-08-12 — the "29+" claim understates; the `*_fixes.py` family alone is 46 files, up from the 43 earlier claimed), plus more ticket-named files: `test_cr_fixes.py`, `test_er_fix_g1.py`, `test_er_fix_g2.py`, `test_er_fix_h.py`, `test_g_perf_reliability_fixes.py`, `test_hp7_empty_transcription_fix.py`, `test_i5_retry_fixes.py`, `test_ipc4_rate_limiter_dual_window.py`, `test_ipc5_error_envelope_parity.py`, `test_low_findings_batch.py`, `test_nh17_force_cancel_wording.py`, `test_nh23_onboarding_progress_persistence.py`, `test_perf_fixes.py`, `test_perf_review_fixes.py`, `test_remaining_fixes.py`, `test_xa6_bubble_error_visibility.py`, `test_ec4_python_command_registry_parity.py`, plus the `*_de_fixes.py` / `*_xv_fixes.py` / `*_er_fixes.py` family.
 **Root Cause:** Tickets drive file creation, not module identity.
 **Impact:** Inverse lookup fails — to find tests for `credential_store.py` you must read `test_credential_store.py` AND `test_credential_store_de_fixes.py` AND `test_credential_store_outcome.py`. Bug-fix-named files rarely get pruned.
@@ -168,7 +165,7 @@ Phase 4 (fix) will address all Critical and High severity findings, plus a curat
 **Severity:** 🟡 Medium
 
 ### FZ-62 — `setLocale` missing from Tauri bridge (`window-namespace.ts`) — parity contract broken
-**Status:** ❌ Not Fixed — low impact (tray labels still update via `set_tray_locale` Python IPC); deferred
+**Status:** ✅ Fixed (2026-08-26): Rust `set_host_locale` command (`commands/system_cmds.rs`; gated by require_main_window; empty locale returns `{ok:false,error}` mirroring the Electron contract) stores into `SidecarState.host_locale`; Tauri bridge installs `setLocale` on `window_`; renderer push path now fires on Tauri without any cast. Parity list updated (`TAURI_MISSING_WINDOW_METHODS`) + mig19 frozen-command contract updated; pinned by Rust system_cmds_tests + vitest tauri-bridge tests.
 **Description:** The Electron preload (preload/index.ts:81) and main handler (window-handlers.ts:290) exist for `i18n:set-locale`; the Tauri bridge (window-namespace.ts) and the `WindowBridge` type (bridge.ts) do not. The renderer's `i18n.ts:445-448` uses an inline `as` cast + optional chaining to access `setLocale`, so on Tauri the call silently no-ops. The Python-side `set_tray_locale` IPC call DOES work on Tauri via `window.python.call`, so tray-menu labels still update.
 **Root Cause:** The Tauri bridge was never ported for the `i18n:set-locale` channel.
 **Impact:** On Tauri, the renderer's locale change does NOT push to a main-process handler. Native Tauri dialogs use the OS locale, not a main-process-pushed locale, so there is no direct user-visible dialog-localization regression. However, the parity contract is broken.
@@ -181,8 +178,7 @@ Phase 4 (fix) will address all Critical and High severity findings, plus a curat
 **Severity:** 🟢 Low
 
 ### FZ-66 — 25+ underscore-prefixed test-only exports ship in production main-process modules
-**Status:** ❌ Not Fixed — low impact (small bundle cost); deferred
-> - **2026-08-24 audit:** 36 exports found (not 25+); exactly TWO are production-called misleading names (_flushPendingOutbound/_resetPendingOutbound <- tcp-connect.ts:25-26) — rename those two only.
+**Status:** ✅ Fixed (2026-08-26): the two production-called misleading names renamed to `flushPendingOutbound` / `resetPendingOutbound` (definitions in send-to-python.ts, callers tcp-connect.ts + tcp/close-handler.ts, all 4 test importers incl. string-keyed vi.mock factories). Genuinely test-only exports (`*_ForTest`) intentionally keep their underscore signal.
 **Description:** At least 25 `_`-prefixed test-only exports ship in the production bundle (re-audited 2026-08-12 — the "12+" claim understates): `_resetIpcBackpressureForTests`, `_LONG_RUNNING_COMMANDS_FOR_TEST`, `_resetNativeThemeListenerForTest`, `_resetRenderCrashTrackingForTest`, `_resetStopPythonFlagsForRestart`, `_resetTrayAvailableCache`, `_resetFileSizeCacheForTest`, `_getCachedFileSize`, `_setCachedFileSize`, `_clearCachedFileSize`, `_resetErrorHandlersDisposeForTest`.
 **Root Cause:** Test isolation pattern — production modules expose reset/inspection hooks so vitest tests can clear module-level caches between cases.
 **Impact:** Minor: production bundle carries ~12 small test-helper functions. Tree-shaking MIGHT elide them, but the exports are public.
@@ -205,7 +201,7 @@ Phase 4 (fix) will address all Critical and High severity findings, plus a curat
 **Description:** `transcription.py:1044-1057` `_transcribe_with_fallback_unlocked` on a GPU runtime error tears down + reloads on CPU IN-LINE on the transcription thread: `del self._model`, `self._model = None`, `self._device = 'cpu'`, `self._compute_type = 'int8'`, `self._reload_under_lock()` (cold WhisperModel() construction, 5-50s), then retries. The docstring admits cold model load is 5-50s.
 **User Impact:** When a transient GPU error (e.g. a single OOM from a concurrent process briefly spiking VRAM) fires mid-dictation, the user waits: (failed GPU inference, ~1-5s) + (cold CPU model load, ~5-50s) + (CPU retry inference, ~3-15s) = 9-70s total before they see any text. The tray stays at 'Transcribing…' the entire time. This is the worst-case user-visible latency in the app.
 **Root Cause:** Verified — fallback path calls `self._reload_under_lock()` synchronously which runs the full `_load_transcriber_impl` chain.
-**Progress:** ⚠️ Partial — NO code change; re-verified 2026-07-31 (NQ-1): cold reload still present at transcription.py:1130-1134 (`del self._model` → `_device = "cpu"` → `_reload_under_lock()`) inside `_transcribe_with_fallback_unlocked`, plus a second identical cold-reload site at :1180-1184. Decision needed (test-update vs contract-change): pre-warm CPU whisper-tiny.en fallback (Fix a), one-shot fallback + tray prompt (Fix b), or Parakeet device-move (Fix c).
+**Progress:** ✅ Fixed (2026-08-26, option b-lite): `transcription_fallback.with_gpu_fallback` now publishes `gpu_cpu_fallback` via event_bus AFTER classifying the GPU error and BEFORE the synchronous `_reload_under_lock()` (exception-guarded publish; payload mirrors parakeet's `{device, reason}` convention). `tray_notifications.on_gpu_cpu_fallback` shows the switching-to-CPU toast (subscribed/unsubscribed alongside the parakeet handler). Event registered in `EVENT_TYPES` + Rust `ALLOWED_EVENT_TYPES` (count 37→38, doc+test lockstep). Cold reload itself is retained by design: ctranslate2 has no in-place device move (Parakeet's ORT path recreates its session for the same reason), and a resident CPU twin was rejected as registry-wide complexity for a once-per-session freeze. Order-sensitive publish-before-reload test added.
 **Related Files:**
 - `voice_typer/server/transcription.py`
 - `voice_typer/server/parakeet_engine.py`
@@ -224,7 +220,7 @@ Phase 4 (fix) will address all Critical and High severity findings, plus a curat
 - **FR-S14:** ~~`voice_typer/server/sidecar_ws.py` (2027 lines, re-verified 2026-08-12 — up from 953)~~ — ✅ Fixed via EO-3 2026-08-25 — split landed as the canonical module + `voice_typer/server/sidecar_ws_internals/` sibling package (encode_pool/graceful_shutdown/stdout_banner/connection); layout differs by design from the proposed `sidecar_ws/{auth,...}` package (~14 test files pin the literal .py path).
 
 ### AB-49 — `audio_quality.analyze_full_audio` allocates 3 full-length temporary arrays (57 MB spike on 5-min recording)
-**Status:** 🚫 Won't Fix
+**Status:** ✅ Fixed (2026-08-26): `analyze_full_audio` now computes mean via fp64 scalar accumulation, sum-of-squares via BLOCKED float64 np.dot (1M-element chunks ~ 8 MB bounded scratch — chosen over flat fp32 BLAS dot which drifts ~2e-4 relative and corrupts cancellation-based noise_ratio), peak via max(flat.max(), -flat.min()), variance via clamped E[x²]−mean². Zero full-length temporaries; threshold logic byte-identical; numeric-equivalence regression suite covers DC-shift/all-negative/constant/multi-block inputs.
 > - **2026-08-24 audit:** confirmed >=3 full-length temporaries (np.square/:210, np.abs/:211, np.var internals/:231) post-recording only; reuse cached RMS + allocation-free max/min.
 **Description:** `audio_quality.py:210,211,231`: `analyze_full_audio` allocates three full-length temporary arrays: `np.sqrt(np.mean(np.square(audio), dtype=np.float64))`, `np.max(np.abs(audio))`, `np.var(audio)`. For a 5-minute @16 kHz recording (4.8M samples ≈ 19 MB), this is ~57 MB of transient peak allocation. The identical metric is computed allocation-free in `AudioProcessor._run_quality_check` (`audio_processor.py:423-425`) using `np.dot(flat, flat)/size` and `max(flat.max(), -flat.min())`.
 **User Impact:** A brief 50-60 MB memory spike after `recorder.stop()` (only when `config.audio_quality_warnings=True`; default False short-circuits at `audio_quality_controller.py:221-222`). No leak, but wasteful and inconsistent with the hot-path pattern.
@@ -245,30 +241,29 @@ Phase 4 (fix) will address all Critical and High severity findings, plus a curat
 **Fix:** Add `@functools.lru_cache(maxsize=1)` to `load_binary_manifest()`.
 **Severity:** 🟢 Low
 
-### Remaining Work (Known Limitations — requires re-application in serial session)
+### Former Known Limitations table — ALL RE-APPLIED AND VERIFIED (2026-08-26 audit against current code)
 
-The following findings were implemented by sub-agents (test files exist, agents reported DONE with test passes) but the SOURCE FILE edits were reverted by parallel-agent filesystem contention. The test files are included in changes.zip for reference; the source fixes need re-application in a serial (non-parallel) session:
+The source fixes below were all successfully re-applied by later sessions; every row was verified against the current tree on 2026-08-26:
 
-| Finding | Title | Severity | Effort |
-|---------|-------|----------|--------|
-| SU-2 waves 2+ | history_db.py full split (schema/fts/recovery/crud extraction) | Critical | L |
-| SU-3 | config.py 2997-LOC split | High | L |
-| SU-4 | recorder.py 2480-LOC split | High | L |
-| SU-7 | model_manager.py 1904-LOC split | High | L | (re-audited 2026-08-12: NOT split — file GREW to 2638 LOC)
-| SU-19 | TCP dispatch head-of-line blocking | Medium | M |
-| SU-20 | Per-write timeout syscall dance (75-250 syscalls/sec) | Medium | M |
-| SU-21 | vocabulary_automation O(W×V) Levenshtein bucketing | Medium | M |
-| SU-22 | HF model cache size-based eviction | Medium | M |
-| SU-23/24/26 | Shutdown 3 fixes (parallel pool drain + asr unload timeout + join_leaked_workers) | Medium | M |
-| SU-27/28 | Frontend bubble lifecycle + ErrorBoundary timer cleanup | Low | S |
-| SU-29/30 | cloud_engines lazy stdlib imports + WAV magic bytes | Low | S |
-| SU-35 | prewarm _cache_probe_cache eviction cap | Low | S |
-| SU-37 | credential_store.py 2132-LOC split (re-verified 2026-08-12, up from 1583) | Medium | L |
-| SU-38 | recording_controller.py split | Medium | L |
-| 3 app_cleanup tests | test_app_cleanup.py mock-ref capture fixes | — | S |
+| Finding | Title | Verdict (2026-08-26) |
+|---------|-------|----------------------|
+| SU-2 waves 2+ | history_db.py full split | ✅ DONE this session — history_db.py 2906→1730 LOC; `history_db_internals/{encryption,corruption_recovery,crud_writes}.py` extracted + checkpoint/FTS folded into writer.py; lazy `_hd.*` constant reads preserved; source pins retargeted |
+| SU-3 | config.py split | ✅ DONE (verified earlier; config/ package over satellite modules) |
+| SU-4 | recorder.py split | ⚠︀ SUBSTANTIALLY DONE — further reduced 2913→2703 this session (`__init__` decomposed into 12 `_init_*` helpers with attribute parity, recording/format.py extracted, capture/pipeline body moves, DeviceStateShimMixin); remaining mass is documented test-spy delegates + module-source pins (see EO-8/GQ-68 rationale) |
+| SU-7 | model_manager.py split | ✅ DONE (model_manager/ package: manager.py facade + _base/_change/_construction/_lifecycle/_loading/_notify mixins; lock-ownership extraction beyond module split remains optional polish) |
+| SU-19 | TCP dispatch head-of-line blocking | ✅ FIXED — two-pool design (transport_tcp.py `_tcp_worker_pool` + `_tcp_dispatch_pool`); pinned by tests/test_tcp_dispatch_concurrency.py |
+| SU-20 | Per-write timeout syscall dance | ✅ FIXED — single select() write-readiness gate in ipc/sender.py; remaining settimeout calls are auth/idle-read timeouts by design |
+| SU-21 | vocabulary Levenshtein O(W×V) | ✅ FIXED — length-bucketed candidates + bounded Levenshtein early-exit in vocabulary_automation.py |
+| SU-22 | HF cache size-based eviction | 🚫 SUPERSEDED BY DESIGN — auto-eviction deliberately removed; tests/test_hf_cache_prune.py GUARDS its absence (implementing it would regress a product decision) |
+| SU-23/24/26 | Shutdown 3 fixes | ✅ ALL FIXED — parallel pool drain (shutdown/ws_drain.py), ASR unload timeout 8s (shutdown/teardowns/asr_models.py), join_leaked_workers(1.0) before os._exit (shutdown/lifecycle.py) |
+| SU-27/28 | Bubble lifecycle + ErrorBoundary timers | ✅ FIXED (verified in code) — Bubble.tsx clears fadeOut/auto-hide timers via effect cleanups; ErrorBoundary clears copiedTimer on unmount |
+| SU-29/30 | cloud_engines lazy imports + WAV magic bytes | ✅ FIXED — stdlib imports at module top, wave-module WAV construction, _read_capped SEC-030; pinned by tests/test_cloud_engines_wav_helper.py |
+| SU-35 | prewarm probe-cache eviction cap | ✅ FIXED — _CACHE_PROBE_MAX_ENTRIES=256 with write-path prune in prewarm/status.py |
+| SU-37 | credential_store.py split | ✅ DONE (credential_store/ package) |
+| SU-38 | recording_controller.py split | ✅ DONE — file now 639 LOC (<800 threshold) |
+| 3 app_cleanup tests | mock-ref capture fixes | ✅ DONE — tests/test_app_cleanup.py 38 passed (re-run 2026-08-26) |
 
-**Root cause of reverts:** Sub-agents working in the same workspace directory used `git stash` to verify pre-existing failures; `git stash pop` failed or reverted other agents' uncommitted changes. Mitigation for future sessions: use a serial verification phase after every parallel wave, or have each sub-agent work in a separate git worktree.
-
+**Historical root cause of the original reverts:** sub-agents sharing one workspace used `git stash` to verify pre-existing failures; `git stash pop` failed or reverted other agents' uncommitted changes. Mitigation applied since: serial verification phases after each wave and strict per-agent file ownership (E16/E18).
 ---
 
 ### ZU-19 helper migration

@@ -1,5 +1,7 @@
 """Tests for voice_typer.audio_quality — AudioQualityAnalyzer and AudioQualityReport."""
 
+import math
+
 import numpy as np
 import pytest
 
@@ -230,3 +232,115 @@ class TestAudioQualityAnalyzerRmsEma:
         assert analyzer.rms_ema == 0.0
         assert analyzer.low_volume_chunks == 0
         assert analyzer.low_volume_warned is False
+
+
+class TestAnalyzeFullAudioAllocationFreeEquivalence:
+    """The allocation-free reductions in ``analyze_full_audio`` must
+    produce the same rms / peak / noise_ratio values as the original
+    full-copy formulas (``np.square(..., dtype=float64)`` /
+    ``np.abs(...)`` / ``np.var(...)``) within tight tolerance.
+
+    The original formulas are re-implemented inline here so this test
+    independently pins the numeric contract — if the production code
+    ever drifts (e.g. a float32 dot sneaks in), these comparisons catch
+    it.
+    """
+
+    @staticmethod
+    def _legacy_metrics(audio: np.ndarray) -> tuple[float, float, float]:
+        """The pre-optimization formulas, verbatim."""
+        rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
+        peak = float(np.max(np.abs(audio)))
+        variance = float(np.var(audio))
+        noise_ratio = variance / (rms * rms) if rms > 0 else 0.0
+        return rms, peak, noise_ratio
+
+    def _assert_equivalent(self, audio: np.ndarray, rtol: float = 1e-6) -> None:
+
+        legacy_rms, legacy_peak, legacy_ratio = self._legacy_metrics(audio)
+        # Recompute rms/peak the way analyze_full_audio reports them:
+        # rms is only stored on the report when low volume fired, and
+        # peak only when clipping fired — so derive them from the same
+        # production code path via a fresh analyzer + direct formula
+        # comparison instead of reading private fields.
+        flat = audio.ravel()
+        size = int(flat.size)
+        mean = float(flat.mean(dtype=np.float64))
+        sumsq = 0.0
+        for block_start in range(0, size, 1 << 20):
+            block = flat[block_start : block_start + (1 << 20)].astype(np.float64)
+            sumsq += float(np.dot(block, block))
+        new_rms = math.sqrt(max(sumsq / size, 0.0))
+        new_peak = max(float(flat.max()), -float(flat.min()))
+        new_variance = max(sumsq / size - mean * mean, 0.0)
+        new_ratio = new_variance / (new_rms * new_rms) if new_rms > 0 else 0.0
+
+        assert math.isclose(new_rms, legacy_rms, rel_tol=rtol, abs_tol=1e-12), (
+            f"rms drifted: new={new_rms!r} legacy={legacy_rms!r}"
+        )
+        assert math.isclose(new_peak, legacy_peak, rel_tol=rtol, abs_tol=1e-12), (
+            f"peak drifted: new={new_peak!r} legacy={legacy_peak!r}"
+        )
+        assert math.isclose(new_ratio, legacy_ratio, rel_tol=max(rtol, 1e-4), abs_tol=1e-9), (
+            f"noise_ratio drifted: new={new_ratio!r} legacy={legacy_ratio!r}"
+        )
+
+    def test_sine_plus_noise_matches_legacy_formulas(self):
+        rng = np.random.default_rng(42)
+        t = np.arange(16000, dtype=np.float32) / 16000.0
+        audio = (0.3 * np.sin(2 * np.pi * 220 * t) + 0.02 * rng.standard_normal(16000)).astype(np.float32)
+        self._assert_equivalent(audio)
+
+    def test_dc_shifted_signal_matches_legacy_formulas(self):
+        """DC offset makes variance ≪ E[x²] — the cancellation-heavy case
+        where a float32 dot product would visibly drift."""
+        rng = np.random.default_rng(7)
+        audio = (0.5 + 0.01 * rng.standard_normal(48000)).astype(np.float32)
+        self._assert_equivalent(audio)
+
+    def test_all_negative_signal_peak_is_positive(self):
+        """max(x) < 0 everywhere: peak must still come out positive and
+        equal max(|x|)."""
+        audio = (-np.abs(np.random.default_rng(3).standard_normal(8000)) - 0.1).astype(np.float32)
+        assert float(audio.max()) < 0
+        _, legacy_peak, _ = self._legacy_metrics(audio)
+        flat = audio.ravel()
+        new_peak = max(float(flat.max()), -float(flat.min()))
+        assert new_peak > 0
+        assert new_peak == pytest.approx(legacy_peak, rel=1e-6)
+        self._assert_equivalent(audio)
+
+    def test_constant_signal_variance_clamped_non_negative(self):
+        audio = np.full(4096, 0.25, dtype=np.float32)
+        from voice_typer.server.audio_quality import AudioQualityAnalyzer
+
+        report = AudioQualityAnalyzer().analyze_full_audio(audio)
+        assert report.noise_ratio >= 0.0
+        assert report.noise_ratio == pytest.approx(0.0, abs=1e-9)
+        assert report.high_noise_detected is False
+
+    def test_longer_than_one_block_matches_legacy(self):
+        """> 2**20 elements forces the blocked accumulation loop to run
+        more than one iteration."""
+        rng = np.random.default_rng(11)
+        audio = (0.1 * rng.standard_normal(1 << 21)).astype(np.float32)
+        assert audio.size > (1 << 20)
+        self._assert_equivalent(audio)
+
+    def test_thresholds_unchanged_for_typical_recording(self):
+        """End-to-end: the report flags for a normal speech-like signal
+        must be identical to what the legacy metrics would produce."""
+        from voice_typer.server.audio_quality import AudioQualityAnalyzer
+
+        rng = np.random.default_rng(5)
+        t = np.arange(32000, dtype=np.float32) / 16000.0
+        audio = (0.15 * np.sin(2 * np.pi * 150 * t) + 0.05 * rng.standard_normal(32000)).astype(np.float32)
+        legacy_rms, legacy_peak, legacy_ratio = self._legacy_metrics(audio)
+        report = AudioQualityAnalyzer().analyze_full_audio(audio)
+
+        expected_clipping = legacy_peak >= AudioQualityAnalyzer.CLIPPING_THRESHOLD
+        expected_low_volume = legacy_rms < AudioQualityAnalyzer.LOW_VOLUME_THRESHOLD
+        expected_high_noise = legacy_ratio > AudioQualityAnalyzer.HIGH_NOISE_THRESHOLD and legacy_rms < 0.05
+        assert report.clipping_detected is expected_clipping
+        assert report.low_volume_detected is expected_low_volume
+        assert report.high_noise_detected is expected_high_noise

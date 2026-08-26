@@ -71,12 +71,12 @@ class SettingsController:
 
         Delegates to :meth:`set_autostart` (P2 dedup).
         """
-        # Import the platform helper at call time so tests that
-        # monkeypatch voice_typer.server.server_platform.is_autostart_enabled
+        # Import the facade module at call time so tests that
+        # monkeypatch voice_typer.server.server_platform.autostart.is_autostart_enabled
         # still take effect.
-        from voice_typer.server.server_platform import is_autostart_enabled
+        from voice_typer.server.server_platform import autostart as _autostart
 
-        self.set_autostart(not is_autostart_enabled())
+        self.set_autostart(not _autostart.is_autostart_enabled())
 
     def set_autostart(self, enabled: bool) -> None:
         """Set autostart from the advanced settings window or tray toggle.
@@ -87,18 +87,18 @@ class SettingsController:
         wrapped in ``_config_mutation_lock`` for atomicity
                 w.r.t. IPC ``set_config`` mutations (RLock, re-entry safe).
         """
-        # Import the platform helpers at call time so tests that
-        # monkeypatch voice_typer.server.server_platform.{enable_autostart,
-        # disable_autostart} still take effect.
-        from voice_typer.server.server_platform import disable_autostart, enable_autostart
+        # Import the facade module at call time so tests that
+        # monkeypatch voice_typer.server.server_platform.autostart.{
+        # enable_autostart, disable_autostart} still take effect.
+        from voice_typer.server.server_platform import autostart as _autostart
 
         app = self._app
         with app._config_mutation_lock:
             try:
                 if enabled:
-                    enable_autostart()
+                    _autostart.enable_autostart()
                 else:
-                    disable_autostart()
+                    _autostart.disable_autostart()
                 app.config.autostart = enabled
                 if not app.config.save():
                     log.warning("[CONFIG] Failed to save autostart setting to disk")

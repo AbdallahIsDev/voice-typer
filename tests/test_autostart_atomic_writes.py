@@ -29,6 +29,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 import voice_typer.server.secure_file_io as sio
 from voice_typer.server import server_platform as platform_mod
+from voice_typer.server.server_platform import (
+    autostart as autostart_mod,
+    autostart_macos as macos_mod,
+    platform_flags as flags_mod,
+)
 
 # ──────────────────────────────────────────────────────────────────
 # 1. macOS autostart plist — _enable_autostart_macos
@@ -41,9 +46,9 @@ class TestAutostartMacOsAtomicWrite:
     ``chmod(0o600)`` AFTER the atomic write."""
 
     def test_uses_secure_atomic_write_with_durability_false(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(platform_mod, "SYSTEM", "darwin")
-        monkeypatch.setattr(platform_mod, "get_autostart_dir", lambda: tmp_path)
-        monkeypatch.setattr(platform_mod, "_os_uid", lambda: 501)
+        monkeypatch.setattr(flags_mod, "SYSTEM", "darwin")
+        monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(macos_mod, "_os_uid", lambda: 501)
 
         # Fake launchctl load (returncode=0, no stderr) so the function
         # returns True without actually invoking launchd.
@@ -84,9 +89,9 @@ class TestAutostartMacOsAtomicWrite:
         run AFTER the atomic write so the file's final perms are 0o600
         (the atomic write itself creates the temp file with default
         umask, so chmod is needed to tighten)."""
-        monkeypatch.setattr(platform_mod, "SYSTEM", "darwin")
-        monkeypatch.setattr(platform_mod, "get_autostart_dir", lambda: tmp_path)
-        monkeypatch.setattr(platform_mod, "_os_uid", lambda: 501)
+        monkeypatch.setattr(flags_mod, "SYSTEM", "darwin")
+        monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(macos_mod, "_os_uid", lambda: 501)
 
         def _fake_run(args, **kw):
             r = MagicMock()
@@ -127,10 +132,10 @@ class TestAutostartLinuxAtomicWrite:
     able to read the file)."""
 
     def test_uses_secure_atomic_write_with_durability_false(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(platform_mod, "SYSTEM", "linux")
-        monkeypatch.setattr(platform_mod, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(flags_mod, "SYSTEM", "linux")
+        monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
         monkeypatch.setattr(
-            platform_mod,
+            autostart_mod,
             "_autostart_command",
             lambda: '"/usr/bin/python3" "/opt/voice_typer/launcher.py"',
         )
@@ -155,10 +160,10 @@ class TestAutostartLinuxAtomicWrite:
     def test_no_chmod_0o600_applied(self, monkeypatch, tmp_path):
         """``chmod(0o600)`` must NOT be called on the .desktop file —
         desktop environments must be able to read it."""
-        monkeypatch.setattr(platform_mod, "SYSTEM", "linux")
-        monkeypatch.setattr(platform_mod, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(flags_mod, "SYSTEM", "linux")
+        monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
         monkeypatch.setattr(
-            platform_mod,
+            autostart_mod,
             "_autostart_command",
             lambda: '"/usr/bin/python3" "/opt/voice_typer/launcher.py"',
         )

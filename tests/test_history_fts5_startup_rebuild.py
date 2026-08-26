@@ -383,7 +383,7 @@ class TestFts5StartupRebuild:
 
         monkeypatch.setattr(HistoryDB, "_fts5_startup_rebuild", spy_startup)
 
-        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.history_db"):
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.history_db_internals.writer"):
             db = HistoryDB(db_path=db_path)
         try:
             assert len(startup_calls) >= 1

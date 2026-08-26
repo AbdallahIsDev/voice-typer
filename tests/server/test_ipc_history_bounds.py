@@ -51,7 +51,7 @@ from voice_typer.server.ipc.history_bounds import (
 class _ConfigLike:
     """Plain object exposing ``__dict__`` for the sanitizer.
 
-    Mirrors the ``_ConfigLike`` stand-in in ``tests/test_ipc_package_fixes.py``
+    Mirrors the ``_ConfigLike`` stand-in in ``tests/test_ipc_server.py``
     so the sanitizer tests stay self-contained and never touch the real
     ``Config`` dataclass (which would risk a disk write).
     """

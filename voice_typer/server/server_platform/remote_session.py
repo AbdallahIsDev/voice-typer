@@ -3,18 +3,20 @@
 Phase 4.5 /  — extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  The two helpers in
 this file have no cross-submodule state: they only read ``SYSTEM`` (the
-package-level ``sys.platform`` snapshot) and stdlib ``os`` / ``ctypes``.
+``sys.platform`` snapshot owned by :mod:`.platform_flags`) and stdlib
+``os`` / ``ctypes``.
 
 Patch-path compatibility
 ------------------------
-Tests do not directly patch ``is_remote_session`` via
-``monkeypatch.setattr("voice_typer.server.server_platform.is_remote_session", ...)``
-— instead, callers (e.g. ``clipboard.py``) import the function lazily
-inside a try/except and tests replace the whole module via
-``patch.dict(sys.modules, {"voice_typer.server.server_platform": fake})``.
-For the dispatch on the platform, ``is_remote_session`` reads
-``_pkg.SYSTEM`` (NOT a local ``SYSTEM`` binding) so a future test that
-patches ``server_platform.SYSTEM`` would still take effect.
+Tests patch ``is_remote_session`` via
+``monkeypatch.setattr("voice_typer.server.server_platform.remote_session.is_remote_session", ...)``
+or swap the whole owning module via
+``patch.dict(sys.modules, {"voice_typer.server.server_platform.remote_session": fake})``
+— callers (e.g. ``clipboard.py``) import the function lazily inside a
+try/except from :mod:`.remote_session`, so both forms take effect at
+call time. For the dispatch on the platform, ``is_remote_session`` reads
+``_platform_flags.SYSTEM`` (NOT a local ``SYSTEM`` binding) so a test
+that patches ``platform_flags.SYSTEM`` still takes effect.
 
 ``inspect.getsource`` compatibility
 -----------------------------------
@@ -29,14 +31,12 @@ import logging
 import os
 import re
 
-# Patch-path bridge: route lookups of ``SYSTEM`` through the package
-# namespace so test patches of the form
-# ``monkeypatch.setattr("voice_typer.server.server_platform.SYSTEM", "win32")``
-# keep affecting production code defined here.  The package ``__init__.py``
-# re-exports ``SYSTEM`` (it is a module-level constant of the package
-# itself); we look it up at call time rather than binding at import time
-# so the patch takes effect.
-from voice_typer.server import server_platform as _pkg
+# Patch-path bridge: read ``SYSTEM`` through the owning
+# :mod:`.platform_flags` module attribute at call time (NOT a local
+# ``SYSTEM`` binding) so a test that patches
+# ``voice_typer.server.server_platform.platform_flags.SYSTEM`` still
+# takes effect.
+from voice_typer.server.server_platform import platform_flags as _platform_flags
 
 log = logging.getLogger(__name__)
 
@@ -156,7 +156,7 @@ def is_remote_session() -> bool:
 
         Returns True if a remote session is detected.
     """
-    if _pkg.SYSTEM == "win32":
+    if _platform_flags.SYSTEM == "win32":
         return _is_windows_remote_session()
     else:
         return _is_posix_remote_session()

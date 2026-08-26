@@ -45,11 +45,11 @@ def test_gp91_event_bus_count_is_37_in_doc_and_code():
     assert "37-event bus" in doc, "ARCHITECTURE.md must describe the bus as '37-event bus' ."
     assert "24-event bus" not in doc, "Stale '24-event bus' must not appear in ARCHITECTURE.md ."
     # And the IPC-contract section's frozen-surface count must also say 37.
-    assert "69 commands / 37 events" in doc, "IPC contract section must say '69 commands / 37 events'."
+    assert "69 commands / 38 events" in doc, "IPC contract section must say '69 commands / 38 events'."
 
     from voice_typer.server.event_bus import EVENT_TYPES
 
-    assert len(EVENT_TYPES) == 37, (
+    assert len(EVENT_TYPES) == 38, (
         f"EVENT_TYPES in voice_typer/server/event_bus.py must have 37 "
         f"entries (actual: {len(EVENT_TYPES)}). Update doc + test together."
     )
@@ -211,13 +211,13 @@ def test_gp94_tauri_command_count_in_doc_matches_code():
     assert rust_row_match is not None, "Rust host row not found."
     body = rust_row_match.group("body")
 
-    # Doc must say "18 Tauri commands: 1 generic `dispatch` + 17 typed shortcuts"
-    assert "18 Tauri commands" in body, f"Rust host row must say '18 Tauri commands'. Got: {body!r}"
+    # Doc must say "19 Tauri commands: 1 generic `dispatch` + 18 typed shortcuts"
+    assert "19 Tauri commands" in body, f"Rust host row must say '19 Tauri commands'. Got: {body!r}"
     assert "1 generic `dispatch`" in body
-    assert "17 typed shortcuts" in body
+    assert "18 typed shortcuts" in body
 
     cmds = _parse_generate_handler()
-    assert len(cmds) == 18, f"generate_handler! in main.rs must register 18 commands (actual: {len(cmds)}: {cmds})"
+    assert len(cmds) == 19, f"generate_handler! in main.rs must register 19 commands (actual: {len(cmds)}: {cmds})"
     assert cmds[0] == "dispatch", f"First command must be `dispatch` (actual: {cmds[0]!r})."
     # All 17 typed shortcut names from  must be present.
     expected_typed = {
@@ -238,6 +238,7 @@ def test_gp94_tauri_command_count_in_doc_matches_code():
         "open_logs",
         "open_model_import_dialog",
         "renderer_log_error",
+        "set_host_locale",
     }
     actual_typed = set(cmds[1:])
     assert actual_typed == expected_typed, (
@@ -281,12 +282,18 @@ def test_gp94_main_rs_line_count_is_385():
     error_tests;`` declarations only; all bodies live in ``error.rs`` /
     ``error_tests.rs``). Still wiring-only. Doc + test pin updated in
     lockstep.
+
+    Updated 2026-08-26: main.rs grew from 385 → 389 lines — the
+    ``set_host_locale`` command registration (renderer i18n push parity
+    with the Electron ``i18n:set-locale`` channel; body lives in
+    ``commands/system_cmds.rs``, state field in ``state.rs``). Still
+    wiring-only. Doc + test pin updated in lockstep.
     """
     doc = _read(ARCH_DOC)
-    assert "385 lines" in doc, "Doc must claim '385 lines' for main.rs."
+    assert "389 lines" in doc, "Doc must claim '389 lines' for main.rs."
     actual = sum(1 for _ in _read(MAIN_RS).splitlines())
-    assert actual == 385, (
-        f"src-tauri/src/main.rs must be 385 lines (actual: {actual}). Update the doc + this test together."
+    assert actual == 389, (
+        f"src-tauri/src/main.rs must be 389 lines (actual: {actual}). Update the doc + this test together."
     )
     # Stale counts must NOT be in the doc.
     assert "264 lines" not in doc, "Stale '264 lines' must be removed from doc."
@@ -297,6 +304,7 @@ def test_gp94_main_rs_line_count_is_385():
     assert "378 lines" not in doc, "Stale '378 lines' must be removed from doc."
     assert "349 lines" not in doc, "Stale '349 lines' must be removed from doc."
     assert "337 lines" not in doc, "Stale '337 lines' must be removed from doc."
+    assert "385 lines" not in doc, "Stale '385 lines' must be removed from doc."
 
 
 # ─── package-style module paths ───────────────────────────────────────

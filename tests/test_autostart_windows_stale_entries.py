@@ -81,8 +81,9 @@ def win32_platform(monkeypatch, fake_winreg):
     """Pretend we're on Windows for the duration of the test."""
     monkeypatch.setattr(sys, "platform", "win32")
     from voice_typer.server import server_platform
+    from voice_typer.server.server_platform import platform_flags
 
-    monkeypatch.setattr(server_platform, "SYSTEM", "win32")
+    monkeypatch.setattr(platform_flags, "SYSTEM", "win32")
     return server_platform
 
 
@@ -165,7 +166,7 @@ class TestStaleEntryCleanupParsing:
         assert other_name != current_name  # sanity check
 
         monkeypatch.setattr(
-            "voice_typer.server.server_platform._autostart_command",
+            "voice_typer.server.server_platform.autostart._autostart_command",
             lambda: r'"C:\other\python.exe" "C:\other\launcher.py" --hidden --delay 15',
             raising=False,
         )
@@ -190,7 +191,7 @@ class TestStaleEntryCleanupParsing:
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(stale_name, stale_value, fake_winreg.REG_SZ)])
 
         monkeypatch.setattr(
-            "voice_typer.server.server_platform._autostart_command",
+            "voice_typer.server.server_platform.autostart._autostart_command",
             lambda: r'"C:\other\python.exe" launcher.py --hidden',
             raising=False,
         )
@@ -230,7 +231,7 @@ class TestStaleEntryCleanupParsing:
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(live_name, live_value, fake_winreg.REG_SZ)])
 
         monkeypatch.setattr(
-            "voice_typer.server.server_platform._autostart_command",
+            "voice_typer.server.server_platform.autostart._autostart_command",
             lambda: r'"C:\other\python.exe" launcher.py --hidden',
             raising=False,
         )
@@ -272,7 +273,7 @@ class TestStaleEntryCleanupParsing:
         )
 
         monkeypatch.setattr(
-            "voice_typer.server.server_platform._autostart_command",
+            "voice_typer.server.server_platform.autostart._autostart_command",
             lambda: r'"C:\other\python.exe" launcher.py --hidden',
             raising=False,
         )
@@ -299,7 +300,7 @@ class TestStaleEntryCleanupParsing:
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(stale_name, stale_value, fake_winreg.REG_SZ)])
 
         monkeypatch.setattr(
-            "voice_typer.server.server_platform._autostart_command",
+            "voice_typer.server.server_platform.autostart._autostart_command",
             lambda: r'"C:\other\python.exe" launcher.py --hidden',
             raising=False,
         )
@@ -325,7 +326,7 @@ class TestStaleEntryCleanupParsing:
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(live_name, live_value, fake_winreg.REG_SZ)])
 
         monkeypatch.setattr(
-            "voice_typer.server.server_platform._autostart_command",
+            "voice_typer.server.server_platform.autostart._autostart_command",
             lambda: r'"C:\other\python.exe" launcher.py --hidden',
             raising=False,
         )
@@ -353,7 +354,7 @@ class TestStaleEntryCleanupParsing:
         )
 
         monkeypatch.setattr(
-            "voice_typer.server.server_platform._autostart_command",
+            "voice_typer.server.server_platform.autostart._autostart_command",
             lambda: r'"C:\other\python.exe" launcher.py --hidden',
             raising=False,
         )
@@ -382,7 +383,7 @@ class TestStaleEntryCleanupParsing:
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(current_name, current_value, fake_winreg.REG_SZ)])
 
         monkeypatch.setattr(
-            "voice_typer.server.server_platform._autostart_command",
+            "voice_typer.server.server_platform.autostart._autostart_command",
             lambda: current_value,
             raising=False,
         )
@@ -415,7 +416,7 @@ class TestStaleEntryCleanupParsing:
         )
 
         monkeypatch.setattr(
-            "voice_typer.server.server_platform._autostart_command",
+            "voice_typer.server.server_platform.autostart._autostart_command",
             lambda: r'"C:\other\python.exe" launcher.py --hidden',
             raising=False,
         )
@@ -470,7 +471,7 @@ class TestStaleEntryCleanupParsing:
         )
 
         monkeypatch.setattr(
-            "voice_typer.server.server_platform._autostart_command",
+            "voice_typer.server.server_platform.autostart._autostart_command",
             lambda: r'"C:\other\python.exe" launcher.py --hidden',
             raising=False,
         )

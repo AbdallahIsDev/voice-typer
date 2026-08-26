@@ -146,8 +146,9 @@ def darwin_platform(monkeypatch, tmp_path):
 
     Patches:
       - ``sys.platform`` → "darwin"
-      - ``voice_typer.server.server_platform.SYSTEM`` → "darwin" (module-level
-        constant read at function-call time by enable/disable/is_enabled)
+      - ``voice_typer.server.server_platform.platform_flags.SYSTEM`` →
+        "darwin" (the platform-dispatch constant read at function-call
+        time by enable/disable/is_enabled)
       - ``Path.home()`` → ``tmp_path / "home"`` (so the LaunchAgent plist
         is written under the tmp dir, NOT the test host's real $HOME)
       - ``$VOICE_TYPER_CONFIG_DIR`` → ``tmp_path / "config" / "voice-typer"``
@@ -163,8 +164,9 @@ def darwin_platform(monkeypatch, tmp_path):
     """
     monkeypatch.setattr(sys, "platform", "darwin")
     from voice_typer.server import server_platform
+    from voice_typer.server.server_platform import platform_flags
 
-    monkeypatch.setattr(server_platform, "SYSTEM", "darwin")
+    monkeypatch.setattr(platform_flags, "SYSTEM", "darwin")
 
     # Redirect Path.home() to a tmp dir so the plist is written there.
     home = tmp_path / "home"

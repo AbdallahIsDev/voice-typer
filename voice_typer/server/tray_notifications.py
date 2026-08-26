@@ -15,6 +15,11 @@ management. This module owns the four notification-related operations:
   - :func:`on_parakeet_cpu_fallback` — event_bus callback that flips
     ``tray._cpu_fallback_active`` so the next ``_apply_state`` call
     appends a "(CPU fallback)" suffix to the tooltip.
+  - :func:`on_gpu_cpu_fallback` — same contract for the Whisper-family
+    engine's ``gpu_cpu_fallback`` events; additionally shows the
+    user-facing toast (the publisher there runs on the transcription
+    thread right before a multi-second reload freeze, so the handler
+    owns the message).
 
 The ``TrayIcon`` class keeps one-line delegate methods for each of
 these so:
@@ -49,6 +54,8 @@ from __future__ import annotations
 import logging
 import time
 from typing import TYPE_CHECKING
+
+from voice_typer.server.branding import APP_NAME
 
 if TYPE_CHECKING:
     from voice_typer.server.tray import TrayIcon
@@ -300,5 +307,48 @@ def on_parakeet_cpu_fallback(tray: TrayIcon, event: dict) -> None:
     except Exception:
         log.debug(
             "[TRAY] could not apply CPU-fallback state to tray icon",
+            exc_info=True,
+        )
+
+
+_GPU_CPU_FALLBACK_MESSAGE = (
+    "GPU transcription failed — switching to CPU. The next transcription may take up to a minute."
+)
+
+
+def on_gpu_cpu_fallback(tray: TrayIcon, event: dict) -> None:
+    """Handle ``gpu_cpu_fallback`` events from transcription_fallback.
+
+    The Whisper-family engine publishes
+    ``{"type": "gpu_cpu_fallback", "data": {"device": "cpu",
+    "reason": "..."}}`` (same payload shape as the parakeet engine's
+    ``parakeet_cpu_fallback``) when GPU transcription fails and it tears
+    down + reloads the model on CPU. Unlike the parakeet path — where
+    the engine itself publishes the toast as a separate ``notification``
+    event — here the tray handler owns the user-facing message, because
+    the publisher runs on the transcription thread right before a
+    synchronous 5-50s reload freeze.
+
+    Mirrors :func:`on_parakeet_cpu_fallback`: marks
+    ``tray._cpu_fallback_active`` so the tooltip gains the
+    "(CPU fallback)" suffix, re-applies state, and additionally shows
+    the toast through :func:`notify` (respects the notifications toggle
+    and dedup — this is informational, not safety-critical: the app
+    keeps transcribing).
+
+    Defensive: ignores malformed payloads (non-dict, wrong ``type``).
+    """
+    if not isinstance(event, dict):
+        return
+    if event.get("type") != "gpu_cpu_fallback":
+        return
+    tray._cpu_fallback_active = True
+    notify(tray, APP_NAME, _GPU_CPU_FALLBACK_MESSAGE)
+    try:
+        tray._apply_state(tray._state, tray._message)
+        tray._publish_tray_state()
+    except Exception:
+        log.debug(
+            "[TRAY] could not apply GPU-fallback state to tray icon",
             exc_info=True,
         )

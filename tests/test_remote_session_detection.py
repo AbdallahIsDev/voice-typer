@@ -15,7 +15,7 @@ Remote Desktop), and scans ``/proc/*/comm`` for ``Xvnc`` / ``x2goagent``
 ``SM_REMOTESESSION`` misses. A warning is logged when a remote session
 is detected.
 
-These tests run on any platform — they patch ``_pkg.SYSTEM`` to
+These tests run on any platform — they patch ``platform_flags.SYSTEM`` to
 exercise the POSIX and Windows branches, and clear all remote-session
 env vars to ensure a deterministic baseline.
 """
@@ -25,6 +25,8 @@ from __future__ import annotations
 import os
 import sys
 from unittest.mock import MagicMock
+
+from voice_typer.server.server_platform import platform_flags
 
 # All POSIX env vars the  fix checks. Tests clear these to ensure
 # a deterministic baseline.
@@ -59,7 +61,7 @@ class TestPosixEnvVarDetection:
         _clear_all_remote_env(monkeypatch)
         from voice_typer.server.server_platform import remote_session
 
-        monkeypatch.setattr(remote_session._pkg, "SYSTEM", "linux")
+        monkeypatch.setattr(platform_flags, "SYSTEM", "linux")
         monkeypatch.setenv("VNCDESKTOP", "my-vnc-session")
         # Patch the /proc scan to return False so we isolate the
         # env-var check.
@@ -71,7 +73,7 @@ class TestPosixEnvVarDetection:
         _clear_all_remote_env(monkeypatch)
         from voice_typer.server.server_platform import remote_session
 
-        monkeypatch.setattr(remote_session._pkg, "SYSTEM", "linux")
+        monkeypatch.setattr(platform_flags, "SYSTEM", "linux")
         monkeypatch.setenv("X2GO_SESSION", "x2go-1234")
         monkeypatch.setattr(remote_session, "_posix_proc_has_remote_desktop", lambda: False)
         assert remote_session.is_remote_session() is True
@@ -81,7 +83,7 @@ class TestPosixEnvVarDetection:
         _clear_all_remote_env(monkeypatch)
         from voice_typer.server.server_platform import remote_session
 
-        monkeypatch.setattr(remote_session._pkg, "SYSTEM", "linux")
+        monkeypatch.setattr(platform_flags, "SYSTEM", "linux")
         monkeypatch.setenv("NX_TEMP", "/tmp/nx-abc")
         monkeypatch.setattr(remote_session, "_posix_proc_has_remote_desktop", lambda: False)
         assert remote_session.is_remote_session() is True
@@ -91,7 +93,7 @@ class TestPosixEnvVarDetection:
         _clear_all_remote_env(monkeypatch)
         from voice_typer.server.server_platform import remote_session
 
-        monkeypatch.setattr(remote_session._pkg, "SYSTEM", "linux")
+        monkeypatch.setattr(platform_flags, "SYSTEM", "linux")
         monkeypatch.setenv("CITRIX_SESSION", "ica-1234")
         monkeypatch.setattr(remote_session, "_posix_proc_has_remote_desktop", lambda: False)
         assert remote_session.is_remote_session() is True
@@ -102,7 +104,7 @@ class TestPosixEnvVarDetection:
         _clear_all_remote_env(monkeypatch)
         from voice_typer.server.server_platform import remote_session
 
-        monkeypatch.setattr(remote_session._pkg, "SYSTEM", "linux")
+        monkeypatch.setattr(platform_flags, "SYSTEM", "linux")
         monkeypatch.setenv("TERM_PROGRAM", "Hyper")
         monkeypatch.setattr(remote_session, "_posix_proc_has_remote_desktop", lambda: False)
         assert remote_session.is_remote_session() is True
@@ -113,7 +115,7 @@ class TestPosixEnvVarDetection:
         _clear_all_remote_env(monkeypatch)
         from voice_typer.server.server_platform import remote_session
 
-        monkeypatch.setattr(remote_session._pkg, "SYSTEM", "linux")
+        monkeypatch.setattr(platform_flags, "SYSTEM", "linux")
         monkeypatch.setenv("TERM_PROGRAM", "iTerm.app")
         monkeypatch.setattr(remote_session, "_posix_proc_has_remote_desktop", lambda: False)
         assert remote_session.is_remote_session() is False
@@ -124,7 +126,7 @@ class TestPosixEnvVarDetection:
         _clear_all_remote_env(monkeypatch)
         from voice_typer.server.server_platform import remote_session
 
-        monkeypatch.setattr(remote_session._pkg, "SYSTEM", "linux")
+        monkeypatch.setattr(platform_flags, "SYSTEM", "linux")
         monkeypatch.setenv("SSH_CLIENT", "10.0.0.1 12345 22")
         monkeypatch.setattr(remote_session, "_posix_proc_has_remote_desktop", lambda: False)
         assert remote_session.is_remote_session() is True
@@ -144,7 +146,7 @@ class TestPosixProcScan:
         _clear_all_remote_env(monkeypatch)
         from voice_typer.server.server_platform import remote_session
 
-        monkeypatch.setattr(remote_session._pkg, "SYSTEM", "linux")
+        monkeypatch.setattr(platform_flags, "SYSTEM", "linux")
 
         # Build a fake /proc with one process whose comm is "Xvnc".
         fake_proc = tmp_path / "proc"
@@ -188,7 +190,7 @@ class TestPosixProcScan:
         _clear_all_remote_env(monkeypatch)
         from voice_typer.server.server_platform import remote_session
 
-        monkeypatch.setattr(remote_session._pkg, "SYSTEM", "linux")
+        monkeypatch.setattr(platform_flags, "SYSTEM", "linux")
 
         fake_proc = tmp_path / "proc"
         fake_proc.mkdir()
@@ -226,7 +228,7 @@ class TestPosixProcScan:
         _clear_all_remote_env(monkeypatch)
         from voice_typer.server.server_platform import remote_session
 
-        monkeypatch.setattr(remote_session._pkg, "SYSTEM", "darwin")
+        monkeypatch.setattr(platform_flags, "SYSTEM", "darwin")
 
         def raise_oserror(path):
             raise FileNotFoundError(f"no such dir: {path}")
@@ -249,7 +251,7 @@ class TestWindowsDetection:
         """Primary probe: ``SM_REMOTESESSION`` non-zero → True."""
         from voice_typer.server.server_platform import remote_session
 
-        monkeypatch.setattr(remote_session._pkg, "SYSTEM", "win32")
+        monkeypatch.setattr(platform_flags, "SYSTEM", "win32")
 
         # Mock ctypes.windll.user32.GetSystemMetrics to return 1
         # (SM_REMOTESESSION set).
@@ -264,7 +266,7 @@ class TestWindowsDetection:
         session → False."""
         from voice_typer.server.server_platform import remote_session
 
-        monkeypatch.setattr(remote_session._pkg, "SYSTEM", "win32")
+        monkeypatch.setattr(platform_flags, "SYSTEM", "win32")
 
         mock_ctypes = MagicMock()
         # SM_REMOTESESSION = 0 (not remote).
@@ -298,7 +300,7 @@ class TestWindowsDetection:
         """
         from voice_typer.server.server_platform import remote_session
 
-        monkeypatch.setattr(remote_session._pkg, "SYSTEM", "win32")
+        monkeypatch.setattr(platform_flags, "SYSTEM", "win32")
 
         mock_ctypes = MagicMock()
         # SM_REMOTESESSION = 0 (WVD missed).
@@ -346,7 +348,7 @@ class TestNoFalsePositiveLocalSession:
         _clear_all_remote_env(monkeypatch)
         from voice_typer.server.server_platform import remote_session
 
-        monkeypatch.setattr(remote_session._pkg, "SYSTEM", "linux")
+        monkeypatch.setattr(platform_flags, "SYSTEM", "linux")
         # Patch the /proc scan to return False (no VNC/NX/X2GO
         # processes — the test environment likely doesn't have any,
         # but we patch to be deterministic).

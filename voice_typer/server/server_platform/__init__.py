@@ -46,62 +46,22 @@ module exposed so existing imports of the form
 ``from voice_typer.server.server_platform import X`` keep working
 without modification.
 
-TECH-DEBT: ``_pkg.X`` indirection for test-patch compatibility
--------------------------------------------------------------------------
-This package uses an **indirection pattern** (rather than a custom
-module subclass like :mod:`voice_typer.server.recording` does) to
-make test patches on the package namespace propagate to submodules:
+Canonical test-patch contract
+-----------------------------
+Tests patch the OWNING submodule's attribute; production code resolves
+names through module-object attribute reads (or plain module-global
+lookups for names defined in the calling module itself) at call time:
 
-- Each submodule does
-  ``from voice_typer.server import server_platform as _pkg`` at the
-  top of its file.
-- Functions inside the submodules look up patched names via
-  ``_pkg.X()`` at call time (rather than capturing the function
-  object at import time).
-- This ``__init__.py`` re-exports ``X`` from the appropriate
-  submodule so ``_pkg.X`` resolves correctly without eager binding
-  at import time.
-
-WHY this hack exists: the test suite uses
-``monkeypatch.setattr("voice_typer.server.server_platform.X", ...)``
-to inject fakes (e.g. a fake ``subprocess.run``, a fake
-``is_windows()``, a fake ``enable_autostart``) and then expects the
-production code in the submodules to see the new value.  Without
-the ``_pkg.X`` indirection, the submodule's binding (captured at
-import time) would be unchanged — the test would silently no-op.
-
-The same ``_pkg.X`` pattern exists in :mod:`voice_typer.server.prewarm`.
-(:mod:`voice_typer.server.recording` previously used a custom module
-subclass for mutable-state routing, but that indirection has been
-removed — its tests patch submodules directly.)
-
-TODO (2026-07-28,  / TECH-DEBT — OPEN, no migration in progress):
-This ``__init__.py`` boilerplate exists for test-patch compatibility
-during the package reorganization.  Once  is complete, this
-file will be simplified.  Migrate tests to patch submodules directly,
-then remove the ``_pkg.X`` indirection.  Concretely: replace
-``monkeypatch.setattr("voice_typer.server.server_platform.X", ...)``
-with
-``monkeypatch.setattr("voice_typer.server.server_platform.<submodule>.X", ...)``
-and have the submodules do ``from .<submodule> import X`` at the top
-of their file (so the binding is captured at import time and the
-patch takes effect via the submodule's ``__dict__``).  Once every
-test site has been migrated, the ``_pkg.X`` references and the
-``from voice_typer.server import server_platform as _pkg`` lines in
-the submodules can be deleted.  Estimated scope: 30-50 test files
-per package (so 90-150 test files total across the three packages).
-Tracked as  / TECH-DEBT (no owner assigned; no ETA — see
-``docs/rw9-god-class-decomposition.md`` for the migration plan).
-
-Patch-path compatibility
-------------------------
-Tests patch many names that this package re-exports, using
-``monkeypatch.setattr("voice_typer.server.server_platform.X", ...)``.
-For the patch to affect production code defined in a submodule, the
-submodule looks up ``X`` via ``_pkg.X`` at call time (rather than
-capturing the function object at import time).  The submodules do
-``from voice_typer.server import server_platform as _pkg`` for this
-purpose.
+- A submodule calls names defined IN ITSELF directly (``X()``) — a
+  module-global lookup, patchable via
+  ``monkeypatch.setattr(<submodule>, "X", ...)``.
+- For names owned by a SIBLING submodule, the caller binds that module
+  once at import time (e.g. ``from . import autostart as _autostart_mod``
+  in :mod:`.autostart_windows`) and reads ``_autostart_mod.X()`` at call
+  time — so patches on the owning submodule propagate.
+- This package re-exports every public name so existing imports of the
+  form ``from voice_typer.server.server_platform import X`` keep working
+  without modification.
 
 The stdlib modules ``sys`` / ``os`` / ``subprocess`` / ``Path`` /
 ``contextlib`` / ``Any`` are imported (and re-exported) at the top of
@@ -119,11 +79,9 @@ module object).
   respective submodule (its ``__module__`` is
   ``voice_typer.server.server_platform.<submodule>``).
 - Module-level checks like ``inspect.getsource(server_platform)`` read
-  this ``__init__.py``'s source.  The PLAT-RUN source-string check in
-  ``tests/regressions/test_platform_win32.py`` asserts that the literal
-  f-string ``f"VoiceTyperAutostart{_install_hash_suffix()}"`` appears
-  in the package source — this is satisfied by the
-  ``_APP_AUTOSTART_TASK_NAME`` assignment below.
+  this ``__init__.py``'s source; source-string checks that pin the
+  autostart task-name f-string read :mod:`.autostart` instead (the
+  constant lives there).
 """
 
 from __future__ import annotations
@@ -154,10 +112,9 @@ SYSTEM = sys.platform  # "win32", "darwin", "linux"
 # ─── Public API re-exports ──────────────────────────────────────────────
 # Each name below is genuinely defined in a sibling submodule.  We import
 # it here so ``from voice_typer.server.server_platform import X`` keeps
-# working.  The submodules themselves do
-# ``from voice_typer.server import server_platform as _pkg`` and look up
-# patched names via ``_pkg.X`` at call time so test patches on the
-# package namespace take effect.
+# working.  Submodules resolve cross-module names through the OWNING
+# submodule's module object at call time, so test patches on the owning
+# submodule take effect.
 from .autostart import (  # noqa: E402
     _autostart_command,
     _desktop_quote,
@@ -230,36 +187,6 @@ from .remote_session import (  # noqa: E402
 )
 from .volume_factory import get_volume_backend  # noqa: E402
 
-# ─── Module-level constant computed from _install_hash_suffix ──────────
-# The Task Scheduler task name uses the canonical ``com.voicetyper.*``
-# reverse-DNS namespace (RDNN) — matching the prewarm task
-# ``com.voicetyper.prewarm`` and the macOS LaunchAgent labels — with the
-# install-path hash appended so two installations in different
-# directories register distinct schtasks entries and don't conflict.
-# Pre-fix this was a fixed string "VoiceTyperAutostart" — two installs
-# would overwrite each other's task.
-#
-# Defined here (not in :mod:`.autostart_windows`) because:
-#   1. ``_install_hash_suffix`` is defined in :mod:`.autostart` (loaded
-#      above), so the import is already available by this point in the
-#      file.
-#   2. ``tests/regressions/test_platform_win32.py``
-#      ``.test_autostart_task_name_includes_hash_suffix`` does
-#      ``inspect.getsource(server_platform)`` (which returns THIS file's
-#      source) and asserts the literal f-string
-#      ``f"com.voicetyper.autostart{_install_hash_suffix()}"`` is
-#      present — defining it here makes the source-string check trivially
-#      pass.
-#
-# The constant is read by ``autostart_windows`` functions via
-# ``_pkg._APP_AUTOSTART_TASK_NAME`` at call time (NOT at module-import
-# time) because at the moment ``autostart_windows`` is imported above,
-# this assignment hasn't run yet (we're still in the middle of the
-# ``__init__.py`` body).  By call time (when any Windows-autostart
-# function actually executes), this assignment has completed and the
-# name is available on the package.
-_APP_AUTOSTART_TASK_NAME = f"com.voicetyper.autostart{_install_hash_suffix()}"
-
 __all__ = [
     # remote_session
     "is_remote_session",
@@ -308,7 +235,6 @@ __all__ = [
     "_startup_bat_name",
     "_startup_bat_path",
     "sweep_legacy_autostart_entries",
-    "_APP_AUTOSTART_TASK_NAME",
     # autostart_macos
     "_enable_autostart_macos",
     "_disable_autostart_macos",
@@ -343,16 +269,3 @@ __all__ = [
     "Path",
     "Any",
 ]
-
-# ── Source-check echo (PLAT-RUN) ──────────────────────────────────────
-# tests/regressions/test_platform_win32.py::TestPlatRunAutostartTaskHashed
-# .test_autostart_task_name_includes_hash_suffix does
-# ``inspect.getsource(server_platform)`` (which reads THIS file) and
-# asserts that the literal f-string
-# ``f"com.voicetyper.autostart{_install_hash_suffix()}"`` appears in the
-# source.  The actual assignment is on the line above (see
-# ``_APP_AUTOSTART_TASK_NAME``).  The pattern is echoed here as a
-# comment so the source-string check continues to pass even if a future
-# refactor moves the assignment into a submodule:
-#
-#   _APP_AUTOSTART_TASK_NAME = f"com.voicetyper.autostart{_install_hash_suffix()}"

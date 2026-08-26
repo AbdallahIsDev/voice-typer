@@ -93,6 +93,102 @@ _DEVICE_LIST_FAST_TTL: float = 5.0
 _DEVICE_LIST_FAST_TTL_WINDOW: float = 60.0
 
 
+class DeviceStateShimMixin:
+    """Property shims exposing DeviceManager-owned device state on ``Recorder``.
+
+    God-class split (continues the plan in :mod:`._recorder_split`):
+    the device-related state attrs moved to :class:`DeviceManager`, and
+    the read/write property shims that re-expose them on ``Recorder``
+    instances moved OUT of the ``Recorder`` class body into this mixin
+    (mirroring :class:`.vad_helpers.VadShimMixin`). ``Recorder``
+    inherits from this mixin, so attribute access is unchanged:
+
+      - KEEP-methods on ``Recorder`` (``_handle_device_disconnect``,
+        ``_stream_finished_callback``, ``_process_audio_chunk``, ``start``)
+      - existing tests that do ``r._device_disconnected = False`` /
+        ``r._mic_watcher is None`` / ``r._device_list_cache = ...``
+        (see tests/test_microphone_watcher.py / tests/test_audio_callback.py /
+        tests/regressions/test_audio.py)
+
+    Every shim delegates reads AND writes through to ``self._devices.X``
+    so both directions keep working. The 4 attrs that are ONLY used
+    inside ``DeviceManager`` methods after the move
+    (``_device_list_cache_ttl``, ``_device_check_interval``,
+    ``_device_health_checker_thread``, ``_device_check_interval_s``)
+    do NOT need shims and are accessed purely via ``self._devices.X``.
+    """
+
+    # Declared on the consuming ``Recorder`` by
+    # ``RecorderInitMixin._setup_device_state_and_collaborators``;
+    # annotated here (declaration only — no runtime attribute is
+    # created) so the property bodies below type-check.
+    _devices: DeviceManager
+
+    @property
+    def _device_disconnected(self) -> bool:
+        return self._devices._device_disconnected
+
+    @_device_disconnected.setter
+    def _device_disconnected(self, value: bool) -> None:
+        self._devices._device_disconnected = value
+
+    @property
+    def _device_disconnect_retries(self) -> int:
+        return self._devices._device_disconnect_retries
+
+    @_device_disconnect_retries.setter
+    def _device_disconnect_retries(self, value: int) -> None:
+        self._devices._device_disconnect_retries = value
+
+    @property
+    def _max_disconnect_retries(self) -> int:
+        return self._devices._max_disconnect_retries
+
+    @_max_disconnect_retries.setter
+    def _max_disconnect_retries(self, value: int) -> None:
+        self._devices._max_disconnect_retries = value
+
+    @property
+    def _device_check_counter(self) -> int:
+        return self._devices._device_check_counter
+
+    @_device_check_counter.setter
+    def _device_check_counter(self, value: int) -> None:
+        self._devices._device_check_counter = value
+
+    @property
+    def _device_health_stop_event(self) -> threading.Event:
+        return self._devices._device_health_stop_event
+
+    @_device_health_stop_event.setter
+    def _device_health_stop_event(self, value: threading.Event) -> None:
+        self._devices._device_health_stop_event = value
+
+    @property
+    def _device_list_cache(self) -> list[dict] | None:
+        return self._devices._device_list_cache
+
+    @_device_list_cache.setter
+    def _device_list_cache(self, value: list[dict] | None) -> None:
+        self._devices._device_list_cache = value
+
+    @property
+    def _device_list_cache_time(self) -> float:
+        return self._devices._device_list_cache_time
+
+    @_device_list_cache_time.setter
+    def _device_list_cache_time(self, value: float) -> None:
+        self._devices._device_list_cache_time = value
+
+    @property
+    def _mic_watcher(self) -> Any | None:
+        return self._devices._mic_watcher
+
+    @_mic_watcher.setter
+    def _mic_watcher(self, value: Any | None) -> None:
+        self._devices._mic_watcher = value
+
+
 class DeviceManager:
     """Device enumeration, hot-swap, and health-checker for ``Recorder``.
 
@@ -974,7 +1070,7 @@ class DeviceManager:
         # handles those without a PortAudio round-trip.
         if isinstance(mic, str) and not mic.isdigit():
             try:
-                from voice_typer.server.server_platform import find_microphone_by_id
+                from voice_typer.server.server_platform.microphone_list import find_microphone_by_id
 
                 stable_match = find_microphone_by_id(mic)
             except Exception:
@@ -1012,7 +1108,7 @@ class DeviceManager:
         match = None
         if saved_name.strip():
             try:
-                from voice_typer.server.server_platform import find_microphone_by_name
+                from voice_typer.server.server_platform.microphone_list import find_microphone_by_name
 
                 match = find_microphone_by_name(saved_name)
             except Exception:

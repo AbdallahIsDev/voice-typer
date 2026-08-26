@@ -312,7 +312,7 @@ class TestFindMicrophoneByIdLegacyCompat:
 
     def test_exact_stable_id_match(self, monkeypatch):
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.list_microphones",
+            "voice_typer.server.server_platform.microphone_list.list_microphones",
             lambda: [dict(m) for m in self._mics],
         )
         from voice_typer.server.server_platform import find_microphone_by_id
@@ -326,7 +326,7 @@ class TestFindMicrophoneByIdLegacyCompat:
         index 7 — pre-stable-id behavior — and carries the NEW stable
         id going forward."""
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.list_microphones",
+            "voice_typer.server.server_platform.microphone_list.list_microphones",
             lambda: [dict(m) for m in self._mics],
         )
         from voice_typer.server.server_platform import find_microphone_by_id
@@ -338,7 +338,7 @@ class TestFindMicrophoneByIdLegacyCompat:
 
     def test_unknown_digit_id_returns_none(self, monkeypatch):
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.list_microphones",
+            "voice_typer.server.server_platform.microphone_list.list_microphones",
             lambda: [dict(m) for m in self._mics],
         )
         from voice_typer.server.server_platform import find_microphone_by_id
@@ -347,7 +347,7 @@ class TestFindMicrophoneByIdLegacyCompat:
 
     def test_gone_stable_id_returns_none(self, monkeypatch):
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.list_microphones",
+            "voice_typer.server.server_platform.microphone_list.list_microphones",
             lambda: [dict(m) for m in self._mics],
         )
         from voice_typer.server.server_platform import find_microphone_by_id
@@ -361,7 +361,7 @@ class TestFindMicrophoneByIdLegacyCompat:
 class TestResolveMicIdToDeviceIndex:
     def _patch_mics(self, monkeypatch):
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.list_microphones",
+            "voice_typer.server.server_platform.microphone_list.list_microphones",
             lambda: [
                 {"id": "Windows WASAPI|Blue Yeti", "index": 5, "name": "Blue Yeti", "host_api": "Windows WASAPI"},
                 {"id": "MME|USB Mic", "index": 7, "name": "USB Mic", "host_api": "MME"},
@@ -394,14 +394,14 @@ class TestResolveMicIdToDeviceIndex:
             {"id": "Windows WASAPI|Blue Yeti", "index": 12, "name": "Blue Yeti", "host_api": "Windows WASAPI"},
             {"id": "MME|USB Mic", "index": 7, "name": "USB Mic", "host_api": "MME"},
         ]
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: mics)
+        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: mics)
         assert resolve_mic_id_to_device_index("5|Blue Yeti|Windows WASAPI") == 12
 
     def test_legacy_compound_id_falls_back_to_saved_index(self, monkeypatch):
         """Old compound form whose device vanished by NAME still resolves
         via whatever occupies the saved index today."""
         mics = [{"id": "MME|Other Mic", "index": 5, "name": "Other Mic", "host_api": "MME"}]
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: mics)
+        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: mics)
         assert resolve_mic_id_to_device_index("5|Blue Yeti") == 5
 
     def test_legacy_compound_id_empty_name_skips_substring_match(self, monkeypatch):
@@ -411,7 +411,7 @@ class TestResolveMicIdToDeviceIndex:
             {"id": "MME|First Mic", "index": 0, "name": "First Mic", "host_api": "MME"},
             {"id": "MME|Other", "index": 5, "name": "Other", "host_api": "MME"},
         ]
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: mics)
+        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: mics)
         assert resolve_mic_id_to_device_index("5|") == 5
 
     def test_unresolvable_id_returns_none(self, monkeypatch):
@@ -430,7 +430,7 @@ class TestFindMicrophoneByIdCompoundCompat:
 
     def _patch(self, monkeypatch):
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.list_microphones",
+            "voice_typer.server.server_platform.microphone_list.list_microphones",
             lambda: [dict(m) for m in self._mics],
         )
 
@@ -467,7 +467,7 @@ class TestFindMicrophoneByIdCompoundCompat:
             seen_calls.append(1)
             return [dict(m) for m in real]
 
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", spy)
+        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", spy)
         from voice_typer.server.server_platform import find_microphone_by_id
 
         assert find_microphone_by_id("Windows WASAPI|Blue Yeti")["index"] == 12
@@ -491,7 +491,7 @@ class TestDeviceManagerResolveDeviceStableId:
     def test_stable_id_resolves_to_enumerated_index(self, monkeypatch):
         dm, _ = self._make_dm("Windows WASAPI|Blue Yeti")
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.find_microphone_by_id",
+            "voice_typer.server.server_platform.microphone_list.find_microphone_by_id",
             lambda mic_id: {"id": mic_id, "index": 5, "name": "Blue Yeti"},
         )
         assert dm._resolve_device() == 5
@@ -499,7 +499,7 @@ class TestDeviceManagerResolveDeviceStableId:
     def test_unresolvable_stable_id_falls_through_to_legacy_parsers(self, monkeypatch):
         dm, _ = self._make_dm("Windows WASAPI|Gone")
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.find_microphone_by_id",
+            "voice_typer.server.server_platform.microphone_list.find_microphone_by_id",
             lambda mic_id: None,
         )
         # Falls through to the legacy compound parser: no numeric leading
@@ -514,13 +514,13 @@ class TestDeviceManagerResolveDeviceStableId:
         def boom(_mic_id):
             raise AssertionError("bare digit ids must not trigger enumeration")
 
-        monkeypatch.setattr("voice_typer.server.server_platform.find_microphone_by_id", boom)
+        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.find_microphone_by_id", boom)
         assert dm._resolve_device() == 5
 
     def test_legacy_compound_form_still_works(self, monkeypatch):
         dm, _ = self._make_dm("5|Blue Yeti|Windows WASAPI")
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.find_microphone_by_id",
+            "voice_typer.server.server_platform.microphone_list.find_microphone_by_id",
             lambda mic_id: (
                 {"id": "x", "index": 99, "name": "wrong"} if mic_id == "5|Blue Yeti|Windows WASAPI" else None
             ),
@@ -532,11 +532,11 @@ class TestDeviceManagerResolveDeviceStableId:
     def test_legacy_compound_form_prefers_name_lookup(self, monkeypatch):
         dm, _ = self._make_dm("5|Blue Yeti|Windows WASAPI")
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.find_microphone_by_id",
+            "voice_typer.server.server_platform.microphone_list.find_microphone_by_id",
             lambda mic_id: None,
         )
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.find_microphone_by_name",
+            "voice_typer.server.server_platform.microphone_list.find_microphone_by_name",
             lambda name: {"id": "Windows WASAPI|Blue Yeti", "index": 12, "name": name},
         )
         assert dm._resolve_device() == 12

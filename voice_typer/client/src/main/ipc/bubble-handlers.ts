@@ -11,14 +11,13 @@
  *     The legacy listener was removed once the preload files were migrated.)
  *   - bubble:toggle-dictation — bubble mic button → Python backend
  *   - bubble:ready — renderer readiness signal
- *   - bubble:dismiss — '×' button (cancel-then-hide)
+ *   - bubble:dismiss — '×' button (cancel-then-hide; the same body is
+ *     shared with the main-process global dismiss shortcut)
  *   - bubble:hidden — exit-animation-complete signal
  *
  * The `bubble:move-by` keyboard-nudge handler was removed — it had no
  * production caller (the bubble window is `focusable: false`, so the
  * renderer-side keydown handler that fed this channel was dead code).
- * When globalShortcut wiring is added later, re-add the handler
- * atomically alongside its hotkey registration.
  *
  * SEC-016: `assertFromBubble()` rejects IPC messages not coming from the
  * bubble window's webContents, so a compromised main window can't
@@ -170,6 +169,53 @@ function clampBubbleSize(
 		width: Math.max(MIN_BUBBLE_W, Math.min(MAX_BUBBLE_W, Math.round(width))),
 		height: Math.max(MIN_BUBBLE_H, Math.min(MAX_BUBBLE_H, Math.round(height))),
 	};
+}
+
+/**
+ * Cancel-then-hide body shared by the `bubble:dismiss` IPC handler and
+ * the main-process global shortcut (see
+ * `shortcuts/global-shortcuts.ts`). Extracted from the IPC handler so
+ * a keyboard-triggered dismiss routes through EXACTLY the same
+ * semantics as the bubble's own '×' button.
+ *
+ * When the bubble is in "recording" or "transcribing" mode, dismiss
+ * first sends `toggle_dictation` to the Python backend (which stops
+ * the audio pipeline) before hiding. Without this, dismissing while
+ * recording would vanish the bubble but the finalized text would still
+ * get pasted — violating the user's "stop this" intent.
+ *
+ * Idempotency: `toggle_dictation` is non-idempotent (a second toggle
+ * re-starts recording). A rapid double-dismiss would fire two
+ * toggle_dictation calls — the first stops the recording, the second
+ * starts a new one. Clear the cached mode to "idle" immediately AFTER
+ * firing the dismiss-triggered toggle so a second dismiss sees "idle"
+ * and skips the toggle. The next `bubble_set_state` push from the
+ * backend (after the toggle takes effect) overwrites this with the
+ * actual new mode.
+ *
+ * The Python backend's structured `_error` reply envelope is inspected
+ * on resolve (see the `bubble:toggle-dictation` handler for the same
+ * pattern) so a backend-side failure is logged for diagnosis instead
+ * of being silently swallowed.
+ */
+export function dismissAndHideBubble(): void {
+	const mode = _lastKnownBubbleMode;
+	if (mode === "recording" || mode === "transcribing") {
+		void sendToPython({ type: "toggle_dictation" })
+			.then((resp) => {
+				if (resp && typeof resp === "object" && "_error" in resp) {
+					log.warn("[BUBBLE] dismiss toggle_dictation backend error", resp);
+				}
+			})
+			.catch((err) => {
+				log.warn("[BUBBLE] dismiss toggle_dictation failed:", String(err));
+			});
+		// Clear the cached mode so a rapid second dismiss
+		// sees "idle" and skips the toggle (non-idempotent:
+		// a second toggle would re-start recording).
+		_lastKnownBubbleMode = "idle";
+	}
+	hideBubbleWindow();
 }
 
 export function registerBubbleHandlers(): void {
@@ -349,45 +395,9 @@ export function registerBubbleHandlers(): void {
 	// plays its exit animation and the rapid-toggle guard correctly
 	// cancels any in-flight show. SEC-016: restricted to the bubble
 	// frame so only the bubble can dismiss itself.
-	//
-	// ZU-15: when the bubble is in "recording" or "transcribing"
-	// mode, dismiss first sends `toggle_dictation` to the Python
-	// backend (which stops the audio pipeline) before hiding.
-	// Without this, clicking ✕ while recording would vanish the
-	// bubble but the finalized text would still get pasted —
-	// violating the user's "stop this" intent.
-	//
-	// Idempotency: `toggle_dictation` is non-idempotent (a second
-	// toggle re-starts recording). A rapid double-click on ✕ would
-	// fire two toggle_dictation calls — the first stops the
-	// recording, the second starts a new one. Clear the cached mode
-	// to "idle" immediately AFTER firing the dismiss-triggered
-	// toggle so a second dismiss sees "idle" and skips the toggle.
-	// The next `bubble_set_state` push from the backend (after the
-	// toggle takes effect) overwrites this with the actual new mode.
-	// The Python backend's structured `_error` reply envelope is
-	// inspected on resolve (see `bubble:toggle-dictation` above for
-	// the same pattern) so a backend-side failure is logged for
-	// diagnosis instead of being silently swallowed.
 	ipcMain.on(BubbleChannels.dismiss, (event) => {
 		if (!assertFromBubble(event, BubbleChannels.dismiss)) return;
-		const mode = _lastKnownBubbleMode;
-		if (mode === "recording" || mode === "transcribing") {
-			void sendToPython({ type: "toggle_dictation" })
-				.then((resp) => {
-					if (resp && typeof resp === "object" && "_error" in resp) {
-						log.warn("[BUBBLE] dismiss toggle_dictation backend error", resp);
-					}
-				})
-				.catch((err) => {
-					log.warn("[BUBBLE] dismiss toggle_dictation failed:", String(err));
-				});
-			// Clear the cached mode so a rapid second dismiss
-			// sees "idle" and skips the toggle (non-idempotent:
-			// a second toggle would re-start recording).
-			_lastKnownBubbleMode = "idle";
-		}
-		hideBubbleWindow();
+		dismissAndHideBubble();
 	});
 
 	// Persistent listener for the renderer's exit-animation-complete

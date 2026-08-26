@@ -10,9 +10,12 @@ from voice_typer.server import server_platform as platform_mod
 from voice_typer.server.server_platform import (
     _autostart_command,
     _generate_icon_ico,
+    autostart as autostart_mod,
+    autostart_macos as macos_mod,
     create_launcher_shortcut,
     find_microphone_by_name,
     list_microphones,
+    platform_flags as flags_mod,
 )
 
 
@@ -60,10 +63,10 @@ class TestLinuxDesktopExec:
 
     def test_exec_field_is_command_verbatim(self, monkeypatch, tmp_path):
         # Force the Linux path regardless of host platform.
-        monkeypatch.setattr(platform_mod, "SYSTEM", "linux")
-        monkeypatch.setattr(platform_mod, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(flags_mod, "SYSTEM", "linux")
+        monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
         monkeypatch.setattr(
-            platform_mod,
+            autostart_mod,
             "_autostart_command",
             lambda: '"/usr/bin/python3" "/opt/voice_typer/launcher.py"',
         )
@@ -86,10 +89,10 @@ class TestLinuxDesktopExec:
 
     def test_exec_field_handles_paths_with_spaces(self, monkeypatch, tmp_path):
         """Paths with spaces must remain quoted (freedesktop spec)."""
-        monkeypatch.setattr(platform_mod, "SYSTEM", "linux")
-        monkeypatch.setattr(platform_mod, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(flags_mod, "SYSTEM", "linux")
+        monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
         monkeypatch.setattr(
-            platform_mod,
+            autostart_mod,
             "_autostart_command",
             lambda: '"/usr/bin/python3" "/home/my user/voice typer/launcher.py"',
         )
@@ -114,8 +117,8 @@ class TestMacOsAutostartUnload:
     def test_disable_calls_launchctl_bootout_then_remove(self, monkeypatch, tmp_path):
         import subprocess as _sp
 
-        monkeypatch.setattr(platform_mod, "SYSTEM", "darwin")
-        monkeypatch.setattr(platform_mod, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(flags_mod, "SYSTEM", "darwin")
+        monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
         # Pretend the plist exists so the unlink path runs.
         (tmp_path / "com.voicetyper.plist").write_text("dummy")
 
@@ -131,7 +134,7 @@ class TestMacOsAutostartUnload:
 
         monkeypatch.setattr(_sp, "run", fake_run)
         # Ensure os.getuid is available even on Windows test host.
-        monkeypatch.setattr(platform_mod, "_os_uid", lambda: 501)
+        monkeypatch.setattr(macos_mod, "_os_uid", lambda: 501)
 
         assert platform_mod._disable_autostart_macos() is True
 
@@ -162,7 +165,7 @@ class TestFindMicrophoneByName:
             {"id": "1", "index": 1, "name": "WO Mic", "host_api": "MME", "channels": 1, "default": False},
             {"id": "2", "index": 2, "name": "Blue Yeti", "host_api": "MME", "channels": 2, "default": False},
         ]
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: fake_mics)
+        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: fake_mics)
 
         result = find_microphone_by_name("wo mic")
         assert result is not None
@@ -171,14 +174,14 @@ class TestFindMicrophoneByName:
 
     def test_returns_none_for_no_match(self, monkeypatch):
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.list_microphones",
+            "voice_typer.server.server_platform.microphone_list.list_microphones",
             lambda: [{"id": "0", "index": 0, "name": "Built-in", "host_api": "", "channels": 2, "default": True}],
         )
         assert find_microphone_by_name("nonexistent mic") is None
 
     def test_case_insensitive(self, monkeypatch):
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.list_microphones",
+            "voice_typer.server.server_platform.microphone_list.list_microphones",
             lambda: [{"id": "0", "index": 0, "name": "Blue Yeti", "host_api": "MME", "channels": 2, "default": False}],
         )
         assert find_microphone_by_name("BLUE YETI") is not None
@@ -190,7 +193,7 @@ class TestFindMicrophoneById:
             {"id": "3", "index": 3, "name": "WO Mic", "host_api": "WASAPI", "channels": 1, "default": False},
             {"id": "7", "index": 7, "name": "WO Mic", "host_api": "MME", "channels": 1, "default": False},
         ]
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: fake_mics)
+        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: fake_mics)
 
         from voice_typer.server.server_platform import find_microphone_by_id
 
@@ -201,7 +204,7 @@ class TestFindMicrophoneById:
 
     def test_returns_none_for_bad_id(self, monkeypatch):
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.list_microphones",
+            "voice_typer.server.server_platform.microphone_list.list_microphones",
             lambda: [{"id": "0", "index": 0, "name": "Mic", "host_api": "", "channels": 1, "default": True}],
         )
         from voice_typer.server.server_platform import find_microphone_by_id
@@ -216,7 +219,7 @@ class TestDuplicateMicrophoneDisambiguation:
             {"id": "3", "index": 3, "name": "WO Mic", "host_api": "Windows WASAPI", "channels": 1, "default": False},
             {"id": "7", "index": 7, "name": "WO Mic", "host_api": "MME", "channels": 1, "default": False},
         ]
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: fake_mics)
+        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: fake_mics)
 
         from voice_typer.server.server_platform import find_microphone_by_id
 
@@ -236,9 +239,7 @@ class TestCreateLauncherShortcut:
         pythonw.touch()
         monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
 
-        import voice_typer.server.server_platform as mod
-
-        monkeypatch.setattr(mod, "SYSTEM", "win32")
+        monkeypatch.setattr(flags_mod, "SYSTEM", "win32")
 
         desktop = tmp_path / "Desktop"
         desktop.mkdir()
@@ -271,9 +272,7 @@ class TestCreateLauncherShortcut:
         pythonw.touch()
         monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
 
-        import voice_typer.server.server_platform as mod
-
-        monkeypatch.setattr(mod, "SYSTEM", "win32")
+        monkeypatch.setattr(flags_mod, "SYSTEM", "win32")
 
         desktop = tmp_path / "Desktop"
         desktop.mkdir()
@@ -297,18 +296,16 @@ class TestCreateLauncherShortcut:
         assert result.name == "Voice Typer.lnk"
 
     def test_returns_none_on_non_windows(self, monkeypatch):
-        import voice_typer.server.server_platform as mod
 
-        monkeypatch.setattr(mod, "SYSTEM", "linux")
+        monkeypatch.setattr(flags_mod, "SYSTEM", "linux")
         assert create_launcher_shortcut() is None
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only test")
     def test_returns_none_when_pythonw_missing(self, tmp_path, monkeypatch):
         """If pythonw.exe doesn't exist next to the interpreter, returns None."""
         monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
-        import voice_typer.server.server_platform as mod
 
-        monkeypatch.setattr(mod, "SYSTEM", "win32")
+        monkeypatch.setattr(flags_mod, "SYSTEM", "win32")
         assert create_launcher_shortcut() is None
 
 
@@ -337,7 +334,7 @@ class TestSetLnkAppUserModelId:
         """Idempotency fast-path: bytes present → no subprocess spawn."""
         import voice_typer.server.server_platform as mod
 
-        monkeypatch.setattr(mod, "SYSTEM", "win32")
+        monkeypatch.setattr(flags_mod, "SYSTEM", "win32")
         lnk = self._stamped_lnk(tmp_path)
 
         called = []
@@ -355,7 +352,7 @@ class TestSetLnkAppUserModelId:
         """Property absent → PowerShell stamp runs."""
         import voice_typer.server.server_platform as mod
 
-        monkeypatch.setattr(mod, "SYSTEM", "win32")
+        monkeypatch.setattr(flags_mod, "SYSTEM", "win32")
         lnk = tmp_path / "Voice Typer.lnk"
         lnk.write_bytes(b"\x00\x01\x02")
 
@@ -375,7 +372,7 @@ class TestSetLnkAppUserModelId:
         """Non-Windows or missing .lnk → False, never spawns."""
         import voice_typer.server.server_platform as mod
 
-        monkeypatch.setattr(mod, "SYSTEM", "linux")
+        monkeypatch.setattr(flags_mod, "SYSTEM", "linux")
         lnk = self._stamped_lnk(tmp_path)
 
         called = []
@@ -393,7 +390,7 @@ class TestSetLnkAppUserModelId:
         """Missing .lnk → False (guard against phantom .lnk creation)."""
         import voice_typer.server.server_platform as mod
 
-        monkeypatch.setattr(mod, "SYSTEM", "win32")
+        monkeypatch.setattr(flags_mod, "SYSTEM", "win32")
         missing = tmp_path / "DoesNotExist.lnk"
 
         called = []
@@ -493,7 +490,7 @@ class TestGetAutostartDirLinux:
         from voice_typer.server.server_platform import autostart as autostart_mod, get_autostart_dir
 
         # Force the Linux branch regardless of host platform.
-        monkeypatch.setattr(platform_mod, "SYSTEM", "linux")
+        monkeypatch.setattr(flags_mod, "SYSTEM", "linux")
         fake_home = tmp_path
         monkeypatch.setattr(Path, "home", lambda: fake_home)
         # Empty string must be treated as unset per the XDG spec.
@@ -510,7 +507,7 @@ class TestGetAutostartDirLinux:
     def test_unset_xdg_config_home_uses_fallback(self, monkeypatch, tmp_path):
         from voice_typer.server.server_platform import autostart as autostart_mod, get_autostart_dir
 
-        monkeypatch.setattr(platform_mod, "SYSTEM", "linux")
+        monkeypatch.setattr(flags_mod, "SYSTEM", "linux")
         fake_home = tmp_path
         monkeypatch.setattr(Path, "home", lambda: fake_home)
         # No XDG_CONFIG_HOME key at all.
@@ -524,7 +521,7 @@ class TestGetAutostartDirLinux:
     def test_set_nonempty_xdg_config_home_is_respected(self, monkeypatch, tmp_path):
         from voice_typer.server.server_platform import autostart as autostart_mod, get_autostart_dir
 
-        monkeypatch.setattr(platform_mod, "SYSTEM", "linux")
+        monkeypatch.setattr(flags_mod, "SYSTEM", "linux")
         monkeypatch.setattr(autostart_mod.os, "environ", {"XDG_CONFIG_HOME": str(tmp_path)})
 
         result = get_autostart_dir()

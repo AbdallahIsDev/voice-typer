@@ -149,7 +149,7 @@ class TestCorruptionNotification:
         monkeypatch.setattr(db, "_open_write_conn", lambda: fresh_conn)
         monkeypatch.setattr(db, "_check_wal_mode", lambda conn: None)
 
-        with caplog.at_level(logging.WARNING, logger="voice_typer.server.history_db"):
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.history_db_internals.corruption_recovery"):
             db._maybe_recover_from_corruption(fake_conn)
 
         # Look for a WARNING log that mentions "corrupted" and "backed up".

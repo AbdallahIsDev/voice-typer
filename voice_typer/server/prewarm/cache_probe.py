@@ -19,13 +19,10 @@ into the OS standby cache without importing the packages they belong to:
 - :func:`_warm_imports` — page torch + transformers files into the OS
   cache (no import).
 
-Patch-path compatibility
-------------------------
-Tests patch ``_warm_file`` on the package namespace and then call
-``prewarm._warm_package_files(...)`` directly, so :func:`_warm_package_files`
-must look up ``_warm_file`` via ``_pkg._warm_file()`` at call time.  The
-other helpers aren't patched via the package namespace by any test that
-exercises them, so bare-name lookups are sufficient.
+``_warm_file`` is defined in this module, and
+:func:`_warm_package_files` calls it via a bare module-global lookup.
+The former package-namespace call-time indirection was removed together
+with its test patch site.
 
 ``inspect.getsource`` compatibility
 -----------------------------------
@@ -46,11 +43,6 @@ from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import Path
 
-# Patch-path bridge: route lookups of cross-submodule helpers through
-# the package namespace so test patches of the form
-# ``monkeypatch.setattr(prewarm, "_warm_file", ...)`` keep affecting
-# production code defined here.
-from voice_typer.server import prewarm as _pkg
 from voice_typer.server.duration import format_duration
 from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
@@ -239,7 +231,7 @@ def _warm_package_files(pkg_name: str) -> int:
             ):
                 continue
             try:
-                total += _pkg._warm_file(path)
+                total += _warm_file(path)
             except OSError as exc:
                 log.debug("[PREWARM] skip %s: %s", path, exc)
     elapsed = time.perf_counter() - t0

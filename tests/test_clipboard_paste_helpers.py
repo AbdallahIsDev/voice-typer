@@ -354,20 +354,20 @@ class TestComputePasteDelay:
         with (
             patch.object(clip_mod, "is_windows", return_value=True),
             patch(
-                "voice_typer.server.server_platform.is_remote_session",
+                "voice_typer.server.server_platform.remote_session.is_remote_session",
                 return_value=False,
                 create=True,
             ),
         ):
             # Import path inside _compute_paste_delay uses
-            # `from voice_typer.server.server_platform import is_remote_session`.
-            # We patch the symbol after import — but the helper imports it
-            # lazily each call. Use sys.modules patching instead.
+            # `from voice_typer.server.server_platform.remote_session import
+            # is_remote_session`. We swap the owning submodule in
+            # sys.modules so the lazy import resolves to the mock.
             import sys
 
             mock_mod = MagicMock()
             mock_mod.is_remote_session.return_value = False
-            with patch.dict(sys.modules, {"voice_typer.server.server_platform": mock_mod}):
+            with patch.dict(sys.modules, {"voice_typer.server.server_platform.remote_session": mock_mod}):
                 assert cm._compute_paste_delay() == 0.0
 
     def test_returns_100ms_on_windows_rdp(self):
@@ -378,7 +378,7 @@ class TestComputePasteDelay:
         mock_mod.is_remote_session.return_value = True
         with (
             patch.object(clip_mod, "is_windows", return_value=True),
-            patch.dict(sys.modules, {"voice_typer.server.server_platform": mock_mod}),
+            patch.dict(sys.modules, {"voice_typer.server.server_platform.remote_session": mock_mod}),
             patch.object(clip_mod, "log") as mock_log,
         ):
             delay = cm._compute_paste_delay()

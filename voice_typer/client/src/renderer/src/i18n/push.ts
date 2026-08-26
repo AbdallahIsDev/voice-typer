@@ -314,10 +314,13 @@ export function trayLabelsForLocale(): Record<string, string> {
  * dialogs (single-instance error, critical-error dialog, model-folder
  * picker, export save-as dialogs).
  *
- * No-op when the bridge is missing (Tauri host, module-init scenario
- * where the preload bridge isn't installed yet). Rejections and sync
- * throws are caught and logged via ``console.warn`` so a locale switch
- * never crashes the renderer.
+ * No-op when the bridge is missing (module-init scenario where neither
+ * the Electron preload nor the Tauri bridge has installed ``window_``
+ * yet). Under both runtimes the push is a plain resolve: Electron
+ * stores the locale in its main process, and the Tauri host stores it
+ * in ``SidecarState::host_locale`` via the ``set_host_locale``
+ * command. Rejections and sync throws are caught and logged via
+ * ``console.warn`` so a locale switch never crashes the renderer.
  */
 export function pushLocaleToMainProcess(locale: Locale): void {
 	try {

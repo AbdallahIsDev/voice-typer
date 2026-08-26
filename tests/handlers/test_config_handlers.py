@@ -17,6 +17,8 @@ changed.
 
 from __future__ import annotations
 
+import logging
+
 
 class TestGetConfig:
     """``_handle_get_config`` — returns sanitized config view."""
@@ -155,3 +157,178 @@ class TestSetConfig:
         assert resp["type"] == "ack"
         # The rest of the payload was still applied.
         fake_service.apply_config.assert_called_once()
+
+
+# ==============================================================================
+# Merged from tests/test_config_onboarding_handler_fixes.py —
+#   config-handler regression pins (failed model/backend values not persisted or echoed, missing
+#   config-mutation-lock warning)
+# ==============================================================================
+
+
+class TestFailedModelConfigNotPersisted:
+    """DE-6: ``change_model`` / ``set_active_backend`` failures must be
+    dropped from the ``apply_config`` payload AND from the ``applied``
+    echo list AND from the ``config_changed`` event payload."""
+
+    def test_change_model_failure_drops_model_size_from_apply_config(self, ipc_server, fake_app, fake_service):
+        """When ``change_model`` raises, ``apply_config`` must NOT
+        receive ``model_size`` — otherwise the failed value is written
+        to config.json, leaving on-disk state pointing at a model the
+        running engine refused to load."""
+        fake_app.config.model_size = "tiny"
+        fake_service.change_model.side_effect = RuntimeError("engine busy")
+
+        ipc_server._handle_set_config({"model_size": "large-v3-turbo"}, {})
+
+        fake_service.apply_config.assert_called_once()
+        applied_arg = fake_service.apply_config.call_args[0][0]
+        assert "model_size" not in applied_arg, (
+            f"DE-6: apply_config must NOT receive the failed model_size; got: {applied_arg!r}"
+        )
+        assert applied_arg == {}, (
+            "DE-6: with only the failed key in the payload, apply_config should receive an empty dict"
+        )
+
+    def test_change_model_failure_drops_model_size_from_applied_list(self, ipc_server, fake_app, fake_service):
+        """The ``applied`` list echoed in the partial-success envelope
+        must NOT contain a key whose swap failed — otherwise the
+        envelope contradicts itself (``model_errors`` says it failed,
+        ``applied`` says it succeeded)."""
+        fake_app.config.model_size = "tiny"
+        fake_service.change_model.side_effect = RuntimeError("engine busy")
+
+        resp = ipc_server._handle_set_config({"model_size": "large-v3-turbo"}, {})
+
+        assert resp["type"] == "ack"
+        assert resp["data"]["status"] == "partial"
+        assert "model_size" not in resp["data"].get("applied", []), (
+            f"DE-6: failed key must not appear in `applied` list; got: {resp['data'].get('applied')!r}"
+        )
+        # model_errors still reports the failure so the renderer can
+        # surface the partial-success toast.
+        assert resp["data"]["model_errors"], "model_errors envelope must still report the failure"
+
+    def test_change_model_failure_preserves_other_keys_in_apply_config(self, ipc_server, fake_app, fake_service):
+        """When ``change_model`` fails but the payload also contains
+        unrelated allowlisted keys, only ``model_size`` is dropped —
+        the rest must still reach ``apply_config``."""
+        fake_app.config.model_size = "tiny"
+        fake_service.change_model.side_effect = RuntimeError("engine busy")
+
+        # ``hotkey`` is an allowlisted key that does NOT trigger a
+        # model/backend swap, so it must survive the failed_keys filter.
+        ipc_server._handle_set_config({"model_size": "large-v3-turbo", "hotkey": "<f3>"}, {})
+
+        fake_service.apply_config.assert_called_once()
+        applied_arg = fake_service.apply_config.call_args[0][0]
+        assert "model_size" not in applied_arg
+        assert applied_arg.get("hotkey") == "<f3>", (
+            f"DE-6: unrelated key must survive the failed_keys filter; got: {applied_arg!r}"
+        )
+
+    def test_set_active_backend_failure_drops_asr_backend_from_apply_config(self, ipc_server, fake_app, fake_service):
+        """Symmetric to ``change_model``: when ``set_active_backend``
+        raises, ``asr_backend`` must be dropped from the
+        ``apply_config`` payload."""
+        fake_app.config.asr_backend = "whisper"
+        fake_service.set_active_backend.side_effect = RuntimeError("backend unavailable")
+
+        ipc_server._handle_set_config({"asr_backend": "qwen"}, {})
+
+        fake_service.apply_config.assert_called_once()
+        applied_arg = fake_service.apply_config.call_args[0][0]
+        assert "asr_backend" not in applied_arg, (
+            f"DE-6: apply_config must NOT receive failed asr_backend; got: {applied_arg!r}"
+        )
+
+    def test_config_changed_event_excludes_failed_keys(self, ipc_server, fake_app, fake_service, monkeypatch):
+        """DE-6: the ``config_changed`` event published to the
+        renderer must NOT carry the failed model value — otherwise the
+        renderer mirrors the stale value into its local config state
+        (UI shows "model: medium" while the running engine is still
+        on "small")."""
+        fake_app.config.model_size = "tiny"
+        fake_service.change_model.side_effect = RuntimeError("engine busy")
+
+        published_events: list[dict] = []
+        import voice_typer.server.handlers.config_handlers as ch_mod
+
+        def fake_publish(event):
+            published_events.append(event)
+
+        monkeypatch.setattr(ch_mod.event_bus, "publish", fake_publish)
+
+        ipc_server._handle_set_config({"model_size": "large-v3-turbo", "hotkey": "<f3>"}, {})
+
+        config_changed_events = [e for e in published_events if e.get("type") == "config_changed"]
+        assert config_changed_events, "config_changed event must be published"
+        event_data = config_changed_events[0]["data"]
+        assert "model_size" not in event_data, (
+            f"DE-6: config_changed event must not carry failed model_size; got: {event_data!r}"
+        )
+        assert event_data.get("hotkey") == "<f3>", (
+            f"DE-6: config_changed event must still carry non-failed keys; got: {event_data!r}"
+        )
+
+
+class TestMissingConfigLockWarning:
+    """DE-37: when ``self.app._config_mutation_lock`` is missing, the
+    handler logs a WARNING once per process (instead of silently
+    running lock-free)."""
+
+    def test_missing_lock_emits_warning(self, ipc_server, fake_app, caplog):
+        """First call with no lock → WARNING in the log."""
+        # Ensure the fake app has no ``_config_mutation_lock`` attribute
+        # (MagicMock auto-vivifies — explicitly delete it).
+        if hasattr(fake_app, "_config_mutation_lock"):
+            del fake_app._config_mutation_lock
+        # Reset the module-level "warned once" flag so this test is
+        # order-independent.
+        import voice_typer.server.handlers.config_handlers as ch_mod
+
+        ch_mod._CONFIG_LOCK_MISSING_WARNED = False
+
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.ipc_server"):
+            ipc_server._handle_set_config({"hotkey": "<f3>"}, {})
+
+        warnings = [
+            r for r in caplog.records if r.levelno == logging.WARNING and "_config_mutation_lock" in r.getMessage()
+        ]
+        assert warnings, "DE-37: missing _config_mutation_lock must emit a WARNING"
+
+    def test_missing_lock_warning_fires_only_once_per_process(self, ipc_server, fake_app, caplog):
+        """Second call with no lock → no second WARNING (once per process)."""
+        if hasattr(fake_app, "_config_mutation_lock"):
+            del fake_app._config_mutation_lock
+        import voice_typer.server.handlers.config_handlers as ch_mod
+
+        ch_mod._CONFIG_LOCK_MISSING_WARNED = False
+
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.ipc_server"):
+            ipc_server._handle_set_config({"hotkey": "<f3>"}, {})
+            caplog.clear()
+            ipc_server._handle_set_config({"hotkey": "<f4>"}, {})
+
+        warnings = [
+            r for r in caplog.records if r.levelno == logging.WARNING and "_config_mutation_lock" in r.getMessage()
+        ]
+        assert not warnings, f"DE-37: warning must fire only ONCE per process; got a second warning: {warnings!r}"
+
+    def test_present_lock_emits_no_warning(self, ipc_server, fake_app, caplog):
+        """When the lock is present (real AppProtocol), NO warning fires."""
+        import threading
+
+        # Provide a real RLock so the handler acquires it.
+        fake_app._config_mutation_lock = threading.RLock()
+        import voice_typer.server.handlers.config_handlers as ch_mod
+
+        ch_mod._CONFIG_LOCK_MISSING_WARNED = False
+
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.ipc_server"):
+            ipc_server._handle_set_config({"hotkey": "<f3>"}, {})
+
+        warnings = [
+            r for r in caplog.records if r.levelno == logging.WARNING and "_config_mutation_lock" in r.getMessage()
+        ]
+        assert not warnings, "DE-37: when the lock is present, no warning should fire"

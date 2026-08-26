@@ -50,12 +50,12 @@ def _patch_app_platform_helpers(monkeypatch):
     ``startup_tasks.sync_autostart`` / ``load_microphones``), so that is
     the module to patch.
     """
-    from voice_typer.server import server_platform
+    from voice_typer.server.server_platform import autostart as autostart_mod
 
-    monkeypatch.setattr(server_platform, "is_autostart_enabled", lambda: False)
-    monkeypatch.setattr(server_platform, "enable_autostart", lambda: True)
-    monkeypatch.setattr(server_platform, "disable_autostart", lambda: True)
-    monkeypatch.setattr(server_platform, "list_microphones", lambda: [])
+    monkeypatch.setattr(autostart_mod, "is_autostart_enabled", lambda: False)
+    monkeypatch.setattr(autostart_mod, "enable_autostart", lambda: True)
+    monkeypatch.setattr(autostart_mod, "disable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
 
 @pytest.fixture(autouse=True)

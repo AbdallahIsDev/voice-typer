@@ -151,8 +151,8 @@ class TestEndToEndSmoke:
     def test_asr_registry_initialized_in_app_init(self, tmp_config_dir, monkeypatch):
         """ARCH-008: registry is set in VoiceTyperApp.__init__ (now via
         ModelManager._registry, accessed as app.models.registry)."""
-        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
         from voice_typer.server.app import VoiceTyperApp
 
         app = VoiceTyperApp()

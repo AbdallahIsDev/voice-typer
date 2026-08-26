@@ -120,7 +120,7 @@ class TestMicrophonesCacheEmptyList:
             return [{"name": "should-not-be-returned", "index": 0}]
 
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.list_microphones",
+            "voice_typer.server.server_platform.microphone_list.list_microphones",
             fake_list_microphones,
         )
 
@@ -151,7 +151,7 @@ class TestMicrophonesCacheEmptyList:
 
         call_count = {"n": 0}
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.list_microphones",
+            "voice_typer.server.server_platform.microphone_list.list_microphones",
             lambda: call_count.__setitem__("n", call_count["n"] + 1) or [],
         )
 

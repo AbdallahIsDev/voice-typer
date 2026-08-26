@@ -39,6 +39,8 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from voice_typer.server.platform_utils import is_linux
+
 if TYPE_CHECKING:
     from voice_typer.server.crash_recovery import CrashRecovery
 
@@ -243,7 +245,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 # distro.id() — Linux-only, lazy import (not available
                 # on macOS/Windows by default; the ``distro`` package
                 # is a soft dependency).
-                if sys.platform.startswith("linux"):
+                if is_linux():
                     try:
                         import distro
 
@@ -602,7 +604,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                     # renderer / support engineer infers "not
                     # applicable" from the platform field in
                     # ``system_info.txt``).
-                    if sys.platform.startswith("linux"):
+                    if is_linux():
                         manifest_path = Path("/var/lib/voice-typer/permissions-manifest.json")
                         if manifest_path.is_file():
                             try:

@@ -8,7 +8,7 @@
  */
 import type { Socket } from "node:net";
 import { state } from "../../state";
-import { _resetPendingOutbound } from "../send-to-python";
+import { resetPendingOutbound } from "../send-to-python";
 import { scheduleTcpRetryAfterClose } from "./retry-scheduler";
 
 export function installTcpCloseHandler(opts: {
@@ -76,7 +76,7 @@ export function installTcpCloseHandler(opts: {
 			// queue — see ``send-to-python.ts``'s
 			// ``_pendingOutbound``).
 			if (state._relaunching) {
-				_resetPendingOutbound("Application is restarting");
+				resetPendingOutbound("Application is restarting");
 			}
 		}
 		// If a newer retry generation is active, stop retrying.

@@ -206,7 +206,7 @@ class _PendingBuffer(deque):
         # operands, which Python then treats as identity comparison — so
         # ``_PendingBuffer() == []`` would be ``False`` without this
         # override. Test fixtures (``tests/server/test_tcp_io.py`` and
-        # ``tests/test_ipc_layer_fixes.py``) assert ``_pending_tcp == []``
+        # ``tests/test_ipc_server.py``) assert ``_pending_tcp == []``
         # after a successful drain; supporting ``== list`` keeps those
         # assertions working with the new deque-backed buffer.
         if isinstance(other, list):
@@ -437,8 +437,8 @@ class OutputMixin:
         # escaping to ``\uXXXX`` (the default ``ensure_ascii=True``).
         # ``separators=(",", ":")`` strips the default ``", "`` /
         # ``": "`` whitespace so the wire format is the minimum
-        # number of bytes. Both are wire-format invariants the
-        # ``test_ipc_layer_fixes`` regression suite pins.
+        # number of bytes. Both are wire-format invariants pinned by
+        # the merged IPC-layer suites in ``tests/test_ipc_server.py``.
         line = json.dumps(msg, ensure_ascii=False, separators=(",", ":"))
 
         if out is not None:
@@ -527,8 +527,8 @@ class OutputMixin:
             # defensive ``getattr(self, ..., False)`` (NOT
             # ``getattr(self.app, ...)``) keeps test fixtures that
             # bypass ``__init__`` (e.g.
-            # ``tests/test_ipc_layer_fixes.py::test_send_does_not_snapshot_when_no_client``
-            # constructs ``IPCServer.__new__(IPCServer)`` and sets
+            # ``tests/test_ipc_server.py::TestPendingSnapshotGatedOnTcpClient::
+            # test_send_does_not_snapshot_when_no_client`` constructs ``IPCServer.__new__(IPCServer)`` and sets
             # ``server.app._shutting_down = False`` but never sets
             # ``_cached_shutting_down``) working without modification —
             # they get the ``False`` default, matching the previous

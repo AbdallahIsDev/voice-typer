@@ -221,7 +221,7 @@ const _URL_USERINFO = /([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^\s:@/]+:[^\s@/]+@/g;
  *
  * Idempotent on already-redacted text so callers that pre-redact
  * (e.g. via `cleanConsoleMsg` chains) don't double-redact. Exported
- * so external callers that bypass `formatArgsForFile` — notably
+ * so external callers that bypass `redactArgsForFile` — notably
  * `ipc/window-handlers.ts`'s `appendRendererError` call site, which
  * writes via direct `appendLogLine` — can apply the same redaction
  * the format helpers apply internally. Internal callers

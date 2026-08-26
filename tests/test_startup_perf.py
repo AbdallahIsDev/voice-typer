@@ -37,12 +37,12 @@ def app_for_startup_perf(tmp_config_dir, monkeypatch):
     # imported at call time inside ``startup_tasks.sync_autostart`` /
     # ``startup_tasks.load_microphones`` from
     # ``voice_typer.server.server_platform``.
-    from voice_typer.server import server_platform
+    from voice_typer.server.server_platform import autostart as autostart_mod
 
-    monkeypatch.setattr(server_platform, "is_autostart_enabled", lambda: False)
-    monkeypatch.setattr(server_platform, "enable_autostart", lambda: True)
-    monkeypatch.setattr(server_platform, "disable_autostart", lambda: True)
-    monkeypatch.setattr(server_platform, "list_microphones", lambda: [])
+    monkeypatch.setattr(autostart_mod, "is_autostart_enabled", lambda: False)
+    monkeypatch.setattr(autostart_mod, "enable_autostart", lambda: True)
+    monkeypatch.setattr(autostart_mod, "disable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
     from voice_typer.server.app import VoiceTyperApp
 
@@ -69,12 +69,12 @@ def _patch_app_platform_helpers(monkeypatch):
     fixture uses string-target ``monkeypatch.setattr`` against the same
     canonical paths).
     """
-    from voice_typer.server import server_platform
+    from voice_typer.server.server_platform import autostart as autostart_mod
 
-    monkeypatch.setattr(server_platform, "is_autostart_enabled", lambda: False)
-    monkeypatch.setattr(server_platform, "enable_autostart", lambda: True)
-    monkeypatch.setattr(server_platform, "disable_autostart", lambda: True)
-    monkeypatch.setattr(server_platform, "list_microphones", lambda: [])
+    monkeypatch.setattr(autostart_mod, "is_autostart_enabled", lambda: False)
+    monkeypatch.setattr(autostart_mod, "enable_autostart", lambda: True)
+    monkeypatch.setattr(autostart_mod, "disable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
 
 # no eager TemplateManager / VocabularyManager ────────────────

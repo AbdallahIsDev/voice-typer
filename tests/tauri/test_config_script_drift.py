@@ -1036,12 +1036,12 @@ class TestReverseDnsIdentifierNamespace:
     def test_windows_autostart_and_prewarm_identifiers_are_reverse_dns(self) -> None:
         """Source pins for the Windows identifier literals (active names)."""
         pins = {
-            "voice_typer/server/server_platform/__init__.py": [
+            "voice_typer/server/server_platform/autostart.py": [
                 '_APP_AUTOSTART_TASK_NAME = f"com.voicetyper.autostart{_install_hash_suffix()}"',
             ],
             "voice_typer/server/server_platform/autostart_windows.py": [
-                'return f"com.voicetyper.autostart_{_pkg._install_hash()}"',
-                'return f"com.voicetyper.autostart{_pkg._install_hash_suffix()}.bat"',
+                'return f"com.voicetyper.autostart_{_autostart_mod._install_hash()}"',
+                'return f"com.voicetyper.autostart{_autostart_mod._install_hash_suffix()}.bat"',
                 # Register-time stale-cleanup + uninstall sweeps must match
                 # BOTH schemes (legacy entries from pre-rename installs).
                 'name.startswith(("VoiceTyper", "com.voicetyper"))',
@@ -1135,7 +1135,7 @@ class TestReverseDnsIdentifierNamespace:
         (``-v2-``) so installs that already ran the pre-rename sweep
         re-sweep exactly once after the namespace rename."""
         text = (PROJECT_ROOT / "voice_typer/server/server_platform/autostart_windows.py").read_text(encoding="utf-8")
-        assert 'f"autostart-sweep-v2-{_pkg._install_hash()}.done"' in text, (
+        assert 'f"autostart-sweep-v2-{_autostart_mod._install_hash()}.done"' in text, (
             "legacy-sweep marker name drifted: must stay "
             "autostart-sweep-v2-<hash>.done (version-scoped so installs "
             "carrying the v1 marker re-sweep once after the namespace "

@@ -13,49 +13,11 @@ import pytest
 from voice_typer.server.audio_processor import AudioProcessor
 
 from tests.fixtures.app_helpers import make_sine
+from tests.fixtures.config_helpers import FakeConfig
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Fixtures
 # ═══════════════════════════════════════════════════════════════════════════
-
-
-class FakeConfig:
-    """Minimal config object for testing — has noise_filter_* fields."""
-
-    def __init__(self, **kwargs):
-        # ADR 0007 defaults
-        self.audio_preset = "custom"
-        self.noise_filter_enabled = True
-        self.noise_filter_highpass = True
-        self.noise_filter_highpass_cutoff_hz = 80.0
-        self.noise_filter_gate = True
-        self.noise_filter_gate_threshold = 0.003
-        self.noise_filter_gate_hold_ms = 200.0
-        self.noise_filter_gate_open_threshold_db = -26.0
-        self.noise_filter_gate_close_threshold_db = -32.0
-        self.noise_filter_gate_attack_ms = 25.0
-        self.noise_filter_gate_release_ms = 150.0
-        self.noise_filter_rnnoise = True
-        self.noise_filter_post_capture = False
-        self.noise_suppression_method = "none"  # skip RNNoise in tests
-        self.noise_filter_eq = True
-        self.noise_filter_eq_low_db = -3.0
-        self.noise_filter_eq_mid_db = 3.0
-        self.noise_filter_eq_high_db = 2.0
-        self.noise_filter_compressor = True
-        self.noise_filter_compressor_threshold_db = -18.0
-        self.noise_filter_compressor_ratio = 3.0
-        self.noise_filter_compressor_attack_ms = 6.0
-        self.noise_filter_compressor_release_ms = 60.0
-        self.noise_filter_compressor_output_gain_db = 0.0
-        self.noise_filter_limiter = True
-        self.noise_filter_limiter_ceiling_db = -6.0
-        self.noise_filter_limiter_release_ms = 60.0
-        self.noise_filter_notch = False
-        self.noise_filter_notch_frequency_hz = 0.0
-        self.sample_rate = 16000
-        for k, v in kwargs.items():
-            setattr(self, k, v)
 
 
 @pytest.fixture

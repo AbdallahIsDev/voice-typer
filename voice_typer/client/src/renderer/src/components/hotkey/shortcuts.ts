@@ -69,11 +69,13 @@ export interface ShortcutDef extends InAppShortcut {
 	 * listener in `useGlobalKeyboardShortcuts` (or another renderer
 	 * handler, e.g. useNavigation's Alt+arrows / App's "?"); "server"
 	 * = the backend hotkey engine (pynput), e.g. the dictation keys
-	 * Esc / Tab / Space / Enter. Server-handled entries must NOT carry
+	 * Esc / Tab / Space / Enter; "main" = an Electron main-process
+	 * OS-global accelerator (`globalShortcut`, works without app
+	 * focus). Server/main-handled entries must NOT carry
 	 * `eventKeys` — the renderer never dispatches them, and the
 	 * catalog contract test enforces that split.
 	 */
-	handledBy?: "renderer" | "server";
+	handledBy?: "renderer" | "server" | "main";
 }
 export const SHORTCUTS = {
 	toggleSidebar: {
@@ -163,6 +165,17 @@ export const SHORTCUTS = {
 		keys: "Enter",
 		handledBy: "server",
 		labelKey: "help.activate",
+		category: "dictation",
+	},
+	dismissBubble: {
+		// OS-global accelerator registered in the Electron main process
+		// (`shortcuts/global-shortcuts.ts`, accelerator form
+		// "CommandOrControl+Shift+D"). Displayed as plain keycap chips —
+		// no eventKeys: the renderer never dispatches this binding, the
+		// main process owns it.
+		keys: "Ctrl+Shift+D",
+		handledBy: "main",
+		labelKey: "help.shortcuts.dismissBubble",
 		category: "dictation",
 	},
 } as const satisfies Record<string, ShortcutDef>;

@@ -14,6 +14,10 @@ Free functions:
 
 - :func:`_writer_loop` — the daemon-thread body that drains the write
   queue serially on the only write-capable connection.
+- :func:`_run_checkpoint` — periodic passive WAL checkpoint (bounds WAL
+  growth; clears lingering transactions first).
+- :func:`_fts5_startup_rebuild` — best-effort FTS5 ``'rebuild'`` sweep
+  on launch, gated by the persisted ``fts5_rebuild_failed`` flag.
 - :func:`_execute_write_item` — runs a single queued closure and
   resolves its future (with  InvalidStateError suppression +
   DB-LOCK-FIX rollback + WAL-CHECKPOINT-FIX post-write rollback).
@@ -31,13 +35,16 @@ Free functions:
   ``HistoryDB.close()`` (best-effort ``wal_checkpoint(TRUNCATE)`` +
   shutdown sentinel enqueue + wait for writer exit).
 
-NOTE: ``_run_checkpoint`` is intentionally NOT extracted. Tests in
-``tests/test_vocabulary_history_db_fixes.py`` use
-``inspect.getsource(HistoryDB._run_checkpoint)`` and assert that
-specific comment strings (e.g. ``"every 300s"``, ``"attempt in 300s
-will retry"``) are present in the source. Extracting to a free
-function would break those source-inspection tests; the method
-remains on the ``HistoryDB`` class until wave 2.
+NOTE: ``_run_checkpoint`` and ``_fts5_startup_rebuild`` were extracted
+here in a later split (they previously remained on the ``HistoryDB``
+class because ``tests/test_history_db_wal_checkpoint_interval.py`` /
+``tests/test_vocabulary_history_db_fixes.py`` pinned their bodies via
+``inspect.getsource(HistoryDB._run_checkpoint)`` — those pins have been
+retargeted to :func:`_run_checkpoint` below). Both run exclusively on
+the writer thread's connection, which is why they live in this module;
+the public class keeps thin delegating methods so class-level
+monkeypatch sites (e.g. ``monkeypatch.setattr(HistoryDB,
+"_fts5_startup_rebuild", ...)``) keep working unchanged.
 """
 
 from __future__ import annotations
@@ -158,6 +165,204 @@ def _writer_loop(db: HistoryDB) -> None:
         conn.close()
     except sqlite3.Error as e:
         log.warning("[HISTORY_DB] Error closing writer connection: %s", e)
+
+
+def _run_checkpoint(db: HistoryDB, conn: sqlite3.Connection) -> None:
+    """Run a passive WAL checkpoint to bound WAL growth.
+
+    PASSIVE mode doesn't block — it checkpoints as much as
+    possible without forcing readers/writers to wait. Called every
+    ``_WAL_CHECKPOINT_INTERVAL`` seconds by the writer thread.
+
+    WAL-CHECKPOINT-FIX: Always rollback any lingering uncommitted
+    transaction BEFORE running the checkpoint. If a write closure
+    failed after ``conn.commit()`` but before the exception handler
+    reached ``conn.rollback()``, or if a closure raised mid-execution
+    without committing, the writer's own connection has a pending
+    uncommitted transaction. ``PRAGMA wal_checkpoint(PASSIVE)`` on
+    the same connection then fails with "database table is locked"
+    — not because another thread holds the lock, but because the
+    writer's own connection hasn't released it yet.
+
+    The rollback is a no-op when there is no open transaction, so
+    it's safe to call unconditionally.
+    """
+    # Lazy import so the interval tracks monkeypatches on the
+    # ``history_db`` module namespace (e.g. _WAL_CHECKPOINT_INTERVAL).
+    from voice_typer.server import history_db as _hd
+
+    wal_checkpoint_interval = _hd._WAL_CHECKPOINT_INTERVAL  # noqa: N806
+
+    # WAL-CHECKPOINT-FIX: clear any lingering transaction from
+    # a prior write before checkpointing. The rollback is safe
+    # because all write closures commit before returning, so
+    # any open transaction here is an unexpected/transient state.
+    try:
+        conn.rollback()
+        result = conn.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchone()
+        if result is not None:
+            status, pages_checkpointed, total_pages = result
+            # Only log when a non-trivial checkpoint happens (>= 100
+            # pages) to avoid flooding the log at the checkpoint
+            # cadence (_WAL_CHECKPOINT_INTERVAL). Tiny checkpoints
+            # (e.g. 20 pages) are silent — the WAL is healthy, no
+            # action needed.
+            # status: 0=ok, 1=partial(active readers), 2=full(needs restart)
+            if pages_checkpointed >= 100:
+                if status == 0:
+                    log.debug(
+                        "[HISTORY_DB] WAL checkpointed %d pages",
+                        pages_checkpointed,
+                    )
+                else:
+                    log.debug(
+                        "[HISTORY_DB] WAL checkpoint partial: %d/%d pages (status=%d)",
+                        pages_checkpointed,
+                        total_pages,
+                        status,
+                    )
+    except sqlite3.OperationalError as e:
+        # This can happen when an external process (e.g. antivirus
+        # scan) holds a lock on the WAL file. The next checkpoint
+        # attempt (after _WAL_CHECKPOINT_INTERVAL) will retry.
+        log.debug(
+            "[HISTORY_DB] WAL checkpoint skipped (will retry in %.0fs): %s",
+            wal_checkpoint_interval,
+            e,
+        )
+    except sqlite3.Error as e:
+        log.warning(
+            "[HISTORY_DB] WAL checkpoint failed unexpectedly: %s",
+            e,
+        )
+
+
+def _fts5_startup_rebuild(db: HistoryDB, conn: sqlite3.Connection) -> None:
+    """Best-effort FTS5 ``'rebuild'`` gated by a persisted failure flag.
+
+    The ``delete``, ``clear_all``, and ``apply_retention`` paths
+    each issue the FTS5 ``'rebuild'`` (or ``'optimize'`` for
+    per-row deletes) command after their bulk DELETEs to zero
+    dictated text out of ``transcriptions_fts_data`` (GDPR Art.
+    17 right-to-erasure). But that rebuild is wrapped in a
+    tolerant ``try/except sqlite3.Error`` — if it fails
+    (transient FTS5 error, disk full), the failure is logged
+    and swallowed (no raise, no rollback), incrementing
+    ``db._fts5_rebuild_failures`` and publishing an
+    ``event_bus`` event. The segment data from the failed delete
+    lingers in ``transcriptions_fts_data``, recoverable via
+    forensic tools, until FTS5's background compaction happens
+    to merge that segment (days or weeks later).
+
+    This startup sweep bounds the worst-case exposure window to
+    "between launches": on HistoryDB construction (after the
+    schema is initialized), we run ``'rebuild'`` ONCE when
+    needed. If the previous session's delete-time rebuild
+    failed, this sweep clears the lingering segment data on the
+    next launch.
+
+    Gating: the previous implementation ran the O(N) ``'rebuild'``
+    on EVERY launch — 100-500ms of cold-start latency even when
+    the previous session had no FTS5 failure. Now a
+    ``fts5_rebuild_failed`` flag is persisted in
+    ``schema_meta``:
+
+    - flag = ``'1'``: a previous delete/clear_all/retention
+      rebuild FAILED → run startup rebuild to clear the
+      lingering FTS5 segment data.
+    - flag = ``'0'``: previous startup rebuild succeeded and no
+      failure has been recorded since → SKIP the O(N) rebuild.
+    - flag absent (NULL): never set before (fresh DB or first
+      launch after this fix landed) → run rebuild once to
+      establish a clean baseline, then set flag to ``'0'``.
+
+    On successful rebuild the flag is set to ``'0'`` so
+    subsequent launches skip. On a failed delete/clear_all
+    rebuild (in the CRUD write path) or a failed retention rebuild
+    (in ``retention.py``), the flag is set to ``'1'`` so the
+    next launch retries.
+
+    Best-effort: a failure here is logged at WARNING (not
+    ERROR — a startup sweep failure is not actionable
+    mid-session; the next session will retry) and swallowed —
+    the app must still start. Tolerant of older DBs that
+    haven't yet run the V3 migration (no
+    ``transcriptions_fts`` table) — the ``sqlite3.Error``
+    raised by "no such table" is caught and logged at WARNING.
+    """
+    # Read the persisted fts5_rebuild_failed flag from
+    # schema_meta. The schema_meta table is created by
+    # init_schema (CREATE TABLE IF NOT EXISTS) BEFORE this
+    # function is called, so the SELECT is always safe.
+    try:
+        with contextlib.closing(conn.cursor()) as cursor:
+            cursor.execute("SELECT value FROM schema_meta WHERE key = 'fts5_rebuild_failed'")
+            row = cursor.fetchone()
+            flag_value = row[0] if row is not None else None
+    except sqlite3.Error as e:
+        # If schema_meta itself is unreadable, fall through to
+        # running the rebuild — best-effort, mirrors the
+        # pre-flag behavior.
+        log.debug(
+            "[HISTORY] Could not read fts5_rebuild_failed flag from schema_meta: %s — running rebuild",
+            e,
+        )
+        flag_value = None
+
+    # Steady-state skip: flag is explicitly '0' (previous
+    # rebuild succeeded, no failure recorded since). Avoids the
+    # O(N) rebuild on every launch. We can't also skip when the
+    # flag is NULL: a fresh DB has no flag row yet, and the
+    # existing tests (and the GDPR guarantee) require the
+    # rebuild to run at least once on a fresh DB to establish a
+    # clean baseline post-V3-migration.
+    if flag_value == "0":
+        log.debug(
+            "[HISTORY] FTS5 startup rebuild succeeded (skipped — previous rebuild succeeded, no failure recorded since)"
+        )
+        return
+
+    try:
+        with contextlib.closing(conn.cursor()) as cursor:
+            cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')")
+        conn.commit()
+        # Persist the success state so subsequent launches skip
+        # the O(N) rebuild. INSERT OR REPLACE upserts the flag
+        # row (created here on first launch, updated on every
+        # successful retry after a prior failure).
+        with contextlib.suppress(sqlite3.Error):
+            with contextlib.closing(conn.cursor()) as flag_cursor:
+                flag_cursor.execute(
+                    "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('fts5_rebuild_failed', '0')"
+                )
+            conn.commit()
+        log.debug("[HISTORY] FTS5 startup rebuild succeeded")
+        # A rebuild re-tokenizes every row from the CONTENT table —
+        # rows that are encrypted at rest get CIPHERTEXT tokens in
+        # the index, breaking FTS search for them. Remember that the
+        # rebuild ran so ``_init_encryption`` (which resolves the DEK
+        # right after this) can queue the decrypt-aware re-index.
+        db._fts5_rebuild_ran = True
+    except sqlite3.Error as e:
+        log.warning(
+            "[HISTORY] FTS5 startup rebuild failed: %s — segments from failed deletes may persist",
+            e,
+        )
+        # Persist the failure state so the next launch retries.
+        # Best-effort: a failure here (e.g. disk full) means we
+        # can't record the flag, but the in-memory
+        # ``_fts5_rebuild_failures`` counter is NOT incremented
+        # for the startup path (only the delete/clear_all/
+        # retention paths increment it) — the startup sweep is
+        # best-effort and a failure to persist the flag just
+        # means the next launch re-runs the rebuild (the safe
+        # default).
+        with contextlib.suppress(sqlite3.Error):
+            with contextlib.closing(conn.cursor()) as flag_cursor:
+                flag_cursor.execute(
+                    "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('fts5_rebuild_failed', '1')"
+                )
+            conn.commit()
 
 
 def _execute_write_item(

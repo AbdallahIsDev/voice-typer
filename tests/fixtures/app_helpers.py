@@ -92,10 +92,10 @@ def make_voice_typer_app(tmp_config_dir: Any, monkeypatch: Any) -> Any:
     voice_typer.server.app.VoiceTyperApp
         A constructed app instance, ready for test interaction.
     """
-    monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
-    monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
+    monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
+    monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
+    monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
     from voice_typer.server.app import VoiceTyperApp
 

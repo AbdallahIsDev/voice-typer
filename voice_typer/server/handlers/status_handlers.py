@@ -146,10 +146,13 @@ class StatusHandlersMixin(HandlerBase):
         model file is absent.
         """
         try:
-            from voice_typer.server.prewarm import get_prewarm_status
+            # Module-attr call-time read (not ``from ... import``): test
+            # patches target ``prewarm.status.get_prewarm_status``, and a
+            # from-import would bind the unpatched function object.
+            from voice_typer.server.prewarm import status
 
             resp["type"] = "prewarm_status"
-            resp["data"] = get_prewarm_status()
+            resp["data"] = status.get_prewarm_status()
         except Exception as exc:
             # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "get_prewarm_status")

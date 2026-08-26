@@ -795,3 +795,144 @@ class AudioCallbackDispatcher:
         if not recorder._event_worker_thread.is_alive():
             recorder._event_stop_event.clear()
             recorder._event_worker_thread = None
+
+    def event_worker_loop(self, recorder: Any) -> None:
+        """Body of :meth:`Recorder._event_worker_loop` (god-class split).
+
+        IPC event worker thread main loop. Consumes events from
+        ``_event_queue`` and calls ``event_bus.publish`` so the IPC
+        transport (TCP / stdout) can forward them to the Electron
+        renderer. This thread is the SINGLE consumer — the audio worker
+        thread is the single producer, so no locks are needed on the
+        queue (``queue.Queue`` is already thread-safe for MPSC).
+
+        Shutdown: exits when ``_event_stop_event`` is set. The loop
+        drains the queue fully before exiting so ``stop()`` doesn't
+        lose in-flight IPC events. For the ``discard()`` path, the
+        queue was already cleared by the caller, so the drain loop is
+        a no-op.
+        """
+        from .recorder import _EVENT_WORKER_STOP_SENTINEL
+
+        while True:
+            if not recorder._event_stop_event.is_set():
+                # wait for work with a 0.5s timeout (was 50ms).
+                # The event queue is MPSC with a tiny source-side
+                # throttle (1 Hz), so a 50ms poll was 20x more frequent
+                # than necessary -- preventing deep C-states on laptops
+                # on battery for no benefit. The 0.5s poll still wakes
+                # within 0.5s of an event being enqueued (well within
+                # the 1 Hz source throttle) and lets the CPU sleep
+                # between publishes. Stop latency is NOT bounded by
+                # the 0.5s poll: ``_stop_event_worker`` pushes a
+                # sentinel onto the queue to wake the worker
+                # immediately (see ``_EVENT_WORKER_STOP_SENTINEL``).
+                # ``_audio_worker_loop``'s 50ms wait is unchanged
+                # because the audio callback pushes chunks at 16 Hz and
+                # a 0.5s wait there would add 0.5s of drain latency on
+                # stop().
+                try:
+                    event = recorder._event_queue.get(timeout=0.5)
+                except queue.Empty:
+                    continue
+            else:
+                # Stop signal received — drain remaining events before
+                # exiting (for the ``stop()`` path). For ``discard()``
+                # the queue was already cleared by the caller, so this
+                # loop is a no-op.
+                try:
+                    event = recorder._event_queue.get_nowait()
+                except queue.Empty:
+                    return
+            # check for the stop sentinel BEFORE publishing. The
+            # sentinel is pushed by ``_stop_event_worker`` to wake the
+            # worker immediately (instead of waiting up to 0.5s for the
+            # next poll iteration). Any real events that were enqueued
+            # BEFORE the sentinel have already been drained and
+            # published by the iterations above.
+            if event is _EVENT_WORKER_STOP_SENTINEL:
+                return
+            # Type narrowing: ``event`` is now guaranteed to be a dict
+            # (the only other variant on the queue). ``isinstance`` here
+            # doubles as a defensive guard against a future variant
+            # pushed by mistake — it skips the publish instead of
+            # crashing ``event_bus.publish`` with a TypeError.
+            if not isinstance(event, dict):
+                # Pre-fix this branch silently ``continue``d,
+                # swallowing any non-dict / non-sentinel event without a
+                # log. A future variant pushed by mistake would be
+                # invisible in production. Log at WARNING (not ERROR)
+                # because the worker continues running; the missing event
+                # is recoverable on the next publish. ``%r`` formats the
+                # type so the offending variant is identifiable without
+                # dumping the (potentially large) event payload.
+                log.warning(
+                    "[RECORDING] Event worker skipped non-dict event: %r",
+                    type(event),
+                )
+                continue
+            try:
+                from voice_typer.server import event_bus
+
+                event_bus.publish(event)
+            except Exception:
+                # A bad event or a buggy subscriber must NOT kill the
+                # event worker (otherwise all subsequent IPC events
+                # are lost until the next start()). event_bus.publish
+                # already isolates subscriber exceptions, so this is a
+                # belt-and-suspenders guard for unexpected failures
+                # (e.g. a TypeError from a malformed event dict).
+                log.debug(
+                    "[RECORDING] Event worker thread error publishing event",
+                    exc_info=True,
+                )
+
+    def surface_ring_overflow_warning(self, recorder: Any) -> None:
+        """Body of :meth:`Recorder._surface_ring_overflow_warning` (god-class split).
+
+        Emit a rate-limited WARNING when the ring buffer overflows.
+
+        Called once per chunk from ``process_audio_chunk`` on the audio
+        worker thread (non-RT-safe to log). It computes the delta
+        between consecutive checks and emits a WARNING (rate-limited
+        to one per ``_RING_OVERFLOW_WARN_INTERVAL_S`` seconds) when the
+        counter increases. The WARNING is logged at WARNING level (not
+        ERROR) because dropping a few chunks is recoverable — the
+        transcription will be slightly incomplete but not corrupted.
+
+        The ``_last_seen_dropped_ring_chunks`` counter is ALWAYS updated
+        (even when the WARNING is rate-limited) so the delta does not
+        accumulate across rate-limit windows — the next WARNING reports
+        only the chunks dropped since the previous WARNING, not since
+        the last unthrottled check.
+
+        Thread-safety: the audio worker is the SINGLE reader of
+        ``_dropped_ring_chunks`` (the audio callback is the single writer,
+        atomic under CPython's GIL). No lock is needed here.
+
+        Contract: log-only — this helper must NOT call
+        ``event_bus.publish`` directly (IPC events route through
+        ``_event_queue``, see the negative source-inspection pin in
+        ``tests/test_recorder_ring_overflow_warning.py``).
+        """
+        from .recorder import _RING_OVERFLOW_WARN_INTERVAL_S
+
+        current = recorder._dropped_ring_chunks
+        delta = current - recorder._last_seen_dropped_ring_chunks
+        # Always update the last-seen counter so the delta doesn't
+        # accumulate across rate-limit windows.
+        recorder._last_seen_dropped_ring_chunks = current
+        if delta <= 0:
+            return
+        now = time.perf_counter()
+        if now - recorder._ring_overflow_warn_ts < _RING_OVERFLOW_WARN_INTERVAL_S:
+            return
+        recorder._ring_overflow_warn_ts = now
+        log.warning(
+            "[RECORDING] Ring buffer overflow: %d chunks dropped since "
+            "last check (total this session: %d). Audio worker cannot keep "
+            "up; transcription may be incomplete. Consider disabling audio "
+            "filters or using a lighter model.",
+            delta,
+            current,
+        )

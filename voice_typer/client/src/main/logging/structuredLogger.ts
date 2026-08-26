@@ -183,14 +183,12 @@ export function appendLifecycleLine(
 		const tsStr = fileTimestamp();
 		// Redact PII / API keys / URL credentials from the
 		// message + args before persisting to the lifecycle
-		// log. Shares the same `redactArgsForFile` helper as
-		// `formatLine` so the opt-in INFO persistence stream
-		// never leaks dictated-text fragments or secrets that
-		// the renderer may have logged via `logger.info`, and
-		// so the two tees (`electron-main.log` via `formatLine`
-		// and `electron-lifecycle.log` via this function) never
-		// drift in their redaction / formatting.
-		const formatted = redactArgsForFile(msg, args);
+		// log. Shares the same `redactArgsForFile` primitive as
+		// `formatLine` (and as printfLogger's tees) so every
+		// persisted stream — `electron-main.log`, this opt-in
+		// `electron-lifecycle.log`, and `electron-runtime.log` —
+		// never drifts in its redaction / formatting.
+		const formatted = redactArgsForFile([msg, ...args]);
 		// Canonical file line (C-LOG-1): two-space field separators,
 		// bare level label — identical shape to `formatLine`.
 		const line = `${tsStr}  ${level.toUpperCase()}  ${formatted}\n`;
@@ -220,28 +218,34 @@ export function appendLifecycleLine(
 type Level = "debug" | "info" | "warn" | "error";
 
 /**
- * Redact PII / API keys / URL credentials from `msg` + `args` and
- * join them into a single space-separated string for file output.
- * Mirrors `printfLogger.ts::formatArgsForFile` (single-format
- * discipline — the formatted string is shared between the file tee
- * and any other consumer).
+ * THE single formatting primitive for file log output — shared by BOTH
+ * logger implementations:
  *
- * Used by both `formatLine` (the `electron-main.log` writer) and
- * `appendLifecycleLine` (the opt-in `electron-lifecycle.log` writer)
- * so the two tees never drift in their redaction / formatting —
- * pre-extraction they each carried their own duplicate copy of the
- * same redact-and-format block.
+ *   - this module's sinks (`formatLine` for `electron-main.log`,
+ *     `appendLifecycleLine` for `electron-lifecycle.log`) pass
+ *     `[msg, ...args]`;
+ *   - `printfLogger.ts`'s stdout/runtime-log tees pass its raw console-
+ *     style `args` array directly (no distinguished message part).
  *
- * Errors are stringified with their stack (when available) so the
- * file log preserves the same detail as stdout. Non-stringifiable
- * values fall back to `String(value)` to never throw. Idempotent on
- * already-redacted text so callers that pre-redact (e.g. via
- * `cleanConsoleMsg` chains) don't double-redact.
+ * Both shapes produce identical bytes through this one function: a
+ * string part formats as `redactPii(part)`, so joining `[msg,
+ * ...args]` reproduces exactly the historical msg-first layout
+ * (`redactPii(msg) + " " + joined-args`, or just `redactPii(msg)`
+ * when there are no args).
+ *
+ * Redacts PII / API keys / URL credentials per part and joins them
+ * into a single space-separated string. Errors are stringified with
+ * their stack (when available) so the file log preserves the same
+ * detail as stdout. Non-stringifiable values fall back to
+ * `String(value)` to never throw. Idempotent on already-redacted text
+ * so callers that pre-redact (e.g. via `cleanConsoleMsg` chains)
+ * don't double-redact.
+ *
+ * Exported for `printfLogger.ts` (which previously carried its own
+ * byte-identical copy of this mapper as `formatArgsForFile`).
  */
-function redactArgsForFile(msg: string, args: unknown[]): string {
-	const safeMsg = redactPii(msg);
-	if (args.length === 0) return safeMsg;
-	return `${safeMsg} ${args
+export function redactArgsForFile(parts: readonly unknown[]): string {
+	return parts
 		.map((a) => {
 			if (a instanceof Error) {
 				return redactPii(a.stack ?? `${a.name}: ${a.message}`);
@@ -253,7 +257,7 @@ function redactArgsForFile(msg: string, args: unknown[]): string {
 				return redactPii(String(a));
 			}
 		})
-		.join(" ")}`;
+		.join(" ");
 }
 
 /**
@@ -270,7 +274,7 @@ function redactArgsForFile(msg: string, args: unknown[]): string {
  */
 function formatLine(level: Level, msg: string, args: unknown[]): string {
 	const tsStr = fileTimestamp();
-	const formatted = redactArgsForFile(msg, args);
+	const formatted = redactArgsForFile([msg, ...args]);
 	return `${tsStr}  ${level.toUpperCase()}  ${formatted}\n`;
 }
 

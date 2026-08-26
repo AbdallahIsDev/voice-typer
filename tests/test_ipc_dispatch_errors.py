@@ -411,7 +411,7 @@ class TestStdinListenerGatedInTcpMode:
         behind ``VOICE_TYPER_ALLOW_STDIN_IPC=1`` (``--allow-stdin`` on
         the CLI) — so the legacy stdin/stdout path is exercised via the
         documented explicit opt-in, exactly like
-        ``test_ipc_server_lifecycle_fixes.py::test_stdin_thread_spawned_when_env_var_set``.
+        ``tests/test_ipc_server.py::TestStdinGate::test_stdin_thread_spawned_when_env_var_set``.
         """
         app = _MockApp(tmp_path=tmp_path, monkeypatch=monkeypatch)
         server = IPCServer(app)

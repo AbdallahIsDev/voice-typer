@@ -192,7 +192,9 @@ def _is_path_within(path: Path, root: Path, *, case_sensitive: bool | None = Non
     import os.path
 
     if case_sensitive is None:
-        case_sensitive = sys.platform not in ("win32", "darwin")
+        from voice_typer.server.platform_utils import is_macos, is_windows
+
+        case_sensitive = not (is_windows() or is_macos())
 
     try:
         if case_sensitive:

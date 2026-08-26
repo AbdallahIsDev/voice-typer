@@ -100,8 +100,8 @@ vi.mock("../../windows/main-window", () => ({
 vi.mock("./handle-message", () => ({ handleMessage: vi.fn() }));
 vi.mock("./send-to-python", () => ({
 	sendToPython: vi.fn(() => Promise.resolve()),
-	_flushPendingOutbound: vi.fn(),
-	_resetPendingOutbound: vi.fn(),
+	flushPendingOutbound: vi.fn(),
+	resetPendingOutbound: vi.fn(),
 }));
 
 // 60s — mirrors TCP_STARTUP_TIMEOUT_MS in tcp-connect.ts (kept in sync by

@@ -201,7 +201,7 @@ from voice_typer.server._paths import IPC_TOKEN_ENV_VAR, LOOPBACK_HOST as _LOOPB
 # Pin map for the re-exported names:
 # - _get_ws_encode_pool / shutdown_encode_pool — referenced by name in
 #   ``_safe_send`` (canonical; whole-module getsource pin in
-#   tests/test_ipc_layer_fixes.py::TestWriterEncodesOnce). The
+#   tests/test_ipc_server.py::TestWriterEncodesOnce). The
 #   ``_ws_encode_pool_singleton`` global is NOT re-exported (a value
 #   re-export would go stale the moment the leaf's accessors rebind
 #   it); it lives in sidecar_ws_internals/encode_pool.py with its
@@ -712,8 +712,9 @@ def _make_dispatch(server: IPCServer):
     # just re-exported) so it resolves ``_RateLimiter`` against
     # ``ipc_server``'s module globals at call time.  Tests that
     # monkey-patch ``ipc_server._RateLimiter`` observe the patched class
-    # through this import (see ``tests/test_r4_f18_rate_limiter_concurrent_init.py``
-    # and ``tests/test_cr_fixes.py``).  Changing the import to the leaf
+    # through this import (see
+    # ``tests/test_ipc_rate_limiter_concurrent_init.py``).  Changing the
+    # import to the leaf
     # module would BREAK the test monkey-patch contract.  The TCP path
     # (``ipc/transport_tcp.py``) also imports from ``ipc_server`` for
     # the same reason.

@@ -141,13 +141,6 @@ HOST_SYNTHESIZED_PUSH_EVENTS: dict[str, str] = {
 # method under Tauri REQUIRES deleting its entry (the staleness assertion
 # fails while the entry survives).
 TAURI_MISSING_WINDOW_METHODS: dict[str, str] = {
-    # Renderer pushes its locale so Electron main can localize native
-    # dialogs. The Tauri host localizes its dialogs via the OS locale, so
-    # the bridge does not install this method (tracked gap in review.md).
-    "setLocale": (
-        "Tauri-side native dialogs localize via the OS locale; the "
-        "renderer-pushed locale has no consumer on the Rust host yet"
-    ),
     # Restarts ONLY the Python backend process while Electron stays alive.
     # The Rust host owns the sidecar lifecycle itself (supervisor +
     # respawn scheduler), so there is no renderer-triggered restart path.

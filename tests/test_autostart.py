@@ -34,6 +34,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
+# Owning-module handles for patch targets: ``SYSTEM`` lives on
+# ``platform_flags``; ``get_autostart_dir`` / ``_autostart_command`` live
+# on the ``autostart`` facade module; the Windows register/unregister/
+# probe helpers live on the ``autostart_windows`` module.
+from voice_typer.server.server_platform import (
+    autostart as autostart_mod,
+    autostart_windows as autostart_windows_mod,
+    platform_flags,
+)
+
 # ---------------------------------------------------------------------------
 # Fixtures: fake winreg + win32 platform
 # ---------------------------------------------------------------------------
@@ -64,7 +74,7 @@ def win32_platform(monkeypatch, fake_winreg):
     monkeypatch.setattr(sys, "platform", "win32")
     from voice_typer.server import server_platform
 
-    monkeypatch.setattr(server_platform, "SYSTEM", "win32")
+    monkeypatch.setattr(platform_flags, "SYSTEM", "win32")
     return server_platform
 
 
@@ -343,10 +353,10 @@ class TestStartupFolderBatFallback:
         from voice_typer.server import server_platform
 
         # Redirect get_autostart_dir to tmp_path.
-        monkeypatch.setattr(server_platform, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
         # Stub _autostart_command to return a known command.
         monkeypatch.setattr(
-            server_platform,
+            autostart_mod,
             "_autostart_command",
             lambda: r'"C:\Python\pythonw.exe" "C:\app\launcher.py" --hidden --delay 15',
         )
@@ -366,8 +376,8 @@ class TestStartupFolderBatFallback:
         from voice_typer.server import server_platform
 
         monkeypatch.setattr(sys, "platform", "linux")
-        monkeypatch.setattr(server_platform, "SYSTEM", "linux")
-        monkeypatch.setattr(server_platform, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(platform_flags, "SYSTEM", "linux")
+        monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
         result = server_platform._register_app_autostart_startup()
         assert result is False
 
@@ -375,7 +385,7 @@ class TestStartupFolderBatFallback:
         """``_unregister_app_autostart_startup`` deletes the .bat file."""
         from voice_typer.server import server_platform
 
-        monkeypatch.setattr(server_platform, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
         # Use the real hash-based name (don't patch _startup_bat_name —
         # it's called directly by _startup_bat_path, not via _pkg).
         bat_name = server_platform._startup_bat_name()
@@ -391,7 +401,7 @@ class TestStartupFolderBatFallback:
         """``_unregister_app_autostart_startup`` is idempotent (returns True when absent)."""
         from voice_typer.server import server_platform
 
-        monkeypatch.setattr(server_platform, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
         # No .bat file created — should return True (idempotent).
         result = server_platform._unregister_app_autostart_startup()
         assert result is True
@@ -400,7 +410,7 @@ class TestStartupFolderBatFallback:
         """``_is_app_autostart_startup_registered`` returns False when no .bat exists."""
         from voice_typer.server import server_platform
 
-        monkeypatch.setattr(server_platform, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
         result = server_platform._is_app_autostart_startup_registered()
         assert result is False
 
@@ -409,7 +419,7 @@ class TestStartupFolderBatFallback:
         exists and its target command path exists."""
         from voice_typer.server import server_platform
 
-        monkeypatch.setattr(server_platform, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
         bat_name = server_platform._startup_bat_name()
         bat_path = tmp_path / bat_name
         bat_path.write_text(
@@ -430,7 +440,7 @@ class TestStartupFolderBatFallback:
         when the .bat's target command path doesn't exist."""
         from voice_typer.server import server_platform
 
-        monkeypatch.setattr(server_platform, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
         bat_name = server_platform._startup_bat_name()
         bat_path = tmp_path / bat_name
         bat_path.write_text(
@@ -462,11 +472,11 @@ class TestThreeMechanismIntegration:
         is tried as a tertiary fallback."""
         from voice_typer.server import server_platform
 
-        monkeypatch.setattr(server_platform, "_register_app_autostart_runkey", lambda: False)
-        monkeypatch.setattr(server_platform, "_register_app_autostart_task", lambda: False)
-        monkeypatch.setattr(server_platform, "get_autostart_dir", lambda: tmp_path)
+        monkeypatch.setattr(autostart_windows_mod, "_register_app_autostart_runkey", lambda: False)
+        monkeypatch.setattr(autostart_windows_mod, "_register_app_autostart_task", lambda: False)
+        monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
         monkeypatch.setattr(
-            server_platform,
+            autostart_mod,
             "_autostart_command",
             lambda: r'"C:\Python\pythonw.exe" "C:\app\launcher.py" --hidden',
         )
@@ -485,14 +495,14 @@ class TestThreeMechanismIntegration:
         # Task Scheduler -> Startup .bat -> HKCU Run key (AUTOSTART-ORDER-
         # FIX), so the two preferred mechanisms must fail for the Run key
         # branch to run at all.
-        monkeypatch.setattr(server_platform, "_register_app_autostart_task", lambda: False)
-        monkeypatch.setattr(server_platform, "_register_app_autostart_startup", lambda: False)
-        monkeypatch.setattr(server_platform, "_register_app_autostart_runkey", lambda: True)
-        monkeypatch.setattr(server_platform, "_unregister_app_autostart_task", lambda: True)
+        monkeypatch.setattr(autostart_windows_mod, "_register_app_autostart_task", lambda: False)
+        monkeypatch.setattr(autostart_windows_mod, "_register_app_autostart_startup", lambda: False)
+        monkeypatch.setattr(autostart_windows_mod, "_register_app_autostart_runkey", lambda: True)
+        monkeypatch.setattr(autostart_windows_mod, "_unregister_app_autostart_task", lambda: True)
         # Track if _unregister_app_autostart_startup is called.
         startup_unregistered = []
         monkeypatch.setattr(
-            server_platform,
+            autostart_windows_mod,
             "_unregister_app_autostart_startup",
             lambda: startup_unregistered.append(True) or True,
         )
@@ -510,17 +520,17 @@ class TestThreeMechanismIntegration:
         runkey_removed = []
         startup_removed = []
         monkeypatch.setattr(
-            server_platform,
+            autostart_windows_mod,
             "_unregister_app_autostart_task",
             lambda: task_removed.append(True) or True,
         )
         monkeypatch.setattr(
-            server_platform,
+            autostart_windows_mod,
             "_unregister_app_autostart_runkey",
             lambda: runkey_removed.append(True) or True,
         )
         monkeypatch.setattr(
-            server_platform,
+            autostart_windows_mod,
             "_unregister_app_autostart_startup",
             lambda: startup_removed.append(True) or True,
         )
@@ -537,15 +547,15 @@ class TestThreeMechanismIntegration:
         from voice_typer.server import server_platform
 
         # Only Startup folder.
-        monkeypatch.setattr(server_platform, "_is_app_autostart_task_registered", lambda: False)
-        monkeypatch.setattr(server_platform, "_is_app_autostart_runkey_registered", lambda: False)
-        monkeypatch.setattr(server_platform, "_is_app_autostart_startup_registered", lambda: True)
+        monkeypatch.setattr(autostart_windows_mod, "_is_app_autostart_task_registered", lambda: False)
+        monkeypatch.setattr(autostart_windows_mod, "_is_app_autostart_runkey_registered", lambda: False)
+        monkeypatch.setattr(autostart_windows_mod, "_is_app_autostart_startup_registered", lambda: True)
         assert server_platform._is_autostart_windows() is True
 
         # None.
-        monkeypatch.setattr(server_platform, "_is_app_autostart_task_registered", lambda: False)
-        monkeypatch.setattr(server_platform, "_is_app_autostart_runkey_registered", lambda: False)
-        monkeypatch.setattr(server_platform, "_is_app_autostart_startup_registered", lambda: False)
+        monkeypatch.setattr(autostart_windows_mod, "_is_app_autostart_task_registered", lambda: False)
+        monkeypatch.setattr(autostart_windows_mod, "_is_app_autostart_runkey_registered", lambda: False)
+        monkeypatch.setattr(autostart_windows_mod, "_is_app_autostart_startup_registered", lambda: False)
         assert server_platform._is_autostart_windows() is False
 
 

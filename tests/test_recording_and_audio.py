@@ -397,12 +397,13 @@ class TestResampleCacheInvalidation:
     """Resample cache invalidates on dtype/sr change."""
 
     def test_cache_key_includes_dtype_and_sample_rates(self):
-        import inspect
+        from tests.fixtures.recorder_test_helpers import make_recorder
 
-        from voice_typer.server.recording import Recorder
-
-        src = inspect.getsource(Recorder.__init__)
-        assert "_cached_resample_key" in src
+        recorder = make_recorder()
+        # Behavioral form of the historical __init__ source pin: the
+        # resample cache key is declared at construction with the
+        # empty "no session yet" sentinel.
+        assert recorder._cached_resample_key == ()
 
 
 class TestPrepareAudioNarrowExcept:

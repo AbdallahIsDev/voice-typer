@@ -8,6 +8,7 @@ can be shown as notifications or in the microphone diagnostics screen.
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field
 
 # (PERF-COLDSTART-001): numpy is ~250-335ms cumulative on cold start
@@ -26,6 +27,11 @@ from voice_typer.server._lazy_import import lazy_module
 np = lazy_module("numpy")
 
 log = logging.getLogger(__name__)
+
+# Block size (elements) for the float64 sum-of-squares
+# accumulation in ``analyze_full_audio`` — bounds the transient fp64
+# scratch buffer to ~8 MB regardless of recording length.
+_SUMSQ_BLOCK_ELEMENTS = 1 << 20
 
 
 @dataclass
@@ -200,6 +206,11 @@ class AudioQualityAnalyzer:
         """Analyze the complete audio after recording stops.
 
         Returns a comprehensive quality report with all detected issues.
+
+        Uses the same allocation-free reduction style as
+        ``AudioProcessor._run_quality_check``: ``ravel()`` view +
+        ``max``/``min`` peak (no ``np.abs`` copy) + ``np.dot``
+        sum-of-squares (no ``np.square`` copy).
         """
         report = AudioQualityReport()
 
@@ -207,8 +218,28 @@ class AudioQualityAnalyzer:
             report.warnings.append("No audio data captured")
             return report
 
-        rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
-        peak = float(np.max(np.abs(audio)))
+        flat = audio.ravel()
+        # Keep float64 accumulation like the previous
+        # ``dtype=np.float64`` formulas without allocating a full-length
+        # float64 copy of the recording. ``mean(dtype=np.float64)``
+        # reduces into a scalar directly; the sum of squares is
+        # accumulated over ~1M-element blocks so the transient fp64
+        # buffer stays bounded (~8 MB) even for hour-long recordings.
+        # Plain fp32 ``np.dot(flat, flat)`` (the hot-path idiom) was NOT
+        # good enough here: variance = E[x²] − mean² cancels large terms,
+        # and fp32 sdot drifts ~2e-4 relative at 3M samples — enough to
+        # wobble the noise_ratio threshold.
+        size = int(flat.size)
+        mean = float(flat.mean(dtype=np.float64))
+        sumsq = 0.0
+        for block_start in range(0, size, _SUMSQ_BLOCK_ELEMENTS):
+            block = flat[block_start : block_start + _SUMSQ_BLOCK_ELEMENTS].astype(np.float64)
+            sumsq += float(np.dot(block, block))
+        rms = math.sqrt(max(sumsq / size, 0.0))
+        # Peak without the np.abs temporary: max(max, −min) is the same
+        # value for any array containing both signs, and for all-one-sign
+        # arrays too.
+        peak = max(float(flat.max()), -float(flat.min()))
 
         # Check clipping
         if self._clip_count > 0 or peak >= self.CLIPPING_THRESHOLD:
@@ -228,9 +259,11 @@ class AudioQualityAnalyzer:
 
         # Check high noise (using variance as noise indicator)
         # High noise = high variance relative to RMS (signal is noisy, not clean speech)
-        variance = float(np.var(audio))
+        # The clamp guards the tiny negative value fp rounding can produce
+        # for a near-constant signal (mathematically variance >= 0).
+        variance = max(sumsq / size - mean * mean, 0.0)
         if rms > 0:
-            noise_ratio = variance / (rms * rms) if rms > 0 else 0
+            noise_ratio = variance / (rms * rms)
             report.noise_ratio = noise_ratio
             if noise_ratio > self.HIGH_NOISE_THRESHOLD and rms < 0.05:
                 report.high_noise_detected = True

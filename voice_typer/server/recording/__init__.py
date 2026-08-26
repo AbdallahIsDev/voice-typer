@@ -309,7 +309,7 @@ __all__ = [
 
 # NOTE (2026-07-20, updated ): ``set_thread_registry`` was
 # previously removed as merge damage, but the  contract
-# (``tests/test_i5_retry_fixes.py::TestR4F8BufferClearWorkerRegistry``)
+# (``tests/test_retry_regressions.py::TestBufferClearWorkerRegistry``)
 # pins on its existence: the buffer-clear worker must register with a
 # central ThreadRegistry so ``shutdown_all()`` can join it during
 # ``VoiceTyperApp.quit()``. The function + ``_thread_registry`` global

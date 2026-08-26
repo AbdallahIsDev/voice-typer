@@ -330,3 +330,79 @@ describe("bubble dismiss handler: cancel-then-hide semantics", () => {
 		expect(mocks.hideBubbleWindow).not.toHaveBeenCalled();
 	});
 });
+
+describe("dismissAndHideBubble (exported body shared with the global shortcut)", () => {
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		mocks.bubbleWindow = null;
+		vi.resetModules();
+		await import("../ipc/bubble-handlers");
+	});
+
+	it("recording mode: sends toggle_dictation then hides", async () => {
+		const { dismissAndHideBubble, setLastKnownBubbleMode } = await import(
+			"../ipc/bubble-handlers"
+		);
+		setLastKnownBubbleMode("recording");
+		dismissAndHideBubble();
+
+		expect(mocks.sendToPython).toHaveBeenCalledTimes(1);
+		expect(mocks.sendToPython).toHaveBeenCalledWith({
+			type: "toggle_dictation",
+		});
+		expect(mocks.hideBubbleWindow).toHaveBeenCalledTimes(1);
+	});
+
+	it("transcribing mode: sends toggle_dictation then hides", async () => {
+		const { dismissAndHideBubble, setLastKnownBubbleMode } = await import(
+			"../ipc/bubble-handlers"
+		);
+		setLastKnownBubbleMode("transcribing");
+		dismissAndHideBubble();
+
+		expect(mocks.sendToPython).toHaveBeenCalledTimes(1);
+		expect(mocks.hideBubbleWindow).toHaveBeenCalledTimes(1);
+	});
+
+	it("idle mode: hides WITHOUT sending toggle_dictation", async () => {
+		const { dismissAndHideBubble, setLastKnownBubbleMode } = await import(
+			"../ipc/bubble-handlers"
+		);
+		setLastKnownBubbleMode("idle");
+		dismissAndHideBubble();
+
+		expect(mocks.sendToPython).not.toHaveBeenCalled();
+		expect(mocks.hideBubbleWindow).toHaveBeenCalledTimes(1);
+	});
+
+	it("clears the cached mode to idle after firing (rapid second call skips the toggle)", async () => {
+		const {
+			dismissAndHideBubble,
+			getLastKnownBubbleMode,
+			setLastKnownBubbleMode,
+		} = await import("../ipc/bubble-handlers");
+		setLastKnownBubbleMode("recording");
+		dismissAndHideBubble();
+		dismissAndHideBubble();
+
+		expect(getLastKnownBubbleMode()).toBe("idle");
+		expect(mocks.sendToPython).toHaveBeenCalledTimes(1);
+		expect(mocks.hideBubbleWindow).toHaveBeenCalledTimes(2);
+	});
+
+	it("toggle_dictation IPC rejection does not prevent hiding", async () => {
+		const { dismissAndHideBubble, setLastKnownBubbleMode } = await import(
+			"../ipc/bubble-handlers"
+		);
+		mocks.sendToPython.mockImplementationOnce(() =>
+			Promise.reject(new Error("Python backend disconnected")),
+		);
+
+		setLastKnownBubbleMode("recording");
+		dismissAndHideBubble();
+
+		expect(mocks.hideBubbleWindow).toHaveBeenCalledTimes(1);
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+});

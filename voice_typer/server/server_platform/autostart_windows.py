@@ -28,31 +28,29 @@ hash in ``app.py`` (SHA-256 of ``sys.executable``, first 8 hex chars).
 
 Patch-path compatibility
 ------------------------
-Tests patch several names that this module's functions call at runtime:
+Tests patch several names that this module's functions call at runtime,
+always on the OWNING module:
 
   - ``_register_app_autostart_runkey`` / ``_register_app_autostart_task``
-    — patched via ``monkeypatch.setattr(server_platform, "X", lambda: ...)``.
-    ``_enable_autostart_windows`` looks them up via ``_pkg.X()``.
-  - ``_unregister_app_autostart_task`` / ``_unregister_app_autostart_runkey``
-    — patched similarly.  ``_disable_autostart_windows`` looks them up via
-    ``_pkg.X()``.
-  - ``_is_app_autostart_task_registered`` / ``_is_app_autostart_runkey_registered``
-    — patched similarly.  ``_is_autostart_windows`` looks them up via
-    ``_pkg.X()``.
-  - ``_build_app_autostart_task_xml`` — patched via
-    ``monkeypatch.setattr(server_platform, "_build_app_autostart_task_xml", lambda: ...)``.
-    ``_register_app_autostart_task`` looks it up via ``_pkg.X()``.
-  - ``_app_autostart_command_and_args`` — not patched by any test, but
-    ``_build_app_autostart_task_xml`` looks it up via ``_pkg.X()`` for
-    consistency with the rest of the bridge.
-  - ``_autostart_command`` — patched via
-    ``monkeypatch.setattr(platform_mod, "_autostart_command", lambda: ...)``.
-    ``_register_app_autostart_runkey`` looks it up via ``_pkg.X()``.
-  - ``_APP_AUTOSTART_TASK_NAME`` — module-level constant computed in
-    ``__init__.py``.  Read via ``_pkg._APP_AUTOSTART_TASK_NAME`` at call
-    time so the constant is available by the time any of these functions
-    actually executes (it is NOT available at this module's import time
-    because ``__init__.py`` is still loading when this file is imported).
+    / ``_register_app_autostart_startup`` and the ``_unregister_*`` /
+    ``_is_app_*`` siblings are defined HERE — tests patch them via
+    ``monkeypatch.setattr(autostart_windows, "X", lambda: ...)``, and
+    this module's functions resolve them as plain module-global lookups
+    at call time.
+  - ``_build_app_autostart_task_xml`` /
+    ``_app_autostart_command_and_args`` — same (defined here, patched
+    here, resolved via module-global lookup).
+  - ``_autostart_command`` / ``get_autostart_dir`` /
+    ``_install_hash`` / ``_install_hash_suffix`` /
+    ``_install_identifier`` / ``_resolve_tauri_binary_for_autostart`` /
+    ``_APP_AUTOSTART_TASK_NAME`` — owned by :mod:`.autostart`; patched
+    via ``monkeypatch.setattr(autostart_mod, "X", ...)``.  This module
+    binds that module as ``_autostart_mod`` and resolves all of them
+    through its attribute at call time.
+  - ``is_windows`` — owned by :mod:`.platform_flags` (re-exported from
+    :mod:`voice_typer.server.platform_utils`); bound into this module's
+    namespace at import time and called directly, so tests patch
+    ``monkeypatch.setattr(autostart_windows, "is_windows", ...)``.
 
 ``inspect.getsource`` compatibility
 -----------------------------------
@@ -72,12 +70,18 @@ import shlex
 import sys
 from pathlib import Path
 
-# Patch-path bridge: route lookups of the patched names listed in the
-# module docstring through the package namespace so test patches of the
-# form ``monkeypatch.setattr("voice_typer.server.server_platform.X", ...)``
-# keep affecting production code defined here.
-from voice_typer.server import server_platform as _pkg
+# Patch-path bindings. Names defined in THIS module are resolved as
+# plain module-global lookups at call time (tests patch
+# ``monkeypatch.setattr(autostart_windows, "X", ...)``). ``_autostart_mod``
+# binds the owning sibling module so ``_autostart_command`` /
+# ``get_autostart_dir`` / ``_install_hash`` / ``_install_hash_suffix`` /
+# ``_install_identifier`` / ``_resolve_tauri_binary_for_autostart`` /
+# ``_APP_AUTOSTART_TASK_NAME`` resolve through ITS attribute at call time
+# (tests patch that module). ``is_windows`` is bound from
+# :mod:`.platform_flags` at import time and called directly.
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.server_platform import autostart as _autostart_mod
+from voice_typer.server.server_platform.platform_flags import is_windows
 
 log = logging.getLogger(__name__)
 
@@ -96,17 +100,10 @@ log = logging.getLogger(__name__)
 # task. The hash matches the mutex name hash in app.py (SHA-256 of
 # sys.executable, first 8 hex chars).
 #
-# NOTE: ``_APP_AUTOSTART_TASK_NAME`` is defined in the package
-# ``__init__.py`` (not here) because (a) it depends on
-# ``_install_hash_suffix`` (defined in :mod:`.autostart`) which is also
-# re-exported by ``__init__.py``, and (b) tests in
-# ``tests/regressions/test_platform_win32.py`` do
-# ``inspect.getsource(server_platform)`` (which returns the
-# ``__init__.py`` source) and assert the literal f-string
-# ``f"VoiceTyperAutostart{_install_hash_suffix()}"`` is present.  The
-# constant is read at call time via ``_pkg._APP_AUTOSTART_TASK_NAME`` so
-# it is available by the time any function below actually executes
-# (``__init__.py`` is still loading when this file is first imported).
+# NOTE: ``_APP_AUTOSTART_TASK_NAME`` is defined in :mod:`.autostart`
+# (next to its ``_install_hash_suffix`` dependency) and read at call
+# time via ``_autostart_mod._APP_AUTOSTART_TASK_NAME`` so the value
+# always reflects the owning module's attribute (patchable in tests).
 
 
 def _enable_autostart_windows() -> bool:
@@ -132,23 +129,23 @@ def _enable_autostart_windows() -> bool:
         value — see ``_validate_runkey_command``). It stays as the last
         resort with correct quoting (``subprocess.list2cmdline``).
     """
-    if _pkg._register_app_autostart_task():
+    if _register_app_autostart_task():
         with contextlib.suppress(Exception):
-            _pkg._unregister_app_autostart_runkey()
+            _unregister_app_autostart_runkey()
         with contextlib.suppress(Exception):
-            _pkg._unregister_app_autostart_startup()
+            _unregister_app_autostart_startup()
         return True
     log.warning("[CONFIG] Task Scheduler autostart failed; trying Startup-folder .bat")
-    if _pkg._register_app_autostart_startup():
+    if _register_app_autostart_startup():
         with contextlib.suppress(Exception):
-            _pkg._unregister_app_autostart_runkey()
+            _unregister_app_autostart_runkey()
         return True
     log.warning("[CONFIG] Startup-folder .bat autostart failed; trying HKCU Run key")
-    if _pkg._register_app_autostart_runkey():
+    if _register_app_autostart_runkey():
         # Clean up a stale Startup .bat from a previous session (same
         # hygiene as the task branch above) so autostart can't fire twice.
         with contextlib.suppress(Exception):
-            _pkg._unregister_app_autostart_startup()
+            _unregister_app_autostart_startup()
         return True
     log.warning("[CONFIG] All three autostart mechanisms failed")
     return False
@@ -156,18 +153,18 @@ def _enable_autostart_windows() -> bool:
 
 def _disable_autostart_windows() -> bool:
     """STARTUP-7: remove app autostart from ALL mechanisms."""
-    removed_task = _pkg._unregister_app_autostart_task()
-    removed_reg = _pkg._unregister_app_autostart_runkey()
-    removed_startup = _pkg._unregister_app_autostart_startup()
+    removed_task = _unregister_app_autostart_task()
+    removed_reg = _unregister_app_autostart_runkey()
+    removed_startup = _unregister_app_autostart_startup()
     return removed_task or removed_reg or removed_startup
 
 
 def _is_autostart_windows() -> bool:
     """STARTUP-7: True if autostart is registered via ANY of the three mechanisms."""
     return (
-        _pkg._is_app_autostart_task_registered()
-        or _pkg._is_app_autostart_runkey_registered()
-        or _pkg._is_app_autostart_startup_registered()
+        _is_app_autostart_task_registered()
+        or _is_app_autostart_runkey_registered()
+        or _is_app_autostart_startup_registered()
     )
 
 
@@ -283,7 +280,7 @@ def _build_app_autostart_task_xml() -> str:
     """
     import xml.etree.ElementTree as ET
 
-    python_exe, arguments = _pkg._app_autostart_command_and_args()
+    python_exe, arguments = _app_autostart_command_and_args()
 
     root = ET.Element(
         "Task",
@@ -299,7 +296,7 @@ def _build_app_autostart_task_xml() -> str:
         "the app can still be started manually from the Start Menu."
     )
     uri = ET.SubElement(reg, "URI")
-    uri.text = f"{_pkg._APP_AUTOSTART_TASK_NAME}"
+    uri.text = f"{_autostart_mod._APP_AUTOSTART_TASK_NAME}"
 
     triggers = ET.SubElement(root, "Triggers")
     logon = ET.SubElement(triggers, "LogonTrigger")
@@ -343,7 +340,7 @@ def _register_app_autostart_task() -> bool:
 
         if not task_scheduler.is_supported():
             return False
-        xml_def = _pkg._build_app_autostart_task_xml()
+        xml_def = _build_app_autostart_task_xml()
         import os
         import tempfile
 
@@ -352,15 +349,17 @@ def _register_app_autostart_task() -> bool:
             temp_xml = tf.name
         try:
             with contextlib.suppress(Exception):
-                task_scheduler._schtasks(["/Delete", "/TN", _pkg._APP_AUTOSTART_TASK_NAME, "/F"], capture=True)
+                task_scheduler._schtasks(
+                    ["/Delete", "/TN", _autostart_mod._APP_AUTOSTART_TASK_NAME, "/F"], capture=True
+                )
             rc, output = task_scheduler._schtasks(
-                ["/Create", "/TN", _pkg._APP_AUTOSTART_TASK_NAME, "/XML", temp_xml, "/F"],
+                ["/Create", "/TN", _autostart_mod._APP_AUTOSTART_TASK_NAME, "/XML", temp_xml, "/F"],
                 capture=True,
             )
             if rc != 0 and "access is denied" in (output or "").lower():
                 log.info("[CONFIG] Non-elevated schtasks failed — retrying with UAC elevation prompt")
                 rc, output = task_scheduler._schtasks_elevated(
-                    ["/Create", "/TN", _pkg._APP_AUTOSTART_TASK_NAME, "/XML", temp_xml, "/F"],
+                    ["/Create", "/TN", _autostart_mod._APP_AUTOSTART_TASK_NAME, "/XML", temp_xml, "/F"],
                 )
             if rc == 0:
                 log.info("[CONFIG] App autostart registered via Task Scheduler (logon trigger)")
@@ -385,7 +384,10 @@ def _unregister_app_autostart_task() -> bool:
 
         if not task_scheduler.is_supported():
             return False
-        rc, output = task_scheduler._schtasks(["/Delete", "/TN", _pkg._APP_AUTOSTART_TASK_NAME, "/F"], capture=True)
+        rc, output = task_scheduler._schtasks(
+            ["/Delete", "/TN", _autostart_mod._APP_AUTOSTART_TASK_NAME, "/F"],
+            capture=True,
+        )
         if rc == 0:
             log.info("[CONFIG] App autostart Task Scheduler task removed")
             return True
@@ -422,7 +424,7 @@ def _is_app_autostart_task_registered() -> bool:
 
         if not task_scheduler.is_supported():
             return False
-        rc, output = task_scheduler._schtasks(["/Query", "/TN", _pkg._APP_AUTOSTART_TASK_NAME, "/XML"])
+        rc, output = task_scheduler._schtasks(["/Query", "/TN", _autostart_mod._APP_AUTOSTART_TASK_NAME, "/XML"])
         if rc != 0:
             return False
         # AUTOSTART-CMD-VALIDATE: parse the task XML and verify the
@@ -540,7 +542,7 @@ def _run_key_name() -> str:
     perpetual "Config says autostart=true but it is disabled --
     enabling" re-registration loop).
     """
-    return f"com.voicetyper.autostart_{_pkg._install_hash()}"
+    return f"com.voicetyper.autostart_{_autostart_mod._install_hash()}"
 
 
 def _register_app_autostart_runkey() -> bool:
@@ -560,7 +562,7 @@ def _register_app_autostart_runkey() -> bool:
             winreg.KEY_SET_VALUE,
         )
         try:
-            cmd = _pkg._autostart_command()
+            cmd = _autostart_mod._autostart_command()
             winreg.SetValueEx(key, reg_key_name, 0, winreg.REG_SZ, cmd)
         finally:
             winreg.CloseKey(key)
@@ -794,7 +796,7 @@ def _validate_runkey_command(value: str) -> bool:
     # the caller cleans it up and re-registers with correct quoting.
     # UNC paths (``\\server\share``) legitimately start with a doubled
     # separator and are exempt.
-    if _pkg.is_windows() and "\\\\" in exe_path and not exe_path.startswith("\\\\"):
+    if is_windows() and "\\\\" in exe_path and not exe_path.startswith("\\\\"):
         return False
     was_quoted = exe_token.startswith('"')
     has_multiple_tokens = len(tokens) > 1
@@ -874,7 +876,7 @@ def _entry_targets_this_install(value: str) -> bool:
     """
     if not value:
         return False
-    launcher = _pkg._install_identifier()
+    launcher = _autostart_mod._install_identifier()
     if launcher and os.path.normcase(launcher) in os.path.normcase(value):
         return True
     try:
@@ -886,7 +888,7 @@ def _entry_targets_this_install(value: str) -> bool:
     exe = tokens[0].strip('"')
     if not exe:
         return False
-    tauri_bin = _pkg._resolve_tauri_binary_for_autostart()
+    tauri_bin = _autostart_mod._resolve_tauri_binary_for_autostart()
     return bool(tauri_bin and os.path.normcase(exe) == os.path.normcase(tauri_bin))
 
 
@@ -978,7 +980,7 @@ def _sweep_legacy_tasks() -> list[str] | None:
     uninstaller's 60s) because this runs from ``sync_autostart`` on the
     startup path — a hung PowerShell must not stall app startup.
     """
-    if not _pkg.is_windows():
+    if not is_windows():
         return []
     try:
         from voice_typer.server import task_scheduler
@@ -988,7 +990,7 @@ def _sweep_legacy_tasks() -> list[str] | None:
         return []
     import subprocess
 
-    current_name = _pkg._APP_AUTOSTART_TASK_NAME
+    current_name = _autostart_mod._APP_AUTOSTART_TASK_NAME
     deleted: list[str] = []
     try:
         ps_cmd = (
@@ -1055,11 +1057,11 @@ def _sweep_legacy_startup_bats() -> list[str]:
     Returns the list of deleted file names. Best-effort — unreadable /
     undeletable files are logged and skipped.
     """
-    if not _pkg.is_windows():
+    if not is_windows():
         return []
     current_name = _startup_bat_name()
     try:
-        autostart_dir = _pkg.get_autostart_dir()
+        autostart_dir = _autostart_mod.get_autostart_dir()
     except Exception:
         return []
     if not autostart_dir.is_dir():
@@ -1140,7 +1142,7 @@ def _legacy_sweep_marker_path(config_dir: Path) -> Path:
     sweep removes the pre-rename entries that would otherwise linger as
     duplicate autostart triggers.
     """
-    return config_dir / f"autostart-sweep-v2-{_pkg._install_hash()}.done"
+    return config_dir / f"autostart-sweep-v2-{_autostart_mod._install_hash()}.done"
 
 
 def sweep_legacy_autostart_entries(config_dir: Path) -> dict:
@@ -1406,7 +1408,7 @@ def _startup_bat_name() -> str:
     ``com.voicetyper.*`` reverse-DNS namespace (RDNN), consistent with
     the Run-key value name and Task Scheduler task names.
     """
-    return f"com.voicetyper.autostart{_pkg._install_hash_suffix()}.bat"
+    return f"com.voicetyper.autostart{_autostart_mod._install_hash_suffix()}.bat"
 
 
 def _startup_bat_path() -> Path:
@@ -1416,7 +1418,7 @@ def _startup_bat_path() -> Path:
     returns the platform-specific autostart directory. On Windows this
     is ``%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup``.
     """
-    return _pkg.get_autostart_dir() / _startup_bat_name()
+    return _autostart_mod.get_autostart_dir() / _startup_bat_name()
 
 
 def _register_app_autostart_startup() -> bool:
@@ -1432,10 +1434,10 @@ def _register_app_autostart_startup() -> bool:
     resolved). Non-Windows platforms return ``False`` (the Startup
     folder concept doesn't apply).
     """
-    if not _pkg.is_windows():
+    if not is_windows():
         return False
     try:
-        cmd = _pkg._autostart_command()
+        cmd = _autostart_mod._autostart_command()
         bat_path = _startup_bat_path()
         bat_path.parent.mkdir(parents=True, exist_ok=True)
         # Build the .bat content. ``@echo off`` suppresses command

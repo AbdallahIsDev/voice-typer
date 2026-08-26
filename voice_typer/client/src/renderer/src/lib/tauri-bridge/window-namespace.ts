@@ -186,6 +186,28 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 			}
 		},
 
+		// Push the renderer's current locale to the Rust host so it can
+		// localize its native surfaces. Mirrors Electron's
+		// `i18n:set-locale` IPC handler (main-process storage); the
+		// Rust host stores the value in `SidecarState::host_locale` via
+		// the `set_host_locale` command and resolves the same
+		// `{ok: boolean; error?: string}` envelope instead of
+		// rejecting, so a failed push never becomes an unhandled
+		// rejection.
+		setLocale: async (locale: string) => {
+			try {
+				return await tauri.core.invoke<{
+					ok: boolean;
+					error?: string;
+				}>("set_host_locale", { locale });
+			} catch (e) {
+				return {
+					ok: false,
+					error: e instanceof Error ? e.message : String(e),
+				};
+			}
+		},
+
 		//`openElectronLogs` removed from the WindowBridge interface
 		// (dead code — the Rust host's `open_host_logs` command was
 		// deleted as dead code; the "View Logs" UX uses `open_logs`

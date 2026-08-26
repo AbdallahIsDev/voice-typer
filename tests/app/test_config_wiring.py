@@ -38,10 +38,10 @@ class TestConfigWiring:
         config_file = tmp_config_dir / "config.json"
         config_file.write_text(json.dumps({"paste_on_stop": False}))
 
-        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
         from voice_typer.server.app import VoiceTyperApp
 
@@ -55,10 +55,10 @@ class TestConfigWiring:
         config_file = tmp_config_dir / "config.json"
         config_file.write_text(json.dumps({"streaming_transcription": False}))
 
-        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
         from voice_typer.server.app import VoiceTyperApp
 
@@ -78,10 +78,10 @@ class TestConfigWiring:
             )
         )
 
-        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
         transcriber_cls = MagicMock()
         # construction is now centralized in AsrBackendRegistry.create()
@@ -123,11 +123,14 @@ class TestConfigWiring:
         config_file = tmp_config_dir / "config.json"
         config_file.write_text(json.dumps({"autostart": True}))
 
-        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
         called = []
-        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: called.append(True) or True)
-        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.autostart.enable_autostart",
+            lambda: called.append(True) or True,
+        )
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
         from voice_typer.server import startup_tasks
         from voice_typer.server.app import VoiceTyperApp
@@ -143,11 +146,14 @@ class TestConfigWiring:
         config_file = tmp_config_dir / "config.json"
         config_file.write_text(json.dumps({"autostart": False}))
 
-        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: True)
-        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
         called = []
-        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: called.append(True) or True)
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.autostart.disable_autostart",
+            lambda: called.append(True) or True,
+        )
+        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
         from voice_typer.server import startup_tasks
         from voice_typer.server.app import VoiceTyperApp

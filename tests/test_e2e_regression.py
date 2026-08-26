@@ -141,8 +141,8 @@ class TestCoreModulesExtractedFromApp:
         _hotkey_backend, _streaming_session, etc.) have been removed from
         VoiceTyperApp. Callers must access the extracted modules directly
         via ``app.models``, ``app.hotkeys``, ``app.recording``."""
-        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
         from voice_typer.server.app import VoiceTyperApp
 
         app = VoiceTyperApp()
@@ -358,7 +358,7 @@ class TestAppAutostartUsesTaskSchedulerLogonTrigger:
         """The app autostart XML uses pythonw.exe directly (no cmd.exe wrapper)."""
         # Force Windows mode for the XML builder
         with patch("sys.platform", "win32"):
-            from voice_typer.server import server_platform as platform_mod
+            from voice_typer.server.server_platform import autostart_windows as platform_mod
 
             # PLAT-VENV: _build_app_autostart_task_xml calls
             # _app_autostart_command_and_args which calls shutil.which.
@@ -378,18 +378,18 @@ class TestAppAutostartUsesTaskSchedulerLogonTrigger:
 
     def test_enable_autostart_windows_prefers_task_scheduler(self, monkeypatch):
         """_enable_autostart_windows tries Task Scheduler FIRST (AUTOSTART-ORDER-FIX)."""
-        from voice_typer.server import server_platform as platform_mod
+        from voice_typer.server.server_platform import autostart_windows as awin
 
-        monkeypatch.setattr(platform_mod.sys, "platform", "win32")
+        monkeypatch.setattr(awin.sys, "platform", "win32")
         task_calls = []
         runkey_calls = []
         startup_calls = []
-        monkeypatch.setattr(platform_mod, "_register_app_autostart_task", lambda: task_calls.append(1) or True)
-        monkeypatch.setattr(platform_mod, "_unregister_app_autostart_runkey", lambda: runkey_calls.append(1) or True)
-        monkeypatch.setattr(platform_mod, "_register_app_autostart_runkey", lambda: runkey_calls.append(2) or True)
-        monkeypatch.setattr(platform_mod, "_register_app_autostart_startup", lambda: startup_calls.append(1) or True)
-        monkeypatch.setattr(platform_mod, "_unregister_app_autostart_startup", lambda: True)
-        assert platform_mod._enable_autostart_windows() is True
+        monkeypatch.setattr(awin, "_register_app_autostart_task", lambda: task_calls.append(1) or True)
+        monkeypatch.setattr(awin, "_unregister_app_autostart_runkey", lambda: runkey_calls.append(1) or True)
+        monkeypatch.setattr(awin, "_register_app_autostart_runkey", lambda: runkey_calls.append(2) or True)
+        monkeypatch.setattr(awin, "_register_app_autostart_startup", lambda: startup_calls.append(1) or True)
+        monkeypatch.setattr(awin, "_unregister_app_autostart_startup", lambda: True)
+        assert awin._enable_autostart_windows() is True
         assert task_calls == [1], "Task Scheduler registration must be tried first"
         # Stale Run key / Startup .bat entries should be cleaned up.
         assert 1 in runkey_calls, "Stale HKCU Run key entry should be cleaned up"
@@ -398,45 +398,45 @@ class TestAppAutostartUsesTaskSchedulerLogonTrigger:
     def test_enable_autostart_windows_falls_back_to_startup_bat_then_runkey(self, monkeypatch):
         """_enable_autostart_windows falls back to the Startup .bat, then the
         HKCU Run key, when Task Scheduler registration fails (AUTOSTART-ORDER-FIX)."""
-        from voice_typer.server import server_platform as platform_mod
+        from voice_typer.server.server_platform import autostart_windows as awin
 
-        monkeypatch.setattr(platform_mod.sys, "platform", "win32")
-        monkeypatch.setattr(platform_mod, "_register_app_autostart_task", lambda: False)
-        monkeypatch.setattr(platform_mod, "_unregister_app_autostart_task", lambda: True)
+        monkeypatch.setattr(awin.sys, "platform", "win32")
+        monkeypatch.setattr(awin, "_register_app_autostart_task", lambda: False)
+        monkeypatch.setattr(awin, "_unregister_app_autostart_task", lambda: True)
         startup_called = []
         runkey_called = []
-        monkeypatch.setattr(platform_mod, "_register_app_autostart_startup", lambda: startup_called.append(1) or True)
-        monkeypatch.setattr(platform_mod, "_unregister_app_autostart_runkey", lambda: True)
-        monkeypatch.setattr(platform_mod, "_register_app_autostart_runkey", lambda: runkey_called.append(1) or True)
-        assert platform_mod._enable_autostart_windows() is True
+        monkeypatch.setattr(awin, "_register_app_autostart_startup", lambda: startup_called.append(1) or True)
+        monkeypatch.setattr(awin, "_unregister_app_autostart_runkey", lambda: True)
+        monkeypatch.setattr(awin, "_register_app_autostart_runkey", lambda: runkey_called.append(1) or True)
+        assert awin._enable_autostart_windows() is True
         assert startup_called == [1], "Must fall back to Startup .bat when Task Scheduler fails"
         assert len(runkey_called) == 0, "Run key must NOT be tried when the .bat succeeds"
 
     def test_disable_autostart_windows_removes_both(self, monkeypatch):
         """_disable_autostart_windows removes from both Task Scheduler and Run key."""
-        from voice_typer.server import server_platform as platform_mod
+        from voice_typer.server.server_platform import autostart_windows as awin
 
         task_removed = []
         runkey_removed = []
-        monkeypatch.setattr(platform_mod, "_unregister_app_autostart_task", lambda: task_removed.append(1) or True)
-        monkeypatch.setattr(platform_mod, "_unregister_app_autostart_runkey", lambda: runkey_removed.append(1) or True)
-        assert platform_mod._disable_autostart_windows() is True
+        monkeypatch.setattr(awin, "_unregister_app_autostart_task", lambda: task_removed.append(1) or True)
+        monkeypatch.setattr(awin, "_unregister_app_autostart_runkey", lambda: runkey_removed.append(1) or True)
+        assert awin._disable_autostart_windows() is True
         assert task_removed == [1]
         assert runkey_removed == [1]
 
     def test_is_autostart_windows_checks_both(self, monkeypatch):
         """_is_autostart_windows returns True if EITHER mechanism is registered."""
-        from voice_typer.server import server_platform as platform_mod
+        from voice_typer.server.server_platform import autostart_windows as awin
 
         # Only Task Scheduler
-        monkeypatch.setattr(platform_mod, "_is_app_autostart_task_registered", lambda: True)
-        monkeypatch.setattr(platform_mod, "_is_app_autostart_runkey_registered", lambda: False)
-        assert platform_mod._is_autostart_windows() is True
+        monkeypatch.setattr(awin, "_is_app_autostart_task_registered", lambda: True)
+        monkeypatch.setattr(awin, "_is_app_autostart_runkey_registered", lambda: False)
+        assert awin._is_autostart_windows() is True
         # Only Run key
-        monkeypatch.setattr(platform_mod, "_is_app_autostart_task_registered", lambda: False)
-        monkeypatch.setattr(platform_mod, "_is_app_autostart_runkey_registered", lambda: True)
-        assert platform_mod._is_autostart_windows() is True
+        monkeypatch.setattr(awin, "_is_app_autostart_task_registered", lambda: False)
+        monkeypatch.setattr(awin, "_is_app_autostart_runkey_registered", lambda: True)
+        assert awin._is_autostart_windows() is True
         # Neither
-        monkeypatch.setattr(platform_mod, "_is_app_autostart_task_registered", lambda: False)
-        monkeypatch.setattr(platform_mod, "_is_app_autostart_runkey_registered", lambda: False)
-        assert platform_mod._is_autostart_windows() is False
+        monkeypatch.setattr(awin, "_is_app_autostart_task_registered", lambda: False)
+        monkeypatch.setattr(awin, "_is_app_autostart_runkey_registered", lambda: False)
+        assert awin._is_autostart_windows() is False

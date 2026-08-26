@@ -53,20 +53,16 @@ import concurrent.futures
 import contextlib
 import functools
 import logging
-import os
 import queue
 import re
 import sqlite3
 import threading
-import time
 import weakref
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from voice_typer.server.branding import APP_NAME
 from voice_typer.server.history_db_internals.retention import RetentionResult
-from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
 
@@ -312,76 +308,6 @@ class HistoryDBError(RuntimeError):
 # ``history_db_internals.schema.init_schema`` reads, so in-place
 # mutation (e.g. ``unittest.mock.patch.dict``) is observed by the
 # schema initializer.
-from voice_typer.server.history_db_internals.schema import (  # noqa: E402,F401 — backward-compat re-export so tests reading history_db._MIGRATIONS / _CURRENT_SCHEMA_VERSION keep working
-    _CURRENT_SCHEMA_VERSION,
-    _MIGRATION_V2,
-    _MIGRATION_V3,
-    _MIGRATION_V4,
-    _MIGRATIONS,
-)
-
-
-def _secure_copy_db_file(src: Path, dst: Path) -> None:
-    """symlink-safe, fsync-on-write binary file copy.
-
-    Replaces ``shutil.copy2`` in ``_backup_before_migration`` (and
-    other DB-sidecar backup paths). ``shutil.copy2`` follows symlinks on
-    BOTH source and destination:
-
-    - If ``src`` is a symlink planted by an attacker, ``copy2`` reads
-      the symlink TARGET's content (info disclosure).
-    - If ``dst`` is a symlink planted by an attacker, ``copy2`` writes
-      THROUGH it to the symlink target (backup hijack / data destruction).
-
-    This helper refuses both: on POSIX it opens ``src`` with
-    ``O_RDONLY | O_NOFOLLOW`` and ``dst`` with
-    ``O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW`` (mode ``0o600``);
-    on Windows it rejects reparse points via ``os.lstat`` before
-    falling back to a regular binary copy. After the copy it
-    ``fsync``s the destination fd so the backup is durable.
-    """
-    import shutil
-
-    if not is_windows():
-        # POSIX: O_NOFOLLOW on both source and destination.
-        src_fd = -1
-        dst_fd = -1
-        try:
-            src_fd = os.open(str(src), os.O_RDONLY | os.O_NOFOLLOW)
-            dst_fd = os.open(
-                str(dst),
-                os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
-                0o600,
-            )
-            with os.fdopen(src_fd, "rb", closefd=False) as f_src, os.fdopen(dst_fd, "wb", closefd=False) as f_dst:
-                shutil.copyfileobj(f_src, f_dst)
-                f_dst.flush()
-                os.fsync(f_dst.fileno())
-        finally:
-            if src_fd != -1:
-                with contextlib.suppress(OSError):
-                    os.close(src_fd)
-            if dst_fd != -1:
-                with contextlib.suppress(OSError):
-                    os.close(dst_fd)
-    else:
-        # Windows: O_NOFOLLOW is not supported. Reject reparse points
-        # explicitly via os.lstat (mirrors ``_secure_read_text``'s
-        # Windows branch) and fall back to a regular binary copy with
-        # fsync.
-        for p in (src, dst):
-            try:
-                attrs = getattr(os.lstat(str(p)), "st_file_attributes", 0) or 0
-            except (AttributeError, OSError):
-                attrs = 0
-            if attrs & 0x00000400:  # FILE_ATTRIBUTE_REPARSE_POINT
-                raise OSError(f"Refusing to follow reparse point during copy: {p}")
-        with open(src, "rb") as f_src, open(dst, "wb") as f_dst:
-            shutil.copyfileobj(f_src, f_dst)
-            f_dst.flush()
-            os.fsync(f_dst.fileno())
-
-
 # Search / LIKE / FTS5 helpers + row projection live in
 # ``voice_typer.server.history_db_internals.search``. They are
 # re-exported here under their original (underscore-prefixed) names so
@@ -395,6 +321,29 @@ def _secure_copy_db_file(src: Path, dst: Path) -> None:
 # (No existing test monkeypatches these helpers at the module level;
 # they only call them directly, which works through the re-export.)
 import voice_typer.server.history_db_internals.search as _search_helpers  # noqa: E402,F401 — backward-compat re-export
+
+# DB file-safety helpers (secure copy, legacy relocation, corruption
+# recovery) live in
+# ``voice_typer.server.history_db_internals.corruption_recovery``. They
+# are re-exported here under their original names so existing callers
+# (and tests that import / monkeypatch
+# ``history_db._secure_copy_db_file`` etc.) keep working unchanged.
+# ``corruption_recovery._backup_before_migration`` reads
+# ``_hd._secure_copy_db_file`` through THIS module's namespace at call
+# time, so a facade-level monkeypatch of the copy helper is still
+# observed by the backup path.
+from voice_typer.server.history_db_internals.corruption_recovery import (  # noqa: E402,F401 — backward-compat re-export
+    _maybe_migrate_legacy_db,
+    _maybe_move_legacy_sidecar,
+    _secure_copy_db_file,
+)
+from voice_typer.server.history_db_internals.schema import (  # noqa: E402,F401 — backward-compat re-export so tests reading history_db._MIGRATIONS / _CURRENT_SCHEMA_VERSION keep working
+    _CURRENT_SCHEMA_VERSION,
+    _MIGRATION_V2,
+    _MIGRATION_V3,
+    _MIGRATION_V4,
+    _MIGRATIONS,
+)
 
 _is_fts_compatible_query = _search_helpers.is_fts_compatible_query
 _has_cjk_or_wide_chars = _search_helpers.has_cjk_or_wide_chars
@@ -484,72 +433,6 @@ def _wrap_read(failure_value, fail_verb):
 # ``tests/conftest.py`` iterates this set after each test and calls
 # ``close()`` on any still-alive instance.
 _LIVE_INSTANCES: "weakref.WeakSet[HistoryDB]" = weakref.WeakSet()
-
-
-def _maybe_migrate_legacy_db(config_dir: Path) -> None:
-    """O2: move a legacy root-located ``history.db`` into ``db/`` once.
-
-    Before O2 the history DB lived at ``<config_dir>/history.db`` (with
-    ``-wal`` / ``-shm`` sidecars). O2 moves it under
-    ``<config_dir>/db/`` alongside the other data subdirs (``logs/``,
-    ``crashes/``, …). This is a best-effort, idempotent, atomic-ish
-    relocation that runs on the first default-constructed ``HistoryDB``
-    after the upgrade:
-
-    * Only fires when the legacy root file exists AND the new
-      ``db/history.db`` does not — the app never clobbers a newer file.
-    * ``os.replace`` is atomic on the same filesystem (both paths are
-      under the same config dir), so a crash mid-move cannot leave a
-      truncated DB.
-    * The ``-wal`` / ``-shm`` sidecars are moved first (the writer
-      must not open the main file while its WAL still points at the old
-      root location), then the main file. Any failure is logged and
-      swallowed — a stuck legacy file (e.g. antivirus lock on Windows)
-      falls back to opening the legacy path's replacement at ``db/``
-      next launch; the app never crashes on migration failure.
-    """
-    if not config_dir.is_dir():
-        return
-    legacy = config_dir / "history.db"
-    if not legacy.exists():
-        return
-    db_dir = config_dir / DB_SUBDIR
-    db_dir.mkdir(parents=True, exist_ok=True)
-    target = db_dir / "history.db"
-    if target.exists():
-        # New location already populated — nothing to migrate. Leave the
-        # stale legacy file alone (a later purge / GDPR walk removes it).
-        return
-    # Move sidecars first, then the main file. os.replace is atomic on
-    # the same filesystem (both live under config_dir).
-    for suffix in ("-wal", "-shm"):
-        _maybe_move_legacy_sidecar(config_dir, db_dir, suffix)
-    try:
-        os.replace(legacy, target)
-        log.info("[HISTORY_DB] Migrated legacy history.db to db/history.db (O2)")
-    except OSError as e:
-        log.warning(
-            "[HISTORY_DB] Could not migrate legacy history.db to db/ (O2): %s",
-            e,
-        )
-
-
-def _maybe_move_legacy_sidecar(config_dir: Path, db_dir: Path, suffix: str) -> None:
-    """Best-effort move of a legacy ``history.db<suffix>`` sidecar into ``db/``."""
-    src = config_dir / f"history.db{suffix}"
-    dst = db_dir / f"history.db{suffix}"
-    if not src.exists():
-        return
-    if dst.exists():
-        return
-    try:
-        os.replace(src, dst)
-    except OSError as e:
-        log.warning(
-            "[HISTORY_DB] Could not migrate legacy history.db%s to db/ (O2): %s",
-            suffix,
-            e,
-        )
 
 
 class HistoryDB:
@@ -827,67 +710,22 @@ class HistoryDB:
         writer._drain_remaining(self, conn)
 
     def _run_checkpoint(self, conn: sqlite3.Connection) -> None:
-        """Run a passive WAL checkpoint to bound WAL growth.
+        """Run a passive WAL checkpoint every ``_WAL_CHECKPOINT_INTERVAL`` seconds.
 
         PASSIVE mode doesn't block — it checkpoints as much as
-        possible without forcing readers/writers to wait. Called every
-        ``_WAL_CHECKPOINT_INTERVAL`` seconds by the writer thread.
+        possible without forcing readers/writers to wait. Called by the
+        writer thread on its queue-wait timeout cadence. Before the
+        checkpoint, any lingering uncommitted transaction is rolled back
+        (WAL-CHECKPOINT-FIX) so the writer's own connection can never
+        make ``PRAGMA wal_checkpoint(PASSIVE)`` fail with "database table
+        is locked".
 
-        WAL-CHECKPOINT-FIX: Always rollback any lingering uncommitted
-        transaction BEFORE running the checkpoint. If a write closure
-        failed after ``conn.commit()`` but before the exception handler
-        reached ``conn.rollback()``, or if a closure raised mid-execution
-        without committing, the writer's own connection has a pending
-        uncommitted transaction. ``PRAGMA wal_checkpoint(PASSIVE)`` on
-        the same connection then fails with "database table is locked"
-        — not because another thread holds the lock, but because the
-        writer's own connection hasn't released it yet.
-
-        The rollback is a no-op when there is no open transaction, so
-        it's safe to call unconditionally.
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.writer._run_checkpoint`.
         """
-        # WAL-CHECKPOINT-FIX: clear any lingering transaction from
-        # a prior write before checkpointing. The rollback is safe
-        # because all write closures commit before returning, so
-        # any open transaction here is an unexpected/transient state.
-        try:
-            conn.rollback()
-            result = conn.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchone()
-            if result is not None:
-                status, pages_checkpointed, total_pages = result
-                # Only log when a non-trivial checkpoint happens (>= 100
-                # pages) to avoid flooding the log at the checkpoint
-                # cadence (_WAL_CHECKPOINT_INTERVAL). Tiny checkpoints
-                # (e.g. 20 pages) are silent — the WAL is healthy, no
-                # action needed.
-                # status: 0=ok, 1=partial(active readers), 2=full(needs restart)
-                if pages_checkpointed >= 100:
-                    if status == 0:
-                        log.debug(
-                            "[HISTORY_DB] WAL checkpointed %d pages",
-                            pages_checkpointed,
-                        )
-                    else:
-                        log.debug(
-                            "[HISTORY_DB] WAL checkpoint partial: %d/%d pages (status=%d)",
-                            pages_checkpointed,
-                            total_pages,
-                            status,
-                        )
-        except sqlite3.OperationalError as e:
-            # This can happen when an external process (e.g. antivirus
-            # scan) holds a lock on the WAL file. The next checkpoint
-            # attempt (after _WAL_CHECKPOINT_INTERVAL) will retry.
-            log.debug(
-                "[HISTORY_DB] WAL checkpoint skipped (will retry in %.0fs): %s",
-                _WAL_CHECKPOINT_INTERVAL,
-                e,
-            )
-        except sqlite3.Error as e:
-            log.warning(
-                "[HISTORY_DB] WAL checkpoint failed unexpectedly: %s",
-                e,
-            )
+        from voice_typer.server.history_db_internals import writer
+
+        writer._run_checkpoint(self, conn)
 
     def _open_write_conn(self) -> sqlite3.Connection:
         """Open and configure the writer thread's connection.
@@ -984,130 +822,22 @@ class HistoryDB:
     def _fts5_startup_rebuild(self, conn: sqlite3.Connection) -> None:
         """Best-effort FTS5 ``'rebuild'`` gated by a persisted failure flag.
 
-        The ``delete``, ``clear_all``, and ``apply_retention`` paths
-        each issue the FTS5 ``'rebuild'`` (or ``'optimize'`` for
-        per-row deletes) command after their bulk DELETEs to zero
-        dictated text out of ``transcriptions_fts_data`` (GDPR Art.
-        17 right-to-erasure). But that rebuild is wrapped in a
-        tolerant ``try/except sqlite3.Error`` — if it fails
-        (transient FTS5 error, disk full), the failure is logged
-        and swallowed (no raise, no rollback), incrementing
-        ``self._fts5_rebuild_failures`` and publishing an
-        ``event_bus`` event. The segment data from the failed delete
-        lingers in ``transcriptions_fts_data``, recoverable via
-        forensic tools, until FTS5's background compaction happens
-        to merge that segment (days or weeks later).
+        Runs ONCE per launch on the writer connection when the persisted
+        ``fts5_rebuild_failed`` schema_meta flag is not ``'0'`` — bounds
+        the worst-case exposure window for failed delete/clear_all/
+        retention rebuilds (lingering dictated text in
+        ``transcriptions_fts_data``, GDPR Art. 17) to "between launches".
+        On success the flag is set to ``'0'`` so subsequent launches skip
+        the O(N) rebuild; on failure it is set to ``'1'`` so the next
+        launch retries. Best-effort: failures are logged at WARNING and
+        swallowed — the app must still start.
 
-        This startup sweep bounds the worst-case exposure window to
-        "between launches": on HistoryDB construction (after the
-        schema is initialized), we run ``'rebuild'`` ONCE when
-        needed. If the previous session's delete-time rebuild
-        failed, this sweep clears the lingering segment data on the
-        next launch.
-
-        Gating: the previous implementation ran the O(N) ``'rebuild'``
-        on EVERY launch — 100-500ms of cold-start latency even when
-        the previous session had no FTS5 failure. Now a
-        ``fts5_rebuild_failed`` flag is persisted in
-        ``schema_meta``:
-
-        - flag = ``'1'``: a previous delete/clear_all/retention
-          rebuild FAILED → run startup rebuild to clear the
-          lingering FTS5 segment data.
-        - flag = ``'0'``: previous startup rebuild succeeded and no
-          failure has been recorded since → SKIP the O(N) rebuild.
-        - flag absent (NULL): never set before (fresh DB or first
-          launch after this fix landed) → run rebuild once to
-          establish a clean baseline, then set flag to ``'0'``.
-
-        On successful rebuild the flag is set to ``'0'`` so
-        subsequent launches skip. On a failed delete/clear_all
-        rebuild (in this module) or a failed retention rebuild
-        (in ``retention.py``), the flag is set to ``'1'`` so the
-        next launch retries.
-
-        Best-effort: a failure here is logged at WARNING (not
-        ERROR — a startup sweep failure is not actionable
-        mid-session; the next session will retry) and swallowed —
-        the app must still start. Tolerant of older DBs that
-        haven't yet run the V3 migration (no
-        ``transcriptions_fts`` table) — the ``sqlite3.Error``
-        raised by "no such table" is caught and logged at WARNING.
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.writer._fts5_startup_rebuild`.
         """
-        # Read the persisted fts5_rebuild_failed flag from
-        # schema_meta. The schema_meta table is created by
-        # init_schema (CREATE TABLE IF NOT EXISTS) BEFORE this
-        # method is called, so the SELECT is always safe.
-        try:
-            with contextlib.closing(conn.cursor()) as cursor:
-                cursor.execute("SELECT value FROM schema_meta WHERE key = 'fts5_rebuild_failed'")
-                row = cursor.fetchone()
-                flag_value = row[0] if row is not None else None
-        except sqlite3.Error as e:
-            # If schema_meta itself is unreadable, fall through to
-            # running the rebuild — best-effort, mirrors the
-            # pre-flag behavior.
-            log.debug(
-                "[HISTORY] Could not read fts5_rebuild_failed flag from schema_meta: %s — running rebuild",
-                e,
-            )
-            flag_value = None
+        from voice_typer.server.history_db_internals import writer
 
-        # Steady-state skip: flag is explicitly '0' (previous
-        # rebuild succeeded, no failure recorded since). Avoids the
-        # O(N) rebuild on every launch. We can't also skip when the
-        # flag is NULL: a fresh DB has no flag row yet, and the
-        # existing tests (and the GDPR guarantee) require the
-        # rebuild to run at least once on a fresh DB to establish a
-        # clean baseline post-V3-migration.
-        if flag_value == "0":
-            log.debug(
-                "[HISTORY] FTS5 startup rebuild succeeded (skipped — previous rebuild "
-                "succeeded, no failure recorded since)"
-            )
-            return
-
-        try:
-            with contextlib.closing(conn.cursor()) as cursor:
-                cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')")
-            conn.commit()
-            # Persist the success state so subsequent launches skip
-            # the O(N) rebuild. INSERT OR REPLACE upserts the flag
-            # row (created here on first launch, updated on every
-            # successful retry after a prior failure).
-            with contextlib.suppress(sqlite3.Error):
-                with contextlib.closing(conn.cursor()) as flag_cursor:
-                    flag_cursor.execute(
-                        "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('fts5_rebuild_failed', '0')"
-                    )
-                conn.commit()
-            log.debug("[HISTORY] FTS5 startup rebuild succeeded")
-            # A rebuild re-tokenizes every row from the CONTENT table —
-            # rows that are encrypted at rest get CIPHERTEXT tokens in
-            # the index, breaking FTS search for them. Remember that the
-            # rebuild ran so ``_init_encryption`` (which resolves the DEK
-            # right after this) can queue the decrypt-aware re-index.
-            self._fts5_rebuild_ran = True
-        except sqlite3.Error as e:
-            log.warning(
-                "[HISTORY] FTS5 startup rebuild failed: %s — segments from failed deletes may persist",
-                e,
-            )
-            # Persist the failure state so the next launch retries.
-            # Best-effort: a failure here (e.g. disk full) means we
-            # can't record the flag, but the in-memory
-            # ``_fts5_rebuild_failures`` counter is NOT incremented
-            # for the startup path (only the delete/clear_all/
-            # retention paths increment it) — the startup sweep is
-            # best-effort and a failure to persist the flag just
-            # means the next launch re-runs the rebuild (the safe
-            # default).
-            with contextlib.suppress(sqlite3.Error):
-                with contextlib.closing(conn.cursor()) as flag_cursor:
-                    flag_cursor.execute(
-                        "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('fts5_rebuild_failed', '1')"
-                    )
-                conn.commit()
+        writer._fts5_startup_rebuild(self, conn)
 
     # ──────────────────────────────────────────────────────────────
     # At-rest encryption (see docs/adr/XZ-R11-04-at-rest-encryption.md)
@@ -1116,670 +846,155 @@ class HistoryDB:
     def _init_encryption(self, conn: sqlite3.Connection) -> None:
         """Resolve the DEK once per process and kick the backfill.
 
-        Runs on the writer thread BEFORE ``_writer_ready`` is signaled
-        (see ``history_db_internals.writer._writer_loop``), so the
-        encryption state is deterministic the moment ``HistoryDB()``
-        returns — no reader can observe a flagged row while the key is
-        still unresolved. The one keyring read is bounded by the
-        existing 5s keyring-I/O timeout isolation; the BACKFILL itself
-        is a queued writer item and never blocks startup. Never raises
-        (failures are logged; the DB falls back to the documented
-        plaintext behavior).
-
-        Key-loss policy (stricter than ADR §9, per review): a DEK is
-        generated only when the keyring is available AND no encrypted
-        rows exist. When encrypted rows exist but the DEK cannot be
-        loaded, the status becomes ``"key-unavailable"`` — reads return
-        the ``"<decryption failed>"`` placeholder, NEW writes stay
-        plaintext (flag 0), and the DEK is NEVER regenerated (a fresh
-        key could not decrypt the existing rows).
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.encryption._init_encryption`.
         """
-        from voice_typer.server import _text_crypto
+        from voice_typer.server.history_db_internals import encryption
 
-        try:
-            has_encrypted = self._has_encrypted_rows(conn)
-            dek = _text_crypto.resolve_dek(has_encrypted)
-            self._encryption_status = _text_crypto.encryption_status(dek, has_encrypted)
-            log.info(
-                "[HISTORY] at-rest encryption status: %s",
-                self._encryption_status,
-            )
-            if dek is not None and self._has_plaintext_rows(conn):
-                # Legacy rows exist alongside the active key — encrypt
-                # them in bounded background batches (never blocks
-                # startup: the step is a queued writer item that
-                # re-enqueues itself between batches).
-                log.info(
-                    "[HISTORY] scheduling background encryption of existing plaintext history rows (batches of %d)",
-                    _ENCRYPTION_BACKFILL_BATCH,
-                )
-                self._enqueue_backfill_step()
-            if dek is not None and self._fts5_rebuild_ran and self._has_encrypted_rows(conn):
-                # The startup FTS5 'rebuild' re-tokenized the content
-                # table, so encrypted rows now carry CIPHERTEXT tokens in
-                # the index. Restore the §6 invariant (FTS stays
-                # plaintext-tokenized) with a decrypt-aware re-index.
-                log.info(
-                    "[HISTORY] startup FTS5 rebuild re-tokenized encrypted rows "
-                    "with ciphertext — scheduling decrypt-aware re-index"
-                )
-                self._enqueue_reindex_step()
-        except Exception as e:  # noqa: BLE001 — crypto must never kill the writer
-            log.warning(
-                "[HISTORY] at-rest-encryption initialization failed (%s) — history continues in plaintext mode",
-                type(e).__name__,
-            )
+        encryption._init_encryption(self, conn)
 
     def encryption_status(self) -> str:
         """Return the at-rest-encryption state of this HistoryDB.
 
-        One of:
-
-        - ``"active"`` — a DEK is available; new rows are encrypted and
-          flagged rows decrypt transparently on read.
-        - ``"disabled"`` — no DEK and nothing encrypted (keyring
-          unavailable on first run): behavior is byte-identical to the
-          pre-encryption plaintext mode (zero-regression guarantee).
-        - ``"key-unavailable"`` — encrypted rows exist but the DEK
-          cannot be loaded (keyring wiped/unavailable): reads return
-          the ``"<decryption failed>"`` placeholder, new writes stay
-          plaintext, and the DEK is never regenerated in this state.
+        One of ``"active"`` / ``"disabled"`` / ``"key-unavailable"``.
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.encryption.encryption_status`.
         """
-        return self._encryption_status
+        from voice_typer.server.history_db_internals import encryption
+
+        return encryption.encryption_status(self)
 
     def _has_encrypted_rows(self, conn: sqlite3.Connection) -> bool:
-        """Return True when at least one row is flagged encrypted."""
-        with contextlib.closing(conn.cursor()) as cursor:
-            cursor.execute("SELECT 1 FROM transcriptions WHERE text_is_encrypted = 1 LIMIT 1")
-            return cursor.fetchone() is not None
+        """Return True when at least one row is flagged encrypted.
+
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.encryption._has_encrypted_rows`.
+        """
+        from voice_typer.server.history_db_internals import encryption
+
+        return encryption._has_encrypted_rows(self, conn)
 
     def _has_plaintext_rows(self, conn: sqlite3.Connection) -> bool:
-        """Return True when at least one non-empty row is still plaintext."""
-        with contextlib.closing(conn.cursor()) as cursor:
-            cursor.execute("SELECT 1 FROM transcriptions WHERE text_is_encrypted = 0 AND text <> '' LIMIT 1")
-            return cursor.fetchone() is not None
+        """Return True when at least one non-empty row is still plaintext.
+
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.encryption._has_plaintext_rows`.
+        """
+        from voice_typer.server.history_db_internals import encryption
+
+        return encryption._has_plaintext_rows(self, conn)
 
     def _enqueue_backfill_step(self) -> None:
         """Queue one bounded plaintext→ciphertext backfill batch (fire-and-forget).
 
-        Enqueued from the writer thread itself (init + the tail of each
-        step), so the batches serialize with normal writes in FIFO
-        order — a batch can never race a live INSERT. Queue-full is
-        swallowed: the remaining rows simply stay plaintext until the
-        next launch (the backfill is idempotent — it selects by flag).
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.encryption._enqueue_backfill_step`.
         """
-        with contextlib.suppress(queue.Full):
-            self._queue.put_nowait((self._encrypt_backfill_step, None))
+        from voice_typer.server.history_db_internals import encryption
+
+        encryption._enqueue_backfill_step(self)
 
     def _encrypt_backfill_step(self, conn: sqlite3.Connection) -> int:
         """Encrypt up to ``_ENCRYPTION_BACKFILL_BATCH`` plaintext rows.
 
-        Idempotent (rows are selected by ``text_is_encrypted = 0``) and
-        resumable: when a full batch is processed, the next batch is
-        re-enqueued so the writer thread yields to foreground writes
-        between batches. The UPDATE is the flag-flip form guarded in the
-        ``au_fts`` trigger, so the FTS index keeps the plaintext tokens
-        these rows were originally indexed with — search stays correct
-        before, during, and after the backfill.
-
-        Returns the number of rows encrypted in this step.
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.encryption._encrypt_backfill_step`.
         """
-        from voice_typer.server import _text_crypto
+        from voice_typer.server.history_db_internals import encryption
 
-        dek = _text_crypto.get_dek_cached()
-        if dek is None:
-            return 0
-        try:
-            with contextlib.closing(conn.cursor()) as cursor:
-                rows = cursor.execute(
-                    "SELECT id, text FROM transcriptions "
-                    "WHERE text_is_encrypted = 0 AND text <> '' "
-                    "ORDER BY id ASC LIMIT ?",
-                    (_ENCRYPTION_BACKFILL_BATCH,),
-                ).fetchall()
-                for row_id, text in rows:
-                    cipher = _text_crypto.encrypt_text(text, dek)
-                    # The ``AND text_is_encrypted = 0`` guard makes the
-                    # UPDATE idempotent even if a stale duplicate step
-                    # is queued twice.
-                    cursor.execute(
-                        "UPDATE transcriptions SET text = ?, text_is_encrypted = 1 "
-                        "WHERE id = ? AND text_is_encrypted = 0",
-                        (cipher, row_id),
-                    )
-                conn.commit()
-        except sqlite3.Error as e:
-            log.warning(
-                "[HISTORY] history-encryption backfill batch failed (%s) — will resume on next launch",
-                e,
-            )
-            with contextlib.suppress(sqlite3.Error):
-                conn.rollback()
-            return 0
-        encrypted = len(rows)
-        if encrypted > 0:
-            log.debug(
-                "[HISTORY] encrypted %d existing history row(s) at rest",
-                encrypted,
-            )
-        if encrypted >= _ENCRYPTION_BACKFILL_BATCH:
-            # More plaintext rows remain — yield to foreground writes
-            # and continue in the next queued step.
-            self._enqueue_backfill_step()
-        return encrypted
+        return encryption._encrypt_backfill_step(self, conn)
 
     def _enqueue_reindex_step(self) -> None:
-        """Queue one bounded decrypt-aware FTS re-index batch (fire-and-forget)."""
-        with contextlib.suppress(queue.Full):
-            self._queue.put_nowait((self._reindex_encrypted_fts_step, None))
+        """Queue one bounded decrypt-aware FTS re-index batch (fire-and-forget).
+
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.encryption._enqueue_reindex_step`.
+        """
+        from voice_typer.server.history_db_internals import encryption
+
+        encryption._enqueue_reindex_step(self)
 
     def _reindex_encrypted_fts_step(self, conn: sqlite3.Connection) -> int:
         """Restore plaintext FTS tokens for encrypted rows after a 'rebuild'.
 
-        The FTS5 ``'rebuild'`` command drops all segments and re-tokenizes
-        from the CONTENT table — for a row whose ``text`` column holds
-        ciphertext that means the index now contains ciphertext tokens,
-        so full-text search no longer matches the row's real words. This
-        step repairs the invariant (ADR §6: FTS shadow tables stay
-        plaintext-tokenized) for up to ``_ENCRYPTION_BACKFILL_BATCH``
-        encrypted rows per invocation:
-
-        1. issue the FTS5 ``'delete'`` command with the row's CIPHERTEXT
-           (exactly what the rebuild indexed — a token match, so the
-           delete is safe), then
-        2. re-INSERT the DECRYPTED plaintext so the row is searchable
-           again.
-
-        Progression uses an ascending-id watermark (rows never lose the
-        encrypted flag mid-run), so each batch resumes where the
-        previous one stopped and the step terminates when a short batch
-        is seen — no repeated work, no unbounded memory. Only runs when
-        a DEK is cached (in key-loss mode there is no plaintext to
-        index — search over those rows is already degraded by design).
-        Re-enqueues itself while full batches remain, so it never
-        starves foreground writes.
-
-        Returns the number of rows re-indexed in this step.
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.encryption._reindex_encrypted_fts_step`.
         """
-        from voice_typer.server import _text_crypto
+        from voice_typer.server.history_db_internals import encryption
 
-        dek = _text_crypto.get_dek_cached()
-        if dek is None:
-            return 0
-        watermark = self._fts_reindex_watermark
-        try:
-            with contextlib.closing(conn.cursor()) as cursor:
-                rows = cursor.execute(
-                    "SELECT id, text FROM transcriptions "
-                    "WHERE text_is_encrypted = 1 AND id > ? ORDER BY id ASC LIMIT ?",
-                    (watermark, _ENCRYPTION_BACKFILL_BATCH),
-                ).fetchall()
-                for row_id, ciphertext in rows:
-                    # 'delete' with the ciphertext that the rebuild
-                    # indexed (token match — removes exactly those
-                    # tokens), then insert the decrypted plaintext.
-                    cursor.execute(
-                        "INSERT INTO transcriptions_fts(transcriptions_fts, rowid, text) VALUES ('delete', ?, ?)",
-                        (row_id, ciphertext),
-                    )
-                    cursor.execute(
-                        "INSERT INTO transcriptions_fts(rowid, text) VALUES (?, ?)",
-                        (row_id, _text_crypto.decrypt_text(ciphertext, dek)),
-                    )
-                    watermark = row_id
-                conn.commit()
-        except sqlite3.Error as e:
-            log.warning(
-                "[HISTORY] decrypt-aware FTS re-index batch failed (%s) — "
-                "encrypted rows may stay unsearchable until the next rebuild",
-                e,
-            )
-            with contextlib.suppress(sqlite3.Error):
-                conn.rollback()
-            return 0
-        self._fts_reindex_watermark = watermark
-        if len(rows) >= _ENCRYPTION_BACKFILL_BATCH:
-            self._enqueue_reindex_step()
-        elif rows:
-            log.debug(
-                "[HISTORY] decrypt-aware FTS re-index complete through id=%d",
-                watermark,
-            )
-        return len(rows)
+        return encryption._reindex_encrypted_fts_step(self, conn)
 
     def _mark_fts5_rebuild_failed(self, conn: sqlite3.Connection) -> None:
         """Persist the ``fts5_rebuild_failed`` flag so the next launch
         retries the FTS5 startup rebuild.
 
-        Called from the tolerant ``except sqlite3.Error`` branches in
-        ``delete`` (after a failed per-row ``'optimize'``) and
-        ``clear_all`` (after a failed ``'rebuild'``). The retention
-        path (``retention.py``) sets the same flag via the same
-        schema_meta key — paired change in that module.
-
-        Best-effort: a failure to persist the flag (e.g. disk full)
-        is swallowed at DEBUG — the in-memory
-        ``self._fts5_rebuild_failures`` counter is still incremented
-        by the caller, so the failure is observable via diagnostics
-        even if the persisted flag isn't updated.
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.encryption._mark_fts5_rebuild_failed`.
         """
-        try:
-            with contextlib.closing(conn.cursor()) as cursor:
-                cursor.execute("INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('fts5_rebuild_failed', '1')")
-            conn.commit()
-        except sqlite3.Error as e:
-            log.debug(
-                "[HISTORY_DB] Could not persist fts5_rebuild_failed flag to schema_meta: %s "
-                "(in-memory counter still incremented; next launch may skip the startup rebuild)",
-                e,
-            )
+        from voice_typer.server.history_db_internals import encryption
+
+        encryption._mark_fts5_rebuild_failed(self, conn)
 
     def _backup_before_migration(self, current_version: int) -> None:
-        """Best-effort copy of the DB (and ``-wal``/``-shm``
-        sidecars) to ``history.db.pre-migration-v<from>.bak`` before a
-        migration runs.
+        """Best-effort copy of the DB (+ sidecars) before a migration runs.
 
-        Best-effort: if the copy fails (disk full, permissions,
-        cross-device), log + continue — DO NOT block the migration on
-        backup failure. The user's history is valuable, but blocking
-        the schema migration on a backup failure would leave the app
-        in a worse state (stuck on the old schema) than simply
-        proceeding without a backup.
-
-        Single-slot naming: ``history.db.pre-migration-v<from>.bak``
-        (NOT timestamped). A second migration run would skip the
-        backup entirely because ``current_version ==
-        _CURRENT_SCHEMA_VERSION`` (the backup is only taken when
-        ``current_version < _CURRENT_SCHEMA_VERSION``, checked in the
-        caller). Even if the same version were migrated twice (e.g.
-        a v3 -> v4 migration followed by a v3 -> v4 retry after a
-        failure), the second backup would overwrite the first —
-        acceptable because the first backup was of the same DB state.
-
-        the copy uses ``_secure_copy_db_file``
-        (``O_NOFOLLOW`` on both source and destination, ``0o600`` on
-        the destination, ``fsync`` after write). This replaces the
-        previous ``shutil.copy2`` call which followed symlinks on
-        BOTH source and destination (a symlink-planting attacker
-        could redirect the backup to an arbitrary file or read an
-        arbitrary file's content into the backup location) and had
-        no ``fsync``. The destination is created with mode ``0o600``
-        on POSIX so the backup is not world-readable (the main DB
-        file is also ``0o600``).
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.corruption_recovery._backup_before_migration`.
         """
-        try:
-            bak_main = self.db_path.with_name(f"{self.db_path.name}.pre-migration-v{current_version}.bak")
-            # copy the main DB file via the secure helper
-            # (O_NOFOLLOW on src+dst, 0o600 on dst, fsync).
-            if self.db_path.exists():
-                _secure_copy_db_file(self.db_path, bak_main)
-            # Copy the -wal and -shm sidecars if they exist (WAL mode).
-            # These hold uncheckpointed pages that would otherwise be
-            # lost — including them makes the backup a complete
-            # restorable snapshot. : routed through the same
-            # symlink-safe helper.
-            for sidecar in ("-wal", "-shm"):
-                src = self.db_path.with_name(self.db_path.name + sidecar)
-                if src.exists():
-                    dst = bak_main.with_name(bak_main.name + sidecar)
-                    _secure_copy_db_file(src, dst)
-            log.info(
-                "[HISTORY_DB] Pre-migration backup created: %s (from schema v%d)",
-                bak_main.name,
-                current_version,
-            )
-        except OSError as e:
-            # Best-effort: do NOT block the migration on backup
-            # failure. The user's history is more valuable than the
-            # backup — a stuck migration would leave the app on the
-            # old schema, which is worse than proceeding without a
-            # backup.
-            log.warning(
-                "[HISTORY_DB] Pre-migration backup FAILED (continuing with migration anyway): %s",
-                e,
-            )
+        from voice_typer.server.history_db_internals import corruption_recovery
+
+        corruption_recovery._backup_before_migration(self, current_version)
 
     def _maybe_recover_from_corruption(
         self,
         conn: sqlite3.Connection,
     ) -> sqlite3.Connection | None:
-        """run ``PRAGMA quick_check``; if the result is
-        anything other than ``("ok",)``, rename the corrupt DB file
-        (and its WAL/SHM sidecars) to ``history.db.corrupt-<timestamp>``
-        and return a fresh connection on a new (empty) DB file.
+        """``PRAGMA quick_check`` gate → rename corrupt DB → fresh DB.
 
-        Returns ``None`` if the DB is healthy. Returns a new
-        connection if corruption was detected and recovery succeeded.
-        Sets ``self._init_error`` and returns ``None`` if recovery
-        failed (e.g. the rename or reopen raised).
-
-        The caller is responsible for re-running schema init on the
-        returned connection (the fresh DB has no tables yet).
-
-        after renaming the corrupt DB, attempts to recover
-        user-data rows via ``iterdump()`` and replays them on the
-        fresh DB. Also publishes a ``history_corrupted`` event via
-        ``event_bus`` so the renderer can surface a toast to the user.
-        If ``iterdump()`` fails (severe corruption), the rename +
-        fresh-DB path still runs as a fallback (``recovered_count=0``).
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.corruption_recovery._maybe_recover_from_corruption`.
         """
-        try:
-            rows = conn.execute("PRAGMA quick_check").fetchall()
-        except sqlite3.Error as e:
-            log.error(
-                "[HISTORY_DB] PRAGMA quick_check raised: %s (treating as corruption and attempting recovery)",
-                e,
-            )
-            # Fall through to the recovery path — we can't verify
-            # integrity, so assume the worst and rename.
-            rows = [("quick_check raised", str(e))]
+        from voice_typer.server.history_db_internals import corruption_recovery
 
-        if len(rows) == 1 and rows[0][0] == "ok":
-            return None  # healthy
-
-        log.error(
-            "[HISTORY_DB] Integrity check failed: %s. Renaming corrupt DB and creating a fresh one.",
-            rows,
-        )
-        # Close the corrupt connection so we can rename the file.
-        # Suppress errors — the connection may already be in a bad
-        # state.
-        with contextlib.suppress(sqlite3.Error):
-            conn.close()
-        # invalidate all existing read connections BEFORE renaming.
-        # On POSIX, renaming the corrupt DB file doesn't affect
-        # already-open file descriptors — readers would keep reading
-        # stale/garbage data from the renamed file, so we close every
-        # tracked read conn and bump the generation counter so each
-        # reader thread's next ``_get_read_conn`` call detects the
-        # mismatch, closes its stale thread-local conn, and reconnects
-        # to the fresh DB file. On Windows, closing first is MANDATORY
-        # for a different reason: an open SQLite handle locks the file,
-        # so ``os.rename`` of the corrupt DB (below) silently fails
-        # with WinError 32 — the corrupt-renamed file never appears and
-        # ``_try_iterdump_recovery`` finds nothing (recovered_count=0).
-        # Closing readers before the rename makes recovery work on both
-        # platforms. We can't clear other threads' ``_read_local.conn``
-        # directly, but the generation check handles it lazily.
-        with self._connections_lock:
-            for _ident, rconn in self._all_read_connections:
-                with contextlib.suppress(sqlite3.Error):
-                    rconn.close()
-            self._all_read_connections.clear()
-            self._read_conn_generation += 1
-        # Also clear the current thread's stale read conn (if any)
-        # so any subsequent read on this thread reopens immediately.
-        if hasattr(self._read_local, "conn") and self._read_local.conn is not None:
-            with contextlib.suppress(sqlite3.Error):
-                self._read_local.conn.close()
-            self._read_local.conn = None
-            self._read_local.gen = self._read_conn_generation
-        # Rename the corrupt DB and its WAL/SHM sidecar files.
-        timestamp = int(time.time())
-        corrupt_suffix = f".corrupt-{timestamp}"
-        corrupt_main = self.db_path.with_name(self.db_path.name + corrupt_suffix)
-        for sidecar in ("", "-wal", "-shm"):
-            src = self.db_path.with_name(self.db_path.name + sidecar)
-            if src.exists():
-                dst = corrupt_main.with_name(corrupt_main.name + sidecar)
-                with contextlib.suppress(OSError):
-                    src.rename(dst)
-        log.warning(
-            "[HISTORY_DB] Renamed corrupt DB to %s",
-            corrupt_main,
-        )
-        # BEFORE opening the fresh DB, attempt to recover
-        # user-data INSERTs from the now-renamed corrupt file. The
-        # corrupt file is at ``corrupt_main``; we open it read-only
-        # so we can't compound the corruption by writing to it.
-        recovered_inserts = self._try_iterdump_recovery(corrupt_main)
-        # Open a fresh connection on a new (empty) DB file.
-        try:
-            new_conn = self._open_write_conn()
-            self._check_wal_mode(new_conn)
-        except sqlite3.Error as e:
-            self._init_error = e
-            # Even if the fresh DB can't be opened, still emit the
-            # corruption event so the user is notified.
-            self._notify_corruption_recovered(corrupt_main, 0)
-            return None
-        # replay the recovered INSERTs on the fresh DB.
-        # If no INSERTs were recovered (severe corruption or empty
-        # DB), this is a no-op and the fresh DB stays empty.
-        recovered_count = 0
-        if recovered_inserts:
-            recovered_count = self._apply_recovered_inserts(new_conn, recovered_inserts)
-        # emit the history_corrupted event + tray notify.
-        self._notify_corruption_recovered(corrupt_main, recovered_count)
-        return new_conn
+        return corruption_recovery._maybe_recover_from_corruption(self, conn)
 
     def _try_iterdump_recovery(self, old_db_path: Path) -> list[str]:
-        """attempt to recover INSERT statements from a
-        corrupt DB via ``connection.iterdump()``.
+        """Recover ``INSERT INTO transcriptions`` statements via iterdump().
 
-        Opens the corrupt DB in read-only mode (``?mode=ro`` URI) so
-        we can't compound the corruption by writing to the known-bad
-        file. Iterates the dump and returns the list of
-        ``INSERT INTO transcriptions ...`` statements.
-
-        Schema statements (CREATE TABLE / CREATE INDEX), schema-meta
-        rows, FTS5 shadow-table rows, and ``sqlite_sequence`` rows
-        are filtered out — the fresh DB's ``init_schema`` recreates
-        the schema, and replaying ``schema_meta`` would PRIMARY
-        KEY-conflict with the version row ``init_schema`` writes.
-
-        Returns an empty list if the corrupt DB file doesn't exist,
-        can't be opened read-only, or ``iterdump()`` raises (severe
-        corruption). The caller must handle the empty-list case by
-        falling back to the rename + fresh-DB path (which is what
-        ``_maybe_recover_from_corruption`` does).
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.corruption_recovery._try_iterdump_recovery`.
         """
-        inserts: list[str] = []
-        if not old_db_path.exists():
-            log.warning(
-                "[HISTORY_DB] iterdump recovery: corrupt DB file does not exist: %s",
-                old_db_path,
-            )
-            return inserts
-        # Build the read-only URI. ``Path.as_uri()`` URL-encodes
-        # special chars (spaces, etc.) and produces a proper
-        # ``file:///`` URI on both POSIX and Windows.
-        try:
-            uri = old_db_path.resolve().as_uri() + "?mode=ro"
-        except (OSError, ValueError) as e:
-            log.warning(
-                "[HISTORY_DB] iterdump recovery: could not resolve path %s: %s",
-                old_db_path,
-                e,
-            )
-            return inserts
-        try:
-            ro_conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
-        except sqlite3.Error as e:
-            log.warning(
-                "[HISTORY_DB] iterdump recovery: could not open corrupt DB read-only (%s): %s",
-                old_db_path,
-                e,
-            )
-            return inserts
-        try:
-            for stmt in ro_conn.iterdump():
-                # iterdump yields strings like:
-                #   INSERT INTO "transcriptions" VALUES(1, 'text', ...);
-                #   INSERT INTO "schema_meta" VALUES('version','3');
-                #   INSERT INTO "transcriptions_fts" VALUES(...);
-                # Keep only INSERT INTO transcriptions (user data).
-                stripped = stmt.lstrip()
-                if _INSERT_TRANSCRIPTIONS_RE.match(stripped):
-                    inserts.append(stmt)
-        except sqlite3.Error as e:
-            # Severe corruption: iterdump raised mid-iteration.
-            # Return whatever we have so far (may be partial) rather
-            # than discarding everything — partial recovery is
-            # strictly better than no recovery.
-            log.warning(
-                "[HISTORY_DB] iterdump recovery: iterdump() raised mid-iteration "
-                "(severe corruption, returning %d partial statements): %s",
-                len(inserts),
-                e,
-            )
-            return inserts
-        finally:
-            with contextlib.suppress(sqlite3.Error):
-                ro_conn.close()
-        log.info(
-            "[HISTORY_DB] iterdump recovery: recovered %d INSERT statements from %s",
-            len(inserts),
-            old_db_path,
-        )
-        return inserts
+        from voice_typer.server.history_db_internals import corruption_recovery
+
+        return corruption_recovery._try_iterdump_recovery(self, old_db_path)
 
     def _apply_recovered_inserts(
         self,
         conn: sqlite3.Connection,
         inserts: list[str],
     ) -> int:
-        """replay iterdump-recovered INSERT statements on
-        the fresh DB.
+        """Replay iterdump-recovered INSERT statements on the fresh DB.
 
-        The fresh DB's schema is not yet set up at this point
-        (``init_schema``'s recursive ``_is_recovery=True`` call runs
-        AFTER this method returns), so we run ``init_schema``
-        ourselves first. The later recursive call is a no-op because
-        all CREATE statements use ``IF NOT EXISTS`` and
-        ``schema_meta`` already has ``version=_CURRENT_SCHEMA_VERSION``.
-
-        The INSERTs are applied via ``executescript`` so a single bad
-        statement (e.g. a row that violates a constraint) doesn't
-        roll back all the others — partial recovery is preferable to
-        no recovery for user dictation history.
-
-        Returns the actual number of rows in the ``transcriptions``
-        table after the attempt (may be less than ``len(inserts)``
-        if some statements failed).
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.corruption_recovery._apply_recovered_inserts`.
         """
-        # Set up the schema on the fresh connection so the INSERTs
-        # can target the transcriptions table. Wrapped broadly
-        # because init_schema may interact with self._init_error /
-        # _backup_before_migration in ways we don't want to crash on
-        # during best-effort recovery.
-        try:
-            from voice_typer.server.history_db_internals.schema import (
-                init_schema as _init_schema,
-            )
+        from voice_typer.server.history_db_internals import corruption_recovery
 
-            _init_schema(self, conn, _is_recovery=True)
-        except Exception as e:  # noqa: BLE001 — best-effort recovery
-            log.warning(
-                "[HISTORY_DB] iterdump recovery: could not initialize schema for replay (skipping %d INSERTs): %s",
-                len(inserts),
-                e,
-            )
-            return 0
-        # Apply the INSERTs. ``executescript`` issues a COMMIT first
-        # (clearing any pending transaction from init_schema), then
-        # runs each statement. The FTS5 AFTER-INSERT trigger fires
-        # for each row and populates ``transcriptions_fts``
-        # automatically, so we don't need to replay FTS rows.
-        try:
-            script = "\n".join(inserts)
-            conn.executescript(script)
-        except sqlite3.Error as e:
-            log.warning(
-                "[HISTORY_DB] iterdump recovery: executescript failed (partial recovery may have occurred): %s",
-                e,
-            )
-        # Count actual rows in the fresh DB. This is more accurate
-        # than ``len(inserts)`` because some INSERTs may have failed
-        # (e.g. constraint violations on duplicate ids).
-        try:
-            cursor = conn.execute("SELECT COUNT(*) FROM transcriptions")
-            row = cursor.fetchone()
-            count = int(row[0]) if row else 0
-        except sqlite3.Error as e:
-            log.warning(
-                "[HISTORY_DB] iterdump recovery: could not count recovered rows: %s",
-                e,
-            )
-            return 0
-        if count > 0:
-            log.info(
-                "[HISTORY_DB] iterdump recovery: %d rows recovered into fresh DB",
-                count,
-            )
-        else:
-            log.info(
-                "[HISTORY_DB] iterdump recovery: no rows recovered (all INSERTs failed or empty source)",
-            )
-        return count
+        return corruption_recovery._apply_recovered_inserts(self, conn, inserts)
 
     def _notify_corruption_recovered(
         self,
         corrupt_main: Path,
         recovered_count: int,
     ) -> None:
-        """surface the corruption event to the user.
+        """Surface the corruption event to the user (log/event/tray).
 
-        Logs a WARNING-level message naming the backup file's
-        location and the number of rows recovered, then publishes a
-        ``history_corrupted`` event via ``event_bus`` so the renderer
-        can show a toast/notification. If ``self._app.tray.notify``
-        is wired (set by the app shell), also calls it for a native
-        OS notification.
-
-        All notifications are best-effort: if ``event_bus.publish``
-        or ``tray.notify`` raises, the recovery path must still
-        succeed (the fresh DB has already been created and populated).
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.corruption_recovery._notify_corruption_recovered`.
         """
-        log.warning(
-            "[HISTORY_DB] History database was corrupted and has been backed up to %s. Recovered %d rows via iterdump.",
-            corrupt_main,
-            recovered_count,
-        )
-        # Best-effort event_bus publication. Wrapped broadly because
-        # the event_bus import or the publish call may fail (e.g.
-        # circular import during early init, or a malformed event
-        # payload); none of those should crash the recovery path.
-        try:
-            from voice_typer.server import event_bus
+        from voice_typer.server.history_db_internals import corruption_recovery
 
-            event_bus.publish(
-                {
-                    "type": "history_corrupted",
-                    "data": {
-                        "path": str(corrupt_main),
-                        "db_path": str(self.db_path),
-                        "recovered_count": recovered_count,
-                    },
-                }
-            )
-        except Exception as e:  # noqa: BLE001 — best-effort notification
-            log.warning(
-                "[HISTORY_DB] event_bus.publish(history_corrupted) failed (best-effort, recovery continues): %s",
-                e,
-            )
-        # Best-effort tray notification. ``self._app`` is set by the
-        # app shell (not by HistoryDB.__init__) — use getattr so the
-        # attribute-missing case during early init is handled.
-        app = getattr(self, "_app", None)
-        if app is None:
-            return
-        tray = getattr(app, "tray", None)
-        if tray is None:
-            return
-        notify = getattr(tray, "notify", None)
-        if notify is None:
-            return
-        try:
-            notify(
-                APP_NAME,
-                f"History database was corrupted and backed up. {recovered_count} rows recovered.",
-            )
-        except Exception as e:  # noqa: BLE001 — best-effort notification
-            log.warning(
-                "[HISTORY_DB] tray.notify failed (best-effort, recovery continues): %s",
-                e,
-            )
+        corruption_recovery._notify_corruption_recovered(self, corrupt_main, recovered_count)
 
     # ──────────────────────────────────────────────────────────────
     # Read connections
@@ -1989,22 +1204,13 @@ class HistoryDB:
         """Add a transcription to the database (fire-and-forget).
 
         IMPL-A: enqueues the INSERT and returns immediately with a
-        placeholder row_id (always 1). The transcription pipeline
-        does NOT need to wait for the DB write to complete — it's not
-        on the critical path. This eliminates the user-reported 5.5s
-        ``store`` delay entirely.
-
-        Returns
-        -------
-        1 (placeholder) on successful enqueue, or -1 if the writer is
-        shutting down and can't accept the work (which should never
-        happen during normal operation).
-
-        Callers that need the actual row_id should call ``flush()``
-        then read it back via ``get_recent``. Callers that need to
-        verify the write persisted should call ``flush()`` before
-        asserting.
+        placeholder row_id (always 1) — the transcription pipeline
+        never waits on the DB write. Returns -1 if the writer is
+        unavailable. Callers that need the actual row_id should call
+        ``flush()`` then read it back via ``get_recent``.
         """
+        from voice_typer.server.history_db_internals import crud_writes
+
         # early-return guard — if the writer thread never
         # started (init error) or died, return -1 immediately instead
         # of silently enqueuing to a dead writer's queue.
@@ -2014,52 +1220,14 @@ class HistoryDB:
                 self.health_check()["error"],
             )
             return -1
-        try:
-            word_count = len(text.split())
-            char_count = len(text)
-            if self._shutdown.is_set():
-                log.debug("[HISTORY_DB] add_transcription submitted after shutdown — dropped.")
-                return -1
-            item = _BatchableInsert(
-                text=text,
-                duration=duration,
-                model=model,
-                device=device,
-                word_count=word_count,
-                char_count=char_count,
-                language=language,
-                future=None,  # fire-and-forget
-            )
-            # PERF-5: bounded queue (maxsize=_WRITE_QUEUE_MAXSIZE). Use
-            # put_nowait + drop-oldest so a stalled writer doesn't block
-            # the calling thread indefinitely. We can't reuse
-            # _submit_write here because it enqueues (callable, future)
-            # tuples — _BatchableInsert is its own queue item shape.
-            try:
-                self._queue.put_nowait(item)
-            except queue.Full:
-                self._drop_oldest_for_overflow(None)
-                try:
-                    self._queue.put_nowait(item)
-                except queue.Full:
-                    log.warning("[HISTORY_DB] Queue still full after drop-oldest — add_transcription dropped.")
-                    return -1
-            # invalidate the today-stats cache at enqueue time.
-            # Unlike ``_invalidate_history_count_cache`` (which skips
-            # fire-and-forget ``add_transcription`` because a stale-by-1
-            # TOTAL is fine), today's stats must reflect each new
-            # dictation as soon as the Dashboard refreshes. The cache is
-            # invalidated BEFORE the writer thread commits the INSERT —
-            # there is a brief race window where a concurrent reader
-            # could re-populate the cache with the pre-INSERT count, but
-            # the 15s TTL bounds the staleness and the next
-            # ``transcription_final`` refresh re-checks the cache.
-            self._invalidate_today_stats_cache()
-            # Placeholder row_id — callers that check ``> 0`` see success.
-            return 1
-        except Exception as e:
-            log.error("[HISTORY] Failed to enqueue add_transcription: %s", e)
-            return -1
+        return crud_writes.add_transcription(
+            self,
+            text,
+            duration=duration,
+            model=model,
+            device=device,
+            language=language,
+        )
 
     @_wrap_write(False, "delete transcription", "delete")
     def delete(self, transcription_id: int, *, raise_on_error: bool = False) -> bool:
@@ -2069,105 +1237,17 @@ class HistoryDB:
         ``HistoryDBError`` instead of returning ``False``. Without this,
         the IPC layer cannot tell "row didn't exist" from "DB error".
 
-        After the row DELETE + commit, issue the FTS5
-        ``'optimize'`` command so the segment data in
-        ``transcriptions_fts_data`` is purged of the deleted row's
-        dictated text. The FTS5 AFTER DELETE trigger (schema.py:90-92)
-        only marks the rowid as deleted in the delete-bitmap — the
-        segment data (containing the dictated text) remains physically
-        present and is recoverable via forensic tools until FTS5's
-        background compaction happens to merge that segment (days or
-        weeks later). For a user who dictates a password / medical note
-        / financial data and then deletes that single transcription via
-        the History UI, the text is NOT gone without this optimize — a
-        direct GDPR Art. 17 violation.
-
-        The per-delete command was downgraded from ``'rebuild'`` (O(N)
-        — drops and rebuilds ALL segments from the content table) to
-        ``'optimize'`` (runs the FTS5 optimizer until the index is
-        optimal — typically 3-4x faster than ``'rebuild'`` on a
-        multi-thousand-row DB because it only does the merge work
-        needed to consolidate segments and apply the delete-bitmap).
-        The user-visible MATCH-query correctness is already preserved
-        by the AFTER DELETE trigger (the deleted rowid is immediately
-        hidden from search results); the ``'optimize'`` call provides
-        the forensic-recovery guarantee (deleted dictated text is
-        purged from ``transcriptions_fts_data``) without paying the
-        full O(N) cost on every single-row delete. The periodic
-        retention tick (``retention.py``) still runs a full ``'rebuild'``
-        after bulk sweeps with >20% deletion ratio, providing the
-        ultimate safety net.
-
-        The optimize is wrapped in a tolerant ``try/except sqlite3.Error``
-        (matching the retention.py / clear_all pattern) so a transient
-        FTS5 error does not break the row delete (which already
-        committed). The optimize is best-effort privacy hardening — if
-        it fails, the row is still gone from the content table (so the
-        user's intent is honored), only the FTS5 segment data lingers
-        (the same state as before this fix — and bounded to "between
-        launches" by the AP-17 startup rebuild sweep).
+        After the row DELETE + commit, a best-effort FTS5 ``'optimize'``
+        purges the deleted row's dictated text from
+        ``transcriptions_fts_data`` (GDPR Art. 17 forensic-recovery
+        guarantee) — see
+        :func:`voice_typer.server.history_db_internals.crud_writes.delete_row`
+        for the full rationale. Returns ``False`` if the row didn't exist
+        or the writer is unavailable; invalidates both caches on success.
         """
+        from voice_typer.server.history_db_internals import crud_writes
 
-        def _do_delete(conn: sqlite3.Connection) -> bool:
-            with contextlib.closing(conn.cursor()) as cursor:
-                cursor.execute("DELETE FROM transcriptions WHERE id = ?", (transcription_id,))
-                conn.commit()
-                deleted = cursor.rowcount > 0
-                if not deleted:
-                    return False
-                # Purge the deleted row's dictated
-                # text from ``transcriptions_fts_data`` (the FTS5
-                # shadow segment table). The AFTER DELETE trigger
-                # at schema.py:90-92 only marks the rowid as
-                # deleted in the delete-bitmap — the segment data
-                # survives until background compaction (days/weeks
-                # later). ``'optimize'`` runs the FTS5 optimizer
-                # until the index is optimal, which both
-                # consolidates segments AND applies the
-                # delete-bitmap to the merged output so the deleted
-                # text is purged. ``'optimize'`` is preferred over
-                # ``'rebuild'`` here because:
-                #   - ``'rebuild'`` is O(N) (drops and rebuilds ALL
-                #     segments from the content table).
-                #   - ``'optimize'`` is typically 3-4x faster
-                #     (only does the merge work needed to
-                #     consolidate, not a full rebuild).
-                # The MATCH-query correctness is already preserved
-                # by the trigger; this call is purely for the
-                # forensic-recovery guarantee. The periodic
-                # retention tick (retention.py) still runs a full
-                # ``'rebuild'`` after bulk sweeps as a safety net.
-                # Tolerant: a transient FTS5 error must not break
-                # the row delete (which already committed).
-                try:
-                    cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('optimize')")
-                    conn.commit()
-                except sqlite3.Error as optimize_exc:
-                    log.warning(
-                        "[HISTORY_DB] FTS5 'optimize' after delete(id=%d) "
-                        "FAILED: %s — dictated text may linger in "
-                        "transcriptions_fts_data until the next "
-                        "periodic retention sweep or the AP-17 "
-                        "startup rebuild.",
-                        transcription_id,
-                        optimize_exc,
-                    )
-                    # Best-effort: increment the per-instance
-                    # failure counter so observability surfaces
-                    # chronic FTS5 optimize failures (mirrors the
-                    # retention.py / clear_all pattern).
-                    with contextlib.suppress(Exception):
-                        self._fts5_rebuild_failures = getattr(self, "_fts5_rebuild_failures", 0) + 1
-                    # Persist the fts5_rebuild_failed flag so the
-                    # next launch's startup rebuild runs (clearing
-                    # the lingering segment data). Best-effort: a
-                    # failure to persist is swallowed inside
-                    # _mark_fts5_rebuild_failed.
-                    with contextlib.suppress(Exception):
-                        self._mark_fts5_rebuild_failed(conn)
-                return True
-
-        result = self._submit_write(_do_delete, wait=True)
+        result = self._submit_write(lambda conn: crud_writes.delete_row(self, conn, transcription_id), wait=True)
         if result is None:
             # Writer shut down — treat as failure.
             return False
@@ -2200,8 +1280,11 @@ class HistoryDB:
         cached; without a DEK the row stays plaintext (flag 0).
 
         Returns the new row id, or -1 on failure.
+
+        The row-level body runs on the writer thread via
+        :func:`voice_typer.server.history_db_internals.crud_writes.restore_row`.
         """
-        from voice_typer.server import _text_crypto
+        from voice_typer.server.history_db_internals import crud_writes
 
         text = str(record.get("text", ""))
         duration = float(record.get("duration", 0) or 0)
@@ -2212,38 +1295,21 @@ class HistoryDB:
         char_count = int(record.get("char_count", 0) or len(text))
         favorite = 1 if record.get("favorite") else 0
 
-        def _do_restore(conn: sqlite3.Connection) -> int:
-            with contextlib.closing(conn.cursor()) as cursor:
-                cursor.execute(
-                    """
-                    INSERT INTO transcriptions
-                (text, duration, model, device, word_count, char_count, language, favorite)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                    (text, duration, model, device, word_count, char_count, language, favorite),
-                )
-                new_id = cursor.lastrowid
-                if new_id is None:
-                    conn.commit()
-                    return -1
-                dek = _text_crypto.get_dek_cached()
-                if dek is not None:
-                    # Flag-flip UPDATE inside the same transaction: the
-                    # guarded AFTER-UPDATE FTS trigger skips the index,
-                    # keeping the plaintext tokens the INSERT just indexed.
-                    cursor.execute(
-                        "UPDATE transcriptions SET text = ?, text_is_encrypted = 1 WHERE id = ?",
-                        (_text_crypto.encrypt_text(text, dek), new_id),
-                    )
-                conn.commit()
-                log.info(
-                    "[HISTORY] Restored transcription as id=%d (%d chars)",
-                    new_id,
-                    char_count,
-                )
-                return new_id
-
-        result = self._submit_write(_do_restore, wait=True)
+        result = self._submit_write(
+            lambda conn: crud_writes.restore_row(
+                self,
+                conn,
+                text=text,
+                duration=duration,
+                model=model,
+                device=device,
+                language=language,
+                word_count=word_count,
+                char_count=char_count,
+                favorite=favorite,
+            ),
+            wait=True,
+        )
         if result is None:
             return -1
         if result and result > 0:
@@ -2259,151 +1325,16 @@ class HistoryDB:
     def clear_all(self, *, raise_on_error: bool = False) -> bool:
         """Clear all transcriptions.
 
-        IMPL-A: chunked DELETE (100 rows per batch, commit per batch)
-        running inside the writer thread. Chunking prevents the WAL
-        from growing unboundedly during a huge clear and lets external
-        readers see progress. The previous single-transaction DELETE
-        held the write lock for the full scan.
-
-        after the chunked DELETE completes, ``VACUUM`` runs
-        in the writer thread to reclaim the freed pages so the DB file
-        shrinks. Without this, ``clear_all`` leaves the file at its
-        pre-clear size (SQLite keeps free pages for reuse) and the
-        user's dictated text remains recoverable from the file via
-        forensic tools even after a "clear all" — a privacy concern
-        for the GDPR delete path.
-
-         (the remaining half): after VACUUM, the FTS5
-        ``'rebuild'`` command is issued so the FTS5 shadow-table
-        segment data (``transcriptions_fts_data``) is also rebuilt
-        from the (now-empty) content table. ``VACUUM`` rebuilds the
-        main DB file but does NOT rebuild FTS5 shadow tables; without
-        this step, dictated text remained recoverable from
-        ``transcriptions_fts_data`` via sqlite3 CLI or forensic tools
-        — defeating  / GDPR Art. 17 right-to-erasure. The
-        rebuild is wrapped in a tolerant ``try/except sqlite3.Error``
-        matching the pattern in
-        :func:`voice_typer.server.history_db_internals.retention.apply_retention`
-        so an older DB (pre-V3 migration, no FTS table yet) doesn't
-        crash the clear path. : on failure the privacy
-        guarantee is broken, so the failure is logged at ERROR,
-        ``self._fts5_rebuild_failures`` is incremented, and an
-        ``event_bus`` event ``{"type": "history_fts5_rebuild_failed"}``
-        is published so the renderer can show a toast.
-
-        see ``delete`` for ``raise_on_error`` semantics.
+        Chunked DELETE + VACUUM + FTS5 ``'rebuild'`` on the writer
+        thread, so cleared text is not recoverable from the file or from
+        the FTS5 shadow tables (GDPR Art. 17) — see
+        :func:`voice_typer.server.history_db_internals.crud_writes.clear_all_rows`
+        for the full rationale. see ``delete`` for ``raise_on_error``
+        semantics.
         """
+        from voice_typer.server.history_db_internals import crud_writes
 
-        def _do_clear_all(conn: sqlite3.Connection) -> bool:
-            with contextlib.closing(conn.cursor()) as cursor:
-                while True:
-                    cursor.execute(
-                        "DELETE FROM transcriptions WHERE id IN (  SELECT id FROM transcriptions LIMIT ?)",
-                        (_CLEAR_ALL_BATCH_SIZE,),
-                    )
-                    batch_deleted = cursor.rowcount
-                    if batch_deleted == 0:
-                        break
-                    conn.commit()  # release write lock between batches
-            # Final commit to close any open transaction started
-            # by the last DELETE (which matched 0 rows but still
-            # auto-opened a transaction in Python's sqlite3 module).
-            # VACUUM requires no open transaction.
-            conn.commit()
-            # VACUUM reclaims the freed pages so the DB
-            # file shrinks and deleted text is not recoverable
-            # from free pages. Runs inside the writer thread so
-            # it serializes with other writes. VACUUM requires
-            # exclusive access — readers will block briefly.
-            try:
-                conn.execute("VACUUM")
-                log.info("[HISTORY_DB] VACUUM completed after clear_all")
-            except sqlite3.Error as e:
-                # VACUUM failure is non-fatal — the rows are
-                # already deleted; only space reclamation failed.
-                log.warning("[HISTORY_DB] VACUUM after clear_all failed: %s", e)
-            # rebuild FTS5 segments from the (now-empty)
-            # content table. The DELETE trigger
-            # ``transcriptions_ad_fts`` only marks rowids as
-            # deleted in the FTS5 delete-bitmap; the segment data
-            # in ``transcriptions_fts_data`` survives both the
-            # trigger delete and ``VACUUM``. Without this rebuild,
-            # dictated text remained recoverable from
-            # ``transcriptions_fts_data`` via forensic tools —
-            # defeating  / GDPR Art. 17. Wrapped in a
-            # tolerant try/except so an older DB (pre-V3
-            # migration, no FTS table yet) doesn't crash the
-            # clear path. The pattern matches the one in
-            # ``retention.apply_retention`` ( mirrors this
-            # in ``delete()``).
-            try:
-                fts_cursor = conn.cursor()
-                try:
-                    fts_cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')")
-                    conn.commit()
-                    log.info("[HISTORY_DB] FTS5 segments rebuilt after clear_all")
-                finally:
-                    fts_cursor.close()
-            except sqlite3.Error as e:
-                # escalate from WARNING to ERROR — the
-                # GDPR Art. 17 /  privacy guarantee is
-                # broken (deleted dictated text remains
-                # recoverable from ``transcriptions_fts_data``
-                # via forensic tools), not merely "suboptimal".
-                log.error(
-                    "[HISTORY_DB] FTS5 'rebuild' after clear_all FAILED: %s "
-                    "(FTS5 shadow-table segment data may persist — deleted "
-                    "dictated text remains recoverable; manual re-index advised)",
-                    e,
-                )
-                # observable metric — increment the
-                # per-instance failure counter so diagnostics
-                # handlers can surface it to the user.
-                try:
-                    self._fts5_rebuild_failures = self._fts5_rebuild_failures + 1
-                except Exception:  # noqa: BLE001 — best-effort metric
-                    log.debug(
-                        "[HISTORY_DB] could not increment _fts5_rebuild_failures counter",
-                        exc_info=True,
-                    )
-                # Persist the fts5_rebuild_failed flag so the
-                # next launch's startup rebuild runs (clearing the
-                # lingering segment data). Best-effort: a failure
-                # to persist is swallowed inside
-                # _mark_fts5_rebuild_failed.
-                with contextlib.suppress(Exception):
-                    self._mark_fts5_rebuild_failed(conn)
-                # best-effort event_bus publication so
-                # the renderer can show a toast. Wrapped broadly
-                # because the event_bus import or the publish
-                # call may fail (e.g. circular import during
-                # early init); none of those should crash the
-                # clear path which has already done the chunked
-                # DELETEs + VACUUM.
-                try:
-                    from voice_typer.server import event_bus
-
-                    event_bus.publish(
-                        {
-                            "type": "history_fts5_rebuild_failed",
-                            "data": {
-                                "db_path": str(self.db_path),
-                                "deleted": 0,  # clear_all doesn't track count
-                                "error": str(e),
-                                "source": "clear_all",
-                            },
-                        }
-                    )
-                except Exception as publish_exc:  # noqa: BLE001
-                    log.warning(
-                        "[HISTORY_DB] event_bus.publish(history_fts5_rebuild_failed) "
-                        "failed (best-effort, clear_all continues): %s",
-                        publish_exc,
-                    )
-            log.info("[HISTORY] Cleared all transcriptions")
-            return True
-
-        result = self._submit_write(_do_clear_all, wait=True)
+        result = self._submit_write(lambda conn: crud_writes.clear_all_rows(self, conn), wait=True)
         if result is None:
             return False
         if result:
@@ -2425,18 +1356,15 @@ class HistoryDB:
         """Toggle the favorite status of a transcription.
 
         see ``delete`` for ``raise_on_error`` semantics.
+
+        The row-level body runs on the writer thread via
+        :func:`voice_typer.server.history_db_internals.crud_writes.toggle_favorite_row`.
         """
+        from voice_typer.server.history_db_internals import crud_writes
 
-        def _do_toggle(conn: sqlite3.Connection) -> bool:
-            with contextlib.closing(conn.cursor()) as cursor:
-                cursor.execute(
-                    "UPDATE transcriptions SET favorite = CASE WHEN favorite = 1 THEN 0 ELSE 1 END WHERE id = ?",
-                    (transcription_id,),
-                )
-                conn.commit()
-                return cursor.rowcount > 0
-
-        result = self._submit_write(_do_toggle, wait=True)
+        result = self._submit_write(
+            lambda conn: crud_writes.toggle_favorite_row(self, conn, transcription_id), wait=True
+        )
         if result is None:
             return False
         return bool(result)
@@ -2453,16 +1381,15 @@ class HistoryDB:
         value is the number of deleted entries and whose
         ``fts5_rebuild_ok`` attribute / ``["fts5_rebuild_ok"]`` item
         reports whether the post-sweep FTS5 ``'rebuild'`` command
-        succeeded (). The ``int`` return contract is preserved
+        succeeded. The ``int`` return contract is preserved
         so existing callers (``deleted == 20``, ``if deleted > 0``)
         work unchanged.
 
         Delegates to
         :func:`voice_typer.server.history_db_internals.retention.apply_retention`.
-        See that function for the full rationale ( UTC cutoff
-        fix,  fallback wiring, IMPL-A chunked deletes on the
-        writer thread,  conditional VACUUM,  FTS5 rebuild,
-         count-cache invalidation,  sentinel-on-error
+        See that function for the full rationale (UTC cutoff fix,
+        IMPL-A chunked deletes on the writer thread, conditional
+        VACUUM, FTS5 rebuild, cache invalidation, sentinel-on-error
         contract).
         """
         from voice_typer.server.history_db_internals.retention import (
@@ -2550,27 +1477,14 @@ class HistoryDB:
         """Get recent transcriptions with offset-based pagination.
 
         when ``raise_on_error=True``, failures raise
-        ``HistoryDBError`` instead of returning ``[]``. This lets the
-        IPC layer distinguish "empty result" from "operation failed"
-        and surface a proper error to the renderer.
+        ``HistoryDBError`` instead of returning ``[]`` — the IPC layer
+        can then distinguish "empty result" from "operation failed".
 
-        the ``text`` column is projected to a 500-char preview
-        via ``SUBSTR(text, 1, 500)`` to keep list responses under the
-        1 MiB WS frame cap. Two new fields are added per row:
-        ``text_truncated`` (bool) and ``text_full_length`` (int).
-
-        keyset pagination: when ``before_timestamp`` AND ``before_id``
-        are both supplied, the WHERE clause restricts to rows strictly
-        older than ``(before_timestamp, before_id)`` in (timestamp DESC,
-        id DESC) order — i.e. ``timestamp < ? OR (timestamp = ? AND
-        id < ?)``. This is O(log N) per page via ``idx_timestamp_id``,
-        whereas OFFSET is O(offset) (SQLite still scans & discards
-        ``offset`` rows). Callers paginating past the first page
-        should pass the (timestamp, id) of the last row of the
-        previous page. When either cursor value is ``None`` the
-        OFFSET fallback is used (backward-compatible with the
-        pre-cursor contract), but ``offset`` must be < 1000 — deeper
-        pagination requires cursor mode.
+        Rows carry a 500-char ``text`` preview plus ``text_truncated``
+        (bool) / ``text_full_length`` (int). Keyset pagination: pass
+        BOTH ``before_timestamp`` AND ``before_id`` (the last row of the
+        previous page) for O(log N) deep paging; otherwise OFFSET is
+        used and must stay < 1000.
 
         Delegates to
         :func:`voice_typer.server.history_db_internals.search.get_recent`.
@@ -2588,21 +1502,10 @@ class HistoryDB:
     def get_latest_text(self) -> str:
         """Return the most recent transcription text, or ``""`` if DB is empty.
 
-        ADR-0010 §8.1 / DP6.
-
-        Uses the existing thread-local read-only connection
-        (``PRAGMA query_only=1``), so it's safe to call from the hotkey
-        handler thread. Backed by ``idx_timestamp``.
-
-        Order by the autoincrement PK (DESC), not ``timestamp DESC``:
-        ``timestamp`` defaults to ``CURRENT_TIMESTAMP``, so
-        transcriptions written within the same second tie and the
-        "latest" becomes ambiguous. The PK is monotonic and is the
-        only correct "most recent" signal.
-
-        Note: if you just called ``add_transcription()``, call
-        ``flush()`` first to guarantee the row is committed before this
-        read.
+        ADR-0010 §8.1 / DP6. Ordered by the autoincrement PK (DESC) —
+        same-second timestamps tie, so the PK is the only correct "most
+        recent" signal. If you just called ``add_transcription()``, call
+        ``flush()`` first to guarantee the row is committed.
 
         Delegates to
         :func:`voice_typer.server.history_db_internals.search.get_latest_text`.
@@ -2627,32 +1530,12 @@ class HistoryDB:
         see ``get_recent`` for ``raise_on_error`` and cursor-pagination
         (``before_timestamp`` / ``before_id``) semantics.
 
-        FTS5 is used for any query that yields at least one tokenizable
-        character (``_is_fts_compatible_query``). For empty queries and
-        queries consisting solely of separator characters (e.g. ``%`` or
-        ``_``), we fall back to the pre- LIKE path so literal
-        wildcards still match — preserving the contract pinned by
-        ``test_search_treats_like_wildcards_as_literals`` and
-        ``test_empty_query_returns_all_rows``. ``_sanitize_fts_query``
-        wraps each whitespace-separated token in double quotes so the
-        user's input is treated as a literal phrase rather than FTS5
-        MATCH syntax (e.g. ``foo*`` matches the literal token ``foo*``,
-        not a prefix query).
-
-        Queries containing CJK / fullwidth characters
-        (``_has_cjk_or_wide_chars``) also take the LIKE path: the
-        ``unicode61`` tokenizer cannot substring-match those scripts
-        (a contiguous CJK run indexes as one token), while LIKE gives
-        true substring semantics for every query length.
-
-        On the no-cursor path the FTS5 ``LIMIT`` is pushed INTO the FTS
-        subquery so FTS5 only materialises the rowids that will actually
-        be returned, rather than the full match set — see
+        FTS5 serves tokenizable queries (tokens quoted as literal
+        phrases); separator-only and CJK/fullwidth queries fall back to
+        LIKE so literal wildcards still match and CJK substring search
+        works — see
         :func:`voice_typer.server.history_db_internals.search.search`
-        for details.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.search.search`.
+        for the full rationale.
         """
         from voice_typer.server.history_db_internals import search
 
@@ -2697,18 +1580,9 @@ class HistoryDB:
     def get_today_stats(self, *, raise_on_error: bool = False) -> dict:
         """Get statistics for today's transcriptions.
 
-        see ``get_recent`` for ``raise_on_error`` semantics.
-
-        a 15s TTL cache (``_TODAY_STATS_CACHE_TTL_S``) wraps the
-        aggregating scan so the Dashboard's per-``transcription_final``
-        refresh (capped at 1 call/sec/client by the rate_limiter)
-        doesn't re-scan on every refresh. The cache is invalidated by
-        EVERY mutation that could change today's stats
-        (add/delete/clear/restore/retention), so a stale-by-N result is
-        never served after a write. The returned dict is a shallow copy
-        so callers can mutate it without corrupting the cached value.
-
-        Delegates to
+        see ``get_recent`` for ``raise_on_error`` semantics. A 15s TTL
+        cache (invalidated by EVERY mutation) wraps the aggregating
+        scan; the returned dict is a shallow copy — see
         :func:`voice_typer.server.history_db_internals.search.get_today_stats`.
         """
         from voice_typer.server.history_db_internals import search
@@ -2718,16 +1592,9 @@ class HistoryDB:
     def _invalidate_today_stats_cache(self) -> None:
         """drop the cached today-stats dict.
 
-        Called by every mutation that could change today's stats
-        (``add_transcription``, ``delete``, ``clear_all``, ``restore``,
-        ``apply_retention``). Unlike ``_invalidate_history_count_cache``
-        (which skips invalidation on fire-and-forget
-        ``add_transcription`` because a stale-by-1 total is fine), the
-        today-stats cache is invalidated on EVERY mutation — today's
-        stats grow by 1 per dictation and the user wants to see them
-        update live.
-
-        Delegates to
+        Unlike ``_invalidate_history_count_cache`` (which skips
+        fire-and-forget ``add_transcription``), this is invalidated on
+        EVERY mutation — today's stats must update live. Delegates to
         :func:`voice_typer.server.history_db_internals.search.invalidate_today_stats_cache`.
         """
         from voice_typer.server.history_db_internals import search
@@ -2764,16 +1631,10 @@ class HistoryDB:
     def get_history_count(self, *, raise_on_error: bool = False) -> int:
         """return the total number of transcription rows.
 
-        ``SELECT COUNT(*) FROM transcriptions`` is O(N) in SQLite.
-        Caching pattern mirrors ``service/model.py:get_model_status``:
-        a 60s TTL with immediate invalidation on
-        delete/clear_all/restore/apply_retention via
-        ``_invalidate_history_count_cache``. Fire-and-forget
-        ``add_transcription`` does NOT invalidate — the count grows
-        by 1 per dictation, and a 60s-stale-by-N count is fine for a
-        "Total Dictations" stat card.
-
-        Delegates to
+        60s TTL cache, invalidated immediately on
+        delete/clear_all/restore/apply_retention; fire-and-forget
+        ``add_transcription`` does NOT invalidate (a stale-by-1 count is
+        fine for the "Total Dictations" stat card). Delegates to
         :func:`voice_typer.server.history_db_internals.search.get_history_count`.
         """
         from voice_typer.server.history_db_internals import search
@@ -2795,64 +1656,27 @@ class HistoryDB:
     # ──────────────────────────────────────────────────────────────
 
     def checkpoint(self, truncate: bool = True) -> bool:
-        """run ``PRAGMA wal_checkpoint(TRUNCATE)`` (or
-        ``RESTART``) on the writer thread.
+        """run ``PRAGMA wal_checkpoint(TRUNCATE)`` (or ``RESTART``) on the
+        writer thread.
 
         Used by GDPR delete/export paths to ensure all WAL content is
         checkpointed back to the main DB file before file-level
-        operations (e.g. ``os.unlink`` of ``history.db``). Without
-        this, dictated text remains recoverable from the
-        ``history.db-wal`` sidecar file even after the main DB file
-        is deleted — see
-
-        Parameters
-        ----------
-        truncate : bool
-            If ``True`` (default), run ``wal_checkpoint(TRUNCATE)``
-            which checkpoints all frames back to the main DB file and
-            then truncates the WAL file to zero size. This is the
-            mode callers want before unlinking the DB file. If
-            ``False``, run ``wal_checkpoint(RESTART)`` which
-            checkpoints but leaves the WAL in a restartable state
-            (useful before a clean shutdown that will resume writing).
+        operations (e.g. ``os.unlink`` of ``history.db``). ``truncate``
+        (default) additionally truncates the WAL to zero size; the
+        closure body is
+        :func:`voice_typer.server.history_db_internals.crud_writes.checkpoint_wal`.
 
         Returns
         -------
         ``True`` if the checkpoint completed without error, ``False``
-        otherwise (writer unavailable, checkpoint failed). The
-        caller (e.g. GDPR delete) should treat ``False`` as "WAL may
-        still contain data; do not unlink until next attempt".
+        otherwise (writer unavailable, checkpoint failed). The caller
+        should treat ``False`` as "WAL may still contain data; do not
+        unlink until next attempt".
         """
+        from voice_typer.server.history_db_internals import crud_writes
+
         try:
-
-            def _do_checkpoint(conn: sqlite3.Connection) -> bool:
-                mode = "TRUNCATE" if truncate else "RESTART"
-                try:
-                    # wal_checkpoint returns (busy, log, checkpointed)
-                    # where busy=0 means no writer was active. We don't
-                    # retry on busy=1 because the writer thread IS the
-                    # only writer; a busy result here means an external
-                    # process holds the lock, which the caller can't
-                    # resolve by retrying.
-                    result = conn.execute(f"PRAGMA wal_checkpoint({mode})").fetchone()
-                    if result is not None:
-                        log.debug(
-                            "[HISTORY_DB] wal_checkpoint(%s): busy=%s, log=%s, checkpointed=%s",
-                            mode,
-                            result[0] if len(result) > 0 else "?",
-                            result[1] if len(result) > 1 else "?",
-                            result[2] if len(result) > 2 else "?",
-                        )
-                    return True
-                except sqlite3.Error as e:
-                    log.warning(
-                        "[HISTORY_DB] wal_checkpoint(%s) failed: %s",
-                        mode,
-                        e,
-                    )
-                    return False
-
-            result = self._submit_write(_do_checkpoint, wait=True)
+            result = self._submit_write(lambda conn: crud_writes.checkpoint_wal(self, conn, truncate), wait=True)
             if result is None:
                 # Writer shut down — can't checkpoint.
                 return False

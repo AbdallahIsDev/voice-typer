@@ -253,6 +253,10 @@ EXPECTED_MAIN_RS_COMMANDS = [
     "export_config",
     # renderer-side error log sink.
     "renderer_log_error",
+    # host-side locale storage (renderer i18n push; parity with the
+    # Electron-only `i18n:set-locale` main-process channel). The command
+    # lives in commands/system_cmds.rs and stores into SidecarState.
+    "set_host_locale",
 ]
 
 #: ADR-0020 §15: the v1 Tauri migration MUST NOT wire up

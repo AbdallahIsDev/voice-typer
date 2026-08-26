@@ -45,7 +45,7 @@ so the consolidation is preserved.
 
 The logger name stays ``"voice_typer.server.ipc_server"`` for backward
 compatibility: existing log-scraping tests (``test_logging_format``,
-``test_ipc5_error_envelope_parity``) assert this name in their
+``tests/test_ipc_error_envelope_parity.py``) assert this name in their
 ``caplog`` assertions, and the dispatcher's outer ``except Exception``
 in ``voice_typer/server/ipc_server.py`` also uses this name — so
 handler-emitted records and dispatcher-emitted records land under the

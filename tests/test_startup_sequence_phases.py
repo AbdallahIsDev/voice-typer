@@ -26,6 +26,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+_AUTOSTART = "voice_typer.server.server_platform.autostart"
+_MIC_LIST = "voice_typer.server.server_platform.microphone_list"
+
 
 @pytest.fixture
 def app_for_phases(tmp_config_dir, monkeypatch):
@@ -36,10 +39,10 @@ def app_for_phases(tmp_config_dir, monkeypatch):
     pystray, pynput, etc.) are mocked by the autouse
     ``mock_heavy_imports`` fixture in ``tests/conftest.py``.
     """
-    monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False, raising=False)
-    monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True, raising=False)
-    monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True, raising=False)
-    monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [], raising=False)
+    monkeypatch.setattr(f"{_AUTOSTART}.is_autostart_enabled", lambda: False, raising=False)
+    monkeypatch.setattr(f"{_AUTOSTART}.enable_autostart", lambda: True, raising=False)
+    monkeypatch.setattr(f"{_AUTOSTART}.disable_autostart", lambda: True, raising=False)
+    monkeypatch.setattr(f"{_MIC_LIST}.list_microphones", lambda: [], raising=False)
 
     from voice_typer.server.app import VoiceTyperApp
 

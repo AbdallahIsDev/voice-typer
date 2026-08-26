@@ -495,7 +495,7 @@ class TestIpcHandlerPublishesNotificationViaEventBus:
         from the dispatch registry (it is handled directly by dedicated
         Tauri/Rust commands), so this test invokes the retained handler
         directly — the same pattern used by
-        ``tests/handlers/test_handler_group_b_fixes.py``.
+        ``tests/handlers/test_ipc_validation_coverage.py``.
         """
         server = make_bare_ipc_server()
         captured: dict = {}

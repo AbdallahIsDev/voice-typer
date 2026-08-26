@@ -51,8 +51,9 @@ def _setup_darwin_platform(monkeypatch, tmp_path):
     """
     monkeypatch.setattr(sys, "platform", "darwin")
     from voice_typer.server import server_platform
+    from voice_typer.server.server_platform import autostart as autostart_mod, platform_flags
 
-    monkeypatch.setattr(server_platform, "SYSTEM", "darwin")
+    monkeypatch.setattr(platform_flags, "SYSTEM", "darwin")
 
     # Redirect Path.home() to a tmp dir so the plist is written there.
     home = tmp_path / "home"
@@ -64,16 +65,16 @@ def _setup_darwin_platform(monkeypatch, tmp_path):
     config_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(config_dir))
 
-    # ``_pkg.get_autostart_dir`` is routed through the server_platform
-    # namespace — point it at the tmp LaunchAgents dir.
+    # ``_autostart_mod.get_autostart_dir`` is owned by the autostart
+    # facade module — point it at the tmp LaunchAgents dir.
     autostart_dir = home / "Library" / "LaunchAgents"
     autostart_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(server_platform, "get_autostart_dir", lambda: autostart_dir)
+    monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: autostart_dir)
 
-    # ``_pkg._os_uid`` — return a stable value.
-    monkeypatch.setattr(server_platform, "_os_uid", lambda: 501)
-
+    # ``_os_uid`` is owned by ``autostart_macos`` — return a stable value.
     from voice_typer.server.server_platform import autostart_macos
+
+    monkeypatch.setattr(autostart_macos, "_os_uid", lambda: 501)
 
     return autostart_macos
 

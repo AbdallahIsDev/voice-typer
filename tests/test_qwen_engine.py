@@ -258,10 +258,10 @@ class TestWhisperSkipWhenQwenActive:
         monkeypatch.setitem(sys.modules, "PIL.ImageDraw", MagicMock())
         monkeypatch.setitem(sys.modules, "pyperclip", MagicMock())
 
-        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
         monkeypatch.setattr("atexit.register", lambda *a, **kw: None)
         from voice_typer.server.hotkeys import PynputHotkey
 

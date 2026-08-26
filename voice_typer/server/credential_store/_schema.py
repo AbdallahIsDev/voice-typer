@@ -17,7 +17,7 @@ call site.
 The shared :data:`log` logger and the :data:`_T` ``TypeVar`` also live
 here so every submodule can ``from ._schema import log`` and write log
 records under the canonical ``voice_typer.server.credential_store``
-logger name (pinned by ``tests/test_credential_store_group_fixes.py``
+logger name (pinned by ``tests/test_credential_store.py``
 which does ``caplog.at_level(logging.WARNING,
 logger=credential_store.log.name)``).
 """

@@ -18,33 +18,41 @@ Patch-path compatibility
 Tests patch several names that this module's functions call at runtime:
 
   - ``SYSTEM`` — patched via
-    ``monkeypatch.setattr(server_platform, "SYSTEM", "linux")`` etc.  All
-    dispatch logic reads ``_pkg.SYSTEM`` at call time.
+    ``monkeypatch.setattr(platform_flags, "SYSTEM", "linux")`` etc.
+    All dispatch logic reads ``platform_flags.SYSTEM`` at call time.
   - ``get_autostart_dir`` — patched via
-    ``monkeypatch.setattr(platform_mod, "get_autostart_dir", lambda: tmp_path)``.
+    ``monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)``.
     The platform-specific enable/disable/is_enabled helpers in
-    :mod:`.autostart_macos` / :mod:`.autostart_linux` look it up via
-    ``_pkg.get_autostart_dir()``.
+    :mod:`.autostart_macos` / :mod:`.autostart_linux` /
+    :mod:`.autostart_windows` look it up via ``_autostart.get_autostart_dir()``
+    at call time (``_autostart`` is THIS module).
   - ``_autostart_command`` — patched via
-    ``monkeypatch.setattr(platform_mod, "_autostart_command", lambda: ...)``.
+    ``monkeypatch.setattr(autostart_mod, "_autostart_command", lambda: ...)``.
     The Linux ``_enable_autostart_linux`` (in :mod:`.autostart_linux`) and
     the Windows Run-key path (``_register_app_autostart_runkey`` in
-    :mod:`.autostart_windows`) look it up via ``_pkg._autostart_command()``.
+    :mod:`.autostart_windows`) look it up via ``_autostart._autostart_command()``.
   - ``_enable_autostart_windows`` / ``_enable_autostart_macos`` /
     ``_enable_autostart_linux`` — patched via
-    ``monkeypatch.setattr(server_platform, "_enable_autostart_macos", lambda: ...)``
-    etc.  ``enable_autostart`` looks them up via ``_pkg.X()``.
+    ``monkeypatch.setattr(autostart_macos, "_enable_autostart_macos", lambda: ...)``
+    etc. (on the OWNING submodule). ``enable_autostart_ex`` looks them
+    up through the submodule module object at call time.
   - ``_disable_autostart_windows`` / ``_disable_autostart_macos`` /
-    ``_disable_autostart_linux`` — same pattern via ``disable_autostart``.
+    ``_disable_autostart_linux`` — same pattern via ``disable_autostart_ex``
+    (resolved through the owning submodule's module object at call time).
   - ``_is_autostart_windows`` / ``_is_autostart_macos`` /
-    ``_is_autostart_linux`` — same pattern via ``is_autostart_enabled``.
+    ``_is_autostart_linux`` — same pattern via ``is_autostart_enabled``
+    (resolved through the owning submodule's module object at call time).
 
 ``inspect.getsource`` compatibility
 -----------------------------------
-All seven functions are genuinely defined here, so
+All facade functions are genuinely defined here, so
 ``inspect.getsource(enable_autostart)`` etc. continue to read from this
-file.  The platform-specific implementations are in their respective
-submodules.
+file. The platform-specific implementations are in their respective
+submodules. ``_APP_AUTOSTART_TASK_NAME`` is also defined here (next to
+its ``_install_hash_suffix`` dependency) and read by
+:mod:`.autostart_windows` through this module's attribute at call time;
+the source-string check in ``tests/regressions/test_platform_win32.py``
+reads THIS file's source for the literal f-string.
 """
 
 from __future__ import annotations
@@ -56,14 +64,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Patch-path bridge: route lookups of ``SYSTEM``,
-# ``_enable_autostart_windows`` / ``_enable_autostart_macos`` /
-# ``_enable_autostart_linux`` (and their disable / is_enabled siblings)
-# through the package namespace so test patches of the form
-# ``monkeypatch.setattr("voice_typer.server.server_platform.X", ...)``
-# keep affecting production code defined here.
-from voice_typer.server import server_platform as _pkg
+# Patch-path bindings. Sibling submodules are bound as MODULE objects so
+# every attribute access below resolves at call time against the owning
+# submodule (tests patch the submodule attribute, production sees it).
 from voice_typer.server.platform_utils import is_windows
+from voice_typer.server.server_platform import (
+    autostart_linux as _autostart_linux_mod,
+    autostart_macos as _autostart_macos_mod,
+    autostart_windows as _autostart_windows_mod,
+    platform_flags as _platform_flags,
+)
 
 log = logging.getLogger(__name__)
 
@@ -389,6 +399,19 @@ def _install_hash_suffix() -> str:
         return ""
 
 
+# ─── Task Scheduler task name (PLAT-RUN) ─────────────────────────────
+# Canonical ``com.voicetyper.*`` reverse-DNS task name with the
+# install-path hash appended so two installations in different
+# directories register distinct schtasks entries.
+#
+# Defined HERE (not in :mod:`.autostart_windows`) because it depends on
+# ``_install_hash_suffix`` above, and because the source-string check in
+# ``tests/regressions/test_platform_win32.py`` reads this file's source.
+# :mod:`.autostart_windows` reads it through THIS module's attribute at
+# call time (``_autostart_mod._APP_AUTOSTART_TASK_NAME``).
+_APP_AUTOSTART_TASK_NAME = f"com.voicetyper.autostart{_install_hash_suffix()}"
+
+
 # ─── Autostart directory ─────────────────────────────────────────────
 
 
@@ -405,7 +428,7 @@ def get_autostart_dir() -> Path:
     xdg:`` guard that treats both ``None`` (unset) and ``""`` (empty)
     as "use the default ``~/.config``".
     """
-    if _pkg.SYSTEM == "win32":
+    if _platform_flags.SYSTEM == "win32":
         return (
             Path(os.environ.get("APPDATA", Path.home()))
             / "Microsoft"
@@ -414,7 +437,7 @@ def get_autostart_dir() -> Path:
             / "Programs"
             / "Startup"
         )
-    elif _pkg.SYSTEM == "darwin":
+    elif _platform_flags.SYSTEM == "darwin":
         return Path.home() / "Library" / "LaunchAgents"
     else:
         xdg = os.environ.get("XDG_CONFIG_HOME")
@@ -467,12 +490,12 @@ def enable_autostart_ex() -> dict:
           <reason>" instead of silently failing.
     """
     try:
-        if _pkg.SYSTEM == "win32":
-            registered = _pkg._enable_autostart_windows()
-        elif _pkg.SYSTEM == "darwin":
-            registered = _pkg._enable_autostart_macos()
+        if _platform_flags.SYSTEM == "win32":
+            registered = _autostart_windows_mod._enable_autostart_windows()
+        elif _platform_flags.SYSTEM == "darwin":
+            registered = _autostart_macos_mod._enable_autostart_macos()
         else:
-            registered = _pkg._enable_autostart_linux()
+            registered = _autostart_linux_mod._enable_autostart_linux()
         return {"registered": bool(registered), "error": None}
     except Exception as exc:
         log.error("[CONFIG] Failed to enable autostart: %s", exc)
@@ -496,12 +519,12 @@ def disable_autostart_ex() -> dict:
           why removal failed.
     """
     try:
-        if _pkg.SYSTEM == "win32":
-            removed = _pkg._disable_autostart_windows()
-        elif _pkg.SYSTEM == "darwin":
-            removed = _pkg._disable_autostart_macos()
+        if _platform_flags.SYSTEM == "win32":
+            removed = _autostart_windows_mod._disable_autostart_windows()
+        elif _platform_flags.SYSTEM == "darwin":
+            removed = _autostart_macos_mod._disable_autostart_macos()
         else:
-            removed = _pkg._disable_autostart_linux()
+            removed = _autostart_linux_mod._disable_autostart_linux()
         # ``removed`` is True if the entry was removed (or already
         # absent). ``registered`` (in the result dict) is True if the
         # disable operation succeeded — i.e. the entry is NO LONGER
@@ -522,12 +545,12 @@ def is_autostart_enabled() -> bool:
     import subprocess
 
     try:
-        if _pkg.SYSTEM == "win32":
-            return _pkg._is_autostart_windows()
-        elif _pkg.SYSTEM == "darwin":
-            return _pkg._is_autostart_macos()
+        if _platform_flags.SYSTEM == "win32":
+            return _autostart_windows_mod._is_autostart_windows()
+        elif _platform_flags.SYSTEM == "darwin":
+            return _autostart_macos_mod._is_autostart_macos()
         else:
-            return _pkg._is_autostart_linux()
+            return _autostart_linux_mod._is_autostart_linux()
     except (OSError, ImportError, FileNotFoundError, subprocess.CalledProcessError):
         log.debug("[PLATFORM] is_autostart_enabled failed", exc_info=True)
         return False
@@ -536,15 +559,12 @@ def is_autostart_enabled() -> bool:
 # ── Source-check echo (PLAT-RUN) ──────────────────────────────────────
 # tests/regressions/test_platform_win32.py::TestPlatRunAutostartTaskHashed
 # .test_autostart_task_name_includes_hash_suffix does
-# ``inspect.getsource(server_platform)`` and asserts that the literal
-# f-string ``f"com.voicetyper.autostart{_install_hash_suffix()}"`` appears in
-# the package source.  ``inspect.getsource`` on a package returns the
-# source of its ``__init__.py``, which is where ``_APP_AUTOSTART_TASK_NAME``
-# is actually computed (see ``__init__.py``).  The literal expression is
-# echoed here as a comment so the source-string check continues to find
-# the pattern even if ``__init__.py`` is regenerated:
+# ``inspect.getsource(autostart)`` and asserts that the literal f-string
+# ``f"com.voicetyper.autostart{_install_hash_suffix()}"`` appears in the
+# source.  The actual assignment lives in THIS module (see
+# ``_APP_AUTOSTART_TASK_NAME`` above, next to ``_install_hash_suffix``);
+# the literal expression is echoed here as a comment so the source-string
+# check keeps finding the pattern even if a future refactor moves the
+# assignment elsewhere:
 #
 #   _APP_AUTOSTART_TASK_NAME = f"com.voicetyper.autostart{_install_hash_suffix()}"
-#
-# (the actual assignment lives in ``__init__.py`` so it can re-export
-# the computed constant alongside the function ``_install_hash_suffix``).

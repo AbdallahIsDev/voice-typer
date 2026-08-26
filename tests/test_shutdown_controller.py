@@ -42,6 +42,9 @@ import pytest
 import voice_typer.server.shutdown_controller
 from voice_typer.server.shutdown_controller import ShutdownController
 
+_AUTOSTART = "voice_typer.server.server_platform.autostart"
+_MIC_LIST = "voice_typer.server.server_platform.microphone_list"
+
 # ── Fixtures ────────────────────────────────────────────────────────────
 
 
@@ -149,10 +152,10 @@ class TestShutdownControllerWiring:
         # raising=False — these app-module attributes may have
         # been removed/renamed in a prior refactor; the monkeypatch is
         # a defensive no-op when they're absent.
-        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False, raising=False)
-        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True, raising=False)
-        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True, raising=False)
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [], raising=False)
+        monkeypatch.setattr(f"{_AUTOSTART}.is_autostart_enabled", lambda: False, raising=False)
+        monkeypatch.setattr(f"{_AUTOSTART}.enable_autostart", lambda: True, raising=False)
+        monkeypatch.setattr(f"{_AUTOSTART}.disable_autostart", lambda: True, raising=False)
+        monkeypatch.setattr(f"{_MIC_LIST}.list_microphones", lambda: [], raising=False)
 
         from voice_typer.server.app import VoiceTyperApp
 
@@ -163,10 +166,10 @@ class TestShutdownControllerWiring:
     def test_shutdown_back_references_app(self, tmp_config_dir, monkeypatch):
         """``ShutdownController._app`` must be the ``VoiceTyperApp`` instance."""
         # raising=False — see test_app_has_shutdown_attribute.
-        monkeypatch.setattr("voice_typer.server.server_platform.is_autostart_enabled", lambda: False, raising=False)
-        monkeypatch.setattr("voice_typer.server.server_platform.enable_autostart", lambda: True, raising=False)
-        monkeypatch.setattr("voice_typer.server.server_platform.disable_autostart", lambda: True, raising=False)
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [], raising=False)
+        monkeypatch.setattr(f"{_AUTOSTART}.is_autostart_enabled", lambda: False, raising=False)
+        monkeypatch.setattr(f"{_AUTOSTART}.enable_autostart", lambda: True, raising=False)
+        monkeypatch.setattr(f"{_AUTOSTART}.disable_autostart", lambda: True, raising=False)
+        monkeypatch.setattr(f"{_MIC_LIST}.list_microphones", lambda: [], raising=False)
 
         from voice_typer.server.app import VoiceTyperApp
 

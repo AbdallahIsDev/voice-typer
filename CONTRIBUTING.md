@@ -1008,7 +1008,9 @@ Adding a new **ASR engine** has its own touchpoint set: see
   `test_native_hotkeys_factory_binary_path.py`,
   `tests/tauri/test_native_binary_path_tauri.py` — the
   `get_native_binary_path` `lru_cache(maxsize=1)`), `ipc_layer_fixes`
-  (`test_ipc_layer_fixes.py`, `test_ipc_package_fixes.py`),
+  (`test_ipc_server.py` — the merged IPC-layer suites; FZ-58 Tier-1
+  folded `test_ipc_layer_fixes.py` / `test_ipc_package_fixes.py` /
+  `test_ipc_server_lifecycle_fixes.py` into it),
   `gen_tauri_icons_stub` (`tests/tauri/test_gen_tauri_icons_stub.py`,
   `tests/tauri/mig18/test_build_script_glue.py`), and
   `faster_whisper_linux`

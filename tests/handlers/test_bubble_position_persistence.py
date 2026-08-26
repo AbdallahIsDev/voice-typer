@@ -66,7 +66,7 @@ class TestPushBubbleConfigCarriesPosition:
     def wiring(self):
         # Reuse the existing capture harness (P2 — import the source,
         # don't copy it).
-        from tests.test_tray_misc_perf_fixes import _CapturingWiring
+        from tests.test_tray import _CapturingWiring
 
         w = _CapturingWiring()
         yield w

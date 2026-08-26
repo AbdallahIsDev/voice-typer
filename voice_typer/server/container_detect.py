@@ -13,6 +13,8 @@ import functools
 import os
 from pathlib import Path
 
+from voice_typer.server.platform_utils import is_linux
+
 _log = __import__("logging").getLogger(__name__)
 
 
@@ -159,9 +161,7 @@ def _should_bypass_cache() -> bool:
 @functools.lru_cache(maxsize=1)
 def _is_in_container_cached() -> bool:
     """Memoized body of :func:`is_in_container` ()."""
-    import sys
-
-    if not sys.platform.startswith("linux"):
+    if not is_linux():
         return False
 
     # 1. Docker creates /.dockerenv in containers

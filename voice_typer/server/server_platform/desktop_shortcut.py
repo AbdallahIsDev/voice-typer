@@ -31,9 +31,9 @@ top), so ``subprocess.run(...)`` calls below pick up the patch without
 any ``_pkg`` indirection.
 
 Tests patch ``SYSTEM`` via
-``monkeypatch.setattr(server_platform, "SYSTEM", "win32"|"linux")`` (in
+``monkeypatch.setattr(platform_flags, "SYSTEM", "win32"|"linux")`` (in
 :mod:`tests.test_platform`).  ``create_launcher_shortcut`` reads
-``_pkg.SYSTEM`` at call time so the patch takes effect.
+``_platform_flags.SYSTEM`` at call time so the patch takes effect.
 
 ``inspect.getsource`` compatibility
 -----------------------------------
@@ -50,14 +50,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Patch-path bridge: route lookups of ``SYSTEM`` through the package
-# namespace so test patches of the form
-# ``monkeypatch.setattr("voice_typer.server.server_platform.SYSTEM", "linux")``
+# Patch-path bridge: read ``SYSTEM`` through the owning
+# :mod:`.platform_flags` module attribute at call time so test patches of
+# the form
+# ``monkeypatch.setattr("voice_typer.server.server_platform.platform_flags.SYSTEM", "linux")``
 # keep affecting production code defined here (specifically
 # ``create_launcher_shortcut``'s ``SYSTEM != "win32"`` early return).
-from voice_typer.server import server_platform as _pkg
 from voice_typer.server._paths import APP_SLUG
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.server_platform import platform_flags as _platform_flags
 
 log = logging.getLogger(__name__)
 
@@ -530,7 +531,7 @@ def _set_lnk_app_user_model_id(lnk_path: Path) -> bool:
     unreliable for this — a fresh-process ``GetValue`` returns empty
     even when the bytes are in the file.)
     """
-    if _pkg.SYSTEM != "win32" or not lnk_path.exists():
+    if _platform_flags.SYSTEM != "win32" or not lnk_path.exists():
         return False
     try:
         raw = lnk_path.read_bytes()
@@ -586,7 +587,7 @@ def create_launcher_shortcut() -> Path | None:
     Returns the path to the Desktop shortcut (the primary one), or None on
     unsupported platforms / failure.
     """
-    if _pkg.SYSTEM != "win32":
+    if _platform_flags.SYSTEM != "win32":
         log.info("[STARTUP] Launcher shortcut only supported on Windows")
         return None
 

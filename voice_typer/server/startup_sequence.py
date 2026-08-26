@@ -42,7 +42,7 @@ from voice_typer.server.branding import APP_NAME
 from voice_typer.server.config import _config_dir
 from voice_typer.server.duration import format_duration
 from voice_typer.server.platform_utils import is_linux, is_macos, is_wayland_session, is_windows
-from voice_typer.server.server_platform import is_autostart_enabled
+from voice_typer.server.server_platform import autostart as _autostart_facade
 from voice_typer.server.text_cleanup import configure_corrections
 
 if TYPE_CHECKING:
@@ -1151,7 +1151,7 @@ class StartupSequence:
             # Test-stub fallback: the monkeypatched sync_autostart returned
             # ``None`` (or a dict without the field). Fall back to the
             # direct platform read so the tray menu shows the real state.
-            autostart_enabled = is_autostart_enabled()
+            autostart_enabled = _autostart_facade.is_autostart_enabled()
         app.tray.set_autostart_enabled(autostart_enabled)
 
         # RACE-020: check for shutdown after each major step

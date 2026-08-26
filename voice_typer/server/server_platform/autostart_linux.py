@@ -12,8 +12,9 @@ three Linux autostart primitives:
 Patch-path compatibility
 ------------------------
 Tests patch ``get_autostart_dir`` and ``_autostart_command`` via
-``monkeypatch.setattr(platform_mod, "X", lambda: ...)`` (in
-:mod:`tests.test_platform`).  Both are looked up via ``_pkg.X()`` at
+``monkeypatch.setattr(autostart_mod, "X", lambda: ...)`` (in
+:mod:`tests.test_platform`).  Both are owned by :mod:`.autostart` and
+looked up through the bound module attribute (``_autostart_mod.X``) at
 call time so the patches take effect.
 
 ``inspect.getsource`` compatibility
@@ -29,19 +30,17 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-# Patch-path bridge: route lookups of ``get_autostart_dir`` and
-# ``_autostart_command`` through the package namespace so test patches
-# of the form
-# ``monkeypatch.setattr("voice_typer.server.server_platform.X", ...)``
-# keep affecting production code defined here.
-from voice_typer.server import server_platform as _pkg
+# Patch-path bridge: ``_autostart_mod`` binds the owning sibling
+# module so ``get_autostart_dir`` / ``_autostart_command`` resolve
+# through ITS attribute at call time (tests patch that module).
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.server_platform import autostart as _autostart_mod
 
 log = logging.getLogger(__name__)
 
 
 def _enable_autostart_linux() -> bool:
-    autostart_dir = _pkg.get_autostart_dir()
+    autostart_dir = _autostart_mod.get_autostart_dir()
     autostart_dir.mkdir(parents=True, exist_ok=True)
     desktop_path = autostart_dir / "voice-typer.desktop"
 
@@ -50,7 +49,7 @@ def _enable_autostart_linux() -> bool:
     # (https://specifications.freedesktop.org/desktop-entry/latest/exec-variables.html).
     # Use the command VERBATIM — stripping quotes corrupts the first arg
     # (e.g. "/usr/bin/python3" "/path/launcher.py" -> python3" "/path...).
-    exec_field = _pkg._autostart_command()
+    exec_field = _autostart_mod._autostart_command()
 
     # align the autostart .desktop Icon with the bundled template
     # (src-tauri/voice-typer.desktop.template uses `Icon=voice-typer`).
@@ -93,7 +92,7 @@ NoDisplay=true
 
 
 def _disable_autostart_linux() -> bool:
-    desktop_path = _pkg.get_autostart_dir() / "voice-typer.desktop"
+    desktop_path = _autostart_mod.get_autostart_dir() / "voice-typer.desktop"
     if desktop_path.exists():
         desktop_path.unlink()
     log.info("[CONFIG] Autostart disabled (Linux)")
@@ -176,7 +175,7 @@ def _is_autostart_linux() -> bool:
     reports disabled so Settings shows the true state instead of a
     misleading "Autostart: enabled".
     """
-    desktop_path = _pkg.get_autostart_dir() / "voice-typer.desktop"
+    desktop_path = _autostart_mod.get_autostart_dir() / "voice-typer.desktop"
     if not desktop_path.exists():
         return False
     return _desktop_exec_path_exists(desktop_path)

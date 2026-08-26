@@ -32,7 +32,7 @@ import { PythonIpcError } from "./errors";
  * When ``state.tcpSocket`` is null AND the app has connected before
  * (``state._hadConnectedBefore === true`` — i.e. a transient blip, not
  * initial startup), idempotent commands are pushed here instead of
- * being rejected outright. On reconnect, ``_flushPendingOutbound``
+ * being rejected outright. On reconnect, ``flushPendingOutbound``
  * drains the queue in FIFO order, re-invoking ``sendToPython`` for
  * each entry and forwarding the new promise's resolution to the
  * original caller's ``resolve`` / ``reject``.
@@ -110,7 +110,7 @@ const _pendingOutbound: PendingOutboundEntry[] = [];
  * MAX_PENDING_REQUESTS cap), the original caller's ``reject`` is
  * invoked with the same error — the queue does not swallow failures.
  */
-export function _flushPendingOutbound(): void {
+export function flushPendingOutbound(): void {
 	if (_pendingOutbound.length === 0) {
 		return;
 	}
@@ -129,19 +129,16 @@ export function _flushPendingOutbound(): void {
 
 /**
  * Reject every queued entry with the given reason. Called from
- * ``tcp-connect.ts``'s close handler when ``state._relaunching`` is
- * true (the process is about to exit — queued calls would never be
+ * ``tcp/close-handler.ts``'s close handler when ``state._relaunching``
+ * is true (the process is about to exit — queued calls would never be
  * flushed) and from tests for isolation.
  *
- * Exported with the ``_`` prefix matching the existing
- * ``_resetIpcBackpressure`` convention so production callers in
- * ``stop-python.ts`` / ``relaunch-app.ts`` can opt to clear the
- * queue on teardown. The current close-handler call site covers the
- * relaunch case; an explicit ``stopPython`` call would clear the
- * queue via the close handler as well (stopPython triggers a socket
- * close).
+ * Exported because its callers live outside this module (the TCP close
+ * handler plus test isolation); production teardown paths that close
+ * the socket reach it via the close handler as well (stopPython
+ * triggers a socket close).
  */
-export function _resetPendingOutbound(reason: string): void {
+export function resetPendingOutbound(reason: string): void {
 	while (_pendingOutbound.length > 0) {
 		const entry = _pendingOutbound.shift();
 		if (!entry) break;

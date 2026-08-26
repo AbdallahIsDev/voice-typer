@@ -42,7 +42,7 @@ Post-fix:
 See:
 - ``voice_typer/server/config.py`` (``Config.save()`` method)
 - ``scripts/findings/DE-23.md``
-- ``tests/test_credential_store_group_fixes.py`` (covers the
+- ``tests/test_credential_store.py`` (covers the
   ``migrate_secrets_to_keyring`` side of DE-23)
 """
 

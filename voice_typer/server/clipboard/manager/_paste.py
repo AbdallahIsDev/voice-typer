@@ -330,7 +330,7 @@ class PasteMixin:
         if not _cb.is_windows():
             return 0.0
         try:
-            from voice_typer.server.server_platform import is_remote_session
+            from voice_typer.server.server_platform.remote_session import is_remote_session
 
             if is_remote_session():
                 _cb.log.info("[CLIPBOARD] RDP session detected — increasing paste delay to %dms", 100)

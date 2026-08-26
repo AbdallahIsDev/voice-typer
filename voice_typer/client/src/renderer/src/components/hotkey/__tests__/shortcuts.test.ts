@@ -53,6 +53,7 @@ describe("SHORTCUTS catalog — single source of truth", () => {
 		expect(SHORTCUTS.navigate.keys).toBe("Tab / Shift+Tab");
 		expect(SHORTCUTS.toggle.keys).toBe("Space");
 		expect(SHORTCUTS.activate.keys).toBe("Enter");
+		expect(SHORTCUTS.dismissBubble.keys).toBe("Ctrl+Shift+D");
 	});
 
 	it("pins the ARIA keyshortcuts forms exposed on controls", async () => {
@@ -109,6 +110,7 @@ describe("SHORTCUTS catalog — single source of truth", () => {
 			navigate: "Tab / \u21E7Tab", // Tab / ⇧Tab
 			toggle: "Space",
 			activate: "Enter",
+			dismissBubble: "\u2303\u21E7D", // ⌃⇧D
 		};
 		for (const [id, def] of Object.entries(SHORTCUTS) as Array<
 			[string, ShortcutDef]
