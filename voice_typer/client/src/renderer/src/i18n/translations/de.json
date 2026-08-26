@@ -152,7 +152,7 @@
 		"startPlaybackFailed": "Wiedergabe konnte nicht gestartet werden.",
 		"systemDefaultDesc": "Standardeingabegerät des Betriebssystems",
 		"startTest": "Test starten",
-		"stopTest": "Test stoppen ({seconds}s)",
+		"stopTest": "Test stoppen",
 		"level": "Pegel: {percent}%",
 		"monitoringOff": "Überwachung aus",
 		"duration": "Dauer: {seconds}s",
@@ -1385,7 +1385,8 @@
 			"textSizeUp": "Text vergrößern",
 			"textSizeDown": "Text verkleinern",
 			"title": "Tastaturkürzel",
-			"toggleSidebar": "Seitenleiste umschalten"
+			"toggleSidebar": "Seitenleiste umschalten",
+			"dismissBubble": "Blase ausblenden"
 		}
 	},
 	"history": {
@@ -1729,13 +1730,7 @@
 		"playRecording": "Aufnahme abspielen",
 		"stop": "Stopp",
 		"qualityFeedback": {
-			"recording": "Aufnahme läuft…",
-			"voiceDetected": "✓ Stimme erkannt",
-			"excellent": "Ausgezeichnete Qualität",
-			"tooHigh": "⚠ Lautstärke zu hoch",
-			"tooLow": "⚠ Lautstärke zu niedrig",
-			"lowVolume": "⚠ Geringe Lautstärke erkannt",
-			"waiting": "Warte auf Sprache…"
+			"recording": "Aufnahme läuft…"
 		},
 		"detectedIssueCodes": {
 			"high_noise": "Hohe Hintergrundgeräusche",

@@ -131,7 +131,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   2026-08-13 after the `transcribe_offline` addition by the runtime-pack
   split, master plan §7.4 — slim core → worker offline-transcription
   request):
-  TS allowlist = 71, Rust allowlist = 69, Python registry = 73 (the +2
+  TS allowlist = 72, Rust allowlist = 70, Python registry = 74 (the +2
   are `tray_click` and `shutdown`, which are host-only commands the
   renderer never sends — see the `_HOST_ONLY_COMMANDS` frozenset in
   `tests/test_security_doc_command_count.py`; +2 2026-08-16:
@@ -171,7 +171,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
    added by the auto-update feature, docs/auto-update-feature.md).
   (+2 2026-08-16: `get_correction_usage` + `test_vocabulary_correction`,
   vocabulary usage tracking + live-correction test panel — see the
-  ADR-0020 §16 addendum 2026-08-16; counts now 71/69/73.)
+  ADR-0020 §16 addendum 2026-08-16; counts now 71/69/73.
+  (+1 2026-08: `microphone_test_read_audio` added by the mic-test
+  file-reference transport fix — chunked WAV delivery under the 1 MiB
+  IPC frame cap, docs/adr/0020 §16 addendum; counts now 72/70/74.)
 
 - **SidecarState struct literal fix** — the Rust host's
   `SidecarState` struct literal was missing a field initializer, breaking

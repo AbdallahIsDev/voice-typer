@@ -288,6 +288,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # microphone_test_handlers
         "microphone_test_start",
         "microphone_test_stop",
+        "microphone_test_read_audio",
         "microphone_test_cancel",
         # REMOVED: ``microphone_test_status`` — the renderer polls
         # ``microphone_test_get_level`` at 60 Hz during a test; the
@@ -370,7 +371,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "shutdown",
     }
 )
-assert len(EXPECTED_COMMANDS) == 69, (
+assert len(EXPECTED_COMMANDS) == 70, (
     "ADR-0020 §2 freezes the command table. 69 = post-cleanup baseline "
     "after ZR-45 + the Tauri/Rust allowlist narrowing (+ ``onboarding_set_backend``, "
     "§16 addendum 2026-08-06; + ``reset_macos_accessibility``, "

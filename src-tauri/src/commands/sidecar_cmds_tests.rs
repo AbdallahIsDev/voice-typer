@@ -188,37 +188,40 @@ fn test_allowed_commands_count_matches_ts_parity() {
     // "used Nx" + the Analytics corrections rate) was added to the
     // literal + TS + Python registry in lockstep; the snapshot and
     // count tests were missed in that commit and are corrected here
-    // → 69.
+    // → 69. (2026-08): `microphone_test_read_audio` (chunked file-reference
+    // transport for mic-test WAVs) added in lockstep → 70.
     //
     // The TS allowlist is the canonical declaration
-    // (`voice_typer/client/src/main/allowed-commands.ts`): 71 entries
-    // total = 69 shared + `heartbeat` + `relaunch_ack` (both sent by
+    // (`voice_typer/client/src/main/allowed-commands.ts`): 72 entries
+    // total = 70 shared + `heartbeat` + `relaunch_ack` (both sent by
     // the host, never routed through this dispatch gate — see the
-    // cmds literal doc comment). The Python `_COMMAND_REGISTRY` has 73
-    // (71 renderer-reachable + `tray_click` + `shutdown`, both
+    // cmds literal doc comment). The Python `_COMMAND_REGISTRY` has 75
+    // (72 renderer-reachable + `tray_click` + `shutdown`, both
     // host-supervised and excluded from the TS allowlist).
     assert_eq!(
         allowed_commands().len(),
-        69,
-        "must match TS allowlist (71 entries) minus heartbeat/relaunch_ack (69 entries)"
+        70,
+        "must match TS allowlist (72 entries) minus heartbeat/relaunch_ack (70 entries)"
     );
 }
 
 #[test]
 fn test_allowed_commands_set_contains_no_duplicates() {
     let set = allowed_commands();
-    // 69 entries — must match the cmds literal below (single
+    // 70 entries — must match the cmds literal below (single
     // source of truth). A duplicate in the literal would make
-    // set.len() < 69.
+    // set.len() < 70.
     // 66 → 67: `run_prewarm` restored 2026-08-14 (§6.3 addendum
     // second half — re-implemented to re-run the warm phase
     // in-process instead of spawning the deleted subprocess).
     // 67 → 68: `test_vocabulary_correction` (2026-08-16).
     // 68 → 69: `get_correction_usage` (2026-08-17).
+    // 69 → 70: `microphone_test_read_audio` (2026-08, chunked
+    // file-reference transport for mic-test WAVs).
     assert_eq!(
         set.len(),
-        69,
-        "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (69). \
+        70,
+        "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (70). \
          Check the constructor log for the duplicate name.",
         set.len()
     );
@@ -263,7 +266,8 @@ fn test_allowed_commands_exact_snapshot() {
     // (auto-update feature) was added → 67.
     // (2026-08-16): `test_vocabulary_correction` → 68.
     // (2026-08-17): `get_correction_usage` → 69. This snapshot is
-    // the current 69-entry set.
+    // the current 70-entry set (2026-08: + microphone_test_read_audio,
+    // chunked file-reference transport for mic-test WAVs).
     let mut actual: Vec<&str> = allowed_commands().iter().copied().collect();
     actual.sort();
     let expected: &[&str] = &[
@@ -297,6 +301,7 @@ fn test_allowed_commands_exact_snapshot() {
         "level_monitor_stop",
         "microphone_test_cancel",
         "microphone_test_get_level",
+        "microphone_test_read_audio",
         "microphone_test_start",
         "microphone_test_stop",
         "onboarding_apply",
@@ -349,7 +354,7 @@ fn test_allowed_commands_exact_snapshot() {
     assert_eq!(
         actual, expected,
         "ALLOWED_COMMANDS snapshot drift — the Rust literal no longer matches the pinned \
-         69-entry snapshot. Diff the actual vs expected Vec above. If the change is \
+         70-entry snapshot. Diff the actual vs expected Vec above. If the change is \
          intentional, update this snapshot in lockstep with the cmds literal AND the TS \
          allowlist (see MAINTENANCE note above)."
     );

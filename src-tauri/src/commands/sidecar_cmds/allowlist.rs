@@ -206,6 +206,7 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "get_model_catalog",
             "microphone_test_start",
             "microphone_test_stop",
+            "microphone_test_read_audio",
             "microphone_test_cancel",
             "microphone_test_get_level",
             "level_monitor_start",

@@ -43,11 +43,9 @@ export interface ActiveMicrophoneCardProps {
 	 *  fails and spams error snacks. */
 	canTest: boolean;
 	testRunning: boolean;
-	testCountdown: number;
 	testElapsed: number;
 	testDurationMs: number;
 	level: number;
-	peak: number;
 	micMonitoring: boolean;
 	testAudioBase64: string | null;
 	rawAudioBase64: string | null;
@@ -82,11 +80,9 @@ export function ActiveMicrophoneCard({
 	isSystemDefault,
 	canTest,
 	testRunning,
-	testCountdown,
 	testElapsed,
 	testDurationMs,
 	level,
-	peak,
 	micMonitoring,
 	testAudioBase64,
 	rawAudioBase64,
@@ -150,7 +146,6 @@ export function ActiveMicrophoneCard({
                             both depend on the latest values. */}
 			<LevelBarContainer
 				level={level}
-				peak={peak}
 				playing={playing}
 				testRunning={testRunning}
 				testElapsed={testElapsed}
@@ -186,7 +181,7 @@ export function ActiveMicrophoneCard({
 							strokeWidth={1.625}
 							className="h-4 w-4"
 						/>
-						{t("microphone.stopTest", { seconds: String(testCountdown) })}
+						{t("microphone.stopTest")}
 					</Button>
 				)}
 
@@ -316,7 +311,6 @@ export function ActiveMicrophoneCard({
 
 interface LevelBarContainerProps {
 	level: number;
-	peak: number;
 	playing: boolean;
 	testRunning: boolean;
 	testElapsed: number;
@@ -325,7 +319,6 @@ interface LevelBarContainerProps {
 
 function LevelBarContainer({
 	level,
-	peak,
 	playing,
 	testRunning,
 	testElapsed,
@@ -340,8 +333,6 @@ function LevelBarContainer({
 
 			{/* Live quality feedback during test */}
 			<LiveQualityFeedback
-				level={level}
-				peak={peak}
 				isRecording={testRunning}
 				elapsedSeconds={testElapsed}
 				totalSeconds={testDurationMs / 1000}

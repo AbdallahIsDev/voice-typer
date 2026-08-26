@@ -7,6 +7,18 @@
 // the backend dict shape).
 
 /**
+ * Reference to a WAV file persisted by the backend under
+ * `<config>/mic-test-recordings/`. The bytes are fetched chunked via
+ * ``microphone_test_read_audio`` — a completed 10 s test's WAVs are
+ * ~1 MB each, which exceeds the 1 MiB single-frame IPC cap when
+ * base64-encoded, so they can never ride on the stop response itself.
+ */
+export interface TestAudioFileRef {
+	path: string;
+	bytes: number;
+}
+
+/**
  * Quality metrics returned by the backend after a microphone test
  * recording. Mirrors the dict returned from
  * ``level_monitor.stop_test_recording``.
@@ -23,6 +35,16 @@ export interface TestResultQuality {
 	silence_ratio: number;
 }
 
+/** One slice of a ``microphone_test_read_audio`` response. */
+export interface TestAudioChunk {
+	success: boolean;
+	data_b64: string;
+	bytes_read: number;
+	total_bytes: number;
+	eof: boolean;
+	message: string;
+}
+
 /**
  * Full result envelope returned by the ``microphone_test_stop`` IPC
  * command. ``quality`` is optional in practice — the backend omits it
@@ -31,8 +53,8 @@ export interface TestResultQuality {
  */
 export interface TestStopResult {
 	success: boolean;
-	audio_base64: string;
-	raw_audio_base64: string;
+	audio_file: TestAudioFileRef | null;
+	raw_audio_file: TestAudioFileRef | null;
 	duration_ms: number;
 	sample_rate: number;
 	message: string;

@@ -13,7 +13,7 @@ only the IPC dispatch route was deleted.
 
 from voice_typer.server.asr_errors import ConsentRequiredError
 from voice_typer.server.handlers._base import HandlerBase, log
-from voice_typer.server.ipc.validation import _validate_dict_payload
+from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
 
 
 class MicrophoneTestHandlersMixin(HandlerBase):
@@ -178,6 +178,39 @@ class MicrophoneTestHandlersMixin(HandlerBase):
         except Exception as exc:
             # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "microphone_test_stop")
+        return resp
+
+    def _handle_microphone_test_read_audio(self, data: dict | None, resp: dict) -> dict | None:
+        """Handle the ``microphone_test_read_audio`` IPC command.
+
+        Chunked file-reference transport: returns one slice of a persisted
+        mic-test WAV (path + offset + length). Each response stays well
+        under the 1 MiB single-frame IPC cap, unlike the old monolithic
+        base64 stop payload that was silently dropped.
+        """
+        try:
+            if not isinstance(data, dict):
+                return _error_response(resp, "microphone_test_read_audio requires data: object", code="invalid_payload")
+            validated, error = _validate_dict_payload(
+                data,
+                {
+                    "path": {"type": str, "required": True},
+                    "offset": {"type": int, "required": False, "default": 0, "clamp_range": (0, 100_000_000)},
+                    "length": {"type": int, "required": False, "default": 256 * 1024, "clamp_range": (1, 256 * 1024)},
+                },
+            )
+            if error:
+                return error
+            assert validated is not None
+            result = self.service.microphone_test_read_audio(
+                path=validated["path"],
+                offset=int(validated["offset"]),
+                length=int(validated["length"]),
+            )
+            resp["type"] = "microphone_test_audio_chunk"
+            resp["data"] = result
+        except Exception as exc:
+            self._respond_with_error(resp, exc, "microphone_test_read_audio")
         return resp
 
     def _handle_microphone_test_cancel(self, data: dict | None, resp: dict) -> dict | None:

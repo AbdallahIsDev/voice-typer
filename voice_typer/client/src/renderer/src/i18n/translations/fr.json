@@ -1017,7 +1017,8 @@
 			"textSizeUp": "Augmenter la taille du texte",
 			"textSizeDown": "Diminuer la taille du texte",
 			"title": "Raccourcis clavier",
-			"toggleSidebar": "Afficher/masquer la barre latérale"
+			"toggleSidebar": "Afficher/masquer la barre latérale",
+			"dismissBubble": "Masquer la bulle"
 		}
 	},
 	"common": {
@@ -1072,7 +1073,7 @@
 		"startPlaybackFailed": "Impossible de démarrer la lecture.",
 		"systemDefaultDesc": "Périphérique d'entrée par défaut du système d'exploitation",
 		"startTest": "Démarrer le test",
-		"stopTest": "Arrêter le test ({seconds}s)",
+		"stopTest": "Arrêter le test",
 		"level": "Niveau : {percent} %",
 		"monitoringOff": "Surveillance désactivée",
 		"duration": "Durée : {seconds}s",
@@ -1729,13 +1730,7 @@
 		"playRecording": "Lire l'enregistrement",
 		"stop": "Arrêter",
 		"qualityFeedback": {
-			"recording": "Enregistrement…",
-			"voiceDetected": "✓ Voix détectée",
-			"excellent": "Qualité excellente",
-			"tooHigh": "⚠ Volume trop élevé",
-			"tooLow": "⚠ Volume trop faible",
-			"lowVolume": "⚠ Faible volume détecté",
-			"waiting": "En attente de voix…"
+			"recording": "Enregistrement…"
 		},
 		"detectedIssueCodes": {
 			"high_noise": "Bruit de fond élevé",

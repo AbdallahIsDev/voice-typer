@@ -87,7 +87,6 @@ export default function MicrophonePage() {
 
 	const {
 		testRunning,
-		testCountdown,
 		testElapsed,
 		testAudioBase64,
 		rawAudioBase64,
@@ -96,7 +95,6 @@ export default function MicrophonePage() {
 		testTranscription,
 		testTranscriptionUnavailable,
 		level,
-		peak,
 		micMonitoring,
 		showAdvanced,
 		filtersSinceLastTest,
@@ -260,11 +258,9 @@ export default function MicrophonePage() {
 						isSystemDefault={isSystemDefault}
 						canTest={microphones.length > 0}
 						testRunning={testRunning}
-						testCountdown={testCountdown}
 						testElapsed={testElapsed}
 						testDurationMs={testDurationMs}
 						level={level}
-						peak={peak}
 						micMonitoring={micMonitoring}
 						testAudioBase64={testAudioBase64}
 						rawAudioBase64={rawAudioBase64}

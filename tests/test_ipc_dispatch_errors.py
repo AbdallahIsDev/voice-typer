@@ -639,3 +639,86 @@ class TestTestVocabularyCorrectionDispatchError:
         assert resp2["type"] == "ack", f"Connection did not survive: {resp2}"
         assert resp2.get("id") == 100
         monkeypatch.setattr(server, "_handle_test_vocabulary_correction", original)
+
+
+class TestMicrophoneTestReadAudioDispatchError:
+    """ADR-0020 §16 addendum (mic-test file-reference transport):
+    ``microphone_test_read_audio`` must behave under the dispatch-level
+    exception safety net like every other registered command.
+    """
+
+    def test_handler_exception_returns_error_response(self, authenticated_client, monkeypatch):
+        client, server = authenticated_client
+
+        def boom(data, resp):  # noqa: ARG001 — handler signature
+            raise RuntimeError("simulated microphone_test_read_audio crash")
+
+        monkeypatch.setattr(server, "_handle_microphone_test_read_audio", boom)
+
+        _send_line(
+            client,
+            {
+                "id": 120,
+                "type": "microphone_test_read_audio",
+                "data": {"path": "x.wav", "offset": 0, "length": 1024},
+            },
+        )
+        resp = _read_response_line(client, timeout=2.0)
+
+        assert resp["type"] == "error", f"Expected error response for raising handler, got: {resp}"
+        assert resp.get("id") == 120
+        assert resp["data"]["message"] == "internal error"
+
+        # Same socket must survive and serve a normal response afterwards.
+        original = server._handle_microphone_test_read_audio
+
+        def ok_handler(data, resp):
+            resp["type"] = "microphone_test_audio_chunk"
+            resp["data"] = {
+                "success": True,
+                "data_b64": "",
+                "bytes_read": 0,
+                "total_bytes": 0,
+                "eof": True,
+                "message": "ok",
+            }
+            return resp
+
+        monkeypatch.setattr(server, "_handle_microphone_test_read_audio", ok_handler)
+        _send_line(
+            client,
+            {
+                "id": 121,
+                "type": "microphone_test_read_audio",
+                "data": {"path": "x.wav", "offset": 0, "length": 1024},
+            },
+        )
+        resp2 = _read_response_line(client, timeout=2.0)
+        assert resp2["type"] == "microphone_test_audio_chunk", f"Connection did not survive: {resp2}"
+        assert resp2.get("id") == 121
+        monkeypatch.setattr(server, "_handle_microphone_test_read_audio", original)
+
+
+class TestMicrophoneTestReadAudioValidation:
+    """Schema validation: a payload without ``path`` is rejected with a
+    structured error envelope (never an unhandled crash / torn-down
+    connection)."""
+
+    def test_missing_path_returns_structured_error(self, authenticated_client):
+        client, server = authenticated_client
+
+        _send_line(client, {"id": 130, "type": "microphone_test_read_audio", "data": {"offset": 0}})
+        resp = _read_response_line(client, timeout=2.0)
+
+        assert resp["type"] == "error", f"Expected rejection for missing path: {resp}"
+        assert resp.get("id") == 130
+        # Structured missing-field code, not the generic internal-error
+        # safety net.
+        code = resp["data"].get("code", "")
+        assert code == "client.missing_field", f"Expected client.missing_field: {resp}"
+        assert resp["data"].get("field") == "path"
+
+        # Connection survives and serves normal traffic afterwards.
+        _send_line(client, {"id": 131, "type": "get_status"})
+        resp2 = _read_response_line(client, timeout=2.0)
+        assert resp2["type"] == "status", f"Connection did not survive: {resp2}"

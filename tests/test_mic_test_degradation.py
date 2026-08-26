@@ -11,7 +11,6 @@ WHY instead. These tests pin the ``transcription_unavailable`` +
 
 from __future__ import annotations
 
-import base64
 import io
 import struct
 import wave
@@ -21,8 +20,11 @@ from unittest.mock import MagicMock
 from voice_typer.server.service.microphone_test import MicrophoneTestMixin
 
 
-def _tiny_wav_b64(duration_s: float = 0.05, sample_rate: int = 16000) -> str:
-    """A tiny mono 16-bit WAV as base64 (silence)."""
+def _tiny_wav_result(tmp_path, duration_s: float = 0.05, sample_rate: int = 16000) -> dict:
+    """Persist a tiny valid mono WAV under tmp_path and return a
+    file-reference stop result — mirrors the new disk transport contract."""
+    import os
+
     n = int(sample_rate * duration_s)
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
@@ -30,7 +32,14 @@ def _tiny_wav_b64(duration_s: float = 0.05, sample_rate: int = 16000) -> str:
         wf.setsampwidth(2)
         wf.setframerate(sample_rate)
         wf.writeframes(struct.pack(f"<{n}h", *([0] * n)))
-    return base64.b64encode(buf.getvalue()).decode("ascii")
+    wav_file = tmp_path / "test-filtered.wav"
+    wav_file.write_bytes(buf.getvalue())
+    if os.name != "nt":
+        os.chmod(wav_file, 0o600)
+    return {
+        "success": True,
+        "audio_file": {"path": str(wav_file), "bytes": wav_file.stat().st_size},
+    }
 
 
 def _mixin(app) -> MicrophoneTestMixin:
@@ -40,14 +49,14 @@ def _mixin(app) -> MicrophoneTestMixin:
 
 
 class TestMicTestDegradation:
-    def test_no_engine_loaded_marks_transcription_unavailable(self, monkeypatch):
+    def test_no_engine_loaded_marks_transcription_unavailable(self, monkeypatch, tmp_path):
         """Engine absent → marker set so the UI can explain the gap."""
         from voice_typer.server import level_monitor
 
         monkeypatch.setattr(
             level_monitor,
             "stop_test_recording",
-            lambda: {"success": True, "audio_base64": _tiny_wav_b64()},
+            lambda: _tiny_wav_result(tmp_path),
         )
         app = SimpleNamespace(models=SimpleNamespace(active_transcriber=lambda: None))
         result = _mixin(app).microphone_test_stop()
@@ -56,14 +65,14 @@ class TestMicTestDegradation:
         assert result["transcription_reason"] == "no_engine_loaded"
         assert "transcription" not in result
 
-    def test_unloaded_engine_marks_transcription_unavailable(self, monkeypatch):
+    def test_unloaded_engine_marks_transcription_unavailable(self, monkeypatch, tmp_path):
         """Engine exists but not loaded → same marker (still warming / no pack)."""
         from voice_typer.server import level_monitor
 
         monkeypatch.setattr(
             level_monitor,
             "stop_test_recording",
-            lambda: {"success": True, "audio_base64": _tiny_wav_b64()},
+            lambda: _tiny_wav_result(tmp_path),
         )
         engine = MagicMock()
         engine.is_loaded = False
@@ -72,14 +81,14 @@ class TestMicTestDegradation:
         assert result["transcription_unavailable"] is True
         assert result["transcription_reason"] == "no_engine_loaded"
 
-    def test_loaded_engine_transcribes_without_marker(self, monkeypatch):
+    def test_loaded_engine_transcribes_without_marker(self, monkeypatch, tmp_path):
         """Engine loaded → transcription present, no degradation marker."""
         from voice_typer.server import level_monitor
 
         monkeypatch.setattr(
             level_monitor,
             "stop_test_recording",
-            lambda: {"success": True, "audio_base64": _tiny_wav_b64()},
+            lambda: _tiny_wav_result(tmp_path),
         )
         engine = MagicMock()
         engine.is_loaded = True

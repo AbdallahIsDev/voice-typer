@@ -70,7 +70,7 @@ class MicrophoneTestMixin(ServiceMixinBase):
         """
         import time
 
-        from voice_typer.server.server_platform import list_microphones
+        from voice_typer.server.server_platform.microphone_list import list_microphones
 
         now = time.monotonic()
         # PERF-: serve from cache if fresher than 5s.
@@ -128,13 +128,17 @@ class MicrophoneTestMixin(ServiceMixinBase):
         return start_test(mic_id=mic_id, duration=duration, filters=filters)
 
     def microphone_test_stop(self) -> dict[str, object]:
-        """Stop the microphone test and return audio data as base64 WAV.
+        """Stop the microphone test and persist its WAVs to disk.
 
-        Also attempts to auto-transcribe the recorded audio (best-effort)
-        so the frontend can show "You said: ..." with recognition confidence.
+        The completed WAVs (~1 MB each, over the 1 MiB single-frame IPC
+        cap when base64-encoded twice over) are written under
+        ``<config>/mic-test-recordings/`` and referenced by path; the
+        renderer fetches bytes via the chunked ``microphone_test_read_audio``
+        command. Auto-transcription (best-effort) reads the filtered WAV
+        file directly — no base64 round-trip.
 
         Returns:
-            dict with success, audio_base64, raw_audio_base64, duration_ms,
+            dict with success, audio_file, raw_audio_file, duration_ms,
             sample_rate, quality, message, and optionally transcription and
             transcription_confidence.
         """
@@ -142,18 +146,19 @@ class MicrophoneTestMixin(ServiceMixinBase):
 
         result = stop_test()
 
-        # Best-effort auto-transcription of the test recording
-        # Uses the already-loaded active engine (avoids loading a new
-        # engine from scratch which can take 30+ seconds).
-        if result.get("success") and result.get("audio_base64"):
+        # Best-effort auto-transcription of the test recording from the
+        # persisted filtered WAV (uses the already-loaded active engine).
+        audio_file = result.get("audio_file") or {}
+        wav_path = audio_file.get("path") if isinstance(audio_file, dict) else None
+        if result.get("success") and wav_path:
             try:
-                import base64
                 import io
                 import wave
 
                 import numpy as np
 
-                wav_bytes = base64.b64decode(result["audio_base64"])
+                with open(wav_path, "rb") as fh:
+                    wav_bytes = fh.read()
 
                 # Decode WAV to float32
                 with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
@@ -202,6 +207,17 @@ class MicrophoneTestMixin(ServiceMixinBase):
                 log.debug("[SERVICE] Test transcription setup failed: %s", transcribe_err)
 
         return result
+
+    def microphone_test_read_audio(self, path: str, offset: int, length: int) -> dict[str, object]:
+        """Read a chunked slice of a persisted mic-test WAV.
+
+        Delegates to :func:`level_monitor.read_test_recording_slice`
+        which enforces the recordings-dir containment (SEC boundary —
+        this endpoint hands raw bytes back over IPC).
+        """
+        from voice_typer.server.level_monitor import read_test_recording_slice
+
+        return read_test_recording_slice(path=path, offset=offset, length=length)
 
     def microphone_test_cancel(self) -> dict[str, object]:
         """Cancel a running microphone test without returning audio."""

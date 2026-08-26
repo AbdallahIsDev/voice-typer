@@ -421,6 +421,11 @@ export interface MicrophoneTestStopRequest {
 	data?: Record<string, unknown>;
 }
 
+export interface MicrophoneTestReadAudioRequest {
+	type: "microphone_test_read_audio";
+	data?: Record<string, unknown>;
+}
+
 // ``ModelsFolderSupportedRequest`` (phantom): the
 // ``models_folder_supported`` command was a member of this union but
 // was never registered in ``_COMMAND_REGISTRY`` nor allowed through
@@ -577,6 +582,7 @@ export type PythonRequest =
 	| GetTemplatesRequest
 	| MicrophoneTestCancelRequest
 	| MicrophoneTestStopRequest
+	| MicrophoneTestReadAudioRequest
 	// phantom ``ModelsFolderSupportedRequest`` removed —
 	// same reason as ``GetDiskInfoRequest`` above.
 	| OnboardingApplyRequest

@@ -34,7 +34,7 @@ process can connect to the IPC port without this token.
 ### Command Allowlist (SEC-019)
 
 The Electron main process enforces an allowlist of IPC commands. The renderer
-cannot invoke arbitrary commands — only the **71** commands listed in
+cannot invoke arbitrary commands — only the **72** commands listed in
 `ALLOWED_COMMANDS` (a `Set` defined at
 `voice_typer/client/src/main/allowed-commands.ts`) are forwarded to the Python backend.
 The authoritative count is enforced by CI (see
@@ -45,12 +45,12 @@ entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 
 > The Python-side `_COMMAND_REGISTRY` in
 > `voice_typer/server/ipc/registry.py` (re-exported by
-> `ipc_server.py`) registers **73** handlers. Two of
+> `ipc_server.py`) registers **74** handlers. Two of
 > those are intentionally absent from the renderer allowlist:
 > `tray_click` (a Rust-only command routed via `dispatch_inner` — the
 > tray handler invokes it directly, bypassing the allowlist gate) and
 > `shutdown` (cooperative shutdown is sent via `shutdown_sidecar`
-> directly, NOT via the generic dispatch path). The remaining **71**
+> directly, NOT via the generic dispatch path). The remaining **72**
 > handlers are renderer-callable. The +2 host-only delta is asserted by
 > the `_HOST_ONLY_COMMANDS` frozenset in
 > `tests/test_security_doc_command_count.py`. (reconciliation
@@ -60,8 +60,8 @@ entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 > stale entries were deleted from all three sources of truth — the
 > Python `_COMMAND_REGISTRY`, the TS `ALLOWED_COMMANDS` set, and the
 > Rust `allowed_commands()` literal — in lockstep during, so
-> they no longer exist in any layer. The current counts are 73 Python
-> ↔ 71 TS ↔ 69 Rust, with the +2 host-only delta as the only
+> they no longer exist in any layer. The current counts are 74 Python
+> ↔ 72 TS ↔ 70 Rust, with the +2 host-only delta as the only
 > intentional divergence. `check_accessibility` was re-added on
 > 2026-08-10 (finding #919 part b) — the Settings → Troubleshooting
 > UI now invokes it on macOS to surface the stale-grant `tccutil`

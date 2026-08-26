@@ -56,8 +56,47 @@ def _emit_device_lost(source: str) -> None:
         log.debug("[LEVEL-MON] Failed to publish device_lost event", exc_info=True)
 
 
+def _make_stream_finished_guard(stream_cell: dict[str, object]):
+    """Build a PortAudio ``finished_callback`` bound to the stream in *stream_cell*.
+
+    CRITICAL INVARIANT: PortAudio fires ``PaStreamFinishedCallback`` not
+    only when a device vanishes mid-stream but ALSO on every INTENTIONAL
+    inactive transition — ``stream.stop()`` / ``stream.close()``, which is
+    exactly what a device SWITCH or a page-unmount ``stop_monitoring``
+    does to the OLD stream. Treating those as losses emitted a bogus
+    ``device_lost`` for perfectly healthy streams: selecting any concrete
+    non-default microphone restarted the monitor and instantly showed
+    "Selected microphone disconnected".
+
+    The guard captures the stream identity at creation time and only
+    reports a loss when the FINISHING stream is still the CURRENT monitor
+    stream (an unexpected finish of the live stream = real device loss).
+    An old stream finishing after it was already replaced/cleared finds a
+    different-or-None ``_monitor_stream`` and stays silent.
+    """
+
+    def _on_stream_finished() -> None:
+        with _state._monitor_lock:
+            current = _state._monitor_stream
+            active = _state._monitor_active
+        if stream_cell.get("stream") is not current or not active:
+            # Intentional stop / replaced by a newer stream — not a loss.
+            log.debug("[LEVEL-MON] finished callback ignored (stream replaced or intentionally stopped)")
+            return
+        with _state._monitor_lock:
+            _state._monitor_active = False
+        log.warning("[LEVEL-MON] InputStream finished - device disconnected")
+        _emit_device_lost("stream_finished")
+
+    return _on_stream_finished
+
+
 def _level_stream_finished() -> None:
-    """PortAudio ``finished_callback`` — device disconnected mid-stream."""
+    """Legacy unguarded finished callback — device disconnected mid-stream.
+
+    Kept for tests/back-compat; production streams use the identity-aware
+    :func:`_make_stream_finished_guard` callback instead.
+    """
     with _state._monitor_lock:
         _state._monitor_active = False
     log.warning("[LEVEL-MON] InputStream finished - device disconnected")
@@ -551,6 +590,12 @@ def start_monitoring(mic_id: str | None = None) -> dict:
         # PortAudio doesn't get pathologically small blocks.
         blocksize = max(512, int(native_rate * 0.032))
 
+        # Cell for the not-yet-created InputStream: the finished-callback
+        # guard needs the stream's IDENTITY, but Python has no forward
+        # reference at construction time. The callback can only fire
+        # after ``start()``/``close()``, by which point the cell is filled.
+        stream_cell: dict[str, object] = {}
+
         try:
             stream = sd.InputStream(
                 samplerate=native_rate,
@@ -558,10 +603,11 @@ def start_monitoring(mic_id: str | None = None) -> dict:
                 dtype=np.float32,
                 device=device,
                 callback=callback,
-                finished_callback=_level_stream_finished,
+                finished_callback=_make_stream_finished_guard(stream_cell),
                 blocksize=blocksize,
             )
             stream.start()
+            stream_cell["stream"] = stream
             _state._monitor_stream = stream
             _state._monitor_active = True
             _state._monitor_mic_id = mic_id

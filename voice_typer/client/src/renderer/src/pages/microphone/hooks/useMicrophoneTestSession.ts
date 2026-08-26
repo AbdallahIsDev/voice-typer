@@ -51,7 +51,11 @@ import { userFacingErrorMessage } from "@/lib/errors/userFacingErrorMessage";
 import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 import { buildTestFilters } from "../lib/buildTestFilters";
 import { computeAudioKey } from "../lib/computeAudioKey";
-import type { TestResultQuality, TestStopResult } from "../lib/types";
+import type {
+	TestAudioChunk,
+	TestResultQuality,
+	TestStopResult,
+} from "../lib/types";
 
 /**
  * Fixed microphone-test recording duration, in seconds. The test is
@@ -95,6 +99,47 @@ export function _resetMicrophoneTestCache(): void {
 	_cachedTestDurationMs = 0;
 	_cachedTestTranscription = null;
 	_cachedTestTranscriptionUnavailable = false;
+}
+
+/**
+ * Binary bytes fetched per ``microphone_test_read_audio`` chunk. Each
+ * response stays well under the 1 MiB IPC frame cap; a completed 10 s
+ * test WAV is ~0.9 MB, so ~5 chunks per file.
+ */
+const AUDIO_CHUNK_BYTES = 256 * 1024;
+
+/**
+ * Fetch a persisted mic-test WAV via the chunked file-reference IPC
+ * transport and return its full base64 payload (playback keeps using
+ * data URIs, so only the TRANSPORT is chunked — the assembled result
+ * shape is unchanged).
+ *
+ * The backend persists each completed test's WAVs on disk precisely
+ * because a base64 double-WAV stop payload exceeded the 1 MiB frame cap
+ * and was silently dropped, leaving the 10 s recording unusable.
+ */
+async function fetchTestAudioFile(
+	call: PythonCall,
+	path: string,
+): Promise<string> {
+	let offset = 0;
+	const parts: string[] = [];
+	// Bounded loop: total/bytes_read come from the backend; the guard
+	// prevents an endless loop against a buggy server.
+	for (let safety = 0; safety < 1024; safety++) {
+		const res = await call<TestAudioChunk>("microphone_test_read_audio", {
+			path,
+			offset,
+			length: AUDIO_CHUNK_BYTES,
+		});
+		if (!res?.success) {
+			throw new Error(res?.message || "audio chunk read failed");
+		}
+		if (res.data_b64) parts.push(res.data_b64);
+		offset += res.bytes_read || 0;
+		if (res.eof || offset >= (res.total_bytes || Infinity)) break;
+	}
+	return parts.join("");
 }
 
 /** Type of the ``t()`` i18n function — accepts a key + optional params. */
@@ -265,23 +310,34 @@ export function useMicrophoneTestSession({
 		try {
 			const result = await call<TestStopResult>("microphone_test_stop");
 
-			if (result?.success && result?.audio_base64) {
-				setTestAudioBase64(result.audio_base64);
-				setRawAudioBase64(result.raw_audio_base64 || null);
+			const audioRef = result?.success ? result.audio_file : null;
+			if (result?.success && audioRef?.path) {
+				// File-reference transport: fetch the persisted WAVs chunked
+				// (each IPC frame < 1 MiB), assemble base64. A fetch failure
+				// must not discard the valid recording verdict below.
+				let audioB64: string | null = null;
+				let rawB64: string | null = null;
+				try {
+					[audioB64, rawB64] = await Promise.all([
+						fetchTestAudioFile(call, audioRef.path),
+						result.raw_audio_file?.path
+							? fetchTestAudioFile(call, result.raw_audio_file.path)
+							: Promise.resolve(null),
+					]);
+					setTestAudioBase64(audioB64);
+					setRawAudioBase64(rawB64);
+				} catch (fetchErr) {
+					console.error(
+						"[renderer:useMicrophoneTestSession] Failed to fetch test audio:",
+						fetchErr,
+					);
+				}
+				// The recording itself succeeded — duration/quality verdict
+				// and transcription are valid even when playback delivery
+				// failed above (only the playable data is missing).
 				setTestDurationMs(result.duration_ms || 0);
 				if (result.quality) {
 					setTestQuality(result.quality);
-				}
-				// (XA-5-13): mirror the freshly-captured test
-				// recording into the module-level cache so
-				// a page navigation does NOT discard it.
-				// Mirrors the ``_cachedConfig`` write-through
-				// pattern in useMicrophoneData.updateConfig.
-				_cachedTestAudioBase64 = result.audio_base64;
-				_cachedRawAudioBase64 = result.raw_audio_base64 || null;
-				_cachedTestDurationMs = result.duration_ms || 0;
-				if (result.quality) {
-					_cachedTestQuality = result.quality;
 				}
 				const transcriptionText =
 					typeof result.transcription === "string"
@@ -291,6 +347,16 @@ export function useMicrophoneTestSession({
 					result.transcription_unavailable === true;
 				setTestTranscription(transcriptionText);
 				setTestTranscriptionUnavailable(transcriptionUnavailable);
+				// (XA-5-13): mirror the freshly-captured test recording into
+				// the module-level cache so a page navigation does NOT
+				// discard it. Mirrors the ``_cachedConfig`` write-through
+				// pattern in useMicrophoneData.updateConfig.
+				_cachedTestAudioBase64 = audioB64;
+				_cachedRawAudioBase64 = rawB64;
+				_cachedTestDurationMs = result.duration_ms || 0;
+				if (result.quality) {
+					_cachedTestQuality = result.quality;
+				}
 				_cachedTestTranscription = transcriptionText;
 				_cachedTestTranscriptionUnavailable = transcriptionUnavailable;
 				showSnack(

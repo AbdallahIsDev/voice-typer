@@ -29,3 +29,26 @@
 
 ### Known limitations
 - Full pytest suite not re-run this session (pre-existing uncommitted working tree from other sessions present; targeted suites above cover all touched behavior). Baseline failures per E2 not re-baselined for the same reason.
+
+
+## 2026-XX (2nd) Microphone page: concrete-device selection + test transport + UI dedup
+
+### Root causes found
+1. **"Selected microphone disconnected" on valid device selection** — PortAudio fires `PaStreamFinishedCallback` on EVERY inactive transition, including intentional `stop()`/`close()` during monitor restarts (device switch) and page unmount. The unguarded `_level_stream_finished` callback emitted a bogus `device_lost` push on every selection change; the renderer toast + `deviceLostStore` paused the meter and showed "Selected microphone disconnected". Fix: identity-aware finished-callback (`_make_stream_finished_guard(stream_cell)`) — only reports loss when the FINISHING stream is still the CURRENT active monitor stream.
+2. **Mic test records 10 s but delivers nothing + 15 s IPC timeout** — `stop_test_recording` returned BOTH WAVs base64 (~0.88 MB each → ~2.4 MB total) in one response frame; the deliberate 1 MiB outbound frame cap (`_TCP_MAX_OUTBOUND_BYTES`) silently dropped it ("outbound TCP frame exceeds ... dropping"). Fix: file-reference transport — stop persists both WAVs under `<config>/mic-test-recordings/`, returns small {"path","bytes"} refs; new chunked IPC command `microphone_test_read_audio` (≤256 KiB binary/slice, recordings-dir containment enforced); renderer assembles chunks into the existing playback data-URI flow. Keep-only-latest purge on next test start.
+3. **Duplicate timers + noisy quality line** — Stop button showed "(Ns)" countdown while LiveQualityFeedback ALSO showed "Recording MM:SS / MM:SS" plus a flickering voice-quality status line duplicating the live LevelBar. Fix: one timer readout only; voice-quality line removed (component stripped to timer); Stop button plain label; unused i18n keys removed across all 8 locales.
+4. **Consent** — untouched by design; point-of-use gate still fires only when consent missing.
+
+### Changes
+- Backend: `level_monitor/monitoring.py` (identity guard), `level_monitor/test_recording.py` (disk transport + purge + `read_test_recording_slice`), `service/microphone_test.py` (transcription reads persisted WAV directly), `handlers/microphone_test_handlers.py` (+`_handle_microphone_test_read_audio`), `ipc/registry.py` + `ipc/rate_limiter.py` (+command), `providers.py` (ServiceProtocol method).
+- Hosts: `client/src/main/allowed-commands.ts`, `src-tauri/src/commands/sidecar_cmds/allowlist.rs` (+1 each, snapshots updated).
+- Frontend: `pages/microphone/lib/types.ts` (`TestStopResult.audio_file/raw_audio_file`, `TestAudioChunk`), `useMicrophoneTestSession.ts` (chunked fetch + cache write-through), `ActiveMicrophoneCard.tsx` / `Microphone.tsx` (peak/countdown prop removal), `LiveQualityFeedback.tsx` (timer only), i18n ×8 locales.
+- Docs/tests: ADR-0020 §16 addendum, SECURITY.md/FEATURES.md/CHANGELOG.md/CONTRIBUTING.md/docs/ipc-reference.md count reconciliation; tests updated (`test_level_monitor.py`, `test_mic_test_degradation.py`, `test_g_perf_reliability.py`, `test_ipc_dispatch_errors.py` +2 classes, `test_ipc_server_lifecycle_fixes.py`, doc-count suites) + new `tests/test_mic_page_selection_and_test_transport.py` (12 tests).
+
+### Validation performed (Windows 11 host)
+- Full vitest: 3522 passed / 33 skipped. Full pytest (-n auto): 13889 passed, 884 skipped, **2 pre-existing failures unrelated to this scope** (`test_platform.py::TestLinuxDesktopExec` + `test_ruff_ratchet` E501s) — all traced to files modified by OTHER uncommitted sessions (autostart_windows.py, shutdown_controller, startup_sequence*, config_wiring); ownership rules forbid touching them.
+- cargo check: Finished; sidecar_cmds_tests 20 passed (allowlist snapshot bumped 69→70).
+- ruff/pyrefly clean on all touched files.
+
+### Known limitations
+- Pre-existing dirty-tree failures above remain (other sessions' work).

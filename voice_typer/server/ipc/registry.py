@@ -294,6 +294,7 @@ _COMMAND_REGISTRY: dict[str, str] = {
     "onboarding_reset": "_handle_onboarding_reset",
     "microphone_test_start": "_handle_microphone_test_start",
     "microphone_test_stop": "_handle_microphone_test_stop",
+    "microphone_test_read_audio": "_handle_microphone_test_read_audio",
     "microphone_test_cancel": "_handle_microphone_test_cancel",
     "microphone_test_get_level": "_handle_microphone_test_get_level",
     "level_monitor_start": "_handle_level_monitor_start",

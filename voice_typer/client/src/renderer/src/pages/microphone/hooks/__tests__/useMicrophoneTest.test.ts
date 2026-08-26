@@ -313,11 +313,21 @@ describe("useMicrophoneTest — test start/stop lifecycle", () => {
 
 		// Stop the first test — populates testAudioBase64 etc.
 		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "microphone_test_read_audio") {
+				return Promise.resolve({
+					success: true,
+					data_b64: "clip-1",
+					bytes_read: 6,
+					total_bytes: 6,
+					eof: true,
+					message: "ok",
+				});
+			}
 			if (cmd === "microphone_test_stop")
 				return Promise.resolve({
 					success: true,
-					audio_base64: "clip-1",
-					raw_audio_base64: "raw-1",
+					audio_file: { path: "mem://filtered/clip.wav", bytes: 6 },
+					raw_audio_file: { path: "mem://raw/raw.wav", bytes: 5 },
 					duration_ms: 5000,
 					quality: "good",
 				});
@@ -361,11 +371,21 @@ describe("useMicrophoneTest — test start/stop lifecycle", () => {
 					duration: 5,
 					sample_rate: 16000,
 				});
+			if (cmd === "microphone_test_read_audio") {
+				return Promise.resolve({
+					success: true,
+					data_b64: "clip-1",
+					bytes_read: 6,
+					total_bytes: 6,
+					eof: true,
+					message: "ok",
+				});
+			}
 			if (cmd === "microphone_test_stop")
 				return Promise.resolve({
 					success: true,
-					audio_base64: "clip-1",
-					raw_audio_base64: "raw-1",
+					audio_file: { path: "mem://filtered/clip.wav", bytes: 6 },
+					raw_audio_file: { path: "mem://raw/raw.wav", bytes: 5 },
 					duration_ms: 5000,
 					quality: "good",
 				});

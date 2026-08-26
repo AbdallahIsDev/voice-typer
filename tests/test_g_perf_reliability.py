@@ -625,7 +625,8 @@ class TestLevelMonitorTestChunkBounds:
         # Now a real stop must still return exactly `cap` chunks of audio.
         result = lm.stop_test_recording()
         assert result["success"] is True
-        assert result["audio_base64"] != ""
+        assert isinstance(result["audio_file"], dict)
+        assert result["audio_file"]["bytes"] > 0
 
     def test_stop_preserves_bounded_deque_type(self, monkeypatch):
         """stop_test_recording clears in place — it must NOT reassign to [].
@@ -687,6 +688,9 @@ class TestLevelMonitorTestChunkBounds:
         # Frontend now retrieves the audio.
         result = lm.stop_test_recording()
         assert result["success"] is True
-        assert result["audio_base64"] != ""
+        # File-reference transport: a non-empty persisted WAV ref proves
+        # the captured chunks were retrievable after auto-stop.
+        assert isinstance(result["audio_file"], dict)
+        assert result["audio_file"]["bytes"] > 0
         # After retrieval, cleared (and still a bounded deque).
         assert len(lm._test_chunks) == 0

@@ -157,6 +157,7 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// Microphone test commands
 	"microphone_test_start",
 	"microphone_test_stop",
+	"microphone_test_read_audio",
 	"microphone_test_cancel",
 	"microphone_test_get_level",
 	// Continuous level monitor

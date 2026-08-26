@@ -275,11 +275,21 @@ describe("useMicrophoneTestSession — startTest lifecycle", () => {
 					duration: 5,
 					sample_rate: 16000,
 				});
+			if (cmd === "microphone_test_read_audio") {
+				return Promise.resolve({
+					success: true,
+					data_b64: "clip-1",
+					bytes_read: 6,
+					total_bytes: 6,
+					eof: true,
+					message: "ok",
+				});
+			}
 			if (cmd === "microphone_test_stop")
 				return Promise.resolve({
 					success: true,
-					audio_base64: "clip-1",
-					raw_audio_base64: "raw-1",
+					audio_file: { path: "mem://filtered/clip.wav", bytes: 6 },
+					raw_audio_file: { path: "mem://raw/raw.wav", bytes: 5 },
 					duration_ms: 5000,
 					quality: "good",
 				});
@@ -497,11 +507,21 @@ describe("useMicrophoneTestSession — stopTest lifecycle", () => {
 					duration: 5,
 					sample_rate: 16000,
 				});
+			if (cmd === "microphone_test_read_audio") {
+				return Promise.resolve({
+					success: true,
+					data_b64: "clip-1",
+					bytes_read: 6,
+					total_bytes: 6,
+					eof: true,
+					message: "ok",
+				});
+			}
 			if (cmd === "microphone_test_stop")
 				return Promise.resolve({
 					success: true,
-					audio_base64: "clip-1",
-					raw_audio_base64: "raw-1",
+					audio_file: { path: "mem://filtered/clip.wav", bytes: 6 },
+					raw_audio_file: { path: "mem://raw/raw.wav", bytes: 5 },
 					duration_ms: 5000,
 					quality: "good",
 					transcription: "hello world",
@@ -550,11 +570,21 @@ describe("useMicrophoneTestSession — stopTest lifecycle", () => {
 					duration: MICROPHONE_TEST_DURATION_SEC,
 					sample_rate: 16000,
 				});
+			if (cmd === "microphone_test_read_audio") {
+				return Promise.resolve({
+					success: true,
+					data_b64: "clip-1",
+					bytes_read: 6,
+					total_bytes: 6,
+					eof: true,
+					message: "ok",
+				});
+			}
 			if (cmd === "microphone_test_stop")
 				return Promise.resolve({
 					success: true,
-					audio_base64: "clip-1",
-					raw_audio_base64: null,
+					audio_file: { path: "mem://filtered/clip.wav", bytes: 6 },
+					raw_audio_file: null,
 					duration_ms: 4000,
 					quality: "good",
 					transcription_unavailable: true,
@@ -585,6 +615,16 @@ describe("useMicrophoneTestSession — stopTest lifecycle", () => {
 
 	it("surfaces a warning snack when the backend reports success=true but no audio", async () => {
 		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "microphone_test_read_audio") {
+				return Promise.resolve({
+					success: true,
+					data_b64: "clip-1",
+					bytes_read: 6,
+					total_bytes: 6,
+					eof: true,
+					message: "ok",
+				});
+			}
 			if (cmd === "microphone_test_stop")
 				return Promise.resolve({ success: true }); // no audio_base64
 			return Promise.resolve({ success: true });
@@ -607,6 +647,16 @@ describe("useMicrophoneTestSession — stopTest lifecycle", () => {
 
 	it("surfaces an error snack when the backend reports success=false", async () => {
 		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "microphone_test_read_audio") {
+				return Promise.resolve({
+					success: true,
+					data_b64: "clip-1",
+					bytes_read: 6,
+					total_bytes: 6,
+					eof: true,
+					message: "ok",
+				});
+			}
 			if (cmd === "microphone_test_stop")
 				return Promise.resolve({
 					success: false,
@@ -732,11 +782,21 @@ describe("useMicrophoneTestSession — microphone_test_complete event", () => {
 					duration: 30,
 					sample_rate: 16000,
 				});
+			if (cmd === "microphone_test_read_audio") {
+				return Promise.resolve({
+					success: true,
+					data_b64: "clip-1",
+					bytes_read: 6,
+					total_bytes: 6,
+					eof: true,
+					message: "ok",
+				});
+			}
 			if (cmd === "microphone_test_stop")
 				return Promise.resolve({
 					success: true,
-					audio_base64: "clip-1",
-					raw_audio_base64: null,
+					audio_file: { path: "mem://filtered/clip.wav", bytes: 6 },
+					raw_audio_file: null,
 					duration_ms: 5000,
 					quality: "good",
 				});

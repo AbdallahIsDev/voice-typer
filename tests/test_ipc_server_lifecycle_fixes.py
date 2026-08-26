@@ -541,7 +541,7 @@ class TestRegistryExtraction:
         # together. Adding a command to the registry WITHOUT the TS
         # allowlist fails the parity test
         # (test_electron_ipc_and_build.py::test_allowlist_matches_server_commands).
-        assert len(registry._COMMAND_REGISTRY) == 73, (
+        assert len(registry._COMMAND_REGISTRY) == 74, (
             f"registry._COMMAND_REGISTRY must contain 73 entries "
             f"(71 forwarded in allowed-commands.ts + shutdown + "
             f"tray_click python-only); got "

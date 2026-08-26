@@ -116,6 +116,7 @@ COMMAND_COSTS: dict[str, int] = {
     "microphone_test_cancel": 1,
     "microphone_test_get_level": 1,
     "microphone_test_stop": 1,
+    "microphone_test_read_audio": 30,
     "onboarding_check_permissions": 1,
     "onboarding_get_hotkey_presets": 1,
     "onboarding_get_microphones": 1,

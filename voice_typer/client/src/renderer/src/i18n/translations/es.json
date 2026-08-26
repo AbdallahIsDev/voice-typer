@@ -152,7 +152,7 @@
 		"startPlaybackFailed": "No se pudo iniciar la reproducción.",
 		"systemDefaultDesc": "Dispositivo de entrada predeterminado del sistema operativo",
 		"startTest": "Iniciar prueba",
-		"stopTest": "Detener prueba ({seconds}s)",
+		"stopTest": "Detener prueba",
 		"level": "Nivel: {percent}%",
 		"monitoringOff": "Monitoreo desactivado",
 		"duration": "Duración: {seconds}s",
@@ -1385,7 +1385,8 @@
 			"textSizeUp": "Aumentar el tamaño del texto",
 			"textSizeDown": "Reducir el tamaño del texto",
 			"title": "Atajos de teclado",
-			"toggleSidebar": "Alternar barra lateral"
+			"toggleSidebar": "Alternar barra lateral",
+			"dismissBubble": "Descartar burbuja"
 		}
 	},
 	"history": {
@@ -1729,13 +1730,7 @@
 		"playRecording": "Reproducir grabación",
 		"stop": "Detener",
 		"qualityFeedback": {
-			"recording": "Grabando…",
-			"voiceDetected": "✓ Voz detectada",
-			"waiting": "Esperando voz…",
-			"excellent": "Calidad: excelente",
-			"tooHigh": "⚠ Volumen demasiado alto (riesgo de saturación)",
-			"tooLow": "⚠ Volumen demasiado bajo",
-			"lowVolume": "⚠ Volumen bajo — hable más alto"
+			"recording": "Grabando…"
 		},
 		"detectedIssueCodes": {
 			"high_noise": "Ruido de fondo alto",

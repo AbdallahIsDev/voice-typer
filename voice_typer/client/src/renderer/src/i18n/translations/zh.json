@@ -152,7 +152,7 @@
 		"startPlaybackFailed": "开始播放失败。",
 		"systemDefaultDesc": "操作系统的默认输入设备",
 		"startTest": "开始测试",
-		"stopTest": "停止测试（{seconds} 秒）",
+		"stopTest": "停止测试",
 		"level": "电平：{percent}%",
 		"monitoringOff": "监控已关闭",
 		"duration": "时长：{seconds} 秒",
@@ -1385,7 +1385,8 @@
 			"textSizeUp": "增大文字大小",
 			"textSizeDown": "减小文字大小",
 			"title": "键盘快捷键",
-			"toggleSidebar": "切换侧边栏"
+			"toggleSidebar": "切换侧边栏",
+			"dismissBubble": "隐藏悬浮气泡"
 		}
 	},
 	"history": {
@@ -1729,13 +1730,7 @@
 		"playRecording": "播放录音",
 		"stop": "停止",
 		"qualityFeedback": {
-			"recording": "正在录音…",
-			"voiceDetected": "✓ 检测到人声",
-			"excellent": "质量优秀",
-			"tooHigh": "⚠ 音量过高",
-			"tooLow": "⚠ 音量过低",
-			"lowVolume": "⚠ 检测到音量过低",
-			"waiting": "等待人声…"
+			"recording": "正在录音…"
 		},
 		"detectedIssueCodes": {
 			"high_noise": "背景噪音过高",

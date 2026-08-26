@@ -198,11 +198,22 @@ class TestOnlyRawChunksPopulated:
 
         result = lm.stop_test_recording()
         assert result["success"] is True
-        assert result["audio_base64"] != ""
-        assert result["raw_audio_base64"] != ""
-        # duration_ms should reflect 3 chunks * 512 samples / 16000 sr * 1000
-        # = 96ms (roughly).
         assert result["duration_ms"] > 0
+
+        # File-reference transport: the stop response carries small
+        # {"path","bytes"} refs, and each persisted file must decode as
+        # a valid non-empty WAV.
+        import io as _io
+        import wave as _wave
+        from pathlib import Path as _Path
+
+        for key in ("audio_file", "raw_audio_file"):
+            ref = result[key]
+            assert isinstance(ref, dict) and ref["path"] and ref["bytes"] > 0
+            raw_bytes = _Path(ref["path"]).read_bytes()
+            assert len(raw_bytes) == ref["bytes"]
+            with _wave.open(_io.BytesIO(raw_bytes), "rb") as wf:
+                assert wf.getnframes() > 0
 
     def test_stop_returns_no_audio_when_only_test_chunks_populated(self, monkeypatch):
         """XV-54: if only ``_test_chunks`` is populated (NOT _test_raw_chunks),
@@ -223,9 +234,10 @@ class TestOnlyRawChunksPopulated:
 
         result = lm.stop_test_recording()
         # _test_raw_chunks is the source of truth. With it empty,
-        # stop returns "No audio captured".
+        # stop returns "No audio captured" (no file persisted).
         assert result["success"] is True
-        assert result["audio_base64"] == ""
+        assert result["audio_file"] is None
+        assert result["raw_audio_file"] is None
         assert result["message"] == "No audio captured"
 
     def test_no_duplicate_storage_in_production(self, monkeypatch):

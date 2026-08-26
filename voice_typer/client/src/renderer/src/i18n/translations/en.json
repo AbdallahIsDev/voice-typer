@@ -159,7 +159,7 @@
 		"startPlaybackFailed": "Failed to start playback.",
 		"systemDefaultDesc": "Operating system default input device",
 		"startTest": "Start Test",
-		"stopTest": "Stop Test ({seconds}s)",
+		"stopTest": "Stop Test",
 		"level": "Level: {percent}%",
 		"monitoringOff": "Monitoring off",
 		"duration": "Duration: {seconds}s",
@@ -1413,7 +1413,8 @@
 			"textSizeUp": "Increase text size",
 			"textSizeDown": "Decrease text size",
 			"title": "Keyboard Shortcuts",
-			"toggleSidebar": "Toggle sidebar"
+			"toggleSidebar": "Toggle sidebar",
+			"dismissBubble": "Dismiss bubble"
 		}
 	},
 	"history": {
@@ -1753,13 +1754,7 @@
 		"playRecording": "Play Recording",
 		"stop": "Stop",
 		"qualityFeedback": {
-			"recording": "Recording…",
-			"voiceDetected": "✓ Voice detected",
-			"waiting": "Waiting for voice…",
-			"excellent": "Quality: Excellent",
-			"tooHigh": "⚠ Volume too high (clipping risk)",
-			"tooLow": "⚠ Volume too low",
-			"lowVolume": "⚠ Low volume — speak up"
+			"recording": "Recording…"
 		}
 	},
 	"stats": {

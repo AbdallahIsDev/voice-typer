@@ -95,6 +95,7 @@ const _RENDERER_CALLED_COMMANDS = {
 	get_templates: true,
 	microphone_test_cancel: true,
 	microphone_test_stop: true,
+	microphone_test_read_audio: true,
 	// phantom ``models_folder_supported`` removed — same
 	// reason as ``get_disk_info`` above.
 	onboarding_apply: true,
@@ -217,6 +218,7 @@ const _SERVER_REGISTRY_MINUS_PYTHON_ONLY = {
 	check_accessibility: true,
 	microphone_test_start: true,
 	microphone_test_stop: true,
+	microphone_test_read_audio: true,
 	microphone_test_cancel: true,
 	microphone_test_get_level: true,
 	level_monitor_start: true,

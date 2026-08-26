@@ -152,7 +152,7 @@
 		"startPlaybackFailed": "تعذّر بدء التشغيل.",
 		"systemDefaultDesc": "جهاز الإدخال الافتراضي للنظام",
 		"startTest": "بدء الاختبار",
-		"stopTest": "إيقاف الاختبار ({seconds} ث)",
+		"stopTest": "إيقاف الاختبار",
 		"level": "المستوى: {percent}%",
 		"monitoringOff": "المراقبة متوقفة",
 		"duration": "المدة: {seconds} ث",
@@ -1385,7 +1385,8 @@
 			"textSizeUp": "زيادة حجم النص",
 			"textSizeDown": "تصغير حجم النص",
 			"title": "اختصارات لوحة المفاتيح",
-			"toggleSidebar": "تبديل الشريط الجانبي"
+			"toggleSidebar": "تبديل الشريط الجانبي",
+			"dismissBubble": "إخفاء الفقاعة"
 		}
 	},
 	"history": {
@@ -1729,13 +1730,7 @@
 		"playRecording": "تشغيل التسجيل",
 		"stop": "إيقاف",
 		"qualityFeedback": {
-			"recording": "جارٍ التسجيل…",
-			"voiceDetected": "✓ تم اكتشاف الصوت",
-			"excellent": "جودة ممتازة",
-			"tooHigh": "⚠ الصوت مرتفع جدًا",
-			"tooLow": "⚠ الصوت منخفض جدًا",
-			"lowVolume": "⚠ تم اكتشاف صوت منخفض",
-			"waiting": "في انتظار الصوت…"
+			"recording": "جارٍ التسجيل…"
 		},
 		"detectedIssueCodes": {
 			"high_noise": "ضوضاء خلفية عالية",

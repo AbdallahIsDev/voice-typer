@@ -50,7 +50,7 @@ renderer ALLOWED_COMMANDS gate but still routes through
 `_COMMAND_REGISTRY`** — i.e. the handler must be registered or the
 dispatch fails with `unknown_command`).
 
-## Commands (73 total — 71 renderer-reachable + 2 host-only: shutdown, tray_click)
+## Commands (74 total — 72 renderer-reachable + 2 host-only: shutdown, tray_click)
 
 Grouped by namespace. "✓" in the Allowlist column means the command is
 in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
@@ -179,6 +179,7 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | `microphone_test_get_level` | `_handle_microphone_test_get_level` | ✓ |  |
 | `microphone_test_start` | `_handle_microphone_test_start` | ✓ | Microphone test commands |
 | `microphone_test_stop` | `_handle_microphone_test_stop` | ✓ |  |
+| `microphone_test_read_audio` | `_handle_microphone_test_read_audio` | ✓ | Chunked slice of a persisted mic-test WAV (path/offset/length); recordings-dir containment enforced |
 
 ### Continuous level monitor
 

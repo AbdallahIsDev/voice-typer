@@ -1466,3 +1466,23 @@ Rule: Do NOT make runtime initialization overwrite valid persisted settings with
 Rationale: Distinguishes genuine bugs from the documented stale-build downgrade; protects the single-profile/single-instance architecture agents might "fix" wrongly.
 Applies to: All agents, all modes.
 ```
+```
+C-MIC-16
+Rule: Do NOT treat a concrete valid microphone selection as a failure state. A selected non-default device that resolves against `list_microphones()` MUST open, monitor, test, and record independently of the Windows/OS System Default device. Device-selection errors (`device_lost`, disconnect banners) must be emitted ONLY on evidence of actual unavailability (stream finished while still the CURRENT active stream, or N consecutive zero-chunks) — never as a side effect of intentional stream stop/close during device switches or page unmounts. The level-monitor's finished-callback is identity-guarded for exactly this reason; do not regress it to an unguarded callback.
+Rationale: PortAudio fires PaStreamFinishedCallback on EVERY inactive transition including intentional stop()/close(); an unguarded callback made every device switch show "Selected microphone disconnected".
+Applies to: All agents, all modes.
+```
+
+```
+C-MIC-17
+Rule: Do NOT return microphone-test WAV audio inline over IPC. Completed test WAVs (~1 MB each at device-native rates) exceed the 1 MiB single-frame IPC cap; the stop response MUST carry small file references ({"path","bytes"}) pointing at `<config>/mic-test-recordings/`, and the renderer fetches bytes via the chunked `microphone_test_read_audio` command (slices ≤256 KiB binary). Never raise `_TCP_MAX_OUTBOUND_BYTES`/`_MAX_FRAME_BYTES` to fit an oversized payload, never re-serialize whole recordings into base64 stop responses, and keep the keep-only-latest purge on `start_test_recording`.
+Rationale: The dropped-frame failure mode is silent: backend logs success while the frontend times out with no result.
+Applies to: All agents, all modes.
+```
+
+```
+C-MIC-18
+Rule: Do NOT make the microphone-test duration configurable again, and do NOT render duplicate/conflicting time displays during a test. Duration stays fixed at `MICROPHONE_TEST_DURATION_SEC = 10`; the UI shows exactly ONE timer readout (the LiveQualityFeedback elapsed/total progressing 00:00 → 00:10). The redundant voice-quality status line ("Waiting for voice…" / "✓ Voice detected" / quality-tier text) stays REMOVED — the live LevelBar owns level feedback. UI test state must derive from the real backend lifecycle (starting → recording → completed/stopped/error), never a fake recording state.
+Rationale: Duplicate timers + flickering textual level states were noise; a button implying indefinite recording desyncs from the auto-stopped backend.
+Applies to: All agents, all modes.
+```

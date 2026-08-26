@@ -18,13 +18,17 @@ and, when a live filter processor is active, to ``_test_filtered_chunks``
 
 from __future__ import annotations
 
-import base64
 import collections
+import contextlib
 import io
 import logging
+import os
 import threading
 import time
 import types
+import uuid
+import wave
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -86,6 +90,134 @@ def _secure_clear_test_chunks(*deques: collections.deque) -> None:
                 "[LEVEL-MON] secure clear of test chunks failed for one deque (best-effort; GC will reclaim)",
                 exc_info=True,
             )
+
+
+# ── Test-WAV disk transport ─────────────────────────────────────────
+#
+# The completed test's WAV payloads are ~0.9 MB each (10 s @ 44.1/48 kHz
+# mono 16-bit) and the IPC transports cap a single outbound frame at
+# 1 MiB (WS ``_MAX_FRAME_BYTES`` / TCP ``_TCP_MAX_OUTBOUND_BYTES``).
+# Returning BOTH WAVs as base64 (~1.2 MB each → >2.4 MB total) exceeded
+# the cap: the frame was silently dropped, the renderer timed out, and
+# a perfectly recorded 10 s test produced no result.
+#
+# Transport contract now: stop writes each WAV ONCE under the user's
+# config dir (`<config>/mic-test-recordings/`) and returns small JSON
+# metadata ({"path", "bytes"}); the renderer fetches the bytes via the
+# chunked ``microphone_test_read_audio`` IPC command (each chunk well
+# under the frame cap). At most ONE completed test's files exist on
+# disk: ``start_test_recording`` purges leftovers.
+_TEST_RECORDINGS_DIRNAME = "mic-test-recordings"
+
+
+def _test_recordings_dir() -> Path:
+    """Return (and create) the mic-test recordings dir under the config dir."""
+    from voice_typer.server.config_internals.paths import _config_dir
+
+    d = Path(_config_dir()) / _TEST_RECORDINGS_DIRNAME
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _purge_test_recordings() -> None:
+    """Best-effort delete of leftover test WAVs from previous tests.
+
+    Keep-only-latest: a fresh test invalidates prior recordings (they
+    were already delivered/fetched by the renderer, or superseded).
+    Never raises — a locked file must not break the new test.
+    """
+    try:
+        d = _test_recordings_dir()
+        for f in d.glob("*.wav"):
+            try:
+                f.unlink()
+            except OSError:
+                log.debug("[LEVEL-MON] could not unlink leftover test WAV: %s", f)
+    except Exception:
+        log.debug("[LEVEL-MON] test-recording purge failed", exc_info=True)
+
+
+def _write_test_wav(buf: io.BytesIO, kind: str) -> dict | None:
+    """Write *buf*'s WAV bytes to a unique file; return {"path","bytes"}.
+
+    Returns None when the payload is empty (nothing to persist). The
+    random suffix prevents collisions if a previous run's files couldn't
+    be purged. 0o600 perms on POSIX keep biometric voice data private;
+    Windows ACLs inherit the (already tightened) config-dir defaults.
+    """
+    data = buf.getvalue()
+    if not data:
+        return None
+    d = _test_recordings_dir()
+    path = d / f"test-{kind}-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}.wav"
+    tmp = path.with_suffix(".wav.tmp")
+    tmp.write_bytes(data)
+    tmp.replace(path)
+    from voice_typer.server.platform_utils import is_windows
+
+    if not is_windows():
+        # POSIX only: keep biometric voice data owner-readable.
+        with contextlib.suppress(OSError):
+            os.chmod(path, 0o600)
+    return {"path": str(path), "bytes": len(data)}
+
+
+def read_test_recording_slice(path: str, offset: int, length: int) -> dict:
+    """Return a base64 slice [offset, offset+length) of a test WAV file.
+
+    SECURITY: *path* must resolve INSIDE the mic-test-recordings dir —
+    this endpoint hands raw file bytes back over IPC, so absolute paths,
+    traversal (``..``), symlinks pointing elsewhere, and any other file
+    are rejected with ``success: False`` rather than leaked.
+    """
+    import base64 as _b64
+
+    try:
+        requested = Path(path)
+        root = _test_recordings_dir().resolve()
+        resolved = requested.resolve()
+        if resolved.parent != root or resolved.suffix.lower() != ".wav":
+            return {
+                "success": False,
+                "data_b64": "",
+                "bytes_read": 0,
+                "total_bytes": 0,
+                "eof": True,
+                "message": "path outside microphone-test recordings",
+            }
+        if not resolved.is_file():
+            return {
+                "success": False,
+                "data_b64": "",
+                "bytes_read": 0,
+                "total_bytes": 0,
+                "eof": True,
+                "message": "recording not found",
+            }
+        total = resolved.stat().st_size
+        length = max(0, min(int(length), 256 * 1024))
+        offset = max(0, int(offset))
+        with open(resolved, "rb") as fh:
+            fh.seek(offset)
+            chunk = fh.read(length)
+        return {
+            "success": True,
+            "data_b64": _b64.b64encode(chunk).decode("ascii"),
+            "bytes_read": len(chunk),
+            "total_bytes": total,
+            "eof": offset + len(chunk) >= total,
+            "message": "ok",
+        }
+    except Exception as exc:
+        log.warning("[LEVEL-MON] read_test_recording_slice failed: %s", exc)
+        return {
+            "success": False,
+            "data_b64": "",
+            "bytes_read": 0,
+            "total_bytes": 0,
+            "eof": True,
+            "message": type(exc).__name__,
+        }
 
 
 def _reset_test_chunks(locked: bool) -> None:
@@ -172,6 +304,11 @@ def start_test_recording(
                 "message": "Test already running",
                 "duration": duration,
             }
+
+        # Keep-only-latest disk transport: a new test invalidates any
+        # previous test's WAV files (see module docstring of the
+        # transport block). Best-effort; runs before recording starts.
+        _purge_test_recordings()
 
         # Ensure the monitor is running on the correct device
         if not _state._monitor_active or _state._monitor_mic_id != mic_id:
@@ -351,8 +488,8 @@ def stop_test_recording() -> dict:
     if not was_active and not raw_chunks and not filtered_chunks:
         return {
             "success": False,
-            "audio_base64": "",
-            "raw_audio_base64": "",
+            "audio_file": None,
+            "raw_audio_file": None,
             "duration_ms": 0,
             "sample_rate": 16000,
             "message": "No test running",
@@ -362,8 +499,8 @@ def stop_test_recording() -> dict:
     if not raw_chunks and not filtered_chunks:
         return {
             "success": True,
-            "audio_base64": "",
-            "raw_audio_base64": "",
+            "audio_file": None,
+            "raw_audio_file": None,
             "duration_ms": 0,
             "sample_rate": sr,
             "message": "No audio captured",
@@ -383,8 +520,8 @@ def stop_test_recording() -> dict:
         log.warning("[LEVEL-MON] Chunk concatenation failed: %s", exc)
         return {
             "success": False,
-            "audio_base64": "",
-            "raw_audio_base64": "",
+            "audio_file": None,
+            "raw_audio_file": None,
             "duration_ms": 0,
             "sample_rate": sr,
             "message": f"Audio processing failed: {exc}",
@@ -510,19 +647,18 @@ def stop_test_recording() -> dict:
         except Exception as exc:
             log.warning("[LEVEL-MON] Filter application failed (using raw audio): %s", exc)
 
-    # ── Encode processed audio as WAV ───────────────────────────────
+    # ── Persist WAVs to disk (file-reference IPC transport) ─────────
+    # See the module-top transport block: base64-in-one-frame exceeded
+    # the 1 MiB IPC cap and silently dropped the whole result.
     audio_int16 = (audio * 32767).astype(np.int16)
-    import wave
-
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(sr)
         wf.writeframes(audio_int16.tobytes())
-    audio_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
 
-    # ── Encode raw audio as WAV for before/after comparison ─────────
+    # Raw ("before") WAV for before/after comparison.
     raw_int16 = (raw_audio * 32767).astype(np.int16)
     raw_buf = io.BytesIO()
     with wave.open(raw_buf, "wb") as wf:
@@ -530,19 +666,22 @@ def stop_test_recording() -> dict:
         wf.setsampwidth(2)
         wf.setframerate(sr)
         wf.writeframes(raw_int16.tobytes())
-    raw_b64 = base64.b64encode(raw_buf.getvalue()).decode("ascii")
+
+    audio_file = _write_test_wav(buf, "filtered")
+    raw_audio_file = _write_test_wav(raw_buf, "raw")
 
     log.info(
-        "[LEVEL-MON] Test stopped: %.1fs recorded, %d+%d bytes WAV",
+        "[LEVEL-MON] Test stopped: %.1fs recorded, %d+%d bytes WAV written to %s",
         duration_ms / 1000,
         len(raw_buf.getvalue()),
         len(buf.getvalue()),
+        _TEST_RECORDINGS_DIRNAME,
     )
 
     return {
         "success": True,
-        "audio_base64": audio_b64,
-        "raw_audio_base64": raw_b64,
+        "audio_file": audio_file,
+        "raw_audio_file": raw_audio_file,
         "duration_ms": duration_ms,
         "sample_rate": sr,
         "message": f"Recorded {duration_ms / 1000:.1f}s of audio",

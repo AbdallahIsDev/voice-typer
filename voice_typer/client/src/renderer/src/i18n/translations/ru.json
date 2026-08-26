@@ -152,7 +152,7 @@
 		"startPlaybackFailed": "Не удалось начать воспроизведение.",
 		"systemDefaultDesc": "Устройство ввода по умолчанию операционной системы",
 		"startTest": "Начать тест",
-		"stopTest": "Остановить тест ({seconds} с)",
+		"stopTest": "Остановить тест",
 		"level": "Уровень: {percent}%",
 		"monitoringOff": "Мониторинг выключен",
 		"duration": "Длительность: {seconds} с",
@@ -1385,7 +1385,8 @@
 			"textSizeUp": "Увеличить размер текста",
 			"textSizeDown": "Уменьшить размер текста",
 			"title": "Сочетания клавиш",
-			"toggleSidebar": "Переключить боковую панель"
+			"toggleSidebar": "Переключить боковую панель",
+			"dismissBubble": "Скрыть всплывающий пузырёк"
 		}
 	},
 	"history": {
@@ -1729,13 +1730,7 @@
 		"playRecording": "Воспроизвести запись",
 		"stop": "Стоп",
 		"qualityFeedback": {
-			"recording": "Запись…",
-			"voiceDetected": "✓ Голос обнаружен",
-			"excellent": "Отличное качество",
-			"tooHigh": "⚠ Слишком громко",
-			"tooLow": "⚠ Слишком тихо",
-			"lowVolume": "⚠ Обнаружен низкий уровень громкости",
-			"waiting": "Ожидание голоса…"
+			"recording": "Запись…"
 		},
 		"detectedIssueCodes": {
 			"high_noise": "Высокий фоновый шум",

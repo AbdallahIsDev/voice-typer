@@ -152,7 +152,7 @@
 		"startPlaybackFailed": "प्लेबैक शुरू करने में विफल।",
 		"systemDefaultDesc": "ऑपरेटिंग सिस्टम का डिफ़ॉल्ट इनपुट डिवाइस",
 		"startTest": "परीक्षण शुरू करें",
-		"stopTest": "परीक्षण रोकें ({seconds}s)",
+		"stopTest": "परीक्षण रोकें",
 		"level": "स्तर: {percent}%",
 		"monitoringOff": "निगरानी बंद है",
 		"duration": "अवधि: {seconds}s",
@@ -1385,7 +1385,8 @@
 			"textSizeUp": "टेक्स्ट आकार बढ़ाएं",
 			"textSizeDown": "टेक्स्ट आकार घटाएं",
 			"title": "कीबोर्ड शॉर्टकट",
-			"toggleSidebar": "साइडबार टॉगल करें"
+			"toggleSidebar": "साइडबार टॉगल करें",
+			"dismissBubble": "बबल हटाएँ"
 		}
 	},
 	"history": {
@@ -1729,13 +1730,7 @@
 		"playRecording": "रिकॉर्डिंग चलाएँ",
 		"stop": "रोकें",
 		"qualityFeedback": {
-			"recording": "रिकॉर्डिंग हो रही है…",
-			"voiceDetected": "✓ आवाज़ पहचानी गई",
-			"excellent": "उत्कृष्ट गुणवत्ता",
-			"tooHigh": "⚠ आवाज़ बहुत तेज़ है",
-			"tooLow": "⚠ आवाज़ बहुत कम है",
-			"lowVolume": "⚠ कम वॉल्यूम पहचाना गया",
-			"waiting": "आवाज़ की प्रतीक्षा…"
+			"recording": "रिकॉर्डिंग हो रही है…"
 		},
 		"detectedIssueCodes": {
 			"high_noise": "उच्च पृष्ठभूमि शोर",

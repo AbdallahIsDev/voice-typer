@@ -139,6 +139,7 @@ from .test_recording import (  # noqa: E402
     _secure_clear_test_chunks,  # noqa: F401
     cancel_test_recording,
     is_test_active,
+    read_test_recording_slice,
     start_test_recording,
     stop_test_recording,
     update_test_filters,
@@ -164,6 +165,7 @@ __all__ = [
     "stop_test_recording",
     "update_test_filters",
     "cancel_test_recording",
+    "read_test_recording_slice",
     # Re-exported module proxies / loggers (backward-compat)
     "log",
     "np",
