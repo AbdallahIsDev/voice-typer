@@ -239,17 +239,29 @@ export function TestReviewPanel({
 						<span className="text-xs font-medium text-(--text-muted)">
 							{t("microphoneTest.estimatedQuality")}
 						</span>
-						<span
-							className={`text-sm font-bold tabular-nums ${
-								quality.estimated_transcription_quality >= 80
-									? "text-success"
-									: quality.estimated_transcription_quality >= 50
-										? "text-warning"
-										: "text-destructive"
-							}`}
-						>
-							{quality.estimated_transcription_quality}%
-						</span>
+						{/* HONEST-METRIC INVARIANT: without a loaded speech model the
+						transcription-quality estimate cannot be computed — showing a
+						numeric score would fabricate a result from absent data (the
+						old bug rendered a false "0%"). Render an explicit
+						not-applicable state instead; audio-derived metrics below stay
+						fully computed. */}
+						{transcriptionUnavailable ? (
+							<span className="text-sm font-bold text-(--text-muted)">
+								{t("microphoneTest.qualityNotApplicable")}
+							</span>
+						) : (
+							<span
+								className={`text-sm font-bold tabular-nums ${
+									quality.estimated_transcription_quality >= 80
+										? "text-success"
+										: quality.estimated_transcription_quality >= 50
+											? "text-warning"
+											: "text-destructive"
+								} }`}
+							>
+								{quality.estimated_transcription_quality}%
+							</span>
+						)}
 					</div>
 
 					{/* Detailed metrics */}

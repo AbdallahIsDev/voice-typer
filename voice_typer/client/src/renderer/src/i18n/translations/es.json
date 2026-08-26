@@ -1730,7 +1730,8 @@
 		"playRecording": "Reproducir grabación",
 		"stop": "Detener",
 		"qualityFeedback": {
-			"recording": "Grabando…"
+			"recording": "Grabando…",
+			"qualityNotApplicable": "N/D — transcripción no disponible"
 		},
 		"detectedIssueCodes": {
 			"high_noise": "Ruido de fondo alto",

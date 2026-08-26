@@ -1730,7 +1730,8 @@
 		"playRecording": "تشغيل التسجيل",
 		"stop": "إيقاف",
 		"qualityFeedback": {
-			"recording": "جارٍ التسجيل…"
+			"recording": "جارٍ التسجيل…",
+			"qualityNotApplicable": "غير متاح — التعرف غير متوفر"
 		},
 		"detectedIssueCodes": {
 			"high_noise": "ضوضاء خلفية عالية",

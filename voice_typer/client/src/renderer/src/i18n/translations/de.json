@@ -1730,7 +1730,8 @@
 		"playRecording": "Aufnahme abspielen",
 		"stop": "Stopp",
 		"qualityFeedback": {
-			"recording": "Aufnahme läuft…"
+			"recording": "Aufnahme läuft…",
+			"qualityNotApplicable": "N/V — Transkription nicht verfügbar"
 		},
 		"detectedIssueCodes": {
 			"high_noise": "Hohe Hintergrundgeräusche",

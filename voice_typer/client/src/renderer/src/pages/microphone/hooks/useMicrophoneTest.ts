@@ -61,7 +61,6 @@ interface UseMicrophoneTestOptions {
 export interface UseMicrophoneTestResult {
 	// State
 	testRunning: boolean;
-	testCountdown: number;
 	testElapsed: number;
 	testAudioBase64: string | null;
 	rawAudioBase64: string | null;
@@ -212,7 +211,6 @@ export function useMicrophoneTest({
 		peakRef: levelMonitor.peakRef,
 		micMonitoring: levelMonitor.micMonitoring,
 		testRunning: session.testRunning,
-		testCountdown: session.testCountdown,
 		testElapsed: session.testElapsed,
 		testAudioBase64: session.testAudioBase64,
 		rawAudioBase64: session.rawAudioBase64,

@@ -1730,7 +1730,8 @@
 		"playRecording": "रिकॉर्डिंग चलाएँ",
 		"stop": "रोकें",
 		"qualityFeedback": {
-			"recording": "रिकॉर्डिंग हो रही है…"
+			"recording": "रिकॉर्डिंग हो रही है…",
+			"qualityNotApplicable": "लागू नहीं — ट्रांसक्रिप्शन अनुपलब्ध"
 		},
 		"detectedIssueCodes": {
 			"high_noise": "उच्च पृष्ठभूमि शोर",

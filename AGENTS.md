@@ -1486,3 +1486,24 @@ Rule: Do NOT make the microphone-test duration configurable again, and do NOT re
 Rationale: Duplicate timers + flickering textual level states were noise; a button implying indefinite recording desyncs from the auto-stopped backend.
 Applies to: All agents, all modes.
 ```
+
+```
+C-MIC-19
+Rule: Do NOT break the post-recording result pipeline: recording completion (auto-stop OR manual stop) MUST flow through ONE canonical finalize path into the same completed-test state, and `microphone_test_read_audio` must stay a CHEAP rate-limit cost (cost 1) because a full transfer is ~8 bounded ≤256 KiB slice reads fired back-to-back against the shared per-connection burst budget. Do NOT assign heavy cost weights to chunked file-transfer commands, do NOT let the visible timer intervals be cleared by dep-driven effect cleanups on the running-state transition (unmount-only cleanup + synchronous internal lifecycle flag), and treat a backend `success:false` / "No test running" response after finalization as a benign silent no-op.
+Rationale: A cost-30 weight made every completed 10s test exhaust the shared burst window mid-transfer (silently dropped tail slices → no results); an effect-cleanup killed the timer one commit after creation (frozen 00:00) while the backend kept recording.
+Applies to: All agents, all modes.
+```
+
+```
+C-MIC-20
+Rule: Do NOT fabricate transcription-derived metrics when no speech model is available. The backend must set `transcription_unavailable` (+ reason `no_engine_loaded`) on EVERY non-transcribable path including `models == None`; the frontend must render an explicit N/A (`microphoneTest.qualityNotApplicable`) for the estimated-transcription-quality row whenever that flag is present — never a numeric score derived from absent data. Audio-derived analysis (volume/noise/clipping/voice-activity from the captured WAV) is independent of any model and must keep working; raw playback must never require a model.
+Rationale: Without these gates the UI showed a false "0% Estimated Transcription Quality" for users with no model installed, misrepresenting a working microphone as a failed test.
+Applies to: All agents, all modes.
+```
+
+```
+C-MIC-21
+Rule: Chunked file-transfer responses whose fragments are reassembled client-side by verbatim base64 concatenation MUST be sliced on 3-byte-aligned boundaries (interior fragments carry no "=" padding). Do NOT return unaligned interior slices (e.g. raw 256*1024, which % 3 == 1), do NOT send oversized audio payloads inline over capped IPC frames, and any multi-buffer byte-count logging must name each buffer explicitly (raw vs filtered) rather than emitting bare `N+N`.
+Rationale: Mid-stream base64 padding silently corrupted every multi-chunk playback ("Could not play the test recording") even though both files were written correctly; the ambiguous `883330+883330` log line read as accidental duplication instead of two distinct artifacts.
+Applies to: All agents, all modes.
+```

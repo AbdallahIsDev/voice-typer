@@ -52,3 +52,22 @@
 
 ### Known limitations
 - Pre-existing dirty-tree failures above remain (other sessions' work).
+
+
+## 2026-XX (3rd) Mic-test post-recording pipeline: rate-limit, timer, playback integrity, honest metrics
+
+### Root causes
+1. **Rate-limit burst after auto-stop** — `COMMAND_COSTS["microphone_test_read_audio"]=30` (my prior misread of the cost map as a per-command allowance; it is a COST against the SHARED 200/s burst + 600/10s budgets). ~8 cheap slice reads consumed the whole burst window; tail chunks rejected ("rate limit hit (N rejected)", N cumulative) → fetch threw → audio null → TestReviewPanel gated on audio refs → panel never rendered → "returns to Start Test". Manual stop at ~7s produced fewer slices, squeaking under budget — hence the manual/auto asymmetry. Fix: cost 1 with invariant comment.
+2. **Frozen `Recording... 00:00 / 00:00`** — TWO stacked bugs: (a) dep-driven cleanup effect `[testRunning]` re-ran its PREVIOUS closure on the false→true commit and cleared the CURRENT interval refs created by startTest one tick earlier; (b) LQF totalSeconds was fed `testDurationMs/1000`, which is 0 during recording (set only at completion). Fixes: single lifecycle-synced interval (drives visible elapsed + grace-period safety-net stop only), unmount-only teardown ([] deps) guarded by an internal synchronous `recordingActiveRef` (prop-ref identity proved unstable under inline-args test renders), totalSeconds = fixed MICROPHONE_TEST_DURATION_SEC.
+3. **Playback red toasts even when result existed** — base64 chunk fragments joined verbatim; default slice size 256*1024 (%3==1) injected mid-stream "=" padding from independent per-slice encodings → corrupted WAV decode → both Play buttons failed. Fix: server clamps interior slices to 3-byte multiples (final fragment keeps natural padding).
+4. **Fabricated metrics without model** — service set `transcription_unavailable` ONLY when models!=None but engine missing; `models==None` (no model subsystem) produced NO marker → frontend showed numeric "Estimated Transcription Quality 0%" derived from absent data. Fix: marker set on all non-transcribable paths; frontend renders N/A row when flagged; audio-derived analysis untouched.
+
+### Changes
+- Backend: `ipc/rate_limiter.py` (cost 1), `level_monitor/test_recording.py` (3-byte-aligned slices + explicit raw=/filtered= log wording), `service/microphone_test.py` (models==None → marker), new tests in `tests/test_mic_page_selection_and_test_transport.py` (join-safety round-trip, cost guard, no-model contract).
+- Frontend: `useMicrophoneTestSession.ts` (single timer driving elapsed + grace fallback stop; unmount-only teardown w/ internal flag; single-flight `_inFlightAudioFetches` dedupe; benign "No test running" no-op; countdown state removed as dead code), `ActiveMicrophoneCard.tsx` (fixed totalSeconds; container prop trim), `TestReviewPanel.tsx` (N/A gating), composition hook passthrough trim, i18n ×8 (`microphoneTest.qualityNotApplicable`), test updates incl. frozen-timer regression (fake timers), stale-trigger no-op test, single-flight coverage via collapsed concurrent stops.
+
+### Validation
+- Full vitest: 3524 passed / 33 skipped. Targeted backend mic/IPC suites: 194 passed. ruff+pyrefly clean on touched files. typecheck:ci clean.
+
+### Unrelated working-tree failures intentionally ignored
+Other agent's uncommitted churn (~180 files): autostart/shutdown/startup-sequence E501 ruff-ratchet fails, `test_platform::TestLinuxDesktopExec` failure, bubble-handlers/global-shortcuts typecheck breakage. None touch this task's files.

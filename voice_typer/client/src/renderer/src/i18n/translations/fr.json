@@ -1730,7 +1730,8 @@
 		"playRecording": "Lire l'enregistrement",
 		"stop": "Arrêter",
 		"qualityFeedback": {
-			"recording": "Enregistrement…"
+			"recording": "Enregistrement…",
+			"qualityNotApplicable": "N/D — transcription indisponible"
 		},
 		"detectedIssueCodes": {
 			"high_noise": "Bruit de fond élevé",

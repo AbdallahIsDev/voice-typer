@@ -2,7 +2,7 @@
 //
 //Extracted from the former ``useMicrophoneTest`` monolith ().
 // Owns the test-recording lifecycle state
-// (``testRunning`` / ``testCountdown`` / ``testElapsed`` /
+// (``testRunning`` / ``testElapsed`` /
 // ``testAudioBase64`` / ``rawAudioBase64`` / ``testDurationMs`` /
 // ``testQuality`` / ``filtersSinceLastTest``) plus the countdown +
 // elapsed timers and the ``microphone_test_complete`` push-event
@@ -109,6 +109,28 @@ export function _resetMicrophoneTestCache(): void {
 const AUDIO_CHUNK_BYTES = 256 * 1024;
 
 /**
+ * Single-flight registry: concurrent ``fetchTestAudioFile`` calls for the
+ * SAME path share one in-flight promise instead of issuing parallel
+ * duplicate ``microphone_test_read_audio`` request bursts (which would
+ * double the slice count against the shared per-connection rate budget
+ * for no benefit). Entries self-remove on settle.
+ */
+const _inFlightAudioFetches = new Map<string, Promise<string>>();
+
+function fetchTestAudioFileDeduped(
+	call: PythonCall,
+	path: string,
+): Promise<string> {
+	const existing = _inFlightAudioFetches.get(path);
+	if (existing) return existing;
+	const p = fetchTestAudioFile(call, path).finally(() => {
+		_inFlightAudioFetches.delete(path);
+	});
+	_inFlightAudioFetches.set(path, p);
+	return p;
+}
+
+/**
  * Fetch a persisted mic-test WAV via the chunked file-reference IPC
  * transport and return its full base64 payload (playback keeps using
  * data URIs, so only the TRANSPORT is chunked — the assembled result
@@ -203,7 +225,6 @@ interface UseMicrophoneTestSessionOptions {
 
 export interface UseMicrophoneTestSessionResult {
 	testRunning: boolean;
-	testCountdown: number;
 	testElapsed: number;
 	testAudioBase64: string | null;
 	rawAudioBase64: string | null;
@@ -250,7 +271,6 @@ export function useMicrophoneTestSession({
 	void updateConfig;
 
 	const [testRunning, setTestRunning] = useState(false);
-	const [testCountdown, setTestCountdown] = useState(0);
 	const [testElapsed, setTestElapsed] = useState(0);
 	// (XA-5-13): seed the per-test React state from the module-level
 	// cache so navigating away from the Microphone page and back
@@ -276,8 +296,12 @@ export function useMicrophoneTestSession({
 	const [filtersSinceLastTest, setFiltersSinceLastTest] = useState<string>("");
 
 	const testTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-	const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const stoppingRef = useRef(false);
+	// INTERNAL lifecycle flag owned by THIS hook (synchronous). The
+	// ``testRunningRef`` prop stays the cross-hook CONTRACT mirror for the
+	// level monitor, but the unmount cleanup must not depend on a prop-ref's
+	// identity staying stable across renders — read our own flag instead.
+	const recordingActiveRef = useRef(false);
 	// Latest ``startTest`` closure, so the consent dialog's retry
 	// (shown INSIDE startTest) can re-run the FULL start after the
 	// user grants consent — the closure identity isn't available to
@@ -294,18 +318,14 @@ export function useMicrophoneTestSession({
 	const stopTest = useCallback(async () => {
 		if (stoppingRef.current) return;
 		stoppingRef.current = true;
+		recordingActiveRef.current = false;
 
 		setTestRunning(false);
 		if (testTimerRef.current) {
 			clearInterval(testTimerRef.current);
 			testTimerRef.current = null;
 		}
-		if (elapsedTimerRef.current) {
-			clearInterval(elapsedTimerRef.current);
-			elapsedTimerRef.current = null;
-		}
 		setLevel(0);
-		setTestCountdown(0);
 
 		try {
 			const result = await call<TestStopResult>("microphone_test_stop");
@@ -319,9 +339,9 @@ export function useMicrophoneTestSession({
 				let rawB64: string | null = null;
 				try {
 					[audioB64, rawB64] = await Promise.all([
-						fetchTestAudioFile(call, audioRef.path),
+						fetchTestAudioFileDeduped(call, audioRef.path),
 						result.raw_audio_file?.path
-							? fetchTestAudioFile(call, result.raw_audio_file.path)
+							? fetchTestAudioFileDeduped(call, result.raw_audio_file.path)
 							: Promise.resolve(null),
 					]);
 					setTestAudioBase64(audioB64);
@@ -365,6 +385,16 @@ export function useMicrophoneTestSession({
 					}),
 					"success",
 				);
+			} else if (
+				result?.success === false &&
+				typeof result.message === "string" &&
+				/no test running/i.test(result.message)
+			) {
+				// Benign stale-trigger no-op: the backend already finalized this
+				// recording (auto-stop raced a manual stop, or a lost-push safety
+				// retry landed after completion). Deterministic state handling —
+				// NOT a failure; toasting it trained users to ignore real errors.
+				return;
 			} else if (result?.success) {
 				let msg = t("microphone.noAudio");
 				const activeMicId = config?.microphone ?? null;
@@ -500,46 +530,52 @@ export function useMicrophoneTestSession({
 			}
 
 			setTestRunning(true);
-			setTestCountdown(
-				Math.ceil(result.duration || MICROPHONE_TEST_DURATION_SEC),
-			);
+			recordingActiveRef.current = true;
+			setTestElapsed(0);
 
-			// Timer countdown
+			// SINGLE lifecycle-synced timer. Drives BOTH the visible
+			// "Recording... 00:NN" readout AND the fallback auto-stop.
+			//
+			// LIFECYCLE INVARIANT (C-MIC-18): this interval must be created
+			// only AFTER the backend confirmed the recording started
+			// (``result.success`` above) and is cleared ONLY by
+			// ``stopTest`` / ``selectMicrophone`` / unmount — never by a
+			// dep-driven effect cleanup on the ``testRunning`` transition,
+			// which previously killed these intervals one commit after
+			// creation and froze the timer at 00:00 while the backend kept
+			// recording. The backend's own auto-stop remains the primary
+			// completion signal (``microphone_test_complete`` event); the
+			// grace-period trigger below exists only as a safety net for a
+			// lost push event, not as the clock source.
 			if (testTimerRef.current) clearInterval(testTimerRef.current);
 			const startTime = Date.now();
 			const totalDurationMs =
 				(result.duration || MICROPHONE_TEST_DURATION_SEC) * 1000;
-			const checkInterval = setInterval(() => {
-				const elapsed = Date.now() - startTime;
-				const remaining = Math.max(
-					0,
-					Math.ceil((totalDurationMs - elapsed) / 1000),
+			let lastWholeSecond = -1;
+			const tickInterval = setInterval(() => {
+				const elapsedMs = Date.now() - startTime;
+				const wholeSecond = Math.min(
+					MICROPHONE_TEST_DURATION_SEC,
+					Math.floor(elapsedMs / 1000),
 				);
-				setTestCountdown(remaining);
-
-				if (remaining <= 0) {
-					clearInterval(checkInterval);
-					if (checkInterval === testTimerRef.current) {
-						testTimerRef.current = null;
-					}
+				if (wholeSecond !== lastWholeSecond) {
+					lastWholeSecond = wholeSecond;
+					setTestElapsed(wholeSecond);
+				}
+				// Safety net ONLY: normally the backend's
+				// ``microphone_test_complete`` event drives ``stopTest``
+				// first. The +750ms grace prevents racing the backend's
+				// own auto-stop/finalization.
+				if (
+					elapsedMs >= totalDurationMs + 750 &&
+					testTimerRef.current === tickInterval
+				) {
+					clearInterval(tickInterval);
+					testTimerRef.current = null;
 					void stopTest();
 				}
-			}, 500);
-			testTimerRef.current = checkInterval;
-
-			// Elapsed timer for the 00:03 / 00:10 display.
-			// Bumped from 200ms (5 Hz) to 1000ms (1 Hz) -- the display
-			// is seconds-resolution, so 5 Hz was 5x over-sampled (5
-			// setTestElapsed calls per second, 4 of which produced the
-			// same integer value and were no-op React bail-outs but
-			// still cost the setState + reconciliation path). 1 Hz
-			// matches the display granularity exactly.
-			if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
-			const elapsedInterval = setInterval(() => {
-				const elapsed = Date.now() - startTime;
-				setTestElapsed(Math.floor(elapsed / 1000));
-			}, 1000);
-			elapsedTimerRef.current = elapsedInterval;
+			}, 250);
+			testTimerRef.current = tickInterval;
 		} catch (err) {
 			// The Electron path surfaces the backend's
 			// ``client.consent_required`` envelope as a thrown Error
@@ -581,7 +617,11 @@ export function useMicrophoneTestSession({
 	const selectMicrophone = useCallback(
 		async (micId: string | null) => {
 			// Stop any active test first
-			if (testRunningRef.current && !stoppingRef.current) {
+			if (
+				(testRunningRef.current || recordingActiveRef.current) &&
+				!stoppingRef.current
+			) {
+				recordingActiveRef.current = false;
 				try {
 					await callRef.current("microphone_test_cancel");
 				} catch (e) {
@@ -601,10 +641,6 @@ export function useMicrophoneTestSession({
 				if (testTimerRef.current) {
 					clearInterval(testTimerRef.current);
 					testTimerRef.current = null;
-				}
-				if (elapsedTimerRef.current) {
-					clearInterval(elapsedTimerRef.current);
-					elapsedTimerRef.current = null;
 				}
 			}
 
@@ -695,22 +731,22 @@ export function useMicrophoneTestSession({
 		),
 	);
 
-	// Unmount / testRunning-transition cleanup: clear the countdown +
-	// elapsed intervals and cancel an in-flight test recording so the
-	// backend doesn't keep the mic stream open after the user
-	// navigates away. Audio-pausing on unmount is owned by
-	// ``useMicrophonePlayback`` (its own cleanup effect).
+	// Unmount-only teardown ([] deps): clear the lifecycle timer and
+	// cancel an in-flight test recording so the backend doesn't keep the
+	// mic stream open after navigation. MUST NOT depend on
+	// ``testRunning``: a dep-driven cleanup re-runs on every
+	// false→true transition and its closure clears the CURRENT refs —
+	// which are exactly the intervals ``startTest`` created one commit
+	// earlier (the frozen-00:00 timer bug). Audio-pausing on unmount is
+	// owned by ``useMicrophonePlayback`` (its own cleanup effect).
 	useEffect(() => {
 		return () => {
 			if (testTimerRef.current) {
 				clearInterval(testTimerRef.current);
 				testTimerRef.current = null;
 			}
-			if (elapsedTimerRef.current) {
-				clearInterval(elapsedTimerRef.current);
-				elapsedTimerRef.current = null;
-			}
-			if (testRunning && !stoppingRef.current) {
+			if (recordingActiveRef.current) {
+				recordingActiveRef.current = false;
 				callRef
 					.current("microphone_test_cancel")
 					.catch((err) =>
@@ -721,7 +757,7 @@ export function useMicrophoneTestSession({
 					);
 			}
 		};
-	}, [testRunning]);
+	}, []);
 
 	// Keep ``selectMicrophoneRef`` pointed at the latest stable
 	//``selectMicrophone`` closure (). The assignment now happens
@@ -738,7 +774,6 @@ export function useMicrophoneTestSession({
 
 	return {
 		testRunning,
-		testCountdown,
 		testElapsed,
 		testAudioBase64,
 		rawAudioBase64,

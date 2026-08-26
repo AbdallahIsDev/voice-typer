@@ -228,7 +228,6 @@ describe("useMicrophoneTest — composition smoke test (renders without crashing
 		expect(typeof r.handlePresetChange).toBe("function");
 		expect(typeof r.handleConfigChange).toBe("function");
 		expect(typeof r.testRunning).toBe("boolean");
-		expect(typeof r.testCountdown).toBe("number");
 		expect(typeof r.testElapsed).toBe("number");
 		expect(typeof r.testDurationMs).toBe("number");
 		expect(typeof r.showAdvanced).toBe("boolean");
@@ -287,9 +286,10 @@ describe("useMicrophoneTest — test start/stop lifecycle", () => {
 			duration: MICROPHONE_TEST_DURATION_SEC,
 		});
 
-		// testRunning flipped to true (countdown timer armed).
+		// testRunning flipped to true (lifecycle timer armed; the visible
+		// readout is testElapsed counting up toward the fixed duration).
 		expect(result.current.testRunning).toBe(true);
-		expect(result.current.testCountdown).toBeGreaterThan(0);
+		expect(result.current.testElapsed).toBe(0);
 	});
 
 	it("startTest clears stale testAudioBase64 / rawAudioBase64 / testQuality before starting", async () => {

@@ -1754,7 +1754,8 @@
 		"playRecording": "Play Recording",
 		"stop": "Stop",
 		"qualityFeedback": {
-			"recording": "Recording…"
+			"recording": "Recording…",
+			"qualityNotApplicable": "N/A — transcription unavailable"
 		}
 	},
 	"stats": {

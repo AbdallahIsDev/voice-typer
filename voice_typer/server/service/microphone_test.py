@@ -167,7 +167,17 @@ class MicrophoneTestMixin(ServiceMixinBase):
 
                 # Use the app's already-loaded active engine
                 models = getattr(self._app, "models", None)
-                if models is not None:
+                if models is None:
+                    # HONEST-METRIC INVARIANT: no model subsystem at all
+                    # (fresh install / pack never downloaded) is an expected
+                    # capability state, NOT a failed test. Mark transcription
+                    # explicitly unavailable so the frontend renders N/A for
+                    # the transcription-quality estimate instead of letting
+                    # its absence masquerade as a fabricated 0%.
+                    result.setdefault("transcription_unavailable", True)
+                    result["transcription_reason"] = "no_engine_loaded"
+                    log.debug("[SERVICE] Test transcription: no model subsystem")
+                else:
                     engine = models.active_transcriber()
                     if engine is not None and getattr(engine, "is_loaded", False):
                         try:

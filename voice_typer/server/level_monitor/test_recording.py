@@ -196,6 +196,14 @@ def read_test_recording_slice(path: str, offset: int, length: int) -> dict:
             }
         total = resolved.stat().st_size
         length = max(0, min(int(length), 256 * 1024))
+        # BASE64-SAFE SLICING INVARIANT: every NON-FINAL slice must be a
+        # multiple of 3 bytes. The renderer assembles a file by joining the
+        # per-slice base64 strings; independently-encoded fragments carry
+        # their own "=" padding, and joining fragments whose byte sizes are
+        # not multiples of 3 produces corrupted audio (padding appearing
+        # mid-stream). 256*1024 % 3 == 1 — clamp to the nearest lower
+        # multiple of 3 so interior slices never carry padding.
+        length -= length % 3
         offset = max(0, int(offset))
         with open(resolved, "rb") as fh:
             fh.seek(offset)
@@ -671,7 +679,7 @@ def stop_test_recording() -> dict:
     raw_audio_file = _write_test_wav(raw_buf, "raw")
 
     log.info(
-        "[LEVEL-MON] Test stopped: %.1fs recorded, %d+%d bytes WAV written to %s",
+        "[LEVEL-MON] Test stopped: %.1fs recorded — wrote raw(before)=%d bytes + filtered(after)=%d bytes WAV to %s/",
         duration_ms / 1000,
         len(raw_buf.getvalue()),
         len(buf.getvalue()),

@@ -116,7 +116,13 @@ COMMAND_COSTS: dict[str, int] = {
     "microphone_test_cancel": 1,
     "microphone_test_get_level": 1,
     "microphone_test_stop": 1,
-    "microphone_test_read_audio": 30,
+    # Chunked WAV-slice reads: each call is a CHEAP bounded disk read
+    # (≤256 KiB + base64), NOT heavy I/O — cost must stay 1 so one full
+    # mic-test transfer (~8 slices across two files, fired back-to-back)
+    # fits inside the shared 200/s burst budget. A higher weight here made
+    # every completed 10s test exhaust the burst window mid-transfer and
+    # silently drop the remaining slices ("rate limit hit (N rejected)").
+    "microphone_test_read_audio": 1,
     "onboarding_check_permissions": 1,
     "onboarding_get_hotkey_presets": 1,
     "onboarding_get_microphones": 1,

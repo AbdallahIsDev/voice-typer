@@ -1730,7 +1730,8 @@
 		"playRecording": "Воспроизвести запись",
 		"stop": "Стоп",
 		"qualityFeedback": {
-			"recording": "Запись…"
+			"recording": "Запись…",
+			"qualityNotApplicable": "Н/Д — расшифровка недоступна"
 		},
 		"detectedIssueCodes": {
 			"high_noise": "Высокий фоновый шум",

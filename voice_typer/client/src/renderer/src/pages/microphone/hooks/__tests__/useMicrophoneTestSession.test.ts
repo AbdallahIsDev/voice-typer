@@ -60,6 +60,7 @@ import { useConsentGateStore } from "@/lib/consentGate";
 import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 // ── Helpers ──────────────────────────────────────────────────────────
 import {
+	_resetMicrophoneTestCache,
 	MICROPHONE_TEST_DURATION_SEC,
 	useMicrophoneTestSession,
 } from "../useMicrophoneTestSession";
@@ -191,12 +192,11 @@ afterEach(() => {
 });
 
 describe("useMicrophoneTestSession — initial state", () => {
-	it("exposes testRunning=false, testCountdown=0, testAudioBase64=null, testQuality=null on mount", () => {
+	it("exposes testRunning=false, testAudioBase64=null, testQuality=null on mount", () => {
 		const { result } = renderHook(() =>
 			useMicrophoneTestSession(makeHookArgs()),
 		);
 		expect(result.current.testRunning).toBe(false);
-		expect(result.current.testCountdown).toBe(0);
 		expect(result.current.testElapsed).toBe(0);
 		expect(result.current.testAudioBase64).toBeNull();
 		expect(result.current.rawAudioBase64).toBeNull();
@@ -236,9 +236,9 @@ describe("useMicrophoneTestSession — startTest lifecycle", () => {
 			duration: MICROPHONE_TEST_DURATION_SEC,
 		});
 
-		// testRunning flipped to true + countdown armed.
+		// testRunning flipped to true (lifecycle timer armed).
 		expect(result.current.testRunning).toBe(true);
-		expect(result.current.testCountdown).toBeGreaterThan(0);
+		expect(result.current.testElapsed).toBe(0);
 	});
 
 	it("surfaces startTestFailed snack when the backend reports success=false", async () => {
@@ -936,5 +936,147 @@ describe("useMicrophoneTestSession — unmount cleanup", () => {
 			(c) => c[0] === "microphone_test_cancel",
 		);
 		expect(cancelCalls.length).toBe(0);
+	});
+});
+
+// ── Timer lifecycle + result-pipeline regressions ────────────────────
+
+describe("useMicrophoneTestSession — timer lifecycle", () => {
+	beforeEach(() => {
+		callMock.mockReset();
+		_resetMicrophoneTestCache();
+		useConsentGateStore.setState({ request: null });
+	});
+
+	it("advances testElapsed toward the fixed duration while recording (frozen-00:00 regression)", async () => {
+		vi.useFakeTimers();
+		try {
+			callMock.mockImplementation((cmd: string) => {
+				if (cmd === "microphone_test_start")
+					return Promise.resolve({
+						success: true,
+						message: "ok",
+						duration: MICROPHONE_TEST_DURATION_SEC,
+						sample_rate: 16000,
+					});
+				if (cmd === "microphone_test_stop")
+					return Promise.resolve({
+						success: true,
+						audio_file: null,
+						raw_audio_file: null,
+						duration_ms: MICROPHONE_TEST_DURATION_SEC * 1000,
+						sample_rate: 16000,
+						message: "ok",
+						quality: { volume_level: "good" } as never,
+					});
+				return Promise.resolve({ success: true });
+			});
+
+			const { result } = renderHook(() =>
+				useMicrophoneTestSession(makeHookArgs()),
+			);
+
+			await act(async () => {
+				await result.current.startTest();
+			});
+			expect(result.current.testElapsed).toBe(0);
+
+			// Advance past two whole seconds (fake timers drive Date.now).
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(2_200);
+			});
+			expect(result.current.testElapsed).toBe(2);
+
+			// Reaching full duration keeps the readout clamped at 00:10 and the
+			// grace-period safety net triggers the stop pipeline exactly once.
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(9_000);
+			});
+			expect(result.current.testElapsed).toBe(MICROPHONE_TEST_DURATION_SEC);
+
+			// Safety-net stop fires after the grace period → running clears.
+			expect(
+				callMock.mock.calls.some((c) => c[0] === "microphone_test_stop"),
+			).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does NOT re-fetch audio or toast on a stale completion trigger after finalize", async () => {
+		let readCalls = 0;
+		let stopCalls = 0;
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "microphone_test_start")
+				return Promise.resolve({
+					success: true,
+					message: "ok",
+					duration: 10,
+					sample_rate: 16000,
+				});
+			if (cmd === "microphone_test_read_audio") {
+				readCalls += 1;
+				return new Promise((resolve) =>
+					setTimeout(
+						() =>
+							resolve({
+								success: true,
+								data_b64: "YWJj",
+								bytes_read: 3,
+								total_bytes: 3,
+								eof: true,
+								message: "ok",
+							}),
+						5,
+					),
+				);
+			}
+			if (cmd === "microphone_test_stop") {
+				stopCalls += 1;
+				// Second stop arrives AFTER finalization: backend reports idle.
+				if (stopCalls > 1)
+					return Promise.resolve({
+						success: false,
+						message: "No test running",
+					});
+				return Promise.resolve({
+					success: true,
+					audio_file: { path: "mem://clip.wav", bytes: 3 },
+					raw_audio_file: null,
+					duration_ms: 10_000,
+					sample_rate: 16000,
+					message: "ok",
+					quality: { volume_level: "good" } as never,
+				});
+			}
+			return Promise.resolve({});
+		});
+
+		const args = makeHookArgs();
+		const { result } = renderHook(() => useMicrophoneTestSession(args));
+
+		await act(async () => {
+			await result.current.startTest();
+		});
+		await act(async () => {
+			await result.current.stopTest();
+		});
+		const readsAfterFinalize = readCalls;
+		expect(readsAfterFinalize).toBeGreaterThan(0);
+		expect(result.current.testAudioBase64).toBe("YWJj");
+
+		// Stale trigger (lost-push safety retry / double event): must be a
+		// silent no-op — no extra audio reads, no error toast.
+		const showSnackErr = vi
+			.mocked(args.showSnack)
+			.mock.calls.filter(([, type]) => type === "error");
+		await act(async () => {
+			await result.current.stopTest();
+		});
+		expect(readCalls).toBe(readsAfterFinalize);
+		const errAfter = vi
+			.mocked(args.showSnack)
+			.mock.calls.filter(([, type]) => type === "error");
+		expect(errAfter.length).toBe(showSnackErr.length);
 	});
 });

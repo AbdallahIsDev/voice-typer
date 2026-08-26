@@ -22,6 +22,7 @@ import io
 import struct
 import wave
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -340,3 +341,105 @@ class TestTestRecordingDiskTransport:
         import base64
 
         assert len(base64.b64decode(res["data_b64"])) <= 256 * 1024
+
+
+class TestChunkedTransportIntegrity:
+    """Playback corruption + rate-limit regressions (post-recording pipeline).
+
+    Two real bugs this pins:
+    1. Interior slices whose BYTE length is not a multiple of 3 carry their
+       own base64 "=" padding; the renderer joins fragments verbatim, so a
+       256*1024-byte default slice (% 3 == 1) injected mid-stream padding
+       and corrupted every multi-chunk playback ("Could not play the test
+       recording"). Non-final slices must be 3-byte aligned.
+    2. The per-command rate-limiter COST for ``microphone_test_read_audio``
+       was mistakenly set to 30 — as heavy as model downloads. Eight cheap
+       slice reads consumed the entire shared 200/s burst budget, the tail
+       chunks were rejected, and auto-stop completion lost its audio.
+    """
+
+    def test_interior_slices_are_base64_join_safe(self, tmp_path, monkeypatch):
+        import base64
+
+        from voice_typer.server.level_monitor import test_recording as tr
+
+        recordings = tmp_path / "recs"
+        recordings.mkdir()
+        # Prime a payload large enough for several interior slices.
+        wav_file = recordings / "test-filtered-multi.wav"
+        payload = bytes(range(256)) * (300 * 1024 // 256)  # ~300 KiB
+        wav_file.write_bytes(payload)
+        monkeypatch.setattr(tr, "_test_recordings_dir", lambda: recordings)
+
+        seen = b""
+        offset = 0
+        interior_sizes = []
+        while True:
+            res = tr.read_test_recording_slice(str(wav_file), offset, 256 * 1024)
+            assert res["success"] is True
+            chunk_bytes = base64.b64decode(res["data_b64"])
+            if not res["eof"]:
+                # INVARIANT: non-final fragments must be padding-free so
+                # verbatim base64 joining stays valid.
+                assert len(chunk_bytes) % 3 == 0, (
+                    "interior slice is not 3-byte aligned — joined base64 would be corrupted by mid-stream padding"
+                )
+            interior_sizes.append(len(chunk_bytes))
+            seen += chunk_bytes
+            if res["eof"]:
+                break
+            offset += res["bytes_read"]
+
+        assert seen == payload, "chunked transport must round-trip the exact recorded bytes"
+        assert len(interior_sizes) >= 2, "fixture expected multiple slices"
+
+    def test_rate_limiter_cost_is_cheap_read(self):
+        """The read command is a bounded small-file disk read; a heavy cost
+        weight made every completed test blow the shared burst window."""
+        from voice_typer.server.ipc.rate_limiter import COMMAND_COSTS
+
+        assert COMMAND_COSTS.get("microphone_test_read_audio") == 1
+
+
+class TestHonestMetricsContract:
+    """C-MIC-20: transcription-derived metrics must be gated on engine
+    availability; audio-derived metrics (volume/noise/clipping/voice) are
+    always computed from the captured WAV regardless of model state."""
+
+    def test_no_engine_marks_transcription_unavailable_but_keeps_quality(self, tmp_path, monkeypatch):
+        """Without a loaded ASR engine the stop envelope still carries the
+        full AUDIO analysis (quality dict) plus the explicit
+        ``transcription_unavailable`` marker — the frontend renders N/A
+        instead of a fabricated 0% for the transcription-quality row."""
+        from types import SimpleNamespace
+
+        from voice_typer.server import level_monitor as lm
+        from voice_typer.server.service.microphone_test import MicrophoneTestMixin
+
+        wav_file = tmp_path / "test-filtered.wav"
+        wav_file.write_bytes(_tiny_wav_bytes())
+
+        monkeypatch.setattr(
+            lm,
+            "stop_test_recording",
+            lambda: {
+                "success": True,
+                "audio_file": {"path": str(wav_file), "bytes": wav_file.stat().st_size},
+                "raw_audio_file": None,
+                "duration_ms": 10000,
+                "sample_rate": 16000,
+                "message": "ok",
+                "quality": {"volume_level": "good", "has_voice": True},
+            },
+        )
+        mixin = MicrophoneTestMixin()
+        # ``Any``: the double satisfies only the narrow surface the
+        # transcription path touches; AppProtocol's full shape isn't needed.
+        mixin._app = cast(Any, SimpleNamespace(models=None))  # no model subsystem at all
+
+        result: dict = mixin.microphone_test_stop()
+        assert result["success"] is True
+        assert result["transcription_unavailable"] is True
+        assert result["transcription_reason"] == "no_engine_loaded"
+        # Audio-derived verdict survives untouched.
+        assert result["quality"]["has_voice"] is True

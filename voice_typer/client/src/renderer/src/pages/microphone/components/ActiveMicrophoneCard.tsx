@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import type { VoiceTyperConfig } from "@/types/config";
+import { MICROPHONE_TEST_DURATION_SEC } from "../hooks/useMicrophoneTestSession";
 import type { TestResultQuality } from "../lib/types";
 import { PresetAccordionSelector } from "./PresetAccordionSelector";
 
@@ -149,7 +150,6 @@ export function ActiveMicrophoneCard({
 				playing={playing}
 				testRunning={testRunning}
 				testElapsed={testElapsed}
-				testDurationMs={testDurationMs}
 			/>
 
 			{/* Test controls */}
@@ -314,7 +314,6 @@ interface LevelBarContainerProps {
 	playing: boolean;
 	testRunning: boolean;
 	testElapsed: number;
-	testDurationMs: number;
 }
 
 function LevelBarContainer({
@@ -322,7 +321,6 @@ function LevelBarContainer({
 	playing,
 	testRunning,
 	testElapsed,
-	testDurationMs,
 }: LevelBarContainerProps) {
 	return (
 		<>
@@ -335,7 +333,7 @@ function LevelBarContainer({
 			<LiveQualityFeedback
 				isRecording={testRunning}
 				elapsedSeconds={testElapsed}
-				totalSeconds={testDurationMs / 1000}
+				totalSeconds={MICROPHONE_TEST_DURATION_SEC}
 			/>
 		</>
 	);
