@@ -85,6 +85,16 @@ import {
 } from "@/lib/consent";
 import type { VoiceTyperConfig } from "@/types/config";
 
+// Boot-race recovery for ``level_monitor_start``: on a cold start with
+// the Microphone page restored, the mount effect fires the moment the
+// config round-trip lands — which can be while the host bridge is still
+// establishing (renderer connects before the backend finishes booting).
+// A rejected/failed start used to be terminal (console warn only),
+// leaving the live level bar dead for the page's entire lifetime.
+// Bounded backoff retry so the meter self-heals; a genuine backend
+// refusal surfaces through the consent path or the warn log.
+const START_RETRY_DELAYS_MS: readonly number[] = [1000, 2000, 4000];
+
 interface UseMicrophoneLevelMonitorOptions {
 	/** Current voice-typer config (read for ``config.microphone``). */
 	config: VoiceTyperConfig | null;
@@ -243,6 +253,8 @@ export function useMicrophoneLevelMonitor({
 	// stop — the backend stream for a vanished device is dead weight.
 	// Flipping ``paused`` back to false re-runs this effect, which
 	// restarts monitoring without any extra imperative plumbing.
+	// (The ``level_monitor_start`` boot-race retry schedule lives in the
+	// module-level ``START_RETRY_DELAYS_MS`` above.)
 	useEffect(() => {
 		if (paused) {
 			setMicMonitoring(false);
@@ -266,30 +278,54 @@ export function useMicrophoneLevelMonitor({
 		// consent prompt when they try to START a test instead).
 		if (!config?.voice_biometric_consent) return;
 		const micId = config?.microphone ?? null;
-		callRef
-			.current<{ success: boolean }>("level_monitor_start", {
-				mic_id: micId,
-			})
-			.catch((err) => {
-				// The backend's ``client.consent_required`` envelope
-				// (ConsentRequiredError with consent_field) surfaces
-				// only in a race — the client-side gate above normally
-				// short-circuits before the IPC. Surface it through the
-				// caller's deep-link snackbar instead of swallowing it.
-				const code = (err as { code?: string } | null)?.code;
-				if (code === CONSENT_REQUIRED_CODE && onConsentRequired) {
-					const field = (err as { consent_field?: unknown } | null)
-						?.consent_field;
-					onConsentRequired(
-						typeof field === "string" ? field : VOICE_BIOMETRIC_CONSENT_FIELD,
+
+		// Bounded-retry state for THIS effect run. ``cancelled`` flips in
+		// the cleanup below (dep change / unmount) so an in-flight retry
+		// chain never outlives its effect instance.
+		let cancelled = false;
+		let retryTimer: ReturnType<typeof setTimeout> | null = null;
+		let attempt = 0;
+
+		const startMonitor = (): void => {
+			callRef
+				.current<{ success: boolean }>("level_monitor_start", {
+					mic_id: micId,
+				})
+				.catch((err) => {
+					// The backend's ``client.consent_required`` envelope
+					// (ConsentRequiredError with consent_field) surfaces
+					// only in a race — the client-side gate above normally
+					// short-circuits before the IPC. Surface it through the
+					// caller's deep-link snackbar instead of swallowing it.
+					// A consent refusal is terminal for this effect run —
+					// the dialog's onAllow restarts the monitor explicitly.
+					const code = (err as { code?: string } | null)?.code;
+					if (code === CONSENT_REQUIRED_CODE && onConsentRequired) {
+						const field = (err as { consent_field?: unknown } | null)
+							?.consent_field;
+						onConsentRequired(
+							typeof field === "string" ? field : VOICE_BIOMETRIC_CONSENT_FIELD,
+						);
+						return;
+					}
+					console.warn(
+						"[renderer:useMicrophoneLevelMonitor] microphone command failed: level_monitor_start:",
+						err,
 					);
-					return;
-				}
-				console.warn(
-					"[renderer:useMicrophoneLevelMonitor] microphone command failed: level_monitor_start:",
-					err,
-				);
-			});
+					// Boot-window recovery: retry on a short backoff unless
+					// the effect was torn down or the retry budget is spent.
+					if (!cancelled && attempt < START_RETRY_DELAYS_MS.length) {
+						retryTimer = setTimeout(() => {
+							retryTimer = null;
+							if (!cancelled) {
+								attempt += 1;
+								startMonitor();
+							}
+						}, START_RETRY_DELAYS_MS[attempt]);
+					}
+				});
+		};
+		startMonitor();
 
 		// one-shot fallback poll. The backend's ``mic_level`` push
 		// is coalesced at ≤30 Hz, so the first frame may take up to ~33 ms
@@ -339,6 +375,11 @@ export function useMicrophoneLevelMonitor({
 		})();
 
 		return () => {
+			cancelled = true;
+			if (retryTimer !== null) {
+				clearTimeout(retryTimer);
+				retryTimer = null;
+			}
 			callRef
 				.current("level_monitor_stop")
 				.catch((err) =>

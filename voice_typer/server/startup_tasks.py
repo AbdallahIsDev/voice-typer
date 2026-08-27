@@ -541,8 +541,16 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
         elif len(mics) != len(old_ids):
             log.info("[RECORDING] Microphone count changed: %d -> %d", len(old_ids), len(mics))
         # AUDIO-MIC: push a device-change IPC event if the device
-        # set changed since the last enumeration.
-        if old_ids and old_ids != new_ids:
+        # set changed since the last enumeration. ALSO publish on the
+        # FIRST population (empty → non-empty): the renderer connects
+        # and the restored Microphone page fetches ``get_microphones``
+        # during the startup window BEFORE this task runs (verified from
+        # voice-typer.log: TCP client connected 18:24:55, ``[RECORDING]
+        # Found 3 microphones`` 18:24:58) — so its initial snapshot is an
+        # empty list. Without this publish the page stays stale ("No
+        # microphones found", Start Test disabled) until a manual page
+        # change or a genuine hot-plug event.
+        if (old_ids and old_ids != new_ids) or (not old_ids and new_ids):
             added = new_ids - old_ids
             removed = old_ids - new_ids
             log.info(

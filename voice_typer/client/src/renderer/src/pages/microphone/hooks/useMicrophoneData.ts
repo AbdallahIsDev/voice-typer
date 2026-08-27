@@ -39,6 +39,16 @@ import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 let _cachedMicrophones: MicrophoneDevice[] = [];
 let _cachedConfig: VoiceTyperConfig | null = null;
 
+// Boot-race recovery: on cold start the renderer can connect (and this
+// page can fetch ``get_microphones``) BEFORE the backend's startup
+// mic-enumeration task has populated its device registry — the fetch
+// legitimately resolves to ``[]`` and, historically, nothing re-notified
+// the page afterwards (the backend skipped the first empty → populated
+// ``microphones_changed`` publish). Retry the load on a short bounded
+// backoff so the list self-heals; a machine that genuinely has zero
+// microphones simply stops after the last attempt.
+const EMPTY_LIST_RETRY_DELAYS_MS: readonly number[] = [1000, 2000, 4000, 8000];
+
 /** Stable device id comparison (backend ids are "<hostapi>|<name>[#N]"). */
 function deviceMatches(device: MicrophoneDevice, micId: string): boolean {
 	return (device.id ?? String(device.index)) === micId;
@@ -104,6 +114,22 @@ export function useMicrophoneData({
 	// reappears / the user picks another mic), repeated reloads of the
 	// SAME stale id must not re-fire the fallback.
 	const lastMissingMicIdRef = useRef<string | null>(null);
+
+	// Empty-list retry state (see EMPTY_LIST_RETRY_DELAYS_MS above).
+	// ``unmountedRef`` also guards the scheduled retry against
+	// setState-after-unmount; the timer is cleared on unmount.
+	const unmountedRef = useRef(false);
+	const emptyRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const emptyRetryAttemptsRef = useRef(0);
+	useEffect(() => {
+		return () => {
+			unmountedRef.current = true;
+			if (emptyRetryTimerRef.current !== null) {
+				clearTimeout(emptyRetryTimerRef.current);
+				emptyRetryTimerRef.current = null;
+			}
+		};
+	}, []);
 
 	/** Optimistic config update: writes through to backend + local cache. */
 	const updateConfig = useCallback(
@@ -197,6 +223,30 @@ export function useMicrophoneData({
 					setMicrophones(_cachedMicrophones);
 					setConfig(cfg);
 					reconcileActiveMic(cfg);
+					// Boot-race recovery: an empty list on a successful
+					// fetch is usually the backend's device registry not
+					// being populated yet (the renderer connected before
+					// the startup enumeration ran), not a machine with no
+					// microphones. Schedule one bounded backoff retry —
+					// the attempt counter stops the loop after the last
+					// delay, and a non-empty result re-arms it for the
+					// next cold start.
+					if (_cachedMicrophones.length === 0) {
+						const attempts = emptyRetryAttemptsRef.current;
+						if (
+							attempts < EMPTY_LIST_RETRY_DELAYS_MS.length &&
+							emptyRetryTimerRef.current === null &&
+							!unmountedRef.current
+						) {
+							emptyRetryTimerRef.current = setTimeout(() => {
+								emptyRetryTimerRef.current = null;
+								emptyRetryAttemptsRef.current += 1;
+								void loadData(() => unmountedRef.current);
+							}, EMPTY_LIST_RETRY_DELAYS_MS[attempts]);
+						}
+					} else {
+						emptyRetryAttemptsRef.current = 0;
+					}
 				}
 			} catch (err) {
 				console.error(

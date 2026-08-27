@@ -604,3 +604,99 @@ describe("useMicrophoneData — updateConfig (optimistic write-through)", () => 
 		expect(setConfigCalls[0]?.[1]).toEqual({ microphone: "mic-2" });
 	});
 });
+
+describe("useMicrophoneData — empty-list boot-race retry", () => {
+	// Boot-race recovery: on a cold start with the Microphone page
+	// restored, the page can fetch ``get_microphones`` BEFORE the
+	// backend's startup enumeration populated its registry — the fetch
+	// legitimately resolves to ``[]`` and (pre-fix) nothing re-notified
+	// the page, leaving "No microphones found" + a disabled Start Test
+	// until a manual page change. The hook now retries the load on a
+	// bounded backoff (1s → 2s → 4s → 8s).
+	it("retries the load on the backoff schedule when the enumeration returns an empty list, and stops once populated", async () => {
+		vi.useFakeTimers();
+		try {
+			let micsCalls = 0;
+			callMock.mockImplementation((cmd: string) => {
+				if (cmd === "get_microphones") {
+					micsCalls += 1;
+					// Empty on the initial load + first retry (the backend
+					// enumeration hasn't landed yet), populated on the
+					// second retry.
+					return micsCalls <= 2
+						? Promise.resolve([])
+						: Promise.resolve([makeMic("late-mic", "Late USB Mic")]);
+				}
+				if (cmd === "get_config")
+					return Promise.resolve(makeConfig({ microphone: null }));
+				return Promise.resolve({});
+			});
+
+			const selectMicrophoneRef = makeSelectMicrophoneRef();
+			const { result } = renderHook(() =>
+				useMicrophoneData({ selectMicrophoneRef }),
+			);
+
+			// Flush the initial load — empty list (boot race).
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(0);
+			});
+			expect(result.current.microphones).toEqual([]);
+			expect(result.current.loadError).toBeNull();
+
+			// +1s → first retry fires, still empty.
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(1000);
+			});
+			expect(result.current.microphones).toEqual([]);
+
+			// +2s → second retry fires, list populated → UI self-heals.
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(2000);
+			});
+			expect(result.current.microphones.length).toBe(1);
+			expect(result.current.microphones[0]?.id).toBe("late-mic");
+
+			// No further loads once populated (retry chain retired).
+			const after = micsCalls;
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(30_000);
+			});
+			expect(micsCalls).toBe(after);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("stops retrying after the bounded budget when the machine genuinely has zero microphones", async () => {
+		vi.useFakeTimers();
+		try {
+			let micsCalls = 0;
+			callMock.mockImplementation((cmd: string) => {
+				if (cmd === "get_microphones") {
+					micsCalls += 1;
+					return Promise.resolve([]);
+				}
+				if (cmd === "get_config")
+					return Promise.resolve(makeConfig({ microphone: null }));
+				return Promise.resolve({});
+			});
+
+			const selectMicrophoneRef = makeSelectMicrophoneRef();
+			renderHook(() => useMicrophoneData({ selectMicrophoneRef }));
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(0);
+			});
+			// 1 initial + 4 retries (1s + 2s + 4s + 8s backoff) = 5 total
+			// get_microphones calls, then the budget is spent — no
+			// infinite retry loop against a genuinely mic-less machine.
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(60_000);
+			});
+			expect(micsCalls).toBe(5);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});

@@ -669,7 +669,7 @@ class TestAudioMicDeviceChangePoller:
     re-enumerates microphones and pushes a ``microphones_changed``
     IPC event when the device set changes.
 
-    PERF-FIX-2: the 30s poller was later found to be fully redundant
+    the 30s poller was later found to be fully redundant
     with the event-driven ``MicrophoneDeviceWatcher`` (started in
     ``Recorder.__init__``), which is the sole source of truth on all
     platforms (WM_DEVICECHANGE on Windows, ``/dev/snd`` polling on
@@ -732,8 +732,70 @@ class TestAudioMicDeviceChangePoller:
             "AUDIO-MIC: load_microphones must push a 'microphones_changed' IPC event when the device set changes."
         )
 
+    def test_load_microphones_publishes_on_first_population(self):
+        """Boot-race recovery: the renderer connects (and the restored
+        Microphone page fetches ``get_microphones``) during the startup
+        window BEFORE ``load_microphones`` runs, so its initial snapshot
+        is an empty list. The FIRST population (empty registry →
+        non-empty enumeration) MUST publish ``microphones_changed`` so
+        the already-mounted page refreshes instead of staying stale
+        ("No microphones found", Start Test disabled) until a manual
+        page change or a genuine hot-plug event.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from voice_typer.server import startup_tasks
+
+        app = MagicMock()
+        app._microphones = []  # registry not yet populated at boot
+        # System Default — the reconciler must early-return here so the
+        # ONLY publish is the first-population microphones_changed event.
+        app.config.microphone = None
+
+        with (
+            patch(
+                "voice_typer.server.server_platform.microphone_list.list_microphones",
+                return_value=[{"id": 1, "name": "Mic A"}],
+            ),
+            patch("voice_typer.server.event_bus.publish") as mock_publish,
+        ):
+            startup_tasks.load_microphones(app)
+
+        assert mock_publish.call_count == 1, (
+            "Boot-race recovery: load_microphones must publish "
+            "microphones_changed on the FIRST population (empty → "
+            "non-empty) so an already-mounted Microphone page refreshes."
+        )
+        args, _ = mock_publish.call_args
+        assert args[0]["type"] == "microphones_changed"
+        assert args[0]["data"] == {"count": 1}
+
+    def test_load_microphones_no_publish_when_still_empty(self):
+        """A machine with genuinely zero microphones must not receive a
+        spurious ``microphones_changed`` publish on the startup
+        enumeration (empty registry → empty enumeration is not a
+        change)."""
+        from unittest.mock import MagicMock, patch
+
+        from voice_typer.server import startup_tasks
+
+        app = MagicMock()
+        app._microphones = []
+        app.config.microphone = None
+
+        with (
+            patch(
+                "voice_typer.server.server_platform.microphone_list.list_microphones",
+                return_value=[],
+            ),
+            patch("voice_typer.server.event_bus.publish") as mock_publish,
+        ):
+            startup_tasks.load_microphones(app)
+
+        mock_publish.assert_not_called()
+
     def test_poller_not_started_in_startup(self):
-        """PERF-FIX-2: ``StartupSequence.run`` must NOT call
+        """``StartupSequence.run`` must NOT call
         ``_start_device_change_poller``. The 30s poller is redundant
         with the event-driven ``MicrophoneDeviceWatcher`` (the sole
         source of truth). The poller was removed from startup to
@@ -754,11 +816,11 @@ class TestAudioMicDeviceChangePoller:
 
         src = inspect.getsource(StartupSequence.run)
         assert "_start_device_change_poller(" not in src, (
-            "PERF-FIX-2: StartupSequence.run must NOT call _start_device_change_poller "
+            "StartupSequence.run must NOT call _start_device_change_poller "
             "(redundant with the event-driven MicrophoneDeviceWatcher)."
         )
         assert not hasattr(startup_tasks, "start_device_change_poller"), (
-            "PERF-FIX-2: startup_tasks.start_device_change_poller must be deleted "
+            "startup_tasks.start_device_change_poller must be deleted "
             "(dead code — never called from production startup; "
             "MicrophoneDeviceWatcher is the sole source of truth)."
         )
