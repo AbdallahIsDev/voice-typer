@@ -96,17 +96,6 @@ plus the base repo's pre-existing comprehensive review.
 - **FR-S12:** ~~`src-tauri/src/platform/logging.rs` (1737 lines, re-audited 2026-08-12 — was 989, GREW +748; inline tests moved to logging_tests.rs)~~ — ✅ Fixed via GQ-11 2026-08-25 — split landed as the `src-tauri/src/platform/logging/` directory module (mod/init/combined/redact/panic_hook/early/rotating.rs); layout differs by design from the single-file Phase 4.5 candidate framing.
 - **FR-S14:** ~~`voice_typer/server/sidecar_ws.py` (2027 lines, re-verified 2026-08-12 — up from 953)~~ — ✅ Fixed via EO-3 2026-08-25 — split landed as the canonical module + `voice_typer/server/sidecar_ws_internals/` sibling package (encode_pool/graceful_shutdown/stdout_banner/connection); layout differs by design from the proposed `sidecar_ws/{auth,...}` package (~14 test files pin the literal .py path).
 
-### AB-53 — `native_hotkeys.binary_path.load_binary_manifest` not cached (re-reads binaries.json on every backend spawn)
-**Status:** 🚫 Won't Fix
-**Description:** `binary_path.py:365-382` (`load_binary_manifest`): NOT cached, unlike `get_native_binary_path` at line 255 which IS `@lru_cache(maxsize=1)`. `load_binary_manifest()` reads and JSON-parses `_MANIFEST_PATH` (binaries.json) from disk on EVERY call. With 3 backends, initial startup does 3 manifest reads + 3 SHA-256 hashes. Each watchdog respawn does 1 more manifest read.
-**User Impact:** ~0.1ms per manifest read. 3 reads on startup + 3 reads per 60s of watchdog inactivity = negligible absolute cost.
-**Root Cause:** `get_native_binary_path()` was memoised (XV-112) but `load_binary_manifest()` was not.
-**Progress:** Won't Fix (Low-severity, deferred — absolute cost is negligible).
-**Related Files:**
-- `voice_typer/server/native_hotkeys/binary_path.py`
-**Fix:** Add `@functools.lru_cache(maxsize=1)` to `load_binary_manifest()`.
-**Severity:** 🟢 Low
-
 ### Former Known Limitations table — ALL RE-APPLIED AND VERIFIED (2026-08-26 audit against current code)
 
 The source fixes below were all successfully re-applied by later sessions; every row was verified against the current tree on 2026-08-26:
