@@ -461,6 +461,7 @@ export default function App() {
 					themeMode={themeMode}
 					onThemeChange={handleThemeChange}
 					linuxWindowButtons={linuxWindowButtons}
+					currentPage={currentPage}
 				/>
 
 				<div className="flex min-h-0 flex-1">
