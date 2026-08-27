@@ -52,6 +52,34 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+#: Guards the ONE-SHOT per-DB-path INFO logs in ``_init_encryption``
+#: (the status line + the backfill schedule line).  ``_init_encryption``
+#: runs on every ``HistoryDB`` construction — the lazy ``app.history_db``
+#: property creates one, and corruption recovery / GDPR-delete re-creation
+#: spin up a writer thread that calls it again.  Without this guard the
+#: status + backfill-schedule lines repeat within milliseconds (and the
+#: backfill step was queued TWICE, producing duplicate "Fire-and-forget
+#: write failed" errors when the batch encryption failed).  Mirrors the
+#: ``_announced_db_paths`` dedup in ``history_db_internals.schema``.
+#:
+#: Unlike the schema init which is fully idempotent, encryption state
+#: CAN change between constructions (DEK cache reset, keyring toggled),
+#: so ``_init_encryption`` still runs the full logic every time — this
+#: set only suppresses the INFO-log surplus and the duplicate backfill
+#: enqueue.  Tests that need a fresh encryption session for the same
+#: path can call :func:`_reset_encryption_initialized_paths`.
+_initialized_db_paths: set[str] = set()
+
+
+def _reset_encryption_initialized_paths() -> None:
+    """Test seam — clear the per-path log-guard set.
+
+    Called by tests between HistoryDB instances that share a db_path
+    but expect to see the encryption-init logs fire again (or to
+    trigger a second backfill from ``_init_encryption``).
+    """
+    _initialized_db_paths.clear()
+
 
 def _init_encryption(db: HistoryDB, conn: sqlite3.Connection) -> None:
     """Resolve the DEK once per process and kick the backfill.
@@ -80,33 +108,58 @@ def _init_encryption(db: HistoryDB, conn: sqlite3.Connection) -> None:
 
     batch_size = _hd._ENCRYPTION_BACKFILL_BATCH  # noqa: N806
 
+    # Whether this path's init already ran in this process. The
+    # ENCRYPTION RESOLUTION still runs every time (the DEK / keyring
+    # state can legitimately change between HistoryDB constructions —
+    # e.g. keyring wiped after encrypted rows exist → the second
+    # instance must report "key-unavailable"), but the INFO logs and
+    # the backfill/reindex ENQUEUE are one-shot per path so a second
+    # construction for the same DB does not produce duplicate log lines
+    # (and a duplicate backfill step, which surfaced as repeated
+    # "Fire-and-forget write failed" errors when the batch failed).
+    key = str(db.db_path)
+    is_first_init = key not in _initialized_db_paths
+    if is_first_init:
+        _initialized_db_paths.add(key)
+
     try:
         has_encrypted = db._has_encrypted_rows(conn)
         dek = _text_crypto.resolve_dek(has_encrypted)
         db._encryption_status = _text_crypto.encryption_status(dek, has_encrypted)
-        log.info(
-            "[HISTORY] at-rest encryption status: %s",
-            db._encryption_status,
-        )
+        if is_first_init:
+            log.info(
+                "[HISTORY] at-rest encryption status: %s",
+                db._encryption_status,
+            )
+        else:
+            log.debug(
+                "[HISTORY] at-rest encryption status: %s (already initialized, repeat)",
+                db._encryption_status,
+            )
         if dek is not None and db._has_plaintext_rows(conn):
             # Legacy rows exist alongside the active key — encrypt
             # them in bounded background batches (never blocks
             # startup: the step is a queued writer item that
-            # re-enqueues itself between batches).
-            log.info(
-                "[HISTORY] scheduling background encryption of existing plaintext history rows (batches of %d)",
-                batch_size,
-            )
+            # re-enqueues itself between batches). The ENQUEUE runs on
+            # EVERY construction (a later instance may be the one with
+            # a working keyring / DEK — e.g. "cleartext DB opened with
+            # keyring later backfills"); only the INFO log is one-shot.
+            if is_first_init:
+                log.info(
+                    "[HISTORY] scheduling background encryption of existing plaintext history rows (batches of %d)",
+                    batch_size,
+                )
             db._enqueue_backfill_step()
         if dek is not None and db._fts5_rebuild_ran and db._has_encrypted_rows(conn):
             # The startup FTS5 'rebuild' re-tokenized the content
             # table, so encrypted rows now carry CIPHERTEXT tokens in
             # the index. Restore the §6 invariant (FTS stays
             # plaintext-tokenized) with a decrypt-aware re-index.
-            log.info(
-                "[HISTORY] startup FTS5 rebuild re-tokenized encrypted rows "
-                "with ciphertext — scheduling decrypt-aware re-index"
-            )
+            if is_first_init:
+                log.info(
+                    "[HISTORY] startup FTS5 rebuild re-tokenized encrypted rows "
+                    "with ciphertext — scheduling decrypt-aware re-index"
+                )
             db._enqueue_reindex_step()
     except Exception as e:  # noqa: BLE001 — crypto must never kill the writer
         log.warning(

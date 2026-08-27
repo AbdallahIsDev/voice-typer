@@ -70,6 +70,22 @@ from voice_typer.server.credential_store import _dek
 
 log = logging.getLogger(__name__)
 
+# Lazy-once availability probe for the ``cryptography`` dependency. It
+# is a base dependency (pyproject.toml) so a normal install provides
+# it, but a frozen/stripped runtime (Nuitka onefile, a minimal venv
+# that predates the dependency) may lack it. When missing, this module
+# degrades to the documented plaintext mode instead of raising
+# ModuleNotFoundError on every encrypt/decrypt call — which previously
+# surfaced as repeated ``[HISTORY_DB] Fire-and-forget write failed:
+# No module named 'cryptography'`` errors in the history writer thread.
+try:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM as _AESGCM
+
+    _CRYPTOGRAPHY_AVAILABLE = True
+except ImportError:
+    _AESGCM = None
+    _CRYPTOGRAPHY_AVAILABLE = False
+
 #: Blob prefix — version tag for the on-disk ciphertext format.
 BLOB_PREFIX = "enc:v1:"
 
@@ -132,14 +148,17 @@ def log_key_unavailable_error() -> None:
 
 def _get_aesgcm(dek: bytes):
     """Return an ``AESGCM`` instance for ``dek`` (validated for 32 bytes)."""
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
+    if not _CRYPTOGRAPHY_AVAILABLE or _AESGCM is None:
+        raise RuntimeError(
+            "cryptography package is not installed — at-rest encryption "
+            "unavailable; history continues in plaintext mode"
+        )
     if not isinstance(dek, bytes | bytearray) or len(dek) != _DEK_LENGTH:
         raise ValueError(
             f"DEK must be {_DEK_LENGTH} bytes for AES-256 "
             f"(got {len(dek) if isinstance(dek, bytes | bytearray) else type(dek).__name__})"
         )
-    return AESGCM(bytes(dek))
+    return _AESGCM(bytes(dek))
 
 
 def is_encrypted(text: str) -> bool:
@@ -285,6 +304,15 @@ def resolve_dek(encrypted_rows_exist: bool) -> bytes | None:
     with _dek_lock:
         if _dek_resolved:
             return _dek_cache
+        # If the crypto backend is missing, don't load/generate a DEK —
+        # the key would be unusable (every encrypt/decrypt call would
+        # raise).  Plaintext mode — matches the documented degrade-to-
+        # plaintext guarantee (the module docstring says "degrades to
+        # plaintext if the import fails").
+        if not _CRYPTOGRAPHY_AVAILABLE:
+            _dek_resolved = True
+            _dek_cache = None
+            return None
         dek = _dek.load_dek()
         if dek is None and not encrypted_rows_exist and _cs.is_keyring_available():
             candidate = _dek.generate_dek()
