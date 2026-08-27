@@ -44,14 +44,6 @@ plus the base repo's pre-existing comprehensive review.
 
 ---
 
-### ARCH-9 — `app.py` test-seam re-exports (218 monkeypatch sites)
-- **Severity**: Low
-- **Status:** ✅ Fixed (2026-08-25, this session — full migration COMPLETE): ~276 sites / 43 files migrated to canonical paths in 7 batches; production consumers (settings_controller, startup_tasks, signal_handlers, config_editor._current_platform, ipc/entrypoint) now import canonical modules directly; app.py seam re-exports removed (platform quartet, autostart quartet, create_hotkey_backend, configure_corrections, StreamingTranscriptionSession, clean_transcribed_text, _PIIRedactionFilter alias, _validate_env_vars, np proxy); _config_dir routed through config accessor via _resolve_config_dir(); devnull teardown production bug fixed with canonical fallback; app.py 2157→2124 LOC. Kept deliberately: platform_launch quartet patches on app (config_editor._resolve prefers the app attr — live seam), _write_backend_pid_file/_read_stale_backend_pid (real attr accessors), _ensure_windows_single_instance (getsource pins).
-- **Description**: `app.py` re-exports 20 symbols from sibling modules so tests can monkeypatch `voice_typer.server.app.X`. 218 monkeypatch sites depend on these re-exports.
-- **Recommended fix**: Migrate monkeypatch sites to canonical paths (`voice_typer.server.server_platform.is_autostart_enabled` instead of `voice_typer.server.app.is_autostart_enabled`), then delete re-export blocks. Mechanical refactor touching many files.
-- **Effort**: 🔴 **HIGH** — 72+ import sites across 65+ files, ~20 re-exported symbols. Every monkeypatch site must be migrated one-by-one. High risk of breaking tests. Cannot do in one shot confidently. ~1 day.
-- **Confidence for one-shot fix**: 50% — wide surface area, many tests.
-
 ### ARCH-12 — 478 `inspect.getsource` source-string tests across 150 test files
 - **Severity**: Low
 - **Status:** ⚠️ Chip-away continues (policy LANDED and enforced): ban rule verbatim in CONTRIBUTING.md §Testing (+ ADR playbook). Baseline ~459 pins / ~149 files (2026-08-26 re-measure). Pins ported opportunistically per policy when splitting pinned code — including 2026-08-25/26 monolith splits (history_db checkpoint/backup/corruption pins retargeted to the extracted free functions; recorder cache-key/ring-overflow/dead-field pins converted to behavioral assertions; server_platform task-name getsource pin follows the relocated constant): service/model module-level pins (daemon rationale comment relocated into _downloads.py leaf; type-ignore tokenize pin retargeted to package leaves), platform_misc is_macos pin → platform_utils source, systemroot pin → env_validation, recording freshness suite rewritten to pin the CLEAN state.
@@ -69,39 +61,6 @@ plus the base repo's pre-existing comprehensive review.
 - **Effort**: 🔴 **HIGH** — 495 sleep calls across 239 files. Each one needs individual analysis to determine the correct replacement (event.wait, polling predicate, etc.). ~4+ days.
 - **Confidence for one-shot fix**: 30% — cannot do all in one shot; chip away file-by-file.
 
-### Summary
-
-**Total canonical findings: 98 (after dedupe).**
-- **Critical (3):** ER-1, ER-2, ER-3
-- **High (21):** ER-4 through ER-24 (excluding ER-25 which is Medium)
-- **Medium (~30):** ER-25 through ER-63 (and ER-69)
-- **Low (~40):** ER-64 through ER-98
-
-Phase 4 (fix) will address all Critical and High severity findings, plus a curated set of Medium severity findings where the fix is well-scoped and the file-disjoint constraint can be satisfied. Low severity findings are bundled by file area for efficient parallel fixing where scope allows.
-
-### NH-43 — `BubbleDismissButton` is keyboard-inaccessible (bubble window is `focusable: false`)
-**Status:** ✅ Fixed (2026-08-26): main-process global shortcut `CommandOrControl+Shift+D` registered at app ready / unregistered on will-quit (`client/src/main/shortcuts/global-shortcuts.ts`), routing to the shared `dismissAndHideBubble()` body extracted from the `bubble:dismiss` IPC handler (SEC-016 frame check stays IPC-only). Documented in HelpOverlay + shortcuts catalog (`help.shortcuts.dismissBubble`, all 8 locales). Register-failure logs a warning and continues. Electron-only by design — Tauri bubble dismiss goes through the Rust `bubble_dismiss` command.
-**Description:** `voice_typer/client/src/renderer/src/bubble-components.tsx:445-517, 539-568` — both `BubbleMicButton` and `BubbleDismissButton` are real `<button>` elements with `aria-label` and `title`, but the bubble BrowserWindow is created with `focusable: false`. Because the window is non-focusable, these real `<button>` elements are UNREACHABLE via Tab and cannot be activated via Enter/Space in the shipped app — effectively mouse-only. For `BubbleMicButton`, the global hotkey (Caps Lock) provides a keyboard alternative. But `BubbleDismissButton` (the '×' dismiss affordance) has NO keyboard alternative. The BG-31 comment explicitly accepts this trade-off but documents the recommended mitigation (main-process global hotkey, e.g. Ctrl+Shift+D) as a future fix.
-**Root Cause:** The bubble is intentionally non-focusable to avoid stealing focus from the user's active text field. The recommended mitigation is not implemented.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/bubble-components.tsx`
-- `voice_typer/client/src/main/` (main process global shortcut registration)
-**Fix:** Wire a main-process global shortcut (e.g. `Ctrl+Shift+D`) that routes to the `bubble:dismiss` IPC handler. Document the shortcut in the HelpOverlay. This mirrors the BG-31 recommended solution. VALIDATE ON WINDOWS HOST + MACOS HOST: global shortcut registration behavior differs per OS.
-**Severity:** 🟢 Low
-
----
-
-### YJ-16 — Two parallel Electron main loggers with overlapping semantics (`electron-main.log` vs `electron-runtime.log`)
-**Status:** ✅ Fixed (2026-08-26) via facade consolidation: `structuredLogger.redactArgsForFile` is now the single formatting primitive (parameterized over message parts so both msg-first and printf sinks stay byte-identical); printfLogger's duplicate formatter deleted. BOTH public export names preserved (30 importer files + their vi.mock factories untouched); sink policies/files/dev-gating unchanged; both path-memoization reset seams intact. Full caller migration deliberately not pursued (zero behavior change for 151 call-site churn).
-**Description:** `logging.ts` header explicitly states: "DUPLICATION NOTE: the two loggers overlap in functionality (both write WARN/ERROR lines to a 5 MiB-rotated file under userData). They are kept side-by-side because (a) their consumer files use disjoint APIs (message-first vs printf), (b) their file targets are different (`electron-main.log` vs `electron-runtime.log`), and (c) merging them into one would require touching every call site".
-**Root Cause:** Verified — two parallel logging APIs grew independently: `logger` (G4-H-37, message-first) and `log` (PVT-G5-080, printf-style).
-**Progress:** Deferred — would require touching every call site.
-**Related Files:**
-- `voice_typer/client/src/main/logging/` (8-file package)
-**Fix:** Pick one API (recommend the message-first `logger` for structured fields) and migrate the 5 `log.*` callers. Have the surviving logger write to BOTH files during a deprecation window, then drop the second file.
-**Severity:** 🟡 Medium
-
 ---
 
 ### YJ-53 — 10 monolith files ≥800 LOC mixing transport/lifecycle/logic (cross-cutting)
@@ -116,44 +75,6 @@ Phase 4 (fix) will address all Critical and High severity findings, plus a curat
 
 ---
 
-### DT-38 — CR-67 __init__.py indirection (3 packages, ~2000 LOC boilerplate)
-**Status:** ✅ Fixed (2026-08-25/26, completed this session): recording/__init__ indirection removed earlier; server_platform/__init__.py 358→256 LOC (pure re-exports + stdlib proxies kept only where dotted patches rely on them; canonical patch targets documented in its docstring) with ALL `_pkg.` call-time lookups eliminated across microphone_list/remote_session/volume_factory/autostart/autostart_windows/autostart_macos submodules and ~80 test files migrated to owning-submodule patch targets (C-CROSS suites green); prewarm/__init__.py 149→54 LOC (`_warm_file` localized to cache_probe, `get_prewarm_status` consumers read through `prewarm.status` module attr).
-**Description:** `recording/__init__.py` (457 lines), `prewarm/__init__.py` (334), `server_platform/__init__.py` (325) install custom `_RecordingModule`/`_pkg.X` indirection classes purely for test-patch compatibility. Each exports 24-30+ private `_`-prefixed symbols in `__all__`. The `_` prefix has been drained of meaning — it signals "test-patch target" rather than "internal". The docstrings explicitly tag this as "CR-67 / TECH-DEBT — OPEN, awaiting migration" with scope "90-150 test files total."
-**Root Cause:** Package split (Phase 4.5) introduced submodules but left the test suite patching the package-level name.
-**Impact:** ~2000 LOC of pure indirection; `_` prefix no longer communicates "private"; custom module subclasses break `inspect.getsource`.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording/__init__.py`
-- `voice_typer/server/prewarm/__init__.py`
-- `voice_typer/server/server_platform/__init__.py`**Fix:** Execute CR-67 migration: update ~90-150 test monkeypatch sites to patch the submodule directly (`voice_typer.server.recording.resampling._resample_poly_error` instead of `voice_typer.server.recording._resample_poly_error`). Delete the custom module subclasses. Shrink each `__init__.py` to a single `from .submodule import PublicName` block. Drop every `_`-prefixed name from `__all__`.
-**Severity:** 🟡 Medium
-
-### FZ-27 — `thiserror` declared in `Cargo.toml` but NEVER used; all 40+ Rust errors are `Result<T, String>`
-**Status:** ✅ Fixed (landed post-audit; verified 2026-08-26): `src-tauri/src/error.rs` defines `VoiceTyperError` via thiserror (11 variants; custom Serialize keeps wire bytes identical); ALL renderer-invokable commands return `Result<T, VoiceTyperError>`; internal non-command helpers intentionally keep `Result<_, String>` behind `From<String>`. Pinned by `error_tests.rs` + docs/architecture/error-envelope-contract.md.
-**Description:** `src-tauri/Cargo.toml:67` declares `thiserror = "2"` but it is never imported anywhere in `src-tauri/src/`. Zero `#[derive(... Error ...)]`, zero `impl std::error::Error`. Meanwhile every command handler + sidecar helper uses `Result<T, String>` (40+ sites confirmed by grep). Errors are constructed via `format!("...")`, `.map_err(|e| e.to_string())`, or `"...".to_string()`.
-**Root Cause:** `thiserror` was added to `Cargo.toml` (presumably anticipating a proper error enum) but never actually wired up.
-**Impact:** Callers cannot programmatically distinguish error variants (e.g. "sidecar not connected" vs "WS send failed" vs "dispatch timeout" vs "server error [code]"). Every consumer must do string-substring matching, which is brittle to log-message edits. Stack/source info from underlying `io::Error` / `serde_json::Error` is lost. The declared `thiserror` dep also bloats the release binary + compile time for no benefit.
-**Progress:** None yet.
-**Related Files:**
-- `src-tauri/Cargo.toml`
-- All `src-tauri/src/commands/*.rs`
-- `src-tauri/src/sidecar/*.rs`
-- `src-tauri/src/platform/*.rs`
-- `src-tauri/src/state.rs`**Fix:** Define a `HostError` enum in a new `src-tauri/src/error.rs` using `thiserror`. Add `impl Serialize for HostError` that emits the existing `{"type":"error","data":{"code":..., "message":...}}` shape (Tauri v2 supports `invoke` rejection with any serializable value). Migrate command handlers first (mechanical), then sidecar helpers.
-**Severity:** 🔴 High
-
-### FZ-57 — Platform-detection `sys.platform == "win32"` repeated inline despite `platform_utils.is_windows()` existing
-**Status:** ✅ Fixed (2026-08-26): production comparison sites migrated to `platform_utils` predicates (container_detect, diagnostics_export ×2, volume_backends/macos guard, hotkeys re-export delegation preserving call-time patch semantics, credential_store/_migration); config_internals/paths case-detection migrated off `sys.platform not in (...)`. Helper consolidation was already done (platform_flags is a pure shim). New tokenize-based drift guard `tests/test_platform_flag_guard.py` forbids inline `sys.platform ==/!=/startswith/in` forms outside {platform_utils.py, crash_handler/**, platform_flags.py} — crash handler stays standalone by design.
-**Description:** The codebase has TWO helper modules (`server_platform/platform_flags.py` and `platform_utils.py`) that both expose `is_windows()` / `is_macos()` / `is_linux()`. Yet ≥8 non-crash-handler modules still inline `sys.platform == "win32"`. `config_validators.py` even aliases `import sys as _sys` to do the same check.
-**Root Cause:** The helpers were introduced later but older modules were never migrated.
-**Impact:** A platform-detection bug fix must be applied to 8+ sites. The 2-helper-module split is itself a minor DRY smell.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/server_platform/{autostart,platform_flags,microphone_list}.py`
-- `voice_typer/server/{_paths,config_validators,autostart_launcher,microphone_watcher_coreaudio,credential_store,native_hotkeys/binary_path}.py`
-**Fix:** Migrate the 8 non-crash-handler sites to `from voice_typer.server.platform_utils import is_windows, is_macos, is_linux`. Consolidate the 2 helper modules. Add a lint/test that forbids `sys.platform ==` outside an allowlist.
-**Severity:** 🟡 Medium
-
 ### FZ-58 — `test_history_and_models.py` and other test files use ticket-ID class names (SEC8/G4L06/SVC2/etc.)
 **Status:** ⚠️ Tier-1 executed (2026-08-26): most ticket-named files already gone; remaining 13 `*_fixes.py` donors merged into same-domain parents (ipc×3→test_ipc_server, history_db_perf→history/test_history_db, credential_store_group→test_credential_store, clipboard_restore→test_clipboard, hotkeys/permissions/tray_misc_perf/llm_polish_http→their parents, handler_group_b→handlers validation parent, app_lifecycle→app/test_lifecycle, config_onboarding split into config+onboarding parents) with exact collected-count arithmetic verified per merge; deletions recorded in archive/deleted_files.txt; stale production citations (ipc_server/sidecar_ws/ipc/_helpers/registry/recorder/tray_elapsed_timer/handlers._log) repointed at live tests. Remaining: mixed-domain grab-bags needing split-then-merge (Tier-2).
 **Description:** 46 `_fixes.py`-suffixed test files (re-counted 2026-08-12 — the "29+" claim understates; the `*_fixes.py` family alone is 46 files, up from the 43 earlier claimed), plus more ticket-named files: `test_cr_fixes.py`, `test_er_fix_g1.py`, `test_er_fix_g2.py`, `test_er_fix_h.py`, `test_g_perf_reliability_fixes.py`, `test_hp7_empty_transcription_fix.py`, `test_i5_retry_fixes.py`, `test_ipc4_rate_limiter_dual_window.py`, `test_ipc5_error_envelope_parity.py`, `test_low_findings_batch.py`, `test_nh17_force_cancel_wording.py`, `test_nh23_onboarding_progress_persistence.py`, `test_perf_fixes.py`, `test_perf_review_fixes.py`, `test_remaining_fixes.py`, `test_xa6_bubble_error_visibility.py`, `test_ec4_python_command_registry_parity.py`, plus the `*_de_fixes.py` / `*_xv_fixes.py` / `*_er_fixes.py` family.
@@ -163,50 +84,6 @@ Phase 4 (fix) will address all Critical and High severity findings, plus a curat
 **Related Files:** 46+ test files (see above)
 **Fix:** Merge each `*_de_fixes.py` / `*_xv_fixes.py` / `*_er_fixes.py` into its parent module test file. Rename ticket-named root files to module-named. Keep ticket IDs only in docstrings/pytest markers.
 **Severity:** 🟡 Medium
-
-### FZ-62 — `setLocale` missing from Tauri bridge (`window-namespace.ts`) — parity contract broken
-**Status:** ✅ Fixed (2026-08-26): Rust `set_host_locale` command (`commands/system_cmds.rs`; gated by require_main_window; empty locale returns `{ok:false,error}` mirroring the Electron contract) stores into `SidecarState.host_locale`; Tauri bridge installs `setLocale` on `window_`; renderer push path now fires on Tauri without any cast. Parity list updated (`TAURI_MISSING_WINDOW_METHODS`) + mig19 frozen-command contract updated; pinned by Rust system_cmds_tests + vitest tauri-bridge tests.
-**Description:** The Electron preload (preload/index.ts:81) and main handler (window-handlers.ts:290) exist for `i18n:set-locale`; the Tauri bridge (window-namespace.ts) and the `WindowBridge` type (bridge.ts) do not. The renderer's `i18n.ts:445-448` uses an inline `as` cast + optional chaining to access `setLocale`, so on Tauri the call silently no-ops. The Python-side `set_tray_locale` IPC call DOES work on Tauri via `window.python.call`, so tray-menu labels still update.
-**Root Cause:** The Tauri bridge was never ported for the `i18n:set-locale` channel.
-**Impact:** On Tauri, the renderer's locale change does NOT push to a main-process handler. Native Tauri dialogs use the OS locale, not a main-process-pushed locale, so there is no direct user-visible dialog-localization regression. However, the parity contract is broken.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/lib/tauri-bridge/window-namespace.ts`
-- `voice_typer/client/src/preload/index.ts`
-- `voice_typer/client/src/main/ipc/window-handlers.ts`
-**Fix:** Add a `setLocale` method to `createWindowNamespace` in `window-namespace.ts` that invokes a Rust command (e.g. `set_host_locale`) which stores the locale in `SidecarState`.
-**Severity:** 🟢 Low
-
-### FZ-66 — 25+ underscore-prefixed test-only exports ship in production main-process modules
-**Status:** ✅ Fixed (2026-08-26): the two production-called misleading names renamed to `flushPendingOutbound` / `resetPendingOutbound` (definitions in send-to-python.ts, callers tcp-connect.ts + tcp/close-handler.ts, all 4 test importers incl. string-keyed vi.mock factories). Genuinely test-only exports (`*_ForTest`) intentionally keep their underscore signal.
-**Description:** At least 25 `_`-prefixed test-only exports ship in the production bundle (re-audited 2026-08-12 — the "12+" claim understates): `_resetIpcBackpressureForTests`, `_LONG_RUNNING_COMMANDS_FOR_TEST`, `_resetNativeThemeListenerForTest`, `_resetRenderCrashTrackingForTest`, `_resetStopPythonFlagsForRestart`, `_resetTrayAvailableCache`, `_resetFileSizeCacheForTest`, `_getCachedFileSize`, `_setCachedFileSize`, `_clearCachedFileSize`, `_resetErrorHandlersDisposeForTest`.
-**Root Cause:** Test isolation pattern — production modules expose reset/inspection hooks so vitest tests can clear module-level caches between cases.
-**Impact:** Minor: production bundle carries ~12 small test-helper functions. Tree-shaking MIGHT elide them, but the exports are public.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/main/python/send-to-python.ts`
-- `voice_typer/client/src/main/windows/main-window.ts`
-- `voice_typer/client/src/main/python/stop-python.ts`
-- `voice_typer/client/src/main/tray_available.ts`
-- `voice_typer/client/src/main/logging/fileSizeCache.ts`
-- `voice_typer/client/src/main/bootstrap.ts`
-**Fix:** Consider extracting test helpers into sibling `*.test-utils.ts` files excluded from the production build.
-**Severity:** 🟢 Low
-
----
-
-### DJ-14 — GPU→CPU fallback cold-loads CPU model — 5-50s frozen tray
-**Status:** ⚠️ Partial
-**Severity:** 🟡 Medium
-**Description:** `transcription.py:1044-1057` `_transcribe_with_fallback_unlocked` on a GPU runtime error tears down + reloads on CPU IN-LINE on the transcription thread: `del self._model`, `self._model = None`, `self._device = 'cpu'`, `self._compute_type = 'int8'`, `self._reload_under_lock()` (cold WhisperModel() construction, 5-50s), then retries. The docstring admits cold model load is 5-50s.
-**User Impact:** When a transient GPU error (e.g. a single OOM from a concurrent process briefly spiking VRAM) fires mid-dictation, the user waits: (failed GPU inference, ~1-5s) + (cold CPU model load, ~5-50s) + (CPU retry inference, ~3-15s) = 9-70s total before they see any text. The tray stays at 'Transcribing…' the entire time. This is the worst-case user-visible latency in the app.
-**Root Cause:** Verified — fallback path calls `self._reload_under_lock()` synchronously which runs the full `_load_transcriber_impl` chain.
-**Progress:** ✅ Fixed (2026-08-26, option b-lite): `transcription_fallback.with_gpu_fallback` now publishes `gpu_cpu_fallback` via event_bus AFTER classifying the GPU error and BEFORE the synchronous `_reload_under_lock()` (exception-guarded publish; payload mirrors parakeet's `{device, reason}` convention). `tray_notifications.on_gpu_cpu_fallback` shows the switching-to-CPU toast (subscribed/unsubscribed alongside the parakeet handler). Event registered in `EVENT_TYPES` + Rust `ALLOWED_EVENT_TYPES` (count 37→38, doc+test lockstep). Cold reload itself is retained by design: ctranslate2 has no in-place device move (Parakeet's ORT path recreates its session for the same reason), and a resident CPU twin was rejected as registry-wide complexity for a once-per-session freeze. Order-sensitive publish-before-reload test added.
-**Related Files:**
-- `voice_typer/server/transcription.py`
-- `voice_typer/server/parakeet_engine.py`
-- `voice_typer/server/model_manager.py`
-**Fix:** (a) Keep a pre-warmed CPU whisper-tiny.en backend resident in the registry (loaded once at startup in a background thread), so the fallback path is a registry lookup + transcribe, not a cold load. (b) Make the GPU→CPU fallback a one-shot per session — instead surface a tray notification 'GPU failed, switch to CPU?' and let the user accept or retry GPU. (c) For Parakeet, `self._model.to(device='cpu', dtype=self._torch.float32)` (parakeet_engine.py:1044) is faster than a full reload (~1-3s vs 5-50s) — the Whisper path should mirror this.
 
 ---
 
@@ -218,17 +95,6 @@ Phase 4 (fix) will address all Critical and High severity findings, plus a curat
 - **FR-S10:** `voice_typer/server/crash_recovery.py` (1292 lines, re-audited 2026-08-12 — was 1034, GREW) — Phase 4.5 candidate (create_diagnostic_bundle 384-LOC method).
 - **FR-S12:** ~~`src-tauri/src/platform/logging.rs` (1737 lines, re-audited 2026-08-12 — was 989, GREW +748; inline tests moved to logging_tests.rs)~~ — ✅ Fixed via GQ-11 2026-08-25 — split landed as the `src-tauri/src/platform/logging/` directory module (mod/init/combined/redact/panic_hook/early/rotating.rs); layout differs by design from the single-file Phase 4.5 candidate framing.
 - **FR-S14:** ~~`voice_typer/server/sidecar_ws.py` (2027 lines, re-verified 2026-08-12 — up from 953)~~ — ✅ Fixed via EO-3 2026-08-25 — split landed as the canonical module + `voice_typer/server/sidecar_ws_internals/` sibling package (encode_pool/graceful_shutdown/stdout_banner/connection); layout differs by design from the proposed `sidecar_ws/{auth,...}` package (~14 test files pin the literal .py path).
-
-### AB-49 — `audio_quality.analyze_full_audio` allocates 3 full-length temporary arrays (57 MB spike on 5-min recording)
-**Status:** ✅ Fixed (2026-08-26): `analyze_full_audio` now computes mean via fp64 scalar accumulation, sum-of-squares via BLOCKED float64 np.dot (1M-element chunks ~ 8 MB bounded scratch — chosen over flat fp32 BLAS dot which drifts ~2e-4 relative and corrupts cancellation-based noise_ratio), peak via max(flat.max(), -flat.min()), variance via clamped E[x²]−mean². Zero full-length temporaries; threshold logic byte-identical; numeric-equivalence regression suite covers DC-shift/all-negative/constant/multi-block inputs.
-> - **2026-08-24 audit:** confirmed >=3 full-length temporaries (np.square/:210, np.abs/:211, np.var internals/:231) post-recording only; reuse cached RMS + allocation-free max/min.
-**Description:** `audio_quality.py:210,211,231`: `analyze_full_audio` allocates three full-length temporary arrays: `np.sqrt(np.mean(np.square(audio), dtype=np.float64))`, `np.max(np.abs(audio))`, `np.var(audio)`. For a 5-minute @16 kHz recording (4.8M samples ≈ 19 MB), this is ~57 MB of transient peak allocation. The identical metric is computed allocation-free in `AudioProcessor._run_quality_check` (`audio_processor.py:423-425`) using `np.dot(flat, flat)/size` and `max(flat.max(), -flat.min())`.
-**User Impact:** A brief 50-60 MB memory spike after `recorder.stop()` (only when `config.audio_quality_warnings=True`; default False short-circuits at `audio_quality_controller.py:221-222`). No leak, but wasteful and inconsistent with the hot-path pattern.
-**Root Cause:** Pre-existing implementation predates the allocation-free pattern adopted in `_run_quality_check`.
-**Related Files:**
-- `voice_typer/server/audio_quality.py`
-**Fix:** Replace with allocation-free equivalents: `rms = float(np.sqrt(np.dot(audio, audio) / audio.size))`, `peak = max(float(audio.max()), -float(audio.min()))`, `variance = float(np.dot(audio, audio) / audio.size) - (audio.mean()**2)`.
-**Severity:** 🟢 Low
 
 ### AB-53 — `native_hotkeys.binary_path.load_binary_manifest` not cached (re-reads binaries.json on every backend spawn)
 **Status:** 🚫 Won't Fix
@@ -357,16 +223,6 @@ The following FR findings remain open — status `❌ Not Fixed`:
 
 ---
 
-### SI-17 — Duplicated `PROTOCOL_VERSION` constants across two transports with divergent enforcement
-**Status:** ❌ Not Fixed (PROTOCOL_VERSION consolidation deferred — cross-transport refactor, documented as Remaining Work)
-**Description:** Two separate `PROTOCOL_VERSION` constants: `sidecar_ws.py:749` (WS, re-verified 2026-08-12 — drifted from 209) and `ipc/transport_tcp.py:71` (TCP, drifted from 45). Divergent enforcement: TCP rejects with structured error; WS only logs warning and continues. A stale Tauri host on the WS path gets confusing `unknown_command` errors.
-**User Impact:** Stale Tauri host gets confusing errors instead of clear protocol-version-mismatch.
-**Root Cause:** DR-21 added TCP-side strict enforcement but did NOT mirror it on WS path.
-**Progress:** None yet.
-**Related Files:** `voice_typer/server/sidecar_ws.py:749`, `voice_typer/server/ipc/transport_tcp.py:71`
-**Fix:** Consolidate into shared `ipc/protocol_version.py`. Make WS enforcement match TCP: on mismatch, write structured error envelope, close WS, return False.
-**Severity:** 🟡 Medium
-
 ### SI-25 — `state.rs` remains mixed-purpose: SidecarHandle + shutdown IPC machinery
 **Status:** ⚠️ Mostly addressed (2026-08-24 audit): state.rs is now 472 phys LOC and data-only except ~100 LOC of host-exit callbacks (:370-472); SidecarHandle lives in sidecar/handle.rs, shutdown machinery in sidecar/shutdown.rs. Absorbs VP-30 (802-LOC claim stale by ~330). Residual: callbacks could move to a lifecycle module.
 **Description:** `state.rs` conflates shared-state types with `SidecarHandle` (process-management) and `shutdown_sidecar_for_exit` + `send_fire_and_forget_frame` (IPC/shutdown machinery).
@@ -393,22 +249,6 @@ permissions_fixes 14, ready_ordering 8, thread_safety 6, protocol_version 4), th
 imports. Phase 2 - opportunistic sweep of the remaining ~180 local _make_* defs onto
 app_helpers/ipc_test_helpers/recorder_test_helpers, prioritizing files touching VoiceTyperApp.__init__
 and IPCServer construction where drift bites; never bulk-rewrite unrelated files in one commit.
-**Severity:** 🟡 Medium
-
----
-
-### IN-3 — app.py lazy property retry causes 94Hz log spam + AttributeError on hot path
-**Status:** ⚠️ PARTIAL
-**Description:** Six lazy @property accessors cache None on failure (`except Exception: log.warning(...); return None`), so every subsequent access re-enters the try block. The `audio_quality` property is on a HOT PATH (~94 calls/sec at 48kHz/512). If AudioQualityController construction fails, every chunk crashes with AttributeError + logs a WARNING — 94 crashes/sec + 94 logs/sec during recording.
-**User Impact:** If audio quality controller construction ever fails, recording becomes unusable with 94 crashes per second. Even for non-hot-path properties, WARNING log spam floods the log file on every dictation cycle until a fallback is assigned.
-**Root Cause:** The except branch does not cache a failure sentinel, so every access re-attempts construction.
-**Progress:** ⚠️ PARTIAL — verified 2026-08-04 (tests `tests/test_app_none_guard.py` 10/10 pass):
-- ✅ AttributeError crash on hot path fixed: 5 delegates now None-guard (`app.py:1146-1234` — `_on_audio_quality_chunk` / `_rebuild_audio_processor` / `_finalize_audio_quality_report` / `repaste_last` / `undo_last` return None instead of dereferencing).
-- ❌ Failure sentinel (`_LAZY_FAILED` bounded TTL) NOT implemented — `app.py:722-726` explicitly documents "backing left as None → retry on next access". On construction failure the hot path still re-attempts construction + logs WARNING per chunk (`app.py:860` lazy-init + `app.py:1150` controller-unavailable ≈ 2 warnings × ~94/sec) — the "94 logs/sec spam" User Impact remains.
-- ❌ Eager `audio_quality` construction in `__init__` NOT implemented (option in Fix).
-**Related Files:**
-- `voice_typer/server/app.py:587-749`
-**Fix:** Cache a failure sentinel (e.g. `_LAZY_FAILED`) for a bounded TTL. For the hot-path `audio_quality` property, construct eagerly in __init__ or catch AttributeError in the delegate.
 **Severity:** 🟡 Medium
 
 ---
@@ -748,24 +588,6 @@ are not present in this file.
 - **WM-50**: declined (would break GT-12 test + orphan risk — documented rationale)
 
 ---
-
-### TC-27 — `time.time()` (wall clock) used for polling deadlines in 10 test sites (NTP jump flakiness)
-**Status:** ⚠️ Partial
-**Description:** 10 sites use the *correct* polling-with-deadline pattern (poll predicate + sleep + deadline) but use `time.time()` (wall clock) instead of `time.monotonic()`. `time.time()` is subject to NTP adjustments (step corrections can be ±1s forward or backward), DST transitions, and leap-second smearing. If the wall clock jumps BACKWARD by 1s mid-poll, the loop runs 1s longer than intended — usually benign. If the wall clock jumps FORWARD by 2s, the loop exits early as if the deadline expired — the assertion fires with a misleading "service.quit() was not called within 2s" message even though only 0.1s of wall time actually elapsed.
-**User Impact:** Sporadic "TCP server did not start within 5 seconds" / "service.quit() was not called within 2s" failures on CI runners with NTP active (most cloud CI runners). Tests pass on retry. Hard to diagnose because the failure message implies a real timeout when actually a clock jump caused premature deadline expiry. The project's own `test_perf_tray_template_secret_validation.py` documents this exact hazard for production code.
-**Root Cause:** All 10 sites use the correct polling idiom but the wrong clock. The project's own production code uses `time.monotonic()` for elapsed-time computations (verified by `test_perf_tray_template_secret_validation.py`).
-**Progress:** None yet.
-**Related Files:**
-- `tests/test_ipc_server.py`
-- `tests/test_e2e_pipeline.py`
-- `tests/test_tcp_idle_read_timeout.py`
-- `tests/test_asr_errors_consent.py`
-- `tests/test_heartbeat.py`
-- `tests/manual/runtime_test_runner.py`
-**Fix:** Replace `time.time()` with `time.monotonic()` in all 10 sites. Mechanical 1:1 substitution — no logic change. Add a lint rule (ruff custom check) that flags `time.time()` in test files that do not also contain an `int(time.time())` (the few legitimate uses are for unix-timestamp construction).
-**Severity:** 🟡 Medium
-**Verification (2026-08-06, Windows win32):**
-Only 2 of 10 sites switched to `time.monotonic()`. Fixed: `test_ipc_server.py:555-556,597-598` (with NTP-jump rationale). Still `time.time()` deadlines in `test_e2e_pipeline.py:257,544`, `test_tcp_idle_read_timeout.py:189,275`, `test_asr_errors_consent.py:459,482`, `test_heartbeat.py:535`, `manual/runtime_test_runner.py:45,49,75,82`. The prescribed ruff rule flagging `time.time()` in tests was not added (44 test files still use it).
 
 ### VP-29 — `sound-manager.ts` bleeds visual-feedback concern + 41KB inline base64 WAVs
 **Status:** ❌ Not Fixed
