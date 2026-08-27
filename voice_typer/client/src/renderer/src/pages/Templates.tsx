@@ -11,7 +11,7 @@
 // all rendering lives in the components. Behaviour is preserved
 // byte-for-byte — this is a pure structural refactor.
 import { AlertCircleIcon, File02Icon } from "@hugeicons/core-free-icons";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -56,7 +56,7 @@ export default function TemplatesPage() {
 		expansion,
 		matchMode,
 		// openAddDialog intentionally NOT destructured — Add-Template now
-		// opens the inline quick-add row (XA-5-1); only the Edit flow still
+		// opens the inline quick-add row; only the Edit flow still
 		// uses the dialog.
 		openEditDialog,
 		saveTemplate,
@@ -69,7 +69,7 @@ export default function TemplatesPage() {
 	const { importInputRef, doExport, handleImportFile, handleImportClick } =
 		useTemplateImportExport({ call, loadRows, templatesRef });
 
-	// XA-5-1: inline quick-add row above the templates list. Mirrors
+	// Inline quick-add row above the templates list. Mirrors
 	// Vocabulary's ``useVocabularyQuickAdd`` so create stays in-place
 	// (no modal). Edit still flows through ``useTemplateDialog`` +
 	// ``TemplateDialog`` — the inline pattern is intentionally ONLY for
@@ -81,6 +81,12 @@ export default function TemplatesPage() {
 		templatesRef,
 		loadRows,
 	});
+
+	// Soft display cap — the flat list renders at most this many rows
+	// until the user clicks "Show more".  Keeps very large template
+	// collections from mounting thousands of DOM rows.
+	const DISPLAY_CAP = 200;
+	const [displayCount, setDisplayCount] = useState(DISPLAY_CAP);
 
 	// ``openEditDialog`` from ``useTemplateDialog`` is a plain
 	// function (recreated every render).  Wrap it in a stable
@@ -149,7 +155,7 @@ export default function TemplatesPage() {
 						// `() => doExport()` dropped the format arg,
 						// silently making CSV export behave like JSON.
 						onExport={(format) => doExport(format)}
-						// XA-5-1: Add-Template opens the inline quick-add
+						// Add-Template opens the inline quick-add
 						// row (mirrors Vocabulary). The Edit dialog is
 						// still wired via the row's pencil icon (no
 						// regression for edit).
@@ -167,7 +173,7 @@ export default function TemplatesPage() {
 					/>
 				)}
 
-				{/* XA-5-1: inline quick-add row. NOT gated on
+				{/* Inline quick-add row. NOT gated on
                                     templates.length — "Add Template" must work from the
                                     empty state too (mirrors Vocabulary). */}
 				{quickAdd.open && (
@@ -205,16 +211,28 @@ export default function TemplatesPage() {
 							description={t("templates.noResultsDescription")}
 						/>
 					) : (
-						<ul className="overflow-hidden rounded-xl border border-border/10 bg-(--bg-subtle) divide-y divide-border/10">
-							{filteredSortedTemplates.map((row) => (
-								<TemplateListRow
-									key={row.id}
-									row={row}
-									onEdit={handleEdit}
-									onDelete={instantDeleteTemplate}
-								/>
-							))}
-						</ul>
+						<>
+							<ul className="overflow-hidden rounded-xl border border-border/10 bg-(--bg-subtle) divide-y divide-border/10">
+								{filteredSortedTemplates.slice(0, displayCount).map((row) => (
+									<TemplateListRow
+										key={row.id}
+										row={row}
+										onEdit={handleEdit}
+										onDelete={instantDeleteTemplate}
+									/>
+								))}
+							</ul>
+							{filteredSortedTemplates.length > displayCount && (
+								<button
+									type="button"
+									data-testid="templates-show-more"
+									onClick={() => setDisplayCount((c) => c + DISPLAY_CAP)}
+									className="mx-auto mt-3 flex items-center gap-1.5 rounded-full border border-border/10 bg-(--bg-subtle) px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5 cursor-pointer"
+								>
+									{t("templates.showMore")}
+								</button>
+							)}
+						</>
 					)}
 				</div>
 

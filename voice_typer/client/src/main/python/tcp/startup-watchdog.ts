@@ -6,6 +6,7 @@
  */
 
 import { app, dialog } from "electron";
+import { mainT } from "../../i18n";
 import { log } from "../../logging";
 import { state } from "../../state";
 
@@ -88,10 +89,10 @@ export function armTcpStartupTimeout(): void {
 			);
 			try {
 				dialog.showErrorBox(
-					"Python backend failed to start",
-					`Voice Typer could not connect to its Python backend within ${
-						TCP_STARTUP_TIMEOUT_MS / 1000
-					} seconds.\n\nPlease check the logs and try again.`,
+					mainT("dialog.pythonBackend.timeoutTitle"),
+					mainT("dialog.pythonBackend.timeoutBody", {
+						seconds: String(TCP_STARTUP_TIMEOUT_MS / 1000),
+					}),
 				);
 			} catch (e) {
 				// dialog may not be available in headless mode

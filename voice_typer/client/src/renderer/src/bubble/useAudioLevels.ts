@@ -131,7 +131,7 @@ export function useAudioLevels(
 
 	// Combined recording-mode tracking + rAF setup + onLevel subscription.
 	//
-	// IN-62 (single source of truth): the bubble's `mode` is NO LONGER
+	// (Single source of truth): the bubble's `mode` is NO LONGER
 	// tracked in a local closure here. `useBubbleBridge` owns the
 	// authoritative mode ref, kept in lockstep with the show / hide /
 	// setState event stream by the shared `nextBubbleMode` reducer —
@@ -326,7 +326,7 @@ export function useAudioLevels(
 		});
 		const offSetState = bridge.on("setState", () => {
 			// Mode ref already reflects this setState transition (see
-			// the IN-62 comment above) — re-sync, then re-arm the rAF
+			// the single-source-of-truth comment above) — re-sync, then re-arm the rAF
 			// loop when the new mode is recording.
 			sync();
 			if (bridge.getMode() === "recording") wake();

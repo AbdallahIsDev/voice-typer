@@ -340,7 +340,7 @@ pub(super) fn spawn_reader_task(
         // WS reader exited (normally or via caught panic) — drain
         // pending dispatch requests + clear ws_tx so new dispatch
         // calls fail fast instead of queueing onto a dead channel
-        // (CR-Finding 1 + 3). Then trigger supervisor respawn (unless we're
+        // (findings 1 + 3). Then trigger supervisor respawn (unless we're
         // shutting down). This cleanup block runs UNCONDITIONALLY on
         // reader exit — even if the body panicked — because it uses the
         // cloned `state_for_cleanup` / `app_for_cleanup` handles (not

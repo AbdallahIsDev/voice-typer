@@ -54,7 +54,7 @@ import time
 import uuid
 from pathlib import Path
 
-# WN-7: centralized log-retention constants.  Mirror the Rust-side
+# Centralized log-retention constants.  Mirror the Rust-side
 # ``LOG_MAX_BYTES`` in ``src-tauri/src/util.rs``.
 # All Python logging handlers that write log files (the main
 # voice-typer.log, the prewarm.log, and the Electron-build log) MUST
@@ -609,7 +609,7 @@ def setup_logging(
             _devnull_files.append(sys.stdin)
 
         # ── 2. Generate session ID ─────────────────────────────────────
-        # GT-68: when spawned by the Rust Tauri host, accept the host's
+        # When spawned by the Rust Tauri host, accept the host's
         # per-process session ID (passed via VOICE_TYPER_SESSION_ID) so
         # the Rust + Python log streams share a join key. Validate it's
         # 8-char lowercase hex (the same shape the host generates); a

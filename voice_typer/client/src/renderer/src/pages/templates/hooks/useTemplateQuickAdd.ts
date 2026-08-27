@@ -4,7 +4,7 @@
 // the templates list so create stays in-place (the list is visible the
 // whole time; no modal). Edits still flow through ``useTemplateDialog``
 // + ``TemplateDialog`` — the inline pattern is intentionally ONLY for
-// add (XA-5-1). The fields shown inline are the two simplified ones the
+// add (inline quick-add). The fields shown inline are the two simplified ones the
 // user fills in 99% of the time (trigger + output). Match mode defaults
 // to "exact" and can be changed later via Edit.
 //

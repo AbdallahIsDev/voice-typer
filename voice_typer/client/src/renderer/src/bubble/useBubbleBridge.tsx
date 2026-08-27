@@ -89,7 +89,7 @@ export type BubbleBridgeOff = () => void;
 	): BubbleBridgeOff;
 
 	/**
-	 * Read the CURRENT authoritative bubble mode (IN-62).
+	 * Read the CURRENT authoritative bubble mode (single source of truth).
 	 *
 	 * The bridge owns the single source-of-truth mode ref, updated by
 	 * `nextBubbleMode` BEFORE handlers fan out — so a handler invoked
@@ -134,7 +134,7 @@ class BubbleBridgeImpl implements BubbleBridge {
 	private apiOffs: BubbleBridgeOff[] = [];
 	private levelOff: BubbleBridgeOff | null = null;
 	private levelActive = false;
-	// Authoritative bubble mode (IN-62 single source of truth).
+	// Authoritative bubble mode (single source of truth).
 	// Defaults to `recording` — the bubble's initial mode — and tracks
 	// the show / hide / setState event stream via `nextBubbleMode`,
 	// updated in `emit()` BEFORE handlers fan out. Persists across
@@ -173,7 +173,7 @@ class BubbleBridgeImpl implements BubbleBridge {
 		event: K,
 		payload: BubbleBridgeEventMap[K],
 	): void {
-		// IN-62: keep the authoritative mode ref in lockstep with the
+		// Keep the authoritative mode ref in lockstep with the
 		// event stream BEFORE any handler runs, so a consumer handler
 		// always observes the current event's resulting mode — no
 		// registration-order dependence. The reducer is the same

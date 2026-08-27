@@ -17,7 +17,7 @@
 //!   (1-host↔2-processes pattern, plan §7.1).
 //! - `VOICE_TYPER_CONFIG_DIR` — the shared config dir (the worker reads
 //!   `fast_startup` for its prewarm phase + its log location).
-//! - `VOICE_TYPER_SESSION_ID` — GT-68 cross-process log correlation
+//! - `VOICE_TYPER_SESSION_ID` — cross-process log correlation
 //!   (same join key as the host + sidecar).
 //!
 //! # Handshake
@@ -78,7 +78,7 @@ pub(crate) async fn spawn_worker_release(
         // it (EXIT_NO_TOKEN). The slim-core sidecar re-uses this token
         // for its WS client connection to the worker.
         .env("VOICE_TYPER_IPC_TOKEN", token)
-        // GT-68: share the host's per-process session ID so the
+        // Share the host's per-process session ID so the
         // worker's log lines correlate with the host + sidecar.
         .env("VOICE_TYPER_SESSION_ID", crate::util::session_id())
         // The worker reads the shared config dir for `fast_startup`

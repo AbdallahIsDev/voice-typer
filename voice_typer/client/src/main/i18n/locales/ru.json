@@ -14,5 +14,15 @@
 	"state.app.starting": "Запуск...",
 	"dialog.crashLoop.title": "{appName} — Цикл сбоев",
 	"dialog.crashLoop.mainBody": "Окно главного рендерера неоднократно аварийно завершало работу и не может быть восстановлено.\n\nИспользуйте значок в трее для перезапуска или выхода, затем снова запустите {appName}.",
-	"dialog.crashLoop.bubbleBody": "Окно наложения пузыря неоднократно аварийно завершало работу и не может быть восстановлено.\n\nИспользуйте значок в трее для перезапуска или выхода, затем снова запустите {appName}."
+	"dialog.crashLoop.bubbleBody": "Окно наложения пузыря неоднократно аварийно завершало работу и не может быть восстановлено.\n\nИспользуйте значок в трее для перезапуска или выхода, затем снова запустите {appName}.",
+	"dialog.pythonBackend.timeoutTitle": "Не удалось запустить серверную часть Python",
+	"dialog.pythonBackend.timeoutBody": "{appName} не смог подключиться к своей серверной части Python в течение {seconds} секунд.\n\nПроверьте журналы и попробуйте снова.",
+	"dialog.pythonBackend.crashTitle": "Серверная часть Python аварийно завершила работу",
+	"dialog.pythonBackend.crashSignalBody": "Серверная часть Python для {appName} была завершена сигналом (вероятно, SIGSEGV или SIGABRT) и сейчас закроется.\n\nПроверьте журналы и попробуйте снова.",
+	"dialog.pythonBackend.crashExitBody": "Серверная часть Python для {appName} неожиданно завершилась с кодом {code} и сейчас закроется.\n\nПроверьте журналы и попробуйте снова.",
+	"dialog.pythonBackend.earlyExitSuffix": "Серверная часть Python завершилась преждевременно (код={code}). Проверьте журналы.",
+	"dialog.pythonBackend.notFoundTitle": "Серверная часть Python не найдена",
+	"dialog.pythonBackend.notFoundBody": "{appName} не смог запустить свою серверную часть:\n{message}",
+	"dialog.pythonBackend.restartLoopTitle": "{appName} не может безопасно перезапуститься",
+	"dialog.pythonBackend.restartLoopBody": "{appName} было предложено перезапуститься {count} раз за последние {seconds} секунд, что указывает на сбой серверной части Python при запуске.\n\nЧтобы избежать цикла сбоев, автоматический перезапуск отменён. Проверьте файлы журналов в каталоге конфигурации {appName} (python_crash.*.txt и voice-typer.log), затем запустите {appName} вручную после устранения основной проблемы."
 }

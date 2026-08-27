@@ -421,7 +421,7 @@ class _TranscribeStepMixin:
         warning is logged so the failure is traceable.
         """
         log.info("[TRANSCRIBE] No speech detected (cycle=%s)", self._cycle_id)
-        # NEW-BUBBLE-TRANSCRIBING: Hide the bubble since there's nothing to
+        # Hide the bubble since there's nothing to
         # transcribe — no need to keep the overlay visible.
         self._hide_or_idle_bubble("bubble hide/set idle on empty")
 

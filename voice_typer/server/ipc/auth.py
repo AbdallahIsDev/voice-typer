@@ -1,6 +1,6 @@
 """Shared auth-handshake helpers for the TCP and sidecar-WS transports.
 
-VP-8 (audit): the TCP handshake (``ipc/transport_tcp.py``'s
+The TCP handshake (``ipc/transport_tcp.py``'s
 ``_handle_tcp_connection``) and the Tauri sidecar handshake
 (``sidecar_ws.py``'s ``_authenticate``) implemented the SAME contract
 twice — read the first frame, validate ``type == "auth"``, extract the

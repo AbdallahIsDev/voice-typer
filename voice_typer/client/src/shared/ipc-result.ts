@@ -1,7 +1,7 @@
 /**
  * Canonical IPC result envelope for Electron main-process handlers.
  *
- * VP-19: every `ipcMain.handle` body previously hand-rolled a
+ * Every `ipcMain.handle` body previously hand-rolled a
  * `try { … } catch (e) { return { success: false, error: (e as Error).message } }`
  * wrapper (4× in `export-handlers.ts` alone), and the project had
  * THREE divergent envelope shapes (`{success, error}` for exports /

@@ -126,7 +126,8 @@
 		"importAria": "استيراد من ملف",
 		"lastUpdatedWithValue": "آخر تحديث: {value}",
 		"close": "إغلاق",
-		"confirm": "تأكيد"
+		"confirm": "تأكيد",
+		"retry": "إعادة المحاولة"
 	},
 	"microphone": {
 		"levelBarAria": "مستوى مدخل الميكروفون",

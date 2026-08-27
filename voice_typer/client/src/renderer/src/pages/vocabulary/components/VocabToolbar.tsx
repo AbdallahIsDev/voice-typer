@@ -87,7 +87,7 @@ export function VocabToolbar({
 					size="sm"
 					onClick={onImportClick}
 					aria-label={t("common.importAria")}
-					// (XA-5-20): surface the expected file format
+					// Surface the expected file format
 					// schema on hover so the user knows what shape
 					// the import expects without trial-and-error.
 					title={t("vocabulary.importFormatHint")}

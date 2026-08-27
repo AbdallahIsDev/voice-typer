@@ -363,7 +363,7 @@ export default function Home() {
 	// hotkey is no longer re-fetched here — see the `config_changed`
 	// handler below. The `status_change` event fires on every
 	// recording → transcribing → idle transition, so a per-event
-	// `get_config` round-trip was wasted work (ER-62).
+	// `get_config` round-trip was wasted work.
 	usePythonEvent("status_change", (data): (() => void) | undefined => {
 		const status = typeof data?.status === "string" ? data.status : "";
 		if (status === "transcribing") {
@@ -376,7 +376,7 @@ export default function Home() {
 		return undefined;
 	});
 
-	//+ : config_changed listener — re-fetches the hotkey when the
+	// config_changed listener — re-fetches the hotkey when the
 	// backend reports that Settings saved a new config (the
 	// `config_changed` event is published by `apply_config` in
 	// `config_handlers.py`). This replaces the per-status_change
@@ -768,7 +768,7 @@ export default function Home() {
 			{lastText && (
 				<output
 					aria-live="polite"
-					// QV-9: the transcription preview text is wrapped in the
+					// the transcription preview text is wrapped in the
 					// semantic HTML5 live region element (<output>) so screen
 					// readers announce freshly arrived transcriptions.
 					className="block"
@@ -824,7 +824,7 @@ export default function Home() {
 					className="mt-4 w-full flex items-center justify-center py-6"
 					aria-label={t("home.loadingTodayStatsAria")}
 				>
-					{/* XA-8-L6: decorative — the wrapping <section aria-label>
+					{/* Decorative — the wrapping <section aria-label>
                                             already supplies the accessible name; the bare
                                             Spinner's own role="img" aria-label="Loading" would
                                             compete with it. */}
@@ -854,7 +854,7 @@ export default function Home() {
 					className="mt-4 w-full flex items-center justify-center py-6"
 					aria-label={t("home.loadingRecentAria")}
 				>
-					{/* XA-8-L6: decorative — same reasoning as the
+					{/* Decorative — same reasoning as the
                                             today-stats section above. */}
 					<Spinner decorative />
 				</section>

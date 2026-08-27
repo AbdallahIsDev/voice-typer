@@ -53,7 +53,7 @@ def _focus_running_app() -> bool:
         if not binary:
             log.info("[AUTOSTART] tauri focus: binary missing; cannot focus existing instance")
             return False
-        # CR-002 fail-closed integrity gate — same contract as
+        # Fail-closed integrity gate — same contract as
         # ``_spawn_tauri_host`` (the focus probe spawns the real binary).
         if not _pkg.verify_tauri_binary_or_skip(binary):
             log.error(

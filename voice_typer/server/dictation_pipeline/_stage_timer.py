@@ -1,6 +1,6 @@
 """StageTimer — context manager for per-stage timing instrumentation.
 
-Pre-refactor (AC-73): the orchestrator's ``run`` method inlined
+Pre-refactor: the orchestrator's ``run`` method inlined
 9 ``_stage_t0`` / ``_<name>_ms`` pairs plus a hand-edited format
 string in the consolidated log line. The dictation_pipeline
 package then introduced the ``_timed_stage`` helper in

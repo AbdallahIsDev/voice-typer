@@ -23,7 +23,7 @@ feature) — it is NOT a separate ``tauri-plugin-tray`` crate. The
 project's ``src-tauri/Cargo.toml`` documents this choice.
 
 Implementation decision (MIG-1.9 Phase 3 — host-side tray rendering):
-The capability file ``src-tauri/capabilities/migrate-runtime.json``
+The capability file ``src-tauri/capabilities/main-runtime.json``
 records the actual decision taken for the v1 migration:
 
     "core:tray:* — the Rust host OWNS the system tray (tauri-plugin-tray
@@ -164,7 +164,7 @@ gate check):
     back via ``dispatch({cmd:'tray_click', data:{id}})``. The Python
     sidecar still owns the menu *logic* (it emits ``tray_menu``); pystray
     is the Electron-fallback path only. This is documented in
-    ``src-tauri/capabilities/migrate-runtime.json``'s description field.
+    ``src-tauri/capabilities/main-runtime.json``'s description field.
     See ``test_main_rs_sets_up_rust_host_tray``,
     ``test_tray_rs_routes_clicks_via_tray_click_dispatch``, and
     ``test_capability_file_grants_core_tray_permissions``.
@@ -237,7 +237,7 @@ def cargo_toml_source() -> str:
 
 @pytest.fixture(scope="module")
 def capability_json() -> dict:
-    """Load + parse the migrate-runtime capability JSON."""
+    """Load + parse the main-runtime capability JSON."""
     assert CAPABILITY_JSON.exists(), f"capability file not found: {CAPABILITY_JSON}"
     return json.loads(CAPABILITY_JSON.read_text(encoding="utf-8"))
 
@@ -1123,7 +1123,7 @@ def test_main_rs_tray_ownership_documented_in_capability(
     """ADR-0020 §6.5 + MIG-1.9 Phase 3: capability file documents the
     Rust-host-owns-tray decision.
 
-    The ``migrate-runtime.json`` capability's ``description`` field
+    The ``main-runtime.json`` capability's ``description`` field
     records that the Rust host OWNS the system tray (via the core
     ``tray-icon`` feature) and that the sidecar computes the menu
     structure and emits a ``tray_menu`` event (pystray is the

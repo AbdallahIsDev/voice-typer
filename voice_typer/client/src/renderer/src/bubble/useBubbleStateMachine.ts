@@ -32,7 +32,7 @@
  *     the parsing is forward-compatible with both shapes, so once the
  *     backend pushes `{ state: "transcribing", transcript: "..." }`,
  *     the renderer will display the live partial text in the bubble
- *     pill (XA-6-2). No IPC surface change is required on the renderer
+ *     pill (live partial text). No IPC surface change is required on the renderer
  *     side — the existing `bubble:set-state` channel already supports
  *     the richer payload shape.
  *
@@ -83,7 +83,7 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 	const [animState, setAnimState] = useState<AnimState>("enter");
 	const [exitTick, setExitTick] = useState(0);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
-	// Live partial-transcription text (XA-6-2). Populated from the
+	// Live partial-transcription text. Populated from the
 	// `transcript` field of the `bubble:set-state` payload when in
 	// transcribing mode; preserved across the transcribing → fading
 	// transition so the partial text fades out smoothly with the pill.
@@ -114,7 +114,7 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 			// arrived before our show() event. This prevents a race
 			// where the backend calls set_state("transcribing") and
 			// then show() is re-triggered. The transition table is the
-			// shared `nextBubbleMode` reducer (IN-62 single source of
+			// shared `nextBubbleMode` reducer (single source of
 			// truth) — the bridge's authoritative mode ref applies the
 			// same function to the same event, so the two stay in
 			// lockstep by construction.
@@ -198,7 +198,7 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 			}
 
 			// Surface / clear the live partial-transcript text
-			// (XA-6-2 + live streaming partials). Update `transcript`
+			// (live streaming partials). Update `transcript`
 			// whenever the new payload carries one — during BOTH the
 			// transcribing mode (finalize-time text) and the recording
 			// mode (mid-recording live partials mirrored onto the

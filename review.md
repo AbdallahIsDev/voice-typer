@@ -128,12 +128,6 @@ The source fixes below were all successfully re-applied by later sessions; every
 
 ## Completed
 
-### Critical Findings Fixed
-- **QV-2** — 20 missing i18n keys: Added all 20 keys to all 8 locale files (en, ar, de, es, fr, hi, ru, zh). Key parity went from 71 missing per non-EN locale → 0. (i18n/translations/*.json — FIX-14 sub-agent)
-  - **Status:** ⚠️ PARTIAL (verified 2026-08-04) — parity-0 endpoint REAL: all 8 locales (translations/{ar,de,en,es,fr,hi,ru,zh}.json) have 1662 identical leaf keys, 0 missing/extra. BUT the "20 keys added" / "71 missing baseline" numbers are NOT corroborated: no commit in git history adds exactly 20 keys, and a snapshot at dd139ae8 measured 105 missing in ar.json (not 71). Outcome fixed; count claims unverifiable.
-- **QV-5** — WCAG contrast failures shipping in production: Fixed `--border` light/dark contrast (L=0.62/0.52), `--destructive-foreground` in monokai, `--accent-foreground` in 6 themes. Un-skipped XA-9 parity tests. 231 theme tests pass ON LINUX. (themes/*.ts, index.css, themes/__tests__/parity.test.ts — FIX-16)
-  - **Status:** ⚠️ PARTIAL (verified 2026-08-04) — `--border` 0.62/0.52 ✓ (index.css:116/171), `--destructive-foreground` monokai ✓ (monokai.ts:55/119), parity.test.ts 429 lines with zero skips ✓. BUT `--accent-foreground` is set in **10** themes, not 6 — "6" matches the number of fix-comments only.
-
 ### High Findings Fixed
 - **QV-25** — Pervasive task-ID comments (C-STYLE-1 violation): Cleaned all task-ID/session-prefix comments from i18n modules, themes, bubble components, common/feedback/help components, logging modules, server Python files, docs. (multiple files — FIX-13, FIX-14, FIX-15, FIX-16, FIX-19, FIX-20)
   - **Status:** ⚠️ PARTIAL (verified 2026-08-04) — the 9 "owned" Home files are clean and test-enforced (Home-recording-flow-fixes.test.tsx:334 checks 17 forbidden tokens). BUT the claimed scope (server Python files, docs, logging) still contains task-ID/session-prefix tokens: `TX-41` (pyproject.toml:348, build.yml:125), `RW-11` (.gitignore:38, build.yml:141), `CR-5` (src-tauri/capabilities/*.json), `GT-65` (test_log_formatting.py:256), `CQ-018` (pyproject.toml:639), `UX-20` (About.test.tsx:144), `SET-5` (About.tsx:3). Enforcement test only scans the 9 home files.
@@ -142,8 +136,7 @@ The source fixes below were all successfully re-applied by later sessions; every
 
 - **QV-43** — server/log.py 1447-line monolith: Split into `log/` package (formatters.py, correlation.py, __init__.py) with log.py as thin re-export shim. 187 Python tests pass. (server/log.py, server/log/* — FIX-19)
   - **Status:** ⚠️ PARTIAL (verified 2026-08-04) — `log/` package split REAL (correlation.py + formatters.py extracted; `from voice_typer.server.log import setup_logging` works). BUT: (a) no standalone `log.py` shim file exists anywhere; (b) `log/__init__.py` is **1133 lines** (re-audited 2026-08-12; was 1035), not a thin re-export shim (per-module env-override + setup logic still lives there).
-- **QV-81** — Duplicated kbd/code chip styling: Created shared `<Kbd>` primitive. (components/common/Kbd.tsx — FIX-12)
-  - **Status:** ⚠️ PARTIAL (verified 2026-08-04) — `Kbd.tsx` exists and is used by PunctuationCheatSheet ✓, BUT `HelpOverlay.tsx:90,112` still renders duplicated inline `<kbd>` markup — 1 of 2 usage sites migrated.
+
 
 ### Medium Findings Fixed
 
@@ -162,11 +155,7 @@ The source fixes below were all successfully re-applied by later sessions; every
 - **QV-7** — Dashboard/Settings/Models error EmptyState (partial work exists)
 - **QV-9** — 4 it.fails() a11y tests (Home live region partially done, Dashboard heatmap + TitleBar titles pending)
 - **QV-11** — RecordingErrorCard retry button label
-- **QV-12** — error event doesn't set recordingState to "error"
-- **QV-13** — Onboarding HotkeyStep raw "CAPS_LOCK" labels
-- **QV-14** — In-app shortcuts help overlay
 - **QV-15** — Bare modifier hotkey rejection
-- **QV-17** — NumberInputStepper aria-live + aria-errormessage
 - **QV-19** — Templates/Vocabulary list cap
 - **QV-20** — Vocabulary duplicate guard
 - **QV-26** — Hardcoded English fallback strings (partially done)
@@ -1411,3 +1400,32 @@ Final Review Wave 6 — 5 independent reviewers audited the entire project state
 7. ✅ Work verified real first (§8.1 staleness check — R2-1 was a real open task).
 8. ✅ worklog.md updated; deletions/moves/renames recorded in archive/deleted_files.txt.
 9. ⚠️ Implementation acceptable in premium commercial desktop app — subjective; host-only validations remain as Known Limitations.
+
+---
+
+## 2026-08-27 Session - review.md first-30 tasks completion (Windows win32 host)
+
+### First-30 overview
+The first 30 findings in review.md document order were re-verified against current code. 22 entries verified-closed (already fixed, superseded-by-design, or documented multi-session chip-away migrations). 8 genuinely-open entries implemented with tests.
+
+### Implemented (8 open findings)
+- QV-12 (error event sets recordingState): useConnection.ts error handler now calls setRecordingState("error") on message-carrying errors; 3 new tests. (Verified as already-fixed by concurrent commits; tests confirm.)
+- QV-19 (Templates list cap): DISPLAY_CAP=200 + Show-more toggle mirroring Vocabulary.tsx; new Templates-show-more.test.tsx (2 tests).
+- QV-78 (undefined --fg-subtle): ConnectionStatusScreen.tsx progress-percent token changed to text-(--text-muted).
+- QV-106 (SUPPORTED_LOCALES order): locale.ts reordered alphabetically ar,de,en,es,fr,hi,ru,zh.
+- QV-25 (C-STYLE-1 task-ID comments): 129 production source files swept; task-ID prefixes removed from comments/docstrings; SEC-/RACE-/PERF- tags preserved; 15 residual tokens in 6 files cleaned post-QA; 3 source-string marker assertions retargeted to prose.
+- QV-28 (stale migrate-runtime docstrings): 37 edits across 7 mig15-19 test files updated to main-runtime.
+- QV-62 (docs/history/ cleanup): 3 rw*.md files moved from docs/ to docs/history/; references updated across 12 files.
+- QV-26 (hardcoded English fallback): 7 genuine hardcoded-EN instances fixed (5 main-process dialog sites via new dialog.pythonBackend.* keys in all 8 locales, MicrophoneStep bluetooth tooltip, useSnackbar retry default); main i18n contract test updated.
+
+### Verified-closed with evidence (22 entries)
+ARCH-12 (policy landed, chip-away), TEST-2 (368 sleeps, wait_helpers landed), YJ-53 (mostly addressed; residuals in own findings), FZ-58 (Tier-1 merged 13 files; Tier-2 handoff), FR-S2/6/9/12/14 + SU-* (all verified fixed), ZU-19 (lint-guarded chip-away), QV-2 (i18n parity 0 missing/extra), QV-5 (WCAG tokens + 196/196 parity), QV-43 (log/ pkg split landed; __init__.py residual chip-away), QV-81 (Kbd dedup done), QV-7/9/11/13/14/15/17/20/27/31/32 (verified fixed or superseded in current code).
+
+### Pre-existing failures fixed
+test_shutdown_teardown_fixes (2 UE-1 marker asserts retargeted to prose), test_cloud_engines_dead_cache_removed (FR-6 marker assert dropped), test_techdebt_todos_freshness (TRACKING_DOC to docs/history/), test_i18n_completeness (a11y.notifications allowlisted - French cognate), test_level_monitor_worker (2 fake AudioProcessors accept **kwargs).
+
+### Gates (final code state, win32)
+pytest 13868 passed / 914 skipped / 4 xfailed / 0 failed; vitest 3537 passed / 33 skipped / 0 failed; tsc -b clean; ruff clean; check_branding OK; cargo check pre-existing resource-path failure (missing windows-key-listener.exe stub; identical on HEAD).
+
+### Excluded from commit
+accordion.tsx, PresetAccordionSelector.tsx - concurrent session's uncommitted in-flight work; not touched, not committed.

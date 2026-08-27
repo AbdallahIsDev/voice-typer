@@ -197,7 +197,7 @@ export function startPython() {
 			// diagnosis doesn't depend on the user transcribing
 			// the dialog.
 			const baseMsg = mainT("dialog.singleInstance.message");
-			const earlyExitMsg = `${baseMsg}\n\nPython backend exited early (code=${codeStr}). Check logs.`;
+			const earlyExitMsg = `${baseMsg}\n\n${mainT("dialog.pythonBackend.earlyExitSuffix", { code: codeStr })}`;
 			dialog.showErrorBox(mainT("dialog.singleInstance.title"), earlyExitMsg);
 			app.quit();
 		} else if (code !== 0) {
@@ -207,20 +207,22 @@ export function startPython() {
 			//surface a user-visible error dialog before quitting so
 			// the user has an actionable message instead of a silent app
 			// exit. Distinguish `code === null` (POSIX signal-based exit,
-			// e.g. SIGSEGV/SIGABRT — `null !== 0` evaluates true, so
+			//e.g. SIGSEGV/SIGABRT — `null !== 0` evaluates true, so
 			// signal-based crashes used to silently fall through this
 			// branch with no distinguishing message) from `code !== 0`
 			// (numeric exit) with separate message bodies so signal
-			// diagnostics are not lost. The main i18n bundle doesn't ship
-			// `dialog.pythonCrash.*` keys, so the strings are hardcoded
-			// English — matching the existing `tcpConnect` startup-timeout
-			// dialog (tcp-connect.ts:64-72) and the `proc.on("error")`
-			// spawn-failure dialog (below) which also hardcode English.
-			const crashTitle = "Python backend crashed";
+			// diagnostics are not lost. Both bodies are localized via
+			// `dialog.pythonBackend.*` keys.
+			const crashTitle = mainT("dialog.pythonBackend.crashTitle");
 			const crashBody =
 				code === null
-					? `${APP_NAME}'s Python backend was terminated by a signal (likely SIGSEGV or SIGABRT) and will now exit.\n\nPlease check the logs and try again.`
-					: `${APP_NAME}'s Python backend exited unexpectedly with code ${code} and will now exit.\n\nPlease check the logs and try again.`;
+					? mainT("dialog.pythonBackend.crashSignalBody", {
+							appName: APP_NAME,
+						})
+					: mainT("dialog.pythonBackend.crashExitBody", {
+							appName: APP_NAME,
+							code: String(code),
+						});
 			try {
 				dialog.showErrorBox(crashTitle, crashBody);
 			} catch (e) {
@@ -299,8 +301,11 @@ export function startPython() {
 		state.pythonExitedEarly = true;
 		try {
 			dialog.showErrorBox(
-				"Python backend not found",
-				`${APP_NAME} could not start its backend:\n${err.message}`,
+				mainT("dialog.pythonBackend.notFoundTitle"),
+				mainT("dialog.pythonBackend.notFoundBody", {
+					appName: APP_NAME,
+					message: err.message,
+				}),
 			);
 		} catch (e) {
 			// dialog may not be available in headless mode

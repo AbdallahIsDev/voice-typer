@@ -69,7 +69,7 @@ APP_SLUG: str = "voice-typer"
 # side uses the same value by extracting it via regex.
 IPC_PORT: int = 9876
 
-# WN-12: canonical name of the env var that carries the per-launch
+# Canonical name of the env var that carries the per-launch
 # session token from the host (Electron / Tauri) to the Python sidecar.
 # Previously the bare literal ``"VOICE_TYPER_IPC_TOKEN"`` was duplicated
 # across 7+ files (electron_launcher, env_validation, ipc/entrypoint,

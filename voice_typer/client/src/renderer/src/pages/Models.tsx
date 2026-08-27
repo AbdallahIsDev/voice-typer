@@ -56,7 +56,7 @@ import { tabPageIndicatorClassName } from "./_tabBarStyles";
 
 export default function ModelsPage() {
 	const lifecycle = useModelLifecycle();
-	// (XA-5-4): persist the active tab (Local / Cloud) across page
+	// Persist the active tab (Local / Cloud) across page
 	// navigation via sessionStorage — a user who picked the Cloud
 	// tab to configure an API key expects to still be on it when
 	// they navigate away and back.
@@ -73,7 +73,7 @@ export default function ModelsPage() {
 		{ value: "cloud", label: t("models.cloudModels") },
 	];
 
-	// (XA-5-17): "currently active model" summary rendered as a banner
+	// "Currently active model" summary rendered as a banner
 	// at the top of the page so the user always knows which ASR backend
 	// is live without scrolling down to find the highlighted card.
 	// Resolved from the backend's `asr_backend` + `model_size` config
@@ -200,7 +200,7 @@ export default function ModelsPage() {
 					)}
 				</PageHeading>
 
-				{/* (XA-5-17): active-model summary banner — always at the
+				{/* Active-model summary banner — always at the
                                         top of the page so the user knows which ASR backend is live
                                         without scrolling. Renders only when an active model is
                                         configured (model_size != "" or a cloud backend is set).

@@ -14,7 +14,7 @@ Scope of extraction (this module):
     * Config-driven ``vad_enabled`` cache (5s TTL safety net).
 
 Out of scope (remain in ``recording.py`` — see
-``docs/rw04-recording-decomposition.md``):
+``docs/history/rw04-recording-decomposition.md``):
     * AudioDeviceManager (device resolution, hot-plug, Bluetooth).
     * AudioBuffer (buffer mgmt, snapshot cache, 3-tier resampling).
 
@@ -389,14 +389,14 @@ class VadProcessor:
                     # ``speech_frames`` would never trigger a transition on
                     # grey frames in UNKNOWN. UNKNOWN keeps the original
                     # decay behavior (bounded grey-zone hold for stale
-                    # history), which the AUDIO-5 regression tests in
+                    # history), which the regression tests in
                     # ``test_vad_processor.py::TestGreyZoneDecay`` pin.
                     self._consecutive_silence_frames = 0
                     self._consecutive_speech_frames = self._speech_frames - 1
                 else:
                     # UNKNOWN state: decay both counters by 1 so stale
                     # history can't pin the machine. Bounds the hold to ~1s.
-                    # (Preserved from AUDIO-5; see note above.)
+                    # (Preserved; see note above.)
                     if self._consecutive_speech_frames > 0:
                         self._consecutive_speech_frames -= 1
                     if self._consecutive_silence_frames > 0:

@@ -1,3 +1,5 @@
+> **Historical document**
+
 # RW-8 Meta-Tests Triage — `tests/test_bugfix_regressions.py`
 
 **STATUS: Historical — the meta-tests in `tests/test_bugfix_regressions.py`
@@ -173,7 +175,7 @@ $ cd /home/z/my-project/voice-typer && python -m pytest tests/test_bugfix_regres
 
 **Created**:
 - `tests/test_bugfix_regressions_behavioral.py` — 5 new behavioral tests across 4 classes (`TestElectronLogFilesBehavioral`, `TestTrayIconBaseIcoBehavioral`, `TestAccessibilityIpcBehavioral`, `TestTcpLineIoOversizedBehavioral`).
-- `docs/rw8-meta-tests-triage.md` — this tracking doc.
+- `docs/history/rw8-meta-tests-triage.md` — this tracking doc.
 
 ## Source Code Not Touched
 

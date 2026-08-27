@@ -47,7 +47,7 @@ def _release_uia_resources_at_exit() -> None:
     handlers execute while COM is still initialized, so dropping the
     references here releases the COM proxies safely.
     """
-    # Narrow suppression only (XS-36): the assignments cannot raise in
+    # Narrow suppression only: the assignments cannot raise in
     # normal operation, but guard against an exotic atexit-time module
     # teardown race where ``_pkg`` is already partially torn down.
     with contextlib.suppress(AttributeError):

@@ -1049,7 +1049,8 @@
 		"importAria": "Importer depuis un fichier",
 		"lastUpdatedWithValue": "Dernière mise à jour : {value}",
 		"close": "Fermer",
-		"confirm": "Confirmer"
+		"confirm": "Confirmer",
+		"retry": "Réessayer"
 	},
 	"microphone": {
 		"levelBarAria": "Niveau d'entrée du microphone",

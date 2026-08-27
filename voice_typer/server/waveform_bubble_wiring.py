@@ -33,7 +33,7 @@ lived in ``VoiceTyperApp._do_cleanup`` (app.py:1469-1480). The primary
 agent should replace that block with a call to
 ``self.waveform_wiring.stop()`` when wiring the delegate.
 
-Risk (per docs/rw9-god-class-decomposition.md §5.5): MEDIUM — the bubble
+Risk (per docs/history/rw9-god-class-decomposition.md §5.5): MEDIUM — the bubble
 level worker has threading concerns (bounded queue + daemon thread +
 sentinel shutdown). Extraction is conceptually clean but the worker's
 lifecycle was intertwined with ``_do_cleanup`` (which stopped the

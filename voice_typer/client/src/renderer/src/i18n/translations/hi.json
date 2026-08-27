@@ -126,7 +126,8 @@
 		"importAria": "फ़ाइल से आयात करें",
 		"lastUpdatedWithValue": "अंतिम अपडेट: {value}",
 		"close": "बंद करें",
-		"confirm": "पुष्टि करें"
+		"confirm": "पुष्टि करें",
+		"retry": "पुनः प्रयास करें"
 	},
 	"microphone": {
 		"levelBarAria": "माइक्रोफ़ोन इनपुट स्तर",

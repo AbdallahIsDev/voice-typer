@@ -4,7 +4,7 @@ Each engine implements the TranscriberProtocol so the app can swap
 backends transparently. Cloud engines send audio to an API endpoint
 and return the transcribed text.
 
-FR-6: per-transcription connection lifecycle. Each CloudEngine
+Per-transcription connection lifecycle. Each CloudEngine
 instance is created per-transcription (not cached across dictations)
 so a stale connection from a previous dictation can never serve a
 later request — the most common cause of "the model talks to the

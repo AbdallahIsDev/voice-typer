@@ -462,7 +462,7 @@ class _OrchestratorMixin:
             # original exception from the try block above is preserved
             # — the finally block must NOT raise (log.debug, not
             # log.error, to avoid log noise on the normal cleanup path).
-            # Per-step rationale (RACE-013, SEC-audit-008, H-17, ...) lives
+            # Per-step rationale (RACE-013, SEC-audit-008, ...) lives
             # on the helpers below.
             self._cleanup_sentinel_unlink()
             self._cleanup_audio_zero()
@@ -623,7 +623,7 @@ class _OrchestratorMixin:
     def _cleanup_transcription_thread_clear(self) -> None:
         """Finally-block step 6: clear ``_transcription_thread``.
 
-         H-17: clear ``_transcription_thread`` under
+         Clear ``_transcription_thread`` under
         ``RecordingController._watchdog_lock`` — the SAME lock that
         guards the field's write (``RecordingController._stop_impl``
         assigns ``self._transcription_thread = threading.Thread(...)``
@@ -631,7 +631,7 @@ class _OrchestratorMixin:
         (``_force_recover_from_stuck_transcription`` snapshots
         ``self._transcription_thread`` under ``_watchdog_lock``).
 
-        Pre-H-17 this clear used ``self._app._lock`` — a DIFFERENT lock
+        Previously this clear used ``self._app._lock`` — a DIFFERENT lock
         — which provided ZERO mutual exclusion against the write/read
         in recording_controller.py. The torn-read hazard was real: a
         concurrent ``_stop_impl`` could be mid-assignment of

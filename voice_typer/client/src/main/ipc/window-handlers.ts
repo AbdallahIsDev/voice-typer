@@ -140,14 +140,14 @@ export function registerWindowHandlers(): void {
 		return state.mainWindow?.isMaximized() ?? false;
 	});
 
-	// ── UX-008: Open Python log folder ────────────────────────────
+	// ── Open Python log folder ────────────────────────────
 	// Previously the Settings page's "View Logs" button just showed a
 	// snackbar saying "Log folder opened" without actually opening
 	// anything.  This handler opens the Python backend's log directory
 	// in the OS file manager.  The path mirrors what
 	// voice_typer/server/app.py:_setup_logging() writes to.
 	//
-	// CR-33 (fix): previously hardcoded `path.join(os.homedir(),
+	// Previously hardcoded `path.join(os.homedir(),
 	// ".voice-typer")`, which (a) pointed at the WRONG directory on
 	// platforms where `computeConfigDir()` returns a different path
 	// (e.g. %APPDATA%/voice-typer on Windows, ~/Library/Application
@@ -159,7 +159,7 @@ export function registerWindowHandlers(): void {
 	// `bootstrap.ts::setupUserData()`), and we NO LONGER create the
 	// directory — the Python backend creates it on its own startup.
 	//
-	// DT-51: the sibling `window:open-electron-logs` handler (which
+	// The sibling `window:open-electron-logs` handler (which
 	// opened the Electron userData dir) was removed — the preload
 	// bridge no longer exposes an `openElectronLogs` entry, so the
 	// handler was unreachable. The Tauri bridge's
@@ -192,7 +192,7 @@ export function registerWindowHandlers(): void {
 	// Opens a native folder-selection dialog so the user can pick a
 	// directory containing HuggingFace model cache folders to import.
 	//
-	// G4-H-22: `dialog.showOpenDialog` can reject (Linux with no display
+	// `dialog.showOpenDialog` can reject (Linux with no display
 	// server, internal Electron error, etc.). Previously this rejection
 	// became an unhandled promise rejection that the SEC-021 breaker
 	// counted toward the 5-error crash-loop exit threshold — a single
@@ -295,7 +295,7 @@ export function registerWindowHandlers(): void {
 		},
 	);
 
-	// ── XA-20-10 / NH-3: renderer → main locale sync ────────────────
+	// ── renderer → main locale sync ────────────────
 	// The renderer pushes its locale here so the main process can:
 	//   (1) Localize native Electron dialogs via `setMainLocale` (the
 	//       main-process i18n bundle in `main/i18n.ts`).
@@ -348,7 +348,7 @@ export function registerWindowHandlers(): void {
 			return { ok: false, error: "empty locale" };
 		}
 		const locale = payload;
-		// XA-20-10 / NH-3: resolve setMainLocale via dynamic
+		// Resolve setMainLocale via dynamic
 		// import so the test's vi.mock is applied at call time
 		// (see the long comment near the top of this module).
 		let setMainLocale: (locale: string) => void;
@@ -368,7 +368,7 @@ export function registerWindowHandlers(): void {
 			// a future refactor must not crash the main process.
 			return { ok: false, error: (e as Error).message };
 		}
-		// XA-20-10: forward to the bubble BrowserWindow so its
+		// Forward to the bubble BrowserWindow so its
 		// separate JS context can re-render in the new locale.
 		// Dynamic import avoids a static-import cycle in tests
 		// that mock `../i18n` + `../state` but not

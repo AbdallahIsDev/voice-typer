@@ -149,7 +149,7 @@ function isEnabled(): boolean {
  * localStorage. Mirrors ``setSoundFeedbackEnabled`` — same persistence
  * semantics (in-memory flag still works if localStorage is unavailable).
  *
- * NOTE (VP-18): as of this fix there is NO production caller — the
+ * NOTE: as of this fix there is NO production caller — the
  * visual-mirror feature (deaf-accessibility) is wired via the
  * ``onVisualCue`` callback path in ``useSoundFeedback``, which reads
  * the flag through ``isVisualFeedbackEnabled``; ``useSoundFeedback``
@@ -180,7 +180,7 @@ export function setVisualFeedbackEnabled(enabled: boolean): void {
  * mirror should be active (each sound cue mirrored as a visual pulse
  * for deaf / hard-of-hearing users).
  *
- * NOTE (VP-18): the ``useSoundFeedback`` hook's ``onVisualCue``
+ * NOTE: the ``useSoundFeedback`` hook's ``onVisualCue``
  * callback path is the production wiring for the visual mirror; this
  * getter is used by ``useSoundFeedback``'s re-export consumers and by
  * the unit tests. It is NOT called by App.tsx (the previous docstring

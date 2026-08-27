@@ -564,11 +564,24 @@ export function useConnection({
 						setConnectionStatus("disconnected");
 					} else if (typeof data?.message === "string") {
 						setLastError(data.message);
+						// A message-carrying `error` event is a recording-level
+						// failure (e.g. transcription crashed), so the Home
+						// page's `recordingState === "error" && lastError`
+						// error line must render. The respawn_exhausted branch
+						// above is connection-level and intentionally does NOT
+						// touch recordingState.
+						setRecordingState("error");
 					}
 				}
 				return undefined;
 			},
-			[markEventReceived, setLastError, setConnectionStatus, t],
+			[
+				markEventReceived,
+				setLastError,
+				setRecordingState,
+				setConnectionStatus,
+				t,
+			],
 		),
 	);
 

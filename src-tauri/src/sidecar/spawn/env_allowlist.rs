@@ -42,7 +42,7 @@
 /// Voice-typer-specific vars (`TAURI_SIDECAR`, `VOICE_TYPER_IPC_TOKEN`,
 /// `VOICE_TYPER_NATIVE_DIR`,
 /// `VOICE_TYPER_CONFIG_DIR`, `VOICE_TYPER_DEBUG`, `RUST_LOG`,
-/// `VOICE_TYPER_SESSION_ID` — GT-68 log-correlation join key) are
+/// `VOICE_TYPER_SESSION_ID` — log-correlation join key) are
 /// added explicitly by the spawn callers AFTER this function returns —
 /// they are NOT in the allowlist (they take precedence over any host
 /// value via the subsequent `.env(...)` call).

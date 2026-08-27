@@ -58,10 +58,10 @@ pub(crate) const PENDING_FULL_CODE: &str = "pending_full";
 //
 // Mirrors the Electron renderer-side allowlist in
 // `voice_typer/client/src/main/allowed-commands.ts` (the canonical
-// declaration since R6-F10 — previously inline in `index.ts:79-191`,
-// SEC-019). The Tauri `dispatch` command is the only path from the
-// webview to the Python sidecar over WS — without this gate, a
-// compromised renderer (XSS in the WebView, malicious extension) could
+// declaration — previously inline in `index.ts:79-191`, SEC-019). The
+// Tauri `dispatch` command is the only path from the webview to the Python
+// sidecar over WS — without this gate, a compromised renderer (XSS in the
+// WebView, malicious extension) could
 // invoke arbitrary server-side commands by
 // `invoke('dispatch', {cmd: 'quit_app'})` or
 // `invoke('dispatch', {cmd: 'set_config', data: {...}})`.
@@ -100,7 +100,7 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
     ALLOWED_COMMANDS.get_or_init(|| {
         // this list MUST mirror the Electron renderer's
         // ALLOWED_COMMANDS in `voice_typer/client/src/main/allowed-commands.ts`
-        // (canonical declaration since R6-F10 — was previously inline
+        // (canonical declaration — was previously inline
         // in `index.ts`). The Python test
         // `tests/test_security_doc_command_count.py` cross-checks
         // parity (count + exact entries).

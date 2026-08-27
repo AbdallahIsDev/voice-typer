@@ -47,7 +47,7 @@ class WaveformBubble:
         self.on_show: Callable[[], None] | None = None
         self.on_hide: Callable[[], None] | None = None
         self.on_level: Callable[[float, float], None] | None = None
-        # NEW-BUBBLE-TRANSCRIBING: ``on_set_state`` is called when the
+        # ``on_set_state`` is called when the
         # bubble should change its visual state (e.g. from "recording"
         # visualizer to "transcribing" text).  The state string is one of:
         #   "recording" — show waveform visualizer
@@ -151,7 +151,7 @@ class WaveformBubble:
                 ``[0, 1.0]`` and is used by the renderer to spike the waveform
                 on transients.
 
-        BUBBLE-: the previous VAD gate (T021) called
+        The previous VAD gate called
                 ``compute_vad_prob(audio_chunk)`` with the device's native
                 sample-rate audio (often 44.1/48 kHz) but ``compute_vad_prob``
                 assumes 16 kHz.  Silero VAD then received an 11 ms slice

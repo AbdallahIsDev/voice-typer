@@ -1,6 +1,6 @@
 """CapsLock suppression helpers for ``WindowsNativeHotkey``.
 
-Extracted from the original ``windows_native.py`` god-class (EC-29
+Extracted from the original ``windows_native.py`` god-class
 split). When the hotkey is Caps Lock, the OS toggles the caps state
 on every physical press. These helpers undo that toggle (reactive
 suppression) and proactively force caps lock OFF (periodic

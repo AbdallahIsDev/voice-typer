@@ -66,7 +66,7 @@ import type {
  */
 export const MICROPHONE_TEST_DURATION_SEC = 10;
 
-// (XA-5-13): module-level cache for the last-test recording + quality
+// Module-level cache for the last-test recording + quality
 // verdict — mirrors the ``_cachedMicrophones`` / ``_cachedConfig``
 // pattern in ``useMicrophoneData``. Persists across page navigations so
 // a user who runs a mic test, navigates to the Models page to download
@@ -272,7 +272,7 @@ export function useMicrophoneTestSession({
 
 	const [testRunning, setTestRunning] = useState(false);
 	const [testElapsed, setTestElapsed] = useState(0);
-	// (XA-5-13): seed the per-test React state from the module-level
+	// Seed the per-test React state from the module-level
 	// cache so navigating away from the Microphone page and back
 	// restores the last test's recording + verdict. The cache is
 	// invalidated on startTest (a new test) and on selectMicrophone
@@ -367,7 +367,7 @@ export function useMicrophoneTestSession({
 					result.transcription_unavailable === true;
 				setTestTranscription(transcriptionText);
 				setTestTranscriptionUnavailable(transcriptionUnavailable);
-				// (XA-5-13): mirror the freshly-captured test recording into
+				// Mirror the freshly-captured test recording into
 				// the module-level cache so a page navigation does NOT
 				// discard it. Mirrors the ``_cachedConfig`` write-through
 				// pattern in useMicrophoneData.updateConfig.
@@ -429,7 +429,7 @@ export function useMicrophoneTestSession({
 		setTestQuality(null);
 		setTestTranscription(null);
 		setTestTranscriptionUnavailable(false);
-		// (XA-5-13): invalidate the module-level test cache when a
+		// Invalidate the module-level test cache when a
 		// new test starts — the cache holds the PREVIOUS test's
 		// recording, which is now superseded. The setX calls above
 		// update React state immediately; the cache reset keeps the
@@ -649,7 +649,7 @@ export function useMicrophoneTestSession({
 			setTestQuality(null);
 			setTestTranscription(null);
 			setTestTranscriptionUnavailable(false);
-			// (XA-5-13): invalidate the test recording cache on a
+			// Invalidate the test recording cache on a
 			// mic switch — the cached recording was for the PREVIOUS
 			// mic and would be misleading A/B comparison material
 			// against the new mic. Mirrors the startTest invalidation.

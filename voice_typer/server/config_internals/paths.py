@@ -321,7 +321,7 @@ def _validate_systemroot() -> None:
     # with ``..`` segments is a classic DLL-injection vector.  Refusing
     # to start is safer than silently resetting (the user would have no
     # indication that their SystemRoot was being tampered with).
-    # H-11 (IMPROVE-2026-07-19): the previous check used naive substring
+    # The previous check used naive substring
     # matching (`".." in systemroot`) which produced false positives on
     # legitimate Windows paths like `C:\Win..dows` or `C:\Windows\file..exe`.
     # fixed this by switching to `PureWindowsPath(systemroot).parts`

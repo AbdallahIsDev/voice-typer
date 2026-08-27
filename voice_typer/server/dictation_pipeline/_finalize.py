@@ -1,8 +1,7 @@
 """Extracted ``_finalize_cycle`` — the ``finally`` block of ``run``.
 
-Pre-refactor (AC-73): the orchestrator's ``run`` method's
-``finally`` block was 197 lines (when AC-73 was originally
-filed). The dictation_pipeline package split then extracted
+Pre-refactor: the orchestrator's ``run`` method's
+``finally`` block was 197 lines. The dictation_pipeline package split then extracted
 the 7 cleanup steps into ``_cleanup_*`` methods on the
 orchestrator mixin (each with its own try/except + log.debug so
 a stuck-busy state is diagnosable from the log). The finally
@@ -24,7 +23,7 @@ named sub-helpers from the task spec:
     the cancelled set (RACE-013 / RACE-016).
   * :func:`_teardown_session_and_thread` — cancel any active
     streaming session ( pop_streaming_session) + clear
-    ``_transcription_thread`` under ``_watchdog_lock`` (H-17).
+    ``_transcription_thread`` under ``_watchdog_lock``.
   * :func:`_reset_correlation_id` — clear the per-thread
     correlation id published at the top of ``run`` so a
     finished cycle can't leak its id into a later log line.

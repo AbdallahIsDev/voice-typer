@@ -126,7 +126,8 @@
 		"importAria": "Aus Datei importieren",
 		"lastUpdatedWithValue": "Zuletzt aktualisiert: {value}",
 		"close": "Schließen",
-		"confirm": "Bestätigen"
+		"confirm": "Bestätigen",
+		"retry": "Wiederholen"
 	},
 	"microphone": {
 		"levelBarAria": "Mikrofoneingangspegel",

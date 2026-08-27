@@ -1,7 +1,6 @@
 """Clipboard snapshot restore registry + delayed/immediate restore impls.
 
-Extracted from the original ``clipboard/manager.py`` monolith (GQ-19,
-pass a). Contains:
+Extracted from the original ``clipboard/manager.py`` monolith (pass a). Contains:
 
 * :data:`_pending_restores` / :data:`_pending_restores_lock` — module-
   level registry of pending delayed-restores.

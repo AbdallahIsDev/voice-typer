@@ -95,9 +95,9 @@ cannot silently re-appear. Brief context for each removal:
   host now handles each via a dedicated Rust command
   (``export_diagnostics`` and the tray-notification path
   respectively) rather than bridging through Python IPC.
-  ``check_accessibility`` was ALSO removed in this pass (GT-32: no
-  renderer caller) but was RE-ADDED on 2026-08-10 (finding #919 part
-  b) — the Settings → Troubleshooting UI now invokes it to surface
+  ``check_accessibility`` was removed in this pass (no renderer caller at
+  the time) but was later re-added — the Settings → Troubleshooting UI
+  now invokes it to surface
   the stale-grant ``tccutil`` reset command, so it is registered
   here AND in both host allowlists in lockstep. See the inline
   comment at its registration below.
@@ -321,7 +321,7 @@ _COMMAND_REGISTRY: dict[str, str] = {
     # ``suggest_reset`` flag + the runtime ``tccutil`` reset command
     # so Settings → Troubleshooting can surface it next to the
     # "Reset Accessibility Permission" button. Was removed in the
-    # GT-32 stale-entry cleanup (no renderer caller at the time); the
+    # stale-entry cleanup (no renderer caller at the time); the
     # Troubleshooting UI now invokes it, so it is re-wired through all
     # THREE allowlists in lockstep (TS ``allowed-commands.ts`` + Rust
     # ``sidecar_cmds.rs`` + this registry). Handler lives in

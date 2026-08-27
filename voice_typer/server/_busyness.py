@@ -1,6 +1,6 @@
 """BusynessCoordinator — owns the pipeline's "busy" flag + lock.
 
-Pre-refactor (AC-66): ``VoiceTyperApp.__init__`` declared three
+Pre-refactor: ``VoiceTyperApp.__init__`` declared three
 private attributes consumed by 6 external modules via direct
 ``app._busy_event`` / ``app._lock`` access:
 

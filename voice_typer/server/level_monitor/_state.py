@@ -160,7 +160,7 @@ class _State:
         # timestamp (``time.monotonic()``) of the last throttled
         # log emission for ``_dropped_level_chunks``.
         self._last_drop_log_time: float = 0.0
-        # R3-F6: one-shot latch so the RT callback emits a WARNING on
+        # One-shot latch so the RT callback emits a WARNING on
         # the FIRST drop of a burst (before the worker thread's 5s
         # throttle window would).
         self._first_drop_warning_emitted: bool = False

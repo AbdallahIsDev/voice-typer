@@ -139,7 +139,7 @@ export function ConnectionStatusScreen({
 						</output>
 						{progressPercent !== null && (
 							<div className="flex w-full max-w-xs flex-col items-center gap-1">
-								<span className="text-xs text-(--fg-subtle)">
+								<span className="text-xs text-(--text-muted)">
 									{progressPercent}%
 								</span>
 								<div

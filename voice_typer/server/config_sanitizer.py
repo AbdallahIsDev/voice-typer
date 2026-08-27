@@ -257,7 +257,7 @@ def sanitize_config_for_ipc(config: Any) -> dict[str, Any]:
     # ``_mutation_lock``) and plain instance attributes set in
     # ``__post_init__`` (``_last_saved_bytes``) are EXCLUDED
     # automatically — they're not in ``Config.__dataclass_fields__``.
-    # ``FR-20`` regression guard
+    # Regression guard
     # (tests/test_config_sanitizer.py::TestNoTransientAttributesLeaked)
     # pins this behavior for ``_last_saved_bytes`` and the
     # ``_mutation_lock`` ClassVar: the sanitizer must NOT leak

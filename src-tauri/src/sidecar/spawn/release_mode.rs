@@ -79,7 +79,7 @@ pub(crate) async fn spawn_sidecar_release(
         .envs(passthrough_env_allowlist())
         .env("TAURI_SIDECAR", "1")
         .env("VOICE_TYPER_IPC_TOKEN", token)
-        // GT-68: share the host's per-process session ID so the
+        // Share the host's per-process session ID so the
         // Python sidecar's log lines carry the same join key as the
         // Rust host's (cross-process log correlation). The Python
         // `log/__init__.py` prefers this env var when set, falling

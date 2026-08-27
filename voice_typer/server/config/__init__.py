@@ -1,6 +1,6 @@
 """Configuration management with platform-aware storage.
 
-W3-A5 / AC-131 continuation: the dataclass field declarations were
+The dataclass field declarations were
 moved to :mod:`voice_typer.server.config._schema` (the
 ``_ConfigSchema`` base class) and the lifecycle / load / save method
 delegators were moved to :mod:`voice_typer.server.config._lifecycle`
@@ -9,7 +9,7 @@ imports those, declares the final ``Config`` dataclass (combining the
 two via multiple inheritance), and re-exports the legacy public
 symbols so the pre-split import paths keep resolving.
 
-Earlier splits (W1-A2 / AC-131) had already moved:
+Earlier splits had already moved:
   - default-value constants → :mod:`voice_typer.server.config._defaults`
   - top-level accessors (purge_user_data, …) → :mod:`voice_typer.server.config._accessors`
   - save / write logic → :mod:`voice_typer.server.config._saving`
@@ -68,7 +68,7 @@ from voice_typer.server.config._accessors import (  # noqa: F401 — re-exported
     purge_user_data,
 )
 
-# W1-A2 / AC-131: monolith split. The following concerns were moved
+# Monolith split. The following concerns were moved
 # into sibling modules so ``__init__.py`` stays focused on the Config
 # dataclass + re-exports. Each module is imported eagerly here so the
 # legacy public API continues to resolve via
@@ -80,7 +80,7 @@ from voice_typer.server.config._defaults import (  # noqa: F401 — re-exported 
     _default_hotkey_for_platform,
 )
 
-# W3-A5 / AC-131 continuation: lifecycle mixin extracted from this
+# Lifecycle mixin extracted from this
 # module. Provides ``__post_init__`` / ``__setattr__`` /
 # ``set_mutation_lock`` / ``save`` / ``load`` / ``_coerce_*`` /
 # ``_validate_*`` / ``config_dir`` (etc.) as thin delegators to the
@@ -222,7 +222,7 @@ _windows_owner_only_acl_verified: set[str] = set()
 class Config(_ConfigSchema, _ConfigLifecycleMixin):
     """Application configuration.
 
-    W3-A5 / AC-131 continuation: the field declarations live in
+    The field declarations live in
     :class:`voice_typer.server.config._schema._ConfigSchema` and the
     lifecycle / load / save method delegators live in
     :class:`voice_typer.server.config._lifecycle._ConfigLifecycleMixin`.

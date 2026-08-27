@@ -1,6 +1,6 @@
 """Version-migration helpers for the ``Config`` dataclass.
 
-Extracted from ``config/__init__.py`` (W1-A2 / AC-131) to chip away
+Extracted from ``config/__init__.py`` to chip away
 at the monolith.
 
 The forward-migration orchestrator (``_run_migrations``) and the

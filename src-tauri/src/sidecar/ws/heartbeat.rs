@@ -1,7 +1,6 @@
 //! Heartbeat task spawn + abort helpers (ADR-0020 §10).
 //!
-//! Extracted from the original 2534-line `ws.rs` monolith
-//! (review.md FZ-24 / ZR-86). Holds:
+//! Extracted from the original 2534-line `ws.rs` monolith. Holds:
 //! - `spawn_heartbeat_task` — drives a 10s-interval `heartbeat`
 //!   dispatch loop on the Tauri async runtime, aborting the
 //!   previous handle (if any) before storing the new one.

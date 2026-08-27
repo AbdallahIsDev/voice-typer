@@ -22,7 +22,7 @@
  * Python process is force-killed directly here instead.
  */
 
-// ER-26: bounded wait for the old Python process to actually exit
+// Bounded wait for the old Python process to actually exit
 // between the SIGTERM and the fresh spawn. Node's ChildProcess shape
 // is all we need (exitCode/signalCode/once) — no other API surface.
 import type { ChildProcess } from "node:child_process";
@@ -30,6 +30,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { app, dialog } from "electron";
 import { APP_NAME } from "../branding";
+import { mainT } from "../i18n";
 import { log } from "../logging";
 import { computeConfigDir } from "../single_instance";
 import { state } from "../state";
@@ -175,7 +176,7 @@ function _appendRestartTimestamp(history: number[]): void {
 }
 
 /**
- * ER-26: wait (bounded) for the old Python process to actually exit.
+ * Wait (bounded) for the old Python process to actually exit.
  *
  * The dev-mode restart used to call `startPython()` immediately after
  * `killPythonProcessWithSigkillFallback()` — but the old backend may
@@ -318,7 +319,7 @@ export async function relaunchApp(): Promise<void> {
 			state.heartbeatInterval = null;
 		}
 
-		// ER-26: wait for the OLD backend to actually release the IPC
+		// Wait for the OLD backend to actually release the IPC
 		// port before spawning its replacement. All synchronous
 		// teardown above has already run; from here until the fresh
 		// spawn we are purely waiting on the dying process. Bounded at
@@ -408,14 +409,14 @@ export async function relaunchApp(): Promise<void> {
 		);
 		try {
 			dialog.showErrorBox(
-				`${APP_NAME} cannot restart safely`,
-				`${APP_NAME} has been asked to restart ${recentRestarts.length} times ` +
-					`in the last ${RESTART_WINDOW_MS / 1000} seconds, which suggests ` +
-					`the Python backend is crashing on launch.\n\n` +
-					`To avoid a crash loop, the automatic restart has been cancelled. ` +
-					`Please check the log files in your ${APP_NAME} config directory ` +
-					`(python_crash.*.txt and voice-typer.log), then start ${APP_NAME} ` +
-					`manually once you've addressed the underlying issue.`,
+				mainT("dialog.pythonBackend.restartLoopTitle", {
+					appName: APP_NAME,
+				}),
+				mainT("dialog.pythonBackend.restartLoopBody", {
+					appName: APP_NAME,
+					count: String(recentRestarts.length),
+					seconds: String(RESTART_WINDOW_MS / 1000),
+				}),
 			);
 		} catch (e) {
 			// dialog may be unavailable in headless mode (CI,

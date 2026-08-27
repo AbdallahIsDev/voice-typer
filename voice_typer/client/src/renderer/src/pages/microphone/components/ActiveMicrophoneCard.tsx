@@ -259,7 +259,7 @@ export function ActiveMicrophoneCard({
 				onStop={onStopPlayback}
 				onRetest={onRetest}
 				hasFiltersEnabled={hasFiltersEnabled}
-				// (XA-5-8): wire the preset-applier so detected-noise
+				// Wire the preset-applier so detected-noise
 				// issues render a one-click "Apply Noisy Room preset"
 				// CTA. ``onPresetChange`` is useCallback-stable in
 				// useMicrophoneTest, so identity churn never re-renders
@@ -375,7 +375,7 @@ const MemoizedTestReviewPanel = memo(
 		prev.playing === next.playing &&
 		prev.playingOriginal === next.playingOriginal &&
 		prev.hasFiltersEnabled === next.hasFiltersEnabled &&
-		// (XA-5-8): include the new preset-applier + current preset in
+		// Include the new preset-applier + current preset in
 		// the comparator. ``onApplyPreset`` is useCallback-stable
 		// (delegated to ``onPresetChange`` in useMicrophoneTest) so
 		// identity churn is rare; ``currentPreset`` flips when the

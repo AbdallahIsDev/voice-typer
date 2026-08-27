@@ -17,7 +17,7 @@ controller. They are tightly coupled to the controller's
 in the test-suite pin their source to the controller module
 (``inspect.getsource(RecordingController.pop_streaming_session)`` etc.).
 Moving them here would break those tripwires; keeping them on the
-controller preserves the ARCH-018 atomic-pop contract verbatim.
+controller preserves the atomic-pop contract verbatim.
 
 Collaborator pattern
 --------------------
@@ -165,7 +165,7 @@ class StreamingSessionCoordinator:
                 # Correlation id echoed in every transcription_partial
                 # payload. ``getattr`` keeps mock-app test fixtures working.
                 cycle_id=getattr(app, "_cycle_id", "") or "",
-                # ER-48 residual fence: let the session check whether the
+                # Residual fence: let the session check whether the
                 # backend is busy in ANOTHER thread before its finalize path
                 # re-enters the captured engine. ``is_busy`` is keyed by
                 # backend NAME. PRIMARY scenario is same-cycle overlap:

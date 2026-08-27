@@ -29,7 +29,7 @@ import logging
 import os
 import re
 
-# WN-12: import the canonical env-var name from the single source
+# Import the canonical env-var name from the single source
 # of truth. See voice_typer/server/_paths.py:IPC_TOKEN_ENV_VAR.
 from voice_typer.server._paths import IPC_TOKEN_ENV_VAR  # noqa: E402
 

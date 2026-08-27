@@ -38,6 +38,7 @@ ALLOWED_UNTRANSLATED = {
     "settings.preset",  # "Preset" — technical term
     "settings.presetCode",  # "Code" — technical term
     "settings.notifications",  # "Notifications" — technical term
+    "a11y.notifications",  # "Notifications" — identical cognate in French (same word)
     "home.error",  # "ERROR" — technical term
     # trayState.error — the tooltip's AppState error label. "error" is
     # the same word in Spanish (and a universal technical cognate); the

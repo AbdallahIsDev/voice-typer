@@ -246,8 +246,7 @@ def transcribe_unlocked(
                     _safe_seg_text = _redact_pii(_seg_text)
                 except Exception:
                     # fall back to a redacted marker only — do NOT
-                    # log the raw text even truncated (HU-13, AP-11
-                    # twin). The opt-in ``log_transcriptions`` flag is a
+                    # log the raw text even truncated. The opt-in ``log_transcriptions`` flag is a
                     # privacy backstop the user explicitly enabled, and
                     # a ``redact_pii`` failure (import failure / regex
                     # bug) means PII cannot be guaranteed masked.

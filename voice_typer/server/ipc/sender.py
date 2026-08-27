@@ -10,7 +10,7 @@ god-module. Contains:
   ``_send``.
 - :class:`_LazyInt` — deferred ``int`` wrapper used to avoid eager
   ``len(str(msg))`` stringification on the no-client push-event path
-  (ER-84). The wrapper's ``__int__`` is only invoked when the logging
+  (deferred lazy `int`). The wrapper's ``__int__`` is only invoked when the logging
   framework actually renders the format string, so the recursive
   ``dict.__str__`` cost is paid ONLY when the rate limiter decides to
   emit (1st + every 100th occurrence at INFO; suppressed occurrences
@@ -112,7 +112,7 @@ _TCP_MAX_OUTBOUND_BYTES: int = 1 * 1024 * 1024
 
 
 class _LazyInt:
-    """Deferred ``int`` for ``%d`` log formatting (ER-84).
+    """Deferred ``int`` for ``%d`` log formatting.
 
     The no-client push-event path used to evaluate ``len(str(msg))``
     eagerly as a positional argument to ``log_rate_limited``. Because
@@ -325,7 +325,7 @@ class OutputMixin:
         _client: _TCPLineIO | None = None,
         _out: TextIO | None = None,
     ) -> None:
-        """Build + send a structured error envelope (ZR-76 DRY helper).
+        """Build + send a structured error envelope (DRY helper).
 
         Consolidates the inline ``err = {"type": "error", "data": {...}};
         if "id" in msg: err["id"] = msg["id"]; self._send(err, ...)`` blocks
@@ -432,7 +432,7 @@ class OutputMixin:
         # Step 2: serialize + write OUTSIDE the lock.  A slow client can
         # stall here without blocking other dispatchers.
         #
-        # XV-83: ``ensure_ascii=False`` keeps multi-byte UTF-8
+        # ``ensure_ascii=False`` keeps multi-byte UTF-8
         # (e.g. CJK / emoji dictation) as-is on the wire instead of
         # escaping to ``\uXXXX`` (the default ``ensure_ascii=True``).
         # ``separators=(",", ":")`` strips the default ``", "`` /
@@ -867,7 +867,7 @@ class OutputMixin:
             # DEBUG with a "(suppressed occurrence N)" suffix so they
             # remain visible when debug-level logging is enabled.
             #
-            # ER-84: wrap ``len(str(msg))`` in ``_LazyInt`` so the
+            # Wrap ``len(str(msg))`` in ``_LazyInt`` so the
             # recursive ``dict.__str__`` cost (which stringifies every
             # value in the message dict, including partial
             # transcription text) is deferred until the logging
@@ -909,7 +909,7 @@ __all__ = [
     # rationale).
     "_PendingBuffer",
     # exported so tests can verify the lazy-evaluation contract
-    # (ER-84): ``int(_LazyInt(...))`` must invoke the wrapped callable
+    # (lazy-evaluation contract): ``int(_LazyInt(...))`` must invoke the wrapped callable
     # exactly once at evaluation time, not at construction time.
     "_LazyInt",
 ]

@@ -1,6 +1,6 @@
 // Windows implementation of the kill-on-parent-exit guarantee: a
 // process-wide Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-// (VP-1 split: body of the former inline `mod windows_impl` in
+// (split: body of the former inline `mod windows_impl` in
 // `platform/process.rs`; declared from `process/mod.rs` via
 // `#[path = "windows.rs"] mod windows_impl;`).
 

@@ -35,8 +35,7 @@ export interface PermissionsResult {
 	 * the same as `"unknown"` for advancement purposes but log it.
 	 *
 	 * `"prompt"` is the 5-state form the backend may emit for OS
-	 * permission prompts (kept per the canonical contract — VP-7
-	 * consolidated the onboarding-local 4-state copy into this type;
+	 * permission prompts (kept per the canonical contract — consolidated the onboarding-local 4-state copy into this type;
 	 * a backend that emits `"prompt"` must not be rejected by a
 	 * renderer whose type doesn't admit it).
 	 */
@@ -56,7 +55,7 @@ export interface PermissionsResult {
 	 * `voice_typer/server/onboarding.py::check_permissions`); the
 	 * optional literal fields (`title` / `steps`) remain for backward
 	 * compat with older backends. `commands` is always present when
-	 * `instructions` is non-null (VP-7 consolidated the divergent
+	 * `instructions` is non-null (consolidated the divergent
 	 * onboarding-local type into this single source of truth).
 	 */
 	instructions: {

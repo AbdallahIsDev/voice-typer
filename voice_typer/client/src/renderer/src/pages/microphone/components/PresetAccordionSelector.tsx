@@ -148,7 +148,7 @@ export function PresetAccordionSelector({
 					// instance (user decision for this selector) and replaced by
 					// the dedicated rotating chevron below — the primitive itself
 					// is untouched, so every other accordion keeps its "+".
-					className="items-center gap-3 px-4 py-2.5 hover:bg-foreground/5 hover:no-underline focus-visible:ring-ring/30 [&_[data-slot=accordion-trigger-icon]]:hidden **:data-[slot=accordion-trigger-icon]:text-(--text-muted)"
+					className="items-center gap-3 px-4 py-2.5 hover:bg-foreground/5 hover:no-underline focus-visible:ring-ring/30 **:data-[slot=accordion-trigger-icon]:hidden **:data-[slot=accordion-trigger-icon]:text-(--text-muted)"
 				>
 					<span className="flex items-center gap-1.5 min-w-0">
 						<span className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">
@@ -199,11 +199,11 @@ export function PresetAccordionSelector({
 				roving-tabindex/reading order) and push it to the visual far
 				end via ms-auto, aligning its inset with the header chevron. */}
 				<AccordionContent>
-					<div className="border-t border-border/10 pt-2">
+					<div className="border-t border-border/10 pt-4">
 						<RadioGroup
 							value={preset}
 							onValueChange={(v) => onPresetChange(v as AudioPreset)}
-							className="gap-0.5 px-2"
+							className="gap-1 px-4"
 							data-testid="mic-preset-radio-group"
 						>
 							{presetOptions.map((option) => (
@@ -212,7 +212,7 @@ export function PresetAccordionSelector({
 								<div
 									key={option.value}
 									className={cn(
-										"flex items-center gap-3 rounded-lg px-0 py-2 min-h-9 cursor-pointer transition-colors hover:bg-foreground/5",
+										"flex items-center gap-3 rounded-lg p-2 min-h-9 cursor-pointer transition-colors hover:bg-foreground/5",
 										option.value === preset && "bg-foreground/5",
 									)}
 									data-testid={`mic-preset-option-${option.value}`}

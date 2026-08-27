@@ -414,7 +414,7 @@ class RecordingController:
 
         On ``recorder.stop()`` failure, the helper calls
         ``app.tray.notify_safety(APP_NAME, i18n.t("notify.recording_controller.stop_failed"))``
-        so the critical-notification bypass behavior (UX-018 / Fix-B) is
+        so the critical-notification bypass behavior is
         preserved verbatim.
         """
         return self._lifecycle._stop_and_transcribe_worker_entry(self, cycle_id)

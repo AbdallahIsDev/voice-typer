@@ -137,7 +137,7 @@ from voice_typer.server.config_sanitizer import (  # noqa: F401
 # source. The name is re-exported here so existing
 # ``from voice_typer.server.ipc_server import _STDIN_IPC_ENV_VAR``
 # callers AND the ``hasattr(ipc_server_mod, "_STDIN_IPC_ENV_VAR")`` test
-# contract (UE-13) keep working unchanged.
+# contract keep working unchanged.
 from voice_typer.server.ipc._helpers import (  # noqa: E402, F401
     _STDIN_IPC_ENV_VAR,  # noqa: F401
     _push_event_now,

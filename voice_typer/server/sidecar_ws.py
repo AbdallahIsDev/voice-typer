@@ -22,7 +22,7 @@ Architecture
     ws://127.0.0.1:<n>, sends the bearer-token auth frame, then forwards
     invoke('dispatch', {cmd, data}) envelopes over the WS.
 
-    Auth model (ADR-0020 §3, ZR-56 reconciliation)
+    Auth model (ADR-0020 §3)
     -----------------------------------------------
     The handshake is a **one-shot bearer-token** check, NOT an HMAC
     scheme. The Rust host generates a 256-bit bearer token via
@@ -41,7 +41,7 @@ Architecture
         generated on every sidecar spawn, so a stolen token is useless
         after the process exits (ADR-0020 §3 rotation).
     The historical "HMAC" wording was carried over from ADR-0014's
-    original design; ADR-0020 §3 has been reconciled (ZR-56) and this
+    original design; ADR-0020 §3 has been reconciled and this
     module's docstrings mirror the corrected wording.
 
 Why a separate module (not a flag on ipc_server.py)?
@@ -140,7 +140,7 @@ import time
 from collections import deque
 from typing import TYPE_CHECKING
 
-# Shared TCP/WS auth-handshake helpers (VP-8): frame-shape validation
+# Shared TCP/WS auth-handshake helpers: frame-shape validation
 # + token extraction (``extract_auth_token``) and the constant-time
 # token comparison (``tokens_equal``, wrapping ``hmac.compare_digest``)
 # live in :mod:`voice_typer.server.ipc.auth` so the two transports
@@ -557,7 +557,7 @@ def _emit_server_started(port: int, protocol: int | None = None) -> None:
 async def _authenticate(websocket) -> bool:
     """Read the first WS frame and validate the bearer token.
 
-    Per ADR-0020 §3 (ZR-56 reconciliation), the client's first frame
+    Per ADR-0020 §3, the client's first frame
     must be::
 
         {"type": "auth", "token": "<token>"}
@@ -601,7 +601,7 @@ async def _authenticate(websocket) -> bool:
     :mod:`voice_typer.server.ipc.auth` (``extract_auth_token`` +
     ``tokens_equal``) are used by BOTH transports, so a fix to the
     frame-validation / constant-time comparison contract lands in a
-    single module (VP-8 — extracted 2026-08-11; previously this note
+    single module (extracted 2026-08-11; previously this note
     read "must be applied to BOTH call sites").
     """
     expected_token = os.environ.get(IPC_TOKEN_ENV_VAR, "")
@@ -633,7 +633,7 @@ async def _authenticate(websocket) -> bool:
         log.warning("[SIDECAR-WS] first frame is not an auth frame")
         return False
 
-    # Shared with the TCP transport (VP-8): ``extract_auth_token``
+    # Shared with the TCP transport: ``extract_auth_token``
     # validates the frame shape + extracts the token; ``tokens_equal``
     # performs the constant-time ``hmac.compare_digest`` comparison
     # (see ``voice_typer.server.ipc.auth`` — a bug fix to either
@@ -729,7 +729,7 @@ def _make_dispatch(server: IPCServer):
 
     from voice_typer.server.ipc_server import _get_rate_limiter
 
-    # XV-87: resolve the rate limiter ONCE in the closure body so
+    # Resolve the rate limiter ONCE in the closure body so
     # ``dispatch()`` doesn't call ``_get_rate_limiter(server)`` per
     # frame. Per-frame resolution costs a module-globals traversal
     # + a dict-style getattr on every WS frame; resolved-once

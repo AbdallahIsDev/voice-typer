@@ -1,7 +1,7 @@
 // POSIX implementation of the kill-on-parent-exit guarantee (reaper
 // subprocess) plus the Unix kill-tree helpers (in-process syscall
 // per-pid signals, child enumeration, and the process-group race-
-// window catcher). VP-1 split: body of the former inline
+// window catcher). Split: body of the former inline
 // `mod posix_impl` + the Unix helper functions in `platform/process.rs`;
 // declared from `process/mod.rs` via `#[path = "posix.rs"] mod posix_impl;`.
 
@@ -229,7 +229,7 @@ pub(super) fn signal_name(sig: libc::c_int) -> &'static str {
 }
 
 /// Liveness probe: does `pid` currently exist? Used by
-/// `kill_process_tree` (ER-93) to drop already-exited descendants from
+/// `kill_process_tree` to drop already-exited descendants from
 /// the snapshot BEFORE paying any signal or grace-sleep cost.
 ///
 /// Uses `kill(pid, 0)` — signal 0 performs permission/existence checks

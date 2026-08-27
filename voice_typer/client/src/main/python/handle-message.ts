@@ -93,7 +93,7 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 		setLastKnownBubbleMode(state_);
 		// Forward the FULL payload when the backend additionally
 		// carries `message` (error reason) or `transcript`
-		// (live partial text, XA-6-2) — falling back to the bare
+		// (live partial text) — falling back to the bare
 		// state string for legacy state-only payloads so existing
 		// renderers + tests keep receiving the minimal shape. The
 		// renderer's `parseSetStatePayload` accepts both.

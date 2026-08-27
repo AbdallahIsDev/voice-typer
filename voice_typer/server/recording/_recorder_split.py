@@ -1303,7 +1303,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
         _EVENT_WORKER_JOIN_TIMEOUT_S,
     )
 
-    # GT-23R: fast-path ONLY when no worker refs exist. A
+    # Fast-path ONLY when no worker refs exist. A
     # start()/discard() race can leave ``_recording_event`` cleared but
     # a live worker (a start() spawned it after a concurrent discard
     # already cleared the event). In that state stop() must still stop

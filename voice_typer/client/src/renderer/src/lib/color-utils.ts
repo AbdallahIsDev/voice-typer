@@ -30,8 +30,8 @@
 // ``_relativeLuminance``, ``_parseHex``) are NOT exported — they are
 // internal implementation details. Only the public API (``cssColorToHex``,
 // ``contrastRatio``, ``pickBestForeground``) is exported; ``passesWCAG``
-// is a test/validator convenience wrapper marked ``@internal`` (VP-18 —
-// no production caller). External callers were checked: the only consumer
+// is a test/validator convenience wrapper marked ``@internal`` (no production
+// caller). External callers were checked: the only consumer
 // outside this file (``ThemeSettingsSection.tsx``) had a comment
 // referencing these names but did not import them.
 
@@ -398,7 +398,7 @@ export function pickBestForeground(
  *
  *   ``if (!passesWCAG(fg, bg, 4.5)) warn("fails AA");``
  *
- * @internal — VP-18: this helper has NO production caller today (only
+ * @internal — this helper has NO production caller today (only
  * ``themes/__tests__/parity.test.ts`` uses it). It is kept exported
  * (rather than deleted) because it is a 3-line pure wrapper with real
  * test coverage, and a future caller (e.g. a theme editor warning on

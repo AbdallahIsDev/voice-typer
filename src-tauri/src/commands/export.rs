@@ -274,7 +274,7 @@ pub(crate) fn value_to_string_into(out: &mut String, v: &Value) {
 /// contains a comma, double-quote, newline, or carriage return; double
 /// any embedded double-quotes.
 ///
-/// H-12 (IMPROVE-2026-07-19): SEC-015 CSV formula-injection defense.
+/// SEC-015 CSV formula-injection defense.
 /// Cells starting with `=`, `+`, `-`, `@`, `\t`, or `\r` are prefixed
 /// with a single quote `'` before quoting so spreadsheet apps (Excel,
 /// LibreOffice) treat them as text rather than executing them as

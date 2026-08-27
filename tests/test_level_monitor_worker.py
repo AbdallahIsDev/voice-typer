@@ -338,7 +338,7 @@ class TestUpdateLevelProcessorLocking:
         constructor_entry_count: list[int] = []
 
         class _FakeAudioProcessor:
-            def __init__(self, config, sample_rate):
+            def __init__(self, config, sample_rate, **kwargs):
                 # Record how many times the lock has been entered by
                 # the time the constructor runs. The snapshot read in
                 # update_level_processor acquires the lock once, and
@@ -449,7 +449,7 @@ class TestUpdateLevelProcessorLocking:
         import voice_typer.server.level_monitor as lm
 
         class _FastAudioProcessor:
-            def __init__(self, config, sample_rate):
+            def __init__(self, config, sample_rate, **kwargs):
                 pass
 
             def reset(self):

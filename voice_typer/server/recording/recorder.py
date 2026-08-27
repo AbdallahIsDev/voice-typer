@@ -196,7 +196,7 @@ from .format import (  # noqa: E402
     resample_chunk as _format_resample_chunk_fn,
 )
 
-# Phase 4.5 further-split (DT-21): the device / disconnect-handler
+# Phase 4.5 further-split: the device / disconnect-handler
 # state declarations + collaborator constructions (~88 LOC) were
 # extracted to ``RecorderInitMixin._setup_device_state_and_collaborators``.
 # ``Recorder.__init__`` calls the mixin method after the basic Recorder
@@ -1462,7 +1462,7 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
         """refresh per-chunk VAD caches (delegator).
 
         Body moved to :func:`.vad_helpers.refresh_vad_caches` so
-        ``recorder.py`` shrinks further (DT-21 further-split). This is
+        ``recorder.py`` shrinks further (further-split). This is
         a 1-line delegator so existing call sites, subclass overrides,
         and ``inspect.getsource(Recorder._refresh_vad_caches)`` checks
         keep working. Tests that monkeypatch
@@ -2442,11 +2442,9 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
                 checks on ``Recorder._process_audio_chunk`` continue to work.
 
                 See :mod:`.audio_pipeline` for the collaborator pattern and
-                the full processing-pipeline rationale (HOTKEY-CRASH,
-        , AUDIO-CH, AUDIO-PROC, AUDIO-CLIP, ,
-        , H12, T021, ).
+                the full processing-pipeline rationale.
 
-        ER-89: surface ring-buffer overflow in real time. The RT
+        Surface ring-buffer overflow in real time. The RT
                 callback (``_audio_callback_dispatch``) increments
                 ``_dropped_ring_chunks`` when the ring buffer is full
                 but cannot log from the RT path. The worker thread
@@ -2465,7 +2463,7 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
         (god-class split). This is a thin delegator so the call site in
         ``_process_audio_chunk`` and any instance-level monkeypatches
         keep working unchanged. See the helper's docstring for the
-        ER-89 rationale (delta computation, rate limiting, log-only
+        rationale (delta computation, rate limiting, log-only
         contract — no direct ``event_bus.publish``).
         """
         self._capture.surface_ring_overflow_warning(self)
@@ -2692,7 +2690,7 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
             # that prevents wasted work: no ``_stop_generation``
             # increment, no ``_user_stop_pending`` flip, no stream teardown,
             # no worker stop.
-            # GT-23R: fast-path ONLY when no worker refs exist — a
+            # Fast-path ONLY when no worker refs exist — a
             # start()/discard() race can leave ``_recording_event``
             # cleared but a live worker (start() spawned it after this
             # discard cleared the event). In that state discard() must

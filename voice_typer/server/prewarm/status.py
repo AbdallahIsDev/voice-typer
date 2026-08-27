@@ -197,7 +197,7 @@ def _config_fast_startup() -> bool | None:
 _cache_probe_cache: dict = {}
 _CACHE_PROBE_TTL_S: float = 30.0
 
-# SU-35: hard cap on ``_cache_probe_cache`` entries. The 30 s TTL at
+# Hard cap on ``_cache_probe_cache`` entries. The 30 s TTL at
 # the read site governs whether a cached *result* is reused, but the
 # dict entry itself is never evicted by the TTL — a process that swaps
 # models thousands of times would otherwise leak one fingerprint entry
@@ -269,7 +269,7 @@ def _probe_cache_status(active_dirs: list[Path]) -> tuple[float, int, int]:
 
     result = (cache_ratio, cached_bytes, total_bytes)
     _cache_probe_cache[fingerprint] = (now, result)
-    # SU-35: enforce the hard cap on every write (mirrors
+    # Enforce the hard cap on every write (mirrors
     # streaming.py:385) so the cap fires on the write path, not just
     # on read.
     _prune_stale_cache_probe_entries()
@@ -277,7 +277,7 @@ def _probe_cache_status(active_dirs: list[Path]) -> tuple[float, int, int]:
 
 
 def _prune_stale_cache_probe_entries() -> None:
-    """SU-35: enforce the ``_cache_probe_cache`` hard cap.
+    """Enforce the ``_cache_probe_cache`` hard cap.
 
     When ``len(_cache_probe_cache) > _CACHE_PROBE_MAX_ENTRIES``, clear
     the dict wholesale (mirrors the ``streaming.py:385`` pattern).

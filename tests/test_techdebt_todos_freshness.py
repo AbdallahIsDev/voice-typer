@@ -49,7 +49,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PREWARM_INIT = REPO_ROOT / "voice_typer" / "server" / "prewarm" / "__init__.py"
 RECORDING_INIT = REPO_ROOT / "voice_typer" / "server" / "recording" / "__init__.py"
-TRACKING_DOC = "docs/rw9-god-class-decomposition.md"
+TRACKING_DOC = "docs/history/rw9-god-class-decomposition.md"
 # The session that addressed the staleness (worklog session start).
 MIN_TODO_DATE = "2026-08-01"
 # Matches "TODO (YYYY-MM-DD, TECH-DEBT" — the post-fix format.

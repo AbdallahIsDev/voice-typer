@@ -77,7 +77,7 @@ export function useTemplates({
 	// array from backend) from "load failed" (backend unreachable or
 	// returned garbage).
 	const [loadError, setLoadError] = useState<string | null>(null);
-	// (XA-5-4): persist search + sort across page navigation via
+	// Persist search + sort across page navigation via
 	// sessionStorage — same pattern as Vocabulary. Wraps
 	// useSessionStorage under the hood with a per-page namespaced key.
 	const [searchQuery, setSearchQuery] = useFilterState<string>(

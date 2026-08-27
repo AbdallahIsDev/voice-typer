@@ -252,7 +252,7 @@ class DownloadsMixin:
             model_dir = cache_dir / f"models--{repo_id.replace('/', '--')}"
             ... = sum(f.stat().st_size for f in model_dir.rglob("*") if f.is_file())
 
-        (XV-2 regression guard — kept as a docstring snippet so the
+        (Regression guard — kept as a docstring snippet so the
         ``tests/test_perf_fixes.py::TestDownloadPollScopedToModelDir``
         source-pin still trips if a future refactor re-widens the
         rglob to walk the whole ``cache_dir``.)

@@ -85,11 +85,11 @@ export const FADEOUT_DURATION_MS = 150;
 export const BUBBLE_BUTTON_CLASS =
 	"no-drag ms-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-(--text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0";
 
-// ── Mode transition (IN-62 single source of truth) ───────────────────
+// ── Mode transition (single source of truth) ───────────────────
 
 /**
  * Pure bubble-mode reducer — the SINGLE implementation of every mode
- * transition in the bubble package (IN-62).
+ * transition in the bubble package (single source of truth).
  *
  * Pre-refactor, the bubble's `mode` was tracked TWICE: in
  * `useBubbleStateMachine` (React state, the source of truth driving the
@@ -157,8 +157,8 @@ export function nextBubbleMode(
  * optional message + an optional partial transcript. The IPC type is
  * `(state: string) => void`, but the runtime payload MAY be a richer
  * object once the backend + main process are extended to forward error
- * reasons (`message`) or live partial transcription text (`transcript`,
- * XA-6-2). Defensive duck-typing keeps consumers forward-compatible
+ * reasons (`message`) or live partial transcription text (`transcript`).
+ * Defensive duck-typing keeps consumers forward-compatible
  * without requiring a type-system change to
  * `BubbleWindowExtras.onSetState`.
  *

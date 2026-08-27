@@ -226,7 +226,7 @@ function ProviderConfigForm({
 	);
 	const showConsent = Boolean(apiKeyValue) || consentGranted;
 
-	// (XA-5-11): show/hide toggle for the API key input. Default is
+	// Show/hide toggle for the API key input. Default is
 	// hidden (type="password"); clicking the eye-icon button reveals
 	// the plain-text value for verification. The reveal state is purely
 	// local — every ProviderConfigForm instance owns its own toggle so
@@ -269,7 +269,7 @@ function ProviderConfigForm({
 					<button
 						type="button"
 						onClick={() => setRevealKey((v) => !v)}
-						className="absolute end-2 top-1/2 -translate-y-1/2 inline-flex size-6 items-center justify-center rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-foreground/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						className="absolute inset-e-2 top-1/2 -translate-y-1/2 inline-flex size-6 items-center justify-center rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-foreground/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 						aria-label={
 							revealKey
 								? t("models.cloud.apiKeyHideAria", {
@@ -289,7 +289,7 @@ function ProviderConfigForm({
 						/>
 					</button>
 				</div>
-				{/* (XA-5-11): subtle format hint below the input so users
+				{/* Subtle format hint below the input so users
                                         know the expected key shape without trial-and-error.
                                         Generic hint covers the common provider key conventions;
                                         the per-provider text is intentionally minimal so it

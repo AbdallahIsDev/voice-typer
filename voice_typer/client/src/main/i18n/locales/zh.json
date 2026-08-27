@@ -14,5 +14,15 @@
 	"state.app.starting": "正在启动...",
 	"dialog.crashLoop.title": "{appName} — 崩溃循环",
 	"dialog.crashLoop.mainBody": "主窗口渲染器已反复崩溃，无法恢复。\n\n请使用托盘图标重新启动或退出，然后重新启动 {appName}。",
-	"dialog.crashLoop.bubbleBody": "悬浮窗渲染器已反复崩溃，无法恢复。\n\n请使用托盘图标重新启动或退出，然后重新启动 {appName}。"
+	"dialog.crashLoop.bubbleBody": "悬浮窗渲染器已反复崩溃，无法恢复。\n\n请使用托盘图标重新启动或退出，然后重新启动 {appName}。",
+	"dialog.pythonBackend.timeoutTitle": "Python 后端启动失败",
+	"dialog.pythonBackend.timeoutBody": "{appName} 无法在 {seconds} 秒内连接到其 Python 后端。\n\n请检查日志并重试。",
+	"dialog.pythonBackend.crashTitle": "Python 后端崩溃",
+	"dialog.pythonBackend.crashSignalBody": "{appName} 的 Python 后端被信号终止（可能是 SIGSEGV 或 SIGABRT），即将退出。\n\n请检查日志并重试。",
+	"dialog.pythonBackend.crashExitBody": "{appName} 的 Python 后端以代码 {code} 意外退出，即将关闭。\n\n请检查日志并重试。",
+	"dialog.pythonBackend.earlyExitSuffix": "Python 后端提前退出（代码={code}）。请检查日志。",
+	"dialog.pythonBackend.notFoundTitle": "找不到 Python 后端",
+	"dialog.pythonBackend.notFoundBody": "{appName} 无法启动其后端：\n{message}",
+	"dialog.pythonBackend.restartLoopTitle": "{appName} 无法安全地重新启动",
+	"dialog.pythonBackend.restartLoopBody": "已要求 {appName} 在过去 {seconds} 秒内重新启动 {count} 次，这表明 Python 后端在启动时崩溃。\n\n为避免崩溃循环，自动重新启动已被取消。请检查 {appName} 配置目录中的日志文件（python_crash.*.txt 和 voice-typer.log），然后在解决根本问题后手动启动 {appName}。"
 }

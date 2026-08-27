@@ -1,8 +1,8 @@
 // Locale constants, labels, and browser-locale detection.
 //
 //Internationalization support.
-// Supported locales: Arabic (ar), German (de), English (en), Russian (ru), Spanish (es), French (fr),
-// Chinese/Mandarin (zh), Hindi (hi).
+// Supported locales: Arabic (ar), German (de), English (en), Spanish (es), French (fr),
+// Hindi (hi), Russian (ru), Chinese/Mandarin (zh).
 // Adding a new language requires:
 //   1. Create a new JSON file in translations/ (e.g., translations/ar.json)
 //   2. Add the locale to SUPPORTED_LOCALES below
@@ -13,18 +13,19 @@
 // SUPPORTED_LOCALES so first-run users see their language automatically.
 
 /**
- * Locales shipped with Voice Typer. The order here is the order shown in
- * the Settings → UI language dropdown.
+ * Locales shipped with Voice Typer. Kept alphabetical (locale code order)
+ * so the list stays scannable; the Settings → UI language dropdown and
+ * the onboarding selector both derive their display order from this array.
  */
 const SUPPORTED_LOCALES = [
 	"ar",
 	"de",
 	"en",
-	"ru",
 	"es",
 	"fr",
-	"zh",
 	"hi",
+	"ru",
+	"zh",
 ] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 

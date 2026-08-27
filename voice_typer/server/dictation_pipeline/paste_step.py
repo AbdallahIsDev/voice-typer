@@ -96,7 +96,7 @@ class _PasteStepMixin:
                             recovery_path = None
                 except Exception:
                     log.exception("[CLIPBOARD] Failed to write transcription to crash recovery")
-                # NEW-BUBBLE-TRANSCRIBING: Hide the bubble since the
+                # Hide the bubble since the
                 # transcription is done (even though paste failed).
                 self._hide_or_idle_bubble("bubble hide on clipboard fail")
                 self._app.tray.set_state(
@@ -197,7 +197,7 @@ class _PasteStepMixin:
                 count=len(text),
             )
 
-        # NEW-BUBBLE-TRANSCRIBING: Transcription + paste complete — hide the
+        # Transcription + paste complete — hide the
         # bubble (or set it to idle for always_visible mode) so the overlay
         # doesn't persist on screen after the user has their result.
         self._hide_or_idle_bubble("bubble hide/set idle")

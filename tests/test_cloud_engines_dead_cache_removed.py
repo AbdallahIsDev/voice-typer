@@ -197,10 +197,9 @@ class TestPerTranscriptionLifecycleDocumented:
         # The  docblock at the top of the module documents the
         # per-transcription lifecycle. Verify key phrases are present.
         assert "per-transcription" in source, (
-            "FR-6 contract: cloud_engines.py must document that "
+            "cloud_engines.py must document that "
             "CloudEngine lifecycle is per-transcription (so future "
             "contributors know the cache was deleted on purpose)."
         )
-        assert "FR-6" in source, (
-            "FR-6 contract: cloud_engines.py must reference the FR-6 fix ID so the regression-guard block is greppable."
-        )
+        # The marker is no longer required (task IDs don't belong in
+        # source per C-STYLE-1); the prose assertion above is sufficient.

@@ -441,7 +441,7 @@ def _linux_paste_via_wtype(text: str | None, is_terminal: bool = False) -> None:
     # a no-op in tests. The try/except guards against a ``time``
     # module that doesn't expose ``sleep`` (it always does on stdlib
     # ``time``, but the patch may swap it for an object without one).
-    # XS-36: narrow the guard — a patched ``_cb.time`` may not expose
+    # Narrow the guard — a patched ``_cb.time`` may not expose
     # ``sleep``, but swallowing a real failure here would mask the
     # settle-delay regression. ``contextlib.suppress`` with the concrete
     # exception types keeps the intent (best-effort delay) without a

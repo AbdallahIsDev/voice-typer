@@ -107,8 +107,8 @@ class ModelManagerCore:
         self._model_load_thread: threading.Thread | None = None
         self._model_load_attempted: bool = False
         self._pending_dictation: bool = False
-        # Latest background model-change / backend-change thread (AB-10
-        # non-blocking path). ``change_model`` / ``set_active_backend``
+        # Latest background model-change / backend-change thread
+        # (non-blocking path). ``change_model`` / ``set_active_backend``
         # spawn a ``ModelChange`` / ``BackendChange`` daemon thread and
         # return immediately; these attrs track the most recently
         # spawned thread so callers (tests, shutdown) can join it and

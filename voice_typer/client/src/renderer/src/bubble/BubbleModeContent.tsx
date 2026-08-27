@@ -63,7 +63,7 @@ export interface BubbleModeContentProps {
 	mode: BubbleMode;
 	errorMessage?: string | null;
 	/**
-	 * Optional live partial-transcription text (XA-6-2). When the
+	 * Optional live partial-transcription text. When the
 	 * `bubble:set-state` payload carries a `transcript` field and
 	 * `mode` is `transcribing` or `fading`, the text is rendered
 	 * (truncated to `TRANSCRIPT_PREVIEW_MAX_CHARS`) inside the pill
@@ -87,7 +87,7 @@ export interface BubbleModeContentProps {
  * every other branch renders a small status label.
  *
  * In `transcribing` and `fading` modes, when the backend pushes a
- * partial-transcript string (XA-6-2), the text is rendered alongside
+ * partial-transcript string, the text is rendered alongside
  * the status label so the user sees the live transcription taking
  * shape. When no transcript has been pushed yet (or the legacy
  * string-only `bubble:set-state` payload is in use), only the status

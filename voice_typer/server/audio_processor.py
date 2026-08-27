@@ -222,7 +222,7 @@ class AudioProcessor:
         # track (input_sr, chain_sr) pairs already logged at
         # WARNING so a sustained resample fallback doesn't spam the log.
         self._resample_warned_pairs: set[tuple[int, int]] = set()
-        # H-22: latched flag set when the RT-thread resample fallback
+        # Latched flag set when the RT-thread resample fallback
         # path is taken (scipy missing OR resample_poly raises). When
         # set, the chain is being fed audio at the WRONG rate — every
         # IIR coefficient (high-pass cutoff, notch frequency, EQ
@@ -335,7 +335,7 @@ class AudioProcessor:
     def reset(self) -> None:
         """Reset all filter states for a new recording session."""
         self._chain.reset()
-        # H-22: clear the latched resample-degraded flag — a new
+        # Clear the latched resample-degraded flag — a new
         # recording session starts with a clean slate. If the resample
         # path fails again, the flag will be re-set on the next chunk.
         self._resample_degraded = False
@@ -364,7 +364,7 @@ class AudioProcessor:
                 rebuild -- not a skip followed by a redundant rebuild on the
                 next ``rebuild_from_config`` call.
 
-                H-22: clears the latched resample-degraded flag because the
+                Clears the latched resample-degraded flag because the
                 chain is now retuned to the new rate — the corrective action
                 for a resample fallback has been taken.
 
@@ -376,7 +376,7 @@ class AudioProcessor:
         self._config_signature = _config_signature(self._config, new_sr)
         new_chain = build_chain(self._config, new_sr)
         self._chain.swap(new_chain._filters)
-        # H-22: the chain is now tuned to ``new_sr``; if the next chunk
+        # The chain is now tuned to ``new_sr``; if the next chunk
         # arrives at ``new_sr``, the resample path is not taken. Clear
         # the latched flag so the UI stops showing the resample warning.
         # (If chunks keep arriving at a different rate, the flag will
@@ -537,7 +537,7 @@ class AudioProcessor:
                     exc_info=True,
                 )
                 self._resample_warned_pairs.add((int(input_sample_rate), int(self._sample_rate)))
-                # H-22: latch the resample-degraded flag so the UI can
+                # Latch the resample-degraded flag so the UI can
                 # surface a warning. Without this, the user has NO signal
                 # that their high-pass / notch / EQ / compressor are all
                 # mistuned (an 80 Hz high-pass built at 16 kHz actually
@@ -647,7 +647,7 @@ class AudioProcessor:
     def is_degraded(self) -> bool:
         """True if any filter is in degraded mode (missing library, etc.).
 
-        H-22: also True when the RT-thread resample fallback path has
+        Also True when the RT-thread resample fallback path has
         been taken (scipy missing OR resample_poly raised). In that
         state every IIR coefficient and ballistic time constant is
         mistuned because the chain is being fed audio at the wrong
@@ -660,7 +660,7 @@ class AudioProcessor:
     def degraded_reasons(self) -> list[str]:
         """List of degradation reasons from all filters and the resample fallback."""
         reasons = list(self._chain.degraded_reasons)
-        # H-22: append the resample-degraded reason LAST so the UI
+        # Append the resample-degraded reason LAST so the UI
         # shows it after per-filter reasons (the resample issue is
         # processor-level, not filter-level, so it reads naturally
         # at the end of the list).

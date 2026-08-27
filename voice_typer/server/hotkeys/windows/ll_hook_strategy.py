@@ -1,6 +1,6 @@
 """WH_KEYBOARD_LL low-level hook strategy for ``WindowsNativeHotkey``.
 
-Extracted from the original ``windows_native.py`` god-class (EC-29
+Extracted from the original ``windows_native.py`` god-class
 split). The low-level hook is the most robust hotkey-detection
 path on Windows — Windows calls our hook procedure for EVERY
 keystroke system-wide, BEFORE any app sees it and REGARDLESS of

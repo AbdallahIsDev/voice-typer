@@ -58,7 +58,7 @@ export const TemplateListRow = memo(function TemplateListRow({
 					{row.trigger}
 				</p>
 				<div className="mt-0.5 flex items-center gap-3">
-					{/* (XA-5-14): wrap the truncated expansion <p> in an
+					{/* Wrap the truncated expansion <p> in an
                                                 InfoTooltip that shows the FULL expansion text on hover,
                                                 so a long template body that the CSS truncates to one
                                                 line is still readable in full without opening the Edit

@@ -572,7 +572,7 @@ class TCPTransportMixin:
                 auth_client.close()
                 return
             # Frame-shape validation + token extraction are shared
-            # with the WS transport (VP-8: ``ipc/auth.py``
+            # with the WS transport (shared via ``ipc/auth.py``
             # ``extract_auth_token`` — the DEDUP note in
             # ``sidecar_ws._authenticate`` documents the shared
             # contract). ``tokens_equal`` wraps ``hmac.compare_digest``
@@ -867,7 +867,7 @@ class TCPTransportMixin:
                     # include ``id`` (when present in the
                     # parsed msg) so the client can correlate the
                     # rejection to the originating request.
-                    # ZR-76: route through ``_send_error_envelope`` so
+                    # Route through ``_send_error_envelope`` so
                     # the envelope shape (``type`` / ``data{code,message}``
                     # / optional ``id``) is defined in one place shared
                     # with the dispatch-exception path below.
@@ -1007,7 +1007,7 @@ class TCPTransportMixin:
             # ``ErrorEvent.code`` narrowing switches on a single
             # canonical prefix (``server.*``) across the TCP / stdin /
             # WS transports.
-            # ZR-76: route through ``_send_error_envelope`` so the
+            # Route through ``_send_error_envelope`` so the
             # envelope shape matches the rate-limit path above (single
             # source of truth for ``type`` / ``data{code,message}`` /
             # optional ``id`` propagation). Sites with extra fields

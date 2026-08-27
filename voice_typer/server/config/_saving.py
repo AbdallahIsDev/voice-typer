@@ -1,6 +1,6 @@
 """Config save-path implementations (atomic write + ACL + warmup).
 
-Extracted from ``config/__init__.py`` (W1-A2 / W3-A5 continuation of
+Extracted from ``config/__init__.py`` (continuation of
 the monolith split). Hosts the bodies behind the ``Config`` save-path
 methods (which live as thin delegators on the
 ``_ConfigLifecycleMixin`` in ``config/_lifecycle.py``):

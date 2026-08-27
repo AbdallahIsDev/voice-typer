@@ -450,7 +450,7 @@ def stop_test_recording() -> dict:
         raw_chunks = list(_state._test_raw_chunks)
         filtered_chunks = list(_state._test_filtered_chunks)
         filters = dict(_state._test_filters)
-        # R3-F14: dead ``list(_test_peak_history)`` expression removed
+        # Dead ``list(_test_peak_history)`` expression removed
         # (the value was discarded immediately — peak history is
         # consumed via the dedicated level-monitor callback, not here).
         rms_hist = list(_state._test_rms_history)

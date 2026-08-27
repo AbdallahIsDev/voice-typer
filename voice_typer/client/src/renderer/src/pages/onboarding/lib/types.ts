@@ -41,7 +41,7 @@ export interface ModelOption {
 }
 
 // `PermissionsResult` (and its `instructions` shape) is consolidated
-// into the CANONICAL type at `@/types/ipc/permissions` (VP-7) — the
+// into the CANONICAL type at `@/types/ipc/permissions` — the
 // backend emits `title_key`/`steps_keys` i18n keys plus optional
 // literal `title`/`steps` for older backends, and the canonical type
 // now declares all of them. Do NOT re-declare a divergent copy here;

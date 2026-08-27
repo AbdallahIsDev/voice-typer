@@ -37,7 +37,8 @@ vi.mock("sonner", () => ({
 // Stub the i18n ``t`` so we don't need to wire the full locale catalog.
 // ``t("common.undo")`` returns a stable string the test can assert on.
 vi.mock("@/i18n/i18n", () => ({
-	t: (key: string) => (key === "common.undo" ? "Undo" : key),
+	t: (key: string) =>
+		key === "common.undo" ? "Undo" : key === "common.retry" ? "Retry" : key,
 }));
 
 // ── Harness ──────────────────────────────────────────────────────────

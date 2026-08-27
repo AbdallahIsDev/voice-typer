@@ -48,7 +48,7 @@ log = logging.getLogger(__name__)
 class _ZeroDelayThread(threading.Thread):
     """A daemon ``Thread`` that quacks like a ``Timer`` for ``delay == 0``.
 
-    XV-134: ``threading.Timer(0, func)`` still allocates the internal
+    ``threading.Timer(0, func)`` still allocates the internal
     ``threading.Event`` (used to signal "timer finished"), the
     cancel-bookkeeping machinery, and the ``Timer`` sub-object itself —
     all wasted when the callback runs immediately. A bare ``Thread`` is
@@ -121,7 +121,7 @@ class TimerCoordinator:
     def _schedule_timer(self, delay: float, func) -> threading.Thread:
         """Create, track, and start a timer. Replaces fire-and-forget timers.
 
-        XV-134 fast path: for ``delay <= 0`` (6 callers in
+        Fast path: for ``delay <= 0`` (6 callers in
         ``recording_controller`` / ``model_manager`` pass ``0``),
         short-circuit to a bare daemon ``_ZeroDelayThread`` instead of
         ``threading.Timer(0, ...)``. ``Timer(0)`` still allocates the
@@ -216,14 +216,14 @@ class TimerCoordinator:
                     # slow callback doesn't block other threads. ``timer``
                     # is captured via closure on the enclosing
                     # ``_schedule_timer`` call (one ``guarded_func`` per
-                    # timer). For the XV-134 zero-delay fast path,
+                    # timer). For the zero-delay fast path,
                     # ``timer`` is NOT in ``_pending_timers`` so this
                     # ``in`` check is False — no-op, no harm.
                     if isinstance(timer, threading.Timer) and timer in self._pending_timers:
                         self._pending_timers.remove(timer)
                 func()
 
-            # XV-134: zero/near-zero delay → bare daemon Thread instead
+            # Zero/near-zero delay → bare daemon Thread instead
             # of ``Timer(0, ...)``. ``Timer(0)`` still pays for the
             # internal ``threading.Event`` and cancel-bookkeeping — all
             # wasted when the callback runs immediately. We do NOT

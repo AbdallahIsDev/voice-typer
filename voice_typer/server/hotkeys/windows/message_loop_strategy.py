@@ -1,6 +1,6 @@
 """WM_HOTKEY message-loop strategy for ``WindowsNativeHotkey``.
 
-Extracted from the original ``windows_native.py`` god-class (EC-29
+Extracted from the original ``windows_native.py`` god-class
 split). The message loop is the event-driven hotkey detection path
 used when ``RegisterHotKey`` succeeds OR a ``WH_KEYBOARD_LL`` hook
 is installed. It pumps thread messages so the OS can deliver

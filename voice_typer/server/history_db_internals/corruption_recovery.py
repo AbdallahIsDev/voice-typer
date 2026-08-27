@@ -14,7 +14,7 @@ their original names.
 
 Names referenced through the ``history_db`` facade namespace AT CALL
 TIME (lazy ``_hd.<NAME>`` reads) so tests that monkeypatch them on the
-facade keep working: ``_secure_copy_db_file`` (patched by the FR-8
+facade keep working: ``_secure_copy_db_file`` (patched by the
 tests), ``_INSERT_TRANSCRIPTIONS_RE``, ``DB_SUBDIR``.
 
 Free functions:

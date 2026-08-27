@@ -2,19 +2,19 @@ r"""MIG-1.9 Phase 3 + §7 — Tauri v2 capabilities least-privilege validation.
 
 This is the **capabilities gate** for MIG-1.9 Phase 3 (the Tauri v2
 shell + Python sidecar runtime migration). It validates that
-``src-tauri/capabilities/migrate-runtime.json`` grants exactly the
+ ``src-tauri/capabilities/main-runtime.json`` grants exactly the
 least-privilege permissions ADR-0020 §7 mandates — and **nothing
 broader**.
 
 Scope of this check (ADR-0020 §7 "Tauri config + capabilities"):
 
-1. ``src-tauri/capabilities/migrate-runtime.json`` exists + is valid
+1. ``src-tauri/capabilities/main-runtime.json`` exists + is valid
    JSON + its ``identifier`` matches the filename (Tauri v2 enforces
    this — capabilities are loaded by filename and matched by
    identifier in ``app.security.capabilities``).
 
 2. ``src-tauri/tauri.conf.json``'s ``app.security.capabilities`` list
-   references ``migrate-runtime`` — without this reference the
+   references ``main-runtime`` — without this reference the
    capability file is dead code (Tauri silently ignores it).
 
 3. The capability grants **``shell:allow-spawn``** AND the
@@ -46,7 +46,7 @@ Scope of this check (ADR-0020 §7 "Tauri config + capabilities"):
    and does NOT need this grant, but the long-text path does.
 
 7. The capability grants **``single-instance:default``** — OR, per
-   the implementation note in ``migrate-runtime.json``'s description
+   the implementation note in ``main-runtime.json``'s description
    field, the ``tauri-plugin-single-instance`` plugin is registered
    in ``src-tauri/src/main.rs`` AND listed in
    ``tauri.conf.json``'s ``plugins`` object. The Tauri v2
@@ -55,7 +55,7 @@ Scope of this check (ADR-0020 §7 "Tauri config + capabilities"):
    layer, not via an IPC permission), so it does not strictly require
    a capability grant. ADR-0020 §7 lists ``single-instance:default``
    as the canonical grant; the equivalent plugin registration is the
-   accepted fallback (see ``migrate-runtime.json`` description).
+   accepted fallback (see ``main-runtime.json`` description).
 
 8. The capability does **NOT** grant overly-broad permissions —
    specifically:
@@ -82,7 +82,7 @@ Scope of this check (ADR-0020 §7 "Tauri config + capabilities"):
    connection."
 
 10. The capability's ``identifier`` field matches the filename stem
-    (``migrate-runtime.json`` → ``identifier: "migrate-runtime"``).
+    (``main-runtime.json`` → ``identifier: "main-runtime"``).
     Tauri v2's capability loader uses the identifier as the
     stable reference in ``app.security.capabilities``; a mismatch
     would silently disconnect the capability from the app.
@@ -519,7 +519,7 @@ def test_grants_single_instance(
     plugin is non-scoped (it gates the second instance at the OS
     mutex / NSApplication activation / lockfile layer, not via an IPC
     permission), so it does not strictly require a capability grant
-    — see the ``migrate-runtime.json`` description field which
+    — see the ``main-runtime.json`` description field which
     documents this exemption.
 
     This test accepts EITHER:
@@ -571,7 +571,7 @@ def test_does_not_grant_overly_broad_permissions(
 ) -> None:
     """ADR-0020 §7 + §15: capability must NOT grant overly-broad perms.
 
-    The migrate-runtime capability is the **least-privilege** grant
+    The main-runtime capability is the **least-privilege** grant
     for the Tauri + Python sidecar shell. Overly-broad permissions
     defeat the per-triple spawn scope (``shell:default``), grant
     filesystem access the Rust host doesn't need (``fs:default``),

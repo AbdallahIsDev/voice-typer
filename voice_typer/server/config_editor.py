@@ -347,7 +347,7 @@ class ConfigEditorLauncher:
                     log.warning("[CONFIG] Failed to save config before opening editor")
 
             # Phase 2: launch the editor WITHOUT holding the lock.
-            # This is the XV-3 fix: the tray thread + every IPC
+            # This fix launches the editor without the lock: the tray thread + every IPC
             # handler that acquires ``_config_mutation_lock`` (tray
             # menu state, microphone list, set_config, etc.) stays
             # responsive while the user edits the file. The 30-minute

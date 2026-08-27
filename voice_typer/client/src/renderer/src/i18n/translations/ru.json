@@ -126,7 +126,8 @@
 		"importAria": "Импорт из файла",
 		"lastUpdatedWithValue": "Последнее обновление: {value}",
 		"close": "Закрыть",
-		"confirm": "Подтвердить"
+		"confirm": "Подтвердить",
+		"retry": "Повторить"
 	},
 	"microphone": {
 		"levelBarAria": "Уровень входа микрофона",

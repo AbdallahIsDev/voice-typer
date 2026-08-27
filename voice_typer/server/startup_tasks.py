@@ -828,7 +828,7 @@ def reset_onboarding_complete(
         # ``.onboarding_complete`` / ``.onboarding_started`` markers
         # still on disk are removed too. Deleting the whole document
         # (rather than clearing one flag) keeps the flags consistent:
-        # if a stale ``started`` flag survived, the XA-11-2 auto-heal
+        # if a stale ``started`` flag survived, the auto-heal
         # would treat the next launch as a mid-wizard crash and SKIP
         # re-running the wizard — defeating the whole point of a
         # "re-run setup" affordance.

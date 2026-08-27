@@ -13,7 +13,7 @@ Owns the system-volume side effects of the dictation lifecycle:
       restore).
 
 The actual logic lived on ``VoiceTyperApp`` as three private methods (see
-``docs/rw9-god-class-decomposition.md`` §5.3). The behaviour is preserved
+``docs/history/rw9-god-class-decomposition.md`` §5.3). The behaviour is preserved
 verbatim — only the class boundary moved. ``VoiceTyperApp`` keeps thin
 delegate methods so callers
 (``RecordingController._start_dictation`` → ``app._duck_volume()``,

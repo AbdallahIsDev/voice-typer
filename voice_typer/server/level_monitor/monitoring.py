@@ -563,7 +563,7 @@ def start_monitoring(mic_id: str | None = None) -> dict:
                 # on overflow, so the append above already succeeded
                 # and the buffer is at capacity. We just count.
                 _state._dropped_level_chunks += 1
-                # R3-F6: emit a one-shot WARNING on the first drop of a
+                # Emit a one-shot WARNING on the first drop of a
                 # burst so operators see the overflow immediately (the
                 # worker thread's 5s throttled log only fires later).
                 # The latch is reset by the worker once it drains the

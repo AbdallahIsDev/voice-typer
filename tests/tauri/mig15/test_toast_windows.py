@@ -15,7 +15,7 @@ What this file pins (the toast wiring contract):
    ``plugins`` section (Tauri v2 requires both the plugin registration
    in Rust AND the config entry — the config block enables the JS
    bindings to be generated).
-3. ``src-tauri/capabilities/migrate-runtime.json`` grants at least one
+3. ``src-tauri/capabilities/main-runtime.json`` grants at least one
    ``notification:*`` permission (the least-privilege gate; Tauri v2
    ships zero permissions by default, so this MUST be explicit).
 4. ``src-tauri/src/sidecar/ws.rs`` has a CR-8 backward-compat alias that
@@ -214,7 +214,7 @@ class TestTauriConfDeclaresNotificationPlugin:
 
 
 class TestCapabilitiesGrantNotificationPermission:
-    """Gate 3: the migrate-runtime capability must grant a notification permission.
+    """Gate 3: the main-runtime capability must grant a notification permission.
 
     Tauri v2 ships zero permissions by default — even with the plugin
     registered + the config entry, the webview's notify() call returns
@@ -223,7 +223,7 @@ class TestCapabilitiesGrantNotificationPermission:
     """
 
     def test_capabilities_grants_notification_allow_notify_or_default(self):
-        """The ``migrate-runtime`` capability MUST grant at least one
+        """The ``main-runtime`` capability MUST grant at least one
         ``notification:*`` permission. The runbook §6.5 pass criteria
         says "No ``notification:allow-notify`` capability error in
         ``voice-typer.log``" — i.e. ``notification:allow-notify`` is the
@@ -233,12 +233,12 @@ class TestCapabilitiesGrantNotificationPermission:
         """
         src = _read(CAPABILITIES_JSON)
         cap = json.loads(src)
-        assert "permissions" in cap, "migrate-runtime.json must declare a 'permissions' array."
+        assert "permissions" in cap, "main-runtime.json must declare a 'permissions' array."
         perms = cap["permissions"]
         assert isinstance(perms, list), f"capabilities 'permissions' must be a list, got {type(perms).__name__}"
         notif_perms = [p for p in perms if isinstance(p, str) and p.startswith("notification:")]
         assert notif_perms, (
-            f"migrate-runtime.json must grant at least one 'notification:*' "
+            f"main-runtime.json must grant at least one 'notification:*' "
             f"permission — found none in {perms!r}. Without this, the "
             f"webview's notify() call returns PermissionDenied."
         )
@@ -251,7 +251,7 @@ class TestCapabilitiesGrantNotificationPermission:
         cap = json.loads(src)
         perms = cap["permissions"]
         assert "notification:allow-notify" in perms, (
-            f"migrate-runtime.json must grant 'notification:allow-notify' "
+            f"main-runtime.json must grant 'notification:allow-notify' "
             f"(per runbook §6.5 pass criteria). Found notification perms: "
             f"{[p for p in perms if isinstance(p, str) and p.startswith('notification:')]!r}"
         )

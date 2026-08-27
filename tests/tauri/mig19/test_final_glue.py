@@ -21,8 +21,8 @@ Scope (ADR-0020 §7 + §15):
    Electron CSP's core directives (``default-src 'self'``,
    ``img-src 'self' data:``, ``style-src 'self' 'unsafe-inline'``,
    ``script-src 'self'``). ``capabilities`` references the
-   ``migrate-runtime`` capability file (per ADR-0020 §7's mandatory
-   capability whitelisting note).
+   ``main-runtime`` + ``bubble-runtime`` capability files (per ADR-0020 §7's
+   mandatory capability whitelisting note).
 
 3. **No auto-update (ADR-0020 §15).** ``tauri-plugin-updater`` MUST
    NOT appear in ``Cargo.toml`` and the ``updater`` plugin entry MUST
@@ -528,7 +528,7 @@ def test_tauri_conf_security_csp_matches_electron_subset(tauri_conf) -> None:
     )
 
 
-# ─── Test 5: app.security.capabilities → migrate-runtime ──────────────
+# ─── Test 5: app.security.capabilities → main-runtime + bubble-runtime ───
 
 
 def test_tauri_conf_security_capabilities_references_migrate_runtime(

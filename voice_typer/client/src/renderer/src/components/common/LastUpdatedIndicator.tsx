@@ -66,7 +66,7 @@ export function LastUpdatedIndicator({
 				className="h-6 w-6 p-0"
 			>
 				{refreshing ? (
-					// XA-8-L6: decorative — the parent <Button aria-label>
+					// Decorative — the parent <Button aria-label>
 					// already supplies the accessible name; a nested
 					// role="img" aria-label="Loading" would compete with
 					// (and re-announce over) the button's own label.

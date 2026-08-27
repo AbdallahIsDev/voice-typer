@@ -1,6 +1,6 @@
 """Config lifecycle / load / save method delegators.
 
-W3-A5 continuation of the config monolith split: the ``Config``
+Continuation of the config monolith split: the ``Config``
 lifecycle methods live here on the ``_ConfigLifecycleMixin`` as thin
 delegators to the sibling leaf modules. ``Config`` (in
 ``config/__init__.py``) inherits them via multiple inheritance from

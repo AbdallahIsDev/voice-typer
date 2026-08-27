@@ -29,7 +29,7 @@ What this file pins (the Linux toast wiring contract):
    ``plugins`` section (Tauri v2 requires both the plugin registration
    in Rust AND the config entry — the config block enables the JS
    bindings to be generated).
-3. ``src-tauri/capabilities/migrate-runtime.json`` grants at least one
+3. ``src-tauri/capabilities/main-runtime.json`` grants at least one
    ``notification:*`` permission (the least-privilege gate; Tauri v2
    ships zero permissions by default, so this MUST be explicit). The
    Linux runbook §6.5 / Step 9 pass criteria specifically calls out
@@ -284,7 +284,7 @@ class TestTauriConfDeclaresNotificationPlugin:
 
 
 class TestCapabilitiesGrantNotificationPermission:
-    """Gate 3: the migrate-runtime capability must grant a notification permission.
+    """Gate 3: the main-runtime capability must grant a notification permission.
 
     Tauri v2 ships zero permissions by default — even with the plugin
     registered + the config entry, the webview's notify() call returns
@@ -299,7 +299,7 @@ class TestCapabilitiesGrantNotificationPermission:
     """
 
     def test_capabilities_grants_notification_default_or_allow_notify(self):
-        """The ``migrate-runtime`` capability MUST grant either
+        """The ``main-runtime`` capability MUST grant either
         ``notification:default`` (a Tauri v2 permission set bundling
         ``allow-notify`` + the permission-check helpers) OR
         ``notification:allow-notify`` (the canonical grant per Linux
@@ -313,14 +313,14 @@ class TestCapabilitiesGrantNotificationPermission:
         """
         src = _read(CAPABILITIES_JSON)
         cap = json.loads(src)
-        assert "permissions" in cap, "migrate-runtime.json must declare a 'permissions' array."
+        assert "permissions" in cap, "main-runtime.json must declare a 'permissions' array."
         perms = cap["permissions"]
         assert isinstance(perms, list), f"capabilities 'permissions' must be a list, got {type(perms).__name__}"
         # Accept either notification:default OR notification:allow-notify.
         has_default = "notification:default" in perms
         has_allow_notify = "notification:allow-notify" in perms
         assert has_default or has_allow_notify, (
-            f"migrate-runtime.json must grant either 'notification:default' OR "
+            f"main-runtime.json must grant either 'notification:default' OR "
             f"'notification:allow-notify' (per Linux runbook §6.5 / Step 9). "
             f"Found notification perms: "
             f"{[p for p in perms if isinstance(p, str) and p.startswith('notification:')]!r}"
@@ -336,7 +336,7 @@ class TestCapabilitiesGrantNotificationPermission:
         cap = json.loads(src)
         perms = cap["permissions"]
         assert "notification:allow-notify" in perms, (
-            f"migrate-runtime.json must grant 'notification:allow-notify' "
+            f"main-runtime.json must grant 'notification:allow-notify' "
             f"(per Linux runbook §6.5 / Step 9 pass criteria). Found notification perms: "
             f"{[p for p in perms if isinstance(p, str) and p.startswith('notification:')]!r}"
         )
@@ -350,7 +350,7 @@ class TestCapabilitiesGrantNotificationPermission:
         authorization model — any app on the session bus can post
         notifications), so the grant is functionally inert on Linux.
         But the capability file is shared across platforms (the same
-        ``migrate-runtime.json`` is shipped in the .deb, .rpm, .app,
+        ``main-runtime.json`` is shipped in the .deb, .rpm, .app,
         and .exe bundles), so the grant MUST be present for the macOS
         + Windows paths that DO prompt. This is documented as GAP-C in
         the module docstring."""
@@ -358,7 +358,7 @@ class TestCapabilitiesGrantNotificationPermission:
         cap = json.loads(src)
         perms = cap["permissions"]
         assert "notification:allow-request-permission" in perms, (
-            "migrate-runtime.json must grant 'notification:allow-request-permission' "
+            "main-runtime.json must grant 'notification:allow-request-permission' "
             "— the capability file is cross-platform; macOS + Windows paths "
             "need this grant to trigger the TCC / Action Center prompt. On "
             "Linux it's a NO-OP (libnotify has no per-app authorization)."

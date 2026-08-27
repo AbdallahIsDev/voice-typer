@@ -104,7 +104,7 @@ export type ErrorCodes =
 	| "server.recording_resample_unavailable"
 	// Renderer-synthesized codes (from Tauri host supervisor events)
 	| "respawn_exhausted"
-	// Rust-host dispatch cap codes (VP-5). The Tauri `#[tauri::command]`
+	// Rust-host dispatch cap codes. The Tauri `#[tauri::command]`
 	// layer in `src-tauri/src/commands/sidecar_cmds/` emits the BARE
 	// legacy forms: `pending_full` (dispatch queue full — renderer must
 	// back off ~250ms and retry) and `data_too_large` (payload exceeds

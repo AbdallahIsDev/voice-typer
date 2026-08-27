@@ -613,7 +613,7 @@ class RecordingLifecycle:
             _pre_load_active = app.models.active_transcriber()
             _pre_load_model_loaded = _pre_load_active is not None and getattr(_pre_load_active, "is_loaded", False)
             _join_timeout = 0.1 if _pre_load_model_loaded else 2.0
-            # IN-20: release ``_toggle_lock`` for the duration of the
+            # Release ``_toggle_lock`` for the duration of the
             # bounded worker join. The worker (model load + post-load)
             # already runs WITHOUT the lock, but the F2 dispatch thread
             # must not HOLD it during the join either — otherwise a

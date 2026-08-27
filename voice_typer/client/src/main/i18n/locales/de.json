@@ -14,5 +14,15 @@
 	"state.app.starting": "Wird gestartet...",
 	"dialog.crashLoop.title": "{appName} — Absturzschleife",
 	"dialog.crashLoop.mainBody": "Das Hauptfenster-Renderer ist wiederholt abgestürzt und kann nicht wiederhergestellt werden.\n\nBitte verwenden Sie das Tray-Symbol zum Neustarten oder Beenden und starten Sie {appName} dann erneut.",
-	"dialog.crashLoop.bubbleBody": "Das Bubble-Overlay-Renderer ist wiederholt abgestürzt und kann nicht wiederhergestellt werden.\n\nBitte verwenden Sie das Tray-Symbol zum Neustarten oder Beenden und starten Sie {appName} dann erneut."
+	"dialog.crashLoop.bubbleBody": "Das Bubble-Overlay-Renderer ist wiederholt abgestürzt und kann nicht wiederhergestellt werden.\n\nBitte verwenden Sie das Tray-Symbol zum Neustarten oder Beenden und starten Sie {appName} dann erneut.",
+	"dialog.pythonBackend.timeoutTitle": "Python-Backend konnte nicht gestartet werden",
+	"dialog.pythonBackend.timeoutBody": "{appName} konnte sich innerhalb von {seconds} Sekunden nicht mit seinem Python-Backend verbinden.\n\nBitte prüfen Sie die Protokolle und versuchen Sie es erneut.",
+	"dialog.pythonBackend.crashTitle": "Python-Backend abgestürzt",
+	"dialog.pythonBackend.crashSignalBody": "Das Python-Backend von {appName} wurde durch ein Signal beendet (wahrscheinlich SIGSEGV oder SIGABRT) und wird jetzt beendet.\n\nBitte prüfen Sie die Protokolle und versuchen Sie es erneut.",
+	"dialog.pythonBackend.crashExitBody": "Das Python-Backend von {appName} wurde unerwartet mit Code {code} beendet und wird jetzt beendet.\n\nBitte prüfen Sie die Protokolle und versuchen Sie es erneut.",
+	"dialog.pythonBackend.earlyExitSuffix": "Python-Backend frühzeitig beendet (Code={code}). Prüfen Sie die Protokolle.",
+	"dialog.pythonBackend.notFoundTitle": "Python-Backend nicht gefunden",
+	"dialog.pythonBackend.notFoundBody": "{appName} konnte sein Backend nicht starten:\n{message}",
+	"dialog.pythonBackend.restartLoopTitle": "{appName} kann nicht sicher neu gestartet werden",
+	"dialog.pythonBackend.restartLoopBody": "{appName} wurde gebeten, innerhalb der letzten {seconds} Sekunden {count}-mal neu zu starten, was darauf hindeutet, dass das Python-Backend beim Start abstürzt.\n\nUm eine Absturzschleife zu vermeiden, wurde der automatische Neustart abgebrochen. Bitte prüfen Sie die Protokolldateien im Konfigurationsverzeichnis von {appName} (python_crash.*.txt und voice-typer.log) und starten Sie {appName} anschließend manuell, sobald Sie das zugrunde liegende Problem behoben haben."
 }

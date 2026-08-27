@@ -16,7 +16,7 @@ import { mainT } from "../i18n";
 import { ExportChannels } from "./channels";
 
 /**
- * R6-F9: validated format set for `history:export` and
+ * Validated format set for `history:export` and
  * `vocabulary:export`. The renderer's `ExportFormat` type (in
  * `src/shared/export-format.ts`) narrows to `"json" | "csv"` but
  * the IPC boundary is untyped at runtime — a compromised renderer (or
@@ -28,7 +28,7 @@ import { ExportChannels } from "./channels";
 const VALID_FORMATS = new Set(["json", "csv"]);
 
 /**
- * R6-F9: hard cap on the number of rows exported via `history:export`.
+ * Hard cap on the number of rows exported via `history:export`.
  * 100k rows is ~50 MB of JSON / ~20 MB of CSV — well within the
  * fs.writeFileSync budget but far enough above any realistic history
  * size that legitimate users never hit it. The cap defends against a
@@ -342,16 +342,16 @@ export function registerExportHandlers(): void {
 				format,
 			}: { data: Record<string, unknown>[]; format: ExportFormat },
 		) =>
-			// VP-19: canonical envelope via withIpcEnvelope (throw → {success:false, error}).
+			// Canonical envelope via withIpcEnvelope (throw → {success:false, error}).
 			withIpcEnvelope(async () => {
-				// R6-F9: validate format against the allowlist BEFORE using it
+				// Validate format against the allowlist BEFORE using it
 				// in the dialog filter or the file path. Rejects unknown
 				// formats early with a structured error instead of letting
 				// the renderer pass through an arbitrary string.
 				if (!VALID_FORMATS.has(format)) {
 					return { success: false, error: "Invalid format" };
 				}
-				// R6-F9: cap the row count so a compromised renderer can't
+				// Cap the row count so a compromised renderer can't
 				// pin the CPU + disk on a fabricated 10M-row payload.
 				const allRows = Array.isArray(data) ? data : [];
 				const originalCount = allRows.length;
@@ -416,15 +416,15 @@ export function registerExportHandlers(): void {
 			_event,
 			{ data, format }: { data: Record<string, unknown>; format: ExportFormat },
 		) =>
-			// VP-19: canonical envelope via withIpcEnvelope (throw → {success:false, error}).
+			// Canonical envelope via withIpcEnvelope (throw → {success:false, error}).
 			withIpcEnvelope(async () => {
-				// R6-F9: validate format against the allowlist BEFORE using it
+				// Validate format against the allowlist BEFORE using it
 				// in the dialog filter or the file path (same rationale as
 				// history:export above).
 				if (!VALID_FORMATS.has(format)) {
 					return { success: false, error: "Invalid format" };
 				}
-				// R6-F9: cap the vocabulary entries at MAX_EXPORT_ROWS so a
+				// Cap the vocabulary entries at MAX_EXPORT_ROWS so a
 				// compromised renderer can't pin the CPU + disk on a
 				// fabricated 10M-row payload (same rationale as history:export).
 				const vocab = (data ?? {}) as Record<string, unknown>;
@@ -480,7 +480,7 @@ export function registerExportHandlers(): void {
 			}),
 	);
 
-	// ── Templates export (NEW-PRIV-007: GDPR right-to-export) ──────
+	// ── Templates export (GDPR right-to-export) ──────
 	// Previously only history and vocabulary were exportable.  Templates
 	// (trigger → output pairs) are user data under GDPR Art. 15 (right
 	// of access) and Art. 20 (right to data portability).  This handler
@@ -489,9 +489,9 @@ export function registerExportHandlers(): void {
 	ipcMain.handle(
 		ExportChannels.templates,
 		(_event, { data }: { data: unknown }) =>
-			// VP-19: canonical envelope via withIpcEnvelope (throw → {success:false, error}).
+			// Canonical envelope via withIpcEnvelope (throw → {success:false, error}).
 			withIpcEnvelope(async () => {
-				// PVT-14: cap the entry count so a compromised renderer
+				// Cap the entry count so a compromised renderer
 				// can't pin the CPU + disk on a fabricated 10M-entry
 				// payload (same threat model as history:export /
 				// vocabulary:export). Templates are normally a list of
@@ -537,7 +537,7 @@ export function registerExportHandlers(): void {
 			}),
 	);
 
-	// ── Config export (NEW-PRIV-007: GDPR right-to-export) ─────────
+	// ── Config export (GDPR right-to-export) ─────────
 	// The user's full configuration (settings, preferences, hotkeys)
 	// is personal data under GDPR Art. 15/20.  This handler writes the
 	// config dict to a JSON file.  API keys are redacted by the Python
@@ -545,9 +545,9 @@ export function registerExportHandlers(): void {
 	// this export path.
 	ipcMain.removeHandler?.(ExportChannels.config);
 	ipcMain.handle(ExportChannels.config, (_event, { data }: { data: unknown }) =>
-		// VP-19: canonical envelope via withIpcEnvelope (throw → {success:false, error}).
+		// Canonical envelope via withIpcEnvelope (throw → {success:false, error}).
 		withIpcEnvelope(async () => {
-			// PVT-14: cap the serialized byte size so a compromised
+			// Cap the serialized byte size so a compromised
 			// renderer can't pin the CPU + disk on a fabricated
 			// multi-GB config object. Config is typically a few KB,
 			// so 1 MB is a generous ceiling. We stringify first to

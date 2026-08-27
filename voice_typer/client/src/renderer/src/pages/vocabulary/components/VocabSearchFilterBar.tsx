@@ -6,7 +6,7 @@
 // the only meaningful action) — the parent decides whether to render
 // this.
 //
-// (XA-5-15): the live entry count is shown BOTH as the search
+// The live entry count is shown BOTH as the search
 // placeholder text ("Search N corrections…") AND as a small badge to
 // the right of the sort Select — the badge is always visible (even
 // when the user is actively searching, the placeholder is gone), so
@@ -35,7 +35,7 @@ interface VocabSearchFilterBarProps {
 	sortOrder: VocabSortOrder;
 	onSortOrderChange: (value: VocabSortOrder) => void;
 	/** Total entry count — folded into the search placeholder + the
-	 *  visible count badge (XA-5-15). */
+	 *  visible count badge. */
 	entryCount: number;
 }
 
@@ -102,7 +102,7 @@ export function VocabSearchFilterBar({
 					<SelectItem value="za">{t("common.sortZA")}</SelectItem>
 				</SelectContent>
 			</Select>
-			{/* (XA-5-15): visible count badge. Always rendered alongside the
+			{/* Visible count badge. Always rendered alongside the
                                 sort Select so the total entry count is discoverable even when
                                 the search placeholder (which also encodes the count) is
                                 hidden by an active search query. Uses ``tChoice`` so the

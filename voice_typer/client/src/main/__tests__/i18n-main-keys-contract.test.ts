@@ -62,15 +62,15 @@ describe("MAIN_KEYS contract: MAIN_KEYS matches the keys in MAIN_STRINGS.en", ()
 		expect(MAIN_KEYS.length).toBeGreaterThan(0);
 	});
 
-	it("MAIN_KEYS contains exactly 16 keys (the current en.json key count)", () => {
+	it("MAIN_KEYS contains exactly 26 keys (the current en.json key count)", () => {
 		// Update this assertion when a key is intentionally
 		// added to / removed from `i18n/locales/en.json` AND
-		// `MAIN_KEYS` in `main/i18n.ts`. The 16 count matches
+		// `MAIN_KEYS` in `main/i18n.ts`. The 26 count matches
 		// the keys shipped today: 2× criticalError, 5× export,
 		// 1× preloadError, 1× selectModelFolder,
 		// 2× singleInstance, 1× notify, 1× state.app.starting,
-		// 3× crashLoop.
-		expect(MAIN_KEYS.length).toBe(16);
+		// 3× crashLoop, 10× pythonBackend.
+		expect(MAIN_KEYS.length).toBe(26);
 	});
 
 	it("MAIN_KEYS has no duplicates (a duplicate would mask a missing key)", () => {

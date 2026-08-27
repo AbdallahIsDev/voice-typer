@@ -103,7 +103,7 @@ class _TCPLineIO:
         # from crashing the constructor.
         with contextlib.suppress(OSError, AttributeError):
             conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        # XV-86: use the default chunk buffer size (io.DEFAULT_BUFFER_SIZE,
+        # Use the default chunk buffer size (io.DEFAULT_BUFFER_SIZE,
         # typically 8 KiB) rather than ``buffering == 1`` (line buffering).
         # ``buffering == 1`` means "line buffered" in text mode —
         # meaningful only for writes (flush when a newline is seen); for

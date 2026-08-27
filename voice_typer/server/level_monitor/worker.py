@@ -315,7 +315,7 @@ def _level_worker_loop() -> None:
                 # delta. ``int += int`` is GIL-atomic on CPython, so
                 # no lock is needed (the worker is the ONLY writer).
                 _total_dropped_level_chunks += dropped
-                # R3-F6: re-arm the RT-callback one-shot latch so the
+                # Re-arm the RT-callback one-shot latch so the
                 # next burst of drops surfaces its first-drop warning.
                 _state._first_drop_warning_emitted = False
                 log.warning(

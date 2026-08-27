@@ -320,7 +320,7 @@ pub(crate) fn kill_process_tree(pid: u32) {
             }
         }
 
-        // ER-93: drop descendants that already exited between their
+        // Drop descendants that already exited between their
         // enumeration and now (a sidecar's children can be short-lived
         // helpers that reap themselves at any moment). Signalling them
         // would be an ESRCH no-op per pid; filtering here lets the
@@ -341,7 +341,7 @@ pub(crate) fn kill_process_tree(pid: u32) {
         // unconditional 200ms sleep below on the Tauri event-loop thread
         // (called from shutdown_sidecar_for_exit via block_on).
         //
-        // ER-93: the process-group kill below is (in the current
+        // The process-group kill below is (in the current
         // production spawn path) ALWAYS a safe no-op — the sidecar
         // inherits the host's pgid, and `signal_process_group` refuses
         // to signal its own host's group. The grace sleep existed only

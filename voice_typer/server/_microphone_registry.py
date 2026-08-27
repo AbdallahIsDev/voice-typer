@@ -1,6 +1,6 @@
 """MicrophoneRegistry — owns the cached list of available microphones.
 
-Pre-refactor (AC-66): ``VoiceTyperApp.__init__`` declared::
+Pre-refactor: ``VoiceTyperApp.__init__`` declared::
 
     self._microphones: list[dict] = []
 

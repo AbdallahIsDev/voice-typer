@@ -161,7 +161,7 @@ def refresh_config(tray: TrayIcon, config) -> None:
 # heartbeats keep the connection alive. An RLock lets the same
 # thread re-enter while still serializing against OTHER threads
 # (concurrent right-click builds on the pystray loop thread),
-# preserving the FR-22 cross-thread guarantee. Mirrors the
+# preserving the cross-thread guarantee. Mirrors the
 # reentrancy rationale of ``_icon_lock`` in ``tray_publish``.
 def invalidate_menu_cache_locked(tray: TrayIcon) -> None:
     """Clear ``_menu_cache_valid`` under ``_menu_lock`` without

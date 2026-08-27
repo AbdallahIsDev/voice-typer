@@ -100,7 +100,7 @@ def teardown_sounddevice(controller) -> None:
     # enough to detect that case while leaving 9.0s of slack for the
     # actual ``sd.stop()`` + ``sd.wait()`` drain.
     #
-    # UE-2: check the wait() return value. A False return means
+    # Check the wait() return value. A False return means
     # the recorder teardown did NOT signal the event within 1.0s —
     # either the recorder.stop()/discard() raised mid-call, or the
     # leaked worker is still touching the PortAudio stream. The

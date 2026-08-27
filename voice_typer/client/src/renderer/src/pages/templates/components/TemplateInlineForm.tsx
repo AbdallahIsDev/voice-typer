@@ -1,5 +1,5 @@
 // Inline template entry form — the quick-add row above the Templates
-// list (XA-5-1). Mirrors ``VocabInlineForm`` from the Vocabulary page so
+// list (inline quick-add). Mirrors ``VocabInlineForm`` from the Vocabulary page so
 // both "list" pages share the same create-flow shape: a two-input row
 // (trigger + expansion) plus Save / Cancel, with Enter-to-save.
 //

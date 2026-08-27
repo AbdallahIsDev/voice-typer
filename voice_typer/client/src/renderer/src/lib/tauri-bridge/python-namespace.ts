@@ -51,7 +51,7 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 		// for every server-initiated event (main.rs:455). This matches
 		// Electron's `python-event` IPC channel.
 		//
-		// CR-Finding 5: also listen for host events
+		// Also listen for host events
 		// (`supervisor_relaunching`, `supervisor_reconnected`) and synthesize
 		// `python-event` frames so `useConnection` updates the UI during
 		// respawn cycles. Without this, the renderer's connection

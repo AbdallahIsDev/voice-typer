@@ -248,7 +248,7 @@ mod spawn_tests;
 //     externalBin) or `python -m voice_typer.worker` (dev mode).
 //   - Env: `VOICE_TYPER_IPC_TOKEN` (the worker refuses to start
 //     without it — EXIT_NO_TOKEN), `VOICE_TYPER_CONFIG_DIR`,
-//     `VOICE_TYPER_SESSION_ID` (GT-68 log correlation).
+//     `VOICE_TYPER_SESSION_ID` (log correlation).
 //   - Handshake: `{"event":"worker_started","port":N,"protocol":1}`
 //     on stdout — a DISTINCT event name from the sidecar's
 //     `server_started` (see `parse_worker_started` in handshake.rs).

@@ -33,7 +33,7 @@ pub(crate) enum MergeOutcome {
 /// is treated as authoritative for ALL its overlapping keys, not just
 /// per-key). The docstring now matches the implementation.
 ///
-/// H-19 (IMPROVE-2026-07-19): all writes are now ATOMIC (temp-file +
+/// All writes are now ATOMIC (temp-file +
 /// `rename`). Previously `std::fs::copy` and `std::fs::write` truncated
 /// the target before writing — a crash mid-write (power loss, SIGKILL,
 /// OOM) would leave `config.json` truncated/corrupt. Since `migrate.rs`

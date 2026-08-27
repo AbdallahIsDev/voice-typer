@@ -1,4 +1,4 @@
-"""Windows-native hotkey backend — split package (EC-29).
+"""Windows-native hotkey backend — split package.
 
 Extracted from the original ``windows_native.py`` god-class.
 Each module owns one concern:

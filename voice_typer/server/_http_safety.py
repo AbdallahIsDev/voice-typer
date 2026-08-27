@@ -15,7 +15,7 @@ New code should import from ``voice_typer.server.security.http_safety``
 directly.
 """
 
-# FR-35 source-text contract: the LOOPBACK_HOSTS import line must stay
+# Source-text contract: the LOOPBACK_HOSTS import line must stay
 # verbatim — ``TestLoopbackHostsIsDRY`` inspects this module's source.
 from voice_typer.server._paths import LOOPBACK_HOSTS  # noqa: F401
 from voice_typer.server.security.http_safety import (  # noqa: F401

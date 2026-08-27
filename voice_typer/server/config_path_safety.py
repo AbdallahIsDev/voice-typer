@@ -9,7 +9,7 @@ the three path-safety helpers so existing callers and test-patch
 sites keep resolving without pulling in the rest of the
 config-loading machinery.
 
-This shim will be removed after the ARCH-9-style monkeypatch
+This shim will be removed after the monkeypatch
 migration collapses the re-export indirection (callers updated to
 import directly from ``config_internals.paths``); until then it is
 preserved verbatim so the monkeypatch sites in

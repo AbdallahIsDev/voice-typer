@@ -175,7 +175,7 @@ _FILTER_CHAIN_KEYS = frozenset(
 # UNIFORM defaults (``noise_filter_rnnoise`` defaults to True per
 # Config dataclass) so the two call sites don't drift.
 
-# XZ-CFG-10: the set of config keys that ``apply_preset`` overwrites
+# The set of config keys that ``apply_preset`` overwrites
 # when ``audio_preset != "custom"`` (see ``audio_presets.PRESETS``).
 # If a user submits an IPC ``set_config`` for any of these keys while
 # ``audio_preset`` is one of the named presets (auto / studio /
@@ -1097,7 +1097,7 @@ class ConfigApplier:
         # failure (restore snapshot + re-run side-effects with original
         # values so live state matches disk — ).
         with app._config_mutation_lock:
-            # XZ-CFG-10: if the user submits an individual noise_filter_*
+            # If the user submits an individual noise_filter_*
             # toggle (one of the keys ``apply_preset`` overwrites) while
             # ``audio_preset`` is a named preset (auto / studio /
             # noisy_room / off), auto-switch ``audio_preset`` to

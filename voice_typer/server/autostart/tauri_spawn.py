@@ -250,7 +250,7 @@ def verify_tauri_binary_or_skip(path: str | Path) -> bool:
     """Verify the Tauri host binary against ``tauri-binaries.json``.
 
     Implements the ``_manifest_loader_contract`` documented in
-    ``tauri-binaries.json`` (CR-002 fail-closed semantics, mirroring
+    ``tauri-binaries.json`` (fail-closed semantics, mirroring
     ``voice_typer/server/native_hotkeys/binary_path.py::verify_native_binary_or_skip``):
 
     - If the manifest cannot be located → FAIL CLOSED (return False).
@@ -344,7 +344,7 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
     """
     from voice_typer.server import autostart_launcher as _pkg
 
-    # CR-002 fail-closed integrity gate: the Tauri host binary MUST
+    # Fail-closed integrity gate: the Tauri host binary MUST
     # verify against ``tauri-binaries.json`` before it is spawned —
     # otherwise a tampered or stale binary (or the ``VT_TAURI_BINARY``
     # env override, which is NOT a bypass) would launch unchecked.

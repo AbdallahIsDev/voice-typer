@@ -111,7 +111,7 @@ _RESAMPLE_FIR_CACHE_MAX_ENTRIES: int = 32
 _RESAMPLE_FIR_HALF_LEN_CAP: int = 256
 
 
-# ER-88: anti-aliasing FIR filter cache for the no-scipy linear-interp
+# Anti-aliasing FIR filter cache for the no-scipy linear-interp
 # fallback path. ``np.interp`` is pure linear interpolation — when
 # DOWNSAMPLING (e.g. 48k→16k, 44.1k→16k), energy above the target
 # Nyquist (8 kHz) aliases into the speech band, degrading ASR accuracy.
@@ -132,7 +132,7 @@ _ANTIALIAS_FIR_TAPS = 31  # odd; ~31 taps — short enough for RT, sufficient fo
 # device hot-plug churn, so we cap and clear-on-overflow.
 _ANTIALIAS_FIR_CACHE_MAX_ENTRIES: int = 32
 
-# ER-88: one-time warning flag so the linear-interp fallback surfaces
+# One-time warning flag so the linear-interp fallback surfaces
 # its quality degradation even when callers pass ``log_resample=False``
 # (notably ``_resample_chunk`` on the streaming partial-transcription
 # path, which deliberately suppresses per-call logging). The first
@@ -434,7 +434,7 @@ def resample_audio(
     """
     if log is None:
         log = logging.getLogger("voice_typer.server.recording")
-    # ER-88: short-circuit on empty input. ``np.interp`` raises
+    # Short-circuit on empty input. ``np.interp`` raises
     # ``ValueError('array of sample points is empty')`` when the
     # source array is empty (because the ``fp`` argument is a 0-length
     # array even though ``xi`` is also 0-length). Returning early
@@ -504,7 +504,7 @@ def resample_audio(
             # anti-aliasing). This fallback produces acceptable results
             # for speech audio at common sample rates (44.1k→16k, 48k→16k).
             #
-            # ER-88: when DOWNSAMPLING, apply a short windowed-sinc
+            # When DOWNSAMPLING, apply a short windowed-sinc
             # anti-aliasing FIR low-pass at ``target_sr / 2`` BEFORE the
             # linear-interp decimation. Without this, energy above
             # ``target_sr / 2`` (e.g. >8 kHz on a 48k→16k downsample)
@@ -529,7 +529,7 @@ def resample_audio(
                 np.arange(len(src_audio)),
                 src_audio,
             ).astype(np.float32)
-            # ER-88: one-time WARNING so the streaming / partial path
+            # One-time WARNING so the streaming / partial path
             # (which passes ``log_resample=False`` and would otherwise
             # silently use unfiltered linear interp) surfaces the
             # quality degradation to the operator. Subsequent calls are

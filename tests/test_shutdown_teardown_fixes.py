@@ -396,13 +396,9 @@ class TestWindowsTerminateProcessFallback:  # noqa: N801
         # the extracted module adopted the shared helper); accept either
         # form.
         assert ('sys.platform == "win32"' in body) or ("is_windows()" in body), (
-            "UE-1-F6: the TerminateProcess fallback must be guarded by "
+            "the TerminateProcess fallback must be guarded by "
             '``sys.platform == "win32"`` (or the canonical '
             "``platform_utils.is_windows()`` guard) — POSIX uses SIGKILL"
-        )
-        # marker must be present for traceability.
-        assert "UE-1-F6" in body, (
-            "UE-1-F6: _teardown_electron must reference the UE-1-F6 marker in comments for traceability"
         )
 
     def test_posix_sigkill_escalation_preserved(self):
@@ -571,13 +567,9 @@ class TestSignalWatcherLoopStderrFallback:  # noqa: N801
         # The fallback must be wrapped in ``contextlib.suppress(OSError)``
         # so a failed write (e.g. stderr closed) doesn't propagate.
         assert "contextlib.suppress(OSError)" in body, (
-            "UE-1-F7: the os.write fallback must be wrapped in "
+            "the os.write fallback must be wrapped in "
             "``contextlib.suppress(OSError)`` so a failed write doesn't "
             "prevent the subsequent quit() dispatch"
-        )
-        # marker must be present for traceability.
-        assert "UE-1-F7" in body, (
-            "UE-1-F7: signal_watcher_loop must reference the UE-1-F7 marker in comments for traceability"
         )
 
     def test_log_info_failure_triggers_stderr_fallback(self, monkeypatch, capsys):

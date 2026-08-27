@@ -82,7 +82,7 @@ export function MicrophoneStep({
 											<span
 												className="rounded-full border border-warning/30 bg-warning/10 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-warning"
 												data-testid={`mic-bluetooth-badge-${mic.id}`}
-												title="Bluetooth/HFP — audio quality may be limited"
+												title={t("onboarding.bluetoothBadgeTooltip")}
 											>
 												BT
 											</span>

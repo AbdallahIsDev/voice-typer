@@ -1,6 +1,6 @@
 //! WebSocket reconnect + reader/writer tasks (ADR-0020 §1 + §9 + §10).
 //!
-//! Module split (review.md FZ-24 / ZR-86): the original 2534-line
+//! Module split: the original 2534-line
 //! monolith was split into focused submodules under `ws/`:
 //! - `ws/respawn_scheduler.rs` — long-lived supervisor thread,
 //!   oneshot-fallback path, `cleanup_and_trigger_respawn`.
@@ -34,7 +34,7 @@
 // `dispatch_frame` internally — same WS-send path, same response
 // semantics.
 
-// Submodule declarations (review.md FZ-24 module split).
+// Submodule declarations (module split).
 mod event_protocol;
 mod heartbeat;
 mod reader;
@@ -183,7 +183,7 @@ pub(super) fn truncate_frame_text(text: &str) -> String {
 ///
 /// `pub(super)` so the sibling `ws/respawn_scheduler.rs` submodule
 /// can call it from `cleanup_and_trigger_respawn` (which moved there
-/// during the FZ-24 module split).
+/// during the module split).
 pub(super) async fn drain_pending_with_disconnect_error(state: &Arc<SidecarState>) -> usize {
     let entries: Vec<(u64, oneshot::Sender<Value>)> = {
         let mut pending = state.pending.lock().await;

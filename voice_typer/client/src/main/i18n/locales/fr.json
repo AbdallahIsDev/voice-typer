@@ -14,5 +14,15 @@
 	"state.app.starting": "Démarrage...",
 	"dialog.crashLoop.title": "{appName} — Boucle de crash",
 	"dialog.crashLoop.mainBody": "Le moteur de rendu de la fenêtre principale a planté à plusieurs reprises et ne peut pas être récupéré.\n\nUtilisez l'icône de la barre d'état pour Redémarrer ou Quitter, puis relancez {appName}.",
-	"dialog.crashLoop.bubbleBody": "Le moteur de rendu de la bulle superposée a planté à plusieurs reprises et ne peut pas être récupéré.\n\nUtilisez l'icône de la barre d'état pour Redémarrer ou Quitter, puis relancez {appName}."
+	"dialog.crashLoop.bubbleBody": "Le moteur de rendu de la bulle superposée a planté à plusieurs reprises et ne peut pas être récupéré.\n\nUtilisez l'icône de la barre d'état pour Redémarrer ou Quitter, puis relancez {appName}.",
+	"dialog.pythonBackend.timeoutTitle": "Échec du démarrage du backend Python",
+	"dialog.pythonBackend.timeoutBody": "{appName} n'a pas pu se connecter à son backend Python dans les {seconds} secondes.\n\nVeuillez consulter les journaux et réessayer.",
+	"dialog.pythonBackend.crashTitle": "Le backend Python a planté",
+	"dialog.pythonBackend.crashSignalBody": "Le backend Python de {appName} a été interrompu par un signal (probablement SIGSEGV ou SIGABRT) et va maintenant se fermer.\n\nVeuillez consulter les journaux et réessayer.",
+	"dialog.pythonBackend.crashExitBody": "Le backend Python de {appName} s'est arrêté de manière inattendue avec le code {code} et va maintenant se fermer.\n\nVeuillez consulter les journaux et réessayer.",
+	"dialog.pythonBackend.earlyExitSuffix": "Le backend Python s'est arrêté prématurément (code={code}). Consultez les journaux.",
+	"dialog.pythonBackend.notFoundTitle": "Backend Python introuvable",
+	"dialog.pythonBackend.notFoundBody": "{appName} n'a pas pu démarrer son backend :\n{message}",
+	"dialog.pythonBackend.restartLoopTitle": "{appName} ne peut pas redémarrer en toute sécurité",
+	"dialog.pythonBackend.restartLoopBody": "{appName} a été invité à redémarrer {count} fois au cours des {seconds} dernières secondes, ce qui suggère que le backend Python plante au démarrage.\n\nPour éviter une boucle de crash, le redémarrage automatique a été annulé. Veuillez vérifier les fichiers journaux dans le répertoire de configuration de {appName} (python_crash.*.txt et voice-typer.log), puis lancez {appName} manuellement une fois le problème sous-jacent résolu."
 }

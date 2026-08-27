@@ -294,7 +294,7 @@ class AudioCallbackDispatcher:
         queued by the callback during the prepend are drained
         immediately after the prepend finishes.
         """
-        # WM-8: prefer explicit ``stop_event`` / ``wake_event`` (captured
+        # Prefer explicit ``stop_event`` / ``wake_event`` (captured
         # at thread-spawn time by ``start_audio_worker_body``) over the
         # dynamic ``recorder._worker_stop_event`` /
         # ``_worker_wake_event`` attributes. A stale worker whose
@@ -480,7 +480,7 @@ class AudioCallbackDispatcher:
         recorder._ring_buffer.clear()
         recorder._worker_thread = threading.Thread(
             target=recorder._audio_worker_loop,
-            # WM-8: pass the CURRENT stop / wake events as explicit
+            # Pass the CURRENT stop / wake events as explicit
             # args so the worker binds to THESE events at spawn time.
             # If the recorder's events are later replaced (stale-worker
             # SPSC race), the OLD worker retains its OLD (set) events

@@ -627,7 +627,7 @@ def _load_config(cls) -> "Config":
                         "post-migration save failed — migrations will re-run on next launch"
                     )
 
-        # XZ-SEC-05: re-apply user-configured trusted hosts to the
+        # Re-apply user-configured trusted hosts to the
         # runtime URL allowlist. The persisted ``trusted_extra_hosts``
         # list is the config.json-driven path for self-hosted
         # LLM/ASR endpoints (the env-var bootstrap in ``_secrets.py``

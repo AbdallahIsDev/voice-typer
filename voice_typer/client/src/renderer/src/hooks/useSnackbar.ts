@@ -221,13 +221,7 @@ export function showUndoableToast(
  * model download failed) — but callers can pass ``type: "warning"``
  * for recoverable-but-non-fatal issues.
  *
- * The default ``retryLabel`` is the literal string ``"Retry"`` rather
- * than a translation key, because no shared ``common.retry`` key
- * exists in the i18n catalogs today (the per-section ``*.retry``
- * keys — ``recording.retry``, ``microphone.retry``, ``vocabulary.retry``,
- * ``templates.retry``, ``models.cards.retry``, ``history.retry`` — are
- * contextual to their pages). Callers that want a localized label
- * pass ``retryLabel: t("someSection.retry")``.
+ * The default ``retryLabel`` is ``t("common.retry")``.
  *
  * @param message Toast message body.
  * @param onRetry Called when the user clicks Retry.
@@ -242,7 +236,7 @@ export function showRetryableToast(
 		timeoutMs?: number;
 	} = {},
 ): void {
-	const { retryLabel = "Retry", type = "error", timeoutMs } = options;
+	const { retryLabel = t("common.retry"), type = "error", timeoutMs } = options;
 	const duration = timeoutMs ?? SNACKBAR_DEFAULT_DURATION_MS[type];
 	const opts = {
 		duration,

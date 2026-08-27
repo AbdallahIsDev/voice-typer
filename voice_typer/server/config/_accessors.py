@@ -1,6 +1,6 @@
 """Public top-level accessors for the ``config`` package.
 
-Extracted from ``config/__init__.py`` (W1-A2 / AC-131) to chip away
+Extracted from ``config/__init__.py`` to chip away
 at the monolith. These are pure leaf functions (no Config dependency)
 that walk the user-data directory for uninstall flows
 (``purge_user_data`` / ``purge_all_user_data``) plus two small helpers

@@ -75,7 +75,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
     except Exception:
         config_dir = recovery._path.parent
 
-    # UE-5-F6 collision: ``%Y%m%d_%H%M%S`` is second-resolution, so
+    # Collision guard: ``%Y%m%d_%H%M%S`` is second-resolution, so
     # two exports in the same second produce the same bundle_path —
     # the second call's ``os.replace`` would clobber the first call's
     # zip. ``%f`` (microseconds) was added next, but on Windows

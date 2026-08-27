@@ -1,7 +1,7 @@
 """``RecorderInitMixin`` — extract ``Recorder.__init__``'s device /
 health-checker state setup.
 
-Phase 4.5 further-split (DT-21): ``Recorder.__init__`` was 370 LOC
+Phase 4.5 further-split: ``Recorder.__init__`` was 370 LOC
 declaring 60+ instance attributes. The device / disconnect-handler /
 collaborator-construction block (~88 LOC) is extracted here as
 :meth:`RecorderInitMixin._setup_device_state_and_collaborators`.

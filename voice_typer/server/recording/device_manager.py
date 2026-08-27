@@ -1150,7 +1150,7 @@ class DeviceManager:
                 # crash the resolution path. Broadened to ``Exception``
                 # because no caller of ``_resolve_device`` is prepared to
                 # handle a raised exception from this diagnostic probe.
-                # (XS-36: no bare ``pass`` — log with exc_info so the
+                # No bare ``pass`` — log with exc_info so the
                 # diagnostic failure is visible in the log file.)
                 log.debug(
                     "[RECORDING] DJ-69: could not query saved device index %r "

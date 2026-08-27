@@ -106,7 +106,7 @@ export function useMicrophoneTest({
 	const { showSnack } = useSnackbar();
 
 	// ADR 0007: Audio preset + filter state lives in ``config`` directly.
-	// (XA-5-4): persist the "Show advanced filters" expand toggle across
+	// Persist the "Show advanced filters" expand toggle across
 	// page navigation so a user who expanded the advanced panel to tweak
 	// a noise gate threshold doesn't have to re-expand it after a
 	// navigation. The toggle is purely a UI affordance (no behaviour

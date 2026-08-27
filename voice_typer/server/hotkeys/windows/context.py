@@ -1,6 +1,6 @@
 """Win32 ctypes context setup helpers for ``WindowsNativeHotkey``.
 
-Extracted from the original ``windows_native.py`` god-class (EC-29
+Extracted from the original ``windows_native.py`` god-class
 split). These helpers set ``argtypes``/``restype`` for the Win32
 DLL functions used by the polling loop, message loop, LL hook,
 and CapsLock suppressor strategies.

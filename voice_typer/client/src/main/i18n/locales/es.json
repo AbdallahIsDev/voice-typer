@@ -14,5 +14,15 @@
 	"state.app.starting": "Iniciando...",
 	"dialog.crashLoop.title": "{appName} — Bucle de fallo",
 	"dialog.crashLoop.mainBody": "La ventana principal del renderizador ha fallado repetidamente y no se puede recuperar.\n\nUse el icono de la bandeja para Reiniciar o Salir, y luego vuelva a iniciar {appName}.",
-	"dialog.crashLoop.bubbleBody": "La ventana superpuesta del renderizador ha fallado repetidamente y no se puede recuperar.\n\nUse el icono de la bandeja para Reiniciar o Salir, y luego vuelva a iniciar {appName}."
+	"dialog.crashLoop.bubbleBody": "La ventana superpuesta del renderizador ha fallado repetidamente y no se puede recuperar.\n\nUse el icono de la bandeja para Reiniciar o Salir, y luego vuelva a iniciar {appName}.",
+	"dialog.pythonBackend.timeoutTitle": "Error al iniciar el backend de Python",
+	"dialog.pythonBackend.timeoutBody": "{appName} no pudo conectarse a su backend de Python en {seconds} segundos.\n\nPor favor, revisa los registros e inténtalo de nuevo.",
+	"dialog.pythonBackend.crashTitle": "El backend de Python falló",
+	"dialog.pythonBackend.crashSignalBody": "El backend de Python de {appName} fue terminado por una señal (probablemente SIGSEGV o SIGABRT) y ahora se cerrará.\n\nPor favor, revisa los registros e inténtalo de nuevo.",
+	"dialog.pythonBackend.crashExitBody": "El backend de Python de {appName} finalizó inesperadamente con el código {code} y ahora se cerrará.\n\nPor favor, revisa los registros e inténtalo de nuevo.",
+	"dialog.pythonBackend.earlyExitSuffix": "El backend de Python finalizó antes de tiempo (código={code}). Revisa los registros.",
+	"dialog.pythonBackend.notFoundTitle": "Backend de Python no encontrado",
+	"dialog.pythonBackend.notFoundBody": "{appName} no pudo iniciar su backend:\n{message}",
+	"dialog.pythonBackend.restartLoopTitle": "{appName} no se puede reiniciar de forma segura",
+	"dialog.pythonBackend.restartLoopBody": "Se ha solicitado a {appName} que se reinicie {count} veces en los últimos {seconds} segundos, lo que sugiere que el backend de Python falla al iniciar.\n\nPara evitar un bucle de fallos, se ha cancelado el reinicio automático. Por favor, revisa los archivos de registro en el directorio de configuración de {appName} (python_crash.*.txt y voice-typer.log), luego inicia {appName} manualmente una vez que hayas solucionado el problema subyacente."
 }

@@ -91,7 +91,7 @@ export function useVocabulary({
 	// the History/Templates retry pattern.
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
-	// (XA-5-4): persist search + sort across page navigation via
+	// Persist search + sort across page navigation via
 	// sessionStorage so a user who switched tabs doesn't lose their
 	// filter context when they come back. Wraps useSessionStorage
 	// under the hood with a per-page namespaced key.

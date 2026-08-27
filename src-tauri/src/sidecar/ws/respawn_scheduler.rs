@@ -1,8 +1,7 @@
 //! Respawn-supervisor scheduling + auth-failure cleanup helpers
 //! (ADR-0020 §1 + §10).
 //!
-//! Extracted from the original 2534-line `ws.rs` monolith
-//! (review.md FZ-24 / ZR-86). Holds the long-lived supervisor
+//! Extracted from the original 2534-line `ws.rs` monolith. Holds the long-lived supervisor
 //! thread, the oneshot-fallback path, and the auth-failure
 //! `cleanup_and_trigger_respawn` helper that drains pending
 //! dispatches and triggers supervisor respawn on a separate OS

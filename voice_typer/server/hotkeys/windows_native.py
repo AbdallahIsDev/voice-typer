@@ -2,7 +2,7 @@
 
 This module is the slim class shell. The strategy implementations
 live in the :mod:`voice_typer.server.hotkeys.windows` subpackage
-(split out in EC-29). Each strategy function takes ``self`` as its
+(split out during the package split). Each strategy function takes ``self`` as its
 first parameter so it can be assigned as a method on
 :class:`WindowsNativeHotkey` — Python's descriptor protocol then
 passes the instance as ``self``, and ``inspect.getsource`` follows

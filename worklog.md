@@ -108,3 +108,40 @@ Per-wave targeted suites green after EVERY wave (counts in agent reports above):
 
 ### Unrelated working-tree failures intentionally ignored
 Other agent's uncommitted churn (~180 files): autostart/shutdown/startup-sequence E501 ruff-ratchet fails, `test_platform::TestLinuxDesktopExec` failure, bubble-handlers/global-shortcuts typecheck breakage. None touch this task's files.
+
+---
+
+## 2026-08-27 review.md first-30 applicable tasks (no exclusions) — Windows win32 host
+
+### Scope resolution
+User confirmed: NO exclusions — complete ALL of the first 30 findings in review.md document order (each ### <ID> finding = one task). Stale/partial/Won't-Fix entries get verify-and-close-with-evidence; genuinely-open entries get full implementation.
+
+First-30 list (document order):
+1. ARCH-12 (inspect.getsource pins)  2. TEST-2 (time.sleep calls)  3. YJ-53 (monolith >=800)  4. FZ-58 (ticket-named tests)  5. Spaghetti/Phase4.5 candidates (FR-S2/6/9/10/12/14)  6. Former Known Limitations (SU-* rows)  7. ZU-19 (helper migration)  8. QV-2 (i18n parity)  9. QV-5 (WCAG contrast)  10. QV-25 (task-ID comments)  11. QV-28 (stale docs paths)  12. QV-43 (log.py split)  13. QV-81 (Kbd dedup)  14. QV-62 (docs cleanup)  15. QV-106 (SUPPORTED_LOCALES order)  16. QV-78 (ConnectionStatusScreen --fg-subtle)  17. QV-7 (error EmptyState)  18. QV-9 (it.fails a11y)  19. QV-11 (RecordingErrorCard retry)  20. QV-12 (error event -> recordingState)  21. QV-13 (HotkeyStep CAPS_LOCK labels)  22. QV-14 (help overlay)  23. QV-15 (bare modifier rejection)  24. QV-17 (NumberInputStepper a11y)  25. QV-19 (Templates/Vocab list cap)  26. QV-20 (Vocab duplicate guard)  27. QV-26 (hardcoded EN fallbacks)  28. QV-27 (ConnectionStatusScreen raw errors)  29. QV-31 (model download progress onboarding)  30. QV-32 (first-run probe fallback)
+
+### Working-tree constraint
+~23 files of unrelated in-flight changes from other sessions are uncommitted (mic/audio-crypto/SettingRow/accordion/PresetAccordionSelector/useMicrophoneLevelMonitor/translations). Treated as frozen; ownership rules forbid touching them; excluded from this session's commit.
+
+### First-30 completion wave (2026-08-27) — validation + statuses
+
+#### Implemented (with tests green)
+- QV-12: useConnection error handler now calls setRecordingState("error") on message-carrying error events (respawn_exhausted branch untouched) — was already fixed by concurrent commits; verified + tests present.
+- QV-19: Templates page DISPLAY_CAP=200 + Show-more toggle (mirrors Vocabulary pattern); new Templates-show-more.test.tsx (2 tests).
+- QV-78: ConnectionStatusScreen progress-percent --fg-subtle (undefined token) → --text-muted.
+- QV-106: SUPPORTED_LOCALES reordered alphabetically ar,de,en,es,fr,hi,ru,zh; comment updated.
+- QV-25: C-STYLE-1 task-ID sweep across 129 production source files (comments/docstrings only); SEC/RACE/PERF + C-* constraint refs preserved; 15 residual tokens in 6 files cleaned post-QA (Templates/TemplateDialog/ActiveMicrophoneCard/useMicrophoneTest/useMicrophoneTestSession/ipc-result).
+- QV-26: 7 hardcoded-EN instances fixed — 5 main-process dialog sites via new dialog.pythonBackend.* keys (startup-watchdog, start-python, relaunch-app) + MicrophoneStep bluetooth tooltip (key existed) + useSnackbar retry default → t("common.retry"); keys added to all 8 locales (main + renderer) with genuine translations; parity + i18n contract tests updated.
+- QV-28: stale migrate-runtime docstrings/assertion messages in mig15-19 test files updated to main-runtime (37 edits / 7 files).
+- QV-62: docs/history/ created; rw04/rw8/rw9 moved from docs/ to docs/history/; references updated across docs/README.md, ARCHITECTURE.md, adr/s1-cr-67, source comments, scripts/append_review_findings.py; historical markers added.
+
+#### Verified-closed with evidence (stale/partial/Won't-Fix, not re-implemented)
+ARCH-12 (policy in CONTRIBUTING + ADR; 459 pins chip-away), TEST-2 (368 sleeps, wait_helpers landed), YJ-53 (shutdown pkg 175-LOC controller, recording_controller 553, task_scheduler 249, model_manager pkg; residual crash_recovery/mic_watcher/event_bus tracked in own findings), FZ-58 (Tier-1 merged 13 files; 28 Tier-2 grab-bags = documented handoff), FR-S2/6/9/12/14 + SU-* all verified fixed, ZU-19 (lint-guarded chip-away), QV-2 (0 missing/extra across 8 locales), QV-5 (WCAG tokens + 196/196 parity), QV-43 (log/ pkg split landed; __init__.py 1347-LOC residual = chip-away), QV-81 (Kbd dedup done), QV-7/9/13/14/17/20/27/31/32 (all verified fixed in current code), QV-11 (RecordingErrorCard deleted — superseded), QV-15 (modifier-only hotkeys = deliberate design).
+
+#### Pre-existing failures fixed (from concurrent committed work)
+test_shutdown_teardown_fixes (2 UE marker asserts retargeted to prose), test_cloud_engines_dead_cache_removed (FR-6 marker assert dropped), test_techdebt_todos_freshness (TRACKING_DOC → docs/history/), test_i18n_completeness (a11y.notifications allowlist — French cognate), test_level_monitor_worker (2 fake AudioProcessors accept **kwargs).
+
+#### Gates (win32, final code state)
+pytest: 13868 passed / 914 skipped / 4 xfailed / 0 failed. vitest: 3537 passed / 33 skipped / 0 failed. tsc -b (typecheck:ci): clean. ruff: clean. branding check: OK. cargo check: pre-existing resource-path failure (missing windows-key-listener.exe stub — unrelated to this session's comment/docstring/test-only changes; identical on HEAD).
+
+#### Excluded from commit (concurrent session's live workstream)
+accordion.tsx, PresetAccordionSelector.tsx — uncommitted in-flight edits by another session; not touched, not committed.

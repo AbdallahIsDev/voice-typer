@@ -65,16 +65,16 @@ process and [adr/template.md](adr/template.md) when adding a new ADR.
 
 ## Historical documents
 
-The following historical planning + progress trackers live at the top
-level of `docs/` (there is no `docs/history/` subdirectory — they are
-sibling files). They are retained for design rationale; they are NOT
+The following historical planning + progress trackers live in
+`docs/history/` (each carries a `> **Historical document**` header).
+They are retained for design rationale; they are NOT
 authoritative for current state. Each file carries a STATUS header at
 the top noting whether its action items are still live.
 
 | File | Purpose |
 |------|---------|
-| [rw04-recording-decomposition.md](rw04-recording-decomposition.md) | recording-lifecycle decomposition notes (RecordingController extraction). |
-| [rw8-meta-tests-triage.md](rw8-meta-tests-triage.md) | triage of the now-deleted `tests/test_bugfix_regressions.py` meta-tests. Historical; the source file has been removed and the surviving behavioral ports live in `tests/test_bugfix_regressions_behavioral.py`. |
-| [rw9-god-class-decomposition.md](rw9-god-class-decomposition.md) | `VoiceTyperApp` god-class decomposition tracker (controller extractions, `app.py` line-count history). |
+| [rw04-recording-decomposition.md](history/rw04-recording-decomposition.md) | recording-lifecycle decomposition notes (RecordingController extraction). |
+| [rw8-meta-tests-triage.md](history/rw8-meta-tests-triage.md) | triage of the now-deleted `tests/test_bugfix_regressions.py` meta-tests. Historical; the source file has been removed and the surviving behavioral ports live in `tests/test_bugfix_regressions_behavioral.py`. |
+| [rw9-god-class-decomposition.md](history/rw9-god-class-decomposition.md) | `VoiceTyperApp` god-class decomposition tracker (controller extractions, `app.py` line-count history). |
 | [vitest-rewrite-progress.md](vitest-rewrite-progress.md) | vitest rewrite progress tracker for the 87 string-pattern Python tests. Historical; `tests/test_feature_hardening_regressions.py` was deleted post-rewrite. |
 | [native-hotkey-architecture-plan.md](native-hotkey-architecture-plan.md) | Historical plan for the cross-platform native-hotkey rewrite. See ADR-0007 for what shipped. |

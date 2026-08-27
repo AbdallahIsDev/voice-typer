@@ -105,6 +105,16 @@ describe("main-process i18n locales match renderer SUPPORTED_LOCALES", () => {
 			"dialog.crashLoop.bubbleBody",
 			"notify.app.config_load_failed_body",
 			"state.app.starting",
+			"dialog.pythonBackend.timeoutTitle",
+			"dialog.pythonBackend.timeoutBody",
+			"dialog.pythonBackend.crashTitle",
+			"dialog.pythonBackend.crashSignalBody",
+			"dialog.pythonBackend.crashExitBody",
+			"dialog.pythonBackend.earlyExitSuffix",
+			"dialog.pythonBackend.notFoundTitle",
+			"dialog.pythonBackend.notFoundBody",
+			"dialog.pythonBackend.restartLoopTitle",
+			"dialog.pythonBackend.restartLoopBody",
 		];
 		setMainLocale("en");
 		const enValues = probeKeys.map((k) => mainT(k));

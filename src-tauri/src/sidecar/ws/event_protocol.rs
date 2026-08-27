@@ -1,8 +1,7 @@
 //! Server-initiated event protocol — allowlist + event-name
 //! translation (ADR-0020 §9).
 //!
-//! Extracted from the original 2534-line `ws.rs` monolith
-//! (review.md FZ-24 / ZR-86). Holds:
+//! Extracted from the original 2534-line `ws.rs` monolith. Holds:
 //! - `ALLOWED_EVENT_TYPES` — the source-of-truth slice of every
 //!   event name the Python sidecar is known to publish today.
 //! - `ALLOWED_EVENT_TYPES_SET` — O(1) lookup set derived from the
@@ -287,7 +286,7 @@ pub(crate) fn python_event_envelope(emit_name: &str, payload: Value) -> Value {
 ///
 /// `pub(crate)` + re-exported from `ws.rs` so external callers using
 /// `crate::sidecar::ws::translate_event_name` keep working after the
-/// FZ-24 module split.
+/// module split.
 pub(crate) fn translate_event_name(event_type: &str) -> &str {
     match event_type {
         // cleanup the `relaunch_electron` →

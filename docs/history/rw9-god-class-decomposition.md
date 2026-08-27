@@ -1,3 +1,5 @@
+> **Historical document**
+
 # RW-9 — VoiceTyperApp God-Class Decomposition
 
 **Task**: RW-9 god-class controller extract
@@ -165,7 +167,7 @@ Pins the `SettingsController` extraction contract:
 | `voice_typer/server/settings_controller.py`                | 166   | `SettingsController` class — extracted settings side-effects        |
 | `tests/test_startup_sequence.py`                          | 332   | Regression tests for the Phase-5 `StartupSequence` extraction       |
 | `tests/test_settings_controller.py`                       | 349   | Regression tests for the Phase-6 `SettingsController` extraction    |
-| `docs/rw9-god-class-decomposition.md`                     | (this file) | Tracking doc — what was extracted, what remains                   |
+| `docs/history/rw9-god-class-decomposition.md`                     | (this file) | Tracking doc — what was extracted, what remains                   |
 
 ---
 

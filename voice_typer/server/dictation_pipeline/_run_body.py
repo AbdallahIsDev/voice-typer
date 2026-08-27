@@ -1,6 +1,6 @@
 """Extracted ``_run_pipeline_body`` — the try-block body of ``run``.
 
-Pre-refactor (AC-73): the orchestrator's ``run`` method was 285
+Pre-refactor: the orchestrator's ``run`` method was 285
 lines, with the try-block body alone accounting for ~117 of them
 (stage loop + per-stage timing instrumentation + transcribe
 post-stage audio zero + consolidated PIPE-PERF log line).

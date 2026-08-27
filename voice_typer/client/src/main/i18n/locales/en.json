@@ -14,5 +14,15 @@
 	"state.app.starting": "Starting...",
 	"dialog.crashLoop.title": "{appName} — Crash loop",
 	"dialog.crashLoop.mainBody": "The main window renderer has crashed repeatedly and cannot recover.\n\nPlease use the tray icon to Restart or Quit, then relaunch {appName}.",
-	"dialog.crashLoop.bubbleBody": "The bubble overlay renderer has crashed repeatedly and cannot recover.\n\nPlease use the tray icon to Restart or Quit, then relaunch {appName}."
+	"dialog.crashLoop.bubbleBody": "The bubble overlay renderer has crashed repeatedly and cannot recover.\n\nPlease use the tray icon to Restart or Quit, then relaunch {appName}.",
+	"dialog.pythonBackend.timeoutTitle": "Python backend failed to start",
+	"dialog.pythonBackend.timeoutBody": "{appName} could not connect to its Python backend within {seconds} seconds.\n\nPlease check the logs and try again.",
+	"dialog.pythonBackend.crashTitle": "Python backend crashed",
+	"dialog.pythonBackend.crashSignalBody": "{appName}'s Python backend was terminated by a signal (likely SIGSEGV or SIGABRT) and will now exit.\n\nPlease check the logs and try again.",
+	"dialog.pythonBackend.crashExitBody": "{appName}'s Python backend exited unexpectedly with code {code} and will now exit.\n\nPlease check the logs and try again.",
+	"dialog.pythonBackend.earlyExitSuffix": "Python backend exited early (code={code}). Check the logs.",
+	"dialog.pythonBackend.notFoundTitle": "Python backend not found",
+	"dialog.pythonBackend.notFoundBody": "{appName} could not start its backend:\n{message}",
+	"dialog.pythonBackend.restartLoopTitle": "{appName} cannot restart safely",
+	"dialog.pythonBackend.restartLoopBody": "{appName} has been asked to restart {count} times in the last {seconds} seconds, which suggests the Python backend is crashing on launch.\n\nTo avoid a crash loop, the automatic restart has been cancelled. Please check the log files in your {appName} config directory (python_crash.*.txt and voice-typer.log), then start {appName} manually once you've addressed the underlying issue."
 }

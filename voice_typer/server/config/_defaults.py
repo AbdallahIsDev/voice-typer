@@ -1,6 +1,6 @@
 """Default-value constants for the ``config`` package.
 
-Extracted from ``config/__init__.py`` (W1-A2 / AC-131) to chip away
+Extracted from ``config/__init__.py`` to chip away
 at the monolith. The constants here are imported by ``Config`` field
 defaults and by external callers (``onboarding.py``,
 ``hotkey_dispatcher.py``, ``config_applier.py``, ``clipboard/manager.py``)

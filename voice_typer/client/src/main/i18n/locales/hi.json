@@ -14,5 +14,15 @@
 	"state.app.starting": "प्रारंभ हो रहा है...",
 	"dialog.crashLoop.title": "{appName} — क्रैश लूप",
 	"dialog.crashLoop.mainBody": "मुख्य विंडो रेंडरर बार-बार क्रैश हो चुका है और ठीक नहीं हो सकता।\n\nकृपया रीस्टार्ट या क्विट के लिए ट्रे आइकन का उपयोग करें, फिर {appName} को पुनः लॉन्च करें।",
-	"dialog.crashLoop.bubbleBody": "बबल ओवरले रेंडरर बार-बार क्रैश हो चुका है और ठीक नहीं हो सकता।\n\nकृपया रीस्टार्ट या क्विट के लिए ट्रे आइकन का उपयोग का उपयोग करें, फिर {appName} को पुनः लॉन्च करें।"
+	"dialog.crashLoop.bubbleBody": "बबल ओवरले रेंडरर बार-बार क्रैश हो चुका है और ठीक नहीं हो सकता।\n\nकृपया रीस्टार्ट या क्विट के लिए ट्रे आइकन का उपयोग करें, फिर {appName} को पुनः लॉन्च करें।",
+	"dialog.pythonBackend.timeoutTitle": "पायथन बैकएंड प्रारंभ करने में विफल",
+	"dialog.pythonBackend.timeoutBody": "{appName} {seconds} सेकंड के भीतर अपने पायथन बैकएंड से कनेक्ट नहीं हो सका।\n\nकृपया लॉग जांचें और पुनः प्रयास करें।",
+	"dialog.pythonBackend.crashTitle": "पायथन बैकएंड क्रैश हो गया",
+	"dialog.pythonBackend.crashSignalBody": "{appName} का पायथन बैकएंड एक सिग्नल (संभवतः SIGSEGV या SIGABRT) द्वारा समाप्त कर दिया गया था और अब बंद हो जाएगा।\n\nकृपया लॉग जांचें और पुनः प्रयास करें।",
+	"dialog.pythonBackend.crashExitBody": "{appName} का पायथन बैकएंड कोड {code} के साथ अप्रत्याशित रूप से बंद हो गया और अब बंद हो जाएगा।\n\nकृपया लॉग जांचें और पुनः प्रयास करें।",
+	"dialog.pythonBackend.earlyExitSuffix": "पायथन बैकएंड जल्दी बंद हो गया (कोड={code})। लॉग जांचें।",
+	"dialog.pythonBackend.notFoundTitle": "पायथन बैकएंड नहीं मिला",
+	"dialog.pythonBackend.notFoundBody": "{appName} अपना बैकएंड प्रारंभ नहीं कर सका:\n{message}",
+	"dialog.pythonBackend.restartLoopTitle": "{appName} सुरक्षित रूप से पुनः आरंभ नहीं हो सकता",
+	"dialog.pythonBackend.restartLoopBody": "{appName} से पिछले {seconds} सेकंड में {count} बार पुनः आरंभ करने का अनुरोध किया गया है, जो बताता है कि पायथन बैकएंड लॉन्च पर क्रैश हो रहा है।\n\nक्रैश लूप से बचने के लिए, स्वचालित पुनः आरंभ रद्द कर दिया गया है। कृपया {appName} कॉन्फ़िगरेशन निर्देशिका में लॉग फ़ाइलें (python_crash.*.txt और voice-typer.log) जांचें, फिर अंतर्निहित समस्या का समाधान करने के बाद {appName} को मैन्युअल रूप से प्रारंभ करें।"
 }

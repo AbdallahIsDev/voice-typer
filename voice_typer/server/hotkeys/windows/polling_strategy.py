@@ -1,6 +1,6 @@
 """GetAsyncKeyState polling-loop strategies for ``WindowsNativeHotkey``.
 
-Extracted from the original ``windows_native.py`` god-class (EC-29
+Extracted from the original ``windows_native.py`` god-class
 split). Contains:
 
 - ``run_polling_loop`` — the main GetAsyncKeyState polling loop

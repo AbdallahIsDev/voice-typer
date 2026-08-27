@@ -9,7 +9,7 @@
  *   - `_resetNativeThemeListenerForTest()` / `_nativeThemeListenerRegistered()`
  *     — test seams used by `__tests__/main-window-native-theme.test.ts`.
  *
- * R6-F3 rationale (preserved from the original main-window.ts docstring):
+ * Rationale (preserved from the original main-window.ts docstring):
  * the listener is registered ONCE at module load instead of being
  * re-registered inside `createMainWindow()` on every window recreation.
  * Previously each call to `createMainWindow()` added a NEW listener to
@@ -34,7 +34,7 @@ let _nativeThemeHandler: (() => void) | null = null;
 /**
  * Register the global `nativeTheme.on("updated", ...)` listener exactly
  * once. Idempotent — safe to call multiple times. Exported for tests
- * (R6-F3) so we can assert it's only registered once across multiple
+ * (test seam) so we can assert it's only registered once across multiple
  * `createMainWindow()` calls.
  */
 export function registerNativeThemeListener(): void {
@@ -72,7 +72,7 @@ export function _resetNativeThemeListenerForTest(): void {
 
 /**
  * Test-only: return whether the module-level `nativeTheme.on("updated")`
- * listener is currently registered. Used by R6-F3 unit tests.
+ * listener is currently registered. Used by the unit tests.
  */
 export function _nativeThemeListenerRegistered(): boolean {
 	return _nativeThemeHandler !== null;

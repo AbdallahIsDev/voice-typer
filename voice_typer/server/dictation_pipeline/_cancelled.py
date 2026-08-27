@@ -1,6 +1,6 @@
 """Extracted ``_handle_cancelled_cycle`` — the ``except Exception`` handler.
 
-Pre-refactor (AC-73): the orchestrator's ``run`` method's
+Pre-refactor: the orchestrator's ``run`` method's
 ``except Exception as e:`` block was 56 lines inline, bundling
 four distinct concerns:
 

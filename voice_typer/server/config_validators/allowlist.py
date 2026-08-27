@@ -409,7 +409,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # required, unknown keys rejected). Ignored on Windows/macOS.
     "linux_window_buttons": (dict, _make_linux_window_buttons_validator()),
     "text_size": (int, _make_int_validator(lo=8, hi=72)),
-    # ── Silent mic disconnection (H12) ────────────────────────────────
+    # ── Silent mic disconnection ────────────────────────────────
     "silence_warning_seconds": (float, _make_float_validator(lo=0.0, hi=600.0)),
     "stop_on_silence_seconds": (float, _make_float_validator(lo=0.0, hi=3600.0)),
     # lower bound lowered from 300 to 30 (the prior 5-minute

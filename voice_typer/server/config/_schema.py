@@ -1,6 +1,6 @@
 """Config schema: the ``_ConfigSchema`` dataclass base + schema impls.
 
-W3-A5 continuation of the config monolith split: ALL ``Config``
+Continuation of the config monolith split: ALL ``Config``
 dataclass field declarations live here (moved verbatim from
 ``config/__init__.py``), on a ``@dataclass`` base class named
 ``_ConfigSchema``. The final ``Config`` class in
@@ -247,7 +247,7 @@ class _ConfigSchema:
     # backend-managed state, not a renderer-writable setting.
     disabled_backends: list[str] = field(default_factory=list)
 
-    # XZ-SEC-05: user-configured URL-allowlist extensions for self-hosted
+    # User-configured URL-allowlist extensions for self-hosted
     # LLM/ASR endpoints on non-loopback hosts (e.g. ``my-vllm.lan``).
     # Hostnames are normalized (lowercase, port stripped) and fed into
     # ``_secrets.extend_url_allowlist`` on every ``Config.load()`` and on
@@ -359,7 +359,7 @@ class _ConfigSchema:
     # Crash recovery
     crash_recovery_enabled: bool = True
 
-    # T020 (superseded): an earlier draft removed AudioQualityAnalyzer as
+    # Superseded: an earlier draft removed AudioQualityAnalyzer as
     # dead code and archived a stale copy to archive/. The analyzer was
     # subsequently revived and is actively used — see app.py:208
     # (instantiation), app.py:_on_audio_quality_chunk and
@@ -510,7 +510,7 @@ class _ConfigSchema:
     # Wayland hotkey fallback warning
     wayland_warned: bool = False
 
-    # Silent mic disconnection (H12)
+    # Silent mic disconnection
     silence_warning_seconds: float = 20.0
     stop_on_silence_seconds: float = 60.0
     #  SIMPLIFY-001: single explicit field replaces the previous 3-field split
@@ -570,7 +570,7 @@ class _ConfigSchema:
     use_silero_vad: bool = True  # ADR 0007: was False, now True (torch available)
     vad_speech_threshold: float = 0.5  # Silero VAD prob > this → speech candidate
     vad_silence_threshold: float = 0.3  # Silero VAD prob < this → silence candidate
-    # ER-42: auto-calibrate VAD thresholds from the ambient noise floor
+    # Auto-calibrate VAD thresholds from the ambient noise floor
     # during the first ~1.5s of each session (RMS path; Silero-prob path
     # when use_silero_vad is active). Consumed by VadProcessor
     # (vad_processor.py) via Recorder._vad_auto_calibrate. Was previously

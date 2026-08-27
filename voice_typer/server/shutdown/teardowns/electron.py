@@ -101,7 +101,7 @@ def teardown_electron(controller) -> None:
                     timeout=5.0,
                 )
                 if _term_result is TIMEOUT:
-                    # UE-1-F6: escalate on timeout — POSIX gets
+                    # Escalate on timeout — POSIX gets
                     # SIGKILL; Windows gets a ctypes
                     # TerminateProcess fallback. Pre-fix the POSIX
                     # branch had SIGKILL escalation but the Windows
@@ -152,7 +152,7 @@ def teardown_electron(controller) -> None:
 
                 electron_pid = get_electron_pid()
                 if electron_pid is not None:
-                    # ER-26 dedupe: this fallback branch previously
+                    # Dedupe: this fallback branch previously
                     # re-implemented the SIGTERM → grace-wait → SIGKILL
                     # escalation inline — a third parallel copy of the
                     # same logic that already lives in

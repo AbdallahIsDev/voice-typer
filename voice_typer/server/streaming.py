@@ -353,7 +353,7 @@ class StreamingTextAssembler:
             )
             # invalidate cached text on mutation
             self._words_dirty = True
-        # H8: Prune committed words that are well before the commit horizon
+        # Prune committed words that are well before the commit horizon
         # Only prune when commit_horizon is finite (not inf from finalize)
         if math.isfinite(commit_horizon_seconds):
             prune_threshold = commit_horizon_seconds - 5.0
@@ -362,7 +362,7 @@ class StreamingTextAssembler:
         # when ``commit_horizon_seconds == math.inf`` (the
         # ``finalize()`` path), ``_prune_old_entries`` short-circuits
         # because its threshold would be ``math.inf - 5.0``. The
-        # DJ-21 hard cap is now applied BEFORE the for loop
+        # hard cap is now applied BEFORE the for loop
         # (above) so it covers both the per-chunk and
         # finalize() paths uniformly.
         return " ".join(committed)
@@ -675,7 +675,7 @@ class PartialTranscriptionBroadcaster:
         # Mirror into the bubble channel: both runtimes forward
         # ``bubble_set_state`` to the sandboxed bubble renderer, whose
         # state machine renders the payload's optional ``transcript``
-        # field as live text in the pill (XA-6-2 plumbing). The bubble
+        # field as live text in the pill. The bubble
         # cannot subscribe to ``transcription_partial`` directly
         # (SEC-026 — no python bridge inside the sandboxed bubble
         # window), so this dual publish is what paints the words.
@@ -753,7 +753,7 @@ class StreamingTranscriptionSession:
         # via ``self._thread`` and stopped by ``cancel()`` / ``finalize()``.
         self._thread_registry = thread_registry
         self._cycle_id = cycle_id
-        # ER-48 residual fence: zero-arg callable returning True when the
+        # Residual fence: zero-arg callable returning True when the
         # captured transcriber's backend is BUSY inside another thread's
         # C-level inference call (wired from the registry's is_busy by the
         # coordinator). PRIMARY scenario is same-cycle overlap: finalize()
@@ -1033,7 +1033,7 @@ class StreamingTranscriptionSession:
                 pass
 
     def _finalize_impl(self, full_audio: np.ndarray) -> str:
-        # ER-48 residual fence: if the captured transcriber's backend is
+        # Residual fence: if the captured transcriber's backend is
         # BUSY in another thread's C-level inference call, do NOT enter
         # the engine — concurrent calls on one ctranslate2 model are not
         # thread-safe (crash / silent corruption). Degrade to whatever the
@@ -1083,7 +1083,7 @@ class StreamingTranscriptionSession:
                 with self.assembler._lock:
                     return self.assembler.committed_text
 
-        # H16: Snapshot assembler state under lock at the beginning
+        # Snapshot assembler state under lock at the beginning
         with self.assembler._lock:
             snapshot_committed_text = self.assembler.committed_text
             snapshot_last_committed_time = self.assembler.last_committed_time

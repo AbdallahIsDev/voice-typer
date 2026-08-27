@@ -156,7 +156,7 @@ class _NativeBackendAdapter(HotkeyBackend):
     def __init__(self, native_backend, role: str | None = None):
         # Don't call super().__init__ because we delegate hotkey_str
         # to the wrapped backend.
-        # IN-24: store ``role`` so ``_create_legacy_backend`` can pass
+        # Store ``role`` so ``_create_legacy_backend`` can pass
         # it to ``WaylandHotkey`` when the native backend permanently
         # fails and the adapter swaps to legacy.
         self._role: str | None = role
@@ -345,7 +345,7 @@ class _NativeBackendAdapter(HotkeyBackend):
         """Called when the permission retry timer detects the permission
         has been granted. Attempts to restart the native backend.
 
-        IN-27: stops the legacy backend BEFORE restarting native.
+        Stops the legacy backend BEFORE restarting native.
         Previously the legacy backend was left running alongside the
         native backend after a permission-grant recovery — both
         backends would fire the same callback on the same keypress
@@ -355,7 +355,7 @@ class _NativeBackendAdapter(HotkeyBackend):
         log.info("[HOTKEY] Permission granted — restarting native backend")
         with contextlib.suppress(Exception):
             self._native.stop()
-        # IN-27: stop the legacy backend BEFORE restarting native so
+        # Stop the legacy backend BEFORE restarting native so
         # both backends aren't simultaneously alive (double-fire on
         # the same keypress). Snapshot under the swap_lock to avoid
         # racing with ``_swap_to_legacy`` / ``_retry_native`` which
@@ -503,7 +503,7 @@ class _NativeBackendAdapter(HotkeyBackend):
         if is_windows():
             return WindowsNativeHotkey(self.hotkey_str)
         if is_linux() and is_wayland_session():
-            # IN-24: pass ``self._role`` so the legacy fallback on a
+            # Pass ``self._role`` so the legacy fallback on a
             # Wayland session doesn't collide with other backends.
             return WaylandHotkey(self.hotkey_str, role=self._role)
         return PynputHotkey(self.hotkey_str)

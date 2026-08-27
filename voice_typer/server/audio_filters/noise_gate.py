@@ -218,7 +218,7 @@ class NoiseGate(AudioFilter):
         # temp, then overwritten with the final ``level_arr`` — safe because
         # the temp value is fully consumed before the overwrite.
         self._ensure_buffers(n)
-        # Pre-compute abs outside the state-machine loop (vectorized, S2-CR-19).
+        # Pre-compute abs outside the state-machine loop (vectorized).
         # ``np.abs(samples)`` returns a float32 array (1 allocation); copy it
         # into the pre-allocated float64 buffer to avoid the original
         # ``.astype(np.float64)`` second allocation. The float32 -> float64

@@ -54,7 +54,7 @@ from voice_typer.server.platform_utils import is_windows
 log = logging.getLogger(__name__)
 
 
-# WN-12: import the canonical env-var name from the single source of
+# Import the canonical env-var name from the single source of
 # truth. See voice_typer/server/_paths.py:IPC_TOKEN_ENV_VAR for the
 # rationale. Bare literals elsewhere are now routed through this
 # constant so a typo in any single file can't silently break IPC
@@ -315,7 +315,7 @@ def terminate_electron(pid: int) -> None:
                 )
                 return
             except subprocess.TimeoutExpired:
-                # XZ-R6-AS-10: taskkill hung (e.g. a wedged process
+                # Taskkill hung (e.g. a wedged process
                 # tree) — the previous blanket `except Exception`
                 # swallowed this at DEBUG, silently leaving orphaned
                 # Electron renderer/GPU processes behind. Log at

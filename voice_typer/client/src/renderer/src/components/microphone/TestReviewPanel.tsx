@@ -33,11 +33,11 @@ interface TestReviewPanelProps {
 	onRetest: () => void;
 	hasFiltersEnabled: boolean;
 	/**
-	 * (XA-5-8): optional callback wired to ``handlePresetChange`` in the
+	 * Optional callback wired to ``handlePresetChange`` in the
 	 * parent. When provided, detected-noise issues render a one-click
 	 * "Apply Noisy Room preset" CTA alongside the recommendation text.
 	 * When absent, only the recommendation text is shown (still satisfies
-	 * the XA-5-8 spirit — every detected issue has an actionable
+	 * the same spirit — every detected issue has an actionable
 	 * recommendation, even without the one-click apply).
 	 */
 	onApplyPreset?: (preset: AudioPreset) => void;
@@ -82,7 +82,7 @@ function translateDetectedIssue(raw: string): string {
 }
 
 /**
- * (XA-5-8): per-issue recommendation + optional one-click CTA. Maps each
+ * Per-issue recommendation + optional one-click CTA. Maps each
  * known detected-issue code to:
  *   • ``text`` — the actionable recommendation (always rendered).
  *   • ``applyPreset`` — when present AND the parent wired
@@ -359,7 +359,7 @@ export function TestReviewPanel({
 											</span>
 											<span>{translated}</span>
 										</div>
-										{/* (XA-5-8): per-issue Recommended
+										{/* Per-issue Recommended
                                                                                         action block. Renders whenever a
                                                                                         recommendation text exists for the
                                                                                         detected issue. The one-click CTA

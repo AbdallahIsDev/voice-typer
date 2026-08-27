@@ -14,5 +14,15 @@
 	"state.app.starting": "جارٍ التشغيل...",
 	"dialog.crashLoop.title": "{appName} — حلقة التعطل",
 	"dialog.crashLoop.mainBody": "تعطلت نافذة العرض الرئيسية بشكل متكرر ولا يمكن استعادتها.\n\nيرجى استخدام أيقونة الدرج لإعادة التشغيل أو الخروج، ثم إطلاق {appName} مرة أخرى.",
-	"dialog.crashLoop.bubbleBody": "تعطلت نافذة الفقاعة العائمة بشكل متكرر ولا يمكن استعادتها.\n\nيرجى استخدام أيقونة الدرج لإعادة التشغيل أو الخروج، ثم إطلاق {appName} مرة أخرى."
+	"dialog.crashLoop.bubbleBody": "تعطلت نافذة الفقاعة العائمة بشكل متكرر ولا يمكن استعادتها.\n\nيرجى استخدام أيقونة الدرج لإعادة التشغيل أو الخروج، ثم إطلاق {appName} مرة أخرى.",
+	"dialog.pythonBackend.timeoutTitle": "فشل بدء تشغيل باك-إند بايثون",
+	"dialog.pythonBackend.timeoutBody": "تعذر على {appName} الاتصال بباك-إند بايثون الخاص به خلال {seconds} ثانية.\n\nيرجى التحقق من السجلات والمحاولة مرة أخرى.",
+	"dialog.pythonBackend.crashTitle": "تعطل باك-إند بايثون",
+	"dialog.pythonBackend.crashSignalBody": "تم إنهاء باك-إند بايثون الخاص بـ {appName} بإشارة (على الأرجح SIGSEGV أو SIGABRT) وسيتم إغلاقه الآن.\n\nيرجى التحقق من السجلات والمحاولة مرة أخرى.",
+	"dialog.pythonBackend.crashExitBody": "خرج باك-إند بايثون الخاص بـ {appName} بشكل غير متوقع بالرمز {code} وسيتم إغلاقه الآن.\n\nيرجى التحقق من السجلات والمحاولة مرة أخرى.",
+	"dialog.pythonBackend.earlyExitSuffix": "خرج باك-إند بايثون مبكرًا (الرمز={code}). تحقق من السجلات.",
+	"dialog.pythonBackend.notFoundTitle": "لم يتم العثور على باك-إند بايثون",
+	"dialog.pythonBackend.notFoundBody": "تعذر على {appName} بدء تشغيل باك-إند الخاص به:\n{message}",
+	"dialog.pythonBackend.restartLoopTitle": "لا يمكن إعادة تشغيل {appName} بأمان",
+	"dialog.pythonBackend.restartLoopBody": "طُلب من {appName} إعادة التشغيل {count} مرات خلال آخر {seconds} ثانية، مما يشير إلى أن باك-إند بايثون يتعطل عند الإطلاق.\n\nلتجنب حلقة التعطل، تم إلغاء إعادة التشغيل التلقائية. يرجى التحقق من ملفات السجلات في دليل الإعدادات الخاص بـ {appName} (python_crash.*.txt و voice-typer.log)، ثم قم بتشغيل {appName} يدويًا بعد معالجة المشكلة الأساسية."
 }

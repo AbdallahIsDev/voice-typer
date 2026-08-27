@@ -126,7 +126,8 @@
 		"importAria": "Importar desde archivo",
 		"lastUpdatedWithValue": "Última actualización: {value}",
 		"close": "Cerrar",
-		"confirm": "Confirmar"
+		"confirm": "Confirmar",
+		"retry": "Reintentar"
 	},
 	"microphone": {
 		"levelBarAria": "Nivel de entrada del micrófono",

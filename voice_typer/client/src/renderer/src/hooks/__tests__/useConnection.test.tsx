@@ -332,6 +332,56 @@ describe("useConnection — F1: first-run auto-route ignores persisted page", ()
 		});
 	});
 
+	describe("error event — recording-level failure transitions recordingState", () => {
+		beforeEach(() => {
+			resetStableMocks();
+			vi.resetModules();
+			useAppStore.setState({ recordingState: "idle", lastError: null });
+		});
+
+		it("sets recordingState to 'error' when the error event carries a message", () => {
+			render(<Harness />);
+
+			// Capture the error subscription registered by useConnection.
+			const errorCall = mockPythonEvent.mock.calls.find(
+				(c) => c[0] === "error",
+			);
+			expect(errorCall).toBeTruthy();
+			if (!errorCall) {
+				throw new Error("expected an error subscription");
+			}
+			const handler = errorCall[1] as (data: {
+				message?: string;
+				code?: string;
+			}) => void;
+
+			// Backend pushed a recording-level error with a reason.
+			handler({ message: "Transcription failed" });
+			expect(useAppStore.getState().recordingState).toBe("error");
+			expect(useAppStore.getState().lastError).toBe("Transcription failed");
+		});
+
+		it("does NOT set recordingState for the respawn_exhausted (connection-level) error", () => {
+			render(<Harness />);
+
+			const errorCall = mockPythonEvent.mock.calls.find(
+				(c) => c[0] === "error",
+			);
+			expect(errorCall).toBeTruthy();
+			if (!errorCall) {
+				throw new Error("expected an error subscription");
+			}
+			const handler = errorCall[1] as (data: {
+				message?: string;
+				code?: string;
+			}) => void;
+
+			handler({ code: "respawn_exhausted", message: "supervisor gave up" });
+			expect(useAppStore.getState().recordingState).toBe("idle");
+			expect(useAppStore.getState().connectionStatus).toBe("disconnected");
+		});
+	});
+
 	it("navigates to onboarding when is_first_run=true and persisted page is home", async () => {
 		// Baseline case: persisted page is "home" (the original
 		// happy path that already worked before the fix). This

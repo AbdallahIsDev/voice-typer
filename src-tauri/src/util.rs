@@ -192,7 +192,7 @@ pub(crate) fn generate_token() -> String {
     hex::encode(&bytes)
 }
 
-/// GT-68: per-process, non-secret session ID (8 lowercase hex chars)
+/// Per-process, non-secret session ID (8 lowercase hex chars)
 /// shared between the Rust host and the Python sidecar for log
 /// correlation (crash-report matching, cross-process log joins).
 /// Generated once per process, cached in a `OnceLock`, and passed to

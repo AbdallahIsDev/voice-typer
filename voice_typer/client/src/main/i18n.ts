@@ -204,6 +204,16 @@ export const MAIN_KEYS = [
 	"dialog.crashLoop.title",
 	"dialog.crashLoop.mainBody",
 	"dialog.crashLoop.bubbleBody",
+	"dialog.pythonBackend.timeoutTitle",
+	"dialog.pythonBackend.timeoutBody",
+	"dialog.pythonBackend.crashTitle",
+	"dialog.pythonBackend.crashSignalBody",
+	"dialog.pythonBackend.crashExitBody",
+	"dialog.pythonBackend.earlyExitSuffix",
+	"dialog.pythonBackend.notFoundTitle",
+	"dialog.pythonBackend.notFoundBody",
+	"dialog.pythonBackend.restartLoopTitle",
+	"dialog.pythonBackend.restartLoopBody",
 ] as const;
 
 /** Literal-union type of {@link MAIN_KEYS} — narrows `mainT`'s `key` parameter. */

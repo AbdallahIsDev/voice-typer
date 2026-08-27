@@ -55,8 +55,8 @@ Scope (ADR-0020 §4.1 + §7 + §6.4 + §5):
 
 4. **Shell scope + capabilities grant spawn on the sidecar.**
    Tauri v2 ships zero permissions by default; the
-   ``migrate-runtime.capability`` JSON in
-   ``src-tauri/capabilities/migrate-runtime.json`` must grant
+   ``main-runtime.capability`` JSON in
+   ``src-tauri/capabilities/main-runtime.json`` must grant
    ``shell:allow-spawn``, AND ``tauri.conf.json``'s
    ``plugins.shell.scope`` must include the
    ``{"name": "bin/python-sidecar", "sidecar": true}`` entry so the
@@ -263,7 +263,7 @@ def spawn_rs_source() -> str:
 
 @pytest.fixture(scope="module")
 def migrate_runtime_capability() -> dict:
-    """Load + parse the migrate-runtime capability JSON."""
+    """Load + parse the main-runtime capability JSON."""
     assert _MIGRATE_RUNTIME_CAPABILITY.exists(), f"capability file not found: {_MIGRATE_RUNTIME_CAPABILITY}"
     return json.loads(_MIGRATE_RUNTIME_CAPABILITY.read_text(encoding="utf-8"))
 
@@ -561,10 +561,10 @@ def test_tauri_conf_shell_config_is_v2_valid(tauri_conf) -> None:
 def test_tauri_conf_capabilities_reference_migrate_runtime(
     tauri_conf,
 ) -> None:
-    """ADR-0020 §7: ``app.security.capabilities`` must reference ``migrate-runtime``.
+    """ADR-0020 §7: ``app.security.capabilities`` must reference ``main-runtime``.
 
     The capability identifier in the JSON must match the file at
-    ``src-tauri/capabilities/migrate-runtime.json`` — Tauri resolves
+    ``src-tauri/capabilities/main-runtime.json`` — Tauri resolves
     capability names by filename stem, not by the ``identifier`` field
     inside the JSON.
     """
@@ -575,14 +575,14 @@ def test_tauri_conf_capabilities_reference_migrate_runtime(
     assert EXPECTED_CAPABILITY_IDENTIFIER in capabilities, (
         f"app.security.capabilities must include "
         f"{EXPECTED_CAPABILITY_IDENTIFIER!r} (the capability JSON file is "
-        f"src-tauri/capabilities/migrate-runtime.json, ADR-0020 §7)"
+        f"src-tauri/capabilities/main-runtime.json, ADR-0020 §7)"
     )
 
 
 def test_capabilities_json_grants_shell_allow_spawn(
     migrate_runtime_capability,
 ) -> None:
-    """ADR-0020 §7: the migrate-runtime capability must grant ``shell:allow-spawn``.
+    """ADR-0020 §7: the main-runtime capability must grant ``shell:allow-spawn``.
 
     Tauri v2 ships zero permissions by default. The capability JSON
     must explicitly grant ``shell:allow-spawn`` for the Rust host to
@@ -593,10 +593,10 @@ def test_capabilities_json_grants_shell_allow_spawn(
     """
     permissions = migrate_runtime_capability.get("permissions", [])
     assert isinstance(permissions, list) and permissions, (
-        "migrate-runtime.json must have a non-empty 'permissions' list (ADR-0020 §7)"
+        "main-runtime.json must have a non-empty 'permissions' list (ADR-0020 §7)"
     )
     assert "shell:allow-spawn" in permissions, (
-        "migrate-runtime.json must grant 'shell:allow-spawn' so the Rust "
+        "main-runtime.json must grant 'shell:allow-spawn' so the Rust "
         "host can spawn python-sidecar via the externalBin API "
         "(Tauri v2 ships zero permissions by default, ADR-0020 §7)"
     )
@@ -616,7 +616,7 @@ def test_capabilities_json_grants_shell_allow_kill(
     """
     permissions = migrate_runtime_capability.get("permissions", [])
     assert "shell:allow-kill" in permissions, (
-        "migrate-runtime.json must grant 'shell:allow-kill' for the force-kill backstop (ADR-0020 §7 + §10)"
+        "main-runtime.json must grant 'shell:allow-kill' for the force-kill backstop (ADR-0020 §7 + §10)"
     )
 
 
@@ -629,11 +629,11 @@ def test_capabilities_json_identifier_matches_filename(
     by filename stem, and the ``identifier`` field inside the JSON must
     match the filename stem (else Tauri rejects the capability at build
     time). This guards against a rename of the JSON file that breaks
-    the ``app.security.capabilities: ["migrate-runtime"]`` reference in
+    the ``app.security.capabilities: ["main-runtime"]`` reference in
     ``tauri.conf.json``.
     """
     assert migrate_runtime_capability.get("identifier") == EXPECTED_CAPABILITY_IDENTIFIER, (
-        f"migrate-runtime.json's 'identifier' field must be "
+        f"main-runtime.json's 'identifier' field must be "
         f"{EXPECTED_CAPABILITY_IDENTIFIER!r} (must match the filename stem, "
         f"ADR-0020 §7)"
     )

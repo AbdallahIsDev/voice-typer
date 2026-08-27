@@ -219,7 +219,7 @@ class LegacyErrorCodes:
     PAYLOAD_TOO_LARGE = "payload_too_large"
     HANDLER_ERROR = "handler_error"
     NOT_INITIALIZED = "not_initialized"
-    # VP-5: Rust-host-only dispatch-cap codes emitted by the Tauri
+    # Rust-host-only dispatch-cap codes emitted by the Tauri
     # `#[tauri::command]` layer in `src-tauri/src/commands/sidecar_cmds/`
     # (allowlist.rs `PENDING_FULL_CODE` / dispatch.rs `"data_too_large"`)
     # BEFORE the dispatch reaches the Python sidecar. Listed here so

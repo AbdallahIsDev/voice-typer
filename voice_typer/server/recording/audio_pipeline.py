@@ -538,7 +538,7 @@ class AudioPipeline:
                 if _up_down is not None:
                     try:
                         _up, _down = _up_down
-                        # ER-67: use the cached FIR-tap path (same as
+                        # Use the cached FIR-tap path (same as
                         # ``resample_audio``) instead of calling
                         # ``resample_poly`` directly. ``resample_poly``
                         # re-designs its FIR filter (``firwin``) on

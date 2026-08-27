@@ -151,7 +151,7 @@ def delete_row(db: HistoryDB, conn: sqlite3.Connection, transcription_id: int) -
     committed). The optimize is best-effort privacy hardening — if
     it fails, the row is still gone from the content table, only the
     FTS5 segment data lingers — bounded to "between launches" by the
-    AP-17 startup rebuild sweep.
+    startup rebuild sweep.
     """
     with contextlib.closing(conn.cursor()) as cursor:
         cursor.execute("DELETE FROM transcriptions WHERE id = ?", (transcription_id,))

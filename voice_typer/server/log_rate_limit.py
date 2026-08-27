@@ -81,7 +81,7 @@ bug gets noticed.
 """
 
 _SUMMARY_INTERVAL_SECONDS = 60.0
-"""GT-66: wall-clock seconds between INFO-level suppression summaries."""
+"""Wall-clock seconds between INFO-level suppression summaries."""
 
 _RATE_LIMIT_COUNTS: OrderedDict[tuple[str, str], int] = OrderedDict()
 """Map of ``(logger.name, key)`` -> number of times the path has fired.
@@ -111,15 +111,14 @@ keeps the cadence stable across slow callers and avoids drift.
 """
 
 _RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY: dict[tuple[str, str], int] = {}
-"""GT-66: per-key count of suppressed occurrences since the last summary.
+"""Per-key count of suppressed occurrences since the last summary.
 
 Reset to 0 whenever an INFO summary is emitted for the key.  Never
 read or written without holding :data:`_RATE_LIMIT_LOCK`.
 """
 
 _log = logging.getLogger(__name__)
-"""Module logger used for the GT-66 INFO summary and the GT-B1-12
-eviction WARNING.
+"""Module logger used for the INFO summary and the eviction WARNING.
 
 These meta-logs are emitted through the *module* logger
 (``voice_typer.server.log_rate_limit``) -- NOT through the caller's

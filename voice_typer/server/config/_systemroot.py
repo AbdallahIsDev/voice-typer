@@ -1,6 +1,6 @@
 """System-root validation re-export shim.
 
-Extracted from ``config/__init__.py`` (W1-A2 / AC-131). The
+Extracted from ``config/__init__.py``. The
 canonical implementation already lives in
 ``voice_typer.server.config_internals.paths._validate_systemroot``
 (that module owns the actual probe — see the lazy-import shim

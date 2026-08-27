@@ -8,8 +8,8 @@
  *   - `broadcastMaximized(bool)` — fans out `window:maximized-changed` to
  *     every open BrowserWindow (used by the main window's maximize /
  *     unmaximize event listeners).
- *   - `_nativeThemeHandler` + `registerNativeThemeListener()` — R6-F3:
- *     the `nativeTheme.on("updated", ...)` listener is registered ONCE
+ *   - `_nativeThemeHandler` + `registerNativeThemeListener()` — the
+ *     `nativeTheme.on("updated", ...)` listener is registered ONCE
  *     at module load and cleaned up when the main window is destroyed.
  *
  * The window-creation concerns live in sibling leaves; this module stays
@@ -142,7 +142,7 @@ export function broadcastToMainWindow(channel: string, msg: unknown): void {
 }
 
 /**
- * R6-F3: the `nativeTheme.on("updated", ...)` listener is registered ONCE
+ * The `nativeTheme.on("updated", ...)` listener is registered ONCE
  * at module load (see `registerNativeThemeListener()` in
  * `./theme-listener.ts`) instead of being re-registered inside
  * `createMainWindow()` on every window recreation. Previously each call
@@ -208,7 +208,7 @@ export function createMainWindow(forceShow = false): void {
 	//that helper, which centralizes the  `pythonReady` flip and
 	// the destroyed-window guard.
 
-	// R6-F3 (session-3): register the module-level nativeTheme
+	// Register the module-level nativeTheme
 	// listener once. Previously this was an inline
 	// `nativeTheme.on("updated", ...)` inside `createMainWindow()`,
 	// which leaked a new listener per window recreation (dev-mode

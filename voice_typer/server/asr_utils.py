@@ -80,7 +80,7 @@ def release_gpu_memory() -> None:
 
     Historically this helper called ``torch.cuda.empty_cache()`` to
     release PyTorch's CUDA caching-allocator blocks after an engine
-    ``unload()`` (NEW-MEM-001). After the ONNX Runtime migration
+    ``unload()``. After the ONNX Runtime migration
     (PLAN_ONNX_INTEGRATION.md §5.2), torch is no longer a project
     dependency and ONNX Runtime has **no** ``empty_cache()`` API —
     the CUDA arena is freed automatically when the

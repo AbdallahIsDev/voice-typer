@@ -133,7 +133,8 @@
 		"importAria": "Import from file",
 		"lastUpdatedWithValue": "Last updated: {value}",
 		"close": "Close",
-		"confirm": "Confirm"
+		"confirm": "Confirm",
+		"retry": "Retry"
 	},
 	"microphone": {
 		"levelBarAria": "Microphone input level",

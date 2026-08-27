@@ -331,7 +331,7 @@ class HotkeyDispatcher:
         # brief ESC-unavailable window and unnecessary OS grab churn.
         # When ESC is disabled, tear down any existing backend.
         #
-        # AB-34: ``skip_aux=True`` (used by ``restart()``) skips the
+        # ``skip_aux=True`` (used by ``restart()``) skips the
         # aux-backend calls entirely — the ESC/repaste specs are
         # unchanged on a hotkey restart, so re-creating those
         # backends is wasted work that briefly leaves them dead.
@@ -1293,7 +1293,7 @@ class HotkeyDispatcher:
                 log.exception("[HOTKEY] Failed to stop previous backend before restart")
             self._hotkey_backend = None
 
-        # AB-34 / T-1: ``register()`` ALSO calls ``register_esc()`` +
+        # ``register()`` ALSO calls ``register_esc()`` +
         # ``register_repaste()`` for first-time-setup convenience, but
         # ``restart()`` only swaps the MAIN dictation hotkey — the
         # ESC and repaste specs are unchanged, so re-creating those
