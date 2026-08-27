@@ -4,7 +4,7 @@ After each transcription, the text is saved to a recovery file.
 On startup, if the recovery file has unpasted transcriptions,
 the user is notified. The recovery file is cleared after acknowledgment.
 
-RELIABILITY-005: previously, every call to ``add()``, ``mark_pasted()``,
+previously, every call to ``add()``, ``mark_pasted()``,
 ``mark_latest_pasted()``, and ``clear()`` wrote to disk synchronously
 on the calling thread (typically the transcription thread).  Under
 repeated crashes or rapid transcriptions, these synchronous writes
