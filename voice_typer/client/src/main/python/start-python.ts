@@ -24,6 +24,7 @@ import { app, dialog } from "electron";
 // instead of being lost in packaged builds where `console.warn` has
 // no terminal attached.
 import { APP_NAME } from "../branding";
+import { computeConfigDir } from "../config-dir";
 import { IPC_PORT, IPC_TOKEN } from "../constants";
 import { mainT } from "../i18n";
 import { log } from "../logging";
@@ -127,6 +128,19 @@ export function startPython() {
 			// log line, splitting the launch gap into electron-boot vs
 			// backend-init on every startup.
 			VOICE_TYPER_SPAWN_EPOCH_MS: String(Date.now()),
+			// SPLIT-BRAIN FIX: pin the backend's config dir to the SAME
+			// directory the Electron main resolved.  The Python
+			// `_config_dir()` prefers legacy `~/.voice-typer` when it
+			// exists, but a STALE packaged build (PyInstaller backend
+			// built before the legacy-first resolution, or running with a
+			// different default) can fall through to `%APPDATA%/voice-typer`
+			// — giving the installed app a DIFFERENT config.json than the
+			// dev app.  The user then sees settings "come back" (each app
+			// reads/writes its own config).  Explicitly setting
+			// `VOICE_TYPER_CONFIG_DIR` here makes the spawned backend use
+			// exactly what the Electron main resolved, so dev and
+			// production can never diverge.
+			VOICE_TYPER_CONFIG_DIR: computeConfigDir(),
 		},
 	});
 	state.pythonProcess = proc;

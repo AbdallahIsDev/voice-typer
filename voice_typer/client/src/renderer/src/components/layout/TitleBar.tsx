@@ -4,6 +4,7 @@ import { memo, useEffect, useState } from "react";
 import { HotkeyTooltip } from "@/components/hotkey/HotkeyTooltip";
 import { IS_LINUX, IS_MAC, IS_WIN } from "@/components/hotkey/hotkey-utils";
 import { SHORTCUTS } from "@/components/hotkey/shortcuts";
+import { GlobalSearchBar } from "@/components/layout/GlobalSearchBar";
 import { ThemeSwitch } from "@/components/layout/ThemeSwitch";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
@@ -14,7 +15,7 @@ import {
 	resolveLinuxWindowButtons,
 } from "@/lib/utils/windowButtons";
 import type { VoiceTyperConfig } from "@/types/config";
-import type { WindowBridge } from "@/types/ipc";
+import type { Page, WindowBridge } from "@/types/ipc";
 
 // Focus-aware title bar: native OS title bars DIM their whole bar
 // while the window is unfocused (the user clicked another app — e.g.
@@ -81,6 +82,10 @@ interface TitleBarProps {
 	 *  falls back to the classic right-side trio, and the prop is
 	 *  ignored entirely on Windows/macOS. */
 	linuxWindowButtons?: ResolvedLinuxWindowButtons;
+	/** Active route — drives the global search bar's per-page
+	 *  placeholder + visibility. Optional so existing TitleBar call
+	 *  sites (tests, splash) render without the search bar. */
+	currentPage?: Page;
 }
 
 // Window-control glyphs — native Windows caption icon geometry.
@@ -305,6 +310,7 @@ function TitleBarInner({
 	themeMode,
 	onThemeChange,
 	linuxWindowButtons,
+	currentPage,
 }: TitleBarProps) {
 	// When the window is unfocused (user clicked another app), the
 	// WHOLE title bar dims like native OS title bars (container
@@ -590,7 +596,14 @@ function TitleBarInner({
 				</HotkeyTooltip>
 			</div>
 
-			<div className="flex-1" />
+			{/* Global search bar — centered in the middle of the title bar.
+			    Only rendered on searchable pages (history, templates,
+			    vocabulary, settings*). On non-searchable pages the flex-1
+			    spacer keeps the toolbar pushed left and controls on the
+			    right, exactly as before. */}
+			<div className="flex min-w-0 flex-1 items-center justify-center px-2">
+				{currentPage ? <GlobalSearchBar currentPage={currentPage} /> : null}
+			</div>
 
 			{/* Theme control — icon-only, in its OWN p-1 (4px) padded
 			    container (separate from the toolbar group). It sits on
