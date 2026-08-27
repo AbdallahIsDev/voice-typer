@@ -634,7 +634,7 @@ def stop_test_recording() -> dict:
             from voice_typer.server.audio_processor import AudioProcessor
 
             ap_config = types.SimpleNamespace(**filters)
-            processor = AudioProcessor(ap_config, sample_rate=sr)
+            processor = AudioProcessor(ap_config, sample_rate=sr, quiet=True)
 
             block_size = 1024
             processed_parts = []

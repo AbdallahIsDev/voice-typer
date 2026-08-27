@@ -195,10 +195,23 @@ class AudioProcessor:
     :class:`~voice_typer.server.audio_quality.AudioQualityAnalyzer`).
     """
 
-    def __init__(self, config: object, sample_rate: int = WHISPER_SAMPLE_RATE) -> None:
+    def __init__(
+        self,
+        config: object,
+        sample_rate: int = WHISPER_SAMPLE_RATE,
+        *,
+        quiet: bool = False,
+    ) -> None:
+        # ``quiet`` suppresses the ``[AUDIO-CHAIN] Built chain`` /
+        # ``[AUDIO-PROC] chain built`` INFO lines (and the
+        # NoiseSuppressor backend-init lines). Used when the processor
+        # is built for a SECONDARY consumer — the level-monitor
+        # processor in ``update_level_processor`` — where the primary
+        # dictation processor already logged the same build for the
+        # same config. See ``build_chain(..., quiet=...)``.
         self._config = config
         self._sample_rate = int(sample_rate)
-        self._chain: FilterChain = build_chain(config, sample_rate)
+        self._chain: FilterChain = build_chain(config, sample_rate, quiet=quiet)
         self._quality_callback: QualityCallback | None = None
         # cache of the config signature that produced the current
         # chain. ``rebuild_from_config`` short-circuits when the new
@@ -243,12 +256,13 @@ class AudioProcessor:
         # construction — the chain still works, just without the
         # warmup benefit.
         self._prewarm_chain()
-        log.info(
-            "[AUDIO-PROC] chain built: %s (latency=%.1fms, degraded=%s)",
-            self._chain.filter_names,
-            self._chain.total_latency_ms,
-            self._chain.is_degraded,
-        )
+        if not quiet:
+            log.info(
+                "[AUDIO-PROC] chain built: %s (latency=%.1fms, degraded=%s)",
+                self._chain.filter_names or "none",
+                self._chain.total_latency_ms,
+                self._chain.is_degraded,
+            )
 
     def _prewarm_chain(self) -> None:
         """Feed one RNNoise frame of silence through the chain.
@@ -314,7 +328,7 @@ class AudioProcessor:
         self._chain.swap(new_chain._filters)
         log.info(
             "[AUDIO-PROC] chain rebuilt: %s (degraded=%s)",
-            self._chain.filter_names,
+            self._chain.filter_names or "none",
             self._chain.is_degraded,
         )
 
@@ -372,7 +386,7 @@ class AudioProcessor:
         self._resample_warned_pairs.clear()
         log.info(
             "[AUDIO-PROC] chain rebuilt on rate change: %s (sr=%d, degraded=%s)",
-            self._chain.filter_names,
+            self._chain.filter_names or "none",
             new_sr,
             self._chain.is_degraded,
         )

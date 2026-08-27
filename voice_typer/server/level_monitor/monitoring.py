@@ -388,7 +388,7 @@ def update_level_processor(config_dict: dict) -> None:
         # may load the RNNoise model (5–50 ms) and we must not block
         # ``get_level()`` / the level worker thread while it loads.
         ap_config = types.SimpleNamespace(**config_dict)
-        new_processor = AudioProcessor(ap_config, sample_rate=sample_rate)
+        new_processor = AudioProcessor(ap_config, sample_rate=sample_rate, quiet=True)
 
         # Assign under the lock so the worker's read of
         # ``_level_processor`` is pair-consistent with the snapshot

@@ -21,7 +21,12 @@ from voice_typer.server.audio_filters.base import AudioFilter
 log = logging.getLogger(__name__)
 
 
-def build_chain(config: Any, sample_rate: int = WHISPER_SAMPLE_RATE) -> FilterChain:
+def build_chain(
+    config: Any,
+    sample_rate: int = WHISPER_SAMPLE_RATE,
+    *,
+    quiet: bool = False,
+) -> FilterChain:
     """Build a FilterChain from the current config.
 
     Chain order (ADR 0007 §2.1):
@@ -34,6 +39,13 @@ def build_chain(config: Any, sample_rate: int = WHISPER_SAMPLE_RATE) -> FilterCh
     Args:
         config: Config-like object with noise_filter_* attributes.
         sample_rate: audio sample rate in Hz.
+        quiet: when True, suppress the ``[AUDIO-CHAIN] Built chain``
+            INFO line and the NoiseSuppressor backend-init lines
+            (passed through to :class:`NoiseSuppressor`). Used when
+            the chain is built for a SECONDARY consumer (the
+            level-monitor processor) — the primary dictation chain
+            already logged the same build for the same config, so a
+            second build would otherwise repeat every line.
 
     Returns:
         A FilterChain ready to process audio.
@@ -67,6 +79,7 @@ def build_chain(config: Any, sample_rate: int = WHISPER_SAMPLE_RATE) -> FilterCh
             NoiseSuppressor(
                 method=method,
                 sample_rate=sample_rate,
+                quiet=quiet,
             )
         )
 
@@ -121,12 +134,13 @@ def build_chain(config: Any, sample_rate: int = WHISPER_SAMPLE_RATE) -> FilterCh
         )
 
     chain = FilterChain(filters)
-    log.info(
-        "[AUDIO-CHAIN] Built chain: %s (latency=%.1fms, degraded=%s)",
-        chain.filter_names,
-        chain.total_latency_ms,
-        chain.is_degraded,
-    )
+    if not quiet:
+        log.info(
+            "[AUDIO-CHAIN] Built chain: %s (latency=%.1fms, degraded=%s)",
+            chain.filter_names or "none",
+            chain.total_latency_ms,
+            chain.is_degraded,
+        )
     return chain
 
 

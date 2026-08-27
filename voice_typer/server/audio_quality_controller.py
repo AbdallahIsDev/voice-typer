@@ -185,7 +185,7 @@ class AudioQualityController:
                 recorder_on_config_changed()
             log.info(
                 "[APP] Audio processor rebuilt: %s",
-                self._app._audio_processor.filter_names,
+                self._app._audio_processor.filter_names or "none",
             )
         except Exception:
             log.exception("[APP] Failed to rebuild audio processor")

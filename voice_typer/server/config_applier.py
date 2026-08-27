@@ -770,7 +770,15 @@ class _AudioPresetHandler:
             # level monitor to create an AudioProcessor even when no
             # filters are active, which masks low-level sounds.
             config.noise_filter_enabled = preset != "off"
-            log.info("[SERVICE] Applied audio preset '%s': %s", preset, preset_filters)
+            # Log the preset NAME only — the full ``preset_filters`` dict
+            # carries 20+ char key names (``noise_filter_highpass`` etc.)
+            # that the PII redactor's generic bare-token pattern matches
+            # and mangles into ``'***': True`` (a false positive that made
+            # the line unreadable). The actual filter effect is logged by
+            # the ``[AUDIO-CHAIN] Built chain: ...`` line that immediately
+            # follows, so the preset name alone is the right level of
+            # detail here.
+            log.info("[SERVICE] Applied audio preset '%s'", preset)
         except Exception as e:
             log.warning("Failed to apply audio preset: %s", e)
             # surface the audio preset apply failure to the

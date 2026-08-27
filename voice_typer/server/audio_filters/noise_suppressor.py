@@ -181,6 +181,7 @@ class NoiseSuppressor(AudioFilter):
         self,
         method: str = "rnnoise",
         sample_rate: int = WHISPER_SAMPLE_RATE,
+        quiet: bool = False,
     ) -> None:
         self.name = f"NoiseSuppressor({method})"
         self._method = method
@@ -188,6 +189,14 @@ class NoiseSuppressor(AudioFilter):
         self._backend: object | None = None
         self._degraded: bool = False
         self._degraded_reason: str = ""
+        # ``quiet`` suppresses the backend-init INFO/WARNING lines
+        # ("RNNoise backend ready", "GTCRN init failed — falling back
+        # to rnnoise", ...). Used when a chain is built for a
+        # SECONDARY consumer (the level-monitor processor in
+        # ``update_level_processor``) — the primary dictation chain
+        # already logged the backend-init outcome, so a second build
+        # for the same config would otherwise repeat every line.
+        self._quiet = quiet
 
         # Frame buffering: carry holds partial frames between process() calls.
         self._carry: np.ndarray = np.array([], dtype=np.float32)
@@ -259,11 +268,13 @@ class NoiseSuppressor(AudioFilter):
             # direct construction (tests, embedders) still passing the
             # old name so it degrades to the live backend instead of
             # silently passthroughing.
-            log.info("[NOISE-SUPPRESS] legacy method 'deepfilternet' — using gtcrn")
+            if not self._quiet:
+                log.info("[NOISE-SUPPRESS] legacy method 'deepfilternet' — using gtcrn")
             self._method = "gtcrn"
             self._init_gtcrn()
         else:
-            log.warning("[NOISE-SUPPRESS] unknown method %r — using none", method)
+            if not self._quiet:
+                log.warning("[NOISE-SUPPRESS] unknown method %r — using none", method)
             self._method = "none"
             self._backend = None
 
@@ -272,16 +283,20 @@ class NoiseSuppressor(AudioFilter):
             from pyrnnoise import RNNoise  # type: ignore[import-not-found]
 
             self._backend = RNNoise(sample_rate=RNNOISE_SAMPLE_RATE)
-            log.info("[NOISE-SUPPRESS] RNNoise backend ready")
+            if not self._quiet:
+                log.info("[NOISE-SUPPRESS] RNNoise backend ready")
         except ImportError:
-            log.warning(
-                "[NOISE-SUPPRESS] pyrnnoise not installed — falling back to none. Install with: pip install pyrnnoise"
-            )
+            if not self._quiet:
+                log.warning(
+                    "[NOISE-SUPPRESS] pyrnnoise not installed — falling back to none. "
+                    "Install with: pip install pyrnnoise"
+                )
             self._degraded = True
             self._degraded_reason = "rnnoise library not installed"
             self._method = "none"
         except Exception as exc:
-            log.warning("[NOISE-SUPPRESS] RNNoise init failed: %s — falling back to none", exc)
+            if not self._quiet:
+                log.warning("[NOISE-SUPPRESS] RNNoise init failed: %s — falling back to none", exc)
             self._degraded = True
             self._degraded_reason = f"rnnoise init failed: {exc}"
             self._method = "none"
@@ -317,7 +332,8 @@ class NoiseSuppressor(AudioFilter):
 
             self._backend = GtcrnBackend()
         except Exception as exc:
-            log.warning("[NOISE-SUPPRESS] GTCRN init failed: %s — falling back to rnnoise", exc)
+            if not self._quiet:
+                log.warning("[NOISE-SUPPRESS] GTCRN init failed: %s — falling back to rnnoise", exc)
             # Mark degraded BEFORE calling _init_rnnoise so the flag is
             # set even if _init_rnnoise succeeds (which would otherwise
             # leave _degraded == False, hiding the GTCRN failure from
@@ -347,7 +363,8 @@ class NoiseSuppressor(AudioFilter):
                 self._degraded = True
                 self._degraded_reason = gtcrn_reason
         else:
-            log.info("[NOISE-SUPPRESS] GTCRN backend ready (bundled ONNX streaming model)")
+            if not self._quiet:
+                log.info("[NOISE-SUPPRESS] GTCRN backend ready (bundled ONNX streaming model)")
 
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         if self._method == "none" or self._backend is None or audio.size == 0:
