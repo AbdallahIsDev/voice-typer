@@ -35,7 +35,7 @@ VALIDATE ON LINUX HOST:
        pastes
     4. Press ESC — verify dictation cancels
     5. Check ~/.local/share/voice-typer/logs/voice-typer.log for:
-       - "[NATIVE-HOTKEY] Starting Linux backend (binary=linux-key-listener)"
+       - "[NATIVE-HOTKEY] Starting Linux backend (hotkey=F8)"
        - "[NATIVE-HOTKEY] Linux binary is READY"
        - "[NATIVE-HOTKEY] hotkey pressed: F8"
     6. Verify the hotkey is NOT suppressed on Linux (evdev is

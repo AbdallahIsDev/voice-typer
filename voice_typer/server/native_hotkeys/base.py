@@ -463,10 +463,9 @@ class SubprocessHotkeyBackend(HotkeyBackend):
             )
 
         log.info(
-            "[NATIVE-HOTKEY] Starting %s backend (hotkey=%s, binary=%s)",
+            "[NATIVE-HOTKEY] Starting %s backend (hotkey=%s)",
             self.platform_name,
             format_hotkey_label(self.hotkey_str),
-            Path(self._binary_path).name,
         )
 
         self._callback = callback

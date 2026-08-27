@@ -37,7 +37,7 @@ VALIDATE ON MACOS HOST:
     5. Press ESC — verify dictation cancels
     6. Test Fn/Globe key (if configured) — verify it toggles dictation
     7. Check ~/Library/Logs/voice-typer/voice-typer.log for:
-       - "[NATIVE-HOTKEY] Starting macOS backend (binary=macos-key-listener)"
+       - "[NATIVE-HOTKEY] Starting macOS backend (hotkey=F8)"
        - "[NATIVE-HOTKEY] macOS binary is READY"
        - "[NATIVE-HOTKEY] hotkey pressed: F8"
     8. Verify the hotkey is SUPPRESSED (F8 doesn't reach the
