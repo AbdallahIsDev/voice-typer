@@ -94,7 +94,7 @@ _TEST_TOKEN = "test-worker-token-12345"
 # temp dir (keyed on ``PYTEST_XDIST_WORKER``) isolates the lock, the
 # log, and the prewarm status file — and keeps the user's real config
 # untouched.
-_worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
+#
 # The worker validates ``VOICE_TYPER_CONFIG_DIR`` via the SEC-005
 # path-safety check (``_validate_path_safety(custom, Path.home())``)
 # and DISCARDS values that resolve outside the user's home directory.
@@ -109,8 +109,44 @@ _worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
 # Creating the dir UNDER home makes the env var pass validation on
 # every platform (Windows' %TEMP% happens to be under home, which is
 # why this only ever failed on Linux/macOS legs).
-_TEST_CONFIG_DIR = Path(tempfile.mkdtemp(prefix=f"voice-typer-worker-test-{_worker_id}-", dir=Path.home()))
-atexit.register(lambda: shutil.rmtree(_TEST_CONFIG_DIR, ignore_errors=True))
+#
+# To avoid polluting the home directory root with ``voice-typer-worker-
+# test-*`` dirs that survive abnormal process termination (atexit
+# cleanup skipped on killed / timed-out pytest processes), the per-
+# worker dirs are created inside a dedicated ``.voice-typer-test-tmp``
+# subdirectory under home.  Stale subdirs from prior runs are swept at
+# module import time, so a single ``~/.voice-typer-test-tmp/`` folder
+# is the only home-root artifact (and it is removed on the next test
+# run after the run that created it).
+_test_root = Path.home() / ".voice-typer-test-tmp"
+_test_root.mkdir(parents=True, exist_ok=True)
+# Sweep stale subdirs from prior runs (atexit may not have fired on
+# a killed / timed-out pytest process).  ``ignore_errors=True`` so
+# concurrent xdist workers cleaning the same dir don't race.
+for _stale in _test_root.iterdir():
+    if _stale.is_dir() and _stale.name.startswith("voice-typer-worker-test-"):
+        shutil.rmtree(_stale, ignore_errors=True)
+
+_worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
+_TEST_CONFIG_DIR = Path(tempfile.mkdtemp(prefix=f"voice-typer-worker-test-{_worker_id}-", dir=_test_root))
+
+
+def _cleanup_test_config_dir() -> None:
+    """Remove this worker's config dir, then the parent tmp root if it became empty.
+
+    ``rmdir`` only removes an EMPTY dir, so under ``pytest -n auto``
+    the last xdist worker to finish removes the shared
+    ``~/.voice-typer-test-tmp/`` root; workers that finish earlier
+    leave it (their siblings' subdirs are still inside). A crashed
+    worker leaves its subdir behind — the module-import sweep on the
+    next test run removes it.
+    """
+    shutil.rmtree(_TEST_CONFIG_DIR, ignore_errors=True)
+    with contextlib.suppress(OSError):
+        _test_root.rmdir()
+
+
+atexit.register(_cleanup_test_config_dir)
 
 # Hard deadline for the worker subprocess to emit ``worker_started``
 # after spawn. The master plan §3.4 target is ≤ 600 ms, but the
