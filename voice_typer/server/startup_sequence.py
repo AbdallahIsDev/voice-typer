@@ -1393,6 +1393,25 @@ class StartupSequence:
         # existing code that checks the thread (e.g. toggle_dictation)
         # keeps working.
         log.debug("[STARTUP] Loading model in background")
+        # Root-cause reconciliation: if the configured model isn't
+        # installed, clear ``config.model_size`` to the "no model
+        # selected" sentinel and persist it BEFORE the background load
+        # reads it.  Previously the config kept a concrete model name
+        # (default ``"tiny"``) even with zero models on disk, so every
+        # consumer reading ``config.model_size`` surfaced a phantom
+        # model — each surface was patched individually, but the config
+        # still carried the stale name.  This makes the CONFIG the
+        # single source of truth: after the first launch, ``model_size``
+        # is ``""`` and all consumers report "no model selected".
+        try:
+            from voice_typer.server import startup_tasks
+
+            startup_tasks.reconcile_configured_model(app)
+        except Exception:
+            log.debug(
+                "[STARTUP] model reconciliation failed (non-fatal — load precheck still guards)",
+                exc_info=True,
+            )
         app.models.start_background_load()
 
         # RACE-020: check for shutdown after background model load start

@@ -472,6 +472,53 @@ def _reconcile_configured_microphone(app: AppProtocol, mics: list[dict]) -> None
         )
 
 
+def reconcile_configured_model(app: AppProtocol) -> bool:
+    """Clear ``config.model_size`` when the configured ASR model isn't on disk.
+
+    ROOT-CAUSE FIX for the recurring "phantom model name" issue: the
+    config's ``model_size`` defaults to a concrete name (``"tiny"``)
+    even when no model is installed, so every consumer reading
+    ``config.model_size`` directly surfaces a model name that doesn't
+    exist on disk.  Each surface was patched individually; the config
+    still carried the stale name.  This reconciliation makes the CONFIG
+    itself reflect reality at startup: when the configured model is
+    definitively absent, ``model_size`` is set to ``NO_MODEL_SIZE``
+    (``""``) and persisted — so ALL consumers report "no model selected"
+    from one source of truth.
+
+    Returns True when the config was changed and persisted.
+    """
+    from voice_typer.server.model_registry import NO_MODEL_SIZE
+    from voice_typer.server.tray_models import is_active_model_downloaded
+
+    config = app.config
+    # "No model selected" already — nothing to do.
+    if getattr(config, "model_size", None) == NO_MODEL_SIZE:
+        return False
+    backend = getattr(config, "asr_backend", "whisper") or "whisper"
+    # Cloud backends have no local model to install — don't touch.
+    if backend in ("openai", "groq", "deepgram", "custom"):
+        return False
+    # Model IS on disk — nothing to do.
+    if is_active_model_downloaded(config):
+        return False
+    # Configured model is definitively absent — clear it.
+    config.model_size = NO_MODEL_SIZE
+    try:
+        ok = config.save()
+    except Exception as e:
+        log.warning("[MODEL] failed to persist reconciled model_size: %s", e)
+        return False
+    if not ok:
+        log.warning("[MODEL] failed to persist reconciled model_size (save returned False)")
+        return False
+    log.info(
+        "[MODEL] configured %s model is not installed — cleared model_size to 'no model selected' (NO_MODEL_SIZE)",
+        backend,
+    )
+    return True
+
+
 def _publish_mic_reconciled(app: AppProtocol, updates: dict) -> None:
     """Push a ``config_changed`` event after startup reconciliation.
 
