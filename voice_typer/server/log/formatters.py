@@ -359,7 +359,7 @@ class _ColorFormatter(logging.Formatter):
             c = self._LVL_COLOR.get(record.levelno, "0")
             sym = self._LVL_SYM.get(record.levelno, "????")
             # Full-line colour: emit colour, ts, then reset.
-            line = f"\033[{c}m{ts}  {sym} {msg}\033[0m"
+            line = f"\033[{c}m{ts}  {sym:<5} {msg}\033[0m"
         else:
             # INFO — dim timestamp, no level label,
             # message coloured by topic.
@@ -391,7 +391,7 @@ class _FileFormatter(logging.Formatter):
 
         2026-07-15  12:34:56  INFO  [HOTKEY] RegisterHotKey OK
         2026-07-15  12:34:56  WARN  [ENV] Invalid value ...
-        2026-07-15  12:34:56  ERROR  Stream end
+        2026-07-15  12:34:56  ERROR Stream end
 
     Fields (left to right):
 
@@ -401,7 +401,12 @@ class _FileFormatter(logging.Formatter):
       timezone offset, no millisecond fraction — the line reads
       naturally.
     - ``label``    — short level label (``DEBUG`` / ``INFO`` / ``WARN`` /
-      ``ERROR`` / ``CRITICAL``).
+      ``ERROR`` / ``CRITICAL``), left-padded to a fixed 5-char column so
+      the message starts at the same position for every level: 4-char
+      labels (``INFO`` / ``WARN``) get TWO spaces after, 5-char labels
+      (``DEBUG`` / ``ERROR``) get ONE space after.  Mirrors the Rust
+      host's ``{:5}`` level padding (``combined.rs``) so the Python and
+      Rust log streams align line-for-line.
     - ``msg``      — the redacted log message (its ``[TOPIC]`` prefix
       already identifies the subsystem, so no separate component
       column is needed).
@@ -424,7 +429,7 @@ class _FileFormatter(logging.Formatter):
         ts = _iso_timestamp(record)
         msg = record.getMessage()
         label = self._LVL_LABEL.get(record.levelno, "INFO")
-        line = f"{ts}  {label}  {msg}"
+        line = f"{ts}  {label:<5} {msg}"
         # append the (already PII-redacted) traceback so
         # ``log.exception(...)`` / ``log.error(..., exc_info=True)``
         # records keep their diagnostic stack trace in the file.

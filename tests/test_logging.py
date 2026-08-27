@@ -122,10 +122,14 @@ def test_file_formatter_omits_session_thread_component() -> None:
 # Timestamp is `YYYY-MM-DD  HH:MM:SS` — TWO spaces between the date
 # and the time (so the time column aligns in the file), seconds-only
 # precision (no millisecond fraction).  Level label is the short form
-# (`WARN`, not `WARNING`).
+# (`WARN`, not `WARNING`), left-padded to a fixed 5-char column so the
+# message column aligns: 4-char labels (`INFO`/`WARN`) are followed by
+# TWO spaces, 5-char labels (`DEBUG`/`ERROR`/`CRITICAL`) by ONE space.
+# The ` {1,2}` separator accepts both (the per-level exact spacing is
+# pinned by `test_file_formatter_level_column_alignment`).
 _EXACT_FILE_LINE_RE = re.compile(
     r"\d{4}-\d{2}-\d{2}  \d{2}:\d{2}:\d{2}  "  # clean ts + 2 spaces
-    r"(?:DEBUG|INFO|WARN|ERROR|CRITICAL)  "  # level label + 2 spaces
+    r"(?:DEBUG|INFO|WARN|ERROR|CRITICAL) {1,2}"  # level label + aligned spacing
     r".+"  # message (unmodified)
 )
 
@@ -169,6 +173,66 @@ def test_file_formatter_exact_line_shape_is_timestamp_level_message() -> None:
     # 4) Clean timestamp: space-separated, no T separator, no tz offset.
     ts, _, _ = line.partition("  ")
     assert "T" not in ts and "+" not in ts and not ts.endswith("Z")
+
+
+def test_file_formatter_level_column_alignment() -> None:
+    """4-char level labels (``INFO``/``WARN``) get TWO spaces after,
+    5-char labels (``DEBUG``/``ERROR``/``CRITICAL``) get ONE space after,
+    so the message column aligns at a fixed 6-char level+sep width."""
+    for level, label, expected_sep in [
+        (logging.INFO, "INFO", "  "),
+        (logging.WARNING, "WARN", "  "),
+        (logging.ERROR, "ERROR", " "),
+        (logging.DEBUG, "DEBUG", " "),
+        (logging.CRITICAL, "CRITICAL", " "),
+    ]:
+        record = logging.LogRecord(
+            name="test",
+            level=level,
+            pathname=__file__,
+            lineno=1,
+            msg="msg",
+            args=(),
+            exc_info=None,
+        )
+        line = _FileFormatter().format(record)
+        # Extract the label + its trailing separator from the exact
+        # file shape `<ts>  <LEVEL><sep><msg>`.
+        m = re.match(
+            r"\d{4}-\d{2}-\d{2}  \d{2}:\d{2}:\d{2}  ([A-Z]+)( +)",
+            line,
+        )
+        assert m is not None, f"line shape unexpected: {line!r}"
+        assert m.group(1) == label, f"expected label {label!r}, got {m.group(1)!r}"
+        assert m.group(2) == expected_sep, f"expected {expected_sep!r} after {label} (got {m.group(2)!r}):\n{line!r}"
+
+
+def test_color_formatter_warning_level_column_alignment() -> None:
+    """Terminal WARN/ERROR/CRITICAL lines also align the level column:
+    4-char labels get 2 spaces, 5-char labels get 1 space."""
+    for level, sym, expected_sep in [
+        (logging.WARNING, "WARN", "  "),
+        (logging.ERROR, "ERROR", " "),
+        (logging.CRITICAL, "CRITICAL", " "),
+    ]:
+        record = logging.LogRecord(
+            name="test",
+            level=level,
+            pathname=__file__,
+            lineno=1,
+            msg="msg",
+            args=(),
+            exc_info=None,
+        )
+        line = _ColorFormatter().format(record)
+        # Strip ANSI escapes before checking spacing.
+        plain = re.sub(r"\033\[[0-9;]*m", "", line)
+        # Extract the sym + its trailing separator from the terminal
+        # shape `<ts>  <SYM><sep>msg`.
+        m = re.match(r"\d{2}:\d{2}:\d{2}  ([A-Z]+)( +)", plain)
+        assert m is not None, f"line shape unexpected: {plain!r}"
+        assert m.group(1) == sym, f"expected sym {sym!r}, got {m.group(1)!r}"
+        assert m.group(2) == expected_sep, f"expected {expected_sep!r} after {sym} (got {m.group(2)!r}):\n{line!r}"
 
 
 def test_color_formatter_omits_session_id_bracket() -> None:
