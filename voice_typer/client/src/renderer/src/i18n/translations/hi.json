@@ -1337,7 +1337,9 @@
 		"toggleSidebarWithShortcut": "साइडबार टॉगल करें ({shortcut})",
 		"transcriptionPasted": "चिपकाया गया: {text}",
 		"collapseSubmenu": "{label} सबमेनू संकुचित करें",
-		"expandSubmenu": "{label} सबमेनू विस्तारित करें"
+		"expandSubmenu": "{label} सबमेनू विस्तारित करें",
+		"notifications": "सूचनाएं",
+		"close": "बंद करें"
 	},
 	"help": {
 		"title": "कीबोर्ड शॉर्टकट",

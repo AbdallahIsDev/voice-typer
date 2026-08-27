@@ -969,7 +969,9 @@
 		"toggleSidebarWithShortcut": "Basculer la barre latérale ({shortcut})",
 		"transcriptionPasted": "Collé : {text}",
 		"collapseSubmenu": "Réduire le sous-menu {label}",
-		"expandSubmenu": "Développer le sous-menu {label}"
+		"expandSubmenu": "Développer le sous-menu {label}",
+		"notifications": "Notifications",
+		"close": "Fermer"
 	},
 	"help": {
 		"title": "Raccourcis clavier",

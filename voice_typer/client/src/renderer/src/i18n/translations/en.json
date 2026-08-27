@@ -1344,7 +1344,9 @@
 		"toggleSidebarWithShortcut": "Toggle sidebar ({shortcut})",
 		"transcriptionPasted": "Pasted: {text}",
 		"collapseSubmenu": "Collapse {label} submenu",
-		"expandSubmenu": "Expand {label} submenu"
+		"expandSubmenu": "Expand {label} submenu",
+		"notifications": "Notifications",
+		"close": "Close"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "{appName} recording indicator",

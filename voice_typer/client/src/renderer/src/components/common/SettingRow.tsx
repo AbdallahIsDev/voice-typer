@@ -66,10 +66,20 @@ export function SettingRow({
 			// no accessible name and must not trip the warning. The
 			// same applies to `type="hidden"` inputs and any control
 			// under an aria-hidden ancestor.
+			//
+			// Radix Slider's bubble input (SliderBubbleInput) is
+			// hidden via `style: { display: "none" }` — no aria-hidden,
+			// no type="hidden" — so a computed-style check is required
+			// to keep the audit from false-positiving on a correctly
+			// labelled slider (the thumb itself carries the forwarded
+			// aria-label).
 			const isHiddenFromAT =
 				ctrl.getAttribute("type") === "hidden" ||
 				ctrl.getAttribute("aria-hidden") === "true" ||
-				ctrl.closest('[aria-hidden="true"]') !== null;
+				ctrl.closest('[aria-hidden="true"]') !== null ||
+				ctrl.hasAttribute("hidden") ||
+				getComputedStyle(ctrl).display === "none" ||
+				getComputedStyle(ctrl).visibility === "hidden";
 			if (hasOwnName || isWrappedInLabel || isHiddenFromAT) return;
 			console.warn(
 				`[renderer:SettingRow] The visible label "${label}" has no programmatic association with its child form control. ` +

@@ -1337,7 +1337,9 @@
 		"toggleSidebarWithShortcut": "切换侧边栏 ({shortcut})",
 		"transcriptionPasted": "已粘贴：{text}",
 		"collapseSubmenu": "折叠 {label} 子菜单",
-		"expandSubmenu": "展开 {label} 子菜单"
+		"expandSubmenu": "展开 {label} 子菜单",
+		"notifications": "通知",
+		"close": "关闭"
 	},
 	"help": {
 		"title": "键盘快捷键",

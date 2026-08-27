@@ -137,6 +137,35 @@ describe("SettingRow — dev-mode association audit", () => {
 		warn.mockRestore();
 	});
 
+	it("does NOT warn on a control hidden via display:none (Radix Slider bubble input)", async () => {
+		// Radix Slider mounts a SliderBubbleInput with
+		// `style: { display: "none" }` — no aria-hidden, no
+		// type="hidden" — to back native form semantics. It is removed
+		// from the AT tree by display:none and legitimately has no
+		// accessible name. The audit must not false-positive on it
+		// (regression: the Settings page warned on every correctly
+		// labelled RangeSlider row — Duck Level, Text Size, the two
+		// vocabulary-confidence sliders).
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		render(
+			withProvider(
+				<SettingRow label="Duck Level">
+					<input
+						type="range"
+						style={{ display: "none" }}
+						aria-label="Duck Level"
+					/>
+				</SettingRow>,
+			),
+		);
+		await new Promise((r) => setTimeout(r, 50));
+		const settingRowWarnings = warn.mock.calls.filter((c) =>
+			String(c[0]).includes("[renderer:SettingRow]"),
+		);
+		expect(settingRowWarnings).toHaveLength(0);
+		warn.mockRestore();
+	});
+
 	it("STILL warns when a child form control has no accessible name and is not hidden", async () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		render(

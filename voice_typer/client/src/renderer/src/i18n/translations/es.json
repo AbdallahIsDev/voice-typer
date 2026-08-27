@@ -1337,7 +1337,9 @@
 		"toggleSidebarWithShortcut": "Alternar barra lateral ({shortcut})",
 		"transcriptionPasted": "Pegado: {text}",
 		"collapseSubmenu": "Contraer submenú {label}",
-		"expandSubmenu": "Expandir submenú {label}"
+		"expandSubmenu": "Expandir submenú {label}",
+		"notifications": "Notificaciones",
+		"close": "Cerrar"
 	},
 	"help": {
 		"title": "Atajos de Teclado",

@@ -1337,7 +1337,9 @@
 		"toggleSidebarWithShortcut": "تبديل الشريط الجانبي ({shortcut})",
 		"transcriptionPasted": "تم لصق: {text}",
 		"collapseSubmenu": "طي القائمة الفرعية {label}",
-		"expandSubmenu": "توسيع القائمة الفرعية {label}"
+		"expandSubmenu": "توسيع القائمة الفرعية {label}",
+		"notifications": "الإشعارات",
+		"close": "إغلاق"
 	},
 	"help": {
 		"title": "اختصارات لوحة المفاتيح",

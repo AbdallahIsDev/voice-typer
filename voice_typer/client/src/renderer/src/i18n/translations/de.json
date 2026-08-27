@@ -1337,7 +1337,9 @@
 		"toggleSidebarWithShortcut": "Seitenleiste umschalten ({shortcut})",
 		"transcriptionPasted": "Eingefügt: {text}",
 		"collapseSubmenu": "Untermenü {label} einklappen",
-		"expandSubmenu": "Untermenü {label} ausklappen"
+		"expandSubmenu": "Untermenü {label} ausklappen",
+		"notifications": "Benachrichtigungen",
+		"close": "Schließen"
 	},
 	"help": {
 		"title": "Tastaturkürzel",

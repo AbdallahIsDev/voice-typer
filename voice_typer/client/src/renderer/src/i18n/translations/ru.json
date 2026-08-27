@@ -1337,7 +1337,9 @@
 		"toggleSidebarWithShortcut": "Переключить боковую панель ({shortcut})",
 		"transcriptionPasted": "Вставлено: {text}",
 		"collapseSubmenu": "Свернуть подменю «{label}»",
-		"expandSubmenu": "Развернуть подменю «{label}»"
+		"expandSubmenu": "Развернуть подменю «{label}»",
+		"notifications": "Уведомления",
+		"close": "Закрыть"
 	},
 	"help": {
 		"title": "Горячие клавиши",
