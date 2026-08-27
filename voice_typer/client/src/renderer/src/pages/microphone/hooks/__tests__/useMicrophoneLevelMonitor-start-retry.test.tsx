@@ -20,7 +20,12 @@
  *      cleanup's ``level_monitor_stop`` owns teardown).
  */
 import { act, cleanup, render } from "@testing-library/react";
-import type { MutableRefObject, ReactNode, RefObject } from "react";
+import {
+	type MutableRefObject,
+	type ReactNode,
+	type RefObject,
+	StrictMode,
+} from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mocks ───────────────────────────────────────────────────────────
@@ -235,5 +240,95 @@ describe("useMicrophoneLevelMonitor — bounded level_monitor_start retry", () =
 			await vi.advanceTimersByTimeAsync(10_000);
 		});
 		expect(countStartCalls()).toBe(1);
+	});
+
+	it("does NOT stop the monitor mid-mount under React StrictMode (dev double-invocation)", async () => {
+		// React StrictMode (dev) runs every effect as mount → cleanup →
+		// mount. Pre-fix this sent `level_monitor_start` → (cleanup)
+		// `level_monitor_stop` → `level_monitor_start`, producing the
+		// `[LEVEL-MON] Monitoring started / stopped / started` bounce
+		// in voice-typer.log on EVERY page mount. The fix tracks
+		// per-effect-instance `startedHere`: run 1's cleanup runs while
+		// run 1's start IPC is still in flight, so it skips the stop;
+		// run 2's start then finds the stream already active (a backend
+		// no-op). Assert: the mount issues TWO starts (the StrictMode
+		// double-run) but ZERO stops.
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "level_monitor_start") {
+				return Promise.resolve({ success: true });
+			}
+			return Promise.resolve({ success: true });
+		});
+
+		const refs = makeRefs();
+		// renderProbe renders plain; wrap the probe in <StrictMode> to
+		// reproduce the app's dev double-invocation.
+		const { useMicrophoneLevelMonitor } = await import(
+			"../useMicrophoneLevelMonitor"
+		);
+		function StrictProbe() {
+			useMicrophoneLevelMonitor({
+				config: {
+					microphone: null,
+					voice_biometric_consent: true,
+				} as unknown as Parameters<
+					typeof useMicrophoneLevelMonitor
+				>[0]["config"],
+				playingRef: refs.playingRef,
+				testRunningRef: refs.testRunningRef,
+				meterRef: refs.meterRef,
+			});
+			return null as unknown as ReactNode;
+		}
+		render(
+			<StrictMode>
+				<StrictProbe />
+			</StrictMode>,
+		);
+
+		// Flush the async start IPCs from both StrictMode runs.
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+
+		// Two starts (double-run) but the cleanup must NOT have stopped
+		// the monitor in between (startedHere guard).
+		expect(countStartCalls()).toBe(2);
+		expect(
+			callMock.mock.calls.filter((c) => c[0] === "level_monitor_stop").length,
+		).toBe(0);
+	});
+
+	it("stops the monitor on a real unmount after the start succeeded", async () => {
+		// The startedHere guard must NOT suppress the legitimate
+		// teardown: once the start has resolved (startedHere=true), a
+		// real unmount's cleanup sends `level_monitor_stop`.
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "level_monitor_start") {
+				return Promise.resolve({ success: true });
+			}
+			return Promise.resolve({ success: true });
+		});
+
+		const refs = makeRefs();
+		const utils = await renderProbe(refs);
+
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+		expect(countStartCalls()).toBe(1);
+		expect(
+			callMock.mock.calls.filter((c) => c[0] === "level_monitor_stop").length,
+		).toBe(0);
+
+		act(() => {
+			utils.unmount();
+		});
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+		expect(
+			callMock.mock.calls.filter((c) => c[0] === "level_monitor_stop").length,
+		).toBe(1);
 	});
 });

@@ -285,11 +285,33 @@ export function useMicrophoneLevelMonitor({
 		let cancelled = false;
 		let retryTimer: ReturnType<typeof setTimeout> | null = null;
 		let attempt = 0;
+		// Whether THIS effect instance actually got the monitor running.
+		// Set in the start's `.then` only when not cancelled. The cleanup
+		// only sends ``level_monitor_stop`` when this is true —
+		// otherwise React StrictMode's dev double-invocation (mount →
+		// cleanup → mount) would stop the monitor run 1 just started,
+		// then run 2 restarts it: the `[LEVEL-MON] Monitoring started /
+		// stopped / started` bounce in voice-typer.log on EVERY page
+		// mount (the user's "start, then stop, then start again"
+		// report). Run 1's cleanup runs synchronously while its start
+		// IPC is still in flight, so `startedHere` is false → the stop
+		// is skipped; run 2's start then finds the stream already
+		// active ("Already monitoring" — a backend no-op) and run 2's
+		// own cleanup owns the real unmount stop.
+		let startedHere = false;
 
 		const startMonitor = (): void => {
 			callRef
 				.current<{ success: boolean }>("level_monitor_start", {
 					mic_id: micId,
+				})
+				.then(() => {
+					// The start succeeded. Only claim ownership when this
+					// effect instance is still live — a StrictMode cleanup
+					// (or a real unmount) that ran while the IPC was in
+					// flight sets `cancelled`, so the cleanup must NOT stop
+					// a monitor the NEW effect run is about to take over.
+					if (!cancelled) startedHere = true;
 				})
 				.catch((err) => {
 					// The backend's ``client.consent_required`` envelope
@@ -380,14 +402,25 @@ export function useMicrophoneLevelMonitor({
 				clearTimeout(retryTimer);
 				retryTimer = null;
 			}
-			callRef
-				.current("level_monitor_stop")
-				.catch((err) =>
-					console.warn(
-						"[renderer:useMicrophoneLevelMonitor] microphone command failed: level_monitor_stop:",
-						err,
-					),
-				);
+			// Only stop a monitor THIS effect actually started.
+			// StrictMode's dev double-invocation runs the cleanup
+			// synchronously while the first effect's start IPC is still
+			// in flight (startedHere=false), so the cleanup skips the
+			// stop — the SECOND effect run will find the stream already
+			// active ("Already monitoring") instead of stopping then
+			// restarting it. On a real unmount (or a dep change), the
+			// start has already resolved with startedHere=true, so the
+			// stop is sent correctly.
+			if (startedHere) {
+				callRef
+					.current("level_monitor_stop")
+					.catch((err) =>
+						console.warn(
+							"[renderer:useMicrophoneLevelMonitor] microphone command failed: level_monitor_stop:",
+							err,
+						),
+					);
+			}
 		};
 	}, [
 		config?.microphone,
