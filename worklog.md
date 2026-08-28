@@ -155,3 +155,15 @@ accordion.tsx, PresetAccordionSelector.tsx — uncommitted in-flight edits by an
 
 ### Gates (win32, final code state)
 pytest (model/config/onboarding subset): 169 passed / 3 skipped / 0 failed. vitest (onboarding + ModelsPage + dashboard): 67 passed / 0 failed (plus earlier 96-pass onboarding run before last Onboarding.tsx edit). biome on all 10 changed TS files: clean. ruff: clean. pyrefly: only pre-existing unrelated errors (registry.py 281/405/406, untouched). typecheck:ci still fails on the concurrent session's `Templates.tsx` (unused imports / undefined quickAdd) — NOT my files, blocked by concurrent work, push deferred.
+
+## 2026-08-28 consistent button sizing (h-fit w-fit px-3 py-2) (Windows win32 host)
+
+### Implemented (commit 9dcae2c7, 8 files)
+- **Core (`ui/button.tsx`)**: every text size variant (default/xs/sm/lg) now shares the same `h-fit w-fit px-3 py-2` box — the old fixed h-6/h-8/h-10 heights and px-2/px-2.5/px-4 paddings were the root of app-wide button-size inconsistency. Icon variants normalized to ONE square `size-9` (36px); icon-xs/icon-sm/icon-lg are now aliases of icon. Removed the dead `has-data-[icon]` pe-/ps- padding rules (no call site ever sets data-icon).
+- **Call-site overrides removed** so the shared sizing wins: LastUpdatedIndicator refresh (`h-6 w-6 p-0` → `size="icon"`), HotkeyPicker clear (`h-7 w-7 p-0` → `size="icon"`), TestReviewPanel apply-preset (`h-6 px-2 text-[11px]` → removed), DownloadProgressBar retry/pause/cancel (`h-7 px-3` → removed), dialog close X (`size-8` → `size-9`, matching normalized icon size).
+- **User decisions**: icon-only buttons stay square, normalized to ONE size; Models-page download buttons keep their `w-[88px]` (C-MODELS-2 untouched).
+- **Tests**: `nh-rtl-logical-properties.test.tsx` now pins removal of the data-icon padding rules; `Onboarding.test.tsx` updated for the no-default-model design — model-hint test asserts suppression (no default exists), Continue-validation split into disabled-when-no-selection / enabled-when-explicit-config, get_config-fallback test now asserts the Model step blocks Continue (no default model).
+- **Sidebar + TitleBar excluded** per user instruction (their own sizing contracts).
+
+### Gates (win32, final code state)
+vitest full renderer: 3556 passed / 33 skipped / 1 failed (the failure is `Sidebar.nav-submenu.test.tsx` `transition-[opacity]` — the concurrent session's uncommitted Sidebar.tsx edit removed that class; NOT my button work; sidebar excluded anyway). tsc -p tsconfig.web.json: exit 0. biome on all 8 changed files: clean.
