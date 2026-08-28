@@ -13,7 +13,7 @@ const buttonVariants = cva(
 	// set. `transition-all` would additionally watch every other
 	// animatable property (width/height/padding changes from variant
 	// swaps), promoting needless main-thread style recalculation.
-	"group/button inline-flex shrink-0 items-center justify-center rounded-4xl border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition outline-hidden select-none cursor-pointer focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring active:not-aria-[haspopup]:translate-y-px disabled:cursor-not-allowed disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+	"group/button inline-flex shrink-0 items-center justify-center rounded-4xl border border-transparent bg-clip-padding text-sm font-medium leading-[1.3] whitespace-nowrap transition outline-hidden select-none cursor-pointer focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring active:not-aria-[haspopup]:translate-y-px disabled:cursor-not-allowed disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 	{
 		variants: {
 			variant: {
@@ -39,16 +39,16 @@ const buttonVariants = cva(
 			size: {
 				default:
 					// CONSISTENT BUTTON SIZING (2026-08-28): every text
-					// button uses the same h-fit/w-fit box + px-3 py-2
-					// padding regardless of the size prop — the old
-					// fixed h-6/h-8/h-10 heights and px-2/px-2.5/px-4
-					// paddings made buttons of different sizes look
-					// inconsistent app-wide. The `size` variants now
-					// only differ in the icon gap (and xs in text size).
-					"h-fit w-fit gap-2 px-3 py-2",
-				xs: "h-fit w-fit gap-1 px-3 py-2 text-xs [&_svg:not([class*='size-'])]:size-3",
-				sm: "h-fit w-fit gap-1 px-3 py-2",
-				lg: "h-fit w-fit gap-2 px-3 py-2",
+					// button uses the same h-fit/w-fit box + px-3 py-1.5
+					// padding + 1.3 line-height regardless of the size
+					// prop — the old fixed h-6/h-8/h-10 heights and
+					// px-2/px-2.5/px-4 paddings made buttons of different
+					// sizes look inconsistent app-wide. The `size` variants
+					// now only differ in the icon gap (and xs in text size).
+					"h-fit w-fit gap-2 px-3 py-1.5",
+				xs: "h-fit w-fit gap-1 px-3 py-1.5 text-xs [&_svg:not([class*='size-'])]:size-3",
+				sm: "h-fit w-fit gap-1 px-3 py-1.5",
+				lg: "h-fit w-fit gap-2 px-3 py-1.5",
 				icon: "size-9",
 				"icon-xs": "size-9",
 				"icon-sm": "size-9",
