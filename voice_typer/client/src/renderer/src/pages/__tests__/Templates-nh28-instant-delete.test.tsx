@@ -192,7 +192,7 @@ describe("Templates page — NH-28 instant-delete optimisation", () => {
 	});
 });
 
-describe("Templates page — Clear All + LastUpdatedIndicator", () => {
+describe("Templates page — Clear All + single-row toolbar", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockShowSnack.mockReset();
@@ -211,14 +211,18 @@ describe("Templates page — Clear All + LastUpdatedIndicator", () => {
 		cleanup();
 	});
 
-	it("renders the LastUpdatedIndicator", async () => {
+	it("renders the single-row toolbar with the sort control (no orphaned refresh row)", async () => {
 		const { default: TemplatesPage } = await import("@/pages/Templates");
 		renderWithProviders(<TemplatesPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("hello")).toBeTruthy();
 		});
-		expect(screen.getByTestId("last-updated-indicator")).toBeTruthy();
+		// The LastUpdatedIndicator was removed (2026-08-28) to mirror the
+		// Vocabulary page; the sort Select now lives in the toolbar's
+		// secondary cluster instead of a lone orphaned row.
+		expect(screen.queryByTestId("last-updated-indicator")).toBeNull();
+		expect(screen.getByRole("combobox")).toBeTruthy();
 	});
 
 	it("shows the Clear All button and clears templates on confirm", async () => {

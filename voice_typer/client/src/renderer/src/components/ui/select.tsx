@@ -70,12 +70,12 @@ function SelectTrigger({
 			data-slot="select-trigger"
 			data-size={size}
 			// Base styling mirrors the app's outline Button (rounded-4xl,
-			// border-border/10, h-8/h-9 by size) so a Select never looks
+			// border-border/5, h-8/h-9 by size) so a Select never looks
 			// like an orphan next to the Import/Export/Add buttons — the
 			// sort dropdowns used to override these per-page and drifted
 			// apart; the shared base is the single source of truth now.
 			className={cn(
-				"flex w-fit items-center justify-between gap-2 rounded-4xl border border-border/10 bg-background px-3 py-2 text-sm whitespace-nowrap transition-[color,box-shadow,background-color] outline-hidden hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 data-disabled:pointer-events-none aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-8 dark:bg-transparent dark:hover:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+				"flex w-fit items-center justify-between gap-2 rounded-4xl border border-border/5 bg-background px-3 py-2 text-sm whitespace-nowrap transition-[color,box-shadow,background-color] outline-hidden hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 data-disabled:pointer-events-none aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-8 dark:bg-transparent dark:hover:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 				className,
 			)}
 			{...props}

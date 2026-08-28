@@ -39,7 +39,10 @@ _LEGACY_TEMPLATES_FILENAME = "voice-typer-templates.json"
 # exhaustion. Mirror vocabulary.MAX_CORRECTIONS_ENTRIES pattern.
 MAX_TEMPLATES = 1000
 MAX_TRIGGER_LENGTH = 200
-MAX_OUTPUT_LENGTH = 2000
+# Template OUTPUT is free-form text (a whole paragraph / document the
+# trigger expands to), so the cap is generous — 128 KiB, well under the
+# 256 KiB whole-payload IPC cap (the real ceiling for one save).
+MAX_OUTPUT_LENGTH = 128 * 1024
 
 # ─── Variable substitution ─────────────────────────────────────────────
 

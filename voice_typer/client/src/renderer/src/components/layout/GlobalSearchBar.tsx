@@ -1,15 +1,16 @@
-import { memo, useState } from "react";
+import { memo, useEffect, useRef } from "react";
 import { SearchField } from "@/components/common/SearchField";
+import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { t } from "@/i18n/i18n";
 import type { Page } from "@/types/ipc";
 
 /**
  * Global search bar — lives in the title bar's middle spacer.
  *
- * UI-ONLY PROTOTYPE (no wiring): the field renders with the correct
- * per-page placeholder and appears only on searchable pages, but typing
- * does not filter anything yet. The query state is local to the bar so
- * the clear button and placeholder swap behave visually.
+ * Fully wired: the query state lives in the shared `useGlobalSearch`
+ * store. Each searchable page reads the query from that store and
+ * filters/loads its data, and the per-page SearchFields have been
+ * removed — this is the ONLY search input in the app.
  *
  * Searchable pages mirror the pages that today render their own
  * per-page SearchField:
@@ -31,18 +32,39 @@ const SEARCHABLE_PAGES: ReadonlySet<Page> = new Set<Page>([
 	"settingsPrivacy",
 ]);
 
+function isSettingsPage(page: Page): boolean {
+	return (
+		page === "settings" ||
+		page === "settingsGeneral" ||
+		page === "settingsAiAudio" ||
+		page === "settingsAppearance" ||
+		page === "settingsPrivacy"
+	);
+}
+
+/**
+ * Stable group identity for query-reset purposes. Settings' 4 subpages
+ * share one search (and its auto-switch navigates BETWEEN them while
+ * preserving the query) — so the query must NOT reset on subpage
+ * navigation, only when leaving the whole Settings group.
+ */
+function searchGroup(page: Page): string {
+	if (isSettingsPage(page)) return "settings";
+	return page;
+}
+
 /** Placeholder shown per searchable page. Uses the SAME i18n keys the
- *  per-page SearchFields use today, so translations stay in one place. */
-function placeholderFor(page: Page): string {
+ *  per-page SearchFields used, so translations stay in one place. */
+function placeholderFor(page: Page, vocabEntryCount: number): string {
 	switch (page) {
 		case "history":
 			return t("history.searchPlaceholder");
 		case "templates":
 			return t("templates.searchPlaceholder");
 		case "vocabulary":
-			// PROTOTYPE: count is a fixed stand-in ("42"). The real
-			// corrections count will be wired in with the search wiring.
-			return t("vocabulary.searchPlaceholderCount", { count: "42" });
+			return t("vocabulary.searchPlaceholderCount", {
+				count: String(vocabEntryCount),
+			});
 		default:
 			return t("settings.searchPlaceholder");
 	}
@@ -55,13 +77,46 @@ interface GlobalSearchBarProps {
 export const GlobalSearchBar = memo(function GlobalSearchBar({
 	currentPage,
 }: GlobalSearchBarProps) {
-	const [query, setQuery] = useState("");
+	const query = useGlobalSearch((s) => s.query);
+	const setQuery = useGlobalSearch((s) => s.setQuery);
+	const clearQuery = useGlobalSearch((s) => s.clearQuery);
+	const vocabEntryCount = useGlobalSearch((s) => s.vocabEntryCount);
+	const inputRef = useRef<HTMLInputElement>(null);
 
-	if (!SEARCHABLE_PAGES.has(currentPage)) {
+	// Reset the query when navigating to a different search GROUP
+	// (page), so each page starts clean. Settings subpage↔subpage
+	// navigation keeps the query — its auto-switch relies on it.
+	const prevGroupRef = useRef<string>(searchGroup(currentPage));
+	useEffect(() => {
+		const group = searchGroup(currentPage);
+		if (prevGroupRef.current !== group) {
+			prevGroupRef.current = group;
+			clearQuery();
+		}
+	}, [currentPage, clearQuery]);
+
+	const searchable = SEARCHABLE_PAGES.has(currentPage);
+
+	// Ctrl+K (Cmd+K on Mac) focuses the global search. Registered only
+	// when the current page is searchable (otherwise there's nothing to
+	// focus).
+	useEffect(() => {
+		if (!searchable) return;
+		const onKeyDown = (e: KeyboardEvent) => {
+			if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+				e.preventDefault();
+				inputRef.current?.focus();
+			}
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [searchable]);
+
+	if (!searchable) {
 		return null;
 	}
 
-	const placeholder = placeholderFor(currentPage);
+	const placeholder = placeholderFor(currentPage, vocabEntryCount);
 
 	return (
 		// no-drag ONLY on the field itself: the title bar root is
@@ -74,11 +129,13 @@ export const GlobalSearchBar = memo(function GlobalSearchBar({
 				onChange={setQuery}
 				placeholder={placeholder}
 				ariaLabel={placeholder}
-				// Compact for the 32px title bar: Input defaults to h-8
-				// (full bar height); h-6 (24px) leaves ~4px of breathing
-				// room above and below, and the parent's items-center
-				// vertically centers it.
-				className="h-6 rounded-lg"
+				inputRef={inputRef}
+				// Compact for the 36px title bar: Input defaults to h-7
+				// (full bar height) + text-base; h-6.5 (26px) leaves ~5px of
+				// breathing room above and below, and text-xs keeps the
+				// placeholder/label from overflowing the small field. The
+				// parent's items-center vertically centers it.
+				className="h-6.5 rounded-lg text-xs md:text-xs"
 			/>
 		</div>
 	);

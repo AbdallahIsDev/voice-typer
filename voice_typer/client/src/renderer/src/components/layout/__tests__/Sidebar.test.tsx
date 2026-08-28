@@ -93,8 +93,8 @@ describe("Sidebar", () => {
 		expect(activeButton).toBeTruthy();
 		const cls = activeButton?.className ?? "";
 		// Active leaf = the standard card treatment: the shared card
-		// border token at ~10% opacity (the border every card uses).
-		expect(cls).toContain("border-border/10");
+		// border token at ~7% opacity (the border every card uses).
+		expect(cls).toContain("border-border/5");
 		// The legacy left-accent-bar borders are gone from ALL nav buttons.
 		expect(cls).not.toContain("border-s-2");
 		expect(cls).not.toContain("border-s-transparent");
@@ -125,7 +125,7 @@ describe("Sidebar", () => {
 		expect(cls).toContain("hover:bg-foreground/5");
 		expect(cls).not.toContain("bg-(--bg)");
 		expect(cls).not.toContain("bg-(--accent-soft)");
-		expect(cls).not.toContain("border-border/10");
+		expect(cls).not.toContain("border-border/5");
 	});
 
 	it("UX-16: inactive nav items do NOT carry the card border or any active background", () => {
@@ -137,7 +137,7 @@ describe("Sidebar", () => {
 		// transparent border — the legacy border-s-2 alignment bar is gone.
 		expect(cls).not.toContain("border-s-2");
 		expect(cls).not.toContain("border-s-transparent");
-		expect(cls).not.toContain("border-border/10");
+		expect(cls).not.toContain("border-border/5");
 		expect(cls).not.toContain("border-s-(--accent)");
 		expect(cls).not.toContain("bg-(--accent-soft)");
 		expect(cls).not.toContain("bg-(--bg)");

@@ -72,3 +72,42 @@ class TestSaveTemplates:
         assert resp["type"] == "ack"
         assert resp["data"] == {"saved": 0}
         fake_service.save_templates.assert_called_once_with([])
+
+    def test_output_too_long_returns_invalid_field_error(self, ipc_server, fake_service):
+        """Output exceeding ``MAX_OUTPUT_LENGTH`` is rejected up front
+        (per-field length guard mirrors the templates module's caps so
+        the renderer gets a structured ``client.invalid_field`` error
+        instead of a generic internal error)."""
+        from voice_typer.server.templates import MAX_OUTPUT_LENGTH
+
+        templates = [
+            {"trigger": "ok", "output": "x" * (MAX_OUTPUT_LENGTH + 1)},
+        ]
+        resp = ipc_server._handle_save_templates({"templates": templates}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.invalid_field"
+        assert "output" in resp["data"]["message"]
+        fake_service.save_templates.assert_not_called()
+
+    def test_trigger_too_long_returns_invalid_field_error(self, ipc_server, fake_service):
+        """Trigger exceeding ``MAX_TRIGGER_LENGTH`` is rejected up front."""
+        from voice_typer.server.templates import MAX_TRIGGER_LENGTH
+
+        templates = [
+            {"trigger": "x" * (MAX_TRIGGER_LENGTH + 1), "output": "ok"},
+        ]
+        resp = ipc_server._handle_save_templates({"templates": templates}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.invalid_field"
+        assert "trigger" in resp["data"]["message"]
+        fake_service.save_templates.assert_not_called()
+
+    def test_output_within_cap_is_accepted(self, ipc_server, fake_service):
+        """Output exactly at (or just under) ``MAX_OUTPUT_LENGTH`` saves fine."""
+        from voice_typer.server.templates import MAX_OUTPUT_LENGTH
+
+        templates = [{"trigger": "ok", "output": "x" * MAX_OUTPUT_LENGTH}]
+        resp = ipc_server._handle_save_templates({"templates": templates}, {})
+        assert resp["type"] == "ack"
+        assert resp["data"] == {"saved": 1}
+        fake_service.save_templates.assert_called_once_with(templates)

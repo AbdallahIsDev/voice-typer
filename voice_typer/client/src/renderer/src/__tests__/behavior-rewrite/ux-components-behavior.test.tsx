@@ -1185,43 +1185,36 @@ describe("Templates — rewrite of help-text + variable-tooltip tests", () => {
 		expect(screen.getByText("{username}")).toBeTruthy();
 	});
 
-	it("exposes a variables-tooltip title on rows that use variables", async () => {
+	it("renders variable chips as tappable buttons that insert the token", async () => {
 		// Replaces test_template_row_has_used_variables +
-		// test_tooltip_shows_variable_names.
-		//
-		// Python invariants:
-		//   - "used_variables" in src
-		//   - '"templates.variablesTooltip"' in src
-		// Behavioral: a seeded template with used_variables=["{username}"]
-		// renders a row whose InfoTooltip carries the i18n
-		// variablesTooltip text ("Variables: {username}").  The
-		// InfoTooltip component (components/feedback/InfoTooltip.tsx)
-		// renders the text inside a Radix TooltipContent (portaled),
-		// which only mounts in the DOM when the trigger button is
-		// focused/hovered.  We focus the trigger (aria-label "More
-		// info") to open the tooltip, then assert the text appears.
+		// test_tooltip_shows_variable_names. The row-level InfoTooltip
+		// (question-mark icon) was removed 2026-08-28 — the supported
+		// variable tokens now render as TAPPABLE CHIPS inside the Edit
+		// dialog, and clicking one inserts the token into the output.
 		const { default: TemplatesPage } = await import("@/pages/Templates");
 		renderWithProviders(<TemplatesPage />);
 
-		// Wait for the seeded template's trigger to render.
 		await waitFor(() => {
 			expect(screen.getByText("signoff")).toBeTruthy();
 		});
 
-		// The InfoTooltip trigger button has aria-label "More info"
-		// (t("a11y.moreInfo")).  Focus it to open the Radix Tooltip.
-		const tooltipTrigger = screen.getByRole("button", { name: "More info" });
-		tooltipTrigger.focus();
-
-		// The tooltip content (portaled into document.body) now
-		// contains the variablesTooltip text interpolated with the
-		// used_variables list.  en.json value:
-		//   "Variables: {vars}"  →  "Variables: {username}"
-		await waitFor(() => {
-			const nodes = screen.getAllByText(/Variables:/u);
-			expect(nodes.length).toBeGreaterThanOrEqual(1);
-			expect(nodes[0]?.textContent).toContain("{username}");
+		// Open the Edit dialog via the seeded row's edit affordance.
+		const editBtn = screen.getByRole("button", {
+			name: /edit template: signoff/iu,
 		});
+		fireEvent.click(editBtn);
+		await waitFor(() => {
+			expect(
+				screen.getByText(/The text that replaces the trigger/u),
+			).toBeTruthy();
+		});
+
+		// The four variable chips render as BUTTONS (tappable), not the
+		// old informational tooltip.
+		expect(screen.getByRole("button", { name: "{today}" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "{now}" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "{clipboard}" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "{username}" })).toBeTruthy();
 	});
 });
 

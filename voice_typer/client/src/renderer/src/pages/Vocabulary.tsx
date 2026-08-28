@@ -4,7 +4,7 @@
 // into:
 //   - ``./vocabulary/lib/``        — pure helpers (categories, transform, sort, importExport)
 //   - ``./vocabulary/hooks/``      — state + handlers (useVocabulary, useVocabularyEdit, useVocabularyImportExport, useVocabularyQuickAdd, useVocabularySelection)
-//   - ``./vocabulary/components/`` — presentational (VocabToolbar, VocabSearchFilterBar, VocabListRow, VocabListHeader, VocabBulkBar, VocabInlineForm)
+//   - ``./vocabulary/components/`` — presentational (VocabToolbar, VocabListRow, VocabListHeader, VocabBulkBar, VocabInlineForm)
 //
 // This file owns ONLY the page layout (loading / load-error / empty /
 // list / inline-form wiring). All state + business logic lives in the
@@ -29,6 +29,7 @@ import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
+import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t, useT } from "@/i18n/i18n";
@@ -37,7 +38,6 @@ import { VocabDuplicateBanner } from "./vocabulary/components/VocabDuplicateBann
 import { VocabInlineForm } from "./vocabulary/components/VocabInlineForm";
 import { VocabListHeader } from "./vocabulary/components/VocabListHeader";
 import { VocabListRow } from "./vocabulary/components/VocabListRow";
-import { VocabSearchFilterBar } from "./vocabulary/components/VocabSearchFilterBar";
 import { VocabToolbar } from "./vocabulary/components/VocabToolbar";
 import { usageKey, useVocabulary } from "./vocabulary/hooks/useVocabulary";
 import { useVocabularyEdit } from "./vocabulary/hooks/useVocabularyEdit";
@@ -95,8 +95,6 @@ export default function VocabularyPage() {
 		persistVocabulary,
 		instantDeleteEntry,
 		setEntries,
-		searchQuery,
-		setSearchQuery,
 		sortOrder,
 		setSortOrder,
 		filteredSorted,
@@ -107,6 +105,20 @@ export default function VocabularyPage() {
 	// wrapper) so this component re-renders when the locale switches
 	// and every t() call re-resolves against the new locale.
 	useT();
+
+	// The global title-bar search store owns the ONLY search input in
+	// the app (the per-page SearchField was removed). Its clearQuery
+	// backs the no-results empty-state "clear search" action.
+	const clearSearch = useGlobalSearch((s) => s.clearQuery);
+
+	// ENTRY COUNT SYNC: push the live entry count into the shared
+	// global-search store so the title-bar placeholder can render
+	// "Search {count} corrections". Re-syncs whenever the list changes
+	// (load, add, edit, delete, clear-all, dedupe).
+	const setVocabEntryCount = useGlobalSearch((s) => s.setVocabEntryCount);
+	useEffect(() => {
+		setVocabEntryCount(entries.length);
+	}, [entries.length, setVocabEntryCount]);
 
 	// Inline edit row — same VocabInlineForm treatment as Add, rendered
 	// in place of the row being edited (no modal; the list stays in
@@ -243,8 +255,8 @@ export default function VocabularyPage() {
 	};
 
 	const handleClearSearch = useCallback(() => {
-		setSearchQuery("");
-	}, [setSearchQuery]);
+		clearSearch();
+	}, [clearSearch]);
 
 	if (loading) {
 		return (
@@ -305,6 +317,9 @@ export default function VocabularyPage() {
 					addDisabled={saving}
 					onClearAll={() => setShowClearConfirm(true)}
 					clearAllDisabled={entries.length === 0}
+					sortOrder={sortOrder}
+					onSortOrderChange={setSortOrder}
+					hasEntries={entries.length > 0}
 				/>
 
 				{/* Pre-existing duplicates review banner. */}
@@ -313,20 +328,6 @@ export default function VocabularyPage() {
 						count={duplicateCount}
 						onRemoveDuplicates={handleRemoveDuplicates}
 						onDismiss={() => setDuplicateBannerDismissed(true)}
-					/>
-				)}
-
-				{entries.length > 0 && (
-					// Search/sort only render when there are entries —
-					// searching an empty list is meaningless (the empty
-					// state's Add CTA is the only action). The entry count
-					// lives in the search placeholder, not a separate label.
-					<VocabSearchFilterBar
-						searchQuery={searchQuery}
-						onSearchChange={setSearchQuery}
-						sortOrder={sortOrder}
-						onSortOrderChange={setSortOrder}
-						entryCount={entries.length}
 					/>
 				)}
 
@@ -365,7 +366,7 @@ export default function VocabularyPage() {
 						/>
 					) : (
 						<>
-							<div className="overflow-clip rounded-xl border border-border/10 bg-(--bg-subtle)">
+							<div className="overflow-clip rounded-xl border border-border/5 bg-(--bg-subtle)">
 								<VocabListHeader
 									visibleIds={filteredSorted.map((e) => e._id)}
 									selectedIds={selection.selectedIds}
@@ -414,7 +415,7 @@ export default function VocabularyPage() {
 								<button
 									type="button"
 									onClick={() => setDisplayCount((c) => c + DISPLAY_CAP)}
-									className="mx-auto mt-3 flex items-center gap-1.5 rounded-full border border-border/10 bg-(--bg-subtle) px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5 cursor-pointer"
+									className="mx-auto mt-3 flex items-center gap-1.5 rounded-full border border-border/5 bg-(--bg-subtle) px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5 cursor-pointer"
 								>
 									{t("vocabulary.showMore")}
 								</button>

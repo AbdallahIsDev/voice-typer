@@ -169,6 +169,7 @@ function renderDialog(props: StubProps = {}) {
 			onMatchModeChange={handlers.onMatchModeChange}
 			onClose={handlers.onClose}
 			onSave={handlers.onSave}
+			onInsertVariable={vi.fn()}
 		/>,
 	);
 	return { ...utils, handlers };
@@ -343,6 +344,7 @@ describe("ZU-30: TemplateDialog unknown-variable warning", () => {
 				onMatchModeChange={handlers.onMatchModeChange}
 				onClose={handlers.onClose}
 				onSave={handlers.onSave}
+				onInsertVariable={vi.fn()}
 			/>,
 		);
 		const alert = screen.getByRole("alert");
@@ -362,6 +364,7 @@ describe("ZU-30: TemplateDialog unknown-variable warning", () => {
 				onMatchModeChange={handlers.onMatchModeChange}
 				onClose={handlers.onClose}
 				onSave={handlers.onSave}
+				onInsertVariable={vi.fn()}
 			/>,
 		);
 		// No alert — {today} is a known variable.

@@ -1,6 +1,20 @@
 import type { ComponentProps, ElementType, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
+/**
+ * Kbd — shared visual primitive for the bordered mono "chip" used to
+ * render keyboard shortcuts and voice-inserted characters. The single
+ * source of truth for keycap presentation across the entire app.
+ *
+ * ``KBD_CHIP_CLASSES`` is the raw chip surface (rounded, 1px
+ * ``border-border/5`` frame, ``--bg-subtle``, mono text). ``Kbd`` uses
+ * it directly; interactive chip-like surfaces (e.g. the tappable
+ * template-variable chips) compose it with their own hover/focus state
+ * so they render with the exact same visual language as every keycap.
+ */
+export const KBD_CHIP_CLASSES =
+	"rounded border border-border/15 bg-(--bg-subtle) px-2 py-1 font-mono text-xs text-(--text-primary)";
+
 interface KbdProps {
 	children: ReactNode;
 	/**
@@ -27,7 +41,7 @@ export function Kbd({ children, as: Tag = "kbd", className }: KbdProps) {
 		<Tag
 			data-slot="kbd"
 			className={cn(
-				"rounded border border-border/10 bg-(--bg-subtle) px-2 py-0.5 font-mono text-xs text-(--text-primary) in-data-[slot=tooltip-content]:bg-foreground/10 in-data-[slot=tooltip-content]:text-foreground",
+				`${KBD_CHIP_CLASSES} in-data-[slot=tooltip-content]:bg-foreground/10 in-data-[slot=tooltip-content]:text-foreground`,
 				className,
 			)}
 		>

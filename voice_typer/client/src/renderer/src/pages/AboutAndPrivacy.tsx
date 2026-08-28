@@ -179,7 +179,7 @@ export default function AboutAndPrivacyPage() {
 			{/* Product identity card — compact, native-app About block.
 			    No marketing copy, no hero section: identity, capability
 			    split, version + update check. */}
-			<div className="rounded-xl border border-border/10 bg-(--bg-subtle)">
+			<div className="rounded-xl border border-border/5 bg-(--bg-subtle)">
 				{/* Identity row: logo + name + capability summary. */}
 				<div className="flex items-center gap-3 px-5 pt-5">
 					<Logo size={40} className="shrink-0" />
@@ -201,7 +201,7 @@ export default function AboutAndPrivacyPage() {
 				    obvious: two side-by-side blocks with their own icon
 				    + title + one-line description. */}
 				<div className="grid gap-3 px-5 pt-5 sm:grid-cols-2">
-					<div className="rounded-lg border border-border/10 bg-(--bg) p-3.5">
+					<div className="rounded-lg border border-border/5 bg-(--bg) p-3.5">
 						<div className="flex items-center gap-2">
 							<HugeiconsIcon
 								icon={Mic02Icon}
@@ -217,7 +217,7 @@ export default function AboutAndPrivacyPage() {
 							{t("about.localDesc")}
 						</p>
 					</div>
-					<div className="rounded-lg border border-border/10 bg-(--bg) p-3.5">
+					<div className="rounded-lg border border-border/5 bg-(--bg) p-3.5">
 						<div className="flex items-center gap-2">
 							<HugeiconsIcon
 								icon={CloudIcon}
@@ -241,7 +241,7 @@ export default function AboutAndPrivacyPage() {
 			    against the release manifest (C-DATA-1 category-2 allowed
 			    update check; fires ONLY on button click, never on
 			    mount). */}
-				<div className="mt-5 flex flex-wrap items-center gap-6 border-t border-border/10 px-5 py-4">
+				<div className="mt-5 flex flex-wrap items-center gap-6 border-t border-border/5 px-5 py-4">
 					<span className="text-sm font-medium text-(--text-primary)">
 						{t("about.version")}
 					</span>
@@ -262,7 +262,7 @@ export default function AboutAndPrivacyPage() {
 			{/* The privacy disclosure — five topic rows with thin dividers (the
                             section card's divide-y supplies them). Icons render
                             directly (no chip), in the standard muted icon tone. */}
-			<div className="divide-y divide-border/10 rounded-xl border border-border/10 bg-(--bg-subtle)">
+			<div className="divide-y divide-border/10 rounded-xl border border-border/5 bg-(--bg-subtle)">
 				{PRIVACY_TOPICS.map((topic) => (
 					<div key={topic.title} className="flex gap-3 px-4 py-4">
 						<HugeiconsIcon

@@ -582,11 +582,14 @@ describe("ModelCardActions — download button size display + fixed width (2026-
 		// `justify-start` (the shared DOWNLOAD_CONTENT_ALIGNMENT token)
 		// overrides the Button base's centered `justify-center`.
 		expect(dlBtn.className).toContain("justify-start");
-		// The download icon is the compact 14px size (DOWNLOAD_ICON_CLASS)
+		// gap-2 + text-xs: the shared compact button sizing tokens.
+		expect(dlBtn.className).toContain("gap-2");
+		expect(dlBtn.className).toContain("text-xs");
+		// The download icon is the compact 12px size (DOWNLOAD_ICON_CLASS)
 		// so it visually matches the 11px size text instead of dominating.
 		const icon = dlBtn.querySelector('[data-testid="hugeicon"]');
-		expect(icon?.className).toContain("h-3.5");
-		expect(icon?.className).toContain("w-3.5");
+		expect(icon?.className).toContain("h-3");
+		expect(icon?.className).toContain("w-3");
 	});
 
 	it("every model-size Download button shares one fixed width, regardless of the size shown", () => {
@@ -622,6 +625,6 @@ describe("ModelCardActions — download button size display + fixed width (2026-
 		const widths = ["75 MB", "809 MB", "3 GB", "2.5 GB"].map(
 			(size) => buttonFor(size).className,
 		);
-		expect(widths.every((cls) => cls.includes("w-[88px]"))).toBe(true);
+		expect(widths.every((cls) => cls.includes("w-24"))).toBe(true);
 	});
 });

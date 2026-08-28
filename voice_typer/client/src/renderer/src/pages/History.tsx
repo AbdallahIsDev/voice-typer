@@ -14,7 +14,6 @@ import ConfirmDialog from "@/components/common/ConfirmDialog";
 import ExportFormatMenu from "@/components/common/ExportFormatMenu";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
-import { SearchField } from "@/components/common/SearchField";
 import ActivityList from "@/components/dashboard/ActivityList";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
@@ -26,6 +25,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { showUndoableToast } from "@/hooks/useSnackbar";
@@ -75,8 +75,8 @@ export default function HistoryPage() {
 		refreshFromEvent,
 		setFilter,
 	} = useHistoryCache();
-	const [searchQuery, setSearchQuery] = useState("");
 	const [favoritesOnly, setFavoritesOnly] = useState(false);
+	const searchQuery = useGlobalSearch((s) => s.query);
 	const [sortOrder, setSortOrder] = useState<HistorySortOrder>("newest");
 	// Explicit visible-row window. The cache hook pages 50 records per
 	// fetch into `records`; this state controls how many of them the
@@ -87,6 +87,10 @@ export default function HistoryPage() {
 	// dead-zone no-op. Reset to one page whenever a fresh load runs.
 	const [visibleCount, setVisibleCount] = useState(HISTORY_PAGE_SIZE);
 	const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	// Guards the debounced-load effect so the initial mount load
+	// (handled by the separate mount effect) is not re-fired when the
+	// global query starts at "" — only query CHANGES trigger a reload.
+	const isFirstRenderRef = useRef(true);
 	const [showClearConfirm, setShowClearConfirm] = useState(false);
 	const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const [refreshing, setRefreshing] = useState(false);
@@ -192,16 +196,26 @@ export default function HistoryPage() {
 		runLoad();
 	}, [runLoad]);
 
-	const handleSearch = useCallback(
-		(value: string) => {
-			setSearchQuery(value);
-			if (searchTimer.current) clearTimeout(searchTimer.current);
-			searchTimer.current = setTimeout(() => {
-				runLoad(value, favoritesOnly);
-			}, 200);
-		},
-		[runLoad, favoritesOnly],
-	);
+	// Debounced reload driven by the GLOBAL search store. The query now
+	// lives in the title bar's global search bar; when it changes this
+	// effect schedules a 200ms-delayed runLoad with the new query. The
+	// first-render guard keeps the mount load from double-firing.
+	useEffect(() => {
+		if (isFirstRenderRef.current) {
+			isFirstRenderRef.current = false;
+			return;
+		}
+		if (searchTimer.current) clearTimeout(searchTimer.current);
+		searchTimer.current = setTimeout(() => {
+			runLoad(searchQuery, favoritesOnly);
+		}, 200);
+		return () => {
+			if (searchTimer.current) {
+				clearTimeout(searchTimer.current);
+				searchTimer.current = null;
+			}
+		};
+	}, [searchQuery, runLoad, favoritesOnly]);
 
 	const toggleFavorites = useCallback(() => {
 		const next = !favoritesOnly;
@@ -343,15 +357,6 @@ export default function HistoryPage() {
 						agoLabel={agoLabel}
 						onRefresh={handleManualRefresh}
 						refreshing={refreshing}
-					/>
-				</div>
-
-				{/* Search */}
-				<div className="mt-4">
-					<SearchField
-						value={searchQuery}
-						onChange={handleSearch}
-						placeholder={t("history.searchPlaceholder")}
 					/>
 				</div>
 

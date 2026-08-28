@@ -480,7 +480,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 							return (
 								<div
 									key={varName}
-									className="flex items-center gap-2.5 rounded-lg border border-border/10 bg-(--bg) p-2"
+									className="flex items-center gap-2.5 rounded-lg border border-border/5 bg-(--bg) p-2"
 								>
 									<div className="relative shrink-0">
 										<Input
@@ -491,7 +491,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 											aria-label={t("settings.appearance.colorAria", { label })}
 										/>
 										<div
-											className="h-8 w-8 rounded-md border border-border/10 shadow-xs"
+											className="h-8 w-8 rounded-md border border-border/5 shadow-xs"
 											style={{ backgroundColor: currentHex }}
 										/>
 									</div>
@@ -607,7 +607,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 						type="button"
 						disabled={customDraftIsDefault}
 						onClick={handleResetCustomColors}
-						className="mt-3 w-full rounded-lg border border-border/10 px-3 py-2 text-xs text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-(--text-muted)"
+						className="mt-3 w-full rounded-lg border border-border/5 px-3 py-2 text-xs text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-(--text-muted)"
 					>
 						{t("settings.appearance.resetToDefaultColors")}
 					</button>

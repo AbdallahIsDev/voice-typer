@@ -328,7 +328,20 @@
 		"count_many": "{count} Vorlagen",
 		"count_other": "{count} Vorlagen",
 		"unknownVariableWarning": "Unbekannte Variable {vars} — unterstützt: {today}, {now}, {clipboard}, {username}",
-		"importFormatHint": "Akzeptiert JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]})."
+		"importFormatHint": "Akzeptiert JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]}).",
+		"bulkDelete": "Ausgewählte löschen",
+		"bulkDeleteToast": "{count} Vorlagen gelöscht",
+		"columnActions": "Aktionen",
+		"columnOutput": "Ausgabe",
+		"columnTrigger": "Auslöser",
+		"deselectAll": "Auswahl aufheben",
+		"exportSelected": "Auswahl exportieren",
+		"selectAll": "Alle auswählen",
+		"selectEntry": "{name} auswählen",
+		"selectedCount": "{count} ausgewählt",
+		"restoredTemplate": "Vorlage wiederhergestellt",
+		"restoreFailed": "Vorlage konnte nicht wiederhergestellt werden",
+		"insertVariable": "{token} einfügen"
 	},
 	"analytics": {
 		"title": "Analysen",

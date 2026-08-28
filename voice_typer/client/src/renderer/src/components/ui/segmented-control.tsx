@@ -314,8 +314,8 @@ export function SegmentedControl<T extends string>({
 					// wash rendered visibly different from the stat cards
 					// on the Analytics page.
 					(radius === "sm"
-						? "rounded-[4px] border border-border/10 bg-(--bg-subtle) p-0.5"
-						: "rounded-full border border-border/10 bg-(--bg-subtle) p-0.75"),
+						? "rounded-[4px] border border-border/5 bg-(--bg-subtle) p-0.5"
+						: "rounded-full border border-border/5 bg-(--bg-subtle) p-0.75"),
 				variant === "tabs" && "bg-transparent rounded-none p-1",
 				className,
 			)}

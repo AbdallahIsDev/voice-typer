@@ -335,7 +335,20 @@
 		"count_many": "{count} templates",
 		"count_other": "{count} templates",
 		"unknownVariableWarning": "Unknown variable {vars} — supported: {today}, {now}, {clipboard}, {username}",
-		"importFormatHint": "Accepts JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]})."
+		"importFormatHint": "Accepts JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]}).",
+		"bulkDelete": "Delete selected",
+		"bulkDeleteToast": "Deleted {count} templates",
+		"columnActions": "Actions",
+		"columnOutput": "Output",
+		"columnTrigger": "Trigger",
+		"deselectAll": "Deselect all",
+		"exportSelected": "Export selected",
+		"selectAll": "Select all",
+		"selectEntry": "Select {name}",
+		"selectedCount": "{count} selected",
+		"restoredTemplate": "Template restored",
+		"restoreFailed": "Failed to restore template",
+		"insertVariable": "Insert {token}"
 	},
 	"analytics": {
 		"title": "Analytics",

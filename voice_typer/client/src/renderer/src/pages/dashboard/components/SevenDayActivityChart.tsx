@@ -55,7 +55,7 @@ export function ActivityChart({ range, activity }: ActivityChartProps) {
 	const ariaCounts = bars.map((b) => `${b.label}: ${b.count}`).join(", ");
 
 	return (
-		<div className="rounded-xl border border-border/10 bg-(--bg-subtle) p-4">
+		<div className="rounded-xl border border-border/5 bg-(--bg-subtle) p-4">
 			<div className="mb-4 flex items-center gap-2.5">
 				{/* Icon grouped directly left of the title (was stranded
 				in the top-right corner). */}

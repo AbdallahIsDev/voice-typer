@@ -106,7 +106,7 @@ function backendCardClass(active: boolean): string {
 		"transition-colors duration-150",
 		active
 			? "border-accent bg-accent/5"
-			: "border-border/10 bg-(--bg-subtle) hover:border-accent/50",
+			: "border-border/5 bg-(--bg-subtle) hover:border-accent/50",
 	].join(" ");
 }
 
@@ -272,7 +272,7 @@ export function ModelStep({
 					</Select>
 
 					{/* HuggingFace consent — gates the EXPLICIT download. */}
-					<div className="rounded-lg border border-border/10 bg-(--bg-subtle) p-4">
+					<div className="rounded-lg border border-border/5 bg-(--bg-subtle) p-4">
 						<label
 							className="flex items-start gap-3 text-sm"
 							htmlFor="onboarding-hf-consent"
@@ -411,7 +411,7 @@ export function ModelStep({
 						/>
 					</div>
 
-					<div className="rounded-lg border border-border/10 bg-(--bg-subtle) p-4">
+					<div className="rounded-lg border border-border/5 bg-(--bg-subtle) p-4">
 						<label
 							className="flex items-start gap-3 text-sm"
 							htmlFor="onboarding-cloud-consent"

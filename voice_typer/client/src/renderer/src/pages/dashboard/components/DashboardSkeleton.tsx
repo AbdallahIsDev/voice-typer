@@ -33,7 +33,7 @@ export function DashboardSkeleton() {
 				{[0, 1, 2, 3].map((i) => (
 					<div
 						key={`stat-skel-${i}`}
-						className="rounded-xl border border-border/10 bg-(--bg-subtle) p-5 flex flex-col items-center justify-center gap-2.5"
+						className="rounded-xl border border-border/5 bg-(--bg-subtle) p-5 flex flex-col items-center justify-center gap-2.5"
 					>
 						<div className="rounded-lg bg-accent/10 p-2">
 							<div className="h-4 w-4 animate-pulse rounded bg-(--bg-subtle)" />
@@ -44,7 +44,7 @@ export function DashboardSkeleton() {
 				))}
 			</div>
 			{/* 7-day chart skeleton */}
-			<div className="rounded-xl border border-border/10 bg-(--bg-subtle) p-5 mt-8">
+			<div className="rounded-xl border border-border/5 bg-(--bg-subtle) p-5 mt-8">
 				<div className="flex items-center justify-between mb-5">
 					<div className="space-y-1.5">
 						<div className="h-4 w-32 animate-pulse rounded bg-(--bg-subtle)" />
@@ -74,7 +74,7 @@ export function DashboardSkeleton() {
 				{[0, 1, 2].map((i) => (
 					<div
 						key={`qi-skel-${i}`}
-						className="rounded-lg border border-border/10 bg-(--bg-subtle) p-3.5 flex items-center gap-3"
+						className="rounded-lg border border-border/5 bg-(--bg-subtle) p-3.5 flex items-center gap-3"
 					>
 						<div className="h-8 w-8 animate-pulse rounded-lg bg-(--bg-subtle)" />
 						<div className="flex-1 space-y-1.5">

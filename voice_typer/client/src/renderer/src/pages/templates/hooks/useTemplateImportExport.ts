@@ -32,7 +32,7 @@ interface UseTemplateImportExportArgs {
 
 interface UseTemplateImportExportResult {
 	importInputRef: React.RefObject<HTMLInputElement | null>;
-	doExport: (format?: ExportFormat) => Promise<void>;
+	doExport: (format?: ExportFormat, rows?: TemplateRow[]) => Promise<void>;
 	handleImportFile: (file: File | undefined | null) => Promise<void>;
 	handleImportClick: () => void;
 }
@@ -66,9 +66,11 @@ export function useTemplateImportExport({
 	// the format (e.g. an ad-hoc test or a future "quick-export"
 	// shortcut) preserve the previous behaviour bit-for-bit.
 	const doExport = useCallback(
-		async (format: ExportFormat = "json") => {
+		async (format: ExportFormat = "json", rows?: TemplateRow[]) => {
 			try {
-				const items = rowsToTemplates(templatesRef.current);
+				// Bulk "Export selected" passes the exact rows; the
+				// toolbar export passes none (→ all templates).
+				const items = rowsToTemplates(rows ?? templatesRef.current);
 				const bridge = window.window_;
 				if (!bridge?.exportTemplates) {
 					toast.error(t("vocabulary.exportNotAvailable"));
@@ -99,7 +101,6 @@ export function useTemplateImportExport({
 		},
 		[templatesRef],
 	);
-
 	// Import: hidden ``<input type="file">`` opens the OS-native picker.
 	// We read the file via ``File.text()`` (Chromium ≥ 76, Electron
 	// renderer), parse it via ``parseImportedTemplates`` (which accepts

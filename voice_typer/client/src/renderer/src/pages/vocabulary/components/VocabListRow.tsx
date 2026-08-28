@@ -268,7 +268,7 @@ export const VocabListRow = memo(function VocabListRow({
 							// the "this is correct" signal lives in the
 							// corrected text's green colour, not a
 							// green-bordered box.
-							<div className="rounded-xl border border-border/10 bg-(--bg) px-3 py-2">
+							<div className="rounded-xl border border-border/5 bg-(--bg) px-3 py-2">
 								<p className="text-[11px] font-semibold uppercase tracking-wide text-(--text-muted)">
 									{t("vocabulary.testCorrected")}
 								</p>
@@ -292,7 +292,7 @@ export const VocabListRow = memo(function VocabListRow({
 									e.stopPropagation();
 									onTest(entry);
 								}}
-								className="cursor-pointer rounded-full border border-border/10 bg-(--bg-subtle) px-2.5 py-0.5 font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5"
+								className="cursor-pointer rounded-full border border-border/5 bg-(--bg-subtle) px-2.5 py-0.5 font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5"
 							>
 								{t("vocabulary.retry")}
 							</button>

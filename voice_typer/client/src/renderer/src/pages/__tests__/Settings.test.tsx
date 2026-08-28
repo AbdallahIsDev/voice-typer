@@ -662,3 +662,103 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		).toBeNull();
 	});
 });
+
+// ── Search auto-switch navigation ─────────────────────────────────────
+//
+// The global search store (title-bar GlobalSearchBar) replaces the
+// per-page SearchField. Setting the query via the store must trigger the
+// same auto-switch: when a query matches labels in another Settings tab,
+// the page navigates to the best-matching sub-page with a scroll hint.
+describe("Settings search auto-switch navigation", () => {
+	beforeEach(() => {
+		resetStableMocks();
+		localStorage.clear();
+		vi.resetModules();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("navigates to the Appearance sub-page when the query matches the Appearance tab label", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(baseConfig);
+			if (type === "set_config") return Promise.resolve({ success: true });
+			return Promise.resolve({});
+		});
+
+		const { default: SettingsPage } = await import("@/pages/Settings");
+		renderWithProviders(<SettingsPage page="settingsGeneral" />);
+
+		await waitFor(() => {
+			expect(screen.getByText("Settings")).toBeTruthy();
+		});
+
+		// Set the query via the global store (the per-page
+		// SearchField was removed — the title-bar search owns the input).
+		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		useGlobalSearch.getState().setQuery("appearance");
+
+		await waitFor(() => {
+			expect(mockNavigate).toHaveBeenCalledWith(
+				"settingsAppearance",
+				expect.objectContaining({
+					settingsScrollTarget: expect.objectContaining({
+						rowHint: expect.any(String),
+					}),
+				}),
+			);
+		});
+	});
+
+	it("navigates to the Privacy sub-page when the query matches a PrewarmAndUpdates label", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(baseConfig);
+			if (type === "set_config") return Promise.resolve({ success: true });
+			return Promise.resolve({});
+		});
+
+		const { default: SettingsPage } = await import("@/pages/Settings");
+		renderWithProviders(<SettingsPage page="settingsGeneral" />);
+
+		await waitFor(() => {
+			expect(screen.getByText("Settings")).toBeTruthy();
+		});
+
+		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		useGlobalSearch.getState().setQuery("prewarm");
+
+		await waitFor(() => {
+			expect(mockNavigate).toHaveBeenCalledWith(
+				"settingsPrivacy",
+				expect.objectContaining({
+					settingsScrollTarget: expect.objectContaining({
+						rowHint: expect.any(String),
+					}),
+				}),
+			);
+		});
+	});
+
+	it("does NOT navigate when the query is shorter than 2 characters", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(baseConfig);
+			if (type === "set_config") return Promise.resolve({ success: true });
+			return Promise.resolve({});
+		});
+
+		const { default: SettingsPage } = await import("@/pages/Settings");
+		renderWithProviders(<SettingsPage page="settingsGeneral" />);
+
+		await waitFor(() => {
+			expect(screen.getByText("Settings")).toBeTruthy();
+		});
+
+		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		useGlobalSearch.getState().setQuery("a");
+
+		// Small delay to let any potential effect run.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(mockNavigate).not.toHaveBeenCalled();
+	});
+});

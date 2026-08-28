@@ -528,7 +528,7 @@ function NavLeaf({
 								// app's card surface (--bg) + the shared card
 								// border token at the same ~10% opacity every
 								// card in the app uses. No custom border color.
-								"border-border/10 bg-(--bg) hover:bg-(--bg)",
+								"border-border/5 bg-(--bg) hover:bg-(--bg)",
 								"text-(--text-primary) font-medium",
 							)
 						: cn(
@@ -772,7 +772,7 @@ function NavSubmenu({
 								// in the collapsed rail it is fully transparent and inert
 								// (and clipped by the button's overflow-hidden), so the
 								// icon-only state stays clean.
-								"transition-[opacity] duration-200 ease-out",
+								"transition-opacity duration-200 ease-out",
 								collapsed ? "pointer-events-none opacity-0" : "opacity-100",
 							)}
 						>
@@ -795,7 +795,7 @@ function NavSubmenu({
 						align="center"
 						sideOffset={8}
 						className={cn(
-							"z-50 min-w-44 rounded-md border border-border/10 bg-(--bg-subtle) p-1 shadow-lg",
+							"z-50 min-w-44 rounded-md border border-border/5 bg-(--bg-subtle) p-1 shadow-lg",
 							"data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
 							"data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
 						)}
@@ -871,7 +871,7 @@ function NavSubmenu({
 						    nav's roving-tabindex contract. */}
 					<div
 						className={cn(
-							"ms-3 mt-0.5 flex flex-col gap-px border-s border-border/10 ps-2",
+							"ms-3 mt-0.5 flex flex-col gap-px border-s border-border/5 ps-2",
 						)}
 					>
 						{item.children?.map((child) => {
@@ -897,7 +897,7 @@ function NavSubmenu({
 											? cn(
 													// Same standard card treatment as the
 													// top-level active leaf.
-													"border-border/10 bg-(--bg) hover:bg-(--bg)",
+													"border-border/5 bg-(--bg) hover:bg-(--bg)",
 													"text-(--text-primary) font-medium",
 												)
 											: cn(

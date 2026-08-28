@@ -97,7 +97,7 @@ export function AvailableMicrophonesList({
 				value={value}
 				onValueChange={handleValueChange}
 				disabled={testRunning}
-				className="rounded-lg border border-border/10 bg-(--bg-subtle)"
+				className="rounded-lg border border-border/5 bg-(--bg-subtle)"
 				data-testid="microphone-radio-list"
 			>
 				{/* native <ul>/<li> list semantics around the radio rows — the

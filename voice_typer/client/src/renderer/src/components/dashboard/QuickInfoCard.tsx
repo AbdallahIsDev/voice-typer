@@ -38,7 +38,7 @@ export function QuickInfoCard({
 		// stat cards.
 		<div
 			className={cn(
-				"flex items-stretch gap-3 rounded-lg border border-border/10",
+				"flex items-stretch gap-3 rounded-lg border border-border/5",
 				muted ? "bg-(--bg-subtle)/50 p-3" : "bg-(--bg-subtle) p-3.5",
 			)}
 		>

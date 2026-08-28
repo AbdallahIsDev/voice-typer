@@ -914,7 +914,7 @@ describe("ModelsPage — segmented control card border treatment (2026-08-21)", 
 		});
 
 		// The tablist is the SegmentedControl container; it must carry
-		// the model-card border treatment (`border border-border/10`
+		// the model-card border treatment (`border border-border/5`
 		// `rounded-lg bg-(--bg-subtle)`) so the control reads as one
 		// card among the model cards — NOT a borderless strip. The tabs
 		// variant's base `border-none` was REMOVED (2026-08-21) because
@@ -923,7 +923,7 @@ describe("ModelsPage — segmented control card border treatment (2026-08-21)", 
 		// killed the container border — guard against it returning.
 		const tablist = screen.getByRole("tablist");
 		const cls = tablist.className;
-		expect(cls).toContain("border-border/10");
+		expect(cls).toContain("border-border/5");
 		expect(cls).toContain("rounded-lg");
 		expect(cls).toContain("bg-(--bg-subtle)");
 		expect(cls).not.toContain("border-none");

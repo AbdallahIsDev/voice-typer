@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useFilterState } from "@/hooks/useFilterState";
+import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { showUndoableToast } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import type { VocabularyData, VocabularyEntry } from "@/types/ipc";
@@ -73,8 +74,9 @@ interface UseVocabularyResult {
 	/** Per-entry usage map ("used N×"), refreshed on load + after saves. */
 	usageByKey: UsageByKey;
 	// Search + filter + sort (client-side, applied via useMemo).
+	// The search query is READ from the shared global search store
+	// (title-bar search) — the per-page search state was removed.
 	searchQuery: string;
-	setSearchQuery: (q: string) => void;
 	sortOrder: VocabSortOrder;
 	setSortOrder: (o: VocabSortOrder) => void;
 	filteredSorted: VocabRow[];
@@ -91,15 +93,12 @@ export function useVocabulary({
 	// the History/Templates retry pattern.
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
-	// Persist search + sort across page navigation via
-	// sessionStorage so a user who switched tabs doesn't lose their
-	// filter context when they come back. Wraps useSessionStorage
-	// under the hood with a per-page namespaced key.
-	const [searchQuery, setSearchQuery] = useFilterState<string>(
-		"vocabulary",
-		"searchQuery",
-		"",
-	);
+	// The search query comes from the GLOBAL title-bar search store —
+	// there is no per-page search state anymore (the per-page
+	// SearchField was removed and the title bar owns the only search
+	// input in the app). Reading it here makes the filteredSorted memo
+	// recompute whenever the title-bar query changes.
+	const searchQuery = useGlobalSearch((s) => s.query);
 	const [sortOrder, setSortOrder] = useFilterState<VocabSortOrder>(
 		"vocabulary",
 		"sortOrder",
@@ -399,7 +398,6 @@ export function useVocabulary({
 		setEntries,
 		usageByKey,
 		searchQuery,
-		setSearchQuery,
 		sortOrder,
 		setSortOrder,
 		filteredSorted,

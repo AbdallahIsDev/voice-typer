@@ -53,7 +53,7 @@ export const nordTheme: Omit<ThemePreset, "nameKey"> = {
 		// Borders / inputs / rings
 		/* WCAG 1.4.11: L lowered from 0.88 to 0.62 so the border clears
 		   3:1 contrast against the near-white background. */
-		"--border": "oklch(0.62 0.008 240)",
+		"--border": "oklch(0 0 0)",
 		"--input": "oklch(0.62 0.008 240)",
 		/* bump L from 0.6 to 0.48 so the focus ring (combined with
 		   focus-visible:ring-ring/30) clears WCAG 1.4.11's 3:1 minimum. */
@@ -121,7 +121,7 @@ export const nordTheme: Omit<ThemePreset, "nameKey"> = {
 		// Borders / inputs / rings
 		/* WCAG 1.4.11: L raised from 0.26 to 0.52 so the border clears
 		   3:1 contrast against the dark background. */
-		"--border": "oklch(0.52 0.01 240)",
+		"--border": "oklch(1 0 0)",
 		"--input": "oklch(0.54 0.01 240)",
 		"--ring": "oklch(0.7 0.1 240)",
 		// Destructive (added --destructive-foreground so dark

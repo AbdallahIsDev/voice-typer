@@ -698,6 +698,45 @@ Applies to: All agents, all modes, all sub-agents.
 
 ---
 
+## Category: Focus Indicators & Keyboard Accessibility
+
+```
+C-FOCUS-1
+Rule: Do NOT remove, hide, or disable keyboard focus indicators anywhere in the app (no blanket `outline: none`, no `*:focus { outline: none }`, no conditional display:none on the focus ring). WCAG 2.4.7 "Focus Visible" (Level A) REQUIRES a visible keyboard focus indicator — removing it makes the app unusable for keyboard/AT users, who have no mouse cursor equivalent. If a focus style looks ugly, REPLACE it with a better one — never delete it.
+Rationale: `:focus { outline: none; }` is the #1 accessibility antipattern; browsers show no focus ring when the author removes it. Sara Soueidan's focus-indicator guide + MDN both document that a visible focus indicator is mandatory for keyboard users (WCAG 2.4.7) and that the indicator needs ≥3:1 contrast (WCAG 1.4.11 Non-Text Contrast) over an area ≥ a 2px-thick perimeter (WCAG 2.4.13 Focus Appearance). Established 2026-08-28 after a programmatic contrast audit.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-FOCUS-2
+Rule: Do NOT reduce the focus ring's color opacity below the full `ring-ring` token. The interactive primitives (Button, Input, SelectTrigger, SearchField) MUST keep the full-opacity `focus-visible:ring-ring` contract pinned by `voice_typer/client/src/renderer/src/components/ui/__tests__/focus-ring-contrast.test.tsx`. A 30% alpha ring (`ring-ring/30`) composites to 1.15:1–2.45:1 contrast across all 12 themes — far below WCAG 1.4.11's 3:1 minimum — so the indicator is effectively invisible in every theme. The theme files tune `--ring` for 3:1+; the ring MUST paint at full opacity so the tuned contrast actually reaches the eye.
+Rationale: A prior "make it prettier" edit changed the ring to `ring-ring/30`; a programmatic WCAG audit caught the 1.15:1–2.45:1 composite contrast (invisible in every theme). The fix was to drop the `/30` alpha, and `focus-ring-contrast.test.tsx` now pins the full-opacity contract + the `ring-3` thickness + the `focus-visible:` qualifier. Thickness may be tuned DOWN to `ring-2` (still ≥2px, the WCAG 2.4.13 minimum area) but NEVER the alpha. Established 2026-08-28.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-FOCUS-5
+Rule: Do NOT make the focus ring thinner than 2px (`ring-2`), and do NOT use a ring thinner than the WCAG 2.4.13 "Focus Appearance" (Level AAA) minimum area — an indicator's contrasting area MUST be at least as large as a 2 CSS-px-thick perimeter of the focused element. `ring-3` (3px) is the app's standard thickness (pinned by `focus-ring-contrast.test.tsx`); `ring-2` is the acceptable floor. Never `ring-1`, never a hairline `outline: 1px`, never a `border` that visually collapses to <2px. Thickness is a SEPARATE axis from color opacity (C-FOCUS-2) — you may tune thickness down to 2px, but only at full `ring-ring` opacity, and you must not "compensate" for a heavy ring by shaving it to a sub-2px hairline.
+Rationale: WCAG 2.4.13 requires the focus indicator's contrasting area to be ≥ the area of a 2px-thick perimeter — a 1px ring has roughly half the required area and reads as a faint tick that low-vision and keyboard users miss. The programmatic audit that fixed C-FOCUS-2 explicitly preserved `ring-3` thickness, and the test pins it so a future "compensation" edit (thinner ring to offset full opacity) can't silently regress visibility. Established 2026-08-28.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-FOCUS-3
+Rule: Do NOT rely on pure CSS `:focus-visible` alone to suppress a text input's focus ring on mouse click. Browsers match `:focus-visible` for TEXT BOXES on BOTH click and keyboard (MDN :focus-visible: "when a text box needing user input has focus, focus is indicated") — so `focus-visible:ring-*` paints the full ring on every mouse click into a search/text field. If a click ring is unwanted, implement POINTER-MODALITY TRACKING (the pattern in `components/common/SearchField.tsx`): a `pointerdown` sets `pointerActive=true`, a `keydown` Tab/Arrow sets it `false`, blur resets it; while pointer-active the field gets a subtle `focus:border-ring/60` border tint (the caret already marks it active) and `focus-visible:ring-0`, while keyboard/AT focus gets the clear full-opacity ring. This keeps WCAG compliance (keyboard ring intact) AND the clean mouse UX.
+Rationale: Text inputs always match `:focus-visible` on click, so CSS alone cannot separate mouse from keyboard on them — a naive `:focus-visible` "fix" leaves the heavy ring on every click, which was the reported defect (2026-08-28). The modality-tracking pattern is the documented solution (Sara Soueidan's guide: show the indicator for keyboard/AT, suppress it for pointing devices) and is applied globally via SearchField so every page's search benefits.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-FOCUS-4
+Rule: Do NOT reintroduce a per-page SearchField, and do NOT remove the pointer-modality focus suppression from `components/common/SearchField.tsx`. The global title-bar search (`components/layout/GlobalSearchBar.tsx`) is the ONLY search input in the app (History, Templates, Vocabulary, Settings and all 4 subpages read its query from the shared `hooks/useGlobalSearch` Zustand store; per-page SearchFields were removed 2026-08-28). The focus best practices in C-FOCUS-1/2/3 live in SearchField BECAUSE it is the shared component — a page-local duplicate would silently reintroduce the un-suppressed ring.
+Rationale: The app consolidated 5 search inputs into one title-bar field; the focus contract must stay in the one shared component so every consumer inherits the suppression + contrast + keyboard-ring behavior. Re-adding a per-page field (or copying the focus logic) breaks both the single-source-of-truth rule and the focus contract.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+---
+
 ## Category: Localization & i18n
 
 ```

@@ -243,7 +243,7 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
                                 different. */}
 			<div
 				role="note"
-				className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/10 bg-(--bg-subtle) px-4 py-3 text-sm text-(--text-primary)"
+				className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/5 bg-(--bg-subtle) px-4 py-3 text-sm text-(--text-primary)"
 			>
 				<p className="flex-1 min-w-0">{crossLinkBannerText}</p>
 				<Button

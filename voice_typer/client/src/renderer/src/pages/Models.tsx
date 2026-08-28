@@ -249,14 +249,14 @@ export default function ModelsPage() {
 						labelClassName="flex-1 text-center"
 						//(2026-08-21): the outer tab container now carries the
 						// SAME card/surface border treatment as the model
-						// cards below it (`rounded-lg border border-border/10
+						// cards below it (`rounded-lg border border-border/5
 						// bg-(--bg-subtle)` — the ModelGroupAccordion token),
 						// so the segmented control reads as one card among
 						// the model cards instead of a borderless strip.
 						// The active segment uses the matching
-						// `border-border/10` treatment via
+						// `border-border/5` treatment via
 						// `tabPageIndicatorClassName`.
-						className="w-full rounded-lg border border-border/10 bg-(--bg-subtle)"
+						className="w-full rounded-lg border border-border/5 bg-(--bg-subtle)"
 						getTabId={(v) => `models-tab-${v}`}
 						getPanelId={(v) => `models-panel-${v}`}
 					/>

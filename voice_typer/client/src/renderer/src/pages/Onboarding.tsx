@@ -355,7 +355,7 @@ export default function OnboardingPage({
 				: {t(srTitleKey)}
 			</div>
 
-			<div className="w-full rounded-xl border border-border/10 bg-(--bg) p-8">
+			<div className="w-full rounded-xl border border-border/5 bg-(--bg) p-8">
 				{step.step_name === "Welcome" && (
 					<WelcomeStep headingRef={headingRef} />
 				)}
@@ -442,7 +442,7 @@ export default function OnboardingPage({
                                         automatically). */}
 				{isDoneStep && (
 					<div
-						className="mt-6 rounded-lg border border-border/10 bg-(--bg-subtle) p-4"
+						className="mt-6 rounded-lg border border-border/5 bg-(--bg-subtle) p-4"
 						data-testid="onboarding-consent-section"
 					>
 						<label

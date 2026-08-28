@@ -240,7 +240,7 @@ function ActivityListInner({
 						</Button>
 					)}
 				</div>
-				<div className="rounded-lg border border-border/10 bg-(--bg-subtle)">
+				<div className="rounded-lg border border-border/5 bg-(--bg-subtle)">
 					<p className="px-3.5 py-4 text-xs text-(--text-muted) text-center">
 						{t("activityList.noRecentActivity")}
 					</p>
@@ -266,7 +266,7 @@ function ActivityListInner({
 					</Button>
 				)}
 			</div>
-			<div className="rounded-lg border border-border/10 bg-(--bg-subtle) divide-y divide-border/10">
+			<div className="rounded-lg border border-border/5 bg-(--bg-subtle) divide-y divide-border/10">
 				{" "}
 				{items.map((item) => (
 					<ActivityListRow

@@ -66,6 +66,7 @@ vi.mock("sonner", () => sonnerMock());
 vi.mock("next-themes", () => nextThemesMock());
 
 import { toast } from "sonner";
+import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { t } from "@/i18n/i18n";
 import type { HistoryRecord, TodayStats, WindowBridge } from "@/types/ipc";
 
@@ -96,6 +97,10 @@ beforeEach(() => {
 	// showSnack, …) — replaces the old clearAllMocks + per-fn resets.
 	resetStableMocks();
 	localStorage.clear();
+	// Reset the global search store — the History page now reads its
+	// query from here, so a leaked query between tests would skew
+	// filtering/load behavior.
+	useGlobalSearch.setState({ query: "" });
 	vi.resetModules();
 	// Reset the module-level cache so tests don't leak state.
 	vi.doMock("@/pages/history/hooks/useHistoryCache", async () => {

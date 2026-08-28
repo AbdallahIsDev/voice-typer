@@ -328,7 +328,20 @@
 		"count_many": "{count} टेम्पलेट",
 		"count_other": "{count} टेम्पलेट",
 		"unknownVariableWarning": "अज्ञात चर {vars} — समर्थित: {today}, {now}, {clipboard}, {username}",
-		"importFormatHint": "JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]}) स्वीकार करता है।"
+		"importFormatHint": "JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]}) स्वीकार करता है।",
+		"bulkDelete": "चयनित हटाएं",
+		"bulkDeleteToast": "{count} टेम्पलेट हटाए गए",
+		"columnActions": "क्रियाएँ",
+		"columnOutput": "आउटपुट",
+		"columnTrigger": "ट्रिगर",
+		"deselectAll": "सभी अचयनित करें",
+		"exportSelected": "चयनित निर्यात करें",
+		"selectAll": "सभी चुनें",
+		"selectEntry": "{name} चुनें",
+		"selectedCount": "{count} चुनी गईं",
+		"restoredTemplate": "टेम्पलेट पुनर्स्थापित",
+		"restoreFailed": "टेम्पलेट पुनर्स्थापित करने में विफल",
+		"insertVariable": "{token} डालें"
 	},
 	"analytics": {
 		"title": "एनालिटिक्स",

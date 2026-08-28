@@ -328,7 +328,20 @@
 		"count_many": "{count} plantillas",
 		"count_other": "{count} plantillas",
 		"unknownVariableWarning": "Variable desconocida {vars} — compatibles: {today}, {now}, {clipboard}, {username}",
-		"importFormatHint": "Acepta JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]})."
+		"importFormatHint": "Acepta JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]}).",
+		"bulkDelete": "Eliminar seleccionados",
+		"bulkDeleteToast": "{count} plantillas eliminadas",
+		"columnActions": "Acciones",
+		"columnOutput": "Salida",
+		"columnTrigger": "Desencadenante",
+		"deselectAll": "Deseleccionar todo",
+		"exportSelected": "Exportar selección",
+		"selectAll": "Seleccionar todo",
+		"selectEntry": "Seleccionar {name}",
+		"selectedCount": "{count} seleccionadas",
+		"restoredTemplate": "Plantilla restaurada",
+		"restoreFailed": "No se pudo restaurar la plantilla",
+		"insertVariable": "Insertar {token}"
 	},
 	"analytics": {
 		"title": "Analíticas",

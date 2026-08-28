@@ -432,7 +432,7 @@ describe("SegmentedControl tabs variant", () => {
 		//(2026-08-21): the tabs base no longer emits `border-none` —
 		// `border-none` sets `border-style: none`, and tailwind-merge
 		// treats it as a DIFFERENT group from the `border` width class,
-		// so a caller's `border border-border/10` (Models page card
+		// so a caller's `border border-border/5` (Models page card
 		// treatment) was silently cancelled by `border-style: none`.
 		// Callers now own the border entirely.
 		expect(group.className).not.toContain("border-none");

@@ -130,11 +130,11 @@ export function PresetAccordionSelector({
 		<Accordion
 			type="single"
 			collapsible
-			className="rounded-lg border border-border/10 bg-(--bg-subtle) overflow-hidden"
+			className="rounded-lg border border-border/5 bg-(--bg-subtle) overflow-hidden"
 		>
 			<AccordionItem
 				value={ACCORDION_ITEM_VALUE}
-				className="border-border/10 data-open:bg-transparent"
+				className="border-border/5 data-open:bg-transparent"
 			>
 				<AccordionTrigger
 					// No aria-label override: the visible trigger content (section
@@ -175,7 +175,7 @@ export function PresetAccordionSelector({
 					down (can expand), expanded points up (can collapse). */}
 					<span className="flex items-center gap-2 shrink-0">
 						<span
-							className="inline-flex max-w-40 items-center rounded-md border border-border/10 bg-background px-2.5 py-1 text-xs font-medium text-(--text-primary)"
+							className="inline-flex max-w-40 items-center rounded-md border border-border/5 bg-background px-2.5 py-1 text-xs font-medium text-(--text-primary)"
 							data-testid="mic-preset-current"
 						>
 							<span className="truncate">{current?.label ?? preset}</span>
@@ -199,7 +199,7 @@ export function PresetAccordionSelector({
 				roving-tabindex/reading order) and push it to the visual far
 				end via ms-auto, aligning its inset with the header chevron. */}
 				<AccordionContent>
-					<div className="border-t border-border/10 pt-4">
+					<div className="border-t border-border/5 pt-4">
 						<RadioGroup
 							value={preset}
 							onValueChange={(v) => onPresetChange(v as AudioPreset)}
@@ -261,7 +261,7 @@ export function PresetAccordionSelector({
 						<>
 							<button
 								type="button"
-								className="mt-2 flex w-full items-center justify-between rounded-lg border border-border/10 px-3 py-2.5 text-xs font-medium text-(--text-primary) hover:bg-foreground/5 transition-colors cursor-pointer"
+								className="mt-2 flex w-full items-center justify-between rounded-lg border border-border/5 px-3 py-2.5 text-xs font-medium text-(--text-primary) hover:bg-foreground/5 transition-colors cursor-pointer"
 								onClick={onToggleAdvanced}
 								aria-expanded={showAdvanced}
 								aria-controls={panelId}

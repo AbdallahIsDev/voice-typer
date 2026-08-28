@@ -491,7 +491,7 @@ export default function App() {
 							// own --border token at 10% opacity so it reads as a faint
 							// separation line and blends with every theme (light, dark,
 							// and custom palettes all define --border).
-							className="flex-1 overflow-y-auto bg-(--bg) focus:outline-none rounded-l-lg border border-border/10"
+							className="flex-1 overflow-y-auto bg-(--bg) focus:outline-none rounded-l-lg border border-border/5"
 							style={{ scrollbarGutter: "stable" }}
 						>
 							{connectionStatus === "connected" ? (

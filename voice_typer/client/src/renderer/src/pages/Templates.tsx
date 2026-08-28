@@ -4,7 +4,7 @@
 // into:
 //   - ``./templates/lib/``        — pure helpers (types, storage, transform, sanitize)
 //   - ``./templates/hooks/``      — state + handlers (useTemplates, useTemplateDialog, useTemplateImportExport)
-//   - ``./templates/components/`` — presentational (TemplateToolbar, TemplateSearchSortBar, TemplateListRow, TemplateDialog)
+//   - ``./templates/components/`` — presentational (TemplateToolbar, TemplateListRow, TemplateDialog)
 //
 // This file owns ONLY the page layout (loading / load-error / empty /
 // list / dialog wiring). All state + business logic lives in the hooks;
@@ -14,31 +14,29 @@ import { AlertCircleIcon, File02Icon } from "@hugeicons/core-free-icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import ConfirmDialog from "@/components/common/ConfirmDialog";
-import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
-import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
-import { t, tChoice } from "@/i18n/i18n";
+import { t } from "@/i18n/i18n";
 
+import TemplateBulkBar from "./templates/components/TemplateBulkBar";
 import { TemplateDialog } from "./templates/components/TemplateDialog";
-import { TemplateInlineForm } from "./templates/components/TemplateInlineForm";
+import TemplateListHeader from "./templates/components/TemplateListHeader";
 import { TemplateListRow } from "./templates/components/TemplateListRow";
-import { TemplateSortBar } from "./templates/components/TemplateSearchSortBar";
 import { TemplateToolbar } from "./templates/components/TemplateToolbar";
 import { useTemplateDialog } from "./templates/hooks/useTemplateDialog";
 import { useTemplateImportExport } from "./templates/hooks/useTemplateImportExport";
-import { useTemplateQuickAdd } from "./templates/hooks/useTemplateQuickAdd";
+import { useTemplateSelection } from "./templates/hooks/useTemplateSelection";
 import { useTemplates } from "./templates/hooks/useTemplates";
 import { saveTemplates } from "./templates/lib/storage";
+import { rowsToTemplates } from "./templates/lib/transform";
 import type { TemplateRow } from "./templates/lib/types";
 
 export default function TemplatesPage() {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
-	const { agoLabel, markUpdated, refreshing, withRefresh } = useLastUpdated();
 
 	const {
 		templates,
@@ -47,10 +45,11 @@ export default function TemplatesPage() {
 		templatesRef,
 		loadRows,
 		instantDeleteTemplate,
+		setTemplates,
 		sortOrder,
 		setSortOrder,
 		filteredSortedTemplates,
-	} = useTemplates({ call, showSnack, markUpdated });
+	} = useTemplates({ call, showSnack });
 
 	const {
 		showDialog,
@@ -58,31 +57,30 @@ export default function TemplatesPage() {
 		trigger,
 		expansion,
 		matchMode,
-		// openAddDialog intentionally NOT destructured — Add-Template now
-		// opens the inline quick-add row; only the Edit flow still
-		// uses the dialog.
+		openAddDialog,
 		openEditDialog,
 		saveTemplate,
 		handleTriggerChange,
 		handleExpansionChange,
 		handleMatchModeChange,
 		handleCloseDialog,
+		insertVariable,
 	} = useTemplateDialog({ call, showSnack, templatesRef, loadRows });
 
 	const { importInputRef, doExport, handleImportFile, handleImportClick } =
 		useTemplateImportExport({ call, loadRows, templatesRef });
 
-	// Inline quick-add row above the templates list. Mirrors
-	// Vocabulary's ``useVocabularyQuickAdd`` so create stays in-place
-	// (no modal). Edit still flows through ``useTemplateDialog`` +
-	// ``TemplateDialog`` — the inline pattern is intentionally ONLY for
-	// add (the common case); power users who need to change match mode
-	// use the Edit dialog.
-	const quickAdd = useTemplateQuickAdd({
-		call,
-		showSnack,
+	// Bulk selection + bulk delete (mirrors the Vocabulary page's
+	// useVocabularySelection — same floating-bulk-bar UI).
+	const selection = useTemplateSelection({
+		templates,
+		setTemplates,
 		templatesRef,
-		loadRows,
+		saveTemplatesList: async (updated) => {
+			await saveTemplates(rowsToTemplates(updated), call);
+			await loadRows();
+		},
+		showSnack,
 	});
 
 	// Soft display cap — the flat list renders at most this many rows
@@ -123,16 +121,6 @@ export default function TemplatesPage() {
 		}
 	}, [call, loadRows, showSnack]);
 
-	// F4: manual refresh for the LastUpdatedIndicator. Wraps loadRows in
-	// the hook's withRefresh so the refreshing flag clears on error too.
-	// The timestamp bump itself lives inside useTemplates' loadRows
-	// (markUpdated), so every load path (mount, retry, delete undo,
-	// clear-all) updates the indicator.
-	const handleRefresh = useCallback(
-		() => withRefresh(loadRows),
-		[loadRows, withRefresh],
-	);
-
 	if (loading) {
 		return (
 			<div className="flex h-full items-center justify-center">
@@ -150,7 +138,7 @@ export default function TemplatesPage() {
 	// backend connectivity problem.
 	if (loadError && templates.length === 0) {
 		return (
-			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
+			<div className="relative mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
 				<PageHeading
 					title={t("templates.title")}
 					description={t("templates.description")}
@@ -169,64 +157,27 @@ export default function TemplatesPage() {
 
 	return (
 		<>
-			<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
+			<div className="relative mx-auto flex min-h-full w-full max-w-4xl flex-col px-16 pt-28 pb-6">
+				{/* Heading, then the toolbar on its OWN full-width row BELOW
+				    it (not inside PageHeading's children slot) — mirrors
+				    the Vocabulary page layout exactly. */}
 				<PageHeading
 					title={t("templates.title")}
 					description={t("templates.description")}
-				>
-					<TemplateToolbar
-						importInputRef={importInputRef}
-						onImportClick={handleImportClick}
-						onImportFile={handleImportFile}
-						//forward the format chosen by the
-						// ExportFormatMenu (json | csv) through to
-						// doExport so the IPC bridge receives it.
-						// Previously the arrow function
-						// `() => doExport()` dropped the format arg,
-						// silently making CSV export behave like JSON.
-						onExport={(format) => doExport(format)}
-						// Add-Template opens the inline quick-add
-						// row (mirrors Vocabulary). The Edit dialog is
-						// still wired via the row's pencil icon (no
-						// regression for edit).
-						onAdd={quickAdd.openQuickAdd}
-						exportDisabled={templates.length === 0}
-						onClearAll={() => setShowClearAllConfirm(true)}
-						clearAllDisabled={templates.length === 0}
-					/>
-				</PageHeading>
-
-				<div className="flex justify-end pb-2">
-					<LastUpdatedIndicator
-						agoLabel={agoLabel}
-						onRefresh={handleRefresh}
-						refreshing={refreshing}
-					/>
-				</div>
-
-				{templates.length > 0 && (
-					<TemplateSortBar
-						sortOrder={sortOrder}
-						onSortOrderChange={setSortOrder}
-					/>
-				)}
-
-				{/* Inline quick-add row. NOT gated on
-                                    templates.length — "Add Template" must work from the
-                                    empty state too (mirrors Vocabulary). */}
-				{quickAdd.open && (
-					<div className="mt-4">
-						<TemplateInlineForm
-							trigger={quickAdd.trigger}
-							expansion={quickAdd.expansion}
-							error={quickAdd.error}
-							onTriggerChange={quickAdd.setTrigger}
-							onExpansionChange={quickAdd.setExpansion}
-							onSave={quickAdd.saveQuickAdd}
-							onCancel={quickAdd.closeQuickAdd}
-						/>
-					</div>
-				)}
+				/>
+				<TemplateToolbar
+					importInputRef={importInputRef}
+					onImportClick={handleImportClick}
+					onImportFile={handleImportFile}
+					onExport={(format) => doExport(format)}
+					onAdd={openAddDialog}
+					exportDisabled={templates.length === 0}
+					onClearAll={() => setShowClearAllConfirm(true)}
+					clearAllDisabled={templates.length === 0}
+					sortOrder={sortOrder}
+					onSortOrderChange={setSortOrder}
+					hasEntries={templates.length > 0}
+				/>
 
 				<div className="mt-4">
 					{templates.length === 0 ? (
@@ -235,7 +186,7 @@ export default function TemplatesPage() {
 							title={t("templates.emptyTitle")}
 							description={t("templates.emptyDescription")}
 							actionLabel={t("templates.createFirst")}
-							onAction={quickAdd.openQuickAdd}
+							onAction={openAddDialog}
 						/>
 					) : filteredSortedTemplates.length === 0 ? (
 						//search returned no matches — use the dedicated
@@ -250,22 +201,33 @@ export default function TemplatesPage() {
 						/>
 					) : (
 						<>
-							<ul className="overflow-hidden rounded-xl border border-border/10 bg-(--bg-subtle) divide-y divide-border/10">
-								{filteredSortedTemplates.slice(0, displayCount).map((row) => (
-									<TemplateListRow
-										key={row.id}
-										row={row}
-										onEdit={handleEdit}
-										onDelete={instantDeleteTemplate}
-									/>
-								))}
-							</ul>
+							<div className="overflow-clip rounded-xl border border-border/5 bg-(--bg-subtle)">
+								<TemplateListHeader
+									visibleIds={filteredSortedTemplates
+										.slice(0, displayCount)
+										.map((r) => r.id)}
+									selectedIds={selection.selectedIds}
+									onSelectAll={selection.setSelectMany}
+								/>
+								<div className="divide-y divide-border/10">
+									{filteredSortedTemplates.slice(0, displayCount).map((row) => (
+										<TemplateListRow
+											key={row.id}
+											row={row}
+											selected={selection.selectedIds.has(row.id)}
+											onToggleSelect={selection.toggleSelect}
+											onEdit={handleEdit}
+											onDelete={instantDeleteTemplate}
+										/>
+									))}
+								</div>
+							</div>
 							{filteredSortedTemplates.length > displayCount && (
 								<button
 									type="button"
 									data-testid="templates-show-more"
 									onClick={() => setDisplayCount((c) => c + DISPLAY_CAP)}
-									className="mx-auto mt-3 flex items-center gap-1.5 rounded-full border border-border/10 bg-(--bg-subtle) px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5 cursor-pointer"
+									className="mx-auto mt-3 flex items-center gap-1.5 rounded-full border border-border/5 bg-(--bg-subtle) px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5 cursor-pointer"
 								>
 									{t("templates.showMore")}
 								</button>
@@ -274,11 +236,19 @@ export default function TemplatesPage() {
 					)}
 				</div>
 
-				{/* Count footer */}
-				{templates.length > 0 && (
-					<p className="mt-3 text-xs text-(--text-muted) text-center">
-						{tChoice("templates.count", templates.length)}
-					</p>
+				{/* Floating bulk bar — appears when templates are selected.
+				    Direct child of the page column (sticky bottom-4) so it
+				    stays pinned near the viewport bottom, mirroring the
+				    Vocabulary page. */}
+				{selection.selectedCount > 0 && (
+					<TemplateBulkBar
+						selectedCount={selection.selectedCount}
+						onDeleteSelected={selection.bulkDeleteSelected}
+						onExportSelected={(format) =>
+							doExport(format, selection.selectedRows)
+						}
+						onClearSelection={selection.clearSelection}
+					/>
 				)}
 			</div>
 
@@ -294,6 +264,7 @@ export default function TemplatesPage() {
 				onMatchModeChange={handleMatchModeChange}
 				onClose={handleCloseDialog}
 				onSave={saveTemplate}
+				onInsertVariable={insertVariable}
 			/>
 
 			{/* Clear All — confirmation gated (mirrors Vocabulary). */}

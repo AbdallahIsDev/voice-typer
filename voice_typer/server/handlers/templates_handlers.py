@@ -19,6 +19,10 @@ from voice_typer.server.ipc.validation import (
     _error_response,
     _validate_dict_payload,
 )
+from voice_typer.server.templates import (
+    MAX_OUTPUT_LENGTH,
+    MAX_TRIGGER_LENGTH,
+)
 
 
 class TemplatesHandlersMixin(HandlerBase):
@@ -63,13 +67,14 @@ class TemplatesHandlersMixin(HandlerBase):
         The schema declares a 256 KB whole-payload cap via
         ``max_payload_bytes`` so a multi-MB template list can't pin
         the IPC thread or blow up the on-disk JSON store. After the
-        schema check, an inline loop rejects any single ``trigger``
-        or ``output`` string longer than 1024 chars (defense-in-depth
-        IPC guard that runs BEFORE the templates module's stricter
-        per-field caps ``MAX_TRIGGER_LENGTH=200`` /
-        ``MAX_OUTPUT_LENGTH=2000``). Oversized values return the
-        explicit ``client.invalid_field`` envelope (with the offending
-        field name) so the renderer can highlight the bad row.
+        schema check, an inline loop rejects any ``trigger`` or
+        ``output`` string longer than the module's per-field caps
+        (``MAX_TRIGGER_LENGTH`` / ``MAX_OUTPUT_LENGTH``) — a
+        defense-in-depth IPC guard that mirrors the templates module's
+        own validation so the renderer gets a structured error with the
+        offending field name. Oversized values return the explicit
+        ``client.invalid_field`` envelope (with the offending field
+        name) so the renderer can highlight the bad row.
         """
         # TODO: not migrated to ``_wrap`` — has side effects
         # (``self.service.save_templates`` writes to the on-disk JSON
@@ -111,24 +116,26 @@ class TemplatesHandlersMixin(HandlerBase):
             assert validated is not None  # narrowed by the error guard above
             templates = validated["templates"]
 
-            # Per-field length cap (1024 chars). The templates
-            # module enforces tighter per-field caps downstream (200 for
-            # trigger, 2000 for output), but this IPC-level guard lets
-            # the renderer distinguish "client sent an obviously bogus
-            # 50 KB trigger" from "server failed to persist a valid
-            # template" — without it, the oversized value would propagate
-            # into ``templates.save`` and surface as a generic
-            # ``internal_error`` () envelope.
-            _max_field_len = 1024
+            # Per-field length caps. The templates module enforces the
+            # SAME caps downstream (MAX_TRIGGER_LENGTH / MAX_OUTPUT_LENGTH)
+            # — this IPC-level guard mirrors them so the renderer gets a
+            # structured ``client.invalid_field`` envelope (with the
+            # offending field name) instead of an oversized value
+            # propagating into ``templates.save`` and surfacing as a
+            # generic ``internal_error`` () envelope.
+            _field_length_caps = {
+                "trigger": MAX_TRIGGER_LENGTH,
+                "output": MAX_OUTPUT_LENGTH,
+            }
             for idx, entry in enumerate(templates):
                 if not isinstance(entry, dict):
                     continue
-                for field_name in ("trigger", "output"):
+                for field_name, field_cap in _field_length_caps.items():
                     value = entry.get(field_name)
-                    if isinstance(value, str) and len(value) > _max_field_len:
+                    if isinstance(value, str) and len(value) > field_cap:
                         _error_response(
                             resp,
-                            (f"'{field_name}' value too long in templates[{idx}] ({len(value)} > {_max_field_len})"),
+                            (f"'{field_name}' value too long in templates[{idx}] ({len(value)} > {field_cap})"),
                             code="client.invalid_field",
                         )
                         # Log at WARNING so operators can see
@@ -139,7 +146,7 @@ class TemplatesHandlersMixin(HandlerBase):
                             field_name,
                             idx,
                             len(value),
-                            _max_field_len,
+                            field_cap,
                         )
                         return resp
 

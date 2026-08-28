@@ -328,7 +328,20 @@
 		"duplicateTrigger": "يوجد بالفعل قالب بنفس المُشغِّل ووضع التطابق",
 		"loadFailedDescription": "فشل تحميل القوالب من الخادم الخلفي. تحقق من اتصالك وحاول مرة أخرى.",
 		"unknownVariableWarning": "متغير غير معروف {vars} — المدعومة: {today}, {now}, {clipboard}, {username}",
-		"importFormatHint": "يقبل ملف JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]})."
+		"importFormatHint": "يقبل ملف JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]}).",
+		"bulkDelete": "حذف المحدد",
+		"bulkDeleteToast": "تم حذف {count} قوالب",
+		"columnActions": "إجراءات",
+		"columnOutput": "النص الناتج",
+		"columnTrigger": "العبارة المحفزة",
+		"deselectAll": "إلغاء تحديد الكل",
+		"exportSelected": "تصدير المحدد",
+		"selectAll": "تحديد الكل",
+		"selectEntry": "تحديد {name}",
+		"selectedCount": "تم تحديد {count}",
+		"restoredTemplate": "تمت استعادة القالب",
+		"restoreFailed": "فشل استعادة القالب",
+		"insertVariable": "إدراج {token}"
 	},
 	"analytics": {
 		"title": "تحليلات",

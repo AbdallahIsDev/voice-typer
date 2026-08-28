@@ -472,7 +472,7 @@ describe("R7-F11: Vocabulary + Templates — i18n placeholders", () => {
 		);
 	});
 
-	it("Templates quick-add row renders the i18n trigger/output placeholders; the Edit dialog keeps them", async () => {
+	it("Templates Add dialog renders the i18n trigger/output placeholders; the Edit dialog keeps them", async () => {
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_templates")
 				return Promise.resolve({
@@ -493,34 +493,9 @@ describe("R7-F11: Vocabulary + Templates — i18n placeholders", () => {
 			expect(screen.getByText(t("templates.addTemplate"))).toBeTruthy();
 		});
 
-		// Add-Template opens the INLINE quick-add row (no dialog) —
-		// both fields carry the i18n placeholders.
+		// Add-Template opens the pop-up dialog — both fields carry the
+		// i18n placeholders.
 		fireEvent.click(screen.getByText(t("templates.addTemplate")));
-		const form = await screen.findByTestId("template-quick-add");
-		expect(form).toBeTruthy();
-
-		const triggerInput = screen.getByLabelText(t("templates.triggerPhrase"), {
-			selector: "input",
-		}) as HTMLInputElement;
-		const outputInput = screen.getByLabelText(t("templates.outputText"), {
-			selector: "input",
-		}) as HTMLInputElement;
-
-		expect(triggerInput.placeholder).toBe(t("templates.triggerPlaceholder"));
-		expect(outputInput.placeholder).toBe(t("templates.outputPlaceholder"));
-
-		// Close the inline row so the Edit-dialog lookups below are
-		// unambiguous (both surfaces label their trigger field alike).
-		fireEvent.click(screen.getByRole("button", { name: t("common.cancel") }));
-		await waitFor(() => {
-			expect(screen.queryByTestId("template-quick-add")).toBeNull();
-		});
-
-		// The EDIT flow still uses the dialog — its labeled fields keep
-		// the same placeholders (trigger input + output textarea).
-		fireEvent.click(
-			screen.getByLabelText(t("templates.editAria", { name: "brb" })),
-		);
 		const dialogTrigger = (await screen.findByLabelText(
 			t("templates.triggerPhrase"),
 			{ selector: "input" },
@@ -531,6 +506,29 @@ describe("R7-F11: Vocabulary + Templates — i18n placeholders", () => {
 
 		expect(dialogTrigger.placeholder).toBe(t("templates.triggerPlaceholder"));
 		expect(dialogOutput.placeholder).toBe(t("templates.outputPlaceholder"));
+
+		// Close the Add dialog so the Edit-dialog lookups below are
+		// unambiguous (both surfaces label their trigger field alike).
+		fireEvent.click(screen.getByRole("button", { name: t("common.cancel") }));
+		await waitFor(() => {
+			expect(screen.queryByLabelText(t("templates.triggerPhrase"))).toBeNull();
+		});
+
+		// The EDIT flow uses the same dialog — its labeled fields keep
+		// the same placeholders (trigger input + output textarea).
+		fireEvent.click(
+			screen.getByLabelText(t("templates.editAria", { name: "brb" })),
+		);
+		const editTrigger = (await screen.findByLabelText(
+			t("templates.triggerPhrase"),
+			{ selector: "input" },
+		)) as HTMLInputElement;
+		const editOutput = screen.getByLabelText(t("templates.outputText"), {
+			selector: "textarea",
+		}) as HTMLTextAreaElement;
+
+		expect(editTrigger.placeholder).toBe(t("templates.triggerPlaceholder"));
+		expect(editOutput.placeholder).toBe(t("templates.outputPlaceholder"));
 	});
 });
 

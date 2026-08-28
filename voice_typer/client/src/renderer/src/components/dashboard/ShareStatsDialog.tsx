@@ -262,7 +262,7 @@ export function ShareStatsDialog({
 						never stretches the dialog. */}
 					<div
 						ref={setContainerRef}
-						className="relative w-full overflow-hidden rounded-xl border border-border/10 bg-black/20"
+						className="relative w-full overflow-hidden rounded-xl border border-border/5 bg-black/20"
 						style={{
 							aspectRatio: `${EXPORT_WIDTH} / ${EXPORT_HEIGHT}`,
 						}}
@@ -284,7 +284,7 @@ export function ShareStatsDialog({
 					{/* Export + social actions — framed (rounded border +
 						padding) so the buttons read as one coherent block
 						tied to the preview, not full-bleed fragments. */}
-					<div className="flex w-full flex-col gap-2.5 rounded-xl border border-border/10 bg-black/20 p-3">
+					<div className="flex w-full flex-col gap-2.5 rounded-xl border border-border/5 bg-black/20 p-3">
 						{/* Neutral/secondary style — Download, Copy, and Save As
 						    are equally valid exports; none is privileged (the
 						    previous accent/primary treatment visually pushed

@@ -105,7 +105,7 @@ export function AudioPresetSelector({
 	const panelId = "audio-preset-panel";
 
 	return (
-		<div className="rounded-lg border border-border/10 overflow-hidden">
+		<div className="rounded-lg border border-border/5 overflow-hidden">
 			{/* Preset selector — ALWAYS visible (no expand required). */}
 			<div className="px-4 py-3 space-y-2">
 				<p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">
@@ -139,7 +139,7 @@ export function AudioPresetSelector({
 				<>
 					<button
 						type="button"
-						className="flex w-full items-center justify-between border-t border-border/10 px-4 py-2.5 text-xs font-medium text-(--text-primary) hover:bg-(--accent)/5 transition-colors cursor-pointer"
+						className="flex w-full items-center justify-between border-t border-border/5 px-4 py-2.5 text-xs font-medium text-(--text-primary) hover:bg-(--accent)/5 transition-colors cursor-pointer"
 						onClick={onToggleAdvanced}
 						aria-expanded={showAdvanced}
 						aria-controls={panelId}
@@ -166,7 +166,7 @@ export function AudioPresetSelector({
 					</button>
 
 					{showAdvanced && (
-						<div id={panelId} className="border-t border-border/10">
+						<div id={panelId} className="border-t border-border/5">
 							<AudioFilterChain
 								config={config}
 								onConfigChange={onConfigChange}

@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
-import { SearchField } from "@/components/common/SearchField";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
 // amber banner shown when the OS has not granted the
@@ -29,6 +28,7 @@ import {
 import { ThemeSettingsSection } from "@/components/settings/ThemeSettingsSection";
 import { TroubleshootingSettingsSection } from "@/components/settings/TroubleshootingSettingsSection";
 import { useSettingsConfig } from "@/components/settings/useSettingsConfig";
+import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
@@ -108,10 +108,11 @@ interface SettingsPageProps {
 //The 4-tab SegmentedControl that used to live at the top of the
 // Settings page has been removed — the tab navigation now lives in
 // the application Sidebar as a nested submenu (see Sidebar.tsx
-// NavSubmenu + ADR-0021). This page renders only the active tab's
-// sections + the SearchField (which stays in the sticky header so
-// the user can search across ALL Settings content, not just the
-// current sub-page). The search auto-switch now navigates to the
+// NavSubmenu + ADR-0021). The per-page SearchField + sticky header
+// are gone too — the search query now lives in the global
+// `useGlobalSearch` store (title-bar GlobalSearchBar), and this page
+// renders only the active tab's sections filtered by that shared
+// query. The search auto-switch still navigates to the
 // best-matching Settings sub-page (via `navigate(tabToPage(bestTab),
 // { settingsScrollTarget: { rowHint } })`) instead of locally
 // switching `setActiveTab(bestTab)` — the transient
@@ -148,7 +149,8 @@ export default function SettingsPage({
 	} = useNavigation();
 	const { showSnack } = useSnackbar();
 	const [showResetDialog, setShowResetDialog] = useState(false);
-	const [settingsFilter, setSettingsFilter] = useState("");
+	const settingsFilter = useGlobalSearch((s) => s.query);
+	const clearQuery = useGlobalSearch((s) => s.clearQuery);
 	// The active tab is DERIVED from the current Settings sub-page
 	// (passed in as `page` prop by App.tsx's renderPage switch). No
 	// more local tab state + localStorage persistence — the nav
@@ -205,10 +207,10 @@ export default function SettingsPage({
 		if (!pendingConsentField) return;
 		const field = consumeConsentField();
 		if (!field) return;
-		setSettingsFilter("");
+		clearQuery();
 		scrollPositionsRef.current.privacy = 0;
 		setFocusedConsentField(field);
-	}, [pendingConsentField, consumeConsentField]);
+	}, [pendingConsentField, consumeConsentField, clearQuery]);
 
 	// Consume the pending cross-page Settings search deep-link target.
 	// Mirrors the consent-deep-link consumption: clear the search filter
@@ -219,10 +221,10 @@ export default function SettingsPage({
 		if (!pendingSettingsScrollTarget) return;
 		const target = consumeSettingsScrollTarget();
 		if (!target) return;
-		setSettingsFilter("");
+		clearQuery();
 		const hint = target.rowHint;
 		if (hint) setSearchScrollHint(hint);
-	}, [pendingSettingsScrollTarget, consumeSettingsScrollTarget]);
+	}, [pendingSettingsScrollTarget, consumeSettingsScrollTarget, clearQuery]);
 
 	// Scroll the deep-linked consent row into view once it's rendered
 	// (Privacy sub-page active + config loaded). The row is rendered by
@@ -364,43 +366,47 @@ export default function SettingsPage({
 	// + highlight the matched row. When the best-matching tab IS the
 	// current sub-page, no navigation is needed — the local filter
 	// predicate (`_filter_settings`) handles the in-page filtering.
-	const handleSearchChange = useCallback(
-		(value: string) => {
-			setSettingsFilter(value);
-			const q = value.toLowerCase().trim();
-			if (!q || q.length < 2) return;
-			let bestTab: SettingsTab | null = null;
-			let bestScore = 0;
-			let bestLabel = "";
-			const tabLabels = getTabLabels();
-			tabLabels.privacy = [
-				...tabLabels.privacy,
-				...getPrewarmAndUpdatesLabels(),
-			];
-			for (const [tab, labels] of Object.entries(tabLabels)) {
-				for (const label of labels) {
-					const matches =
-						label.toLowerCase().includes(q) || q.includes(label.toLowerCase());
-					if (matches) {
-						const score = label.length; // prefer the longest (most specific) match
-						if (score > bestScore) {
-							bestScore = score;
-							bestTab = tab as SettingsTab;
-							bestLabel = label;
-						}
+	//
+	// The query now lives in the global search store (title-bar
+	// GlobalSearchBar), so this fires on store-query changes instead of a
+	// per-page onChange handler. The very first render is skipped so a
+	// stale query left in the store by a previous visit doesn't yank the
+	// user to another sub-page on mount.
+	const searchNavFirstRenderRef = useRef(true);
+	useEffect(() => {
+		if (searchNavFirstRenderRef.current) {
+			searchNavFirstRenderRef.current = false;
+			return;
+		}
+		const q = settingsFilter.toLowerCase().trim();
+		if (!q || q.length < 2) return;
+		let bestTab: SettingsTab | null = null;
+		let bestScore = 0;
+		let bestLabel = "";
+		const tabLabels = getTabLabels();
+		tabLabels.privacy = [...tabLabels.privacy, ...getPrewarmAndUpdatesLabels()];
+		for (const [tab, labels] of Object.entries(tabLabels)) {
+			for (const label of labels) {
+				const matches =
+					label.toLowerCase().includes(q) || q.includes(label.toLowerCase());
+				if (matches) {
+					const score = label.length; // prefer the longest (most specific) match
+					if (score > bestScore) {
+						bestScore = score;
+						bestTab = tab as SettingsTab;
+						bestLabel = label;
 					}
 				}
 			}
-			if (bestTab && bestScore > 0 && bestTab !== activeTab) {
-				// Cross-page navigation — carry the matched label as a
-				// rowHint so the destination sub-page can scroll + ring.
-				navigate(tabToPage(bestTab), {
-					settingsScrollTarget: { rowHint: bestLabel },
-				});
-			}
-		},
-		[activeTab, navigate],
-	);
+		}
+		if (bestTab && bestScore > 0 && bestTab !== activeTab) {
+			// Cross-page navigation — carry the matched label as a
+			// rowHint so the destination sub-page can scroll + ring.
+			navigate(tabToPage(bestTab), {
+				settingsScrollTarget: { rowHint: bestLabel },
+			});
+		}
+	}, [settingsFilter, activeTab, navigate]);
 
 	// Restore scroll position when the active tab changes (i.e. the
 	// user navigated between Settings sub-pages via the sidebar).
@@ -502,7 +508,7 @@ export default function SettingsPage({
 	// all four tabs + the PrewarmAndUpdates rows) matches the query, the
 	// empty banner is shown. The label sets come from the same
 	// `getTabLabels()` / `getPrewarmAndUpdatesLabels()` helpers used by
-	// `handleSearchChange`, so the derivation stays consistent with the
+	// the auto-switch effect, so the derivation stays consistent with the
 	// auto-switch scoring.
 	const hasAnyVisibleRow = useMemo(() => {
 		if (!settingsFilter.trim()) return true;
@@ -599,29 +605,6 @@ export default function SettingsPage({
 
 	return (
 		<div className="flex min-h-full flex-col">
-			{/* Sticky header: SearchField only (the 4-tab
-                                 SegmentedControl has been removed — the tabs now live in
-                                 the application Sidebar as a nested Settings submenu, see
-                                 ADR-0021). The SearchField stays inside the Settings
-                                 sticky header so it remains visible while scrolling and
-                                 searches across ALL Settings content (not just the
-                                 current sub-page). When the search finds a match in
-                                 another sub-page, `handleSearchChange` navigates there
-                                 via `navigate(tabToPage(bestTab), { settingsScrollTarget })`. */}
-			<div className="sticky top-0 z-10 border-b border-border/10 bg-(--bg-subtle)/95 backdrop-blur supports-backdrop-filter:bg-(--bg-subtle)/80">
-				<div className="mx-auto w-full max-w-4xl px-16 py-3">
-					<div className="flex items-center gap-3">
-						<div className="flex-1">
-							<SearchField
-								value={settingsFilter}
-								onChange={handleSearchChange}
-								placeholder={t("settings.searchPlaceholder")}
-								ariaLabel={t("settings.searchPlaceholder")}
-							/>
-						</div>
-					</div>
-				</div>
-			</div>
 			<div className="mx-auto w-full max-w-4xl flex-1 space-y-8 px-16 pt-6 pb-6">
 				<PageHeading
 					title={t("settings.title")}
@@ -655,7 +638,7 @@ export default function SettingsPage({
 						})}
 						description={t("settings.noResultsMessage")}
 						actionLabel={t("a11y.clearSearch")}
-						onAction={() => setSettingsFilter("")}
+						onAction={clearQuery}
 					/>
 				)}
 

@@ -85,7 +85,7 @@ export default function ConsentStep({
 			{/* Agree-to-All banner — grants every consent at once. The
 			    wizard defaults stay privacy-first (all off); this is a
 			    convenience, not an implicit grant. */}
-			<div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-border/10 bg-(--bg-subtle) px-3.5 py-3">
+			<div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-border/5 bg-(--bg-subtle) px-3.5 py-3">
 				<p className="text-xs text-(--text-muted)">
 					{t("settings.privacy.privacyDescription")}
 				</p>
@@ -102,7 +102,7 @@ export default function ConsentStep({
 
 			<div className="space-y-3">
 				{CONSENT_STEP_FIELDS.map(({ field, labelKey, infoKey }) => (
-					<div key={field} className="rounded-lg border border-border/10 p-3.5">
+					<div key={field} className="rounded-lg border border-border/5 p-3.5">
 						<div className="flex items-start justify-between gap-3">
 							<div className="min-w-0 flex-1">
 								<span className="block text-sm font-medium text-(--text-primary)">

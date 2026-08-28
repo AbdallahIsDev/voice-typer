@@ -328,7 +328,20 @@
 		"showMore": "显示更多",
 		"showingCap": "显示 {shown} / {total}",
 		"unknownVariableWarning": "未知变量 {vars} — 支持: {today}, {now}, {clipboard}, {username}",
-		"importFormatHint": "接受 JSON（{\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]}）。"
+		"importFormatHint": "接受 JSON（{\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]}）。",
+		"bulkDelete": "删除所选",
+		"bulkDeleteToast": "已删除 {count} 个模板",
+		"columnActions": "操作",
+		"columnOutput": "输出文本",
+		"columnTrigger": "触发词",
+		"deselectAll": "取消全选",
+		"exportSelected": "导出所选",
+		"selectAll": "全选",
+		"selectEntry": "选择{name}",
+		"selectedCount": "已选 {count} 个",
+		"restoredTemplate": "模板已恢复",
+		"restoreFailed": "恢复模板失败",
+		"insertVariable": "插入{token}"
 	},
 	"analytics": {
 		"title": "分析",

@@ -71,7 +71,7 @@ export function StatCard({
 		// breathing room between it and the number. `min-h-24`
 		// guarantees that breathing room even when the row's tallest
 		// card is otherwise only as tall as its content.
-		<div className="flex min-h-24 flex-col gap-1.5 rounded-xl border border-border/10 bg-(--bg-subtle) p-3">
+		<div className="flex min-h-24 flex-col gap-1.5 rounded-xl border border-border/5 bg-(--bg-subtle) p-3">
 			{/* Label row — icon on the far left, immediately followed
 			    by the card's title. Truncated to a single line so a
 			    long label can never wrap and break the card's

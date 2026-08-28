@@ -45,6 +45,9 @@ interface UseTemplateDialogResult {
 	handleExpansionChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
 	handleMatchModeChange: (v: string) => void;
 	handleCloseDialog: () => void;
+	/** Append a variable token (e.g. ``{today}``) to the output text —
+	 *  backs the tappable variable chips in the dialog. */
+	insertVariable: (token: string) => void;
 }
 
 export function useTemplateDialog({
@@ -98,10 +101,6 @@ export function useTemplateDialog({
 			};
 			if (editingTemplate) {
 				items[editingTemplate.index] = next;
-				showSnack(
-					t("templates.updatedTemplate", { name: trigger.trim() }),
-					"success",
-				);
 			} else {
 				//Duplicate-trigger guard: a template is uniquely
 				// identified by (trigger, match_mode). Adding a
@@ -120,17 +119,22 @@ export function useTemplateDialog({
 					return;
 				}
 				items.push(next);
-				showSnack(
-					t("templates.addedTemplate", { name: trigger.trim() }),
-					"success",
-				);
 			}
 			//await the IPC save BEFORE loadRows() so the
 			// reload is guaranteed to see the just-saved state.
 			// Previously `saveTemplates` was fire-and-forget on
 			// the IPC leg, so `loadRows()` could re-fetch the
 			// pre-save list and briefly render stale data.
+			// NOTE: the success toast fires AFTER the await so
+			// a backend rejection (e.g. output too long) does NOT
+			// show a false success + error simultaneously.
 			await saveTemplates(items, call);
+			showSnack(
+				editingTemplate
+					? t("templates.updatedTemplate", { name: trigger.trim() })
+					: t("templates.addedTemplate", { name: trigger.trim() }),
+				"success",
+			);
 			setShowDialog(false);
 			//reload from backend so the UI stays in sync with
 			// what actually persisted (the backend may have rejected or
@@ -141,7 +145,14 @@ export function useTemplateDialog({
 				"[renderer:useTemplateDialog] Failed to save template",
 				err,
 			);
-			showSnack(t("templates.saveFailed"), "error");
+			// Surface the backend's rejection reason when available
+			// (e.g. "'output' value too long in templates[3] (32913 > 1024)")
+			// instead of the opaque generic "Failed to save template".
+			const reason =
+				err instanceof Error && err.message
+					? err.message
+					: t("templates.saveFailed");
+			showSnack(reason, "error");
 		}
 	};
 
@@ -156,6 +167,17 @@ export function useTemplateDialog({
 
 	const handleCloseDialog = () => setShowDialog(false);
 
+	// Append a variable token to the output. Insert with a leading space
+	// if the output isn't empty, so tokens don't glue onto the previous
+	// word.
+	const insertVariable = (token: string) => {
+		setExpansion((prev) =>
+			prev.length > 0 && !prev.endsWith(" ")
+				? `${prev} ${token}`
+				: `${prev}${token}`,
+		);
+	};
+
 	return {
 		showDialog,
 		editingTemplate,
@@ -169,5 +191,6 @@ export function useTemplateDialog({
 		handleExpansionChange,
 		handleMatchModeChange,
 		handleCloseDialog,
+		insertVariable,
 	};
 }

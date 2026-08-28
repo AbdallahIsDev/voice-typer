@@ -50,7 +50,7 @@ export function ModelGroupAccordion({
 	return (
 		<Accordion
 			className={cn(
-				"rounded-lg border border-border/10 bg-(--bg-subtle)",
+				"rounded-lg border border-border/5 bg-(--bg-subtle)",
 				className,
 			)}
 			{...props}
@@ -64,7 +64,7 @@ export function ModelGroupItem({
 }: ComponentProps<typeof AccordionItem>) {
 	return (
 		<AccordionItem
-			className={cn("border-border/10 data-open:bg-transparent", className)}
+			className={cn("border-border/5 data-open:bg-transparent", className)}
 			{...props}
 		/>
 	);

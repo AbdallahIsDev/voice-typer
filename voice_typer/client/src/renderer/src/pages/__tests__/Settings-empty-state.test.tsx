@@ -13,6 +13,10 @@
  * end-to-end behaviour (typing a non-matching query shows the banner;
  * clearing the query hides it) without depending on the internal
  * counter mechanism.
+ *
+ * The query is set via the shared `useGlobalSearch` store (the
+ * per-page SearchField was removed — the global title-bar search
+ * owns the only search input).
  */
 import {
 	cleanup,
@@ -69,11 +73,17 @@ const baseConfig = makeConfig({
 });
 
 describe("UX-18: Settings search empty state", () => {
-	beforeEach(() => {
+	beforeEach(async () => {
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		localStorage.clear();
 		vi.resetModules();
+		// Reset the global search store to a fresh instance
+		// (vi.resetModules re-evaluates the store module; the dynamic
+		// import below resolves the SAME fresh instance SettingsPage
+		// will consume — same pattern as Vocabulary tests).
+		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		useGlobalSearch.setState({ query: "" });
 	});
 
 	afterEach(() => {
@@ -90,21 +100,15 @@ describe("UX-18: Settings search empty state", () => {
 		const { default: SettingsPage } = await import("@/pages/Settings");
 		renderWithProviders(<SettingsPage />);
 
-		// Wait for the page to load (the tab labels are always visible).
+		// Wait for the page to load.
 		await waitFor(() => {
 			expect(screen.getByText("Settings")).toBeTruthy();
 		});
 
-		// Type a nonsense query that matches no row label/info/section-title
-		// on any tab. Use a long random string to avoid coincidental matches
-		// against translated labels.
-		const searchInput = document.querySelector(
-			'input[type="text"], input:not([type])',
-		) as HTMLInputElement | null;
-		expect(searchInput).toBeTruthy();
-		if (!searchInput) throw new Error("search input not found");
-
-		fireEvent.change(searchInput, { target: { value: "zzzqqqxxxyyy999" } });
+		// Set a nonsense query via the global store (the per-page
+		// SearchField was removed; the title-bar search owns the input).
+		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		useGlobalSearch.getState().setQuery("zzzqqqxxxyyy999");
 
 		//the empty-state banner must appear, interpolating the
 		// query into the i18n string "No settings match \"{query}\"".
@@ -129,14 +133,9 @@ describe("UX-18: Settings search empty state", () => {
 			expect(screen.getByText("Settings")).toBeTruthy();
 		});
 
-		const searchInput = document.querySelector(
-			'input[type="text"], input:not([type])',
-		) as HTMLInputElement | null;
-		expect(searchInput).toBeTruthy();
-		if (!searchInput) throw new Error("search input not found");
-
+		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
 		// Type a non-matching query.
-		fireEvent.change(searchInput, { target: { value: "zzzqqqxxxyyy999" } });
+		useGlobalSearch.getState().setQuery("zzzqqqxxxyyy999");
 		await waitFor(() => {
 			expect(
 				screen.getByText('No settings match "zzzqqqxxxyyy999"'),
@@ -144,7 +143,7 @@ describe("UX-18: Settings search empty state", () => {
 		});
 
 		// Clear the query — the banner must disappear.
-		fireEvent.change(searchInput, { target: { value: "" } });
+		useGlobalSearch.getState().setQuery("");
 		await waitFor(() => {
 			expect(
 				screen.queryByText('No settings match "zzzqqqxxxyyy999"'),
@@ -184,15 +183,10 @@ describe("UX-18: Settings search empty state", () => {
 			expect(screen.getByText("Settings")).toBeTruthy();
 		});
 
-		const searchInput = document.querySelector(
-			'input[type="text"], input:not([type])',
-		) as HTMLInputElement | null;
-		expect(searchInput).toBeTruthy();
-		if (!searchInput) throw new Error("search input not found");
-
-		// "appearance" matches the Appearance tab hint AND the Appearance
-		// section title — so it's a positive match (no banner).
-		fireEvent.change(searchInput, { target: { value: "appearance" } });
+		// "appearance" matches the Appearance tab label AND the
+		// Appearance section title — so it's a positive match (no banner).
+		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		useGlobalSearch.getState().setQuery("appearance");
 
 		// After the layout effect settles, the positive match means
 		// the empty-state banner must NOT be rendered. waitFor polls

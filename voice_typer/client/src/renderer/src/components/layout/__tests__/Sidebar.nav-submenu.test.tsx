@@ -474,7 +474,10 @@ describe("NavSubmenu — disclosure semantics, arrow affordance, reveal animatio
 		expect(wrapper?.className).toContain("opacity-0");
 		expect(wrapper?.className).toContain("pointer-events-none");
 		// The chevron FADES with the rail (never pops out of the DOM).
-		expect(wrapper?.className).toContain("transition-[opacity]");
+		// Tailwind `transition-opacity` is the standard utility (Tailwind
+		// v4 emits the same transition-property as the arbitrary
+		// `transition-[opacity]` it replaced).
+		expect(wrapper?.className).toContain("transition-opacity");
 	});
 
 	it("ONE persistent arrow glyph: ArrowRight01Icon in both states — rotated 90° when open, nav-directional-icon when closed", () => {

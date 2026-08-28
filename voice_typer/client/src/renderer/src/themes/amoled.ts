@@ -50,7 +50,7 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		// Borders / inputs / rings
 		/* WCAG 1.4.11: L lowered from 0.9 to 0.62 so the border clears
 		   3:1 contrast against the white background. */
-		"--border": "oklch(0.62 0 0)",
+		"--border": "oklch(0 0 0)",
 		"--input": "oklch(0.62 0 0)",
 		/* drop the `/0.5` alpha — when combined with tailwind's
 		   focus-visible:ring-ring/30 the effective opacity fell to 15%, rendering
@@ -122,7 +122,7 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		// Borders / inputs / rings
 		/* WCAG 1.4.11: L raised from 0.15 to 0.52 so the border clears
 		   3:1 contrast against the true-black AMOLED background. */
-		"--border": "oklch(0.52 0 0)",
+		"--border": "oklch(1 0 0)",
 		"--input": "oklch(0.54 0 0)",
 		"--ring": "oklch(0.7 0 0)",
 		// Destructive (added so dark matches light coverage.)

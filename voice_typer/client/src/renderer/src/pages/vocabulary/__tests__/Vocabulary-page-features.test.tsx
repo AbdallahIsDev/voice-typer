@@ -880,8 +880,12 @@ describe("Vocabulary page — search + sort interactions", () => {
 			expect(screen.getByText("recieve")).toBeTruthy();
 		});
 
-		const searchInput = screen.getByPlaceholderText("Search 3 corrections");
-		fireEvent.change(searchInput, { target: { value: "teh" } });
+		// The per-page SearchField was removed — the query now flows
+		// through the global title-bar search store. Drive it directly
+		// (the title bar's GlobalSearchBar is not rendered in this
+		// page-level test).
+		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		useGlobalSearch.getState().setQuery("teh");
 
 		// Only the matching row remains — the other two are filtered
 		// out client-side (no reload, no save).

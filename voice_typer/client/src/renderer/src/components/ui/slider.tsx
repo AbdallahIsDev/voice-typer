@@ -95,7 +95,7 @@ function Slider({
 							: undefined
 					}
 					className={cn(
-						"block size-4 rounded-full bg-white border border-border/10 shadow-sm ring-0 transition-[box-shadow,transform] hover:scale-110 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-hidden active:scale-105",
+						"block size-4 rounded-full bg-white border border-border/5 shadow-sm ring-0 transition-[box-shadow,transform] hover:scale-110 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-hidden active:scale-105",
 						thumbClassName,
 					)}
 				/>

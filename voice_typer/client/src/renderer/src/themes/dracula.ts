@@ -24,7 +24,7 @@ export const draculaTheme: Omit<ThemePreset, "nameKey"> = {
 		// Borders / inputs / rings
 		/* WCAG 1.4.11: L lowered from 0.86 to 0.62 so the border clears
 		   3:1 contrast against the near-white background. */
-		"--border": "oklch(0.62 0.012 320)",
+		"--border": "oklch(0 0 0)",
 		"--input": "oklch(0.62 0.012 320)",
 		/* bump L from 0.6 to 0.48 so the focus ring (combined with
 		   focus-visible:ring-ring/30) clears WCAG 1.4.11's 3:1 minimum. */
@@ -102,7 +102,7 @@ export const draculaTheme: Omit<ThemePreset, "nameKey"> = {
 		"--accent-muted": "oklch(0.5 0.16 320 / 0.4)",
 		/* WCAG 1.4.11: L raised from 0.24 to 0.52 so the border clears
 		   3:1 contrast against the dark background. */
-		"--border": "oklch(0.52 0.015 320)",
+		"--border": "oklch(1 0 0)",
 		"--input": "oklch(0.54 0.015 320)",
 		"--ring": "oklch(0.7 0.15 320)",
 		"--sidebar": "oklch(0.12 0.015 320)",

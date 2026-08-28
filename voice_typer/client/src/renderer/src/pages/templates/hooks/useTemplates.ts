@@ -52,6 +52,8 @@ interface UseTemplatesResult {
 	templatesRef: React.RefObject<TemplateRow[]>;
 	loadRows: () => Promise<void>;
 	instantDeleteTemplate: (tmpl: TemplateRow) => Promise<void>;
+	/** Optimistic list setter — exposed for bulk operations. */
+	setTemplates: (templates: TemplateRow[]) => void;
 	// Search + sort (client-side, applied via useMemo).
 	searchQuery: string;
 	// setSearchQuery intentionally removed — the global search store
@@ -362,6 +364,9 @@ export function useTemplates({
 		templatesRef,
 		loadRows,
 		instantDeleteTemplate,
+		// Exposed for bulk operations (useTemplateSelection) that
+		// optimistically update the list before the IPC save lands.
+		setTemplates,
 		searchQuery,
 		sortOrder,
 		setSortOrder,

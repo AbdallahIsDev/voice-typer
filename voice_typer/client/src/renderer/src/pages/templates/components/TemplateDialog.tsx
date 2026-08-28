@@ -5,7 +5,24 @@
 // Cancel / Save footer.  All state + handlers are passed in from the
 // parent (``useTemplateDialog`` owns them) so this component is a
 // pure presentational wrapper.
+//
+// 2026-08-28 UX pass (uniform field system):
+//   - ONE field treatment everywhere: the trigger Input, the output
+//     textarea, and the match-mode Select all use the same dark-filled
+//     surface (``bg-(--bg-subtle)``) with a 1px ``border-border/5``
+//     frame and the same ``rounded-lg`` radius — previously the Input
+//     was a filled pill, the textarea a border-only box, and the Select
+//     a third style.
+//   - Placeholders are visibly muted (``placeholder:text-(--text-muted)``
+//     + reduced opacity) so an example like "my email" can't be
+//     mistaken for saved data.
+//   - The supported variable tokens render as small tappable chips
+//     (monospace on a raised surface); clicking one appends the token
+//     to the output.
+//   - 24px rhythm between field groups, 8px between label/helper/field.
+//   - The footer sits behind a subtle top divider.
 
+import { KBD_CHIP_CLASSES } from "@/components/common/Kbd";
 import { Modal, ModalFooter } from "@/components/common/Modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +50,17 @@ interface TemplateDialogProps {
 	onMatchModeChange: (v: string) => void;
 	onClose: () => void;
 	onSave: () => void;
+	onInsertVariable: (token: string) => void;
 }
+
+/** Shared field shell — every control in this dialog uses the SAME
+ *  surface: dark-filled ``--bg-subtle``, 1px ``border-border/5``
+ *  frame, ``rounded-lg``, and the same focus brightening to the accent
+ *  (the blue used by the Save button). Previously each control had its
+ *  own distinct chrome (Input pill / border-only textarea / separate
+ *  Select). */
+const FIELD_SHELL =
+	"rounded-lg border border-border/5 bg-(--bg-subtle) text-sm text-(--text-primary) placeholder:text-(--text-muted)/40 focus:border-accent focus:outline-none";
 
 export function TemplateDialog({
 	open,
@@ -46,6 +73,7 @@ export function TemplateDialog({
 	onMatchModeChange,
 	onClose,
 	onSave,
+	onInsertVariable,
 }: TemplateDialogProps) {
 	// The Save button is disabled until BOTH fields have
 	// non-whitespace content — mirrors the sibling VocabDialog pattern
@@ -73,11 +101,11 @@ export function TemplateDialog({
 			}
 			className="w-105"
 		>
-			<div className="space-y-4">
+			<div className="space-y-6">
 				<div>
 					<label
 						htmlFor="template-trigger"
-						className="mb-1.5 block text-sm font-medium text-(--text-primary)"
+						className="mb-2 block text-sm font-medium text-(--text-primary)"
 					>
 						{t("templates.triggerPhrase")}
 					</label>
@@ -86,10 +114,10 @@ export function TemplateDialog({
 						value={trigger}
 						onChange={onTriggerChange}
 						placeholder={t("templates.triggerPlaceholder")}
-						className="w-full"
+						className={cn("w-full", FIELD_SHELL)}
 						// autoFocus removed — Radix Dialog handles first-focus automatically
 					/>
-					<p className="mt-1.5 text-xs text-(--text-muted)">
+					<p className="mt-2 text-xs text-(--text-muted)">
 						{t("templates.triggerHelp")}
 					</p>
 				</div>
@@ -97,7 +125,7 @@ export function TemplateDialog({
 				<div>
 					<label
 						htmlFor="template-output"
-						className="mb-1.5 block text-sm font-medium text-(--text-primary)"
+						className="mb-2 block text-sm font-medium text-(--text-primary)"
 					>
 						{t("templates.outputText")}
 					</label>
@@ -107,25 +135,33 @@ export function TemplateDialog({
 						onChange={onExpansionChange}
 						placeholder={t("templates.outputPlaceholder")}
 						rows={5}
-						className={cn(
-							"w-full resize-y rounded-lg border border-border/10",
-							"bg-transparent px-3 py-2 text-sm text-(--text-primary)",
-							"placeholder:text-(--text-muted)",
-							"focus:border-accent focus:outline-none",
-						)}
+						className={cn("w-full resize-y px-3 py-2", FIELD_SHELL)}
 					/>
-					<p className="mt-1.5 text-xs text-(--text-muted)">
-						{t("templates.outputHelp")}
-						<code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{today}`}</code>
-						<code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{now}`}</code>
-						<code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{clipboard}`}</code>
-						<code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{username}`}</code>
-					</p>
+					<div className="mt-2 flex flex-wrap items-center gap-1.5">
+						<span className="text-xs text-(--text-muted)">
+							{t("templates.outputHelp")}
+						</span>
+						{VARIABLES.map((token) => (
+							// Tappable variable chip — same bordered mono chip
+							// surface as every keycap in the app (KBD_CHIP_CLASSES),
+							// plus hover/focus affordance so it reads as tappable.
+							// Clicking inserts the token into the output.
+							<button
+								key={token}
+								type="button"
+								onClick={() => onInsertVariable(token)}
+								title={t("templates.insertVariable", { token })}
+								className={cn(
+									KBD_CHIP_CLASSES,
+									"cursor-pointer transition-colors hover:border-accent/40 hover:bg-accent/5 hover:text-accent focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none",
+								)}
+							>
+								{token}
+							</button>
+						))}
+					</div>
 					{unknownVars.length > 0 && (
-						<p
-							role="alert"
-							className="mt-1.5 text-xs font-medium text-amber-500"
-						>
+						<p role="alert" className="mt-2 text-xs font-medium text-amber-500">
 							{t("templates.unknownVariableWarning", {
 								vars: unknownVars.join(", "),
 							})}
@@ -134,12 +170,12 @@ export function TemplateDialog({
 				</div>
 
 				<div>
-					<span className="mb-1.5 block text-sm font-medium text-(--text-primary)">
+					<span className="mb-2 block text-sm font-medium text-(--text-primary)">
 						{t("templates.matchMode")}
 					</span>
 					<Select value={matchMode} onValueChange={onMatchModeChange}>
 						<SelectTrigger
-							className="w-full"
+							className={cn("w-full", FIELD_SHELL)}
 							aria-label={t("templates.matchMode")}
 						>
 							<SelectValue />
@@ -154,7 +190,7 @@ export function TemplateDialog({
 				</div>
 			</div>
 
-			<ModalFooter>
+			<ModalFooter className="mt-2 border-t border-border/5 pt-4">
 				<Button variant="ghost" onClick={onClose}>
 					{t("common.cancel")}
 				</Button>

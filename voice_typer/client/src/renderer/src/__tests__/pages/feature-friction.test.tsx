@@ -29,6 +29,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ar from "@/i18n/translations/ar.json";
@@ -59,7 +60,7 @@ vi.mock("@/i18n/i18n", async (importOriginal) => {
 import { AudioPresetSelector } from "@/components/microphone/AudioPresetSelector";
 import { TestReviewPanel } from "@/components/microphone/TestReviewPanel";
 import { DownloadProgressBar } from "@/components/models/DownloadProgressBar";
-import { VocabSearchFilterBar } from "@/pages/vocabulary/components/VocabSearchFilterBar";
+import { VocabToolbar } from "@/pages/vocabulary/components/VocabToolbar";
 
 const LOCALES: Record<string, typeof en> = {
 	en,
@@ -306,8 +307,8 @@ describe("XA-5-12 — AudioPresetSelector renders the preset Select outside the 
 //   • XA-5-13 — useMicrophoneTestSession exposes a module-level cache
 //     reset helper (the cache itself is exercised indirectly via the
 //     session hook's stop/start/selectMicrophone paths).
-//   • XA-5-15 — VocabSearchFilterBar renders a count badge next to
-//     the sort Select.
+//   • XA-5-15 — VocabToolbar renders the sort control in its single
+//     toolbar row (no count badge, no orphaned second row).
 //   • XA-5-17 — Models page computes an ``activeModelSummary`` from
 //     the lifecycle.config (verified by source scan — mounting the
 //     full page requires too many mock dependencies for a focused
@@ -467,28 +468,33 @@ describe("XA-5-13 — useMicrophoneTestSession exposes a cache-reset helper", ()
 	});
 });
 
-describe("XA-5-15 — VocabSearchFilterBar renders a count badge", () => {
+describe("XA-5-15 — VocabToolbar merges the sort control into the single toolbar row", () => {
 	afterEach(() => {
 		cleanup();
 	});
 
-	it("renders the count badge with the entry count", () => {
+	it("renders the sort Select inside the toolbar, no count badge", () => {
 		render(
-			<VocabSearchFilterBar
-				searchQuery=""
-				onSearchChange={vi.fn()}
+			<VocabToolbar
+				importInputRef={createRef<HTMLInputElement>()}
+				onImportClick={vi.fn()}
+				onImportFile={vi.fn()}
+				onExport={vi.fn()}
+				onAdd={vi.fn()}
+				exportDisabled={false}
+				addDisabled={false}
+				onClearAll={vi.fn()}
+				clearAllDisabled={false}
 				sortOrder="newest"
 				onSortOrderChange={vi.fn()}
-				entryCount={42}
+				hasEntries
 			/>,
 		);
-		const badge = screen.getByTestId("vocab-entry-count-badge");
-		// The badge text comes from tChoice("vocabulary.count", 42)
-		// — tChoice is NOT mocked (the test mock only overrides t()),
-		// so the real catalogue lookup returns "42 corrections" in
-		// the en locale. The point of the assertion is that the
-		// entry count (42) is surfaced in the badge text.
-		expect(badge.textContent).toMatch(/42/);
+		// The sort control lives in the toolbar's secondary cluster
+		// (single-row toolbar — no orphaned second row). The i18n mock
+		// resolves aria-label to "[t]common.sortAria".
+		expect(screen.getByRole("combobox")).toBeTruthy();
+		expect(screen.queryByTestId("vocab-entry-count-badge")).toBeNull();
 	});
 });
 

@@ -1251,7 +1251,20 @@
 		"count_many": "{count} modèles",
 		"count_other": "{count} modèles",
 		"unknownVariableWarning": "Variable inconnue {vars} — prises en charge : {today}, {now}, {clipboard}, {username}",
-		"importFormatHint": "Accepte le JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]})."
+		"importFormatHint": "Accepte le JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]}).",
+		"bulkDelete": "Supprimer la sélection",
+		"bulkDeleteToast": "{count} modèles supprimés",
+		"columnActions": "Actions",
+		"columnOutput": "Sortie",
+		"columnTrigger": "Déclencheur",
+		"deselectAll": "Tout désélectionner",
+		"exportSelected": "Exporter la sélection",
+		"selectAll": "Tout sélectionner",
+		"selectEntry": "Sélectionner {name}",
+		"selectedCount": "{count} sélectionnés",
+		"restoredTemplate": "Modèle restauré",
+		"restoreFailed": "Échec de la restauration du modèle",
+		"insertVariable": "Insérer {token}"
 	},
 	"analytics": {
 		"title": "Analytique",

@@ -138,7 +138,7 @@ describe("Vocabulary page — display cap + Show more", () => {
 		expect(screen.queryByText("Show more")).toBeNull();
 	});
 
-	it("folds the total entry count into the search placeholder", async () => {
+	it("folds the total entry count into the global search placeholder", async () => {
 		mockCall.mockImplementation((arg: unknown) => {
 			const type =
 				typeof arg === "string"
@@ -157,24 +157,32 @@ describe("Vocabulary page — display cap + Show more", () => {
 			expect(screen.getByText("word0")).toBeTruthy();
 		});
 
-		// No standalone count label — the total is folded into the
-		// search placeholder ("Search 5 corrections…"), updated live as
-		// entries are added/removed.
-		expect(screen.queryByTestId("vocab-entry-count")).toBeNull();
-		expect(screen.getByPlaceholderText("Search 5 corrections")).toBeTruthy();
+		// The per-page SearchField was removed — the global title-bar
+		// search owns the only search input. The entry count is pushed
+		// into the shared useGlobalSearch store so the title-bar
+		// placeholder can show "Search 5 corrections". The count badge
+		// that used to sit next to the sort Select was removed (2026-08-28).
+		const { useGlobalSearch: storeModule } = await import(
+			"@/hooks/useGlobalSearch"
+		);
+		await waitFor(() => {
+			expect(storeModule.getState().vocabEntryCount).toBe(5);
+		});
 
-		// Type a search query that matches nothing — the placeholder
-		// still shows the total (the no-results empty state explains the
-		// filter); there is no filtered-count element anymore.
-		const searchInput = screen.getByPlaceholderText("Search 5 corrections");
-		fireEvent.change(searchInput, { target: { value: "zzzzznomatch" } });
+		// Type a search query that matches nothing — set it via the
+		// global store (the title-bar search field is not rendered in
+		// this page-level test).
+		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		useGlobalSearch.getState().setQuery("zzzzznomatch");
 
 		// No results empty state appears.
 		await waitFor(() => {
 			expect(screen.getByText("No results found")).toBeTruthy();
 		});
 
-		expect(screen.queryByTestId("vocab-entry-count")).toBeNull();
+		// The entry count in the store is untouched by the filter (it
+		// shows the total, not a filtered count).
+		expect(storeModule.getState().vocabEntryCount).toBe(5);
 	});
 
 	it("renders the noResults EmptyState with a description", async () => {
@@ -196,8 +204,10 @@ describe("Vocabulary page — display cap + Show more", () => {
 			expect(screen.getByText("word0")).toBeTruthy();
 		});
 
-		const searchInput = screen.getByPlaceholderText("Search 5 corrections");
-		fireEvent.change(searchInput, { target: { value: "zzzzznomatch" } });
+		// Set a search query that matches nothing via the global store
+		// (the title-bar search field is not rendered in this test).
+		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		useGlobalSearch.getState().setQuery("zzzzznomatch");
 
 		await waitFor(() => {
 			expect(screen.getByText("No results found")).toBeTruthy();

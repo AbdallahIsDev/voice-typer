@@ -11,7 +11,6 @@
  * templates are missing rather than the search just did not match.
  */
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
 // assertable singletons + one vi.mock line per module.
@@ -71,7 +70,7 @@ describe("Templates page — NH-15 search-no-results uses dedicated i18n keys", 
 	});
 
 	it("renders templates.noResults title when search returns no matches", async () => {
-		const user = userEvent.setup();
+		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
 		const { default: TemplatesPage } = await import("@/pages/Templates");
 		renderWithProviders(<TemplatesPage />);
 
@@ -80,9 +79,8 @@ describe("Templates page — NH-15 search-no-results uses dedicated i18n keys", 
 			expect(screen.getByText("hello world")).toBeTruthy();
 		});
 
-		// Type a search term that matches no template.
-		const searchInput = screen.getByPlaceholderText(/search templates/i);
-		await user.type(searchInput, "zzz_no_match_zzz");
+		// Drive the global title-bar search to a term that matches no template.
+		useGlobalSearch.getState().setQuery("zzz_no_match_zzz");
 
 		// The dedicated templates.noResults title should be shown.
 		await waitFor(() => {

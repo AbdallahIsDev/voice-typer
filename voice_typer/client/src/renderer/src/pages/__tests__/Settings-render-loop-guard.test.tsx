@@ -48,9 +48,7 @@ renderLoopGuard({
 	id: "settings",
 	page: () => import("@/pages/Settings"),
 	commands,
-	// The page renders its chrome (title + search) immediately; the
+	// The page renders its chrome (title) immediately; the
 	// load-completion signal is the exactly-once counter assertion.
-	settle: (s) =>
-		s.getByText("Settings") != null &&
-		s.getByPlaceholderText("Search settings…") != null,
+	settle: (s) => s.getByText("Settings") != null,
 });

@@ -64,21 +64,20 @@ import { formatModelSize, type ModelInfo } from "@/lib/utils/models";
 //
 // (2026-08-21): every "Download <size>" button uses ONE shared width so
 // the buttons line up identically across models regardless of the size
-// shown ("75 MB", "3 GB", "809 MB" — all fit). The budget comfortably
-// accommodates the download icon (14px) + gap (4px) + the largest
-// supported display value (up to three digits + space + unit, incl.
-// "TB"). Apply this token to the Download button in Branch 2; the
-// "Download Deps" button (Branch 4) shows a label instead of a size and
-// keeps its intrinsic width. Buttons that display a size also apply
-// `justify-start` so the icon + text begin at the same left position in
-// every row (the Button base centers its content by default).
-export const DOWNLOAD_SIZE_BUTTON_WIDTH = "w-[88px]";
+// shown ("75 MB", "3 GB", "809 MB" — all fit). Apply this token to the
+// Download button in Branch 2; the "Download Deps" button (Branch 4)
+// shows a label instead of a size and keeps its intrinsic width.
+// Buttons that display a size also apply `justify-start` so the icon +
+// text begin at the same left position in every row (the Button base
+// centers its content by default). (2026-08-28): width widened to 96px
+// (w-24), gap bumped to gap-2, and the text size dropped to text-xs.
+export const DOWNLOAD_SIZE_BUTTON_WIDTH = "w-24";
 // Content is left-aligned (icon + size text share one start position
 // across all model rows) instead of centered inside the fixed width.
 export const DOWNLOAD_CONTENT_ALIGNMENT = "justify-start";
 // Compact download icon that visually matches the 11px size text
-// height (16px `h-4` dominated the button; 14px reads proportional).
-export const DOWNLOAD_ICON_CLASS = "h-3.5 w-3.5";
+// height (16px `h-4` dominated the button; 12px reads proportional).
+export const DOWNLOAD_ICON_CLASS = "h-3 w-3";
 
 export interface ModelCardActionsProps {
 	model: ModelInfo;
@@ -253,7 +252,7 @@ export function ModelCardActions({
 					// size text begin at the same horizontal position in every
 					// model row instead of being centered.
 					className={cn(
-						"gap-1",
+						"gap-2 text-xs",
 						DOWNLOAD_SIZE_BUTTON_WIDTH,
 						DOWNLOAD_CONTENT_ALIGNMENT,
 					)}
@@ -278,9 +277,9 @@ export function ModelCardActions({
 					<HugeiconsIcon
 						icon={Download01Icon}
 						strokeWidth={2}
-						//(2026-08-21): compact 14px icon so it visually
-						// matches the 11px size text instead of dominating
-						// the button (16px `h-4` was too large).
+						//(2026-08-28): compact 12px icon so it visually
+						// matches the text-xs size instead of dominating
+						// the button.
 						className={cn(
 							DOWNLOAD_ICON_CLASS,
 							isDownloadingThis && "animate-spin",
@@ -296,9 +295,7 @@ export function ModelCardActions({
 					    "Downloading…" while in-flight. (2026-08-21:
 					    `formatModelSize` strips `~`/`≈` and inserts the
 					    number/unit space — see lib/utils/models.) */}
-					<span className="text-[11px] font-medium">
-						{formatModelSize(model.size)}
-					</span>
+					<span className="font-medium">{formatModelSize(model.size)}</span>
 				</Button>
 			</div>
 		);

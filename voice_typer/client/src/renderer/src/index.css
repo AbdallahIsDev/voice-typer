@@ -111,9 +111,11 @@
 	--success: oklch(0.62 0.17 149);
 	--warning: oklch(0.7 0.16 70);
 	--info: oklch(0.62 0.14 240);
-	/* WCAG 1.4.11: L lowered from 0.92 to 0.62 so the border clears 3:1
-	   contrast against the near-white background. */
-	--border: oklch(0.62 0.004 286.32);
+	/* WCAG 1.4.11: border token is pure black/white — the 10% opacity
+	   is applied by consumers via Tailwind's opacity modifier (e.g.
+	   ``border-border/5``). This ensures consistent black-at-10% (light)
+	   / white-at-10% (dark) borders across every theme. */
+	--border: oklch(0 0 0);
 	--input: oklch(0.62 0.004 286.32);
 	/* light-mode --ring was oklch(0.705 0.015 286.067) (light grey) which,
 	   combined with focus-visible:ring-ring/30, produced focus indicators below
@@ -165,10 +167,11 @@
 	--success: oklch(0.7 0.16 149);
 	--warning: oklch(0.78 0.15 70);
 	--info: oklch(0.7 0.13 240);
-	/* WCAG 1.4.11: replaced the previous oklab(100% 0 -0.00011 / 0.05)
-	   (white at 5% alpha) with an opaque oklch(0.52 ...) value so the
-	   border clears 3:1 contrast against the dark background. */
-	--border: oklch(0.52 0.004 286.32);
+	/* WCAG 1.4.11: border token is pure black/white — the 10% opacity
+	   is applied by consumers via Tailwind's opacity modifier (e.g.
+	   ``border-border/5``). This ensures consistent black-at-10% (light)
+	   / white-at-10% (dark) borders across every theme. */
+	--border: oklch(1 0 0);
 	--input: oklch(1 0 0 / 15%);
 	--ring: oklch(0.552 0.016 285.938);
 	--chart-1: oklch(0.809 0.105 251.813);

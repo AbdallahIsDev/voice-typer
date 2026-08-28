@@ -328,7 +328,20 @@
 		"showMore": "Показать ещё",
 		"showingCap": "Показано {shown} из {total}",
 		"unknownVariableWarning": "Неизвестная переменная {vars} — поддерживаются: {today}, {now}, {clipboard}, {username}",
-		"importFormatHint": "Принимает JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]})."
+		"importFormatHint": "Принимает JSON ({\"templates\": [ {\"trigger\": …, \"output\": …, \"match_mode\": \"exact\"} ]}).",
+		"bulkDelete": "Удалить выбранные",
+		"bulkDeleteToast": "Удалено шаблонов: {count}",
+		"columnActions": "Действия",
+		"columnOutput": "Вывод",
+		"columnTrigger": "Триггер",
+		"deselectAll": "Снять выделение",
+		"exportSelected": "Экспортировать выбранное",
+		"selectAll": "Выбрать все",
+		"selectEntry": "Выбрать: {name}",
+		"selectedCount": "Выбрано: {count}",
+		"restoredTemplate": "Шаблон восстановлен",
+		"restoreFailed": "Не удалось восстановить шаблон",
+		"insertVariable": "Вставить {token}"
 	},
 	"analytics": {
 		"title": "Аналитика",

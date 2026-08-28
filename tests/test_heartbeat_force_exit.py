@@ -493,8 +493,7 @@ def test_force_exit_still_fires_when_cleanup_stuck(server: IPCServer) -> None:
             time.sleep(0.01)
 
     assert exit_calls == [1], (
-        f"FR-11: stuck cleanup must still trigger os._exit(1) after the "
-        f"grace period; got: {exit_calls}"
+        f"FR-11: stuck cleanup must still trigger os._exit(1) after the grace period; got: {exit_calls}"
     )
 
 
