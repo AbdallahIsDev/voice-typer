@@ -58,7 +58,7 @@ export function LastUpdatedIndicator({
 			</span>
 			<Button
 				variant="ghost"
-				size="icon"
+				size="icon-xs"
 				onClick={onRefresh}
 				disabled={refreshing}
 				aria-label={t("common.refreshAria")}

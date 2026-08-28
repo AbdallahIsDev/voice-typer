@@ -39,20 +39,23 @@ const buttonVariants = cva(
 			size: {
 				default:
 					// CONSISTENT BUTTON SIZING (2026-08-28): every text
-					// button uses the same h-fit/w-fit box + px-3 py-1.5
-					// padding + 1.3 line-height regardless of the size
-					// prop — the old fixed h-6/h-8/h-10 heights and
-					// px-2/px-2.5/px-4 paddings made buttons of different
-					// sizes look inconsistent app-wide. The `size` variants
-					// now only differ in the icon gap (and xs in text size).
+					// button shares the same h-fit/w-fit box, px-3 py-1.5
+					// padding, and 1.3 line-height — the old fixed
+					// h-6/h-8/h-10 heights and px-2/px-2.5/px-4 paddings
+					// made buttons of different sizes look inconsistent
+					// app-wide. The `size` variants still form a real
+					// scale: xs / sm / lg scale padding + font for dense
+					// or prominent contexts, and the icon variants use
+					// distinct square sizes (24/32/36/40px) so a compact
+					// toolbar can request a genuinely smaller button.
 					"h-fit w-fit gap-2 px-3 py-1.5",
-				xs: "h-fit w-fit gap-1 px-3 py-1.5 text-xs [&_svg:not([class*='size-'])]:size-3",
+				xs: "h-fit w-fit gap-1 px-2.5 py-1 text-xs [&_svg:not([class*='size-'])]:size-3",
 				sm: "h-fit w-fit gap-1 px-3 py-1.5",
-				lg: "h-fit w-fit gap-2 px-3 py-1.5",
+				lg: "h-fit w-fit gap-2 px-4 py-2",
 				icon: "size-9",
-				"icon-xs": "size-9",
-				"icon-sm": "size-9",
-				"icon-lg": "size-9",
+				"icon-xs": "size-6 [&_svg:not([class*='size-'])]:size-3",
+				"icon-sm": "size-8",
+				"icon-lg": "size-10",
 			},
 		},
 		defaultVariants: {

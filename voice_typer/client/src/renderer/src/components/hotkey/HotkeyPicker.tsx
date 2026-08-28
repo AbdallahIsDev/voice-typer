@@ -264,7 +264,7 @@ export function HotkeyPicker({
 				{allowClear && value && !recording && (
 					<Button
 						variant="ghost"
-						size="icon"
+						size="icon-sm"
 						className="text-(--text-muted)"
 						onClick={() => onChange("")}
 						aria-label={t("hotkeyPicker.clearAria", { label: ariaLabel })}
