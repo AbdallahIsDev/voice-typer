@@ -99,15 +99,11 @@ The following findings are documented in `review.md` as `❌ Not Fixed` — defe
 
 | ID | Severity | Why deferred | Effort | Priority |
 |---|---|---|---|---|
-| AP-3 | Medium | Export commands size cap — needs recursive Value size estimation | M | P1 |
 | AP-10 | Medium | log.exception source-line PII — dispersed across 152 callsites in 59 files (measured 2026-08-12; up from ~30/14) | L | P1 |
 | AP-12 | Low | VOICE_TYPER_DEBUG=1 PII warning — documentation only | S | P2 |
 | AP-26 | Low | _backup_before_migration ordering — latent, no current migrator writes to disk | S | P2 |
 | AP-32 | Low | container_detect DRY — maintenance hazard, no functional impact | S | P2 |
-| AP-45 | Medium | load_with_fallback timeout — needs ThreadPoolExecutor + careful design | M | P1 |
-| AP-46 | Medium | Cloud 200-with-empty-body — needs new CloudEmptyResponseError type | M | P1 |
 | AP-47 | Medium | log.error → log.exception across 223 sites in 106 files (re-measured 2026-08-12 with `rg 'log\.error\(' voice_typer/server voice_typer/client/src/main voice_typer/client/src/preload`; the earlier 169/73 count is stale) — dispersed | L | P1 |
-| AP-48 | Medium | Third-party library loggers silenced unevenly — needs expanded list | S | P1 |
 
 ---
 
@@ -170,27 +166,6 @@ The following findings are documented in `review.md` as `❌ Not Fixed` — defe
 **Fix:** *(implemented)* Named `_cleanup_*` helpers + stage objects + `_timed_stage`. Optional polish: extract the except-branch bubble/tray error reporting into a helper if run() is touched again.
 **Severity:** 🟢 Low
 **Category:** Spaghetti / monolith detection
-
-### EO-14 — HandlerBase._wrap helper is defined but unused — 21 handler sites copy-paste the same 4-line validation boilerplate
-**Status:** ❌ Not Fixed
-> - **2026-08-24 audit:** only 4 live call sites; ~21 unmigrated markers each carry a documented non-fit reason — extend _wrap contract BEFORE migrating.
-**Description:** `voice_typer/server/handlers/_base.py:438-466` — _wrap template-method helper (29 LOC) is defined and documented but has ZERO call sites in the codebase. Meanwhile the boilerplate it was designed to eliminate is repeated 21 times across handler files: `validated, error = _validate_dict_payload(data, {...})` + `if error: return error` + `assert validated is not None` + `validated.get('field')`. The _wrap docstring at _base.py:425-437 says: 'The mechanical fix would convert each of the 60+ _handle_<cmd> methods to one-liners delegating to _wrap. Deferred because...'
-**User Impact:** Every new handler that needs validation copy-pastes the same 4-line boilerplate, plus the surrounding try/except wrapper (~6 more lines). Bug fixes to the validation pattern require touching 21+ sites.
-**Root Cause:** Verified (deferred-but-never-actioned). The helper has been sitting unused.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/handlers/_base.py`
-- `voice_typer/server/handlers/level_monitor_handlers.py`
-- `voice_typer/server/handlers/cloud_test_handlers.py`
-- `voice_typer/server/handlers/onboarding_handlers.py`
-- `voice_typer/server/handlers/history_handlers.py`
-- `voice_typer/server/handlers/microphone_test_handlers.py`
-- `voice_typer/server/handlers/templates_handlers.py`
-- `voice_typer/server/handlers/system_handlers.py`
-- `voice_typer/server/handlers/model_handlers.py`
-**Fix:** Migrate the 21 sites incrementally: each _handle_<cmd> becomes `return self._wrap(cmd_name='<cmd>', resp_type='<type>', data=data, resp=resp, body=lambda d: {'data': ...})`. The _wrap helper already handles pre-coercion, validation error pass-through, and the catch-all error envelope.
-**Severity:** 🟡 Medium
-**Category:** Refactoring opportunities / DRY
 
 ### EO-17 — C-STYLE-1 violation: 60+ task-ID-style comments across Python/TS/Rust source files (S2-CR-71, DJ-37/38/41, SK-b, D1-FIX, PERF-002, HOTKEY-MULTIKEY-001, Fix #N)
 **Status:** 🟡 Partial — scrub INCOMPLETE (re-audited 2026-08-12): 5+ files STILL carry task-ID prefixes (HOTKEY-*/NATIVE-001/SK-b): `config_validators/hotkey.py`, `hotkeys/windows/polling_strategy.py`, `config/__init__.py`, `event_bus.py`, `hotkey_reserved.json`. The tray.py:8-17 "6 empty backticks" sub-claim is now FIXED.
