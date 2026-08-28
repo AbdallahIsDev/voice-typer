@@ -53,52 +53,25 @@ plus the base repo's pre-existing comprehensive review.
 
 ### High Findings Not Yet Fixed (from failed sub-agents — partial work exists on disk)
 
-- **QV-35** — DownloadProgressBar error/onRetry wiring
-- **QV-37** — Templates/Vocabulary LastUpdatedIndicator + Clear All (partial)
-- **QV-40** — Toast durations bypass useSnackbar
 - **QV-41** — Page padding inconsistencies
 
 ---
 
 ## Completed
 
-### High findings — 5 ⚠️ partial remaining (verified 2026-08-12; 16 verified-fixed entries removed from file)
-- **FR-4** — ⚠️ PARTIAL (verified 2026-08-12): code fix CONFIRMED — `_do_fast_cleanup` step 6 = `app._restore_volume(fade_ms=0)` + `app._duck_crash_recovery.clear()` (shutdown_controller.py:1021,1027). BUT the claimed test file `tests/test_shutdown_fast_cleanup.py` DOES NOT EXIST — the "5/5 new tests PASS" validation claim is FALSE. Code: `voice_typer/server/shutdown_controller.py`.
-
-- **FR-10** — ⚠️ PARTIAL (verified 2026-08-12): code fix CONFIRMED — `_build_linux_app_service` ExecStart = `{python} -m voice_typer.server.autostart_launcher --hidden` (prewarm_scheduler_posix.py:476). BUT the claimed test file `tests/test_prewarm_scheduler_posix_fixes.py` DOES NOT EXIST — the "5/5 new tests PASS" validation claim is FALSE. Code: `voice_typer/server/prewarm_scheduler_posix.py`.
-
-- **FR-14** — ⚠️ PARTIAL (verified 2026-08-12): code fix CONFIRMED — `with registry.busy_context(registry.active_name)` in transcribe_step.py:281 (file is now the `dictation_pipeline/` package, not dictation_pipeline.py). BUT the claimed test file `tests/test_dictation_pipeline_fix_j.py` DOES NOT EXIST — the "10/10 new tests PASS" validation claim is FALSE. Code: `voice_typer/server/dictation_pipeline/transcribe_step.py`.
-
-- **FR-51** — ⚠️ PARTIAL (verified 2026-08-12): code fix CONFIRMED — `typing.get_origin(ann) in (typing.Union, types.UnionType)` in config/sanitization.py:79 and config/__init__.py:2347 (file is now the `config/` package, not config.py). BUT the claimed test file `tests/test_config_fr51_pep604_union.py` DOES NOT EXIST — the "15/15 new tests PASS" validation claim is FALSE. Code: `voice_typer/server/config/sanitization.py`, `voice_typer/server/config/__init__.py`.
-
+### High findings — 1 ⚠️ partial remaining (verified 2026-08-12; 19 verified-fixed entries removed from file)
 - **FR-54** — ⚠️ PARTIAL (verified 2026-08-12): `data?: Record<string, unknown>` added (usePython.ts:387,411) — BUT 2 `biome-ignore lint/noExplicitAny` directives REMAIN (lines 831-833; the impl signature is still `(data?: any)` with a documented TS overload-compat rationale). The claim "biome-ignore directive removed" is FALSE; "the `any` no longer propagates" is only partially true (impl retains `any`). Files: `voice_typer/client/src/renderer/src/hooks/usePython.ts`.
 
 ## Remaining Work
 
 The following FR findings remain open — status `❌ Not Fixed`:
 
-- **FR-7** (Medium) — `_diagnostics_archive` mkdir failure silently disables VEH crash diagnostics. Requires fallback path design.
-- **FR-11** (Medium) — Heartbeat watchdog `os._exit(1)` race. Requires deeper `_do_cleanup` redesign.
 - **FR-26** (Medium) — Linux native key-listener no USB hotplug. Requires C code changes + inotify.
 - **FR-40** (Medium) — `SUPERVISOR_MAX_RETRIES` dead in production. Requires coordinated test rewrites.
-- **FR-44** (High) — `RotatingFileWriter` holds `std::sync::Mutex` across blocking I/O. Requires background writer thread refactor.
-- **FR-50** (Low) — Blocking file I/O in async Tauri command handlers. Requires `spawn_blocking` migration.
 - **FR-52** (High) — Bare `dict`/`list` annotations on `ConfigApplier` + `ServiceProtocol`. Requires TypedDict refactor.
-- **FR-55** (duplicate of FR-39) — skipped.
 - **FR-57** (Medium) — `app.py` 1845-line wiring façade split (re-verified 2026-08-12, up from 1275). Larger refactor (Phase A+B+C).
-- **FR-59** (Medium) — `migrate.rs` 1249-line split — path note: migrate.rs became `src-tauri/src/migrate/` module tree. Larger refactor.
 
 ---
-
-### SI-25 — `state.rs` remains mixed-purpose: SidecarHandle + shutdown IPC machinery
-**Status:** ⚠️ Mostly addressed (2026-08-24 audit): state.rs is now 472 phys LOC and data-only except ~100 LOC of host-exit callbacks (:370-472); SidecarHandle lives in sidecar/handle.rs, shutdown machinery in sidecar/shutdown.rs. Absorbs VP-30 (802-LOC claim stale by ~330). Residual: callbacks could move to a lifecycle module.
-**Description:** `state.rs` conflates shared-state types with `SidecarHandle` (process-management) and `shutdown_sidecar_for_exit` + `send_fire_and_forget_frame` (IPC/shutdown machinery).
-**User Impact:** Maintainability concern; 3 concerns in one module.
-**Root Cause:** AC-36 was partially applied.
-**Progress:** None yet.
-**Related Files:** `src-tauri/src/state.rs:1, 78-178, 249-420`
-**Fix:** Move `SidecarHandle` to `sidecar/handle.rs`. Move shutdown machinery to `sidecar/shutdown.rs`.
-**Severity:** 🟡 Medium
 
 ### SI-29 — 36 test files define local `_make_fake_*` helpers instead of using `tests/fixtures/`
 **Status:** ❌ Not Fixed (fixture migration deferred — documented as Remaining Work)
@@ -127,7 +100,6 @@ The following findings are documented in `review.md` as `❌ Not Fixed` — defe
 | ID | Severity | Why deferred | Effort | Priority |
 |---|---|---|---|---|
 | AP-3 | Medium | Export commands size cap — needs recursive Value size estimation | M | P1 |
-| AP-7 | Low | ELECTRON_RENDERER_URL scheme validation — dev-only | S | P2 |
 | AP-10 | Medium | log.exception source-line PII — dispersed across 152 callsites in 59 files (measured 2026-08-12; up from ~30/14) | L | P1 |
 | AP-12 | Low | VOICE_TYPER_DEBUG=1 PII warning — documentation only | S | P2 |
 | AP-26 | Low | _backup_before_migration ordering — latent, no current migrator writes to disk | S | P2 |
