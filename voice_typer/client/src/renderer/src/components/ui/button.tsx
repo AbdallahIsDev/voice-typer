@@ -38,16 +38,21 @@ const buttonVariants = cva(
 			},
 			size: {
 				default:
-					// physical pr/pl → logical pe/ps so icon padding
-					// mirrors correctly in RTL Arabic.
-					"h-8 gap-2 px-2 has-data-[icon=inline-end]:pe-2.5 has-data-[icon=inline-start]:ps-2.5",
-				xs: "h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pe-2 has-data-[icon=inline-start]:ps-2 [&_svg:not([class*='size-'])]:size-3",
-				sm: "h-8 gap-1 px-3 has-data-[icon=inline-end]:pe-2 has-data-[icon=inline-start]:ps-2",
-				lg: "h-10 gap-2 px-4 has-data-[icon=inline-end]:pe-3 has-data-[icon=inline-start]:ps-3",
+					// CONSISTENT BUTTON SIZING (2026-08-28): every text
+					// button uses the same h-fit/w-fit box + px-3 py-2
+					// padding regardless of the size prop — the old
+					// fixed h-6/h-8/h-10 heights and px-2/px-2.5/px-4
+					// paddings made buttons of different sizes look
+					// inconsistent app-wide. The `size` variants now
+					// only differ in the icon gap (and xs in text size).
+					"h-fit w-fit gap-2 px-3 py-2",
+				xs: "h-fit w-fit gap-1 px-3 py-2 text-xs [&_svg:not([class*='size-'])]:size-3",
+				sm: "h-fit w-fit gap-1 px-3 py-2",
+				lg: "h-fit w-fit gap-2 px-3 py-2",
 				icon: "size-9",
-				"icon-xs": "size-6 [&_svg:not([class*='size-'])]:size-3",
-				"icon-sm": "size-8",
-				"icon-lg": "size-10",
+				"icon-xs": "size-9",
+				"icon-sm": "size-9",
+				"icon-lg": "size-9",
 			},
 		},
 		defaultVariants: {

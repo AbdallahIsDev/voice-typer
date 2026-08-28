@@ -222,7 +222,7 @@ export function DownloadProgressBar({
 							size="sm"
 							onClick={onRetry}
 							aria-label={t("models.download.retryAria")}
-							className="h-7 gap-1 px-3 text-xs"
+							className="text-xs"
 						>
 							{t("models.download.retry")}
 						</Button>
@@ -259,7 +259,7 @@ export function DownloadProgressBar({
 						size="sm"
 						onClick={() => setConfirmOpen(true)}
 						aria-label={t("models.download.cancelAria")}
-						className="h-7 px-3 text-xs"
+						className="text-xs"
 					>
 						{t("models.download.cancel")}
 					</Button>

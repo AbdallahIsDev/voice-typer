@@ -105,10 +105,16 @@ describe("NH-11: physical Tailwind properties are replaced with logical (RTL fli
 		expect(src).not.toContain("data-inset:pl-9.5");
 	});
 
-	it("button.tsx uses has-data-[icon=inline-end]:pe-* and has-data-[icon=inline-start]:ps-* (logical)", () => {
+	it("button.tsx uses no physical pr-/pl- and no leftover data-icon padding (normalized to uniform px-3 py-2)", () => {
 		const src = readSrc("components/ui/button.tsx");
-		expect(src).toMatch(/has-data-\[icon=inline-end\]:pe-\d/);
-		expect(src).toMatch(/has-data-\[icon=inline-start\]:ps-\d/);
+		// 2026-08-28 button-sizing normalization: every text size variant
+		// now shares the same h-fit w-fit px-3 py-2 box, so the old
+		// per-variant ``has-data-[icon=inline-end]:pe-*`` /
+		// ``has-data-[icon=inline-start]:ps-*`` icon-padding rules were
+		// removed (no call site ever set data-icon). Assert they are
+		// gone AND that no physical pr-/pl- padding crept in.
+		expect(src).not.toMatch(/has-data-\[icon=inline-end\]:pe-\d/);
+		expect(src).not.toMatch(/has-data-\[icon=inline-start\]:ps-\d/);
 		expect(src).not.toMatch(/has-data-\[icon=inline-end\]:pr-\d/);
 		expect(src).not.toMatch(/has-data-\[icon=inline-start\]:pl-\d/);
 	});

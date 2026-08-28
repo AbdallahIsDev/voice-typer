@@ -383,7 +383,6 @@ export function TestReviewPanel({
 														<Button
 															variant="outline"
 															size="sm"
-															className="h-6 px-2 text-[11px]"
 															onClick={() => onApplyPreset(applyPreset)}
 															data-testid="issue-apply-preset"
 														>

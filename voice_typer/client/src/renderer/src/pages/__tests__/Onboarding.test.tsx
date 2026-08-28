@@ -296,9 +296,13 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 		expect(summaryText).toContain("large-v3-turbo");
 	});
 
-	it("falls back to defaults when get_config fails (older backend)", async () => {
+	it("falls back to the default hotkey when get_config fails (older backend); Model step requires an explicit selection", async () => {
 		// Mock get_config to reject; the wizard should still load
-		// and fall back to the hardcoded defaults (<caps_lock>, small.en).
+		// and fall back to the hardcoded hotkey default (<caps_lock>).
+		// 2026-08-28: there is NO default model anymore (MODEL_DEFAULT
+		// is the empty NO_MODEL_SIZE sentinel), so the Model step
+		// blocks Continue until the user explicitly picks one — this
+		// is the intended no-default-model behavior, not a regression.
 		let currentStep = 0;
 		mockCall.mockImplementation((type: string) => {
 			switch (type) {
@@ -348,32 +352,36 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 
 		const { container } = render(<OnboardingPage onComplete={() => {}} />);
 
-		// Advance to the Done step.
-		for (let i = 0; i < 5; i++) {
+		// Advance to the Model step (step 4). The first four steps
+		// (Welcome / Microphone / Permissions / Hotkey) all pass; at
+		// the Model step, Continue is blocked because no model is
+		// selected.
+		for (let i = 0; i < 4; i++) {
 			const continueBtn = await screen.findByRole("button", {
 				name: "Continue",
 			});
 			fireEvent.click(continueBtn);
 			await waitFor(() => {
-				const hasContinue = screen.queryByRole("button", {
-					name: "Continue",
-				});
-				const hasGetStarted = screen.queryByRole("button", {
-					name: "Get Started",
-				});
-				expect(hasContinue !== null || hasGetStarted !== null).toBe(true);
+				expect(screen.queryByRole("button", { name: "Continue" })).not.toBe(
+					null,
+				);
 			});
 		}
 
+		// Now on the Model step. Verify the wizard loaded despite the
+		// get_config failure (hotkey default fallback is exercised by
+		// the dedicated hotkey-hint test) and that Continue is blocked
+		// because no default model exists — the user must pick one.
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "Get started" })).toBeTruthy();
+			expect(screen.getAllByText("Choose Your Model").length).toBeGreaterThan(
+				0,
+			);
 		});
-		const summaryText = container.textContent ?? "";
-		// The default hotkey is `<caps_lock>` (not `<f2>`). The renderer
-		// renders it through `formatHotkeyLabel`, which produces the
-		// human-readable "Caps Lock" label (not the raw `CAPS_LOCK` token).
-		expect(summaryText).toContain("Caps Lock");
-		expect(summaryText).toContain("tiny");
+		const continueBtn = await screen.findByRole("button", {
+			name: "Continue",
+		});
+		expect(continueBtn.hasAttribute("disabled")).toBe(true);
+		expect(container.textContent ?? "").toContain("Choose Your Model");
 	});
 });
 
@@ -1085,7 +1093,12 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 	});
 
 	//(a): Model step hint.
-	it("Model step: shows 'Default: small.en' hint when selectedModel is the default", async () => {
+	it("Model step: default-model hint is suppressed (no default model exists)", async () => {
+		// 2026-08-28: the app no longer has a concrete default model.
+		// MODEL_DEFAULT is "" (the NO_MODEL_SIZE sentinel), so the
+		// "Default: <name>" model hint is always suppressed — the user
+		// must explicitly pick a model. The hint element should never
+		// render, mirroring the "non-default model" case below.
 		mockStartAtStepWithDefaults(4);
 
 		render(<OnboardingPage onComplete={() => {}} />);
@@ -1096,9 +1109,7 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 			);
 		});
 
-		const hint = await screen.findByTestId("onboarding-default-model-hint");
-		expect(hint?.textContent).toContain("tiny");
-		expect(hint?.textContent).toContain("Default");
+		expect(screen.queryByTestId("onboarding-default-model-hint")).toBeNull();
 	});
 
 	it("Model step: hint is suppressed when the user picks a non-default model", async () => {
@@ -1158,7 +1169,11 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 	});
 
 	//(b): Continue button validation.
-	it("Model step: Continue is enabled when a model is selected (default or explicit)", async () => {
+	it("Model step: Continue is DISABLED when no model is selected (no default model)", async () => {
+		// 2026-08-28: there is no default model anymore. A fresh
+		// get_config returns no model_size, so selectedModel stays the
+		// empty sentinel → isModelStepBlocked → Continue disabled until
+		// the user explicitly picks a model.
 		mockStartAtStepWithDefaults(4);
 
 		render(<OnboardingPage onComplete={() => {}} />);
@@ -1169,7 +1184,23 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 			);
 		});
 
-		// selectedModel === "tiny" → Continue should be enabled.
+		const continueBtn = await screen.findByRole("button", { name: "Continue" });
+		expect(continueBtn.hasAttribute("disabled")).toBe(true);
+	});
+
+	it("Model step: Continue is ENABLED when a model is selected (explicit config)", async () => {
+		// Simulate a user with a previously-saved model selection.
+		mockStartAtStepWithDefaults(4, { cfg: { model_size: "large-v3-turbo" } });
+
+		render(<OnboardingPage onComplete={() => {}} />);
+
+		await waitFor(() => {
+			expect(screen.getAllByText("Choose Your Model").length).toBeGreaterThan(
+				0,
+			);
+		});
+
+		// selectedModel === "large-v3-turbo" → not blocked → enabled.
 		const continueBtn = await screen.findByRole("button", { name: "Continue" });
 		expect(continueBtn.hasAttribute("disabled")).toBe(false);
 	});

@@ -58,12 +58,11 @@ export function LastUpdatedIndicator({
 			</span>
 			<Button
 				variant="ghost"
-				size="sm"
+				size="icon"
 				onClick={onRefresh}
 				disabled={refreshing}
 				aria-label={t("common.refreshAria")}
 				title={t("common.refreshAria")}
-				className="h-6 w-6 p-0"
 			>
 				{refreshing ? (
 					// Decorative — the parent <Button aria-label>
