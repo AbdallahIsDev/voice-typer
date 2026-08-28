@@ -32,8 +32,8 @@
  * - : the window-control GLYPHS are IDENTICAL on Windows and Linux —
  *   minimize = horizontal bar (`<rect>` at y=4.5), maximize/restore =
  *   outlined squares, close = X. The BUTTON differs: Windows uses
- *   square 46×32 hit targets with a transparent resting background;
- *   Linux (GNOME/Adwaita-style) uses CIRCULAR 32×32 buttons with an
+ *   square 46×36 hit targets with a transparent resting background;
+ *   Linux (GNOME/Adwaita-style) uses CIRCULAR 28×28 buttons with an
  *   always-visible subtle circle (`bg-foreground/5`) that deepens on
  *   hover/focus/active. (The old Linux minimize filled-dot glyph was
  *   removed 2026-08-24 — the icons no longer branch on IS_LINUX.)
@@ -678,7 +678,7 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 		expect(svg?.getAttribute("class")).toContain("fill-current");
 	});
 
-	it("Linux window-control buttons are CIRCULAR, smaller than the bar (h-6 w-6), with an always-visible circle background that deepens on hover, and spaced gap-2 apart", async () => {
+	it("Linux window-control buttons are CIRCULAR, smaller than the bar (h-7 w-7), with an always-visible circle background that deepens on hover, and spaced gap-2 apart", async () => {
 		const { TitleBar: LinuxTitleBar } = await loadTitleBarFor(LINUX_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
@@ -694,11 +694,11 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 		for (const label of ["Minimize", "Maximize", "Close"]) {
 			const btn = screen.getByLabelText(label);
 			const cls = btn.className;
-			// Circular shape, smaller than the 32px bar so there is
-			// space around the button (24px circle in 32px bar).
+			// Circular shape, smaller than the 36px bar so there is
+			// space around the button (28px circle in 36px bar).
 			expect(cls).toContain("rounded-full");
-			expect(cls).toContain("h-6");
-			expect(cls).toContain("w-6");
+			expect(cls).toContain("h-7");
+			expect(cls).toContain("w-7");
 			// Always-visible subtle circle background at rest…
 			expect(cls).toContain("bg-foreground/5");
 			// …that deepens on hover/focus/active.

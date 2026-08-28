@@ -93,7 +93,7 @@ interface TitleBarProps {
 // for its caption buttons, extracted from the `Segoe Fluent Icons`
 // font that ships with Windows 11 (C:\Windows\Fonts\SegoeIcons.ttf,
 // units-per-em 2048): ChromeClose U+E8BB, ChromeRestore U+E923,
-// scaled to a 10px em (the size DWM renders them at inside a 46x32
+// scaled to a 10px em (the size DWM renders them at inside a 46x36
 // caption button) and centered in a 10x10 viewBox. Regenerate with
 // `python scripts/gen_caption_glyph_paths.py` if ever needed.
 // MINIMIZE and MAXIMIZE are deliberate sharp-cornered, integer-pixel
@@ -117,7 +117,7 @@ interface TitleBarProps {
 // Platform note: the GLYPHS are identical on Windows and Linux (the
 // shapes below match GNOME's caption icons closely enough that no
 // branch is needed); what differs is the BUTTON, not the icon
-// (Windows square 46×32 hit targets vs Linux circular buttons — see
+// (Windows square 46×36 hit targets vs Linux circular buttons — see
 // TitleBarButton).
 const MINIMIZE_GLYPH_PATH =
 	// Sharp-cornered bar snapped to WHOLE pixels (y 5→6). The native
@@ -251,18 +251,18 @@ function TitleBarButton({
 				// layout (KDE detection lives in the sidecar snapshot).
 				IS_LINUX
 					? cn(
-							// Linux buttons are SMALLER than the bar (h-6/w-6 =
-							// 24px in the 32px bar → space around them) and
+							// Linux buttons are SMALLER than the bar (h-7/w-7 =
+							// 28px in the 36px bar → space around them) and
 							// spaced gap-2 apart (see the cluster wrapper).
 							shape === "square"
-								? cn("h-6 w-6 rounded-none", "bg-transparent")
-								: cn("h-6 w-6 rounded-full", "bg-foreground/5"),
+								? cn("h-7 w-7 rounded-none", "bg-transparent")
+								: cn("h-7 w-7 rounded-full", "bg-foreground/5"),
 							"hover:bg-foreground/10 dark:hover:bg-foreground/10",
 							"focus-visible:bg-foreground/10 dark:focus-visible:bg-foreground/10",
 							"active:bg-foreground/15 dark:active:bg-foreground/15",
 						)
 					: cn(
-							"h-8 w-11.5 rounded-none",
+							"h-9 w-11.5 rounded-none",
 							isClose
 								? cn(
 										// Native Windows close-button hover: solid red
@@ -420,7 +420,7 @@ function TitleBarInner({
 			dir="ltr"
 			{...(isTauri() ? { "data-tauri-drag-region": "" } : {})}
 			className={cn(
-				"drag-region flex w-full shrink-0 items-center select-none h-8 transition-opacity duration-150",
+				"drag-region flex w-full shrink-0 items-center select-none h-9 transition-opacity duration-150",
 				// Native OS title bars dim the WHOLE bar while the window
 				// is unfocused — every element (sidebar toggle, back,
 				// forward, help, and all three window controls) tones
@@ -444,10 +444,10 @@ function TitleBarInner({
 			    buttons start after them. The bar is pinned dir="ltr", so
 			    this is the physical left edge in every locale. */}
 			{IS_LINUX && linuxButtons.side === "left" && renderLinuxCluster("left")}
-			{IS_MAC && <div className="h-8 w-18 shrink-0" aria-hidden="true" />}
+			{IS_MAC && <div className="h-9 w-18 shrink-0" aria-hidden="true" />}
 			{/* Toolbar button group — sidebar/back/forward/help wrapped in
 			    a p-1 (4px) padded flex container so no button takes the
-			    full 32px bar height; the 4px padding gives breathing room
+			    full 36px bar height; the 4px padding gives breathing room
 			    top/bottom/left/right, and gap-1 separates the buttons. */}
 			<div className="flex items-center gap-1 p-1">
 				<HotkeyTooltip
@@ -468,7 +468,7 @@ function TitleBarInner({
 						className={cn(
 							// Toolbar buttons are h-6 (24px) inside the p-1
 							// group wrapper — the 4px padding keeps them off
-							// the full 32px bar height with room to breathe.
+							// the full 36px bar height with room to breathe.
 							"no-drag press-scale flex h-6 w-6 items-center justify-center",
 							"text-(--text-muted)",
 							//parity with sibling back/forward/help buttons —
@@ -632,7 +632,7 @@ function TitleBarInner({
 			    traffic lights (titleBarStyle: 'hiddenInset' in the main
 			    window), so rendering Windows-style buttons there would
 			    duplicate the chrome with wrong-style buttons.
-			    Windows: the fixed 46×32 edge-to-edge trio — the layout is
+			    Windows: the fixed 46×36 edge-to-edge trio — the layout is
 			    NOT user-configurable on Windows (native convention).
 			    Linux: the resolved cluster (side/visibility/shape from
 			    the linux_window_buttons setting + system snapshot); the
