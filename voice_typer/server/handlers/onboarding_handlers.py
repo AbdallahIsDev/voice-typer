@@ -20,7 +20,6 @@ from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import (
     ResponseEnvelope,
     _error_response,
-    _validate_dict_payload,
 )
 from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
 
@@ -248,25 +247,16 @@ class OnboardingHandlersMixin(HandlerBase):
                 and ``NoneType``. The ``OnboardingController.set_microphone``
                 stores ``None`` verbatim, which :meth:`apply_settings` then
                 skips writing to the config (preserving the default).
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+                — the helper validates via the *schema* and handles the
+                surrounding ``try/except`` → ``_respond_with_error``
+                catch-all while passing non-dict ``data`` through
+                unchanged.
         """
-        # TODO: not migrated to ``_wrap`` — has side effects
-        # (``log.warning`` call + ``_redact_service_error`` mutates the
-        # result dict + ``self.service.onboarding_set_microphone`` writes
-        # to the OnboardingController state).
-        try:
-            validated, error = _validate_dict_payload(
-                data,
-                {
-                    "mic_id": {
-                        "type": (str, type(None)),
-                        "required": True,
-                    },
-                },
-            )
-            if error:
-                return error
-            assert validated is not None  # narrowed by the error guard above
-            result = self.service.onboarding_set_microphone(validated["mic_id"])
+
+        def body(d: dict) -> dict:
+            result = self.service.onboarding_set_microphone(d["mic_id"])
             # Contract: ``service.onboarding_set_microphone``
             # returns ``{"error": "<message>"}`` on failure (e.g. mic
             # not found) and ``{...}`` (no ``"error"`` key) on success.
@@ -287,12 +277,17 @@ class OnboardingHandlersMixin(HandlerBase):
                     result.get("error"),
                 )
                 result = _redact_service_error(result)
-            resp["type"] = "ack" if result.get("error") is None else "error"
-            resp["data"] = result
-        except Exception as exc:
-            # generic WS-path envelope.
-            self._respond_with_error(resp, exc, "onboarding_set_microphone")
-        return resp
+            return {"type": "ack" if result.get("error") is None else "error", "data": result}
+
+        return self._wrap(
+            cmd_name="onboarding_set_microphone",
+            resp_type="ack",
+            data=data,
+            resp=resp,
+            body=body,
+            schema={"mic_id": {"type": (str, type(None)), "required": True}},
+            pre_coerce=False,
+        )
 
     def _handle_onboarding_set_hotkey(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_set_hotkey`` IPC command.
@@ -302,22 +297,14 @@ class OnboardingHandlersMixin(HandlerBase):
         of :attr:`OnboardingController.HOTKEY_PRESETS`). Previously the
         default was ``<f2>``, which silently overrode the backend's
         Caps Lock default when the renderer sent no explicit value.
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        — the helper validates via the *schema* and handles the
+        surrounding ``try/except`` → ``_respond_with_error`` catch-all.
         """
-        # TODO: not migrated to ``_wrap`` — has side effects
-        # (``log.warning`` call + ``_redact_service_error`` mutates the
-        # result dict + ``self.service.onboarding_set_hotkey`` writes
-        # to the OnboardingController state).
-        try:
-            validated, error = _validate_dict_payload(
-                data,
-                {
-                    "hotkey": {"type": str, "required": False, "default": "<caps_lock>"},
-                },
-            )
-            if error:
-                return error
-            assert validated is not None  # narrowed by the error guard above
-            result = self.service.onboarding_set_hotkey(validated["hotkey"])
+
+        def body(d: dict) -> dict:
+            result = self.service.onboarding_set_hotkey(d["hotkey"])
             # Contract: ``service.onboarding_set_hotkey``
             # returns ``{"error": "<message>"}`` on failure (e.g. hotkey
             # reserved by the OS) and ``{...}`` (no ``"error"`` key) on
@@ -334,30 +321,28 @@ class OnboardingHandlersMixin(HandlerBase):
                     result.get("error"),
                 )
                 result = _redact_service_error(result)
-            resp["type"] = "ack" if result.get("error") is None else "error"
-            resp["data"] = result
-        except Exception as exc:
-            # generic WS-path envelope.
-            self._respond_with_error(resp, exc, "onboarding_set_hotkey")
-        return resp
+            return {"type": "ack" if result.get("error") is None else "error", "data": result}
+
+        return self._wrap(
+            cmd_name="onboarding_set_hotkey",
+            resp_type="ack",
+            data=data,
+            resp=resp,
+            body=body,
+            schema={"hotkey": {"type": str, "required": False, "default": "<caps_lock>"}},
+            pre_coerce=False,
+        )
 
     def _handle_onboarding_set_model(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
-        """Handle the ``onboarding_set_model`` IPC command."""
-        # TODO: not migrated to ``_wrap`` — has side effects
-        # (``log.warning`` call + ``_redact_service_error`` mutates the
-        # result dict + ``self.service.onboarding_set_model`` writes
-        # to the OnboardingController state).
-        try:
-            validated, error = _validate_dict_payload(
-                data,
-                {
-                    "model": {"type": str, "required": False, "default": DEFAULT_MODEL_SIZE},
-                },
-            )
-            if error:
-                return error
-            assert validated is not None  # narrowed by the error guard above
-            result = self.service.onboarding_set_model(validated["model"])
+        """Handle the ``onboarding_set_model`` IPC command.
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        — the helper validates via the *schema* and handles the
+        surrounding ``try/except`` → ``_respond_with_error`` catch-all.
+        """
+
+        def body(d: dict) -> dict:
+            result = self.service.onboarding_set_model(d["model"])
             # Contract: ``service.onboarding_set_model``
             # returns ``{"error": "<message>"}`` on failure (e.g. model
             # not available) and ``{...}`` (no ``"error"`` key) on
@@ -374,12 +359,17 @@ class OnboardingHandlersMixin(HandlerBase):
                     result.get("error"),
                 )
                 result = _redact_service_error(result)
-            resp["type"] = "ack" if result.get("error") is None else "error"
-            resp["data"] = result
-        except Exception as exc:
-            # generic WS-path envelope.
-            self._respond_with_error(resp, exc, "onboarding_set_model")
-        return resp
+            return {"type": "ack" if result.get("error") is None else "error", "data": result}
+
+        return self._wrap(
+            cmd_name="onboarding_set_model",
+            resp_type="ack",
+            data=data,
+            resp=resp,
+            body=body,
+            schema={"model": {"type": str, "required": False, "default": DEFAULT_MODEL_SIZE}},
+            pre_coerce=False,
+        )
 
     def _handle_onboarding_set_backend(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_set_backend`` IPC command.
@@ -390,22 +380,14 @@ class OnboardingHandlersMixin(HandlerBase):
         ``"cloud"`` → connect a cloud transcription API, whose API key
         + consent the wizard persists through the allowlisted
         ``set_config`` fields, mirroring the Models page).
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        — the helper validates via the *schema* and handles the
+        surrounding ``try/except`` → ``_respond_with_error`` catch-all.
         """
-        # TODO: not migrated to ``_wrap`` — has side effects
-        # (``log.warning`` call + ``_redact_service_error`` mutates the
-        # result dict + ``self.service.onboarding_set_backend`` writes
-        # to the OnboardingController state).
-        try:
-            validated, error = _validate_dict_payload(
-                data,
-                {
-                    "backend": {"type": str, "required": True},
-                },
-            )
-            if error:
-                return error
-            assert validated is not None  # narrowed by the error guard above
-            result = self.service.onboarding_set_backend(validated["backend"])
+
+        def body(d: dict) -> dict:
+            result = self.service.onboarding_set_backend(d["backend"])
             # Same ack-vs-error contract as the sibling onboarding
             # handlers (see the class docstring).
             if result.get("error") is not None:
@@ -414,12 +396,17 @@ class OnboardingHandlersMixin(HandlerBase):
                     result.get("error"),
                 )
                 result = _redact_service_error(result)
-            resp["type"] = "ack" if result.get("error") is None else "error"
-            resp["data"] = result
-        except Exception as exc:
-            # generic WS-path envelope.
-            self._respond_with_error(resp, exc, "onboarding_set_backend")
-        return resp
+            return {"type": "ack" if result.get("error") is None else "error", "data": result}
+
+        return self._wrap(
+            cmd_name="onboarding_set_backend",
+            resp_type="ack",
+            data=data,
+            resp=resp,
+            body=body,
+            schema={"backend": {"type": str, "required": True}},
+            pre_coerce=False,
+        )
 
     def _handle_onboarding_skip(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_skip`` IPC command."""

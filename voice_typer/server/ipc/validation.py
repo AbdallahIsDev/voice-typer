@@ -278,6 +278,47 @@ LEGACY_ERROR_CODES: frozenset[str] = _class_str_values(LegacyErrorCodes)
 # prefer ``ERROR_CODES`` for new emitters.
 ALL_ERROR_CODES: frozenset[str] = ERROR_CODES | LEGACY_ERROR_CODES
 
+# Maximum serialized payload size for a single IPC response, derived from
+# the transport-layer frame caps (``_TCP_MAX_OUTBOUND_BYTES`` in
+# ``ipc/sender.py`` and ``_MAX_FRAME_BYTES`` in ``sidecar_ws.py`` — both
+# 1 MiB).  The 64 KiB headroom below the 1 MiB cap covers the response
+# envelope (``type``/``data``/``id`` JSON framing) so the serialized
+# data payload stays comfortably under the transport-layer limit.
+MAX_EXPORT_PAYLOAD_BYTES: int = 1 * 1024 * 1024 - 64 * 1024
+
+
+def _enforce_payload_size_cap(
+    payload: object,
+    max_bytes: int = MAX_EXPORT_PAYLOAD_BYTES,
+    *,
+    error_message: str = "Response payload exceeds the size cap",
+) -> dict | None:
+    """Check whether *payload* fits within the size cap when serialized.
+
+    Serializes *payload* via ``json.dumps`` (same args as the IPC
+    ``_send`` path) and compares the encoded byte length to *max_bytes*.
+    Returns an error-envelope dict ``{"type": "error", "data": {"code":
+    ..., "message": ...}}`` when the payload exceeds the cap, or
+    ``None`` when it fits.
+
+    Callers (handler mixins) can use this to fail fast with a clear
+    structured error instead of producing a frame that the transport
+    layer silently drops.
+    """
+    try:
+        size = len(json.dumps(payload, ensure_ascii=False, default=str, separators=(",", ":")).encode("utf-8"))
+    except (TypeError, ValueError):
+        return None
+    if size <= max_bytes:
+        return None
+    return {
+        "type": "error",
+        "data": {
+            "code": ErrorCodes.PAYLOAD_TOO_LARGE,
+            "message": f"{error_message} ({size} bytes exceeds {max_bytes} byte cap)",
+        },
+    }
+
 
 # Typed schema for the declarative validation rule dict consumed
 # by :func:`_validate_dict_payload`. ``total=False`` because every rule
@@ -771,6 +812,9 @@ __all__ = [
     "Schema",
     "ErrorData",
     "ErrorEnvelope",
+    # export-payload size cap + guard helper.
+    "MAX_EXPORT_PAYLOAD_BYTES",
+    "_enforce_payload_size_cap",
 ]
 
 # canonical home for the ResponseEnvelope type alias and

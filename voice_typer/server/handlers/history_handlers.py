@@ -153,6 +153,8 @@ class HistoryHandlersMixin(HandlerBase):
             # forced True on every row that was further truncated so
             # the renderer's "show more" affordance stays accurate.
             rows = self._enforce_history_frame_cap(rows, command="get_history")
+            if isinstance(rows, dict):
+                return rows
             return {"data": rows}
 
         return self._wrap(
@@ -168,7 +170,7 @@ class HistoryHandlersMixin(HandlerBase):
         rows: list[dict],
         *,
         command: str,
-    ) -> list[dict]:
+    ) -> list[dict] | dict:
         """Progressively truncate row ``text`` previews until the
         serialized response fits under ``_HISTORY_MAX_FRAME_BYTES``.
 
@@ -191,8 +193,12 @@ class HistoryHandlersMixin(HandlerBase):
 
         The 50-char floor preserves a usable preview even in the
         degenerate case where the response still doesn't fit after
-        aggressive truncation — at that point we accept the WS-layer
-        drop rather than returning an empty-text list.
+        aggressive truncation. Previously the function returned the
+        oversized rows at that point and accepted the WS-layer frame
+        drop (a silent failure — the client saw no response). Now it
+        returns an error-envelope dict instead, so the caller fails
+        fast with a clear structured error rather than producing a
+        frame that is silently dropped.
         """
         if not rows:
             return rows
@@ -232,14 +238,38 @@ class HistoryHandlersMixin(HandlerBase):
                     row["text_truncated"] = True
                     shortened_any = True
             if not shortened_any:
-                # Every row is already at the floor — bail out to
-                # avoid an infinite loop. The WS layer will drop the
-                # frame; logged above so the issue is diagnosable.
+                # Every row is already at the floor — bail out.
                 break
             try:
                 serialized = json.dumps(rows, ensure_ascii=False, default=str).encode("utf-8")
             except (TypeError, ValueError):
                 break
+        # Final size check: even after floor-truncation the response
+        # may still exceed the frame cap (non-text columns too large).
+        # Return a clear error envelope instead of a frame the WS/TCP
+        # layer would silently drop.
+        if len(serialized) > _HISTORY_MAX_FRAME_BYTES:
+            from voice_typer.server.ipc.validation import (
+                ErrorCodes as _ErrorCodes,
+            )
+
+            log.warning(
+                "[IPC] %s response still exceeds frame cap (%d > %d bytes) "
+                "after truncation; returning clear error instead of a dropped frame",
+                command,
+                len(serialized),
+                _HISTORY_MAX_FRAME_BYTES,
+            )
+            return {
+                "type": "error",
+                "data": {
+                    "code": _ErrorCodes.PAYLOAD_TOO_LARGE,
+                    "message": (
+                        f"History response is too large to transfer over IPC "
+                        f"({len(serialized)} bytes exceeds {_HISTORY_MAX_FRAME_BYTES} byte cap)"
+                    ),
+                },
+            }
         return rows
 
     def _handle_get_today_stats(self, data: dict | None, resp: dict) -> dict | None:
@@ -253,22 +283,17 @@ class HistoryHandlersMixin(HandlerBase):
         return resp
 
     def _handle_delete_history(self, data: dict | None, resp: dict) -> dict | None:
-        """Handle the ``delete_history`` IPC command."""
-        # TODO: not migrated to ``_wrap`` — has side effects
-        # (``self.service.delete_history`` mutates the DB and
-        # ``_publish_history_changed`` broadcasts an event-bus event).
-        try:
-            validated, error = _validate_dict_payload(
-                data,
-                {
-                    "id": {"type": (int, str), "required": True},
-                },
-            )
-            if error:
-                return error
-            assert validated is not None  # narrowed by the error guard above
-            self.service.delete_history(validated["id"])
-            resp["type"] = "ack"
+        """Handle the ``delete_history`` IPC command.
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        — the helper handles the surrounding ``try/except`` →
+        ``_respond_with_error`` catch-all while passing non-dict
+        ``data`` through unchanged so the schema still rejects it with
+        ``invalid_payload``.
+        """
+
+        def body(d: dict) -> dict:
+            self.service.delete_history(d["id"])
             # F11-FIX (b-review Finding 11): broadcast history_changed so
             # every renderer page that keeps a module-level history cache
             # (Home, History, Dashboard) invalidates it. Without this, an
@@ -276,10 +301,17 @@ class HistoryHandlersMixin(HandlerBase):
             # records in the cache until the next transcription_final /
             # manual refresh. clear_history already does the same above.
             _publish_history_changed("deleted")
-        except Exception as exc:
-            # generic WS-path envelope.
-            self._respond_with_error(resp, exc, "delete_history")
-        return resp
+            return {"type": "ack"}
+
+        return self._wrap(
+            cmd_name="delete_history",
+            resp_type="ack",
+            data=data,
+            resp=resp,
+            body=body,
+            schema={"id": {"type": (int, str), "required": True}},
+            pre_coerce=False,
+        )
 
     def _handle_restore_history(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``restore_history`` IPC command.
@@ -297,56 +329,47 @@ class HistoryHandlersMixin(HandlerBase):
                 caller who stuffs a giant blob into a non-``text`` field;
                 the per-field cap catches a caller who stuffs it into
                 ``text`` specifically.
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        — the helper handles the surrounding ``try/except`` →
+        ``_respond_with_error`` catch-all while passing non-dict
+        ``data`` through unchanged so the schema still rejects it with
+        ``invalid_payload``. The per-field ``text`` cap
+        early-return routes through :meth:`HandlerBase._error_response`
+        (same envelope shape as the previous inline construction).
         """
-        # TODO: not migrated to ``_wrap`` — has side effects
-        # (``self.service.restore_history`` mutates the DB and
-        # ``_publish_history_changed`` broadcasts an event-bus event).
-        try:
-            validated, error = _validate_dict_payload(
-                data,
-                {
-                    "record": {
-                        "type": dict,
-                        "required": True,
-                        # 256 KB whole-payload cap. The helper's
-                        # ``max_payload_bytes`` rule serializes
-                        # ``data`` via ``json.dumps`` and rejects if
-                        # the size exceeds N bytes.
-                        "max_payload_bytes": 256 * 1024,
-                    },
-                },
-            )
-            if error:
-                # The helper emits namespaced ``client.invalid_payload``
-                # for the ``max_payload_bytes`` rule and namespaced
-                # ``client.missing_field`` / ``client.invalid_field``
-                # for the per-field checks. Test assertions expect the
-                # namespaced form, so the error passes through unchanged.
-                return error
-            assert validated is not None  # narrowed by the error guard above
-            record = validated["record"]
+
+        # 256 KB whole-payload cap (see below). The helper's
+        # ``max_payload_bytes`` rule serializes ``data`` via
+        # ``json.dumps`` and rejects if the size exceeds N bytes.
+        def body(d: dict) -> dict:
+            record = d["record"]
             # Per-field cap on ``record['text']``. 8192 chars is the
             # practical upper bound for a single transcription entry
             # (a 10-minute dictation at 150 wpm ≈ 7500 chars). Anything
             # larger is almost certainly a bug or abuse.
             if len(record.get("text", "")) > 8192:
-                resp["type"] = "error"
-                resp["data"] = {
-                    "code": ErrorCodes.PAYLOAD_TOO_LARGE,
-                    "field": "record.text",
-                    "message": "'record.text' exceeds 8192-char cap",
-                }
-                return resp
+                return self._error_response(
+                    resp,
+                    "'record.text' exceeds 8192-char cap",
+                    code=ErrorCodes.PAYLOAD_TOO_LARGE,
+                    field="record.text",
+                )
             new_id = self.service.restore_history(record)
-            resp["type"] = "ack"
-            resp["data"] = {"id": new_id}
             # F11-FIX (b-review Finding 11): a restored record must also
             # invalidate the history caches (see _publish_history_changed).
             _publish_history_changed("restored")
-        except Exception as exc:
-            # generic WS-path envelope.
-            self._respond_with_error(resp, exc, "restore_history")
-        return resp
+            return {"type": "ack", "data": {"id": new_id}}
+
+        return self._wrap(
+            cmd_name="restore_history",
+            resp_type="ack",
+            data=data,
+            resp=resp,
+            body=body,
+            schema={"record": {"type": dict, "required": True, "max_payload_bytes": 256 * 1024}},
+            pre_coerce=False,
+        )
 
     def _handle_clear_history(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``clear_history`` IPC command."""
@@ -366,31 +389,32 @@ class HistoryHandlersMixin(HandlerBase):
         return resp
 
     def _handle_toggle_favorite(self, data: dict | None, resp: dict) -> dict | None:
-        """Handle the ``toggle_favorite`` IPC command."""
-        # TODO: not migrated to ``_wrap`` — has side effects
-        # (``self.service.toggle_favorite`` mutates the DB and
-        # ``_publish_history_changed`` broadcasts an event-bus event).
-        try:
-            validated, error = _validate_dict_payload(
-                data,
-                {
-                    "id": {"type": (int, str), "required": True},
-                },
-            )
-            if error:
-                return error
-            assert validated is not None  # narrowed by the error guard above
-            new_val = self.service.toggle_favorite(validated["id"])
-            resp["type"] = "ack"
-            resp["data"] = {"favorite": new_val}
+        """Handle the ``toggle_favorite`` IPC command.
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        — the helper handles the surrounding ``try/except`` →
+        ``_respond_with_error`` catch-all while passing non-dict
+        ``data`` through unchanged so the schema still rejects it with
+        ``invalid_payload``.
+        """
+
+        def body(d: dict) -> dict:
+            new_val = self.service.toggle_favorite(d["id"])
             # F11-FIX (b-review Finding 11): a favorite toggle changes which
             # records show under the "Favorites only" filter and the favorites
             # count on the Dashboard, so invalidate history caches too.
             _publish_history_changed("favorite_toggled")
-        except Exception as exc:
-            # generic WS-path envelope.
-            self._respond_with_error(resp, exc, "toggle_favorite")
-        return resp
+            return {"type": "ack", "data": {"favorite": new_val}}
+
+        return self._wrap(
+            cmd_name="toggle_favorite",
+            resp_type="ack",
+            data=data,
+            resp=resp,
+            body=body,
+            schema={"id": {"type": (int, str), "required": True}},
+            pre_coerce=False,
+        )
 
     def _handle_get_favorites(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_favorites`` IPC command.
@@ -459,6 +483,8 @@ class HistoryHandlersMixin(HandlerBase):
             # Same defense-in-depth frame-cap check as
             # ``_handle_get_history`` (see that handler for rationale).
             rows = self._enforce_history_frame_cap(rows, command="get_favorites")
+            if isinstance(rows, dict):
+                return rows
             return {"data": rows}
 
         return self._wrap(
@@ -546,6 +572,8 @@ class HistoryHandlersMixin(HandlerBase):
             # Same defense-in-depth frame-cap check as
             # ``_handle_get_history`` (see that handler for rationale).
             rows = self._enforce_history_frame_cap(rows, command="search_history")
+            if isinstance(rows, dict):
+                return rows
             return {"data": rows}
 
         return self._wrap(
@@ -575,17 +603,23 @@ class HistoryHandlersMixin(HandlerBase):
         future caller could pass ``{"force_refresh": true}`` to bypass
         the cache — not currently implemented, but the schema accepts
         any dict so the request doesn't fail).
+
+        Migrated to :meth:`HandlerBase._wrap` — the helper handles the
+        ``try/except`` → ``_respond_with_error`` catch-all and the
+        non-dict ``data`` pre-coercion identically.
         """
-        try:
-            if not isinstance(data, dict):
-                data = {}
+
+        def body(d: dict) -> dict:
             count = self.service.get_history_count()
-            resp["type"] = "history_count"
-            resp["data"] = {"count": int(count)}
-        except Exception as exc:
-            # generic WS-path envelope.
-            self._respond_with_error(resp, exc, "get_history_count")
-        return resp
+            return {"type": "history_count", "data": {"count": int(count)}}
+
+        return self._wrap(
+            cmd_name="get_history_count",
+            resp_type="history_count",
+            data=data,
+            resp=resp,
+            body=body,
+        )
 
     def _handle_get_transcription_text(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_transcription_text`` IPC command.
@@ -606,29 +640,26 @@ class HistoryHandlersMixin(HandlerBase):
         If the row doesn't exist, the response returns ``text: ""``
         (matching the ``HistoryDB.get_transcription_text`` sentinel).
         The renderer treats an empty string as "no text to show".
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        — non-dict ``data`` passes through unchanged so the schema
+        still rejects it with ``client.invalid_payload`` (the behavior
+        the previous no-coercion implementation pinned).
         """
-        # TODO: not migrated to ``_wrap`` — would change non-dict-data
-        # error code (``client.invalid_payload`` → ``client.missing_field``)
-        # because this handler lacks the inline ``if not isinstance(data,
-        # dict): data = {}`` pre-coercion that ``_wrap`` performs
-        # internally; migrating would be a behavior regression (E14).
-        try:
-            validated, error = _validate_dict_payload(
-                data,
-                {
-                    "id": {"type": (int, str), "required": True},
-                },
-            )
-            if error:
-                return error
-            assert validated is not None  # narrowed by the error guard above
-            result = self.service.get_transcription_text(validated["id"])
-            resp["type"] = "transcription_text"
-            resp["data"] = result
-        except Exception as exc:
-            # generic WS-path envelope.
-            self._respond_with_error(resp, exc, "get_transcription_text")
-        return resp
+
+        def body(d: dict) -> dict:
+            result = self.service.get_transcription_text(d["id"])
+            return {"type": "transcription_text", "data": result}
+
+        return self._wrap(
+            cmd_name="get_transcription_text",
+            resp_type="transcription_text",
+            data=data,
+            resp=resp,
+            body=body,
+            schema={"id": {"type": (int, str), "required": True}},
+            pre_coerce=False,
+        )
 
 
 def _publish_history_changed(reason: str) -> None:

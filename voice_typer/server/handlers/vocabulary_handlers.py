@@ -7,7 +7,12 @@ access ``self.app`` / ``self.service`` as before.
 
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.validation import ErrorCodes, _error_response, _validate_dict_payload
+from voice_typer.server.ipc.validation import (
+    ErrorCodes,
+    _enforce_payload_size_cap,
+    _error_response,
+    _validate_dict_payload,
+)
 from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 
 
@@ -27,6 +32,24 @@ class VocabularyHandlersMixin(HandlerBase):
         # delegates to service layer
         try:
             result = self.service.get_vocabulary()
+            # Size-cap guard: the merged vocabulary is unbounded at the
+            # service layer (the user can accumulate thousands of
+            # corrections). Serializing an oversized response would
+            # exceed the 1 MiB transport frame cap and be SILENTLY
+            # dropped by the WS/TCP layer — fail fast with a clear
+            # structured error instead.
+            cap_error = _enforce_payload_size_cap(
+                result,
+                error_message="Vocabulary is too large to transfer over IPC",
+            )
+            if cap_error is not None:
+                resp["type"] = cap_error["type"]
+                resp["data"] = cap_error["data"]
+                log.warning(
+                    "[IPC] get_vocabulary response exceeds payload cap; "
+                    "returning clear error instead of a dropped frame"
+                )
+                return resp
             resp["type"] = "vocabulary"
             resp["data"] = result
         except Exception as exc:
@@ -187,27 +210,31 @@ class VocabularyHandlersMixin(HandlerBase):
         corrections" panel on the Vocabulary page previews the exact
         engine dictation uses (``VocabularyManager.apply_to_text``)
         instead of a client-side mirror that can drift.
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        — the helper handles the surrounding ``try/except`` →
+        ``_respond_with_error`` catch-all while passing non-dict
+        ``data`` through unchanged so the schema still rejects it with
+        ``invalid_payload``.
         """
-        try:
-            _validated, error = _validate_dict_payload(
-                data,
-                {
-                    "text": {
-                        "type": str,
-                        "required": True,
-                        "max_value_len": 2000,
-                    },
-                },
-            )
-            if error:
-                resp["type"] = "error"
-                resp["data"] = error["data"]
-                return resp
-            assert _validated is not None  # narrowed by the error guard above
-            text = str(_validated.get("text", "") or "")
+
+        def body(d: dict) -> dict:
+            text = str(d.get("text", "") or "")
             result = self.service.test_vocabulary_correction(text)
-            resp["type"] = "ack"
-            resp["data"] = result
-        except Exception as exc:
-            self._respond_with_error(resp, exc, "test_vocabulary_correction")
-        return resp
+            return {"type": "ack", "data": result}
+
+        return self._wrap(
+            cmd_name="test_vocabulary_correction",
+            resp_type="ack",
+            data=data,
+            resp=resp,
+            body=body,
+            schema={
+                "text": {
+                    "type": str,
+                    "required": True,
+                    "max_value_len": 2000,
+                },
+            },
+            pre_coerce=False,
+        )

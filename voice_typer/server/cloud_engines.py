@@ -47,6 +47,7 @@ from voice_typer.server.asr_errors import (
     CloudAuthError,
     CloudConfigError,
     CloudConsentRequiredError,
+    CloudEmptyResponseError,
     CloudEngineError,
     CloudNetworkError,
     CloudRateLimitError,
@@ -635,9 +636,29 @@ class CloudEngine:
                     # Whisper / Groq / Deepgram responses are <100 KB
                     # in practice; 50 MB is a generous ceiling.
                     raw = _read_capped(resp, max_bytes=50 * 1024 * 1024)
+                    if not raw.strip():
+                        # HTTP 200 with an empty/whitespace-only body is
+                        # an anomaly, not a valid transcription. Raise a
+                        # typed error so the IPC layer surfaces a
+                        # cloud-provider failure instead of shipping an
+                        # empty transcript as valid. Not retried: a 200
+                        # empty body is a provider-side anomaly (like the
+                        # non-retried 5xx), not a transient network
+                        # error — retrying would just re-send audio.
+                        raise CloudEmptyResponseError(f"{provider} returned HTTP 200 with an empty body")
                     text = parse_response(raw)
+                    if not text:
+                        # Same anomaly class for a 200 whose JSON is
+                        # empty (``{}``) or lacks the transcript field.
+                        raise CloudEmptyResponseError(f"{provider} returned HTTP 200 with an empty transcript")
                     log.info("[CLOUD] %s transcription: %d chars", provider, len(text))
                     return text
+            except CloudEmptyResponseError:
+                # Propagate the typed error unchanged — do NOT let the
+                # catch-all ``except Exception`` below re-wrap it into a
+                # generic CloudEngineError (that would lose the
+                # empty-response semantics the IPC layer switches on).
+                raise
             except HTTPError as exc:
                 # 429 Too Many Requests is the only retryable 4xx.
                 # Honor Retry-After (numeric seconds or HTTP-date); cap the

@@ -537,6 +537,55 @@ def _ensure_last_resort_redacted(pii_filter: logging.Filter) -> None:
     last_resort.addFilter(pii_filter)
 
 
+# Third-party loggers the app depends on (directly or transitively)
+# that are known to emit chatty DEBUG/INFO records (HTTP connection
+# logs, WebSocket lifecycle chatter, keyring backend noise, model-load
+# progress). Each is pinned to WARNING so external-library noise never
+# floods the rotating file while genuine WARNING+ diagnostics still
+# propagate to the app's handlers. Extra names are harmless —
+# ``logging.getLogger`` creates the logger on first access even when
+# the library is not installed (or is only a transitive dependency).
+_THIRD_PARTY_LOGGER_LEVELS: dict[str, int] = {
+    "urllib3": logging.WARNING,
+    "urllib3.connectionpool": logging.WARNING,
+    "requests": logging.WARNING,
+    "httpx": logging.WARNING,
+    "httpcore": logging.WARNING,
+    "websockets": logging.WARNING,
+    "keyring": logging.WARNING,
+    "sounddevice": logging.WARNING,
+    "PIL": logging.WARNING,
+    "numpy": logging.WARNING,
+    "torch": logging.WARNING,
+    "onnxruntime": logging.WARNING,
+    "faster_whisper": logging.WARNING,
+    "ctranslate2": logging.WARNING,
+    "huggingface_hub": logging.WARNING,
+    "transformers": logging.WARNING,
+    "pystray": logging.WARNING,
+    "asyncio": logging.WARNING,
+}
+
+
+def _apply_third_party_logger_levels() -> None:
+    """Pin every logger in :data:`_THIRD_PARTY_LOGGER_LEVELS` to WARNING.
+
+    Runs at the top level of :func:`setup_logging` — NOT nested under
+    the ``if sys.stderr is not None`` stream-handler block where the
+    old hardcoded ``transformers`` / ``torch`` / ``huggingface_hub``
+    silencing lived. pythonw.exe runs with ``sys.stderr is None``, so
+    the old placement silently skipped the silencing on the frozen-exe
+    path. Clears any handlers a library attached to its own logger and
+    re-enables propagation so records fall through to the app's
+    handlers at WARNING+.
+    """
+    for name, level in _THIRD_PARTY_LOGGER_LEVELS.items():
+        lib_logger = logging.getLogger(name)
+        lib_logger.setLevel(level)
+        lib_logger.handlers.clear()
+        lib_logger.propagate = True
+
+
 def setup_logging(
     config_dir: Path,
     *,
@@ -807,6 +856,14 @@ def setup_logging(
         # enabling DEBUG globally.
         _apply_per_module_log_levels()
 
+        # Silence noisy third-party loggers (urllib3 / websockets /
+        # keyring / torch / huggingface_hub / ...). Runs at the top
+        # level so it applies even when ``sys.stderr`` is None
+        # (pythonw.exe frozen-exe path) — the previous placement
+        # nested this under the stream-handler block, silently
+        # skipping it on that path.
+        _apply_third_party_logger_levels()
+
         # Ensure the global ``lastResort`` handler also
         # carries PIIRedactionFilter so third-party loggers (keyring,
         # urllib3, websockets) that bypass voice_typer's handlers do not
@@ -904,12 +961,6 @@ def setup_logging(
                         _existing.setFormatter(_new_stream_formatter)
             if not any(isinstance(h, _FlushingStreamHandler) for h in root.handlers):
                 root.addHandler(stream)
-            # Silence noisy third-party loggers .
-            for lib in ("transformers", "torch", "huggingface_hub"):
-                lib_logger = logging.getLogger(lib)
-                lib_logger.setLevel(logging.WARNING)
-                lib_logger.handlers.clear()
-                lib_logger.propagate = True
 
         return _session_id
     finally:

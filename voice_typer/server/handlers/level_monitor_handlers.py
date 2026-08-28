@@ -37,11 +37,15 @@ class LevelMonitorHandlersMixin(HandlerBase):
     """
 
     def _handle_level_monitor_start(self, data: dict | None, resp: dict) -> dict | None:
-        """Handle the ``level_monitor_start`` IPC command."""
-        # TODO: not migrated to ``_wrap`` — has side effects
-        # (consent-check raises ``ConsentRequiredError`` + ``log.exception``
-        # call + ``self.service.level_monitor_start`` mutates audio state).
-        try:
+        """Handle the ``level_monitor_start`` IPC command.
+
+        Migrated to :meth:`HandlerBase._wrap` — the helper handles the
+        surrounding ``try/except`` → ``_respond_with_error`` catch-all
+        and the non-dict ``data`` pre-coercion identically to the
+        inline ``if not isinstance(data, dict): data = {}`` guard.
+        """
+
+        def body(d: dict) -> dict:
             # enforce voice_biometric_consent BEFORE
             # opening the InputStream. The monitor captures audio
             # continuously; even though only dBFS values are returned
@@ -68,14 +72,12 @@ class LevelMonitorHandlersMixin(HandlerBase):
 
             # validate ``mic_id`` type via the shared
             # ``_validate_dict_payload`` helper. Non-dict ``data`` is
-            # pre-coerced to ``{}`` so the
+            # pre-coerced to ``{}`` by ``_wrap`` so the
             # ``test_non_dict_data_defaults_mic_id_to_none`` contract
             # (None → mic_id=None) still holds; ``_validate_dict_payload``
             # would otherwise reject non-dict with ``invalid_payload``.
-            if not isinstance(data, dict):
-                data = {}
             validated, error = _validate_dict_payload(
-                data,
+                d,
                 {
                     "mic_id": {
                         "type": (str, type(None)),
@@ -89,12 +91,15 @@ class LevelMonitorHandlersMixin(HandlerBase):
             assert validated is not None  # narrowed by the error guard above
             mic_id = validated.get("mic_id")
             result = self.service.level_monitor_start(mic_id=mic_id)
-            resp["type"] = "level_monitor_status"
-            resp["data"] = result
-        except Exception as exc:
-            # generic WS-path envelope (no ``str(exc)`` leak).
-            self._respond_with_error(resp, exc, "level_monitor_start")
-        return resp
+            return {"type": "level_monitor_status", "data": result}
+
+        return self._wrap(
+            cmd_name="level_monitor_start",
+            resp_type="level_monitor_status",
+            data=data,
+            resp=resp,
+            body=body,
+        )
 
     def _handle_level_monitor_stop(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``level_monitor_stop`` IPC command."""

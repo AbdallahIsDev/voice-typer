@@ -67,7 +67,12 @@ from voice_typer.server.asr_errors import (
     ConsentRequiredError,
 )
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.validation import ErrorCodes, LegacyErrorCodes  # noqa: F401
+from voice_typer.server.ipc.validation import (
+    ErrorCodes,
+    LegacyErrorCodes,  # noqa: F401
+    Schema,
+    _validate_dict_payload,
+)
 
 # Import the recording-pipeline exception hierarchy so the
 # ``_respond_with_error`` isinstance ladder can map ResampleError /
@@ -532,7 +537,7 @@ class HandlerBase(HandlerMixinBase):
     # The SAFE incremental step: define ``_wrap`` so NEW handlers can
     # opt in. Existing handlers continue to work as before. Migration
     # pattern: ``return self._wrap(cmd_name=..., resp_type=..., data=data,
-    # resp=resp, body=lambda d: {"data": ...})``.
+    # resp=resp, body=lambda d: {'data': ...})``.
     def _wrap(
         self,
         *,
@@ -541,19 +546,42 @@ class HandlerBase(HandlerMixinBase):
         data: object,
         resp: dict,
         body: typing.Callable[[dict], dict],
+        schema: Schema | None = None,
+        pre_coerce: bool = True,
     ) -> dict:
         """Template-method helper for consistent IPC handler structure.
 
-        Pre-coerces ``data`` (``None`` → ``{}``), calls ``body``, merges
-        the result into ``resp``, wraps in try/except →
-        :meth:`_respond_with_error`. Per-command VALIDATION errors are
-        NOT routed here — ``body`` should return them directly via
-        ``self._error_response(...)``.
+        Pre-coerces ``data`` (non-dict → ``{}``) when *pre_coerce* is
+        ``True`` (the default), optionally validates it against *schema*
+        (routing validation errors straight back as the response, the
+        same ``if error: return error`` shape the previous inline
+        handlers produced), then calls *body* with the validated dict,
+        merges the result into *resp*, and wraps the whole thing in
+        try/except → :meth:`_respond_with_error`.
+
+        Per-command VALIDATION errors are handled here when *schema* is
+        provided — the error envelope from
+        :func:`_validate_dict_payload` is returned directly. When
+        *schema* is omitted, ``body`` may still return validation
+        errors itself via ``self._error_response(...)``.
+        Pass ``pre_coerce=False`` for handlers whose non-dict ``data``
+        must be passed through unchanged (e.g. those that produce
+        ``client.invalid_payload`` for non-dict input).
         """
         resp["type"] = resp_type
         try:
-            coerced = data if isinstance(data, dict) else {}
-            result = body(coerced)
+            coerced = data if isinstance(data, dict) or not pre_coerce else {}
+            if schema is not None:
+                validated, error = _validate_dict_payload(coerced, schema)
+                if error:
+                    return error
+                assert validated is not None  # narrowed by the error guard above
+            else:
+                # Schema-less calls always pre-coerce (``pre_coerce=True``),
+                # so ``coerced`` is a dict here; ``cast`` satisfies pyrefly
+                # without a runtime check.
+                validated = typing.cast(dict, coerced)
+            result = body(validated)
             if isinstance(result, dict):
                 if "type" in result:
                     resp["type"] = result["type"]

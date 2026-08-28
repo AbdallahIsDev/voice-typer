@@ -28,7 +28,6 @@ from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import (
     ErrorCodes,
     ResponseEnvelope,
-    _validate_dict_payload,
 )
 
 
@@ -47,30 +46,21 @@ class ModelHandlersMixin(HandlerBase):
     # of four that the  centralization refactor missed).
 
     def _handle_download_model(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
-        """Handle the ``download_model`` IPC command."""
-        # TODO: not migrated to ``_wrap`` — has side effects
-        # (``log.warning`` / ``log.info`` calls +
-        # ``self.service.download_model`` mutates the local model cache;
-        # also relies on inline ``_error_response`` early-return shape
-        # that doesn't fit ``_wrap``'s merge contract cleanly).
-        try:
-            # validate the ``model`` field type via the shared
-            # ``_validate_dict_payload`` helper so the ADR-0020 §2 claim
-            # ("every handler re-validates via _validate_dict_payload")
-            # holds. ``required: False, default: ""`` preserves the
-            # existing inline missing-field error message
-            # ("Missing 'model' parameter") that callers depend on;
-            # only the *type* of a present ``model`` is checked here.
-            validated, error = _validate_dict_payload(
-                data,
-                {
-                    "model": {"type": str, "required": False, "default": ""},
-                },
-            )
-            if error:
-                return error
-            assert validated is not None  # narrowed by the error guard above
-            model_name = validated.get("model", "") or ""
+        """Handle the ``download_model`` IPC command.
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        — the helper handles the surrounding ``try/except`` →
+        ``_respond_with_error`` catch-all while passing non-dict
+        ``data`` through unchanged so the schema still rejects it with
+        ``invalid_payload``.
+        """
+
+        def body(d: dict) -> dict:
+            # ``d`` is the schema-validated dict: ``model`` is a str
+            # (default ``""`` when absent), so the missing-name guard
+            # below is the same "Missing 'model' parameter" error the
+            # pre-schema implementation produced.
+            model_name = d.get("model", "") or ""
             if not model_name:
                 log.warning("[IPC] download_model called without model name")
                 return self._error_response(
@@ -81,17 +71,17 @@ class ModelHandlersMixin(HandlerBase):
                 )
             log.info("[IPC] download_model called for '%s'", model_name)
             result = self.service.download_model(model_name)
-            resp["type"] = "download_model_result"
-            resp["data"] = result
-        except Exception as exc:
-            # emit the generic WS-path envelope instead of
-            # leaking ``str(exc)`` to the renderer. 's intent
-            # (correlate failure with operation input) is satisfied by
-            # the entry INFO log above (which records ``model_name``)
-            # plus the ``cmd_name`` argument to ``_respond_with_error``
-            # (which records the operation).
-            self._respond_with_error(resp, exc, "download_model")
-        return resp
+            return {"type": "download_model_result", "data": result}
+
+        return self._wrap(
+            cmd_name="download_model",
+            resp_type="download_model_result",
+            data=data,
+            resp=resp,
+            body=body,
+            schema={"model": {"type": str, "required": False, "default": ""}},
+            pre_coerce=False,
+        )
 
     def _handle_cancel_model_download(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``cancel_model_download`` IPC command."""
@@ -180,43 +170,28 @@ class ModelHandlersMixin(HandlerBase):
 
                 Returns the result dict from ``self.service.import_model()``.
 
-        ``dir_path`` is validated to be within an allowed root
+                ``dir_path`` is validated to be within an allowed root
                 (home directory, OS temp dir, or HF cache) before being passed
                 to ``import_model``.  Without this check, an IPC payload could
                 request scanning — and copying into the app's HF cache — any
                 directory on the filesystem, including ones the user did not
                 pick via the file chooser.
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+                — the helper handles the surrounding ``try/except`` →
+                ``_respond_with_error`` catch-all while passing non-dict
+                ``data`` through unchanged so the schema still rejects
+                it with ``invalid_payload``.
         """
-        # TODO: not migrated to ``_wrap`` — has side effects
-        # (``_validate_import_path`` accesses the filesystem; multiple
-        # ``log.warning`` / ``log.info`` calls; ``self.service.import_model``
-        # mutates the HF cache; multiple inline ``_error_response`` early
-        # returns with distinct ``code`` / ``field`` shapes that don't fit
-        # ``_wrap``'s merge contract cleanly).
-        try:
-            # validate ``dir_path`` is a string via the shared
-            # ``_validate_dict_payload`` helper. ``required: False,
-            # default: ""`` preserves the existing inline missing-field
-            # error message ("Missing 'dir_path' parameter") that
-            # callers depend on; only the *type* of a present
-            # ``dir_path`` is checked here.
-            validated, error = _validate_dict_payload(
-                data,
-                {
-                    "dir_path": {"type": str, "required": False, "default": ""},
-                },
-            )
-            if error:
-                return error
-            assert validated is not None  # narrowed by the error guard above
-            # Narrow ``dir_path`` from ``object`` to ``str`` for
-            # pyrefly. The schema above (``{"type": str, ...}``)
-            # guarantees the value is a ``str`` if present, and the
-            # default is ``""`` (also ``str``); the ``isinstance`` check
-            # is always True at runtime but narrows the static type so
-            # the downstream ``_validate_import_path(dir_path: str)``
-            # call type-checks cleanly.
-            dir_path_raw = validated.get("dir_path", "")
+
+        def body(d: dict) -> dict:
+            # ``d`` is the schema-validated dict: ``dir_path`` is a str
+            # (default ``""`` when absent). Narrow ``dir_path`` from
+            # ``object`` to ``str`` for pyrefly — the ``isinstance``
+            # check is always True at runtime (the schema guaranteed
+            # the type) but narrows the static type so the downstream
+            # ``_validate_import_path(dir_path: str)`` call type-checks.
+            dir_path_raw = d.get("dir_path", "")
             dir_path = dir_path_raw if isinstance(dir_path_raw, str) else ""
             if not dir_path:
                 log.warning("[IPC] import_model called without dir_path")
@@ -264,41 +239,37 @@ class ModelHandlersMixin(HandlerBase):
                 )
             log.info("[IPC] import_model called for path: %s", dir_path)
             result = self.service.import_model(dir_path)
-            resp["type"] = "import_model_result"
-            resp["data"] = result
-        except Exception as exc:
-            # generic WS-path envelope (no str(exc) leak).
-            # correlation: ``dir_path`` is logged at INFO on
-            # entry above; ``cmd_name`` here records the operation.
-            self._respond_with_error(resp, exc, "import_model")
-        return resp
+            return {"type": "import_model_result", "data": result}
+
+        return self._wrap(
+            cmd_name="import_model",
+            resp_type="import_model_result",
+            data=data,
+            resp=resp,
+            body=body,
+            schema={"dir_path": {"type": str, "required": False, "default": ""}},
+            pre_coerce=False,
+        )
 
     def _handle_delete_model(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
-        """Handle the ``delete_model`` IPC command."""
-        # actually delete the model files from disk,
-        # not just remove from the UI list.
-        # TODO: not migrated to ``_wrap`` — has side effects
-        # (``log.warning`` / ``log.info`` calls +
-        # ``self.service.delete_model`` deletes files from disk;
-        # also relies on inline ``_error_response`` early-return shape
-        # that doesn't fit ``_wrap``'s merge contract cleanly).
-        try:
-            # validate the ``model`` field type via the shared
-            # ``_validate_dict_payload`` helper. ``required: False,
-            # default: ""`` preserves the existing inline missing-field
-            # error message ("Missing 'model' parameter") that callers
-            # depend on; only the *type* of a present ``model`` is
-            # checked here.
-            validated, error = _validate_dict_payload(
-                data,
-                {
-                    "model": {"type": str, "required": False, "default": ""},
-                },
-            )
-            if error:
-                return error
-            assert validated is not None  # narrowed by the error guard above
-            model_name = validated.get("model", "") or ""
+        """Handle the ``delete_model`` IPC command.
+
+        Actually delete the model files from disk,
+        not just remove from the UI list.
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        — the helper handles the surrounding ``try/except`` →
+        ``_respond_with_error`` catch-all while passing non-dict
+        ``data`` through unchanged so the schema still rejects it with
+        ``invalid_payload``.
+        """
+
+        def body(d: dict) -> dict:
+            # ``d`` is the schema-validated dict: ``model`` is a str
+            # (default ``""`` when absent); the missing-name guard
+            # below is the same "Missing 'model' parameter" error the
+            # pre-schema implementation produced.
+            model_name = d.get("model", "") or ""
             if not model_name:
                 log.warning("[IPC] delete_model called without model name")
                 return self._error_response(
@@ -309,11 +280,14 @@ class ModelHandlersMixin(HandlerBase):
                 )
             log.info("[IPC] delete_model called for '%s'", model_name)
             result = self.service.delete_model(model_name)
-            resp["type"] = "delete_model_result"
-            resp["data"] = result
-        except Exception as exc:
-            # generic WS-path envelope (no str(exc) leak).
-            # correlation: ``model_name`` is logged at INFO on
-            # entry above; ``cmd_name`` here records the operation.
-            self._respond_with_error(resp, exc, "delete_model")
-        return resp
+            return {"type": "delete_model_result", "data": result}
+
+        return self._wrap(
+            cmd_name="delete_model",
+            resp_type="delete_model_result",
+            data=data,
+            resp=resp,
+            body=body,
+            schema={"model": {"type": str, "required": False, "default": ""}},
+            pre_coerce=False,
+        )

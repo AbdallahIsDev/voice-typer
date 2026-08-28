@@ -249,6 +249,16 @@ class CloudConfigError(CloudEngineError):
     """
 
 
+class CloudEmptyResponseError(CloudEngineError):
+    """HTTP 200 with an empty/blank body or no transcript.
+
+    A provider returning 200 with an empty body (or ``{}`` / a missing
+    transcript field) is an anomaly — the pipeline must not ship an
+    empty transcript as if it were valid. The renderer surfaces a
+    cloud-provider error instead of a silent empty transcription.
+    """
+
+
 class MicrophonePermissionDeniedError(RuntimeError):
     """Raised when the OS denies microphone access (or the user
     declined the consent prompt).

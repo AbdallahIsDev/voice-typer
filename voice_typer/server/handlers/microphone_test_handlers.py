@@ -40,33 +40,22 @@ class MicrophoneTestHandlersMixin(HandlerBase):
     def _handle_microphone_test_start(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``microphone_test_start`` IPC command.
 
-        (session-DE): ``duration`` is now in the schema with
-                ``clamp_range: (1.0, 60.0)``. Previously the inline
-                ``float(d.get("duration") or 10.0)`` coercion accepted any
-                numeric value (including ``1e300`` and ``-5.0``) without
-                bounds — a misbehaving caller could request a 1-hour
-                microphone test that would block the recorder, or a
-                negative-duration test that would crash the service layer.
-                The clamp enforces a sane [1.0, 60.0] window.
+        ``duration`` is validated with ``clamp_range: (1.0, 60.0)``.
+        The schema rule clamps int/float values; string values (e.g.
+        ``"7.5"`` from a form input) pass through and are clamped
+        after the ``float()`` coercion in the body. Note: ``0`` is
+        treated as a real value and clamped to ``1.0`` (not "use
+        default") — the pre-schema ``float(d.get("duration") or 10.0)``
+        treated ``0`` as falsy.
 
-                The ``clamp_range`` rule in the schema only applies to
-                int/float values (the helper skips strings). For string
-                values (e.g. ``"7.5"`` from a form input), the helper
-                passes the string through unchanged; we then do
-                ``float(validated["duration"])`` and re-clamp manually to
-                enforce the same [1.0, 60.0] window on the coerced value.
-
-                Note: the previous ``float(d.get("duration") or 10.0)``
-                treated ``0`` as falsy and used the default ``10.0``. The
-                new clamp treats ``0`` as a real value and clamps it to
-                the lower bound ``1.0``. This is the documented behavior
-        change in  — ``0`` is no longer "use default", it's
-                a clamped value.
+        Migrated to :meth:`HandlerBase._wrap` — the helper handles the
+        surrounding ``try/except`` → ``_respond_with_error`` catch-all
+        and the non-dict ``data`` pre-coercion (``None`` / list → ``{}``)
+        identically to the inline ``if not isinstance(data, dict):
+        data = {}`` guard.
         """
-        # TODO: not migrated to ``_wrap`` — has side effects
-        # (consent-check raises ``ConsentRequiredError`` + ``log.exception``
-        # call + ``self.service.microphone_test_start`` mutates audio state).
-        try:
+
+        def body(d: dict) -> dict:
             # enforce voice_biometric_consent BEFORE
             # capturing any test audio. The mic test returns up to 60s
             # of base64-encoded WAV over IPC — same privacy contract
@@ -95,14 +84,12 @@ class MicrophoneTestHandlersMixin(HandlerBase):
 
             # validate ``mic_id`` and ``filters`` types via the
             # shared ``_validate_dict_payload`` helper. Non-dict
-            # ``data`` is pre-coerced to ``{}`` so the
+            # ``data`` is pre-coerced to ``{}`` by ``_wrap`` so the
             # ``test_non_dict_data_uses_defaults`` contract (None →
             # defaults) still holds; ``_validate_dict_payload`` would
             # otherwise reject non-dict with ``invalid_payload``.
-            if not isinstance(data, dict):
-                data = {}
             validated, error = _validate_dict_payload(
-                data,
+                d,
                 {
                     "mic_id": {
                         "type": (str, type(None)),
@@ -112,28 +99,13 @@ class MicrophoneTestHandlersMixin(HandlerBase):
                     # ADR 0007 filter-config contract: ``filters`` is
                     # a DICT of noise_filter_* keys (the renderer's
                     # ``buildTestFilters`` builds it from config), not
-                    # a list. Every downstream consumer treats it as a
-                    # mapping: ``level_monitor.test_recording`` stores
-                    # it via ``dict(filters)``, merges via
-                    # ``update_test_filters(...).update()``, reads it
-                    # with ``filters.get("noise_filter_enabled", ...)``,
-                    # and unpacks it as ``types.SimpleNamespace(**filters)``
-                    # before constructing ``AudioProcessor``. A list
-                    # payload would crash those call sites at stop time,
-                    # so reject non-dict values here at the validation
-                    # boundary.
+                    # a list — downstream consumers treat it as a
+                    # mapping, so reject non-dict values here.
                     "filters": {
                         "type": (dict, type(None)),
                         "required": False,
                         "default": None,
                     },
-                    # ``duration`` in schema with clamp_range.
-                    # ``type: (int, float, str)`` preserves the
-                    # documented string → float coercion for form-input
-                    # compatibility (``"7.5" → 7.5``). The
-                    # ``clamp_range`` rule clamps int/float values to
-                    # [1.0, 60.0]; strings are clamped after the
-                    # ``float()`` coercion below.
                     "duration": {
                         "type": (int, float, str),
                         "required": False,
@@ -143,12 +115,6 @@ class MicrophoneTestHandlersMixin(HandlerBase):
                 },
             )
             if error:
-                # the helper emits namespaced
-                # ``client.invalid_field`` for the ``duration`` type
-                # check and namespaced ``client.invalid_payload`` for
-                # non-dict ``data``. Test assertions expect the
-                # namespaced form, so the error passes through
-                # unchanged.
                 return error
             assert validated is not None  # narrowed by the error guard above
             mic_id = validated.get("mic_id")
@@ -162,12 +128,15 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             duration = float(validated["duration"])
             duration = max(1.0, min(duration, 60.0))
             result = self.service.microphone_test_start(mic_id=mic_id, duration=duration, filters=filters)
-            resp["type"] = "microphone_test_result"
-            resp["data"] = result
-        except Exception as exc:
-            # generic WS-path envelope (no ``str(exc)`` leak).
-            self._respond_with_error(resp, exc, "microphone_test_start")
-        return resp
+            return {"type": "microphone_test_result", "data": result}
+
+        return self._wrap(
+            cmd_name="microphone_test_start",
+            resp_type="microphone_test_result",
+            data=data,
+            resp=resp,
+            body=body,
+        )
 
     def _handle_microphone_test_stop(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``microphone_test_stop`` IPC command."""

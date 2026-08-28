@@ -14,7 +14,11 @@ part of the documented IPC contract that the renderer switches on.
 
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
+from voice_typer.server.ipc.validation import (
+    _enforce_payload_size_cap,
+    _error_response,
+    _validate_dict_payload,
+)
 
 
 class TemplatesHandlersMixin(HandlerBase):
@@ -29,8 +33,25 @@ class TemplatesHandlersMixin(HandlerBase):
         """Handle the ``get_templates`` IPC command."""
         try:
             templates = self.service.get_templates()
+            # Size-cap guard: the template store is unbounded at the
+            # service layer (accumulated across saves). An oversized
+            # serialized response would be SILENTLY dropped by the 1 MiB
+            # transport frame cap — fail fast with a clear structured
+            # error instead.
+            payload = {"templates": templates}
+            cap_error = _enforce_payload_size_cap(
+                payload,
+                error_message="Templates are too large to transfer over IPC",
+            )
+            if cap_error is not None:
+                resp["type"] = cap_error["type"]
+                resp["data"] = cap_error["data"]
+                log.warning(
+                    "[IPC] get_templates response exceeds payload cap; returning clear error instead of a dropped frame"
+                )
+                return resp
             resp["type"] = "templates"
-            resp["data"] = {"templates": templates}
+            resp["data"] = payload
         except Exception as exc:
             # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "get_templates")
