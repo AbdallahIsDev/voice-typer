@@ -1,11 +1,8 @@
-import {
-	ModernTvIcon,
-	Moon02Icon,
-	Sun01Icon,
-} from "@hugeicons/core-free-icons";
+import { Moon02Icon, Sun03Icon } from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback } from "react";
+import { SunMoonIcon } from "@/components/common/SunMoonIcon";
 import { t } from "@/i18n/i18n";
 import { cn, focusRing } from "@/lib/utils";
 import type { VoiceTyperConfig } from "@/types/config";
@@ -15,9 +12,11 @@ const THEME_CYCLE: {
 	icon: IconSvgElement;
 	labelKey: string;
 }[] = [
-	{ mode: "light", icon: Sun01Icon, labelKey: "theme.light" },
+	{ mode: "light", icon: Sun03Icon, labelKey: "theme.light" },
 	{ mode: "dark", icon: Moon02Icon, labelKey: "theme.dark" },
-	{ mode: "system", icon: ModernTvIcon, labelKey: "theme.system" },
+	// System = "follow the OS default" — a sun/moon combo icon (not the
+	// old TV glyph) so the mode reads as "auto light/dark" at a glance.
+	{ mode: "system", icon: SunMoonIcon, labelKey: "theme.system" },
 ];
 
 // Sentinel fallback used when both `THEME_CYCLE.find(...)` and
@@ -28,7 +27,7 @@ const THEME_CYCLE: {
 // chain `?? THEME_CYCLE_FALLBACK` without a non-null assertion.
 const THEME_CYCLE_FALLBACK: (typeof THEME_CYCLE)[number] = {
 	mode: "system",
-	icon: ModernTvIcon,
+	icon: SunMoonIcon,
 	labelKey: "theme.system",
 };
 
@@ -120,7 +119,7 @@ export function ThemeSwitch({
 			})}
 		>
 			<HugeiconsIcon
-				icon={current.icon ?? ModernTvIcon}
+				icon={current.icon ?? SunMoonIcon}
 				strokeWidth={2}
 				className="h-4 w-4 shrink-0"
 			/>

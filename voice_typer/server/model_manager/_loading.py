@@ -265,19 +265,81 @@ class LoadingMixin:
                 exc_info=True,
             )
 
-    def fallback_to_whisper(self, notify_on_failure: bool = False) -> None:
-        """Fallback to Whisper tiny after Parakeet/Qwen backend failed.
+    def _find_installed_model(self) -> tuple[str, str] | None:
+        """Return the first installed (downloaded) model as ``(backend, model_size)``.
 
-        008: Uses the registry to reconfigure and reload.
-        Switches config to whisper/tiny (the smallest Whisper model —
-        deliberately a LITERAL, not ``DEFAULT_MODEL_SIZE``: the
-        fallback must stay small/fast even if the config default
-        changes), ensures the whisper backend is registered, and
-        delegates loading to AsrBackendRegistry.load_with_fallback().
+        Scans ``MODEL_REGISTRY`` in registry order (tiny → large-v3 →
+        turbo → parakeet → qwen), skipping the currently configured
+        model (the one that just failed to load), and returns the first
+        whose weights are on disk. Returns ``None`` when nothing is
+        installed.
+
+        This is the fallback the app uses when the user's chosen model
+        fails to load — it degrades to ANY model the user has actually
+        downloaded, not a hardcoded model name (the old "whisper/tiny"
+        fallback depended on a specific tiny model that is being phased
+        out).
         """
-        self._app.config.model_size = "tiny"
-        self._app.config.asr_backend = "whisper"
-        #  persist the fallback so the next boot
+        from voice_typer.server import config as _cfg
+        from voice_typer.server.model_registry import MODEL_REGISTRY
+        from voice_typer.server.tray_models import (
+            _check_hf_model_downloaded,
+            _check_parakeet_model_downloaded,
+            _check_qwen_model_downloaded,
+        )
+
+        config_dir = _cfg._config_dir()
+        current = getattr(self._app.config, "model_size", "")
+        for name, meta in MODEL_REGISTRY.items():
+            if name == current:
+                continue
+            if meta.backend == "qwen":
+                if _check_qwen_model_downloaded(
+                    config_dir,
+                    getattr(self._app.config, "qwen_model_path", None),
+                ):
+                    return ("qwen", name)
+            elif meta.backend == "parakeet":
+                if _check_parakeet_model_downloaded(
+                    config_dir,
+                    getattr(self._app.config, "parakeet_model_path", None),
+                ):
+                    return ("parakeet", name)
+            else:
+                if _check_hf_model_downloaded(meta.repo_id, config_dir):
+                    return (meta.backend, name)
+        return None
+
+    def fallback_to_whisper(self, notify_on_failure: bool = False) -> None:
+        """Fall back to an INSTALLED model after the configured one failed.
+
+        Replaces the old hardcoded "whisper/tiny" fallback. When the
+        user's chosen model fails to load (deleted, corrupted, moved),
+        this picks the first model whose weights are actually on disk
+        (any backend — whisper, parakeet, or qwen) and switches the
+        config + engine to it. The choice persists, so the next boot
+        does NOT re-try the failed backend. If NO model is installed,
+        surfaces the "open Models and download" error instead.
+        """
+        fallback = self._find_installed_model()
+        if fallback is None:
+            # Nothing installed — surface the actionable message rather
+            # than trying to load a phantom model.
+            missing_backend = self._app.config.asr_backend
+            self._notify_model_load_refused(
+                ModelNotDownloadedError(
+                    "No speech model is installed. Open the Models page to download one.",
+                    model_size=NO_MODEL_SIZE,
+                    backend=missing_backend,
+                ),
+                backend=missing_backend,
+            )
+            return
+        new_backend, new_model = fallback
+        log.info("[MODEL] falling back to installed model %s/%s", new_backend, new_model)
+        self._app.config.model_size = new_model
+        self._app.config.asr_backend = new_backend
+        # persist the fallback so the next boot
         # doesn't re-try the failed backend and repeat the failure
         # loop.  Previously the config mutation was in-memory only —
         # if the app crashed after fallback, the next boot read the
@@ -292,30 +354,7 @@ class LoadingMixin:
             # Adding it keeps the log topic-consistent so log filters /
             # greps work.
             log.warning("[MODEL] failed to persist fallback config", exc_info=True)
-        existing = self._registry.get("whisper")
-        if existing is None:
-            self._registry.create(
-                "whisper",
-                whisper_kwargs=dict(
-                    model_size="tiny",
-                    device=self._app.config.device,
-                    language=self._app.config.language,
-                    beam_size=self._app.config.beam_size,
-                    best_of=self._app.config.best_of,
-                    condition_on_previous_text=self._app.config.condition_on_previous_text,
-                    # pass live Config so consent check works.
-                    config=self._app.config,
-                ),
-            )
-        else:
-            existing.model_size = "tiny"
-            existing._configured_model_size = "tiny"
-            # also backfill the config reference on the
-            # existing engine in case it was constructed without one
-            # (e.g. by an older code path or a test).  No-op if the
-            # engine already has a non-None config.
-            if getattr(existing, "config", None) is None:
-                existing.config = self._app.config
+        self._ensure_engine(new_backend)
 
         def on_progress(msg: str):
             self._app.tray.set_state(AppState.LOADING, msg)
@@ -323,9 +362,9 @@ class LoadingMixin:
         try:
             success = self._registry.load_with_fallback(progress_callback=on_progress)
         except (ModelNotDownloadedError, ModelIntegrityError) as exc:
-            # Whisper tiny isn't downloaded either — surface the
+            # The fallback model isn't downloaded either — surface the
             # actionable message instead of crashing the hotkey thread.
-            self._notify_model_load_refused(exc, backend="whisper")
+            self._notify_model_load_refused(exc, backend=new_backend)
             return
         if success:
             #  PERF-015 LRU eviction — touch the

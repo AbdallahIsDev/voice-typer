@@ -231,19 +231,24 @@ def is_active_model_downloaded(config) -> bool:
     backend = getattr(config, "asr_backend", "whisper") or "whisper"
     from voice_typer.server.model_registry import NO_MODEL_SIZE
 
-    # "No model selected" (``model_size == ""``) — there is nothing to
-    # probe. Return False (definitively absent) so the load path refuses
-    # with a "No model selected" message instead of trying to load a
-    # model for the empty size, and the tray tooltip shows no model
-    # suffix.
-    if getattr(config, "model_size", None) == NO_MODEL_SIZE:
-        return False
+    # Qwen / Parakeet are selected via ``asr_backend``, NOT via
+    # ``model_size`` — their weights check is independent of the empty
+    # "no model selected" sentinel, so a config with ``asr_backend =
+    # "parakeet"`` + ``model_size = ""`` (e.g. a user who set the model
+    # path in Settings) still reports the installed weights correctly.
     if backend == "qwen":
         return _check_qwen_model_downloaded(config_dir, getattr(config, "qwen_model_path", None))
     if backend == "parakeet":
         return _check_parakeet_model_downloaded(config_dir, getattr(config, "parakeet_model_path", None))
+    # Whisper: "No model selected" (``model_size == ""``) — there is
+    # nothing to probe. Return False (definitively absent) so the load
+    # path refuses with a "No model selected" message instead of trying
+    # to load a model for the empty size, and the tray tooltip shows no
+    # model suffix.
+    if getattr(config, "model_size", None) == NO_MODEL_SIZE:
+        return False
     if backend in ("whisper", "distil-whisper"):
-        model_size = getattr(config, "model_size", "tiny") or "tiny"
+        model_size = getattr(config, "model_size", "") or ""
         from voice_typer.server.model_registry import get_model_metadata
 
         meta = get_model_metadata(model_size)

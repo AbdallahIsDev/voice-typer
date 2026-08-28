@@ -266,14 +266,15 @@ export default function OnboardingPage({
 	// hint shows a localized, human-readable label (e.g. "Caps Lock")
 	// rather than the raw pynput token uppercased ("CAPS_LOCK").
 	const defaultHotkeyLabel = formatHotkey(HOTKEY_DEFAULT);
-	//mirror the hotkey hint pattern for the Model step.
-	// The wizard pre-selects MODEL_DEFAULT (currently "tiny") so the
-	// user can click Continue without touching the Select — but
-	// without a hint, it's not obvious they're accepting a default
-	// rather than an explicit choice. The hint is suppressed once the
-	// user picks a different model.
+	// mirror the hotkey hint pattern for the Model step. The wizard
+	// NO LONGER pre-selects a default model (MODEL_DEFAULT is the empty
+	// "no model selected" sentinel — the app has no concrete default),
+	// so there is no default to advertise; the hint only renders when a
+	// real default exists (kept for future-proofing / legacy configs).
 	const showDefaultModelHint =
-		step.step_name === "Model" && selectedModel === MODEL_DEFAULT;
+		step.step_name === "Model" &&
+		MODEL_DEFAULT !== "" &&
+		selectedModel === MODEL_DEFAULT;
 	//mirror the hint pattern for the Microphone step.
 	// The wizard auto-selects the OS default input device (mic with
 	// `default: true` from list_microphones). Show a "Default: <name>"
@@ -524,12 +525,10 @@ export default function OnboardingPage({
 								{t("theme.preset.default")}: {defaultHotkeyLabel}
 							</span>
 						)}
-						{/*mirror the hotkey hint for the
-                                                        Model step. The wizard pre-selects
-                                                        MODEL_DEFAULT ("tiny"); this hint makes that
-                                                        pre-selection visible so the user knows
-                                                        they're accepting the recommended default
-                                                        rather than explicitly choosing. */}
+						{/* mirror the hotkey hint for the
+                                                        Model step. Renders only when a non-empty
+                                                        MODEL_DEFAULT exists (the app has no
+                                                        concrete default model anymore). */}
 						{showDefaultModelHint && (
 							<span
 								className="text-xs text-(--text-muted)"

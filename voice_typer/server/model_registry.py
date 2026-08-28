@@ -111,17 +111,6 @@ class ModelMetadata:
 # the catalog.  Group by size (tiny → large → turbo → distil) so the
 # user sees the most relevant models first.
 
-# The canonical DEFAULT model size — the single source of truth for
-# the model that fresh installs / config resets fall back to (config
-# dataclass default, load-time coercion reset target, onboarding
-# pre-selection, IPC payload defaults, and the renderer's fallback).
-# Changing the default later is a ONE-LINE change here (plus the
-# client mirror ``MODEL_DEFAULT`` in
-# ``client/src/renderer/src/pages/onboarding/lib/constants.ts`` — the
-# parity test ``tests/test_default_model_sync.py`` keeps them in
-# lockstep). MUST reference an entry that stays in ``MODEL_REGISTRY``.
-DEFAULT_MODEL_SIZE: str = "tiny"
-
 # Sentinel for "no model selected": the config's ``model_size`` can be
 # the empty string, meaning the user has genuinely not picked a model
 # yet (or their previous selection was cleared because the model's
@@ -132,6 +121,22 @@ DEFAULT_MODEL_SIZE: str = "tiny"
 # stays a plain ``str`` end-to-end (JSON round-trip, IPC types, the
 # renderer's ``ModelSize`` union).
 NO_MODEL_SIZE: str = ""
+
+# The canonical DEFAULT model size. THIS IS DELIBERATELY "no model
+# selected" — the app has NO concrete default model. A fresh install /
+# config reset must not claim a model is selected when none is (a
+# concrete default like the old "tiny" made every consumer surface a
+# phantom model name — "tiny" — even when its weights were never
+# installed). The user explicitly chooses a model (onboarding or the
+# Models page) and that choice persists across restarts.
+#
+# Kept as a named constant (single indirection over ``NO_MODEL_SIZE``)
+# so the config dataclass default, the load-time coercion reset target,
+# the onboarding pre-selection, and IPC payload defaults all read the
+# same source of truth — and the client mirror ``MODEL_DEFAULT`` in
+# ``client/src/renderer/src/pages/onboarding/lib/constants.ts`` stays in
+# lockstep (parity test ``tests/test_default_model_sync.py``).
+DEFAULT_MODEL_SIZE: str = NO_MODEL_SIZE
 
 MODEL_REGISTRY: dict[str, ModelMetadata] = {
     # ── Standard Whisper variants (Systran/faster-whisper-*) ──────

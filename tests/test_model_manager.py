@@ -283,29 +283,28 @@ class TestInitWiring:
 
 
 class TestFallbackToWhisper:
-    """``fallback_to_whisper`` must mutate config + persist it, construct
-    the whisper backend if missing, load via the registry, and update
-    tray state for both success and failure paths.
+    """``fallback_to_whisper`` must find an INSTALLED model, switch the
+    config to it + persist, ensure the engine exists, load via the
+    registry, and update tray state — OR refuse with "no model
+    installed" when nothing is on disk (the old hardcoded whisper/tiny
+    fallback was removed: the tiny model is being phased out, so the
+    fallback now degrades to ANY downloaded model).
     """
 
-    def test_success_path_creates_whisper_and_sets_idle_tray(self):
+    def test_success_path_switches_to_installed_model_and_sets_idle_tray(self):
         from voice_typer.server.tray_types import AppState
 
         mm, app = _make_mm_with_mock_registry()
-        # Whisper not yet registered -> registry.create must be called.
-        mm._registry.get.return_value = None
+        # An installed model is found → fall back to it (not hardcoded tiny).
+        mm._find_installed_model = MagicMock(return_value=("whisper", "large-v3"))
         mm._registry.load_with_fallback.return_value = MagicMock(name="active")
 
         mm.fallback_to_whisper(notify_on_failure=False)
 
-        # Config mutated to whisper/tiny and persisted.
+        # Config mutated to the INSTALLED model and persisted.
         assert app.config.asr_backend == "whisper"
-        assert app.config.model_size == "tiny"
+        assert app.config.model_size == "large-v3"
         app.config.save.assert_called_once()
-        # Whisper backend was missing -> registry.create invoked.
-        mm._registry.create.assert_called_once()
-        create_kwargs = mm._registry.create.call_args
-        assert create_kwargs.args[0] == "whisper"
         # load_with_fallback invoked with a progress_callback.
         assert mm._registry.load_with_fallback.called
         # LRU touched + eviction considered on success.
@@ -319,22 +318,35 @@ class TestFallbackToWhisper:
         from voice_typer.server.tray_types import AppState
 
         mm, app = _make_mm_with_mock_registry()
-        # Whisper already registered -> create NOT called.
-        existing = MagicMock(name="existing-whisper")
-        mm._registry.get.return_value = existing
-        # Load fails.
+        # An installed model is found, but its load fails.
+        mm._find_installed_model = MagicMock(return_value=("whisper", "large-v3"))
         mm._registry.load_with_fallback.return_value = None
 
         mm.fallback_to_whisper(notify_on_failure=True)
 
-        # No create when backend already exists — just model_size backfill.
-        mm._registry.create.assert_not_called()
-        assert existing.model_size == "tiny"
         # Tray transitioned to ERROR on failure.
         tray_states = [c.args[0] for c in app.tray.set_state.call_args_list]
         assert AppState.ERROR in tray_states, f"fallback_to_whisper failure must set tray to ERROR; got {tray_states}"
         # notify_on_failure=True -> tray.notify_safety fired.
         app.tray.notify_safety.assert_called_once()
+
+    def test_no_installed_model_refuses_with_not_downloaded(self):
+        """Nothing on disk → refuse with the 'open Models' error; do NOT
+        try to load a phantom model or touch the tray as IDLE."""
+        from voice_typer.server.tray_types import AppState
+
+        mm, app = _make_mm_with_mock_registry()
+        mm._find_installed_model = MagicMock(return_value=None)
+        mm._notify_model_load_refused = MagicMock()
+
+        mm.fallback_to_whisper(notify_on_failure=True)
+
+        # The refusal message was surfaced, no load was attempted, and
+        # the app was NOT left in a running (IDLE) state.
+        mm._notify_model_load_refused.assert_called_once()
+        mm._registry.load_with_fallback.assert_not_called()
+        tray_states = [c.args[0] for c in app.tray.set_state.call_args_list]
+        assert AppState.IDLE not in tray_states
 
 
 class TestChangeModelBlocking:

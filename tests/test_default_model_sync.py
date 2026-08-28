@@ -51,7 +51,7 @@ def _extract_model_default(ts_source: str) -> str:
     not silently pass.
     """
     m = re.search(
-        r"""export\s+const\s+MODEL_DEFAULT\s*=\s*["']([^"']+)["']\s*;""",
+        r"""export\s+const\s+MODEL_DEFAULT\s*=\s*["']([^"']*)["']\s*;""",
         ts_source,
     )
     assert m is not None, (

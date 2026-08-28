@@ -22,6 +22,7 @@ free (no HuggingFace calls, no GPU init).
 from voice_typer.server.model_registry import (
     DEFAULT_MODEL_SIZE,
     MODEL_REGISTRY,
+    NO_MODEL_SIZE,
     ModelMetadata,
     get_all_models,
     get_model_metadata,
@@ -78,12 +79,18 @@ class TestModelRegistryContainsWhisperVariants:
         """tiny + large-v3 + large-v3-turbo + parakeet + qwen = 5 entries."""
         assert len(MODEL_REGISTRY) == 5, f"Expected 5 models, got {len(MODEL_REGISTRY)}: {sorted(MODEL_REGISTRY)}"
 
-    def test_default_model_size_is_a_valid_registry_entry(self):
-        """DEFAULT_MODEL_SIZE must reference a model that exists (the
-        config dataclass default + load-time reset target rely on it)."""
-        assert DEFAULT_MODEL_SIZE in MODEL_REGISTRY, (
-            f"DEFAULT_MODEL_SIZE={DEFAULT_MODEL_SIZE!r} is not a registry key — "
-            "changing the default requires an entry that stays in MODEL_REGISTRY."
+    def test_default_model_size_is_the_no_model_sentinel(self):
+        """DEFAULT_MODEL_SIZE is deliberately the "no model selected"
+        sentinel (NO_MODEL_SIZE, ""), NOT a registry entry. The app has
+        NO concrete default model — a fresh install must not claim a
+        model is selected when none is (the old "tiny" default made
+        every consumer surface a phantom model name). It must equal the
+        NO_MODEL_SIZE sentinel so config defaults / coercion resets land
+        on "no model selected", and the user explicitly chooses."""
+        assert DEFAULT_MODEL_SIZE == NO_MODEL_SIZE, (
+            f"DEFAULT_MODEL_SIZE={DEFAULT_MODEL_SIZE!r} must be the 'no model "
+            f"selected' sentinel (NO_MODEL_SIZE={NO_MODEL_SIZE!r}) — the app "
+            "has no concrete default model."
         )
 
 

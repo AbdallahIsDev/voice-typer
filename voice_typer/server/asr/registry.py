@@ -326,12 +326,22 @@ class RegistryCore:
             whisper = self._backends.get("whisper")
         if whisper is None:
             # Cold boot with a non-whisper primary — construct whisper
-            # with tiny so the fallback has something to load.
-            log.info("[ASR_REGISTRY] whisper backend not registered — constructing with tiny for fallback")
+            # with the configured model size (the user's chosen model,
+            # or empty if none was selected). The old hardcoded "tiny"
+            # fallback was removed because the tiny model is being
+            # phased out; the caller's ``fallback_to_whisper`` (ModelManager)
+            # will find the first actually-installed model if this
+            # fails.
+            fallback_size = getattr(self._config, "model_size", "")
+            log.info(
+                "[ASR_REGISTRY] whisper backend not registered — constructing with "
+                "configured model_size=%r for fallback",
+                fallback_size,
+            )
             whisper = self.create(
                 "whisper",
                 whisper_kwargs=dict(
-                    model_size="tiny",
+                    model_size=fallback_size,
                     device=self._config.device,
                     language=self._config.language,
                     beam_size=self._config.beam_size,

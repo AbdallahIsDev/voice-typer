@@ -179,8 +179,8 @@ export function useDashboardData({
 						.catch(() => null),
 					// MODEL-STATE fix: the "Current Setup" model/device
 					// values must reflect ACTUAL install state, not the
-					// config defaults (``model_size="tiny"``,
-					// ``device="cuda"``). ``get_model_status`` stats the
+					// config values (the app has no concrete default
+					// model; ``device`` is a preference). ``get_model_status`` stats the
 					// filesystem — the same truth the Models page and the
 					// backend's startup banner use. A configured model
 					// whose weights are not on disk is reported as "no
@@ -226,9 +226,10 @@ export function useDashboardData({
 			}
 
 			// MODEL-STATE fix (source of the misleading "Model: tiny /
-			// Device: CUDA" on fresh installs): the config carries
-			// defaults (``DEFAULT_MODEL_SIZE="tiny"``, ``device="cuda"``)
-			// that are NOT install state. Only report model/device when
+			// Device: CUDA" on fresh installs): the config values
+			// (``model_size`` / ``device``) are NOT install state — the
+			// app has no concrete default model, and device is only a
+			// preference. Only report model/device when
 			// the configured model's weights are actually on disk per
 			// ``get_model_status``; otherwise surface ``null`` so the
 			// display layer renders the localized "Not selected" state

@@ -24,12 +24,15 @@ export { HOTKEY_DEFAULT } from "@/components/hotkey/hotkey-utils";
 
 // Renderer default model must match the backend's canonical default
 // `DEFAULT_MODEL_SIZE` (`voice_typer/server/model_registry.py`) so the
-// wizard can detect "user is accepting the default" and show a
-// "Default: <name>" hint next to the Continue button — mirroring the
-// HOTKEY_DEFAULT hint pattern. Change the default in the backend's
+// wizard behaves identically to the backend's config default / coercion
+// reset target. The value is the empty string — the app has NO concrete
+// default model: a fresh install starts with "no model selected" and the
+// user explicitly chooses one (onboarding or the Models page). The old
+// `"tiny"` default made every consumer surface a phantom model name when
+// its weights were never installed. Change the default in the backend's
 // `DEFAULT_MODEL_SIZE` (ONE place); keep THIS value in lockstep — the
 // Python test `tests/test_default_model_sync.py` asserts the two match.
-export const MODEL_DEFAULT = "tiny";
+export const MODEL_DEFAULT = "";
 
 // Fix 10: 5s → 10s — too short for users still reading the instructions.
 export const TEST_HOTKEY_TIMEOUT_MS = 10_000;

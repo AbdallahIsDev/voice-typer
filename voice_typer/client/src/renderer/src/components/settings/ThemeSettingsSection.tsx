@@ -18,15 +18,12 @@
 // respectively. This file is now JSX-only: it calls the hook, reads
 // translations, and renders the section.
 
-import {
-	ModernTvIcon,
-	Moon02Icon,
-	Sun01Icon,
-} from "@hugeicons/core-free-icons";
+import { Moon02Icon, Sun03Icon } from "@hugeicons/core-free-icons";
 import { memo } from "react";
 import { RangeSlider } from "@/components/common/RangeSlider";
 import { SettingRow } from "@/components/common/SettingRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
+import { SunMoonIcon } from "@/components/common/SunMoonIcon";
 import { Input } from "@/components/ui/input";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import {
@@ -69,10 +66,10 @@ import {
 const _THEME_OPTION_KEYS = [
 	{
 		value: "system",
-		icon: ModernTvIcon,
+		icon: SunMoonIcon,
 		labelKey: "settings.appearance.systemDefault",
 	},
-	{ value: "light", icon: Sun01Icon, labelKey: "settings.appearance.light" },
+	{ value: "light", icon: Sun03Icon, labelKey: "settings.appearance.light" },
 	{ value: "dark", icon: Moon02Icon, labelKey: "settings.appearance.dark" },
 ] as const;
 

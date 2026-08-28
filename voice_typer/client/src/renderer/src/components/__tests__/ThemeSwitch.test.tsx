@@ -53,7 +53,7 @@ describe("ThemeSwitch", () => {
 		);
 		// HugeiconsIcon mock renders <span data-name={icon.name}>.
 		const iconSpan = screen.getByTestId("hugeicon");
-		expect(iconSpan.getAttribute("data-name")).toBe("Sun01Icon");
+		expect(iconSpan.getAttribute("data-name")).toBe("Sun03Icon");
 
 		rerender(<ThemeSwitch themeMode="dark" onThemeChange={vi.fn()} />);
 		expect(screen.getByTestId("hugeicon").getAttribute("data-name")).toBe(
@@ -61,9 +61,10 @@ describe("ThemeSwitch", () => {
 		);
 
 		rerender(<ThemeSwitch themeMode="system" onThemeChange={vi.fn()} />);
-		expect(screen.getByTestId("hugeicon").getAttribute("data-name")).toBe(
-			"ModernTvIcon",
-		);
+		// The system mode uses the CUSTOM SunMoonIcon (a raw IconSvgElement,
+		// not a named hugeicons export), so the hugeicons mock's data-name
+		// is undefined — the absence of a hugeicons name IS the assertion.
+		expect(screen.getByTestId("hugeicon").getAttribute("data-name")).toBe(null);
 	});
 
 	it("calls onThemeChange with 'dark' when clicked in light mode", () => {
