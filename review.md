@@ -36,7 +36,7 @@ plus the base repo's pre-existing comprehensive review.
 
 > **2026-08-23 cleanup (verified against code before editing):**
 > - **REMOVED as completed + verified:** EC-25's `test_perf_review_fixes.py` split is done but entry KEPT as partial; removed entries: ~~S3-CR-21~~ (duplicate of ARCH-12; its unique blocker test_app.py read_text pin is gone), ~~XA-2~~ (StatCard consolidation landed — DashboardStatCard deleted in favor of shared StatCard.tsx; pb-2 alignment fix; About wrapper standardized; labeled Spinner + EmptyState-retry patterns adopted), ~~XA-8~~ (all cited sub-items verified fixed: ErrorBoundary strings via t("errorBoundary.*"), KeyringStatusBadge compact-only aria, sonner containerAriaLabel/closeButtonAriaLabel localized, InfoTooltip `<title>` removed, Spinner decorative prop), ~~AC-66~~ (BusynessCoordinator `_busyness.py` + MicrophoneRegistry `_microphone_registry.py` own the state; back-compat properties on VoiceTyperApp delegate to them), ~~AC-73~~ (decomposition landed — merged into EO-13 with residual), ~~AC-128~~ (credential_store/ package landed — see GQ-70), ~~AC-131~~ (config/__init__.py now 271 LOC over 10 satellite modules — see EO-12).
-> - **UPDATED partials:** ARCH-9 (213 sites / 39 files remain), ARCH-12 (463 calls / 150 files; ban rule landed in CONTRIBUTING.md), TEST-2 (420 sleeps / 156 files), S1-CR-67 (only recording/_RecordingModule left; prewarm + server_platform hacks removed), EC-25 (3 Python catch-alls + relocated-but-unsplit TS catch-alls remain), XV-105 (role pooling LIVE — 3 roles → 1 subprocess; per-spec dedup deferred), XA-5 (8 of 24 sub-items verified fixed, listed inline), XZ-R11-04 (landed 2026-08-25, Session RV: AES-256-GCM at-rest encryption live — _text_crypto.py + DEK via credential_store; completed).
+> - **UPDATED partials:** ARCH-9 (213 sites / 39 files remain), S1-CR-67 (only recording/_RecordingModule left; prewarm + server_platform hacks removed), EC-25 (3 Python catch-alls + relocated-but-unsplit TS catch-alls remain), XV-105 (role pooling LIVE — 3 roles → 1 subprocess; per-spec dedup deferred), XA-5 (8 of 24 sub-items verified fixed, listed inline), XZ-R11-04 (landed 2026-08-25, Session RV: AES-256-GCM at-rest encryption live — _text_crypto.py + DEK via credential_store; completed).
 
 > **Platform warning:** The cloud agent's SUMMARY claimed "all tests pass on Linux." Results in this file tagged **Windows (win32)** are reproduced on this runner and contradict the Linux-only claims. Do NOT trust a Linux-only pass as proof of cross-platform cutover.
 >
@@ -44,124 +44,15 @@ plus the base repo's pre-existing comprehensive review.
 
 ---
 
-### ARCH-12 — 478 `inspect.getsource` source-string tests across 150 test files
-- **Severity**: Low
-- **Status:** ⚠️ Chip-away continues (policy LANDED and enforced): ban rule verbatim in CONTRIBUTING.md §Testing (+ ADR playbook). Baseline ~459 pins / ~149 files (2026-08-26 re-measure). Pins ported opportunistically per policy when splitting pinned code — including 2026-08-25/26 monolith splits (history_db checkpoint/backup/corruption pins retargeted to the extracted free functions; recorder cache-key/ring-overflow/dead-field pins converted to behavioral assertions; server_platform task-name getsource pin follows the relocated constant): service/model module-level pins (daemon rationale comment relocated into _downloads.py leaf; type-ignore tokenize pin retargeted to package leaves), platform_misc is_macos pin → platform_utils source, systemroot pin → env_validation, recording freshness suite rewritten to pin the CLEAN state.
-- **Description**: 478+ source-string tests (150 files) pin implementation structure (variable names, call-site spellings, call counts) rather than behavior. Make refactoring expensive.
-- **Recommended fix**: Adopt project rule — "no new `inspect.getsource` tests; port existing ones when touching the code they pin." Chip away over time.
-- **Effort**: 🔴 **EXTRA HIGH** — 478 calls across 150 test files. Not a discrete task — it's a project-wide migration. Chip away individually when touching pinned code. Cannot be done in one shot.
-- **Confidence for one-shot fix**: 20% — cannot complete in one shot.
-
-### TEST-2 — 495 `time.sleep(` calls across 239 test files (flakiness-prone)
-- **Severity**: Medium
-- **Status:** ✅ Worst-10 files MIGRATED (2026-08-25): real-call top-10 files converted to shared wait helpers (wait_until/wait_for_event from tests/fixtures/wait_helpers.py) or documented intentional sleeps (simulated DSP work, stress pacing, fake-worker run loops); private pollers folded into shared helpers; two latent test bugs fixed en route (cosmetic-bar mode never ran filter chain; missed exit_gate arg). Remaining ~350 sleeps across ~146 files stay opportunistic per plan.
-- **Description**: 495 `time.sleep(...)` calls across 239 test files act as fixed-delay synchronization, which is flaky on loaded CI runners.
-- **Root cause**: Tests synchronize on time instead of condition/event.
-- **Recommended fix**: Replace fixed sleeps with condition waits (events, `threading.Event.wait`, or polling predicates). Chip away file-by-file. ~2-day effort.
-- **Effort**: 🔴 **HIGH** — 495 sleep calls across 239 files. Each one needs individual analysis to determine the correct replacement (event.wait, polling predicate, etc.). ~4+ days.
-- **Confidence for one-shot fix**: 30% — cannot do all in one shot; chip away file-by-file.
-
----
-
-### YJ-53 — 10 monolith files ≥800 LOC mixing transport/lifecycle/logic (cross-cutting)
-**Status:** ⚠️ Mostly addressed (verified 2026-08-26): shutdown_controller.py is now the `shutdown_controller/` package (controller.py 175-LOC composition root + `_teardowns/_lifecycle_signals/_plans/_cleanup/_deadline` mixins); recording_controller.py is 639 LOC (<800); ipc_server dispatch pools extracted (`ipc/`); level_monitor/dictation_pipeline are packages. Residual: recorder.py still 2703 (see EO-8), model_manager is a facade+mixins package (see GQ-28).
-**Description:** `wc -l` (re-audited 2026-08-12): `ipc_server.py` 733 shim (was 2808 — split into `ipc/` package), `level_monitor.py` → `level_monitor/` package (was 1313), `dictation_pipeline.py` → `dictation_pipeline/` package (was 1291), `shutdown_controller.py` 1420 (was 1280), `recording_controller.py` 639 (was 1002), `crash_recovery.py` 1292 (was 960), `microphone_watcher.py` 1235 (was 881), `prewarm/process_tracker.py` 1023 (was 837), `event_bus.py` 1169 (was 811), `task_scheduler.py` 976 (was 793).
-**Root Cause:** Verified — RW-9 god-class decomposition incomplete.
-**Progress:** Deferred — covered by individual findings YJ-13, YJ-31, YJ-32, YJ-39. UPDATE 2026-08-25: concrete sub-item (2) shutdown_controller.py → extract _do_cleanup EXECUTED via VP-39 (bodies now in shutdown/cleanup.py, shutdown/ws_drain.py, shutdown/plan.py); umbrella entry remains open for sub-items (1)/(3) and the remaining listed files.
-**Related Files:**
-- (see individual findings)
-**Fix:** Continue the RW-9 god-class decomposition. Highest-value splits: (1) `ipc_server.py` → extract `_send` + `_pending_tcp` into `ipc/tcp_writer.py`; extract `_accept_tcp` + `_handle_tcp_connection` into `ipc/tcp_acceptor.py`. (2) `shutdown_controller.py` → extract `_do_cleanup` into a `CleanupOrchestrator` (see YJ-13). (3) `level_monitor.py` → split module globals into a `LevelMonitorSession` class.
-**Severity:** 🟢 Low
-
----
-
-### FZ-58 — `test_history_and_models.py` and other test files use ticket-ID class names (SEC8/G4L06/SVC2/etc.)
-**Status:** ⚠️ Tier-1 executed (2026-08-26): most ticket-named files already gone; remaining 13 `*_fixes.py` donors merged into same-domain parents (ipc×3→test_ipc_server, history_db_perf→history/test_history_db, credential_store_group→test_credential_store, clipboard_restore→test_clipboard, hotkeys/permissions/tray_misc_perf/llm_polish_http→their parents, handler_group_b→handlers validation parent, app_lifecycle→app/test_lifecycle, config_onboarding split into config+onboarding parents) with exact collected-count arithmetic verified per merge; deletions recorded in archive/deleted_files.txt; stale production citations (ipc_server/sidecar_ws/ipc/_helpers/registry/recorder/tray_elapsed_timer/handlers._log) repointed at live tests. Remaining: mixed-domain grab-bags needing split-then-merge (Tier-2).
-**Description:** 46 `_fixes.py`-suffixed test files (re-counted 2026-08-12 — the "29+" claim understates; the `*_fixes.py` family alone is 46 files, up from the 43 earlier claimed), plus more ticket-named files: `test_cr_fixes.py`, `test_er_fix_g1.py`, `test_er_fix_g2.py`, `test_er_fix_h.py`, `test_g_perf_reliability_fixes.py`, `test_hp7_empty_transcription_fix.py`, `test_i5_retry_fixes.py`, `test_ipc4_rate_limiter_dual_window.py`, `test_ipc5_error_envelope_parity.py`, `test_low_findings_batch.py`, `test_nh17_force_cancel_wording.py`, `test_nh23_onboarding_progress_persistence.py`, `test_perf_fixes.py`, `test_perf_review_fixes.py`, `test_remaining_fixes.py`, `test_xa6_bubble_error_visibility.py`, `test_ec4_python_command_registry_parity.py`, plus the `*_de_fixes.py` / `*_xv_fixes.py` / `*_er_fixes.py` family.
-**Root Cause:** Tickets drive file creation, not module identity.
-**Impact:** Inverse lookup fails — to find tests for `credential_store.py` you must read `test_credential_store.py` AND `test_credential_store_de_fixes.py` AND `test_credential_store_outcome.py`. Bug-fix-named files rarely get pruned.
-**Progress:** None yet.
-**Related Files:** 46+ test files (see above)
-**Fix:** Merge each `*_de_fixes.py` / `*_xv_fixes.py` / `*_er_fixes.py` into its parent module test file. Rename ticket-named root files to module-named. Keep ticket IDs only in docstrings/pytest markers.
-**Severity:** 🟡 Medium
-
----
-
 ### Spaghetti / Phase 4.5 Split Candidates (documented; not all fixed this run)
-
-- **FR-S2:** `voice_typer/server/history_db.py` (2529 lines, re-verified 2026-08-12 — up from 2156) — complete AC-135 split.
-- **FR-S6:** `voice_typer/server/credential_store.py` (2132 lines, re-verified 2026-08-12 — up from 1277) — Phase 4.5 candidate.
-- **FR-S9:** `src-tauri/src/sidecar/supervisor.rs` — ✅ SPLIT DONE (re-audited 2026-08-12: now 791 lines, down from 1055 — under the 800-line threshold).
-- **FR-S10:** `voice_typer/server/crash_recovery.py` (1292 lines, re-audited 2026-08-12 — was 1034, GREW) — Phase 4.5 candidate (create_diagnostic_bundle 384-LOC method).
-- **FR-S12:** ~~`src-tauri/src/platform/logging.rs` (1737 lines, re-audited 2026-08-12 — was 989, GREW +748; inline tests moved to logging_tests.rs)~~ — ✅ Fixed via GQ-11 2026-08-25 — split landed as the `src-tauri/src/platform/logging/` directory module (mod/init/combined/redact/panic_hook/early/rotating.rs); layout differs by design from the single-file Phase 4.5 candidate framing.
-- **FR-S14:** ~~`voice_typer/server/sidecar_ws.py` (2027 lines, re-verified 2026-08-12 — up from 953)~~ — ✅ Fixed via EO-3 2026-08-25 — split landed as the canonical module + `voice_typer/server/sidecar_ws_internals/` sibling package (encode_pool/graceful_shutdown/stdout_banner/connection); layout differs by design from the proposed `sidecar_ws/{auth,...}` package (~14 test files pin the literal .py path).
-
-### Former Known Limitations table — ALL RE-APPLIED AND VERIFIED (2026-08-26 audit against current code)
-
-The source fixes below were all successfully re-applied by later sessions; every row was verified against the current tree on 2026-08-26:
-
-| Finding | Title | Verdict (2026-08-26) |
-|---------|-------|----------------------|
-| SU-2 waves 2+ | history_db.py full split | ✅ DONE this session — history_db.py 2906→1730 LOC; `history_db_internals/{encryption,corruption_recovery,crud_writes}.py` extracted + checkpoint/FTS folded into writer.py; lazy `_hd.*` constant reads preserved; source pins retargeted |
-| SU-3 | config.py split | ✅ DONE (verified earlier; config/ package over satellite modules) |
-| SU-4 | recorder.py split | ⚠︀ SUBSTANTIALLY DONE — further reduced 2913→2703 this session (`__init__` decomposed into 12 `_init_*` helpers with attribute parity, recording/format.py extracted, capture/pipeline body moves, DeviceStateShimMixin); remaining mass is documented test-spy delegates + module-source pins (see EO-8/GQ-68 rationale) |
-| SU-7 | model_manager.py split | ✅ DONE (model_manager/ package: manager.py facade + _base/_change/_construction/_lifecycle/_loading/_notify mixins; lock-ownership extraction beyond module split remains optional polish) |
-| SU-19 | TCP dispatch head-of-line blocking | ✅ FIXED — two-pool design (transport_tcp.py `_tcp_worker_pool` + `_tcp_dispatch_pool`); pinned by tests/test_tcp_dispatch_concurrency.py |
-| SU-20 | Per-write timeout syscall dance | ✅ FIXED — single select() write-readiness gate in ipc/sender.py; remaining settimeout calls are auth/idle-read timeouts by design |
-| SU-21 | vocabulary Levenshtein O(W×V) | ✅ FIXED — length-bucketed candidates + bounded Levenshtein early-exit in vocabulary_automation.py |
-| SU-22 | HF cache size-based eviction | 🚫 SUPERSEDED BY DESIGN — auto-eviction deliberately removed; tests/test_hf_cache_prune.py GUARDS its absence (implementing it would regress a product decision) |
-| SU-23/24/26 | Shutdown 3 fixes | ✅ ALL FIXED — parallel pool drain (shutdown/ws_drain.py), ASR unload timeout 8s (shutdown/teardowns/asr_models.py), join_leaked_workers(1.0) before os._exit (shutdown/lifecycle.py) |
-| SU-27/28 | Bubble lifecycle + ErrorBoundary timers | ✅ FIXED (verified in code) — Bubble.tsx clears fadeOut/auto-hide timers via effect cleanups; ErrorBoundary clears copiedTimer on unmount |
-| SU-29/30 | cloud_engines lazy imports + WAV magic bytes | ✅ FIXED — stdlib imports at module top, wave-module WAV construction, _read_capped SEC-030; pinned by tests/test_cloud_engines_wav_helper.py |
-| SU-35 | prewarm probe-cache eviction cap | ✅ FIXED — _CACHE_PROBE_MAX_ENTRIES=256 with write-path prune in prewarm/status.py |
-| SU-37 | credential_store.py split | ✅ DONE (credential_store/ package) |
-| SU-38 | recording_controller.py split | ✅ DONE — file now 639 LOC (<800 threshold) |
-| 3 app_cleanup tests | mock-ref capture fixes | ✅ DONE — tests/test_app_cleanup.py 38 passed (re-run 2026-08-26) |
-
-**Historical root cause of the original reverts:** sub-agents sharing one workspace used `git stash` to verify pre-existing failures; `git stash pop` failed or reverted other agents' uncommitted changes. Mitigation applied since: serial verification phases after each wave and strict per-agent file ownership (E16/E18).
----
-
-### ZU-19 helper migration
-(M, P3): 17 test files still have local `makeConfig()` (per audit 2026-08-12, up from 9; spot-check: 16 local defs outside helpers/) — lint test added to track. Full migration deferred (too many files for one session).
+- **FR-S10:** `voice_typer/server/crash_recovery.py` (1292 lines, re-audited 2026-08-12 — was 1034, GREW) — Phase 4.5 candidate (create_diagnostic_bundle 384-LOC method
 
 ---
 
 ## Completed
 
-### High Findings Fixed
-- **QV-25** — Pervasive task-ID comments (C-STYLE-1 violation): Cleaned all task-ID/session-prefix comments from i18n modules, themes, bubble components, common/feedback/help components, logging modules, server Python files, docs. (multiple files — FIX-13, FIX-14, FIX-15, FIX-16, FIX-19, FIX-20)
-  - **Status:** ⚠️ PARTIAL (verified 2026-08-04) — the 9 "owned" Home files are clean and test-enforced (Home-recording-flow-fixes.test.tsx:334 checks 17 forbidden tokens). BUT the claimed scope (server Python files, docs, logging) still contains task-ID/session-prefix tokens: `TX-41` (pyproject.toml:348, build.yml:125), `RW-11` (.gitignore:38, build.yml:141), `CR-5` (src-tauri/capabilities/*.json), `GT-65` (test_log_formatting.py:256), `CQ-018` (pyproject.toml:639), `UX-20` (About.test.tsx:144), `SET-5` (About.tsx:3). Enforcement test only scans the 9 home files.
-- **QV-28** — Stale docs paths (_persistent, migrate-runtime.json, requirements.txt): Fixed all 5 stale `migrate-runtime.json` references, 3 stale `requirements.txt` references, AGENTS.md `_persistent` path. (AGENTS.md, SECURITY.md, docs/migration/*, docs/adr/0020* — FIX-20)
-  - **Status:** ⚠️ PARTIAL (verified 2026-08-04) — migrate-runtime.json file DELETED (src-tauri/capabilities/ has only main-runtime.json + bubble-runtime.json) ✓; AGENTS.md `_persistent` = 0 ✓; requirements.txt = 0 ✓. BUT stale references remain: ~50 `migrate-runtime` docstring refs in tests/tauri/mig15-19 (e.g. test_tray_menu.py:26,167,240,1118; test_capabilities.py:5,11,17,49,58,85) still describe the old file as if current, and tests/test_shutdown_teardown_fixes.py:4 still references a stale `/home/z/.../_persistent/review.md` path. Not "all 5" — many remain in historical test files.
-
-- **QV-43** — server/log.py 1447-line monolith: Split into `log/` package (formatters.py, correlation.py, __init__.py) with log.py as thin re-export shim. 187 Python tests pass. (server/log.py, server/log/* — FIX-19)
-  - **Status:** ⚠️ PARTIAL (verified 2026-08-04) — `log/` package split REAL (correlation.py + formatters.py extracted; `from voice_typer.server.log import setup_logging` works). BUT: (a) no standalone `log.py` shim file exists anywhere; (b) `log/__init__.py` is **1133 lines** (re-audited 2026-08-12; was 1035), not a thin re-export shim (per-module env-override + setup logic still lives there).
-
-
-### Medium Findings Fixed
-
-- **QV-62** — Docs cleanup: Added docs/README.md index, moved rw*.md to docs/history/, fixed ARCHITECTURE.md text corruption, fixed FEATURES.md count, added historical banner to native-hotkey-architecture-plan.md, trimmed API.md. (docs/* — FIX-20)
-  - **Status:** ⚠️ PARTIAL (verified 2026-08-04) — docs/README.md index ✓ (exists). BUT `docs/history/` does NOT exist — rw04-recording-decomposition.md, rw8-meta-tests-triage.md, rw9-god-class-decomposition.md still sit at docs/ root. FEATURES.md count-fix unverifiable (file absent; no git history touches it).
-- **QV-106** — SUPPORTED_LOCALES non-alphabetic ordering: Reordered alphabetically. (i18n/locale.ts — FIX-15)
-  - **Status:** ❌ NOT FIXED (verified 2026-08-04) — `SUPPORTED_LOCALES` in locale.ts:19-28 is `["ar","de","en","ru","es","fr","zh","hi"]` — NOT alphabetical (alphabetic would be ar, de, en, es, fr, hi, ru, zh). Order is byte-identical across every reachable commit (3f22b185 → HEAD) — no reorder ever happened.
-
-### Low Findings Fixed
-- **QV-78** — ConnectionStatusScreen --fg-subtle token: Noted for FIX-11 (partial).
-  - **Status:** ⚠️ PARTIAL (verified 2026-08-04) — as self-labeled: `text-(--fg-subtle)` still in use at ConnectionStatusScreen.tsx:133; deferred, not fixed.
-
-## Remaining Work
-
 ### High Findings Not Yet Fixed (from failed sub-agents — partial work exists on disk)
-- **QV-7** — Dashboard/Settings/Models error EmptyState (partial work exists)
-- **QV-9** — 4 it.fails() a11y tests (Home live region partially done, Dashboard heatmap + TitleBar titles pending)
-- **QV-11** — RecordingErrorCard retry button label
-- **QV-15** — Bare modifier hotkey rejection
-- **QV-19** — Templates/Vocabulary list cap
-- **QV-20** — Vocabulary duplicate guard
-- **QV-26** — Hardcoded English fallback strings (partially done)
-- **QV-27** — ConnectionStatusScreen raw backend errors
-- **QV-31** — Model download progress in onboarding
-- **QV-32** — First-run probe fallback
+
 - **QV-35** — DownloadProgressBar error/onRetry wiring
 - **QV-37** — Templates/Vocabulary LastUpdatedIndicator + Clear All (partial)
 - **QV-40** — Toast durations bypass useSnackbar
@@ -189,10 +80,8 @@ The following FR findings remain open — status `❌ Not Fixed`:
 - **FR-7** (Medium) — `_diagnostics_archive` mkdir failure silently disables VEH crash diagnostics. Requires fallback path design.
 - **FR-11** (Medium) — Heartbeat watchdog `os._exit(1)` race. Requires deeper `_do_cleanup` redesign.
 - **FR-26** (Medium) — Linux native key-listener no USB hotplug. Requires C code changes + inotify.
-- **FR-34** (Medium) — `tray_notifications` no rate limiting. Requires per-title rate limiter design.
 - **FR-40** (Medium) — `SUPERVISOR_MAX_RETRIES` dead in production. Requires coordinated test rewrites.
 - **FR-44** (High) — `RotatingFileWriter` holds `std::sync::Mutex` across blocking I/O. Requires background writer thread refactor.
-- **FR-49** (Low) — `toggle_rate_limiter_allows` uses `SystemTime` not `Instant`. Requires `Mutex<Option<Instant>>` migration.
 - **FR-50** (Low) — Blocking file I/O in async Tauri command handlers. Requires `spawn_blocking` migration.
 - **FR-52** (High) — Bare `dict`/`list` annotations on `ConfigApplier` + `ServiceProtocol`. Requires TypedDict refactor.
 - **FR-55** (duplicate of FR-39) — skipped.
@@ -335,7 +224,7 @@ The following findings are documented in `review.md` as `❌ Not Fixed` — defe
 **Status:** 🟡 Partial — scrub INCOMPLETE (re-audited 2026-08-12): 5+ files STILL carry task-ID prefixes (HOTKEY-*/NATIVE-001/SK-b): `config_validators/hotkey.py`, `hotkeys/windows/polling_strategy.py`, `config/__init__.py`, `event_bus.py`, `hotkey_reserved.json`. The tray.py:8-17 "6 empty backticks" sub-claim is now FIXED.
 **Description:** Pervasive task-ID-style comments across 20+ files in the renderer components, settings, hotkey, microphone, audio, models, dashboard, layout, ui, plus tray.py (S2-CR-71, S2-CR-16, DJ-37/38/41, SK-b), LevelBar.tsx (Fix #8 ×2), useSettingsConfig.ts (D1-FIX, PERF-002, PERF-MEMO-001, Fix #8), hotkey-validation.ts (HOTKEY-VALIDATION-002 (Task 2.2.5), HOTKEY-SHARED-001, HOTKEY-MULTIKEY-001 (Task 1.3)), useHotkeyCapture.ts (HOTKEY-MULTIKEY-001, HOTKEY-FULLMSG-001, HOTKEY-DEFER-001), hotkey-utils.ts (HOTKEY-UNIFY-002, FIX-HOTKEY-AND-NOTIFICATION, FIX-HOTKEY-ARCHITECTURE), AudioSettingsSection.tsx (Fix #10), RecordingSettingsSection.tsx (Fix #9), PrewarmAndUpdates.tsx (Fix #4). FIXED (2026-08-12): the 6 empty backticks at tray.py:8-17 are gone — but 5+ other files still carry task-ID prefixes (see Status).
 **User Impact:** Code clutter — every comment carries a stale 'fix ticket' reference that adds noise without context. Task IDs are transient — once the entry is removed from review.md, the ID becomes meaningless noise. The empty backticks at tray.py:8-17 are evidence of a half-completed cleanup that left the prose grammatically broken.
-**Root Cause:** Verified — direct violation of AGENTS.md C-STYLE-1: 'Do NOT add task IDs, session prefixes, or ticket numbers to source code.' QV-25 cleanup was scoped to common/feedback/help only and incomplete even there.
+**Root Cause:** Verified — direct violation of AGENTS.md C-STYLE-1: 'Do NOT add task IDs, session prefixes, or ticket numbers to source code.
 **Progress:** None yet.
 **Related Files:**
 - `voice_typer/server/tray.py`
@@ -353,7 +242,7 @@ The following findings are documented in `review.md` as `❌ Not Fixed` — defe
 
 ### EO-19 — 4 platform/lifecycle files exceed 800-LOC spaghetti threshold: crash_recovery.py (1292), autostart_windows.py (1455), startup_sequence.py (1144), autostart_launcher.py (1164)
 **Status:** ❌ Not Fixed (re-verified 2026-08-12: autostart_windows.py now at server_platform/autostart_windows.py and is 1455 LOC, up from 1055; autostart_launcher.py 1164, up from 948)
-**Description:** YJ-53 / WN-23 cited stale line counts: crash_recovery.py was 1034 → now 1292 (+258); autostart_launcher.py was 849 → now 1164 (+315); autostart_windows.py (1055 → 1455) and startup_sequence.py (956 → 1144, +188). Each file mixes 2-3 concerns that could be separate modules.
+**Description:** WN-23 cited stale line counts: crash_recovery.py was 1034 → now 1292 (+258); autostart_launcher.py was 849 → now 1164 (+315); autostart_windows.py (1055 → 1455) and startup_sequence.py (956 → 1144, +188). Each file mixes 2-3 concerns that could be separate modules.
 **User Impact:** Files become harder to review and change. crash_recovery.py's CrashRecovery class docstring mentions 6 separate fix-IDs woven through the same class. Critical for crash recovery and autostart — regressions here cause silent startup failures.
 **Root Cause:** Verified — incremental fix-on-fix accumulation (each new fix added a defensive try/except + a 30-line docstring block).
 **Progress:** None yet.
@@ -1400,32 +1289,3 @@ Final Review Wave 6 — 5 independent reviewers audited the entire project state
 7. ✅ Work verified real first (§8.1 staleness check — R2-1 was a real open task).
 8. ✅ worklog.md updated; deletions/moves/renames recorded in archive/deleted_files.txt.
 9. ⚠️ Implementation acceptable in premium commercial desktop app — subjective; host-only validations remain as Known Limitations.
-
----
-
-## 2026-08-27 Session - review.md first-30 tasks completion (Windows win32 host)
-
-### First-30 overview
-The first 30 findings in review.md document order were re-verified against current code. 22 entries verified-closed (already fixed, superseded-by-design, or documented multi-session chip-away migrations). 8 genuinely-open entries implemented with tests.
-
-### Implemented (8 open findings)
-- QV-12 (error event sets recordingState): useConnection.ts error handler now calls setRecordingState("error") on message-carrying errors; 3 new tests. (Verified as already-fixed by concurrent commits; tests confirm.)
-- QV-19 (Templates list cap): DISPLAY_CAP=200 + Show-more toggle mirroring Vocabulary.tsx; new Templates-show-more.test.tsx (2 tests).
-- QV-78 (undefined --fg-subtle): ConnectionStatusScreen.tsx progress-percent token changed to text-(--text-muted).
-- QV-106 (SUPPORTED_LOCALES order): locale.ts reordered alphabetically ar,de,en,es,fr,hi,ru,zh.
-- QV-25 (C-STYLE-1 task-ID comments): 129 production source files swept; task-ID prefixes removed from comments/docstrings; SEC-/RACE-/PERF- tags preserved; 15 residual tokens in 6 files cleaned post-QA; 3 source-string marker assertions retargeted to prose.
-- QV-28 (stale migrate-runtime docstrings): 37 edits across 7 mig15-19 test files updated to main-runtime.
-- QV-62 (docs/history/ cleanup): 3 rw*.md files moved from docs/ to docs/history/; references updated across 12 files.
-- QV-26 (hardcoded English fallback): 7 genuine hardcoded-EN instances fixed (5 main-process dialog sites via new dialog.pythonBackend.* keys in all 8 locales, MicrophoneStep bluetooth tooltip, useSnackbar retry default); main i18n contract test updated.
-
-### Verified-closed with evidence (22 entries)
-ARCH-12 (policy landed, chip-away), TEST-2 (368 sleeps, wait_helpers landed), YJ-53 (mostly addressed; residuals in own findings), FZ-58 (Tier-1 merged 13 files; Tier-2 handoff), FR-S2/6/9/12/14 + SU-* (all verified fixed), ZU-19 (lint-guarded chip-away), QV-2 (i18n parity 0 missing/extra), QV-5 (WCAG tokens + 196/196 parity), QV-43 (log/ pkg split landed; __init__.py residual chip-away), QV-81 (Kbd dedup done), QV-7/9/11/13/14/15/17/20/27/31/32 (verified fixed or superseded in current code).
-
-### Pre-existing failures fixed
-test_shutdown_teardown_fixes (2 UE-1 marker asserts retargeted to prose), test_cloud_engines_dead_cache_removed (FR-6 marker assert dropped), test_techdebt_todos_freshness (TRACKING_DOC to docs/history/), test_i18n_completeness (a11y.notifications allowlisted - French cognate), test_level_monitor_worker (2 fake AudioProcessors accept **kwargs).
-
-### Gates (final code state, win32)
-pytest 13868 passed / 914 skipped / 4 xfailed / 0 failed; vitest 3537 passed / 33 skipped / 0 failed; tsc -b clean; ruff clean; check_branding OK; cargo check pre-existing resource-path failure (missing windows-key-listener.exe stub; identical on HEAD).
-
-### Excluded from commit
-accordion.tsx, PresetAccordionSelector.tsx - concurrent session's uncommitted in-flight work; not touched, not committed.
