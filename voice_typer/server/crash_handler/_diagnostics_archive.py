@@ -6,7 +6,11 @@ OS build, Python version, loaded-module snapshot) prepended to every
 
 ``set_crash_handler_config_dir`` caches the config-dir path, pre-builds
 the crash file path (with NUL terminator for ``CreateFileW``), resets
-the rate-limit flag, and pre-computes the static header.
+the rate-limit flag, and pre-computes the static header. If the
+``<config_dir>/crash_diagnostics/`` archive dir cannot be created (e.g.
+read-only config_dir), the crash file path falls back to the config_dir
+root so VEH diagnostics are not silently lost to an unwritable archive
+path.
 
 ``_archive_crash_file`` / ``_enforce_archive_retention`` /
 ``_sweep_stale_diagnostics`` manage the
@@ -186,6 +190,13 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
     preamble to ``crash_diagnostics.<PID>.txt`` when a crash occurs —
     see ``_vectored_handler_impl``.
 
+    If the ``crash_diagnostics/`` archive dir cannot be created (e.g.
+    read-only config_dir), ``_crash_file_path`` falls back to the
+    config_dir root (the same root the Python excepthook writes its
+    ``python_crash.<PID>.txt`` marker to) and a WARNING names the
+    failure + the fallback — so a mkdir failure never silently disables
+    the SEH/VEH crash diagnostics.
+
     Mutable state (``_crash_file_path``, ``_PID``,
     ``_python_crash_dir``, ``_crash_written``, ``_crash_header_bytes``)
     lives on the ``crash_handler`` facade module so test mutations on
@@ -216,20 +227,42 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
         # Pre-create the archive dir so the VEH callback (which cannot
         # safely mkdir during heap corruption) can write directly to
         # ``<archive>/crash_diagnostics.<PID>.txt``. Best-effort — a
-        # mkdir failure (e.g. read-only config_dir) is logged at debug
-        # and the VEH callback's CreateFileW call will fail silently
-        # (existing behavior for an unwritable path).
-        with contextlib.suppress(Exception):
+        # mkdir failure (e.g. read-only config_dir) is NOT silently
+        # swallowed: if the archive dir does not actually exist after
+        # the attempt, fall back to writing the crash file to the
+        # config_dir root (the same root the Python excepthook uses),
+        # so VEH diagnostics are never lost to an unwritable archive
+        # path. The fallback is logged at WARNING (the VEH callback
+        # itself cannot log — it runs under heap corruption).
+        archive_ready = False
+        _mkdir_exc: Exception | None = None
+        try:
             archive_dir.mkdir(parents=True, exist_ok=True)
             if sys.platform != "win32":
                 with contextlib.suppress(OSError):
                     os.chmod(archive_dir, 0o700)
+        except Exception as exc:
+            _mkdir_exc = exc
+        with contextlib.suppress(Exception):
+            archive_ready = archive_dir.is_dir()
+        if archive_ready:
+            _crash_target = archive_dir
+        else:
+            _suffix = f" ({_mkdir_exc})" if _mkdir_exc is not None else ""
+            log.warning(
+                "[CRASH] Could not pre-create crash diagnostics archive dir "
+                "%s%s — falling back to the config root (%s)",
+                archive_dir,
+                _suffix,
+                resolved,
+            )
+            _crash_target = resolved
         # Use os.path.join instead of a hardcoded backslash so the
         # cached path is correct on both Windows and POSIX (POSIX never
         # invokes the VEH callback, but tests still inspect the cached
         # path).  Preserve the trailing NUL terminator required by
         # CreateFileW.
-        _ch._crash_file_path = os.path.join(str(archive_dir), f"crash_diagnostics.{_ch._PID}.txt") + "\0"
+        _ch._crash_file_path = os.path.join(str(_crash_target), f"crash_diagnostics.{_ch._PID}.txt") + "\0"
         _ch._python_crash_dir = resolved
         # Reset the rate-limit flag so a fresh process (or a re-init
         # in tests) can write a new crash record.

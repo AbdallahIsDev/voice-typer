@@ -252,13 +252,16 @@ describe("useModelDownload — downloadModel failure path (success:false)", () =
 			error: "disk full",
 		});
 
-		// Sonner toast.error fired with a Retry action button.
-		expect(toastMock.error).toHaveBeenCalledTimes(1);
-		const [, opts] = toastMock.error.mock.calls[0] ?? [];
-		expect(opts).toMatchObject({
-			duration: 8000,
-			action: expect.objectContaining({ label: expect.any(String) }),
-		});
+		// The failure toast now flows through the canonical snackbar
+		// system: showSnack(msg, "error", { action }) — the duration
+		// comes from the error-type default (8000ms).
+		expect(args.showSnack).toHaveBeenCalledWith(
+			"disk full",
+			"error",
+			expect.objectContaining({
+				action: expect.objectContaining({ label: expect.any(String) }),
+			}),
+		);
 	});
 });
 
@@ -280,7 +283,12 @@ describe("useModelDownload — downloadModel thrown-error path", () => {
 		// The formatted message should include "network down" (formatErrorMessage
 		// returns the Error.message on Error instances).
 		expect(result.current.failedDownload?.error).toContain("network down");
-		expect(toastMock.error).toHaveBeenCalledTimes(1);
+		// The failure toast flows through showSnack with a Retry action.
+		expect(args.showSnack).toHaveBeenCalledWith(
+			expect.stringContaining("network down"),
+			"error",
+			expect.objectContaining({ action: expect.any(Object) }),
+		);
 	});
 });
 

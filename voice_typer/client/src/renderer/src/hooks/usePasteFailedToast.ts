@@ -17,8 +17,8 @@
  *     title, the rest the description.
  */
 
-import { toast } from "sonner";
 import { usePythonEvent } from "@/hooks/usePython";
+import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
 
 /** Minimal `t` function type matching i18n.t's signature. */
 type TFn = (key: string, params?: Record<string, string>) => string;
@@ -29,6 +29,7 @@ type TFn = (key: string, params?: Record<string, string>) => string;
  * lives for the component's lifetime.
  */
 export function usePasteFailedToast(t: TFn): void {
+	const { showSnack } = useSnackbar();
 	usePythonEvent("paste_failed", (data): (() => void) | undefined => {
 		const payload = (data ?? {}) as {
 			message?: string;
@@ -41,9 +42,9 @@ export function usePasteFailedToast(t: TFn): void {
 		const title = lines[0] ?? message;
 		const description = lines.slice(1).join("\n") || undefined;
 		if (recoveryPath) {
-			toast.warning(title, {
+			showSnack(title, "warning", {
 				description,
-				duration: 8000,
+				duration: SNACKBAR_DEFAULT_DURATION_MS.error,
 				action: {
 					label: t("common.copyPath"),
 					onClick: () => {
@@ -67,7 +68,10 @@ export function usePasteFailedToast(t: TFn): void {
 				},
 			});
 		} else {
-			toast.warning(title, { description, duration: 8000 });
+			showSnack(title, "warning", {
+				description,
+				duration: SNACKBAR_DEFAULT_DURATION_MS.error,
+			});
 		}
 		return undefined;
 	});

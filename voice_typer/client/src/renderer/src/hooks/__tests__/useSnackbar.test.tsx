@@ -118,6 +118,24 @@ describe("useSnackbar — ZU-33 action option", () => {
 		});
 	});
 
+	it("forwards the description option alongside the message", async () => {
+		const { showSnack } = await renderWithHook();
+		act(() => {
+			showSnack("backend lost", "warning", {
+				id: "conn-disconnected",
+				description: "Reconnect the microphone",
+			});
+		});
+		expect(toastSpies.warning).toHaveBeenCalledTimes(1);
+		const [msg, opts] = toastSpies.warning.mock.calls[0] ?? [];
+		expect(msg).toBe("backend lost");
+		expect(opts).toMatchObject({
+			id: "conn-disconnected",
+			description: "Reconnect the microphone",
+			duration: 6000,
+		});
+	});
+
 	it("omits action and id from the forwarded opts when not provided", async () => {
 		const { showSnack } = await renderWithHook();
 		act(() => {

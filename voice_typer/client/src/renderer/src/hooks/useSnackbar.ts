@@ -68,6 +68,8 @@ export interface ShowSnackOptions {
 	duration?: number;
 	/** Optional id — passing the same id replaces the existing toast. */
 	id?: string | number;
+	/** Optional secondary line rendered under the toast message. */
+	description?: string;
 	/**
 	 * Optional action button rendered inside the toast (sonner's
 	 * ``action`` prop). When the user clicks the button (or presses the
@@ -117,12 +119,16 @@ export function useSnackbar() {
 			const opts: {
 				duration: number;
 				id?: string | number;
+				description?: string;
 				action?: { label: string; onClick: () => void };
 			} = {
 				duration: resolveDuration(type, options),
 			};
 			if (options?.id !== undefined) {
 				opts.id = options.id;
+			}
+			if (options?.description !== undefined) {
+				opts.description = options.description;
 			}
 			if (options?.action) {
 				opts.action = options.action;

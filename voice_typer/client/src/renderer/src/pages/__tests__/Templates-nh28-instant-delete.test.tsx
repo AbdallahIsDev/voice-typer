@@ -191,3 +191,86 @@ describe("Templates page — NH-28 instant-delete optimisation", () => {
 		expect(screen.getAllByText(/hello|brb/).length).toBe(2);
 	});
 });
+
+describe("Templates page — Clear All + LastUpdatedIndicator", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		mockShowSnack.mockReset();
+		toastWarning.mockClear();
+		toastSuccess.mockClear();
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_templates") return Promise.resolve(seedTemplates);
+			if (type === "save_templates") return Promise.resolve({});
+			return Promise.resolve({});
+		});
+		localStorage.clear();
+		vi.resetModules();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("renders the LastUpdatedIndicator", async () => {
+		const { default: TemplatesPage } = await import("@/pages/Templates");
+		renderWithProviders(<TemplatesPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("hello")).toBeTruthy();
+		});
+		expect(screen.getByTestId("last-updated-indicator")).toBeTruthy();
+	});
+
+	it("shows the Clear All button and clears templates on confirm", async () => {
+		const { default: TemplatesPage } = await import("@/pages/Templates");
+		renderWithProviders(<TemplatesPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("hello")).toBeTruthy();
+		});
+
+		// Click the Clear All toolbar button (aria-label distinguishes it)
+		fireEvent.click(screen.getByLabelText("Clear all templates"));
+
+		// Confirmation dialog appears
+		await waitFor(() => {
+			expect(screen.getByText("Clear All Templates")).toBeTruthy();
+		});
+		expect(
+			screen.getByText(
+				"Are you sure you want to clear all templates? This action cannot be undone.",
+			),
+		).toBeTruthy();
+
+		// Click the dialog's confirm button (text "Clear All", no aria-label)
+		fireEvent.click(screen.getByRole("button", { name: "Clear All" }));
+
+		// save_templates called with empty array
+		await waitFor(() => {
+			expect(mockCall).toHaveBeenCalledWith("save_templates", {
+				templates: [],
+			});
+		});
+		// Success snackbar shown
+		expect(mockShowSnack).toHaveBeenCalledWith(
+			"All templates cleared",
+			"success",
+		);
+	});
+
+	it("disables the Clear All button when there are no templates", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_templates") return Promise.resolve({ templates: [] });
+			return Promise.resolve({});
+		});
+		const { default: TemplatesPage } = await import("@/pages/Templates");
+		renderWithProviders(<TemplatesPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("No templates yet")).toBeTruthy();
+		});
+		// The Clear All button should be disabled
+		const clearAllButton = screen.getByLabelText("Clear all templates");
+		expect(clearAllButton.getAttribute("disabled")).not.toBeNull();
+	});
+});

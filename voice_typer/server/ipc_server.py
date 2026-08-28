@@ -571,6 +571,15 @@ class IPCServer(
         self._last_heartbeat_at: float | None = None
         self._heartbeat_thread: threading.Thread | None = None
         self._heartbeat_stop_event = threading.Event()
+        # Set by the shared shutdown path (``shutdown.cleanup.do_cleanup``)
+        # the instant ``_do_cleanup()`` finishes. The heartbeat force-exit
+        # watchdog (``_check_heartbeat_timeout``) waits on this event
+        # instead of a bare sleep, so a healthy-but-slow quit() that
+        # completes cleanup within the grace window is NOT force-killed
+        # mid-teardown — previously a >10s cleanup (PortAudio teardown +
+        # history-DB flush + mutex release) was cut short by
+        # ``os._exit(1)`` before it finished. See ``_check_heartbeat_timeout``.
+        self._shutdown_completed_event = threading.Event()
         # Declare ``_stdin_thread`` as ``Thread | None`` so the
         # ``self._stdin_thread = None`` branch in ``start()`` (tcp_mode
         # path) type-checks. Without this annotation, pyrefly infers the

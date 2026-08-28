@@ -29,8 +29,8 @@
  * new translation keys are required.
  */
 import { useEffect, useRef } from "react";
-import { toast } from "sonner";
 import type { ConnectionStatus } from "@/stores/appStore";
+import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
 
 /** Minimal `t` function type matching i18n.t's signature. */
 type TFn = (key: string, params?: Record<string, string>) => string;
@@ -49,6 +49,7 @@ export function useConnectionToasts({
 	reloadThemeFromConfig,
 	t,
 }: UseConnectionToastsArgs) {
+	const { showSnack } = useSnackbar();
 	// Tracks the previous connection status across renders so each toast
 	// fires exactly once per transition (not on every re-render). The
 	// initial mount path (prev === connectionStatus === "connecting")
@@ -88,16 +89,16 @@ export function useConnectionToasts({
 		// recent transition's.
 		if (prev !== connectionStatus) {
 			if (connectionStatus === "disconnected") {
-				toast.error(t("app.lostConnection"), {
+				showSnack(t("app.lostConnection"), "error", {
 					id: "conn-disconnected",
 					description: t("app.lostConnectionHint"),
-					duration: 6000,
+					duration: SNACKBAR_DEFAULT_DURATION_MS.warning,
 				});
 			} else if (connectionStatus === "restarting") {
-				toast.warning(t("app.restartingBackend"), {
+				showSnack(t("app.restartingBackend"), "warning", {
 					id: "conn-restarting",
 					description: t("app.restartingHint"),
-					duration: 4000,
+					duration: SNACKBAR_DEFAULT_DURATION_MS.info,
 				});
 			} else if (connectionStatus === "connected" && prev !== "connecting") {
 				// Don't toast on the initial connect (prev ===
@@ -105,13 +106,12 @@ export function useConnectionToasts({
 				// and doesn't need a "Connected!" toast. Only
 				// surface RECOVERIES from a disconnected/restarting
 				// state.
-				toast.success(t("about.connected"), {
+				showSnack(t("about.connected"), "success", {
 					id: "conn-connected",
-					duration: 3000,
 				});
 			}
 		}
-	}, [connectionStatus, reloadThemeFromConfig, t]);
+	}, [connectionStatus, reloadThemeFromConfig, t, showSnack]);
 
 	return prevConnectionRef;
 }

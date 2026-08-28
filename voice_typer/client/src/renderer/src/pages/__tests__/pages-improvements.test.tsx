@@ -381,8 +381,14 @@ describe("R7-F10: Vocabulary + Templates — no dead ConfirmDialog", () => {
 		expect(stripped).not.toContain("_requestDeleteTemplate");
 		expect(stripped).not.toContain("deleteTarget");
 		expect(stripped).not.toContain("confirmDeleteTemplate");
-		expect(stripped).not.toContain("<ConfirmDialog");
 		expect(stripped).not.toContain("handleCancelDelete");
+		// NOTE: Templates.tsx now legitimately renders a LIVE
+		// <ConfirmDialog> for the "Clear All" destructive action
+		// (mirrors Vocabulary). The R7-F10 finding was specifically
+		// about the DEAD per-template delete-confirm dialog — its
+		// symbols are pinned above. Do NOT re-add a
+		// `not.toContain("<ConfirmDialog")` assertion here without
+		// first removing the live Clear-All usage.
 	});
 
 	it('Vocabulary renders no role="alertdialog" (ConfirmDialog removed)', async () => {

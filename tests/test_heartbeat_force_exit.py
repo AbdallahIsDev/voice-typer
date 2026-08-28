@@ -401,3 +401,135 @@ def test_default_grace_period_is_10_seconds() -> None:
         "changed, update the comment in ipc_server.py and the "
         "rationale in review.md"
     )
+
+
+# ── Shutdown-completion gate (FR-11) ───────────────────────────────────
+
+
+def test_force_exit_does_not_fire_when_cleanup_completed_before_grace(
+    server: IPCServer,
+) -> None:
+    """FR-11: when ``_do_cleanup()`` completes within the grace window
+    (the shutdown-completion event is set), the force-exit thread must
+    NOT call ``os._exit(1)`` — it exits silently.
+
+    Pre-fix, the thread used a bare ``time.sleep(grace)`` with no
+    completion signal, so a healthy-but-slow quit() (>10s: PortAudio
+    teardown + history-DB flush + mutex release) was force-killed
+    mid-cleanup.
+    """
+    with patch("voice_typer.server.ipc_server.time.monotonic", return_value=100.0):
+        server._handle_heartbeat(None, {"id": 1})
+
+    exit_calls: list[int] = []
+    import voice_typer.server.ipc_server as ipc_mod
+
+    # Simulate cleanup finishing before the grace elapses.
+    server._shutdown_completed_event.set()
+
+    with (
+        patch(
+            "voice_typer.server.ipc_server.time.monotonic",
+            return_value=100.0 + _HEARTBEAT_TIMEOUT_SECONDS + 5.0,
+        ),
+        patch(
+            "voice_typer.server.ipc.lifecycle._HEARTBEAT_FORCE_EXIT_GRACE_SECONDS",
+            0.05,
+        ),
+        patch.object(ipc_mod.os, "_exit", lambda code: exit_calls.append(code)),
+    ):
+        fired = server._check_heartbeat_timeout()
+        assert fired is True
+
+        # The force-exit thread should wake immediately (event set) and
+        # return without calling os._exit. Give it a few real-time ticks
+        # to run, then assert it did NOT fire. (time.monotonic is
+        # globally patched to a constant inside this block, so poll by
+        # iteration count — a wall-clock deadline would never advance.)
+        for _ in range(20):
+            if exit_calls:
+                break
+            time.sleep(0.01)
+
+    assert exit_calls == [], (
+        f"FR-11: force-exit thread must NOT call os._exit when cleanup "
+        f"completed within the grace window; got: {exit_calls}"
+    )
+
+
+def test_force_exit_still_fires_when_cleanup_stuck(server: IPCServer) -> None:
+    """FR-11: when cleanup is stuck (the shutdown-completion event is
+    never set), the force-exit thread STILL calls ``os._exit(1)`` after
+    the grace period — the hard force-exit is preserved for the genuine
+    hang case."""
+    with patch("voice_typer.server.ipc_server.time.monotonic", return_value=100.0):
+        server._handle_heartbeat(None, {"id": 1})
+
+    exit_calls: list[int] = []
+    import voice_typer.server.ipc_server as ipc_mod
+
+    # The completion event is deliberately NOT set (cleanup hung).
+    assert not server._shutdown_completed_event.is_set()
+
+    with (
+        patch(
+            "voice_typer.server.ipc_server.time.monotonic",
+            return_value=100.0 + _HEARTBEAT_TIMEOUT_SECONDS + 5.0,
+        ),
+        patch(
+            "voice_typer.server.ipc.lifecycle._HEARTBEAT_FORCE_EXIT_GRACE_SECONDS",
+            0.05,
+        ),
+        patch.object(ipc_mod.os, "_exit", lambda code: exit_calls.append(code)),
+    ):
+        fired = server._check_heartbeat_timeout()
+        assert fired is True
+
+        # (time.monotonic is globally patched to a constant inside this
+        # block, so poll by iteration count.)
+        for _ in range(200):
+            if exit_calls:
+                break
+            time.sleep(0.01)
+
+    assert exit_calls == [1], (
+        f"FR-11: stuck cleanup must still trigger os._exit(1) after the "
+        f"grace period; got: {exit_calls}"
+    )
+
+
+def test_do_cleanup_sets_shutdown_completed_event(monkeypatch) -> None:
+    """FR-11: the shared cleanup path sets the shutdown-completion event
+    when ``_do_cleanup()`` finishes — the actual wiring that disarms the
+    heartbeat force-exit watchdog for a healthy-but-slow quit.
+
+    Drives ``ShutdownController._do_cleanup`` (the real body in
+    ``shutdown.cleanup.do_cleanup``) with the heavy teardown-plan steps
+    stubbed to no-ops so only the completion-signal wiring is exercised.
+    """
+    from unittest.mock import MagicMock
+
+    from voice_typer.server.ipc_server import IPCServer
+    from voice_typer.server.shutdown_controller import ShutdownController
+
+    server = IPCServer(MagicMock(), service=MagicMock())
+    assert not server._shutdown_completed_event.is_set()
+
+    app = MagicMock()
+    app._cleanup_done = False
+    app._ipc_server = server
+    controller = ShutdownController(app)
+
+    monkeypatch.setattr(controller, "_drain_ws_dispatch_pool", lambda app: None)
+    monkeypatch.setattr(controller, "_build_sequenced_plan", lambda *a, **k: [])
+    monkeypatch.setattr(controller, "_run_plan", lambda *a, **k: None)
+    monkeypatch.setattr(controller, "_build_parallel_plan", lambda *a, **k: None)
+    monkeypatch.setattr(controller, "_late_bookend_tray_stop", lambda app: None)
+
+    controller._do_cleanup()
+
+    assert server._shutdown_completed_event.is_set(), (
+        "FR-11: _do_cleanup must set the shutdown-completion event when it "
+        "finishes — otherwise the heartbeat force-exit watchdog stays armed "
+        "and kills a healthy-but-slow quit mid-cleanup"
+    )

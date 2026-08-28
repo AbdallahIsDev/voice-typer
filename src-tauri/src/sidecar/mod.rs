@@ -5,6 +5,7 @@
 // The supervisor module now owns ONLY respawn/backoff logic.
 pub(crate) mod bubble_coalesce;
 pub(crate) mod handle;
+pub(crate) mod lifecycle;
 pub(crate) mod shutdown;
 pub(crate) mod spawn;
 pub(crate) mod supervisor;

@@ -45,6 +45,7 @@ import {
 } from "./input-nav-guard";
 import { registerRendererRecovery } from "./renderer-recovery";
 import { registerRendererTelemetry } from "./renderer-telemetry";
+import { sanitizeRendererUrl } from "./renderer-url";
 import {
 	_nativeThemeListenerRegistered as _nativeThemeListenerRegisteredImpl,
 	_resetNativeThemeListenerForTest as _resetNativeThemeListenerForTestImpl,
@@ -236,7 +237,9 @@ export function createMainWindow(forceShow = false): void {
 	registerInputNavGuard(state.mainWindow);
 	installWindowOpenHandler(state.mainWindow);
 
-	if (process.env.ELECTRON_RENDERER_URL) {
+	const rendererUrl = sanitizeRendererUrl(process.env.ELECTRON_RENDERER_URL);
+
+	if (rendererUrl) {
 		// void + .catch: loadURL returns a Promise that rejects on
 		// load failure (dev server 500, malformed URL, network
 		// unreachable). Without .catch the rejection would bubble
@@ -246,11 +249,9 @@ export function createMainWindow(forceShow = false): void {
 		// logs the failure with structured detail; this .catch only
 		// suppresses the unhandled rejection so the breaker stays
 		// calm. `void` discards the .catch's resolved value.
-		void state.mainWindow
-			.loadURL(process.env.ELECTRON_RENDERER_URL)
-			.catch((e) => {
-				log.warn("[MAIN] loadURL rejected:", e);
-			});
+		void state.mainWindow.loadURL(rendererUrl).catch((e) => {
+			log.warn("[MAIN] loadURL rejected:", e);
+		});
 	} else {
 		void state.mainWindow
 			.loadFile(path.join(__dirname, "../renderer/index.html"))

@@ -220,6 +220,18 @@ def do_cleanup(controller) -> None:
     # ``os._exit(0)`` fallback.
     controller._late_bookend_tray_stop(app)
 
+    # FR-11: signal shutdown completion so the heartbeat force-exit
+    # watchdog (which waits on this event instead of a bare sleep)
+    # knows the process is exiting cleanly and must NOT force-kill
+    # mid-teardown. A healthy-but-slow cleanup (>10s: PortAudio
+    # teardown + history-DB flush + mutex release) was previously cut
+    # short by ``os._exit(1)`` before it finished. Best-effort: the
+    # server may be absent (never started / bare test server), in which
+    # case the watchdog keeps its original bare-sleep force-exit.
+    _completed_event = getattr(getattr(app, "_ipc_server", None), "_shutdown_completed_event", None)
+    if _completed_event is not None:
+        _completed_event.set()
+
 
 def do_fast_cleanup(controller) -> None:
     """critical-only cleanup for Windows logoff/shutdown.

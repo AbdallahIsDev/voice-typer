@@ -20,9 +20,9 @@
 // A per-backend sonner ``id`` replaces an in-flight toast for the same
 // backend instead of stacking.
 
-import { toast } from "sonner";
 import { usePythonEvent } from "@/hooks/usePython";
 import { useDegradationToastStore } from "@/stores/degradationToastStore";
+import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
 
 /** Minimal `t` function type matching i18n.t's signature. */
 type TFn = (key: string, params?: Record<string, string>) => string;
@@ -51,6 +51,7 @@ export function useAsrBackendDisabledToast(
 	t: TFn,
 	onOpenModels: () => void,
 ): void {
+	const { showSnack } = useSnackbar();
 	usePythonEvent("asr_backend_disabled", (data): (() => void) | undefined => {
 		const payload = (data ?? {}) as { backend?: unknown };
 		const backend =
@@ -69,10 +70,10 @@ export function useAsrBackendDisabledToast(
 		store.setAsrBackendDisabledAt(backend, now);
 		store.setLastAnyToastShownAt(now);
 
-		toast.warning(t("degradation.asrBackendDisabled", { backend }), {
+		showSnack(t("degradation.asrBackendDisabled", { backend }), "warning", {
 			id: `asr-backend-disabled:${backend}`,
 			description: t("degradation.asrBackendDisabledHint"),
-			duration: 8000,
+			duration: SNACKBAR_DEFAULT_DURATION_MS.error,
 			action: {
 				label: t("common.openModels"),
 				onClick: onOpenModels,

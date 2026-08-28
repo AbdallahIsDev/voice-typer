@@ -13,9 +13,12 @@
 import { AlertCircleIcon, File02Icon } from "@hugeicons/core-free-icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import ConfirmDialog from "@/components/common/ConfirmDialog";
+import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
+import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t, tChoice } from "@/i18n/i18n";
@@ -23,17 +26,19 @@ import { t, tChoice } from "@/i18n/i18n";
 import { TemplateDialog } from "./templates/components/TemplateDialog";
 import { TemplateInlineForm } from "./templates/components/TemplateInlineForm";
 import { TemplateListRow } from "./templates/components/TemplateListRow";
-import { TemplateSearchSortBar } from "./templates/components/TemplateSearchSortBar";
+import { TemplateSortBar } from "./templates/components/TemplateSearchSortBar";
 import { TemplateToolbar } from "./templates/components/TemplateToolbar";
 import { useTemplateDialog } from "./templates/hooks/useTemplateDialog";
 import { useTemplateImportExport } from "./templates/hooks/useTemplateImportExport";
 import { useTemplateQuickAdd } from "./templates/hooks/useTemplateQuickAdd";
 import { useTemplates } from "./templates/hooks/useTemplates";
+import { saveTemplates } from "./templates/lib/storage";
 import type { TemplateRow } from "./templates/lib/types";
 
 export default function TemplatesPage() {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
+	const { agoLabel, markUpdated, refreshing, withRefresh } = useLastUpdated();
 
 	const {
 		templates,
@@ -42,12 +47,10 @@ export default function TemplatesPage() {
 		templatesRef,
 		loadRows,
 		instantDeleteTemplate,
-		searchQuery,
-		setSearchQuery,
 		sortOrder,
 		setSortOrder,
 		filteredSortedTemplates,
-	} = useTemplates({ call, showSnack });
+	} = useTemplates({ call, showSnack, markUpdated });
 
 	const {
 		showDialog,
@@ -102,6 +105,33 @@ export default function TemplatesPage() {
 	const handleEdit = useCallback((row: TemplateRow) => {
 		openEditDialogRef.current(row);
 	}, []);
+
+	//: "Clear All" wipes every template — gated by a confirmation
+	// dialog (an irreversible, privacy-adjacent action). Clears via the
+	// existing persistence path (save an empty list), then reloads so
+	// the UI reflects the backend.
+	const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
+	const handleClearAllConfirm = useCallback(async () => {
+		setShowClearAllConfirm(false);
+		try {
+			await saveTemplates([], call);
+			loadRows();
+			showSnack(t("templates.allCleared"), "success");
+		} catch (err) {
+			console.error("[renderer:Templates] Failed to clear all templates:", err);
+			showSnack(t("templates.clearFailed"), "error");
+		}
+	}, [call, loadRows, showSnack]);
+
+	// F4: manual refresh for the LastUpdatedIndicator. Wraps loadRows in
+	// the hook's withRefresh so the refreshing flag clears on error too.
+	// The timestamp bump itself lives inside useTemplates' loadRows
+	// (markUpdated), so every load path (mount, retry, delete undo,
+	// clear-all) updates the indicator.
+	const handleRefresh = useCallback(
+		() => withRefresh(loadRows),
+		[loadRows, withRefresh],
+	);
 
 	if (loading) {
 		return (
@@ -161,13 +191,21 @@ export default function TemplatesPage() {
 						// regression for edit).
 						onAdd={quickAdd.openQuickAdd}
 						exportDisabled={templates.length === 0}
+						onClearAll={() => setShowClearAllConfirm(true)}
+						clearAllDisabled={templates.length === 0}
 					/>
 				</PageHeading>
 
+				<div className="flex justify-end pb-2">
+					<LastUpdatedIndicator
+						agoLabel={agoLabel}
+						onRefresh={handleRefresh}
+						refreshing={refreshing}
+					/>
+				</div>
+
 				{templates.length > 0 && (
-					<TemplateSearchSortBar
-						searchQuery={searchQuery}
-						onSearchChange={setSearchQuery}
+					<TemplateSortBar
 						sortOrder={sortOrder}
 						onSortOrderChange={setSortOrder}
 					/>
@@ -256,6 +294,19 @@ export default function TemplatesPage() {
 				onMatchModeChange={handleMatchModeChange}
 				onClose={handleCloseDialog}
 				onSave={saveTemplate}
+			/>
+
+			{/* Clear All — confirmation gated (mirrors Vocabulary). */}
+			<ConfirmDialog
+				open={showClearAllConfirm}
+				title={t("templates.clearAllTitle")}
+				message={t("templates.clearAllMessage")}
+				confirmLabel={t("templates.clearAllConfirm")}
+				cancelLabel={t("common.cancel")}
+				variant="destructive"
+				dismissOnBackdrop
+				onConfirm={handleClearAllConfirm}
+				onCancel={() => setShowClearAllConfirm(false)}
 			/>
 		</>
 	);

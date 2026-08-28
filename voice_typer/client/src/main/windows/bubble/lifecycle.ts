@@ -41,6 +41,7 @@ import { BubbleChannels } from "../../ipc/channels";
 // always present and the test mocks have been updated to expose `log`.
 import { BUBBLE_CLR, log, RESET } from "../../logging";
 import { state } from "../../state";
+import { sanitizeRendererUrl } from "../renderer-url";
 import { attachConsoleForwarder } from "./console-forwarder";
 //sliding 60s window; if >5 crashes land in that window, stop
 // reloading and show a recovery dialog. Threshold + window length
@@ -273,12 +274,13 @@ export function createBubbleWindow(): BrowserWindow {
 		colorPrefix: BUBBLE_CLR,
 	});
 
-	const loadTarget = process.env.ELECTRON_RENDERER_URL
-		? `${process.env.ELECTRON_RENDERER_URL}/bubble.html`
+	const baseUrl = sanitizeRendererUrl(process.env.ELECTRON_RENDERER_URL);
+	const loadTarget = baseUrl
+		? `${baseUrl}/bubble.html`
 		: path.join(__dirname, "../renderer/bubble.html");
 	//routine lifecycle event — log.info.
 	log.info(`${BUBBLE_CLR}[BUBBLE]${RESET} loading ${loadTarget}`);
-	if (process.env.ELECTRON_RENDERER_URL) {
+	if (baseUrl) {
 		void win.loadURL(loadTarget);
 	} else {
 		void win.loadFile(loadTarget);

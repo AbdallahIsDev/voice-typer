@@ -29,6 +29,10 @@ interface TemplateToolbarProps {
 	onExport: (format: ExportFormat) => void | Promise<void>;
 	onAdd: () => void;
 	exportDisabled: boolean;
+	/** Opens the Clear-All confirmation dialog (wipes every template). */
+	onClearAll: () => void;
+	/** Disables the Clear All button when there is nothing to clear. */
+	clearAllDisabled: boolean;
 }
 
 export function TemplateToolbar({
@@ -38,6 +42,8 @@ export function TemplateToolbar({
 	onExport,
 	onAdd,
 	exportDisabled,
+	onClearAll,
+	clearAllDisabled,
 }: TemplateToolbarProps) {
 	return (
 		<div className="flex flex-wrap items-center gap-2">
@@ -80,6 +86,16 @@ export function TemplateToolbar({
 			>
 				<HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="h-4 w-4" />
 				{t("templates.addTemplate")}
+			</Button>
+			<Button
+				variant="outline"
+				size="sm"
+				onClick={onClearAll}
+				disabled={clearAllDisabled}
+				aria-label={t("templates.clearAllAria")}
+				className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
+			>
+				{t("templates.clearAll")}
 			</Button>
 		</div>
 	);

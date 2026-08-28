@@ -49,7 +49,7 @@ import {
 	stableMocks,
 } from "@/__tests__/helpers/stableMocks";
 
-const { mockCall, showSnack, mockToastError } = stableMocks;
+const { mockCall, showSnack } = stableMocks;
 
 vi.mock("@hugeicons/react", () => hugeiconsReactMock({ spreadProps: true }));
 vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
@@ -572,18 +572,85 @@ describe("ModelsPage — MDL-3: cancel produces no duplicate snackbar", () => {
 
 		fireEvent.click(downloadButton);
 
-		// useModelLifecycle uses toast.error (sonner) directly for
-		// download failures (with a Retry action button), NOT showSnack.
+		// useModelDownload routes the failure through showSnack (the
+		// canonical snackbar system) with a Retry action button — NOT a
+		// raw sonner toast.error.
 		await waitFor(() => {
-			expect(mockToastError).toHaveBeenCalledWith(
+			expect(showSnack).toHaveBeenCalledWith(
 				"Disk full",
+				"error",
 				expect.objectContaining({
-					duration: 8000,
 					action: expect.objectContaining({
 						label: t("microphone.retry"),
 					}),
 				}),
 			);
+		});
+	});
+});
+
+describe("ModelsPage — failed download surfaces the inline DownloadProgressBar error + Retry", () => {
+	afterEach(() => {
+		cleanup();
+		vi.clearAllMocks();
+		removeDialogMock();
+	});
+
+	it("shows the inline error + Retry button when download_model fails, and Retry re-invokes the download", async () => {
+		// First download_model call fails (the inline error state),
+		// second (from the Retry button) succeeds — the stronger
+		// assertion is that Retry actually re-runs the IPC.
+		let downloadCallCount = 0;
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(MOCK_CONFIG);
+			if (type === "get_model_status") return Promise.resolve({});
+			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
+			if (type === "download_model") {
+				downloadCallCount++;
+				return downloadCallCount === 1
+					? Promise.resolve({ success: false, error: "Disk full" })
+					: Promise.resolve({ success: true });
+			}
+			return Promise.resolve(MOCK_CONFIG);
+		});
+		renderWithProviders(<ModelsPage />);
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("heading", { level: 1, name: /Models/i }),
+			).toBeTruthy();
+		});
+
+		const downloadButton = screen.getByRole("button", {
+			name: t("models.card.downloadAria").replace("{name}", "large-v3-turbo"),
+		});
+		fireEvent.click(downloadButton);
+
+		// The DownloadProgressBar stays mounted and enters its inline
+		// error state: a role="alert" status line + a Retry button.
+		await waitFor(() => {
+			expect(mockCall).toHaveBeenCalledWith("download_model", {
+				model: "large-v3-turbo",
+			});
+		});
+		const alertRegion = await waitFor(() => screen.getByRole("alert"));
+		expect(alertRegion.textContent).toContain(
+			"large-v3-turbo download failed: Disk full",
+		);
+		const retryButton = screen.getByRole("button", {
+			name: t("models.download.retryAria"),
+		});
+		expect(retryButton).toBeTruthy();
+
+		// Clicking Retry invokes onRetryDownload → retryDownload →
+		// downloadModel re-invokes the download_model IPC.
+		fireEvent.click(retryButton);
+
+		await waitFor(() => {
+			expect(downloadCallCount).toBe(2);
+		});
+		// Second call succeeded → the bar unmounts (error state gone).
+		await waitFor(() => {
+			expect(screen.queryByRole("alert")).toBeNull();
 		});
 	});
 });

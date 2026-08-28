@@ -14,9 +14,9 @@
 // safe) keeps the reminder at most ~once per 5 minutes; the fixed
 // sonner ``id`` replaces an in-flight toast instead of stacking.
 
-import { toast } from "sonner";
 import { usePythonEvent } from "@/hooks/usePython";
 import { useDegradationToastStore } from "@/stores/degradationToastStore";
+import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
 
 /** Minimal `t` function type matching i18n.t's signature. */
 type TFn = (key: string, params?: Record<string, string>) => string;
@@ -36,6 +36,7 @@ const LLM_POLISH_TOAST_COOLDOWN_MS = 300_000;
  * @param t i18n translate function (from useT).
  */
 export function useLlmPolishFailedToast(t: TFn): void {
+	const { showSnack } = useSnackbar();
 	usePythonEvent("llm_polish_failed", (): (() => void) | undefined => {
 		const now = Date.now();
 		const store = useDegradationToastStore.getState();
@@ -46,10 +47,10 @@ export function useLlmPolishFailedToast(t: TFn): void {
 		store.setLlmPolishFailedAt(now);
 		store.setLastAnyToastShownAt(now);
 
-		toast.warning(t("degradation.llmPolishFailed"), {
+		showSnack(t("degradation.llmPolishFailed"), "warning", {
 			id: "llm-polish-failed",
 			description: t("degradation.llmPolishFailedHint"),
-			duration: 8000,
+			duration: SNACKBAR_DEFAULT_DURATION_MS.error,
 		});
 		return undefined;
 	});

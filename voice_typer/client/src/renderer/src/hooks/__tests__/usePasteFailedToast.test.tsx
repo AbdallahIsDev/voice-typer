@@ -53,10 +53,10 @@ describe("usePasteFailedToast", () => {
 		renderHook(() => usePasteFailedToast(mockT));
 		const handler = getHandler();
 		handler({});
-		expect(toast.warning).toHaveBeenCalledWith("home.pasteFailedMessage", {
-			description: undefined,
-			duration: 8000,
-		});
+		expect(toast.warning).toHaveBeenCalledWith(
+			"home.pasteFailedMessage",
+			expect.objectContaining({ duration: 8000 }),
+		);
 	});
 
 	it("uses the message from the payload (multi-line → title + description)", () => {

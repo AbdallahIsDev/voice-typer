@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFilterState } from "@/hooks/useFilterState";
+import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { showUndoableToast } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 
@@ -38,6 +39,10 @@ interface UseTemplatesArgs {
 		message: string,
 		kind: "success" | "error" | "warning" | "info",
 	) => void;
+	/** Called after each load attempt so the page's "Last updated"
+	 *  indicator reflects the most recent fetch. Optional for backward
+	 *  compat with call sites that don't render the indicator. */
+	markUpdated?: () => void;
 }
 
 interface UseTemplatesResult {
@@ -49,7 +54,8 @@ interface UseTemplatesResult {
 	instantDeleteTemplate: (tmpl: TemplateRow) => Promise<void>;
 	// Search + sort (client-side, applied via useMemo).
 	searchQuery: string;
-	setSearchQuery: (q: string) => void;
+	// setSearchQuery intentionally removed — the global search store
+	// owns the query now; the title-bar SearchField writes to it.
 	sortOrder: TemplateSortOrder;
 	setSortOrder: (o: TemplateSortOrder) => void;
 	filteredSortedTemplates: TemplateRow[];
@@ -58,6 +64,7 @@ interface UseTemplatesResult {
 export function useTemplates({
 	call,
 	showSnack,
+	markUpdated,
 }: UseTemplatesArgs): UseTemplatesResult {
 	// Ref mirror of `call` so `loadRows` keeps a STABLE identity ([]
 	// deps). `call` is useCallback-stable in production, but test mocks
@@ -68,6 +75,14 @@ export function useTemplates({
 	useEffect(() => {
 		callRef.current = call;
 	}, [call]);
+
+	// Ref mirror of `markUpdated` (same stability rationale as `call` —
+	// the page passes it down so the "Last updated" indicator bumps on
+	// every load, including the mount-time load this hook owns).
+	const markUpdatedRef = useRef(markUpdated);
+	useEffect(() => {
+		markUpdatedRef.current = markUpdated;
+	}, [markUpdated]);
 
 	const [templates, setTemplates] = useState<TemplateRow[]>([]);
 	const [loading, setLoading] = useState(true);
@@ -80,11 +95,10 @@ export function useTemplates({
 	// Persist search + sort across page navigation via
 	// sessionStorage — same pattern as Vocabulary. Wraps
 	// useSessionStorage under the hood with a per-page namespaced key.
-	const [searchQuery, setSearchQuery] = useFilterState<string>(
-		"templates",
-		"searchQuery",
-		"",
-	);
+	// NOTE: only SORT persists here; the search query now lives in the
+	// shared global-search store (useGlobalSearch) so the title-bar
+	// search drives it.
+	const searchQuery = useGlobalSearch((s) => s.query);
 	const [sortOrder, setSortOrder] = useFilterState<TemplateSortOrder>(
 		"templates",
 		"sortOrder",
@@ -205,6 +219,7 @@ export function useTemplates({
 			);
 		} finally {
 			setLoading(false);
+			markUpdatedRef.current?.();
 		}
 	}, []);
 
@@ -348,7 +363,6 @@ export function useTemplates({
 		loadRows,
 		instantDeleteTemplate,
 		searchQuery,
-		setSearchQuery,
 		sortOrder,
 		setSortOrder,
 		filteredSortedTemplates,

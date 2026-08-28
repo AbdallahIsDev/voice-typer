@@ -115,6 +115,11 @@ class LifecycleMixin:
     _stdin_thread: threading.Thread | None
     _heartbeat_thread: threading.Thread | None
     _heartbeat_stop_event: threading.Event
+    # Set by ``shutdown.cleanup.do_cleanup`` when ``_do_cleanup()``
+    # finishes; the heartbeat force-exit watchdog waits on it so a
+    # healthy-but-slow quit() is not force-killed mid-teardown (see
+    # ``_check_heartbeat_timeout``).
+    _shutdown_completed_event: threading.Event
     _relaunch_ack_event: threading.Event
     _last_heartbeat_at: float | None
     # host app object — declared (mirroring ``TCPTransportMixin``) so
@@ -519,8 +524,14 @@ class LifecycleMixin:
 
         if ``tray.stop()`` hangs (observed on certain Linux
         backends + Windows Server), the daemon thread scheduled here
-        force-exits the process via ``os._exit(1)`` after a 10-second
-        grace period. See the inline comment in the ``True`` branch.
+        force-exits the process via ``os._exit(1)`` after the grace
+        period. The thread waits on the shutdown-completion event
+        (set when ``_do_cleanup()`` finishes) instead of a bare sleep,
+        so a healthy-but-slow quit() that completes cleanup within the
+        grace window is NOT force-killed — the event is set and the
+        thread returns without ``os._exit(1)``. Only the genuine-hang
+        case (no completion signal before the grace elapses) fires the
+        hard force-exit. See the inline comment in the ``True`` branch.
         """
         last = self._last_heartbeat_at
         if last is None:
@@ -554,12 +565,20 @@ class LifecycleMixin:
         # observed to hang inside ``stop()`` — leaving the process
         # stuck with the mic open and the single-instance mutex held.
         #
-        # Mitigation: schedule a daemon thread that sleeps 10 seconds
-        # (grace period for ``quit()`` to unwind naturally), then calls
-        # ``os._exit(1)``. If ``quit()`` succeeded, the process is
-        # already gone before the grace period expires — the daemon
-        # thread is reaped by the OS. If ``quit()`` hung, the daemon
-        # thread force-exits the process after 10s.
+        # Mitigation: schedule a daemon thread that waits on the
+        # shutdown-completion event (wired to the end of
+        # ``_do_cleanup()``) for the grace period, then calls
+        # ``os._exit(1)`` if the event was never set. If ``quit()``
+        # succeeded (cleanup finished within the grace window), the
+        # event is set and the thread returns WITHOUT ``os._exit(1)`` —
+        # the process exits naturally. If ``quit()`` hung, the grace
+        # elapses, the event is never set, and the thread force-exits.
+        #
+        # Previously the thread used a bare ``time.sleep(grace)`` with
+        # no completion signal, so a healthy-but-slow quit() (>10s:
+        # PortAudio teardown + history-DB flush + mutex release) was
+        # force-killed mid-cleanup without the supervisor being able
+        # to distinguish a genuine hang from a slow-but-valid shutdown.
         #
         # ``os._exit`` (not ``sys.exit``) bypasses Python's normal
         # shutdown sequence (no atexit handlers, no finally blocks) —
@@ -571,12 +590,17 @@ class LifecycleMixin:
         try:
             import threading as _threading
 
+            _shutdown_completed_event = self._shutdown_completed_event
+
             def _force_exit_after_grace() -> None:
-                # 10-second grace period (default; constant is patchable
-                # for tests). Must be longer than the slowest legitimate
-                # quit() path — PortAudio stream teardown + history DB
-                # flush + mutex release ≈ 2-3s in the worst observed case.
-                time.sleep(_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS)
+                # Wait for the cleanup-completion event instead of a bare
+                # sleep. If ``_do_cleanup()`` finishes within the grace
+                # window (the event is set), the process is exiting
+                # cleanly — return without force-exiting. Only the
+                # genuine-hang case (no completion signal before the
+                # grace elapses) fires the hard force-exit.
+                if _shutdown_completed_event.wait(_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS):
+                    return
                 log.error(
                     "[HEARTBEAT] app.quit() did not exit within %ds — "
                     "force-exiting via os._exit(1) (tray.stop() likely hung)",

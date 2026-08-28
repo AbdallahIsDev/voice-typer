@@ -56,8 +56,8 @@
  * pattern leaks into consumers).
  */
 import { useCallback, useState } from "react";
-import { toast } from "sonner";
 import { usePythonEvent } from "@/hooks/usePython";
+import type { ShowSnackOptions } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import { userFacingErrorMessage } from "@/lib/errors/userFacingErrorMessage";
 import { formatErrorMessage, type ModelInfo } from "@/lib/utils/models";
@@ -76,6 +76,7 @@ interface UseModelDownloadArgs {
 	showSnack: (
 		message: string,
 		kind: "success" | "error" | "warning" | "info",
+		options?: ShowSnackOptions,
 	) => void;
 	setModels: React.Dispatch<React.SetStateAction<ModelInfo[]>>;
 	refreshModelStatus: () => Promise<void>;
@@ -269,6 +270,7 @@ export function useModelDownload({
 					success: boolean;
 					error?: string;
 					message?: string;
+					cancelled?: boolean;
 				}>("download_model", { model: model.name });
 				if (result.success) {
 					setModels((prev) => {
@@ -290,6 +292,20 @@ export function useModelDownload({
 						downloadingModel: null,
 						failedDownload: null,
 					}));
+				} else if (result.cancelled) {
+					// User-initiated cancel: the cancel path
+					// (handleCancelDownload) already surfaced the
+					// "cancelled" snackbar and cleared state. The
+					// pending download_model resolves after the
+					// cancel IPC completes — treat the cancelled
+					// resolution as a clean stop (unmount the bar,
+					// no failure toast).
+					setState((prev) => ({
+						...prev,
+						downloadingModel: null,
+						failedDownload: null,
+					}));
+					resetProgress();
 				} else {
 					// Failure → keep the bar mounted, record the failure so
 					// the inline error UI + Retry button render.
@@ -301,11 +317,10 @@ export function useModelDownload({
 						failedDownload: { modelName: model.name, error: message },
 					}));
 					//surface the failure with a Retry action button.
-					// `showSnack` doesn't support action buttons, so we go
-					// through sonner's `toast.error` directly — the global
-					// Toaster in App.tsx renders it identically.
-					toast.error(message, {
-						duration: 8000,
+					// `showSnack` supports the action option, so the failure
+					// toast now flows through the canonical snackbar system
+					// (duration comes from the error-type default).
+					showSnack(message, "error", {
 						action: {
 							label: t("microphone.retry"),
 							onClick: () => {
@@ -326,8 +341,7 @@ export function useModelDownload({
 					failedDownload: { modelName: model.name, error: message },
 				}));
 				//same retry affordance on thrown errors.
-				toast.error(message, {
-					duration: 8000,
+				showSnack(message, "error", {
 					action: {
 						label: t("microphone.retry"),
 						onClick: () => {

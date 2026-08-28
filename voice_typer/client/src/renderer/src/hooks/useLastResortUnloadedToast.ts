@@ -44,9 +44,9 @@
  * the user was just pointed at the Models page for.
  */
 
-import { toast } from "sonner";
 import { usePythonEvent } from "@/hooks/usePython";
 import { useLastResortToastStore } from "@/stores/lastResortToastStore";
+import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
 
 /** Minimal `t` function type matching i18n.t's signature. */
 type TFn = (key: string, params?: Record<string, string>) => string;
@@ -89,6 +89,7 @@ export function useLastResortUnloadedToast(
 	t: TFn,
 	onOpenModels: () => void,
 ): void {
+	const { showSnack } = useSnackbar();
 	usePythonEvent(
 		"asr_last_resort_unloaded",
 		(data): (() => void) | undefined => {
@@ -116,16 +117,14 @@ export function useLastResortUnloadedToast(
 			state.setLastToastedAt(backend, now);
 			state.setLastToastShownAt(now);
 
-			// 2026-08-15: the toast title is GENERIC (no backend name) —
-			// the per-backend id below still dedupes per backend.
-			toast.warning(t("models.lastResortUnloaded"), {
+			showSnack(t("models.lastResortUnloaded"), "warning", {
 				// Per-backend stable id: a cooldown-boundary re-fire for the
 				// SAME backend REPLACES its in-flight toast instead of stacking;
 				// a DIFFERENT backend gets its own toast (two broken backends
 				// each surface once rather than silently overwriting each other).
 				id: `asr-last-resort-unloaded:${backend}`,
 				description: t("models.lastResortUnloadedHint"),
-				duration: 8000,
+				duration: SNACKBAR_DEFAULT_DURATION_MS.error,
 				action: {
 					label: t("common.openModels"),
 					onClick: onOpenModels,

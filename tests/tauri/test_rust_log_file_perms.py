@@ -165,82 +165,45 @@ def _init_rs_source() -> str:
 
 
 def test_pi7_openoptions_mode_0o600_present_in_write_line() -> None:
-    """``write_line`` must call ``OpenOptionsExt::mode(0o600)`` on unix.
+    """``mode(0o600)`` must be present in the file's file-open path.
 
     This is the primary defense: a freshly-created log file gets mode
     ``0o600`` regardless of the process umask. Pre-hardening the call was
     absent and the file inherited umask (typically 0o644).
+
+    FR-44 moved the file-open logic from ``write_line`` into a dedicated
+    writer thread helper; the 0o600 mode is still set there. Search the
+    whole file rather than just ``fn write_line``.
     """
     src = _rotating_rs_source()
-    # Slice from `fn write_line` to the closing `}` of the function
-    # (the function ends just before `fn rotate`). This isolates the
-    # check to the write path, not the rotate path.
-    m = re.search(r"fn write_line\([^)]*\)[^{]*\{", src)
-    assert m is not None, (
-        f"could not locate `fn write_line` in {LOGGING_ROTATING_RS}. Did the function signature change?"
-    )
-    write_line_body_start = m.end()
-    # Find the matching closing brace by counting braces from the
-    # function body start. Rust allows braces inside string literals
-    # and comments, but the write_line function in this file has none
-    # of either containing braces — a simple count is sufficient.
-    depth = 1
-    i = write_line_body_start
-    while i < len(src) and depth > 0:
-        c = src[i]
-        if c == "{":
-            depth += 1
-        elif c == "}":
-            depth -= 1
-        i += 1
-    assert depth == 0, "could not find the closing `}` of `fn write_line` — the function body is malformed."
-    write_line_body = src[write_line_body_start:i]
-    # The mode(0o600) call must be present AND gated by #[cfg(unix)].
-    # Match either `opts.mode(0o600)` (current shape) or
-    # `.mode(0o600)` (any future refactor that chains on OpenOptions).
-    assert re.search(r"\.mode\(0o600\)", write_line_body), (
+    assert re.search(r"\.mode\(0o600\)", src), (
         "`OpenOptionsExt::mode(0o600)` call missing "
-        "from `fn write_line`. The log file will inherit the process "
+        "from the rotating writer. The log file will inherit the process "
         "umask (typically 0o644) and be world-readable on POSIX."
     )
 
 
 def test_pi7_chmod_0o600_belt_and_suspenders_in_write_line() -> None:
-    """``write_line`` must chmod the log file to ``0o600`` on open (belt-and-suspenders).
+    """The rotating writer must chmod the log file to ``0o600`` (belt-and-suspenders).
 
     ``OpenOptionsExt::mode(0o600)`` only applies to NEW files — a leftover
     0o644 log file from a pre-hardening build would stay world-readable
-    otherwise. The single-file policy (truncate-in-place, no numbered
-    backups) re-asserts ``set_permissions(..., 0o600)`` in ``write_line``'s
-    just-in-time init path so pre-existing files are hardened on next open.
+    otherwise. The ``set_permissions(..., 0o600)`` call re-asserts the
+    mode on open so pre-existing files are hardened. FR-44 moved the
+    file-open logic onto a dedicated writer thread; the re-assert lives
+    there now.
     """
     src = _rotating_rs_source()
-    m = re.search(r"fn write_line\([^)]*\)[^{]*\{", src)
-    assert m is not None, (
-        f"could not locate `fn write_line` in {LOGGING_ROTATING_RS}. Did the function signature change?"
-    )
-    write_line_body_start = m.end()
-    depth = 1
-    i = write_line_body_start
-    while i < len(src) and depth > 0:
-        c = src[i]
-        if c == "{":
-            depth += 1
-        elif c == "}":
-            depth -= 1
-        i += 1
-    assert depth == 0, "could not find the closing `}` of `fn write_line` — the function body is malformed."
-    write_line_body = src[write_line_body_start:i]
     # The belt-and-suspenders `set_permissions(..., 0o600)` call must be
-    # present in write_line's init path (it re-asserts 0o600 for log files
-    # left behind by a pre-hardening build).
+    # present somewhere in the rotating writer (it re-asserts 0o600 for
+    # log files left behind by a pre-hardening build).
     chmod_calls = re.findall(
         r"set_permissions\([^,]+,\s*std::fs::Permissions::from_mode\(0o600\)",
-        write_line_body,
+        src,
     )
     assert len(chmod_calls) >= 1, (
         "expected at least 1 "
-        "`set_permissions(..., 0o600)` call in `fn write_line` (the "
+        "`set_permissions(..., 0o600)` call in the rotating writer (the "
         "belt-and-suspenders re-assert for pre-existing 0o644 files); "
         f"found {len(chmod_calls)}."
     )

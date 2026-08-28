@@ -20,9 +20,9 @@
 // (both subsystems can detect the same physical loss) into ONE visible
 // notification. A fixed sonner ``id`` replaces any in-flight toast.
 
-import { toast } from "sonner";
 import { usePythonEvent } from "@/hooks/usePython";
 import { useDeviceLostStore } from "@/stores/deviceLostStore";
+import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
 
 /** Minimal `t` function type matching i18n.t's signature. */
 type TFn = (key: string, params?: Record<string, string>) => string;
@@ -46,6 +46,7 @@ const DEVICE_LOST_TOAST_DEDUPE_MS = 10_000;
  *   (App wires ``() => navigate("microphone")``).
  */
 export function useDeviceLostToast(t: TFn, onOpenMicrophone: () => void): void {
+	const { showSnack } = useSnackbar();
 	usePythonEvent("device_lost", (data): (() => void) | undefined => {
 		const payload = (data ?? {}) as { source?: unknown };
 		const source =
@@ -61,10 +62,10 @@ export function useDeviceLostToast(t: TFn, onOpenMicrophone: () => void): void {
 		}
 		store.setLastToastShownAt(now);
 
-		toast.warning(t("degradation.deviceLost"), {
+		showSnack(t("degradation.deviceLost"), "warning", {
 			id: "device-lost",
 			description: t("degradation.deviceLostHint"),
-			duration: 8000,
+			duration: SNACKBAR_DEFAULT_DURATION_MS.error,
 			action: {
 				label: t("nav.microphone"),
 				onClick: onOpenMicrophone,
