@@ -42,6 +42,10 @@ _cuda_test.py
 # and consumed by scripts/ruff_ratchet_check.py. Never commit; regenerate locally
 # with the same ruff invocation if you need it.
 ruff-current.json
+# pyrefly ratchet CI artifact — produced by `pyrefly check ... --output-format=json`
+# and consumed by the "Audit pyrefly baseline changes" CI step. Never commit;
+# regenerate locally with the same pyrefly invocation if you need it.
+pyrefly-current.json
 # Local editor/OS files
 .idea/
 .vscode/
