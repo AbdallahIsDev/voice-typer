@@ -1,12 +1,11 @@
 """Core ASR backend registry — typed contracts + backend CRUD + load fallback.
 
-Composes :class:`voice_typer.server.asr.circuit_breaker.CircuitBreaker`
+Composes :class:`~voice_typer.server.asr.circuit_breaker.CircuitBreaker`
 (failure counters + disabled-set + subscribers) and
-:class:`voice_typer.server.asr.busy_flag.BusyFlag` (per-backend busy
-flag), both built on the shared ``self._lock`` so registry + breaker +
-busy operations are mutually atomic. The
-:class:`voice_typer.server.asr_registry.AsrBackendRegistry` subclass
-adds the backward-compat wrapper methods + state-exposing properties.
+:class:`~voice_typer.server.asr.busy_flag.BusyFlag` (per-backend busy flag)
+on the shared ``self._lock`` so registry + breaker + busy operations are
+mutually atomic; the :class:`~voice_typer.server.asr_registry.AsrBackendRegistry`
+subclass adds the backward-compat wrappers + state-exposing properties.
 """
 
 from __future__ import annotations
@@ -39,18 +38,13 @@ MODEL_LOAD_TIMEOUT_SECONDS = 120
 class AsrBackend(Protocol):
     """Structural contract for an ASR backend registered with the registry.
 
-    A ``Protocol`` (not an ABC) so the four real backends do NOT need
-    to inherit from a common base class — duck typing is preserved.
-    ``@runtime_checkable`` so tests can assert ``isinstance(obj, AsrBackend)``.
-
-    This is a STATIC type-check contract, not a runtime contract: the
-    registry's ``register`` / ``get`` accept any object at runtime and
-    the pipeline guards optional members (``request_abort`` /
-    ``clear_abort``) with ``hasattr`` before calling them (see
-    ``dictation_pipeline/orchestrator.py`` + ``transcribe_step.py``).
-    The Protocol exists so a future engine author reading the registry
-    knows exactly which members the registry and IPC layer rely on —
-    and so pyrefly flags a backend that forgets one.
+    A ``Protocol`` (not an ABC) so the four real backends do NOT need a common
+    base class; ``@runtime_checkable`` so tests can ``isinstance``-check. This
+    is a STATIC type-check contract: ``register``/``get`` accept any object at
+    runtime and the pipeline guards optional members (``request_abort`` /
+    ``clear_abort``) with ``hasattr`` (see ``dictation_pipeline/orchestrator.py``
+    + ``transcribe_step.py``). It documents which members the registry and IPC
+    layer rely on — and makes pyrefly flag a backend that forgets one.
     """
 
     is_loaded: bool
@@ -82,10 +76,9 @@ class AsrBackend(Protocol):
         ...
 
     def transcribe_with_fallback(self, audio: np.ndarray, *args: object, **kwargs: object) -> str:
-        """Transcribe ``audio`` (a float array of PCM samples) and return
-        the text (possibly empty). All four concrete engines accept
-        ``np.ndarray`` — ``bytes`` was a Protocol bug that would type-
-        check but crash at runtime."""
+        """Transcribe ``audio`` (float PCM samples) to text (possibly empty).
+        All four concrete engines accept ``np.ndarray`` — ``bytes`` was a
+        Protocol bug that would type-check but crash at runtime."""
         ...
 
 
@@ -93,10 +86,9 @@ class AsrBackend(Protocol):
 class ConfigProtocol(Protocol):
     """Structural contract for the Config object passed to the registry.
 
-    ``disabled_backends`` is declared on the Protocol AND on the real
-    ``Config`` dataclass. The runtime code path in :meth:`RegistryCore.__init__`
-    still falls back to ``getattr(config, "disabled_backends", None)`` so
-    legacy configs constructed without the field continue to work.
+    ``disabled_backends`` is declared here AND on the real ``Config`` dataclass;
+    :meth:`RegistryCore.__init__` still falls back to ``getattr(config,
+    "disabled_backends", None)`` so legacy configs without the field keep working.
     """
 
     asr_backend: str

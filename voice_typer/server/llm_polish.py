@@ -297,7 +297,7 @@ class LLMPolisher:
             redacted_text = redact_pii(text)
             if redacted_text != text:
                 log.info(
-                    "[LLM_POLISH] CR-10: redacted PII from %d chars of user-content before API send (delta=%d chars)",
+                    "[LLM_POLISH] redacted PII from %d chars of user-content before API send (delta=%d chars)",
                     len(text),
                     len(text) - len(redacted_text),
                 )

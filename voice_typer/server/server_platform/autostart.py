@@ -99,7 +99,7 @@ def _desktop_quote(arg: str) -> str:
     ``C:\\Users\\John "Bob"\\app`` would corrupt the .desktop Exec
     field.  We now do proper spec-compliant quoting.
     """
-    # XZ-R6-AS-04: a literal newline / carriage-return inside the
+    # A literal newline / carriage-return inside the
     # quoted string would still TERMINATE the Exec line (the spec only
     # allows escaping within a single line — there is no line-continuation
     # escape), letting a malicious path inject a new .desktop field. The

@@ -25,6 +25,7 @@ from voice_typer.server.hallucination import log_hallucination_rejection
 # window. New code should import from asr_utils directly.
 try:
     from voice_typer.server.asr_utils import (
+        NON_LATIN_RATIO_LIMIT as _ASR_NON_LATIN_RATIO_LIMIT,
         compute_overlap_skip as _asr_compute_overlap_skip,
         is_cuda_error as _asr_is_cuda_error,
         is_latin_char as _asr_is_latin_char,
@@ -40,6 +41,7 @@ except ImportError:  # pragma: no cover — defensive fallback during parallel r
     _asr_is_likely_english = None  # type: ignore[assignment]
     _asr_merge_chunks = None  # type: ignore[assignment]
     _asr_compute_overlap_skip = None  # type: ignore[assignment]
+    _ASR_NON_LATIN_RATIO_LIMIT = None  # type: ignore[assignment]
 
 from ._constants import (
     _MAX_BOUNDARY_SKIP_WORDS,
@@ -174,4 +176,53 @@ _compute_overlap_skip_impl = (
 # parallel test rewrite. New code should import from ``asr_utils``.
 
 _is_latin_char = _is_latin_char_impl
-_is_likely_english = _is_likely_english_impl
+
+# ─── ASCII fast path for the language filter ───────────────────────────
+#
+# The resolved :func:`is_likely_english` classifies characters one at a
+# time (``sum(1 for ch in text if not is_latin_char(ch))``), and each
+# classification costs two ``unicodedata`` calls. Transcription output
+# is overwhelmingly pure ASCII, where the answer is computable in bulk:
+# every ASCII code point satisfies ``is_latin_char`` (punctuation P*,
+# separators Zs, symbols S*, digits via ``str.isdigit``, and letters
+# whose ``unicodedata.name`` starts with "LATIN") EXCEPT the 33 Cc
+# control characters (U+0000–U+001F, U+007F). So for ASCII text the
+# non-Latin count is just the number of control characters, which
+# ``str.translate`` counts at C speed. The threshold comparison below
+# is the exact complement of the canonical ``ratio > LIMIT`` check (same
+# operands → same float division → ``<=`` ≡ ``not >``), so the fast path
+# returns ``True`` ONLY where the canonical implementation provably
+# would; every other input (non-ASCII, empty, or ASCII above the limit)
+# delegates to the unresolved canonical implementation, preserving its
+# whitespace short-circuit and its hallucination-rejection logging
+# verbatim.
+
+# U+0000–U+001F plus DEL (U+007F) — the only ASCII code points whose
+# ``unicodedata`` classification is not Latin/punct/symbol/separator.
+_ASCII_NON_LATIN_TRANSLATION: dict[int, None] = {cp: None for cp in range(0x20)}
+_ASCII_NON_LATIN_TRANSLATION[0x7F] = None
+
+# The threshold the RESOLVED implementation compares against (they are
+# the same value today; reading it from the same module keeps the fast
+# path exact if the canonical constant ever moves).
+_LIKELY_ENGLISH_RATIO_LIMIT = (
+    _ASR_NON_LATIN_RATIO_LIMIT if _ASR_NON_LATIN_RATIO_LIMIT is not None else _NON_LATIN_RATIO_LIMIT
+)
+
+
+def _is_likely_english(text: str) -> bool:
+    """Return False if *text* contains too many non-Latin-script characters.
+
+    ASCII fast path in front of the resolved canonical implementation
+    (see the ASCII fast-path block above): pure-ASCII text below the
+    non-Latin ratio limit returns ``True`` without the per-character
+    ``unicodedata`` loop; everything else — including every REJECT
+    decision — goes through the canonical implementation unchanged so
+    its threshold boundary and PII-safe rejection logging are preserved
+    exactly.
+    """
+    if text and text.isascii():
+        non_latin = len(text) - len(text.translate(_ASCII_NON_LATIN_TRANSLATION))
+        if non_latin / len(text) <= _LIKELY_ENGLISH_RATIO_LIMIT:
+            return True
+    return _is_likely_english_impl(text)

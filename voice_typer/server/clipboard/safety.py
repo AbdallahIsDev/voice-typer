@@ -302,7 +302,7 @@ def _is_safe_paste_target_impl() -> bool:
         # outer fallthrough means something genuinely unexpected
         # happened in the safety-check infrastructure.
         _cb.log.warning(
-            "[CLIPBOARD] _is_safe_paste_target outer exception — failing CLOSED (XZ-CLIP-03)",
+            "[CLIPBOARD] _is_safe_paste_target outer exception — failing CLOSED",
             exc_info=True,
         )
         return False

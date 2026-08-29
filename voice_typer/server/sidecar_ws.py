@@ -670,8 +670,7 @@ async def _authenticate(websocket) -> bool:
         else:
             if host_protocol_int != PROTOCOL_VERSION:
                 log.warning(
-                    "[SIDECAR-WS] protocol version skew: host=%d sidecar=%d "
-                    "(continuing — field is advisory; see S1-CR-78)",
+                    "[SIDECAR-WS] protocol version skew: host=%d sidecar=%d (continuing — field is advisory)",
                     host_protocol_int,
                     PROTOCOL_VERSION,
                 )
@@ -1025,7 +1024,7 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
     sem = _get_ws_connection_semaphore(server)
     if sem.locked():
         log.warning(
-            "[SIDECAR-WS] max_connections (%d) reached — rejecting %s with 1008 (XZ-IPC-003)",
+            "[SIDECAR-WS] max_connections (%d) reached — rejecting %s with 1008",
             _MAX_WS_CONNECTIONS,
             peer,
         )

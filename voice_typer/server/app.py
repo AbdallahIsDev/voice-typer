@@ -180,36 +180,46 @@ def _resolve_config_dir():
 # could enable DLL injection — canonical home is env_validation).
 from voice_typer.server.logging_setup import _emit_startup_banner, _setup_logging  # noqa: F401, E402
 
-# Register English fallbacks for the new i18n keys consumed by
-# this module (``error.config_load_failed.title`` /
-# ``error.config_load_failed.body`` and ``state.app.starting``). The canonical home for English fallbacks is
-# ``voice_typer/server/i18n.py::_INITIAL_LABELS`` (which already holds
-# every other ``notify.app.*`` / ``state.*`` key used elsewhere in the
-# server), but that module is owned by another lane — so we extend the
-# existing English registry in place rather than replacing it via
-# ``i18n.register_locale`` (which REPLACES the locale's label dict,
-# wiping all other English keys). ``setdefault`` makes this idempotent:
-# if a future i18n.py change adds the same key to ``_INITIAL_LABELS``,
-# that value wins (this extension becomes a no-op). Non-English locales
-# are populated via the ``set_tray_locale`` IPC (pushed by the renderer
-# on locale change) and via the JSON locale files at
-# ``voice_typer/client/src/main/i18n/locales/*.json`` (consumed by the
-# TS main process's ``mainT()``). Per the i18n completeness rule, the
-# keys MUST exist in every locale file so the missing-key tooling
-# doesn't silently fall back to English.
-with i18n._LOCK:
-    _en_labels = i18n._REGISTRY.setdefault("en", {})
-    # the tray notification for a config-load failure routes
-    # through these two keys (resolved by the regression guard in
-    # ``tests/app/test_lifecycle.py``). The title is a
-    # non-brand literal so the failure is surfaced
-    # in the notification even when ``APP_NAME`` is customized.
-    _en_labels.setdefault("error.config_load_failed.title", "Config load failed")
-    _en_labels.setdefault(
-        "error.config_load_failed.body",
-        "Settings were reset to defaults. Check the logs for details.",
-    )
-    _en_labels.setdefault("state.app.starting", "Starting...")
+
+def _register_startup_i18n_fallbacks() -> None:
+    """Register English fallbacks for the new i18n keys consumed by
+    this module (``error.config_load_failed.title`` /
+    ``error.config_load_failed.body`` and ``state.app.starting``).
+
+    Called from ``VoiceTyperApp.__init__`` — i.e. at app-init time, not
+    import time — so importing the module stays side-effect-free. Must
+    run BEFORE ``_init_config``: the config-load-failure notification
+    raised there resolves ``error.config_load_failed.*``.
+
+    The canonical home for English fallbacks is
+    ``voice_typer/server/i18n.py::_INITIAL_LABELS`` (which already holds
+    every other ``notify.app.*`` / ``state.*`` key used elsewhere in the
+    server), but that module is owned by another lane — so we extend the
+    existing English registry in place rather than replacing it via
+    ``i18n.register_locale`` (which REPLACES the locale's label dict,
+    wiping all other English keys). ``setdefault`` makes this idempotent:
+    if a future i18n.py change adds the same key to ``_INITIAL_LABELS``,
+    that value wins (this extension becomes a no-op). Non-English locales
+    are populated via the ``set_tray_locale`` IPC (pushed by the renderer
+    on locale change) and via the JSON locale files at
+    ``voice_typer/client/src/main/i18n/locales/*.json`` (consumed by the
+    TS main process's ``mainT()``). Per the i18n completeness rule, the
+    keys MUST exist in every locale file so the missing-key tooling
+    doesn't silently fall back to English.
+    """
+    with i18n._LOCK:
+        _en_labels = i18n._REGISTRY.setdefault("en", {})
+        # the tray notification for a config-load failure routes
+        # through these two keys (resolved by the regression guard in
+        # ``tests/app/test_lifecycle.py``). The title is a
+        # non-brand literal so the failure is surfaced
+        # in the notification even when ``APP_NAME`` is customized.
+        _en_labels.setdefault("error.config_load_failed.title", "Config load failed")
+        _en_labels.setdefault(
+            "error.config_load_failed.body",
+            "Settings were reset to defaults. Check the logs for details.",
+        )
+        _en_labels.setdefault("state.app.starting", "Starting...")
 
 
 class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin):
@@ -237,6 +247,10 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin):
 
     def __init__(self):
         """Run the subsystem builders in the historical order."""
+        # Register the English i18n fallbacks BEFORE any builder runs —
+        # the config-load-failure notification in ``_init_config``
+        # resolves ``error.config_load_failed.*``.
+        _register_startup_i18n_fallbacks()
         self._init_config()
         self._init_threading_and_crash()
         self._log_startup_banner()
@@ -586,9 +600,10 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin):
         # The title and body are BOTH localized via ``i18n.t``.
         # The English fallbacks for
         # ``error.config_load_failed.title`` /
-        # ``error.config_load_failed.body`` are registered at the
-        # top of this module (extends ``i18n._REGISTRY["en"]`` since
-        # ``i18n.py::_INITIAL_LABELS`` is owned by another lane).
+        # ``error.config_load_failed.body`` are registered by
+        # ``_register_startup_i18n_fallbacks()``, called at the top of
+        # ``__init__`` (it extends ``i18n._REGISTRY["en"]`` in place
+        # since ``i18n.py::_INITIAL_LABELS`` is owned by another lane).
         if self._config_load_failed:
             try:
                 self.tray.notify(
@@ -1057,7 +1072,8 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin):
         # Queue "Loading" state before the event loop starts
         # Localized via ``i18n.t("state.app.starting")`` instead of the
         # hardcoded English literal ``"Starting..."``. The English
-        # fallback is registered at the top of this module.
+        # fallback is registered by ``_register_startup_i18n_fallbacks``
+        # (called from ``__init__``).
         self.tray.set_state(AppState.LOADING, i18n.t("state.app.starting"))
 
         # wire the waveform bubble now (on the main thread, before

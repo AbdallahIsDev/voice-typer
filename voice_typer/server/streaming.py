@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 
 def _is_view_of_live_recorder_audio(recorder: Any, arr: Any) -> bool:
-    """XZ-PRIV-02 provenance check: is ``arr`` a VIEW over audio the live
+    """Provenance check: is ``arr`` a VIEW over audio the live
     recorder still owns?
 
     The recorder hands out zero-copy snapshot views over TWO backing
@@ -1006,7 +1006,7 @@ class StreamingTranscriptionSession:
             # (NOT the underlying cache, which is owned by the
             # recorder and cleared at stop()/discard() time).
             #
-            # XZ-PRIV-02 test contract: the test passes a
+            # Test contract: the test passes a
             # ``recorder.snapshot.return_value`` that is a fresh
             # ``np.ndarray`` (NOT a view of the recorder cache). To
             # honor the test contract without breaking the
@@ -1122,7 +1122,7 @@ class StreamingTranscriptionSession:
         # ``self._audio`` reference in the finally block at
         # ``dictation_pipeline.py:426`` (``self._audio = None``).
         #
-        # XZ-PRIV-02: honor the test contract — zero the
+        # Honor the test contract — zero the
         # caller-supplied ``full_audio`` in-place after using it for
         # the tail-merge / batch-fallback path. Mirrors the batch
         # path in ``dictation_pipeline.py`` (the batch
@@ -1137,7 +1137,7 @@ class StreamingTranscriptionSession:
                 snapshot_last_committed_time,
             )
         finally:
-            # XZ-PRIV-02 / SEC-audit-008: zero the buffer in
+            # Zero the buffer in
             # the finally so the privacy guarantee holds
             # regardless of which return branch fires. Best-effort:
             # a partial zero doesn't block the function from

@@ -365,7 +365,7 @@ class ConfigHandlersMixin(HandlerBase):
                 # refused to load.
                 to_persist = {k: v for k, v in validated.items() if k not in failed_keys}
                 self.service.apply_config(to_persist)
-                # XZ-SEC-05: a set_config that carries
+                # A set_config that carries
                 # ``trusted_extra_hosts`` must re-apply the allowlist
                 # immediately (not just on next launch via Config.load).
                 # Best-effort: an allowlist failure must not fail the
@@ -498,7 +498,7 @@ class ConfigHandlersMixin(HandlerBase):
         return resp
 
     def _handle_add_trusted_endpoint(self, data: dict | None, resp: dict) -> dict | None:
-        """Handle the ``add_trusted_endpoint`` IPC command (XZ-SEC-05).
+        """Handle the ``add_trusted_endpoint`` IPC command.
 
         Adds a hostname to the runtime URL allowlist AND persists it to
         ``config.json`` under ``trusted_extra_hosts`` so the extension

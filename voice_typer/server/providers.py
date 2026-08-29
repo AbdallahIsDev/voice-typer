@@ -212,7 +212,7 @@ class AppProtocol(Protocol):
     _vocabulary_automation: Any
     """Vocabulary-automation controller (or ``None`` if not initialised).
 
-    CR-59: promoted to ``AppProtocol`` (typed ``Any``) because four
+    Promoted to ``AppProtocol`` (typed ``Any``) because four
     handler sites in
     :mod:`voice_typer.server.handlers.vocabulary_automation_handlers`
     read it via ``getattr(self.app, "_vocabulary_automation", None)``
@@ -242,7 +242,7 @@ class AppProtocol(Protocol):
     _waveform_bubble: Any
     """Waveform-bubble controller (or ``None`` if not initialised).
 
-    CR-59: promoted to ``AppProtocol`` (typed ``Any``) because
+    Promoted to ``AppProtocol`` (typed ``Any``) because
     :mod:`voice_typer.server.handlers.config_handlers` reads it via
     ``getattr(self.app, "_waveform_bubble", None)`` in the
     ``apply_config`` side-effect path (so the bubble can be redrawn

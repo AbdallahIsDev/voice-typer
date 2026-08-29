@@ -103,7 +103,7 @@ Events emitted via ``event_bus.publish`` (the modern path):
   when the renderer must prompt for HuggingFace consent before a model
   download can proceed. Payload: ``{provider:str, model:str,
   message:str}``.
-* ``parakeet_cpu_fallback`` — SK-b / ; emitted by
+* ``parakeet_cpu_fallback`` — emitted by
   ``parakeet_engine.py`` when GPU transcription fails and the engine
   falls back to CPU. The tray shows a "(CPU fallback)" status suffix.
   Payload: ``{device:str (="cpu"), reason:str}``.

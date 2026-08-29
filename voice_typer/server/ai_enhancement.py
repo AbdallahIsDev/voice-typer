@@ -45,6 +45,8 @@ import logging
 import re
 from typing import Any
 
+from voice_typer.server.text_cleanup import _NO_PUNCTUATION_PATTERNS, _looks_like_question
+
 log = logging.getLogger(__name__)
 
 
@@ -338,16 +340,11 @@ def auto_punctuate(text: str) -> str:
     if not text or not text.strip():
         return ""
 
-    # Late import to avoid a circular import at module load time.
-    # ``text_cleanup`` imports from ``vocabulary`` which imports from
-    # ``config``; this module is imported by ``dictation_pipeline``
-    # which is itself imported during app startup.  The late import
-    # keeps the dependency graph acyclic.
-    from voice_typer.server.text_cleanup import (
-        _NO_PUNCTUATION_PATTERNS,
-        _looks_like_question,
-    )
-
+    # ``text_cleanup`` imports here are module-level: the dependency
+    # graph is verified acyclic (text_cleanup → vocabulary → config;
+    # nothing in that chain imports ai_enhancement — only
+    # dictation_pipeline.enhancement_steps imports this module), so a
+    # late import would add call overhead for no cycle protection.
     result = text.rstrip()
 
     # Step 1: terminal punctuation.

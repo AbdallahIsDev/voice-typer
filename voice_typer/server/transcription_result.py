@@ -232,7 +232,7 @@ def transcribe_unlocked(
             #
             # When ``log_transcriptions`` is False (the default), we
             # emit NO segment DEBUG log at all — not even a char-count
-            # summary. The XZ-PRIV-04 regression tests pin this
+            # summary. The regression tests pin this
             # contract: any "[TRANSCRIBE] Segment" DEBUG record while
             # the flag is off is treated as a PII leak (the very
             # presence of a segment-timing log can confirm a segment

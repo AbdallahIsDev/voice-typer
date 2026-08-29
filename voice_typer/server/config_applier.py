@@ -1217,7 +1217,7 @@ class ConfigApplier:
                             setattr(app.config, k, old_value)
                         except Exception:
                             log.warning(
-                                "[SERVICE] G4-H-12: failed to restore config key %s during save_strict rollback",
+                                "[SERVICE] failed to restore config key %s during save_strict rollback",
                                 k,
                                 exc_info=True,
                             )
@@ -1230,7 +1230,7 @@ class ConfigApplier:
                             self.apply_config_side_effects(old_updates)
                         except Exception:
                             log.warning(
-                                "[SERVICE] G4-H-12: failed to re-run side-effects during save_strict rollback",
+                                "[SERVICE] failed to re-run side-effects during save_strict rollback",
                                 exc_info=True,
                             )
                     raise

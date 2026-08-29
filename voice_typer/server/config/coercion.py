@@ -31,7 +31,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from voice_typer.server.config_path_safety import _is_path_within
+from voice_typer.server.config_internals.paths import _is_path_within
 from voice_typer.server.config_validators import (
     ALLOWED_USER_MODELS,
     MAX_RECORDING_TIME_SECONDS_DEFAULT,

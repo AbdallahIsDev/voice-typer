@@ -267,7 +267,7 @@ def _secure_atomic_write(
         # "Access is denied") when another thread/process has the
         # destination open at the moment of the rename — e.g. two
         # concurrent Config.save() calls racing to persist config.json
-        # (CR-40 regression surface). The lock is held only for the
+        # regression surface). The lock is held only for the
         # other writer's brief write window, so the failure is
         # transient: retry with a short backoff before propagating.
         # POSIX renames cannot fail this way (rename(2) never blocks on
@@ -361,7 +361,7 @@ _QUARANTINE_SUFFIX_SEQ: "itertools.count" = itertools.count()
 # Windows-only: os.replace onto a destination that another thread/process
 # holds open raises PermissionError (WinError 5). ``_secure_atomic_write``
 # retries up to ``_OS_REPLACE_MAX_ATTEMPTS`` times with a short sleep so
-# concurrent Config.save() calls (CR-40) don't spuriously fail. The window
+# concurrent Config.save() calls don't spuriously fail. The window
 # is tiny for a single racing writer, but SUSTAINED contention (4+ threads
 # hammering the same target without the mutation lock — the
 # ``test_concurrent_saves_no_false_return`` stress test — or Defender's

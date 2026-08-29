@@ -191,8 +191,7 @@ def delete_row(db: HistoryDB, conn: sqlite3.Connection, transcription_id: int) -
                 "[HISTORY_DB] FTS5 'optimize' after delete(id=%d) "
                 "FAILED: %s — dictated text may linger in "
                 "transcriptions_fts_data until the next "
-                "periodic retention sweep or the AP-17 "
-                "startup rebuild.",
+                "periodic retention sweep or the startup rebuild.",
                 transcription_id,
                 optimize_exc,
             )

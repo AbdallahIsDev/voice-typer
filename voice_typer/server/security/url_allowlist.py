@@ -1,7 +1,7 @@
 """Cloud URL allowlist + SSRF defense (extracted from the former ``_secrets.py``).
 
-Part of the :mod:`voice_typer.server.security` package (EO-23
-consolidation). Hosts the URL-allowlist half of the former
+Part of the :mod:`voice_typer.server.security` package
+(consolidation). Hosts the URL-allowlist half of the former
 ``voice_typer.server._secrets`` module: default trusted hosts, runtime
 user extensions (``extend_url_allowlist``), the env-var bootstrap
 (``VOICE_TYPER_TRUSTED_HOSTS``), and the SSRF defense checks
@@ -65,10 +65,9 @@ _user_extensions: set[str] = set()
 _ENV_TRUSTED_HOSTS_VAR = "VOICE_TYPER_TRUSTED_HOSTS"
 
 
-# XZ-SEC-05 (2026-07-26 → 2026-08-02): ``extend_url_allowlist`` was
-# originally audited with ZERO production call sites and carried a
-# dead-code notice. The XZ-SEC-05 wiring has since landed, giving it
-# three production caller families:
+# ``extend_url_allowlist`` was originally audited with ZERO
+# production call sites and carried a dead-code notice. Runtime wiring
+# has since landed, giving it three production caller families:
 #
 #   1. ``_load_env_allowlist_extensions`` (in this module) — process
 #      startup bootstrap from the ``VOICE_TYPER_TRUSTED_HOSTS`` env var.
@@ -89,7 +88,7 @@ def extend_url_allowlist(
 ) -> None:
     """Add hostnames to the runtime URL allowlist.
 
-    XZ-SEC-05 production paths: env-var bootstrap
+    Production paths: env-var bootstrap
     (``_load_env_allowlist_extensions``), ``Config.load`` re-apply of
     ``trusted_extra_hosts``, and the ``add_trusted_endpoint`` /
     ``set_config`` IPC handlers (see the module-level comment above).

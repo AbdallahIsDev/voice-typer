@@ -1,4 +1,4 @@
-"""Security package (EO-23 consolidation).
+"""Security package (consolidated security surface).
 
 Consolidates the former top-level security modules into one cohesive
 package so a security review reads a single threat-model surface:

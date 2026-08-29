@@ -641,7 +641,7 @@ def _load_config(cls) -> "Config":
                 extend_url_allowlist(trusted_hosts, caller="config.load")
         except Exception as _allowlist_exc:
             log.warning(
-                "[CONFIG] XZ-SEC-05: could not re-apply trusted_extra_hosts to URL allowlist: %s",
+                "[CONFIG] could not re-apply trusted_extra_hosts to URL allowlist: %s",
                 type(_allowlist_exc).__name__,
             )
 

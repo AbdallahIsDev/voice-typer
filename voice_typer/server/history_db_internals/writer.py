@@ -482,6 +482,26 @@ def _encrypt_batch_rows(
             )
 
 
+# Single source for the transcription INSERT SQL (multi-row batch path
+# and the below-threshold single-row fallback both build their statement
+# from these pieces, so the column list and placeholder shape cannot
+# drift between the two paths).
+_INSERT_SQL_COLUMNS = "(text, duration, model, device, word_count, char_count, language)"
+_INSERT_SQL_ROW_PLACEHOLDERS = "(?, ?, ?, ?, ?, ?, ?)"
+
+
+def _build_insert_sql(row_count: int) -> str:
+    """Build the transcription INSERT statement for ``row_count`` rows.
+
+    ``row_count == 1`` yields the exact statement the single-row
+    fallback executes; ``row_count >= 2`` yields the multi-row form
+    used by the batching path. One helper = one authoritative SQL shape
+    for both call sites.
+    """
+    values = ",".join([_INSERT_SQL_ROW_PLACEHOLDERS] * row_count)
+    return f"INSERT INTO transcriptions {_INSERT_SQL_COLUMNS} VALUES {values}"
+
+
 def _drain_batchable_inserts(
     db: HistoryDB,
     conn: sqlite3.Connection,
@@ -544,7 +564,6 @@ def _drain_batchable_inserts(
         with contextlib.closing(conn.cursor()) as cursor:
             if len(batch) >= _BATCH_INSERT_MIN:
                 # multi-row INSERT inside one transaction.
-                placeholders = ",".join(["(?, ?, ?, ?, ?, ?, ?)"] * len(batch))
                 params: list[Any] = []
                 for it in batch:
                     params.extend(
@@ -564,9 +583,7 @@ def _drain_batchable_inserts(
                 # single COMMIT below — readers never see the intermediate
                 # plaintext state.
                 cursor.execute(
-                    f"INSERT INTO transcriptions "
-                    f"(text, duration, model, device, word_count, char_count, language) "
-                    f"VALUES {placeholders}",
+                    _build_insert_sql(len(batch)),
                     params,
                 )
                 last_row_id = cursor.lastrowid
@@ -587,9 +604,7 @@ def _drain_batchable_inserts(
                 # 1-2 rows.
                 for it in batch:
                     cursor.execute(
-                        "INSERT INTO transcriptions "
-                        "(text, duration, model, device, word_count, char_count, language) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        _build_insert_sql(1),
                         (
                             it.text,
                             it.duration,

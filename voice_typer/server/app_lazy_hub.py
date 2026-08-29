@@ -5,19 +5,24 @@ Owns every lazily-constructed subsystem accessor on ``VoiceTyperApp``:
 - 3 legacy private-state back-compat delegates (``_busy_event`` / ``_lock`` /
   ``_microphones``) that forward to ``BusynessCoordinator`` /
   ``MicrophoneRegistry``;
-- 15 lazy @property pairs (plus the read-only ``correction_usage``) covering
-  the recorder/recording subsystem, clipboard, waveform bubble, undo /
-  audio-quality / duck-crash-recovery / volume-ducker / history-db
-  controllers, the audio-processor proxy, and the passive template /
-  vocabulary manager views.
+- lazy subsystem accessors — plain @property pairs plus five
+  ``LazyProperty`` descriptor accessors (plus the read-only
+  ``correction_usage``) covering the recorder/recording subsystem,
+  clipboard, waveform bubble, undo / audio-quality / duck-crash-recovery /
+  volume-ducker / history-db controllers, the audio-processor proxy, and
+  the passive template / vocabulary manager views.
 
 Previously all of this lived on ``VoiceTyperApp`` in ``app.py`` (~640 LOC).
 The behaviour is preserved verbatim — only the class boundary moved.
 ``VoiceTyperApp(AppLazyHub)`` inherits every property, so each attribute
 name keeps resolving on instances and every existing monkeypatch seam
 (``app.undo = MagicMock()``, ``app.recorder = ...``, ``app.history_db =
-...`` via the setters) works unchanged. Plain @property pairs over
-sentinel attributes — NO descriptors, NO changed setattr semantics.
+...`` via the setters) works unchanged. Heterogeneous accessors stay plain @property pairs; the
+five identical sentinel+TTL accessors (``undo`` / ``audio_quality`` /
+``_duck_crash_recovery`` / ``_volume_ducker`` / ``history_db``) collapse
+into one ``LazyProperty`` data descriptor below. setattr semantics are
+unchanged — the descriptor's ``__set__`` stores into the same backing
+attribute the property setters used.
 
 Sentinels + TTL (``_RECORDER_MISSING`` / ``_LAZY_FAILED`` /
 ``RETRY_TTL_SECONDS``) and the ``_LazyAudioProcessorProxy`` live here now
@@ -45,6 +50,7 @@ import logging
 import threading
 import time
 import weakref
+from collections.abc import Callable
 from typing import Any
 
 from voice_typer.server._busyness import BusynessCoordinator
@@ -168,6 +174,152 @@ class _LazyAudioProcessorProxy:
         # _wired / a class attribute). Every wrapped-processor attribute
         # goes through here.
         return getattr(self._resolve(), name)
+
+
+# ─── LazyProperty: the shared sentinel+TTL accessor skeleton ──────────
+#
+# Five accessors (``undo`` / ``audio_quality`` / ``_duck_crash_recovery``
+# / ``_volume_ducker`` / ``history_db``) used to carry five verbatim
+# copies of the same getter/setter skeleton. The per-property
+# differences are constructor arguments below: the backing attribute,
+# a deferred-import factory, the WARNING log label, and (``history_db``
+# only) the shutdown-time guard. All heavy imports stay INSIDE the
+# factories so the module-top import graph is unchanged (the deferred
+# imports are the whole point of the lazy accessors — see
+# ``tests/test_app_lazy_properties.py::TestDeferredImportsInLazyGetters``).
+
+
+def _build_undo(app: Any) -> Any:
+    from voice_typer.server.app_undo import UndoRepasteController
+
+    return UndoRepasteController(app)
+
+
+def _build_audio_quality(app: Any) -> Any:
+    from voice_typer.server.audio_quality_controller import AudioQualityController
+
+    return AudioQualityController(app)
+
+
+def _build_duck_crash_recovery(app: Any) -> Any:
+    # Deferred import — duck_crash_recovery pulls in platform-specific
+    # volume backends (pyobjc on macOS, ctypes-coreaudio on Windows).
+    # Deferred to first access (which only happens when volume ducking
+    # is enabled). The app-module helper does the call-time indirection
+    # so patches on ``config._config_dir`` propagate (imported here
+    # rather than duplicated — single source of truth).
+    from voice_typer.server.app import _resolve_config_dir
+    from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
+
+    return DuckCrashRecovery(config_dir=_resolve_config_dir())
+
+
+def _build_volume_ducker(app: Any) -> Any:
+    # Deferred import — ``volume_ducker`` pulls in platform-specific
+    # volume backends (pyobjc on macOS, ctypes on Windows). Deferred to
+    # first access (which only happens when volume ducking is enabled).
+    from voice_typer.server.volume_ducker import VolumeDucker
+
+    return VolumeDucker(
+        crash_recovery=app._duck_crash_recovery,
+        on_crash_restore=app._on_volume_crash_restore,
+    )
+
+
+def _build_history_db(app: Any) -> Any:
+    # Resolve ``HistoryDB`` through the app module at call time so the
+    # documented monkeypatch seam (``voice_typer.server.app.HistoryDB``)
+    # keeps intercepting construction — see the module docstring.
+    from voice_typer.server import app as _app_module
+
+    return _app_module.HistoryDB()
+
+
+class LazyProperty:
+    """Data descriptor for the auto-constructing lazy accessors that
+    share the ``_LAZY_FAILED`` sentinel + retry-TTL contract.
+
+    Replaces the five verbatim copies of the identical getter/setter
+    skeleton. Behavior is unchanged from the inline @property pairs it
+    replaces:
+
+    * getter, backing ``None``: construct via ``factory(app)`` and cache
+      the instance in the backing attribute;
+    * getter, backing ``_LAZY_FAILED``: return ``None`` silently (no
+      construction re-attempt, no WARNING log) within
+      ``RETRY_TTL_SECONDS`` of the recorded failure — the hot-path guard
+      that keeps a single construction failure from spamming ~94
+      warnings/sec for the whole recording session. After the TTL
+      elapses the sentinel + timestamp are cleared and construction is
+      retried (transient failures may recover);
+    * on construction failure: WARNING with ``exc_info=True`` at the
+      ``voice_typer.server.app`` logger, backing ← ``_LAZY_FAILED``,
+      ``<backing minus _backing>_failed_at`` ← ``time.monotonic()``,
+      return ``None`` (the sentinel is invisible to callers — see
+      ``tests/test_app_none_guard.py``);
+    * on construction success: backing ← instance, timestamp ← ``None``;
+    * ``shutdown_guard=True`` (``history_db``): never construct — and
+      never retry past the TTL — while ``app._shutting_down_event`` is
+      set, so the shutdown teardown path's
+      ``if app.history_db is not None:`` check cannot trigger the 30s
+      writer-ready wait just to close a DB it never used;
+    * setter: store into the backing attribute directly, so mock
+      injection via ``app.<attr> = MagicMock()`` bypasses construction
+      exactly like the previous property setters (a data descriptor's
+      ``__set__`` and a property's ``fset`` observe the same assignment
+      paths, including ``monkeypatch.setattr``).
+    """
+
+    def __init__(
+        self,
+        backing_attr: str,
+        factory: Callable[[Any], Any],
+        log_label: str,
+        *,
+        shutdown_guard: bool = False,
+    ) -> None:
+        self._backing_attr = backing_attr
+        # The timestamp attribute is derived from the backing name —
+        # ``_undo_backing`` → ``_undo_failed_at``,
+        # ``_duck_crash_recovery_backing`` → ``_duck_crash_recovery_failed_at``.
+        self._failed_at_attr = backing_attr[: -len("_backing")] + "_failed_at"
+        self._factory = factory
+        self._log_label = log_label
+        self._shutdown_guard = shutdown_guard
+
+    def _shutdown_in_progress(self, obj: Any) -> bool:
+        return self._shutdown_guard and obj._shutting_down_event.is_set()
+
+    def __get__(self, obj: Any, objtype: type | None = None) -> Any:
+        if obj is None:
+            return self
+        backing = getattr(obj, self._backing_attr)
+        if backing is _LAZY_FAILED:
+            if self._shutdown_in_progress(obj):
+                return None
+            failed_at = getattr(obj, self._failed_at_attr)
+            if failed_at is None or time.monotonic() - failed_at >= RETRY_TTL_SECONDS:
+                setattr(obj, self._backing_attr, None)
+                setattr(obj, self._failed_at_attr, None)
+                backing = None
+            else:
+                return None
+        if backing is None:
+            if self._shutdown_in_progress(obj):
+                return None
+            try:
+                backing = self._factory(obj)
+            except Exception:
+                log.warning(f"[INIT] {self._log_label} lazy-init failed", exc_info=True)
+                setattr(obj, self._backing_attr, _LAZY_FAILED)
+                setattr(obj, self._failed_at_attr, time.monotonic())
+                return None
+            setattr(obj, self._backing_attr, backing)
+            setattr(obj, self._failed_at_attr, None)
+        return backing
+
+    def __set__(self, obj: Any, value: Any) -> None:
+        setattr(obj, self._backing_attr, value)
 
 
 class AppLazyHub:
@@ -443,158 +595,27 @@ class AppLazyHub:
     # (AudioQualityController), ``_duck_crash_recovery``
     # (DuckCrashRecovery), and ``_volume_ducker`` (VolumeDucker) used
     # to be constructed eagerly in ``__init__``. They are now
-    # auto-constructing lazy properties — the first access triggers
-    # construction and caches the instance in the backing attribute.
-    # Tests that inject mocks via ``app.<attr> = MagicMock()`` use the
-    # setter, which bypasses the lazy construction.
+    # auto-constructing lazy accessors, declared once as
+    # ``LazyProperty`` descriptors (first access triggers construction
+    # and caches the instance in the backing attribute). Tests that
+    # inject mocks via ``app.<attr> = MagicMock()`` use the setter (the
+    # descriptor's ``__set__``), which bypasses the lazy construction.
 
-    @property
-    def undo(self):
-        backing = self._undo_backing
-        if backing is _LAZY_FAILED:
-            # Previous construction attempt failed. Within the retry TTL
-            # return ``None`` silently (no construction re-attempt, no
-            # WARNING log) so the hot path does not spam 94 failures/sec.
-            # After TTL elapses, clear the sentinel and fall through to
-            # retry construction (transient failures may recover).
-            failed_at = self._undo_failed_at
-            if failed_at is None or time.monotonic() - failed_at >= RETRY_TTL_SECONDS:
-                self._undo_backing = None
-                self._undo_failed_at = None
-                backing = None
-            else:
-                return None
-        if backing is None:
-            try:
-                from voice_typer.server.app_undo import UndoRepasteController
+    undo = LazyProperty("_undo_backing", _build_undo, "UndoRepasteController")
 
-                backing = UndoRepasteController(self)
-            except Exception:
-                log.warning("[INIT] UndoRepasteController lazy-init failed", exc_info=True)
-                self._undo_backing = _LAZY_FAILED
-                self._undo_failed_at = time.monotonic()
-                return None
-            self._undo_backing = backing
-            self._undo_failed_at = None
-        return backing
+    audio_quality = LazyProperty("_audio_quality_backing", _build_audio_quality, "AudioQualityController")
 
-    @undo.setter
-    def undo(self, value) -> None:
-        self._undo_backing = value
+    _duck_crash_recovery = LazyProperty(
+        "_duck_crash_recovery_backing",
+        _build_duck_crash_recovery,
+        "DuckCrashRecovery",
+    )
 
-    @property
-    def audio_quality(self):
-        backing = self._audio_quality_backing
-        if backing is _LAZY_FAILED:
-            # Sentinel: previous construction attempt failed. Return
-            # ``None`` silently within the retry TTL (this is the hot
-            # path at ~94 Hz — without this guard a single failure
-            # spams ~94 WARNING logs/sec + ~94 construction re-attempts
-            # per second for the entire recording session). After TTL
-            # elapses, clear the sentinel and retry construction.
-            failed_at = self._audio_quality_failed_at
-            if failed_at is None or time.monotonic() - failed_at >= RETRY_TTL_SECONDS:
-                self._audio_quality_backing = None
-                self._audio_quality_failed_at = None
-                backing = None
-            else:
-                return None
-        if backing is None:
-            try:
-                from voice_typer.server.audio_quality_controller import (
-                    AudioQualityController,
-                )
-
-                backing = AudioQualityController(self)
-            except Exception:
-                log.warning("[INIT] AudioQualityController lazy-init failed", exc_info=True)
-                self._audio_quality_backing = _LAZY_FAILED
-                self._audio_quality_failed_at = time.monotonic()
-                return None
-            self._audio_quality_backing = backing
-            self._audio_quality_failed_at = None
-        return backing
-
-    @audio_quality.setter
-    def audio_quality(self, value) -> None:
-        self._audio_quality_backing = value
-
-    @property
-    def _duck_crash_recovery(self):
-        backing = self._duck_crash_recovery_backing
-        if backing is _LAZY_FAILED:
-            # Sentinel: previous construction attempt failed. See the
-            # ``undo`` property above for the full TTL-retry rationale.
-            failed_at = self._duck_crash_recovery_failed_at
-            if failed_at is None or time.monotonic() - failed_at >= RETRY_TTL_SECONDS:
-                self._duck_crash_recovery_backing = None
-                self._duck_crash_recovery_failed_at = None
-                backing = None
-            else:
-                return None
-        if backing is None:
-            try:
-                # Deferred import — duck_crash_recovery pulls in
-                # platform-specific volume backends (pyobjc on macOS,
-                # ctypes-coreaudio on Windows). Deferred to first access
-                # (which only happens when volume ducking is enabled).
-                # The app-module helper does the call-time indirection so
-                # patches on ``config._config_dir`` propagate (imported
-                # here rather than duplicated — single source of truth).
-                from voice_typer.server.app import _resolve_config_dir
-                from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
-
-                backing = DuckCrashRecovery(config_dir=_resolve_config_dir())
-            except Exception:
-                log.warning("[INIT] DuckCrashRecovery lazy-init failed", exc_info=True)
-                self._duck_crash_recovery_backing = _LAZY_FAILED
-                self._duck_crash_recovery_failed_at = time.monotonic()
-                return None
-            self._duck_crash_recovery_backing = backing
-            self._duck_crash_recovery_failed_at = None
-        return backing
-
-    @_duck_crash_recovery.setter
-    def _duck_crash_recovery(self, value) -> None:
-        self._duck_crash_recovery_backing = value
-
-    @property
-    def _volume_ducker(self):
-        backing = self._volume_ducker_backing
-        if backing is _LAZY_FAILED:
-            # Sentinel: previous construction attempt failed. See the
-            # ``undo`` property above for the full TTL-retry rationale.
-            failed_at = self._volume_ducker_failed_at
-            if failed_at is None or time.monotonic() - failed_at >= RETRY_TTL_SECONDS:
-                self._volume_ducker_backing = None
-                self._volume_ducker_failed_at = None
-                backing = None
-            else:
-                return None
-        if backing is None:
-            try:
-                # Deferred import — ``volume_ducker`` pulls in
-                # platform-specific volume backends (pyobjc on macOS,
-                # ctypes on Windows). Deferred to first access (which
-                # only happens when volume ducking is enabled).
-                from voice_typer.server.volume_ducker import VolumeDucker
-
-                backing = VolumeDucker(
-                    crash_recovery=self._duck_crash_recovery,
-                    on_crash_restore=self._on_volume_crash_restore,
-                )
-            except Exception:
-                log.warning("[INIT] VolumeDucker lazy-init failed", exc_info=True)
-                self._volume_ducker_backing = _LAZY_FAILED
-                self._volume_ducker_failed_at = time.monotonic()
-                return None
-            self._volume_ducker_backing = backing
-            self._volume_ducker_failed_at = None
-        return backing
-
-    @_volume_ducker.setter
-    def _volume_ducker(self, value) -> None:
-        self._volume_ducker_backing = value
+    _volume_ducker = LazyProperty(
+        "_volume_ducker_backing",
+        _build_volume_ducker,
+        "VolumeDucker",
+    )
 
     # ─── lazy AudioProcessor property ───────────────────────────
     #
@@ -623,64 +644,19 @@ class AppLazyHub:
 
     # ─── lazy HistoryDB property ────────────────────────────────
     #
-    # ``HistoryDB()`` construction is deferred to first access. The
-    # eager construction that used to live in ``__init__`` blocked for
-    # up to ``_WRITER_READY_TIMEOUT`` (30s) waiting for the writer
-    # thread's schema-init to complete. The lazy property mirrors the
-    # existing pattern (clipboard, undo, audio_quality) — construction
-    # failure is logged at WARNING with ``exc_info=True`` and the
-    # backing is set to the ``_LAZY_FAILED`` sentinel + a monotonic
-    # timestamp; subsequent accesses within ``RETRY_TTL_SECONDS`` (30s)
-    # return ``None`` silently, then retry construction after the TTL
-    # elapses.
-    #
-    # The ``_shutting_down_event`` guard prevents the shutdown teardown
-    # path (``shutdown/teardowns/history_db.py``) from triggering lazy
+    # ``HistoryDB()`` construction is deferred to first access (the
+    # eager ``__init__`` construction used to block for up to
+    # ``_WRITER_READY_TIMEOUT`` (30s) waiting for the writer thread's
+    # schema-init). Shares the ``LazyProperty`` sentinel+TTL skeleton;
+    # ``shutdown_guard=True`` adds the ``_shutting_down_event`` checks
+    # that prevent the shutdown teardown path
+    # (``shutdown/teardowns/history_db.py``) from triggering lazy
     # construction via its ``if app.history_db is not None:`` check — a
     # never-dictated session would otherwise pay the 30s writer-ready
     # wait on quit just to immediately close the DB it never used.
-
-    @property
-    def history_db(self):
-        backing = self._history_db_backing
-        if backing is _LAZY_FAILED:
-            # Sentinel: previous construction attempt failed. See the
-            # ``undo`` property above for the full TTL-retry rationale.
-            # Don't lazy-retry during shutdown — return ``None`` silently
-            # (mirrors the None-backing shutdown guard below).
-            if self._shutting_down_event.is_set():
-                return None
-            failed_at = self._history_db_failed_at
-            if failed_at is None or time.monotonic() - failed_at >= RETRY_TTL_SECONDS:
-                self._history_db_backing = None
-                self._history_db_failed_at = None
-                backing = None
-            else:
-                return None
-        if backing is None:
-            # Don't lazy-construct during shutdown — the teardown path
-            # checks ``app.history_db is not None`` to decide whether
-            # to flush/close, and we don't want to construct a
-            # HistoryDB during shutdown just to immediately close it.
-            if self._shutting_down_event.is_set():
-                return None
-            try:
-                # Resolve ``HistoryDB`` through the app module at call
-                # time so the documented monkeypatch seam
-                # (``voice_typer.server.app.HistoryDB``) keeps
-                # intercepting construction — see the module docstring.
-                from voice_typer.server import app as _app_module
-
-                backing = _app_module.HistoryDB()
-            except Exception:
-                log.warning("[INIT] HistoryDB lazy-init failed", exc_info=True)
-                self._history_db_backing = _LAZY_FAILED
-                self._history_db_failed_at = time.monotonic()
-                return None
-            self._history_db_backing = backing
-            self._history_db_failed_at = None
-        return backing
-
-    @history_db.setter
-    def history_db(self, value) -> None:
-        self._history_db_backing = value
+    history_db = LazyProperty(
+        "_history_db_backing",
+        _build_history_db,
+        "HistoryDB",
+        shutdown_guard=True,
+    )

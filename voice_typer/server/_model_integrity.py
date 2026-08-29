@@ -1,4 +1,4 @@
-"""Backward-compat shim — code moved to ``voice_typer.server.security`` (EO-23).
+"""Backward-compat shim — code moved to ``voice_typer.server.security``.
 
 The model-download file-pattern allowlists moved to
 :mod:`voice_typer.server.security.model_integrity` (merged with the

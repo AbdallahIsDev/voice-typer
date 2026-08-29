@@ -344,7 +344,7 @@ _COMMAND_REGISTRY: dict[str, str] = {
     # ``KNOWN_UNDOCUMENTED_COMMANDS`` (tests/tauri/mig19/
     # test_phase4_validation.py) pending a formal ADR-0020 §16 addendum.
     "test_cloud_connection": "_handle_test_cloud_connection",
-    # XZ-SEC-05: add a hostname to the runtime URL allowlist + persist
+    # Add a hostname to the runtime URL allowlist + persist
     # to config.json under `trusted_extra_hosts` (self-hosted LLM/ASR
     # endpoint remediation). Handler lives in ConfigHandlersMixin
     # (handlers/config_handlers.py). Listed in KNOWN_UNDOCUMENTED_COMMANDS

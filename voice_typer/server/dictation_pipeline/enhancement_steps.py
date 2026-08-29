@@ -240,7 +240,7 @@ class _EnhancementStepsMixin:
             if self._templates_applied:
                 log.info(
                     "[LLM_POLISH] Templates were applied before LLM polish this cycle — "
-                    "text MAY contain substituted content (e.g. {clipboard}). CR-10 "
+                    "text MAY contain substituted content (e.g. {clipboard}). The "
                     "redact_pii gate in llm_polish._call_api will strip common PII "
                     "patterns (cards/SSNs/emails/phones/API keys) before the API send. "
                     "(cycle=%s)",

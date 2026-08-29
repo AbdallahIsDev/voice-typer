@@ -122,7 +122,7 @@ def _electron_binary() -> str | None:
                 "[ELECTRON-BUILD] Electron binary CHECKSUM MISMATCH for %s — "
                 "expected %s, got %s. Refusing to launch this binary; falling "
                 "back to `npm run dev`. Unset VOICE_TYPER_ELECTRON_SHA256 to "
-                "skip the check (XZ-R6-AS-02).",
+                "skip the check.",
                 candidate,
                 expected_sha,
                 actual_sha,

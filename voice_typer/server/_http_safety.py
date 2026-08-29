@@ -1,4 +1,4 @@
-"""Backward-compat shim — code moved to ``voice_typer.server.security`` (EO-23).
+"""Backward-compat shim — code moved to ``voice_typer.server.security``.
 
 The no-redirect / HTTPS-only urllib opener helpers moved to
 :mod:`voice_typer.server.security.http_safety`. This module re-exports

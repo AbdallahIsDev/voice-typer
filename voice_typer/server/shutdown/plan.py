@@ -258,7 +258,7 @@ def run_plan(
         # for cross-plan dependencies. Per-step in-body barriers (e.g. the
         # ``_recorder_teardown_done`` Event inside ``teardown_sounddevice``)
         # remain as defense-in-depth.
-        items: list[tuple[str, object, float]] = []
+        items: list[tuple[str, Callable[[], object], float]] = []
         for step in plan.steps:
             if step.depends_on is not None and step.skip_if_dep_timed_out and step.depends_on in timed_out:
                 log.warning(

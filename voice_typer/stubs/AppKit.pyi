@@ -4,7 +4,7 @@
 # AppKit directly, but pyrefly follows the transitive imports through
 # pystray's backend selection.
 #
-# XS-44: `NSPasteboard`, `NSPasteboardItem`, and `NSWorkspace` were
+# `NSPasteboard`, `NSPasteboardItem`, and `NSWorkspace` were
 # added because `voice_typer/server/clipboard_snapshot.py` and
 # `voice_typer/server/clipboard_target_safety.py` access them at
 # runtime (macOS pasteboard + workspace introspection). They use the
@@ -22,7 +22,7 @@ NSWindow: Any
 NSView: Any
 NSResponder: Any
 NSTimer: Any
-# XS-44: clipboard code reads these via `AppKit.NSPasteboard` etc.
+# Clipboard code reads these via `AppKit.NSPasteboard` etc.
 NSPasteboard: Any
 NSPasteboardItem: Any
 NSWorkspace: Any

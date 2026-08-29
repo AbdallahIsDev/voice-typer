@@ -35,6 +35,12 @@ from voice_typer.server._paths import IPC_TOKEN_ENV_VAR  # noqa: E402
 
 log = logging.getLogger(__name__)
 
+# Pre-compiled validation patterns (hoisted to module level so the
+# startup gate does not pay ``re.compile`` on every call).
+_BOOL_VALUE_PATTERN = re.compile(r"^(1|0|true|false|yes|no)$", re.IGNORECASE)
+_TOKEN_VALUE_PATTERN = re.compile(r"^[A-Za-z0-9._\-]{1,128}$")
+_PATH_VALUE_PATTERN = re.compile(r"^[^\0]+$")  # no null bytes
+
 
 #  (P4-A1): env-var names that are ALWAYS stripped from
 # ``os.environ`` by ``_validate_env_vars`` at startup. These are the
@@ -72,13 +78,10 @@ def _validate_env_vars() -> None:
     """
 
     _bool_vars = {"VOICE_TYPER_QUIET", "VOICE_TYPER_DEBUG", "VOICE_TYPER_NO_TRAY", "VOICE_TYPER_STREAMING"}
-    _bool_pattern = re.compile(r"^(1|0|true|false|yes|no)$", re.IGNORECASE)
-    _token_pattern = re.compile(r"^[A-Za-z0-9._\-]{1,128}$")
-    _path_pattern = re.compile(r"^[^\0]+$")  # no null bytes
 
     for var in _bool_vars:
         val = os.environ.get(var)
-        if val is not None and not _bool_pattern.match(val):
+        if val is not None and not _BOOL_VALUE_PATTERN.match(val):
             # pre-redact the env-var value at the call site.
             # The previous ``%r`` of the raw value leaked whatever the
             # user typed (which may carry a username, partial secret,
@@ -96,7 +99,7 @@ def _validate_env_vars() -> None:
             os.environ.pop(var, None)
 
     restart_val = os.environ.get("VOICE_TYPER_RESTART")
-    if restart_val is not None and not _token_pattern.match(restart_val):
+    if restart_val is not None and not _TOKEN_VALUE_PATTERN.match(restart_val):
         log.warning(
             (
                 "[ENV] Invalid value for VOICE_TYPER_RESTART=<redacted> -- "
@@ -106,7 +109,7 @@ def _validate_env_vars() -> None:
         os.environ.pop("VOICE_TYPER_RESTART", None)
 
     config_dir = os.environ.get("VOICE_TYPER_CONFIG_DIR")
-    if config_dir is not None and (not _path_pattern.match(config_dir) or len(config_dir) > 4096):
+    if config_dir is not None and (not _PATH_VALUE_PATTERN.match(config_dir) or len(config_dir) > 4096):
         # pre-redact the path value -- ``VOICE_TYPER_CONFIG_DIR`` typically
         # carries a username (``/Users/jane.doe/...``) which is PII; never log raw.
         log.warning(
@@ -147,7 +150,7 @@ def _validate_env_vars() -> None:
             os.environ.pop("VOICE_TYPER_CONFIG_DIR", None)
 
     ipc_token = os.environ.get(IPC_TOKEN_ENV_VAR)
-    if ipc_token is not None and not _token_pattern.match(ipc_token):
+    if ipc_token is not None and not _TOKEN_VALUE_PATTERN.match(ipc_token):
         log.warning(
             (
                 f"[ENV] Invalid value for {IPC_TOKEN_ENV_VAR}=<redacted> -- "
@@ -174,7 +177,7 @@ def _validate_env_vars() -> None:
     # warning and discard the unsafe value so downstream consumers
     # never see it.
     hf_home = os.environ.get("HF_HOME")
-    if hf_home is not None and (not _path_pattern.match(hf_home) or len(hf_home) > 4096):
+    if hf_home is not None and (not _PATH_VALUE_PATTERN.match(hf_home) or len(hf_home) > 4096):
         # pre-redact -- HF_HOME is a filesystem path, typically under
         # the user's home directory, so it carries a username.
         log.warning(
@@ -223,7 +226,7 @@ def _validate_env_vars() -> None:
     # HF_HOME above).
     hf_endpoint = os.environ.get("HF_ENDPOINT")
     if hf_endpoint is not None:
-        if not _path_pattern.match(hf_endpoint) or len(hf_endpoint) > 4096:
+        if not _PATH_VALUE_PATTERN.match(hf_endpoint) or len(hf_endpoint) > 4096:
             # pre-redact -- HF_ENDPOINT is a URL, may carry a username
             # (``https://jane%40example.com@mirror/``) or a query-string key.
             log.warning(

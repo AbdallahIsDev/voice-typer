@@ -187,7 +187,7 @@ def _prune_dead_read_connections_locked(db: HistoryDB) -> None:
             # long-running sessions). Use debug (not info) to
             # avoid spamming the log under normal churn.
             log.debug(
-                "[HISTORY_DB] Pruned dead-thread read connection (thread_ident=%s); released ~2 MB page cache (AB-27).",
+                "[HISTORY_DB] Pruned dead-thread read connection (thread_ident=%s); released ~2 MB page cache.",
                 ident,
             )
     db._all_read_connections = kept

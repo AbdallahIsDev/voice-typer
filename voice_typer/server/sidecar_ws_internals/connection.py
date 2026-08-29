@@ -151,8 +151,8 @@ async def _check_duplicate_auth(websocket, server: IPCServer, peer) -> bool:
         log.warning(
             "[SIDECAR-WS] duplicate authenticated connection from %s — "
             "an existing authenticated connection is already active; "
-            "rejecting new connection with 1008 to preserve single-"
-            "connection invariant (XZ-R18-06)",
+            "rejecting new connection with 1008 to preserve the "
+            "single-connection invariant",
             peer,
         )
         with contextlib.suppress(Exception):

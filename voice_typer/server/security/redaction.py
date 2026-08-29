@@ -1,7 +1,7 @@
 """Secret + PII redaction helpers (consolidated from ``_secrets.py`` + ``security.py``).
 
-Part of the :mod:`voice_typer.server.security` package (EO-23
-consolidation). Hosts the redaction half of the former
+Part of the :mod:`voice_typer.server.security` package
+(consolidation). Hosts the redaction half of the former
 ``voice_typer.server._secrets`` module (API-key / bearer-token /
 flag-form / URL-userinfo / home-path redaction) merged with the PII
 redaction filter from the former ``voice_typer.server.security`` module

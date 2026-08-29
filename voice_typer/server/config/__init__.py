@@ -146,26 +146,26 @@ from voice_typer.server.config_internals.migrations import (  # noqa: F401 — b
     _migrate_to_v3,
     _run_migrations,
 )
+
+# Path-safety helpers (``_validate_path_safety``, ``_is_path_within``,
+# ``_validate_import_path``) are re-exported from the same owning module
+# (``config_internals.paths``) so ``voice_typer.server.config`` keeps its
+# historical public surface: existing callers and test monkeypatch sites
+# resolve the names from this package namespace.
 from voice_typer.server.config_internals.paths import (  # noqa: F401 — backward-compat re-export
     _CONFIG_LOCK_TIMEOUT_SECONDS,
     _acquire_config_lock,
     _config_dir,
+    _is_path_within,
     _migrate_from_legacy,
     _reset_config_dir_cache,
+    _validate_import_path,
+    _validate_path_safety,
     # ``_validate_systemroot`` is also re-exported via
     # ``config._systemroot`` above; both bindings point at the SAME
     # function object (``_systemroot.py`` is itself a thin re-export
     # shim that imports from ``config_internals.paths``). The explicit
     # re-import here is omitted to avoid ruff F811.
-)
-
-# path-safety helpers are re-exported via the dedicated
-# ``config_path_safety`` module so future contributors can grep for
-# path-traversal guards in one place.
-from voice_typer.server.config_path_safety import (  # noqa: F401 — backward-compat re-export
-    _is_path_within,
-    _validate_import_path,
-    _validate_path_safety,
 )
 
 # canonical bounds + default for ``max_recording_time_seconds``.

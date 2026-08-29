@@ -64,7 +64,7 @@ def _electron_process_is_running() -> bool:
        manual start.
 
     Used by :func:`open_electron_window` to avoid spawning a DUPLICATE
-    Electron process when the window-focus fallback fails (EO-16).
+    Electron process when the window-focus fallback fails.
     """
     from voice_typer.server.single_instance import _is_pid_alive
 
@@ -95,7 +95,7 @@ def _bring_electron_to_front_macos() -> bool:
     LaunchServices, so this resolves to the running instance). Returns
     True if the AppleScript succeeded.
 
-    EO-16: previously the macOS/Linux paths had NO focus helper at all
+    Previously the macOS/Linux paths had NO focus helper at all
     — ``bring_electron_to_front`` returned False outside Windows, so a
     transient TCP blip fell straight through to spawning a DUPLICATE
     Electron process.
@@ -130,7 +130,7 @@ def _bring_electron_to_front_linux() -> bool:
     to ``xdotool search --name <name> windowactivate`` (also works
     under Wayland with XWayland). Returns True if either succeeded.
 
-    EO-16: previously the macOS/Linux paths had NO focus helper at all.
+    Previously the macOS/Linux paths had NO focus helper at all.
     """
     if is_windows():
         return False
@@ -158,7 +158,7 @@ def bring_electron_to_front() -> bool:
     - Linux: ``wmctrl -a`` / ``xdotool ... windowactivate``.
 
     Extracted from TrayIcon._bring_electron_to_front() per #13;
-    extended per EO-16 with the macOS/Linux focus helpers that were
+    extended with the macOS/Linux focus helpers that were
     previously missing.
     """
     if not is_windows():
@@ -276,7 +276,7 @@ def open_electron_window() -> None:
     if bring_electron_to_front():
         return
 
-    # 3. EO-16 duplicate-launch gate: if the focus helpers above failed
+    # 3. Duplicate-launch gate: if the focus helpers above failed
     #    but we KNOW an Electron process is still alive (tracked PID, or
     #    a pgrep match), do NOT spawn a second Electron — the existing
     #    window simply couldn't be focused (e.g. the window manager
@@ -287,7 +287,7 @@ def open_electron_window() -> None:
     #    macOS/Linux a transient TCP blip fell straight through to a
     #    duplicate launch.
     if _electron_process_is_running():
-        log.warning("[TRAY] Electron appears to be running but window focus failed — skipping duplicate launch (EO-16)")
+        log.warning("[TRAY] Electron appears to be running but window focus failed — skipping duplicate launch")
         return
 
     # 4. Last resort: Electron isn't running — build + launch with

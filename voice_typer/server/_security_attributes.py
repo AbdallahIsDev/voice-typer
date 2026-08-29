@@ -1,4 +1,4 @@
-"""Backward-compat shim — code moved to ``voice_typer.server.security`` (EO-23).
+"""Backward-compat shim — code moved to ``voice_typer.server.security``.
 
 The Win32 restrictive-DACL builder moved to
 :mod:`voice_typer.server.security.win32_dacl`. This module re-exports the

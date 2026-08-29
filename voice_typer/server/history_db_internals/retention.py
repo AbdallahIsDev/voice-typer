@@ -764,8 +764,8 @@ def schedule_periodic_retention(
         restarts in place (e.g. after a config reload).
 
         The actual wiring (calling this method from
-        ``startup_sequence``) is owned by ER-FIX-F; this method just
-        exposes the API.
+        ``startup_sequence``) lives in the startup sequence itself; this
+        method just exposes the API.
     """
     # Stop any existing periodic retention thread before spawning a
     # new one — idempotent re-scheduling.

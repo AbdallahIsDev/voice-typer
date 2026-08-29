@@ -321,7 +321,7 @@ def win32_console_handler(controller: ShutdownController, ctrl_type) -> bool:
 
     if ctrl_type in (ctrl_logoff_event, ctrl_shutdown_event):
         log.info(
-            "[WIN32] System event %d received, invoking fast cleanup (XZ-R17-06)",
+            "[WIN32] System event %d received, invoking fast cleanup",
             ctrl_type,
         )
         # route Windows logoff/shutdown to ``_do_fast_cleanup()``

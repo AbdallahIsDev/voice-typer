@@ -1313,9 +1313,9 @@ class HotkeyDispatcher:
                 exc,
             )
             # mirror ``register()``'s tray notification on failure so
-            # the user sees which hotkey the OS rejected (PVT-G5-027
-            # — users would otherwise have no idea why their settings
-            # change silently rolled back).
+            # the user sees which hotkey the OS rejected — users would
+            # otherwise have no idea why their settings change silently
+            # rolled back.
             with contextlib.suppress(Exception):
                 app.tray.notify(
                     APP_NAME,

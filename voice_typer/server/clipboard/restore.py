@@ -65,15 +65,16 @@ from voice_typer.server import clipboard as _cb
 # with no upper bound — a user setting it to 5000 ms creates a 5 s
 # window per entry; (b) if the daemon thread fails to start, a hang in
 # ``_delayed_restore`` leaves the entry forever; (c) each entry holds a
-# ``ClipboardSnapshot`` whose ``items`` list can be 16 MB × N formats.
-# At paste rate 5/s × 5 s delay × 64 MB/snapshot = 1.6 GB peak RSS.
-# 64 is large enough that the cap never fires in normal use (steady
-# state is 1-2 entries, peaks at ~5-10 during a paste burst) but small
-# enough that a runaway condition (daemon thread leak, user-set
-# 60-second restore delay) cannot pin gigabytes of clipboard snapshots.
+# ``ClipboardSnapshot`` whose ``items`` list can be 16 MB × N formats,
+# so the old cap of 64 allowed ~1 GB of pinned snapshots in the worst
+# case. 8 bounds the worst case at ~128 MB — still far above the 1-2
+# entries normal use ever holds (the force-restore-on-overflow path
+# fires only in the runaway conditions above: a leaked daemon thread or
+# a user-set multi-second restore delay), but small enough that a
+# runaway cannot pin gigabytes of clipboard snapshots.
 _pending_restores: list[tuple[Any, Any, str, float]] = []
 _pending_restores_lock = threading.Lock()
-_MAX_PENDING_RESTORES = 64
+_MAX_PENDING_RESTORES = 8
 
 
 def _force_restore_pending_at_exit() -> None:

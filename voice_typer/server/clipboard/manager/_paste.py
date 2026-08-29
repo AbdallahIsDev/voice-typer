@@ -554,7 +554,7 @@ class PasteMixin:
             _cb.log.warning(
                 "[CLIPBOARD] Frontmost macOS app changed during paste "
                 "(TOCTOU: pid %d -> %d) — aborting paste to avoid "
-                "sending Cmd+V into the wrong window (XZ-CLIP-04)",
+                "sending Cmd+V into the wrong window",
                 safe_macos_pid,
                 current_pid,
             )

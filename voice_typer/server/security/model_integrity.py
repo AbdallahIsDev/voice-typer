@@ -1,7 +1,7 @@
 """Model integrity verification (SEC-audit-005) + download allowlists.
 
-Part of the :mod:`voice_typer.server.security` package (EO-23
-consolidation). Merges the model-integrity half of the former
+Part of the :mod:`voice_typer.server.security` package
+(consolidation). Merges the model-integrity half of the former
 ``voice_typer.server.security`` module (SHA-256 manifest verification,
 on-disk integrity cache) with the file-pattern allowlists from the
 former ``voice_typer.server._model_integrity`` module.

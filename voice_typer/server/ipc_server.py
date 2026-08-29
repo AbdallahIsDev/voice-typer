@@ -304,7 +304,7 @@ from voice_typer.server.handlers.vocabulary_automation_handlers import (  # noqa
 from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 
 # Lifecycle / dispatcher / stdin-runner mixins extracted from the
-# ``IPCServer`` class body (XZ-IPC-007 follow-up). Each mixin module
+# ``IPCServer`` class body. Each mixin module
 # owns the verbatim method bodies; the methods are mixed into
 # :class:`IPCServer` via multiple inheritance. ``inspect.getsource``
 # resolves through MRO so the source-string-pinning tests that do

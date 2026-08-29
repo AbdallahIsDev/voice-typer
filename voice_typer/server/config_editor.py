@@ -140,7 +140,7 @@ def _wait_for_editor_subprocess(proc: subprocess.Popen, config_path: Any) -> Non
             proc.kill()
         except Exception:
             log.warning(
-                "[XZ-EH-018] Failed to kill timed-out editor process",
+                "[CONFIG-EDITOR] Failed to kill timed-out editor process",
                 exc_info=True,
             )
         # Reap the (now killed) process to avoid a zombie. Best-effort:
@@ -151,7 +151,7 @@ def _wait_for_editor_subprocess(proc: subprocess.Popen, config_path: Any) -> Non
             proc.wait(timeout=5.0)
         except subprocess.TimeoutExpired:
             log.warning(
-                "[XZ-EH-018] Editor process did not exit 5s after "
+                "[CONFIG-EDITOR] Editor process did not exit 5s after "
                 "SIGKILL/TerminateProcess — it may be stuck in an "
                 "unkillable syscall. Leaving it; the launcher will "
                 "raise TimeoutError anyway."
@@ -160,7 +160,7 @@ def _wait_for_editor_subprocess(proc: subprocess.Popen, config_path: Any) -> Non
             # Don't mask the original TimeoutExpired with a reaper
             # failure — the kill signal has been sent.
             log.warning(
-                "[XZ-EH-018] Reaper wait() raised after kill()",
+                "[CONFIG-EDITOR] Reaper wait() raised after kill()",
                 exc_info=True,
             )
         _raise_editor_timeout(config_path)

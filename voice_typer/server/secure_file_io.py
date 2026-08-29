@@ -1,4 +1,4 @@
-"""Backward-compat shim — code moved to ``voice_typer.server.security`` (EO-23).
+"""Backward-compat shim — code moved to ``voice_typer.server.security``.
 
 The secure atomic file-I/O helpers + ``PersistedJSON`` moved to
 :mod:`voice_typer.server.security.file_io`. This module re-exports every

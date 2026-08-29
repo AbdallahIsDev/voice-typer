@@ -443,6 +443,12 @@ def search(
         use_cursor = before_timestamp is not None and before_id is not None
         # CJK / fullwidth queries bypass FTS5 (unicode61 cannot
         # substring-match those scripts) and take the LIKE path below.
+        # Queries FTS5 cannot tokenize (LIKE wildcards, punctuation-only,
+        # fullwidth punctuation) intentionally keep the LIKE fallback:
+        # it treats wildcards as literals and is the pinned contract for
+        # every separator-only query (see test_history_db.py and
+        # test_history_search_cjk.py). Do NOT short-circuit these to an
+        # empty result — that regressed CJK punctuation search.
         use_fts = bool(capped) and is_fts_compatible_query(capped) and not has_cjk_or_wide_chars(capped)
         if use_fts:
             fts_query = sanitize_fts_query(capped)

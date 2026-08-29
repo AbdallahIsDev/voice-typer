@@ -528,7 +528,7 @@ guard keyDownMonitor != nil else {
 let skipAccessibilityCheck = ProcessInfo.processInfo.environment["VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK"] == "1"
 
 if skipAccessibilityCheck {
-    // CR-143: warn about disabled key-up delivery and hotkey suppression
+    // Warn about disabled key-up delivery and hotkey suppression
     emit("WARN:SKIP_ACCESSIBILITY: VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK=1 — CGEventTap disabled, key-up delivery and hotkey suppression inactive")
 }
 

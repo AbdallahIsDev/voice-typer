@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 
 from voice_typer.server.tray_types import AppState
 
@@ -44,7 +45,7 @@ class LifecycleMixin:
             log.info(
                 "[PERF] Evicting LRU model '%s' (last used %.1fs ago) — %d models loaded, max is %d",
                 oldest_backend,
-                __import__("time").monotonic() - oldest_time,
+                time.monotonic() - oldest_time,
                 len(self._model_access_times),
                 self._MAX_LOADED_MODELS,
             )

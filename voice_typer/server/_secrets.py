@@ -1,4 +1,4 @@
-"""Backward-compat shim — code moved to ``voice_typer.server.security`` (EO-23).
+"""Backward-compat shim — code moved to ``voice_typer.server.security``.
 
 The secret/PII redaction helpers moved to
 :mod:`voice_typer.server.security.redaction` and the cloud URL allowlist

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 
 from voice_typer.server._timeout_utils import _run_parallel_with_timeout
 
@@ -61,7 +62,7 @@ def drain_ws_dispatch_pool(controller, app) -> None:
         ipc_server = getattr(app, "_ipc_server", None)
         ws_pool = getattr(ipc_server, "_ws_dispatch_pool", None) if ipc_server is not None else None
 
-        early_items: list[tuple[str, object, float]] = []
+        early_items: list[tuple[str, Callable[[], object], float]] = []
         if ipc_server is not None:
             # PERF-SHUTDOWN-002: the ipc_server.stop budget was 5.0s
             # pre-quit-latency-fix. ``stop()`` gates its pool drains

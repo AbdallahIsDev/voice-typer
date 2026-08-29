@@ -414,7 +414,7 @@ def verify_offline_pack_or_skip(version: str, *, root: Path | None = None) -> bo
     """Verify the pack for *version* against ``pack-manifest.json``.
 
     Modeled on :func:`voice_typer.server.autostart_launcher.verify_tauri_binary_or_skip`
-    (CR-002 fail-closed semantics):
+    (fail-closed semantics):
 
     - If the manifest cannot be located → FAIL CLOSED (return False).
     - If the per-file SHA-256 mismatches → FAIL CLOSED.

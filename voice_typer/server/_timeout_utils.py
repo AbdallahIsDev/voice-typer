@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable, Sequence
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +103,13 @@ SHUTDOWN_WATCHDOG_TIMEOUT_S: float = _DE11_GRACE_PERIOD_SECONDS
 # Workers are removed from this list by ``join_leaked_workers`` once
 # they have exited (best-effort — if the worker never exits, it stays
 # in the list until the process dies via ``os._exit(0)``).
+#
+# The registry is BOUNDED by ``_MAX_LEAKED_WORKERS``: on append,
+# already-exited workers are pruned opportunistically and — if the cap
+# is still reached — the OLDEST entry is evicted (its daemon thread is
+# reaped by process exit anyway; the eviction is logged so the
+# diagnostic trail is preserved).
+_MAX_LEAKED_WORKERS = 64
 _LEAKED_WORKERS: list[threading.Thread] = []
 _LEAKED_WORKERS_LOCK = threading.Lock()
 
@@ -326,6 +334,24 @@ def _run_with_timeout(description: str, func, timeout: float = 5.0):
         # daemon, so it will not block process exit even if
         # join_leaked_workers is never called.
         with _LEAKED_WORKERS_LOCK:
+            # Opportunistic prune: drop workers that already exited so
+            # the registry stays small without waiting for the next
+            # ``join_leaked_workers`` call (which in production only
+            # runs at shutdown). Cheap — ``is_alive()`` is a flag read.
+            if len(_LEAKED_WORKERS) >= _MAX_LEAKED_WORKERS:
+                _LEAKED_WORKERS[:] = [w for w in _LEAKED_WORKERS if w.is_alive()]
+            # Hard cap: evict the OLDEST entry if the registry is still
+            # full. The evicted thread is a daemon — process exit reaps
+            # it — and the eviction is logged so diagnostics survive.
+            while len(_LEAKED_WORKERS) >= _MAX_LEAKED_WORKERS:
+                evicted = _LEAKED_WORKERS.pop(0)
+                log.warning(
+                    "[TIMEOUT-UTILS] leaked-worker registry at cap "
+                    "(%d) — evicted oldest entry %r (daemon thread "
+                    "remains reaped by process exit)",
+                    _MAX_LEAKED_WORKERS,
+                    evicted.name,
+                )
             _LEAKED_WORKERS.append(t)
         log.warning(
             "[SHUTDOWN] %s did not finish in %.1fs — continuing "
@@ -341,7 +367,7 @@ def _run_with_timeout(description: str, func, timeout: float = 5.0):
 
 
 def _run_parallel_with_timeout(
-    items: list[tuple[str, object, float]],
+    items: Sequence[tuple[str, Callable[[], object], float]],
 ) -> list[tuple[str, object]]:
     """run several independent teardowns concurrently.
 

@@ -220,7 +220,7 @@ def do_cleanup(controller) -> None:
     # ``os._exit(0)`` fallback.
     controller._late_bookend_tray_stop(app)
 
-    # FR-11: signal shutdown completion so the heartbeat force-exit
+    # Signal shutdown completion so the heartbeat force-exit
     # watchdog (which waits on this event instead of a bare sleep)
     # knows the process is exiting cleanly and must NOT force-kill
     # mid-teardown. A healthy-but-slow cleanup (>10s: PortAudio
@@ -307,7 +307,7 @@ def do_fast_cleanup(controller) -> None:
         log.debug("[SHUTDOWN] fast-path could not clear session marker", exc_info=True)
 
     log.warning(
-        "[SHUTDOWN] XZ-R17-06: fast cleanup path (Windows logoff/shutdown "
+        "[SHUTDOWN] fast cleanup path (Windows logoff/shutdown "
         "— ~5s OS deadline); running critical-only teardown with 1s timeouts"
     )
 
@@ -340,7 +340,7 @@ def do_fast_cleanup(controller) -> None:
             if _stop_result is TIMEOUT:
                 with contextlib.suppress(Exception):
                     app.recorder._force_closed = True
-                log.warning("[SHUTDOWN] XZ-R17-06: recorder.stop() timed out in fast-path")
+                log.warning("[SHUTDOWN] recorder.stop() timed out in fast-path")
     except Exception:
         log.debug("[SHUTDOWN] fast-path recorder.stop failed", exc_info=True)
 
@@ -389,7 +389,7 @@ def do_fast_cleanup(controller) -> None:
     with contextlib.suppress(Exception):
         app._duck_crash_recovery.clear()
 
-    log.warning("[SHUTDOWN] XZ-R17-06: fast cleanup path complete")
+    log.warning("[SHUTDOWN] fast cleanup path complete")
 
     # Bypass atexit — the OS is killing us (Windows logoff/shutdown
     # gives ~5s). Orderly atexit cleanup would race the OS force-kill
