@@ -589,12 +589,12 @@ class RecordingController:
                 level_monitor.stop_monitoring()
                 self._level_monitor_was_active = True
                 log.debug(
-                    "[DICTATION] level_monitor was active -- stopped before recorder.start() (AB-4, cycle=%s)",
+                    "[DICTATION] level_monitor was active -- stopped before recorder.start() (cycle=%s)",
                     getattr(self._app, "_cycle_id", "?"),
                 )
         except Exception:
             log.debug(
-                "[DICTATION] failed to stop level_monitor before recorder.start() (AB-4)",
+                "[DICTATION] failed to stop level_monitor before recorder.start()",
                 exc_info=True,
             )
 
@@ -629,11 +629,11 @@ class RecordingController:
                 mic_id = None
             level_monitor.start_monitoring(mic_id=mic_id)
             log.debug(
-                "[DICTATION] level_monitor restarted (bubble_behavior=always_visible, AB-4, cycle=%s)",
+                "[DICTATION] level_monitor restarted (bubble_behavior=always_visible, cycle=%s)",
                 getattr(app, "_cycle_id", "?"),
             )
         except Exception:
             log.debug(
-                "[DICTATION] failed to restart level_monitor after recorder.stop() (AB-4)",
+                "[DICTATION] failed to restart level_monitor after recorder.stop()",
                 exc_info=True,
             )

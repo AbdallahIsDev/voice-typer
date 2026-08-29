@@ -266,7 +266,7 @@ class TestNameBasedDeviceResolution:
         assert result1 == 5
         assert result2 == 5
         warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert sum("DJ-69" in m and "now points to" in m for m in warning_messages) == 1, (
+        assert sum("saved microphone index" in m and "now points to" in m for m in warning_messages) == 1, (
             f"Expected exactly one DJ-69 mismatch warning, got: {warning_messages}"
         )
 
@@ -294,7 +294,7 @@ class TestNameBasedDeviceResolution:
 
         assert result == 5  # falls back to int(saved_index_str)
         warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert not any("DJ-69" in m and "now points to" in m for m in warning_messages), (
+        assert not any("saved microphone index" in m and "now points to" in m for m in warning_messages), (
             f"Expected NO DJ-69 warning when saved index is gone, got: {warning_messages}"
         )
 
@@ -360,7 +360,7 @@ class TestNameBasedDeviceResolution:
             f"sd.query_devices raises {type(exc).__name__}; got {result!r}"
         )
         warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert not any("DJ-69" in m and "now points to" in m for m in warning_messages), (
+        assert not any("saved microphone index" in m and "now points to" in m for m in warning_messages), (
             f"Expected NO DJ-69 warning when query raises {type(exc).__name__}; got: {warning_messages}"
         )
 

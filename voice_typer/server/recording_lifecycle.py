@@ -37,9 +37,10 @@ import contextlib
 import logging
 import threading
 
-from voice_typer.server import i18n
+from voice_typer.server import event_bus, i18n
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.duration import format_duration
+from voice_typer.server.keyboard_ownership import keyboard_ownership
 from voice_typer.server.tray_types import AppState
 
 log = logging.getLogger(__name__)
@@ -102,8 +103,6 @@ def _notify_consent_gate(title: str, message: str) -> bool:
     balloon so the refusal is still visible).
     """
     try:
-        from voice_typer.server import event_bus
-
         if not event_bus.has_live_transport():
             return False
         ok = event_bus.publish(
@@ -142,8 +141,6 @@ def _publish_consent_required_event() -> None:
     ``consent_required`` publish in ``service/model.py``).
     """
     try:
-        from voice_typer.server import event_bus
-
         event_bus.publish(
             {
                 "type": "consent_required",
@@ -470,8 +467,6 @@ class RecordingLifecycle:
             # the only way to cancel). When recording stops, ownership
             # returns to "normal".
             try:
-                from voice_typer.server.keyboard_ownership import keyboard_ownership
-
                 keyboard_ownership().set_owner("recording", reason=f"recording started (cycle={app._cycle_id})")
             except Exception:
                 log.debug(
@@ -509,8 +504,6 @@ class RecordingLifecycle:
             # ``recording_started``, so the sound cue won't play and the
             # user gets no audible feedback. This must be visible.
             try:
-                from voice_typer.server import event_bus
-
                 event_bus.publish({"type": "recording_started"})
             except Exception:
                 log.warning(
@@ -670,14 +663,10 @@ class RecordingLifecycle:
                     APP_NAME,
                     i18n.t("notify.recording_controller.start_failed"),
                 )
-            try:
-                from voice_typer.server import event_bus
-
+            with contextlib.suppress(Exception):
                 event_bus.publish(
                     {"type": "error", "data": {"message": "Could not start recording", "kind": "recording_start"}}
                 )
-            except Exception:
-                pass
             app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
 
     # ── Start worker (model load + post-load) ────────────────────────
@@ -824,9 +813,7 @@ class RecordingLifecycle:
                     APP_NAME,
                     i18n.t("notify.recording_controller.start_failed"),
                 )
-            try:
-                from voice_typer.server import event_bus
-
+            with contextlib.suppress(Exception):
                 event_bus.publish(
                     {
                         "type": "error",
@@ -836,8 +823,6 @@ class RecordingLifecycle:
                         },
                     }
                 )
-            except Exception:
-                pass
             app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
         finally:
             complete_event.set()
@@ -889,8 +874,6 @@ class RecordingLifecycle:
         # Emit ``recording_stopped`` push event. Log push failures (see
         # comment in start() above).
         try:
-            from voice_typer.server import event_bus
-
             event_bus.publish({"type": "recording_stopped"})
         except Exception:
             log.warning(
@@ -903,8 +886,6 @@ class RecordingLifecycle:
         # happen before ``recorder.stop()`` so that any key events
         # processed during the stop sequence see the correct owner.
         try:
-            from voice_typer.server.keyboard_ownership import keyboard_ownership
-
             keyboard_ownership().set_owner("normal", reason=f"recording stopped (cycle={app._cycle_id})")
         except Exception:
             log.debug(
@@ -1281,8 +1262,6 @@ class RecordingLifecycle:
         # in hotkey capture mode we MUST NOT fire cancel — the frontend
         # owns the keyboard during capture.
         try:
-            from voice_typer.server.keyboard_ownership import keyboard_ownership
-
             if keyboard_ownership().is_hotkey_capture_active():
                 log.debug(
                     "[CANCEL] ESC ignored — frontend hotkey capture active (cycle=%s)",
@@ -1351,8 +1330,6 @@ class RecordingLifecycle:
         # Escape presses during the cancel cleanup don't re-enter the
         # cancel path.
         try:
-            from voice_typer.server.keyboard_ownership import keyboard_ownership
-
             keyboard_ownership().set_owner("normal", reason=f"recording cancelled (cycle={app._cycle_id})")
         except Exception:
             log.debug(

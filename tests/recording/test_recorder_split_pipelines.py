@@ -35,12 +35,17 @@ Covers three focused contracts:
 
 The original  task spec asked for a third test
 "(c) start() returns within 200ms with model reload in flight" tied
-to .  was SKIPPED because the synchronous
-``warm_up_resampler()`` call is pinned by an existing source-order
+to .  was SKIPPED because at the time the synchronous
+``warm_up_resampler()`` call was pinned by an existing source-order
 contract test (``tests/test_recorder_split_start.py::
-TestResamplerWarmUp``) and the full fix requires modifying
-``Recorder.__init__`` in ``recorder.py`` (out of this sub-agent's
-owned files). The pipelining test below substitutes for (c) —
+TestResamplerWarmUp``) and the full fix required modifying
+``Recorder.__init__`` in ``recorder.py`` (out of that sub-agent's
+owned files). The hotkey-path warm-up has since been made
+preloader-aware — ``start_recording`` skips the synchronous call while
+the ``__init__``-spawned scipy preloader thread is still alive — and
+that policy is pinned by
+``tests/recording/test_recorder_start_critical_path.py``. The
+pipelining test below substitutes for (c) —
 it covers the latency fix that DID land.
 """
 

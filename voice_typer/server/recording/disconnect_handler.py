@@ -42,7 +42,7 @@ import collections
 import contextlib
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import Any
 
 from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
 from voice_typer.server._lazy_import import lazy_module
@@ -127,10 +127,6 @@ def retune_audio_processor(
             )
 
 
-if TYPE_CHECKING:
-    from .recorder import Recorder
-
-
 class DisconnectHandler:
     """Handles audio device hot-swap stream restart for :class:`Recorder`.
 
@@ -149,7 +145,12 @@ class DisconnectHandler:
         regression tests continue to pin the lock-scope invariant.
     """
 
-    def __init__(self, recorder: Recorder) -> None:
+    def __init__(self, recorder: Any) -> None:
+        # Collaborator back-reference. Typed ``Any`` to avoid a circular
+        # import (``recorder`` imports ``disconnect_handler`` at module top
+        # to construct this class in ``RecorderInitMixin._init_*``) — same
+        # convention as the other extracted collaborators
+        # (``stream_lifecycle.py``, ``session_state.py``).
         self._recorder = recorder
 
     def restart_stream(self, _captured_generation: int) -> None:

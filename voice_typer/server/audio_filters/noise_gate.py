@@ -2,10 +2,39 @@
 
 The peak-hold level estimator is vectorized with
 ``np.maximum.accumulate`` (linear-decay peak-hold trick -- see comment
-in ``process``). The open/close + attack/hold/release state machine
-remains a Python loop because its state transitions are inherently
-sequential, but it now operates on the pre-computed ``level`` array --
-no per-sample ``abs()`` or peak-hold bookkeeping in the loop body.
+in ``process``).
+
+The open/close + attack/hold/release state machine is ALSO vectorized
+(``_state_machine_vector``):
+
+* the per-sample ``is_open`` state is a pure "last effective event
+  wins" scan -- an open event (``level > open_thr``) always sets the
+  state open, a close event (``level < close_thr`` while open) sets it
+  closed -- so the state after each sample is resolved by two
+  ``np.maximum.accumulate`` passes over the open/close event indices;
+* within a maximal open run the attenuation is a monotone increasing
+  ``cumsum`` of ``attack_rate*dt`` clamped element-wise at 1.0 (the
+  per-step clamp can only bind at the top of a monotone sequence, so an
+  element-wise ``np.minimum`` over the raw cumsum is exactly the
+  progressive clamp); the release ramp is the mirror image with
+  ``np.maximum(., 0.0)`` after the hold phase;
+* the hold timer accumulates ``dt`` by repeated float addition in the
+  reference loop, so the vectorized path reproduces it with a
+  ``np.cumsum`` seeded with the carried value -- identical left-to-right
+  float additions, hence identical ``held_time > hold_time`` comparisons
+  even at exact-equality boundaries.
+
+Bit-identical output to the loop is pinned by
+``tests/test_noise_gate_vector_equivalence.py`` (randomized + edge
+inputs, multi-chunk carry, end-to-end ``process()`` comparison against
+the verbatim pre-vectorization loop).
+
+A scalar per-sample loop (``_state_machine_scalar``) is kept as the
+fallback for pathological chunks whose level oscillates across a
+gate threshold on (almost) every sample: the vectorized path is O(runs)
+numpy dispatches, and when the run count explodes past
+``max(4, n // 32)`` the flat Python loop is cheaper. The fallback is
+the verbatim pre-vectorization loop, so both paths agree bitwise.
 
 when ``adaptive=True`` is passed to the constructor, the gate
 samples the first ``_ADAPTIVE_CALIBRATION_MS`` of audio after each
@@ -110,6 +139,17 @@ class NoiseGate(AudioFilter):
         self._attenuation_buf: np.ndarray | None = None
         self._output_f64_buf: np.ndarray | None = None
         self._output_f32_buf: np.ndarray | None = None
+        # state-machine scan buffers (vectorized open/close tracking).
+        # Bool event masks + float64 "last event index" accumulators (the
+        # indices are stored as float64 because the cached ``np.arange``
+        # is float64 and every integer below 2**53 is exact) + the bool
+        # per-sample gate-state / seen-open outputs.
+        self._open_ev_buf: np.ndarray | None = None
+        self._close_ev_buf: np.ndarray | None = None
+        self._last_open_buf: np.ndarray | None = None
+        self._last_close_buf: np.ndarray | None = None
+        self._state_open_buf: np.ndarray | None = None
+        self._has_open_buf: np.ndarray | None = None
 
     def _ensure_buffers(self, n: int) -> None:
         """Lazy-resize the per-chunk working buffers to at least ``n`` samples.
@@ -137,6 +177,18 @@ class NoiseGate(AudioFilter):
             self._output_f64_buf = np.empty(cap, dtype=np.float64)
         if self._output_f32_buf is None or self._output_f32_buf.shape[0] < n:
             self._output_f32_buf = np.empty(cap, dtype=np.float32)
+        if self._open_ev_buf is None or self._open_ev_buf.shape[0] < n:
+            self._open_ev_buf = np.empty(cap, dtype=bool)
+        if self._close_ev_buf is None or self._close_ev_buf.shape[0] < n:
+            self._close_ev_buf = np.empty(cap, dtype=bool)
+        if self._last_open_buf is None or self._last_open_buf.shape[0] < n:
+            self._last_open_buf = np.empty(cap, dtype=np.float64)
+        if self._last_close_buf is None or self._last_close_buf.shape[0] < n:
+            self._last_close_buf = np.empty(cap, dtype=np.float64)
+        if self._state_open_buf is None or self._state_open_buf.shape[0] < n:
+            self._state_open_buf = np.empty(cap, dtype=bool)
+        if self._has_open_buf is None or self._has_open_buf.shape[0] < n:
+            self._has_open_buf = np.empty(cap, dtype=bool)
 
     def _consume_calibration_chunk(self, samples: np.ndarray) -> None:
         """accumulate samples toward the noise-floor estimate."""
@@ -196,8 +248,6 @@ class NoiseGate(AudioFilter):
         release_rate = 1.0 / max(self._release_ms / 1000.0, dt)
         hold_time = self._hold_ms / 1000.0
 
-        open_thr = self._open_threshold
-        close_thr = self._close_threshold
         decay = self._decay_rate
 
         # Vectorized peak-hold level estimator (linear decay).
@@ -218,6 +268,17 @@ class NoiseGate(AudioFilter):
         # temp, then overwritten with the final ``level_arr`` — safe because
         # the temp value is fully consumed before the overwrite.
         self._ensure_buffers(n)
+        # ``_ensure_buffers`` guarantees the lazily-allocated buffers exist
+        # (and are at least ``n`` / ``n + 1`` long) before any use below.
+        # The asserts narrow the ``| None`` declared types for the type
+        # checker and pin the invariant at runtime (same idiom as
+        # noise_suppressor.py's backend guard).
+        assert self._abs_buf is not None
+        assert self._i_arr_buf is not None
+        assert self._y_buf is not None
+        assert self._level_arr_buf is not None
+        assert self._attenuation_buf is not None
+        assert self._output_f64_buf is not None
         # Pre-compute abs outside the state-machine loop (vectorized).
         # ``np.abs(samples)`` returns a float32 array (1 allocation); copy it
         # into the pre-allocated float64 buffer to avoid the original
@@ -244,10 +305,55 @@ class NoiseGate(AudioFilter):
         np.maximum(tmp, 0.0, out=tmp)
         level_arr = tmp
 
-        # State machine (sequential -- inherently stateful). Operates on
-        # the pre-computed ``level_arr`` so the inner loop is cheap (a few
-        # float comparisons + arithmetic, no abs/max calls).
+        # State machine -- vectorized (see the module docstring for the
+        # equivalence argument and the scalar fallback rationale).
+        # Operates on the pre-computed ``level_arr``; output is bit-
+        # identical to the pre-vectorization per-sample loop (pinned by
+        # tests/test_noise_gate_vector_equivalence.py).
         attenuation_arr = self._attenuation_buf[:n]
+        is_open, attenuation, held_time = self._state_machine_vector(
+            level_arr, n, dt, attack_rate, release_rate, hold_time, attenuation_arr
+        )
+
+        # output = (samples.astype(float64) * attenuation_arr).astype(float32)
+        # computed in-place via the pre-allocated f64 + f32 buffers.
+        output_f64 = self._output_f64_buf[:n]
+        np.copyto(output_f64, samples, casting="same_kind")
+        np.multiply(output_f64, attenuation_arr, out=output_f64)
+        output_f32 = self._output_f32_buf[:n]
+        np.copyto(output_f32, output_f64, casting="same_kind")
+        output = output_f32
+
+        self._level = float(level_arr[-1])
+        self._is_open = is_open
+        self._attenuation = attenuation
+        self._held_time = held_time
+
+        return output.reshape(original_shape)
+
+    def _state_machine_scalar(
+        self,
+        level_arr: np.ndarray,
+        n: int,
+        dt: float,
+        attack_rate: float,
+        release_rate: float,
+        hold_time: float,
+        attenuation_arr: np.ndarray,
+    ) -> tuple[bool, float, float]:
+        """Original per-sample state machine (verbatim, pre-vectorization).
+
+        Two roles: (1) the fallback for pathological chunks whose run
+        count explodes past the vectorized path's dispatch cutoff (see
+        :meth:`_state_machine_vector`), and (2) the reference
+        implementation pinned bit-for-bit by
+        ``tests/test_noise_gate_vector_equivalence.py``. Do NOT edit the
+        loop body without re-deriving that equivalence.
+
+        Returns ``(is_open, attenuation, held_time)`` after the chunk.
+        """
+        open_thr = self._open_threshold
+        close_thr = self._close_threshold
         is_open = self._is_open
         attenuation = self._attenuation
         held_time = self._held_time
@@ -273,21 +379,219 @@ class NoiseGate(AudioFilter):
 
             attenuation_arr[i] = attenuation
 
-        # output = (samples.astype(float64) * attenuation_arr).astype(float32)
-        # computed in-place via the pre-allocated f64 + f32 buffers.
-        output_f64 = self._output_f64_buf[:n]
-        np.copyto(output_f64, samples, casting="same_kind")
-        np.multiply(output_f64, attenuation_arr, out=output_f64)
-        output_f32 = self._output_f32_buf[:n]
-        np.copyto(output_f32, output_f64, casting="same_kind")
-        output = output_f32
+        return is_open, attenuation, held_time
 
-        self._level = float(level_arr[-1])
-        self._is_open = is_open
-        self._attenuation = attenuation
-        self._held_time = held_time
+    def _scan_gate_state(self, level_arr: np.ndarray, n: int) -> tuple[np.ndarray, np.ndarray]:
+        """Resolve the per-sample open/closed gate state (vectorized scan).
 
-        return output.reshape(original_shape)
+        The loop's threshold update is a pure "last effective event wins"
+        scan: ``level > open_thr`` forces the state open; ``level <
+        close_thr`` forces it closed *only* when currently open (a no-op
+        when already closed). Either way the state after sample ``i`` is
+        "open" exactly when the last event at or before ``i`` is an open
+        event (with the open event winning ties, matching the loop's
+        ``if/elif`` precedence when both comparisons fire), or when no
+        event has occurred yet and the carried-in state was open.
+
+        Returns ``(state_open, run_starts)`` where ``state_open`` is the
+        bool per-sample state array and ``run_starts`` holds the indices
+        of every state-flip boundary (the starts of runs 2..R; run 1
+        always starts at 0).
+        """
+        open_ev = self._open_ev_buf[:n]
+        close_ev = self._close_ev_buf[:n]
+        np.greater(level_arr, self._open_threshold, out=open_ev)
+        np.less(level_arr, self._close_threshold, out=close_ev)
+
+        i_arr = self._i_arr_buf[:n]
+        last_open = self._last_open_buf[:n]
+        last_close = self._last_close_buf[:n]
+        # "no event yet" is encoded as -1; event samples are stamped with
+        # their index, then a running maximum carries the last event
+        # index forward.
+        last_open.fill(-1.0)
+        np.copyto(last_open, i_arr, where=open_ev)
+        np.maximum.accumulate(last_open, out=last_open)
+        last_close.fill(-1.0)
+        np.copyto(last_close, i_arr, where=close_ev)
+        np.maximum.accumulate(last_close, out=last_close)
+
+        state_open = self._state_open_buf[:n]
+        np.greater_equal(last_open, last_close, out=state_open)
+        if not self._is_open:
+            # Carried-in state closed: a "no event yet" prefix (both
+            # indices -1) must stay closed, so gate the comparison on
+            # whether an open event has been seen at all.
+            has_open = self._has_open_buf[:n]
+            np.greater_equal(last_open, 0.0, out=has_open)
+            np.logical_and(state_open, has_open, out=state_open)
+
+        if n > 1:
+            bounds = self._has_open_buf[: n - 1]
+            np.not_equal(state_open[1:], state_open[:-1], out=bounds)
+            run_starts = np.flatnonzero(bounds)
+            run_starts += 1
+        else:
+            run_starts = np.empty(0, dtype=np.intp)
+        return state_open, run_starts
+
+    def _state_machine_vector(
+        self,
+        level_arr: np.ndarray,
+        n: int,
+        dt: float,
+        attack_rate: float,
+        release_rate: float,
+        hold_time: float,
+        attenuation_arr: np.ndarray,
+    ) -> tuple[bool, float, float]:
+        """Vectorized attack/hold/release state machine (bit-exact twin
+        of :meth:`_state_machine_scalar`).
+
+        Layout: resolve the per-sample open/closed state with the
+        last-event scan, then fill each maximal same-state run with one
+        cumulative sum (attack: monotone increasing, element-wise clamped
+        at 1.0; release: monotone decreasing after the hold phase,
+        element-wise clamped at 0.0). For a monotone sequence the
+        per-step clamp of the loop is exactly an element-wise clamp over
+        the raw cumsum, and the held-time sums are reproduced by a
+        ``np.cumsum`` seeded with the carried value (identical
+        left-to-right float additions as the loop).
+
+        Falls back to :meth:`_state_machine_scalar` when the run count
+        exceeds ``max(4, n // 32)``: per-run numpy dispatch (~6 calls per
+        run) loses to the flat Python loop once the level oscillates
+        across a threshold on nearly every sample.
+
+        Returns ``(is_open, attenuation, held_time)`` after the chunk.
+        """
+        state_open, run_starts = self._scan_gate_state(level_arr, n)
+        runs = len(run_starts) + 1
+        if runs > max(4, n // 32):
+            return self._state_machine_scalar(level_arr, n, dt, attack_rate, release_rate, hold_time, attenuation_arr)
+
+        d_attack = attack_rate * dt
+        d_release = release_rate * dt
+        is_open0 = self._is_open
+        # ``_y_buf`` (size cap + 1) is free here: the peak-hold estimator
+        # consumed it before ``level_arr`` was extracted. It is the
+        # cumsum scratch for both the attack ramp and the hold/release
+        # timeline of each run.
+        scratch = self._y_buf
+        att = attenuation_arr
+
+        entry_att = self._attenuation
+        held_final = self._held_time
+        seg_start = 0
+        for boundary in run_starts:
+            seg_end = int(boundary)
+            entry_att, held_seg = self._fill_state_run(
+                state_open,
+                att,
+                scratch,
+                seg_start,
+                seg_end,
+                entry_att,
+                is_open0,
+                dt,
+                d_attack,
+                d_release,
+                hold_time,
+                self._held_time if seg_start == 0 else held_final,
+            )
+            if not state_open[seg_end - 1]:
+                held_final = held_seg
+            seg_start = seg_end
+        entry_att, held_seg = self._fill_state_run(
+            state_open,
+            att,
+            scratch,
+            seg_start,
+            n,
+            entry_att,
+            is_open0,
+            dt,
+            d_attack,
+            d_release,
+            hold_time,
+            self._held_time if seg_start == 0 else held_final,
+        )
+        if not state_open[n - 1]:
+            held_final = held_seg
+
+        return bool(state_open[n - 1]), entry_att, held_final
+
+    def _fill_state_run(
+        self,
+        state_open: np.ndarray,
+        att: np.ndarray,
+        scratch: np.ndarray,
+        s: int,
+        e: int,
+        entry_att: float,
+        is_open0: bool,
+        dt: float,
+        d_attack: float,
+        d_release: float,
+        hold_time: float,
+        held_entry: float,
+    ) -> tuple[float, float]:
+        """Fill one maximal same-state run ``att[s:e]`` of the state machine.
+
+        Returns ``(exit_att, exit_held)`` — the loop-equivalent running
+        attenuation after the run's last sample, and the held-time value
+        after the run's last sample (meaningful only for closed runs; the
+        loop leaves ``held_time`` untouched across open samples).
+
+        Exactness notes (see :meth:`_state_machine_vector`):
+
+        * OPEN run: ``att`` is the monotone increasing cumsum of
+          ``d_attack`` seeded with ``entry_att`` — the same left-to-right
+          float additions as the loop's ``attenuation += attack_rate*dt``
+          — clamped element-wise at 1.0 (== the loop's per-step clamp).
+        * CLOSED run: the held-time timeline is a cumsum of ``dt`` seeded
+          with ``held_entry`` (``0.0`` when the run starts at a close
+          event — the loop resets the timer there — or the carried value
+          when the gate was already closed at chunk start). Samples with
+          ``held <= hold_time`` hold ``att`` at ``entry_att``; the rest
+          release via a monotone decreasing cumsum of ``-d_release``
+          clamped element-wise at 0.0.
+        """
+        length = e - s
+        if state_open[s]:
+            # OPEN run: monotone increasing attack ramp, clamp at 1.0.
+            scratch[0] = entry_att
+            scratch[1 : length + 1].fill(d_attack)
+            np.cumsum(scratch[: length + 1], out=scratch[: length + 1])
+            np.minimum(scratch[1 : length + 1], 1.0, out=att[s:e])
+            return float(att[e - 1]), held_entry
+
+        # Held-time seed: a run that starts at a close event resets the
+        # timer to 0.0 (the loop writes ``held_time = 0.0`` there, then
+        # the closed branch adds ``dt``); the only closed run that does
+        # NOT start at a close event is a chunk carried in mid-closed,
+        # which continues from the carried timer value.
+        held_seed = 0.0 if (s > 0 or is_open0) else held_entry
+        scratch[0] = held_seed
+        scratch[1 : length + 1].fill(dt)
+        np.cumsum(scratch[: length + 1], out=scratch[: length + 1])
+        exit_held = float(scratch[length])
+        # First ``hold_count`` samples have held_time <= hold_time (the
+        # loop's decrement condition is ``held_time > hold_time``), so att
+        # stays at the entry value there. searchsorted(right) on the
+        # non-decreasing held timeline == the exact count of those
+        # samples; the timeline floats are bit-identical to the loop's,
+        # so the partition matches even at exact-equality boundaries.
+        hold_count = int(np.searchsorted(scratch[1 : length + 1], hold_time, side="right"))
+        if hold_count:
+            att[s : s + hold_count].fill(entry_att)
+        release_len = length - hold_count
+        if release_len:
+            scratch[0] = entry_att
+            scratch[1 : release_len + 1].fill(-d_release)
+            np.cumsum(scratch[: release_len + 1], out=scratch[: release_len + 1])
+            np.maximum(scratch[1 : release_len + 1], 0.0, out=att[s + hold_count : e])
+        return float(att[e - 1]), exit_held
 
     def reset(self) -> None:
         # NOISE-GATE-INIT: reset to the same open-with-full-attenuation state.

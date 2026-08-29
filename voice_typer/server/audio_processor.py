@@ -325,7 +325,10 @@ class AudioProcessor:
         self._config = config
         self._config_signature = new_sig
         new_chain = build_chain(config, self._sample_rate)
-        self._chain.swap(new_chain._filters)
+        # ``filters`` is FilterChain's sanctioned public accessor (a
+        # lock-consistent snapshot); ``swap`` copies the list again, so
+        # this is identical to handing it the private list directly.
+        self._chain.swap(new_chain.filters)
         log.info(
             "[AUDIO-PROC] chain rebuilt: %s (degraded=%s)",
             self._chain.filter_names or "none",
@@ -375,7 +378,8 @@ class AudioProcessor:
         self._sample_rate = new_sr
         self._config_signature = _config_signature(self._config, new_sr)
         new_chain = build_chain(self._config, new_sr)
-        self._chain.swap(new_chain._filters)
+        # Sanctioned public accessor — see ``rebuild_from_config``.
+        self._chain.swap(new_chain.filters)
         # The chain is now tuned to ``new_sr``; if the next chunk
         # arrives at ``new_sr``, the resample path is not taken. Clear
         # the latched flag so the UI stops showing the resample warning.

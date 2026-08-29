@@ -44,46 +44,46 @@ def ensure_mono(recorder: Recorder, audio: Any) -> Any:
     we record with channels=2 and downmix here. This avoids the
     PortAudio error when requesting channels=1 on a stereo-only device.
 
-    Performance: the stereo (2-channel) path uses a pre-allocated
-    per-thread scratch buffer (``recorder._mono_scratch_local``) and manual
-    in-place ``np.add`` + ``*= 0.5`` instead of ``np.mean``. This
-    avoids ``np.mean``'s internal intermediate-array allocation on
-    the 16 Hz audio-worker hot path (benchmarked ~72% faster for
-    512-sample stereo chunks). The result is copied before return
-    so callers that store it in ``_buffer`` / ``_preroll_buffer``
-    get an independent array — returning a view into the scratch
-    would corrupt stored audio when the next call overwrites the
-    scratch. The ``>2``-channel path (rare — channels are clamped
-    to [1, 2] at stream-open time) falls back to ``np.mean`` for
-    simplicity.
+    Performance: the stereo (2-channel) path uses an in-place
+    ``np.add`` + ``*= 0.5`` into a fresh output array instead of
+    ``np.mean``. This avoids ``np.mean``'s internal intermediate-array
+    allocation on the 16 Hz audio-worker hot path while keeping the
+    number of passes minimal: one allocation, one add pass, one scale
+    pass. (An earlier revision computed into a per-thread scratch and
+    returned ``view.copy()`` — the copy allocated a fresh array anyway,
+    so the scratch saved nothing and added a third memcpy pass. The
+    scratch holder ``recorder._mono_scratch_local`` is still declared
+    on ``Recorder`` because its presence in ``__init__`` is pinned by
+    the mono/downmix regression tests.) The result is a fresh,
+    caller-owned array — it can be stored in ``_buffer`` /
+    ``_preroll_buffer`` without aliasing anything. The ``>2``-channel
+    path (rare — channels are clamped to [1, 2] at stream-open time)
+    falls back to ``np.mean`` for simplicity.
 
-    Thread safety: the scratch is ``threading.local`` so the audio
-    worker thread and the RT callback's pre-roll path each get
-    their own buffer. No lock is needed — only one thread touches
-    each scratch, and the calls are synchronous (no yield between
-    the ``np.add`` and the ``.copy()``).
+    No-copy paths: 1-D input is returned as-is, and a 2-D single-column
+    input is returned as a zero-copy ``reshape(-1)`` view of the input
+    (safe: callers either read it immediately or copy-on-append into
+    the growable recording storage).
+
+    Thread safety: no shared mutable state — every call either returns
+    a view of its own input or a freshly allocated array, so the audio
+    worker thread and the RT callback's pre-roll path cannot interfere.
     """
     if audio.ndim == 1:
         return audio
     if audio.ndim == 2 and audio.shape[1] > 1:
         n = audio.shape[0]
         if audio.shape[1] == 2:
-            # Fast path: stereo downmix via in-place add + scale.
-            scratch = getattr(recorder._mono_scratch_local, "buf", None)
-            if scratch is None or scratch.shape[0] < n:
-                # Lazily allocate (or grow) the scratch. 1024 is a
-                # generous default that covers the standard 512-
-                # sample blocksize with headroom for the rare
-                # double-blocksize chunk from PortAudio.
-                scratch = np.empty(max(n, 1024), dtype=np.float32)
-                recorder._mono_scratch_local.buf = scratch
-            view = scratch[:n]
-            np.add(audio[:, 0], audio[:, 1], out=view)
-            view *= 0.5
-            # Return a copy so callers can safely store the result
-            # without aliasing the scratch (which is reused on the
-            # next call).
-            return view.copy()
+            # Fast path: stereo downmix via in-place add + scale into a
+            # fresh output array. One allocation, two passes — same
+            # element-wise operations (and therefore identical output
+            # bytes) as the earlier scratch+``view.copy()`` version,
+            # without the extra copy pass. The result is caller-owned,
+            # so it can be stored without aliasing shared state.
+            out = np.empty(n, dtype=np.float32)
+            np.add(audio[:, 0], audio[:, 1], out=out)
+            out *= 0.5
+            return out
         # >2 channels (rare — clamped to [1,2] at stream-open):
         # fall back to np.mean which handles arbitrary channel
         # counts. The allocation cost is acceptable for this rare

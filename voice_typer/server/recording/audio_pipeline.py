@@ -49,7 +49,7 @@ import math
 import os
 import queue
 import time
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from voice_typer.server import recording as _recording_pkg
 from voice_typer.server._audio_constants import SILERO_VAD_SAMPLE_RATES, WHISPER_SAMPLE_RATE
@@ -91,10 +91,6 @@ def _ensure_sp_signal() -> Any | None:
     return _sp_signal
 
 
-if TYPE_CHECKING:
-    from .recorder import Recorder
-
-
 # XRUN rolling window parameters
 _XRUN_ALERT_THRESHOLD = 5  # alert if N xruns in the window
 _XRUN_ALERT_PERIOD = 10.0  # ...within M seconds
@@ -126,7 +122,12 @@ class AudioPipeline:
     existing call sites and source-inspection checks continue to work.
     """
 
-    def __init__(self, recorder: Recorder) -> None:
+    def __init__(self, recorder: Any) -> None:
+        # Collaborator back-reference. Typed ``Any`` to avoid a circular
+        # import (``recorder`` imports ``audio_pipeline`` at module top to
+        # construct this class in ``RecorderInitMixin._init_*``) — same
+        # convention as the other extracted collaborators
+        # (``stream_lifecycle.py``, ``session_state.py``).
         self._recorder = recorder
 
     def detect_device_disconnect(self, indata: np.ndarray) -> bool:

@@ -652,7 +652,8 @@ def take_snapshot(recorder: Recorder) -> np.ndarray:
     ``recorder._buffer.storage`` on the no-resample path. The cache arrays
     are REPLACED (never mutated in place) on growth/invalidation, so
     previously-returned views remain valid until released. streaming.py's
-    XZ-PRIV-02 zero-gate relies on exactly this identity.
+    zero-gate (zero the audio buffer before release) relies on exactly
+    this identity.
 
     Lock discipline: unchanged from the deque implementation — a lock-free
     empty fast path (avoids 4 Hz contention with the audio callback when
@@ -1080,26 +1081,32 @@ def start_recording(recorder: Recorder) -> None:
         and _recording_resampling._resample_poly is None
         and _recording_resampling._resample_poly_error is None
     ):
-        # Warm up synchronously to avoid racing with stop().
-        # NOTE: an earlier refactor attempted to move this to a
-        # background prewarm thread (mirroring ``_prewarm_device_cache``
-        # in ``Recorder.__init__``). The synchronous call is pinned by
-        # ``tests/test_recorder_split_start.py::TestResamplerWarmUp::
-        # test_warm_up_called_when_sr_differs_and_poly_not_loaded``
-        # which asserts ``recorder.warm_up_resampler.assert_called_once()``
-        # immediately after ``start_recording`` returns. Moving the
-        # call to a background thread would make this assertion racy
-        # (the thread may not have started executing the target yet
-        # when the main thread reaches the assert). The full fix
-        # requires also updating that test AND moving the prewarm
-        # to ``Recorder.__init__`` (which lives in ``recorder.py`` —
-        # out of this sub-agent's owned files). The branch only fires
-        # on the FIRST start() after cold-start (subsequent starts see
-        # ``_resample_poly`` cached by the ``_start_scipy_preloader``
-        # daemon spawned in ``__init__``), so the typical-case latency
-        # impact of leaving this synchronous is bounded to the first
-        # hotkey press after app launch.
-        recorder.warm_up_resampler()
+        # Skip the synchronous warm-up when the scipy preloader daemon
+        # spawned by ``Recorder.__init__`` (``_register_scipy_preloader``)
+        # is still in flight — that thread already owns the import, so
+        # blocking the hotkey path here would pay the 1-2s scipy cost a
+        # second time. Correctness is unaffected: the resample helpers
+        # (``resample_audio`` → ``_get_resample_poly``) load scipy
+        # on demand and under a lock if a resample lands before the
+        # preloader finishes, so the output bytes are identical either
+        # way — only the first-start latency moves off the hotkey thread
+        # (worst case it resurfaces once inside a very early stop(), the
+        # same place the import cost landed before the preloader existed).
+        # The isinstance guard keeps the check deterministic for test
+        # doubles: a ``MagicMock`` recorder auto-creates a non-Thread
+        # attribute, which falls through to the synchronous warm-up and
+        # preserves the historical contract for those tests. When the
+        # preloader already exited (``_resample_poly`` still ``None`` —
+        # the import failed), warm up synchronously exactly as before so
+        # the failure is logged once at start time.
+        _preloader = getattr(recorder, "_scipy_preloader_thread", None)
+        if isinstance(_preloader, threading.Thread) and _preloader.is_alive():
+            log.debug("[RECORDING] scipy preloader in flight — resampler warm-up left to the background thread")
+        else:
+            # Warm up synchronously when no background preloader is
+            # running, so the first stop()/snapshot() resample never
+            # pays the scipy import cost.
+            recorder.warm_up_resampler()
 
     # best-effort retune of the AudioProcessor's filter chain
     # to the device's native sample rate. Pre-fix, the start() path

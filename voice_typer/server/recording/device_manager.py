@@ -1130,7 +1130,7 @@ class DeviceManager:
                 current_name = str(current_info.get("name", "")).strip().lower()
                 if current_name and current_name != saved_name.strip().lower():
                     log.warning(
-                        "[RECORDING] DJ-69: saved microphone index %d now points to "
+                        "[RECORDING] saved microphone index %d now points to "
                         "'%s' (was '%s') — device may have been renumbered by hot-swap; "
                         "re-select the microphone in Settings to update the saved reference",
                         saved_index,
@@ -1153,7 +1153,7 @@ class DeviceManager:
                 # No bare ``pass`` — log with exc_info so the
                 # diagnostic failure is visible in the log file.)
                 log.debug(
-                    "[RECORDING] DJ-69: could not query saved device index %r "
+                    "[RECORDING] could not query saved device index %r "
                     "(name mismatch warning skipped) — device likely gone",
                     saved_index,
                     exc_info=True,
