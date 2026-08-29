@@ -950,6 +950,107 @@ Adding a new **ASR engine** has its own touchpoint set: see
 >   touchpoints (including the doc-count references the tests don't
 >   enforce).
 
+### 6.5 i18n (every user-visible string must be localizable)
+
+Voice Typer ships **8 UI locales** (`en`, `ar`, `de`, `es`, `fr`, `hi`,
+`ru`, `zh`) — see `SUPPORTED_LOCALES` in
+`voice_typer/client/src/renderer/src/i18n/locale.ts`. There are **two**
+translation stores, both of which must be updated for every new string:
+
+- **Renderer** — `voice_typer/client/src/renderer/src/i18n/translations/*.json`
+  (8 files), consumed through the `@/i18n/i18n` package (`t`, `tChoice`,
+  `useT`, `useTChoice`, `setLocale`, `getLocale`).
+- **Main process** — `voice_typer/client/src/main/i18n/locales/*.json`
+  (8 files), consumed through `mainT()` (`voice_typer/client/src/main/i18n.ts`)
+  for dialogs and tray labels that render outside the React tree.
+
+**Rules (enforced by `tests/.../locale-key-parity.test.ts` + the i18n
+completeness suite):**
+
+1. **Never hardcode a user-visible string.** Use `t("key")` / `tChoice(...)`
+   in the renderer, `mainT(...)` in the main process. A bare literal like
+   `"Save"` in a `tsx`/`ts` file is a violation.
+2. **Add the key to ALL 8 locale files** (C-I18N-1). The parity test
+   asserts every non-English file defines the *same dot-key set* as
+   `en.json` — a key added only to English silently falls back for the
+   other 7 locales.
+3. **Every non-English value must be a genuine translation** (C-I18N-2) —
+   never paste the English text into `ar.json` / `de.json` / etc. If you
+   cannot translate reliably, record the key as pending in `worklog.md`
+   rather than shipping verbatim English.
+4. **Branding uses the `{appName}` placeholder**, not the literal product
+   name, in locale values (C-BRAND-1). The runtime substitutes
+   `APP_NAME` via `_withAppName` at registration time.
+5. **Pluralize with `tChoice` + `_category` suffixes.** `tChoice("key", n)`
+   resolves `key_{category}` → `key_other` → bare `key`, where `category`
+   comes from `Intl.PluralRules` (`zero`/`one`/`two`/`few`/`many`/`other`).
+   Add the category-suffixed keys your locale needs (e.g. `_one`/`_other`
+   for English, `_few`/`_many` for Russian, `_zero`/`_two`/`_few`/`_many`
+   for Arabic). When a locale does not distinguish a category, fall back
+   to the `_other` form rather than duplicating a bespoke form.
+6. **Respect RTL.** Arabic is the app's RTL locale. Use logical
+   properties (`ms-*`/`me-*`, `start`/`end`) instead of physical ones
+   (`ml-*`/`mr-*`, `left`/`right`) so layout mirrors automatically. The
+   i18n init applies `document.documentElement.dir` at boot; the bubble
+   window applies its own `lang`/`dir` from the shared
+   `voice-typer-ui-locale` key.
+
+**Package layout** (`voice_typer/client/src/renderer/src/i18n/`):
+`locale.ts` (type + `SUPPORTED_LOCALES`), `store.ts` (translation state +
+`registerTranslations`/`setLocale`/`getLocale`), `translate.ts` (`t` +
+`tChoice` + caches), `hooks.ts` (`useT`/`useTChoice`/`subscribeLocale`),
+`rtl.ts`, `push.ts` (locale → main process / Python backend),
+`index.ts` (public surface + `initI18n()`).
+
+### 6.6 Renderer page & component conventions
+
+**Directory structure** (`voice_typer/client/src/renderer/src/`):
+
+- `pages/<Page>/` — one folder per top-level route. A page file owns
+  routing/section composition; feature-specific building blocks live in
+  `pages/<Page>/components/`, `lib/`, and `hooks/` subfolders. Keep page
+  entry files thin (wiring + composition) — move logic to modules.
+- `components/` — shared cross-page primitives (`ui/` shadcn-style
+  primitives, `common/` app-level shared components, `feedback/`,
+  `settings/`, `layout/`, `hotkey/`, `models/`, `help/`, `history/`).
+- `hooks/` — shared React hooks (connection, models, config, i18n).
+- `lib/` — pure utilities + store logic (theme, hotkeys, sound, utils).
+- `__tests__/` — colocated with the code under test
+  (`src/renderer/src/.../__tests__/`).
+
+**Test helpers** — `src/renderer/src/__tests__/helpers/renderApp.tsx`
+exports `renderApp()` which mounts `<App />` with the Zustand store, i18n
+provider, and `window.python` mock already wired — prefer it over
+hand-rolling the React tree in component tests. Sibling files:
+`fixtures.ts` (config snapshots) and `mocks.tsx` (mock components /
+`window.python` bridge).
+
+**Conventions:**
+
+- **Theme via tokens, not raw palette.** Use semantic CSS variables
+  (`bg-(--bg)`, `text-(--text-primary)`, `text-(--text-muted)`,
+  `border-border/10`) — never hardcoded Tailwind palette colors — so both
+  the light/dark/system themes and custom presets keep working.
+- **Shared primitives for keycaps, hotkeys, and shortcuts.** Render
+  keyboard shortcuts as keycap chips through the shared `HotkeyChips`
+  component (never join keys with `+` as plain text; `Kbd` is the single
+  keycap source of truth). `aria-keyshortcuts` keeps the actual binding
+  exposed to assistive tech.
+- **Keep keyboard focus indicators.** Never remove the visible focus ring
+  (WCAG 2.4.7). Use full-opacity `focus-visible:ring-ring` on interactive
+  primitives and the pointer-modality pattern from `SearchField` for
+  click-vs-keyboard suppression.
+- **Localize, don't hardcode** — see §6.5. New pages/components consume
+  `t()`/`tChoice()` and add every key to all 8 locales.
+- **RTL-aware layout.** Prefer logical properties so Arabic mirrors
+  correctly.
+- **Search is global.** The title-bar search field is the app's only
+  search input; per-page search fields are removed. Consume its query
+  from the shared `useGlobalSearch` store.
+- **Storybook parity.** When adding a component, add a story under
+  `stories/` covering light + dark and, where the component renders text,
+  an RTL (Arabic) variant.
+
 ---
 
 ## 7. Testing Guidelines
