@@ -17,7 +17,8 @@ Status handlers (return their own ``onboarding_*`` type):
 Set-style handlers (validate a single field, return ``{type: ack|error, data: <result>}``):
 - ``_handle_onboarding_set_microphone`` — validates ``mic_id: str`` (required).
 - ``_handle_onboarding_set_hotkey`` — validates ``hotkey: str`` (default ``<caps_lock>``).
-- ``_handle_onboarding_set_model`` — validates ``model: str`` (default ``tiny``).
+- ``_handle_onboarding_set_model`` — validates ``model: str`` (default: the canonical
+  ``DEFAULT_MODEL_SIZE`` sentinel — no concrete default model).
 - ``_handle_onboarding_set_backend`` — validates ``backend: str`` (required — the explicit local-vs-cloud choice).
 
 Decision handlers (return ack or error based on whether the service
@@ -47,6 +48,7 @@ from __future__ import annotations
 import logging
 
 import pytest
+from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
 
 
 class TestOnboardingIsFirstRun:
@@ -164,7 +166,9 @@ class TestOnboardingSetHotkey:
 
 
 class TestOnboardingSetModel:
-    """``_handle_onboarding_set_model`` — validates ``model`` (default ``tiny``)."""
+    """``_handle_onboarding_set_model`` — validates ``model`` (default: the
+    canonical ``DEFAULT_MODEL_SIZE`` sentinel — no concrete default
+    model since the 2026-08-28 no-default-model change)."""
 
     def test_happy_path_with_explicit_model(self, ipc_server, fake_service):
         fake_service.onboarding_set_model.return_value = {"ok": True}
@@ -173,10 +177,20 @@ class TestOnboardingSetModel:
         fake_service.onboarding_set_model.assert_called_once_with("tiny")
 
     def test_missing_model_uses_default_tiny(self, ipc_server, fake_service):
+        """Missing ``model`` field → the handler falls back to the
+        canonical ``DEFAULT_MODEL_SIZE`` (the schema default on the
+        ``onboarding_set_model`` command).
+
+        Historically the fallback was the hardcoded string ``"tiny"``;
+        the 2026-08-28 no-default-model change replaced every concrete
+        default with the ``DEFAULT_MODEL_SIZE`` sentinel (empty string,
+        "user has not picked a model yet"), so this test now pins the
+        handler to that single source of truth instead of a model name.
+        """
         fake_service.onboarding_set_model.return_value = {"ok": True}
         resp = ipc_server._handle_onboarding_set_model({}, {})
         assert resp["type"] == "ack"
-        fake_service.onboarding_set_model.assert_called_once_with("tiny")
+        fake_service.onboarding_set_model.assert_called_once_with(DEFAULT_MODEL_SIZE)
 
     def test_non_string_model_returns_invalid_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_onboarding_set_model({"model": ["small"]}, {})

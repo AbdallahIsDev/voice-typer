@@ -12,11 +12,13 @@ entries live ~150 ms so steady-state size is 1-2 entries. BUT:
   (b) If the daemon thread fails to start, a hang in ``_delayed_restore``
       leaves the entry forever.
   (c) Each entry holds a ``ClipboardSnapshot`` whose ``items`` list can
-      be 16 MB × N formats. At paste rate 5/s × 5 s delay × 64 MB/snapshot
-      = 1.6 GB peak RSS.
+      be 16 MB × N formats. At paste rate 5/s × 5 s delay the cap is the
+      only thing bounding peak RSS.
 
- fix: add ``_MAX_PENDING_RESTORES = 64`` as a module-level constant
-in ``clipboard/manager.py``. When ``paste()`` would append a new entry
+ fix: add ``_MAX_PENDING_RESTORES`` as a module-level constant
+(originally 64; tightened to 8 to bound the worst case at ~128 MB
+instead of ~1 GB) in the clipboard package. When ``paste()`` would
+append a new entry
 to a list already at the cap, force-restore the OLDEST entry's snapshot
 synchronously (under ``_pending_restores_lock``) BEFORE appending the
 new entry. This bounds peak RSS at ``_MAX_PENDING_RESTORES × ~16 MB ×
@@ -75,11 +77,12 @@ def _isolate_pending_restores():
 class TestMaxPendingRestoresConstant:
     """Pin the constant so a future change is intentional."""
 
-    def test_constant_exists_and_is_64(self) -> None:
-        """``_MAX_PENDING_RESTORES = 64`` — large enough to never fire in
-        normal use (steady state 1-2 entries), small enough that a runaway
-        condition cannot pin gigabytes of snapshots."""
-        assert manager_mod._MAX_PENDING_RESTORES == 64
+    def test_constant_exists_and_is_8(self) -> None:
+        """``_MAX_PENDING_RESTORES = 8`` — far above the 1-2 entries normal
+        use ever holds, but small enough that a runaway condition (leaked
+        daemon thread, user-set multi-second restore delay) cannot pin
+        gigabytes of snapshots (worst case ~128 MB)."""
+        assert manager_mod._MAX_PENDING_RESTORES == 8
 
     def test_constant_is_int(self) -> None:
         """The constant is an int (not a float / string) so the ``len()``

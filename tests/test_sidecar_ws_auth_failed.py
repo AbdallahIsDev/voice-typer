@@ -65,42 +65,9 @@ websockets = pytest.importorskip("websockets")
 
 from voice_typer.server import sidecar_ws  # noqa: E402
 
+from tests.fixtures.sidecar_ws_test_helpers import make_fake_websocket  # noqa: E402
+
 # ── Helpers ────────────────────────────────────────────────────────────
-
-
-def _make_fake_websocket(auth_frame: bytes | str) -> MagicMock:
-    """Build a mock websocket that yields *auth_frame* on the first recv.
-
-    The mock's ``recv`` is a coroutine that returns *auth_frame* once
-    (consumed by ``_authenticate``). ``send`` and ``close`` are
-    ``MagicMock`` coroutines so the tests can assert call order and
-    args. The dispatch loop is parked via an empty async iterator
-    (same pattern as ``test_sidecar_ready_emitted.py``) — but for the
-    auth-failure tests the dispatch loop never runs because
-    ``_handle_connection`` returns early after the close.
-    """
-    ws = MagicMock()
-
-    auth_frame_bytes = auth_frame.encode() if isinstance(auth_frame, str) else auth_frame
-
-    async def _fake_recv():
-        return auth_frame_bytes
-
-    ws.recv = _fake_recv
-    ws.remote_address = ("127.0.0.1", 12345)
-
-    async def _track_send(payload):
-        # Record the raw payload so the test can inspect the JSON.
-        ws._sent_frames.append(payload)
-
-    async def _track_close(*args, **kwargs):
-        ws._closed_with.append((args, kwargs))
-
-    ws._sent_frames: list[str] = []
-    ws._closed_with: list[tuple[tuple, dict]] = []
-    ws.send = _track_send
-    ws.close = _track_close
-    return ws
 
 
 def _assert_auth_failed_frame(payload: str) -> dict:
@@ -130,7 +97,7 @@ async def test_mismatched_token_emits_auth_failed_frame_before_close(
     path before this fix.
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "expected-secret")
-    ws = _make_fake_websocket(json.dumps({"type": "auth", "token": "wrong-secret"}))
+    ws = make_fake_websocket(json.dumps({"type": "auth", "token": "wrong-secret"}))
 
     server = MagicMock()
     dispatch = MagicMock()
@@ -165,7 +132,7 @@ async def test_missing_token_env_emits_auth_failed_frame_before_close(
     insufficient to communicate the cause.
     """
     monkeypatch.delenv("VOICE_TYPER_IPC_TOKEN", raising=False)
-    ws = _make_fake_websocket(json.dumps({"type": "auth", "token": "anything"}))
+    ws = make_fake_websocket(json.dumps({"type": "auth", "token": "anything"}))
 
     server = MagicMock()
     dispatch = MagicMock()
@@ -193,7 +160,7 @@ async def test_invalid_json_auth_frame_emits_auth_failed_before_close(
     can branch uniformly on ``code == "auth_failed"``.
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "tok")
-    ws = _make_fake_websocket(b"not json at all")
+    ws = make_fake_websocket(b"not json at all")
 
     server = MagicMock()
     dispatch = MagicMock()
@@ -218,7 +185,7 @@ async def test_non_auth_first_frame_emits_auth_failed_before_close(
     sent so the client can log the cause.
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "tok")
-    ws = _make_fake_websocket(json.dumps({"type": "get_status"}))
+    ws = make_fake_websocket(json.dumps({"type": "get_status"}))
 
     server = MagicMock()
     dispatch = MagicMock()
@@ -242,7 +209,7 @@ async def test_auth_failed_frame_is_sent_before_close(monkeypatch) -> None:
     is the only contract — the send must precede the close.
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "tok")
-    ws = _make_fake_websocket(json.dumps({"type": "auth", "token": "wrong"}))
+    ws = make_fake_websocket(json.dumps({"type": "auth", "token": "wrong"}))
 
     # Track the call sequence with a shared ordered list.
     call_log: list[str] = []
@@ -275,7 +242,7 @@ async def test_send_failure_does_not_block_close(monkeypatch) -> None:
     half-dead socket would leak the connection handler.
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "tok")
-    ws = _make_fake_websocket(json.dumps({"type": "auth", "token": "wrong"}))
+    ws = make_fake_websocket(json.dumps({"type": "auth", "token": "wrong"}))
 
     async def _failing_send(payload):
         raise ConnectionResetError("client RST'd")
@@ -312,7 +279,7 @@ async def test_successful_auth_does_not_emit_auth_failed(monkeypatch) -> None:
     break this test.
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "good-token")
-    ws = _make_fake_websocket(json.dumps({"type": "auth", "token": "good-token"}))
+    ws = make_fake_websocket(json.dumps({"type": "auth", "token": "good-token"}))
 
     # Park the dispatch loop so _handle_connection doesn't exit before
     # we can inspect the post-auth state.

@@ -54,7 +54,6 @@ import contextlib
 import inspect
 import json
 import threading
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -62,7 +61,10 @@ websockets = pytest.importorskip("websockets")
 
 from voice_typer.server import event_bus, sidecar_ws  # noqa: E402
 
-from tests.fixtures.sidecar_ws_test_helpers import _make_fake_server  # noqa: E402
+from tests.fixtures.sidecar_ws_test_helpers import (  # noqa: E402
+    _make_fake_server,
+    make_fake_websocket_parked_after_auth,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -86,52 +88,6 @@ def _reset_event_bus_subscribers():
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────
-
-
-class _BlockingAsyncIter:
-    """Async iterator that never yields — keeps the dispatch loop parked.
-
-    The ``async for raw in websocket:`` loop in ``_handle_connection``
-    blocks on ``__anext__`` until the connection task is cancelled.
-    This lets the tests hold the connection OPEN (so the writer task
-    and ``_push_to_ws`` subscriber stay installed) while publishing
-    events from non-loop threads.
-    """
-
-    def __aiter__(self) -> _BlockingAsyncIter:
-        return self
-
-    async def __anext__(self):
-        # Never resolves — the only way out is cancellation, which
-        # raises CancelledError (a BaseException, NOT caught by the
-        # connection's `except Exception:` clause, so the `finally:`
-        # cleanup still runs).
-        await asyncio.Future()
-        raise StopAsyncIteration  # pragma: no cover - unreachable
-
-
-def _make_fake_websocket(auth_token: str) -> MagicMock:
-    """Build a mock websocket that authenticates then blocks forever.
-
-    The mock's ``recv`` returns the auth frame once (consumed by
-    ``_authenticate``), then the async-iter protocol parks the
-    dispatch loop. ``send`` is left unset so each test can wire its
-    own tracking coroutine.
-    """
-    ws = MagicMock()
-    auth_frame = json.dumps({"type": "auth", "token": auth_token}).encode()
-
-    async def _fake_recv() -> bytes:
-        return auth_frame
-
-    ws.recv = _fake_recv
-    ws.close = MagicMock()
-    ws.remote_address = ("127.0.0.1", 12345)
-    # MagicMock wraps an assigned magic-method function as a method on
-    # the type, so the lambda receives `self` (the mock instance) as
-    # its first positional arg. We accept and ignore it.
-    ws.__aiter__ = lambda self: _BlockingAsyncIter()  # noqa: E731
-    return ws
 
 
 # ─── Structural guard ─────────────────────────────────────────────────
@@ -222,7 +178,7 @@ async def test_concurrent_publish_no_events_lost(monkeypatch) -> None:
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token")
 
     server = _make_fake_server()
-    ws = _make_fake_websocket("test-token")
+    ws = make_fake_websocket_parked_after_auth("test-token", park_dispatch=True)
 
     sent_events: list[dict] = []
     send_block = asyncio.Event()
@@ -352,7 +308,7 @@ async def test_concurrent_publish_writer_alive_under_overflow(monkeypatch) -> No
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token")
 
     server = _make_fake_server()
-    ws = _make_fake_websocket("test-token")
+    ws = make_fake_websocket_parked_after_auth("test-token", park_dispatch=True)
 
     sent_events: list[dict] = []
 
@@ -468,7 +424,7 @@ async def test_push_to_ws_swallows_runtime_error_on_closed_loop(monkeypatch) -> 
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token")
 
     server = _make_fake_server()
-    ws = _make_fake_websocket("test-token")
+    ws = make_fake_websocket_parked_after_auth("test-token", park_dispatch=True)
 
     async def _noop_send(raw: str) -> None:
         return None

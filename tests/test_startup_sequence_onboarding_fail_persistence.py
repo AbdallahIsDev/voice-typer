@@ -40,7 +40,7 @@ import time
 from pathlib import Path
 
 import pytest
-from voice_typer.server import startup_sequence as ss_mod
+from voice_typer.server.startup_sequence import _phases_early as ss_mod
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
@@ -50,11 +50,10 @@ def isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
     """Point ``_config_dir()`` at a tmp_path so the fail-counter file
     doesn't collide with the real config dir on the host.
 
-    ``startup_sequence._config_dir`` is imported from
-    ``voice_typer.server.config``; patching the binding inside
-    ``startup_sequence`` is sufficient because the helper functions
-    call ``_config_dir()`` (looked up at call time in their module
-    scope).
+    ``startup_sequence._phases_early._config_dir`` is imported from
+    ``voice_typer.server.config``; patching the binding inside the
+    OWNING submodule (``_phases_early`` — where the helper functions
+    live and resolve ``_config_dir()`` at call time) is sufficient.
     """
     monkeypatch.setattr(ss_mod, "_config_dir", lambda: tmp_path)
     return tmp_path

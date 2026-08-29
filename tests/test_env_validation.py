@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -553,3 +554,43 @@ class TestPathSafetyExceptionType:  # noqa: N801
         msg = matching[0].getMessage()
         assert "OSError" in msg
         assert "permission denied" in msg
+
+
+class TestPrecompiledPatterns:
+    """The validation regexes are module-level compiled constants.
+
+    ``_validate_env_vars`` runs once per process at the startup gate;
+    recompiling the patterns inside the function body wasted work on
+    every call (and made the compiled objects unreachable for
+    inspection). They are now module constants with identical
+    semantics.
+    """
+
+    def test_patterns_are_module_level_constants(self):
+        from voice_typer.server import env_validation as ev
+
+        assert isinstance(ev._BOOL_VALUE_PATTERN, re.Pattern)
+        assert isinstance(ev._TOKEN_VALUE_PATTERN, re.Pattern)
+        assert isinstance(ev._PATH_VALUE_PATTERN, re.Pattern)
+
+    def test_bool_pattern_semantics_unchanged(self):
+        from voice_typer.server import env_validation as ev
+
+        for good in ("1", "0", "true", "FALSE", "Yes", "NO"):
+            assert ev._BOOL_VALUE_PATTERN.match(good), good
+        for bad in ("yes ", " 1", "on", "2", ""):
+            assert ev._BOOL_VALUE_PATTERN.match(bad) is None, bad
+
+    def test_token_pattern_semantics_unchanged(self):
+        from voice_typer.server import env_validation as ev
+
+        assert ev._TOKEN_VALUE_PATTERN.match("abc-123_XYZ.09")
+        assert ev._TOKEN_VALUE_PATTERN.match("a" * 128)
+        assert ev._TOKEN_VALUE_PATTERN.match("bad value") is None
+        assert ev._TOKEN_VALUE_PATTERN.match("a" * 129) is None
+
+    def test_path_pattern_semantics_unchanged(self):
+        from voice_typer.server import env_validation as ev
+
+        assert ev._PATH_VALUE_PATTERN.match("/home/user/.config")
+        assert ev._PATH_VALUE_PATTERN.match("a\0b") is None

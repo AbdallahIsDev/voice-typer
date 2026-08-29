@@ -78,6 +78,12 @@ websockets = pytest.importorskip("websockets")
 
 from voice_typer.server import sidecar_ws  # noqa: E402
 
+from tests.fixtures.sidecar_ws_test_helpers import (  # noqa: E402
+    make_fake_websocket_for_close,
+    make_fake_websocket_for_read_loop,
+    make_real_server_for_graceful_shutdown,
+)
+
 # Per-test xfail mark retained for any future temporary xfail need
 # (currently unused — all graceful-shutdown tests pass after the
 # production implementation landed). Kept as a reusable decorator
@@ -98,36 +104,6 @@ _GRACEFUL_SHUTDOWN_NOT_LANDED = pytest.mark.xfail(
 # ─── Helpers ───────────────────────────────────────────────────────────
 
 
-def _make_real_server_for_graceful_shutdown() -> MagicMock:
-    """Build a MagicMock IPCServer pre-populated with the real attributes
-    ``_attach_ws_graceful_shutdown`` and ``ws_graceful_shutdown`` need.
-
-    A raw ``MagicMock`` returns truthy children for any ``getattr``,
-    which short-circuits ``_attach_ws_graceful_shutdown``'s idempotency
-    guard. Pre-setting the attributes to real values (``False``, empty
-    ``set``) lets the install actually run.
-    """
-    server = MagicMock()
-    server._ws_graceful_shutdown_installed = False
-    server._ws_authenticated_conns = set()
-    server._ws_dispatch_futures = set()
-    return server
-
-
-def _make_fake_websocket_for_close() -> MagicMock:
-    """Build a fake websocket whose ``close`` records its call args."""
-    ws = MagicMock()
-    ws.remote_address = ("127.0.0.1", 54321)
-    close_calls: list[tuple[tuple, dict]] = []
-
-    async def _track_close(*args, **kwargs):
-        close_calls.append((args, kwargs))
-
-    ws.close = _track_close
-    ws._close_calls = close_calls  # type: ignore[attr-defined]
-    return ws
-
-
 # graceful close sends code=1001 ─────────────────────────────
 
 
@@ -144,7 +120,7 @@ def test_graceful_shutdown_sends_close_1001_to_all_authenticated_conns(
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token")
 
-    server = _make_real_server_for_graceful_shutdown()
+    server = make_real_server_for_graceful_shutdown()
     sidecar_ws._attach_ws_graceful_shutdown(server)
 
     # Dedicated loop in a thread — ``ws_graceful_shutdown`` calls
@@ -160,8 +136,8 @@ def test_graceful_shutdown_sends_close_1001_to_all_authenticated_conns(
     # needed again here.
     server._ws_loop = loop
 
-    fake_ws_1 = _make_fake_websocket_for_close()
-    fake_ws_2 = _make_fake_websocket_for_close()
+    fake_ws_1 = make_fake_websocket_for_close()
+    fake_ws_2 = make_fake_websocket_for_close()
     server._ws_authenticated_conns.add(fake_ws_1)
     server._ws_authenticated_conns.add(fake_ws_2)
 
@@ -211,7 +187,7 @@ def test_graceful_shutdown_stops_loop_within_budget(monkeypatch) -> None:
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token")
 
-    server = _make_real_server_for_graceful_shutdown()
+    server = make_real_server_for_graceful_shutdown()
     sidecar_ws._attach_ws_graceful_shutdown(server)
 
     loop = asyncio.new_event_loop()
@@ -277,7 +253,7 @@ def test_stop_wrapper_invokes_ws_graceful_shutdown_before_original_stop(
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token")
 
-    server = _make_real_server_for_graceful_shutdown()
+    server = make_real_server_for_graceful_shutdown()
 
     # Track the call order: ws_graceful_shutdown FIRST, then original_stop.
     call_log: list[str] = []
@@ -316,7 +292,7 @@ def test_stop_wrapper_swallows_ws_graceful_shutdown_exceptions(monkeypatch) -> N
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token")
 
-    server = _make_real_server_for_graceful_shutdown()
+    server = make_real_server_for_graceful_shutdown()
 
     original_stop_called: list[bool] = []
 
@@ -353,7 +329,7 @@ def test_graceful_shutdown_drains_inflight_dispatch_futures(monkeypatch) -> None
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token")
 
-    server = _make_real_server_for_graceful_shutdown()
+    server = make_real_server_for_graceful_shutdown()
     sidecar_ws._attach_ws_graceful_shutdown(server)
 
     loop = asyncio.new_event_loop()
@@ -606,7 +582,7 @@ def test_attach_ws_graceful_shutdown_is_idempotent() -> None:
     would create a chain of wrappers calling each other). Detected via
     the ``_ws_graceful_shutdown_installed`` marker.
     """
-    server = _make_real_server_for_graceful_shutdown()
+    server = make_real_server_for_graceful_shutdown()
 
     sidecar_ws._attach_ws_graceful_shutdown(server)
     first_stop = server.stop
@@ -624,39 +600,6 @@ def test_attach_ws_graceful_shutdown_is_idempotent() -> None:
 
 
 # ─── Dispatch-response / writer DoS regression (shared _safe_send) ────
-
-
-def _make_fake_websocket_for_read_loop(frames: list[str]) -> tuple[MagicMock, list]:
-    """Build a fake websocket that yields *frames* then closes.
-
-    Returns ``(ws, sent_payloads)`` where ``sent_payloads`` collects
-    every argument passed to ``websocket.send`` so the test can assert
-    on drops vs. sends. Mirrors the helper in
-    ``tests/test_sidecar_ws_permissions_fixes.py`` but is duplicated
-    here so this module stays self-contained (no cross-test-file
-    imports).
-    """
-    ws = MagicMock()
-    ws.remote_address = ("127.0.0.1", 54321)
-
-    async def _aiter():
-        for f in frames:
-            yield f
-
-    ws.__aiter__ = lambda self: _aiter()  # noqa: E731
-
-    sent_payloads: list = []
-
-    async def _track_send(payload):
-        sent_payloads.append(payload)
-
-    ws.send = _track_send
-
-    async def _track_close(*args, **kwargs):
-        return None
-
-    ws.close = _track_close
-    return ws, sent_payloads
 
 
 class TestSafeSendSizeCapRegression:
@@ -716,7 +659,7 @@ class TestSafeSendSizeCapRegression:
         # ``heartbeat``, so the read loop's heartbeat fast-path is
         # skipped and the dispatch coroutine is invoked.
         dispatch_frame = json.dumps({"type": "get_history", "id": "req-1"})
-        ws, sent_payloads = _make_fake_websocket_for_read_loop([dispatch_frame])
+        ws, sent_payloads = make_fake_websocket_for_read_loop([dispatch_frame])
 
         # Fake dispatch coroutine that returns the huge response.
         async def _dispatch(msg, websocket):

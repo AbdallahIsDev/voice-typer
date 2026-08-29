@@ -16,6 +16,7 @@ These tests verify:
 
 from __future__ import annotations
 
+import queue
 import sqlite3
 
 import pytest
@@ -236,3 +237,138 @@ def test_multi_row_batch_still_works(db):
     assert len(rows) == 5
     texts = {row["text"] for row in rows}
     assert texts == {f"row {i}" for i in range(5)}
+
+
+# ── shared INSERT SQL source (multi-row path + single-row fallback) ──
+
+
+class TestInsertSqlSingleSource:
+    """The multi-row batch path and the below-threshold single-row
+    fallback MUST build their INSERT statement from ONE source
+    (``_build_insert_sql``) so the column list and placeholder shape
+    cannot drift between the two paths.
+
+    These tests pin the exact SQL emitted for each shape — if a future
+    edit changes the schema columns or the placeholder form, the pin
+    fails loudly instead of silently diverging between the paths.
+    """
+
+    def test_single_row_sql_shape(self):
+        from voice_typer.server.history_db_internals.writer import _build_insert_sql
+
+        assert _build_insert_sql(1) == (
+            "INSERT INTO transcriptions "
+            "(text, duration, model, device, word_count, char_count, language) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)"
+        )
+
+    def test_multi_row_sql_shape(self):
+        from voice_typer.server.history_db_internals.writer import _build_insert_sql
+
+        assert _build_insert_sql(3) == (
+            "INSERT INTO transcriptions "
+            "(text, duration, model, device, word_count, char_count, language) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?),"
+            "(?, ?, ?, ?, ?, ?, ?),"
+            "(?, ?, ?, ?, ?, ?, ?)"
+        )
+
+    def test_batch_and_fallback_paths_share_one_sql_source(self, db, monkeypatch):
+        """Both code paths emit SQL derived from ``_build_insert_sql``.
+
+        Force the single-row fallback by raising ``_BATCH_INSERT_MIN``
+        above the queued batch size, intercept ``cursor.execute``, and
+        assert the fallback statement equals ``_build_insert_sql(1)``;
+        then run a batch of 3 and assert the multi-row statement equals
+        ``_build_insert_sql(3)``. Functional round-trip included: the
+        rows must land with their values intact either way.
+        """
+        from voice_typer.server import _text_crypto, history_db as hd
+        from voice_typer.server.history_db import _BatchableInsert
+        from voice_typer.server.history_db_internals import writer as writer_mod
+
+        # This test pins the INSERT SQL source-sharing, not at-rest
+        # encryption. Force no-DEK so rows stay plaintext and the
+        # final SELECT round-trip matches the plaintext inputs
+        # regardless of whether a keyring/DEK is available on this
+        # host (encryption is covered by tests/test_history_db_encryption.py).
+        monkeypatch.setattr(_text_crypto, "get_dek_cached", lambda: None)
+
+        def _item(text: str) -> _BatchableInsert:
+            return _BatchableInsert(
+                text=text,
+                duration=1.5,
+                model="m",
+                device="d",
+                word_count=2,
+                char_count=len(text),
+                language="en",
+            )
+
+        conn = sqlite3.connect(str(db.db_path))
+        try:
+            executed: list[str] = []
+            real_cursor = conn.cursor
+
+            class _RecordingCursor:
+                def __init__(self):
+                    self._real = real_cursor()
+
+                def execute(self, sql, *args, **kwargs):
+                    executed.append(sql)
+                    return self._real.execute(sql, *args, **kwargs)
+
+                def __getattr__(self, name):
+                    return getattr(self._real, name)
+
+            class _RecordingConnection:
+                # sqlite3.Connection attributes are read-only, so the
+                # drain gets a thin delegating wrapper (same pattern as
+                # the InstrumentedConnection used by the DJ-56 tests
+                # above) that records every ``cursor.execute`` SQL.
+                def cursor(self):
+                    return _RecordingCursor()
+
+                def commit(self):
+                    return conn.commit()
+
+                def rollback(self):
+                    return conn.rollback()
+
+                def close(self):
+                    return conn.close()
+
+            recording_conn = _RecordingConnection()
+
+            # ── single-row fallback: threshold raised above batch size ──
+            monkeypatch.setattr(hd, "_BATCH_INSERT_MIN", 3)
+            writer_mod._drain_batchable_inserts(db, recording_conn, _item("solo"))
+            assert writer_mod._build_insert_sql(1) in executed
+            conn.commit()
+
+            # ── multi-row batch: 3 items drained in ONE call ──
+            # The idle writer thread is blocked in ``queue.get(timeout≈300s)``
+            # on the ORIGINAL queue object; swap ``db._queue`` for a fresh
+            # one so the peek loop below deterministically collects our
+            # items without the writer stealing them (the writer cannot
+            # re-look-up the attribute until its 300s wait expires).
+            executed.clear()
+            monkeypatch.setattr(hd, "_BATCH_INSERT_MIN", 1)
+            fresh_queue = queue.Queue()
+            fresh_queue.put_nowait(_item("b"))
+            fresh_queue.put_nowait(_item("c"))
+            real_queue = db._queue
+            db._queue = fresh_queue
+            try:
+                writer_mod._drain_batchable_inserts(db, recording_conn, _item("a"))
+            finally:
+                db._queue = real_queue
+            assert writer_mod._build_insert_sql(3) in executed
+            conn.commit()
+
+            rows = conn.execute(
+                "SELECT text FROM transcriptions WHERE text IN ('solo', 'a', 'b', 'c') ORDER BY text"
+            ).fetchall()
+            assert [r[0] for r in rows] == ["a", "b", "c", "solo"]
+        finally:
+            conn.close()

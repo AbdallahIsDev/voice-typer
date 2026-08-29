@@ -9,7 +9,10 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 APP_PY = REPO_ROOT / "voice_typer" / "server" / "app.py"
-STARTUP_SEQUENCE_PY = REPO_ROOT / "voice_typer" / "server" / "startup_sequence.py"
+# startup_sequence is a package (split by concern); _read_ux018 handles
+# directories by concatenating every *.py member (same convention as
+# MODEL_MANAGER_PY below).
+STARTUP_SEQUENCE_PY = REPO_ROOT / "voice_typer" / "server" / "startup_sequence"
 MODEL_MANAGER_PY = REPO_ROOT / "voice_typer" / "server" / "model_manager"
 SETTINGS_CONTROLLER_PY = REPO_ROOT / "voice_typer" / "server" / "settings_controller.py"
 AUDIO_QUALITY_CONTROLLER_PY = REPO_ROOT / "voice_typer" / "server" / "audio_quality_controller.py"

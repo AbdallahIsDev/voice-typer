@@ -994,12 +994,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # ``voice_typer/server/config.py`` was split into a package
 # (``config/__init__.py`` + ``config/{coercion,loader,sanitization}.py``)
 # plus sibling modules (``config_applier.py``, ``config_editor.py``,
-# ``config_path_safety.py``, ``config_sanitizer.py``,
-# ``config_validators.py``) and the ``config_internals/`` package
-# (``__init__.py``, ``migrations.py``, ``paths.py``). The legacy
-# ``_legacy_config_dir`` function could have lived in any of these after
-# the split, so we scan them all rather than asserting on a single
-# (now-nonexistent) file.
+# ``config_sanitizer.py``, ``config_validators.py``) and the
+# ``config_internals/`` package (``__init__.py``, ``migrations.py``,
+# ``paths.py``). The legacy ``_legacy_config_dir`` function could have
+# lived in any of these after the split, so we scan them all rather
+# than asserting on a single (now-nonexistent) file.
 CONFIG_MODULE_PATHS = [
     *(
         p

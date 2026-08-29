@@ -1,6 +1,6 @@
 """Regression tests for the three Medium findings:
 
-* **IN-34**: ``sidecar_ws._read_loop``'s heartbeat fast-path bypassed
+* **Heartbeat flood**: ``sidecar_ws._read_loop``'s heartbeat fast-path bypassed
   the ADR-0019 per-frame rate limiter (the limiter lives inside
   ``_make_dispatch``, which the fast-path skips to keep ack latency
   at the WS round-trip). A hostile or buggy client could spam
@@ -10,7 +10,7 @@
   ``_HEARTBEAT_RATE_WINDOW_SECONDS`` (10s)) drops the flood WITHOUT
   acking.
 
-* **IN-35**: ``sidecar_ws._start_writer._writer`` did
+* **Writer-loop stalls**: ``sidecar_ws._start_writer._writer`` did
   ``raw = json.dumps(event, ensure_ascii=False)`` inline on the
   asyncio loop thread — for near-cap frames (~1 MiB) at 1-5 Hz that
   was 50-100 ms of pure CPU stalling every other connection's reads
@@ -23,7 +23,7 @@
   on timeout, close the connection so the host's reconnect path
   takes over.
 
-* **IN-36**: ``permissions.check_permissions_payload`` (104 lines)
+* **Dead permissions payload**: ``permissions.check_permissions_payload`` (104 lines)
   and its helper ``permission_probe_error_payload`` were dead code
   with a misleading docstring claiming they were the canonical entry
   point for the ``onboarding_check_permissions`` IPC handlers — but
@@ -51,42 +51,14 @@ websockets = pytest.importorskip("websockets")
 
 from voice_typer.server import sidecar_ws  # noqa: E402
 
-# ─── IN-34: heartbeat fast-path rate cap ────────────────────────────
+from tests.fixtures.sidecar_ws_test_helpers import make_fake_websocket_for_read_loop  # noqa: E402
 
-
-def _make_fake_websocket_for_read_loop(frames: list[str]) -> tuple[MagicMock, list[str]]:
-    """Build a fake websocket that yields the given frames then closes.
-
-    Returns ``(ws, sent)`` where ``sent`` is a list collecting every
-    string passed to ``websocket.send`` so the test can assert on
-    acks vs. drops.
-    """
-    ws = MagicMock()
-    ws.remote_address = ("127.0.0.1", 54321)
-
-    async def _aiter():
-        for f in frames:
-            yield f
-
-    ws.__aiter__ = lambda self: _aiter()  # noqa: E731
-
-    sent: list[str] = []
-
-    async def _send(payload):
-        sent.append(payload)
-
-    ws.send = _send
-
-    async def _close(*args, **kwargs):
-        return None
-
-    ws.close = _close
-    return ws, sent
+# ─── heartbeat fast-path rate cap ────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_in34_heartbeat_rate_cap_drops_flood_beyond_limit() -> None:
-    """IN-34: a flood of ``heartbeat`` frames beyond the per-window cap
+async def test_heartbeat_rate_cap_drops_flood_beyond_limit() -> None:
+    """A flood of ``heartbeat`` frames beyond the per-window cap
     is silently dropped (no ack sent) instead of fanning out acks.
 
     The cap is ``_HEARTBEAT_RATE_MAX_PER_WINDOW`` (100) per
@@ -95,12 +67,12 @@ async def test_in34_heartbeat_rate_cap_drops_flood_beyond_limit() -> None:
     must be dropped (no ``heartbeat_ack`` for them).
     """
     cap = sidecar_ws._HEARTBEAT_RATE_MAX_PER_WINDOW
-    assert cap == 100, f"IN-34: _HEARTBEAT_RATE_MAX_PER_WINDOW must be 100 (per finding); got {cap}"
+    assert cap == 100, f"_HEARTBEAT_RATE_MAX_PER_WINDOW must be 100; got {cap}"
     window = sidecar_ws._HEARTBEAT_RATE_WINDOW_SECONDS
-    assert window == 10.0, f"IN-34: _HEARTBEAT_RATE_WINDOW_SECONDS must be 10.0 (per finding); got {window}"
+    assert window == 10.0, f"_HEARTBEAT_RATE_WINDOW_SECONDS must be 10.0; got {window}"
 
     flood = [json.dumps({"type": "heartbeat"}) for _ in range(cap + 5)]
-    ws, sent = _make_fake_websocket_for_read_loop(flood)
+    ws, sent = make_fake_websocket_for_read_loop(flood)
 
     server = MagicMock()
     dispatch = MagicMock(return_value=None)
@@ -111,18 +83,16 @@ async def test_in34_heartbeat_rate_cap_drops_flood_beyond_limit() -> None:
     acks = [s for s in sent if "heartbeat_ack" in s]
     # Exactly `cap` acks — the 5 overflow frames must be dropped.
     assert len(acks) == cap, (
-        f"IN-34: expected {cap} heartbeat_acks (the cap), got {len(acks)} — the rate cap is not dropping the overflow"
+        f"expected {cap} heartbeat_acks (the cap), got {len(acks)} — the rate cap is not dropping the overflow"
     )
     # The dispatch pool must NOT have been invoked (heartbeat fast-path
     # bypasses dispatch — verified by zero ``dispatch`` calls).
-    assert dispatch.call_count == 0, (
-        f"IN-34: heartbeat fast-path must NOT reach dispatch(); got {dispatch.call_count} calls"
-    )
+    assert dispatch.call_count == 0, f"heartbeat fast-path must NOT reach dispatch(); got {dispatch.call_count} calls"
 
 
 @pytest.mark.asyncio
-async def test_in34_heartbeat_rate_cap_allows_legitimate_rate() -> None:
-    """IN-34: a well-behaved host sending 1 heartbeat per 10s is never
+async def test_heartbeat_rate_cap_allows_legitimate_rate() -> None:
+    """A well-behaved host sending 1 heartbeat per 10s is never
     dropped. We send 5 heartbeats (well under the 100/10s cap) and
     verify all 5 are acked.
 
@@ -130,7 +100,7 @@ async def test_in34_heartbeat_rate_cap_allows_legitimate_rate() -> None:
     someone drops it to 1/10s and breaks the legitimate host).
     """
     frames = [json.dumps({"type": "heartbeat", "id": i}) for i in range(5)]
-    ws, sent = _make_fake_websocket_for_read_loop(frames)
+    ws, sent = make_fake_websocket_for_read_loop(frames)
 
     server = MagicMock()
     dispatch = MagicMock(return_value=None)
@@ -139,13 +109,13 @@ async def test_in34_heartbeat_rate_cap_allows_legitimate_rate() -> None:
 
     acks = [s for s in sent if "heartbeat_ack" in s]
     assert len(acks) == 5, (
-        f"IN-34: legitimate-rate heartbeats (5 < 100/10s) must all be acked; got {len(acks)} acks for 5 frames"
+        f"legitimate-rate heartbeats (5 < 100/10s) must all be acked; got {len(acks)} acks for 5 frames"
     )
 
 
 @pytest.mark.asyncio
-async def test_in34_heartbeat_rate_cap_window_evicts_old_entries() -> None:
-    """IN-34: the sliding window evicts entries older than the window,
+async def test_heartbeat_rate_cap_window_evicts_old_entries() -> None:
+    """The sliding window evicts entries older than the window,
     so a burst followed by a wait followed by another burst does not
     trip the cap on the second burst.
 
@@ -210,7 +180,7 @@ async def test_in34_heartbeat_rate_cap_window_evicts_old_entries() -> None:
 
         acks = [s for s in sent if "heartbeat_ack" in s]
         assert len(acks) == cap + 5, (
-            f"IN-34: window eviction broken — expected {cap + 5} acks "
+            f"window eviction broken — expected {cap + 5} acks "
             f"(100 at t=0 + 5 at t=11 with 10s window), got {len(acks)}. "
             f"The sliding window is not popping old entries."
         )
@@ -218,66 +188,64 @@ async def test_in34_heartbeat_rate_cap_window_evicts_old_entries() -> None:
         sw.time.monotonic = original_monotonic
 
 
-def test_in34_constants_exist() -> None:
-    """IN-34: the heartbeat rate cap constants must exist on the module."""
+def test_heartbeat_rate_cap_constants_exist() -> None:
+    """The heartbeat rate cap constants must exist on the module."""
     assert hasattr(sidecar_ws, "_HEARTBEAT_RATE_MAX_PER_WINDOW"), (
-        "IN-34: _HEARTBEAT_RATE_MAX_PER_WINDOW constant must exist on sidecar_ws"
+        "_HEARTBEAT_RATE_MAX_PER_WINDOW constant must exist on sidecar_ws"
     )
     assert hasattr(sidecar_ws, "_HEARTBEAT_RATE_WINDOW_SECONDS"), (
-        "IN-34: _HEARTBEAT_RATE_WINDOW_SECONDS constant must exist on sidecar_ws"
+        "_HEARTBEAT_RATE_WINDOW_SECONDS constant must exist on sidecar_ws"
     )
 
 
-def test_in34_read_loop_uses_rate_cap() -> None:
-    """IN-34: the ``_read_loop`` source must reference the rate cap
+def test_read_loop_uses_rate_cap() -> None:
+    """The ``_read_loop`` source must reference the rate cap
     constants (structural check — guards against the rate-cap block
     being accidentally deleted in a future refactor)."""
     src = inspect.getsource(sidecar_ws._read_loop)
-    assert "_HEARTBEAT_RATE_MAX_PER_WINDOW" in src, "IN-34: _read_loop must reference _HEARTBEAT_RATE_MAX_PER_WINDOW"
-    assert "_HEARTBEAT_RATE_WINDOW_SECONDS" in src, "IN-34: _read_loop must reference _HEARTBEAT_RATE_WINDOW_SECONDS"
-    assert "heartbeat_window" in src, "IN-34: _read_loop must declare a heartbeat_window sliding-window deque"
+    assert "_HEARTBEAT_RATE_MAX_PER_WINDOW" in src, "_read_loop must reference _HEARTBEAT_RATE_MAX_PER_WINDOW"
+    assert "_HEARTBEAT_RATE_WINDOW_SECONDS" in src, "_read_loop must reference _HEARTBEAT_RATE_WINDOW_SECONDS"
+    assert "heartbeat_window" in src, "_read_loop must declare a heartbeat_window sliding-window deque"
 
 
-# ─── IN-35: writer offloads json.dumps + send timeout ──────────────
+# ─── writer offloads json.dumps + send timeout ─────────────────────
 
 
-def test_in35_constants_exist() -> None:
-    """IN-35: the WS send timeout constant must exist on the module."""
-    assert hasattr(sidecar_ws, "_WS_SEND_TIMEOUT_SECONDS"), (
-        "IN-35: _WS_SEND_TIMEOUT_SECONDS constant must exist on sidecar_ws"
-    )
+def test_writer_send_timeout_constant_exists() -> None:
+    """The WS send timeout constant must exist on the module."""
+    assert hasattr(sidecar_ws, "_WS_SEND_TIMEOUT_SECONDS"), "_WS_SEND_TIMEOUT_SECONDS constant must exist on sidecar_ws"
     assert sidecar_ws._WS_SEND_TIMEOUT_SECONDS == 5.0, (
-        f"IN-35: _WS_SEND_TIMEOUT_SECONDS must be 5.0 (per finding); got {sidecar_ws._WS_SEND_TIMEOUT_SECONDS}"
+        f"_WS_SEND_TIMEOUT_SECONDS must be 5.0; got {sidecar_ws._WS_SEND_TIMEOUT_SECONDS}"
     )
 
 
-def test_in35_writer_uses_executor_for_json_dumps() -> None:
-    """IN-35: the ``_writer`` coroutine must offload ``json.dumps`` to
+def test_writer_source_references_executor_offload() -> None:
+    """The ``_writer`` coroutine must offload ``json.dumps`` to
     the default executor via ``loop.run_in_executor`` (structural
     check on the source)."""
     src = inspect.getsource(sidecar_ws._start_writer)
     assert "run_in_executor" in src, (
-        "IN-35: _start_writer._writer must use loop.run_in_executor to offload json.dumps off the event loop thread"
+        "_start_writer._writer must use loop.run_in_executor to offload json.dumps off the event loop thread"
     )
     assert "json.dumps" in src, (
-        "IN-35: _start_writer._writer must still reference json.dumps (passed as the executor callable)"
+        "_start_writer._writer must still reference json.dumps (passed as the executor callable)"
     )
 
 
-def test_in35_writer_wraps_send_in_wait_for_with_timeout() -> None:
-    """IN-35: the ``websocket.send`` call must be wrapped in
+def test_writer_source_wraps_send_in_wait_for() -> None:
+    """The ``websocket.send`` call must be wrapped in
     ``asyncio.wait_for(..., timeout=_WS_SEND_TIMEOUT_SECONDS)`` and
     the writer must close the connection on ``TimeoutError``."""
     src = inspect.getsource(sidecar_ws._start_writer)
-    assert "asyncio.wait_for" in src, "IN-35: _start_writer._writer must wrap websocket.send in asyncio.wait_for"
-    assert "_WS_SEND_TIMEOUT_SECONDS" in src, "IN-35: _start_writer._writer must reference _WS_SEND_TIMEOUT_SECONDS"
-    assert "TimeoutError" in src, "IN-35: _start_writer._writer must catch TimeoutError and close the connection"
-    assert "websocket.close" in src, "IN-35: _start_writer._writer must close the connection on send timeout"
+    assert "asyncio.wait_for" in src, "_start_writer._writer must wrap websocket.send in asyncio.wait_for"
+    assert "_WS_SEND_TIMEOUT_SECONDS" in src, "_start_writer._writer must reference _WS_SEND_TIMEOUT_SECONDS"
+    assert "TimeoutError" in src, "_start_writer._writer must catch TimeoutError and close the connection"
+    assert "websocket.close" in src, "_start_writer._writer must close the connection on send timeout"
 
 
 @pytest.mark.asyncio
-async def test_in35_writer_offloads_json_dumps_to_executor() -> None:
-    """IN-35: integration test — ``_writer`` produces the same JSON
+async def test_writer_offloads_json_dumps_to_executor() -> None:
+    """Integration test — ``_writer`` produces the same JSON
     payload via ``run_in_executor`` as the inline ``json.dumps`` did.
 
     Uses a real ``asyncio.Queue`` and a fake websocket that records
@@ -318,16 +286,17 @@ async def test_in35_writer_offloads_json_dumps_to_executor() -> None:
     except TimeoutError:
         writer_task.cancel()
 
-    assert len(sent) == 1, f"IN-35: expected one send, got {sent!r}"
+    assert len(sent) == 1, f"expected one send, got {sent!r}"
     assert sent[0] == expected_raw, (
-        f"IN-35 + C-WS-2: writer via run_in_executor must produce identical JSON to "
-        f"inline json.dumps (as a str TEXT frame); got {sent[0]!r} vs expected {expected_raw!r}"
+        f"writer via run_in_executor must produce identical JSON to "
+        f"inline json.dumps (as a str TEXT frame, per the WS text-frame "
+        f"contract); got {sent[0]!r} vs expected {expected_raw!r}"
     )
 
 
 @pytest.mark.asyncio
-async def test_in35_writer_closes_connection_on_send_timeout() -> None:
-    """IN-35: when ``websocket.send`` exceeds the send timeout, the
+async def test_writer_closes_connection_on_send_timeout() -> None:
+    """When ``websocket.send`` exceeds the send timeout, the
     writer must close the connection (code=1011, reason="send timeout")
     and exit.
 
@@ -363,25 +332,25 @@ async def test_in35_writer_closes_connection_on_send_timeout() -> None:
         except TimeoutError:
             writer_task.cancel()
             pytest.fail(
-                "IN-35: writer did not exit within 2s after send timeout — "
+                "writer did not exit within 2s after send timeout — "
                 "the TimeoutError handler is not closing the connection"
             )
 
         assert len(close_calls) == 1, (
-            f"IN-35: writer must call websocket.close() exactly once on send timeout; got {len(close_calls)} calls"
+            f"writer must call websocket.close() exactly once on send timeout; got {len(close_calls)} calls"
         )
         args, kwargs = close_calls[0]
-        assert kwargs.get("code") == 1011, f"IN-35: close code must be 1011 (internal error); got {kwargs}"
-        assert kwargs.get("reason") == "send timeout", f"IN-35: close reason must be 'send timeout'; got {kwargs}"
+        assert kwargs.get("code") == 1011, f"close code must be 1011 (internal error); got {kwargs}"
+        assert kwargs.get("reason") == "send timeout", f"close reason must be 'send timeout'; got {kwargs}"
     finally:
         sidecar_ws._WS_SEND_TIMEOUT_SECONDS = original_timeout
 
 
-# ─── IN-36: dead code removal ───────────────────────────────────────
+# ─── dead-code removal: permissions payload + docstring ─────────────
 
 
-def test_in36_check_permissions_payload_removed() -> None:
-    """IN-36: ``permissions.check_permissions_payload`` must be deleted.
+def test_check_permissions_payload_removed() -> None:
+    """``permissions.check_permissions_payload`` must be deleted.
 
     It was 104 lines of dead code with a misleading docstring claiming
     it was the canonical entry point for the
@@ -392,24 +361,24 @@ def test_in36_check_permissions_payload_removed() -> None:
     from voice_typer.server import permissions
 
     assert not hasattr(permissions, "check_permissions_payload"), (
-        "IN-36: permissions.check_permissions_payload must be deleted (dead code with misleading docstring)"
+        "permissions.check_permissions_payload must be deleted (dead code with misleading docstring)"
     )
 
 
-def test_in36_permission_probe_error_payload_removed() -> None:
-    """IN-36: ``permissions.permission_probe_error_payload`` must be
+def test_permission_probe_error_payload_removed() -> None:
+    """``permissions.permission_probe_error_payload`` must be
     deleted (it was only called from the now-deleted
     ``check_permissions_payload``)."""
     from voice_typer.server import permissions
 
     assert not hasattr(permissions, "permission_probe_error_payload"), (
-        "IN-36: permissions.permission_probe_error_payload must be deleted "
+        "permissions.permission_probe_error_payload must be deleted "
         "(only caller was the dead check_permissions_payload)"
     )
 
 
-def test_in36_onboarding_check_permissions_docstring_declares_canonical() -> None:
-    """IN-36: ``OnboardingController.check_permissions``'s docstring
+def test_onboarding_check_permissions_docstring_declares_canonical() -> None:
+    """``OnboardingController.check_permissions``'s docstring
     must declare it the canonical entry point for the
     ``onboarding_check_permissions`` IPC handlers (replacing the
     misleading claim in the deleted ``check_permissions_payload``'s
@@ -418,14 +387,14 @@ def test_in36_onboarding_check_permissions_docstring_declares_canonical() -> Non
 
     doc = OnboardingController.check_permissions.__doc__ or ""
     assert "canonical entry point" in doc.lower(), (
-        "IN-36: OnboardingController.check_permissions docstring must declare "
+        "OnboardingController.check_permissions docstring must declare "
         "it the canonical entry point (replacing the deleted "
         "check_permissions_payload's misleading claim)"
     )
 
 
-def test_in36_onboarding_check_permissions_still_returns_correct_shape() -> None:
-    """IN-36: regression — deleting ``check_permissions_payload`` must
+def test_onboarding_check_permissions_still_returns_correct_shape() -> None:
+    """Regression — deleting ``check_permissions_payload`` must
     not break ``OnboardingController.check_permissions()``. Verify the
     method still returns a payload with the expected keys on a
     platform-agnostic stub."""
@@ -444,9 +413,9 @@ def test_in36_onboarding_check_permissions_still_returns_correct_shape() -> None
     controller = OnboardingController.__new__(OnboardingController)
     result = controller.check_permissions()
 
-    assert isinstance(result, dict), f"IN-36: check_permissions must return a dict; got {type(result)}"
+    assert isinstance(result, dict), f"check_permissions must return a dict; got {type(result)}"
     for key in ("platform", "state", "needed", "instructions"):
-        assert key in result, f"IN-36: check_permissions payload must include '{key}'; got keys {list(result.keys())}"
+        assert key in result, f"check_permissions payload must include '{key}'; got keys {list(result.keys())}"
     assert result["platform"] == "unknown"
     assert result["needed"] is False
     assert result["instructions"] is None

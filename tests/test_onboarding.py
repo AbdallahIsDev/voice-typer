@@ -5,6 +5,7 @@ import sys
 from unittest.mock import MagicMock
 
 import pytest
+from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
 from voice_typer.server.onboarding_status import read_status
 
 
@@ -292,7 +293,12 @@ class TestOnboardingWizard:
         from voice_typer.server.config import _default_hotkey_for_platform
 
         assert cfg.hotkey == _default_hotkey_for_platform()
-        assert cfg.model_size == "tiny"  # default
+        # Since the 2026-08-28 no-default-model change there is NO
+        # concrete default model: a skipped wizard leaves ``model_size``
+        # at the canonical ``DEFAULT_MODEL_SIZE`` sentinel ("") until
+        # the user explicitly picks one. The old "tiny" pin expected a
+        # preselected model that was never chosen nor installed.
+        assert cfg.model_size == DEFAULT_MODEL_SIZE  # default
 
 
 # 17-H-: service-layer onboarding_apply side effects ────────────
@@ -475,7 +481,8 @@ class TestOnboardingApplySideEffects:
         service.onboarding_start()
         service.onboarding_set_hotkey("<f6>")
         # Don't call onboarding_set_model — OnboardingController's
-        # default is "tiny", which matches Config's default.
+        # default (``DEFAULT_MODEL_SIZE``) matches Config's default, so
+        # apply sees no model change and skips change_model.
         service.onboarding_apply()
 
         assert change_model_calls == [], (
@@ -759,9 +766,11 @@ class TestModelOptionsIncludeMultilingualAndParakeet:
             assert removed not in names, f"{removed} was removed from the catalog but is still in MODEL_OPTIONS"
 
     def test_includes_kept_multilingual_whisper_variants(self, ctrl):
-        """``tiny`` (the default), ``large-v3``, and ``large-v3-turbo``
+        """``tiny``, ``large-v3``, and ``large-v3-turbo``
         must be present so users can pick a multilingual Whisper model
-        from the wizard."""
+        from the wizard (the catalog lists concrete models only — since
+        the 2026-08-28 no-default-model change none of them is a
+        default)."""
         names = {opt["name"] for opt in ctrl.MODEL_OPTIONS}
         assert "tiny" in names
         assert "large-v3" in names

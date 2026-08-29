@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import threading
 import time
 from unittest.mock import MagicMock
 
@@ -44,100 +43,12 @@ websockets = pytest.importorskip("websockets")
 from voice_typer.server import sidecar_ws  # noqa: E402
 from voice_typer.server.ipc.validation import ErrorCodes  # noqa: E402
 
+from tests.fixtures.sidecar_ws_test_helpers import (  # noqa: E402
+    make_fake_server_with_semaphore,
+    make_fake_websocket,
+)
+
 # ─── Helpers ────────────────────────────────────────────────────────────
-
-
-def _make_fake_websocket(
-    auth_frame: str | None = None,
-    *,
-    yield_before_recv: bool = False,
-) -> MagicMock:
-    """Build a mock websocket that yields *auth_frame* on the first recv.
-
-    If *auth_frame* is ``None``, ``recv()`` is parked on a never-resolving
-    future so the auth path appears to hang (used to verify the semaphore
-    rejection runs BEFORE auth).
-
-    If *yield_before_recv* is ``True``, the mock ``recv()`` yields once
-    (via ``asyncio.sleep(0)``) before returning the auth frame. This
-    simulates the I/O yield a real ``websockets`` recv would perform
-    (waiting on the loop's reader) and is needed for the concurrent-cap
-    race test: without the yield, ``asyncio.wait_for(sync_recv, ...)``
-    runs the mock recv synchronously inside the calling task (no loop
-    yield), so the winning connection completes its entire auth +
-    ``sem.release()`` before the losing connection's acquire Task runs —
-    the race window never opens and the test cannot distinguish the fix
-    from the original bug.
-    """
-    ws = MagicMock()
-    ws.remote_address = ("127.0.0.1", 12345)
-
-    if auth_frame is not None:
-        auth_bytes = auth_frame.encode() if isinstance(auth_frame, str) else auth_frame
-
-        async def _fake_recv():
-            if yield_before_recv:
-                # Yield once to simulate the I/O wait a real
-                # ``websockets`` recv performs. This gives concurrent
-                # ``_try_acquire_semaphore`` callers a chance to run
-                # their acquire Tasks before the winner releases.
-                await asyncio.sleep(0)
-            return auth_bytes
-
-        ws.recv = _fake_recv
-    else:
-
-        async def _parked_recv():
-            await asyncio.Future()
-
-        ws.recv = _parked_recv
-
-    sent_frames: list[str] = []
-    closed_with: list[tuple[tuple, dict]] = []
-
-    async def _track_send(payload):
-        sent_frames.append(payload)
-
-    async def _track_close(*args, **kwargs):
-        closed_with.append((args, kwargs))
-
-    ws.send = _track_send
-    ws.close = _track_close
-    ws._sent_frames = sent_frames
-    ws._closed_with = closed_with
-    # The websockets library's ``closed`` attribute is an int (0=open);
-    # the duplicate-auth probe treats ``not bool(existing.closed)`` as
-    # "is open". Set to ``False`` so the probe sees the mock as OPEN
-    # (the duplicate-rejection scenario).
-    ws.closed = False
-    return ws
-
-
-def _make_server_with_semaphore(value: int) -> MagicMock:
-    """Build a MagicMock server whose semaphore has *value* slots remaining.
-
-    *value* == ``sidecar_ws._MAX_WS_CONNECTIONS`` → full budget (under cap).
-    *value* == 0 → exhausted (at cap, all slots held).
-    *value* == 1 → one slot remaining (the TOCTOU race window).
-    """
-    server = MagicMock()
-    sem = asyncio.Semaphore(value)
-    server._ws_connection_semaphore = sem
-    # MagicMock auto-vivifies ``_lock`` as a child mock; the production
-    # code uses ``with server._lock:`` as a synchronous context manager.
-    # Use a real ``threading.RLock`` so the ``with`` block actually
-    # serializes the read-probe-write critical section.
-    server._lock = threading.RLock()
-    server._ready_emitted = True  # skip the ready emit
-    server.app.tray._state = None  # skip the state_changed emit
-    server.push = MagicMock()
-    # Initialize the active-connection slot to ``None`` so the first
-    # ``_check_duplicate_auth`` call sees no existing connection.
-    # (Without this, MagicMock auto-vivifies a child mock for the
-    # attribute, which the defensive probe treats as "closed" — but
-    # explicit is better than implicit for race tests.)
-    server._active_ws_connection = None
-    return server
 
 
 def _extract_error_code(ws: MagicMock) -> str | None:
@@ -181,7 +92,7 @@ async def test_concurrent_connections_at_one_slot_one_rejected_not_blocked(
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "good-token")
     # Semaphore value=1: one slot remaining (the TOCTOU race window).
-    server = _make_server_with_semaphore(1)
+    server = make_fake_server_with_semaphore(1)
     dispatch = MagicMock()
 
     # Both websockets use a WRONG token so the one that acquires proceeds
@@ -191,8 +102,8 @@ async def test_concurrent_connections_at_one_slot_one_rejected_not_blocked(
     # recv runs synchronously inside the calling task and the winner
     # releases the sem before the loser's acquire Task runs (the race
     # window never opens).
-    ws_a = _make_fake_websocket(json.dumps({"type": "auth", "token": "wrong"}), yield_before_recv=True)
-    ws_b = _make_fake_websocket(json.dumps({"type": "auth", "token": "wrong"}), yield_before_recv=True)
+    ws_a = make_fake_websocket(json.dumps({"type": "auth", "token": "wrong"}), yield_before_recv=True)
+    ws_b = make_fake_websocket(json.dumps({"type": "auth", "token": "wrong"}), yield_before_recv=True)
 
     # Run both concurrently. With the fix, both complete in milliseconds.
     # If the original bug were present, both would still complete (after
@@ -248,11 +159,11 @@ async def test_concurrent_connections_at_zero_cap_all_rejected_quickly(
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "good-token")
     # Semaphore value=0: at cap, all slots held.
-    server = _make_server_with_semaphore(0)
+    server = make_fake_server_with_semaphore(0)
     dispatch = MagicMock()
 
     n = 5
-    wss = [_make_fake_websocket(json.dumps({"type": "auth", "token": "good-token"})) for _ in range(n)]
+    wss = [make_fake_websocket(json.dumps({"type": "auth", "token": "good-token"})) for _ in range(n)]
 
     start = time.monotonic()
     await asyncio.wait_for(
@@ -293,13 +204,13 @@ async def test_concurrent_duplicate_auth_only_one_succeeds() -> None:
     AFTER the lock is released, so the lock is not held across an
     ``await`` (which would block the event loop).
     """
-    server = _make_server_with_semaphore(sidecar_ws._MAX_WS_CONNECTIONS)
+    server = make_fake_server_with_semaphore(sidecar_ws._MAX_WS_CONNECTIONS)
 
     # Two fake websockets, both "open" (closed=False so the duplicate
     # probe sees them as live).
-    ws_a = _make_fake_websocket()
+    ws_a = make_fake_websocket()
     ws_a.closed = False
-    ws_b = _make_fake_websocket()
+    ws_b = make_fake_websocket()
     ws_b.closed = False
 
     # Both call _check_duplicate_auth concurrently. With the fix, the
@@ -357,13 +268,13 @@ async def test_duplicate_auth_rejects_when_existing_open() -> None:
     invariant still holds after the fix. The active-connection slot is
     UNCHANGED (still the existing ws).
     """
-    server = _make_server_with_semaphore(sidecar_ws._MAX_WS_CONNECTIONS)
+    server = make_fake_server_with_semaphore(sidecar_ws._MAX_WS_CONNECTIONS)
     # Pre-populate the active-connection slot with an OPEN websocket.
-    existing_ws = _make_fake_websocket()
+    existing_ws = make_fake_websocket()
     existing_ws.closed = False
     server._active_ws_connection = existing_ws
 
-    new_ws = _make_fake_websocket()
+    new_ws = make_fake_websocket()
     new_ws.closed = False
 
     result = await sidecar_ws._check_duplicate_auth(new_ws, server, ("127.0.0.1", 9999))
@@ -394,13 +305,13 @@ async def test_duplicate_auth_proceeds_when_existing_closed() -> None:
     over. The probe treats a closed existing as "not open" so the new
     connection can claim the slot.
     """
-    server = _make_server_with_semaphore(sidecar_ws._MAX_WS_CONNECTIONS)
+    server = make_fake_server_with_semaphore(sidecar_ws._MAX_WS_CONNECTIONS)
     # Pre-populate with a CLOSED websocket.
-    existing_ws = _make_fake_websocket()
+    existing_ws = make_fake_websocket()
     existing_ws.closed = True
     server._active_ws_connection = existing_ws
 
-    new_ws = _make_fake_websocket()
+    new_ws = make_fake_websocket()
     new_ws.closed = False
 
     result = await sidecar_ws._check_duplicate_auth(new_ws, server, ("127.0.0.1", 9999))
@@ -422,11 +333,11 @@ async def test_duplicate_auth_proceeds_when_no_existing() -> None:
     This is the first-connection case — the slot starts empty and the
     first auth claims it.
     """
-    server = _make_server_with_semaphore(sidecar_ws._MAX_WS_CONNECTIONS)
+    server = make_fake_server_with_semaphore(sidecar_ws._MAX_WS_CONNECTIONS)
     # Slot is None (no existing connection).
     server._active_ws_connection = None
 
-    new_ws = _make_fake_websocket()
+    new_ws = make_fake_websocket()
     new_ws.closed = False
 
     result = await sidecar_ws._check_duplicate_auth(new_ws, server, ("127.0.0.1", 9999))

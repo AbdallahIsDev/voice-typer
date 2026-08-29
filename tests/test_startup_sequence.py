@@ -88,7 +88,7 @@ class TestStartupSequenceDelegate:
 
         # Configure_corrections would normally load corrections.json; stub it.
         monkeypatch.setattr(
-            "voice_typer.server.startup_sequence.configure_corrections",
+            "voice_typer.server.startup_sequence._phases_early.configure_corrections",
             lambda config_dir: None,
         )
 
@@ -121,7 +121,7 @@ class TestStartupSequenceRunOrder:
         call_order: list[str] = []
 
         monkeypatch.setattr(
-            "voice_typer.server.startup_sequence.configure_corrections",
+            "voice_typer.server.startup_sequence._phases_early.configure_corrections",
             lambda config_dir: None,
         )
         monkeypatch.setattr(startup_tasks, "sync_autostart", lambda app: call_order.append("sync_autostart"))
@@ -204,7 +204,7 @@ class TestStartupSequenceRunOrder:
         from voice_typer.server import session_state, startup_tasks
 
         monkeypatch.setattr(
-            "voice_typer.server.startup_sequence.configure_corrections",
+            "voice_typer.server.startup_sequence._phases_early.configure_corrections",
             lambda config_dir: None,
         )
 
@@ -237,7 +237,7 @@ class TestStartupSequenceRunOrder:
         from voice_typer.server import session_state, startup_tasks
 
         monkeypatch.setattr(
-            "voice_typer.server.startup_sequence.configure_corrections",
+            "voice_typer.server.startup_sequence._phases_early.configure_corrections",
             lambda config_dir: None,
         )
         monkeypatch.setattr(startup_tasks, "sync_autostart", lambda app: None)
@@ -262,7 +262,7 @@ class TestStartupSequenceRunOrder:
         from voice_typer.server import startup_tasks
 
         monkeypatch.setattr(
-            "voice_typer.server.startup_sequence.configure_corrections",
+            "voice_typer.server.startup_sequence._phases_early.configure_corrections",
             lambda config_dir: None,
         )
 
@@ -357,7 +357,7 @@ class TestStartupSequenceRACE020ShutdownGates:
         call_count = {"sync_autostart": 0, "hotkeys.register": 0, "models.start_background_load": 0}
 
         monkeypatch.setattr(
-            "voice_typer.server.startup_sequence.configure_corrections",
+            "voice_typer.server.startup_sequence._phases_early.configure_corrections",
             lambda config_dir: None,
         )
         monkeypatch.setattr(
@@ -405,7 +405,7 @@ class TestStartupSequenceRACE020ShutdownGates:
             app._shutting_down = True
 
         monkeypatch.setattr(
-            "voice_typer.server.startup_sequence.configure_corrections",
+            "voice_typer.server.startup_sequence._phases_early.configure_corrections",
             lambda config_dir: None,
         )
         monkeypatch.setattr(startup_tasks, "sync_autostart", _sync_autostart_set_shutting_down)
@@ -533,17 +533,20 @@ class TestOnboardingStartedMarkerGate:
         app can boot), but ``onboarding_completed`` stays False so
         the renderer routes back to the wizard.
         """
-        from voice_typer.server import startup_sequence as ss_mod
         from voice_typer.server.onboarding import OnboardingController
+        from voice_typer.server.startup_sequence import (
+            StartupSequence,
+            _phases_early as ss_mod,
+        )
 
         # Force the onboarding block to enter the auto-heal decision
         # point: not completed + is_first_run() returns True.
         app_for_startup.config.onboarding_completed = False
         monkeypatch.setattr(OnboardingController, "is_first_run", lambda self: True)
 
-        # Patch the module-level _config_dir binding in startup_sequence
-        # (it was imported via `from voice_typer.server.config import
-        # _config_dir`, so the conftest tmp_config_dir fixture's
+        # Patch the module-level _config_dir binding in the OWNING
+        # submodule (it was imported via `from voice_typer.server.config
+        # import _config_dir`, so the conftest tmp_config_dir fixture's
         # monkeypatch on voice_typer.server.config._config_dir does NOT
         # affect this binding). Mirror the pattern used in
         # test_startup_sequence_onboarding_fail_persistence.py.
@@ -571,7 +574,7 @@ class TestOnboardingStartedMarkerGate:
 
         self._stub_non_onboarding_startup(app_for_startup, monkeypatch)
 
-        ss_mod.StartupSequence(app_for_startup).run()
+        StartupSequence(app_for_startup).run()
 
         # Auto-heal was SKIPPED — mark_complete was NOT called.
         assert mark_complete_calls == [], (
@@ -594,8 +597,11 @@ class TestOnboardingStartedMarkerGate:
         fixes it to prevent the wizard from re-showing and clobbering
         the user's existing settings.
         """
-        from voice_typer.server import startup_sequence as ss_mod
         from voice_typer.server.onboarding import OnboardingController
+        from voice_typer.server.startup_sequence import (
+            StartupSequence,
+            _phases_early as ss_mod,
+        )
 
         app_for_startup.config.onboarding_completed = False
         monkeypatch.setattr(OnboardingController, "is_first_run", lambda self: True)
@@ -617,7 +623,7 @@ class TestOnboardingStartedMarkerGate:
 
         self._stub_non_onboarding_startup(app_for_startup, monkeypatch)
 
-        ss_mod.StartupSequence(app_for_startup).run()
+        StartupSequence(app_for_startup).run()
 
         # Auto-heal DID fire — mark_complete was called exactly once.
         assert len(mark_complete_calls) == 1, (
@@ -638,8 +644,11 @@ class TestOnboardingStartedMarkerGate:
         This is the genuine first-run path — no prior config to
         clobber, so we save defaults and let the wizard show.
         """
-        from voice_typer.server import startup_sequence as ss_mod
         from voice_typer.server.onboarding import OnboardingController
+        from voice_typer.server.startup_sequence import (
+            StartupSequence,
+            _phases_early as ss_mod,
+        )
 
         app_for_startup.config.onboarding_completed = False
         monkeypatch.setattr(OnboardingController, "is_first_run", lambda self: True)
@@ -662,7 +671,7 @@ class TestOnboardingStartedMarkerGate:
 
         self._stub_non_onboarding_startup(app_for_startup, monkeypatch)
 
-        ss_mod.StartupSequence(app_for_startup).run()
+        StartupSequence(app_for_startup).run()
 
         # Genuine first run — auto-heal does NOT fire.
         assert mark_complete_calls == [], (

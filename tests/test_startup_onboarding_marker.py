@@ -44,16 +44,20 @@ def app_for_onboarding(tmp_path, monkeypatch):
     ``app._shutting_down = True`` immediately after the onboarding block.
     """
     # Patch BOTH the canonical config._config_dir attribute AND the
-    # already-imported reference in startup_sequence. The function is
-    # ``functools.lru_cache``-wrapped, so monkeypatching the attribute on
-    # ``config`` alone is NOT enough — startup_sequence._config_dir is a
-    # separate bound reference. Also clear the cache on the original
-    # function so any prior resolution is forgotten.
-    from voice_typer.server import config as _config_mod, startup_sequence as _startup_seq
+    # already-imported reference in the startup_sequence package's
+    # early-phases submodule (the OWNING submodule per C-ARCH-2 —
+    # the onboarding auto-heal block resolves ``_config_dir`` there).
+    # The function is ``functools.lru_cache``-wrapped, so monkeypatching
+    # the attribute on ``config`` alone is NOT enough —
+    # startup_sequence._phases_early._config_dir is a separate bound
+    # reference. Also clear the cache on the original function so any
+    # prior resolution is forgotten.
+    from voice_typer.server import config as _config_mod
+    from voice_typer.server.startup_sequence import _phases_early as _startup_early
 
     _config_mod._config_dir.cache_clear()
     monkeypatch.setattr(_config_mod, "_config_dir", lambda: tmp_path)
-    monkeypatch.setattr(_startup_seq, "_config_dir", lambda: tmp_path)
+    monkeypatch.setattr(_startup_early, "_config_dir", lambda: tmp_path)
 
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
@@ -75,7 +79,7 @@ def app_for_onboarding(tmp_path, monkeypatch):
 def _stub_configure_corrections(monkeypatch) -> None:
     """Stub configure_corrections so it doesn't try to read corrections.json."""
     monkeypatch.setattr(
-        "voice_typer.server.startup_sequence.configure_corrections",
+        "voice_typer.server.startup_sequence._phases_early.configure_corrections",
         lambda config_dir: None,
     )
 

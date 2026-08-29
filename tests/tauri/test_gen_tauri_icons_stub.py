@@ -155,6 +155,16 @@ def _serialize_and_cleanup():
     The lock lives in the per-user temp dir, so concurrent CI runs by
     different users don't contend. ``timeout=60`` bounds the wait so a
     crashed worker can't hang the suite forever. (C-TEST-5: test isolation.)
+
+    RESTORE, NOT WIPE: the teardown used to run ``--clean`` unconditionally,
+    which deleted every stub under ``src-tauri/bin/`` + ``resources/native/``
+    even when the workspace already had stubs before the test (the dev
+    workflow regenerates them once and keeps them for ``cargo check`` /
+    ``cargo tauri build``). Each chunk run then left the repo without stubs.
+    The teardown now snapshots which stub paths existed BEFORE the test and,
+    after ``--clean``, regenerates them — so the pre-test state is restored
+    in a ``finally``-equivalent position and a fresh checkout (no stubs)
+    still ends clean.
     """
     lock = filelock.FileLock(str(_LOCK_PATH), timeout=60)
     with lock:
@@ -163,9 +173,15 @@ def _serialize_and_cleanup():
         # a corrupt-writer test whose finally-restore also failed). Restore
         # every committed icon to its git bytes so each test starts clean.
         _restore_committed_icons()
+        pre_existing_stubs = [p for p in _stub_paths() if p.exists()]
         yield
         # Ensure stubs are cleaned up after each test (don't pollute the repo).
         _run("--clean")
+        # Restore the pre-test stub state: if stubs existed before the test,
+        # bring them back (``--clean`` just removed them). ``generate``
+        # preserves real binaries, so this cannot clobber a real artifact.
+        if pre_existing_stubs:
+            _run()
         # Self-heal after each test too: if THIS test hit the transient
         # write failure and left an icon corrupt, the next test must not
         # read it (was the root cause of a 3-failure cascade in full-suite

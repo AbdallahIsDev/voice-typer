@@ -28,10 +28,9 @@ The strategy:
 from __future__ import annotations
 
 import ctypes
-import sys
 import types
 from ctypes import wintypes
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -647,18 +646,25 @@ class TestPasteWindowsBranches:
         cm._keyboard.press.assert_any_call("cmd_key")
 
     def test_paste_logs_rdp_session(self, fake_win32):
-        """When is_remote_session() returns True, paste_delay is increased."""
+        """When is_remote_session() returns True, paste_delay is increased.
+
+        ``_compute_paste_delay`` lazy-imports the probe from
+        ``voice_typer.server.server_platform.remote_session`` at call time,
+        so the patch target is THAT module attribute — faking only the
+        ``server_platform`` package in ``sys.modules`` never takes effect
+        (the real ``remote_session`` submodule is already imported, and
+        ``from X.Y import Z`` re-reads the attribute from it on every
+        call). Patching the canonical attribute is also the documented
+        test contract in ``server_platform/remote_session.py``.
+        """
         cm = self._make_cm()
-        # Build a fake server_platform.is_remote_session that returns True.
-        fake_platform = MagicMock()
-        fake_platform.is_remote_session.return_value = True
         with patch.object(clip_mod, "time") as mock_time:
             mock_time.monotonic.return_value = 100.0
             mock_time.sleep = MagicMock()
             with (
-                patch.dict(
-                    sys.modules,
-                    {"voice_typer.server.server_platform": fake_platform},
+                patch(
+                    "voice_typer.server.server_platform.remote_session.is_remote_session",
+                    return_value=True,
                 ),
                 patch.object(ClipboardManager, "_is_safe_paste_target", return_value=True),
                 patch.object(
@@ -676,18 +682,21 @@ class TestPasteWindowsBranches:
         assert len(info_calls) >= 1
 
     def test_paste_logs_rdp_check_exception(self, fake_win32):
-        """If is_remote_session import fails, paste continues with default delay."""
+        """If the is_remote_session probe raises, paste continues with the
+        default delay.
+
+        Same patch target as ``test_paste_logs_rdp_session`` — the probe
+        is resolved from ``voice_typer.server.server_platform.remote_session``
+        at call time, so the side_effect must be planted there.
+        """
         cm = self._make_cm()
-        # Make the server_platform module raise on attribute access.
-        fake_platform = MagicMock()
-        type(fake_platform).is_remote_session = PropertyMock(side_effect=RuntimeError("boom"))
         with patch.object(clip_mod, "time") as mock_time:
             mock_time.monotonic.return_value = 100.0
             mock_time.sleep = MagicMock()
             with (
-                patch.dict(
-                    sys.modules,
-                    {"voice_typer.server.server_platform": fake_platform},
+                patch(
+                    "voice_typer.server.server_platform.remote_session.is_remote_session",
+                    side_effect=RuntimeError("boom"),
                 ),
                 patch.object(ClipboardManager, "_is_safe_paste_target", return_value=True),
                 patch.object(

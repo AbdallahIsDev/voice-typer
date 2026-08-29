@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
 from voice_typer.server.onboarding import OnboardingController
 
 
@@ -58,9 +59,13 @@ def test_next_step_writes_progress_marker(config_dir: Path) -> None:
     assert progress_file.exists(), "next_step should persist progress to disk"
     data = json.loads(progress_file.read_text(encoding="utf-8"))
     assert data["current_step"] == 1
-    # Defaults are persisted alongside the step.
+    # Defaults are persisted alongside the step. The model default is
+    # the canonical ``DEFAULT_MODEL_SIZE`` sentinel — since the
+    # 2026-08-28 no-default-model change there is NO concrete default
+    # model (the old "tiny" default preselected a model the user never
+    # chose and whose weights were never installed).
     assert data["selected_hotkey"] == "<caps_lock>"
-    assert data["selected_model"] == "tiny"
+    assert data["selected_model"] == DEFAULT_MODEL_SIZE
     assert "selected_microphone" in data
 
 
@@ -162,7 +167,8 @@ def test_reset_clears_progress_marker(config_dir: Path) -> None:
     assert ctrl.current_step == 0
     assert ctrl.selected_microphone is None
     assert ctrl.selected_hotkey == "<caps_lock>"
-    assert ctrl.selected_model == "tiny"
+    # Canonical default — no concrete default model (2026-08-28).
+    assert ctrl.selected_model == DEFAULT_MODEL_SIZE
 
 
 def test_corrupt_progress_marker_is_ignored(config_dir: Path) -> None:
@@ -178,7 +184,8 @@ def test_corrupt_progress_marker_is_ignored(config_dir: Path) -> None:
     assert ctrl.current_step == 0
     assert ctrl.selected_microphone is None
     assert ctrl.selected_hotkey == "<caps_lock>"
-    assert ctrl.selected_model == "tiny"
+    # Canonical default — no concrete default model (2026-08-28).
+    assert ctrl.selected_model == DEFAULT_MODEL_SIZE
 
 
 def test_v1_progress_marker_is_ignored_after_step_insertion(config_dir: Path) -> None:
@@ -202,9 +209,10 @@ def test_v1_progress_marker_is_ignored_after_step_insertion(config_dir: Path) ->
     )
 
     ctrl = _new_controller(config_dir)
-    # v1 marker ignored → fresh start at Welcome with defaults.
+    # v1 marker ignored → fresh start at Welcome with defaults
+    # (selected_model is the canonical no-model sentinel).
     assert ctrl.current_step == 0
-    assert ctrl.selected_model == "tiny"
+    assert ctrl.selected_model == DEFAULT_MODEL_SIZE
 
 
 def test_v2_progress_marker_restores_consent_step(config_dir: Path) -> None:

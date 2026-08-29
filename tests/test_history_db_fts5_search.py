@@ -103,6 +103,26 @@ class TestFts5SearchWiring:
         results = db.search("_")
         assert [r["text"] for r in results] == ["snake_case_token"]
 
+    def test_search_separator_only_queries_take_like_fallback(self, db, monkeypatch):
+        """Every non-empty separator-only query (punctuation, wildcards)
+        keeps the LIKE fallback path — the pinned contract
+        (test_history_db.py, test_history_search_cjk.py). The fallback
+        MUST actually run; short-circuiting these queries to an empty
+        result regressed CJK punctuation search."""
+        import voice_typer.server.history_db_internals.search as search_mod
+
+        calls = []
+        real_prepare = search_mod.prepare_like_search_pattern
+
+        def _spy(query):
+            calls.append(query)
+            return real_prepare(query)
+
+        monkeypatch.setattr(search_mod, "prepare_like_search_pattern", _spy)
+        assert db.search("%")[0]["text"] == "Progress is 100% complete"
+        assert db.search("!!!") == []  # no rows contain '!!!', but the path ran
+        assert calls == ["%", "!!!"]
+
     def test_search_empty_query_returns_all_rows(self, db):
         """An empty query falls back to LIKE with pattern ``%%`` which
         matches every row."""

@@ -261,7 +261,7 @@ class TestOnboardingFailCountAtomicWrite:
     on the next startup."""
 
     def test_uses_secure_atomic_write_with_durability_false(self, monkeypatch, tmp_path):
-        from voice_typer.server import startup_sequence as ss
+        from voice_typer.server.startup_sequence import _phases_early as ss
 
         status_path = tmp_path / ".onboarding_status.json"
         monkeypatch.setattr(ss, "_config_dir", lambda: tmp_path)
@@ -293,7 +293,7 @@ class TestOnboardingFailCountAtomicWrite:
     def test_persistence_round_trips(self, monkeypatch, tmp_path):
         """Sanity: after the atomic write, ``_read_onboarding_fail_count``
         reads back the same values (no data loss)."""
-        from voice_typer.server import startup_sequence as ss
+        from voice_typer.server.startup_sequence import _phases_early as ss
 
         monkeypatch.setattr(ss, "_config_dir", lambda: tmp_path)
 

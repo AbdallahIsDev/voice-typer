@@ -45,70 +45,10 @@ websockets = pytest.importorskip("websockets")
 from voice_typer.server import sidecar_ws  # noqa: E402
 from voice_typer.server.ipc.validation import ErrorCodes  # noqa: E402
 
-
-def _make_fake_websocket(auth_frame: str | None = None) -> MagicMock:
-    """Build a mock websocket that yields *auth_frame* on the first recv.
-
-    If *auth_frame* is ``None``, ``recv()`` is parked on a never-resolving
-    future so the auth path appears to hang (used to verify the semaphore
-    is released in the ``finally`` even when the connection body raises).
-    """
-    ws = MagicMock()
-    ws.remote_address = ("127.0.0.1", 12345)
-
-    if auth_frame is not None:
-        auth_bytes = auth_frame.encode() if isinstance(auth_frame, str) else auth_frame
-
-        async def _fake_recv():
-            return auth_bytes
-
-        ws.recv = _fake_recv
-    else:
-
-        async def _parked_recv():
-            await asyncio.Future()
-
-        ws.recv = _parked_recv
-
-    sent_frames: list[str] = []
-    closed_with: list[tuple[tuple, dict]] = []
-
-    async def _track_send(payload):
-        sent_frames.append(payload)
-
-    async def _track_close(*args, **kwargs):
-        closed_with.append((args, kwargs))
-
-    ws.send = _track_send
-    ws.close = _track_close
-    ws._sent_frames = sent_frames
-    ws._closed_with = closed_with
-    ws.closed = False
-    return ws
-
-
-def _make_server_with_semaphore(value: int) -> MagicMock:
-    """Build a MagicMock server whose semaphore has *value* slots remaining.
-
-    *value* == ``sidecar_ws._MAX_WS_CONNECTIONS`` → full budget (under cap).
-    *value* == 0 → exhausted (at cap, all slots held).
-    """
-    server = MagicMock()
-    # Create a real Semaphore with the requested remaining capacity.
-    # NOTE: asyncio.Semaphore(n) creates a semaphore with initial value n
-    # (n available slots). To simulate "at cap", we create Semaphore(0).
-    sem = asyncio.Semaphore(value)
-    server._ws_connection_semaphore = sem
-    # MagicMock auto-vivifies _lock as a child mock; the production code
-    # uses ``with server._lock:`` as a context manager. Make it a real
-    # threading.Lock so the ``with`` block works.
-    import threading
-
-    server._lock = threading.Lock()
-    server._ready_emitted = True  # skip the ready emit
-    server.app.tray._state = None  # skip the state_changed emit
-    server.push = MagicMock()
-    return server
+from tests.fixtures.sidecar_ws_test_helpers import (  # noqa: E402
+    make_fake_server_with_semaphore,
+    make_fake_websocket,
+)
 
 
 @pytest.mark.asyncio
@@ -120,8 +60,8 @@ async def test_under_cap_connection_proceeds_to_auth(monkeypatch) -> None:
     (NOT the max_connections_reached path).
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "good-token")
-    ws = _make_fake_websocket(json.dumps({"type": "auth", "token": "wrong"}))
-    server = _make_server_with_semaphore(sidecar_ws._MAX_WS_CONNECTIONS)
+    ws = make_fake_websocket(json.dumps({"type": "auth", "token": "wrong"}))
+    server = make_fake_server_with_semaphore(sidecar_ws._MAX_WS_CONNECTIONS)
     dispatch = MagicMock()
 
     await sidecar_ws._handle_connection(ws, server, dispatch)
@@ -150,9 +90,9 @@ async def test_at_cap_rejects_with_1008_before_auth(monkeypatch) -> None:
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "good-token")
     # Provide a valid auth frame — but it should NEVER be read because
     # the semaphore rejection runs first.
-    ws = _make_fake_websocket(json.dumps({"type": "auth", "token": "good-token"}))
+    ws = make_fake_websocket(json.dumps({"type": "auth", "token": "good-token"}))
     # Semaphore(0) → at cap, all slots held.
-    server = _make_server_with_semaphore(0)
+    server = make_fake_server_with_semaphore(0)
     dispatch = MagicMock()
 
     await sidecar_ws._handle_connection(ws, server, dispatch)
@@ -185,10 +125,10 @@ async def test_semaphore_released_after_auth_fail(monkeypatch) -> None:
     the slot (the semaphore value should be back to its initial state).
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "good-token")
-    server = _make_server_with_semaphore(sidecar_ws._MAX_WS_CONNECTIONS)
+    server = make_fake_server_with_semaphore(sidecar_ws._MAX_WS_CONNECTIONS)
     dispatch = MagicMock()
 
-    ws1 = _make_fake_websocket(json.dumps({"type": "auth", "token": "wrong"}))
+    ws1 = make_fake_websocket(json.dumps({"type": "auth", "token": "wrong"}))
     await sidecar_ws._handle_connection(ws1, server, dispatch)
 
     sem = server._ws_connection_semaphore
@@ -196,7 +136,7 @@ async def test_semaphore_released_after_auth_fail(monkeypatch) -> None:
     assert not sem.locked(), "semaphore should be released after auth-failed connection completed"
 
     # A second connection should proceed normally (not be rejected).
-    ws2 = _make_fake_websocket(json.dumps({"type": "auth", "token": "wrong"}))
+    ws2 = make_fake_websocket(json.dumps({"type": "auth", "token": "wrong"}))
     await sidecar_ws._handle_connection(ws2, server, dispatch)
     frame = json.loads(ws2._sent_frames[0])
     assert frame["data"]["code"] == "auth_failed", (
@@ -212,7 +152,7 @@ async def test_semaphore_released_after_clean_disconnect(monkeypatch) -> None:
     disconnect) so the connection body completes normally.
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "good-token")
-    ws = _make_fake_websocket(json.dumps({"type": "auth", "token": "good-token"}))
+    ws = make_fake_websocket(json.dumps({"type": "auth", "token": "good-token"}))
 
     class _EmptyAsyncIter:
         def __aiter__(self):
@@ -234,7 +174,7 @@ async def test_semaphore_released_after_clean_disconnect(monkeypatch) -> None:
     ws.send = _track_send
     ws.close = _no_close
 
-    server = _make_server_with_semaphore(sidecar_ws._MAX_WS_CONNECTIONS)
+    server = make_fake_server_with_semaphore(sidecar_ws._MAX_WS_CONNECTIONS)
     dispatch = MagicMock()
     dispatch.return_value = None
 

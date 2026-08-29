@@ -233,7 +233,7 @@ class TestVadPreloadCalled:
         monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", lambda app: None)
         monkeypatch.setattr(startup_tasks, "start_accessibility_pulse", lambda app, initial_state: None)
         monkeypatch.setattr(
-            "voice_typer.server.startup_sequence.configure_corrections",
+            "voice_typer.server.startup_sequence._phases_early.configure_corrections",
             lambda config_dir: None,
         )
 
@@ -275,7 +275,7 @@ class TestVadPreloadCalled:
         monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", lambda app: None)
         monkeypatch.setattr(startup_tasks, "start_accessibility_pulse", lambda app, initial_state: None)
         monkeypatch.setattr(
-            "voice_typer.server.startup_sequence.configure_corrections",
+            "voice_typer.server.startup_sequence._phases_early.configure_corrections",
             lambda config_dir: None,
         )
 

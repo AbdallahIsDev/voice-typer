@@ -101,8 +101,8 @@ class TestRegistryIdentityInvariants:
         assert mgr_mod._pending_restores_lock is restore._pending_restores_lock
 
     def test_max_pending_restores_value(self):
-        assert restore._MAX_PENDING_RESTORES == 64
-        assert mgr_mod._MAX_PENDING_RESTORES == 64
+        assert restore._MAX_PENDING_RESTORES == 8
+        assert mgr_mod._MAX_PENDING_RESTORES == 8
 
     def test_force_restore_pending_at_exit_is_same_object(self):
         assert clip_mod._force_restore_pending_at_exit is mgr_mod._force_restore_pending_at_exit

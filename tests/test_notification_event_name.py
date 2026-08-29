@@ -333,14 +333,18 @@ class TestNoLegacyEventNameInSource:
         )
 
     def test_startup_sequence_does_not_publish_legacy_event_name(self):
-        import inspect
+        from pathlib import Path
 
         from voice_typer.server import startup_sequence
 
-        src = inspect.getsource(startup_sequence)
-        assert '"type": "notification"' in src, "startup_sequence.py must publish with type='notification'"
+        # startup_sequence is a package (split by concern); concatenate
+        # every submodule source so the pin covers all publish sites
+        # (mirrors _read_ux018's directory handling in test_notifications.py).
+        pkg_dir = Path(startup_sequence.__file__).parent
+        src = "".join(p.read_text(encoding="utf-8") for p in sorted(pkg_dir.glob("*.py")))
+        assert '"type": "notification"' in src, "startup_sequence must publish with type='notification'"
         assert '"type": "electron_notification"' not in src, (
-            "startup_sequence.py must not publish with the legacy 'electron_notification' event name"
+            "startup_sequence must not publish with the legacy 'electron_notification' event name"
         )
 
 

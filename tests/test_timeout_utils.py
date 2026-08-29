@@ -564,3 +564,89 @@ class TestRunParallelSubmitShutdownRace:
         by_desc = dict(results)
         assert by_desc["ok"] == "done"
         assert isinstance(by_desc["rejected"], RuntimeError)
+
+
+# leaked-worker registry cap ──────────────────────
+
+
+class TestLeakedWorkerRegistryCap:
+    """The ``_LEAKED_WORKERS`` registry is bounded.
+
+    In a long-lived process that times out many ``_run_with_timeout``
+    calls without ever running the shutdown watchdog, the registry used
+    to grow without bound (each entry pins its worker closure + captured
+    locals). The registry now (a) opportunistically prunes
+    already-exited workers on the append path and (b) hard-caps at
+    ``_MAX_LEAKED_WORKERS`` entries, evicting the OLDEST entry (with a
+    warning log) when still full. Daemon threads are reaped by process
+    exit either way, so eviction only trades stale diagnostic entries
+    for bounded memory.
+    """
+
+    def test_registry_evicts_oldest_at_cap(self, monkeypatch):
+        """A full registry evicts its oldest entry to stay bounded."""
+        monkeypatch.setattr(_tu, "_MAX_LEAKED_WORKERS", 3)
+        release = threading.Event()
+        blockers: list[threading.Thread] = []
+
+        def _block() -> None:
+            release.wait(timeout=5.0)
+
+        try:
+            # Pre-fill the registry with live "leaked" workers.
+            for i in range(3):
+                t = threading.Thread(target=_block, name=f"pre-leak-{i}", daemon=True)
+                t.start()
+                blockers.append(t)
+                with _tu._LEAKED_WORKERS_LOCK:
+                    _tu._LEAKED_WORKERS.append(t)
+            result = _run_with_timeout("cap-test-blocked", _block, timeout=0.05)
+            assert result is TIMEOUT
+            with _tu._LEAKED_WORKERS_LOCK:
+                names = [w.name for w in _tu._LEAKED_WORKERS]
+                assert len(_tu._LEAKED_WORKERS) == 3, "registry must stay at the cap"
+                assert "cleanup-cap-test-blocked" in names, "newest worker must be registered"
+                assert "pre-leak-0" not in names, "oldest entry must be evicted first"
+        finally:
+            release.set()
+            for t in blockers:
+                t.join(timeout=1.0)
+
+    def test_registry_prunes_dead_workers_on_append(self, monkeypatch):
+        """Appending to a full registry of EXITED workers prunes them
+        instead of evicting live entries."""
+        monkeypatch.setattr(_tu, "_MAX_LEAKED_WORKERS", 3)
+
+        def _quick() -> None:
+            time.sleep(0.01)
+
+        # Simulate workers that leaked earlier but have since exited.
+        for i in range(3):
+            t = threading.Thread(target=_quick, name=f"dead-leak-{i}", daemon=True)
+            t.start()
+            t.join(timeout=1.0)
+            assert not t.is_alive()
+            with _tu._LEAKED_WORKERS_LOCK:
+                _tu._LEAKED_WORKERS.append(t)
+        release = threading.Event()
+        try:
+            result = _run_with_timeout("prune-test-blocked", lambda: release.wait(timeout=5.0), timeout=0.05)
+            assert result is TIMEOUT
+            with _tu._LEAKED_WORKERS_LOCK:
+                assert [_w.name for _w in _tu._LEAKED_WORKERS] == ["cleanup-prune-test-blocked"], (
+                    "dead workers must be pruned before the new append"
+                )
+        finally:
+            release.set()
+
+    def test_registry_grows_normally_under_cap(self):
+        """Below the cap nothing is evicted — the single-leak contract
+        of the existing tests still holds."""
+        release = threading.Event()
+        try:
+            result = _run_with_timeout("under-cap-blocked", lambda: release.wait(timeout=5.0), timeout=0.05)
+            assert result is TIMEOUT
+            with _tu._LEAKED_WORKERS_LOCK:
+                assert len(_tu._LEAKED_WORKERS) == 1
+        finally:
+            release.set()

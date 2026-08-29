@@ -27,9 +27,7 @@ don't need to exercise the full ``_handle_connection`` dispatch loop.
 
 from __future__ import annotations
 
-import json
 import logging
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -37,19 +35,7 @@ websockets = pytest.importorskip("websockets")
 
 from voice_typer.server import sidecar_ws  # noqa: E402
 
-
-def _make_fake_websocket(auth_frame: dict) -> MagicMock:
-    """Mock websocket whose first ``recv`` returns *auth_frame* as JSON bytes."""
-    ws = MagicMock()
-
-    auth_frame_bytes = json.dumps(auth_frame).encode()
-
-    async def _fake_recv():
-        return auth_frame_bytes
-
-    ws.recv = _fake_recv
-    ws.remote_address = ("127.0.0.1", 12345)
-    return ws
+from tests.fixtures.sidecar_ws_test_helpers import make_fake_websocket  # noqa: E402
 
 
 @pytest.mark.asyncio
@@ -61,7 +47,7 @@ async def test_auth_without_protocol_version_still_succeeds(monkeypatch) -> None
     continue to authenticate successfully.
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "good-token")
-    ws = _make_fake_websocket({"type": "auth", "token": "good-token"})
+    ws = make_fake_websocket({"type": "auth", "token": "good-token"})
 
     result = await sidecar_ws._authenticate(ws)
 
@@ -72,7 +58,7 @@ async def test_auth_without_protocol_version_still_succeeds(monkeypatch) -> None
 async def test_auth_with_matching_protocol_version_succeeds(monkeypatch, caplog) -> None:
     """Matching ``protocol_version`` → auth succeeds, no skew warning."""
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "good-token")
-    ws = _make_fake_websocket(
+    ws = make_fake_websocket(
         {
             "type": "auth",
             "token": "good-token",
@@ -100,7 +86,7 @@ async def test_auth_with_mismatched_protocol_version_logs_warning_but_succeeds(m
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "good-token")
     wrong_version = sidecar_ws.PROTOCOL_VERSION + 999
-    ws = _make_fake_websocket(
+    ws = make_fake_websocket(
         {
             "type": "auth",
             "token": "good-token",
@@ -128,7 +114,7 @@ async def test_auth_with_mismatched_protocol_version_logs_warning_but_succeeds(m
 async def test_auth_with_non_int_protocol_version_logs_warning_but_succeeds(monkeypatch, caplog) -> None:
     """Non-int ``protocol_version`` → WARNING logged, auth STILL succeeds."""
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "good-token")
-    ws = _make_fake_websocket(
+    ws = make_fake_websocket(
         {
             "type": "auth",
             "token": "good-token",

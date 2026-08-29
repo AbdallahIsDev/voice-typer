@@ -228,18 +228,19 @@ class TestExternalCorrectionsWiring:
         """StartupSequence.run should call configure_corrections with config_dir.
 
         Phase 5: the call moved from ``VoiceTyperApp._do_startup`` to
-        ``StartupSequence.run`` (in ``startup_sequence.py``). The monkeypatch
-        target must follow the call site — patch the name in
-        ``startup_sequence``'s namespace, not ``app``'s.
+        ``StartupSequence.run`` (in the ``startup_sequence`` package). The
+        monkeypatch target must follow the call site — patch the name in
+        the OWNING submodule (``startup_sequence._phases_early``, where
+        phase 4 resolves it), not ``app``'s namespace.
         """
         called_with = {}
 
         def spy(config_dir=None, corrections_path=None):
             called_with["config_dir"] = config_dir
 
-        # Patch the name in startup_sequence's namespace ( Phase 5 moved
-        # the call there).
-        monkeypatch.setattr("voice_typer.server.startup_sequence.configure_corrections", spy)
+        # Patch the name in the owning _phases_early submodule (the
+        # corrections call site lives there).
+        monkeypatch.setattr("voice_typer.server.startup_sequence._phases_early.configure_corrections", spy)
         app._settings_window = None
         # Phase 1: was ``app._sync_prewarm_task = MagicMock()``
         # (test-seam delegate removed); patch the standalone function.

@@ -61,7 +61,6 @@ def _is_purged_module(key: str) -> bool:
         or key == "voice_typer.server.config"
         or key.startswith("voice_typer.server.config.")
         or key.startswith("voice_typer.server.config_internals.")
-        or key.startswith("voice_typer.server.config_path_safety")
         or key.startswith("voice_typer.server.config_validators")
     )
 

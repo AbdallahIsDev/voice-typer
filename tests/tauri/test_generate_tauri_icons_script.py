@@ -14,10 +14,44 @@ failing here.
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = PROJECT_ROOT / "scripts" / "build" / "generate_tauri_icons.py"
+
+# ── Committed-state snapshots (read from the git object store) ──────────
+# The fixture builders below used to copy bytes from the LIVE working tree
+# (``src-tauri/icons/``, ``src-tauri/tauri.conf.json``). That raced with
+# ``test_gen_tauri_icons_stub.py``'s corrupt-writer tests, which
+# transiently overwrite the same committed files under their own module
+# lock (a lock this module does not hold) — under ``pytest -n auto`` the
+# byte-compare fixtures then read half-written bytes and failed in
+# chunks (C-TEST-5 isolation). ``git show`` reads the object store, NOT
+# the working tree, so the snapshot is authoritative even when the tree
+# is dirty and immune to concurrent writers.
+
+
+def _git_show_bytes(repo_rel: str) -> bytes:
+    """The git-committed bytes for a repo-root-relative path."""
+    res = subprocess.run(
+        ["git", "show", f"HEAD:{repo_rel}"],
+        capture_output=True,
+        cwd=str(PROJECT_ROOT),
+    )
+    if res.returncode != 0:
+        raise RuntimeError(
+            f"cannot read committed file {repo_rel} via git show: {res.stderr.decode(errors='replace').strip()}"
+        )
+    return res.stdout
+
+
+# Read once at import: the committed icon set only changes when HEAD does.
+_COMMITTED_ICON_BYTES: dict[str, bytes] = {
+    name: _git_show_bytes(f"src-tauri/icons/{name}")
+    for name in ("32x32.png", "128x128.png", "128x128@2x.png", "icon.png", "icon.icns", "icon.ico")
+}
+_COMMITTED_TAURI_CONF_BYTES: bytes = _git_show_bytes("src-tauri/tauri.conf.json")
 
 # The exact committed bundle set (mirrors tauri.conf.json bundle.icon).
 BUNDLE_ICONS = {
@@ -43,16 +77,18 @@ def _make_fake_icons_dir(tmp_path: Path, extras: list[str] | None = None) -> Pat
     """A fake src-tauri/icons/ with the bundle icons + (optional) extras.
 
     The bundle icons are COPIED from the committed real ``tauri icon``
-    output (``src-tauri/icons/``) — so the prune/compare fixtures are
-    structurally identical to production at the container level, not
-    bare magic bytes. (The compare tests byte-compare and mock the icns
-    validator, so using the real files keeps every assertion honest.)
+    output — read via ``git show`` (see the snapshot note at the top of
+    this module), NOT from the live working tree, so concurrent stub-
+    test corruption of ``src-tauri/icons/`` can never leak into these
+    fixtures. The prune/compare fixtures stay structurally identical to
+    production at the container level, not bare magic bytes. (The
+    compare tests byte-compare and mock the icns validator, so using
+    the real committed files keeps every assertion honest.)
     """
     icons = tmp_path / "icons"
     icons.mkdir()
-    src = PROJECT_ROOT / "src-tauri" / "icons"
-    for name in ("32x32.png", "128x128.png", "128x128@2x.png", "icon.png", "icon.icns", "icon.ico"):
-        (icons / name).write_bytes((src / name).read_bytes())
+    for name, data in _COMMITTED_ICON_BYTES.items():
+        (icons / name).write_bytes(data)
     (icons / "tray").mkdir()
     for extra in extras or []:
         if extra.endswith("/"):
@@ -79,10 +115,19 @@ def test_script_exists_and_documents_the_pipeline() -> None:
     assert "generate_icon.py" in text, "script must document it is distinct from the legacy generate_icon.py"
 
 
-def test_bundle_icon_paths_matches_committed_set() -> None:
-    """Reading tauri.conf.json yields exactly the 6 committed bundle icons."""
+def test_bundle_icon_paths_matches_committed_set(tmp_path) -> None:
+    """Reading tauri.conf.json yields exactly the 6 committed bundle icons.
+
+    The config is read from the committed snapshot (``git show``), not
+    the live working tree — ``test_gen_tauri_icons_stub.py`` temporarily
+    rewrites ``src-tauri/tauri.conf.json`` during its unsupported-
+    extension red-test, and reading the live file here would race with
+    that window under xdist.
+    """
     mod = _load_script()
-    assert mod.bundle_icon_paths() == BUNDLE_ICONS
+    conf = tmp_path / "tauri.conf.json"
+    conf.write_bytes(_COMMITTED_TAURI_CONF_BYTES)
+    assert mod.bundle_icon_paths(conf) == BUNDLE_ICONS
 
 
 def test_prune_removes_tauri_icon_extras_keeps_bundle_set(tmp_path) -> None:

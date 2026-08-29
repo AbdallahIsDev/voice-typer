@@ -73,7 +73,7 @@ def _stub_non_phase_startup(app_for_phases, monkeypatch):
     monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", lambda app: None)
     monkeypatch.setattr(startup_tasks, "start_accessibility_pulse", lambda app, s: None)
     monkeypatch.setattr(
-        "voice_typer.server.startup_sequence.configure_corrections",
+        "voice_typer.server.startup_sequence._phases_early.configure_corrections",
         lambda config_dir: None,
     )
     # Replace app.hotkeys + app.models with no-op MagicMocks so the
@@ -157,7 +157,7 @@ class TestPhasesCallableIndependently:
         from voice_typer.server import session_state, startup_sequence as ss_mod
 
         monkeypatch.setattr(
-            "voice_typer.server.startup_sequence.configure_corrections",
+            "voice_typer.server.startup_sequence._phases_early.configure_corrections",
             lambda config_dir: None,
         )
 
@@ -175,7 +175,7 @@ class TestPhasesCallableIndependently:
         from voice_typer.server import startup_sequence as ss_mod
 
         monkeypatch.setattr(
-            "voice_typer.server.startup_sequence.configure_corrections",
+            "voice_typer.server.startup_sequence._phases_early.configure_corrections",
             lambda config_dir: None,
         )
         # Disable crash-recovery so the inner branch is skipped.
@@ -273,7 +273,7 @@ class TestShutdownShortCircuits:
         from voice_typer.server import session_state, startup_sequence as ss_mod
 
         monkeypatch.setattr(
-            "voice_typer.server.startup_sequence.configure_corrections",
+            "voice_typer.server.startup_sequence._phases_early.configure_corrections",
             lambda config_dir: None,
         )
         app_for_phases._shutting_down = True

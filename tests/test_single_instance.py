@@ -366,7 +366,7 @@ class TestStartupSharedBudget:
         # Run the startup sequence. Configure_corrections would
         # normally load corrections.json; stub it.
         monkeypatch.setattr(
-            "voice_typer.server.startup_sequence.configure_corrections",
+            "voice_typer.server.startup_sequence._phases_early.configure_corrections",
             lambda config_dir: None,
         )
 
@@ -433,7 +433,7 @@ class TestStartupSharedBudget:
         monkeypatch.setattr(_timeout_utils, "_run_parallel_with_timeout", fast_run)
 
         monkeypatch.setattr(
-            "voice_typer.server.startup_sequence.configure_corrections",
+            "voice_typer.server.startup_sequence._phases_early.configure_corrections",
             lambda config_dir: None,
         )
 

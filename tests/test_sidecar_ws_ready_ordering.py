@@ -30,7 +30,6 @@ buggy ordering. These tests close that gap.
 from __future__ import annotations
 
 import contextlib
-import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -41,6 +40,7 @@ from voice_typer.server import event_bus, sidecar_ws  # noqa: E402
 from voice_typer.server.ipc_server import IPCServer  # noqa: E402
 
 from tests.fixtures.ipc_test_helpers import make_fake_app, make_fake_service  # noqa: E402
+from tests.fixtures.sidecar_ws_test_helpers import make_fake_websocket_parked_after_auth  # noqa: E402
 
 
 @pytest.fixture
@@ -66,31 +66,12 @@ def isolated_event_bus_subscribers():
 
 
 def _build_authenticating_websocket(token: str) -> MagicMock:
-    """Build a fake websocket that authenticates with *token* then yields no frames."""
-    ws = MagicMock()
-    ws.remote_address = ("127.0.0.1", 12345)
-    auth_frame = json.dumps({"type": "auth", "token": token}).encode()
+    """Build a fake websocket that authenticates with *token* then yields no frames.
 
-    async def _fake_recv():
-        return auth_frame
-
-    ws.recv = _fake_recv
-    ws.close = MagicMock()
-
-    class _EmptyAsyncIter:
-        def __aiter__(self):
-            return self
-
-        async def __anext__(self):
-            raise StopAsyncIteration
-
-    ws.__aiter__ = lambda: _EmptyAsyncIter()
-
-    async def _noop_send(*a, **kw):
-        return None
-
-    ws.send = _noop_send
-    return ws
+    Thin wrapper over the canonical fixture factory (empty dispatch
+    iterator → immediate clean disconnect after the ready emit).
+    """
+    return make_fake_websocket_parked_after_auth(token, park_dispatch=False)
 
 
 @pytest.mark.asyncio
