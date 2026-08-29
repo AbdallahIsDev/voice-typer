@@ -111,15 +111,10 @@ class _StreamingResampler:
         if self._x_up_buf is None or self._x_up_buf.shape[0] < up_len:
             self._x_up_buf = np.zeros(max(up_len, 1024), dtype=np.float64)
         x_up = self._x_up_buf[:up_len]
-        # Zero out only the slots we're about to write — actually we
-        # write to x_up[::up], which spans indices [0, up, 2*up, ...].
-        # The non-stride slots retain zeros from the initial np.zeros
-        # allocation OR from a previous call where they were already
-        # zero (we never write to non-stride slots). But across calls
-        # with different up_len, the buffer may have stale non-zero
-        # data in slots beyond the previous up_len. To be safe, zero
-        # the active region before writing the strided samples.
-        x_up.fill(0)
+        # Only the stride slots are ever written (``x_up[::up] = x64``);
+        # non-stride slots stay zero from the initial ``np.zeros``
+        # allocation, and `up` is fixed for the lifetime of the
+        # resampler, so no per-call ``fill(0)`` is needed (GQ-L7).
         x_up[::up] = x64
 
         # Apply FIR filter with persistent state.
