@@ -2,10 +2,12 @@
 """Generate two distinct short WAV data-URL beeps for the Voice Typer
 sound-manager fallback path.
 
-b-review Finding 2 (HIGH): ``START_BEEP_WAV`` and ``STOP_BEEP_WAV`` in
-``voice_typer/client/src/renderer/src/lib/sound-manager.ts`` were
-byte-for-byte identical base64 data URLs, so when the Web Audio API
-path failed the HTMLAudioElement fallback played the exact same beep
+This script exists because the two fallback constants
+(``START_BEEP_WAV`` / ``STOP_BEEP_WAV`` in
+``voice_typer/client/src/renderer/src/lib/sound-manager/beeps.ts``,
+written back then inline in ``sound-manager.ts``, since extracted) were
+once byte-for-byte identical base64 data URLs: when the Web Audio API
+path failed, the HTMLAudioElement fallback played the exact same beep
 for both "recording started" and "recording stopped" — the user could
 not audibly distinguish them.
 
@@ -26,10 +28,10 @@ Usage
     python scripts/build/generate_beeps.py            # prints both URLs
     python scripts/build/generate_beeps.py --check     # exit 1 if
         the two URLs are identical, OR if the constants committed
-        in sound-manager.ts drift from the freshly generated URLs
+        in lib/sound-manager/beeps.ts drift from the freshly generated URLs
         (regression guard)
-    python scripts/build/generate_beeps.py --write TS  # writes the
-        constants into sound-manager.ts in place
+    python scripts/build/generate_beeps.py --write     # writes the
+        constants into lib/sound-manager/beeps.ts in place
 
 The ``--write`` mode performs an exact-string replacement of the two
 ``const START_BEEP_WAV = ...`` / ``const STOP_BEEP_WAV = ...`` lines.
@@ -150,7 +152,7 @@ def generate_stop_url() -> str:
 
 
 # ---------------------------------------------------------------------------
-# sound-manager.ts in-place patch (--write mode)
+# lib/sound-manager/beeps.ts in-place patch (--write mode)
 # ---------------------------------------------------------------------------
 
 SOUND_MANAGER_PATH = (
@@ -161,7 +163,8 @@ SOUND_MANAGER_PATH = (
     / "renderer"
     / "src"
     / "lib"
-    / "sound-manager.ts"
+    / "sound-manager"
+    / "beeps.ts"
 )
 
 
@@ -172,7 +175,7 @@ def _patch_sound_manager(start_url: str, stop_url: str) -> bool:
     Raises RuntimeError if either constant declaration is not found.
     """
     if not SOUND_MANAGER_PATH.exists():
-        raise FileNotFoundError(f"sound-manager.ts not found at {SOUND_MANAGER_PATH}")
+        raise FileNotFoundError(f"beeps.ts not found at {SOUND_MANAGER_PATH}")
 
     original = SOUND_MANAGER_PATH.read_text(encoding="utf-8")
     # Match the existing `const NAME = "<data url>";` lines (single or
@@ -192,13 +195,15 @@ def _patch_sound_manager(start_url: str, stop_url: str) -> bool:
     )
     if not start_pattern.search(new):
         raise RuntimeError(
-            "Could not find START_BEEP_WAV constant in sound-manager.ts — "
-            "the source layout has changed; update generate_beeps.py."
+            "Could not find START_BEEP_WAV constant in "
+            "lib/sound-manager/beeps.ts — the source layout has changed; "
+            "update generate_beeps.py."
         )
     if not stop_pattern.search(new):
         raise RuntimeError(
-            "Could not find STOP_BEEP_WAV constant in sound-manager.ts — "
-            "the source layout has changed; update generate_beeps.py."
+            "Could not find STOP_BEEP_WAV constant in "
+            "lib/sound-manager/beeps.ts — the source layout has changed; "
+            "update generate_beeps.py."
         )
 
     new = start_pattern.sub(lambda m: f'{m.group(1)}"{start_url}";', new)
@@ -212,7 +217,7 @@ def _patch_sound_manager(start_url: str, stop_url: str) -> bool:
 
 def _read_sound_manager_urls() -> tuple[str, str]:
     """Extract the START_BEEP_WAV / STOP_BEEP_WAV data URLs committed in
-    ``sound-manager.ts``.
+    ``lib/sound-manager/beeps.ts``.
 
     Returns ``(start_url, stop_url)`` as full ``data:audio/wav;base64,...``
     strings. Raises :class:`FileNotFoundError` if the file is missing and
@@ -221,11 +226,11 @@ def _read_sound_manager_urls() -> tuple[str, str]:
     Used by ``--check`` to verify the committed constants match the
     freshly generated URLs — the previous --check only verified the
     generated URLs were distinct from each other, which meant a stale
-    or accidentally-collapsed pair of constants in sound-manager.ts
+    or accidentally-collapsed pair of constants in lib/sound-manager/beeps.ts
     would pass the regression guard (false assurance).
     """
     if not SOUND_MANAGER_PATH.exists():
-        raise FileNotFoundError(f"sound-manager.ts not found at {SOUND_MANAGER_PATH}")
+        raise FileNotFoundError(f"beeps.ts not found at {SOUND_MANAGER_PATH}")
 
     text = SOUND_MANAGER_PATH.read_text(encoding="utf-8")
     # Capture the base64 payload (group 1) so we can reconstruct the
@@ -245,13 +250,15 @@ def _read_sound_manager_urls() -> tuple[str, str]:
     stop_match = stop_pattern.search(text)
     if not start_match:
         raise RuntimeError(
-            "Could not find START_BEEP_WAV constant in sound-manager.ts — "
-            "the source layout has changed; update generate_beeps.py."
+            "Could not find START_BEEP_WAV constant in "
+            "lib/sound-manager/beeps.ts — the source layout has changed; "
+            "update generate_beeps.py."
         )
     if not stop_match:
         raise RuntimeError(
-            "Could not find STOP_BEEP_WAV constant in sound-manager.ts — "
-            "the source layout has changed; update generate_beeps.py."
+            "Could not find STOP_BEEP_WAV constant in "
+            "lib/sound-manager/beeps.ts — the source layout has changed; "
+            "update generate_beeps.py."
         )
     start_url = f"data:audio/wav;base64,{start_match.group(1)}"
     stop_url = f"data:audio/wav;base64,{stop_match.group(1)}"
@@ -265,14 +272,14 @@ def main() -> int:
         action="store_true",
         help=(
             "Regression guard: exit 1 if the START and STOP URLs are "
-            "identical OR if the constants committed in sound-manager.ts "
-            "do not match the freshly generated URLs."
+            "identical OR if the constants committed in "
+            "lib/sound-manager/beeps.ts do not match the freshly generated URLs."
         ),
     )
     parser.add_argument(
         "--write",
         action="store_true",
-        help="Write the generated constants into sound-manager.ts in place.",
+        help="Write the generated constants into lib/sound-manager/beeps.ts in place.",
     )
     parser.add_argument(
         "--quiet",
@@ -293,11 +300,11 @@ def main() -> int:
 
     if args.check:
         # Regression guard: verify the constants committed to
-        # sound-manager.ts match the freshly-generated URLs and are
+        # lib/sound-manager/beeps.ts match the freshly-generated URLs and are
         # distinct from each other. The previous --check only verified
         # that the GENERATED URLs were distinct — it did NOT read the
         # source file, so a stale or accidentally-collapsed pair of
-        # constants in sound-manager.ts would pass the guard (false
+        # constants in lib/sound-manager/beeps.ts would pass the guard (false
         # assurance). This tighter check fails fast if the committed
         # constants drift from the canonical generator output.
         try:
@@ -311,9 +318,10 @@ def main() -> int:
             return 1
         if sm_start == sm_stop:
             print(
-                "ERROR: sound-manager.ts START_BEEP_WAV and STOP_BEEP_WAV "
-                "are byte-for-byte identical — the regression this script "
-                "exists to prevent has re-occurred in the source file.",
+                "ERROR: lib/sound-manager/beeps.ts START_BEEP_WAV and "
+                "STOP_BEEP_WAV are byte-for-byte identical — the regression "
+                "this script exists to prevent has re-occurred in the source "
+                "file.",
                 file=sys.stderr,
             )
             print(
@@ -323,9 +331,9 @@ def main() -> int:
             return 1
         if sm_start != start_url:
             print(
-                "ERROR: sound-manager.ts START_BEEP_WAV does not match the "
-                "freshly generated URL — the committed constant has drifted "
-                "from the canonical generator output.",
+                "ERROR: lib/sound-manager/beeps.ts START_BEEP_WAV does not "
+                "match the freshly generated URL — the committed constant "
+                "has drifted from the canonical generator output.",
                 file=sys.stderr,
             )
             print(
@@ -335,9 +343,9 @@ def main() -> int:
             return 1
         if sm_stop != stop_url:
             print(
-                "ERROR: sound-manager.ts STOP_BEEP_WAV does not match the "
-                "freshly generated URL — the committed constant has drifted "
-                "from the canonical generator output.",
+                "ERROR: lib/sound-manager/beeps.ts STOP_BEEP_WAV does not "
+                "match the freshly generated URL — the committed constant "
+                "has drifted from the canonical generator output.",
                 file=sys.stderr,
             )
             print(
@@ -350,7 +358,7 @@ def main() -> int:
     if args.write:
         changed = _patch_sound_manager(start_url, stop_url)
         action = "updated" if changed else "already up-to-date"
-        print(f"sound-manager.ts: {action}", file=sys.stderr)
+        print(f"lib/sound-manager/beeps.ts: {action}", file=sys.stderr)
 
     if not args.quiet:
         print(f"START_BEEP_WAV = {start_url[:200]}...")
