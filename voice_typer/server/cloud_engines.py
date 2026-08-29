@@ -1,17 +1,12 @@
 """Cloud ASR backends: OpenAI, Groq, Deepgram.
 
 Each engine implements the TranscriberProtocol so the app can swap
-backends transparently. Cloud engines send audio to an API endpoint
-and return the transcribed text.
-
-Per-transcription connection lifecycle. Each CloudEngine
-instance is created per-transcription (not cached across dictations)
-so a stale connection from a previous dictation can never serve a
-later request — the most common cause of "the model talks to the
-wrong endpoint" bugs in long-running tray apps. See
-``TestPerTranscriptionLifecycleDocumented`` in
-``tests/test_cloud_engines_dead_cache_removed.py`` for the
-regression guard.
+backends transparently. CloudEngine lifecycle is **per-transcription**
+(see the lifecycle block below and
+``tests/test_cloud_engines_dead_cache_removed.py``); the stateless
+plumbing (transport, retry policy, provider defaults, request shaping)
+lives in the :mod:`voice_typer.server.cloud` package and every moved
+name is re-exported here.
 
 Configuration:
     asr_backend: "openai" | "groq" | "deepgram"
@@ -20,79 +15,56 @@ Configuration:
     cloud_model: str (optional, provider-specific default)
 """
 
-import io
+import io  # noqa: F401  # facade re-export
 import json
 import logging
 import threading
 import time
-import wave
+import wave  # noqa: F401  # facade re-export
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timezone  # noqa: F401  # facade re-export
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
 import numpy as np
 
-from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
-from voice_typer.server._http_safety import (
-    build_secure_opener,
-)
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE  # noqa: F401  # facade re-export
+from voice_typer.server._http_safety import build_secure_opener  # noqa: F401  # facade re-export
 from voice_typer.server._secrets import (
     assert_url_allowed,
     redact_secret,
     redact_url,
 )
 from voice_typer.server.asr_errors import (
-    CloudAuthError,
+    CloudAuthError,  # noqa: F401  # facade re-export
     CloudConfigError,
     CloudConsentRequiredError,
     CloudEmptyResponseError,
     CloudEngineError,
     CloudNetworkError,
-    CloudRateLimitError,
-    CloudServerError,
+    CloudRateLimitError,  # noqa: F401  # facade re-export
+    CloudServerError,  # noqa: F401  # facade re-export
     ConsentRequiredError,  # noqa: F401  # re-exported for backward compat with `from cloud_engines import ConsentRequiredError`
+)
+from voice_typer.server.cloud import (
+    _PROVIDER_DEFAULTS,
+    _audio_to_wav_bytes,
+    _cloud_http_error_class,
+    _opener,
+    _parse_retry_after,
+    _read_capped,
+    _StreamingMultipartBody,  # noqa: F401  # facade re-export
+    build_listen_url,
+    build_multipart_body,
+    build_multipart_parts,
 )
 from voice_typer.server.i18n import DEFAULT_LOCALE
 
 log = logging.getLogger(__name__)
 
 
-# Map an HTTP status code from a cloud provider's HTTPError to
-# the appropriate typed ``CloudEngineError`` subclass. Used by both the
-# OpenAI-compatible path (``_send_openai_compatible``) and the Deepgram
-# path (``_send_deepgram``). Mapping:
-#   401, 403                  → CloudAuthError      (API key invalid/revoked)
-#   429                       → CloudRateLimitError (after retry budget)
-#   5xx (500-599)             → CloudServerError
-#   any other HTTP status     → CloudEngineError    (generic cloud failure)
-# Callers that want to surface a more specific message can still wrap
-# the chosen exception via ``raise CloudAuthError("...") from exc``;
-# the type is what the IPC layer switches on, not the message.
-def _cloud_http_error_class(code: int) -> type[CloudEngineError]:
-    """Return the typed ``CloudEngineError`` subclass for an HTTP status."""
-    if code in (401, 403):
-        return CloudAuthError
-    if code == 429:
-        return CloudRateLimitError
-    if 500 <= code < 600:
-        return CloudServerError
-    return CloudEngineError
-
-
-# PERF-: module-level OpenerDirector for connection pooling.
-# Reuses TCP connections across requests (like requests.Session).
-# SEC-2: ``build_secure_opener()`` installs ``_NoRedirectHandler()`` so
-# the opener does NOT follow 3xx redirects (the default
-# ``HTTPRedirectHandler`` would silently POST the request body — user
-# audio + API key — to an attacker-controlled redirect target).
-# the handler + builder live in ``_http_safety`` so they're
-# shared with ``llm_polish._opener`` (single source of truth).
-_opener = build_secure_opener()
-
-
-# (P4-A1): CloudEngine lifecycle is **per-transcription**.
+# CloudEngine lifecycle is **per-transcription**.
 #
 # Historically this module hosted an 80-line module-level cached-engine
 # infrastructure (``_CACHED_ENGINES``, ``register_cached_cloud_engine``,
@@ -118,177 +90,20 @@ _opener = build_secure_opener()
 # Until then, each transcription constructs a fresh CloudEngine with
 # the current API key + consent flag from the Config dataclass, so
 # stale-credential reuse is structurally impossible.
-
-
-# Provider-specific defaults
-_PROVIDER_DEFAULTS = {
-    "openai": {
-        "url": "https://api.openai.com/v1/audio/transcriptions",
-        "model": "whisper-1",
-    },
-    "groq": {
-        "url": "https://api.groq.com/openai/v1/audio/transcriptions",
-        "model": "whisper-large-v3",
-    },
-    "deepgram": {
-        "url": "https://api.deepgram.com/v1/listen",
-        "model": "nova-2",
-    },
-}
-
-
-def _audio_to_wav_bytes(audio: np.ndarray, sample_rate: int = WHISPER_SAMPLE_RATE) -> bytes:
-    """Convert float32 numpy array to WAV bytes."""
-    buf = io.BytesIO()
-    # Convert float32 to int16
-    audio_int16 = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)  # 16-bit
-        wf.setframerate(sample_rate)
-        wf.writeframes(audio_int16.tobytes())
-    return buf.getvalue()
-
-
-def _read_capped(resp, *, max_bytes: int) -> bytes:
-    """Read up to ``max_bytes`` from ``resp``.
-
-    SEC-030: ``resp.read()`` with no size argument reads the entire body
-    into memory. A malicious or buggy server returning a 5 GB
-    Content-Length would exhaust RAM before the transcription thread
-    caught up. We stream the response in 64 KB chunks and abort if the
-    total exceeds the cap.
-    """
-    chunks: list[bytes] = []
-    total = 0
-    while True:
-        chunk = resp.read(64 * 1024)
-        if not chunk:
-            break
-        total += len(chunk)
-        if total > max_bytes:
-            raise RuntimeError(f"Response body exceeded {max_bytes} bytes — aborting to prevent OOM")
-        chunks.append(chunk)
-    return b"".join(chunks)
-
-
-def _parse_retry_after(header_value: str | None) -> float:
-    """Parse a ``Retry-After`` header into a sleep duration in seconds.
-
-    RFC 7231 §7.1.3 allows ``Retry-After`` to be either:
-          1. An integer number of seconds, OR
-          2. An HTTP-date (e.g. ``Wed, 21 Oct 2015 07:28:00 GMT``).
-
-        We cap the wait at 60 seconds so a hostile or misconfigured server
-        cannot stall the dictation thread indefinitely. A negative or
-        unparseable value falls back to a small default (2s) so we still
-        honor the spirit of "wait briefly before retrying" without trusting
-        the server blindly.
-
-        Returns a float suitable for ``time.sleep``.
-    """
-    if not header_value:
-        return 2.0
-    # Case 1: integer seconds.
-    try:
-        seconds = float(header_value)
-    except (TypeError, ValueError):
-        # Case 2: HTTP-date. ``email.utils.parsedate_to_datetime``
-        # returns a timezone-aware datetime (or None if unparseable).
-        seconds = 2.0
-        try:
-            from email.utils import parsedate_to_datetime
-
-            dt = parsedate_to_datetime(header_value)
-            if dt is not None:
-                now = datetime.now(timezone.utc)
-                # parsedate_to_datetime may return a naive datetime if
-                # the date string has no tz; normalize to UTC.
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                delta = (dt - now).total_seconds()
-                if delta > 0:
-                    seconds = delta
-        except (TypeError, ValueError, OverflowError):
-            pass
-    # Cap at 60s; never sleep for a negative amount.
-    return max(0.0, min(seconds, 60.0))
-
-
-class _StreamingMultipartBody:
-    """File-like object that yields multipart body chunks on demand.
-
-    PERF-: avoids building the entire multipart body in memory
-        as a single ``bytes`` object. ``urllib.request.Request`` accepts a
-        file-like object as ``data`` and reads it in chunks via ``read()``.
-        This class yields the pre-computed parts list one chunk at a time,
-        reducing peak memory from the full body (~5.2 MB for a 30s
-        recording) to one chunk (~64 KB).
-
-        The ``__contains__`` method supports the ``in`` operator so
-        existing tests like ``assert b"fake_wav_data" in body`` continue
-        to work without materializing the entire body.
-    """
-
-    _CHUNK_SIZE = 64 * 1024  # 64 KB per read() call
-
-    def __init__(self, parts: list[bytes]):
-        self._parts = parts
-        self._total_length = sum(len(p) for p in parts)
-        self._part_iter = iter(parts)
-        self._current = b""
-        self._pos = 0
-
-    def read(self, size: int = -1) -> bytes:
-        """Read up to ``size`` bytes. If ``size == -1``, read all remaining."""
-        if size == -1:
-            # Read everything remaining
-            remaining = b"".join(self._current_chunk_and_rest())
-            self._current = b""
-            return remaining
-        result = bytearray()
-        while len(result) < size:
-            if not self._current:
-                try:
-                    self._current = next(self._part_iter)
-                except StopIteration:
-                    break
-            needed = size - len(result)
-            chunk = self._current[:needed]
-            result.extend(chunk)
-            self._current = self._current[len(chunk) :]
-        self._pos += len(result)
-        return bytes(result)
-
-    def _current_chunk_and_rest(self):
-        """Yield the current partial chunk, then all remaining parts."""
-        if self._current:
-            yield self._current
-            self._current = b""
-        yield from self._part_iter
-
-    def __len__(self) -> int:
-        """Total body length (for Content-Length header)."""
-        return self._total_length - self._pos
-
-    def __contains__(self, needle: bytes) -> bool:
-        """Support ``in`` operator for test assertions.
-
-        This materializes the full body, but tests only call it on
-        small fake payloads (e.g. ``b"fake_wav_data"``), so the memory
-        impact is negligible.
-        """
-        return needle in b"".join(self._parts)
-
-    # urllib may call these on file-like data objects
-    def readline(self, size: int = -1) -> bytes:
-        return self.read(size)
-
-    def flush(self) -> None:
-        pass
-
-    def close(self) -> None:
-        pass
+#
+# NOTE on the split layout: ``_opener``, ``_read_capped``,
+# ``_parse_retry_after``, ``_cloud_http_error_class``,
+# ``_PROVIDER_DEFAULTS``, ``_audio_to_wav_bytes`` and
+# ``_StreamingMultipartBody`` are DEFINED in
+# ``voice_typer.server.cloud`` (transport / retry-policy / defaults /
+# provider-shaping leaves) and re-exported here. The engine class and
+# the shared retry loop below stay in THIS module on purpose: tests
+# and production patch engine-adjacent singletons through this
+# namespace (``setattr(cloud_engines, "_opener", mock)``,
+# ``patch("voice_typer.server.cloud_engines.assert_url_allowed")``),
+# so those names must be resolved from this module's namespace at call
+# time — the retry loop and the connection probe read them as
+# module globals here.
 
 
 class CloudEngine:
@@ -464,7 +279,7 @@ class CloudEngine:
                 cold start with whisper not yet registered), the fallback is
                 skipped and the original cloud error is re-raised.
 
-        (a-review Finding 8): ``audio_stats`` is accepted
+        Signature note: ``audio_stats`` is accepted
                 for signature parity with the three local engines
                 (Whisper/Parakeet/Qwen) so ``DictationPipeline._transcribe``
                 can pass it unconditionally without a broad ``except TypeError``
@@ -751,7 +566,7 @@ class CloudEngine:
     def _send_openai_compatible(self, wav_bytes: bytes, filename: str) -> str:
         """Send request to OpenAI-compatible API (OpenAI, Groq).
 
-                RELIABILITY-004: asserts the configured ``api_url`` is in the
+                URL allowlist: asserts the configured ``api_url`` is in the
                 trusted-host allowlist before sending any audio.  This closes
                 the SEC-002 endpoint-swap vector at the cloud-engine layer:
                 even if an attacker finds another path to write
@@ -810,15 +625,13 @@ class CloudEngine:
     def _send_deepgram(self, wav_bytes: bytes) -> str:
         """Send request to Deepgram API.
 
-                RELIABILITY-004: same URL allowlist + log redaction as the
+                Same URL allowlist + log redaction as the
                 OpenAI-compatible path.
 
-                SEC-005: query parameters (model, language) are URL-encoded
-                to prevent parameter injection via crafted config values.
-                Previously the URL was built with f-string interpolation,
-                which let an attacker inject extra query parameters or path
-                segments via ``config.cloud_model`` (e.g. ``"&punctuate=false&"
-                "smart_format=true"``).
+                SEC-005: query parameters (model, language) are validated
+                and URL-encoded by the Deepgram provider module
+                (``voice_typer.server.cloud._providers.deepgram``) to prevent
+                parameter injection via crafted config values.
 
         PERF-: exponential backoff retry (3 attempts) for
                 transient network errors, matching the OpenAI-compatible path
@@ -833,24 +646,9 @@ class CloudEngine:
             allow_loopback_http=True,
         )
 
-        # SEC-005: urlencode escapes special characters in the model
-        # and language values, preventing parameter injection.
-        import re
-        from urllib.parse import urlencode
-
-        _safe_token = re.compile(r"^[A-Za-z0-9._\-]+$")
-        if not _safe_token.match(self.model_name or ""):
-            raise RuntimeError(f"Deepgram model name {self.model_name!r} contains invalid characters")
-        if not _safe_token.match(self.language or ""):
-            raise RuntimeError(f"Deepgram language {self.language!r} contains invalid characters")
-        query = urlencode(
-            {
-                "model": self.model_name,
-                "language": self.language,
-                "punctuate": "true",
-            }
-        )
-        url = f"{self.api_url}?{query}"
+        # SEC-005: the provider module escapes special characters in the
+        # model and language values, preventing parameter injection.
+        url = build_listen_url(self.api_url, self.model_name, self.language)
 
         # Deepgram's body is a plain ``bytes`` object (no internal
         # streaming state), so it could be built once and reused across
@@ -879,59 +677,29 @@ class CloudEngine:
     def _build_multipart_body(self, wav_bytes: bytes, filename: str, boundary: str):
         """Build multipart/form-data body for OpenAI-compatible APIs.
 
-        PERF-: the previous implementation concatenated all parts
-                into a single ``bytes`` object via ``b"".join(parts)``. For a
-                30s recording at 16 kHz float32, that's ~5.2 MB held in memory
-                as one contiguous block. This method now returns a
-                ``_StreamingMultipartBody`` file-like object that yields chunks
-                on demand, reducing peak memory to one chunk (~64 KB) at a time.
-                ``Content-Length`` is computed upfront so the server knows the
-                total size without chunked transfer encoding.
-
-                The test ``test_build_multipart_body`` calls ``b"fake_wav_data"
-                in body`` — ``_StreamingMultipartBody`` supports ``in`` via
-                ``__contains__`` so the test still passes.
+        PERF-: returns a streaming ``_StreamingMultipartBody`` file-like
+        object (defined in ``voice_typer.server.cloud._transport``) that
+        yields chunks on demand instead of materializing the full ~5.2 MB
+        body; ``Content-Length`` is computed upfront via ``__len__`` so
+        the server knows the total size without chunked transfer encoding.
+        Shaping itself lives in
+        ``voice_typer.server.cloud._providers.openai``.
         """
-        parts = self._multipart_parts(wav_bytes, filename, boundary)
-        return _StreamingMultipartBody(parts)
+        return build_multipart_body(wav_bytes, filename, boundary, self.model_name, self.language)
 
     def _multipart_parts(self, wav_bytes: bytes, filename: str, boundary: str) -> list[bytes]:
-        """Return the ordered list of byte chunks that compose the body."""
-        parts: list[bytes] = []
+        """Return the ordered list of byte chunks that compose the body.
 
-        # file field
-        parts.append(f"--{boundary}\r\n".encode())
-        parts.append(f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode())
-        parts.append(b"Content-Type: audio/wav\r\n\r\n")
-        parts.append(wav_bytes)
-        parts.append(b"\r\n")
-
-        # model field
-        parts.append(f"--{boundary}\r\n".encode())
-        parts.append(b'Content-Disposition: form-data; name="model"\r\n\r\n')
-        parts.append(self.model_name.encode())
-        parts.append(b"\r\n")
-
-        # language field
-        parts.append(f"--{boundary}\r\n".encode())
-        parts.append(b'Content-Disposition: form-data; name="language"\r\n\r\n')
-        parts.append(self.language.encode())
-        parts.append(b"\r\n")
-
-        # response_format
-        parts.append(f"--{boundary}\r\n".encode())
-        parts.append(b'Content-Disposition: form-data; name="response_format"\r\n\r\n')
-        parts.append(b"json\r\n")
-
-        parts.append(f"--{boundary}--\r\n".encode())
-        return parts
+        Shaping lives in ``voice_typer.server.cloud._providers.openai``.
+        """
+        return build_multipart_parts(wav_bytes, filename, boundary, self.model_name, self.language)
 
     # ── Test connection ──────────────────────────────────────────────
 
     def test_connection(self) -> tuple[bool, str]:
         """Test the API connection. Returns (success, message).
 
-        RELIABILITY-004: redacts any secret-looking substring from the
+        Redaction contract: any secret-looking substring is stripped from the
         returned message so a leaked key in an exception string does
         not propagate to the UI.
 
@@ -950,8 +718,8 @@ class CloudEngine:
         empty).  We never send the API key to a URL the user didn't
         configure.
         """
-        # HU-16 / ADR-0016 Design Rule 1: no cloud interaction without
-        # consent. ``test_connection`` sends the API key to the provider,
+        # No cloud interaction without consent (ADR-0016 Design Rule 1).
+        # ``test_connection`` sends the API key to the provider,
         # so it is gated exactly like ``transcribe`` (which refuses with
         # ``CloudConsentRequiredError``) — an engine whose per-provider
         # consent flag is False must refuse BEFORE any URL-allowlist

@@ -2,10 +2,14 @@
 OOM protection) and ``cloud_engines._parse_retry_after`` (RFC 7231
 Retry-After parsing).
 
-Both helpers are pure-Python functions in
-``voice_typer/server/cloud_engines.py:152-214`` with no class state —
-they are the security boundary between untrusted server responses and
-the dictation thread's memory budget / sleep budget.
+Both helpers are pure-Python functions with no class state — they are
+the security boundary between untrusted server responses and the
+dictation thread's memory budget / sleep budget. After the cloud
+package split they are DEFINED in
+``voice_typer/server/cloud/_transport.py`` (``_read_capped``) and
+``voice_typer/server/cloud/_retry.py`` (``_parse_retry_after``) and
+re-exported by the ``voice_typer.server.cloud_engines`` facade; the
+imports below go through the facade to pin that re-export contract.
 
   * ``_read_capped`` caps response body size so a malicious or buggy
     server cannot exhaust RAM by returning a 5 GB body.
@@ -140,25 +144,32 @@ class TestParseRetryAfter:
         datetime that can't be subtracted from a tz-aware one) would
         silently regress to the 2s default with no test failure.
         """
-        from voice_typer.server import cloud_engines
+        from voice_typer.server.cloud import _retry
 
         frozen_now = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         # The production code calls ``datetime.now(timezone.utc)`` —
-        # patch the ``datetime`` CLASS inside cloud_engines so ``.now``
-        # returns our frozen instant. ``timezone`` is also imported
-        # from the same module so it stays real.
-        real_datetime = cloud_engines.datetime
+        # patch the ``datetime`` CLASS in the helper's OWNING module
+        # (``cloud._retry`` — the leaf that defines
+        # ``_parse_retry_after``) so ``.now`` returns our frozen
+        # instant. ``timezone`` is also imported from the same module
+        # so it stays real. Patching the facade module's attribute
+        # would NOT affect the leaf function's globals.
+        real_datetime = _retry.datetime
 
         class _FrozenDatetime(real_datetime):
             @classmethod
             def now(cls, tz=None):
                 return frozen_now if tz is timezone.utc else frozen_now.replace(tzinfo=None)
 
-        monkeypatch.setattr(cloud_engines, "datetime", _FrozenDatetime)
+        monkeypatch.setattr(_retry, "datetime", _FrozenDatetime)
 
         # HTTP-date 30 seconds in the future (RFC 7231 §7.1.3 format).
         future_dt = frozen_now + timedelta(seconds=30)
         http_date = future_dt.strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+        # Call through the FACADE name to prove the re-exported
+        # function is the same object the leaf patched above.
+        from voice_typer.server import cloud_engines
 
         result = cloud_engines._parse_retry_after(http_date)
 
