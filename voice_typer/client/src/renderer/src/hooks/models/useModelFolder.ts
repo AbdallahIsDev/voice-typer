@@ -123,8 +123,8 @@ export function useModelFolder({
 			}
 			if (importResult.errors.length > 0) {
 				for (const err of importResult.errors) {
-					// XZ-R16-09: prefix with [renderer:useModelFolder] to
-					// match the [renderer:<module>] convention.
+					// Prefix with [renderer:useModelFolder] to match the
+					// [renderer:<module>] convention.
 					console.error(
 						"[renderer:useModelFolder] Import error for",
 						err.model,

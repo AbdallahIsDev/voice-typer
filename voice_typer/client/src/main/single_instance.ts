@@ -1,12 +1,12 @@
 /**
  * Single-instance gate + stale-lock recovery.
  *
- * Extracted from `index.ts` (REF-2). Owns:
+ * Extracted from `index.ts`. Owns:
  *   - `computeConfigDir()` — re-exported from `./config-dir` (the
- *     dependency-free leaf it was extracted into during the O1 logs →
- *     logs/ migration; see its module docstring). Re-exported here so
- *     all existing `from "../single_instance"` import sites keep
- *     working without churn.
+ *     dependency-free leaf it was extracted into during the config-dir
+ *     migration; see its module docstring). Re-exported here so all
+ *     existing `from "../single_instance"` import sites keep working
+ *     without churn.
  *   - `electronPidFile()` / `writeElectronPidFile()` / `clearElectronPidFile()`
  *     / `readStaleElectronPid()` — PID-file management for stale-lock
  *     detection.
@@ -25,11 +25,11 @@ import { log } from "./logging";
 import { showMainWindow } from "./windows";
 
 // Re-export so existing importers of `computeConfigDir` from
-// `./single_instance` keep working after the O1 extraction.
+// `./single_instance` keep working after the `./config-dir` extraction.
 export { computeConfigDir } from "./config-dir";
 
 export function electronPidFile(): string {
-	// O3: transient runtime state (pids, locks, session markers) lives
+	// Transient runtime state (pids, locks, session markers) lives
 	// under a dedicated `run/` subdir of the config dir.
 	return path.join(computeConfigDir(), "run", "electron.pid");
 }
@@ -262,7 +262,7 @@ export function acquireSingleInstanceLock(): void {
 		// app.exit(0) terminates without waiting.
 		app.exit(0);
 	} else {
-		// P1-1.4: we got the lock — write our PID so a future launch can
+		// We got the lock — write our PID so a future launch can
 		// detect if we've crashed hard and release the stale lock.
 		writeElectronPidFile();
 		app.on("second-instance", () => {

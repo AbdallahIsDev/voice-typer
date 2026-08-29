@@ -143,9 +143,9 @@ export function useModelConfig({
 				);
 			}
 		} catch (err) {
-			// XZ-R16-09: prefix with [renderer:useModelConfig] to
-			// match the [renderer:<module>] convention adopted by
-			// other hooks (usePython, useConnection, etc).
+			// Prefix with [renderer:useModelConfig] to match the
+			// [renderer:<module>] convention adopted by other hooks
+			// (usePython, useConnection, etc).
 			console.error(
 				"[renderer:useModelConfig] Failed to refresh model status:",
 				err,
@@ -197,8 +197,8 @@ export function useModelConfig({
 					deepgram: safeApiKey(cfg?.deepgram_api_key),
 				});
 			} else {
-				// XZ-R16-09: prefix with [renderer:useModelConfig] to
-				// match the [renderer:<module>] convention.
+				// Prefix with [renderer:useModelConfig] to match the
+				// [renderer:<module>] convention.
 				console.error(
 					"[renderer:useModelConfig] Failed to load config:",
 					cfgResult.reason,
@@ -227,7 +227,7 @@ export function useModelConfig({
 					);
 				}
 			} else {
-				// XZ-R16-09: prefix with [renderer:useModelConfig].
+				// Prefix with [renderer:useModelConfig] per the log-prefix convention.
 				console.error(
 					"[renderer:useModelConfig] Failed to get model status:",
 					statusResult.reason,
@@ -244,7 +244,7 @@ export function useModelConfig({
 					setModelCatalog(byName);
 				}
 			} else {
-				// XZ-R16-09: prefix with [renderer:useModelConfig].
+				// Prefix with [renderer:useModelConfig] per the log-prefix convention.
 				console.error(
 					"[renderer:useModelConfig] Failed to get model catalog:",
 					catalogResult.reason,

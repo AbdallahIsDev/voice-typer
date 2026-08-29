@@ -155,7 +155,7 @@ export default function App() {
 	useSoundFeedback();
 
 	// "?" key opens a help overlay listing keyboard shortcuts.
-	// Extracted to `useHelpOverlayShortcut` (EO-28) — returns the
+	// Extracted to `useHelpOverlayShortcut` — returns the
 	// open flag + stable open/close callbacks.
 	const { showHelpOverlay, openHelp, closeHelp } = useHelpOverlayShortcut();
 
@@ -211,7 +211,7 @@ export default function App() {
 		typeof window !== "undefined"
 			? (window.window_ as WindowBridge)
 			: undefined;
-	// Extracted to `useWindowMaximized` (EO-28) — queries the native
+	// Extracted to `useWindowMaximized` — queries the native
 	// bridge on mount, mirrors `is-maximized` onto <html>, returns the
 	// boolean for the caller's own chrome styling.
 	const isMaximized = useWindowMaximized(bridge);
@@ -278,7 +278,7 @@ export default function App() {
 		return undefined;
 	});
 
-	// paste_failed toast — extracted to `usePasteFailedToast` (EO-28).
+	// paste_failed toast — extracted to `usePasteFailedToast`.
 	usePasteFailedToast(t);
 
 	// Degradation-event toasts — the typed-but-previously-unsubscribed
@@ -390,11 +390,11 @@ export default function App() {
 		() => setSidebarCollapsed((c) => !c),
 		[],
 	);
-	// open/close callbacks come from `useHelpOverlayShortcut` (EO-28) —
+	// open/close callbacks come from `useHelpOverlayShortcut` —
 	// they are already stable (memoized with empty deps).
 
 	// Onboarding-complete handler extracted to `useOnboardingComplete`
-	// (EO-28): navigate home + re-apply the theme from the saved config.
+	// navigate home + re-apply the theme from the saved config.
 	const handleOnboardingComplete = useOnboardingComplete({
 		navigate,
 		call,

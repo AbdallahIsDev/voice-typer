@@ -1,42 +1,14 @@
 /**
  * Tests for the centralized SoundManager.
  *
- * SOUND-FIX-REWRITE: verifies the four bug fixes documented in
- * sound-manager.ts:
+ * Verifies the four bug fixes documented in sound-manager.ts:
  *  1. Failed init is retried (not permanently stuck).
  *  2. localStorage flag is read with safe fallback.
  *  3. setSoundFeedbackEnabled persists to localStorage.
  *  4. playSoundCue is gated by the enabled flag.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-// Mock AudioContext — jsdom doesn't implement Web Audio API.
-/**
- * Build a controlled in-memory Storage stub and install it as the
- * global `localStorage` via `vi.stubGlobal`.
- *
- * Spying on the jsdom `localStorage` INSTANCE does not reliably
- * intercept the module's calls in the CI (Node 24) jsdom environment
- * ("expected setItem to be called" fails there even though the same
- * spy works under Node 26's fallback storage). Since sound-manager.ts
- * reads/writes the bare `localStorage` global at call time, replacing
- * `globalThis.localStorage` entirely is environment-independent.
- */
-const stubGlobalLocalStorage = (overrides: {
-	setItem?: (key: string, value: string) => void;
-	getItem?: (key: string) => string | null;
-}): void => {
-	vi.stubGlobal("localStorage", {
-		get length() {
-			return 0;
-		},
-		clear: vi.fn(),
-		getItem: overrides.getItem ?? vi.fn(() => null),
-		key: vi.fn(() => null),
-		removeItem: vi.fn(),
-		setItem: overrides.setItem ?? vi.fn(),
-	});
-};
+import { stubGlobalLocalStorage } from "./helpers/local-storage-stub";
 
 class MockAudioContext {
 	state: "suspended" | "running" | "closed" = "suspended";
@@ -194,7 +166,7 @@ describe("SoundManager", () => {
 		expect(mockCtor).toHaveBeenCalled();
 	});
 
-	it("XZ-R16-08: isEnabled logs debug message when localStorage.getItem throws", async () => {
+	it("isEnabled logs debug message when localStorage.getItem throws", async () => {
 		const { isSoundFeedbackEnabled, _resetSoundManagerForTests } = await import(
 			"@/lib/sound-manager"
 		);
@@ -230,122 +202,235 @@ describe("SoundManager", () => {
 	});
 });
 
-describe("SoundManager — ZU-34 visual feedback flag (deaf mirror)", () => {
-	let originalAudioContext: typeof window.AudioContext | undefined;
-	let mockCtor: ReturnType<typeof vi.fn>;
+// ── Web Audio synthesis parity (per-kind cue table) ─────────────────────
+//
+// playViaAudioContext schedules each cue from the CUE_SPECS table. These
+// tests pin the EXACT automation calls (values + absolute times + call
+// order) that the implementation must produce, so any change to the
+// synthesis path (e.g. the table collapse) can never silently change
+// what a cue sounds like.
+
+type RecordedCall = { method: string; value: number; time: number };
+
+class RecordingParam {
+	calls: RecordedCall[] = [];
+	setValueAtTime(value: number, time: number): void {
+		this.calls.push({ method: "setValueAtTime", value, time });
+	}
+	exponentialRampToValueAtTime(value: number, time: number): void {
+		this.calls.push({ method: "exponentialRampToValueAtTime", value, time });
+	}
+}
+
+class RecordingOscillator {
+	type: OscillatorType = "sine";
+	frequency = new RecordingParam();
+	connectCalls: unknown[] = [];
+	start = vi.fn();
+	stop = vi.fn();
+	disconnect = vi.fn();
+	onended: (() => void) | null = null;
+	connect(node: unknown) {
+		this.connectCalls.push(node);
+		return { connect: (dest: unknown) => this.connectCalls.push(dest) };
+	}
+}
+
+class RecordingGain {
+	gain = new RecordingParam();
+	connectCalls: unknown[] = [];
+	disconnect = vi.fn();
+	connect(node: unknown) {
+		this.connectCalls.push(node);
+		return { connect: () => ({}) };
+	}
+}
+
+class RecordingAudioContext {
+	state: "running" | "suspended" | "closed" = "running";
+	// Non-zero currentTime so a hard-coded `0` time offset in the
+	// synthesis path cannot sneak past these assertions.
+	currentTime = 7;
+	destination = { type: "destination" };
+	oscillators: RecordingOscillator[] = [];
+	gains: RecordingGain[] = [];
+	createOscillator(): RecordingOscillator {
+		const osc = new RecordingOscillator();
+		this.oscillators.push(osc);
+		return osc;
+	}
+	createGain(): RecordingGain {
+		const gain = new RecordingGain();
+		this.gains.push(gain);
+		return gain;
+	}
+	resume(): Promise<void> {
+		return Promise.resolve();
+	}
+	close(): Promise<void> {
+		return Promise.resolve();
+	}
+}
+
+describe("SoundManager — Web Audio synthesis matches the cue table", () => {
+	const T = 7; // RecordingAudioContext.currentTime
+
+	// Parity fixtures: param automation calls with ABSOLUTE times —
+	// identical to the per-kind synthesis branch bodies.
+	const expected: Record<
+		"start" | "stop" | "error" | "complete",
+		{
+			type: OscillatorType;
+			duration: number;
+			frequency: RecordedCall[];
+			gain: RecordedCall[];
+		}
+	> = {
+		start: {
+			type: "sine",
+			duration: 0.13,
+			frequency: [
+				{ method: "setValueAtTime", value: 660, time: T },
+				{ method: "exponentialRampToValueAtTime", value: 880, time: T + 0.08 },
+			],
+			gain: [
+				{ method: "setValueAtTime", value: 0.0001, time: T },
+				{ method: "exponentialRampToValueAtTime", value: 0.15, time: T + 0.01 },
+				{
+					method: "exponentialRampToValueAtTime",
+					value: 0.0001,
+					time: T + 0.12,
+				},
+			],
+		},
+		stop: {
+			type: "sine",
+			duration: 0.19,
+			frequency: [
+				{ method: "setValueAtTime", value: 523, time: T },
+				{ method: "exponentialRampToValueAtTime", value: 392, time: T + 0.1 },
+			],
+			gain: [
+				{ method: "setValueAtTime", value: 0.0001, time: T },
+				{ method: "exponentialRampToValueAtTime", value: 0.15, time: T + 0.01 },
+				{
+					method: "exponentialRampToValueAtTime",
+					value: 0.0001,
+					time: T + 0.18,
+				},
+			],
+		},
+		error: {
+			type: "square",
+			duration: 0.25,
+			frequency: [{ method: "setValueAtTime", value: 200, time: T }],
+			gain: [
+				{ method: "setValueAtTime", value: 0.0001, time: T },
+				{
+					method: "exponentialRampToValueAtTime",
+					value: 0.18,
+					time: T + 0.005,
+				},
+				{
+					method: "exponentialRampToValueAtTime",
+					value: 0.0001,
+					time: T + 0.24,
+				},
+			],
+		},
+		complete: {
+			type: "triangle",
+			duration: 0.22,
+			frequency: [
+				{ method: "setValueAtTime", value: 880, time: T },
+				{ method: "setValueAtTime", value: 1175, time: T + 0.1 },
+			],
+			gain: [
+				{ method: "setValueAtTime", value: 0.0001, time: T },
+				{
+					method: "exponentialRampToValueAtTime",
+					value: 0.14,
+					time: T + 0.005,
+				},
+				{ method: "setValueAtTime", value: 0.14, time: T + 0.095 },
+				{
+					method: "exponentialRampToValueAtTime",
+					value: 0.0001,
+					time: T + 0.1,
+				},
+				{
+					method: "exponentialRampToValueAtTime",
+					value: 0.14,
+					time: T + 0.105,
+				},
+				{ method: "setValueAtTime", value: 0.14, time: T + 0.21 },
+				{
+					method: "exponentialRampToValueAtTime",
+					value: 0.0001,
+					time: T + 0.22,
+				},
+			],
+		},
+	};
 
 	beforeEach(() => {
 		vi.resetModules();
-		localStorage.clear();
-		originalAudioContext = window.AudioContext;
-		mockCtor = vi.fn(() => new MockAudioContext());
-		window.AudioContext = mockCtor as typeof AudioContext;
 	});
 
 	afterEach(() => {
-		if (originalAudioContext !== undefined) {
-			window.AudioContext = originalAudioContext;
-		} else {
-			// @ts-expect-error — restoring from undefined state
-			delete window.AudioContext;
-		}
 		vi.restoreAllMocks();
 	});
 
-	it("setVisualFeedbackEnabled persists to localStorage under the visual key", async () => {
-		const { setVisualFeedbackEnabled } = await import("@/lib/sound-manager");
-		setVisualFeedbackEnabled(true);
-		expect(localStorage.getItem("vt_visual_feedback_enabled")).toBe("1");
-		setVisualFeedbackEnabled(false);
-		expect(localStorage.getItem("vt_visual_feedback_enabled")).toBe("0");
-	});
+	for (const kind of ["start", "stop", "error", "complete"] as const) {
+		it(`schedules "${kind}" with the exact expected automation sequence`, async () => {
+			const {
+				playSoundCue,
+				setSoundFeedbackEnabled,
+				_resetSoundManagerForTests,
+			} = await import("@/lib/sound-manager");
+			_resetSoundManagerForTests();
+			setSoundFeedbackEnabled(true);
 
-	it("isVisualFeedbackEnabled defaults to false on a fresh reset", async () => {
-		const { isVisualFeedbackEnabled, _resetSoundManagerForTests } =
-			await import("@/lib/sound-manager");
-		_resetSoundManagerForTests();
-		expect(isVisualFeedbackEnabled()).toBe(false);
-	});
+			const ctx = new RecordingAudioContext();
+			// Function DECLARATION (not an expression): `new` on a plain
+			// function that returns an object resolves to that object, so the
+			// module's `new AudioContext()` gets our recording ctx. A vi.fn
+			// arrow mock would NOT work — vitest 4's mock construct trap does
+			// not propagate the impl's returned object to `new` — and the
+			// function-expression form trips the useArrowFunction lint rule,
+			// whose arrow fix would break `new` (arrows cannot be constructed).
+			function RecordingAudioContextCtor() {
+				return ctx;
+			}
+			window.AudioContext =
+				RecordingAudioContextCtor as unknown as typeof AudioContext;
 
-	it("isVisualFeedbackEnabled reflects the persisted value after setVisualFeedbackEnabled(true)", async () => {
-		const {
-			isVisualFeedbackEnabled,
-			setVisualFeedbackEnabled,
-			_resetSoundManagerForTests,
-		} = await import("@/lib/sound-manager");
-		_resetSoundManagerForTests();
-		setVisualFeedbackEnabled(true);
-		expect(isVisualFeedbackEnabled()).toBe(true);
-	});
+			playSoundCue(kind);
 
-	it("isVisualFeedbackEnabled falls back to in-memory default when localStorage is empty", async () => {
-		const { isVisualFeedbackEnabled, _resetSoundManagerForTests } =
-			await import("@/lib/sound-manager");
-		_resetSoundManagerForTests();
-		// No localStorage entry — must fall back to the in-memory default (false).
-		localStorage.clear();
-		expect(isVisualFeedbackEnabled()).toBe(false);
-	});
+			expect(ctx.oscillators).toHaveLength(1);
+			expect(ctx.gains).toHaveLength(1);
+			const osc = ctx.oscillators[0];
+			const gain = ctx.gains[0];
+			if (!osc || !gain) {
+				throw new Error("cue did not schedule an oscillator + gain pair");
+			}
+			const spec = expected[kind];
 
-	it("setVisualFeedbackEnabled does NOT throw when localStorage.setItem fails", async () => {
-		const { setVisualFeedbackEnabled, _resetSoundManagerForTests } =
-			await import("@/lib/sound-manager");
-		_resetSoundManagerForTests();
+			expect(osc.type).toBe(spec.type);
+			expect(osc.frequency.calls).toEqual(spec.frequency);
+			expect(gain.gain.calls).toEqual(spec.gain);
 
-		const setItemSpy = vi.fn(() => {
-			throw new DOMException("quota exceeded");
+			// Shared graph + lifecycle: osc → gain → destination chain
+			// (the second hop arrives through the chained connect on
+			// osc.connect's return value), started at currentTime, stopped
+			// at currentTime + duration.
+			expect(osc.connectCalls[0]).toBe(gain);
+			expect(osc.connectCalls[1]).toBe(ctx.destination);
+			expect(osc.start).toHaveBeenCalledWith(T);
+			expect(osc.stop).toHaveBeenCalledWith(T + spec.duration);
+
+			// Per-cue teardown is wired via osc.onended.
+			expect(typeof osc.onended).toBe("function");
 		});
-		stubGlobalLocalStorage({ setItem: setItemSpy });
-		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-		try {
-			// Must NOT throw — the in-memory flag still updates.
-			expect(() => setVisualFeedbackEnabled(true)).not.toThrow();
-			expect(setItemSpy).toHaveBeenCalled();
-			// The warning surfaces the localStorage failure to operators.
-			expect(warnSpy).toHaveBeenCalled();
-		} finally {
-			vi.unstubAllGlobals();
-			warnSpy.mockRestore();
-		}
-	});
-
-	it("isVisualFeedbackEnabled logs debug message when localStorage.getItem throws", async () => {
-		const { isVisualFeedbackEnabled, _resetSoundManagerForTests } =
-			await import("@/lib/sound-manager");
-		_resetSoundManagerForTests();
-
-		const getItemSpy = vi.fn(() => {
-			throw new DOMException("SecurityError");
-		});
-		stubGlobalLocalStorage({ getItem: getItemSpy });
-		const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
-
-		try {
-			const result = isVisualFeedbackEnabled();
-			// Default in-memory flag is false on a fresh reset.
-			expect(result).toBe(false);
-			expect(debugSpy).toHaveBeenCalled();
-			const debugMsg = debugSpy.mock.calls[0]?.[0] ?? "";
-			expect(String(debugMsg)).toContain("[renderer:sound-manager]");
-		} finally {
-			vi.unstubAllGlobals();
-			debugSpy.mockRestore();
-		}
-	});
-
-	it("uses a SEPARATE localStorage key from the sound-feedback flag", async () => {
-		const {
-			setSoundFeedbackEnabled,
-			setVisualFeedbackEnabled,
-			_resetSoundManagerForTests,
-		} = await import("@/lib/sound-manager");
-		_resetSoundManagerForTests();
-
-		setSoundFeedbackEnabled(true);
-		setVisualFeedbackEnabled(false);
-		// Sound is enabled, visual is disabled — the two flags are independent.
-		expect(localStorage.getItem("vt_sound_feedback_enabled")).toBe("1");
-		expect(localStorage.getItem("vt_visual_feedback_enabled")).toBe("0");
-	});
+	}
 });

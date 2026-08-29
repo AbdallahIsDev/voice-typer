@@ -115,7 +115,7 @@ nsis:
   # scripts/windows/uninstall_permissions.py which in turn calls
   # voice_typer.server.server_platform.autostart_windows.
   # _unregister_all_voicetyper_runkeys / _unregister_all_voicetyper_tasks
-  # (the production helpers added in S2-CR-69).
+  # (the production helpers).
   #
   # See scripts/windows/uninstaller.nsh for the NSIS macro definition
   # and scripts/windows/uninstall.bat for the Python-first / PowerShell-
@@ -123,7 +123,7 @@ nsis:
   # tests/test_windows_installer_extra_resources.py.
   include: ../../scripts/windows/uninstaller.nsh
   # Cross-platform autostart-on-uninstall cleanup: Windows is HANDLED
-  # via the .nsh + .bat wiring above (S2-CR-69); Linux is HANDLED via
+  # via the .nsh + .bat wiring above; Linux is HANDLED via
   # scripts/linux/prerm + prerm.rpm; macOS has a low-severity GAP
   # pending an `uninstall-autostart.command` script. Full context +
   # the deferred fix path live in

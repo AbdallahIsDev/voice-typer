@@ -1,7 +1,7 @@
 /**
  * useOnboardingComplete — handles the wizard-finished transition.
  *
- * Extracted from App.tsx (EO-28, Phase 4.5 spaghetti split) to keep
+ * Extracted from App.tsx (Phase 4.5 spaghetti split) to keep
  * App.tsx a pure layout shell. Behaviour is byte-identical to the
  * original inline ``handleOnboardingComplete`` callback:
  *

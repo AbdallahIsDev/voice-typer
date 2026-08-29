@@ -65,13 +65,13 @@ import {
 
 const _origEnv = { ...process.env };
 
-describe("XS-78: single_instance.ts", () => {
+describe("single_instance.ts", () => {
 	let tmpDir: string;
 	let savedConfigDir: string | undefined;
 
 	beforeEach(() => {
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-single-instance-"));
-		// O3: electron.pid lives under `<configDir>/run`; pre-create the
+		// electron.pid lives under `<configDir>/run`; pre-create the
 		// subdir so direct fs.writeFileSync in the tests works without
 		// relying on writeElectronPidFile's own mkdirSync.
 		fs.mkdirSync(path.join(tmpDir, "run"), { recursive: true });
@@ -121,7 +121,7 @@ describe("XS-78: single_instance.ts", () => {
 	});
 
 	describe("electronPidFile()", () => {
-		it("returns <configDir>/run/electron.pid (O3)", () => {
+		it("returns <configDir>/run/electron.pid", () => {
 			const f = electronPidFile();
 			expect(f).toBe(path.join(tmpDir, "run", "electron.pid"));
 		});
@@ -180,7 +180,7 @@ describe("XS-78: single_instance.ts", () => {
 			}
 		});
 
-		it("XZ-R5-009: readStaleElectronPid() returns the PID when alive but not Voice Typer (PID reuse)", () => {
+		it("readStaleElectronPid() returns the PID when alive but not Voice Typer (PID reuse)", () => {
 			writeElectronPidFile();
 			// The PID is alive (it's the current vitest process), so
 			// ``process.kill(pid, 0)`` succeeds and ``readStaleElectronPid``
