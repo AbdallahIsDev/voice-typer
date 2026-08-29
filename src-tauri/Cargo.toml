@@ -16,7 +16,7 @@ name = "voice-typer-tauri"
 path = "src/main.rs"
 
 [build-dependencies]
-tauri-build = { version = "2", features = ["config-json5"] }
+tauri-build = { version = "2" }
 
 [dependencies]
 # Tauri v2 core — tray support is built into the core crate in v2
@@ -34,7 +34,7 @@ tauri-build = { version = "2", features = ["config-json5"] }
 # behind the ``tray-icon`` feature (NOT a separate tauri-plugin-tray
 # crate). ``TrayIconBuilder`` / ``tauri::menu`` are only available when
 # this feature is enabled.
-tauri = { version = "2", features = ["tray-icon", "image-png", "config-json5"] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
 # XE-4-4: tauri-plugin-clipboard-manager removed — the renderer uses

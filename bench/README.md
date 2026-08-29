@@ -1,6 +1,6 @@
 # Voice Typer — Benchmarks
 
-**Status: Benchmark harness available — run on reference hardware (cold import ≈ 2 ms; model sizes verified: tiny.en 74 MB, small.en 463 MB, parakeet 2393 MB).**
+**Status: Benchmark harness available — run on your hardware (cold import is tens of milliseconds and depends on hardware/OS — ≈ 84 ms observed on Windows; the CI-tracked worker-startup metric runs ≈ 0.9 s first-run / ≈ 0.3 s median on CI runners, target ≤ 600 ms median; model sizes verified: tiny.en 74 MB, small.en 463 MB, parakeet 2393 MB).**
 
 The benchmark harness (`bench_transcription.py`) is ready for use. Run it
 to generate measurements for your hardware configuration. The startup

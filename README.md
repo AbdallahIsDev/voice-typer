@@ -206,7 +206,7 @@ A desktop shortcut with a microphone icon is automatically created on first star
 
 ## Fast Startup
 
-The tray icon appears quickly on startup (measured ~2 ms cold-import on reference hardware — well under 1 second; run `python bench/bench_startup.py` to measure on yours). The transcription engine is created in a background thread while the UI becomes immediately responsive. The hotkey is usable once the model finishes loading — cold-start load time varies by model size and disk speed (run `python bench/bench_transcription.py` for measurements). If the model hasn't loaded yet when you press it, you'll see a "Starting up — please wait" message. See `bench/` for benchmark tooling.
+The tray icon appears quickly on startup (cold import is measured in tens of milliseconds — ~84 ms observed on Windows — and varies with hardware and OS; the CI-tracked worker-startup metric runs ~0.9 s first-run / ~0.3 s median on CI runners against a ≤600 ms median target; run `python bench/bench_startup.py` to measure on yours). The transcription engine is created in a background thread while the UI becomes immediately responsive. The hotkey is usable once the model finishes loading — cold-start load time varies by model size and disk speed (run `python bench/bench_transcription.py` for measurements). If the model hasn't loaded yet when you press it, you'll see a "Starting up — please wait" message. See `bench/` for benchmark tooling.
 
 ## Settings
 
