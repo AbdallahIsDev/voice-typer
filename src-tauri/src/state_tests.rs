@@ -102,6 +102,51 @@ async fn test_shutdown_sidecar_for_exit_is_idempotent() {
     first_handle.abort();
 }
 
+// ── SidecarState::begin_shutdown ───────────────────────────────
+
+/// `begin_shutdown` is the canonical swap + wakeup pair: the first
+/// call swaps `shutting_down` false→true (returning `false`), the
+/// second sees it already set (returning `true`), and BOTH calls fire
+/// the supervisor wakeup. A `notified()` future registered BEFORE the
+/// notify must complete on its first poll — the stored-permit
+/// semantics that let the production teardown path
+/// (`shutdown_sidecar_for_exit`, which performs the same adjacent
+/// pair inline) wake a supervisor that is only just entering its
+/// backoff `tokio::select!`, instead of that supervisor sleeping out
+/// the full backoff step before re-checking `shutting_down`.
+#[tokio::test]
+async fn test_begin_shutdown_swaps_flag_and_wakes_notify_waiter() {
+    let state = SidecarState::new();
+    assert!(!state.shutting_down.load(std::sync::atomic::Ordering::SeqCst));
+
+    // Register the waiter BEFORE the notify (mirrors a supervisor
+    // task parked in — or about to enter — `notified()`).
+    let waiter = state.shutdown_notify.notified();
+
+    // First call: performs the swap and fires the wakeup.
+    assert!(
+        !state.begin_shutdown(),
+        "first begin_shutdown must report the flag was previously clear"
+    );
+    assert!(
+        state.shutting_down.load(std::sync::atomic::Ordering::SeqCst),
+        "begin_shutdown must set shutting_down"
+    );
+    // Second call: idempotent swap — reports the flag was already set.
+    assert!(
+        state.begin_shutdown(),
+        "second begin_shutdown must report the flag was already set"
+    );
+
+    // The pre-registered waiter completes on its first poll via the
+    // stored permit — no sleep, no re-poll. This is the property that
+    // makes the shutdown wakeup Notify-based (sub-ms) rather than
+    // poll-based (up to one full backoff step of latency).
+    tokio::time::timeout(Duration::from_secs(1), waiter)
+        .await
+        .expect("notified() waiter must complete via the stored permit");
+}
+
 // ── SidecarHandle::Drop ────────────────────────────────────────
 
 /// `SidecarHandle::ShellPlugin(None)` must be constructible and

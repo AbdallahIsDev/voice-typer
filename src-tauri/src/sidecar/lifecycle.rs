@@ -95,21 +95,23 @@ pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Even
 /// The listener registration lives in `main.rs`'s `.setup`
 /// (wiring-only); this function is the body.
 pub(crate) fn on_quit_app(app_handle: &tauri::AppHandle) {
-    use std::sync::atomic::Ordering;
-
     let sidecar_state = app_handle.state::<Arc<SidecarState>>().inner().clone();
-    if sidecar_state.shutting_down.swap(true, Ordering::SeqCst) {
+    // `begin_shutdown()` performs the canonical adjacent pair —
+    // `shutting_down.swap(true, SeqCst)` (idempotency guard) immediately
+    // followed by `shutdown_notify.notify_one()` (wake a supervisor that
+    // may be mid-backoff-sleep so it observes `shutting_down` immediately
+    // instead of after its next 100ms poll). It returns the PREVIOUS flag
+    // value: `true` means a shutdown is already in flight. On that path
+    // the notify is a benign spurious wakeup — the supervisor re-checks
+    // the flag and goes back to sleep — and `shutdown_sidecar_for_exit`
+    // also fires its own (idempotent) notify on the `RunEvent::Exit` path.
+    if sidecar_state.begin_shutdown() {
         log::info!("[QUIT] quit_app event received — shutdown already in progress; exiting host");
     } else {
         log::info!(
             "[QUIT] quit_app event received — setting shutting_down + exiting host (tray Quit → app.exit)"
         );
     }
-    // Best-effort: wake a supervisor that may be mid-backoff-sleep so it
-    // observes `shutting_down` immediately instead of after its next
-    // 100ms poll. `shutdown_sidecar_for_exit` also fires this notify on
-    // the `RunEvent::Exit` path — redundant but harmless.
-    sidecar_state.shutdown_notify.notify_one();
     app_handle.exit(0);
 }
 

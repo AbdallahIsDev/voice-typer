@@ -1,7 +1,7 @@
 //! Target-triple table for `externalBin` + worker exe naming
 //! (Phase 2a — runtime-pack split, plan-runtime-pack-split §4.4)
 //! (ADR-0020 §4.1) — extracted from the former single-file
-//! `sidecar/spawn.rs` (EO-33 split).
+//! `sidecar/spawn.rs`.
 
 pub(crate) fn current_target_triple() -> String {
     target_triple_for(std::env::consts::ARCH, std::env::consts::OS)

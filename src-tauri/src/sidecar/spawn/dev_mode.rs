@@ -1,5 +1,5 @@
 //! Dev-mode sidecar spawn (ADR-0020 §14) — extracted from the former
-//! single-file `sidecar/spawn.rs` (EO-33 split).
+//! single-file `sidecar/spawn.rs`.
 
 use crate::state::SidecarHandle;
 use crate::util::{SERVER_STARTED_POLL_INTERVAL_MS, SERVER_STARTED_TIMEOUT_MS};

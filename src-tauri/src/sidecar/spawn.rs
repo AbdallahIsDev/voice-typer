@@ -1,6 +1,6 @@
 //! Sidecar spawn + stdout handshake (ADR-0020 §1 + §4.1 + §14).
 //!
-//! Module layout (EO-33 — split out of the former single-file module):
+//! Module layout (split out of the former single-file module):
 //!
 //! - `self` — orchestration: the public spawn entry points
 //!   (`spawn_sidecar_and_get_port[_with_shutdown]`), the dev-vs-release

@@ -1,8 +1,7 @@
 #![allow(clippy::unreachable)] // tauri command macro expansion emits `unreachable!()` fallbacks
 
 //! Generic `dispatch` Tauri command + dispatch helpers (ADR-0020 §7) —
-//! extracted from the former single-file `commands/sidecar_cmds.rs`
-//! (EO-35 split).
+//! extracted from the former single-file `commands/sidecar_cmds.rs`.
 
 use crate::commands::require_main_window;
 use crate::error::VoiceTyperError;
@@ -212,7 +211,14 @@ async fn dispatch_frame(
     cmd: &str,
     data: Option<Value>,
 ) -> Result<Value, VoiceTyperError> {
-    let id = state.next_id.fetch_add(1, Ordering::SeqCst);
+    // Relaxed is sufficient here: `next_id` is a pure unique-id
+    // generator. Uniqueness comes from the atomic RMW itself, not from
+    // the ordering — no other data is published through this operation
+    // and no other thread reasons about the counter's history (the id
+    // is used only as a pending-map key + log-correlation tag + frame
+    // field). Matches the Relaxed fetch_add already used by the
+    // exit-shutdown id path in `sidecar/shutdown.rs`.
+    let id = state.next_id.fetch_add(1, Ordering::Relaxed);
     // debug-level entry log for correlation. The WS reader
     // logs the matching `id` on fulfillment so a slow / dropped
     // dispatch can be traced end-to-end.

@@ -212,6 +212,39 @@ impl SidecarState {
             host_locale: Mutex::new(None),
         }
     }
+
+    /// Mark the host as shutting down and wake the supervisor's
+    /// backoff wait — the two steps must ALWAYS run back-to-back in
+    /// this order:
+    ///
+    /// 1. `shutting_down.swap(true, SeqCst)` (idempotency guard — the
+    ///    first swapper proceeds with teardown, later callers see
+    ///    `true` and short-circuit), immediately followed by
+    /// 2. `self.shutdown_notify.notify_one()`.
+    ///
+    /// Without the immediate `notify_one()`, a supervisor coroutine
+    /// mid-backoff (awaiting `shutdown_notify.notified()` inside the
+    /// `tokio::select!` in `supervisor.rs::respawn_inner`) would sleep
+    /// out the FULL backoff step (500ms–8s) before re-checking
+    /// `shutting_down`; with it, the wakeup latency is sub-ms. The
+    /// `Notify` stores a single permit, so a `notify_one()` fired
+    /// before the supervisor enters `notified()` is consumed by the
+    /// very next `notified()` call — no lost-wakeup window.
+    ///
+    /// The production teardown paths call THIS method:
+    /// `sidecar/shutdown.rs::shutdown_sidecar_for_exit` (app-exit path)
+    /// and `sidecar/lifecycle.rs::on_quit_app` (tray Quit) — it is the
+    /// canonical, unit-tested anchor for the contract (exercised by
+    /// `state_tests.rs`, which asserts both the swap semantics and that a
+    /// pre-registered `notified()` waiter completes without any sleep).
+    /// Keep any future call site on THIS method (or on the same adjacent
+    /// pair) — never re-order the two steps or separate them with I/O.
+    pub(crate) fn begin_shutdown(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        let already_shutting_down = self.shutting_down.swap(true, Ordering::SeqCst);
+        self.shutdown_notify.notify_one();
+        already_shutting_down
+    }
 }
 
 impl Default for SidecarState {

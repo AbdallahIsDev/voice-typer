@@ -66,6 +66,6 @@ pub(crate) use init::sweep_stale_logs;
 #[cfg(test)]
 pub(crate) use panic_hook::PANIC_HOOK_REENTRY;
 #[cfg(test)]
-pub(crate) use redact::redact_pii;
+pub(crate) use redact::{has_any_fast_trigger, redact_pii};
 #[cfg(test)]
 pub(crate) use rotating::RotatingFileWriter;

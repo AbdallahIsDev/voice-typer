@@ -1,5 +1,5 @@
 //! Main-window close-requested branch body (C-ARCH-1) — extracted from
-//! the former single-file `commands/sidecar_cmds.rs` (EO-35 split).
+//! the former single-file `commands/sidecar_cmds.rs`.
 
 use crate::state::SidecarState;
 use std::sync::atomic::Ordering;

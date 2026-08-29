@@ -22,15 +22,17 @@ use tokio_tungstenite::tungstenite::Message;
 /// `RunEvent::Exit` from the Tauri event loop, which fires on
 /// `app.exit()` / quit-tray / Ctrl-C / SIGTERM).
 ///
-/// **Idempotent** via `shutting_down.swap(true, SeqCst)` — returns
-/// immediately if a shutdown is already in flight (either the
-/// renderer's `shutdown_sidecar` command, a prior `ExitRequested`,
-/// or the supervisor already set the flag). This makes it safe
+/// **Idempotent** via `SidecarState::begin_shutdown()` (the canonical
+/// `shutting_down.swap(true, SeqCst)` + supervisor-wakeup
+/// `notify_one()` pair) — returns immediately if a shutdown is already
+/// in flight (either the renderer's `shutdown_sidecar` command, a prior
+/// `ExitRequested`, or tray Quit's `on_quit_app`). This makes it safe
 /// to call from both `ExitRequested` AND `Exit` (which can fire
 /// back-to-back) without double-killing.
 ///
 /// Sequence:
-/// 1. Set `shutting_down` (idempotency guard).
+/// 1. Set `shutting_down` (idempotency guard) + wake the supervisor
+///    (`begin_shutdown()`).
 /// 2. Send the `{"type":"shutdown"}` WS frame (best-effort — skipped
 ///    if the WS is already torn down).
 /// 3. Wait up to `EXIT_SHUTDOWN_ACK_TIMEOUT_MS` (30s) for the sidecar
@@ -51,23 +53,20 @@ use tokio_tungstenite::tungstenite::Message;
 /// `tauri::async_runtime::block_on` + `tokio::time::timeout` so the
 /// run loop never hangs on a misbehaving sidecar.
 pub(crate) async fn shutdown_sidecar_for_exit(state: &Arc<SidecarState>) {
-    use std::sync::atomic::Ordering;
     use std::time::Duration;
 
-    // Idempotency guard.
-    if state.shutting_down.swap(true, Ordering::SeqCst) {
+    // Idempotency guard + supervisor wakeup, as the atomic adjacent pair
+    // (`shutting_down.swap(true, SeqCst)` immediately followed by
+    // `shutdown_notify.notify_one()`). `begin_shutdown()` returns the
+    // PREVIOUS flag value, so `true` here means a teardown is already in
+    // flight. On that path `begin_shutdown()` has already fired a
+    // best-effort `notify_one()` before we return — a benign spurious
+    // wakeup: the supervisor re-checks `shutting_down` when it wakes and
+    // goes back to sleep.
+    if state.begin_shutdown() {
         log::info!("[EXIT-SHUTDOWN] shutting_down already set — skipping duplicate teardown");
         return;
     }
-    // Wake any supervisor task that is mid-backoff-sleep. The select!
-    // in `respawn_inner` is awaiting either the remaining backoff sleep
-    // or this `notified()` future — firing it here cuts the wakeup
-    // latency from ≤100ms (prior polling loop) to sub-ms.
-    // `notify_one()` stores a single permit if no waiter is currently
-    // registered, so this is safe even if the supervisor hasn't yet
-    // entered the `select!` (the next `notified()` call will consume
-    // the stored permit immediately).
-    state.shutdown_notify.notify_one();
 
     //abort the heartbeat task so it doesn't keep
     // dispatching `heartbeat` frames into the dead WS.

@@ -10,7 +10,8 @@
 //! secret-shaped keys before the Rust host writes the JSON to disk, in
 //! case the Python sidecar's own redaction path regresses.
 
-use super::{is_sensitive_key, redact_config_secrets, set_host_locale_core, REDACTED_MARKER};
+use super::locale::set_host_locale_core;
+use super::redaction::{is_sensitive_key, redact_config_secrets, REDACTED_MARKER};
 use crate::commands::main_window_label_check;
 use crate::state::{lock, SidecarState};
 use serde_json::json;

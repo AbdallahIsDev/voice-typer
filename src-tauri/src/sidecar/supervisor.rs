@@ -592,7 +592,7 @@ pub(crate) async fn respawn_inner(
                 }
                 if let Some(old) = old_handle {
                     log::info!(
-                        "[SUPERVISOR] killing old sidecar before installing new one (CR-28)"
+                        "[SUPERVISOR] killing old sidecar before installing new one"
                     );
                     let _ = old.kill_tree().await;
                 }

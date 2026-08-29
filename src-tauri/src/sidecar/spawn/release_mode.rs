@@ -1,6 +1,6 @@
 //! Release-build sidecar spawn via Tauri's `externalBin` (ADR-0020
 //! §1 + §4.1) — extracted from the former single-file
-//! `sidecar/spawn.rs` (EO-33 split).
+//! `sidecar/spawn.rs`.
 
 use crate::state::SidecarHandle;
 use crate::util::{SERVER_STARTED_POLL_INTERVAL_MS, SERVER_STARTED_TIMEOUT_MS};

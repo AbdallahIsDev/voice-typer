@@ -1,6 +1,6 @@
 //! Tauri commands: dispatch, shutdown_sidecar (ADR-0020 §7 + §10).
 //!
-//! Module layout (EO-35 — split out of the former single-file module):
+//! Module layout (split out of the former single-file module):
 //!
 //! - `self` — orchestrator: submodule declarations + the crate-visible
 //!   re-exports (`dispatch`, `dispatch_inner`, `DispatchArgs`,

@@ -1,6 +1,6 @@
 //! `ALLOWED_COMMANDS` defense-in-depth allowlist + shared error-code /
 //! pending-map constants — extracted from the former single-file
-//! `commands/sidecar_cmds.rs` (EO-35 split).
+//! `commands/sidecar_cmds.rs`.
 
 use std::collections::HashSet;
 use std::sync::OnceLock;

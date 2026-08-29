@@ -1,6 +1,6 @@
 //! `server_started` stdout-handshake parsing + the shutting-down loop
 //! short-circuit — extracted from the former single-file
-//! `sidecar/spawn.rs` (EO-33 split).
+//! `sidecar/spawn.rs`.
 
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};

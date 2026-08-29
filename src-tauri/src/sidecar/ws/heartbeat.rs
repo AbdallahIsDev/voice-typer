@@ -63,7 +63,7 @@ pub(crate) async fn abort_heartbeat(state: &Arc<SidecarState>) {
     if let Some(handle) = prev {
         handle.abort();
         log::info!(
-            "[HEARTBEAT] aborted in-flight heartbeat task via abort_heartbeat helper (UE-8-F10)"
+            "[HEARTBEAT] aborted in-flight heartbeat task via abort_heartbeat helper"
         );
     }
 }
@@ -298,7 +298,7 @@ pub(super) async fn spawn_heartbeat_task(
     if let Some(prev) = prev_handle_opt {
         prev.abort();
         log::info!(
-            "[HEARTBEAT] aborted previous heartbeat task before spawning new one (GT-8 / UE-7)"
+            "[HEARTBEAT] aborted previous heartbeat task before spawning new one"
         );
     }
 }

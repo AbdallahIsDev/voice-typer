@@ -162,7 +162,7 @@ pub(super) fn trigger_respawn_off_thread(
                 // got to it.
                 log::warn!(
                     "[SUPERVISOR] respawn request queue full (capacity=8) — \
-                     dropping request (supervisor already processing; UE-8-F11)"
+                     dropping request — supervisor already processing)"
                 );
             }
             Err(std::sync::mpsc::TrySendError::Disconnected((app, state, _gen))) => {
@@ -281,7 +281,7 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
             // recover from a poisoned mutex — the inner
             // data may be stale but we can still attempt a fresh
             // spawn.
-            log::warn!("[SUPERVISOR] respawn-supervisor mutex poisoned — recovering (XE-15-3)");
+            log::warn!("[SUPERVISOR] respawn-supervisor mutex poisoned — recovering");
             poisoned.into_inner()
         }
     };
@@ -335,7 +335,7 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
             // Keep a clone for the caller.
             *guard = Some(tx.clone());
             drop(guard);
-            log::info!("[SUPERVISOR] long-lived respawn-supervisor thread spawned (XE-15-3)");
+            log::info!("[SUPERVISOR] long-lived respawn-supervisor thread spawned");
             Some(tx)
         }
         Err(e) => {
@@ -399,7 +399,7 @@ pub(super) async fn cleanup_and_trigger_respawn(app: &tauri::AppHandle, state: &
     let drained = super::drain_pending_with_disconnect_error(state).await;
     if drained > 0 {
         log::warn!(
-            "[WS-AUTH] drained {} pending dispatch requests on auth failure/timeout (UE-8)",
+            "[WS-AUTH] drained {} pending dispatch requests on auth failure/timeout",
             drained
         );
     }

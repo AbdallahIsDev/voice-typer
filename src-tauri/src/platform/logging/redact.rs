@@ -60,17 +60,7 @@ pub(crate) fn redact_pii(input: &str) -> String {
     // 20+ char alphanumeric run — the generic 20+ char bare-token
     // pattern (`\b[A-Za-z0-9_\-]{20,}\b`, Python `_KEY_PATTERNS[4]`).
     //
-    if !input.contains('@')
-        && !input.contains('+')
-        && !input.contains("Bearer")
-        && !input.contains("Token")
-        && !input.contains("sk-")
-        && !input.contains("gsk_")
-        && !input.contains("://")
-        && !input.contains("key=")
-        && !has_3plus_consecutive_ascii_digits(input)
-        && !has_20plus_alphanumeric_run(input)
-    {
+    if !has_any_fast_trigger(input) {
         return input.to_string();
     }
 
@@ -268,26 +258,6 @@ pub(crate) fn redact_pii(input: &str) -> String {
     out
 }
 
-/// Return true if `input` contains 3+ consecutive ASCII digit bytes.
-/// Mirrors the `\d{3,}` alternative in Python's `_FAST_TRIGGER`. Used
-/// only as a fast-path gate — the actual numeric patterns (phone, SSN,
-/// CC, IBAN) require specific digit groupings, so a hit here does NOT
-/// mean a redaction will occur.
-fn has_3plus_consecutive_ascii_digits(input: &str) -> bool {
-    let mut run = 0u8;
-    for b in input.bytes() {
-        if b.is_ascii_digit() {
-            run += 1;
-            if run >= 3 {
-                return true;
-            }
-        } else {
-            run = 0;
-        }
-    }
-    false
-}
-
 /// Predicate matching the Python `_KEY_PATTERNS` charset
 /// `[A-Za-z0-9_\-\.=]` used by the `Bearer` / `Token` prefix patterns.
 /// Used by `redact_pii` to find the end of a bearer/token value without
@@ -340,23 +310,105 @@ const SECRET_KEYWORDS: &[&str] = &[
     "key",
 ];
 
-/// Return true if `input` contains a run of 20+ consecutive chars from
-/// `[A-Za-z0-9_\-]`. Mirrors the `[A-Za-z0-9_\-]{20,}` alternative in
-/// Python's `_FAST_TRIGGER`. Used only as a fast-path gate — the actual
-/// 20+ char catch-all pattern (`try_match_long_alphanumeric_run`) also
-/// requires word boundaries (`\b`), so a hit here does NOT mean a
-/// redaction will occur.
-fn has_20plus_alphanumeric_run(input: &str) -> bool {
-    let mut run: u32 = 0;
-    for b in input.bytes() {
-        if b.is_ascii_alphanumeric() || b == b'_' || b == b'-' {
-            run += 1;
-            if run >= 20 {
+/// Single-pass fast-path trigger scan. Returns `true` iff at least one
+/// of the trigger conditions below holds — the same set the previous
+/// per-pattern scans checked, now evaluated in ONE byte loop instead
+/// of 10 separate passes (8 substring scans + 2 dedicated run scans).
+/// A miss on every trigger lets [`redact_pii`] return the input
+/// unchanged without the per-byte pattern loop.
+///
+/// Trigger conditions (each is a *necessary* condition for at least one
+/// downstream pattern):
+/// - `@`      — email / URL credentials
+/// - `+`      — international phone (`+<cc>…`)
+/// - `Bearer` / `Token` — keyword prefixes
+/// - `sk-`    — OpenAI-style key
+/// - `gsk_`   — Groq-style key
+/// - `://`    — URL credentials (`https://user:pass@host`)
+/// - `key=`   — bare `key=value` flag form (Python `_FAST_TRIGGER`);
+///   also a substring of `--key=`, `--api_key=`, `--api-key=`, and any
+///   `--<keyword>=` flag whose keyword ends in `key`. Case-sensitive
+///   (mirrors Python).
+/// - 3+ consecutive ASCII digits — US phone, SSN, CC, IBAN (the BBAN
+///   portion always contains 3+ consecutive digits)
+/// - 20+ char `[A-Za-z0-9_\-]` run — the generic bare-token catch-all
+///   (`\b[A-Za-z0-9_\-]{20,}\b`, Python `_KEY_PATTERNS[4]`)
+///
+/// Equivalence with the previous separate scans: all substring needles
+/// are ASCII, so first-byte dispatch + full compare at that position
+/// matches exactly where `str::contains` would (ASCII bytes occur only
+/// as themselves in UTF-8); the digit-run and long-run counters track
+/// the identical byte predicates the removed dedicated scans used
+/// (non-matching bytes — including non-ASCII — reset both runs).
+///
+/// `pub(crate)` so `platform::logging` can re-export it (cfg(test))
+/// to the sibling `logging_tests` module.
+pub(crate) fn has_any_fast_trigger(input: &str) -> bool {
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+    let mut digit_run = 0u8;
+    let mut long_run = 0u32;
+    let mut i = 0;
+    while i < len {
+        let b = bytes[i];
+        // Single-char triggers: `@` (email / URL credentials) and
+        // `+` (international phone).
+        if b == b'@' || b == b'+' {
+            return true;
+        }
+        // 3+ consecutive ASCII digits (US phone / SSN / CC / IBAN).
+        if b.is_ascii_digit() {
+            digit_run += 1;
+            if digit_run >= 3 {
                 return true;
             }
         } else {
-            run = 0;
+            digit_run = 0;
         }
+        // 20+ char `[A-Za-z0-9_\-]` run (bare-token catch-all).
+        if is_long_run_char(b) {
+            long_run += 1;
+            if long_run >= 20 {
+                return true;
+            }
+        } else {
+            long_run = 0;
+        }
+        // Multi-byte substring triggers, dispatched on the first byte.
+        match b {
+            b'B' => {
+                if bytes[i..].starts_with(b"Bearer") {
+                    return true;
+                }
+            }
+            b'T' => {
+                if bytes[i..].starts_with(b"Token") {
+                    return true;
+                }
+            }
+            b's' => {
+                if bytes[i..].starts_with(b"sk-") {
+                    return true;
+                }
+            }
+            b'g' => {
+                if bytes[i..].starts_with(b"gsk_") {
+                    return true;
+                }
+            }
+            b':' => {
+                if bytes[i..].starts_with(b"://") {
+                    return true;
+                }
+            }
+            b'k' => {
+                if bytes[i..].starts_with(b"key=") {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
     }
     false
 }

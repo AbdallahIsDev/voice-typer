@@ -350,7 +350,7 @@ fn test_focus_predicate_true_for_left_click() {
     let event = make_click_event(MouseButton::Left);
     assert!(
         is_focus_main_window_event(&event),
-        "left-click on tray icon must trigger show+focus main window (S3-CR-8)"
+        "left-click on tray icon must trigger show+focus main window"
     );
 }
 
@@ -359,7 +359,7 @@ fn test_focus_predicate_false_for_right_click() {
     let event = make_click_event(MouseButton::Right);
     assert!(
         !is_focus_main_window_event(&event),
-        "right-click must NOT trigger show+focus — it opens the context menu (S3-CR-8)"
+        "right-click must NOT trigger show+focus — it opens the context menu"
     );
 }
 
@@ -368,7 +368,7 @@ fn test_focus_predicate_false_for_middle_click() {
     let event = make_click_event(MouseButton::Middle);
     assert!(
         !is_focus_main_window_event(&event),
-        "middle-click must NOT trigger show+focus — no binding for it (S3-CR-8)"
+        "middle-click must NOT trigger show+focus — no binding for it"
     );
 }
 
@@ -388,7 +388,7 @@ fn test_focus_predicate_false_for_double_click() {
     };
     assert!(
         !is_focus_main_window_event(&event),
-        "double-click must NOT trigger show+focus — only single left-click (S3-CR-8)"
+        "double-click must NOT trigger show+focus — only single left-click"
     );
 }
 
@@ -402,6 +402,6 @@ fn test_focus_predicate_false_for_enter_event() {
     };
     assert!(
         !is_focus_main_window_event(&event),
-        "mouse-enter must NOT trigger show+focus (S3-CR-8)"
+        "mouse-enter must NOT trigger show+focus"
     );
 }

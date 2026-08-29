@@ -1180,7 +1180,7 @@ fn test_redact_pii_bearer_token_trailing_comma_preserved() {
 // expected Python output for cross-reference.
 
 #[test]
-fn test_ue6_bare_key_value_gitlab_pat() {
+fn test_bare_key_value_gitlab_pat() {
     // `pat=glpt_Xb8zV9pT3q2aR1wM5sN7` — 24-char GitLab PAT with
     // no Bearer prefix. `pat` is NOT a secret keyword, so the
     // bare-keyword pattern does NOT match. The 20+ char catch-all
@@ -1192,7 +1192,7 @@ fn test_ue6_bare_key_value_gitlab_pat() {
 }
 
 #[test]
-fn test_ue6_bare_key_value_api_key() {
+fn test_bare_key_value_api_key() {
     // `api_key=A1B2C3D4E5F6G7H8I9J0K1L2M3N4O7P8` — `api_key` IS a
     // secret keyword, so the bare-keyword pattern matches and
     // redacts the 32-char value → `api_key=***`.
@@ -1203,7 +1203,7 @@ fn test_ue6_bare_key_value_api_key() {
 }
 
 #[test]
-fn test_ue6_bearer_with_sk_prefix() {
+fn test_bearer_with_sk_prefix() {
     // `Bearer sk-abc123def456ghi789` — Bearer prefix pattern fires
     // first, redacting the entire value (`sk-abc123...`) →
     // `Bearer ***`. The bare-keyword pattern does NOT fire (no
@@ -1215,7 +1215,7 @@ fn test_ue6_bearer_with_sk_prefix() {
 }
 
 #[test]
-fn test_ue6_24char_bare_token() {
+fn test_24char_bare_token() {
     // `Xb8zV9pT3q2aR1wM5sN7abcd` — 24-char bare token, no prefix.
     // The 20+ char catch-all matches → `***`.
     // Python: `redact_secret` → `_KEY_PATTERNS[4]` → `***`.
@@ -1225,7 +1225,7 @@ fn test_ue6_24char_bare_token() {
 }
 
 #[test]
-fn test_ue6_flag_form_equals() {
+fn test_flag_form_equals() {
     // `--token=secret123` — flag-form Pattern A (`--keyword=value`).
     // `token` is a keyword, `=` delimiter, value `secret123`.
     // Python: `_FLAG_VALUE_PATTERN` → `--token=***`.
@@ -1235,7 +1235,7 @@ fn test_ue6_flag_form_equals() {
 }
 
 #[test]
-fn test_ue6_flag_form_space() {
+fn test_flag_form_space() {
     // `--token secret123` — flag-form Pattern A (`--keyword value`).
     // `token` is a keyword, space delimiter, value `secret123`.
     // Python: `_FLAG_VALUE_PATTERN` → `--token ***`.
@@ -1245,7 +1245,7 @@ fn test_ue6_flag_form_space() {
 }
 
 #[test]
-fn test_ue6_flag_form_multiple_spaces() {
+fn test_flag_form_multiple_spaces() {
     // `--token   secret123` — multiple spaces between keyword and
     // value. Python's `\s+` captures all whitespace in group 1, so
     // the output preserves the spaces.
@@ -1255,7 +1255,7 @@ fn test_ue6_flag_form_multiple_spaces() {
 }
 
 #[test]
-fn test_ue6_bare_key_value_password() {
+fn test_bare_key_value_password() {
     // `password=secret123` — bare-keyword Pattern B. The value
     // `secret123` contains 3+ consecutive digits (`123`), which
     // triggers the fast path (mirrors Python's `_FAST_TRIGGER`
@@ -1268,16 +1268,16 @@ fn test_ue6_bare_key_value_password() {
 }
 
 #[test]
-fn test_ue6_bare_key_value_secret() {
+fn test_bare_key_value_secret() {
     // `secret=topsecret123` — bare-keyword Pattern B. Same 3+-digit
-    // trigger rationale as `test_ue6_bare_key_value_password`.
+    // trigger rationale as `test_bare_key_value_password`.
     let input = "secret=topsecret123";
     let out = redact_pii(input);
     assert_eq!(out, "secret=***");
 }
 
 #[test]
-fn test_ue6_bare_key_value_case_sensitive_fast_path() {
+fn test_bare_key_value_case_sensitive_fast_path() {
     // `TOKEN=abc` — the fast-path trigger `key=` is case-sensitive
     // (mirrors Python's `_FAST_TRIGGER`). `TOKEN=` does NOT contain
     // `key=` (lowercase). And `abc` has no 3+ digits, no 20+ char
@@ -1295,12 +1295,12 @@ fn test_ue6_bare_key_value_case_sensitive_fast_path() {
     let out = redact_pii(input);
     assert_eq!(
         out, input,
-        "UE-6 parity: case-sensitive fast path leaves TOKEN=abc unchanged (mirrors Python _FAST_TRIGGER)"
+        "Python _FAST_TRIGGER parity: case-sensitive fast path leaves TOKEN=abc unchanged (mirrors Python _FAST_TRIGGER)"
     );
 }
 
 #[test]
-fn test_ue6_bare_key_value_case_insensitive_with_trigger() {
+fn test_bare_key_value_case_insensitive_with_trigger() {
     // `TOKEN=secret123456789012345` — the fast-path trigger `key=`
     // is case-sensitive, so `TOKEN=` does NOT trigger via `key=`.
     // But the value `secret123456789012345` is 25 chars, triggering
@@ -1313,7 +1313,7 @@ fn test_ue6_bare_key_value_case_insensitive_with_trigger() {
 }
 
 #[test]
-fn test_ue6_no_false_positive_monkey() {
+fn test_no_false_positive_monkey() {
     // `monkey=abc` — `key` is a keyword but `\b` prevents matching
     // inside `monkey` (the `n` before `key` is a word char, so no
     // word boundary). NOT redacted.
@@ -1323,7 +1323,7 @@ fn test_ue6_no_false_positive_monkey() {
 }
 
 #[test]
-fn test_ue6_no_false_positive_hotkey() {
+fn test_no_false_positive_hotkey() {
     // `hotkey=abc` — same as `monkey=`: `key` is preceded by `t`
     // (word char), so `\b` does not hold. NOT redacted.
     let input = "hotkey=abc";
@@ -1332,7 +1332,7 @@ fn test_ue6_no_false_positive_hotkey() {
 }
 
 #[test]
-fn test_ue6_no_false_positive_unknown_flag() {
+fn test_no_false_positive_unknown_flag() {
     // `--unknown=abc` — `unknown` is NOT a secret keyword. NOT
     // redacted.
     let input = "--unknown=abc";
@@ -1341,7 +1341,7 @@ fn test_ue6_no_false_positive_unknown_flag() {
 }
 
 #[test]
-fn test_ue6_empty_value_not_redacted() {
+fn test_empty_value_not_redacted() {
     // `--token=` with no value — Python's `[^\s=]+` requires at
     // least 1 char. NOT redacted.
     let input = "--token=";
@@ -1350,7 +1350,7 @@ fn test_ue6_empty_value_not_redacted() {
 }
 
 #[test]
-fn test_ue6_flag_value_stops_at_equals() {
+fn test_flag_value_stops_at_equals() {
     // `--api_key=abc=def` — value runs until `=` (`[^\s=]+`), so the
     // value is `abc` and `=def` is left alone. Uses `api_key` (not
     // `token`) so the fast path triggers via the `key=` substring
@@ -1364,7 +1364,7 @@ fn test_ue6_flag_value_stops_at_equals() {
 }
 
 #[test]
-fn test_ue6_flag_value_stops_at_whitespace() {
+fn test_flag_value_stops_at_whitespace() {
     // `--api_key=abc def` — value runs until whitespace, so the
     // value is `abc` and ` def` is left alone. Uses `api_key` so
     // the fast path triggers via the `key=` substring.
@@ -1374,7 +1374,7 @@ fn test_ue6_flag_value_stops_at_whitespace() {
 }
 
 #[test]
-fn test_ue6_api_key_wins_over_key() {
+fn test_api_key_wins_over_key() {
     // `api_key=secret123` — both `api_key` and `key` are keywords.
     // `api_key` comes first in SECRET_KEYWORDS (most-specific
     // first), so it wins. The prefix preserved is `api_key=` (not
@@ -1385,7 +1385,7 @@ fn test_ue6_api_key_wins_over_key() {
 }
 
 #[test]
-fn test_ue6_access_token_keyword() {
+fn test_access_token_keyword() {
     // `access_token=abc123` — `access_token` is a keyword.
     let input = "access_token=abc123";
     let out = redact_pii(input);
@@ -1393,7 +1393,7 @@ fn test_ue6_access_token_keyword() {
 }
 
 #[test]
-fn test_ue6_client_secret_keyword() {
+fn test_client_secret_keyword() {
     // `client_secret=abc123` — `client_secret` is a keyword.
     let input = "client_secret=abc123";
     let out = redact_pii(input);
@@ -1401,7 +1401,7 @@ fn test_ue6_client_secret_keyword() {
 }
 
 #[test]
-fn test_ue6_bearer_keyword_added() {
+fn test_bearer_keyword_added() {
     //`bearer=abc123` — `bearer` is a  task-specified addition
     // (not in Python's `_SECRET_KEYWORDS`). The bare-keyword pattern
     // matches → `bearer=***`. Python would NOT redact this (no
@@ -1412,7 +1412,7 @@ fn test_ue6_bearer_keyword_added() {
 }
 
 #[test]
-fn test_ue6_credential_keyword_added() {
+fn test_credential_keyword_added() {
     //`credential=abc123` — `credential` is a  task-specified
     // addition. Same rationale as `bearer=`.
     let input = "credential=abc123";
@@ -1421,7 +1421,7 @@ fn test_ue6_credential_keyword_added() {
 }
 
 #[test]
-fn test_ue6_20char_run_exactly_20() {
+fn test_20char_run_exactly_20() {
     // Exactly 20 chars — the minimum for the catch-all. Should
     // match → `***`.
     let input = "abcdefghijklmnopqrst";
@@ -1430,7 +1430,7 @@ fn test_ue6_20char_run_exactly_20() {
 }
 
 #[test]
-fn test_ue6_19char_run_not_redacted() {
+fn test_19char_run_not_redacted() {
     // 19 chars — below the 20-char threshold. NOT redacted.
     let input = "abcdefghijklmnopqrs";
     let out = redact_pii(input);
@@ -1438,7 +1438,7 @@ fn test_ue6_19char_run_not_redacted() {
 }
 
 #[test]
-fn test_ue6_20char_run_with_internal_dash() {
+fn test_20char_run_with_internal_dash() {
     // `glpt_Xb8zV9pT3q2aR1wM5sN7` — 27 chars with an internal
     // `-`. The 20+ char catch-all includes `-` in the char class,
     // so the entire run matches → `***`.
@@ -1448,7 +1448,7 @@ fn test_ue6_20char_run_with_internal_dash() {
 }
 
 #[test]
-fn test_ue6_20char_run_does_not_match_inside_word() {
+fn test_20char_run_does_not_match_inside_word() {
     // `a` + 20-char run + `b` — the `a` and `b` are word chars
     // adjacent to the run, so the run extends to include them
     // (22 chars total). The whole 22-char run matches → `***`.
@@ -1460,7 +1460,7 @@ fn test_ue6_20char_run_does_not_match_inside_word() {
 }
 
 #[test]
-fn test_ue6_redact_pii_empty_string_no_panic() {
+fn test_redact_pii_empty_string_no_panic() {
     //defense-in-depth: `redact_pii("")` must not panic. The
     // fast path returns early (no triggers), but this test pins
     // that behavior so a future refactor can't introduce a panic
@@ -1470,7 +1470,7 @@ fn test_ue6_redact_pii_empty_string_no_panic() {
 }
 
 #[test]
-fn test_ue6_flag_form_in_sentence() {
+fn test_flag_form_in_sentence() {
     // Flag-form pattern in the middle of a sentence. The `--token=`
     // is matched at its position, not at position 0.
     let input = "starting with --token=secret123 and done";
@@ -1479,7 +1479,7 @@ fn test_ue6_flag_form_in_sentence() {
 }
 
 #[test]
-fn test_ue6_bare_key_value_in_sentence() {
+fn test_bare_key_value_in_sentence() {
     // Bare-keyword pattern in the middle of a sentence. The value
     // `secret123` contains 3+ digits to trigger the fast path.
     let input = "config has password=secret123 in it";
@@ -1488,7 +1488,7 @@ fn test_ue6_bare_key_value_in_sentence() {
 }
 
 #[test]
-fn test_ue6_20char_run_in_sentence() {
+fn test_20char_run_in_sentence() {
     // 20+ char catch-all in the middle of a sentence.
     let input = "token is Xb8zV9pT3q2aR1wM5sN7abcd here";
     let out = redact_pii(input);
@@ -1496,7 +1496,7 @@ fn test_ue6_20char_run_in_sentence() {
 }
 
 #[test]
-fn test_ue6_no_false_positive_on_normal_paths() {
+fn test_no_false_positive_on_normal_paths() {
     // Normal file paths and URLs should NOT be redacted by the
     // 20+ char catch-all (they contain `/`, `:`, etc. which break
     // the alphanumeric run).
@@ -1579,4 +1579,152 @@ fn test_sweep_stale_logs_missing_dir_is_noop() {
     ));
     std::fs::remove_dir_all(&tmp).ok();
     super::logging::sweep_stale_logs(&tmp); // must not panic
+}
+
+//fast-path single-pass trigger scan ─────────────────
+//
+// The fast path used to run 10 separate passes (8 `contains` scans +
+// 2 dedicated run scans); it is now ONE byte loop
+// (`has_any_fast_trigger`). These tests pin equivalence between the
+// single pass and an independent re-statement of the ORIGINAL
+// per-pattern predicates, over a corpus that includes every trigger
+// family, boundary lengths (19/20-char runs, 2/3-digit runs), partial
+// needle prefixes, needles at end-of-input, and multi-byte UTF-8.
+
+/// Independent re-statement of the original trigger predicates (the
+/// per-pattern form the fast path replaced). Deliberately written
+/// differently from the production scan so agreement is evidence, not
+/// tautology.
+fn legacy_fast_path_trigger(input: &str) -> bool {
+    let has_3plus_digits = {
+        let mut run = 0u8;
+        let mut hit = false;
+        for b in input.bytes() {
+            if b.is_ascii_digit() {
+                run += 1;
+                if run >= 3 {
+                    hit = true;
+                    break;
+                }
+            } else {
+                run = 0;
+            }
+        }
+        hit
+    };
+    let has_20plus_run = {
+        let mut run = 0u32;
+        let mut hit = false;
+        for b in input.bytes() {
+            if b.is_ascii_alphanumeric() || b == b'_' || b == b'-' {
+                run += 1;
+                if run >= 20 {
+                    hit = true;
+                    break;
+                }
+            } else {
+                run = 0;
+            }
+        }
+        hit
+    };
+    input.contains('@')
+        || input.contains('+')
+        || input.contains("Bearer")
+        || input.contains("Token")
+        || input.contains("sk-")
+        || input.contains("gsk_")
+        || input.contains("://")
+        || input.contains("key=")
+        || has_3plus_digits
+        || has_20plus_run
+}
+
+#[test]
+fn test_fast_trigger_scan_matches_legacy_predicates_on_corpus() {
+    let corpus: Vec<&str> = vec![
+        "",
+        "a",
+        "@",
+        "+",
+        "plain log line with words only",
+        "WS reader connected on port 51829", // 5-digit run → digits trigger
+        "12",                                // 2 digits → no trigger
+        "123",                               // 3 digits → trigger
+        "a1-2-3b",                           // separated digits → no digit run
+        "Bearer abc123def456ghi789",
+        "Bearer",
+        "Bearer ",      // needle at end-of-input boundary
+        "Bear",         // partial prefix must NOT trigger
+        "Token sk-live-1234567890abcdef",
+        "Token",
+        "Tkn",          // near-miss first byte
+        "sk-proj-abcdefghijklmnop",
+        "sk-1234",      // prefix present but short token (trigger still fires)
+        "sk_",          // underscore variant must NOT trigger sk-
+        "gsk_groqkey123456789",
+        "gsk",
+        "https://user:pass@host.example.com",
+        "://",
+        ":/",
+        "api_key=hunter2",
+        "key=",
+        "key",          // trailing partial needle
+        "monkey=abc",   // 'key=' substring IS a trigger (fast-path only)
+        "token=alice@example.com",
+        "GB82WEST12345698765432", // IBAN: letters+digits, 22-char run
+        "aaaaaaaaaaaaaaaaaaa",    // exactly 19 chars → no trigger
+        "aaaaaaaaaaaaaaaaaaaa",   // exactly 20 chars → trigger
+        "aaaa-aaaa-aaaa-aaaa-aaa", // 22-char run incl. dashes → trigger
+        "aaaaaaaaaaaaaaaaaaa-a",   // 21 with dash-break? single run → trigger
+        "日本語のログメッセージ",   // non-ASCII, no trigger
+        "ユーザー@example.com",     // non-ASCII + '@' → trigger
+        "emoji 🎙🎙🎙 and text",    // 4-byte chars, no trigger
+        "мир-12345-мир",           // non-ASCII + digits
+        "Bearer",                  // exact needle alone
+        "sk-",                     // exact needle alone
+        "gsk_",                    // exact needle alone
+        "key=@+Bearer",            // multiple triggers in one line
+        "Trailing plus +",
+        "TokenBearer mix",
+        "no trigger but 19 digits 123456789012345678", // 20-char digit run
+    ];
+    for input in corpus {
+        assert_eq!(
+            has_any_fast_trigger(input),
+            legacy_fast_path_trigger(input),
+            "fast-trigger disagreement on input: {input:?}"
+        );
+    }
+}
+
+#[test]
+fn test_fast_trigger_scan_run_boundaries_with_separator_reset() {
+    // 19 alnum + separator + more alnum never reaches a 20-run if the
+    // separator resets — but '-' IS in the run charset, so only a
+    // truly foreign byte resets. Pin both sides of that distinction.
+    assert!(!has_any_fast_trigger(
+        "abcdefghijklmnopqrs" // 19 alnum, no separator
+    ));
+    assert!(has_any_fast_trigger(
+        "abcdefghijklmnopqrst" // 20 alnum
+    ));
+    assert!(has_any_fast_trigger(
+        "abcdefghijklmnopqrs-t" // 21 incl '-' (run charset)
+    ));
+    assert!(!has_any_fast_trigger(
+        "abcdefghijklmnopqrs t" // space resets after 19
+    ));
+    assert!(!has_any_fast_trigger(
+        "éééééééééééééééééééééééé" // 24 non-ASCII chars reset every byte
+    ));
+}
+
+#[test]
+fn test_fast_trigger_scan_digit_run_boundaries() {
+    assert!(!has_any_fast_trigger("99"));      // 2 digits
+    assert!(has_any_fast_trigger("999"));      // 3 digits
+    assert!(!has_any_fast_trigger("9a9a9"));   // no consecutive 3
+    assert!(has_any_fast_trigger("×999×"));    // digits after multibyte
+    assert!(!has_any_fast_trigger("12.34.5")); // separated
 }

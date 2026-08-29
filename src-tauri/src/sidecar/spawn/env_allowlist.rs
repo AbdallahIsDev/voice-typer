@@ -1,6 +1,6 @@
 //! OS-required env-var passthrough allowlist for the `.env_clear()`
 //! spawn paths — extracted from the former single-file
-//! `sidecar/spawn.rs` (EO-33 split).
+//! `sidecar/spawn.rs`.
 
 /// Conservative OS-env allowlist passed through to
 /// the sidecar after `.env_clear()`. The sidecar process should NOT
