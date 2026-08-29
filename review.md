@@ -47,16 +47,6 @@ plus the base repo's pre-existing comprehensive review.
 ### Spaghetti / Phase 4.5 Split Candidates (documented; not all fixed this run)
 - **FR-S10:** `voice_typer/server/crash_recovery.py` (1292 lines, re-audited 2026-08-12 — was 1034, GREW) — Phase 4.5 candidate (create_diagnostic_bundle 384-LOC method
 
----
-
-## Completed
-
-### High Findings Not Yet Fixed (from failed sub-agents — partial work exists on disk)
-
-- **QV-41** — Page padding inconsistencies
-
----
-
 ## Completed
 
 ### High findings — 1 ⚠️ partial remaining (verified 2026-08-12; 19 verified-fixed entries removed from file)
@@ -216,8 +206,6 @@ Compiled 80 deduplicated findings into `/home/z/my-project/voice-typer/review.md
 
 **2026-08-12 re-audit of sampled Phase 4 LO-* fixes (7 sampled, 1 verified):**
 
-
-
 ---
 
 ## Remaining Work
@@ -253,46 +241,9 @@ Compiled 80 deduplicated findings into `/home/z/my-project/voice-typer/review.md
 
 ---
 
-## Phase 1 Investigation Coverage (20 sub-agents)
-
-| Agent | Scope | Files | Findings |
-|-------|-------|-------|----------|
-| FI-1 | Security core | security.py, _security_attributes.py, config_path_safety.py | 6 (1 Med, 5 Low) |
-| FI-2 | Credential store | credential_store.py, _secrets.py | 10 (2 Med, 8 Low) |
-| FI-3 | IPC sidecar_ws + ipc_server | sidecar_ws.py, ipc_server.py | 5 (2 Med, 3 Low) |
-| FI-4 | Cloud engines | cloud_engines.py, llm_polish.py | 7 (2 Med, 5 Low) |
-| FI-5 | Rust host security | src-tauri/src/ | 15 (1 Med C-TEST-5, 4 new Low, 10 dedupes) |
-| FI-6 | TS/Electron main | client/src/main/ | 4 (1 Low, 3 Info) |
-| FI-7 | Diagnostics + env PII | diagnostics_export.py, env_validation.py | 7 (1 High, 6 Low) |
-| FI-8 | Clipboard + privacy | clipboard_snapshot.py, privacy_handlers.py | 8 (2 Med, 6 Low/Info) |
-| FI-9 | AI enhancement + hallucination | ai_enhancement.py, hallucination.py | 6 (1 Med cross-ref, 5 Low/Info) |
-| FI-10 | History DB | history_db.py | 7 (1 Critical regression, 1 Critical spaghetti, 5 Med/Low) |
-| FI-11 | Model integrity | _model_integrity.py, model_hashes.json | 6 (1 High, 5 Low) |
-| FI-12 | Config loader + sanitization | config/loader.py, sanitization.py, coercion.py | 6 (1 Med, 5 Low) |
-| FI-13 | Config schema | config/__init__.py | 9 (1 High, 1 High spaghetti, 7 Med/Low/Info) |
-| FI-14 | Config validators | config_validators/ | 13 (3 Med, 9 Low, 1 Info) |
-| FI-15 | Handler error envelopes | handlers/ | 12 (3 Med, 7 Low, 2 Info) |
-| FI-17 | Crash recovery | crash_recovery.py | 3 (1 Med cross-ref, 1 spaghetti, 1 flaky test) |
-| FI-18 | Shutdown + prewarm | shutdown_controller.py, prewarm_scheduler_posix.py | 7 (1 Med spaghetti, 1 High cross-cutting, 5 Low/Info) |
-| FI-19 | Logging consistency | _log_constants.py, ipc_diagnostics.py | 7 (2 Med, 5 Low/Info) |
-| FI-20 | Cross-cutting spaghetti audit | all Group 4 files >500 LOC | 11 (5 High spaghetti, 6 Med/Low/STALE) |
-
-**Triage note (2026-08-11):** the detailed findings these rows summarize
-are the 13 HU-* entries immediately below. All were spot-verified
-against current source: 9 were already resolved (statuses were stale —
-HU-2, HU-5, HU-14, HU-16, HU-35, HU-37, HU-38, HU-39, HU-40), 3 were
-fixed in this batch (HU-17, HU-28, HU-43), and HU-44 remains Won't Fix
-(multi-day app/ package extraction). Rows whose counts reference
-non-HU finding lists (e.g. FI-5 Rust host security 15 items, FI-10
-History DB 7 items) are NOT covered by this triage — those detail lists
-are not present in this file.
-
----
-
 ## Completed
 
-### WM-9/10 (High) — History DB write future hang + dead code
-- **WM-9 ✅ Fixed (reconciled 2026-08-29):** `_WRITE_FUTURE_TOTAL_TIMEOUT = 60.0` is now REFERENCED — the writer loop enforces the total deadline on every retry iteration (`history_db_internals/writer.py::_submit_write`): on exhaustion it logs a WARNING ("total deadline exceeded ... writer is alive but stuck") and raises `HistoryDBError` per the module's failure convention (DB untouched; the per-retry 30s timeout is preserved as an inner bound). The earlier "STILL OPEN" re-audit was itself stale (the fix landed in commit 83dd9805).
+### 10 (High) — History DB write future hang + dead code
 - **WM-10 ⚠️ PARTIAL:** recovery.py + transcription_download.py (852 LOC dead code) DELETED. `history_db_internals/search.py` legitimately REMAINS: it is the live LIKE-fallback/FTS helper imported by production (the "dead code" claim was wrong); its separator-only-query behavior is contract-pinned (tests/test_history_db.py, tests/test_history_search_cjk.py).
 ### Medium fixes (selected, 30+ total)
 - WM-17: supervisor backoff sleep cancellable (polls shutting_down every 100ms)
@@ -313,19 +264,10 @@ are not present in this file.
 - WM-60: renderer stale-fetch cancelled flags
 - WM-R7-1/3/5: branding stale doc + main.rs panic + state.rs Relaxed
 
-## Fixed During Investigation
-- Deleted 2 of 3 dead-code files: history_db_internals/recovery.py (519 LOC) + transcription_download.py (333 LOC) — 852 LOC removed. ❌ search.py was NOT deleted: it still exists at `history_db_internals/search.py` (655 LOC) and is imported by production `history_db.py:379` (`import voice_typer.server.history_db_internals.search as _search_helpers`).
-- ❌ C-STYLE-1 cleanup incomplete: 2 `XZ-CLIP-04` task-ID instances remain in `clipboard/manager.py` at lines 860 and 934 ("sending Cmd+V into the wrong window (XZ-CLIP-04)") — the claimed stripping from clipboard/manager.py did not fully land.
-- ❌ C-BRAND-1 fix FALSE: `voice_typer/server/i18n.py:136,142` still contain the literal "Voice Typer" ("Add Voice Typer..." and "Voice Typer needs keyboard permission") instead of the {app} placeholder.
-
-## Skipped as Not Real / Already Done
-- None skipped as not-real. All 60 WM- findings verified real during investigation.
-
 ## Remaining Work
 
 ### Deferred (too large for single sub-agent — need dedicated Phase 4.5 waves):
 - **WM-2** (Critical): app.py 1845 LOC monolith split (re-verified 2026-08-12) — needs 3+ sub-agents (L)
-
 - **WM-4** (High): kill_process_tree pgid race — needs pre_exec(setpgid) + move to tokio::process::Command (M)
 
 ### Partially done / needs follow-up:
