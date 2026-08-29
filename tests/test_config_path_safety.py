@@ -151,3 +151,34 @@ class TestIsPathWithinCrossDrive:
         # ``case_sensitive=False`` exercises the case-
         # insensitive branch deterministically.
         assert config._is_path_within(child, root, case_sensitive=False) is True
+
+
+class TestReExportResolvesToOwningModule:
+    """The path-safety helpers re-exported by ``voice_typer.server.config``
+    must be the SAME function objects defined in
+    ``voice_typer.server.config_internals.paths`` (the owning module).
+
+    This pins the no-shim contract: there is no intermediate
+    ``config_path_safety`` module — the package namespace re-exports the
+    owning module's objects directly, so monkeypatching
+    ``voice_typer.server.config._validate_path_safety`` re-points a
+    namespace attribute while the implementation stays in
+    ``config_internals.paths`` (importable without the config package).
+    """
+
+    def test_config_names_are_the_owning_module_objects(self):
+        from voice_typer.server import config
+        from voice_typer.server.config_internals import paths
+
+        assert config._validate_path_safety is paths._validate_path_safety
+        assert config._is_path_within is paths._is_path_within
+        assert config._validate_import_path is paths._validate_import_path
+
+    def test_shim_module_is_gone(self):
+        """``voice_typer.server.config_path_safety`` must no longer be
+        importable — it was a re-export-only shim, removed once every
+        caller imported the owning module (or this package) directly."""
+        import importlib
+
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module("voice_typer.server.config_path_safety")
