@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { t } from "@/i18n/i18n";
+import { t, tChoice } from "@/i18n/i18n";
 
 /**
  * useLastUpdated — tracks when a page's data was last fetched and
@@ -182,20 +182,14 @@ export function useLastUpdated(): {
 		if (seconds < 5) {
 			agoLabel = t("common.lastUpdatedJustNow");
 		} else if (seconds < 60) {
-			agoLabel = t("common.lastUpdatedSecondsAgo", {
-				count: String(seconds),
-			});
+			agoLabel = tChoice("common.lastUpdatedSecondsAgo", seconds);
 		} else {
 			const minutes = Math.floor(seconds / 60);
 			if (minutes < 60) {
-				agoLabel = t("common.lastUpdatedMinutesAgo", {
-					count: String(minutes),
-				});
+				agoLabel = tChoice("common.lastUpdatedMinutesAgo", minutes);
 			} else {
 				const hours = Math.floor(minutes / 60);
-				agoLabel = t("common.lastUpdatedHoursAgo", {
-					count: String(hours),
-				});
+				agoLabel = tChoice("common.lastUpdatedHoursAgo", hours);
 			}
 		}
 	}

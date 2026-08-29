@@ -37,7 +37,7 @@ import { formatHotkey } from "@/components/hotkey/hotkey-utils";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
-import { getLocale, t } from "@/i18n/i18n";
+import { getLocale, t, tChoice } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import { formatDevice } from "@/lib/utils/configDisplay";
 import { resolveActiveModel } from "@/lib/utils/models";
@@ -146,12 +146,9 @@ export function formatRelativeTime(iso: string | null): string {
 		const diffHr = Math.floor(diffMin / 60);
 		const diffDay = Math.floor(diffHr / 24);
 		if (diffMin < 1) return t("about.relativeTime.lessThanMinute");
-		if (diffMin < 60)
-			return t("about.relativeTime.minutesAgo", { count: String(diffMin) });
-		if (diffHr < 24)
-			return t("about.relativeTime.hoursAgo", { count: String(diffHr) });
-		if (diffDay < 7)
-			return t("about.relativeTime.daysAgo", { count: String(diffDay) });
+		if (diffMin < 60) return tChoice("about.relativeTime.minutesAgo", diffMin);
+		if (diffHr < 24) return tChoice("about.relativeTime.hoursAgo", diffHr);
+		if (diffDay < 7) return tChoice("about.relativeTime.daysAgo", diffDay);
 		return new Intl.DateTimeFormat(getLocale(), {
 			dateStyle: "medium",
 		}).format(new Date(then));

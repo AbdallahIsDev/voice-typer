@@ -1,3 +1,4 @@
+import { getLocale } from "@/i18n/i18n";
 import type { HistoryRecord } from "@/types/ipc";
 
 export type HistorySortOrder = "newest" | "oldest" | "az" | "za";
@@ -14,7 +15,7 @@ export function sortRecords(
 	records: HistoryRecord[],
 	order: HistorySortOrder,
 ): HistoryRecord[] {
-	const collator = new Intl.Collator(undefined, {
+	const collator = new Intl.Collator(getLocale(), {
 		sensitivity: "base",
 		numeric: true,
 	});
