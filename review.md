@@ -766,6 +766,17 @@ The following findings are documented in `review.md` as `❌ Not Fixed` — defe
 
 ---
 
+### TR-4 - Tauri application icon is dark-on-dark: it does not adapt to the system theme
+**Status:** ❌ Not Fixed — user-reported on the Windows host (2026-08-30). Root cause UNKNOWN — deliberately not investigated; diagnosing it is the fixing agent's mission.
+**Description (user report, plain English):** The Tauri application icon is just a black icon, while I am using dark mode in my system. My taskbar is dark, and the application icon is dark — so this is not great. It should be the opposite: if I am in dark mode, the icon should be light; if I am in light mode, the icon should be dark/black — and vice versa. It is not only the icon inside the taskbar: when I open the taskbar, the icon appears black there too, and when I press Alt+Tab, the window also appears with the black icon on a gray background. Because my device is in dark mode, none of this looks right. The icon should contrast with the system theme everywhere Windows surfaces it.
+**Evidence:** No logs needed — visual issue; reproduce on the Windows host (dark mode + light mode) and capture screenshots of the taskbar, open taskbar, and Alt+Tab switcher.
+**Root Cause:** UNKNOWN — do not assume; investigate as the mission. (Starting questions the fixing agent may explore, unverified: whether Tauri/Windows supports theme-aware icon variants at all, and whether shortcuts/window-class icons can switch with the system theme.)
+**Related Areas (starting hints only, unverified):** the Tauri window/app icon configuration (`src-tauri/tauri.conf.json` icons), the bundled `.ico` variants, and any theme-reactive icon-swap mechanism Windows may offer.
+**Severity:** ?? Medium (visible polish defect on the primary surface — taskbar + Alt+Tab — for every dark-mode user)
+**Category:** Tauri / app icon / theming
+
+---
+
 ## 🚫 E. Cannot Verify (needs real host)
 
 **19 findings require Windows / macOS / Linux desktop runtime** — they cannot be
