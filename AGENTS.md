@@ -1427,6 +1427,20 @@ Rationale: 2026-08-25 compaction pass (user decision) — one-line header halved
 Applies to: All agents, all modes, all sub-agents.
 ```
 
+```
+C-REVIEW-1
+Rule: Do NOT fix, re-implement, modify, or "improve" any finding whose status is `🚫 Won't Fix`, and do NOT change its status. Won't Fix findings live in `WONT_FIX.md` (NOT `review.md`) — they are documented deliberate decisions to leave the code exactly as-is. An agent that "solves" a Won't Fix finding — or re-diagnoses it as fixable and fixes it — violates this rule. When a task range includes Won't Fix entries, the agent MUST SKIP them and record the skip in the worklog/chat report using the standard SKIPPED format.
+Rationale: The user explicitly confirmed (2026-08-30) that all Won't Fix findings must remain untouched, and moved them out of review.md into WONT_FIX.md so agents processing the active task queue never waste tokens reading them. The `🚫 Won't Fix` status is a permanent decision, not a challenge. Re-diagnosing or re-implementing a Won't Fix finding wastes time and risks the behavior-change / security-downgrade / user-impact the original rationale documented.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-REVIEW-2
+Rule: Do NOT add a Won't Fix finding back into `review.md`, and do NOT add a `🚫 Won't Fix` finding to `review.md` in the first place. If, during investigation, an agent concludes that a problem is NOT worth solving (low value / high risk / intended behavior), the finding MUST be documented in `WONT_FIX.md` (with a status `🚫 Won't Fix` + rationale) instead of review.md — review.md holds ONLY the active task queue (fixable / in-progress / partial items). Moving a fixable item into the Won't Fix category requires the user to reverse it manually; an agent must never do so independently.
+Rationale: review.md is the active-fix queue an agent reads end-to-end when asked to "fix all problems". Keeping Won't Fix items out of it saves tokens and prevents accidental re-fixing. The separate `WONT_FIX.md` file preserves the decision + rationale so future agents don't re-file the same issue.
+Applies to: All agents, all modes, all sub-agents.
+```
+
 ---
 
 ## How the adds / edits constraints
@@ -1473,6 +1487,8 @@ Every task added to the `## High Priority` section of `review.md` MUST satisfy a
 4. **Non-redundant** - do not duplicate an existing review.md entry, an already-fixed behavior, or another task in the same section; when a task's investigation surface overlaps another task, cross-reference instead of duplicating.
 
 Task selection MUST favor improvements with significant product impact while minimizing unnecessary file/component overlap between independently delegated tasks (so parallel sub-agents do not conflict). When in doubt, verify before writing, and record verification. This rule is itself append-only and must never be overwritten or weakened by an agent.
+
+**Won't Fix findings (status `🚫 Won't Fix`) must never be re-admitted as new tasks** — neither as High Priority nor under any other section of review.md. They are deliberately excluded decisions. If a user wants to reverse a Won't Fix decision, they will change the status manually; an agent must never do so independently.
 
 ---
 

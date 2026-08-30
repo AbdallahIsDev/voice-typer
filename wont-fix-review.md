@@ -17,7 +17,7 @@ Each task has:
 
 ---
 
-## The 24 Tasks
+## The 22 Tasks
 
 ### 1. GQ-48 — slow search when typing only punctuation marks
 
@@ -89,21 +89,7 @@ Each task has:
 
 ---
 
-### 7. GQ-L16 — native hotkeys file is too large (1649 lines)
-
-**What it is:** The native hotkeys file (which handles keyboard shortcuts like F9 for dictation) is 1649 lines — double the 800-line threshold. It mixes 5 concerns (platform key mapping, listener registration, modifier handling, etc.).
-
-**Gain vs trade-off:** Splitting it would make the hotkey system easier to maintain and debug. The downside: hotkeys are a critical feature (dictation, cancel, repaste) — breaking them would make the app unusable. The split requires careful testing.
-
-**If we do it:** Easier to add new hotkeys, fix bugs. Safer to modify one concern without touching others. The effort is ~2-3 days with platform testing.
-
-**If we don't:** The file is 1649 lines but works. New hotkey features require navigating a large file. Higher risk of introducing bugs when editing.
-
-**My recommendation:** Leave as Won't Fix for now, but consider it for a future session. genuine improvement but large effort for a working file. Defer.
-
----
-
-### 8. GQ-L18 — config file re-read after key migration
+### 6. GQ-L18 — config file re-read after key migration
 
 **What it is:** When the app migrates encryption keys to the system keychain, it re-reads the config file from disk. This is a redundant read — the config was already loaded in memory. The redundant read costs ~0.5ms.
 
@@ -117,7 +103,7 @@ Each task has:
 
 ---
 
-### 9. GQ-L24 — warm-up test uses 0.5s silence instead of real audio
+### 7. GQ-L24 — warm-up test uses 0.5s silence instead of real audio
 
 **What it is:** When the speech model warms up, it uses a 0.5-second silence sample. In production, transcriptions are much longer (25+ seconds). The warm-up completes faster than necessary because the test input is too short.
 
@@ -131,7 +117,7 @@ Each task has:
 
 ---
 
-### 10. GQ-L33 — atomic operations use stronger ordering than needed
+### 8. GQ-L33 — atomic operations use stronger ordering than needed
 
 **What it is:** Atomic operations (like incrementing a counter) use the strongest memory ordering (`SeqCst`) when weaker ordering (`Relaxed`) would suffice. This is a Rust-specific optimization. The actual performance difference is negligible on modern CPUs (sub-1 nanosecond).
 
@@ -145,7 +131,7 @@ Each task has:
 
 ---
 
-### 11. GQ-L34 — synchronous file writes on boot path
+### 9. GQ-L34 — synchronous file writes on boot path
 
 **What it is:** When the app starts, the single-instance lock creates a file using synchronous file operations (`mkdirSync`, `writeFileSync`). These block the main thread during boot. The operations take <1ms total.
 
@@ -159,7 +145,7 @@ Each task has:
 
 ---
 
-### 12. GQ-L36 — buffer concatenation per TCP chunk
+### 10. GQ-L36 — buffer concatenation per TCP chunk
 
 **What it is:** The TCP connection handler uses `Buffer.concat` to reassemble data chunks. This creates a new buffer each time rather than growing a single buffer. The allocation is tiny and happens on the connection thread, which is not performance-critical.
 
@@ -173,7 +159,7 @@ Each task has:
 
 ---
 
-### 13. GQ-L37 — `setImmediate` retry on window show
+### 11. GQ-L37 — `setImmediate` retry on window show
 
 **What it is:** When showing a window, the code uses `setImmediate` to retry if the window isn't ready yet. This is a defensive pattern — a safety net for a rare race condition. The retry is almost never needed.
 
@@ -187,7 +173,7 @@ Each task has:
 
 ---
 
-### 14. GQ-L38 — dynamic locale import on every language switch
+### 12. GQ-L38 — dynamic locale import on every language switch
 
 **What it is:** When the user switches the app language, the localization module imports the translation file dynamically. This import happens every time the locale changes, even though the file is already loaded. The import is cached by the module system, so the actual cost is near-zero.
 
@@ -201,7 +187,7 @@ Each task has:
 
 ---
 
-### 15. GQ-L40 — CSS color conversion without input cache
+### 13. GQ-L40 — CSS color conversion without input cache
 
 **What it is:** When the app derives theme colors, it converts CSS color strings to hex format using the DOM API. This is called multiple times for the same input values. A cache would avoid redundant DOM calls.
 
@@ -215,7 +201,7 @@ Each task has:
 
 ---
 
-### 16. GQ-L42 — redundant window event listener in sound manager
+### 14. GQ-L42 — redundant window event listener in sound manager
 
 **What it is:** The sound manager registers 4 window event listeners for the capture phase. One of them (`pointerdown`) is redundant — it doesn't add any functionality beyond what the other 3 listeners already cover.
 
@@ -229,7 +215,7 @@ Each task has:
 
 ---
 
-### 17. GQ-L43 — unbounded number format cache (bounded in practice)
+### 15. GQ-L43 — unbounded number format cache (bounded in practice)
 
 **What it is:** The number formatting utility uses a `Map` as a cache for `Intl.NumberFormat` instances. The cache has no explicit size limit, but in practice it never exceeds ~48 entries (one per locale × number of unique formats). The "unbounded" concern is theoretical.
 
@@ -243,7 +229,7 @@ Each task has:
 
 ---
 
-### 18. GQ-L44 — React effect runs on every render without dependency array
+### 16. GQ-L44 — React effect runs on every render without dependency array
 
 **What it is:** A `useEffect` in the theme settings hook has no dependency array, meaning it runs after EVERY component render. This is a React anti-pattern. The effect itself is lightweight (reads a few values from state), so the performance impact is negligible.
 
@@ -257,7 +243,7 @@ Each task has:
 
 ---
 
-### 19. GQ-L46 — inline closures create new function objects per sidebar render
+### 17. GQ-L46 — inline closures create new function objects per sidebar render
 
 **What it is:** Each sidebar navigation item creates a new inline arrow function (closure) on every render: `onClick={() => navigate("/page")}`. These 10 closures are allocated and garbage-collected on every render. The allocation is tiny (~64 bytes each).
 
@@ -271,7 +257,7 @@ Each task has:
 
 ---
 
-### 20. GQ-L47 — theme settings file is 648 lines
+### 18. GQ-L47 — theme settings file is 648 lines
 
 **What it is:** The theme settings component is 648 lines long, mixing 4 sub-sections (custom color picker, contrast settings, draft theme, state machine). It's above the preferred file size threshold but well below the 800-line critical threshold.
 
@@ -285,7 +271,7 @@ Each task has:
 
 ---
 
-### 21. GQ-L53 — per-sample loop in beep generation script
+### 19. GQ-L53 — per-sample loop in beep generation script
 
 **What it is:** The beep generation script (`generate_beeps.py`) uses a Python `for` loop to pack each audio sample into a binary string. This is a build-time script (not production code), so its performance doesn't affect the user. The script runs once when the developer runs it.
 
@@ -299,7 +285,7 @@ Each task has:
 
 ---
 
-### 22. GQ-L54 — branding check script takes 314ms
+### 20. GQ-L54 — branding check script takes 314ms
 
 **What it is:** The `check_branding.py` script (which verifies the app name isn't hardcoded in the wrong places) takes 314ms to run. It could be faster by using `ripgrep` instead of Python's string search. The script runs in CI on every commit.
 
@@ -313,7 +299,7 @@ Each task has:
 
 ---
 
-### 23. GQ-L56 — keyring thread count not hard-capped
+### 21. GQ-L56 — keyring thread count not hard-capped
 
 **What it is:** The credential store (which manages encryption keys) spawns threads for keyring operations. The number of orphan threads is not hard-capped — in theory, if the keyring keeps failing, threads could accumulate. In practice, the keyring either works or fails permanently, so the thread count stays at 1.
 
@@ -327,7 +313,7 @@ Each task has:
 
 ---
 
-### 24. GQ-L58 — model eviction refactor tied to larger changes
+### 22. GQ-L58 — model eviction refactor tied to larger changes
 
 **What it is:** The model manager's LRU eviction logic (which removes old models to free memory) could be refactored. But the refactor is tied to 3 other changes (GQ-6, GQ-7, GQ-29) that haven't been done yet. Fixing it alone would create a partial state that's messy.
 
