@@ -446,6 +446,17 @@ class RecordingController:
         """1-line delegator → :meth:`TranscriptionWatchdog.force_recover`."""
         return self._watchdog_helper.force_recover(self, force=force)
 
+    def force_recover(self, *, force: bool = False) -> None:
+        """Public force-cancel of a stuck transcription.
+
+        WM-44: public wrapper for the service layer. The service must not
+        reach into the private ``_force_recover_from_stuck_transcription``
+        (ADR-0008 §3.1 layering); this method is the sanctioned public
+        surface. Delegates to the watchdog's ``force_recover`` exactly as
+        the private delegator does.
+        """
+        return self._force_recover_from_stuck_transcription(force=force)
+
     def _start_watchdog_thread(self) -> None:
         """1-line delegator → :meth:`TranscriptionWatchdog.start_thread`."""
         return self._watchdog_helper.start_thread(self)
