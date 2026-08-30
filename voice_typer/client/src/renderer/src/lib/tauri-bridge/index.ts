@@ -128,6 +128,18 @@ export function installTauriBridge(): void {
 	const windowLabel: "main" | "bubble" =
 		tauriWindow.label === "bubble" ? "bubble" : "main";
 
+	// SEC-026 (Tauri parity with preload/bubble.ts): the BUBBLE window is
+	// a sandboxed renderer — Electron's preload never exposed
+	// `window.python` / `window.window_` to it, and the Rust host's
+	// window-guard rejects any `dispatch` from a non-main window anyway.
+	// Installing the python namespace here made the bubble fire guaranteed
+	// "rejected from non-main window" errors at startup (observed 7× on
+	// 2026-08-30). The bubble gets ONLY `window.bubble`.
+	if (windowLabel === "bubble") {
+		window.bubble = createBubbleNamespace(tauri, windowLabel);
+		return;
+	}
+
 	window.python = createPythonNamespace(tauri);
 	window.bubble = createBubbleNamespace(tauri, windowLabel);
 	window.window_ = createWindowNamespace(tauri);

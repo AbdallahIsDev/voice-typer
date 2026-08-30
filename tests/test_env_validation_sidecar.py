@@ -83,18 +83,19 @@ def _set_valid_sidecar_env(
     monkeypatch,
     *,
     native_dir: str | None = None,
-    prewarm_exe: str | None = None,
     ipc_token: str = "tok_123ABC",
 ) -> None:
-    """Set every sidecar env var to a valid value under ``Path.home()``."""
+    """Set every sidecar env var to a valid value under ``Path.home()``.
+
+    VOICE_TYPER_PREWARM_EXE is intentionally NOT set — the prewarm
+    binary was retired (plan-runtime-pack-split §6.2) and the var was
+    removed from ``_EXPECTED_SIDECAR_ENV`` (2026-08-30).
+    """
     monkeypatch.setenv("TAURI_SIDECAR", "1")
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", ipc_token)
     if native_dir is None:
         native_dir = str(Path.home() / ".voice-typer" / "native")
-    if prewarm_exe is None:
-        prewarm_exe = str(Path.home() / ".voice-typer" / "prewarm")
     monkeypatch.setenv("VOICE_TYPER_NATIVE_DIR", native_dir)
-    monkeypatch.setenv("VOICE_TYPER_PREWARM_EXE", prewarm_exe)
 
 
 class TestNoOpWhenNotSidecar:
@@ -132,10 +133,9 @@ class TestEmptyValuesPopped:
         _validate_env_vars()
         assert "VOICE_TYPER_NATIVE_DIR" not in os.environ
 
-    def test_empty_prewarm_exe_popped(self, monkeypatch):
-        _set_valid_sidecar_env(monkeypatch, prewarm_exe="")
-        _validate_env_vars()
-        assert "VOICE_TYPER_PREWARM_EXE" not in os.environ
+    # NOTE: the VOICE_TYPER_PREWARM_EXE empty-value test was removed with
+    # the prewarm retirement (plan-runtime-pack-split §6.2) — the var is
+    # no longer part of the sidecar env contract.
 
 
 class TestPathSafetyValidation:
@@ -165,13 +165,9 @@ class TestPathSafetyValidation:
         _validate_env_vars()
         assert "VOICE_TYPER_NATIVE_DIR" not in os.environ
 
-    def test_prewarm_exe_path_outside_home_popped(self, monkeypatch):
-        bad = "/etc/voice-typer/prewarm"
-        if Path(bad).resolve() == Path(Path.home(), "etc", "voice-typer", "prewarm").resolve():
-            pytest.skip("/etc is under home on this host")
-        _set_valid_sidecar_env(monkeypatch, prewarm_exe=bad)
-        _validate_env_vars()
-        assert "VOICE_TYPER_PREWARM_EXE" not in os.environ
+    # NOTE: the VOICE_TYPER_PREWARM_EXE path-safety test was removed with
+    # the prewarm retirement (plan-runtime-pack-split §6.2) — the var is
+    # no longer part of the sidecar env contract.
 
     def test_path_traversal_with_dots_popped(self, monkeypatch):
         # ``..`` traversal that escapes home — rejected by
@@ -244,18 +240,15 @@ class TestEndToEndAllValid:
 
     def test_all_valid_sidecar_env_preserved(self, monkeypatch):
         native = str(Path.home() / ".voice-typer" / "native")
-        prewarm = str(Path.home() / ".voice-typer" / "prewarm")
         _set_valid_sidecar_env(
             monkeypatch,
             native_dir=native,
-            prewarm_exe=prewarm,
             ipc_token="tok_123ABC",
         )
         _validate_env_vars()
         assert os.environ.get("TAURI_SIDECAR") == "1"
         assert os.environ.get("VOICE_TYPER_IPC_TOKEN") == "tok_123ABC"
         assert os.environ.get("VOICE_TYPER_NATIVE_DIR") == native
-        assert os.environ.get("VOICE_TYPER_PREWARM_EXE") == prewarm
 
 
 class TestUnsetVarsLogged:

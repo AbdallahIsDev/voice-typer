@@ -276,4 +276,37 @@ describe("tauri-bridge install side-effect module (split)", () => {
 		expect(mainSrc).not.toMatch(/import\s+["']\.\/lib\/tauri-bridge["'];?/);
 		expect(bubbleSrc).not.toMatch(/import\s+["']\.\/lib\/tauri-bridge["'];?/);
 	});
+
+	it("SEC-026: bubble window gets ONLY window.bubble — no python / window_ namespaces", async () => {
+		// The bubble renderer is a sandboxed window (SEC-026): Electron's
+		// preload never exposed `window.python` / `window.window_` to it,
+		// and the Rust host's window-guard rejects any `dispatch` from a
+		// non-main window. The Tauri bridge must mirror that split —
+		// installing the full namespace set into the bubble made it fire
+		// guaranteed "rejected from non-main window" errors at startup
+		// (observed 7× on 2026-08-30).
+		const stub = makeTauriStub();
+		// Make the stub report label === "bubble".
+		(stub.window.getCurrentWindow as ReturnType<typeof vi.fn>).mockReturnValue({
+			minimize: vi.fn(() => Promise.resolve()),
+			toggleMaximize: vi.fn(() => Promise.resolve()),
+			close: vi.fn(() => Promise.resolve()),
+			isMaximized: vi.fn(() => Promise.resolve(false)),
+			onResized: vi.fn(() => Promise.resolve(() => {})),
+			label: "bubble",
+		});
+		(window as unknown as WindowBridgeState).__TAURI__ = stub;
+		const w = window as unknown as WindowBridgeState;
+		delete w.python;
+		delete w.bubble;
+		delete w.window_;
+
+		await import("@/lib/tauri-bridge/install");
+
+		const installed = window as unknown as WindowBridgeState;
+		expect(installed.bubble).toBeDefined();
+		expect(typeof installed.bubble?.show).toBe("function");
+		expect(installed.python).toBeUndefined();
+		expect(installed.window_).toBeUndefined();
+	});
 });

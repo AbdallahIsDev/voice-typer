@@ -351,12 +351,16 @@ def _validate_hf_endpoint(raw: str) -> None:
     )
 
 
-# Sidecar env-var contract — set by Rust host in src-tauri/src/sidecar/spawn.rs:79-84
+# Sidecar env-var contract — set by Rust host in src-tauri/src/sidecar/spawn.rs.
+# NOTE: VOICE_TYPER_PREWARM_EXE was REMOVED from this contract (2026-08-30):
+# the prewarm binary was retired (plan-runtime-pack-split §6.2) and the host
+# no longer sets the var in either release or dev mode — expecting it here
+# warned on every single spawn ("expected env var VOICE_TYPER_PREWARM_EXE is
+# unset").
 _EXPECTED_SIDECAR_ENV = {
     "TAURI_SIDECAR": "1",
     IPC_TOKEN_ENV_VAR: "<non-empty>",
     "VOICE_TYPER_NATIVE_DIR": "<non-empty path>",
-    "VOICE_TYPER_PREWARM_EXE": "<non-empty path>",
 }
 
 
