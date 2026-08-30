@@ -16,6 +16,9 @@ from voice_typer.server.native_hotkeys._constants import (
     MAX_RESTART_ATTEMPTS,
     READY_TIMEOUT_SECONDS,
     RESTART_DELAY_BASE_SECONDS,
+    _WATCHDOG_PING_INTERVAL_SECONDS,
+    _WATCHDOG_PONG_TIMEOUT_SECONDS,
+    _WATCHDOG_RESPAWN_SECONDS,
 )
 from voice_typer.server.native_hotkeys._core import SubprocessHotkeyBackend
 
@@ -31,6 +34,9 @@ __all__ = [
     "MAX_RESTART_ATTEMPTS",
     "READY_TIMEOUT_SECONDS",
     "RESTART_DELAY_BASE_SECONDS",
+    "_WATCHDOG_PING_INTERVAL_SECONDS",
+    "_WATCHDOG_PONG_TIMEOUT_SECONDS",
+    "_WATCHDOG_RESPAWN_SECONDS",
     "SubprocessHotkeyBackend",
     "get_native_binary_path",
     "log",

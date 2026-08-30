@@ -100,6 +100,7 @@ WINDOWS_KEY_LISTENER_C = PROJECT_ROOT / "voice_typer" / "server" / "native" / "w
 NATIVE_HOTKEYS_PKG = PROJECT_ROOT / "voice_typer" / "server" / "native_hotkeys"
 NATIVE_HOTKEYS_PY = NATIVE_HOTKEYS_PKG / "__init__.py"
 NATIVE_HOTKEYS_BASE_PY = NATIVE_HOTKEYS_PKG / "base.py"
+NATIVE_HOTKEYS_CORE_PY = NATIVE_HOTKEYS_PKG / "_core.py"
 NATIVE_HOTKEYS_WINDOWS_PY = NATIVE_HOTKEYS_PKG / "windows_backend.py"
 NATIVE_HOTKEYS_MAC_PY = NATIVE_HOTKEYS_PKG / "mac_backend.py"
 NATIVE_HOTKEYS_LINUX_PY = NATIVE_HOTKEYS_PKG / "linux_backend.py"
@@ -760,20 +761,25 @@ class TestSidecarOwnership:
         """``native_hotkeys`` defines ``SubprocessHotkeyBackend`` + ``WindowsHookHotkey``.
 
         After the Phase 4.5 split, ``SubprocessHotkeyBackend`` lives in
-        ``native_hotkeys/base.py`` and ``WindowsHookHotkey`` lives in
-        ``native_hotkeys/windows_backend.py``.  ``subprocess.Popen`` is
-        invoked from ``base.py``'s ``_spawn_process``.
+        ``native_hotkeys/_core.py`` (re-exported by ``native_hotkeys/base.py``)
+        and ``WindowsHookHotkey`` lives in ``native_hotkeys/windows_backend.py``.
+        ``subprocess.Popen`` is invoked from ``_core.py``'s ``_spawn_process``.
         """
         base_src = NATIVE_HOTKEYS_BASE_PY.read_text(encoding="utf-8")
+        core_src = NATIVE_HOTKEYS_CORE_PY.read_text(encoding="utf-8")
         win_src = NATIVE_HOTKEYS_WINDOWS_PY.read_text(encoding="utf-8")
-        assert "class SubprocessHotkeyBackend" in base_src, (
-            "native_hotkeys/base.py must define SubprocessHotkeyBackend (the base class "
+        assert "SubprocessHotkeyBackend" in base_src, (
+            "native_hotkeys/base.py must re-export SubprocessHotkeyBackend (the base class "
+            "that spawns the native binary via subprocess.Popen)"
+        )
+        assert "class SubprocessHotkeyBackend" in core_src, (
+            "native_hotkeys/_core.py must define SubprocessHotkeyBackend (the base class "
             "that spawns the native binary via subprocess.Popen)"
         )
         assert "class WindowsHookHotkey" in win_src, (
             "native_hotkeys/windows_backend.py must define WindowsHookHotkey (the Windows subclass)"
         )
-        assert "subprocess.Popen" in base_src, "native_hotkeys/base.py must use subprocess.Popen to spawn the binary"
+        assert "subprocess.Popen" in core_src, "native_hotkeys/_core.py must use subprocess.Popen to spawn the binary"
 
     def test_adr_states_sidecar_owns_hotkey_subsystem(self):
         """ADR-0020 §6.4 explicitly states Tauri does not touch the hotkey subsystem."""
