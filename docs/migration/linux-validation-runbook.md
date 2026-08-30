@@ -689,7 +689,7 @@ Linux packages are unsigned by default in both Electron (today) and Tauri. The `
       "preRemoveScript": "../../scripts/linux/prerm"
     },
     "rpm": {
-      "depends": ["libnotify", "libXtst", "webkit2gtk3", "python3", "wl-clipboard", "xclip"],
+      "depends": ["libnotify", "libXtst", "webkit2gtk4.1", "python3", "wl-clipboard", "xclip"],
       "postInstallScript": "../../scripts/linux/postinst.rpm",
       "preRemoveScript": "../../scripts/linux/prerm.rpm"
     }
