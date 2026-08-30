@@ -1605,15 +1605,15 @@
 		"skipConfirmModelWarning": "Пропуск загрузки модели может ухудшить работу. Продолжить?",
 		"backendAria": "Transcription backend",
 		"backendLocalLabel": "Local model",
-		"backendLocalDescription": "Download a model to your device. Transcription runs fully offline — your audio never leaves your computer.",
+		"backendLocalDescription": "Скачайте модель на своё устройство. Транскрипция работает полностью офлайн — ваше аудио никогда не покидает компьютер.",
 		"backendCloudLabel": "Cloud API",
-		"backendCloudDescription": "Use a cloud transcription API. Faster to start, but your audio is sent to the provider for transcription.",
+		"backendCloudDescription": "Используйте облачный API транскрипции. Быстрее запускается, но ваше аудио отправляется провайдеру для транскрипции.",
 		"cloudProviderLabel": "Provider",
-		"cloudNote": "Your API key and consent are saved when you continue.",
+		"cloudNote": "Ваш API-ключ и согласие сохраняются при продолжении.",
 		"downloadModel": "Download model",
-		"downloadModelAria": "Download the selected model",
+		"downloadModelAria": "Скачать выбранную модель",
 		"downloadRetry": "Retry download",
-		"downloadFailedHint": "The download failed. Check your internet connection and try again.",
+		"downloadFailedHint": "Скачивание не удалось. Проверьте подключение к интернету и попробуйте снова.",
 		"summaryBackend": "Backend:"
 	},
 	"titleBar": {
@@ -1860,7 +1860,7 @@
 			"win": "Win",
 			"super": "Super",
 			"fn": "Fn",
-			"fnMacOSOnly": "Fn / Globe 🌐 (macOS only)",
+			"fnMacOSOnly": "Fn / Globe 🌐 (только macOS)",
 			"space": "Space",
 			"enter": "Enter",
 			"tab": "Tab",
@@ -1915,7 +1915,7 @@
 				"ctrlShiftV": "Ctrl+Shift+V"
 			},
 			"single": {
-				"fn": "Fn / Globe 🌐 (macOS only)",
+				"fn": "Fn / Globe 🌐 (только macOS)",
 				"alt": "Alt",
 				"ctrl": "Ctrl",
 				"caps_lock": "Caps Lock"

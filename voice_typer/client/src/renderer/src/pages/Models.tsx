@@ -293,7 +293,7 @@ export default function ModelsPage() {
 						role="status"
 						aria-live="polite"
 						aria-atomic="true"
-						className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-border/10 bg-(--bg-subtle) px-3.5 py-2.5"
+						className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-border/5 bg-(--bg-subtle) px-3 py-2"
 					>
 						<HugeiconsIcon
 							icon={AiBrain03Icon}

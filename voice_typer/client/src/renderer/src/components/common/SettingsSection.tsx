@@ -49,7 +49,7 @@ export function SettingsSection({
 			    is uniform across the app). */}
 			<div
 				className={cn(
-					"rounded-lg border border-border/5 bg-(--bg-subtle) divide-y divide-border/10",
+					"rounded-lg border border-border/5 bg-(--bg-subtle) divide-y divide-border/5",
 					cardClassName,
 				)}
 			>

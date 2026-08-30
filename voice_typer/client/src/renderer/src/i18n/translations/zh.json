@@ -1605,15 +1605,15 @@
 		"skipConfirmModelWarning": "跳过模型下载可能会影响体验。确定跳过？",
 		"backendAria": "Transcription backend",
 		"backendLocalLabel": "Local model",
-		"backendLocalDescription": "Download a model to your device. Transcription runs fully offline — your audio never leaves your computer.",
+		"backendLocalDescription": "将模型下载到您的设备。转录完全离线运行 — 您的音频永远不会离开您的计算机。",
 		"backendCloudLabel": "Cloud API",
-		"backendCloudDescription": "Use a cloud transcription API. Faster to start, but your audio is sent to the provider for transcription.",
+		"backendCloudDescription": "使用云端转录 API。启动更快，但您的音频会发送给提供商进行转录。",
 		"cloudProviderLabel": "Provider",
-		"cloudNote": "Your API key and consent are saved when you continue.",
+		"cloudNote": "继续时将保存您的 API 密钥和同意。",
 		"downloadModel": "Download model",
-		"downloadModelAria": "Download the selected model",
+		"downloadModelAria": "下载所选模型",
 		"downloadRetry": "Retry download",
-		"downloadFailedHint": "The download failed. Check your internet connection and try again.",
+		"downloadFailedHint": "下载失败。请检查您的网络连接并重试。",
 		"summaryBackend": "Backend:"
 	},
 	"titleBar": {
@@ -1860,7 +1860,7 @@
 			"win": "Win",
 			"super": "Super",
 			"fn": "Fn",
-			"fnMacOSOnly": "Fn / Globe 🌐 (macOS only)",
+			"fnMacOSOnly": "Fn / Globe 🌐 (仅 macOS)",
 			"space": "Space",
 			"enter": "Enter",
 			"tab": "Tab",
@@ -1915,7 +1915,7 @@
 				"ctrlShiftV": "Ctrl+Shift+V"
 			},
 			"single": {
-				"fn": "Fn / Globe 🌐 (macOS only)",
+				"fn": "Fn / Globe 🌐 (仅 macOS)",
 				"alt": "Alt",
 				"ctrl": "Ctrl",
 				"caps_lock": "Caps Lock"

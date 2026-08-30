@@ -102,7 +102,7 @@ export function ModelGroupContent({
 }: ComponentProps<typeof AccordionContent>) {
 	return (
 		<AccordionContent
-			className={cn("px-0 pb-0 divide-y divide-border/10", className)}
+			className={cn("px-0 pb-0 divide-y divide-border/5", className)}
 			{...props}
 		>
 			{children}

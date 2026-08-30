@@ -240,7 +240,7 @@ export function ShareStatsDialog({
 			</DialogTrigger>
 			<DialogContent
 				size="lg"
-				className="sm:max-w-4xl bg-(--bg-subtle) ring-border/10"
+				className="sm:max-w-4xl bg-(--bg-subtle) ring-border/5"
 			>
 				<DialogHeader>
 					<DialogTitle>{t("stats.shareImage.previewTitle")}</DialogTitle>
@@ -320,7 +320,7 @@ export function ShareStatsDialog({
 							{t("stats.shareImage.saveAs")}
 						</Button>
 
-						<div aria-hidden="true" className="my-1 h-px bg-border/10" />
+						<div aria-hidden="true" className="my-1 h-px bg-border/5" />
 						<p className="text-[11px] font-medium tracking-wide text-(--text-muted) uppercase">
 							{t("stats.shareImage.socialShare")}
 						</p>

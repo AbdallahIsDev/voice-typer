@@ -103,7 +103,7 @@ export function AvailableMicrophonesList({
 				{/* native <ul>/<li> list semantics around the radio rows — the
 				    implicit list/listitem ARIA roles come from the elements
 				    themselves (biome's noRedundantRoles + ARIA-in-HTML agree). */}
-				<ul className="divide-y divide-border/10">
+				<ul className="divide-y divide-border/5">
 					<li className={testRunning ? "opacity-50" : undefined}>
 						{/* biome-ignore lint/a11y/noStaticElementInteractions: the nested RadioGroupItem is the accessible control (role=radio); the row click is pointer convenience. */}
 						{/* biome-ignore lint/a11y/useKeyWithClickEvents: keyboard activation goes through the focused radio itself (Space/arrows via Radix); a keydown mirror here would double-fire the selection. */}

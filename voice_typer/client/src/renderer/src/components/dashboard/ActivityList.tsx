@@ -266,7 +266,7 @@ function ActivityListInner({
 					</Button>
 				)}
 			</div>
-			<div className="rounded-lg border border-border/5 bg-(--bg-subtle) divide-y divide-border/10">
+			<div className="rounded-lg border border-border/5 bg-(--bg-subtle) divide-y divide-border/5">
 				{" "}
 				{items.map((item) => (
 					<ActivityListRow

@@ -372,7 +372,7 @@ export default function VocabularyPage() {
 									selectedIds={selection.selectedIds}
 									onSelectAll={selection.setSelectMany}
 								/>
-								<div className="divide-y divide-border/10">
+								<div className="divide-y divide-border/5">
 									{filteredSorted.slice(0, displayCount).map((entry) =>
 										isEditing && editingEntry?._id === entry._id ? (
 											// In-place edit row — same inline treatment as

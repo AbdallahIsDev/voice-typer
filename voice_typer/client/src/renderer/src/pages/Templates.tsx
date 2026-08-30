@@ -209,7 +209,7 @@ export default function TemplatesPage() {
 									selectedIds={selection.selectedIds}
 									onSelectAll={selection.setSelectMany}
 								/>
-								<div className="divide-y divide-border/10">
+								<div className="divide-y divide-border/5">
 									{filteredSortedTemplates.slice(0, displayCount).map((row) => (
 										<TemplateListRow
 											key={row.id}

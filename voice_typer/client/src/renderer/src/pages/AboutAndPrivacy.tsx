@@ -262,7 +262,7 @@ export default function AboutAndPrivacyPage() {
 			{/* The privacy disclosure — five topic rows with thin dividers (the
                             section card's divide-y supplies them). Icons render
                             directly (no chip), in the standard muted icon tone. */}
-			<div className="divide-y divide-border/10 rounded-xl border border-border/5 bg-(--bg-subtle)">
+			<div className="divide-y divide-border/5 rounded-xl border border-border/5 bg-(--bg-subtle)">
 				{PRIVACY_TOPICS.map((topic) => (
 					<div key={topic.title} className="flex gap-3 px-4 py-4">
 						<HugeiconsIcon
