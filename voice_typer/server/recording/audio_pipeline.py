@@ -5,9 +5,9 @@ The six named helpers that were split out of
 (``_detect_device_disconnect``, ``_handle_xrun_status``,
 ``_apply_filter_chain``, ``_append_to_buffer_locked``,
 ``_compute_rms_and_peak``, ``_run_vad_state_machine``) are moved here.
-``Recorder`` keeps 1-line delegator methods so existing call sites,
-subclass overrides, and ``inspect.getsource`` checks that look for the
-methods on the ``Recorder`` class continue to work.
+The historical ``Recorder`` delegators for these helpers were removed —
+the helpers live on ``AudioPipeline`` and are invoked directly by
+``process_audio_chunk`` (which ``Recorder._process_audio_chunk`` forwards to).
 
 Collaborator pattern
 --------------------
@@ -21,8 +21,9 @@ access *shared* state that lives on ``Recorder`` and is NOT moved here:
 - ``self._recorder._audio_processor`` — filter chain
 - ``self._recorder._xruns`` / ``_xrun_timestamps`` / ``_xrun_threshold`` /
   ``on_xrun_threshold`` — XRUN tracking + callback
-- ``self._recorder._device_disconnected`` / ``_disconnect_handler_running`` /
-  ``_stop_generation`` / ``_recording_event`` — disconnect detection state
+- ``self._recorder._devices._device_disconnected`` (DeviceManager) /
+  ``_disconnect_handler_running`` / ``_stop_generation`` /
+  ``_recording_event`` — disconnect detection state
 - ``self._recorder._spawn_device_thread`` / ``_handle_device_disconnect`` —
   disconnect-handler scheduling
 - ``recorder._vad`` (VadProcessor) — VAD state machine; the module-level
@@ -121,8 +122,9 @@ class AudioPipeline:
     ``Recorder._process_audio_chunk``. Each method on this class is the
     moved body of the corresponding ``Recorder._<helper>`` method, with
     ``self.X`` references rewritten to ``self._recorder.X`` for shared
-    state. ``Recorder`` keeps 1-line delegators on each helper name so
-    existing call sites and source-inspection checks continue to work.
+    state. The historical ``Recorder`` delegators on each helper name
+    were removed — call sites invoke these methods directly on
+    ``AudioPipeline`` (``process_audio_chunk`` calls ``self.<helper>``).
     """
 
     def __init__(self, recorder: Any) -> None:
@@ -510,8 +512,8 @@ class AudioPipeline:
                 # The mic's native rate may be 44100 or 48000, which
                 # previously raised:
                 #   ValueError: Supported sampling rates: [8000, 16000]
-                # Resample to 16000 using the same scipy resample_poly
-                # path as _resample_audio_impl (gcd up/down pattern).
+                # Resample to 16000 using the same scipy resample path as
+                # ``resampling.resample_audio`` (gcd up/down pattern).
                 #
                 # High: use ``_buffer_sr`` (the post-process_chunk rate
                 # set above) instead of ``_effective_sr`` (the device's
@@ -674,9 +676,9 @@ class AudioPipeline:
     def detect_and_emit_clipping(self, recorder: Any, chunk_peak: float) -> None:
         """AUDIO-CLIP: track clipping + push a real-time IPC event.
 
-        Body of ``Recorder._detect_and_emit_clipping`` (god-class
-        split); the delegator on ``Recorder`` keeps existing call sites
-        and source-inspection contracts working. Extracted from
+        The historical ``Recorder._detect_and_emit_clipping`` pure
+        delegator was removed — this ``AudioPipeline`` method is invoked
+        directly by ``process_audio_chunk``. Extracted from
         ``process_audio_chunk`` for testability and readability. The
         ``audio_clip`` event is throttled to 1 Hz (same as the log) so
         the IPC channel isn't flooded. The event is enqueued on a

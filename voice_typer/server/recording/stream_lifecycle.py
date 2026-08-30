@@ -85,7 +85,10 @@ class StreamLifecycle:
         effective_sr: int,
         last_error: Exception | None,
     ) -> tuple[Any, int, Exception | None]:
-        """Body of :meth:`Recorder._open_stream_for_candidates`.
+        """Open an ``sd.InputStream`` for each candidate device (a
+        ``StreamLifecycle`` method invoked directly by
+        ``_recorder_split.start_recording``; the historical
+        ``Recorder._open_stream_for_candidates`` pure delegator was removed).
 
         Try opening an :class:`sd.InputStream` for each candidate device
         in turn. Returns ``(selected_device, effective_sr, last_error)``.
@@ -227,7 +230,10 @@ class StreamLifecycle:
         effective_sr: int,
         last_error: Exception | None,
     ) -> tuple[Any, int, bool, Exception | None]:
-        """Body of :meth:`Recorder._open_stream_fallback`.
+        """Last-resort fallback over every available input device (a
+        ``StreamLifecycle`` method invoked directly by
+        ``_recorder_split.start_recording``; the historical
+        ``Recorder._open_stream_fallback`` pure delegator was removed).
 
         Try every available input device not already in ``candidates``
         (the already-tried list) as a last-resort fallback. Returns
@@ -332,7 +338,10 @@ class StreamLifecycle:
         return selected_device, effective_sr, used_fallback, last_error
 
     def build_audio_callback(self, recorder: Any) -> Any:
-        """Body of :meth:`Recorder._build_audio_callback`.
+        """Construct the PortAudio callback closure for this session (a
+        ``StreamLifecycle`` method invoked directly by
+        ``_recorder_split.start_recording``; the historical
+        ``Recorder._build_audio_callback`` pure delegator was removed).
 
                 Construct the PortAudio callback closure for this session.
 
@@ -341,8 +350,9 @@ class StreamLifecycle:
                 does ONLY pre-roll capture + ring buffer push + worker signal —
                 all heavy work (filter chain, VAD, resample, state machine) is
                 done by the audio worker thread. See
-                ``Recorder._audio_callback_dispatch`` / ``_audio_worker_loop``
-                / ``_process_audio_chunk`` for the full architecture.
+                ``Recorder._audio_callback_dispatch`` /
+                ``AudioCallbackDispatcher.audio_worker_loop`` /
+                ``AudioPipeline.process_audio_chunk`` for the full architecture.
 
                 The closure captures ``recorder`` only — no other start()-locals
                 — so it is safe to extract from ``start()`` into a helper that

@@ -22,9 +22,12 @@ access *shared* state that lives on ``Recorder`` and is NOT moved here:
 - ``self._recorder._preroll_buffer`` — preroll deque
 - ``self._recorder.config`` — for ``sample_rate`` / ``max_recording_time_seconds``
 - ``self._recorder._audio_processor`` — filter chain
-- ``self._recorder._vad`` / ``_vad_state`` / etc. — VAD state
+- ``self._recorder._vad`` (VadProcessor) — VAD state (accessed via
+  ``recorder._vad.<attr>``; the historical ``Recorder._vad_*`` shims
+  were removed)
 - ``self._recorder._recent_rms_values`` / ``_silence_timer`` / etc. — RMS state
-- ``self._recorder._device_disconnected`` / ``_device_disconnect_retries`` — disconnect state
+- ``self._recorder._devices._device_disconnected`` /
+  ``_device_disconnect_retries`` — disconnect state (DeviceManager)
 - ``self._recorder._xruns`` / ``_xrun_timestamps`` / ``_clip_count`` / etc. — XRUN state
 - ``self._recorder._cached_target_sr`` / ``_cached_vad_*`` — cached scalars
 - ``self._recorder._cached_resampled_segments`` / ``_cached_resampled_concat_dirty`` — segment cache
@@ -32,9 +35,10 @@ access *shared* state that lives on ``Recorder`` and is NOT moved here:
 
 Each method on this class takes ``recorder`` as an explicit parameter
 (the owning :class:`Recorder` instance) rather than reading
-``self._recorder``. This lets ``Recorder`` keep 1-line delegator methods
-that pass ``self`` straight through (``self._session_state.X(self)``),
-and matches the existing pattern where ``self`` references in the
+``self._recorder``. Call sites invoke the methods on
+``recorder._session_state`` directly (``recorder._session_state.X(recorder)``;
+the historical ``Recorder`` delegators were removed), and this matches
+the existing pattern where ``self`` references in the
 original body become ``recorder.X`` in the extracted body.
 
 Patch-path compatibility
@@ -153,7 +157,9 @@ class SessionState:
     # ── Per-session state reset ──────────────────────────────────────────
 
     def reset_session_state(self, recorder: Any) -> None:
-        """Body of :meth:`Recorder._reset_session_state`.
+        """Reset per-session state (a ``SessionState`` method invoked
+        directly by ``_recorder_split.start_recording``; the historical
+        ``Recorder._reset_session_state`` pure delegator was removed).
 
                 Reset ALL per-session state for a fresh recording session.
 
@@ -338,7 +344,10 @@ class SessionState:
     # ── Config-derived scalar caching ───────────────────────────────────
 
     def cache_session_config(self, recorder: Any) -> int:
-        """Body of :meth:`Recorder._cache_session_config`.
+        """Cache config-derived session scalars (a ``SessionState``
+        method invoked directly by ``_recorder_split.start_recording``;
+        the historical ``Recorder._cache_session_config`` pure delegator
+        was removed).
 
                 Cache config-derived scalars for the upcoming session and return ``max_rec``.
 
@@ -385,7 +394,10 @@ class SessionState:
     # ── Secure cache clearing (bulk — NOT _secure_clear_session_caches) ─
 
     def secure_clear_caches(self, recorder: Any) -> None:
-        """Body of :meth:`Recorder._secure_clear_caches`.
+        """Securely clear cached audio arrays (a ``SessionState`` method
+        invoked directly by the stop/discard/disconnect-handler call
+        sites; the historical ``Recorder._secure_clear_caches`` pure
+        delegator was removed).
 
         securely zero cached audio arrays BEFORE reassignment.
 
@@ -515,7 +527,11 @@ class SessionState:
     # ── Dynamic buffer sizing ───────────────────────────────────────────
 
     def resize_buffers_for_sample_rate(self, recorder: Any, effective_sr: int, max_rec: int) -> None:
-        """Body of :meth:`Recorder._resize_buffers_for_sample_rate`.
+        """Resize the buffers for the effective sample rate (a
+        ``SessionState`` method invoked directly by
+        ``_recorder_split.start_recording``; the historical
+        ``Recorder._resize_buffers_for_sample_rate`` pure delegator was
+        removed).
 
         Dynamically size the main buffer, ring buffer, and pre-roll deque.
 
@@ -655,7 +671,10 @@ class SessionState:
     # ── Preroll prepend at start() ──────────────────────────────────────
 
     def prepend_preroll_to_buffer(self, recorder: Any) -> None:
-        """Body of :meth:`Recorder._prepend_preroll_to_buffer`.
+        """Prepend the preroll buffer to the main buffer (a
+        ``SessionState`` method; the historical
+        ``Recorder._prepend_preroll_to_buffer`` pure delegator was
+        removed — invoked from the audio worker loop).
 
         Prepend captured pre-roll chunks to the main recording buffer.
 

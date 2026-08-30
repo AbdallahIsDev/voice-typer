@@ -7,10 +7,10 @@ them.
 
 (Phase 4.5 follow-up) — also owns the ``resample_audio()``
 helper (promoted from ``Recorder._resample_audio_impl``) that runs the
-scipy → linear-interp → raise fallback chain. ``Recorder`` keeps a
-1-line delegator method (``_resample_audio_impl``) so existing
-internal call sites (``_resample_chunk`` / ``_prepare_audio``) and
-any subclass overrides keep working unchanged.
+scipy → linear-interp → raise fallback chain. The historical
+``Recorder._resample_audio_impl`` delegator was removed — callers
+(:mod:`.format` ``resample_chunk`` / ``prepare_audio``) invoke this
+module directly.
 
 The mutable globals ``_resample_poly``, ``_resample_poly_error``,
 ``_resample_poly_error_time``, ``_scipy_preloader_thread`` are
@@ -410,12 +410,12 @@ def resample_audio(
     log_resample: bool = False,
     log: logging.Logger | None = None,
 ) -> np.ndarray:
-    """Shared resampling logic for ``_resample_chunk`` and ``_prepare_audio``.
+    """Shared resampling logic used by :mod:`.format`'s
+    ``resample_chunk`` and ``prepare_audio``.
 
     Phase 4.5 — promoted from ``Recorder._resample_audio_impl``
-        (the body is unchanged). ``Recorder._resample_audio_impl`` is now a
-        1-line delegator that calls this function so existing internal call
-        sites and any subclass overrides keep working unchanged.
+        (the body is unchanged). The historical ``Recorder`` delegator
+        was removed; callers invoke this function directly.
 
     PERF-: previously the scipy → linear interp → raise
         fallback chain was duplicated between the two methods. This

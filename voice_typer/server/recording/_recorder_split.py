@@ -29,9 +29,9 @@ The full split plan (to be completed once parallel surgical fixes to
   - ``recorder/device_management.py`` — the 12 device methods (most already
     delegated to :class:`.device_manager.DeviceManager`).
   - ``recorder/format.py`` — audio format helpers
-    (``snapshot``, ``_resample_chunk``, ``_prepare_audio``,
-    ``_resample_audio_impl``, ``_ensure_mono``). ``snapshot`` is extracted
-    here as the first step.
+    (``resample_chunk``, ``prepare_audio``, ``ensure_mono``), backed by
+    :func:`.resampling.resample_audio`. ``snapshot`` remains a 1-line
+    public-API delegator on ``Recorder``.
   - ``recorder/worker_threads.py`` — worker-thread management.
 
 The conversion from ``recorder.py`` (module) to ``recorder/`` (package) is
@@ -1499,8 +1499,8 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     # ``_buffer_sr is None`` case.
     effective_sr = _captured_buffer_sr if _captured_buffer_sr is not None else recorder._effective_sr
 
-    # Pipeline ``_prepare_audio`` with the stats computation below.
-    # The resample (``_prepare_audio`` calls ``_resample_audio_impl``
+    # Pipeline ``prepare_audio`` with the stats computation below.
+    # The resample (``prepare_audio`` calls ``resample_audio``
     # → ``resample_poly``) is the most expensive single step in
     # stop() — ~200 ms for 30 s of 16 kHz mono audio, and proportionally
     # more for longer recordings. The stats computation (np.dot for RMS,

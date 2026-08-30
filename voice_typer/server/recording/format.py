@@ -100,7 +100,9 @@ def ensure_mono(recorder: Recorder, audio: Any) -> Any:
 
 
 def resample_chunk(recorder: Recorder, audio: Any, effective_sr: int, target_sr: int) -> Any:
-    """Resample a single chunk of audio (body of ``Recorder._resample_chunk``).
+    """Resample a single chunk of audio (a standalone module function —
+    the historical ``Recorder._resample_chunk`` pure delegator was removed;
+    callers invoke this function directly).
 
     Raises:
         ResampleError: if neither scipy nor linear-interp resampling
@@ -109,7 +111,7 @@ def resample_chunk(recorder: Recorder, audio: Any, effective_sr: int, target_sr:
             rate audio silently, which led to garbage transcriptions
             on the streaming path.
 
-    PERF-: delegates to the shared ``_resample_audio_impl``
+    PERF-: delegates to the shared ``resample_audio``
         helper (also used by ``prepare_audio``) to avoid duplicating
         the scipy → linear interp → raise fallback chain.
     """
@@ -124,8 +126,9 @@ def prepare_audio(
     effective_sr: int,
     log_resample: bool = True,
 ) -> Any:
-    """Convert captured audio to the configured sample rate (body of
-    ``Recorder._prepare_audio``).
+    """Convert captured audio to the configured sample rate (a standalone
+    module function — the historical ``Recorder._prepare_audio`` pure
+    delegator was removed; callers invoke this function directly).
 
     previously the except blocks used bare ``Exception``,
         which swallowed ``AttributeError`` / ``MemoryError`` /
@@ -133,7 +136,7 @@ def prepare_audio(
         ``(ValueError, OSError, TypeError)`` so genuine bugs propagate
         instead of being silently masked as "resampling failed".
 
-    PERF-: delegates to the shared ``_resample_audio_impl``
+    PERF-: delegates to the shared ``resample_audio``
         helper (also used by ``resample_chunk``) to avoid duplicating
         the scipy → linear interp → raise fallback chain.
     """

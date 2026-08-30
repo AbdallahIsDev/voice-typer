@@ -13,12 +13,12 @@ parallel autostart mechanisms on Windows:
     rejected by the Windows 11 StartupApp launcher; see
     ``_validate_runkey_command``).
 
-STARTUP-7: the Run key is tried FIRST because it requires no admin
-elevation (HKCU is per-user, always writable).  Task Scheduler is tried
-only as a fallback because registering a scheduled task may require UAC
-elevation if a previous task was created by an admin install (locked
-task).  The Run key fires ~33 s after logon, which is soon enough for
-the autostart launcher (which has a ``--delay 15`` internal delay).
+STARTUP-7 (superseded by AUTOSTART-ORDER-FIX): the enable order is
+Task Scheduler first (its logon trigger fires earlier and more
+predictably than Explorer-gated mechanisms), then the admin-free
+Startup-folder .bat, with the HKCU Run key as the last resort (its raw
+command line can be rejected by the Windows 11 StartupApp launcher -
+see ``_validate_runkey_command``).
 
 PLAT-RUN: append the install-path hash to the task name + Run-key name
 so two installations in different directories register distinct entries

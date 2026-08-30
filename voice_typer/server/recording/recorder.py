@@ -134,9 +134,10 @@ from voice_typer.server.recording import _secure_clear_array  # noqa: F401, E402
 # internal references and only existed as stale
 # ``vad_processor.DEFAULT_VAD_*`` mirrors.
 # split: ``take_snapshot`` and ``discard_recording`` are the
-# promoted bodies of ``Recorder.snapshot`` and ``Recorder.discard``. The
-# methods become 1-line delegators so existing call sites, subclass
-# overrides, and ``inspect.getsource`` checks continue to work. See
+# promoted bodies of ``Recorder.snapshot`` and ``Recorder.discard``.
+# ``snapshot`` is a 1-line delegator; ``discard`` is a thin wrapper
+# (idle fast-path + ``_start_lock``) — both keep the public API on
+# ``Recorder`` so existing call sites and subclass overrides work. See
 # :mod:`._recorder_split` for the full split plan.
 from . import _recorder_split  # noqa: E402
 
@@ -145,8 +146,8 @@ from . import _recorder_split  # noqa: E402
 # (``_detect_device_disconnect`` / ``_handle_xrun_status`` /
 # ``_apply_filter_chain`` / ``_append_to_buffer_locked`` /
 # ``_compute_rms_and_peak`` / ``_run_vad_state_machine``). ``Recorder``
-# keeps 1-line delegator methods so existing call sites, subclass
-# overrides, and ``inspect.getsource`` checks continue to work. See
+# invokes the pipeline through the kept hybrid ``_process_audio_chunk``
+# wrapper; the historical per-helper delegators were removed. See
 # :mod:`.audio_pipeline` for the collaborator pattern.
 from .audio_pipeline import AudioPipeline  # noqa: F401, E402 — re-exported for tests
 
@@ -155,10 +156,11 @@ from .audio_pipeline import AudioPipeline  # noqa: F401, E402 — re-exported fo
 # (excluding the literal ``_ring_buffer.append`` +
 # ``_worker_wake_event.set`` operations that stay on
 # ``Recorder._audio_callback_dispatch`` for the  source-
-# inspection contract). ``Recorder`` keeps 1-line delegator methods so
-# existing call sites, subclass overrides, and ``inspect.getsource``
-# checks continue to work. See :mod:`.capture` for the collaborator
-# pattern.
+# inspection contract). The audio-worker pair is invoked through the
+# kept hybrid ``_start_audio_worker`` / ``_stop_audio_worker``
+# wrappers; the event-worker pair is invoked directly from the
+# ``_recorder_split`` call sites (the event-worker delegators were
+# deleted). See :mod:`.capture` for the collaborator pattern.
 from .capture import AudioCallbackDispatcher  # noqa: F401, E402 — re-exported for tests
 
 # Phase 4.5: ``DeviceManager`` owns device enumeration, hot-swap,
@@ -214,9 +216,9 @@ from .resampling import (  # noqa: E402 — re-exported for tests (post-comment 
 # (``_secure_clear_caches`` — NOT ``_secure_clear_session_caches`` which
 # stays here for the source-inspection contract in
 # ``tests/test_secure_clear_array.py``), buffer resizing for the
-# effective sample rate, and the preroll prepend. ``Recorder`` keeps
-# 1-line delegator methods so existing call sites, subclass overrides,
-# and ``inspect.getsource`` checks continue to work. See
+# effective sample rate, and the preroll prepend. The historical
+# ``Recorder`` delegators were removed — call sites invoke
+# ``self._session_state.X(self)`` directly. See
 # :mod:`.session_state` for the collaborator pattern.
 from .session_state import SessionState  # noqa: F401, E402 — re-exported for tests
 
@@ -1535,6 +1537,13 @@ class Recorder(RecorderInitMixin):
     # ``_recorder_split`` (the collaborator bodies must NOT hold the
     # lock; pinned by the negative source checks in
     # ``tests/test_capture_worker_lifecycle.py``).
+    # The audio-worker pair (``_start_audio_worker`` /
+    # ``_stop_audio_worker``) intentionally REMAINED on Recorder: unlike
+    # these pure delegators, they are hybrid wrappers that acquire
+    # ``_worker_lifecycle_lock`` on the Recorder source (pinned by
+    # ``tests/test_recorder_worker_lifecycle.py``) and carry real
+    # stale-worker restore logic (thread-ref + stop-event restoration
+    # after a join timeout).
 
     def _audio_callback_dispatch(self, indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
         """Real-time audio callback entry point — RT-safe path.
@@ -1580,8 +1589,9 @@ class Recorder(RecorderInitMixin):
         """Process a single audio chunk — runs on the worker thread.
 
         Phase 4.5 — body moved to
-                :meth:`AudioPipeline.process_audio_chunk`. This is a 1-line
-                delegator so existing call sites and ``inspect.getsource``
+                :meth:`AudioPipeline.process_audio_chunk`. This is a thin
+                hybrid wrapper (ring-overflow warning + pipeline call) so
+                existing call sites and ``inspect.getsource``
                 checks on ``Recorder._process_audio_chunk`` continue to work.
 
                 See :mod:`.audio_pipeline` for the collaborator pattern and
@@ -1708,9 +1718,10 @@ class Recorder(RecorderInitMixin):
         """Discard current recording without processing.
 
         split: body moved to :func:`._recorder_split.discard_recording`.
-                This method is now a 1-line delegator so existing call sites,
-                subclass overrides, and ``inspect.getsource`` checks that look for
-                the method on the ``Recorder`` class continue to work. See the
+                This method is a thin wrapper (idle fast-path +
+                ``_start_lock``, then delegates) so existing call sites,
+                subclass overrides, and ``inspect.getsource`` checks that look
+                for the method on the ``Recorder`` class continue to work. See the
                 docstring of the extracted helper for the full rationale (stream
                 teardown ordering, secure-clear of cached audio arrays, worker
                 thread drain semantics).

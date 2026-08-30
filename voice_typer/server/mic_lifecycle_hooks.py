@@ -56,8 +56,8 @@ class MicLifecycleHooks:
         ``on_device_lost`` callback on the recorder.
 
         Idempotent — safe to call multiple times. The hooks are stored on
-        the recorder's ``_mic_watcher`` (a property delegating to
-        ``DeviceManager._mic_watcher``) and on the recorder itself
+        the recorder's DeviceManager-owned ``_mic_watcher``
+        (``recorder._devices._mic_watcher``) and on the recorder itself
         (``on_device_lost``). All assignments are best-effort and wrapped
         in ``contextlib.suppress`` so a partially-initialized recorder (or
         a test mock) doesn't crash RecordingController construction.

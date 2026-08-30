@@ -140,10 +140,9 @@ def vad_update(
 
     Delegates to ``recorder._vad.update_frame(chunk_rms_db, vad_prob)``.
     The VadProcessor owns the state-machine counters, thresholds, and
-    hysteresis transitions. The historical ``self._vad_*`` attribute
-    names (e.g. ``_vad_consecutive_speech_frames``) remain accessible
-    on ``Recorder`` via property shims that read/write through to
-    ``recorder._vad``.
+    hysteresis transitions; tests and consumers access that state via
+    ``recorder._vad.<attr>`` (e.g. ``recorder._vad.consecutive_speech_frames``
+    — the historical ``Recorder`` property shims were removed).
 
     Uses hysteresis — transitioning from SILENCE to SPEECH requires N
     consecutive loud frames, while SPEECH to SILENCE requires M
