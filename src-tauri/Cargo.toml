@@ -16,7 +16,7 @@ name = "voice-typer-tauri"
 path = "src/main.rs"
 
 [build-dependencies]
-tauri-build = { version = "2" }
+tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # Tauri v2 core — tray support is built into the core crate in v2
