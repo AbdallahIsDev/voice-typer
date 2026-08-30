@@ -123,9 +123,7 @@ fn position_on_any_monitor(app: &tauri::AppHandle, x: i32, y: i32) -> bool {
 /// Restore decision for `bubble_show`: the cached pair when it exists AND
 /// lies on an attached monitor, else `None` (caller keeps default
 /// centering).
-pub(crate) fn restore_position(
-    app: &tauri::AppHandle,
-) -> Option<(i32, i32)> {
+pub(crate) fn restore_position(app: &tauri::AppHandle) -> Option<(i32, i32)> {
     let pos = persisted_pos()?;
     if position_on_any_monitor(app, pos.0, pos.1) {
         Some(pos)

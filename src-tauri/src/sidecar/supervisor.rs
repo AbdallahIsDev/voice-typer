@@ -591,9 +591,7 @@ pub(crate) async fn respawn_inner(
                     return Ok(());
                 }
                 if let Some(old) = old_handle {
-                    log::info!(
-                        "[SUPERVISOR] killing old sidecar before installing new one"
-                    );
+                    log::info!("[SUPERVISOR] killing old sidecar before installing new one");
                     let _ = old.kill_tree().await;
                 }
                 // the dead `state.token: Mutex<String>`

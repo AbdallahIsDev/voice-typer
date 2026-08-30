@@ -369,9 +369,7 @@ async fn dispatch_frame(
         let mut pending = state.pending.lock().await;
         pending.remove(&id);
         let err = match &e {
-            tokio::sync::mpsc::error::TrySendError::Closed(_) => {
-                VoiceTyperError::NotConnected
-            }
+            tokio::sync::mpsc::error::TrySendError::Closed(_) => VoiceTyperError::NotConnected,
             tokio::sync::mpsc::error::TrySendError::Full(_) => VoiceTyperError::SendFailed {
                 message: e.to_string(),
             },

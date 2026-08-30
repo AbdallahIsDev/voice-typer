@@ -58,9 +58,11 @@ pub(crate) use panic_hook::install_panic_hook;
 // `sidecar/spawn.rs`). Gated so non-test builds carry no dead
 // re-exports.
 #[cfg(test)]
-pub(crate) use combined::{is_debug_env_truthy, is_truthy_env_var, is_truthy_value, CombinedLogger};
+pub(crate) use combined::{
+    is_debug_env_truthy, is_truthy_env_var, is_truthy_value, CombinedLogger,
+};
 #[cfg(test)]
-pub(crate) use early::{EARLY_LOGGER_HANDLE, EarlyLogger};
+pub(crate) use early::{EarlyLogger, EARLY_LOGGER_HANDLE};
 #[cfg(test)]
 pub(crate) use init::sweep_stale_logs;
 #[cfg(test)]

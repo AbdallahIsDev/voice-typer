@@ -236,7 +236,10 @@ fn test_server_variant_display_is_flat_log_string() {
         "code": "server.internal_error",
         "message": "internal error"
     }));
-    assert_eq!(err.to_string(), "server error [server.internal_error]: internal error");
+    assert_eq!(
+        err.to_string(),
+        "server error [server.internal_error]: internal error"
+    );
 }
 
 #[test]

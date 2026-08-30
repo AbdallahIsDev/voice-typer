@@ -117,7 +117,9 @@ async fn test_shutdown_sidecar_for_exit_is_idempotent() {
 #[tokio::test]
 async fn test_begin_shutdown_swaps_flag_and_wakes_notify_waiter() {
     let state = SidecarState::new();
-    assert!(!state.shutting_down.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(!state
+        .shutting_down
+        .load(std::sync::atomic::Ordering::SeqCst));
 
     // Register the waiter BEFORE the notify (mirrors a supervisor
     // task parked in — or about to enter — `notified()`).
@@ -129,7 +131,9 @@ async fn test_begin_shutdown_swaps_flag_and_wakes_notify_waiter() {
         "first begin_shutdown must report the flag was previously clear"
     );
     assert!(
-        state.shutting_down.load(std::sync::atomic::Ordering::SeqCst),
+        state
+            .shutting_down
+            .load(std::sync::atomic::Ordering::SeqCst),
         "begin_shutdown must set shutting_down"
     );
     // Second call: idempotent swap — reports the flag was already set.

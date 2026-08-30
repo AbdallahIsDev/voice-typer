@@ -88,14 +88,16 @@ fn show_notification(app: &AppHandle, title: &str, message: &str) {
 fn show_main_window(app: &AppHandle) {
     let app = app.clone();
     #[allow(clippy::let_underscore_future)] // intentional fire-and-forget
-    let _ = tauri::async_runtime::spawn_blocking(move || match app.webview_windows().get("main")
-    {
+    let _ = tauri::async_runtime::spawn_blocking(move || match app.webview_windows().get("main") {
         Some(window) => {
             // Clear skip_taskbar if the window was started hidden
             // (VT_START_HIDDEN=1). Without this the window would show
             // but leave no taskbar entry.
             if let Err(e) = window.set_skip_taskbar(false) {
-                log::warn!("[HOST-EVENTS] main window set_skip_taskbar(false) failed: {}", e);
+                log::warn!(
+                    "[HOST-EVENTS] main window set_skip_taskbar(false) failed: {}",
+                    e
+                );
             }
             // RAISE-TO-FRONT: `set_focus` alone is subject to the OS
             // foreground lock (Windows refuses SetForegroundWindow from
@@ -110,13 +112,19 @@ fn show_main_window(app: &AppHandle) {
                 log::warn!("[HOST-EVENTS] main window show failed: {}", e);
             }
             if let Err(e) = window.set_always_on_top(true) {
-                log::warn!("[HOST-EVENTS] main window set_always_on_top(true) failed: {}", e);
+                log::warn!(
+                    "[HOST-EVENTS] main window set_always_on_top(true) failed: {}",
+                    e
+                );
             }
             if let Err(e) = window.set_focus() {
                 log::warn!("[HOST-EVENTS] main window set_focus failed: {}", e);
             }
             if let Err(e) = window.set_always_on_top(false) {
-                log::warn!("[HOST-EVENTS] main window set_always_on_top(false) failed: {}", e);
+                log::warn!(
+                    "[HOST-EVENTS] main window set_always_on_top(false) failed: {}",
+                    e
+                );
             }
             log::info!("[HOST-EVENTS] main window shown + raised to front (show_window request)");
         }

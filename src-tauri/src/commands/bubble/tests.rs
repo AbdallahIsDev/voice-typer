@@ -20,9 +20,9 @@
 use super::commands::{bubble_dismiss, bubble_hide_complete};
 use super::math::{
     bubble_position_in_work_area, centered_x_in_work_area, clamp_f64_to_i32, clamp_resize_height,
-    clamp_resize_width, compute_move_by_new_pos, edge_margin_physical,
-    keyword_edge_y_in_work_area, rect_contains_point, round_f64_to_i32_saturating,
-    round_f64_to_u32_saturating, RectPx, MAX_BUBBLE_H, MAX_BUBBLE_W, MIN_BUBBLE_H, MIN_BUBBLE_W,
+    clamp_resize_width, compute_move_by_new_pos, edge_margin_physical, keyword_edge_y_in_work_area,
+    rect_contains_point, round_f64_to_i32_saturating, round_f64_to_u32_saturating, RectPx,
+    MAX_BUBBLE_H, MAX_BUBBLE_W, MIN_BUBBLE_H, MIN_BUBBLE_W,
 };
 use super::parse::parse_position;
 use super::window::hide_bubble_window;
@@ -168,12 +168,18 @@ fn test_centered_x_clamped_to_workarea_left_when_bubble_wider() {
 fn test_keyword_edge_y_top_adds_margin_to_workarea_top() {
     // Primary display, taskbar irrelevant for "top": y = wa.y + 48
     // (mirrors Electron `Math.round(wa.y + 48)`).
-    assert_eq!(keyword_edge_y_in_work_area("top", &wa_primary(), 80, 48).unwrap(), 48);
+    assert_eq!(
+        keyword_edge_y_in_work_area("top", &wa_primary(), 80, 48).unwrap(),
+        48
+    );
     // Monitor with a TOP-docked bar: work area starts at y=60, so the
     // bubble clears it instead of hiding under the bar (old y=0 did
     // not).
     let top_docked = RectPx::new(0, 60, 1920, 1020);
-    assert_eq!(keyword_edge_y_in_work_area("top", &top_docked, 80, 48).unwrap(), 108);
+    assert_eq!(
+        keyword_edge_y_in_work_area("top", &top_docked, 80, 48).unwrap(),
+        108
+    );
 }
 
 #[test]
@@ -190,7 +196,10 @@ fn test_keyword_edge_y_bottom_clamped_to_workarea_top_on_overflow() {
     // Bubble taller than the work area minus two margins: pin to wa.y
     // instead of poking above the work-area top.
     let short = RectPx::new(0, 0, 1920, 100);
-    assert_eq!(keyword_edge_y_in_work_area("bottom", &short, 200, 48).unwrap(), 0);
+    assert_eq!(
+        keyword_edge_y_in_work_area("bottom", &short, 200, 48).unwrap(),
+        0
+    );
     let short_below_origin = RectPx::new(0, 500, 1920, 100);
     assert_eq!(
         keyword_edge_y_in_work_area("bottom", &short_below_origin, 200, 48).unwrap(),
@@ -239,12 +248,11 @@ fn test_bubble_position_in_work_area_secondary_monitor_end_to_end() {
     // Cursor on the left-of-primary secondary display: the whole
     // placement lands in NEGATIVE desktop territory — the exact case
     // the old primary-monitor-only code got wrong.
-    let (x, y) =
-        bubble_position_in_work_area("bottom", &wa_secondary_left(), 320, 80, 48).unwrap();
+    let (x, y) = bubble_position_in_work_area("bottom", &wa_secondary_left(), 320, 80, 48).unwrap();
     assert_eq!(x, -1120);
     assert_eq!(y, -1080 + 1040 - 80 - 48);
-    let (top_x, top_y) = bubble_position_in_work_area("top", &wa_secondary_left(), 320, 80, 48)
-        .unwrap();
+    let (top_x, top_y) =
+        bubble_position_in_work_area("top", &wa_secondary_left(), 320, 80, 48).unwrap();
     assert_eq!(top_x, -1120);
     assert_eq!(top_y, -1080 + 48);
 }

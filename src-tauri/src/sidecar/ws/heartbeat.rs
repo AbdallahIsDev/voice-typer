@@ -62,9 +62,7 @@ pub(crate) async fn abort_heartbeat(state: &Arc<SidecarState>) {
     };
     if let Some(handle) = prev {
         handle.abort();
-        log::info!(
-            "[HEARTBEAT] aborted in-flight heartbeat task via abort_heartbeat helper"
-        );
+        log::info!("[HEARTBEAT] aborted in-flight heartbeat task via abort_heartbeat helper");
     }
 }
 
@@ -297,9 +295,7 @@ pub(super) async fn spawn_heartbeat_task(
     // synchronously join the task, so this is fast and lock-free.
     if let Some(prev) = prev_handle_opt {
         prev.abort();
-        log::info!(
-            "[HEARTBEAT] aborted previous heartbeat task before spawning new one"
-        );
+        log::info!("[HEARTBEAT] aborted previous heartbeat task before spawning new one");
     }
 }
 

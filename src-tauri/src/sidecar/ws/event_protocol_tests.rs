@@ -189,10 +189,7 @@ fn test_is_high_rate_event_type_truth_table() {
 /// usePythonEvent dispatcher consumes via `api.onEvent`.
 #[test]
 fn test_python_event_envelope_shape() {
-    let env = python_event_envelope(
-        "transcription_final",
-        json!({"text": "done", "cycle": 7}),
-    );
+    let env = python_event_envelope("transcription_final", json!({"text": "done", "cycle": 7}));
     assert_eq!(
         env,
         json!({"type": "transcription_final", "data": {"text": "done", "cycle": 7}})

@@ -1654,14 +1654,14 @@ fn test_fast_trigger_scan_matches_legacy_predicates_on_corpus() {
         "a1-2-3b",                           // separated digits → no digit run
         "Bearer abc123def456ghi789",
         "Bearer",
-        "Bearer ",      // needle at end-of-input boundary
-        "Bear",         // partial prefix must NOT trigger
+        "Bearer ", // needle at end-of-input boundary
+        "Bear",    // partial prefix must NOT trigger
         "Token sk-live-1234567890abcdef",
         "Token",
-        "Tkn",          // near-miss first byte
+        "Tkn", // near-miss first byte
         "sk-proj-abcdefghijklmnop",
-        "sk-1234",      // prefix present but short token (trigger still fires)
-        "sk_",          // underscore variant must NOT trigger sk-
+        "sk-1234", // prefix present but short token (trigger still fires)
+        "sk_",     // underscore variant must NOT trigger sk-
         "gsk_groqkey123456789",
         "gsk",
         "https://user:pass@host.example.com",
@@ -1669,17 +1669,17 @@ fn test_fast_trigger_scan_matches_legacy_predicates_on_corpus() {
         ":/",
         "api_key=hunter2",
         "key=",
-        "key",          // trailing partial needle
-        "monkey=abc",   // 'key=' substring IS a trigger (fast-path only)
+        "key",        // trailing partial needle
+        "monkey=abc", // 'key=' substring IS a trigger (fast-path only)
         "token=alice@example.com",
-        "GB82WEST12345698765432", // IBAN: letters+digits, 22-char run
-        "aaaaaaaaaaaaaaaaaaa",    // exactly 19 chars → no trigger
-        "aaaaaaaaaaaaaaaaaaaa",   // exactly 20 chars → trigger
+        "GB82WEST12345698765432",  // IBAN: letters+digits, 22-char run
+        "aaaaaaaaaaaaaaaaaaa",     // exactly 19 chars → no trigger
+        "aaaaaaaaaaaaaaaaaaaa",    // exactly 20 chars → trigger
         "aaaa-aaaa-aaaa-aaaa-aaa", // 22-char run incl. dashes → trigger
         "aaaaaaaaaaaaaaaaaaa-a",   // 21 with dash-break? single run → trigger
-        "日本語のログメッセージ",   // non-ASCII, no trigger
-        "ユーザー@example.com",     // non-ASCII + '@' → trigger
-        "emoji 🎙🎙🎙 and text",    // 4-byte chars, no trigger
+        "日本語のログメッセージ",  // non-ASCII, no trigger
+        "ユーザー@example.com",    // non-ASCII + '@' → trigger
+        "emoji 🎙🎙🎙 and text",      // 4-byte chars, no trigger
         "мир-12345-мир",           // non-ASCII + digits
         "Bearer",                  // exact needle alone
         "sk-",                     // exact needle alone
@@ -1722,9 +1722,9 @@ fn test_fast_trigger_scan_run_boundaries_with_separator_reset() {
 
 #[test]
 fn test_fast_trigger_scan_digit_run_boundaries() {
-    assert!(!has_any_fast_trigger("99"));      // 2 digits
-    assert!(has_any_fast_trigger("999"));      // 3 digits
-    assert!(!has_any_fast_trigger("9a9a9"));   // no consecutive 3
-    assert!(has_any_fast_trigger("×999×"));    // digits after multibyte
+    assert!(!has_any_fast_trigger("99")); // 2 digits
+    assert!(has_any_fast_trigger("999")); // 3 digits
+    assert!(!has_any_fast_trigger("9a9a9")); // no consecutive 3
+    assert!(has_any_fast_trigger("×999×")); // digits after multibyte
     assert!(!has_any_fast_trigger("12.34.5")); // separated
 }

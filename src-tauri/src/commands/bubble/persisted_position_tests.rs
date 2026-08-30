@@ -48,9 +48,7 @@ fn rejects_out_of_range_coordinates() {
     );
     // NaN / infinite.
     assert_eq!(
-        parse_persisted_pos(
-            &serde_json::json!({"bubble_x": f64::NAN, "bubble_y": 0})
-        ),
+        parse_persisted_pos(&serde_json::json!({"bubble_x": f64::NAN, "bubble_y": 0})),
         None
     );
 }

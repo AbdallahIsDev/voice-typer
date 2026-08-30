@@ -143,7 +143,10 @@ fn build_item_refs(
 }
 
 /// Build a (possibly nested) `Menu` from the serialized item list.
-pub(crate) fn build_menu(app: &AppHandle, items: &[MenuItemData]) -> tauri::Result<tauri::menu::Menu<R>> {
+pub(crate) fn build_menu(
+    app: &AppHandle,
+    items: &[MenuItemData],
+) -> tauri::Result<tauri::menu::Menu<R>> {
     let built = build_item_refs(app, items)?;
     let refs: Vec<&dyn IsMenuItem<R>> = built.iter().map(|b| b.as_ref()).collect();
     MenuBuilder::new(app).items(&refs).build()

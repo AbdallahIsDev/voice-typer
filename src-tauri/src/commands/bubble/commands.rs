@@ -81,7 +81,9 @@ pub async fn bubble_show(app: tauri::AppHandle) -> Result<(), VoiceTyperError> {
         crate::commands::bubble::suppress_persist_for_window();
         let _ = window.set_position(PhysicalPosition::new(x, y));
     }
-    window.show().map_err(|e| VoiceTyperError::Host(e.to_string()))
+    window
+        .show()
+        .map_err(|e| VoiceTyperError::Host(e.to_string()))
 }
 
 /// Emit `bubble:ready` to signal that the bubble page is mounted and
@@ -247,8 +249,7 @@ pub async fn bubble_set_position(
     // it to this monitor's physical pixels so the visual gap matches
     // across scale factors.
     let margin = edge_margin_physical(monitor.scale_factor());
-    let (px, py) =
-        bubble_position_in_work_area(&position, &wa_rect, bubble_w, bubble_h, margin)?;
+    let (px, py) = bubble_position_in_work_area(&position, &wa_rect, bubble_w, bubble_h, margin)?;
     window
         .set_position(PhysicalPosition::new(px, py))
         .map_err(|e| VoiceTyperError::Host(e.to_string()))

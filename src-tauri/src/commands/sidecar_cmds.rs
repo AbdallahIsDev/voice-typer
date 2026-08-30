@@ -36,9 +36,7 @@ mod window_close;
 // The three error-code constants are re-exported unconditionally so
 // `error.rs` (the single home of the envelope strings) can single-source
 // the codes without inline literals.
-pub(crate) use allowlist::{
-    DISALLOWED_COMMAND_CODE, DISALLOWED_WINDOW_CODE, PENDING_FULL_CODE,
-};
+pub(crate) use allowlist::{DISALLOWED_COMMAND_CODE, DISALLOWED_WINDOW_CODE, PENDING_FULL_CODE};
 pub(crate) use dispatch::{dispatch, dispatch_fire_and_forget, dispatch_inner, DispatchArgs};
 pub(crate) use shutdown::shutdown_sidecar;
 pub(crate) use window_close::on_main_window_close;

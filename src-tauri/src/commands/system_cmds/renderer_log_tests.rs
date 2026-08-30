@@ -42,7 +42,11 @@ fn test_exact_cap_payload_not_truncated() {
     assert_eq!(CAP, 8192);
     let payload = Value::String("a".repeat(CAP - 2));
     let full = serde_json::to_string(&payload).unwrap();
-    assert_eq!(full.len(), CAP, "test setup: payload must serialize to exactly the cap");
+    assert_eq!(
+        full.len(),
+        CAP,
+        "test setup: payload must serialize to exactly the cap"
+    );
     let out = cap_and_serialize_renderer_payload(&payload);
     assert_eq!(out, full, "exact-cap payload must pass through untouched");
     assert!(!out.contains(TRUNCATION_MARKER));
@@ -76,7 +80,10 @@ fn test_far_over_cap_nested_payload_truncated() {
         "componentStack": "in App"
     });
     let full = serde_json::to_string(&payload).unwrap();
-    assert!(full.len() > CAP * 2, "test setup: payload must far exceed the cap");
+    assert!(
+        full.len() > CAP * 2,
+        "test setup: payload must far exceed the cap"
+    );
     let out = cap_and_serialize_renderer_payload(&payload);
     assert!(out.ends_with(TRUNCATION_MARKER));
     // 100_000-char run also trips the 20+ alnum catch-all inside
@@ -97,11 +104,17 @@ fn test_multibyte_char_straddling_cap_floors_to_char_boundary() {
     let payload = Value::String(format!("{}éé", "a".repeat(CAP - 2)));
     let full = serde_json::to_string(&payload).unwrap();
     assert_eq!(full.len(), CAP + 4, "test setup: prefix math");
-    assert!(!full.is_char_boundary(CAP), "test setup: boundary must split a char");
+    assert!(
+        !full.is_char_boundary(CAP),
+        "test setup: boundary must split a char"
+    );
 
     let out = cap_and_serialize_renderer_payload(&payload); // must not panic
     assert!(out.ends_with(TRUNCATION_MARKER));
-    assert!(out.len() < CAP + TRUNCATION_MARKER.len(), "prefix floored below the cap");
+    assert!(
+        out.len() < CAP + TRUNCATION_MARKER.len(),
+        "prefix floored below the cap"
+    );
     // Floored prefix = `"` + 8190 `a` + first `é` = 1 + 8190 + 2 bytes.
     assert_eq!(out.len(), (CAP - 1) + TRUNCATION_MARKER.len());
     assert_eq!(&out[..CAP - 1], &full[..CAP - 1]);

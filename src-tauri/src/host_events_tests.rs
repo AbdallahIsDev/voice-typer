@@ -9,13 +9,17 @@ fn test_parses_title_and_message() {
     let parsed = parse_notification(raw);
     assert_eq!(
         parsed,
-        Some(("Model loaded".to_string(), "Whisper small.en ready".to_string()))
+        Some((
+            "Model loaded".to_string(),
+            "Whisper small.en ready".to_string()
+        ))
     );
 }
 
 #[test]
 fn test_ignores_extra_fields() {
-    let raw = r#"{"title":"T","message":"M","duration_ms":5000,"critical":true,"click_path":"/models"}"#;
+    let raw =
+        r#"{"title":"T","message":"M","duration_ms":5000,"critical":true,"click_path":"/models"}"#;
     let parsed = parse_notification(raw);
     assert_eq!(parsed, Some(("T".to_string(), "M".to_string())));
 }

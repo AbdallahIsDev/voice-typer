@@ -233,7 +233,11 @@ impl VoiceTyperError {
                 .and_then(Value::as_str)
                 .unwrap_or("server error")
                 .to_string();
-            VoiceTyperError::Server { code, message, data }
+            VoiceTyperError::Server {
+                code,
+                message,
+                data,
+            }
         } else {
             VoiceTyperError::Host("server error [unknown]: server error".to_string())
         }
@@ -280,8 +284,9 @@ impl Serialize for VoiceTyperError {
         S: Serializer,
     {
         match self {
-            VoiceTyperError::Server { data, .. } => serializer
-                .serialize_str(&json!({ "type": "error", "data": data }).to_string()),
+            VoiceTyperError::Server { data, .. } => {
+                serializer.serialize_str(&json!({ "type": "error", "data": data }).to_string())
+            }
             _ => serializer.serialize_str(&self.to_string()),
         }
     }

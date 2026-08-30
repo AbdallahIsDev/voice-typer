@@ -364,8 +364,9 @@ fn main() {
             // arm a suppression window so they never persist themselves.
             if let WindowEvent::Moved(position) = event {
                 if window.label() == "bubble" {
-                    let sidecar_state =
-                        window.app_handle().state::<std::sync::Arc<crate::state::SidecarState>>();
+                    let sidecar_state = window
+                        .app_handle()
+                        .state::<std::sync::Arc<crate::state::SidecarState>>();
                     crate::commands::bubble::schedule_persist(
                         sidecar_state.inner(),
                         position.x,

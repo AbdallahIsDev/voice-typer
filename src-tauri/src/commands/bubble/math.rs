@@ -324,12 +324,12 @@ pub(super) fn keyword_edge_y_in_work_area(
 ) -> Result<i32, String> {
     let y = match position {
         "top" => wa.y.saturating_add(margin),
-        "bottom" => wa
-            .y
-            .saturating_add(wa.height)
-            .saturating_sub(bubble_h)
-            .saturating_sub(margin)
-            .max(wa.y),
+        "bottom" => {
+            wa.y.saturating_add(wa.height)
+                .saturating_sub(bubble_h)
+                .saturating_sub(margin)
+                .max(wa.y)
+        }
         other => {
             return Err(format!(
                 "position must be \"top\" or \"bottom\", got {:?}",

@@ -27,8 +27,10 @@ fn test_atomic_write_bytes_creates_file_with_expected_contents() {
     // Sanity: the basic write+rename contract still holds after
     // the parent-dir fsync addition. We write a small file,
     // then read it back and verify the contents match.
-    let tmp =
-        std::env::temp_dir().join(format!("voice-typer-atomic-fs-test-{}-basic", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!(
+        "voice-typer-atomic-fs-test-{}-basic",
+        std::process::id()
+    ));
     std::fs::remove_dir_all(&tmp).ok();
     std::fs::create_dir_all(&tmp).unwrap();
     let path = tmp.join("config.json");
@@ -109,8 +111,10 @@ fn test_atomic_write_bytes_parent_dir_fsync_does_not_fail_write() {
     // is the visible side-effect of the rename, which the fsync
     // then makes durable). The test name pins the "does not fail
     // the write" contract for future regression coverage.
-    let tmp =
-        std::env::temp_dir().join(format!("voice-typer-atomic-fs-test-{}-fsync", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!(
+        "voice-typer-atomic-fs-test-{}-fsync",
+        std::process::id()
+    ));
     std::fs::remove_dir_all(&tmp).ok();
     std::fs::create_dir_all(&tmp).unwrap();
     // Read the parent dir mtime BEFORE the write, then sleep briefly
