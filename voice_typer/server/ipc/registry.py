@@ -170,15 +170,17 @@ _PYTHON_ONLY_COMMANDS: frozenset[str] = frozenset({"shutdown", "tray_click"})
 # Each handler takes (data, resp) and returns resp (to send) or None
 # (for commands that send their response internally, like restart_app).
 #
-# reconciliation (2026-07-18, updated 2026-08-16): the registry
-# contains exactly 73 commands. The 71 "domain" handlers live in
-# voice_typer/server/handlers/ (one mixin module per domain). The
-# remaining two — `heartbeat` (, ADR-0018 Electron-alive watchdog)
-# and `relaunch_ack` (PERF-005, ack of `relaunch_electron` so
-# `restart_app` can drop its fixed 300 ms sleep) — are resident on
-# IPCServer itself because they touch IPC-server-owned state
-# (`_last_heartbeat_at`, `_relaunch_ack_event`) and don't belong to
-# any domain mixin. The earlier "68 commands" claim in ADR-0020 §2
+# reconciliation (2026-07-18, updated 2026-08-30): the registry
+# contains exactly 74 commands. 72 are renderer-visible; the two
+# `_PYTHON_ONLY_COMMANDS` (`shutdown`, `tray_click`) are host-only and
+# excluded from the TS/Rust renderer allowlists. Most handlers live in
+# voice_typer/server/handlers/ (one mixin module per domain); a few are
+# resident on IPCServer / in ipc/ — `heartbeat` (, ADR-0018
+# Electron-alive watchdog), `relaunch_ack` (PERF-005, ack of
+# `relaunch_electron` so `restart_app` can drop its fixed 300 ms
+# sleep), `transcribe_offline` and `check_offline_pack_update` — because
+# they touch IPC-server-owned state (`_last_heartbeat_at`,
+# `_relaunch_ack_event`) and don't belong to any domain mixin. The earlier "68 commands" claim in ADR-0020 §2
 # was stale; `relaunch_ack` was added by PERF-005 after the original
 # count. The count was bumped from 63 to 65 to reflect the two
 # `force_cancel_transcription` and `tray_click` handlers added since
@@ -204,7 +206,9 @@ _PYTHON_ONLY_COMMANDS: frozenset[str] = frozenset({"shutdown", "tray_click"})
 # and added `check_offline_pack_update` (auto-update feature) —
 # net 71. The 2026-08-16 vocabulary usage-tracking feature added
 # `get_correction_usage` + `test_vocabulary_correction`
-# (ADR-0020 §16 addendum 2026-08-16) — net 73.
+# (ADR-0020 §16 addendum 2026-08-16) — net 73. The 2026-08-30 count
+# audit (GP-80) verified the actual dict has 74 keys (73 domain +
+# `tray_click`; `shutdown` is in `_PYTHON_ONLY_COMMANDS`).
 _COMMAND_REGISTRY: dict[str, str] = {
     "get_status": "_handle_get_status",
     "toggle_dictation": "_handle_toggle_dictation",
