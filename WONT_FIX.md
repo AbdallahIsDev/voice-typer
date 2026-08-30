@@ -267,5 +267,3 @@
 - `voice_typer/server/model_manager.py:1748-1758`
 **Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
 **Severity:** 🟢 Low
-
-
