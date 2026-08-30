@@ -1553,3 +1553,14 @@ Rule: Chunked file-transfer responses whose fragments are reassembled client-sid
 Rationale: Mid-stream base64 padding silently corrupted every multi-chunk playback ("Could not play the test recording") even though both files were written correctly; the ambiguous `883330+883330` log line read as accidental duplication instead of two distinct artifacts.
 Applies to: All agents, all modes.
 ```
+
+---
+
+## Category: Privacy & Background Startup
+
+```
+C-BG-1
+Rule: Do NOT let persisted navigation state (vt_nav_state, last page) cause privacy-sensitive resources such as microphone live monitoring to activate while the window is hidden/background (autostart with VT_START_HIDDEN=1). Persisted restore of the Microphone page while hidden MUST NOT start the level monitor; the page may initialize live monitoring ONLY when its user-facing usage context is active (document.visibilityState === "visible" and the Microphone page is the current visible route). Background startup that restores "microphone" MUST redirect to "home" (App.tsx timed visibility grace + useMicrophoneLevelMonitor deferred start) and defer monitoring until the user intentionally navigates to Microphone while visible. The same invariant applies to any future page that would auto-initialize a privacy-sensitive or resource-intensive capability.
+Rationale: Closing on Microphone persists that page; without a hidden-aware guard the next background autostart mounts MicrophonePage off-screen and immediately opens a continuous InputStream, lighting the OS mic indicator (Windows taskbar mic icon / macOS orange dot) while the user has not opened the UI. The fix is architectural (navigation + monitor visibility gates + Tauri VT_START_HIDDEN hide), not hiding the indicator or disabling mic globally. Established 2026-08-30.
+Applies to: All agents, all modes, all sub-agents.
+```
