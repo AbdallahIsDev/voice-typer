@@ -59,22 +59,6 @@ Each task has:
 
 **My recommendation:** Leave as Won't Fix. The copy is a deliberate safety measure. Removing it for negligible performance gain is not worth the risk of audio glitches.
 
----
-
-### 4. GQ-L10 — dead audio analysis function kept in production code
-
-**What it is:** There's a function (`analyze_chunk`) that analyzes audio quality in real-time. But it has ZERO callers in production — it's only used by tests. The function is kept in the production file rather than moved to a test helper.
-
-**Gain vs trade-off:** Moving it to a test helper would clean up the production code. But it's a small function that doesn't affect performance (it's never called in production). The cost of moving it is engineering time with no user benefit.
-
-**If we do it:** The production code file is slightly smaller. No user impact. Developers need to import from a different location when writing tests.
-
-**If we don't:** A small unused function lives in the production code. No user impact. Tests keep calling it from where they always have.
-
-**My recommendation:** Leave as Won't Fix. The function is harmless and doesn't affect production. Move it if you're already editing that file for other reasons.
-
----
-
 ### 5. GQ-L11 — single-chunk audio glitch on filter swap
 
 **What it is:** When the audio filters are swapped (e.g., changing noise reduction settings), there's a tiny race window where one chunk of audio could be processed with the wrong filter state. This could cause a single audio chunk to sound slightly different. The window is extremely narrow (microseconds) and has never been observed in practice.

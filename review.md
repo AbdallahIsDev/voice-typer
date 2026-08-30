@@ -8,7 +8,7 @@ These items are the highest-priority remaining work for the project — they blo
 
 ---
 
-## 🎯 TAURI-E2E — Full-application validation mission (GOAL MODE: zero problems)
+### T-1 — TAURI-E2E — Full-application validation mission (GOAL MODE: zero problems)
 
 **Status:** ❌ Open — assigned to the next cloud-sandbox agent. **GOAL MODE: the goal is that there are NO problems at all.** Keep working until every check below passes, everything is clean, and the Tauri application is production-ready. Do not stop, defer, or skip anything. Any problem found — big, medium, or trivial — fix it IMMEDIATELY, then move to the next check.
 
@@ -16,7 +16,7 @@ These items are the highest-priority remaining work for the project — they blo
 >
 > **Environment reality:** this task runs in a cloud sandbox — no visual window, no desktop user session, but full terminal access + a controllable browser + vision (screenshot analysis). Where a human would click a switch with a mouse, the agent must TRIGGER the same action through the terminal, through code, through E2E tests, or through the browser. Every triggered action is verified either programmatically (config/state assertions, logs) or visually (screenshot + vision analysis). For every feature touched: if no test exists (E2E, unit, or golden), CREATE one and leave it in the test suite.
 
-### The mission
+#### The mission
 
 Run the **Tauri application** with the **full Python backend (sidecar) and everything else**, latest version, and test **literally everything in the application**, like a normal new user would — then like a power user. Use every feature available. Anything that doesn't look right, isn't clean, doesn't work, doesn't do what it's supposed to do (even without throwing an error), has unclean logs, fake/misleading messages, errors, warnings, or failing tests — **fix it immediately**.
 
@@ -24,7 +24,7 @@ The application also runs in a normal browser (the renderer is served on localho
 
 **Known broken areas to start from (already documented — see TR-1, TR-2, TR-3 above):** tray "Models" sub-menu (dash item + "More Models" dead), Microphone page completely empty, tray menu missing the "Microphone" item. Fix these as part of this mission.
 
-### Checklist (exhaustive — and the list is NOT exhaustive: anything found beyond it is also in scope)
+#### Checklist (exhaustive — and the list is NOT exhaustive: anything found beyond it is also in scope)
 
 1. **Run the app** like a normal user: Tauri host + full Python sidecar, latest version, everything healthy (logs clean).
 2. **Onboarding:** go through the ENTIRE onboarding as a brand-new user. Every step, every screen. Fix anything that breaks, hangs, misleads, or looks wrong.
@@ -55,14 +55,14 @@ The application also runs in a normal browser (the renderer is served on localho
 16. **Logs:** at the end, read the full session logs — unclean logs, fake/misleading messages, spurious warnings/errors: rewrite and fix them.
 17. **Everything else in the application** not listed above: test it too.
 
-### Tools & method
+#### Tools & method
 
 - **Terminal:** trigger features by code/IPC/test-harness when no GUI is available; inspect state, config, and database directly; run the existing test suites.
 - **Browser (Browser Use — see override below):** drive the renderer UI on localhost like a real user (navigate, click switches, fill forms), take screenshots, and use vision to VERIFY what changed (e.g. "the switch is really off", "the page really shows my mic").
 - **Tests:** any feature or fix without a test gets one (E2E, unit, or golden — whatever fits). Tests stay in the repo.
 - **Green gate:** per AGENTS.md C-TEST-6 — no claiming success without the full-suite green runs on the final code state.
 
-### BROWSER TOOL OVERRIDE — BROWSER USE ONLY. (NON-NEGOTIABLE)
+#### BROWSER TOOL OVERRIDE — BROWSER USE ONLY. (NON-NEGOTIABLE)
 
 > The sandbox's built-in browser is DEPRECATED for this task. Before any website or browser-driven action, install **Browser Use** (`browser-use/browser-use`, with the self-healing `browser-use/browser-harness` recovery layer) per §2.3, register its skill, **READ the registered skill documentation**, and route every browser-driven action of this task through it. The built-in browser is a last-resort fallback only after the §2.3 retry procedure fails — and if that happens, the run is logged as DEGRADED MODE in `worklog.md`, never silently substituted.
 >
@@ -74,7 +74,7 @@ The application also runs in a normal browser (the renderer is served on localho
 > 5. Resource discipline while connected (sandbox has ~4GB RAM, no elevated privileges): headless mode always; close/release each browser context before starting the next check; never hold more concurrent contexts than strictly required; prefer sequential processing within each sub-agent's slice.
 > 6. From the moment Browser Use is connected, EVERY navigation, form interaction, extraction, and behavioral task simulation in this task goes through it — not the sandbox's native browser primitives.
 
-### Definition of done (the GOAL)
+#### Definition of done (the GOAL)
 
 - Every checklist item above: exercised, verified, and passing.
 - Every problem encountered: FIXED immediately, with a test left behind.
@@ -96,8 +96,6 @@ The application also runs in a normal browser (the renderer is served on localho
 > This file was filtered by verifier-agent on 2026-07-21 to REMOVE entries for fixes that were verified-done and KEEP only items that remain partial, broken, or not-implemented.
 
 ---
-
-## Remaining Work
 
 ### FR-54 — `usePython` bridge: `Record<string, unknown>` hardening landed, but 2 `noExplicitAny` escapes remain
 **Status:** ⚠️ Partial — re-verified 2026-08-30. The public `PythonCall` signature is hardened (`data?: Record<string, unknown>` at `lib/python-bridge/usePython.ts:47`), but the event-handler implementation overload STILL retains `(data?: any)` under 2 `biome-ignore` directives. The file was split into the `lib/python-bridge/` package since the 2026-08-12 audit — the escapes now live at `lib/python-bridge/usePythonEvent.ts:107-110` (not the old usePython.ts:831-833).
