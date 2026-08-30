@@ -41,6 +41,7 @@ plus the base repo's pre-existing comprehensive review.
 > **2026-08-23 cleanup (verified against code before editing):**
 > - **REMOVED as completed + verified:** EC-25's `test_perf_review_fixes.py` split is done but entry KEPT as partial; removed entries: ~~S3-CR-21~~ (duplicate of ARCH-12; its unique blocker test_app.py read_text pin is gone), ~~XA-2~~ (StatCard consolidation landed — DashboardStatCard deleted in favor of shared StatCard.tsx; pb-2 alignment fix; About wrapper standardized; labeled Spinner + EmptyState-retry patterns adopted), ~~XA-8~~ (all cited sub-items verified fixed: ErrorBoundary strings via t("errorBoundary.*"), KeyringStatusBadge compact-only aria, sonner containerAriaLabel/closeButtonAriaLabel localized, InfoTooltip `<title>` removed, Spinner decorative prop), ~~AC-66~~ (BusynessCoordinator `_busyness.py` + MicrophoneRegistry `_microphone_registry.py` own the state; back-compat properties on VoiceTyperApp delegate to them), ~~AC-73~~ (decomposition landed — merged into EO-13 with residual), ~~AC-128~~ (credential_store/ package landed — see GQ-70), ~~AC-131~~ (config/__init__.py now 271 LOC over 10 satellite modules — see EO-12).
 > - **UPDATED partials:** ARCH-9 (213 sites / 39 files remain), S1-CR-67 (only recording/_RecordingModule left; prewarm + server_platform hacks removed), EC-25 (3 Python catch-alls + relocated-but-unsplit TS catch-alls remain), XV-105 (role pooling LIVE — 3 roles → 1 subprocess; per-spec dedup deferred), XA-5 (8 of 24 sub-items verified fixed, listed inline), XZ-R11-04 (landed 2026-08-25, Session RV: AES-256-GCM at-rest encryption live — _text_crypto.py + DEK via credential_store; completed).
+> - **2026-08-30 reconciliation (verified against code before editing):** ~~GQ-L7~~ (x_up.fill removal landed — db17d364, resampler verified green; closed as fixed despite prior Won't-Fix), ~~GQ-L15~~ (microphone_watcher.py split into the microphone_watcher/ package — cf773c3e, 98 watcher tests green), ~~GQ-L16~~ (native_hotkeys base.py decomposed into _matching/_reader/_spawn/_watchdog mixins — 0b0d7e6f + 3edf78ec facade contract; mypy mixin-idiom growth absorbed by the 2026-08-30 baseline reconcile), GQ-32 remains 🚫 Won't Fix (SEC-011 cap 5000 intact, regex identity-cached — rationale verified standing).
 
 > **Platform warning:** The cloud agent's SUMMARY claimed "all tests pass on Linux." Results in this file tagged **Windows (win32)** are reproduced on this runner and contradict the Linux-only claims. Do NOT trust a Linux-only pass as proof of cross-platform cutover.
 >
@@ -68,7 +69,7 @@ The following FR findings remain open — status `❌ Not Fixed`:
 ---
 
 ### SI-29 — 36 test files define local `_make_fake_*` helpers instead of using `tests/fixtures/`
-**Status:** 🟡 Partial — Phase 1 complete (sidecar_ws fixture family consolidated onto tests/fixtures/sidecar_ws_test_helpers.py; local _make_fake_* files reduced 29→15). Phases 2+ remain (reconciled 2026-08-29).
+**Status:** 🟡 Partial — Phase 1 complete (sidecar_ws fixture family consolidated onto tests/fixtures/sidecar_ws_test_helpers.py; local _make_fake_* files reduced 29→15). Phase 2 complete (reconciled 2026-08-30): the 2 VoiceTyperApp-duplicating test files now use tests/fixtures/app_helpers.make_voice_typer_app (+ACL no-op added to the canonical helper), the 2 real-Recorder files use recorder_test_helpers.make_recorder, and 9 IPCServer test files use make_bare_ipc_server/make_ipc_server_with_fakes (+make_buffered_mock_tcp_client). Remaining: 13 domain-specific _make_fake_* helpers + 9 thin named adapters intentionally stay local (out-of-scope per the entry's own "never bulk-rewrite unrelated files" guidance).
 **Description:** `tests/fixtures/ipc_test_helpers.py` exposes 3 canonical factories, but 36 test files define their own inline `_make_fake_app` / `_make_recorder` / `_make_server` helpers (per audit 2026-08-12, up from 25+; spot-check measured 37 files defining the named `_make_fake_*` helpers).
 **User Impact:** Maintenance cost; signature changes require updating 36 files instead of 1.
 **Root Cause:** XS-42 migration was never completed.
@@ -87,12 +88,13 @@ and IPCServer construction where drift bites; never bulk-rewrite unrelated files
 
 ---
 
-### SX-1 — supervisor. Crash isolation: restart backend only, keep UI alive [Medium] — Pending
+### SX-1 — supervisor. Crash isolation: restart backend only, keep UI alive [Medium] — 🟡 Partial
 - **Files**: `voice_typer/client/src/main/index.ts`, `voice_typer/server/recording_controller.py`, `voice_typer/server/ipc_server.py`.
 - **Description**: A backend (Python) crash restarts the whole app; a supervisor that respawns only the backend while UI/tray/hotkey stay alive does not exist in production.
 - **Goal**: Add auto-recovery that restarts just the speech backend, with a "reconnecting…" state.
 - **Options**: (1) Electron + Python: respawn only Python child in production. (2) Tauri + Sidecar: Rust supervisor re-spawns sidecar. (Not meaningful under embedded PyO3.)
 - **Effort**: Medium.
+- **Status (reconciled 2026-08-30):** Option (2) Tauri is ALREADY SATISFIED — src-tauri/src/sidecar/supervisor.rs respawns ONLY the sidecar (5-attempt backoff, WS generation staleness re-checks), the renderer shows the existing "restarting" state and auto-recovers on supervisor_reconnected/state_changed, escalating to full relaunch only after backoff exhaustion with the restart_counter.json 3-attempt/10-min circuit breaker. Residual (Electron option 1): the production crash branch in start-python.ts still shows a crash dialog + app.quit(); a production-ready restartBackend() respawn primitive, the restart_history.json breaker, and the renderer "reconnecting" handler all exist and just need an auto-respawn watchdog wiring them together.
 
 ### Remaining Work AP
 
@@ -109,7 +111,7 @@ The following findings are documented in `review.md` as `❌ Not Fixed` — defe
 ---
 
 ### EO-8 — recording/recorder.py is a 2274-LOC monolith — (file is mostly delegators now); __init__ is a 380-line god-constructor
-**Status:** 🟡 Partial — recorder.py 2877→2274; god-constructor decomposed into recorder_init helpers; 3 dead delegators removed; start() critical path trimmed. Remaining: property-shim deletion blocked by source-inspection pins in tests (reconciled 2026-08-29).
+**Status:** 🟡 Partial — recorder.py 2877→2274→1759; god-constructor decomposed into recorder_init helpers; start() critical path trimmed. Shims + delegators DELETED (reconciled 2026-08-30): DeviceStateShimMixin (8 device-state property pairs) and VadShimMixin (18+1 VAD properties) removed; 34 pure delegator methods removed; production collaborators and tests now route through the owning collaborators (recorder._devices._X / recorder._vad._X / _session_state / _stream_lifecycle / _capture). Recorder.stop/snapshot kept as documented 1-line public-API delegators. Remaining: the ≤500-LOC target requires the state-ownership inversion (locks/buffers/worker handles moving into SessionState/StreamLifecycle/capture) — deferred-scale, needs a dedicated session with full-suite green gates before and after; module-source pins (tests/test_recorder_secure_clear_array.py) and the RT-literal pin (tests/test_recording_and_audio.py) constrain the shape.
 **Description:** `voice_typer/server/recording/recorder.py` (2274 LOC) — the file is still 2274 LOC because (a) __init__ is a 380-line god-constructor declaring 50+ instance attributes inline, (b) 9 device-state property pairs are shims for test backward-compat, (c) ~15 delegator methods with 25-line docstrings exist solely to satisfy inspect.getsource source-string tests (FZ-8/ARCH-12/S3-CR-21).
 **User Impact:** The recorder is the audio capture subsystem — every dictation goes through it. Adding a new audio feature requires editing a 2274-line file. Tests cannot construct collaborators (AudioPipeline, StreamLifecycle, etc.) in isolation — they require a real Recorder with 50+ initialized attrs. The friend-class anti-pattern (59 friend-access lines across 6 collaborator files accessing recorder._<attr> directly) breaks encapsulation.
 **Root Cause:** Verified — Phase 4.5 split moved method BODIES to sibling files but kept all mutable state on Recorder. The 9 device-state property shims + 15 delegator methods exist purely to keep stale source-string tests passing.
@@ -127,7 +129,7 @@ The following findings are documented in `review.md` as `❌ Not Fixed` — defe
 **Category:** Spaghetti / monolith detection
 
 ### EO-19 — 4 platform/lifecycle files exceed 800-LOC spaghetti threshold: crash_recovery.py (1292), autostart_windows.py (1455), startup_sequence.py (1144), autostart_launcher.py (1164)
-**Status:** 🟡 Partial — 3 of 4 files resolved: autostart_launcher.py 1164→458 (+ autostart/ package), crash_recovery.py 1412 → crash_recovery/ package, startup_sequence.py 1474 → startup_sequence/ package. Remaining: autostart_windows.py (~1541) and startup_sequence phases live in ≤653-LOC modules (threshold met); crash_recovery clean. autostart_windows split remains (reconciled 2026-08-29).
+**Status:** 🟡 Partial — 4 of 4 files resolved: autostart_launcher.py 1164→458 (+ autostart/ package), crash_recovery.py 1412 → crash_recovery/ package, startup_sequence.py 1474 → startup_sequence/ package, autostart_windows.py 1541 → 877-LOC facade + _autostart_windows_{task,sweep,uninstall,startup_bat}.py submodules (85/424/179/169; landed 2026-08-30 — C-CROSS-1/2/4 and the C-ARCH-2 dotted-patch surface preserved via lazy sibling-module-object reads; drift-pin paths follow the moved literals). startup_sequence phases live in ≤653-LOC modules (threshold met); crash_recovery clean.
 **Description:** WN-23 cited stale line counts: crash_recovery.py was 1034 → now 1292 (+258); autostart_launcher.py was 849 → now 1164 (+315); autostart_windows.py (1055 → 1455) and startup_sequence.py (956 → 1144, +188). Each file mixes 2-3 concerns that could be separate modules.
 **User Impact:** Files become harder to review and change. crash_recovery.py's CrashRecovery class docstring mentions 6 separate fix-IDs woven through the same class. Critical for crash recovery and autostart — regressions here cause silent startup failures.
 **Root Cause:** Verified — incremental fix-on-fix accumulation (each new fix added a defensive try/except + a 30-line docstring block).
@@ -227,7 +229,7 @@ Compiled 80 deduplicated findings into `/home/z/my-project/voice-typer/review.md
 
 ### Other Deferred Items
 - **FI-11-A prewarm binary integrity**: No runtime SHA-256 verification of prewarm binary (HIGH — but complex fix requiring manifest schema + launcher wiring). Effort: L. Priority: P1.
-- **4 pre-existing test_sidecar_ws_races.py failures**: Error-code migration mismatch (`duplicate_connection` → `server.duplicate_connection`). Effort: S. Priority: P2.
+- **~~4 pre-existing test_sidecar_ws_races.py failures~~ RESOLVED (verified 2026-08-30)**: tests were updated to the namespaced `ErrorCodes` constants (commit 1d202e12) — 7/7 pass; no bare-string contract remains.
 - **Windows/macOS host validation**: All fixes tested on Linux sandbox only. Real-host validation required for Win32 console handler, macOS clipboard restore, native hotkey binaries. Priority: P0.
 
 ## Spaghetti / Monolith Splits (Group 4) — Deferred to Final Report
@@ -282,7 +284,7 @@ Compiled 80 deduplicated findings into `/home/z/my-project/voice-typer/review.md
 ---
 
 ### GQ-15 — bench_startup.py warm-cache contamination makes median misleading
-**Status:** ⚠️ Partial
+**Status:** ✅ Fixed (2026-08-30) — bench_startup.py spawns a fresh subprocess per run and reports true-cold first_run_ms + median_ms; README.md:209 and bench/README.md:3 rewritten with platform-qualified numbers (~84 ms cold import observed on Windows; CI-tracked worker-startup 913.4 ms first-run / 300.0 ms median vs the ≤600 ms first-run target), the stale "~2 ms reference hardware" claim removed.
 > - **2026-08-24 audit:** contamination acknowledged in COLDSTART_REPORT.md; first_run_ms ratchet exists — rename median metric + fix bench/README.md:3.
 **Description:** `measure_import_time()` only clears `voice_typer.*` from `sys.modules` (line 66-68); third-party C extensions (`numpy`, `pystray`, `PIL`) stay cached across the 3 in-process runs. Measured on Linux sandbox: 'All runs: 46ms, 46ms, 48ms' — variance is 2ms, confirming runs 2-3 are warm. COLDSTART_REPORT.md §5.1 explicitly says 'the median therefore understates true cold start; the *first* run is the honest cold number.' §6 rec #3 (line 282-288) recommends fixing the methodology but it was never implemented. Also, README.md:209 claims '~2 ms cold-import on reference hardware' but on this Linux sandbox the script reports 46ms — the README claim is stale and unverified by CI.
 **User Impact:** Median cold-start number reported by `bench_startup.py` is misleading (warm-cache). README perf claim ('~2 ms') is unverifiable and stale. Any future regression that adds eager imports of heavy deps would be hidden if it doesn't exceed the warm-cache floor.
@@ -297,9 +299,10 @@ Compiled 80 deduplicated findings into `/home/z/my-project/voice-typer/review.md
 **Severity:** 🔴 High
 **Verification (2026-08-06, Windows win32):**
 bench_startup.py fixed, README not. `bench/bench_startup.py` spawns a fresh `python -c "import <target>"` per run and reports true-cold vs median (works on Windows: ~84 ms measured here). BUT `README.md:209` and `bench/README.md:3` still claim 'measured ~2 ms cold-import on reference hardware' -- ~40x off and unverifiable.
+**Verification (2026-08-30, Windows win32): SUPERSEDED — fixed.** README.md:209 and bench/README.md:3 now carry the platform-qualified ~84 ms Windows figure + CI worker-startup baseline (913.4/300.0 ms) with the ≤600 ms first-run target; no "~2 ms" claim remains repo-wide.
 
 ### GQ-66 — Nuitka builds sequential — 30-45 min local Tauri build
-**Status:** ⚠️ Partial
+**Status:** ✅ Fixed (2026-08-30) — `--jobs="$NUITKA_JOBS"` added to all four remaining Nuitka invocations (build_sidecar_windows.sh, build_prewarm_windows.sh, build_sidecar_macos.sh, build_prewarm_macos.sh): NUITKA_JOBS env override, nproc default on Windows (WSL), sysctl/nproc default on macOS clamped to 4 for CI-runner RAM (override bypasses the clamp), mirroring the build_sidecar_linux.sh precedent; bash -n clean.
 **Description:** Phase 1a of `build_tauri_all.sh` runs sidecar → prewarm → native listener **sequentially**. Each Nuitka build is 10-15min. Three sequential = 30-45min. They have NO shared intermediate state and NO file-output contention (different `--output-filename`s). STALE (re-audited 2026-08-12): `build_sidecar_linux.sh:250-253` NOW has `--jobs=N` with nproc — the "NO --job flag" claim is outdated. The remaining gap is Windows/macOS invocations (see Verification).
 **User Impact:** Local `make build-tauri` takes 30-45 min; could be ~15min with parallelism. CI matrix already runs each platform on separate runners, so CI is unaffected — this is purely a local-dev friction cost.
 **Root Cause:** Sequential is safe (avoids RAM contention during Nuitka's C compile phase) but on a multi-core host with ≥16GB RAM the three could run in parallel.
@@ -312,6 +315,7 @@ bench_startup.py fixed, README not. `bench/bench_startup.py` spawns a fresh `pyt
 **Severity:** 🟡 Medium
 **Verification (2026-08-06, Windows win32):**
 Linux half done, Windows/macOS half missing. `--parallel` flag + backgrounded `&` jobs + `wait -n` drain loop present in `build_tauri_all.sh`; `--jobs` added to `build_sidecar_linux.sh` and `build_prewarm_linux.sh`. BUT the Nuitka invocations in `build_sidecar_windows.sh:134-170`, `build_prewarm_windows.sh:154`, `build_sidecar_macos.sh:131`, `build_prewarm_macos.sh:141` have NO `--jobs`. On a Windows host, `--parallel` gives 3-way process parallelism but zero intra-Nuitka parallelism. (`build_tauri_all.sh` needs bash 4.3+ / WSL, not native PowerShell.)
+**Verification (2026-08-30, Windows win32): SUPERSEDED — fixed.** All four scripts now carry `--jobs="$NUITKA_JOBS"` (env override; nproc default on Windows/WSL; sysctl/nproc default on macOS clamped to 4 for CI-runner RAM). `bash -n` clean on all four.
 
 ### GA-1 — Restore bundled gtcrn_simple.onnx model binary
 **Status:** Open (pending asset delivery).
