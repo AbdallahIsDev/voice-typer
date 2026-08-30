@@ -47,7 +47,13 @@ def test_buffer_zeroed_on_stop():
 
     # Stop should zero the buffer before clearing
     # We can verify by checking that fill(0) was called
-    with patch.object(recorder, "_prepare_audio", return_value=np.array([], dtype=np.float32)):
+    # stop_recording invokes the module-level prepare_audio free function,
+    # so the patch targets its import site in _recorder_split (the
+    # historical Recorder._prepare_audio delegator was removed).
+    with patch(
+        "voice_typer.server.recording._recorder_split.prepare_audio",
+        return_value=np.array([], dtype=np.float32),
+    ):
         recorder.stop()
 
     # Buffer should be empty after stop

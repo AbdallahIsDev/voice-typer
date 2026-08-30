@@ -17,6 +17,7 @@ import collections
 import inspect
 import threading
 import time
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -33,10 +34,11 @@ class _FakeRecorder:
 
     Real ``threading.Event`` / ``collections.deque`` instances are used so
     the dispatcher's synchronization and SPSC-ring-buffer assumptions
-    are exercised faithfully. ``_ensure_mono`` mirrors the real
-    ``Recorder._ensure_mono`` staticmethod so multi-channel downmix is
-    covered. ``_process_audio_chunk`` records its call args so tests can
-    assert on the chunks the worker loop drained.
+    are exercised faithfully. The mono downmix is exercised by spying on
+    the module-level :func:`format.ensure_mono` the preroll branch calls
+    (delegating to the real implementation). ``_process_audio_chunk``
+    records its call args so tests can assert on the chunks the worker
+    loop drained.
     """
 
     def __init__(
@@ -61,19 +63,6 @@ class _FakeRecorder:
         self._worker_wake_event = threading.Event()
         self._process_audio_chunk_calls: list[tuple] = []
         self._process_audio_chunk_raises: bool = False
-        self._ensure_mono_calls: list[np.ndarray] = []
-
-    def _ensure_mono(self, audio: np.ndarray) -> np.ndarray:
-        # Mirror the real Recorder._ensure_mono staticmethod so multi-
-        # channel downmix is exercised.
-        self._ensure_mono_calls.append(audio)
-        if audio.ndim == 1:
-            return audio
-        if audio.ndim == 2 and audio.shape[1] > 1:
-            return np.mean(audio, axis=1, dtype=np.float32)
-        if audio.ndim == 2 and audio.shape[1] == 1:
-            return audio.reshape(-1)
-        return audio
 
     def _process_audio_chunk(self, *args: object) -> None:
         self._process_audio_chunk_calls.append(args)
@@ -107,14 +96,27 @@ class TestDispatchCallbackBodyPrerollPath:
     def test_preroll_active_captures_mono_preroll_and_returns_none(self):
         fake = _FakeRecorder(recording=False, preroll_active=True)
         dispatcher = AudioCallbackDispatcher(fake)
-        # 2-channel stereo input — _ensure_mono should collapse to mono.
+        # 2-channel stereo input — ensure_mono should collapse to mono.
         indata = np.arange(2 * 4, dtype=np.float32).reshape(4, 2)
-        result = dispatcher.dispatch_callback_body(fake, indata, 4, "tinfo", "status")
+        # Spy on the module-level downmix helper the preroll branch calls
+        # (delegating to the REAL implementation so the downmix behavior
+        # is exercised, not stubbed).
+        import voice_typer.server.recording.capture as capture_mod
+        from voice_typer.server.recording.format import ensure_mono as real_ensure_mono
+
+        ensure_mono_calls: list[np.ndarray] = []
+
+        def _spy(recorder: object, audio: np.ndarray) -> np.ndarray:
+            ensure_mono_calls.append(audio)
+            return real_ensure_mono(recorder, audio)
+
+        with patch.object(capture_mod, "ensure_mono", _spy):
+            result = dispatcher.dispatch_callback_body(fake, indata, 4, "tinfo", "status")
         assert result is None, "preroll path must signal early-bailout (None)"
-        # _ensure_mono was called once with a COPY of the input (the
+        # ensure_mono was called once with a COPY of the input (the
         # callback must NOT mutate the PortAudio-owned indata buffer).
-        assert len(fake._ensure_mono_calls) == 1
-        mono_input = fake._ensure_mono_calls[0]
+        assert len(ensure_mono_calls) == 1
+        mono_input = ensure_mono_calls[0]
         assert mono_input is not indata, "preroll capture must copy the indata buffer"
         # Pre-roll buffer received the DOWNMIXED (mono) chunk.
         assert len(fake._preroll_buffer) == 1
@@ -127,9 +129,12 @@ class TestDispatchCallbackBodyPrerollPath:
         fake = _FakeRecorder(recording=False, preroll_active=False)
         dispatcher = AudioCallbackDispatcher(fake)
         indata = np.zeros((4, 1), dtype=np.float32)
-        result = dispatcher.dispatch_callback_body(fake, indata, 4, "tinfo", "status")
+        import voice_typer.server.recording.capture as capture_mod
+
+        with patch.object(capture_mod, "ensure_mono") as mono_spy:
+            result = dispatcher.dispatch_callback_body(fake, indata, 4, "tinfo", "status")
         assert result is None
-        assert len(fake._ensure_mono_calls) == 0
+        mono_spy.assert_not_called()
         assert len(fake._preroll_buffer) == 0
         assert len(fake._ring_buffer) == 0
 
