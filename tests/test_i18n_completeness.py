@@ -500,8 +500,11 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "hotkey.keys.end",  # "End"
     "hotkey.keys.enter",  # "Enter"
     "hotkey.keys.esc",  # "Esc"
-    "hotkey.keys.fn",  # "Fn"
-    "hotkey.keys.fnMacOSOnly",  # "Fn / Globe 🌐 (macOS only)"
+    "hotkey.keys.fn",
+    # hotkey.keys.fnMacOSOnly + hotkey.presets.single.fn REMOVED
+    # 2026-08-30 — translated in every non-English locale (2dc069a7
+    # locale value pass), so keeping them here would be flagged as
+    # stale by TestBackfillSetIsMinimal.
     "hotkey.keys.home",  # "Home"
     "hotkey.keys.insert",  # "Insert"
     "hotkey.keys.left",  # "←"
@@ -598,7 +601,6 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "hotkey.presets.single.alt",
     "hotkey.presets.single.caps_lock",
     "hotkey.presets.single.ctrl",
-    "hotkey.presets.single.fn",
     "hotkeyPicker.secondsRemainingSuffix",
     "models.speed.variable",
     "nav.group.system",
@@ -609,15 +611,15 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     # scripts/add_i18n_keys.py --all pending native translation.
     "onboarding.backendAria",
     "onboarding.backendLocalLabel",
-    "onboarding.backendLocalDescription",
+    # onboarding.backendLocalDescription / backendCloudDescription /
+    # cloudNote / downloadModelAria / downloadFailedHint REMOVED
+    # 2026-08-30 — translated in every non-English locale (2dc069a7
+    # locale value pass); TestBackfillSetIsMinimal requires the set
+    # stay minimal.
     "onboarding.backendCloudLabel",
-    "onboarding.backendCloudDescription",
     "onboarding.cloudProviderLabel",
-    "onboarding.cloudNote",
     "onboarding.downloadModel",
-    "onboarding.downloadModelAria",
     "onboarding.downloadRetry",
-    "onboarding.downloadFailedHint",
     "onboarding.summaryBackend",
     # 123 keys backfilled with English-fallback values across all
     # 7 non-English locales (dd139ae8 merged renderer changes that added
