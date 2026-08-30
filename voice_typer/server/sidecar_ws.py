@@ -1107,9 +1107,12 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
     ``_handle_connection_inner``).
 
     Reads inbound WS frames, validates JSON, and dispatches each frame
-    via the ``dispatch`` coroutine. The heartbeat fast-path
-    () is handled INLINE before awaiting ``dispatch()`` so the
-    heartbeat-ack is not delayed by an in-flight long dispatch.
+    via the ``dispatch`` coroutine. Fast-paths handled INLINE (so they
+    cannot be starved by an in-flight long dispatch): heartbeat-ack and
+    ``relaunch_ack``. Everything else is dispatched as a PIPELINED task
+    (see the task-creation comment) so the loop keeps reading while a
+    long handler runs on the dispatch pool; in-flight tasks are drained
+    (responses flushed) before this function returns.
 
     NOTE: the inbound frame-size cap is enforced by the ``websockets``
     library itself via ``serve(..., max_size=...)`` in :func:`run` —
@@ -1130,6 +1133,9 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
     # heartbeats; old entries are popleft when older than the window.
     # Single-threaded access from this coroutine — no lock needed.
     heartbeat_window: deque[float] = deque()
+    # In-flight pipelined dispatch tasks (see the creation site). The
+    # set is drained before return so every response is flushed.
+    dispatch_tasks: set[asyncio.Task] = set()
     async for raw in websocket:
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8")
@@ -1224,40 +1230,94 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
                 log.warning("[SIDECAR-WS] heartbeat ack send failed", exc_info=True)
                 break
             continue
-        result = await dispatch(msg, websocket)
-        if result is not None:
-            if request_id is not None and isinstance(result, dict):
-                result = {**result, "id": request_id}
-            # Route the dispatch response through ``_safe_send`` so it
-            # gets the SAME three DoS defenses the writer task applies
-            # to outbound events: off-loop ``json.dumps``, the
-            # ``_MAX_FRAME_BYTES`` 1 MiB cap, and the
-            # ``_WS_SEND_TIMEOUT_SECONDS`` send timeout. Pre-fix the
-            # dispatch response called ``websocket.send(json.dumps(...))``
-            # directly, bypassing all three — a handler returning a
-            # multi-MiB response (e.g. ``get_history`` /
-            # ``get_vocabulary`` for a user with thousands of entries)
-            # would (1) block the asyncio loop thread with synchronous
-            # ``json.dumps``, (2) block forever on a wedged peer, and
-            # (3) exceed the 1 MiB cap that ADR-0020 §10 mandates.
-            send_status = await _safe_send(websocket, result)
-            log.debug(
-                "[SIDECAR-WS] TX response id=%s status=%s",
-                request_id,
-                send_status,
-            )
-            if send_status != "sent":
-                # ``"dropped"`` (oversized) or ``"failed"`` (timeout /
-                # send error). For ``"dropped"`` the host is expecting
-                # a response with this ``request_id`` and would hang
-                # until its own timeout; bailing out + the resulting
-                # WS close lets the host's reconnect path take over
-                # immediately instead of silently dropping the
-                # response. For ``"failed"`` the connection is
-                # already unreliable or closing. Either way ``break``
-                # exits the read loop and the orchestrator's finally
-                # block cleans up.
-                break
+        # PERF-005 fast-path (2026-08-30 tray-Restart postmortem): the
+        # host's ``relaunch_ack`` must set ``_relaunch_ack_event`` with
+        # ~1 ms latency. Routing it through the dispatch closure
+        # (rate-limiter + ``ws_dispatch_pool`` executor round-trip)
+        # raced the sidecar's 0.5 s ``wait_for_relaunch_ack`` timeout —
+        # observed as "relaunch_ack timed out after 0.500s" WHILE the
+        # host log showed "relaunch_ack frame sent", producing a
+        # double-restart. Handle INLINE like heartbeat: set the event,
+        # charge no rate-limit cost, send nothing (fire-and-forget).
+        if msg.get("type") == "relaunch_ack":
+            with contextlib.suppress(AttributeError):
+                server._relaunch_ack_event.set()
+            continue
+        # PIPELINED DISPATCH (2026-08-30 tray-Restart postmortem): the
+        # read loop previously ``await``ed each dispatch INLINE, so a
+        # long-running handler (``restart_app``'s 4.6 s teardown) BLOCKED
+        # frame processing for its whole duration — the host's
+        # ``relaunch_ack`` starved behind it and the sidecar timed out.
+        # Handlers already run concurrently on the ``ws_dispatch_pool``
+        # (4 workers); only the response send was serialized. Dispatch
+        # each frame as its own task so the loop keeps reading; the task
+        # sends the response itself. The host correlates by id, so
+        # response ORDER across concurrent dispatches is irrelevant.
+        # ``dispatch_tasks`` is drained before this function returns so
+        # callers (and the tests) observe every response deterministically.
+        task = asyncio.create_task(_dispatch_and_respond(msg, request_id, websocket, dispatch))
+        dispatch_tasks.add(task)
+        task.add_done_callback(dispatch_tasks.discard)
+
+    # Drain in-flight dispatch tasks on every exit path (normal stream
+    # end, heartbeat/`break` paths, connection close) so responses are
+    # flushed before the connection teardown cancels the writer. A task
+    # whose ``_safe_send`` failed closes the websocket itself; the
+    # already-ended read loop is unaffected.
+    if dispatch_tasks:
+        results = await asyncio.gather(*dispatch_tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, BaseException) and not isinstance(r, asyncio.CancelledError):
+                log.debug(
+                    "[SIDECAR-WS] dispatch task raised during drain",
+                    exc_info=(type(r), r, r.__traceback__),
+                )
+
+
+async def _dispatch_and_respond(msg: dict, request_id, websocket, dispatch) -> None:
+    """Run one pipelined dispatch + send its response (read-loop task body).
+
+    Extracted from ``_read_loop``'s inline tail when dispatches became
+    pipelined tasks (see the comment at the task-creation site). The
+    response keeps every ``_safe_send`` defense (off-loop encode, 1 MiB
+    cap, send timeout); a non-``"sent"`` status closes the websocket —
+    the task-based equivalent of the old inline ``break`` — because a
+    dropped/failed response means the peer is waiting for an id that
+    will never resolve, and a wedged connection must hand control back
+    to the host's reconnect path immediately.
+    """
+    result = await dispatch(msg, websocket)
+    if result is not None:
+        if request_id is not None and isinstance(result, dict):
+            result = {**result, "id": request_id}
+        # Route the dispatch response through ``_safe_send`` so it
+        # gets the SAME three DoS defenses the writer task applies
+        # to outbound events: off-loop ``json.dumps``, the
+        # ``_MAX_FRAME_BYTES`` 1 MiB cap, and the
+        # ``_WS_SEND_TIMEOUT_SECONDS`` send timeout. Pre-fix the
+        # dispatch response called ``websocket.send(json.dumps(...))``
+        # directly, bypassing all three — a handler returning a
+        # multi-MiB response (e.g. ``get_history`` /
+        # ``get_vocabulary`` for a user with thousands of entries)
+        # would (1) block the asyncio loop thread with synchronous
+        # ``json.dumps``, (2) block forever on a wedged peer, and
+        # (3) exceed the 1 MiB cap that ADR-0020 §10 mandates.
+        send_status = await _safe_send(websocket, result)
+        log.debug(
+            "[SIDECAR-WS] TX response id=%s status=%s",
+            request_id,
+            send_status,
+        )
+        if send_status != "sent":
+            # ``"dropped"`` (oversized) or ``"failed"`` (timeout /
+            # send error). For ``"dropped"`` the host is expecting
+            # a response with this ``request_id`` and would hang
+            # until its own timeout; the resulting WS close lets the
+            # host's reconnect path take over immediately instead of
+            # silently dropping the response. For ``"failed"`` the
+            # connection is already unreliable or closing.
+            with contextlib.suppress(Exception):
+                await websocket.close(code=1011, reason="dispatch response not sent")
 
 
 async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer) -> None:
@@ -1464,6 +1524,29 @@ def run(server: IPCServer) -> int:
     except KeyboardInterrupt:
         log.info("[SIDECAR-WS] interrupted — shutting down")
         return 0
+    except RuntimeError as exc:
+        # 2026-08-30: ``ws_graceful_shutdown`` stops the loop via
+        # ``loop.call_soon_threadsafe(loop.stop)`` while ``_main``'s
+        # ``await asyncio.Future()`` is still pending — asyncio.run then
+        # raises "Event loop stopped before Future completed". That is
+        # the DESIGNED stop path (tray Restart / Quit), not a fault:
+        # log it at INFO with exit code 0 instead of a spurious ERROR
+        # traceback + exit 1. Any other RuntimeError (or a stop that
+        # was NOT requested by the graceful path) still lands in the
+        # generic handler below.
+        if _is_graceful_loop_stop(server, exc):
+            log.info("[SIDECAR-WS] loop stopped by graceful shutdown — clean WS stop")
+            return 0
+        log.exception("[SIDECAR-WS] fatal error in run()")
+        return 1
     except Exception:
         log.exception("[SIDECAR-WS] fatal error in run()")
         return 1
+
+
+def _is_graceful_loop_stop(server: IPCServer, exc: Exception) -> bool:
+    """True when ``exc`` is the designed loop.stop() from
+    ``ws_graceful_shutdown`` (flag set by the graceful path + the
+    canonical asyncio message). Extracted for direct unit testing.
+    """
+    return bool(getattr(server, "_ws_graceful_stop_requested", False)) and ("Event loop stopped" in str(exc))

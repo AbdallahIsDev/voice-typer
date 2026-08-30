@@ -68,10 +68,18 @@ pub(crate) fn passthrough_env_allowlist() -> Vec<(std::ffi::OsString, std::ffi::
         out.push((std::ffi::OsString::from("HOME"), val));
     }
 
-    // ── Windows: USERPROFILE + SYSTEMROOT ──────────────────────────
+    // ── Windows: USERPROFILE + USERNAME + SYSTEMROOT ─────────────
+    // USERNAME is required by `config_internals/paths.py`'s ACL
+    // enforcement (2026-08-30: "cannot enforce Windows ACL on
+    // ~\.voice-typer: USERNAME env var is empty" on every dev-mode
+    // spawn because the allowlist previously dropped it).
     #[cfg(windows)]
     if let Some(val) = std::env::var_os("USERPROFILE") {
         out.push((std::ffi::OsString::from("USERPROFILE"), val));
+    }
+    #[cfg(windows)]
+    if let Some(val) = std::env::var_os("USERNAME") {
+        out.push((std::ffi::OsString::from("USERNAME"), val));
     }
     #[cfg(windows)]
     if let Some(val) = std::env::var_os("SYSTEMROOT") {

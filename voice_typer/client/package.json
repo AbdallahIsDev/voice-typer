@@ -28,6 +28,8 @@
 	},
 	"scripts": {
 		"dev": "electron-vite dev",
+		"dev:tauri": "vite --config vite.tauri.config.ts",
+		"tauri:dev": "node scripts/tauri-dev.mjs",
 		"build": "electron-vite build",
 		"build:renderer": "electron-vite build --config electron.vite.renderer.ts",
 		"build:main": "electron-vite build --config electron.vite.main.ts",
@@ -84,6 +86,7 @@
 		"@storybook/addon-themes": "^10.4.6",
 		"@storybook/react-vite": "^10.4.6",
 		"@tailwindcss/vite": "^4.3.2",
+		"@tauri-apps/cli": "^2.9.6",
 		"@testing-library/dom": "^10.4.1",
 		"@testing-library/jest-dom": "^7.0.0",
 		"@testing-library/react": "^16.3.2",

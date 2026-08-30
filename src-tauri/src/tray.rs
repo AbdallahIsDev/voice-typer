@@ -53,10 +53,10 @@ mod menu;
 // `icon_cache` (`load_tray_icon`'s whitelist gate), so a non-test
 // re-export would be an unused import.
 pub(crate) use events::is_focus_main_window_event;
-pub(crate) use icon_cache::load_tray_icon;
-pub(crate) use menu::{build_menu, empty_menu, MenuItemData, TrayMenuPayload, TrayStatePayload};
 #[cfg(test)]
 pub(crate) use icon_cache::is_allowed_icon_name;
+pub(crate) use icon_cache::load_tray_icon;
+pub(crate) use menu::{build_menu, empty_menu, MenuItemData, TrayMenuPayload, TrayStatePayload};
 
 // Event-construction types for the sibling test module (which builds
 // synthetic `TrayIconEvent::Click` variants via `use super::*;`) — the
@@ -341,6 +341,15 @@ fn rebuild_tray_menu(app: &AppHandle, items: &[MenuItemData]) -> tauri::Result<(
     let menu = build_menu(app, items)?;
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         tray.set_menu(Some(menu))?;
+        // DEBUG observability for the "menu missing after respawn" class
+        // of report: pairs with the Python-side "host ready — tray menu +
+        // state re-published" line so a placeholder menu can be bisected
+        // (no event vs. event-but-no-rebuild).
+        log::debug!(
+            "[TRAY] menu rebuilt ({} item{})",
+            items.len(),
+            if items.len() == 1 { "" } else { "s" }
+        );
     }
     Ok(())
 }

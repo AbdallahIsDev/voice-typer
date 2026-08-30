@@ -62,6 +62,28 @@ pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Even
             "[RESTART] ws_tx is None — cannot send relaunch_ack; Python will wait 2s timeout"
         );
     }
+
+    // DEV GUARD (2026-08-30 tray-Restart postmortem): under `tauri dev`
+    // this host process is the CLI's child. `app.restart()` exits the
+    // process, which (1) ends the CLI dev session (no more Rust rebuild
+    // watching) and (2) the relaunched exe is reaped when the CLI's
+    // Windows job object closes — the whole app just dies. In dev the
+    // CONTRACT is: the host must survive; only the SIDECAR restarts.
+    // The sidecar exits itself right after publishing `relaunch_app`
+    // (tray Restart → restart_app()), so the normal supervisor path
+    // (WS close → generation-gated respawn → fresh sidecar → re-auth →
+    // UI re-hydrates from the state snapshot) performs the restart
+    // while host + CLI + Vite stay up. Binding rule: AGENTS.md
+    // C-TDEV-2.
+    if crate::sidecar::spawn::dev_mode::is_dev_mode() {
+        log::info!(
+            "[RESTART] dev-mode sidecar (VOICE_TYPER_SIDECAR_DEV=1) — skipping \
+             app.restart(); the supervisor will respawn the exiting sidecar \
+             (host + `tauri dev` session stay alive)"
+        );
+        return;
+    }
+
     let restart_for_async = app_handle.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(PRE_RESTART_FLUSH_DELAY_MS)).await;

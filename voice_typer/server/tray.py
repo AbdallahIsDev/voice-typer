@@ -135,6 +135,19 @@ class TrayIcon:
         self._last_applied_state: AppState | None = None
         self._last_published: tuple[str, str] | None = None
         self._publish_lock = threading.Lock()
+        # Tauri runtime (TAURI_SIDECAR=1): the host-ready menu/state
+        # replay subscriber MUST be registered at CONSTRUCTION time —
+        # `start()` (which registers it on the pystray path) is never
+        # called under Tauri (the pystray icon is skipped entirely), so
+        # deferring registration there left the Rust host's tray menu
+        # frozen at the empty placeholder after every sidecar spawn /
+        # supervisor respawn (2026-08-30: "tray menu missing" after
+        # tray-Restart). Idempotent via _host_ready_republish_subscribed.
+        self._host_ready_republish_subscribed = False
+        import os as _os
+
+        if _os.environ.get("TAURI_SIDECAR") == "1":
+            self._subscribe_host_ready_republish()
 
     # ─── Public API ─────────────────────────────────────────────────────
 

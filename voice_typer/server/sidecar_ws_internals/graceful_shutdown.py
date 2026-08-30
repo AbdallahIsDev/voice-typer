@@ -18,6 +18,7 @@ this leaf at its own module top without a cycle.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -223,6 +224,13 @@ def _attach_ws_graceful_shutdown(server: IPCServer) -> None:
         #    documented thread-safe way to schedule a callback on a
         #    running loop from a non-loop thread. ``loop.stop`` causes
         #    ``loop.run_forever()`` (in :func:`run`) to return.
+        #    Flag the request FIRST: ``run()`` checks
+        #    ``_ws_graceful_stop_requested`` to translate asyncio's
+        #    "Event loop stopped before Future completed" RuntimeError
+        #    into a clean INFO exit instead of a spurious ERROR
+        #    traceback + exit code 1 (2026-08-30 tray-Restart noise).
+        with contextlib.suppress(Exception):
+            server._ws_graceful_stop_requested = True  # type: ignore[attr-defined]
         if loop is not None and not loop.is_closed():
             try:
                 loop.call_soon_threadsafe(loop.stop)

@@ -64,6 +64,12 @@ def wrap_bg_work(tray: TrayIcon, bg_work: Callable | None) -> Callable | None:
 def subscribe_host_ready_republish(tray: TrayIcon) -> None:
     """Subscribe a listener that re-publishes the tray menu on host (re)connect.
 
+    Idempotent via ``tray._host_ready_republish_subscribed`` — the
+    registration now happens at TrayIcon CONSTRUCTION under Tauri
+    (``start()`` never runs in ws-mode), and the pystray ``start()``
+    path still calls it; the flag makes the second call a no-op so the
+    replay listener is never double-registered.
+
     The ``tray_menu`` publish is fire-and-forget: ``publish_tray_menu``
     emits through ``event_bus`` and only subscribers registered AT THAT
     MOMENT receive it. The sidecar WS subscriber (``sidecar_ws.

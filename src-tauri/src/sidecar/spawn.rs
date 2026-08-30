@@ -31,7 +31,10 @@
 //! See `platform::worker_path` for the worker exe path resolution
 //! that supersedes the prewarm exe path.
 
-mod dev_mode;
+// `pub(crate)` so `sidecar::lifecycle::on_relaunch_app` can consult
+// `is_dev_mode()` for the tray-Restart dev guard (dev → respawn the
+// sidecar via the supervisor instead of restarting the host process).
+pub(crate) mod dev_mode;
 mod env_allowlist;
 mod handshake;
 mod release_mode;

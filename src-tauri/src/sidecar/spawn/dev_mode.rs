@@ -10,11 +10,22 @@ use tokio::io::AsyncBufReadExt;
 use super::env_allowlist::passthrough_env_allowlist;
 use super::handshake::{is_shutting_down, parse_server_started};
 
-/// ADR-0020 §14: returns true when `VOICE_TYPER_SIDECAR_DEV=1` is set.
-/// Exposed as a separate function so unit tests can verify the env-var
-/// matching logic without polluting the process environment.
+/// ADR-0020 §14: returns true when the sidecar should run from SOURCE
+/// (`python -m voice_typer.server.ipc_server --ws`) instead of the
+/// frozen `externalBin`. Two ways to be in dev mode:
+///   1. `VOICE_TYPER_SIDECAR_DEV=1` — explicit (the original contract),
+///   2. UNSET + a DEBUG build (`cfg!(debug_assertions)`) — a debug
+///      host binary is a developer artifact, so defaulting it to the
+///      source sidecar makes `npm run tauri:dev` work with zero env
+///      setup (2026-08-30 one-command dev environment). An explicit
+///      non-`1` value (e.g. `0`) is an escape hatch that forces the
+///      release/externalBin path even in a debug build.
 pub(crate) fn is_dev_mode() -> bool {
-    is_dev_mode_for(std::env::var("VOICE_TYPER_SIDECAR_DEV").ok().as_deref())
+    match std::env::var("VOICE_TYPER_SIDECAR_DEV").ok().as_deref() {
+        Some("1") => true,
+        Some(_) => false,
+        None => cfg!(debug_assertions),
+    }
 }
 
 /// Pure predicate form of `is_dev_mode` for unit testing.
