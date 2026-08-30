@@ -25,8 +25,9 @@ access *shared* state that lives on ``Recorder`` and is NOT moved here:
   ``_stop_generation`` / ``_recording_event`` — disconnect detection state
 - ``self._recorder._spawn_device_thread`` / ``_handle_device_disconnect`` —
   disconnect-handler scheduling
-- ``self._recorder._vad_auto_calibrate`` / ``_vad_update`` /
-  ``_refresh_vad_caches`` / cached VAD properties — VAD state machine
+- ``recorder._vad`` (VadProcessor) — VAD state machine; the module-level
+  ``vad_auto_calibrate`` / ``vad_update`` / ``refresh_vad_caches`` helpers
+  in :mod:`.vad_helpers` route through it
 - ``self._recorder._silence_timer`` / ``_silence_start_time`` /
   ``_silence_warning_count`` / cached silence thresholds — silence auto-stop
 - ``self._recorder._recording_start_time`` / ``on_rms_level`` /
@@ -55,6 +56,8 @@ from voice_typer.server import recording as _recording_pkg
 from voice_typer.server._audio_constants import SILERO_VAD_SAMPLE_RATES, WHISPER_SAMPLE_RATE
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.recording import resampling as _resampling_mod
+from voice_typer.server.recording.format import ensure_mono
+from voice_typer.server.recording.vad_helpers import refresh_vad_caches, vad_auto_calibrate, vad_update
 from voice_typer.server.vad import compute_vad_prob
 from voice_typer.server.vad_processor import VadState
 
@@ -172,7 +175,7 @@ class AudioPipeline:
         # stream restart and by start(), so this guard only suppresses
         # the storm during the retry window — it does NOT suppress a
         # legitimate re-detection after a successful restart.
-        if recorder._device_disconnected:
+        if recorder._devices._device_disconnected:
             return True
         # HOTKEY-CRASH: double-check that recording is still active.
         # The early-return check in the callback passed, but stop() may
@@ -181,7 +184,7 @@ class AudioPipeline:
         # the Event flag change is visible immediately).
         if not recorder._recording_event.is_set():
             return True  # deliberate stop, not a disconnect
-        recorder._device_disconnected = True
+        recorder._devices._device_disconnected = True
         # New disconnect cycle — clear the single-flight guard so a
         # fresh handler can spawn even if a prior handler hasn't fully
         # exited yet (e.g. test simulating restart by clearing
@@ -298,7 +301,7 @@ class AudioPipeline:
         audio 3:1 → chipmunk-pitched garbage on every non-16 kHz mic.
         """
         recorder = self._recorder
-        indata_mono = recorder._ensure_mono(indata)
+        indata_mono = ensure_mono(recorder, indata)
         if recorder._audio_processor is not None:
             # CRIT-6: pass the stream's native rate so the processor can
             # resample to the chain's construction rate (16 kHz) before
@@ -489,7 +492,7 @@ class AudioPipeline:
         _raw_chunk_rms = getattr(self, "_pending_raw_chunk_rms", None)
         if _raw_chunk_rms is None:
             _raw_chunk_rms = chunk_rms
-        recorder._vad_auto_calibrate(_raw_chunk_rms, chunk_duration)
+        vad_auto_calibrate(recorder, _raw_chunk_rms, chunk_duration)
 
         # compute Silero VAD probability if enabled.
         # this previously ran in the audio callback
@@ -530,7 +533,7 @@ class AudioPipeline:
                     # ``_buffer_sr`` changed since the cache was last
                     # computed (e.g. first chunk after start(), or a
                     # hot-plug rebuild that called set_sample_rate).
-                    recorder._refresh_vad_caches()
+                    refresh_vad_caches(recorder)
                 # lazily import scipy.signal on first VAD resample —
                 # keeps the ~1-2s scipy import off the startup path
                 # when VAD is disabled (raw recording mode).
@@ -604,7 +607,7 @@ class AudioPipeline:
         # VAD state machine with hysteresis
         # Convert RMS to dBFS for VAD thresholds
         chunk_rms_db = 20.0 * math.log10(chunk_rms) if chunk_rms > 0 else -90.0
-        vad_state = recorder._vad_update(chunk_rms_db, vad_prob=vad_prob)
+        vad_state = vad_update(recorder, chunk_rms_db, vad_prob=vad_prob)
 
         # Use VAD state machine for silence detection
         # Voice detected by loudness → reset silence timer
@@ -723,12 +726,14 @@ class AudioPipeline:
         """Body of :meth:`Recorder._process_audio_chunk` — runs on the worker thread.
 
         Phase 4.5 — extracted from :mod:`.recorder`. See the module
-                docstring of :mod:`.recorder` for the full Patch-path compatibility
-                rationale (the call sites to ``_detect_device_disconnect`` /
-                ``_handle_xrun_status`` / etc. route through ``self._recorder.X``
-                so test patches of the form
-                ``monkeypatch.setattr(Recorder, "_detect_device_disconnect", fake)``
-                continue to take effect).
+                docstring of :mod:`.recorder` for the collaborator-pattern
+                rationale. The per-step call sites below route through
+                ``self.<method>`` (this class's own helpers:
+                ``detect_device_disconnect`` / ``handle_xrun_status`` /
+                ``apply_filter_chain`` / ...), so test patches must target
+                ``AudioPipeline`` (e.g.
+                ``monkeypatch.setattr(pipeline, "handle_xrun_status", fake)``
+                or the class attribute).
 
                 This method contains the heavy processing pipeline that was
                 previously in the PortAudio callback (``_audio_callback_dispatch``).
@@ -757,7 +762,7 @@ class AudioPipeline:
         """
         recorder = self._recorder
         # HOTKEY-CRASH: device disconnect detection (early return path).
-        if recorder._detect_device_disconnect(indata):
+        if self.detect_device_disconnect(indata):
             return
 
         # the per-N-chunks blocking ``sd.query_devices()``
@@ -778,7 +783,7 @@ class AudioPipeline:
         # Do NOT re-add — it added no unique behavior.
 
         # XRUN status flag handling (early return path on overflow).
-        if recorder._handle_xrun_status(status):
+        if self.handle_xrun_status(status):
             return
 
         # the old PERF-011 frame-skip logic
@@ -796,9 +801,8 @@ class AudioPipeline:
         # close to silence → speech detected as silence → premature
         # auto-stop. The raw RMS is threaded through to
         # ``run_vad_state_machine`` via a transient instance attribute
-        # (set here, read there) because the Recorder delegator
-        # (``_run_vad_state_machine``) has a fixed positional signature
-        # owned by ``recorder.py`` and cannot be extended with a new
+        # (set here, read there) because that method has a fixed
+        # positional signature and cannot be extended with a new
         # parameter from this module. Both methods run on the same
         # worker thread, so the handoff is single-threaded.
         #
@@ -819,10 +823,10 @@ class AudioPipeline:
             self._pending_raw_chunk_rms = 0.0
 
         # AUDIO-CH + AUDIO-PROC: mono conversion + real-time noise filtering.
-        filtered = recorder._apply_filter_chain(indata)
+        filtered = self.apply_filter_chain(indata)
 
         # Buffer append + chunk count + backpressure detection.
-        chunk_count, buffer_len = recorder._append_to_buffer_locked(filtered)
+        chunk_count, buffer_len = self.append_to_buffer_locked(filtered)
 
         # Read callback refs outside the lock — these are set once
         # at start() and cleared at stop(), so a torn read just
@@ -843,7 +847,7 @@ class AudioPipeline:
         # RMS / peak / chunk-duration computation (operates on FILTERED
         # audio so the waveform bubble and silence detection see what
         # the transcriber will see, not raw mic input).
-        chunk_rms, chunk_peak, chunk_duration = recorder._compute_rms_and_peak(filtered)
+        chunk_rms, chunk_peak, chunk_duration = self.compute_rms_and_peak(filtered)
 
         # ADR 0007 §3.5: the old per-chunk AGC (_agc_update, C1)
         # has been removed. It duplicated the Compressor filter in
@@ -858,7 +862,7 @@ class AudioPipeline:
         # dedicated helper so the clipping-detection logic is testable
         # in isolation and the heavy ``_process_audio_chunk`` body
         # stays readable).
-        recorder._detect_and_emit_clipping(chunk_peak)
+        self.detect_and_emit_clipping(recorder, chunk_peak)
 
         # PERF-11: append to the live deque (atomic under
         # GIL — ``deque.append`` is a single C-level op with no torn
@@ -871,7 +875,7 @@ class AudioPipeline:
         # +  + H12: VAD auto-calibration + Silero
         # VAD probability + VAD state machine + silence/max-duration
         # auto-stop callbacks + telemetry logs.
-        recorder._run_vad_state_machine(
+        self.run_vad_state_machine(
             filtered,
             chunk_rms,
             chunk_duration,

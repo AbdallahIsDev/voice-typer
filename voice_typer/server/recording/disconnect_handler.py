@@ -46,6 +46,7 @@ from typing import Any
 
 from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
 from voice_typer.server._lazy_import import lazy_module
+from voice_typer.server.recording.vad_helpers import refresh_vad_caches
 
 # PERF-COLDSTART-001: lazy import — sounddevice loads the PortAudio C
 # library at import time. The lazy proxy re-resolves ``sys.modules`` on
@@ -177,9 +178,9 @@ class DisconnectHandler:
         # configured mic (by name) first; only fall back to
         # ``device=None`` if no same-named device is found.
         _restart_device = None
-        _configured_device = recorder._resolve_device()
+        _configured_device = recorder._devices._resolve_device()
         if _configured_device is not None:
-            _named_candidates = recorder._same_physical_microphone_candidates(_configured_device)
+            _named_candidates = recorder._devices._same_physical_microphone_candidates(_configured_device)
             # BT headsets that drop and reconnect within the
             # detection→restart-scheduling→restart-execution window
             # (~50-500ms; BT link-manager reconnection is 200-800ms)
@@ -245,7 +246,7 @@ class DisconnectHandler:
         # Try to open with the resolved device (configured-by-name or
         # OS default).
         try:
-            candidate_sr, _ = recorder._resolve_effective_sample_rate(_restart_device)
+            candidate_sr, _ = recorder._devices._resolve_effective_sample_rate(_restart_device)
             # AUDIO-CH (revised): The previous code did
             # ``channels = min(1, default_dev.get("max_input_channels", 1))``
             # which ALWAYS returned 1 for any valid device (min(1, N>=1) == 1).
@@ -372,12 +373,12 @@ class DisconnectHandler:
                 # successful-restart state update is atomic with
                 # respect to the health-checker's reads.
                 recorder._actual_channels = channels
-                recorder._device_disconnected = False
+                recorder._devices._device_disconnected = False
                 # reset the retry counter on successful restart so a
                 # subsequent disconnect (e.g. BT mic flapping) gets a
                 # full retry budget instead of inheriting the prior
                 # disconnect's count.
-                recorder._device_disconnect_retries = 0
+                recorder._devices._device_disconnect_retries = 0
                 # Flush ``_buffer`` on hot-swap restart (losing
                 # pre-disconnect audio, simplest). Without this,
                 # ``stop()`` resamples the entire buffer at the NEW
@@ -390,7 +391,7 @@ class DisconnectHandler:
                 # cached arrays BEFORE reassignment (mirrors
                 # ``discard()``'s pattern) so the user's voice data
                 # doesn't linger in process memory (SEC-audit-008).
-                recorder._secure_clear_caches()
+                recorder._session_state.secure_clear_caches(recorder)
                 # SEC-audit-008: swap-and-secure-clear-background for
                 # ``_buffer`` — mirrors ``discard()``'s pattern in
                 # ``_recorder_split.py:467-475``. The bare
@@ -445,7 +446,7 @@ class DisconnectHandler:
             # The (up, down) resample ratio is recomputed from the new
             # ``_effective_sr`` (used as fallback until the first chunk
             # sets ``_buffer_sr``).
-            recorder._refresh_vad_caches()
+            refresh_vad_caches(recorder)
 
             # Sliding-window flap detection: we just completed a
             # SUCCESSFUL restart. Append the restart timestamp to the
@@ -557,7 +558,7 @@ class DisconnectHandler:
             # a new mic. The retry counter is NOT reset here (only on
             # successful restart or max-retries reached) so the retry
             # budget still degrades across consecutive failures.
-            recorder._device_disconnected = False
+            recorder._devices._device_disconnected = False
 
 
 np = lazy_module("numpy")

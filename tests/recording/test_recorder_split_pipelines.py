@@ -63,6 +63,31 @@ from voice_typer.server.recording._recorder_split import (
 )
 from voice_typer.server.recording.stream_lifecycle import StreamLifecycle
 
+# ── Module-level ``prepare_audio`` interception ───────────────────
+# ``stop_recording`` invokes the free function ``prepare_audio``
+# (imported at :mod:`._recorder_split` module level) — the historical
+# ``Recorder._prepare_audio`` delegator was removed.
+
+_prepare_audio_mock_holder: dict = {}
+
+
+@pytest.fixture(autouse=True)
+def _mock_prepare_audio(monkeypatch):
+    """Patch ``_recorder_split.prepare_audio`` with an identity
+    pass-through by default and expose the mock to tests."""
+    import voice_typer.server.recording._recorder_split as split_mod
+
+    mock = MagicMock(name="prepare_audio", side_effect=lambda rec, audio, effective_sr_in, **kw: audio)
+    monkeypatch.setattr(split_mod, "prepare_audio", mock)
+    _prepare_audio_mock_holder["mock"] = mock
+    yield mock
+    _prepare_audio_mock_holder.pop("mock", None)
+
+
+def _prep() -> MagicMock:
+    return _prepare_audio_mock_holder["mock"]
+
+
 # ---------------------------------------------------------------------------
 # (a) contiguous snapshot storage — no per-snapshot growth
 # ---------------------------------------------------------------------------
@@ -168,13 +193,16 @@ class TestContiguousSnapshotStorage:
         # _buffer_sr != target_sr → resample path.
         rec._buffer_sr = 48000
 
-        # Stub _resample_chunk so we don't need scipy.
-        def fake_resample(audio, effective_sr_in, target_sr):
+        # Stub the module-level ``resample_chunk`` binding that
+        # ``_snapshot_resampled_locked`` invokes (the historical
+        # ``Recorder._resample_chunk`` delegator was removed) so we
+        # don't need scipy.
+        def fake_resample(recorder, audio, effective_sr_in, target_sr):
             # Decimate by the integer ratio (48000 // 16000 == 3).
             step = max(1, effective_sr_in // target_sr)
             return audio[::step].astype(np.float32, copy=False).reshape(-1)
 
-        monkeypatch.setattr(rec, "_resample_chunk", fake_resample)
+        monkeypatch.setattr("voice_typer.server.recording._recorder_split.resample_chunk", fake_resample)
 
         import collections
 
@@ -450,12 +478,12 @@ def _build_mock_recorder_for_stop(
 
     # Identity _prepare_audio with optional delay (simulates a slow
     # resample so we can observe the overlap with stats computation).
-    def _prepare_audio_with_delay(audio, effective_sr_in, **kw):
+    def _prepare_audio_with_delay(rec, audio, effective_sr_in, **kw):
         if prepare_audio_delay_s > 0:
             time.sleep(prepare_audio_delay_s)
         return audio
 
-    rec._prepare_audio.side_effect = _prepare_audio_with_delay
+    _prep().side_effect = _prepare_audio_with_delay
     return rec
 
 
@@ -474,7 +502,7 @@ class TestStopRecordingPrepareAudioPipelining:
             buffer_chunks=[np.ones(50, dtype=np.float32)],
         )
         stop_recording(rec)
-        rec._prepare_audio.assert_called_once()
+        _prep().assert_called_once()
 
     def test_prepare_audio_called_with_captured_buffer_sr(self):
         """The resample thread must receive the captured
@@ -489,8 +517,8 @@ class TestStopRecordingPrepareAudioPipelining:
             effective_sr=48000,
         )
         stop_recording(rec)
-        rec._prepare_audio.assert_called_once()
-        effective_sr_passed = rec._prepare_audio.call_args.args[1]
+        _prep().assert_called_once()
+        effective_sr_passed = _prep().call_args.args[2]
         assert effective_sr_passed == 16000, (
             f"XV-31 regression: _prepare_audio was called with "
             f"effective_sr={effective_sr_passed}, expected 16000 (the "
@@ -512,8 +540,8 @@ class TestStopRecordingPrepareAudioPipelining:
         # distinct array (simulating a real resample that changes the
         # data).
         resampled = np.full(200, 0.25, dtype=np.float32)
-        rec._prepare_audio.side_effect = None
-        rec._prepare_audio.return_value = resampled
+        _prep().side_effect = None
+        _prep().return_value = resampled
 
         result = stop_recording(rec)
         assert result is resampled, (
@@ -554,7 +582,7 @@ class TestStopRecordingPrepareAudioPipelining:
         """
         times: dict[str, float] = {}
 
-        def _slow_prepare(audio, effective_sr_in, **kw):
+        def _slow_prepare(rec, audio, effective_sr_in, **kw):
             times["prepare_started"] = time.perf_counter()
             time.sleep(2.0)
             times["prepare_finished"] = time.perf_counter()
@@ -563,7 +591,7 @@ class TestStopRecordingPrepareAudioPipelining:
         rec = _build_mock_recorder_for_stop(
             buffer_chunks=[np.ones(100_000, dtype=np.float32) * 0.5],
         )
-        rec._prepare_audio.side_effect = _slow_prepare
+        _prep().side_effect = _slow_prepare
 
         real_dot = np.dot
 
@@ -595,7 +623,7 @@ class TestStopRecordingPrepareAudioPipelining:
         rec = _build_mock_recorder_for_stop(
             buffer_chunks=[np.ones(50, dtype=np.float32)],
         )
-        rec._prepare_audio.side_effect = RuntimeError("simulated resample failure")
+        _prep().side_effect = RuntimeError("simulated resample failure")
 
         with pytest.raises(RuntimeError, match="simulated resample failure"):
             stop_recording(rec)
@@ -622,15 +650,15 @@ class TestStopRecordingPrepareAudioPipelining:
 
         rec._teardown_stream.side_effect = log_call("teardown_stream")
         rec._stop_audio_worker.side_effect = log_call("stop_audio_worker")
-        rec._stop_event_worker.side_effect = log_call("stop_event_worker")
+        rec._capture.stop_event_worker_body.side_effect = log_call("stop_event_worker")
         rec._stop_device_health_checker.side_effect = log_call("stop_device_health_checker")
-        rec._secure_clear_caches.side_effect = log_call("secure_clear_caches")
+        rec._session_state.secure_clear_caches.side_effect = log_call("secure_clear_caches")
 
-        def _prepare_audio_hook(audio, effective_sr_in, *a, **k):
+        def _prepare_audio_hook(rec, audio, effective_sr_in, *a, **k):
             call_log.append("prepare_audio")
             return audio
 
-        rec._prepare_audio.side_effect = _prepare_audio_hook
+        _prep().side_effect = _prepare_audio_hook
 
         stop_recording(rec)
 

@@ -72,10 +72,11 @@ class MicLifecycleHooks:
         # instead of falling through to ``on_silence_auto_stop``.
         with contextlib.suppress(Exception):
             recorder.on_device_lost = controller.on_device_lost
-        # Wire the active-mic-lost hooks. The mic_watcher property may
-        # return None on platforms where the watcher failed to start
-        # (macOS without the CoreAudio bridge).
-        mic_watcher = getattr(recorder, "_mic_watcher", None)
+        # Wire the active-mic-lost hooks. The watcher may be None on
+        # platforms where the watcher failed to start (macOS without the
+        # CoreAudio bridge); the recorder's DeviceManager collaborator may
+        # also be absent on partially-constructed test doubles.
+        mic_watcher = getattr(getattr(recorder, "_devices", None), "_mic_watcher", None)
         if mic_watcher is None:
             return
         with contextlib.suppress(Exception):

@@ -100,6 +100,14 @@ def _make_recorder(
     rec = SimpleNamespace()
     rec.config = config or _make_config()
     rec._vad = _make_vad()
+    # Device-state owner collaborator (the historical Recorder-level
+    # property shims were removed; reset_session_state writes through
+    # ``recorder._devices.<attr>``).
+    rec._devices = SimpleNamespace(
+        _device_disconnected=True,  # sentinel: reset to False
+        _device_disconnect_retries=999,
+        _device_check_counter=999,
+    )
     rec._audio_processor = audio_processor if audio_processor is not None else _make_audio_processor()
     rec._buffer = collections.deque(maxlen=1000)
     rec._chunk_count = 999  # sentinel: reset must zero
@@ -131,22 +139,19 @@ def _make_recorder(
     rec._peak = 999.0
     rec._last_clip_log_time = 999.0
     rec._last_rms = 999.0
-    rec._vad_state = "sentinel"  # set by reset_session_state
-    rec._vad_consecutive_speech_frames = 999
-    rec._vad_consecutive_silence_frames = 999
-    rec._vad_speech_threshold_db = 999.0
-    rec._vad_silence_threshold_db = 999.0
-    rec._vad_calibration_rms_values = [0.5, 0.5]  # sentinel: reset clears
-    rec._vad_calibrated = True
+    rec._vad.state = "sentinel"  # set by reset_session_state
+    rec._vad.consecutive_speech_frames = 999
+    rec._vad.consecutive_silence_frames = 999
+    rec._vad.speech_threshold_db = 999.0
+    rec._vad.silence_threshold_db = 999.0
+    rec._vad.calibration_rms_values = [0.5, 0.5]  # sentinel: reset clears
+    rec._vad.calibrated = True
     rec._user_stop_pending = True  # sentinel: reset to False
     rec._preroll_buffer = collections.deque(maxlen=64)
-    rec._device_disconnected = True  # sentinel: reset to False
-    rec._device_disconnect_retries = 999
     # AUDIO-HOT flap-detection deque — reset_session_state clears it
     # (start() is the "begin a new session" boundary).
     rec._restart_timestamps = collections.deque([1.0, 2.0])
     rec._dropped_ring_chunks = 999
-    rec._device_check_counter = 999
     rec._cached_target_sr = None
     rec._cached_silence_warning = None
     rec._cached_stop_on_silence = None
@@ -156,20 +161,10 @@ def _make_recorder(
     rec._preroll_seconds = preroll_seconds
     rec._effective_sr = effective_sr
 
-    # ``_ensure_mono`` is a @staticmethod on Recorder; mirror the
-    # behaviour so the preroll-prepend loop works on multi-channel
-    # preroll chunks.
-    @staticmethod
-    def _ensure_mono(audio: np.ndarray) -> np.ndarray:
-        if audio.ndim == 1:
-            return audio
-        if audio.ndim == 2 and audio.shape[1] > 1:
-            return np.mean(audio, axis=1, dtype=np.float32)
-        if audio.ndim == 2 and audio.shape[1] == 1:
-            return audio.reshape(-1)
-        return audio.reshape(-1)
-
-    rec._ensure_mono = _ensure_mono
+    # The preroll-prepend loop invokes the real
+    # ``voice_typer.server.recording.format.ensure_mono`` (a free
+    # function taking the recorder) — no per-recorder stub needed; it
+    # downmixes multi-channel chunks without touching recorder state.
     return rec
 
 
@@ -270,33 +265,33 @@ def test_reset_session_state_calls_vad_reset_and_resets_vad_state():
     SessionState(_make_recorder()).reset_session_state(rec)
 
     rec._vad.reset.assert_called_once_with()
-    assert rec._vad_state == VadState.UNKNOWN
-    assert rec._vad_consecutive_speech_frames == 0
-    assert rec._vad_consecutive_silence_frames == 0
+    assert rec._vad.state == VadState.UNKNOWN
+    assert rec._vad.consecutive_speech_frames == 0
+    assert rec._vad.consecutive_silence_frames == 0
     # Default thresholds come from the canonical VAD module constants.
     from voice_typer.server.vad_processor import (
         DEFAULT_VAD_SILENCE_THRESHOLD_DB,
         DEFAULT_VAD_SPEECH_THRESHOLD_DB,
     )
 
-    assert rec._vad_speech_threshold_db == DEFAULT_VAD_SPEECH_THRESHOLD_DB
-    assert rec._vad_silence_threshold_db == DEFAULT_VAD_SILENCE_THRESHOLD_DB
-    assert rec._vad_calibration_rms_values == []
-    assert rec._vad_calibrated is False
+    assert rec._vad.speech_threshold_db == DEFAULT_VAD_SPEECH_THRESHOLD_DB
+    assert rec._vad.silence_threshold_db == DEFAULT_VAD_SILENCE_THRESHOLD_DB
+    assert rec._vad.calibration_rms_values == []
+    assert rec._vad.calibrated is False
 
 
 def test_reset_session_state_clears_user_stop_pending_and_disconnect_state():
     """``_user_stop_pending`` + device-disconnect state are reset for a fresh session."""
     rec = _make_recorder()
     rec._user_stop_pending = True
-    rec._device_disconnected = True
-    rec._device_disconnect_retries = 3
+    rec._devices._device_disconnected = True
+    rec._devices._device_disconnect_retries = 3
 
     SessionState(_make_recorder()).reset_session_state(rec)
 
     assert rec._user_stop_pending is False
-    assert rec._device_disconnected is False
-    assert rec._device_disconnect_retries == 0
+    assert rec._devices._device_disconnected is False
+    assert rec._devices._device_disconnect_retries == 0
 
 
 def test_reset_session_state_zeros_and_clears_preroll_buffer():
@@ -323,7 +318,7 @@ def test_reset_session_state_resets_ring_drop_counters():
     SessionState(_make_recorder()).reset_session_state(rec)
 
     assert rec._dropped_ring_chunks == 0
-    assert rec._device_check_counter == 0
+    assert rec._devices._device_check_counter == 0
 
 
 def test_reset_session_state_caches_target_sample_rate():

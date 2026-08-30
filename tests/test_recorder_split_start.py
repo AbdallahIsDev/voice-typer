@@ -72,13 +72,13 @@ def _build_mock_recorder(
     recorder.config.save.return_value = True
 
     # `_cache_session_config` returns the per-session max_rec seconds.
-    recorder._cache_session_config.return_value = 30
+    recorder._session_state.cache_session_config.return_value = 30
 
-    recorder._resolve_device.return_value = device
-    recorder._same_physical_microphone_candidates.return_value = [device]
+    recorder._devices._resolve_device.return_value = device
+    recorder._devices._same_physical_microphone_candidates.return_value = [device]
 
     callback_sentinel = object()
-    recorder._build_audio_callback.return_value = callback_sentinel
+    recorder._stream_lifecycle.build_audio_callback.return_value = callback_sentinel
 
     if effective_sr is None:
         effective_sr = sample_rate
@@ -86,7 +86,7 @@ def _build_mock_recorder(
     if open_success:
         # `_open_stream_for_candidates` returns
         # ``(selected_device, effective_sr, last_error)``.
-        recorder._open_stream_for_candidates.return_value = (
+        recorder._stream_lifecycle.open_stream_for_candidates.return_value = (
             device,
             effective_sr,
             None,
@@ -95,7 +95,7 @@ def _build_mock_recorder(
         # the ``if recorder._stream is None:`` early-return doesn't fire.
         recorder._stream = MagicMock(name="opened-stream")
     else:
-        recorder._open_stream_for_candidates.return_value = (
+        recorder._stream_lifecycle.open_stream_for_candidates.return_value = (
             None,
             sample_rate,
             RuntimeError("no mic"),
@@ -119,6 +119,11 @@ def _build_mock_recorder(
     recorder._preroll_active = False
     recorder._preroll_seconds = 0.0
     recorder._preroll_buffer = collections.deque(maxlen=0)
+    # Real scalar sample rates: ``refresh_vad_caches`` (invoked directly
+    # as a module function now) compares these against int constants —
+    # MagicMock sentinels would raise TypeError on the ``> 0`` check.
+    recorder._buffer_sr = None
+    recorder._effective_sr = sample_rate
 
     return recorder
 
@@ -158,36 +163,42 @@ class TestStartRecordingHappyPath:
     """Verify the body of ``Recorder.start`` runs end-to-end when the
     stream opens successfully on the first candidate."""
 
-    def test_runs_all_steps_in_order(self):
+    def test_runs_all_steps_in_order(self, monkeypatch):
         """When the stream opens on the first candidate,
         ``start_recording`` must invoke every per-session step. The
         step ordering is asserted by the ``in_order`` helper below.
         """
         recorder = _build_mock_recorder()
+        import voice_typer.server.recording._recorder_split as split_mod
+
+        refresh_vad_mock = MagicMock()
+        monkeypatch.setattr(split_mod, "refresh_vad_caches", refresh_vad_mock)
         start_recording(recorder)
 
         recorder._secure_clear_session_caches.assert_called_once()
-        recorder._reset_session_state.assert_called_once()
-        recorder._cache_session_config.assert_called_once()
-        recorder._resolve_device.assert_called_once()
-        recorder._same_physical_microphone_candidates.assert_called_once_with(recorder._resolve_device.return_value)
-        recorder._build_audio_callback.assert_called_once()
-        recorder._open_stream_for_candidates.assert_called_once()
+        recorder._session_state.reset_session_state.assert_called_once()
+        recorder._session_state.cache_session_config.assert_called_once()
+        recorder._devices._resolve_device.assert_called_once()
+        recorder._devices._same_physical_microphone_candidates.assert_called_once_with(
+            recorder._devices._resolve_device.return_value
+        )
+        recorder._stream_lifecycle.build_audio_callback.assert_called_once()
+        recorder._stream_lifecycle.open_stream_for_candidates.assert_called_once()
         # No fallback because the stream opened on the first candidate.
-        recorder._open_stream_fallback.assert_not_called()
-        recorder._resize_buffers_for_sample_rate.assert_called_once()
+        recorder._stream_lifecycle.open_stream_fallback.assert_not_called()
+        recorder._session_state.resize_buffers_for_sample_rate.assert_called_once()
         assert recorder._recording_event.is_set()
         # preroll prepend was MOVED off the start thread — it
         # now runs as a "phase 0" inside the audio worker thread's
         # ``audio_worker_loop`` (capture.py). The start() path no
-        # longer calls ``_prepend_preroll_to_buffer`` synchronously.
-        recorder._prepend_preroll_to_buffer.assert_not_called()
-        recorder._refresh_vad_caches.assert_called_once()
+        # longer calls ``prepend_preroll_to_buffer`` synchronously.
+        recorder._session_state.prepend_preroll_to_buffer.assert_not_called()
+        refresh_vad_mock.assert_called_once_with(recorder)
         recorder._start_audio_worker.assert_called_once()
-        recorder._start_event_worker.assert_called_once()
-        recorder._start_device_health_checker.assert_called_once()
+        recorder._capture.start_event_worker_body.assert_called_once()
+        recorder._devices._start_device_health_checker.assert_called_once()
 
-    def test_step_order_matches_contract(self):
+    def test_step_order_matches_contract(self, monkeypatch):
         """Pin the source-order contract: cache-clear → state reset →
                config cache → resolve device → candidates → build callback →
                open stream → resize buffers → event set → VAD cache refresh →
@@ -196,7 +207,7 @@ class TestStartRecordingHappyPath:
         : the preroll prepend step was REMOVED from this ordering
                — it now runs as a "phase 0" inside the audio worker thread's
                ``audio_worker_loop`` (capture.py), so start() no longer
-               synchronously invokes ``_prepend_preroll_to_buffer`` between
+               synchronously invokes ``prepend_preroll_to_buffer`` between
                ``event.set`` and ``refresh_vad``.
 
                A future refactor that swaps the order of these calls (e.g.
@@ -211,7 +222,7 @@ class TestStartRecordingHappyPath:
             # ``side_effect`` overrides ``return_value`` when set, so
             # the hook's return value is the mock's return value. We
             # pass the right tuple/string for tuple-returning helpers
-            # (``_open_stream_for_candidates`` etc.); for the no-return
+            # (``open_stream_for_candidates`` etc.); for the no-return
             # helpers, ``ret`` stays ``None`` and the function ignores
             # the return.
             def _hook(*a, **k):
@@ -222,25 +233,29 @@ class TestStartRecordingHappyPath:
 
         # Stub every method that the function calls in source order.
         recorder._secure_clear_session_caches.side_effect = log_call("secure_clear")
-        recorder._reset_session_state.side_effect = log_call("reset_session")
-        recorder._cache_session_config.side_effect = log_call("cache_config", ret=30)
-        recorder._resolve_device.side_effect = log_call("resolve_device", ret=5)
-        recorder._same_physical_microphone_candidates.side_effect = log_call("candidates", ret=[5])
-        recorder._build_audio_callback.side_effect = log_call("build_callback", ret=object())
-        # ``_open_stream_for_candidates`` returns a 3-tuple — the
+        recorder._session_state.reset_session_state.side_effect = log_call("reset_session")
+        recorder._session_state.cache_session_config.side_effect = log_call("cache_config", ret=30)
+        recorder._devices._resolve_device.side_effect = log_call("resolve_device", ret=5)
+        recorder._devices._same_physical_microphone_candidates.side_effect = log_call("candidates", ret=[5])
+        recorder._stream_lifecycle.build_audio_callback.side_effect = log_call("build_callback", ret=object())
+        # ``open_stream_for_candidates`` returns a 3-tuple — the
         # function unpacks it, so the side_effect must return one.
-        recorder._open_stream_for_candidates.side_effect = log_call("open_stream", ret=(5, 16000, None))
-        recorder._resize_buffers_for_sample_rate.side_effect = log_call("resize_buffers")
+        recorder._stream_lifecycle.open_stream_for_candidates.side_effect = log_call(
+            "open_stream", ret=(5, 16000, None)
+        )
+        recorder._session_state.resize_buffers_for_sample_rate.side_effect = log_call("resize_buffers")
         recorder._recording_event = MagicMock(wraps=threading.Event())
         recorder._recording_event.set.side_effect = log_call("event.set")
         # prepend_preroll is no longer called from start_recording
         # leaving the side_effect unset so a regression call would NOT
         # appear in call_log (the assertion below would catch the
         # unexpected call via the ordering mismatch).
-        recorder._refresh_vad_caches.side_effect = log_call("refresh_vad")
+        import voice_typer.server.recording._recorder_split as split_mod
+
+        monkeypatch.setattr(split_mod, "refresh_vad_caches", log_call("refresh_vad"))
         recorder._start_audio_worker.side_effect = log_call("start_audio_worker")
-        recorder._start_event_worker.side_effect = log_call("start_event_worker")
-        recorder._start_device_health_checker.side_effect = log_call("start_device_health_checker")
+        recorder._capture.start_event_worker_body.side_effect = log_call("start_event_worker")
+        recorder._devices._start_device_health_checker.side_effect = log_call("start_device_health_checker")
 
         start_recording(recorder)
 
@@ -274,10 +289,11 @@ class TestStartRecordingHappyPath:
         recorder = _build_mock_recorder()
         start_recording(recorder)
 
-        args, _ = recorder._open_stream_for_candidates.call_args
-        candidates, callback, eff_sr, last_err = args
-        assert candidates == recorder._same_physical_microphone_candidates.return_value
-        assert callback is recorder._build_audio_callback.return_value
+        args, _ = recorder._stream_lifecycle.open_stream_for_candidates.call_args
+        rec_arg, candidates, callback, eff_sr, last_err = args
+        assert rec_arg is recorder
+        assert candidates == recorder._devices._same_physical_microphone_candidates.return_value
+        assert callback is recorder._stream_lifecycle.build_audio_callback.return_value
         assert eff_sr == recorder.config.sample_rate
         assert last_err is None
 
@@ -367,37 +383,38 @@ class TestStartRecordingFallbackPath:
     configured mic has been unplugged."""
 
     def test_fallback_called_when_first_candidate_returns_none_stream(self):
-        """When ``_open_stream_for_candidates`` returns
+        """When ``open_stream_for_candidates`` returns
         ``selected_device=None`` AND ``recorder._stream`` is None,
         the fallback path must run.
         """
         recorder = _build_mock_recorder(open_success=False)
         # First attempt fails (``_stream`` is None);
-        # ``_open_stream_fallback`` is the recorder method that opens
-        # the stream — it sets ``self._stream`` itself on success. We
-        # simulate that by using a ``side_effect`` that assigns
-        # ``recorder._stream`` to a non-None MagicMock before returning
-        # the 4-tuple.
+        # ``open_stream_fallback`` is the StreamLifecycle method that
+        # opens the stream — it sets ``recorder._stream`` itself on
+        # success. We simulate that by using a ``side_effect`` that
+        # assigns ``recorder._stream`` to a non-None MagicMock before
+        # returning the 4-tuple.
         assert recorder._stream is None
-        original_err = recorder._open_stream_for_candidates.return_value[2]
+        original_err = recorder._stream_lifecycle.open_stream_for_candidates.return_value[2]
 
-        def _fallback_side_effect(candidates, callback, eff_sr, last_err):
+        def _fallback_side_effect(rec, candidates, callback, eff_sr, last_err):
             recorder._stream = MagicMock(name="fallback-stream")
             return (7, 16000, True, None)
 
-        recorder._open_stream_fallback.side_effect = _fallback_side_effect
+        recorder._stream_lifecycle.open_stream_fallback.side_effect = _fallback_side_effect
 
         start_recording(recorder)
 
-        recorder._open_stream_fallback.assert_called_once()
-        args, _ = recorder._open_stream_fallback.call_args
-        candidates, callback, eff_sr, last_err = args
-        assert candidates == recorder._same_physical_microphone_candidates.return_value
-        assert callback is recorder._build_audio_callback.return_value
+        recorder._stream_lifecycle.open_stream_fallback.assert_called_once()
+        args, _ = recorder._stream_lifecycle.open_stream_fallback.call_args
+        rec_arg, candidates, callback, eff_sr, last_err = args
+        assert rec_arg is recorder
+        assert candidates == recorder._devices._same_physical_microphone_candidates.return_value
+        assert callback is recorder._stream_lifecycle.build_audio_callback.return_value
         assert last_err is original_err, (
             "The ``last_error`` captured from the failed candidate "
-            "attempt must be propagated to ``_open_stream_fallback`` "
-            "as the 4th positional arg."
+            "attempt must be propagated to ``open_stream_fallback`` "
+            "as the 5th positional arg (after the recorder)."
         )
 
     def test_raises_last_error_when_all_paths_fail(self):
@@ -410,12 +427,12 @@ class TestStartRecordingFallbackPath:
         """
         recorder = _build_mock_recorder(open_success=False)
         original_err = OSError("[Errno -9998] PortAudio invalid channel count")
-        recorder._open_stream_for_candidates.return_value = (
+        recorder._stream_lifecycle.open_stream_for_candidates.return_value = (
             None,
             16000,
             original_err,
         )
-        recorder._open_stream_fallback.return_value = (
+        recorder._stream_lifecycle.open_stream_fallback.return_value = (
             None,
             16000,
             True,
@@ -439,8 +456,8 @@ class TestStartRecordingFallbackPath:
         with no audio.
         """
         recorder = _build_mock_recorder(open_success=False)
-        recorder._open_stream_for_candidates.return_value = (None, 16000, None)
-        recorder._open_stream_fallback.return_value = (None, 16000, True, None)
+        recorder._stream_lifecycle.open_stream_for_candidates.return_value = (None, 16000, None)
+        recorder._stream_lifecycle.open_stream_fallback.return_value = (None, 16000, True, None)
         recorder._stream = None
 
         with pytest.raises(RuntimeError, match="No input device could be opened"):
@@ -462,8 +479,8 @@ class TestMicrophoneFallbackSessionLocal:
         """``selected_device != device`` → the stream runs on the
         fallback, but the persisted selection stays untouched."""
         recorder = _build_mock_recorder(device=5, open_success=True)
-        recorder._open_stream_for_candidates.return_value = (7, 16000, None)
-        recorder._resolve_device.return_value = 5
+        recorder._stream_lifecycle.open_stream_for_candidates.return_value = (7, 16000, None)
+        recorder._devices._resolve_device.return_value = 5
         recorder.config.microphone = "Windows WASAPI|USB Mic"
 
         start_recording(recorder)
@@ -479,8 +496,8 @@ class TestMicrophoneFallbackSessionLocal:
         """No persistence thread (``mic-fallback-save``) may be spawned
         for a session-local fallback."""
         recorder = _build_mock_recorder(device=5, open_success=True)
-        recorder._open_stream_for_candidates.return_value = (7, 16000, None)
-        recorder._resolve_device.return_value = 5
+        recorder._stream_lifecycle.open_stream_for_candidates.return_value = (7, 16000, None)
+        recorder._devices._resolve_device.return_value = 5
 
         start_recording(recorder)
 
@@ -494,8 +511,8 @@ class TestMicrophoneFallbackSessionLocal:
         """The fallback path logs that the saved selection is unchanged
         so the session-local behavior is observable in the log file."""
         recorder = _build_mock_recorder(device=5, open_success=True)
-        recorder._open_stream_for_candidates.return_value = (7, 16000, None)
-        recorder._resolve_device.return_value = 5
+        recorder._stream_lifecycle.open_stream_for_candidates.return_value = (7, 16000, None)
+        recorder._devices._resolve_device.return_value = 5
 
         with caplog.at_level("INFO", logger="voice_typer.server.recording"):
             start_recording(recorder)
@@ -508,8 +525,8 @@ class TestMicrophoneFallbackSessionLocal:
         """No fallback notice when the opened device is the configured
         one."""
         recorder = _build_mock_recorder(device=5, open_success=True)
-        recorder._resolve_device.return_value = 5
-        recorder._open_stream_for_candidates.return_value = (5, 16000, None)
+        recorder._devices._resolve_device.return_value = 5
+        recorder._stream_lifecycle.open_stream_for_candidates.return_value = (5, 16000, None)
 
         with caplog.at_level("INFO", logger="voice_typer.server.recording"):
             start_recording(recorder)
@@ -520,12 +537,12 @@ class TestMicrophoneFallbackSessionLocal:
         """A non-int device (e.g. None or a string) skips the
         fallback-notice block entirely."""
         recorder = _build_mock_recorder(device=5, open_success=True)
-        recorder._open_stream_for_candidates.return_value = (
+        recorder._stream_lifecycle.open_stream_for_candidates.return_value = (
             "not-an-int",
             16000,
             None,
         )
-        recorder._resolve_device.return_value = 5
+        recorder._devices._resolve_device.return_value = 5
 
         with caplog.at_level("INFO", logger="voice_typer.server.recording"):
             start_recording(recorder)
@@ -801,8 +818,8 @@ class TestRecordingEventContract:
         recorder._recording_event = MagicMock(wraps=threading.Event())
         recorder._recording_event.set.side_effect = log_call("event.set")
         recorder._start_audio_worker.side_effect = log_call("start_audio_worker")
-        recorder._start_event_worker.side_effect = log_call("start_event_worker")
-        recorder._start_device_health_checker.side_effect = log_call("start_device_health_checker")
+        recorder._capture.start_event_worker_body.side_effect = log_call("start_event_worker")
+        recorder._devices._start_device_health_checker.side_effect = log_call("start_device_health_checker")
 
         start_recording(recorder)
 
@@ -917,21 +934,22 @@ class TestSourceRewritingContract:
     def test_resolver_methods_called_via_recorder(self):
         """The device-enumeration helpers (``_resolve_device``,
         ``_same_physical_microphone_candidates``,
-        ``_open_stream_for_candidates``, ``_open_stream_fallback``)
-        must be called via ``recorder.X``.
+        ``open_stream_for_candidates``, ``open_stream_fallback``)
+        must be called via the owning collaborators reached through
+        ``recorder._devices.X`` / ``recorder._stream_lifecycle.X``.
         """
         body = _source_without_docstring(start_recording)
-        for method in (
-            "_resolve_device",
-            "_same_physical_microphone_candidates",
-            "_open_stream_for_candidates",
-            "_open_stream_fallback",
+        for owner, method in (
+            ("recorder._devices", "_resolve_device"),
+            ("recorder._devices", "_same_physical_microphone_candidates"),
+            ("recorder._stream_lifecycle", "open_stream_for_candidates"),
+            ("recorder._stream_lifecycle", "open_stream_fallback"),
         ):
-            assert f"recorder.{method}" in body, (
-                f"start_recording must call `{method}` via recorder.{method}, not via self.{method}."
+            assert f"{owner}.{method}" in body, (
+                f"start_recording must call `{method}` via {owner}.{method}, not via self.{method}."
             )
             assert f"self.{method}" not in body, (
-                f"start_recording must NOT call `self.{method}` — the body was rewritten to use `recorder.{method}`."
+                f"start_recording must NOT call `self.{method}` — the body was rewritten to use {owner}.{method}."
             )
 
 

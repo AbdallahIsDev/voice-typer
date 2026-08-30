@@ -65,7 +65,7 @@ def _make_disconnect_recorder_stub(
     """
     recorder = MagicMock(name="RecorderStub")
     recorder._chunk_count = chunk_count
-    recorder._device_disconnected = False
+    recorder._devices._device_disconnected = False
     recorder._disconnect_handler_running = False
     recorder._recording_event = threading.Event()
     if recording_active:
@@ -107,7 +107,7 @@ class TestZeroFilledIndataTriggersDisconnect:
         assert ret is True
         # The disconnect flag was set — the re-entrancy guard for
         # subsequent chunks relies on this.
-        assert recorder._device_disconnected is True
+        assert recorder._devices._device_disconnected is True
         # The single-flight guard was cleared before the spawn so a
         # fresh handler can run even if a prior one hasn't fully
         # exited yet (mirrors the production code comment).
@@ -150,7 +150,7 @@ class TestDeliberateStopDoesNotTriggerDisconnect:
         assert ret is True
         # ...the disconnect flag was NOT set (this is a deliberate
         # stop drain, not a real disconnect).
-        assert recorder._device_disconnected is False
+        assert recorder._devices._device_disconnected is False
         # ...the handler was NOT scheduled (no race with the stop()).
         assert recorder._spawn_device_thread.call_count == 0
 
@@ -179,10 +179,10 @@ class TestDisconnectHandlerSpawnedOnce:
         # The flag stays set for the entire window (the handler
         # clears it on successful restart; here no restart happens so
         # it stays True).
-        assert recorder._device_disconnected is True
+        assert recorder._devices._device_disconnected is True
         # CRITICAL: the handler is spawned exactly ONCE — not 89
         # times. The re-entrancy guard short-circuits subsequent
-        # chunks at the ``if recorder._device_disconnected: return
+        # chunks at the ``if recorder._devices._device_disconnected: return
         # True`` line BEFORE the spawn block.
         assert recorder._spawn_device_thread.call_count == 1
 
@@ -194,14 +194,14 @@ class TestDisconnectHandlerSpawnedOnce:
 
         # First zero past warmup — triggers.
         pipeline.detect_device_disconnect(_zero_chunk())
-        assert recorder._device_disconnected is True
+        assert recorder._devices._device_disconnected is True
         assert recorder._spawn_device_thread.call_count == 1
 
         # 50 more zeros — re-entrancy guard suppresses spawn.
         for _ in range(50):
             pipeline.detect_device_disconnect(_zero_chunk())
 
-        assert recorder._device_disconnected is True
+        assert recorder._devices._device_disconnected is True
         assert recorder._spawn_device_thread.call_count == 1
 
 
@@ -222,7 +222,7 @@ class TestWarmupWindowGuardsFalsePositive:
         # Returns False — caller proceeds with normal pipeline (the
         # zero chunk is appended to the buffer as if it were audio).
         assert ret is False
-        assert recorder._device_disconnected is False
+        assert recorder._devices._device_disconnected is False
         assert recorder._spawn_device_thread.call_count == 0
 
     def test_boundary_chunk_count_equal_10_does_not_trigger(self) -> None:
@@ -234,7 +234,7 @@ class TestWarmupWindowGuardsFalsePositive:
         ret = pipeline.detect_device_disconnect(_zero_chunk())
 
         assert ret is False
-        assert recorder._device_disconnected is False
+        assert recorder._devices._device_disconnected is False
 
     def test_boundary_chunk_count_equal_11_triggers(self) -> None:
         """chunk_count == 11 is the first value past the strict
@@ -245,7 +245,7 @@ class TestWarmupWindowGuardsFalsePositive:
         ret = pipeline.detect_device_disconnect(_zero_chunk())
 
         assert ret is True
-        assert recorder._device_disconnected is True
+        assert recorder._devices._device_disconnected is True
         assert recorder._spawn_device_thread.call_count == 1
 
 
@@ -266,7 +266,7 @@ class TestNonZeroIndataNeverTriggers:
         ret = pipeline.detect_device_disconnect(indata)
 
         assert ret is False
-        assert recorder._device_disconnected is False
+        assert recorder._devices._device_disconnected is False
         assert recorder._spawn_device_thread.call_count == 0
 
     def test_partially_zero_indata_does_not_trigger(self) -> None:
@@ -282,7 +282,7 @@ class TestNonZeroIndataNeverTriggers:
         ret = pipeline.detect_device_disconnect(indata)
 
         assert ret is False
-        assert recorder._device_disconnected is False
+        assert recorder._devices._device_disconnected is False
         assert recorder._spawn_device_thread.call_count == 0
 
 

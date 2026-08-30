@@ -9,7 +9,7 @@ Each test class pins a specific sub-finding:
   ``active_mic_id not in current_ids`` compares int-to-int. Pre-fix the
   provider returned ``m.get("id")`` (a str like ``"5"``) while
   ``set_active_mic_id`` is called with the int from
-  ``recorder._resolve_device()`` — the int-vs-str mismatch made the
+  ``recorder._devices._resolve_device()`` — the int-vs-str mismatch made the
   check ALWAYS fail, so ``on_active_mic_lost`` fired spuriously on the
   first device-change event after recording started.
 
@@ -60,7 +60,7 @@ def _make_controller_for_mic_id_test() -> tuple:
     app.recorder.recording = False
     # The watcher is wired in __init__ via _wire_mic_watcher_hooks;
     # provide a mock so the wiring doesn't short-circuit.
-    app.recorder._mic_watcher = MagicMock()
+    app.recorder._devices._mic_watcher = MagicMock()
     app.config = MagicMock()
     app.config.sample_rate = 16000
     # list_microphones returns the production format: each dict has
@@ -117,7 +117,7 @@ class TestMicIdTypeMismatch:
         watcher.set_on_active_mic_lost(ctrl.on_active_mic_lost)
         watcher.set_device_id_provider(ctrl._list_active_mic_ids)
         # Simulate ``_start_impl`` setting the active mic_id to the int
-        # returned by ``recorder._resolve_device()``.
+        # returned by ``recorder._devices._resolve_device()``.
         watcher.set_active_mic_id(5)
 
         fired = threading.Event()
@@ -190,7 +190,7 @@ def _make_controller_for_event_test() -> tuple:
     app._cycle_id = "#0"
     app.recorder = MagicMock()
     app.recorder.recording = False
-    app.recorder._mic_watcher = MagicMock()
+    app.recorder._devices._mic_watcher = MagicMock()
     app.config = MagicMock()
     app.config.sample_rate = 16000
     app.tray = MagicMock()

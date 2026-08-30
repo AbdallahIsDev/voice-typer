@@ -371,18 +371,22 @@ class TestNoDoubleResample:
         # threads (we never started them).
         r._teardown_stream = MagicMock()
         r._stop_audio_worker = MagicMock()
-        r._stop_event_worker = MagicMock()
+        r._capture.stop_event_worker_body = MagicMock()
         r._stop_device_health_checker = MagicMock()
 
-        # Capture the effective_sr argument to _prepare_audio.
+        # Capture the effective_sr argument to ``prepare_audio`` (the
+        # free function ``stop_recording`` invokes via the
+        # ``_recorder_split`` module binding — the historical
+        # ``Recorder._prepare_audio`` delegator was removed).
         captured_sr: list[int] = []
-        original_prepare = r._prepare_audio
+        import voice_typer.server.recording._recorder_split as split_mod
+        from voice_typer.server.recording.format import prepare_audio as real_prepare
 
-        def spy_prepare(audio, effective_sr, **kw):
+        def spy_prepare(rec, audio, effective_sr, **kw):
             captured_sr.append(int(effective_sr))
-            return original_prepare(audio, effective_sr, **kw)
+            return real_prepare(rec, audio, effective_sr, **kw)
 
-        r._prepare_audio = spy_prepare
+        monkeypatch.setattr(split_mod, "prepare_audio", spy_prepare)
 
         r.stop()
 
@@ -432,16 +436,19 @@ class TestNoDoubleResample:
         # Put a chunk in the buffer (1024 samples of 16 kHz audio).
         r._buffer.append(np.zeros(1024, dtype=np.float32))
 
-        # Spy on _resample_chunk — it must NOT be called when
+        # Spy on the module-level ``resample_chunk`` binding (the
+        # historical ``Recorder._resample_chunk`` delegator was
+        # removed) — it must NOT be called when
         # _buffer_sr == target_sr.
         resample_calls: list[tuple[int, int]] = []
-        original_resample = r._resample_chunk
+        import voice_typer.server.recording._recorder_split as split_mod
+        from voice_typer.server.recording.format import resample_chunk as real_resample
 
-        def spy_resample(audio, effective_sr, target_sr):
+        def spy_resample(rec, audio, effective_sr, target_sr):
             resample_calls.append((int(effective_sr), int(target_sr)))
-            return original_resample(audio, effective_sr, target_sr)
+            return real_resample(rec, audio, effective_sr, target_sr)
 
-        r._resample_chunk = spy_resample
+        monkeypatch.setattr(split_mod, "resample_chunk", spy_resample)
 
         audio = r.snapshot()
 
@@ -491,7 +498,7 @@ class TestNoDoubleResample:
         # Mock the teardown helpers.
         r._teardown_stream = MagicMock()
         r._stop_audio_worker = MagicMock()
-        r._stop_event_worker = MagicMock()
+        r._capture.stop_event_worker_body = MagicMock()
         r._stop_device_health_checker = MagicMock()
 
         # stop() must reset _buffer_sr to None.

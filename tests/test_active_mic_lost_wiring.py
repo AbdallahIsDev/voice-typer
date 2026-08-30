@@ -16,14 +16,14 @@ The fix wires the hooks from ``RecordingController``:
 
 - ``__init__`` (via ``_wire_mic_watcher_hooks``):
     * ``recorder.on_device_lost = self._on_device_lost``
-    * ``recorder._mic_watcher.set_on_active_mic_lost(self._cancel_on_mic_lost)``
-    * ``recorder._mic_watcher.set_device_id_provider(self._mic_device_id_provider)``
+    * ``recorder._devices._mic_watcher.set_on_active_mic_lost(self._cancel_on_mic_lost)``
+    * ``recorder._devices._mic_watcher.set_device_id_provider(self._mic_device_id_provider)``
 
 - ``_start_impl`` (after ``recorder.start()`` succeeds):
-    * ``recorder._mic_watcher.set_active_mic_id(app.config.microphone)``
+    * ``recorder._devices._mic_watcher.set_active_mic_id(app.config.microphone)``
 
 - ``_stop_impl`` / ``_cancel_impl`` / start-failure path:
-    * ``recorder._mic_watcher.set_active_mic_id(None)``
+    * ``recorder._devices._mic_watcher.set_active_mic_id(None)``
 
 These tests pin that wiring.
 """
@@ -50,7 +50,7 @@ def _make_app_with_mock_recorder(mic_id: str | None = "5") -> MagicMock:
     """
     app = MagicMock()
     app.recorder.recording = False
-    app.recorder._mic_watcher = MagicMock()
+    app.recorder._devices._mic_watcher = MagicMock()
     # ``recorder.on_device_lost`` is normally a plain attribute — pre-fix
     # it didn't exist. The fix sets it; tests verify the assignment.
     # Remove any pre-existing value so the test asserts the fix SET it.
@@ -134,8 +134,8 @@ class TestInitWiring:
         app = _make_app_with_mock_recorder()
         ctrl = _make_full_controller(app)
 
-        app.recorder._mic_watcher.set_on_active_mic_lost.assert_called_once()
-        actual_arg = app.recorder._mic_watcher.set_on_active_mic_lost.call_args.args[0]
+        app.recorder._devices._mic_watcher.set_on_active_mic_lost.assert_called_once()
+        actual_arg = app.recorder._devices._mic_watcher.set_on_active_mic_lost.call_args.args[0]
         _assert_bound_methods_equal(
             actual_arg,
             ctrl._cancel_on_mic_lost,
@@ -149,8 +149,8 @@ class TestInitWiring:
         app = _make_app_with_mock_recorder()
         ctrl = _make_full_controller(app)
 
-        app.recorder._mic_watcher.set_device_id_provider.assert_called_once()
-        actual_arg = app.recorder._mic_watcher.set_device_id_provider.call_args.args[0]
+        app.recorder._devices._mic_watcher.set_device_id_provider.assert_called_once()
+        actual_arg = app.recorder._devices._mic_watcher.set_device_id_provider.call_args.args[0]
         _assert_bound_methods_equal(
             actual_arg,
             ctrl._mic_device_id_provider,
@@ -164,7 +164,7 @@ class TestInitWiring:
         ``on_device_lost``.
         """
         app = _make_app_with_mock_recorder()
-        app.recorder._mic_watcher = None
+        app.recorder._devices._mic_watcher = None
         # Should not raise.
         ctrl = RecordingController(app)
 
@@ -199,11 +199,11 @@ class TestStartWiring:
         ctrl = _make_full_controller(app)
         # Reset the mock to clear the init-time calls (we only want to
         # observe the start-time call here).
-        app.recorder._mic_watcher.reset_mock()
+        app.recorder._devices._mic_watcher.reset_mock()
 
         ctrl._start_impl()
 
-        app.recorder._mic_watcher.set_active_mic_id.assert_called_once_with("7")
+        app.recorder._devices._mic_watcher.set_active_mic_id.assert_called_once_with("7")
 
     def test_start_calls_set_active_mic_id_after_recorder_start(self):
         """``set_active_mic_id`` must be called AFTER ``recorder.start()``
@@ -212,7 +212,7 @@ class TestStartWiring:
         """
         app = _make_app_with_mock_recorder(mic_id="5")
         ctrl = _make_full_controller(app)
-        app.recorder._mic_watcher.reset_mock()
+        app.recorder._devices._mic_watcher.reset_mock()
 
         # Track call order between recorder.start() and set_active_mic_id.
         call_order: list[str] = []
@@ -222,13 +222,13 @@ class TestStartWiring:
 
         app.recorder.start.side_effect = _record_start
 
-        original_set_active = app.recorder._mic_watcher.set_active_mic_id
+        original_set_active = app.recorder._devices._mic_watcher.set_active_mic_id
 
         def _record_set_active(mic_id):
             call_order.append("set_active_mic_id")
             original_set_active(mic_id)
 
-        app.recorder._mic_watcher.set_active_mic_id.side_effect = _record_set_active
+        app.recorder._devices._mic_watcher.set_active_mic_id.side_effect = _record_set_active
 
         ctrl._start_impl()
 
@@ -263,7 +263,7 @@ class TestStopUnwiring:
         app.recorder.stop.return_value = np.ones(16000, dtype=np.float32) * 0.01
         app.recorder.last_rms = 0.05
         app.config.sample_rate = 16000
-        app.recorder._mic_watcher.reset_mock()
+        app.recorder._devices._mic_watcher.reset_mock()
 
         # Patch DictationPipeline to a stub so the transcription thread
         # can run without real models.
@@ -286,7 +286,7 @@ class TestStopUnwiring:
 
         # ``set_active_mic_id`` MUST have been called with None as the
         # FIRST call (before recorder.stop()).
-        set_active_calls = app.recorder._mic_watcher.set_active_mic_id.call_args_list
+        set_active_calls = app.recorder._devices._mic_watcher.set_active_mic_id.call_args_list
         assert any(call.args == (None,) for call in set_active_calls), (
             f"DJ-65: _stop_impl must call set_active_mic_id(None) to "
             f"clear the active-mic id; got calls: {set_active_calls}"
@@ -310,7 +310,7 @@ class TestStopUnwiring:
         app.recorder.stop.return_value = np.ones(16000, dtype=np.float32) * 0.01
         app.recorder.last_rms = 0.05
         app.config.sample_rate = 16000
-        app.recorder._mic_watcher.reset_mock()
+        app.recorder._devices._mic_watcher.reset_mock()
 
         call_order: list[str] = []
 
@@ -320,13 +320,13 @@ class TestStopUnwiring:
 
         app.recorder.stop.side_effect = _record_stop
 
-        original_set_active = app.recorder._mic_watcher.set_active_mic_id
+        original_set_active = app.recorder._devices._mic_watcher.set_active_mic_id
 
         def _record_set_active(mic_id):
             call_order.append(f"set_active_mic_id({mic_id!r})")
             original_set_active(mic_id)
 
-        app.recorder._mic_watcher.set_active_mic_id.side_effect = _record_set_active
+        app.recorder._devices._mic_watcher.set_active_mic_id.side_effect = _record_set_active
 
         import voice_typer.server.dictation_pipeline as dp_module
 
@@ -371,11 +371,11 @@ class TestCancelUnwiring:
         app = _make_app_with_mock_recorder()
         ctrl = _make_full_controller(app)
         app.recorder.recording = True
-        app.recorder._mic_watcher.reset_mock()
+        app.recorder._devices._mic_watcher.reset_mock()
 
         ctrl._cancel_impl()
 
-        app.recorder._mic_watcher.set_active_mic_id.assert_called_once_with(None)
+        app.recorder._devices._mic_watcher.set_active_mic_id.assert_called_once_with(None)
 
 
 # ── Callback behavior ────────────────────────────────────────────────

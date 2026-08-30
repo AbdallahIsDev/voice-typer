@@ -49,18 +49,23 @@ def _build_start_mock_recorder(
     recorder.config.sample_rate = sample_rate
     recorder.config.microphone = None
     recorder.config.save.return_value = True
-    recorder._cache_session_config.return_value = 30
-    recorder._resolve_device.return_value = 5
-    recorder._same_physical_microphone_candidates.return_value = [5]
-    recorder._build_audio_callback.return_value = object()
-    recorder._open_stream_for_candidates.return_value = (5, effective_sr, None)
+    recorder._session_state.cache_session_config.return_value = 30
+    recorder._devices._resolve_device.return_value = 5
+    recorder._devices._same_physical_microphone_candidates.return_value = [5]
+    recorder._stream_lifecycle.build_audio_callback.return_value = object()
+    recorder._stream_lifecycle.open_stream_for_candidates.return_value = (5, effective_sr, None)
     recorder._stream = MagicMock(name="opened-stream")
     recorder._recording_event = threading.Event()
     recorder._audio_processor = None
     recorder._preroll_active = False
     recorder._preroll_seconds = 0.0
     recorder._preroll_buffer = deque(maxlen=0)
-    recorder._mic_watcher = None
+    recorder._devices._mic_watcher = None
+    # Real scalar sample rates: ``refresh_vad_caches`` (invoked directly
+    # as a module function now) compares these against int constants —
+    # MagicMock sentinels would raise TypeError on the ``> 0`` check.
+    recorder._buffer_sr = None
+    recorder._effective_sr = sample_rate
     recorder.warm_up_resampler = MagicMock(name="warm_up_resampler")
     return recorder
 
@@ -151,10 +156,10 @@ class TestStartWarmUpCriticalPathPolicy:
             start_recording(recorder)
 
             assert recorder._recording_event.is_set()
-            recorder._open_stream_for_candidates.assert_called_once()
+            recorder._stream_lifecycle.open_stream_for_candidates.assert_called_once()
             recorder._start_audio_worker.assert_called_once()
-            recorder._start_event_worker.assert_called_once()
-            recorder._start_device_health_checker.assert_called_once()
+            recorder._capture.start_event_worker_body.assert_called_once()
+            recorder._devices._start_device_health_checker.assert_called_once()
             recorder.warm_up_resampler.assert_not_called()
         finally:
             preloader.stop()

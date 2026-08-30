@@ -175,7 +175,7 @@ class TestCallbackExceptionCapture:
         # _device_disconnected False, _user_stop_pending False,
         # _stream not None, _recording_event not set.
         r._last_callback_error = None
-        r._device_disconnected = False
+        r._devices._device_disconnected = False
         r._user_stop_pending = False
         r._stream = MagicMock()  # not None
         r._recording_event.clear()  # not set → unexpected disconnect
@@ -433,20 +433,25 @@ class TestExplicitEventsInAudioWorkerLoop:
                 # Record the args the thread was started with.
                 self._captured_args: tuple = ()
 
-            def _audio_worker_loop(self, *args):
+            def record_loop_args(self, recorder, stop_event, wake_event):
                 # Record the args so we can assert they were passed.
-                self._captured_args = args
+                self._captured_args = (stop_event, wake_event)
                 # Exit immediately so the test doesn't hang.
                 return
 
         fake = _FakeRecorder()
         dispatcher = AudioCallbackDispatcher(fake)
+        # The thread target is the dispatcher's ``audio_worker_loop``;
+        # shadow it with an args-recording stand-in so the test can
+        # assert the explicit-args contract without running the real
+        # processing pipeline.
+        dispatcher.audio_worker_loop = fake.record_loop_args
         dispatcher.start_audio_worker_body(fake)
         try:
             assert fake._worker_thread is not None
-            # The thread target is fake._audio_worker_loop. When the
-            # thread runs, it calls _audio_worker_loop(stop_event,
-            # wake_event). Wait briefly for the thread to execute.
+            # When the thread runs, it calls the target with
+            # (recorder, stop_event, wake_event). Wait briefly for the
+            # thread to execute.
             fake._worker_thread.join(timeout=1.0)
             assert fake._captured_args == (
                 fake._worker_stop_event,
@@ -538,13 +543,15 @@ class TestEventWorkerNonDictWarning:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
             # Start the event worker FIRST (it drains stale events on
             # start, so we must push the non-dict event AFTER).
-            r._start_event_worker()
+            with r._worker_lifecycle_lock:
+                r._capture.start_event_worker_body(r)
             # Push a non-dict, non-sentinel item onto the event queue.
             r._event_queue.put_nowait("not-a-dict-event")  # type: ignore[arg-type]
             import time as _time
 
             _time.sleep(0.3)
-            r._stop_event_worker(timeout=1.0, drain=True)
+            with r._worker_lifecycle_lock:
+                r._capture.stop_event_worker_body(r, timeout=1.0, drain=True)
 
         warning_records = [
             rec for rec in caplog.records if rec.levelname == "WARNING" and rec.name == "voice_typer.server.recording"
@@ -561,12 +568,14 @@ class TestEventWorkerNonDictWarning:
         r = _make_recorder()
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
-            r._start_event_worker()
+            with r._worker_lifecycle_lock:
+                r._capture.start_event_worker_body(r)
             r._event_queue.put_nowait(42)  # type: ignore[arg-type]
             import time as _time
 
             _time.sleep(0.3)
-            r._stop_event_worker(timeout=1.0, drain=True)
+            with r._worker_lifecycle_lock:
+                r._capture.stop_event_worker_body(r, timeout=1.0, drain=True)
 
         # The message must mention the type — either "<class 'int'>" (Python 3)
         # or "int" — we just check "int" is somewhere in the WARNING text.

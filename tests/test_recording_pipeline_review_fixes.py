@@ -186,10 +186,13 @@ class TestRec2RollbackOnWorkerStartFailure:
 
         r._stop_audio_worker = tracking_stop_worker
 
-        def raising_event_worker():
+        def raising_event_worker(_recorder):
             raise MemoryError("simulated OOM in event worker start")
 
-        monkeypatch.setattr(r, "_start_event_worker", raising_event_worker)
+        # ``start_recording`` starts the event worker via
+        # ``recorder._capture.start_event_worker_body(recorder)``; the
+        # REC-2 rollback path catches the raise there.
+        monkeypatch.setattr(r._capture, "start_event_worker_body", raising_event_worker)
         gen_before = r._stop_generation
 
         with pytest.raises(MemoryError, match="simulated OOM"):

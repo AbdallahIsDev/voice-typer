@@ -112,11 +112,11 @@ class TestRetryBudgetSlidingWindow:
                 "After one successful restart, the deque should hold "
                 f"exactly 1 timestamp (got {len(r._restart_timestamps)})."
             )
-            assert r._device_disconnect_retries == 0, (
+            assert r._devices._device_disconnect_retries == 0, (
                 "Per-attempt counter should be reset to 0 by the successful restart (existing behavior preserved)."
             )
         finally:
-            r._device_disconnected = False
+            r._devices._device_disconnected = False
             r.stop()
 
     def test_flapping_device_3_restarts_in_60s_fires_on_device_lost(self, monkeypatch):
@@ -172,7 +172,7 @@ class TestRetryBudgetSlidingWindow:
                 f"{len(r._restart_timestamps)} entries)."
             )
         finally:
-            r._device_disconnected = False
+            r._devices._device_disconnected = False
             r.stop()
 
     def test_old_restarts_pruned_outside_window(self, monkeypatch):
@@ -244,7 +244,7 @@ class TestRetryBudgetSlidingWindow:
             )
         finally:
             r._flapping_window_seconds = 60.0
-            r._device_disconnected = False
+            r._devices._device_disconnected = False
             r.stop()
 
     def test_start_clears_restart_timestamps(self, monkeypatch):
@@ -276,7 +276,7 @@ class TestRetryBudgetSlidingWindow:
                 f"{len(r._restart_timestamps)} entries."
             )
         finally:
-            r._device_disconnected = False
+            r._devices._device_disconnected = False
             r.stop()
 
     def test_threshold_constant_default(self):
@@ -369,7 +369,7 @@ class TestBTAwareRetryPolicyWiring:
                 f"pre-fix behavior). Got sleep calls: {sleep_calls}"
             )
         finally:
-            r._device_disconnected = False
+            r._devices._device_disconnected = False
             r.stop()
 
     def test_bt_device_sleeps_between_retries(self, monkeypatch):
@@ -406,7 +406,7 @@ class TestBTAwareRetryPolicyWiring:
             # Simulate the 2nd retry attempt (retry counter starts at 0,
             # _handle_device_disconnect increments to 1 on first call,
             # 2 on second call). The sleep should fire on the 2nd+ call.
-            r._device_disconnect_retries = 1  # will be incremented to 2
+            r._devices._device_disconnect_retries = 1  # will be incremented to 2
             captured_gen = r._stop_generation
             r._handle_device_disconnect(_captured_generation=captured_gen)
 
@@ -418,7 +418,7 @@ class TestBTAwareRetryPolicyWiring:
                 f"BT retry sleep must be 0.75s (default _bt_retry_sleep_seconds). Got {sleep_calls[0]}"
             )
         finally:
-            r._device_disconnected = False
+            r._devices._device_disconnected = False
             r.stop()
 
     def test_bt_device_first_retry_no_sleep(self, monkeypatch):
@@ -448,7 +448,7 @@ class TestBTAwareRetryPolicyWiring:
             monkeypatch.setattr(rec_mod.time, "sleep", lambda s: sleep_calls.append(s))
 
             # First attempt: retry counter starts at 0, incremented to 1.
-            r._device_disconnect_retries = 0
+            r._devices._device_disconnect_retries = 0
             captured_gen = r._stop_generation
             r._handle_device_disconnect(_captured_generation=captured_gen)
 
@@ -457,5 +457,5 @@ class TestBTAwareRetryPolicyWiring:
                 f"to recover from). Got sleep calls: {sleep_calls}"
             )
         finally:
-            r._device_disconnected = False
+            r._devices._device_disconnected = False
             r.stop()

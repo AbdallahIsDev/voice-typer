@@ -12,7 +12,7 @@ during recording — the watcher idled at 12 s always. Effect INVERTED:
 the cadence selection logic was correct, but no one toggled it.
 
 Post-fix (Wave 1, sub-agent 11): ``start_recording`` calls
-``recorder._mic_watcher.set_idle(False)`` at the very end (after
+``recorder._devices._mic_watcher.set_idle(False)`` at the very end (after
 ``_start_device_health_checker``), and ``stop_recording`` calls
 ``set_idle(True)`` before each return path that follows a successful
 stop. The ``None`` guard covers hosts where the watcher never came up
@@ -32,7 +32,7 @@ verify:
   4. Failure path: when ``_start_event_worker`` raises,
      ``set_idle(False)`` is NOT called — the toggle sits at the very
      end of ``start_recording`` so any earlier failure prevents it.
-  5. ``None`` guard: when ``recorder._mic_watcher is None``, neither
+  5. ``None`` guard: when ``recorder._devices._mic_watcher is None``, neither
      ``start`` nor ``stop`` touches the attribute (no ``AttributeError``
      on a None deref).
 
@@ -57,6 +57,40 @@ from voice_typer.server.recording._recorder_split import (
     stop_recording,
 )
 
+# ── Module-binding interception ───────────────────────────────────
+# ``start_recording`` / ``stop_recording`` invoke the free functions
+# ``refresh_vad_caches`` / ``prepare_audio`` (imported at
+# :mod:`._recorder_split` module level) — the historical
+# ``Recorder._refresh_vad_caches`` / ``Recorder._prepare_audio``
+# delegators were removed. The autouse fixture below patches those
+# bindings so mock recorders never run the real bodies.
+
+_mock_bindings_holder: dict = {}
+
+
+@pytest.fixture(autouse=True)
+def _mock_split_bindings(monkeypatch):
+    import voice_typer.server.recording._recorder_split as split_mod
+
+    refresh_mock = MagicMock(name="refresh_vad_caches")
+    prepare_mock = MagicMock(name="prepare_audio", side_effect=lambda rec, audio, effective_sr_in, **kw: audio)
+    monkeypatch.setattr(split_mod, "refresh_vad_caches", refresh_mock)
+    monkeypatch.setattr(split_mod, "prepare_audio", prepare_mock)
+    _mock_bindings_holder["refresh"] = refresh_mock
+    _mock_bindings_holder["prepare"] = prepare_mock
+    yield
+    _mock_bindings_holder.pop("refresh", None)
+    _mock_bindings_holder.pop("prepare", None)
+
+
+def _refresh() -> MagicMock:
+    return _mock_bindings_holder["refresh"]
+
+
+def _prep() -> MagicMock:
+    return _mock_bindings_holder["prepare"]
+
+
 # ── Mock factories ────────────────────────────────────────────────
 
 
@@ -65,7 +99,7 @@ def _build_start_recorder(*, open_success: bool = True) -> MagicMock:
 
     Mirrors ``tests/test_recorder_split_start.py::_build_mock_recorder``
     but adds an explicit, spied ``_mic_watcher`` so we can assert
-    ``set_idle`` was/wasn't called. Production ``Recorder._mic_watcher``
+    ``set_idle`` was/wasn't called. Production ``Recorder._devices._mic_watcher``
     is a property delegating to ``self._devices._mic_watcher``; on a
     MagicMock the property-read is replaced by the explicit attribute
     set below — preserving the same access pattern.
@@ -76,16 +110,16 @@ def _build_start_recorder(*, open_success: bool = True) -> MagicMock:
     recorder.config.microphone = None
     recorder.config.save.return_value = True
 
-    recorder._cache_session_config.return_value = 30
-    recorder._resolve_device.return_value = 5
-    recorder._same_physical_microphone_candidates.return_value = [5]
-    recorder._build_audio_callback.return_value = object()
+    recorder._session_state.cache_session_config.return_value = 30
+    recorder._devices._resolve_device.return_value = 5
+    recorder._devices._same_physical_microphone_candidates.return_value = [5]
+    recorder._stream_lifecycle.build_audio_callback.return_value = object()
 
     if open_success:
-        recorder._open_stream_for_candidates.return_value = (5, 16000, None)
+        recorder._stream_lifecycle.open_stream_for_candidates.return_value = (5, 16000, None)
         recorder._stream = MagicMock(name="opened-stream")
     else:
-        recorder._open_stream_for_candidates.return_value = (
+        recorder._stream_lifecycle.open_stream_for_candidates.return_value = (
             None,
             16000,
             RuntimeError("no input device could be opened"),
@@ -100,7 +134,7 @@ def _build_start_recorder(*, open_success: bool = True) -> MagicMock:
 
     # Explicit spied watcher (no auto-child) so call counts are
     # deterministic.
-    recorder._mic_watcher = MagicMock(name="mic_watcher")
+    recorder._devices._mic_watcher = MagicMock(name="mic_watcher")
     return recorder
 
 
@@ -137,10 +171,10 @@ def _build_stop_recorder(
     recorder._last_rms = 0.0
     recorder._last_audio_stats = (0.0, 0.0, 0.0)
 
-    recorder._prepare_audio.side_effect = lambda audio, effective_sr_in, **kw: audio
+    _prep().side_effect = lambda rec, audio, effective_sr_in, **kw: audio
 
     # Explicit spied watcher.
-    recorder._mic_watcher = MagicMock(name="mic_watcher")
+    recorder._devices._mic_watcher = MagicMock(name="mic_watcher")
     return recorder
 
 
@@ -152,13 +186,13 @@ class TestStartRecordingWiresSetIdleFalse:
 
     def test_start_calls_set_idle_false_once(self):
         """A successful ``start_recording`` must invoke
-        ``recorder._mic_watcher.set_idle(False)`` exactly once —
+        ``recorder._devices._mic_watcher.set_idle(False)`` exactly once —
         toggling the watcher from the default idle 12 s cadence to
         the active 3 s cadence during recording."""
         recorder = _build_start_recorder()
         start_recording(recorder)
 
-        recorder._mic_watcher.set_idle.assert_called_once_with(False)
+        recorder._devices._mic_watcher.set_idle.assert_called_once_with(False)
 
     def test_start_does_not_call_set_idle_true(self):
         """``start_recording`` must NOT call ``set_idle(True)`` —
@@ -170,8 +204,8 @@ class TestStartRecordingWiresSetIdleFalse:
 
         # ``set_idle`` was called exactly once with ``False`` —
         # no spurious ``True`` call.
-        assert recorder._mic_watcher.set_idle.call_count == 1
-        assert recorder._mic_watcher.set_idle.call_args == ((False,), {})
+        assert recorder._devices._mic_watcher.set_idle.call_count == 1
+        assert recorder._devices._mic_watcher.set_idle.call_args == ((False,), {})
 
     def test_set_idle_false_runs_after_start_device_health_checker(self):
         """The ``set_idle(False)`` call must be the LAST step in
@@ -189,24 +223,26 @@ class TestStartRecordingWiresSetIdleFalse:
             return _hook
 
         recorder._secure_clear_session_caches.side_effect = log_call("secure_clear")
-        recorder._reset_session_state.side_effect = log_call("reset_session")
-        recorder._cache_session_config.side_effect = log_call("cache_config", ret=30)
-        recorder._resolve_device.side_effect = log_call("resolve_device", ret=5)
-        recorder._same_physical_microphone_candidates.side_effect = log_call("candidates", ret=[5])
-        recorder._build_audio_callback.side_effect = log_call("build_callback", ret=object())
-        recorder._open_stream_for_candidates.side_effect = log_call("open_stream", ret=(5, 16000, None))
-        recorder._resize_buffers_for_sample_rate.side_effect = log_call("resize_buffers")
+        recorder._session_state.reset_session_state.side_effect = log_call("reset_session")
+        recorder._session_state.cache_session_config.side_effect = log_call("cache_config", ret=30)
+        recorder._devices._resolve_device.side_effect = log_call("resolve_device", ret=5)
+        recorder._devices._same_physical_microphone_candidates.side_effect = log_call("candidates", ret=[5])
+        recorder._stream_lifecycle.build_audio_callback.side_effect = log_call("build_callback", ret=object())
+        recorder._stream_lifecycle.open_stream_for_candidates.side_effect = log_call(
+            "open_stream", ret=(5, 16000, None)
+        )
+        recorder._session_state.resize_buffers_for_sample_rate.side_effect = log_call("resize_buffers")
         recorder._recording_event = MagicMock(wraps=threading.Event())
         recorder._recording_event.set.side_effect = log_call("event.set")
-        recorder._refresh_vad_caches.side_effect = log_call("refresh_vad")
+        _refresh().side_effect = log_call("refresh_vad")
         recorder._start_audio_worker.side_effect = log_call("start_audio_worker")
-        recorder._start_event_worker.side_effect = log_call("start_event_worker")
-        recorder._start_device_health_checker.side_effect = log_call("start_device_health_checker")
+        recorder._capture.start_event_worker_body.side_effect = log_call("start_event_worker")
+        recorder._devices._start_device_health_checker.side_effect = log_call("start_device_health_checker")
 
         def _set_idle_hook(is_idle):
             call_log.append(f"set_idle({is_idle})")
 
-        recorder._mic_watcher.set_idle.side_effect = _set_idle_hook
+        recorder._devices._mic_watcher.set_idle.side_effect = _set_idle_hook
 
         start_recording(recorder)
 
@@ -234,12 +270,12 @@ class TestStartRecordingFailurePath:
         step before the ``set_idle(False)`` toggle),
         ``set_idle(False)`` must NOT be called."""
         recorder = _build_start_recorder()
-        recorder._start_event_worker.side_effect = RuntimeError("event worker spawn failed")
+        recorder._capture.start_event_worker_body.side_effect = RuntimeError("event worker spawn failed")
 
         with pytest.raises(RuntimeError, match="event worker spawn failed"):
             start_recording(recorder)
 
-        recorder._mic_watcher.set_idle.assert_not_called()
+        recorder._devices._mic_watcher.set_idle.assert_not_called()
 
     def test_set_idle_false_not_called_when_audio_worker_raises(self):
         """When ``_start_audio_worker`` raises, the rollback path
@@ -251,26 +287,31 @@ class TestStartRecordingFailurePath:
         with pytest.raises(RuntimeError, match="audio worker spawn failed"):
             start_recording(recorder)
 
-        recorder._mic_watcher.set_idle.assert_not_called()
+        recorder._devices._mic_watcher.set_idle.assert_not_called()
 
     def test_set_idle_false_not_called_when_stream_open_fails(self):
         """When the stream-open path fails (no input device could be
         opened), ``start_recording`` re-raises ``last_error`` before
         reaching the ``set_idle(False)`` toggle."""
         recorder = _build_start_recorder(open_success=False)
-        recorder._open_stream_fallback.return_value = (None, 16000, False, RuntimeError("fallback failed"))
+        recorder._stream_lifecycle.open_stream_fallback.return_value = (
+            None,
+            16000,
+            False,
+            RuntimeError("fallback failed"),
+        )
 
         with pytest.raises(RuntimeError, match="fallback failed"):
             start_recording(recorder)
 
-        recorder._mic_watcher.set_idle.assert_not_called()
+        recorder._devices._mic_watcher.set_idle.assert_not_called()
 
 
 # ── None-guard ────────────────────────────────────────────────────
 
 
 class TestStartRecordingNoneWatcherGuard:
-    """When ``recorder._mic_watcher is None`` (macOS-without-pyobjc
+    """When ``recorder._devices._mic_watcher is None`` (macOS-without-pyobjc
     fall-back, or the watcher failed to start — see
     ``DeviceManager.__init__``), ``start_recording`` must NOT touch
     the attribute (no ``None.set_idle(...)`` deref → ``AttributeError``)."""
@@ -279,7 +320,7 @@ class TestStartRecordingNoneWatcherGuard:
         """A ``None`` ``_mic_watcher`` must be tolerated — the watcher
         never came up, so the cadence toggle is a no-op anyway."""
         recorder = _build_start_recorder()
-        recorder._mic_watcher = None
+        recorder._devices._mic_watcher = None
 
         # Must not raise AttributeError.
         start_recording(recorder)
@@ -294,13 +335,13 @@ class TestStopRecordingWiresSetIdleTrue:
 
     def test_stop_calls_set_idle_true_once_non_empty_buffer(self):
         """A successful ``stop_recording`` with a non-empty buffer
-        must invoke ``recorder._mic_watcher.set_idle(True)`` exactly
+        must invoke ``recorder._devices._mic_watcher.set_idle(True)`` exactly
         once — returning the watcher to the idle 12 s cadence
         between recordings."""
         recorder = _build_stop_recorder(recording=True)
         stop_recording(recorder)
 
-        recorder._mic_watcher.set_idle.assert_called_once_with(True)
+        recorder._devices._mic_watcher.set_idle.assert_called_once_with(True)
 
     def test_stop_calls_set_idle_true_on_empty_buffer_path(self):
         """The empty-buffer early-return path (the
@@ -310,7 +351,7 @@ class TestStopRecordingWiresSetIdleTrue:
         recorder = _build_stop_recorder(recording=True, buffer_chunks=[])
         stop_recording(recorder)
 
-        recorder._mic_watcher.set_idle.assert_called_once_with(True)
+        recorder._devices._mic_watcher.set_idle.assert_called_once_with(True)
 
     def test_stop_does_not_call_set_idle_false(self):
         """``stop_recording`` must NOT call ``set_idle(False)`` —
@@ -320,20 +361,20 @@ class TestStopRecordingWiresSetIdleTrue:
         recorder = _build_stop_recorder(recording=True)
         stop_recording(recorder)
 
-        assert recorder._mic_watcher.set_idle.call_count == 1
-        assert recorder._mic_watcher.set_idle.call_args == ((True,), {})
+        assert recorder._devices._mic_watcher.set_idle.call_count == 1
+        assert recorder._devices._mic_watcher.set_idle.call_args == ((True,), {})
 
 
 # ── None-guard for stop ───────────────────────────────────────────
 
 
 class TestStopRecordingNoneWatcherGuard:
-    """When ``recorder._mic_watcher is None``, ``stop_recording``
+    """When ``recorder._devices._mic_watcher is None``, ``stop_recording``
     must not raise (mirrors the start-side guard)."""
 
     def test_stop_does_not_raise_when_mic_watcher_is_none(self):
         recorder = _build_stop_recorder(recording=True)
-        recorder._mic_watcher = None
+        recorder._devices._mic_watcher = None
 
         # Must not raise AttributeError.
         result = stop_recording(recorder)
@@ -366,11 +407,11 @@ class TestStartStopRoundTrip:
         recorder._buffer_sr = 16000
         recorder._effective_sr = 16000
         recorder._lock = threading.Lock()
-        recorder._prepare_audio.side_effect = lambda audio, effective_sr_in, **kw: audio
+        _prep().side_effect = lambda rec, audio, effective_sr_in, **kw: audio
 
         stop_recording(recorder)
 
         # Two calls: first ``False`` (start), then ``True`` (stop).
-        assert recorder._mic_watcher.set_idle.call_count == 2
-        assert recorder._mic_watcher.set_idle.call_args_list[0] == ((False,), {})
-        assert recorder._mic_watcher.set_idle.call_args_list[1] == ((True,), {})
+        assert recorder._devices._mic_watcher.set_idle.call_count == 2
+        assert recorder._devices._mic_watcher.set_idle.call_args_list[0] == ((False,), {})
+        assert recorder._devices._mic_watcher.set_idle.call_args_list[1] == ((True,), {})

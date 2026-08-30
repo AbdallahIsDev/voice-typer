@@ -163,12 +163,12 @@ from .capture import AudioCallbackDispatcher  # noqa: F401, E402 — re-exported
 
 # Phase 4.5: ``DeviceManager`` owns device enumeration, hot-swap,
 # and the device-health-checker daemon thread. ``Recorder`` constructs a
-# ``DeviceManager`` instance in ``__init__`` and delegates the device
-# methods to it (1-line delegators below). Device-owned state lives on
-# ``DeviceManager``; ``Recorder`` exposes the subset accessed by tests /
-# KEEP-methods via property shims (see ``_device_disconnected`` etc.
-# below the ``__init__``).
-from .device_manager import DeviceManager, DeviceStateShimMixin  # noqa: F401, E402 — re-exported for tests
+# ``DeviceManager`` instance in ``__init__`` (``self._devices``) and the
+# device-owned state (``_device_disconnected``, ``_mic_watcher``, ...)
+# is accessed through that collaborator. Historical ``Recorder``-level
+# property shims for that state were removed — route through
+# ``self._devices.<attr>``.
+from .device_manager import DeviceManager  # noqa: F401, E402 — re-exported for tests
 
 # ``DisconnectHandler`` owns the device hot-swap stream-restart
 # logic (the ~175-LOC block inside ``_stream_lifecycle_lock`` that was
@@ -188,15 +188,11 @@ from .exceptions import (  # noqa: F401, E402 — re-exported for tests
 )
 
 # God-class split: audio-format helpers (mono downmix, per-chunk
-# resample, stop-time resample-to-target) moved to :mod:`.format` as
-# free functions taking the Recorder as their first argument.
-# ``Recorder`` keeps thin delegating methods (see the method docstrings)
-# so existing call sites and monkeypatches keep working unchanged.
-from .format import (  # noqa: E402
-    ensure_mono as _format_ensure_mono_fn,
-    prepare_audio as _format_prepare_audio_fn,
-    resample_chunk as _format_resample_chunk_fn,
-)
+# resample, stop-time resample-to-target) live in :mod:`.format` as
+# free functions taking the Recorder as their first argument. The
+# historical thin delegating methods on ``Recorder`` were removed —
+# call sites import the functions from :mod:`.format` directly.
+from .format import ensure_mono, prepare_audio, resample_chunk  # noqa: F401, E402 — re-exported for tests
 
 # Phase 4.5 further-split: the device / disconnect-handler
 # state declarations + collaborator constructions (~88 LOC) were
@@ -206,14 +202,11 @@ from .format import (  # noqa: E402
 # construction order + the source-inspection compatibility notes.
 from .recorder_init import RecorderInitMixin  # noqa: F401, E402
 
-# Phase 4.5: ``resample_audio`` is the promoted body of
-# ``Recorder._resample_audio_impl``. ``Recorder._resample_audio_impl``
-# is now a 1-line delegator that calls this function so existing
-# internal call sites (``_resample_chunk`` / ``_prepare_audio``) and
-# any subclass overrides keep working unchanged.
+# Phase 4.5: ``resample_audio`` is the shared resampling body (the
+# historical ``Recorder._resample_audio_impl`` delegator was removed;
+# callers use :mod:`.resampling` / :mod:`.format` directly).
 from .resampling import (  # noqa: E402 — re-exported for tests (post-comment import)
     _SCIPY_PRELOADER_JOIN_TIMEOUT_S,  # noqa: F401 — re-exported for tests
-    resample_audio as _resample_audio_fn,  # noqa: F401
 )
 
 # Phase 4.5: ``SessionState`` owns the per-session state
@@ -237,18 +230,13 @@ from .session_state import SessionState  # noqa: F401, E402 — re-exported for 
 # for the collaborator pattern.
 from .stream_lifecycle import StreamLifecycle  # noqa: F401, E402 — re-exported for tests
 
-# ``VadShimMixin`` provides the ~18 ``_vad_*`` property shims
-# (``_vad_state``, ``_vad_consecutive_speech_frames``, ...) that delegate
-# read/write access to ``self._vad`` (a ``VadProcessor``). The mixin is
-# purely delegation, so it is extracted out of ``recorder.py`` to keep
-# the Recorder class body focused on real behavior. ``Recorder`` inherits
-# from ``VadShimMixin`` so existing attribute access on ``Recorder``
-# instances keeps working unchanged.
-from .vad_helpers import (  # noqa: F401, E402  # noqa: F401, E402
-    VadShimMixin,  # noqa: F401, E402
+# ``vad_helpers`` owns the VAD method bodies (``refresh_vad_caches`` /
+# ``vad_auto_calibrate`` / ``vad_update``). The historical ``~18``
+# ``_vad_*`` property shims on ``Recorder`` were removed — the VAD
+# state is owned by the ``VadProcessor`` instance at ``self._vad`` and
+# is accessed through it directly.
+from .vad_helpers import (  # noqa: F401, E402
     refresh_vad_caches as _refresh_vad_caches_fn,  # noqa: F401, E402
-    vad_auto_calibrate as _vad_auto_calibrate_fn,
-    vad_update as _vad_update_fn,
 )
 
 # the previous ``_DEFAULT_VAD_SPEECH_THRESHOLD_DB``
@@ -413,7 +401,7 @@ _EVENT_WORKER_JOIN_TIMEOUT_S = 2.0
 _EVENT_WORKER_DISCARD_JOIN_TIMEOUT_S = 1.0
 
 
-class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
+class Recorder(RecorderInitMixin):
     """Records audio from microphone into a buffer. Session-based: start, accumulate, stop, get data."""
 
     # substrings of PortAudio OSError messages that indicate a
@@ -509,31 +497,14 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
         with self._lock:
             return self._last_rms
 
-    # Phase 4.5: device-state property shims ─────────────────
+    # Device-state and VAD property shims ────────────────────
     #
-    # The device-related state attrs live on ``DeviceManager`` (see
-    # ``device_manager.py``). The read/write property shims that
-    # re-expose them on ``Recorder`` instances moved to
-    # :class:`.device_manager.DeviceStateShimMixin` (the same mixin
-    # pattern as :class:`.vad_helpers.VadShimMixin``) so the Recorder
-    # class body stays focused on real behavior. ``Recorder`` inherits
-    # the mixin, so attribute access is unchanged for KEEP-methods and
-    # tests alike.
-
-    # ── AUDIO-CH: mono conversion helper ────────────────────────────────
-
-    def _ensure_mono(self, audio: np.ndarray) -> np.ndarray:
-        """Convert multi-channel audio to mono by averaging channels.
-
-        Body moved to :func:`.format.ensure_mono` (god-class split).
-        This is a thin delegator so existing call sites (the audio
-        worker's filter-chain path and the RT callback's pre-roll
-        capture path), subclass overrides, and instance-level
-        monkeypatches keep working unchanged. See the helper's
-        docstring for the full AUDIO-CH rationale (stereo fast path
-        via the per-thread scratch buffer, copy-before-return contract).
-        """
-        return _format_ensure_mono_fn(self, audio)
+    # The historical read/write property shims that re-exposed
+    # DeviceManager-owned device state (``_device_disconnected``,
+    # ``_mic_watcher``, ...) and VadProcessor-owned VAD state
+    # (``_vad_state``, ...) on ``Recorder`` instances were REMOVED:
+    # the state is owned by the collaborators and is
+    # accessed through ``self._devices.<attr>`` / ``self._vad.<attr>``.
 
     # ── AUDIO-MIC: device list caching ──────────────────────────────────
     #
@@ -543,17 +514,11 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
     # call sites (``_prewarm_device_cache``, ``_cached_max_input_channels``)
     # go through ``self._devices.<method>`` directly; the historical
     # pass-through delegators (``_refresh_device_list``, ``_host_api_name``,
-    # ``_device_index``) had zero callers and were removed. The
-    # ``_invalidate_device_cache`` / ``shutdown_mic_watcher`` delegators
-    # below remain because the watcher callback and the shutdown path
-    # still resolve them on ``Recorder`` instances.
-
-    def _invalidate_device_cache(self) -> None:
-        """Reset the device-list cache (delegator).
-
-        Phase 4.5: body moved to ``DeviceManager._invalidate_device_cache``.
-        """
-        return self._devices._invalidate_device_cache()
+    # ``_device_index``, ``_invalidate_device_cache``, ``_resolve_device``,
+    # ``_resolve_effective_sample_rate``, ...) were removed. The
+    # ``shutdown_mic_watcher`` hybrid below remains because the shutdown
+    # path still resolves it on ``Recorder`` instances (and carries the
+    # ``_force_closed`` guard).
 
     def shutdown_mic_watcher(self) -> None:
         """Stop the microphone device-change watcher (delegator).
@@ -605,7 +570,7 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
             lambda: self._recording_event.clear(),
             lambda: self._worker_stop_event.set(),
             lambda: self._event_stop_event.set(),
-            lambda: self._device_health_stop_event.set(),
+            lambda: self._devices._device_health_stop_event.set(),
             lambda: self._teardown_stream(),
         ):
             with contextlib.suppress(Exception):
@@ -656,7 +621,7 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
                 # are coupled: a True guard means "a handler is
                 # running for an active disconnect" — if the
                 # disconnect is no longer active, the guard is stale.
-                if not self._device_disconnected:
+                if not self._devices._device_disconnected:
                     self._disconnect_handler_running = False
                 if self._disconnect_handler_running:
                     log.debug(
@@ -769,7 +734,7 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
             # default device). The recording state is left to the
             # user's next start()/stop()/discard() call.
             return
-        if self._device_disconnected:
+        if self._devices._device_disconnected:
             return  # already handling disconnect via callback detection
         # STREAM-FIX: if stop() set this flag, the stream
         # finished because the user pressed the hotkey — expected, no
@@ -780,7 +745,7 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
         # treat it as an unexpected disconnect.
         if self._stream is not None and not self._recording_event.is_set():
             log.warning("[RECORDING] Stream finished unexpectedly — possible device disconnect")
-            self._device_disconnected = True
+            self._devices._device_disconnected = True
             # capture the current stop_generation so the handler
             # can detect a deliberate stop/start cycle that happened
             # between scheduling and execution. Mirrors the
@@ -824,7 +789,7 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
             log.debug("[RECORDING] Disconnect handler skipped — recording was deliberately stopped")
             return
 
-        self._device_disconnect_retries += 1
+        self._devices._device_disconnect_retries += 1
         # BT HFP/HSP mode-switch retry policy: Bluetooth headsets take
         # 1-3s to switch from A2DP (audio output) to HFP/HSP (two-way
         # call) mode when any app opens the mic input. The default
@@ -843,7 +808,7 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
         _device_info = self._devices._build_device_info_for_retry_policy()
         _effective_max_retries = self._devices._get_max_retries_for_device(_device_info)
         _retry_sleep = self._devices._get_retry_sleep_for_device(_device_info)
-        if self._device_disconnect_retries > _effective_max_retries:
+        if self._devices._device_disconnect_retries > _effective_max_retries:
             log.error(
                 "[RECORDING] Max disconnect retries (%d) reached. Stopping recording.",
                 _effective_max_retries,
@@ -867,16 +832,16 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
             # forever — the health-checker's ``if self._device_disconnected:
             # continue`` skip meant the recorder never auto-recovered
             # even if the user plugged in a new mic.
-            self._device_disconnected = False
+            self._devices._device_disconnected = False
             # Reset retry counter so a subsequent disconnect (after the
             # user plugs in a new mic and starts a fresh session) gets a
             # full retry budget.
-            self._device_disconnect_retries = 0
+            self._devices._device_disconnect_retries = 0
             return
 
         log.warning(
             "[RECORDING] Device disconnect detected (attempt %d/%d). Attempting restart with default device.",
-            self._device_disconnect_retries,
+            self._devices._device_disconnect_retries,
             _effective_max_retries,
         )
 
@@ -890,7 +855,7 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
         # within the 3-5s target for covering the HFP mode-switch
         # latency. The bouncer checks above already verified the
         # recording is still active, so sleeping here is safe.
-        if _retry_sleep > 0.0 and self._device_disconnect_retries > 1:
+        if _retry_sleep > 0.0 and self._devices._device_disconnect_retries > 1:
             time.sleep(_retry_sleep)
 
         # (IMPROVE-mode run, 2026-07-21): Stop current stream via
@@ -946,19 +911,12 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
     # ── CPU-03: Device health checker thread ─────────────────────────
     #
     # Phase 4.5: the health-checker thread state + main loop
-    # were moved to ``DeviceManager``. The methods below are 1-line
-    # delegators. ``_device_health_checker_loop`` accesses
+    # live on ``DeviceManager``; call sites route through
+    # ``self._devices._start_device_health_checker()``. The historical
+    # pass-through delegator was removed. The loop accesses
     # ``self.recorder._recording_event`` / ``self.recorder._stop_generation``
     # / ``self.recorder._handle_device_disconnect`` via the collaborator
     # back-reference (see ``device_manager.py``).
-
-    def _start_device_health_checker(self) -> None:
-        """Start the device health checker daemon thread (delegator).
-
-        Phase 4.5: body moved to
-                ``DeviceManager._start_device_health_checker``.
-        """
-        return self._devices._start_device_health_checker()
 
     def _stop_device_health_checker(self, timeout: float | None = None) -> None:
         """Signal the device health checker thread to stop and join it (delegator).
@@ -993,8 +951,8 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
     # deleted dead ``_device_health_checker_loop`` delegator.
     # The daemon thread is started by ``DeviceManager._start_device_health_checker``
     # which uses ``target=self._device_health_checker_loop`` (bound to the
-    # DeviceManager instance), bypassing the Recorder delegator entirely.
-    # Repo-wide grep returned ZERO call sites for ``recorder._device_health_checker_loop()``.
+    # DeviceManager instance). Repo-wide grep returned ZERO call sites for
+    # ``recorder._device_health_checker_loop()``.
 
     # VAD auto-calibration ─────────────────────────────────
 
@@ -1008,15 +966,12 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
     # a missed notification cannot permanently wedge the cache.
     _VAD_ENABLED_CACHE_TTL_S: float = 5.0
 
-    # VAD attribute delegation shims ───────────────────────────
-    # The ~18 ``_vad_*`` property shims (``_vad_state``,
+    # VAD attribute ownership ─────────────────────────────────
+    # The historical ~18 ``_vad_*`` property shims (``_vad_state``,
     # ``_vad_consecutive_speech_frames``, ...) and the ``_vad_enabled``
-    # property live on :class:`.vad_helpers.VadShimMixin`. ``Recorder``
-    # inherits from ``VadShimMixin`` so the historical attribute names
-    # keep working on ``Recorder`` instances. The shims are pure
-    # delegation to ``self._vad`` (a ``VadProcessor``); the rename map
-    # (e.g. ``_vad_state`` ↔ ``state``) lives only in the mixin. See
-    # ``vad_helpers.py`` for the full rationale.
+    # property were REMOVED. The VAD state is owned by the
+    # ``VadProcessor`` instance at ``self._vad``; access it through
+    # ``self._vad.<attr>`` directly.
 
     def on_config_changed(self) -> None:
         """Refresh cached config-derived state after a config change.
@@ -1039,129 +994,17 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
         self._vad.on_config_changed()
         # refresh per-chunk VAD caches so the 16 Hz audio worker
         # hot path reads cached scalars instead of dispatching 3 property
-        # lookups per chunk. ``_refresh_vad_caches`` reads
-        # ``self._vad_enabled`` (which ``self._vad.on_config_changed``
+        # lookups per chunk. ``refresh_vad_caches`` reads
+        # ``self._vad.vad_enabled`` (which ``self._vad.on_config_changed``
         # just refreshed) and the other two VAD properties, then
         # recomputes the (up, down) resample-ratio cache.
-        self._refresh_vad_caches()
-
-    def _refresh_vad_caches(self) -> None:
-        """refresh per-chunk VAD caches (delegator).
-
-        Body moved to :func:`.vad_helpers.refresh_vad_caches` so
-        ``recorder.py`` shrinks further (further-split). This is
-        a 1-line delegator so existing call sites, subclass overrides,
-        and ``inspect.getsource(Recorder._refresh_vad_caches)`` checks
-        keep working. Tests that monkeypatch
-        ``recorder._refresh_vad_caches`` via
-        ``monkeypatch.setattr(r, "_refresh_vad_caches", lambda: None)``
-        replace the bound delegator on the instance — delegation is
-        bypassed and the lambda runs unchanged.
-
-        Called by ``start()`` and ``on_config_changed()`` so the audio
-        worker hot path (16 Hz) reads cached scalars instead of
-        dispatching 3 property lookups per chunk × 16 Hz = 48
-        lookups/sec for values that only change on config edits.
-
-        Also computes the (up, down) integer ratio for the VAD resample
-        path. The ratio is derived from ``_buffer_sr`` (the
-        post-process_chunk rate set by ``_process_audio_chunk``). When
-        ``_buffer_sr`` is 8000 or 16000, no resample is needed and the
-        cache is set to ``None``. When ``_buffer_sr`` is something else
-        (e.g. 48000 — happens when no AudioProcessor is attached and
-        the device's native rate is non-16 kHz), the cache stores the
-        (up, down) integers so the per-chunk VAD path avoids
-        recomputing ``math.gcd``.
-
-        ``_buffer_sr`` may be ``None`` at ``start()`` time (before the
-        first chunk arrives); we fall back to ``_effective_sr`` for the
-        cache key. If the actual ``_buffer_sr`` set by the first
-        ``_process_audio_chunk`` differs, the cache is refreshed lazily
-        inside ``_process_audio_chunk``.
-        """
-        return _refresh_vad_caches_fn(self)
+        _refresh_vad_caches_fn(self)
 
     # deleted dead ``_compute_vad_enabled`` method (26 LOC).
     # ``VadProcessor.compute_vad_enabled`` is called directly by
-    # ``VadProcessor.vad_enabled`` (property) which is called by
-    # ``Recorder._vad_enabled`` (property, in vad_helpers.py).
-    # The ``Recorder._compute_vad_enabled`` wrapper was a vestigial
-    # delegator from  with ZERO call sites in production or tests.
-
-    def _vad_auto_calibrate(self, chunk_rms: float, chunk_duration: float) -> None:
-        """Auto-calibrate VAD thresholds based on ambient noise floor (delegator).
-
-        Body moved to :func:`.vad_helpers.vad_auto_calibrate`. This is a
-        1-line delegator so existing call sites, subclass overrides, and
-        ``inspect.getsource(Recorder._vad_auto_calibrate)`` checks keep
-        working. Tests that mock ``recorder._vad_auto_calibrate`` via
-        ``MagicMock`` replace the bound delegator on the instance —
-        delegation is bypassed and the mock runs unchanged.
-
-        Delegates to ``self._vad.auto_calibrate(chunk_rms, elapsed,
-        chunk_duration)``. The ``elapsed`` argument is computed in the
-        helper from ``self._recording_start_time`` (a Recorder-owned
-        attribute) so VadProcessor stays clock-agnostic.
-
-        During the first ``_vad_calibration_duration`` seconds of
-        recording, we collect RMS values to determine the ambient noise
-        floor. Then we set speech/silence thresholds relative to it.
-
-        VAD-GATE (Task 4): VadProcessor.auto_calibrate also gates on
-        vad_enabled, but the helper short-circuits here too so we
-        don't even call ``time.perf_counter()`` on every chunk in raw
-        mode.
-        """
-        return _vad_auto_calibrate_fn(self, chunk_rms, chunk_duration)
-
-    # VAD state machine update ─────────────────────────────
-
-    def _vad_update(self, chunk_rms_db: float, vad_prob: float | None = None) -> VadState:
-        """Update the VAD state machine based on the current frame's VAD signal (delegator).
-
-        Body moved to :func:`.vad_helpers.vad_update`. This is a 1-line
-        delegator so existing call sites, subclass overrides, and
-        ``inspect.getsource(Recorder._vad_update)`` checks keep working
-        (notably ``test_grey_zone_does_not_reset_counters`` in
-        ``tests/regressions/test_audio.py`` — the pinned phrases "Grey
-        zone (between speech and silence thresholds)", "pass", and
-        "State transitions" remain in this docstring so the source-
-        string regression test continues to pass after the body move).
-
-        Delegates to ``self._vad.update_frame(chunk_rms_db, vad_prob)``.
-        The VadProcessor owns the state-machine counters, thresholds,
-        and hysteresis transitions. The historical ``self._vad_*``
-        attribute names (e.g. ``_vad_consecutive_speech_frames``)
-        remain accessible on ``Recorder`` via property shims that
-        read/write through to ``self._vad``.
-
-        Uses hysteresis — transitioning from SILENCE to SPEECH requires
-        N consecutive loud frames, while SPEECH to SILENCE requires M
-        consecutive quiet frames (hangover period). This prevents
-        rapid toggling at the boundary.
-
-        When Silero VAD is enabled and a probability is provided, uses
-        the VAD probability for speech/silence determination instead of
-        RMS dB. Falls back to RMS-based detection if vad_prob is None.
-
-        VAD-GATE (Task 4): returns ``VadState.UNKNOWN`` immediately
-        when VAD is disabled (all audio enhancements off). The caller's
-        silence-timer logic sees UNKNOWN and treats it as "not silence"
-        (no silence warnings, no VAD-based auto-stop).
-
-        Grey zone (between speech and silence thresholds). Standard VAD
-        hysteresis: leave counters unchanged so a long run of grey-zone
-        chunks doesn't discard accumulated frame history. Implemented
-        in ``VadProcessor.update_frame`` as a ``pass`` branch — no
-        counter resets. State transitions with hysteresis are also
-        implemented there. This wrapper preserves the source patterns
-        existing tests pin on (the "Grey zone" comment, the ``pass``
-        keyword, and the "State transitions" comment must appear in
-        this method's source for
-        ``test_grey_zone_does_not_reset_counters`` to keep passing).
-        """
-        # State transitions: delegated to VadProcessor.update_frame.
-        return _vad_update_fn(self, chunk_rms_db, vad_prob)
+    # ``VadProcessor.vad_enabled`` (property). The
+    # ``Recorder._compute_vad_enabled`` wrapper was a vestigial
+    # delegator with ZERO call sites in production or tests.
 
     # ── ADR 0007 §3.5: _agc_update method deleted ─────────────────────
     # The old per-chunk AGC (C1) has been removed. It duplicated the
@@ -1193,52 +1036,18 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
         except Exception as e:
             log.warning("[RECORDING] Resampler warm-up failed: %s", e)
 
-    def _resolve_device(self):
-        """Resolve config.microphone to a sounddevice device specifier (delegator).
-
-        Phase 4.5: body moved to ``DeviceManager._resolve_device``.
-                ``config.microphone`` is a string device index (from list_microphones)
-                or None for system default.  We convert to int for unambiguous
-                selection by sounddevice.
-        """
-        return self._devices._resolve_device()
-
-    def _same_physical_microphone_candidates(self, device: Any) -> list[Any]:
-        """Return equivalent input device IDs to try if the selected one fails (delegator).
-
-        Phase 4.5: body moved to
-                ``DeviceManager._same_physical_microphone_candidates``.
-        """
-        return self._devices._same_physical_microphone_candidates(device)
-
-    def _fallback_host_rank(self, host_name: str) -> int:
-        """Rank a host API by preference for fallback device selection (delegator).
-
-        Phase 4.5: body moved to ``DeviceManager._fallback_host_rank``.
-        """
-        return self._devices._fallback_host_rank(host_name)
-
-    def _resolve_effective_sample_rate(self, device: int | None) -> tuple[int, dict | None]:
-        """Determine the effective sample rate and device info for the given device (delegator).
-
-        Phase 4.5: body moved to
-                ``DeviceManager._resolve_effective_sample_rate``. Returns
-                ``(effective_sr, dev_info_dict)`` where ``dev_info_dict`` has
-                ``name`` / ``host_api_name`` / ``native_rate`` keys, or ``None``
-                if the query failed. Strategy: record at the device's native
-                sample rate when it differs from the Whisper target rate (16kHz),
-                and resample afterwards with scipy (avoids PortAudio's internal
-                resampling, which can introduce artifacts via MME on Windows).
-        """
-        return self._devices._resolve_effective_sample_rate(device)
-
-    def _all_input_device_candidates(self) -> list[int]:
-        """Return all available input device IDs as a last-resort fallback (delegator).
-
-        Phase 4.5: body moved to
-                ``DeviceManager._all_input_device_candidates``.
-        """
-        return self._devices._all_input_device_candidates()
+    # ── device resolution / stream-open delegators REMOVED ─────────────
+    # The historical 1-line pass-through delegators to ``DeviceManager``
+    # (``_resolve_device``, ``_same_physical_microphone_candidates``,
+    # ``_fallback_host_rank``, ``_resolve_effective_sample_rate``,
+    # ``_all_input_device_candidates``) and to ``SessionState`` /
+    # ``StreamLifecycle`` (``_reset_session_state``, ``_cache_session_config``,
+    # ``_build_audio_callback``, ``_open_stream_for_candidates``,
+    # ``_open_stream_fallback``, ``_resize_buffers_for_sample_rate``,
+    # ``_prepend_preroll_to_buffer``, ``_secure_clear_caches``) were
+    # removed — call sites route through the owning collaborator
+    # (``self._devices.X`` / ``self._session_state.X`` /
+    # ``self._stream_lifecycle.X``) directly.
 
     def _prewarm_device_cache(self) -> None:
         """Spawn a best-effort daemon thread to populate ``DeviceManager._device_list_cache``.
@@ -1323,8 +1132,8 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
 
         def _do_open() -> None:
             try:
-                device = self._resolve_device()
-                candidate_sr, _dev_info = self._resolve_effective_sample_rate(device)
+                device = self._devices._resolve_device()
+                candidate_sr, _dev_info = self._devices._resolve_effective_sample_rate(device)
                 prewarm_stream = sd.InputStream(
                     samplerate=candidate_sr,
                     channels=1,
@@ -1453,18 +1262,6 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
             ) from exc
         return
 
-    def _detect_and_emit_clipping(self, chunk_peak: float) -> None:
-        """AUDIO-CLIP: track clipping + push a real-time IPC event (delegator).
-
-        Body moved to :meth:`AudioPipeline.detect_and_emit_clipping`
-        (god-class split). This is a thin delegator so the call site in
-        ``process_audio_chunk`` (via ``AudioPipeline``) and any
-        instance-level monkeypatches keep working unchanged. See the
-        helper's docstring for the AUDIO-CLIP rationale (1 Hz throttle,
-        non-blocking enqueue on ``_event_queue``).
-        """
-        self._audio_pipeline.detect_and_emit_clipping(self, chunk_peak)
-
     def _secure_clear_session_caches(self) -> None:
         """SEC-audit-008: zero cached audio arrays.
 
@@ -1541,103 +1338,6 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
             )
         self._cached_resampled_segments = []
         self._cached_resampled_concat_dirty = False
-
-    def _reset_session_state(self) -> None:
-        """Reset ALL per-session state for a fresh recording session.
-
-        Phase 4.5 — body moved to
-                :meth:`SessionState.reset_session_state`. This is a 1-line
-                delegator so existing call sites and ``inspect.getsource``
-                checks on ``Recorder._reset_session_state`` continue to work.
-                See :mod:`.session_state` for the collaborator pattern and the
-        full  rationale (per-session state reset, VAD state,
-                preroll zeroing, etc.).
-        """
-        self._session_state.reset_session_state(self)
-
-    def _cache_session_config(self) -> int:
-        """Cache config-derived scalars for the upcoming session; return ``max_rec``.
-
-        Phase 4.5 — body moved to
-                :meth:`SessionState.cache_session_config`. This is a 1-line
-                delegator so existing call sites and ``inspect.getsource``
-                checks on ``Recorder._cache_session_config`` continue to work.
-                See :mod:`.session_state` for the collaborator pattern and the
-        PERF- rationale (config scalar caching for the audio
-                callback hot path).
-        """
-        return self._session_state.cache_session_config(self)
-
-    def _build_audio_callback(self) -> Callable[..., None]:
-        """Build the PortAudio callback closure ().
-
-        Phase 4.5 — body moved to
-                :meth:`StreamLifecycle.build_audio_callback`. This is a 1-line
-                delegator so existing call sites and ``inspect.getsource``
-                checks on ``Recorder._build_audio_callback`` continue to work.
-                See :mod:`.stream_lifecycle` for the collaborator pattern and
-        the  rationale (callback must complete before the
-                next buffer arrives).
-        """
-        return self._stream_lifecycle.build_audio_callback(self)
-
-    def _open_stream_for_candidates(
-        self,
-        candidates: list[Any],
-        callback: Callable[..., None],
-        effective_sr: int,
-        last_error: Exception | None,
-    ) -> tuple[Any, int, Exception | None]:
-        """Try opening an :class:`sd.InputStream` for each candidate device.
-
-        Phase 4.5 — body moved to
-                :meth:`StreamLifecycle.open_stream_for_candidates`. This is a
-                1-line delegator so existing call sites and
-                ``inspect.getsource`` checks continue to work. See
-                :mod:`.stream_lifecycle` for the collaborator pattern and the
-                AUDIO-HOT device-fallback rationale.
-        """
-        return self._stream_lifecycle.open_stream_for_candidates(self, candidates, callback, effective_sr, last_error)
-
-    def _open_stream_fallback(
-        self,
-        tried: list[Any],
-        callback: Callable[..., None],
-        effective_sr: int,
-        last_error: Exception | None,
-    ) -> tuple[Any, int, bool, Exception | None]:
-        """Last-resort fallback: try ALL input devices when same-name candidates fail.
-
-        Phase 4.5 — body moved to
-                :meth:`StreamLifecycle.open_stream_fallback`. This is a 1-line
-                delegator so existing call sites and ``inspect.getsource``
-                checks continue to work. See :mod:`.stream_lifecycle` for the
-                collaborator pattern.
-        """
-        return self._stream_lifecycle.open_stream_fallback(self, tried, callback, effective_sr, last_error)
-
-    def _resize_buffers_for_sample_rate(self, effective_sr: int, max_rec: int) -> None:
-        """Resize the main audio buffer + ring buffer for the effective sample rate.
-
-        Phase 4.5 — body moved to
-                :meth:`SessionState.resize_buffers_for_sample_rate`. This is a
-                1-line delegator so existing call sites and
-                ``inspect.getsource`` checks continue to work. See
-                :mod:`.session_state` for the collaborator pattern and the
-        PERF- dynamic-buffer-sizing rationale.
-        """
-        self._session_state.resize_buffers_for_sample_rate(self, effective_sr, max_rec)
-
-    def _prepend_preroll_to_buffer(self) -> None:
-        """Prepend the pre-roll buffer to the main buffer at start() time.
-
-        Phase 4.5 — body moved to
-                :meth:`SessionState.prepend_preroll_to_buffer`. This is a 1-line
-                delegator so existing call sites and ``inspect.getsource``
-                checks continue to work. See :mod:`.session_state` for the
-                collaborator pattern and the AUDIO-PRE cold-start rationale.
-        """
-        self._session_state.prepend_preroll_to_buffer(self)
 
     def start(self) -> None:
         """Start recording audio.
@@ -1823,74 +1523,18 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
                 self._worker_thread = pre_thread
                 self._worker_stop_event.set()
 
-    def _start_event_worker(self) -> None:
-        """Start the IPC event worker thread that drains ``_event_queue``.
-
-        Phase 4.5 — the read-check-create-start body moved
-                to :meth:`AudioCallbackDispatcher.start_event_worker_body`.
-                The ``with self._worker_lifecycle_lock:`` block STAYS HERE for
-        the  source-inspection contract. See :mod:`.capture` for
-                the collaborator pattern.
-        """
-        # hold the lifecycle lock across the entire
-        # read-check-create-start sequence so a concurrent
-        # _stop_event_worker() cannot observe a stale ``None`` mid-create.
-        with self._worker_lifecycle_lock:
-            self._capture.start_event_worker_body(self)
-
-    def _stop_event_worker(self, *, timeout: float, drain: bool = True) -> None:
-        """Signal the event worker thread to stop and join it.
-
-        Phase 4.5 — the read-check-clear-join-unregister body
-                moved to :meth:`AudioCallbackDispatcher.stop_event_worker_body`.
-        The ``_worker_lifecycle_lock`` block STAYS HERE for the
-                source-inspection contracts (positive: must contain the
-                lifecycle-lock literal; negative: must NOT contain the
-                self-lock literal). See :mod:`.capture` for the collaborator
-                pattern.
-        """
-        # hold the lifecycle lock across the entire
-        # read-check-clear-join-unregister sequence. This is a
-        # separate lock from the buffer lock — see the helper's docstring.
-        with self._worker_lifecycle_lock:
-            self._capture.stop_event_worker_body(self, timeout=timeout, drain=drain)
-
-    def _event_worker_loop(self) -> None:
-        """IPC event worker thread main loop (delegator).
-
-        Body moved to :meth:`AudioCallbackDispatcher.event_worker_loop`
-        (god-class split). This is a thin delegator so the thread
-        target wiring in ``start_event_worker_body`` and any
-        instance-level monkeypatches keep working unchanged. See the
-        helper's docstring for the full rationale (MPSC queue, 0.5s
-        poll + stop sentinel, drain-before-exit on stop()).
-        """
-        self._capture.event_worker_loop(self)
-
-    def _audio_worker_loop(self, stop_event: Any = None, wake_event: Any = None) -> None:
-        """Audio worker thread main loop — drains the ring buffer.
-
-        Phase 4.5 — body moved to
-                :meth:`AudioCallbackDispatcher.audio_worker_loop`. This is a
-                1-line delegator so existing call sites, subclass overrides,
-                and ``inspect.getsource`` checks on
-                ``Recorder._audio_worker_loop`` continue to work. See
-        mod:`.capture` for the collaborator pattern and the
-                rationale (worker thread runs the heavy processing pipeline
-                off the real-time audio thread).
-
-        ``stop_event`` / ``wake_event`` are passed through to the
-                body as EXPLICIT parameters (captured at thread-spawn time by
-                ``AudioCallbackDispatcher.start_audio_worker_body``) instead
-                of being read dynamically from ``self._worker_stop_event`` /
-                ``self._worker_wake_event`` on every iteration. See the body's
-                docstring for the stale-worker SPSC-violation rationale. The
-                parameters default to ``None`` so direct call sites that
-                don't pass them (e.g. legacy tests) keep working — the body
-                falls back to ``self._worker_stop_event`` /
-                ``self._worker_wake_event`` when ``None`` is passed.
-        """
-        self._capture.audio_worker_loop(self, stop_event, wake_event)
+    # deleted pure delegators: ``_start_event_worker`` /
+    # ``_stop_event_worker`` / ``_event_worker_loop`` / ``_audio_worker_loop``.
+    # Their bodies were 1-line delegations into
+    # ``AudioCallbackDispatcher.start_event_worker_body`` /
+    # ``stop_event_worker_body`` / ``event_worker_loop`` /
+    # ``audio_worker_loop``. Call sites acquire
+    # ``_worker_lifecycle_lock`` (start/stop) or spawn
+    # ``self._capture.<loop>`` as the thread target directly — the
+    # lock-acquisition contract moved to the call sites in
+    # ``_recorder_split`` (the collaborator bodies must NOT hold the
+    # lock; pinned by the negative source checks in
+    # ``tests/test_capture_worker_lifecycle.py``).
 
     def _audio_callback_dispatch(self, indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
         """Real-time audio callback entry point — RT-safe path.
@@ -1916,88 +1560,14 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
         self._ring_buffer.append(payload)
         self._worker_wake_event.set()
 
-    def _detect_device_disconnect(self, indata: np.ndarray) -> bool:
-        """Detect a USB/BT device disconnect via zero-filled input (HOTKEY-CRASH).
-
-        body moved to :meth:`AudioPipeline.detect_device_disconnect`.
-                This is a 1-line delegator so existing call sites and
-                ``inspect.getsource`` checks on ``Recorder._detect_device_disconnect``
-                continue to work.
-        """
-        return self._audio_pipeline.detect_device_disconnect(indata)
-
-    def _handle_xrun_status(self, status: Any) -> bool:
-        """Inspect the PortAudio ``status`` for an input-overflow XRUN.
-
-        body moved to :meth:`AudioPipeline.handle_xrun_status`.
-                This is a 1-line delegator so existing call sites and
-                ``inspect.getsource`` checks on ``Recorder._handle_xrun_status``
-                continue to work.
-        """
-        return self._audio_pipeline.handle_xrun_status(status)
-
-    def _apply_filter_chain(self, indata: np.ndarray) -> np.ndarray:
-        """Convert multi-channel input to mono and apply the real-time filter chain.
-
-        body moved to :meth:`AudioPipeline.apply_filter_chain`.
-                This is a 1-line delegator so existing call sites and
-                ``inspect.getsource`` checks on ``Recorder._apply_filter_chain``
-                continue to work.
-        """
-        return self._audio_pipeline.apply_filter_chain(indata)
-
-    def _append_to_buffer_locked(self, filtered: np.ndarray) -> tuple[int, int]:
-        """Append ``filtered`` to ``_buffer`` under the lock; return ``(chunk_count, buffer_len)``.
-
-        body moved to :meth:`AudioPipeline.append_to_buffer_locked`.
-                This is a 1-line delegator so existing call sites and
-                ``inspect.getsource`` checks on ``Recorder._append_to_buffer_locked``
-                continue to work.
-        """
-        return self._audio_pipeline.append_to_buffer_locked(filtered)
-
-    def _compute_rms_and_peak(self, filtered: np.ndarray) -> tuple[float, float, float]:
-        """Compute ``(chunk_rms, chunk_peak, chunk_duration)`` for the filtered chunk.
-
-        body moved to :meth:`AudioPipeline.compute_rms_and_peak`.
-                This is a 1-line delegator so existing call sites and
-                ``inspect.getsource`` checks on ``Recorder._compute_rms_and_peak``
-                continue to work.
-        """
-        return self._audio_pipeline.compute_rms_and_peak(filtered)
-
-    def _run_vad_state_machine(
-        self,
-        filtered: np.ndarray,
-        chunk_rms: float,
-        chunk_duration: float,
-        perf_ts: float,
-        chunk_count: int,
-        buffer_len: int,
-        recording_start: float,
-        silence_warning_cb: Any,
-        silence_auto_stop_cb: Any,
-        max_duration_cb: Any,
-    ) -> None:
-        """Run the VAD state machine + silence/max-duration auto-stop callbacks.
-
-        body moved to :meth:`AudioPipeline.run_vad_state_machine`.
-                This is a 1-line delegator so existing call sites and
-                ``inspect.getsource`` checks on ``Recorder._run_vad_state_machine``
-                continue to work.
-        """
-        self._audio_pipeline.run_vad_state_machine(
-            filtered,
-            chunk_rms,
-            chunk_duration,
-            perf_ts,
-            chunk_count,
-            buffer_len,
-            recording_start,
-            silence_warning_cb,
-            silence_auto_stop_cb,
-            max_duration_cb,
-        )
+    # deleted pure delegators to ``AudioPipeline``:
+    # ``_detect_device_disconnect`` / ``_handle_xrun_status`` /
+    # ``_apply_filter_chain`` / ``_append_to_buffer_locked`` /
+    # ``_compute_rms_and_peak`` / ``_run_vad_state_machine`` /
+    # ``_detect_and_emit_clipping``. The only production call sites were
+    # inside ``AudioPipeline.process_audio_chunk`` itself (which now
+    # invokes its own methods directly) and ``_process_audio_chunk``
+    # (kept below as the hybrid wrapper).
 
     def _process_audio_chunk(
         self,
@@ -2026,20 +1596,12 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
                 WARNING so the user is notified DURING the recording
                 (not only post-stop via ``RecordingController._stop_impl``).
         """
-        self._surface_ring_overflow_warning()
+        self._capture.surface_ring_overflow_warning(self)
         self._audio_pipeline.process_audio_chunk(indata, frames, time_info, status, perf_ts)
 
-    def _surface_ring_overflow_warning(self) -> None:
-        """Emit a rate-limited WARNING when the ring buffer overflows (delegator).
-
-        Body moved to :meth:`AudioCallbackDispatcher.surface_ring_overflow_warning`
-        (god-class split). This is a thin delegator so the call site in
-        ``_process_audio_chunk`` and any instance-level monkeypatches
-        keep working unchanged. See the helper's docstring for the
-        rationale (delta computation, rate limiting, log-only
-        contract — no direct ``event_bus.publish``).
-        """
-        self._capture.surface_ring_overflow_warning(self)
+    # deleted pure delegator ``_surface_ring_overflow_warning`` —
+    # ``_process_audio_chunk`` (above) invokes
+    # ``self._capture.surface_ring_overflow_warning(self)`` directly.
 
     def _note_buffer_capacity_eviction(self, samples: int) -> None:
         """Counter hook for capacity-driven buffer evictions.
@@ -2055,23 +1617,13 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
         """
         self._total_buffered_samples -= int(samples)
 
-    def _secure_clear_caches(self) -> None:
-        """securely zero cached audio arrays BEFORE reassignment.
-
-        Phase 4.5 — body moved to
-                :meth:`SessionState.secure_clear_caches`. This is a 1-line
-                delegator so existing call sites and ``inspect.getsource``
-                checks on ``Recorder._secure_clear_caches`` continue to work.
-                See :mod:`.session_state` for the collaborator pattern and the
-                SEC-audit-008 rationale (secure-zeroing of cached audio arrays
-                to prevent forensic recovery between sessions).
-
-                Note: ``_secure_clear_session_caches`` (the smaller helper that
-                zeros ``_cached_resampled`` and ``_cached_no_resample_arr``)
-                STAYS on ``Recorder`` — it has a positive source-inspection
-                contract (``tests/test_secure_clear_array.py:258-267``).
-        """
-        self._session_state.secure_clear_caches(self)
+    # deleted pure delegator ``_secure_clear_caches`` — the bulk
+    # secure-clear body lives on
+    # ``SessionState.secure_clear_caches(recorder)``; call sites
+    # (stop/discard/disconnect-handler) invoke the collaborator
+    # directly. ``_secure_clear_session_caches`` (the smaller helper
+    # above) STAYS on ``Recorder`` — it has a positive
+    # source-inspection contract (``tests/test_secure_clear_array.py``).
 
     def stop(self) -> np.ndarray:
         """Stop recording and return the complete audio array.
@@ -2147,77 +1699,10 @@ class Recorder(DeviceStateShimMixin, VadShimMixin, RecorderInitMixin):
         # poll summed ~28k chunks.
         return self._total_buffered_samples / sr
 
-    def _resample_chunk(self, audio: np.ndarray, effective_sr: int, target_sr: int) -> np.ndarray:
-        """Resample a single chunk of audio.
-
-        Body moved to :func:`.format.resample_chunk` (god-class split).
-        This is a thin delegator so existing call sites (the snapshot
-        resample path and the VAD resample path), subclass overrides,
-        and instance-level monkeypatches keep working unchanged.
-
-        Raises:
-            ResampleError: if neither scipy nor linear-interp resampling
-                could convert the audio to ``target_sr``. Callers MUST
-                handle this; previously the function returned the native-
-                rate audio silently, which led to garbage transcriptions
-        on the streaming path ().
-        """
-        return _format_resample_chunk_fn(self, audio, effective_sr, target_sr)
-
-    def _prepare_audio(
-        self,
-        audio: np.ndarray,
-        effective_sr: int,
-        log_resample: bool = True,
-    ) -> np.ndarray:
-        """Convert captured audio to the configured sample rate.
-
-        Body moved to :func:`.format.prepare_audio` (god-class split).
-        This is a thin delegator so existing call sites (the stop()
-        handoff path), subclass overrides, and instance-level
-        monkeypatches keep working unchanged. See the helper's
-        docstring for the narrowed-except + cached-target-rate rationale.
-        """
-        return _format_prepare_audio_fn(self, audio, effective_sr, log_resample=log_resample)
-
-    def _resample_audio_impl(
-        self,
-        audio: np.ndarray,
-        effective_sr: int,
-        target_sr: int,
-        *,
-        log_resample: bool = False,
-    ) -> np.ndarray:
-        """Shared resampling logic for ``_resample_chunk`` and ``_prepare_audio`` (delegator).
-
-        Phase 4.5: body moved to ``resample_audio()`` in
-                :mod:`.resampling`. This method is now a 1-line delegator so
-                existing internal call sites (``_resample_chunk`` /
-                ``_prepare_audio``) and any subclass overrides keep working
-                unchanged. The delegator routes through the module-level
-                ``_resample_audio_fn`` alias (bound at import time to
-                ``resampling.resample_audio``) so test patches of the form
-                ``monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", ...)``
-                keep affecting production code (``resample_audio`` looks up
-                ``_get_resample_poly`` via the ``_recording_pkg`` package
-                namespace at call time — see ``resampling.py`` §Patch-path).
-
-        PERF-: previously the scipy → linear interp → raise
-                fallback chain was duplicated between the two methods. The
-                centralized helper (now in :mod:`.resampling`) applies bug
-        fixes (, , ) in one place.
-
-        narrows exceptions to ``(ValueError, OSError, TypeError)``
-                so genuine bugs (``AttributeError``, ``MemoryError``) propagate
-                instead of being silently masked as "resampling failed".
-        """
-        return _resample_audio_fn(
-            audio,
-            effective_sr,
-            target_sr,
-            log_resample=log_resample,
-            log=log,
-        )
+    # deleted pure delegators ``_resample_chunk`` / ``_prepare_audio`` /
+    # ``_resample_audio_impl`` — the bodies live in :mod:`.format`
+    # (``resample_chunk`` / ``prepare_audio``) and :mod:`.resampling`
+    # (``resample_audio``). Call sites invoke those functions directly.
 
     def discard(self) -> None:
         """Discard current recording without processing.

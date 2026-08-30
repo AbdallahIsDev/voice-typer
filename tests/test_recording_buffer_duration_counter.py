@@ -66,6 +66,19 @@ from voice_typer.server.recording.audio_pipeline import AudioPipeline
 from voice_typer.server.recording.recorder import Recorder
 from voice_typer.server.recording.session_state import SessionState
 
+
+@pytest.fixture(autouse=True)
+def _identity_prepare_audio(monkeypatch):
+    """Patch the module-level ``prepare_audio`` binding that
+    ``stop_recording`` invokes (the historical
+    ``Recorder._prepare_audio`` delegator was removed) with an identity
+    pass-through so the stop-path tests exercise the counter/stats
+    mechanics without real resampling."""
+    import voice_typer.server.recording._recorder_split as split_mod
+
+    monkeypatch.setattr(split_mod, "prepare_audio", lambda rec, audio, effective_sr_in, **kw: audio)
+
+
 # ── Helpers ───────────────────────────────────────────────────────
 
 
@@ -312,19 +325,19 @@ def _make_session_state_stub() -> MagicMock:
     recorder._buffer_sr = 16000
     # VAD + clip + XRUN state (reset_session_state touches all of these).
     recorder._vad = MagicMock()
-    recorder._vad_state = "STALE"
-    recorder._vad_consecutive_speech_frames = 99
-    recorder._vad_consecutive_silence_frames = 99
-    recorder._vad_speech_threshold_db = 0
-    recorder._vad_silence_threshold_db = 0
-    recorder._vad_calibration_rms_values = [1.0]
-    recorder._vad_calibrated = True
+    recorder._vad.state = "STALE"
+    recorder._vad.consecutive_speech_frames = 99
+    recorder._vad.consecutive_silence_frames = 99
+    recorder._vad.speech_threshold_db = 0
+    recorder._vad.silence_threshold_db = 0
+    recorder._vad.calibration_rms_values = [1.0]
+    recorder._vad.calibrated = True
     recorder._user_stop_pending = True
     recorder._preroll_buffer = collections.deque(maxlen=10)
-    recorder._device_disconnected = True
-    recorder._device_disconnect_retries = 5
+    recorder._devices._device_disconnected = True
+    recorder._devices._device_disconnect_retries = 5
     recorder._dropped_ring_chunks = 5
-    recorder._device_check_counter = 7
+    recorder._devices._device_check_counter = 7
     recorder._cached_target_sr = 0
     recorder._cached_vad_enabled = True
     recorder._cached_use_silero_vad = True

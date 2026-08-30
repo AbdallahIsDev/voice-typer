@@ -1,8 +1,8 @@
 """Focused tests for the ``_ensure_mono`` downmix contract.
 
 Pins the allocation/no-copy behavior of
-:func:`voice_typer.server.recording.format.ensure_mono` (exercised
-through the ``Recorder._ensure_mono`` delegator):
+:func:`voice_typer.server.recording.format.ensure_mono` (invoked
+directly):
 
 - the stereo (2-channel) fast path returns a FRESH caller-owned array
   (exactly one clear output allocation, aliased to nothing — neither
@@ -24,6 +24,7 @@ this file owns the no-copy / ownership contract.
 from __future__ import annotations
 
 import numpy as np
+from voice_typer.server.recording.format import ensure_mono
 
 from tests.fixtures.recorder_test_helpers import make_recorder
 
@@ -38,7 +39,7 @@ class TestEnsureMonoNoCopyContract:
         any reusable scratch or the input chunk."""
         r = make_recorder()
         audio = np.array([[1.0, 3.0], [2.0, 4.0], [5.0, 7.0]], dtype=np.float32)
-        result = r._ensure_mono(audio)
+        result = ensure_mono(r, audio)
         assert result is not audio
         assert result.base is None, "stereo downmix must return a fresh caller-owned array"
         assert result.flags.owndata
@@ -51,7 +52,7 @@ class TestEnsureMonoNoCopyContract:
         r = make_recorder()
         rng = np.random.default_rng(42)
         audio = (rng.standard_normal((512, 2)) * 0.5).astype(np.float32)
-        result = r._ensure_mono(audio)
+        result = ensure_mono(r, audio)
         expected = np.add(audio[:, 0], audio[:, 1], out=np.empty(512, dtype=np.float32))
         expected *= 0.5
         # assert_array_equal (not allclose): the operations are
@@ -63,7 +64,7 @@ class TestEnsureMonoNoCopyContract:
         """Correctness cross-check against ``np.mean`` (float32)."""
         r = make_recorder()
         audio = np.array([[1.0, 3.0], [2.0, 4.0], [5.0, 7.0]], dtype=np.float32)
-        result = r._ensure_mono(audio)
+        result = ensure_mono(r, audio)
         expected = np.mean(audio, axis=1, dtype=np.float32)
         np.testing.assert_array_almost_equal(result, expected)
 
@@ -71,7 +72,7 @@ class TestEnsureMonoNoCopyContract:
         """Already-mono 1-D input is returned as-is (genuinely no copy)."""
         r = make_recorder()
         audio = np.array([1.0, 2.0, 3.0], dtype=np.float32)
-        result = r._ensure_mono(audio)
+        result = ensure_mono(r, audio)
         assert result is audio
 
     def test_single_column_2d_input_is_zero_copy_view(self):
@@ -79,7 +80,7 @@ class TestEnsureMonoNoCopyContract:
         the input (no copy) — the other already-mono path."""
         r = make_recorder()
         audio = np.array([[1.0], [2.0], [3.0]], dtype=np.float32)
-        result = r._ensure_mono(audio)
+        result = ensure_mono(r, audio)
         np.testing.assert_array_equal(result, np.array([1.0, 2.0, 3.0], dtype=np.float32))
         assert result.base is audio, "(n,1) reshape must be a zero-copy view of the input"
 
@@ -88,7 +89,7 @@ class TestEnsureMonoNoCopyContract:
         array that does not alias the input."""
         r = make_recorder()
         audio = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
-        result = r._ensure_mono(audio)
+        result = ensure_mono(r, audio)
         expected = np.mean(audio, axis=1, dtype=np.float32)
         np.testing.assert_array_almost_equal(result, expected)
         assert result is not audio
@@ -100,7 +101,7 @@ class TestEnsureMonoNoCopyContract:
         results = []
         for i in range(10):
             audio = np.full((64, 2), float(i), dtype=np.float32)
-            results.append(r._ensure_mono(audio))
+            results.append(ensure_mono(r, audio))
         for i, res in enumerate(results):
             assert np.all(res == float(i)), f"result {i} corrupted by a later call: {res}"
         # Distinct storages (no two results share a base buffer).

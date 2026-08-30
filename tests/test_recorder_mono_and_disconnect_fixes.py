@@ -24,6 +24,7 @@ import pytest
 from voice_typer.server.recording.disconnect_handler import (
     DisconnectHandler,
 )
+from voice_typer.server.recording.format import ensure_mono
 from voice_typer.server.recording.recorder import Recorder
 
 # ── helpers ─────────────────────────────────────────────────────────────
@@ -51,14 +52,14 @@ class TestEnsureMonoScratchBuffer:
         """1-D (already mono) input is returned unchanged (no copy)."""
         r = _make_recorder()
         audio = np.array([1.0, 2.0, 3.0], dtype=np.float32)
-        result = r._ensure_mono(audio)
+        result = ensure_mono(r, audio)
         assert result is audio
 
     def test_stereo_downmix_matches_np_mean(self):
         """The manual (L+R)/2 fast path must match ``np.mean``."""
         r = _make_recorder()
         audio = np.array([[1.0, 3.0], [2.0, 4.0], [5.0, 7.0]], dtype=np.float32)
-        result = r._ensure_mono(audio)
+        result = ensure_mono(r, audio)
         expected = np.mean(audio, axis=1, dtype=np.float32)
         np.testing.assert_array_almost_equal(result, expected)
         assert result.shape == (3,)
@@ -72,12 +73,12 @@ class TestEnsureMonoScratchBuffer:
         """
         r = _make_recorder()
         audio = np.array([[1.0, 3.0], [2.0, 4.0]], dtype=np.float32)
-        first = r._ensure_mono(audio)
+        first = ensure_mono(r, audio)
         # Mutate the returned array — must not affect the scratch.
         first[0] = 999.0
         # Second call with the same input — result must reflect the
         # original mean, not the mutation we applied to ``first``.
-        second = r._ensure_mono(audio)
+        second = ensure_mono(r, audio)
         assert second[0] != 999.0, "result aliased the scratch — stored references would corrupt"
 
     def test_repeated_calls_do_not_corrupt_prior_results(self):
@@ -91,7 +92,7 @@ class TestEnsureMonoScratchBuffer:
         results = []
         for i in range(10):
             audio = np.full((4, 2), float(i), dtype=np.float32)
-            results.append(r._ensure_mono(audio))
+            results.append(ensure_mono(r, audio))
         # Each result must still hold its original value.
         for i, res in enumerate(results):
             assert np.all(res == float(i)), f"result {i} corrupted by subsequent calls: {res}"
@@ -100,7 +101,7 @@ class TestEnsureMonoScratchBuffer:
         """2-D input with shape[1]==1 is reshaped to 1-D (no downmix)."""
         r = _make_recorder()
         audio = np.array([[1.0], [2.0], [3.0]], dtype=np.float32)
-        result = r._ensure_mono(audio)
+        result = ensure_mono(r, audio)
         np.testing.assert_array_equal(result, np.array([1.0, 2.0, 3.0], dtype=np.float32))
 
     def test_multi_channel_falls_back_to_np_mean(self):
@@ -108,7 +109,7 @@ class TestEnsureMonoScratchBuffer:
         [1,2] at stream-open, but the fallback must still be correct)."""
         r = _make_recorder()
         audio = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
-        result = r._ensure_mono(audio)
+        result = ensure_mono(r, audio)
         expected = np.mean(audio, axis=1, dtype=np.float32)
         np.testing.assert_array_almost_equal(result, expected)
 
@@ -118,20 +119,19 @@ class TestEnsureMonoScratchBuffer:
         r = _make_recorder()
         n = 2048
         audio = np.random.randn(n, 2).astype(np.float32)
-        result = r._ensure_mono(audio)
+        result = ensure_mono(r, audio)
         expected = np.mean(audio, axis=1, dtype=np.float32)
         np.testing.assert_array_almost_equal(result, expected)
         assert result.shape == (n,)
 
     def test_is_instance_method_not_staticmethod(self):
-        """``_ensure_mono`` must be an instance method (accesses
-        ``self._mono_scratch_local``). A ``@staticmethod`` would have no
-        ``self`` and could not use the per-thread scratch."""
+        """``ensure_mono`` takes the owning ``Recorder`` as its first
+        parameter (the collaborator-function contract)."""
         # Python 3.12: instance methods are just functions in __dict__;
         # staticmethods are descriptors. Check via inspect.signature.
-        sig = inspect.signature(Recorder._ensure_mono)
+        sig = inspect.signature(ensure_mono)
         params = list(sig.parameters.keys())
-        assert params[0] == "self", f"_ensure_mono must take 'self' as first param, got {params[0]}"
+        assert params[0] == "recorder", f"ensure_mono must take 'recorder' as first param, got {params[0]}"
 
     def test_mono_scratch_local_initialized_in_init(self):
         """``__init__`` must set up the thread-local scratch holder."""
@@ -157,7 +157,7 @@ class TestEnsureMonoThreadLocal:
             try:
                 for i in range(200):
                     audio = np.full((512, 2), float(tid), dtype=np.float32)
-                    result = r._ensure_mono(audio)
+                    result = ensure_mono(r, audio)
                     # The result must equal the mean of the input —
                     # if another thread's scratch leaked, the value
                     # would differ.
@@ -303,14 +303,14 @@ class TestRestartStreamBufferFlush:
         )
 
     def test_secure_clear_caches_called_inside_lock(self):
-        """``_secure_clear_caches()`` must be called inside the lock to
+        """``SessionState.secure_clear_caches`` must be called inside the lock to
         securely zero the cached arrays before the buffer clear."""
         src = inspect.getsource(DisconnectHandler.restart_stream)
         lock_idx = src.find("with recorder._lock:")
         assert lock_idx >= 0
         lock_block = src[lock_idx:]
-        assert "recorder._secure_clear_caches()" in lock_block, (
-            "_secure_clear_caches() must be called inside recorder._lock"
+        assert "recorder._session_state.secure_clear_caches(recorder)" in lock_block, (
+            "secure_clear_caches(recorder) must be called inside recorder._lock"
         )
 
     def test_no_resample_segments_reset_inside_lock(self):
@@ -349,17 +349,17 @@ def _setup_recorder_for_restart(monkeypatch, r: Recorder) -> None:
     # doesn't raise AttributeError. ``raising=False`` because the
     # attribute doesn't exist until ``start()`` runs.
     monkeypatch.setattr(r, "_current_callback", lambda *a, **k: None, raising=False)
-    # ``_resolve_device`` returns None → skip the same-named-device
-    # candidate loop and fall straight to ``device=None`` (OS default).
-    monkeypatch.setattr(r, "_resolve_device", lambda: None)
-    # ``_resolve_effective_sample_rate`` returns (sr, None).
-    monkeypatch.setattr(r, "_resolve_effective_sample_rate", lambda _d: (48000, None))
-    # ``_refresh_vad_caches`` is a no-op (no real VAD state to refresh).
-    monkeypatch.setattr(r, "_refresh_vad_caches", lambda: None)
-
+    # ``DeviceManager._resolve_device`` returns None → skip the
+    # same-named-device candidate loop and fall straight to
+    # ``device=None`` (OS default).
+    monkeypatch.setattr(r._devices, "_resolve_device", lambda: None)
+    # ``DeviceManager._resolve_effective_sample_rate`` returns (sr, None).
+    monkeypatch.setattr(r._devices, "_resolve_effective_sample_rate", lambda _d: (48000, None))
+    # ``refresh_vad_caches`` is a no-op (no real VAD state to refresh).
     # Stub the lazy ``sd`` proxy's ``query_devices`` and ``InputStream``.
     import voice_typer.server.recording.disconnect_handler as dh_mod
 
+    monkeypatch.setattr(dh_mod, "refresh_vad_caches", lambda rec: None)
     monkeypatch.setattr(
         dh_mod.sd,
         "query_devices",
@@ -390,8 +390,8 @@ class TestRestartStreamRuntimeBehavior:
 
         assert len(r._buffer) == 0, "buffer must be flushed on hot-swap restart"
         assert len(r._ring_buffer) == 0, "ring buffer must be flushed on hot-swap restart"
-        assert r._device_disconnected is False
-        assert r._device_disconnect_retries == 0
+        assert r._devices._device_disconnected is False
+        assert r._devices._device_disconnect_retries == 0
         assert r._actual_channels == 1
         assert r._effective_sr == 48000
         assert r._buffer_sr is None
@@ -429,7 +429,7 @@ class TestRestartStreamRuntimeBehavior:
         re-probes."""
         r = _make_recorder()
         _setup_recorder_for_restart(monkeypatch, r)
-        r._device_disconnected = True
+        r._devices._device_disconnected = True
 
         import voice_typer.server.recording.disconnect_handler as dh_mod
 
@@ -442,7 +442,7 @@ class TestRestartStreamRuntimeBehavior:
         # The except clause CATCHES the transient error — no propagation.
         handler.restart_stream(_captured_generation=0)
 
-        assert r._device_disconnected is False, (
+        assert r._devices._device_disconnected is False, (
             "transient error must clear _device_disconnected for health-checker re-probe"
         )
 
@@ -450,7 +450,7 @@ class TestRestartStreamRuntimeBehavior:
         """``OSError`` (e.g. device busy) is also caught and cleared."""
         r = _make_recorder()
         _setup_recorder_for_restart(monkeypatch, r)
-        r._device_disconnected = True
+        r._devices._device_disconnected = True
 
         import voice_typer.server.recording.disconnect_handler as dh_mod
 
@@ -462,7 +462,9 @@ class TestRestartStreamRuntimeBehavior:
         handler = DisconnectHandler(r)
         handler.restart_stream(_captured_generation=0)
 
-        assert r._device_disconnected is False, "OSError must clear _device_disconnected for health-checker re-probe"
+        assert r._devices._device_disconnected is False, (
+            "OSError must clear _device_disconnected for health-checker re-probe"
+        )
 
     def test_runtime_error_clears_disconnect_flag(self, monkeypatch):
         """A non-programming-bug ``RuntimeError`` (e.g. from a flaky
@@ -470,7 +472,7 @@ class TestRestartStreamRuntimeBehavior:
         recovery behavior for unknown transient errors."""
         r = _make_recorder()
         _setup_recorder_for_restart(monkeypatch, r)
-        r._device_disconnected = True
+        r._devices._device_disconnected = True
 
         import voice_typer.server.recording.disconnect_handler as dh_mod
 
@@ -482,7 +484,7 @@ class TestRestartStreamRuntimeBehavior:
         handler = DisconnectHandler(r)
         handler.restart_stream(_captured_generation=0)
 
-        assert r._device_disconnected is False, (
+        assert r._devices._device_disconnected is False, (
             "RuntimeError must clear _device_disconnected for health-checker re-probe"
         )
 
@@ -497,7 +499,7 @@ class TestRestartStreamRuntimeBehavior:
         def raise_attr_error(_d):
             raise AttributeError("boom")
 
-        monkeypatch.setattr(r, "_resolve_effective_sample_rate", raise_attr_error)
+        monkeypatch.setattr(r._devices, "_resolve_effective_sample_rate", raise_attr_error)
 
         handler = DisconnectHandler(r)
         with pytest.raises(AttributeError, match="boom"):
@@ -511,7 +513,7 @@ class TestRestartStreamRuntimeBehavior:
         def raise_type_error(_d):
             raise TypeError("wrong type")
 
-        monkeypatch.setattr(r, "_resolve_effective_sample_rate", raise_type_error)
+        monkeypatch.setattr(r._devices, "_resolve_effective_sample_rate", raise_type_error)
 
         handler = DisconnectHandler(r)
         with pytest.raises(TypeError, match="wrong type"):

@@ -69,11 +69,12 @@ def _setup_recorder_for_restart(monkeypatch, r: Recorder) -> None:
     real audio device or a started stream (mirrors
     ``test_recorder_mono_and_disconnect_fixes``'s helper)."""
     monkeypatch.setattr(r, "_current_callback", lambda *a, **k: None, raising=False)
-    monkeypatch.setattr(r, "_resolve_device", lambda: None)
-    monkeypatch.setattr(r, "_resolve_effective_sample_rate", lambda _d: (48000, None))
-    monkeypatch.setattr(r, "_refresh_vad_caches", lambda: None)
+    monkeypatch.setattr(r._devices, "_resolve_device", lambda: None)
+    monkeypatch.setattr(r._devices, "_resolve_effective_sample_rate", lambda _d: (48000, None))
 
     import voice_typer.server.recording.disconnect_handler as dh_mod
+
+    monkeypatch.setattr(dh_mod, "refresh_vad_caches", lambda rec: None)
 
     monkeypatch.setattr(
         dh_mod.sd,
@@ -277,9 +278,6 @@ def _build_dispatcher_recorder(
     # ``_thread_registry`` is optional — None short-circuits the register
     # / unregister calls.
     recorder._thread_registry = None
-    # For ``start_audio_worker_body``: ``_audio_worker_loop`` is the
-    # thread target. ``Recorder`` provides this in production.
-    recorder._audio_worker_loop = lambda *args: None
     return recorder, arrays
 
 

@@ -284,19 +284,19 @@ class TestRecorderWatcherIntegration:
     """Verifies that ``Recorder`` creates, starts, and stops the watcher."""
 
     def test_recorder_invalidates_cache_on_watcher_event(self):
-        """``Recorder._invalidate_device_cache`` resets the cache fields."""
+        """``DeviceManager._invalidate_device_cache`` resets the cache fields."""
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
         # Populate the cache with stale data.
-        r._device_list_cache = [{"id": "0", "name": "stale"}]
-        r._device_list_cache_time = 12345.6
+        r._devices._device_list_cache = [{"id": "0", "name": "stale"}]
+        r._devices._device_list_cache_time = 12345.6
 
-        r._invalidate_device_cache()
+        r._devices._invalidate_device_cache()
 
-        assert r._device_list_cache is None
-        assert r._device_list_cache_time == 0.0
+        assert r._devices._device_list_cache is None
+        assert r._devices._device_list_cache_time == 0.0
         # Clean up the watcher.
         r.shutdown_mic_watcher()
 
@@ -314,7 +314,7 @@ class TestRecorderWatcherIntegration:
             # and start() was called.
             mock_watcher.assert_called_once()
             assert mock_instance.start.called
-            assert r._mic_watcher is mock_instance
+            assert r._devices._mic_watcher is mock_instance
             r.shutdown_mic_watcher()
 
     def test_recorder_shutdown_stops_watcher(self):
@@ -328,7 +328,7 @@ class TestRecorderWatcherIntegration:
 
             r.shutdown_mic_watcher()
             mock_instance.stop.assert_called_once()
-            assert r._mic_watcher is None
+            assert r._devices._mic_watcher is None
 
             # Idempotent — second call is a no-op.
             r.shutdown_mic_watcher()
@@ -351,7 +351,7 @@ class TestRecorderWatcherIntegration:
             r = Recorder(config)
 
             # Watcher is None — TTL polling covers this case.
-            assert r._mic_watcher is None
+            assert r._devices._mic_watcher is None
             # shutdown_mic_watcher is a safe no-op.
             r.shutdown_mic_watcher()
 

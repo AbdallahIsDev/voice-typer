@@ -112,6 +112,17 @@ from .exceptions import (  # noqa: E402 — post-threshold import kept for direc
     ResampleError,
 )
 
+# Audio-format helpers (bodies of the removed ``Recorder._resample_chunk``
+# / ``Recorder._prepare_audio`` delegators). Imported at module level so
+# tests can patch ``voice_typer.server.recording._recorder_split.resample_chunk``
+# / ``...prepare_audio``.
+from .format import prepare_audio, resample_chunk  # noqa: E402
+
+# VAD per-chunk cache refresh (body of the removed
+# ``Recorder._refresh_vad_caches`` delegator). Patchable at
+# ``voice_typer.server.recording._recorder_split.refresh_vad_caches``.
+from .vad_helpers import refresh_vad_caches  # noqa: E402
+
 if TYPE_CHECKING:
     from .recorder import Recorder
 
@@ -733,7 +744,7 @@ def _snapshot_resampled_locked(
     # than appending native-rate audio that would corrupt the
     # streaming transcription.
     try:
-        new_resampled = recorder._resample_chunk(raw_new, effective_sr, target_sr)
+        new_resampled = resample_chunk(recorder, raw_new, effective_sr, target_sr)
     except ResampleError as e:
         log.warning(
             "[RECORDING] Snapshot resample failed; dropping %d native samples: %s",
@@ -806,8 +817,8 @@ def discard_recording(recorder: Recorder) -> None:
     # securely zero cached audio arrays BEFORE reassignment
     # (previously this just dropped the references, leaving the discarded
     # session's voice data in process memory). Factored into
-    # ``_secure_clear_caches`` (shared with stop()'s two paths).
-    recorder._secure_clear_caches()
+    # ``SessionState.secure_clear_caches`` (shared with stop()'s two paths).
+    recorder._session_state.secure_clear_caches(recorder)
     # 17-H-: drain callback + stop + close via _teardown_stream()
     # (shared with stop()). The previous inline stream.stop()/close() here
     # had NO _is_in_audio_callback poll, risking use-after-free or deadlock
@@ -824,8 +835,10 @@ def discard_recording(recorder: Recorder) -> None:
     # stop the IPC event worker with drain=False — the recording was
     # cancelled, so queued IPC events (e.g. audio_clip from the discarded
     # audio) don't need to be published. The queue is cleared so the
-    # worker exits promptly.
-    recorder._stop_event_worker(timeout=_EVENT_WORKER_DISCARD_JOIN_TIMEOUT_S, drain=False)
+    # worker exits promptly. The lock is held across the lifecycle
+    # sequence (the collaborator body must NOT acquire it itself).
+    with recorder._worker_lifecycle_lock:
+        recorder._capture.stop_event_worker_body(recorder, timeout=_EVENT_WORKER_DISCARD_JOIN_TIMEOUT_S, drain=False)
     # CPU-03: stop the device health checker thread (mirrors the event worker).
     # Fire-and-forget (timeout=0.0): the device-health checker is a daemon
     # that sleeps 30s between probes, so joining it almost always times out.
@@ -907,16 +920,17 @@ def start_recording(recorder: Recorder) -> None:
         candidates`` loop, the fallback loop, and the
         ``if recorder._stream is None:`` check) MUST stay at this
         function's body scope — OUTSIDE the ``callback`` closure built
-        by ``recorder._build_audio_callback()`` above. A previous
+        by ``recorder._stream_lifecycle.build_audio_callback(recorder)``
+        above. A previous
         merge accidentally nested this block INSIDE the ``def
         callback()`` closure, which made ``last_error`` a local of
         ``callback`` instead of ``start()``, raising
         ``UnboundLocalError`` on every recording start.
 
-        The device-loop bodies are extracted into
-        ``recorder._open_stream_for_candidates`` /
-        ``recorder._open_stream_fallback`` (both called from this
-        function's scope, OUTSIDE the callback closure), so the
+        The device-loop bodies live on :class:`.stream_lifecycle.StreamLifecycle`
+        (``open_stream_for_candidates`` / ``open_stream_fallback``, invoked
+        from this function's scope via ``recorder._stream_lifecycle``, OUTSIDE
+        the callback closure), so the
         structural contract above is preserved.
 
         DO NOT move device enumeration inside the callback closure.
@@ -937,16 +951,16 @@ def start_recording(recorder: Recorder) -> None:
     recorder._secure_clear_session_caches()
 
     # per-session state reset () ──
-    recorder._reset_session_state()
+    recorder._session_state.reset_session_state(recorder)
 
     # ── cache config-derived scalars for the audio callback hot path ──
-    max_rec = recorder._cache_session_config()
+    max_rec = recorder._session_state.cache_session_config(recorder)
 
-    device = recorder._resolve_device()
-    candidates = recorder._same_physical_microphone_candidates(device)
+    device = recorder._devices._resolve_device()
+    candidates = recorder._devices._same_physical_microphone_candidates(device)
 
     # build the PortAudio callback closure () ──
-    callback = recorder._build_audio_callback()
+    callback = recorder._stream_lifecycle.build_audio_callback(recorder)
 
     # =====================================================================
     # CRITICAL — DO NOT RESTRUCTURE (2026-07-20)
@@ -983,14 +997,14 @@ def start_recording(recorder: Recorder) -> None:
     effective_sr: int = recorder.config.sample_rate
     used_fallback = False
 
-    selected_device, effective_sr, last_error = recorder._open_stream_for_candidates(
-        candidates, callback, effective_sr, last_error
+    selected_device, effective_sr, last_error = recorder._stream_lifecycle.open_stream_for_candidates(
+        recorder, candidates, callback, effective_sr, last_error
     )
 
     # If all same-name candidates failed, try ALL available input devices
     if recorder._stream is None and not used_fallback:
-        selected_device, effective_sr, used_fallback, last_error = recorder._open_stream_fallback(
-            candidates, callback, effective_sr, last_error
+        selected_device, effective_sr, used_fallback, last_error = recorder._stream_lifecycle.open_stream_fallback(
+            recorder, candidates, callback, effective_sr, last_error
         )
 
     if recorder._stream is None:
@@ -999,7 +1013,7 @@ def start_recording(recorder: Recorder) -> None:
         raise RuntimeError("No input device could be opened")
 
     # ── dynamic buffer sizing (deferred until effective_sr known) ──
-    recorder._resize_buffers_for_sample_rate(effective_sr, max_rec)
+    recorder._session_state.resize_buffers_for_sample_rate(recorder, effective_sr, max_rec)
 
     # Scale the SPSC ring buffer to ~2s of headroom at the
     # device's effective sample rate. ``_resize_buffers_for_sample_rate``
@@ -1149,7 +1163,7 @@ def start_recording(recorder: Recorder) -> None:
     # ``_effective_sr`` is finalized. The cache lets the
     # 16 Hz audio worker hot path read scalars instead of
     # dispatching 3 property lookups per chunk × 16 Hz = 48/sec.
-    recorder._refresh_vad_caches()
+    refresh_vad_caches(recorder)
 
     # Start the audio worker thread AFTER ``_recording_event.set()``
     # (so the callback will actually push to the ring buffer). The
@@ -1193,9 +1207,12 @@ def start_recording(recorder: Recorder) -> None:
     # Start the IPC event worker thread AFTER the audio worker
     # so the audio worker can enqueue IPC events (e.g. audio_clip)
     # as soon as it begins processing chunks. The event worker is
-    # stopped by stop()/discard() — see _stop_event_worker.
+    # stopped by stop()/discard() — the lifecycle lock is held across
+    # the read-check-create-start sequence (the collaborator body must
+    # NOT acquire it itself).
     try:
-        recorder._start_event_worker()
+        with recorder._worker_lifecycle_lock:
+            recorder._capture.start_event_worker_body(recorder)
     except BaseException:
         recorder._stop_generation += 1
         recorder._recording_event.clear()
@@ -1208,7 +1225,7 @@ def start_recording(recorder: Recorder) -> None:
 
     # CPU-03: start the device health checker thread (off the audio
     # worker) so device-disconnect detection doesn't block the hot path.
-    recorder._start_device_health_checker()
+    recorder._devices._start_device_health_checker()
 
     # Wire the idle-recording gate. ``Recorder.start`` is the
     # production caller that toggles
@@ -1224,7 +1241,7 @@ def start_recording(recorder: Recorder) -> None:
     # macOS-without-pyobjc fall-back (``_mic_watcher`` is ``None`` when
     # the watcher failed to start — see ``DeviceManager.__init__``) so
     # this branch is a no-op on hosts where the watcher never came up.
-    _mic_watcher = recorder._mic_watcher
+    _mic_watcher = recorder._devices._mic_watcher
     if _mic_watcher is not None:
         _mic_watcher.set_idle(False)
 
@@ -1371,7 +1388,11 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     # to drain. Pre-fix this was 0.1s which was too short for any
     # publish > 100ms — the daemon was left running and the test
     # contract (drain completes within stop()) was violated.
-    recorder._stop_event_worker(timeout=_EVENT_WORKER_JOIN_TIMEOUT_S, drain=True)
+    # The lifecycle lock is held across the read-check-clear-join-
+    # unregister sequence (the collaborator body must NOT acquire it
+    # itself).
+    with recorder._worker_lifecycle_lock:
+        recorder._capture.stop_event_worker_body(recorder, timeout=_EVENT_WORKER_JOIN_TIMEOUT_S, drain=True)
 
     # device health checker fire-and-forget. Pass timeout=0.0
     # so ``_stop_device_health_checker`` only signals the stop event
@@ -1397,7 +1418,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
             # references, leaving the previous session's voice data
             # in process memory until the numpy allocator reused
             # the block).
-            recorder._secure_clear_caches()
+            recorder._session_state.secure_clear_caches(recorder)
             recorder._chunk_count = 0
             # PERF: zero the running buffered-samples counter alongside
             # ``_chunk_count`` so ``current_duration_seconds`` returns
@@ -1412,7 +1433,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
             # ``set_idle(True)`` call before the normal ``return audio``
             # at the end of this function. ``None`` guard for hosts
             # where the watcher never came up.
-            _mic_watcher = recorder._mic_watcher
+            _mic_watcher = recorder._devices._mic_watcher
             if _mic_watcher is not None:
                 _mic_watcher.set_idle(True)
             return np.array([], dtype=np.float32)
@@ -1442,7 +1463,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
         # reassignment (same rationale as the empty-buffer path
         # above; factored into ``_secure_clear_caches`` to avoid
         # duplication across stop()'s two paths and discard()).
-        recorder._secure_clear_caches()
+        recorder._session_state.secure_clear_caches(recorder)
     # materialize the contiguous result OUTSIDE the lock so the
     # audio worker (and any other ``recorder._lock`` acquirer) is not
     # blocked. One O(N) copy replaces the old np.concatenate.
@@ -1504,7 +1525,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
 
     def _run_prepare_audio() -> None:
         try:
-            _resample_result["audio"] = recorder._prepare_audio(audio, effective_sr)
+            _resample_result["audio"] = prepare_audio(recorder, audio, effective_sr)
         except BaseException as exc:  # noqa: BLE001 — re-raised after join
             _resample_result["exc"] = exc
 
@@ -1619,7 +1640,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     # 10–50 ms CoreAudio round trip per poll when no recording is
     # in flight. The ``None`` guard covers hosts where the watcher
     # never came up (macOS-without-pyobjc fall-back).
-    _mic_watcher = recorder._mic_watcher
+    _mic_watcher = recorder._devices._mic_watcher
     if _mic_watcher is not None:
         _mic_watcher.set_idle(True)
 

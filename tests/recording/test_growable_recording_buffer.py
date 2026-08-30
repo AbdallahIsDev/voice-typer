@@ -23,12 +23,25 @@ import threading
 from unittest.mock import MagicMock
 
 import numpy as np
+import pytest
 from voice_typer.server.recording._recorder_split import (
     GrowableRecordingBuffer,
     discard_recording,
     stop_recording,
     take_snapshot,
 )
+
+
+@pytest.fixture(autouse=True)
+def _identity_prepare_audio(monkeypatch):
+    """Patch the module-level ``prepare_audio`` binding that
+    ``stop_recording`` invokes (the historical
+    ``Recorder._prepare_audio`` delegator was removed) with an identity
+    pass-through so the stop-path tests exercise the buffer mechanics."""
+    import voice_typer.server.recording._recorder_split as split_mod
+
+    monkeypatch.setattr(split_mod, "prepare_audio", lambda rec, audio, effective_sr_in, **kw: audio)
+
 
 # ── helpers ──────────────────────────────────────────────────────────────
 
@@ -236,6 +249,17 @@ class _FakeRecorderForSnapshot:
 
 
 class TestResampleCacheInvalidationOnRateChange:
+    @pytest.fixture(autouse=True)
+    def _route_resample_through_fake(self, monkeypatch):
+        """Route the module-level ``resample_chunk`` binding (the
+        historical ``Recorder._resample_chunk`` delegator was removed)
+        through the fake recorder's recording stub."""
+
+        def _route(recorder, audio, effective_sr, target_sr):
+            return recorder._resample_chunk(audio, effective_sr, target_sr)
+
+        monkeypatch.setattr("voice_typer.server.recording._recorder_split.resample_chunk", _route)
+
     def test_src_rate_change_invalidates_and_rebuilds_cache(self):
         rec = _FakeRecorderForSnapshot(effective_sr=48000)
         rec._buffer.append(np.full((6, 1), 1.0, dtype=np.float32))
@@ -287,7 +311,7 @@ def _make_mock_recorder_for_stop(chunks: list[np.ndarray], *, buffer_sr: int = 1
     rec._stop_generation = 0
     rec._user_stop_pending = False
     rec._lock = threading.Lock()
-    rec._mic_watcher = None
+    rec._devices._mic_watcher = None
     buf = GrowableRecordingBuffer(maxlen=30000, nominal_sample_rate=16000)
     for c in chunks:
         buf.append(c)
@@ -298,7 +322,6 @@ def _make_mock_recorder_for_stop(chunks: list[np.ndarray], *, buffer_sr: int = 1
     rec._last_rms = 0.0
     rec._last_audio_stats = (0.0, 0.0, 0.0)
     rec._total_buffered_samples = buf.total_samples
-    rec._prepare_audio.side_effect = lambda audio, effective_sr_in, **kw: audio
     return rec
 
 
@@ -365,10 +388,10 @@ class TestDiscardAndStopZeroing:
         rec._stream = MagicMock()
         rec._teardown_stream = MagicMock()
         rec._stop_audio_worker = MagicMock()
-        rec._stop_event_worker = MagicMock()
+        rec._capture.stop_event_worker_body = MagicMock()
         rec._stop_device_health_checker = MagicMock()
-        rec._secure_clear_caches = MagicMock()
-        rec._mic_watcher = None
+        rec._session_state.secure_clear_caches = MagicMock()
+        rec._devices._mic_watcher = None
         rec._effective_sr = 16000
         rec._last_rms = 0.0
         rec._silence_timer = 0.0

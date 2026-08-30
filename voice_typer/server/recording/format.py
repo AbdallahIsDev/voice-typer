@@ -20,7 +20,7 @@ Patch-path compatibility
 ------------------------
 ``prepare_audio`` reads the cached target rate from
 ``recorder._cached_target_sr`` and routes the actual conversion through
-``recorder._resample_audio_impl`` (which itself routes through the
+:mod:`voice_typer.server.recording.resampling` (which routes through the
 package namespace), so existing test patches of
 ``voice_typer.server.recording._get_resample_poly`` /
 ``voice_typer.server.recording.np.interp`` keep affecting production
@@ -30,6 +30,8 @@ code exactly as before.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+
+from voice_typer.server.recording.resampling import resample_audio
 
 if TYPE_CHECKING:
     from .recorder import Recorder
@@ -113,7 +115,7 @@ def resample_chunk(recorder: Recorder, audio: Any, effective_sr: int, target_sr:
     """
     if len(audio) == 0:
         return np.array([], dtype=np.float32)
-    return recorder._resample_audio_impl(audio, effective_sr, target_sr, log_resample=False)
+    return resample_audio(audio, effective_sr, target_sr, log_resample=False)
 
 
 def prepare_audio(
@@ -145,7 +147,7 @@ def prepare_audio(
     # sets it before any audio is captured).
     target_sr = getattr(recorder, "_cached_target_sr", None) or recorder.config.sample_rate
     if effective_sr != target_sr and len(audio) > 0:
-        return recorder._resample_audio_impl(audio, effective_sr, target_sr, log_resample=log_resample)
+        return resample_audio(audio, effective_sr, target_sr, log_resample=log_resample)
     return audio
 
 

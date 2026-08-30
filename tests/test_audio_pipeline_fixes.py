@@ -2,7 +2,7 @@
 
 * scipy import is hoisted to module top (no per-call ``from
   scipy.signal import upfirdn`` inside ``run_vad_state_machine``).
-* VAD ``_vad_auto_calibrate`` receives the RAW (pre-filter) chunk RMS,
+* VAD auto-calibration receives the RAW (pre-filter) chunk RMS,
   not the post-filter ``chunk_rms``.
 * ``audio_quality_controller`` imports numpy lazily under
   ``TYPE_CHECKING`` (``np`` is NOT in the module's ``__dict__`` at
@@ -120,7 +120,6 @@ def _make_vad_recorder_stub() -> MagicMock:
     recorder._cached_silero_available = False
     # State-machine downstream — return SPEECH to avoid silence-timer
     # side effects.
-    recorder._vad_update.return_value = VadState.SPEECH
     # Silence-timer state — pre-initialised so the SPEECH branch's
     # writes don't fail on MagicMock attribute access.
     recorder._silence_start_time = None
@@ -136,27 +135,30 @@ def _make_vad_recorder_stub() -> MagicMock:
     return recorder
 
 
-def _make_process_chunk_recorder_stub() -> MagicMock:
-    """Build a MagicMock ``Recorder`` for ``process_audio_chunk`` tests.
+def _make_process_chunk_pipeline_stub() -> AudioPipeline:
+    """Build a ``Recorder`` stub + ``AudioPipeline`` for
+    ``process_audio_chunk`` tests.
 
-    The six named helpers are MagicMock objects so the test can assert
-    call counts. A real ``threading.Lock`` and ``deque`` are installed
-    so the orchestration body's ``with self._recorder._lock:`` and
+    The six named helpers are shadowed on the pipeline INSTANCE with
+    MagicMock objects so the tests can assert call counts. A real
+    ``threading.Lock`` and ``deque`` are installed on the recorder so
+    the orchestration body's ``with self._recorder._lock:`` and
     ``self._recorder._recent_rms_values.append(chunk_rms)`` lines work
     with real semantics.
     """
     recorder = MagicMock(name="RecorderStub")
-    recorder._detect_device_disconnect.return_value = False
-    recorder._handle_xrun_status.return_value = False
-    # _apply_filter_chain returns a filtered array with a DIFFERENT RMS
+    pipeline = AudioPipeline(recorder)
+    pipeline.detect_device_disconnect = MagicMock(return_value=False)
+    pipeline.handle_xrun_status = MagicMock(return_value=False)
+    # apply_filter_chain returns a filtered array with a DIFFERENT RMS
     # than the raw indata, so the test can distinguish raw vs filtered.
-    recorder._apply_filter_chain.return_value = np.array([0.5, -0.5, 0.5, -0.5], dtype=np.float32)
-    recorder._append_to_buffer_locked.return_value = (1, 1)
-    # _compute_rms_and_peak returns the FILTERED RMS (0.5) — distinct
+    pipeline.apply_filter_chain = MagicMock(return_value=np.array([0.5, -0.5, 0.5, -0.5], dtype=np.float32))
+    pipeline.append_to_buffer_locked = MagicMock(return_value=(1, 1))
+    # compute_rms_and_peak returns the FILTERED RMS (0.5) — distinct
     # from the raw RMS of the test's indata.
-    recorder._compute_rms_and_peak.return_value = (0.5, 0.9, 0.032)
-    recorder._detect_and_emit_clipping.return_value = None
-    recorder._run_vad_state_machine.return_value = None
+    pipeline.compute_rms_and_peak = MagicMock(return_value=(0.5, 0.9, 0.032))
+    pipeline.detect_and_emit_clipping = MagicMock()
+    pipeline.run_vad_state_machine = MagicMock()
     recorder._lock = threading.Lock()
     recorder._recent_rms_values = collections.deque(maxlen=10)
     recorder._last_rms = None
@@ -167,28 +169,36 @@ def _make_process_chunk_recorder_stub() -> MagicMock:
     recorder.on_max_duration_auto_stop = None
     recorder._recording_start_time = 100.0
     recorder._effective_sr = 16000
-    return recorder
+    return pipeline
 
 
 class TestVadAutoCalibrateReceivesRawRms:
-    """``_vad_auto_calibrate`` must receive the RAW (pre-filter) chunk
-    RMS, not the post-filter ``chunk_rms``.
+    """``vad_auto_calibrate`` (the module-level function
+    ``run_vad_state_machine`` invokes) must receive the RAW (pre-filter)
+    chunk RMS, not the post-filter ``chunk_rms``.
 
     The raw RMS is threaded from ``process_audio_chunk`` (where it's
     computed from ``indata`` before the filter chain) to
     ``run_vad_state_machine`` (where it's passed to
-    ``_vad_auto_calibrate``) via a transient instance attribute
+    ``vad_auto_calibrate``) via a transient instance attribute
     ``self._pending_raw_chunk_rms``.
     """
 
     def test_auto_calibrate_receives_raw_rms_not_filtered(
         self,
+        monkeypatch,
     ) -> None:
         """When ``_pending_raw_chunk_rms`` is set (by
-        ``process_audio_chunk``), ``_vad_auto_calibrate`` is called
+        ``process_audio_chunk``), ``vad_auto_calibrate`` is called
         with that value — NOT the filtered ``chunk_rms`` argument."""
+        import voice_typer.server.recording.audio_pipeline as ap_mod
+
         recorder = _make_vad_recorder_stub()
         pipeline = AudioPipeline(recorder)
+        vad_update_mock = MagicMock(return_value=VadState.SPEECH)
+        calibrate_mock = MagicMock()
+        monkeypatch.setattr(ap_mod, "vad_update", vad_update_mock)
+        monkeypatch.setattr(ap_mod, "vad_auto_calibrate", calibrate_mock)
 
         raw_rms = 0.123
         filtered_rms = 0.456  # deliberately different from raw_rms
@@ -208,17 +218,25 @@ class TestVadAutoCalibrateReceivesRawRms:
             max_duration_cb=None,
         )
 
-        recorder._vad_auto_calibrate.assert_called_once_with(raw_rms, 0.032)
+        calibrate_mock.assert_called_once_with(recorder, raw_rms, 0.032)
 
     def test_auto_calibrate_falls_back_to_chunk_rms_when_no_raw(
         self,
+        monkeypatch,
     ) -> None:
         """Direct callers of ``run_vad_state_machine`` that did not
         set ``_pending_raw_chunk_rms`` fall back to ``chunk_rms``.
         This preserves backward compatibility for tests / callers that
         invoke the method directly."""
+        import voice_typer.server.recording.audio_pipeline as ap_mod
+
         recorder = _make_vad_recorder_stub()
         pipeline = AudioPipeline(recorder)
+        # The stub disables the VAD branch (``_cached_vad_enabled=False``),
+        # so the real ``vad_auto_calibrate`` would short-circuit — patch
+        # it with a mock to observe the call arguments.
+        calibrate_mock = MagicMock()
+        monkeypatch.setattr(ap_mod, "vad_auto_calibrate", calibrate_mock)
         # Do NOT set _pending_raw_chunk_rms — simulate a direct caller.
 
         filtered_rms = 0.456
@@ -235,7 +253,7 @@ class TestVadAutoCalibrateReceivesRawRms:
             max_duration_cb=None,
         )
 
-        recorder._vad_auto_calibrate.assert_called_once_with(filtered_rms, 0.032)
+        calibrate_mock.assert_called_once_with(recorder, filtered_rms, 0.032)
 
     def test_process_audio_chunk_sets_pending_raw_rms_from_indata(
         self,
@@ -245,8 +263,7 @@ class TestVadAutoCalibrateReceivesRawRms:
         BEFORE the filter chain runs. The stored value must match the
         RMS of the raw ``indata`` — NOT the filtered array returned by
         ``_apply_filter_chain``."""
-        recorder = _make_process_chunk_recorder_stub()
-        pipeline = AudioPipeline(recorder)
+        pipeline = _make_process_chunk_pipeline_stub()
 
         # indata with a known, computable RMS (distinct from the
         # filtered array's RMS of 0.5).
@@ -278,28 +295,27 @@ class TestVadAutoCalibrateReceivesRawRms:
         that ``_apply_filter_chain`` receives the ORIGINAL ``indata``
         (not a modified version), and ``_pending_raw_chunk_rms`` is
         already set when the filter chain runs."""
-        recorder = _make_process_chunk_recorder_stub()
+        pipeline = _make_process_chunk_pipeline_stub()
 
         # Capture whether _pending_raw_chunk_rms is set at the time
-        # _apply_filter_chain is called.
+        # apply_filter_chain is called.
         raw_rms_at_filter_time: list[float | None] = []
 
         def capture_filter_chain(indata: np.ndarray) -> np.ndarray:
             # Record the value of _pending_raw_chunk_rms on the pipeline
-            # at the moment _apply_filter_chain is invoked.
+            # at the moment apply_filter_chain is invoked.
             raw_rms_at_filter_time.append(getattr(pipeline, "_pending_raw_chunk_rms", None))
-            return recorder._apply_filter_chain.return_value
+            return pipeline.apply_filter_chain.return_value
 
-        recorder._apply_filter_chain.side_effect = capture_filter_chain
+        pipeline.apply_filter_chain.side_effect = capture_filter_chain
 
-        pipeline = AudioPipeline(recorder)
         indata = np.array([0.3, -0.3, 0.3, -0.3], dtype=np.float32)
         expected_raw_rms = float(np.sqrt(np.mean(indata**2)))
 
         pipeline.process_audio_chunk(indata, 4, None, 0, 12345.0)
 
-        # _apply_filter_chain was called exactly once with indata.
-        recorder._apply_filter_chain.assert_called_once_with(indata)
+        # apply_filter_chain was called exactly once with indata.
+        pipeline.apply_filter_chain.assert_called_once_with(indata)
         # At the time _apply_filter_chain was called, _pending_raw_chunk_rms
         # was ALREADY set to the correct raw RMS.
         assert len(raw_rms_at_filter_time) == 1

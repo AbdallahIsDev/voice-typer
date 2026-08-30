@@ -260,88 +260,53 @@ class TestWorkerLifecycleLock:
                 r._worker_stop_event.set()
                 r._worker_thread.join(timeout=1.0)
 
-    def test_start_event_worker_holds_lock(self, monkeypatch):
-        """Behavioral: ``_start_event_worker`` must acquire
-        ``_worker_lifecycle_lock``."""
-        import voice_typer.server.recording as recording_mod
-        from voice_typer.server.recording import Recorder
+    def test_start_event_worker_lock_is_acquired_at_call_site(self):
+        """Collaborator-source: the event-worker start sequence must be
+        wrapped in ``recorder._worker_lifecycle_lock`` at the
+        ``_recorder_split.start_recording`` call site (the historical
+        ``Recorder._start_event_worker`` wrapper was removed; the
+        collaborator body must NOT acquire the lock itself — pinned
+        by ``tests/test_capture_worker_lifecycle.py``)."""
+        import inspect
 
-        _patch_ok_stream(monkeypatch, recording_mod)
+        from voice_typer.server.recording._recorder_split import start_recording
 
-        config = MagicMock(sample_rate=16000, microphone=None)
-        r = Recorder(config)
+        src = inspect.getsource(start_recording)
+        lock_idx = src.find("with recorder._worker_lifecycle_lock:")
+        assert lock_idx >= 0, (
+            "GT-23: start_recording must acquire _worker_lifecycle_lock "
+            "around the event-worker read-check-create-start sequence."
+        )
+        body_idx = src.find("start_event_worker_body", lock_idx)
+        assert body_idx >= 0, (
+            "GT-23: start_event_worker_body must be invoked INSIDE the ``with recorder._worker_lifecycle_lock:`` block."
+        )
 
-        r._worker_lifecycle_lock.acquire()
-        try:
-            done_flag = threading.Event()
+    def test_stop_event_worker_lock_is_acquired_at_call_sites(self):
+        """Collaborator-source: the event-worker stop sequence must be
+        wrapped in ``recorder._worker_lifecycle_lock`` at the
+        ``_recorder_split.stop_recording`` AND ``discard_recording``
+        call sites (the historical ``Recorder._stop_event_worker``
+        wrapper was removed)."""
+        import inspect
 
-            def call_start():
-                r._start_event_worker()
-                done_flag.set()
+        from voice_typer.server.recording._recorder_split import discard_recording, stop_recording
 
-            t = threading.Thread(target=call_start, name="test-start-event-worker")
-            t.start()
-
-            blocked = not done_flag.wait(timeout=0.3)
-            assert blocked, (
-                "GT-23: _start_event_worker did NOT block when "
-                "_worker_lifecycle_lock was held — it must acquire the "
-                "lock around the read-check-create-start sequence."
+        for fn in (stop_recording, discard_recording):
+            src = inspect.getsource(fn)
+            lock_idx = src.find("with recorder._worker_lifecycle_lock:")
+            assert lock_idx >= 0, (
+                f"GT-23: {fn.__name__} must acquire _worker_lifecycle_lock "
+                "around the event-worker read-check-clear-join-unregister sequence."
+            )
+            body_idx = src.find("stop_event_worker_body", lock_idx)
+            assert body_idx >= 0, (
+                f"GT-23: stop_event_worker_body must be invoked INSIDE the "
+                f"``with recorder._worker_lifecycle_lock:`` block in {fn.__name__}."
             )
 
-            r._worker_lifecycle_lock.release()
-            completed = done_flag.wait(timeout=2.0)
-            assert completed, "GT-23: _start_event_worker did not complete after the lock was released."
-            t.join(timeout=1.0)
-        finally:
-            with contextlib.suppress(RuntimeError):
-                r._worker_lifecycle_lock.release()
-            with contextlib.suppress(Exception):
-                r._stop_event_worker(timeout=0.5, drain=False)
-
-    def test_stop_event_worker_holds_lock(self, monkeypatch):
-        """Behavioral: ``_stop_event_worker`` must acquire
-        ``_worker_lifecycle_lock``."""
-        import voice_typer.server.recording as recording_mod
-        from voice_typer.server.recording import Recorder
-
-        _patch_ok_stream(monkeypatch, recording_mod)
-
-        config = MagicMock(sample_rate=16000, microphone=None)
-        r = Recorder(config)
-        r._start_event_worker()
-        assert r._event_worker_thread is not None
-
-        r._worker_lifecycle_lock.acquire()
-        try:
-            done_flag = threading.Event()
-
-            def call_stop():
-                r._stop_event_worker(timeout=0.5, drain=False)
-                done_flag.set()
-
-            t = threading.Thread(target=call_stop, name="test-stop-event-worker")
-            t.start()
-
-            blocked = not done_flag.wait(timeout=0.3)
-            assert blocked, (
-                "GT-23: _stop_event_worker did NOT block when "
-                "_worker_lifecycle_lock was held — it must acquire the "
-                "lock around the read-check-clear-join-unregister sequence."
-            )
-
-            r._worker_lifecycle_lock.release()
-            completed = done_flag.wait(timeout=2.0)
-            assert completed, "GT-23: _stop_event_worker did not complete after the lock was released."
-            t.join(timeout=1.0)
-        finally:
-            with contextlib.suppress(RuntimeError):
-                r._worker_lifecycle_lock.release()
-            with contextlib.suppress(Exception):
-                r._stop_event_worker(timeout=0.5, drain=False)
-
-    def test_stop_event_worker_does_not_hold_self_lock_across_join(self, monkeypatch):
-        """Behavioral: ``_stop_event_worker`` must NOT acquire
+    def test_stop_event_worker_body_does_not_hold_self_lock_across_join(self, monkeypatch):
+        """Behavioral: the event-worker stop body must NOT acquire
         ``self._lock`` — same contract as ``_stop_audio_worker``."""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
@@ -350,7 +315,8 @@ class TestWorkerLifecycleLock:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        r._start_event_worker()
+        with r._worker_lifecycle_lock:
+            r._capture.start_event_worker_body(r)
         assert r._event_worker_thread is not None
 
         real_lock = r._lock
@@ -362,7 +328,7 @@ class TestWorkerLifecycleLock:
                 if threading.current_thread() is main_thread:
                     main_thread_acquires.append("acquire")
                     raise RuntimeError(
-                        "GT-23: _stop_event_worker attempted to acquire "
+                        "GT-23: stop_event_worker_body attempted to acquire "
                         "self._lock — it must NOT hold self._lock across "
                         "thread.join() (would deadlock with the worker's "
                         "buffer-append critical section)."
@@ -382,9 +348,9 @@ class TestWorkerLifecycleLock:
 
         r._lock = GuardedLock()
         try:
-            r._stop_event_worker(timeout=1.0, drain=False)
+            r._capture.stop_event_worker_body(r, timeout=1.0, drain=False)
             assert main_thread_acquires == [], (
-                "GT-23: _stop_event_worker acquired self._lock (entries: "
+                "GT-23: stop_event_worker_body acquired self._lock (entries: "
                 f"{main_thread_acquires}). It must NOT acquire self._lock — "
                 "holding it across thread.join() would deadlock."
             )
@@ -554,7 +520,8 @@ class TestIdleStopStopsOrphanedWorkers:
         # discard ran) but the event worker spawned by a concurrent
         # start() is still alive.
         assert not r._recording_event.is_set()
-        r._start_event_worker()
+        with r._worker_lifecycle_lock:
+            r._capture.start_event_worker_body(r)
         assert r._event_worker_thread is not None
         assert r._event_worker_thread.is_alive()
 
@@ -605,7 +572,8 @@ class TestIdleStopStopsOrphanedWorkers:
         r = Recorder(config)
 
         assert not r._recording_event.is_set()
-        r._start_event_worker()
+        with r._worker_lifecycle_lock:
+            r._capture.start_event_worker_body(r)
         assert r._event_worker_thread is not None
         assert r._event_worker_thread.is_alive()
 
@@ -657,7 +625,7 @@ class TestStreamFinishedCallbackGeneration:
 
         r._spawn_device_thread = capturing_spawn
 
-        r._device_disconnected = False
+        r._devices._device_disconnected = False
         r._user_stop_pending = False
         r._stream = MagicMock()
         r._recording_event.clear()
@@ -713,14 +681,14 @@ class TestStreamFinishedCallbackGeneration:
 
         r._stop_generation = 10
         r._recording_event.set()
-        initial_retries = r._device_disconnect_retries
+        initial_retries = r._devices._device_disconnect_retries
 
         r._handle_device_disconnect(_captured_generation=3)
 
-        assert r._device_disconnect_retries == initial_retries, (
+        assert r._devices._device_disconnect_retries == initial_retries, (
             "GT-24: _handle_device_disconnect incremented "
             f"_device_disconnect_retries (from {initial_retries} to "
-            f"{r._device_disconnect_retries}) despite _captured_generation "
+            f"{r._devices._device_disconnect_retries}) despite _captured_generation "
             "(3) != _stop_generation (10). The bouncer must bail out "
             "before the retry/restart block."
         )
@@ -759,13 +727,13 @@ class TestStreamFinishedCallbackGeneration:
             # The bouncer should bail out — the handler was scheduled
             # with gen=0 but _stop_generation is now 1.
             restarted_flag = {"called": False}
-            original_resolve = r._resolve_effective_sample_rate
+            original_resolve = r._devices._resolve_effective_sample_rate
 
             def tracking_resolve(*args, **kwargs):
                 restarted_flag["called"] = True
                 return original_resolve(*args, **kwargs)
 
-            r._resolve_effective_sample_rate = tracking_resolve
+            r._devices._resolve_effective_sample_rate = tracking_resolve
 
             r._handle_device_disconnect(_captured_generation=captured_gen)
 
@@ -1211,5 +1179,5 @@ class TestStreamFinishedCallbackFirstSession:
             # Restore recording_event so stop() can clean up properly.
             r._recording_event.set()
             r._stop_generation = 0
-            r._device_disconnected = False
+            r._devices._device_disconnected = False
             r.stop()

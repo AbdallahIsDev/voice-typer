@@ -134,6 +134,12 @@ class _FakeRecorder:
                 return
             # (don't actually publish — just consume)
 
+    def _process_audio_chunk(self, *args) -> None:
+        """No-op processor: the dispatcher's real ``audio_worker_loop``
+        (the thread target since the Recorder delegator was removed)
+        calls this per drained chunk; the round-trip test only
+        exercises lifecycle cleanup."""
+
 
 # ── start_audio_worker_body ──────────────────────────────────────────────
 
@@ -292,13 +298,13 @@ class TestStopAudioWorkerBody:
         dispatcher = AudioCallbackDispatcher(fake)
 
         # Inject a slow loop that ignores the stop event for a while.
-        # It accepts the explicit ``(stop_event, wake_event)`` args that
-        # ``start_audio_worker_body`` now passes at thread-spawn time
-        # (WM-8) so the thread body signature matches production.
-        def slow_loop(stop_event=None, wake_event=None) -> None:
+        # The thread target is the dispatcher's ``audio_worker_loop``
+        # (called with ``(recorder, stop_event, wake_event)``), so
+        # shadow it on the dispatcher instance with a slow stand-in.
+        def slow_loop(recorder, stop_event=None, wake_event=None) -> None:
             time.sleep(0.2)  # much longer than the join timeout
 
-        fake._audio_worker_loop = slow_loop  # type: ignore[method-assign]
+        dispatcher.audio_worker_loop = slow_loop
 
         dispatcher.start_audio_worker_body(fake)
         thread_ref = fake._worker_thread
@@ -677,8 +683,14 @@ class TestStartStopRoundTrip:
         # Push some chunks (the worker drains them in the background).
         for i in range(5):
             fake._ring_buffer.append((f"chunk-{i}", 4, "t", "s", 0.0))
-        # Give the worker a moment to drain.
-        time.sleep(0.05)
+        # Wait for the worker to drain the chunks BEFORE stopping —
+        # the real loop's mid-drain stop-check may bail out early
+        # (documented best-effort drain) if the stop signal lands
+        # while a drain is in progress, which would leave tail chunks.
+        deadline = time.monotonic() + 2.0
+        while len(fake._ring_buffer) > 0 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert len(fake._ring_buffer) == 0, "worker did not drain the pushed chunks"
         # Stop.
         dispatcher.stop_audio_worker_body(fake, timeout=1.0)
         # After stop: thread is None, events cleared, ring buffer empty.

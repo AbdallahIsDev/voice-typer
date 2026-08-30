@@ -140,35 +140,30 @@ class TestRecorderLazyImport:
 # ── (2) Raw-RMS computation gated on _cached_vad_enabled ──────────────
 
 
-def _make_process_chunk_recorder_stub(
+def _make_process_chunk_pipeline(
     *,
     cached_vad_enabled: bool = True,
-) -> MagicMock:
-    """Build a MagicMock ``Recorder`` for ``process_audio_chunk`` tests.
+) -> tuple[MagicMock, AudioPipeline]:
+    """Build a MagicMock ``Recorder`` + ``AudioPipeline`` pair for
+    ``process_audio_chunk`` tests.
 
     Sets ``_cached_vad_enabled`` explicitly so the test does NOT depend
     on MagicMock's default truthy attribute behavior — the gate reads
     this exact scalar.
 
-    The six named helpers are MagicMock objects so the test can assert
-    call counts. A real ``threading.Lock`` and ``deque`` are installed
-    so the orchestration body's ``with self._recorder._lock:`` and
+    The pipeline's named helper methods (``detect_device_disconnect`` /
+    ``handle_xrun_status`` / ``apply_filter_chain`` /
+    ``append_to_buffer_locked`` / ``compute_rms_and_peak`` /
+    ``detect_and_emit_clipping`` / ``run_vad_state_machine``) are
+    replaced with MagicMocks on the pipeline INSTANCE so the test can
+    control their outputs without real audio work. A real
+    ``threading.Lock`` and ``deque`` are installed on the recorder so
+    the orchestration body's ``with self._recorder._lock:`` and
     ``self._recorder._recent_rms_values.append(chunk_rms)`` lines work
     with real semantics.
     """
     recorder = MagicMock(name="RecorderStub")
     recorder._cached_vad_enabled = cached_vad_enabled
-    recorder._detect_device_disconnect.return_value = False
-    recorder._handle_xrun_status.return_value = False
-    # _apply_filter_chain returns a filtered array with a DIFFERENT RMS
-    # than the raw indata, so the test can distinguish raw vs filtered.
-    recorder._apply_filter_chain.return_value = np.array([0.5, -0.5, 0.5, -0.5], dtype=np.float32)
-    recorder._append_to_buffer_locked.return_value = (1, 1)
-    # _compute_rms_and_peak returns the FILTERED RMS (0.5) — distinct
-    # from the raw RMS of the test's indata.
-    recorder._compute_rms_and_peak.return_value = (0.5, 0.9, 0.032)
-    recorder._detect_and_emit_clipping.return_value = None
-    recorder._run_vad_state_machine.return_value = None
     recorder._lock = threading.Lock()
     recorder._recent_rms_values = collections.deque(maxlen=10)
     recorder._last_rms = None
@@ -179,7 +174,19 @@ def _make_process_chunk_recorder_stub(
     recorder.on_max_duration_auto_stop = None
     recorder._recording_start_time = 100.0
     recorder._effective_sr = 16000
-    return recorder
+    pipeline = AudioPipeline(recorder)
+    pipeline.detect_device_disconnect = MagicMock(return_value=False)
+    pipeline.handle_xrun_status = MagicMock(return_value=False)
+    # apply_filter_chain returns a filtered array with a DIFFERENT RMS
+    # than the raw indata, so the test can distinguish raw vs filtered.
+    pipeline.apply_filter_chain = MagicMock(return_value=np.array([0.5, -0.5, 0.5, -0.5], dtype=np.float32))
+    pipeline.append_to_buffer_locked = MagicMock(return_value=(1, 1))
+    # compute_rms_and_peak returns the FILTERED RMS (0.5) — distinct
+    # from the raw RMS of the test's indata.
+    pipeline.compute_rms_and_peak = MagicMock(return_value=(0.5, 0.9, 0.032))
+    pipeline.detect_and_emit_clipping = MagicMock(return_value=None)
+    pipeline.run_vad_state_machine = MagicMock(return_value=None)
+    return recorder, pipeline
 
 
 class TestRawRmsGatedOnCachedVadEnabled:
@@ -199,8 +206,7 @@ class TestRawRmsGatedOnCachedVadEnabled:
         cheap else-branch value) so ``run_vad_state_machine`` still
         finds a defined value if it reads the attribute.
         """
-        recorder = _make_process_chunk_recorder_stub(cached_vad_enabled=False)
-        pipeline = AudioPipeline(recorder)
+        recorder, pipeline = _make_process_chunk_pipeline(cached_vad_enabled=False)
         indata = np.array([0.1, -0.2, 0.3, -0.4], dtype=np.float32)
 
         pipeline.process_audio_chunk(indata, 4, None, 0, 12345.0)
@@ -220,8 +226,7 @@ class TestRawRmsGatedOnCachedVadEnabled:
         attribute — preserves the existing VAD-auto-calibration feed
         path.
         """
-        recorder = _make_process_chunk_recorder_stub(cached_vad_enabled=True)
-        pipeline = AudioPipeline(recorder)
+        recorder, pipeline = _make_process_chunk_pipeline(cached_vad_enabled=True)
         indata = np.array([0.1, -0.2, 0.3, -0.4], dtype=np.float32)
         expected_raw_rms = float(np.sqrt(np.mean(indata**2)))
 
@@ -241,8 +246,7 @@ class TestRawRmsGatedOnCachedVadEnabled:
         short-circuits to the else branch (0.0) without computing
         anything. This is a defensive case — the gate must not raise.
         """
-        recorder = _make_process_chunk_recorder_stub(cached_vad_enabled=False)
-        pipeline = AudioPipeline(recorder)
+        recorder, pipeline = _make_process_chunk_pipeline(cached_vad_enabled=False)
         indata = np.zeros((0,), dtype=np.float32)
 
         pipeline.process_audio_chunk(indata, 0, None, 0, 12345.0)
@@ -255,20 +259,19 @@ class TestRawRmsGatedOnCachedVadEnabled:
         by setting the two to mismatched values and checking the
         computation follows the cached scalar.
         """
-        recorder = _make_process_chunk_recorder_stub(cached_vad_enabled=False)
+        recorder, pipeline = _make_process_chunk_pipeline(cached_vad_enabled=False)
         # ``_vad_enabled`` (the dynamic property) returns True here as
         # a MagicMock attribute (truthy). If the gate read this instead
         # of the cached scalar, the raw RMS would be computed (not 0.0).
         # The cached scalar is False → raw RMS must be 0.0.
-        recorder._vad_enabled = True  # mismatched — would force computation
-        pipeline = AudioPipeline(recorder)
+        recorder._vad.vad_enabled = True  # mismatched — would force computation
         indata = np.array([0.1, -0.2, 0.3, -0.4], dtype=np.float32)
 
         pipeline.process_audio_chunk(indata, 4, None, 0, 12345.0)
 
         assert pipeline._pending_raw_chunk_rms == 0.0, (
             "The raw-RMS gate must read 'recorder._cached_vad_enabled' "
-            "(the cached scalar = False), NOT 'recorder._vad_enabled' "
+            "(the cached scalar = False), NOT 'recorder._vad.vad_enabled' "
             "(the dynamic property = True here). If the gate read the "
             "property, the raw RMS would be ~0.255, not 0.0."
         )
@@ -290,7 +293,7 @@ def _make_vad_auto_calibrate_recorder_stub(
     """
     recorder = MagicMock(name="RecorderStub")
     recorder._cached_vad_enabled = cached_vad_enabled
-    recorder._vad_enabled = vad_enabled  # mismatched by design
+    recorder._vad.vad_enabled = vad_enabled  # mismatched by design
     recorder._recording_start_time = 100.0
     # ``_vad.auto_calibrate`` is the downstream call — mock counts it.
     recorder._vad.auto_calibrate.return_value = None

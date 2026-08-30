@@ -232,7 +232,7 @@ class TestSilentInputThreadStorm:
             # Simulate successful restart: clear the disconnect flag
             # (this is what _handle_device_disconnect does on line ~804
             # when the stream restart succeeds).
-            r._device_disconnected = False
+            r._devices._device_disconnected = False
 
             # Next zero-filled chunk should trigger a NEW disconnect
             # detection (the guard must not permanently suppress).
@@ -753,11 +753,12 @@ class TestHoistedImports:
             test_event = {"type": "test_event", "data": {"i": 1}}
             r._event_queue.put(test_event)
 
-            # Setting _event_stop_event makes _event_worker_loop drain
-            # the queue via get_nowait and return on Empty — so the
-            # loop runs to completion (publishes our event, then exits).
+            # Setting _event_stop_event makes the event worker loop
+            # drain the queue via get_nowait and return on Empty — so
+            # the loop runs to completion (publishes our event, then
+            # exits).
             r._event_stop_event.set()
-            r._event_worker_loop()
+            r._capture.event_worker_loop(r)
 
             assert test_event in published, (
                 "_event_worker_loop must call event_bus.publish for "

@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+from voice_typer.server.recording.format import prepare_audio, resample_chunk
 
 from tests.fixtures.recorder_test_helpers import wait_for_workers_stopped
 
@@ -49,13 +50,14 @@ class TestResampleError:
         ):
             audio = np.ones(1024, dtype=np.float32)
             with pytest.raises(ResampleError):
-                recorder._resample_chunk(audio, effective_sr=48000, target_sr=16000)
+                resample_chunk(recorder, audio, effective_sr=48000, target_sr=16000)
 
     def test_resample_chunk_returns_empty_for_empty_input(self):
         from voice_typer.server.recording import Recorder
 
         recorder = Recorder.__new__(Recorder)
-        result = recorder._resample_chunk(
+        result = resample_chunk(
+            recorder,
             np.array([], dtype=np.float32),
             effective_sr=48000,
             target_sr=16000,
@@ -428,7 +430,8 @@ class TestPrepareAudioNarrowExcept:
             ),
             pytest.raises(MemoryError),
         ):
-            recorder._prepare_audio(
+            prepare_audio(
+                recorder,
                 np.ones(1024, dtype=np.float32),
                 effective_sr=48000,
             )
@@ -1060,21 +1063,17 @@ class TestAudioWorkerThreadLifecycle:
         from voice_typer.server.recording import audio_pipeline
 
         worker_src = inspect.getsource(recording.Recorder._process_audio_chunk)
-        # Aggregate the helper / delegator sources so the
-        # source-inspection checks still find the heavy-pipeline call
-        # sites after the split. All helpers are called synchronously
-        # from the orchestrator on the same worker thread.
-        worker_src += "\n" + inspect.getsource(recording.Recorder._apply_filter_chain)
-        worker_src += "\n" + inspect.getsource(recording.Recorder._run_vad_state_machine)
-        worker_src += "\n" + inspect.getsource(recording.Recorder._compute_rms_and_peak)
-        # The actual heavy operations now live in AudioPipeline (the
-        # Recorder helpers above are 1-line delegators). Include them
-        # so the call-site assertions find ``compute_vad_prob`` /
-        # ``_get_resample_poly`` / ``process_chunk`` / ``_vad_update``.
+        # The heavy-pipeline helpers were consolidated onto
+        # ``AudioPipeline`` (the historical 1-line Recorder delegators
+        # were removed). All helpers are called synchronously from the
+        # orchestrator on the same worker thread.
+        # The actual heavy operations live in AudioPipeline. Include
+        # them so the call-site assertions find ``compute_vad_prob`` /
+        # ``_get_resample_poly`` / ``process_chunk`` / ``vad_update``.
         worker_src += "\n" + inspect.getsource(audio_pipeline.AudioPipeline.process_audio_chunk)
         worker_src += "\n" + inspect.getsource(audio_pipeline.AudioPipeline.run_vad_state_machine)
         # The worker thread MUST run these heavy operations
         assert "compute_vad_prob" in worker_src, "RT-SAFE-001: Silero VAD must run on the worker thread"
         assert "_get_resample_poly" in worker_src, "RT-SAFE-001: scipy resample must run on the worker thread"
         assert "process_chunk" in worker_src, "RT-SAFE-001: the filter chain must run on the worker thread"
-        assert "_vad_update" in worker_src, "RT-SAFE-001: the VAD state machine must run on the worker thread"
+        assert "vad_update" in worker_src, "RT-SAFE-001: the VAD state machine must run on the worker thread"

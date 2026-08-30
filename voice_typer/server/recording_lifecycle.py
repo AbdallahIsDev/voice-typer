@@ -447,13 +447,13 @@ class RecordingLifecycle:
             # mic_watcher (platform without OS watcher) is silently
             # skipped.
             with contextlib.suppress(Exception):
-                mic_watcher = getattr(app.recorder, "_mic_watcher", None)
+                mic_watcher = getattr(getattr(app.recorder, "_devices", None), "_mic_watcher", None)
                 if mic_watcher is not None:
                     # The resolved device index (or None for default) is
                     # the active mic_id the watcher will look for.
                     resolved = getattr(app.recorder, "_effective_device", None)
                     if resolved is None:
-                        resolved = app.recorder._resolve_device()
+                        resolved = app.recorder._devices._resolve_device()
                     mic_watcher.set_active_mic_id(resolved)
             app.tray.set_state(AppState.RECORDING, i18n.t("state.recording_controller.recording"))
             # Show the floating bubble once we know the stream is open
@@ -1004,7 +1004,7 @@ class RecordingLifecycle:
             # checking for the now-stopped recording's mic. Best-effort:
             # a missing mic_watcher is silently skipped.
             with contextlib.suppress(Exception):
-                mic_watcher = getattr(app.recorder, "_mic_watcher", None)
+                mic_watcher = getattr(getattr(app.recorder, "_devices", None), "_mic_watcher", None)
                 if mic_watcher is not None:
                     mic_watcher.set_active_mic_id(None)
         except Exception:
@@ -1354,7 +1354,7 @@ class RecordingLifecycle:
                 # Clear the active-mic-id on the watcher so it stops
                 # checking for the now-cancelled recording's mic.
                 with contextlib.suppress(Exception):
-                    mic_watcher = getattr(app.recorder, "_mic_watcher", None)
+                    mic_watcher = getattr(getattr(app.recorder, "_devices", None), "_mic_watcher", None)
                     if mic_watcher is not None:
                         mic_watcher.set_active_mic_id(None)
                 # Immediately secure-clear the audio buffers from memory

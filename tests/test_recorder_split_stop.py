@@ -62,6 +62,34 @@ import numpy as np
 import pytest
 from voice_typer.server.recording._recorder_split import stop_recording
 
+# ── Module-level ``prepare_audio`` interception ───────────────────
+# ``stop_recording`` invokes the free function ``prepare_audio``
+# (imported at :mod:`._recorder_split` module level) — the historical
+# ``Recorder._prepare_audio`` delegator was removed. Every test in this
+# module patches the module binding via the autouse fixture below and
+# reaches the mock through :func:`_prep`.
+
+_prepare_audio_mock_holder: dict = {}
+
+
+@pytest.fixture(autouse=True)
+def _mock_prepare_audio(monkeypatch):
+    """Patch ``_recorder_split.prepare_audio`` with an identity
+    pass-through by default (so the post-resample ``len(audio) > 0``
+    branches behave as before) and expose the mock to tests."""
+    import voice_typer.server.recording._recorder_split as split_mod
+
+    mock = MagicMock(name="prepare_audio", side_effect=lambda rec, audio, effective_sr_in, **kw: audio)
+    monkeypatch.setattr(split_mod, "prepare_audio", mock)
+    _prepare_audio_mock_holder["mock"] = mock
+    yield mock
+    _prepare_audio_mock_holder.pop("mock", None)
+
+
+def _prep() -> MagicMock:
+    return _prepare_audio_mock_holder["mock"]
+
+
 # ── Mock recorder factory ─────────────────────────────────────────
 
 
@@ -72,7 +100,6 @@ def _build_mock_recorder(
     buffer_sr: int | None = 16000,
     effective_sr: int = 16000,
     recording: bool = True,
-    prepare_audio_identity: bool = True,
 ) -> MagicMock:
     """Build a MagicMock recorder with the minimum stubs
     ``stop_recording`` needs to run without touching PortAudio, real
@@ -125,18 +152,14 @@ def _build_mock_recorder(
 
     # `_prepare_audio` is a thin no-op pass-through by default so
     # `len(audio) > 0` stays true after the call (the stats and the
-    # log.info branch both gate on `len(audio) > 0`).
-    if prepare_audio_identity:
-        recorder._prepare_audio.side_effect = lambda audio, effective_sr_in, **kw: audio
-    else:
-        # Caller will set its own return_value / side_effect.
-        recorder._prepare_audio.return_value = np.array([], dtype=np.float32)
+    # ``prepare_audio`` interception is owned by the module-level
+    # autouse fixture (identity pass-through by default; tests that
+    # need a custom return configure the mock via ``_prep()``).
 
-    # `_secure_clear_caches`, `_teardown_stream`, `_stop_audio_worker`,
-    # `_stop_event_worker`, `_stop_device_health_checker` are
-    # MagicMock callables — the function calls them once each (in the
-    # happy path); the call order is asserted in
-    # `TestStopRecordingOrdering`.
+    # ``_teardown_stream``, ``_stop_audio_worker``,
+    # ``_stop_device_health_checker`` are MagicMock callables — the
+    # function calls them once each (in the happy path); the call
+    # order is asserted in ``TestStopRecordingOrdering``.
     # No extra stubbing needed — MagicMock auto-creates them.
 
     return recorder
@@ -185,10 +208,10 @@ class TestNotRecordingFastPath:
         stop_recording(recorder)
         recorder._teardown_stream.assert_not_called()
         recorder._stop_audio_worker.assert_not_called()
-        recorder._stop_event_worker.assert_not_called()
+        recorder._capture.stop_event_worker_body.assert_not_called()
         recorder._stop_device_health_checker.assert_not_called()
-        recorder._secure_clear_caches.assert_not_called()
-        recorder._prepare_audio.assert_not_called()
+        recorder._session_state.secure_clear_caches.assert_not_called()
+        _prep().assert_not_called()
 
     def test_cleared_event_with_live_worker_still_stops_workers(self):
         """GT-23R: when ``_recording_event`` is cleared but a worker ref
@@ -203,7 +226,7 @@ class TestNotRecordingFastPath:
 
         recorder._teardown_stream.assert_called_once()
         recorder._stop_audio_worker.assert_called_once()
-        recorder._stop_event_worker.assert_called_once()
+        recorder._capture.stop_event_worker_body.assert_called_once()
 
 
 # ── Happy-path ordering ───────────────────────────────────────────
@@ -224,10 +247,10 @@ class TestStopRecordingOrdering:
         # Every documented step was called exactly once.
         recorder._teardown_stream.assert_called_once()
         recorder._stop_audio_worker.assert_called_once()
-        recorder._stop_event_worker.assert_called_once()
+        recorder._capture.stop_event_worker_body.assert_called_once()
         recorder._stop_device_health_checker.assert_called_once_with(timeout=0.0)
-        recorder._secure_clear_caches.assert_called_once()
-        recorder._prepare_audio.assert_called_once()
+        recorder._session_state.secure_clear_caches.assert_called_once()
+        _prep().assert_called_once()
 
     def test_stop_audio_worker_uses_join_timeout_and_drain_true(self):
         """RT-SAFE-001: drain=True so the last few hundred ms of audio
@@ -252,7 +275,9 @@ class TestStopRecordingOrdering:
 
         recorder = _build_mock_recorder(buffer_chunks=[np.ones(50, dtype=np.float32)])
         stop_recording(recorder)
-        recorder._stop_event_worker.assert_called_once_with(timeout=_EVENT_WORKER_JOIN_TIMEOUT_S, drain=True)
+        recorder._capture.stop_event_worker_body.assert_called_once_with(
+            recorder, timeout=_EVENT_WORKER_JOIN_TIMEOUT_S, drain=True
+        )
 
     def test_step_order_matches_contract(self):
         """Pin the source-order contract: clear event → bump
@@ -279,18 +304,18 @@ class TestStopRecordingOrdering:
 
         recorder._teardown_stream.side_effect = log_call("teardown_stream")
         recorder._stop_audio_worker.side_effect = log_call("stop_audio_worker")
-        recorder._stop_event_worker.side_effect = log_call("stop_event_worker")
+        recorder._capture.stop_event_worker_body.side_effect = log_call("stop_event_worker")
         recorder._stop_device_health_checker.side_effect = log_call("stop_device_health_checker")
-        recorder._secure_clear_caches.side_effect = log_call("secure_clear_caches")
+        recorder._session_state.secure_clear_caches.side_effect = log_call("secure_clear_caches")
 
         # `_prepare_audio(audio, effective_sr)` must return the input
         # audio (its first positional arg) so the post-resample
         # `if len(audio) > 0` branch runs and the log.info summary fires.
-        def _prepare_audio_hook(audio, effective_sr_in, *a, **k):
+        def _prepare_audio_hook(rec, audio, effective_sr_in, *a, **k):
             call_log.append("prepare_audio")
             return audio
 
-        recorder._prepare_audio.side_effect = _prepare_audio_hook
+        _prep().side_effect = _prepare_audio_hook
 
         # We need to track the user_stop_pending flag toggles too —
         # wrap the MagicMock so we can intercept the attribute writes.
@@ -385,7 +410,7 @@ class TestEmptyBufferPath:
     def test_calls_secure_clear_caches(self):
         recorder = _build_mock_recorder(buffer_chunks=[])
         stop_recording(recorder)
-        recorder._secure_clear_caches.assert_called_once()
+        recorder._session_state.secure_clear_caches.assert_called_once()
 
     def test_resets_chunk_count_to_zero(self):
         recorder = _build_mock_recorder(buffer_chunks=[])
@@ -398,7 +423,7 @@ class TestEmptyBufferPath:
         so the resampler isn't invoked on an empty array."""
         recorder = _build_mock_recorder(buffer_chunks=[])
         stop_recording(recorder)
-        recorder._prepare_audio.assert_not_called()
+        _prep().assert_not_called()
 
     def test_does_not_swap_buffer_or_call_secure_clear_array_background(self, monkeypatch):
         """The empty-buffer path returns BEFORE the deque-swap and
@@ -426,7 +451,7 @@ class TestEmptyBufferPath:
         stop_recording(recorder)
         recorder._teardown_stream.assert_called_once()
         recorder._stop_audio_worker.assert_called_once()
-        recorder._stop_event_worker.assert_called_once()
+        recorder._capture.stop_event_worker_body.assert_called_once()
         recorder._stop_device_health_checker.assert_called_once_with(timeout=0.0)
 
 
@@ -598,11 +623,11 @@ class TestStatsAndBufferSrCapture:
         stop_recording(recorder)
 
         # The captured local (16000) is the first arg to _prepare_audio.
-        recorder._prepare_audio.assert_called_once()
-        call_args = recorder._prepare_audio.call_args
+        _prep().assert_called_once()
+        call_args = _prep().call_args
         # side_effect = lambda audio, effective_sr_in, **kw: audio
         # → positional args: (audio, effective_sr_in)
-        effective_sr_passed = call_args.args[1]
+        effective_sr_passed = call_args.args[2]
         assert effective_sr_passed == 16000, (
             f"XV-31 regression: _prepare_audio was called with effective_sr="
             f"{effective_sr_passed}, expected 16000 (the captured "
@@ -623,8 +648,8 @@ class TestStatsAndBufferSrCapture:
 
         stop_recording(recorder)
 
-        recorder._prepare_audio.assert_called_once()
-        effective_sr_passed = recorder._prepare_audio.call_args.args[1]
+        _prep().assert_called_once()
+        effective_sr_passed = _prep().call_args.args[2]
         assert effective_sr_passed == 48000
 
     def test_prepare_audio_identity_returned_to_caller(self):
@@ -635,8 +660,8 @@ class TestStatsAndBufferSrCapture:
         # array (simulating a resample that changes the data).
         recorder = _build_mock_recorder(buffer_chunks=[chunk])
         resampled = np.full(200, 0.25, dtype=np.float32)
-        recorder._prepare_audio.side_effect = None
-        recorder._prepare_audio.return_value = resampled
+        _prep().side_effect = None
+        _prep().return_value = resampled
 
         result = stop_recording(recorder)
 

@@ -883,7 +883,7 @@ class TestComputeVadEnabled:
 
 class TestPropertyDelegation:
     """VadProcessor exposes its private state via read/write properties
-    so the Recorder delegation shims (``rec._vad_state = X``) work
+    so the Recorder delegation shims (``rec._vad.state = X``) work
     transparently. Pin that contract here."""
 
     def test_state_read_write(self) -> None:

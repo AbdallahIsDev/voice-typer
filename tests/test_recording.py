@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+from voice_typer.server.recording.format import resample_chunk
 
 
 # Mock sounddevice at module level
@@ -23,7 +24,7 @@ class TestResolveDevice:
         config.microphone = None
         config.sample_rate = 16000
         r = Recorder(config)
-        assert r._resolve_device() is None
+        assert r._devices._resolve_device() is None
 
     def test_string_index_converts_to_int(self):
         from voice_typer.server.recording import Recorder
@@ -32,7 +33,7 @@ class TestResolveDevice:
         config.microphone = "7"
         config.sample_rate = 16000
         r = Recorder(config)
-        assert r._resolve_device() == 7
+        assert r._devices._resolve_device() == 7
 
     def test_legacy_name_string_passes_through(self):
         """If someone put a device name (not numeric), pass it as-is."""
@@ -42,7 +43,7 @@ class TestResolveDevice:
         config.microphone = "Blue Yeti"
         config.sample_rate = 16000
         r = Recorder(config)
-        assert r._resolve_device() == "Blue Yeti"
+        assert r._devices._resolve_device() == "Blue Yeti"
 
 
 class TestStopAudioPrep:
@@ -795,7 +796,7 @@ class TestResampleFallback:
 
         # Create a simple audio signal
         audio = np.ones(4800, dtype=np.float32)  # 0.1s at 48kHz
-        result = r._resample_chunk(audio, 48000, 16000)
+        result = resample_chunk(r, audio, 48000, 16000)
 
         # Should have produced output via np.interp fallback
         assert isinstance(result, np.ndarray)
@@ -824,7 +825,7 @@ class TestResampleFallback:
         t = np.linspace(0, duration, int(sr_in * duration), endpoint=False)
         audio = (np.sin(2 * np.pi * 440 * t) * 0.5).astype(np.float32)
 
-        result = r._resample_chunk(audio, sr_in, 16000)
+        result = resample_chunk(r, audio, sr_in, 16000)
 
         # Verify output is valid
         assert isinstance(result, np.ndarray)
@@ -844,7 +845,7 @@ class TestResampleFallback:
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
 
-        result = r._resample_chunk(np.array([], dtype=np.float32), 48000, 16000)
+        result = resample_chunk(r, np.array([], dtype=np.float32), 48000, 16000)
         assert isinstance(result, np.ndarray)
         assert len(result) == 0
 
@@ -949,7 +950,7 @@ class TestRecordingParametrized:
 
         config = MagicMock(sample_rate=16000, microphone=device_input)
         r = Recorder(config)
-        assert r._resolve_device() == expected
+        assert r._devices._resolve_device() == expected
 
     @pytest.mark.parametrize("silence_val", [0.0, -100.0, -50.0, -30.0])
     def test_silence_timer_starts_at_zero_regardless_of_threshold(self, silence_val):
@@ -1426,46 +1427,46 @@ class TestRec6FallbackHostRank:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        assert r._fallback_host_rank("MME") == 0
-        assert r._fallback_host_rank("Windows WASAPI") == 1
-        assert r._fallback_host_rank("WDM-KS") == 2
-        assert r._fallback_host_rank("Windows DirectSound") == 3
+        assert r._devices._fallback_host_rank("MME") == 0
+        assert r._devices._fallback_host_rank("Windows WASAPI") == 1
+        assert r._devices._fallback_host_rank("WDM-KS") == 2
+        assert r._devices._fallback_host_rank("Windows DirectSound") == 3
 
     def test_macos_coreaudio_rank_0(self):
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        assert r._fallback_host_rank("CoreAudio") == 0, "CoreAudio (macOS) should rank 0"
-        assert r._fallback_host_rank("Core Audio") == 0
+        assert r._devices._fallback_host_rank("CoreAudio") == 0, "CoreAudio (macOS) should rank 0"
+        assert r._devices._fallback_host_rank("Core Audio") == 0
 
     def test_linux_alsa_rank_0(self):
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        assert r._fallback_host_rank("ALSA") == 0, "ALSA (Linux) should rank 0"
+        assert r._devices._fallback_host_rank("ALSA") == 0, "ALSA (Linux) should rank 0"
 
     def test_linux_pulseaudio_rank_1(self):
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        assert r._fallback_host_rank("PulseAudio") == 1, "PulseAudio (Linux) should rank 1"
+        assert r._devices._fallback_host_rank("PulseAudio") == 1, "PulseAudio (Linux) should rank 1"
 
     def test_linux_jack_rank_2(self):
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        assert r._fallback_host_rank("JACK") == 2, "JACK (Linux) should rank 2"
+        assert r._devices._fallback_host_rank("JACK") == 2, "JACK (Linux) should rank 2"
 
     def test_unknown_host_rank_5(self):
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        assert r._fallback_host_rank("Some Unknown Host") == 5
+        assert r._devices._fallback_host_rank("Some Unknown Host") == 5
 
     def test_linux_ordering_alsa_before_pulseaudio_before_jack(self):
         """ALSA < PulseAudio < JACK in rank (lower = preferred)."""
@@ -1473,7 +1474,11 @@ class TestRec6FallbackHostRank:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        assert r._fallback_host_rank("ALSA") < r._fallback_host_rank("PulseAudio") < r._fallback_host_rank("JACK")
+        assert (
+            r._devices._fallback_host_rank("ALSA")
+            < r._devices._fallback_host_rank("PulseAudio")
+            < r._devices._fallback_host_rank("JACK")
+        )
 
 
 class TestRec7DelCleanup:
@@ -1499,11 +1504,13 @@ class TestRec7DelCleanup:
         r = Recorder(config)
         assert not r._worker_stop_event.is_set()
         assert not r._event_stop_event.is_set()
-        assert not r._device_health_stop_event.is_set()
+        assert not r._devices._device_health_stop_event.is_set()
         r.__del__()
         assert r._worker_stop_event.is_set(), "regression: __del__ did not set _worker_stop_event"
         assert r._event_stop_event.is_set(), "regression: __del__ did not set _event_stop_event"
-        assert r._device_health_stop_event.is_set(), "regression: __del__ did not set _device_health_stop_event"
+        assert r._devices._device_health_stop_event.is_set(), (
+            "regression: __del__ did not set _device_health_stop_event"
+        )
 
     def test_del_calls_teardown_stream(self):
         from voice_typer.server.recording import Recorder
@@ -1813,11 +1820,11 @@ class TestRec2StartFailurePathCoverage:
         original_teardown = r._teardown_stream
         r._teardown_stream = lambda: (teardown_calls.append(1), original_teardown())[1]
 
-        # _start_audio_worker succeeds, _start_event_worker raises.
-        def raising_event_worker():
+        # _start_audio_worker succeeds, the event-worker start body raises.
+        def raising_event_worker(recorder):
             raise MemoryError("simulated OOM in event worker start")
 
-        monkeypatch.setattr(r, "_start_event_worker", raising_event_worker)
+        monkeypatch.setattr(r._capture, "start_event_worker_body", raising_event_worker)
 
         gen_before = r._stop_generation
 

@@ -25,7 +25,7 @@ moved here:
 - ``self._recorder._process_audio_chunk`` — heavy per-chunk processing
 - ``self._recorder._preroll_buffer`` / ``_preroll_active`` / ``_effective_sr`` — preroll state
 - ``self._recorder._dropped_ring_chunks`` — ring-buffer overflow counter
-- ``self._recorder._ensure_mono`` — mono downmix staticmethod
+- ``voice_typer.server.recording.format.ensure_mono`` — mono downmix helper (takes the recorder)
 - ... and any other state referenced in the extracted bodies
 
 Source-inspection contract
@@ -78,6 +78,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from voice_typer.server.log_rate_limit import log_rate_limited
+from voice_typer.server.recording.format import ensure_mono
 
 # All submodules use the package-level logger so log records propagate
 # to ``caplog.at_level(..., logger="voice_typer.server.recording")`` in
@@ -213,7 +214,7 @@ class AudioCallbackDispatcher:
             # after start() finishes, so pre-roll capture MUST happen
             # here.
             if recorder._preroll_active:
-                mono_preroll = recorder._ensure_mono(indata.copy())
+                mono_preroll = ensure_mono(recorder, indata.copy())
                 recorder._preroll_buffer.append(mono_preroll)
             return None
 
@@ -314,7 +315,7 @@ class AudioCallbackDispatcher:
         # ``SessionState.prepend_preroll_to_buffer`` (shared with the
         # unit-tested direct call site).
         try:
-            recorder._prepend_preroll_to_buffer()
+            recorder._session_state.prepend_preroll_to_buffer(recorder)
         except Exception:
             log.warning(
                 "[RECORDING] Pre-roll prepend failed on audio worker thread",
@@ -479,14 +480,14 @@ class AudioCallbackDispatcher:
                 _arr.fill(0)
         recorder._ring_buffer.clear()
         recorder._worker_thread = threading.Thread(
-            target=recorder._audio_worker_loop,
+            target=self.audio_worker_loop,
             # Pass the CURRENT stop / wake events as explicit
             # args so the worker binds to THESE events at spawn time.
             # If the recorder's events are later replaced (stale-worker
             # SPSC race), the OLD worker retains its OLD (set) events
             # and exits instead of reading the NEW (cleared)
             # ``_worker_stop_event`` attribute dynamically.
-            args=(recorder._worker_stop_event, recorder._worker_wake_event),
+            args=(recorder, recorder._worker_stop_event, recorder._worker_wake_event),
             name=_AUDIO_WORKER_THREAD_NAME,
             daemon=True,
         )
@@ -674,7 +675,8 @@ class AudioCallbackDispatcher:
         # Drain any stale events from a previous session (: shared helper).
         self._drain_event_queue(recorder)
         recorder._event_worker_thread = threading.Thread(
-            target=recorder._event_worker_loop,
+            target=self.event_worker_loop,
+            args=(recorder,),
             name=_EVENT_WORKER_THREAD_NAME,
             daemon=True,
         )

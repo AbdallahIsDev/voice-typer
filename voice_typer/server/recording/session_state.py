@@ -63,6 +63,7 @@ from typing import TYPE_CHECKING, Any
 from voice_typer.server import recording as _recording_pkg
 from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
 from voice_typer.server._lazy_import import lazy_module
+from voice_typer.server.recording.format import ensure_mono
 from voice_typer.server.vad_processor import (
     DEFAULT_VAD_SILENCE_THRESHOLD_DB,
     DEFAULT_VAD_SPEECH_THRESHOLD_DB,
@@ -282,20 +283,19 @@ class SessionState:
         recorder._last_rms = 0.0
         # reset VAD state machine.
         # VadProcessor.reset() handles the actual state restoration.
-        # The property-shim assignments below are kept as a redundant
+        # The owner-attribute assignments below are kept as a redundant
         # safety net AND as source-level documentation that start()
-        # resets the VAD calibration state — existing tests pin on the
-        # literal attribute names (``_vad_calibration_rms_values`` /
-        # ``_vad_calibrated``) appearing in start()'s source.
+        # resets the VAD calibration state — existing tests pin on
+        # resetting the VAD state alongside the recorder-owned caches.
         recorder._vad.reset()
-        recorder._vad_state = VadState.UNKNOWN
-        recorder._vad_consecutive_speech_frames = 0
-        recorder._vad_consecutive_silence_frames = 0
-        recorder._vad_speech_threshold_db = DEFAULT_VAD_SPEECH_THRESHOLD_DB
-        recorder._vad_silence_threshold_db = DEFAULT_VAD_SILENCE_THRESHOLD_DB
+        recorder._vad.state = VadState.UNKNOWN
+        recorder._vad.consecutive_speech_frames = 0
+        recorder._vad.consecutive_silence_frames = 0
+        recorder._vad.speech_threshold_db = DEFAULT_VAD_SPEECH_THRESHOLD_DB
+        recorder._vad.silence_threshold_db = DEFAULT_VAD_SILENCE_THRESHOLD_DB
         # reset auto-calibration
-        recorder._vad_calibration_rms_values = []
-        recorder._vad_calibrated = False
+        recorder._vad.calibration_rms_values = []
+        recorder._vad.calibrated = False
         # STREAM-FIX: reset user-stop-pending flag for the new
         # session so a stale True doesn't suppress a genuine disconnect
         # warning in this session.
@@ -308,8 +308,8 @@ class SessionState:
                 chunk.fill(0)
         recorder._preroll_buffer.clear()
         # AUDIO-HOT: reset disconnect state
-        recorder._device_disconnected = False
-        recorder._device_disconnect_retries = 0
+        recorder._devices._device_disconnected = False
+        recorder._devices._device_disconnect_retries = 0
         # Sliding-window flap detection: clear the restart-
         # timestamp deque so a fresh session doesn't inherit a stale
         # flap-detection window from the prior session. ``stop()``
@@ -324,7 +324,7 @@ class SessionState:
         # reset ring buffer drop counter for the new session
         recorder._dropped_ring_chunks = 0
         # AUDIO-HOT: reset periodic device check counter
-        recorder._device_check_counter = 0
+        recorder._devices._device_check_counter = 0
         # PERF-: cache the target sample rate once at start()
         # so the audio callback / snapshot() doesn't re-read
         # self.config.sample_rate on every call.
@@ -678,7 +678,7 @@ class SessionState:
             preroll_chunks = list(recorder._preroll_buffer)
             if preroll_chunks:
                 for chunk in reversed(preroll_chunks):
-                    mono_chunk = recorder._ensure_mono(chunk)
+                    mono_chunk = ensure_mono(recorder, chunk)
                     # R18-F12: best-effort filter — if the processor
                     # raises (or returns None), fall back to the raw
                     # chunk so pre-roll never blocks start().

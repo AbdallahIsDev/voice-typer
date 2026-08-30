@@ -71,9 +71,9 @@ def _make_stream_lifecycle_recorder_stub() -> MagicMock:
     recorder._is_in_audio_callback = threading.Event()
     recorder._stream = None
     recorder.config.recording_channels = 1
-    recorder._resolve_effective_sample_rate.return_value = (16000, None)
-    recorder._cached_max_input_channels.return_value = 1
-    recorder._all_input_device_candidates.return_value = []
+    recorder._devices._resolve_effective_sample_rate.return_value = (16000, None)
+    recorder._devices._cached_max_input_channels.return_value = 1
+    recorder._devices._all_input_device_candidates.return_value = []
     recorder._stream_finished_callback = MagicMock(name="_stream_finished_callback")
     recorder._audio_callback_dispatch = MagicMock(name="_audio_callback_dispatch")
     return recorder
@@ -126,7 +126,7 @@ class TestLatencyLow:
         recorder = _make_stream_lifecycle_recorder_stub()
         attempts = _install_fake_input_stream(sl_module, monkeypatch)
         # Provide a dev_info_extra so the info-log branch fires.
-        recorder._resolve_effective_sample_rate.return_value = (
+        recorder._devices._resolve_effective_sample_rate.return_value = (
             48000,
             {
                 "name": "Mock Mic",
@@ -161,10 +161,10 @@ class TestLatencyLow:
         recorder = _make_stream_lifecycle_recorder_stub()
         attempts = _install_fake_input_stream(sl_module, monkeypatch)
         # Fallback enumerates ALL input devices via
-        # ``_all_input_device_candidates`` — return a single fallback
-        # candidate so exactly one InputStream attempt fires.
-        recorder._all_input_device_candidates.return_value = [11]
-        recorder._resolve_effective_sample_rate.return_value = (48000, None)
+        # ``DeviceManager._all_input_device_candidates`` — return a single
+        # fallback candidate so exactly one InputStream attempt fires.
+        recorder._devices._all_input_device_candidates.return_value = [11]
+        recorder._devices._resolve_effective_sample_rate.return_value = (48000, None)
         callback = MagicMock(name="callback")
         lifecycle = StreamLifecycle(recorder)
 
@@ -195,10 +195,8 @@ class TestLatencyLow:
         )
         r = Recorder(config)
 
-        # Stub the helpers ``restart_stream`` consults.
-        r._resolve_device = MagicMock(return_value=None)
-        r._resolve_effective_sample_rate = MagicMock(return_value=(48000, None))
-        r._refresh_vad_caches = MagicMock()
+        # ``restart_stream`` resolves the device and rate through the
+        # real ``DeviceManager`` (``config.microphone=None`` → OS default).
         r._current_callback = MagicMock(name="_current_callback")
 
         attempts = _install_fake_input_stream(dh_module, monkeypatch)
@@ -242,15 +240,20 @@ class TestRingBufferScaling:
         recorder.config.sample_rate = 16000
         recorder.config.microphone = None
         recorder.config.save.return_value = True
-        recorder._cache_session_config.return_value = 30
-        recorder._resolve_device.return_value = 5
-        recorder._same_physical_microphone_candidates.return_value = [5]
-        recorder._build_audio_callback.return_value = object()
+        recorder._session_state.cache_session_config.return_value = 30
+        recorder._devices._resolve_device.return_value = 5
+        recorder._devices._same_physical_microphone_candidates.return_value = [5]
+        recorder._stream_lifecycle.build_audio_callback.return_value = object()
         # Stream opens successfully on the first candidate.
-        recorder._open_stream_for_candidates.return_value = (5, effective_sr, None)
+        recorder._stream_lifecycle.open_stream_for_candidates.return_value = (5, effective_sr, None)
         recorder._stream = MagicMock(name="opened-stream")
         # Real ring buffer so we can assert on maxlen.
         recorder._ring_buffer = collections.deque(maxlen=max(64, int(effective_sr / _AUDIO_BLOCKSIZE * 2.0)))
+        # Real scalars: ``start_recording`` calls the module-level
+        # ``refresh_vad_caches(recorder)`` (vad_helpers) which compares
+        # these against SILERO_VAD_SAMPLE_RATES.
+        recorder._buffer_sr = None
+        recorder._effective_sr = effective_sr
         # ``_recording_event`` must be a real Event so ``is_set()`` works.
         recorder._recording_event = threading.Event()
         recorder._audio_processor = None

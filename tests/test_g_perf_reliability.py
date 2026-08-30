@@ -1,7 +1,7 @@
 """Tests for Sub-Agent G (Round R8) backend perf + RT-safety + leak fixes.
 
 Covers four c-review findings:
-- PERF-02 (G1): ``Recorder._vad_enabled`` cached instead of recomputed
+- PERF-02 (G1): ``Recorder._vad.vad_enabled`` cached instead of recomputed
   on every access. Refreshed by ``on_config_changed()`` + 5-second TTL
   safety net.
 - PERF-03 (G2): ``level_monitor`` PortAudio callback does ONLY
@@ -32,7 +32,7 @@ import pytest
 
 
 class TestVadEnabledCache:
-    """``Recorder._vad_enabled`` is cached + refreshed via ``on_config_changed``."""
+    """``Recorder._vad.vad_enabled`` is cached + refreshed via ``on_config_changed``."""
 
     def _make_recorder(self, **config_overrides):
         from voice_typer.server.recording import Recorder
@@ -56,44 +56,44 @@ class TestVadEnabledCache:
         """The property returns a cached bool instead of recomputing on every access."""
         rec = self._make_recorder()
         # First access computes the cache.
-        v1 = rec._vad_enabled
+        v1 = rec._vad.vad_enabled
         # Second access returns the cached value without re-running the
         # 6 getattr() calls.
-        v2 = rec._vad_enabled
+        v2 = rec._vad.vad_enabled
         assert v1 is v2
         # Sanity: with all noise filters off + method="none", VAD is disabled.
         assert v1 is False
         # Cache attribute is populated.
-        assert rec._vad_enabled_cached is False
+        assert rec._vad.vad_enabled_cached is False
 
     def test_on_config_changed_refreshes_cache(self):
         """Calling on_config_changed picks up new config values immediately."""
         rec = self._make_recorder()
-        assert rec._vad_enabled is False  # initial: nothing enabled
+        assert rec._vad.vad_enabled is False  # initial: nothing enabled
 
         # Flip a noise filter on.
         rec.config.noise_filter_highpass = True
         # WITHOUT on_config_changed, the cache still holds the old value
         # (within the 5-second TTL window).
-        assert rec._vad_enabled is False, "cache should NOT refresh without explicit hook"
+        assert rec._vad.vad_enabled is False, "cache should NOT refresh without explicit hook"
 
         # Call the explicit refresh hook.
         rec.on_config_changed()
-        assert rec._vad_enabled is True, "cache must refresh after on_config_changed"
+        assert rec._vad.vad_enabled is True, "cache must refresh after on_config_changed"
 
     def test_vad_enabled_ttl_safety_net_refreshes_stale_cache(self):
         """If on_config_changed is never called, the TTL safety net refreshes the cache."""
         rec = self._make_recorder()
-        assert rec._vad_enabled is False
+        assert rec._vad.vad_enabled is False
 
         # Force the cached timestamp into the past so the TTL is exceeded.
-        rec._vad_enabled_cache_ts = time.perf_counter() - rec._VAD_ENABLED_CACHE_TTL_S - 1.0
+        rec._vad.vad_enabled_cache_ts = time.perf_counter() - rec._VAD_ENABLED_CACHE_TTL_S - 1.0
 
         # Flip a noise filter on.
         rec.config.noise_filter_gate = True
 
         # The next access should detect the stale cache and re-compute.
-        assert rec._vad_enabled is True, "TTL safety net must refresh stale cache"
+        assert rec._vad.vad_enabled is True, "TTL safety net must refresh stale cache"
 
     def test_vad_enabled_cache_is_bool_not_none_after_init(self):
         """After __init__, the cache attribute is a bool (not None).
@@ -105,7 +105,7 @@ class TestVadEnabledCache:
         subsequent access to recompute).
         """
         rec = self._make_recorder()
-        assert isinstance(rec._vad_enabled_cached, bool)
+        assert isinstance(rec._vad.vad_enabled_cached, bool)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

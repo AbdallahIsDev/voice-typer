@@ -57,7 +57,7 @@ class TestSourceInspection:
         from voice_typer.server.recording import Recorder
 
         src = inspect.getsource(Recorder._process_audio_chunk)
-        assert "_surface_ring_overflow_warning" in src, (
+        assert "surface_ring_overflow_warning" in src, (
             "_process_audio_chunk must call _surface_ring_overflow_warning "
             "so ring-buffer overflow is surfaced in real time (not only post-stop)."
         )
@@ -77,7 +77,6 @@ class TestSourceInspection:
         regression guard pins it so a future change doesn't slip in
         an ``event_bus.publish`` call.
         """
-        from voice_typer.server.recording import Recorder
         from voice_typer.server.recording.capture import AudioCallbackDispatcher
 
         def _strip_docstring(src: str) -> str:
@@ -96,11 +95,7 @@ class TestSourceInspection:
         # Body lives on the collaborator since the god-class split;
         # scan BOTH the delegator and the body so neither half can
         # reintroduce a direct publish.
-        src = (
-            _strip_docstring(inspect.getsource(Recorder._surface_ring_overflow_warning))
-            + "\n"
-            + _strip_docstring(inspect.getsource(AudioCallbackDispatcher.surface_ring_overflow_warning))
-        )
+        src = _strip_docstring(inspect.getsource(AudioCallbackDispatcher.surface_ring_overflow_warning))
         assert "event_bus.publish" not in src, (
             "_surface_ring_overflow_warning must not call event_bus.publish "
             "directly (contract — route IPC events through _event_queue.put)."
@@ -132,7 +127,7 @@ class TestRingOverflowWarning:
         recorder._dropped_ring_chunks = 0
         recorder._last_seen_dropped_ring_chunks = 0
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
-            recorder._surface_ring_overflow_warning()
+            recorder._capture.surface_ring_overflow_warning(recorder)
         assert not any("Ring buffer overflow" in r.message for r in caplog.records), (
             "no WARNING expected when _dropped_ring_chunks is unchanged."
         )
@@ -145,7 +140,7 @@ class TestRingOverflowWarning:
         # Force the rate-limit window to be expired.
         recorder._ring_overflow_warn_ts = 0.0
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
-            recorder._surface_ring_overflow_warning()
+            recorder._capture.surface_ring_overflow_warning(recorder)
         warnings = [r for r in caplog.records if "Ring buffer overflow" in r.message]
         assert len(warnings) == 1, "exactly one WARNING expected on delta increase."
         assert "5 chunks dropped" in warnings[0].message
@@ -158,9 +153,9 @@ class TestRingOverflowWarning:
         recorder._last_seen_dropped_ring_chunks = 0
         recorder._ring_overflow_warn_ts = 0.0
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
-            recorder._surface_ring_overflow_warning()  # emits WARNING, sets ts
+            recorder._capture.surface_ring_overflow_warning(recorder)  # emits WARNING, sets ts
             recorder._dropped_ring_chunks = 10
-            recorder._surface_ring_overflow_warning()  # rate-limited, no WARNING
+            recorder._capture.surface_ring_overflow_warning(recorder)  # rate-limited, no WARNING
         warnings = [r for r in caplog.records if "Ring buffer overflow" in r.message]
         assert len(warnings) == 1, "second call within rate-limit interval must NOT emit a WARNING."
 
@@ -179,13 +174,13 @@ class TestRingOverflowWarning:
         recorder._last_seen_dropped_ring_chunks = 0
         recorder._ring_overflow_warn_ts = 0.0
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
-            recorder._surface_ring_overflow_warning()  # WARNING delta=5
+            recorder._capture.surface_ring_overflow_warning(recorder)  # WARNING delta=5
             recorder._dropped_ring_chunks = 10
-            recorder._surface_ring_overflow_warning()  # rate-limited, last_seen=10
+            recorder._capture.surface_ring_overflow_warning(recorder)  # rate-limited, last_seen=10
             # Simulate the rate-limit window expiring.
             recorder._ring_overflow_warn_ts = 0.0
             recorder._dropped_ring_chunks = 12
-            recorder._surface_ring_overflow_warning()  # WARNING delta=2
+            recorder._capture.surface_ring_overflow_warning(recorder)  # WARNING delta=2
         warnings = [r for r in caplog.records if "Ring buffer overflow" in r.message]
         assert len(warnings) == 2, "expected 2 WARNINGs (first + after rate-limit window expiry)."
         # The second WARNING reports only the delta since the first
@@ -204,7 +199,7 @@ class TestRingOverflowWarning:
         recorder._last_seen_dropped_ring_chunks = 5
         recorder._ring_overflow_warn_ts = 0.0
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
-            recorder._surface_ring_overflow_warning()
+            recorder._capture.surface_ring_overflow_warning(recorder)
         assert not any("Ring buffer overflow" in r.message for r in caplog.records), (
             "no WARNING expected when _dropped_ring_chunks decreases."
         )
@@ -224,8 +219,8 @@ class TestRingOverflowWarning:
             calls.append(("warning",))
 
         monkeypatch.setattr(
-            type(recorder),
-            "_surface_ring_overflow_warning",
+            recorder._capture,
+            "surface_ring_overflow_warning",
             _fake_warning,
         )
         # Replace the AudioPipeline with a no-op so the delegation

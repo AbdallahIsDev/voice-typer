@@ -87,8 +87,9 @@ def _make_recorder_stub() -> MagicMock:
     recorder._cached_vad_resample_sr = _BUFFER_SR
     recorder._cached_vad_resample_up_down = (_UP, _DOWN)
     # State-machine downstream — return SPEECH to avoid silence-timer
-    # side effects.
-    recorder._vad_update.return_value = VadState.SPEECH
+    # side effects. ``vad_update`` routes through
+    # ``recorder._vad.update_frame`` (VadProcessor owns the state machine).
+    recorder._vad.update_frame.return_value = VadState.SPEECH
     # Silence-timer state — pre-initialised so the SPEECH branch's
     # ``else`` writes don't fail on MagicMock attribute access.
     recorder._silence_start_time = None

@@ -19,6 +19,8 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+from voice_typer.server.recording.format import resample_chunk
+from voice_typer.server.recording.vad_helpers import vad_auto_calibrate, vad_update
 
 
 # the previous Linux test-env shim that aliased
@@ -282,38 +284,56 @@ class TestVadGreyZonePreservesCounters:
     """
 
     def test_grey_zone_does_not_reset_counters(self):
-        # KEEP — pins  fix (grey-zone else block uses
-        # `pass` instead of resetting both counters). The sibling
-        # test_grey_zone_preserves_counters_at_runtime tests behaviorally,
-        # but the source-string check catches regressions where the
-        # pass is replaced with a reset that happens to not fire in
-        # the runtime test's exact scenario.
-        from voice_typer.server import recording as rec_mod
+        # KEEP — behavioral port of the former source-string pin on
+        # ``Recorder._vad_update`` (delegator removed; the grey-zone
+        # implementation lives on ``VadProcessor.update_frame`` and has
+        # evolved a bounded grey-zone hold). A single grey-zone chunk
+        # must preserve both frame counters; only a SUSTAINED grey run
+        # (``_grey_zone_hold_limit``) may drop the stale speech history.
+        from voice_typer.server.config import Config
+        from voice_typer.server.recording import Recorder, VadState
 
-        src = inspect.getsource(rec_mod.Recorder._vad_update)
-        # Find the  grey-zone else block. The method has two
-        # comments — the first is in the docstring, the second
-        # is the grey-zone fix comment. We want the SECOND one.
-        audio013_idx = src.find("Grey zone (between speech and silence thresholds)")
-        assert audio013_idx >= 0, "grey-zone comment not found"
-        # Extract a generous window after the comment to capture the
-        # full else body (the comment block + the actual `pass` line).
-        following = src[audio013_idx : audio013_idx + 800]
-        # The grey zone block must contain 'pass' (the fix)
-        assert "pass" in following, "grey-zone fix: the else block must use 'pass' instead of resetting both counters."
-        # The else block must NOT contain counter resets in the lines
-        # immediately following the  comment (before the next
-        # "State transitions" section).
-        state_transitions_idx = following.find("State transitions")
-        if state_transitions_idx < 0:
-            state_transitions_idx = len(following)
-        else_body = following[:state_transitions_idx]
-        assert "_vad_consecutive_silence_frames = 0" not in else_body, (
-            "grey-zone regression: else block resets _vad_consecutive_silence_frames — should preserve counters."
+        cfg = Config()
+        rec = Recorder(cfg)
+        # Initialize VAD state
+        rec._vad.state = VadState.UNKNOWN
+        rec._vad.consecutive_speech_frames = 0
+        rec._vad.consecutive_silence_frames = 0
+        rec._vad.speech_threshold_db = -30.0
+        rec._vad.silence_threshold_db = -50.0
+        rec._vad.speech_frames = 5
+        rec._vad.silence_frames = 10
+        rec._vad.hangover_frames = 5
+
+        vad_update(rec, -20.0)  # loud (above -30)
+        for _ in range(rec._vad.speech_frames - 1):
+            vad_update(rec, -20.0)
+        assert rec._vad.state is VadState.SPEECH
+        assert rec._vad.consecutive_speech_frames == rec._vad.speech_frames
+        assert rec._vad.consecutive_silence_frames == 0
+
+        # A single grey-zone chunk must NOT reset the counters.
+        vad_update(rec, -40.0)  # grey zone
+        assert rec._vad.consecutive_speech_frames == rec._vad.speech_frames, (
+            f"AUDIO-013 regression: grey-zone chunk reset speech counter "
+            f"from {rec._vad.speech_frames} to {rec._vad.consecutive_speech_frames} — should "
+            f"preserve counters in the grey zone."
         )
-        assert "_vad_consecutive_speech_frames = 0" not in else_body, (
-            "grey-zone regression: else block resets _vad_consecutive_speech_frames — should preserve counters."
+        assert rec._vad.consecutive_silence_frames == 0
+
+        # The bounded grey-zone hold: after ``_grey_zone_hold_limit``
+        # consecutive grey frames the stale speech history is dropped
+        # (the SPEECH→silence-seed transition) so the silence timer can
+        # advance — a single grey chunk never does.
+        hold_limit = rec._vad._grey_zone_hold_limit
+        for _ in range(hold_limit - 1):
+            vad_update(rec, -40.0)
+        # At the hold-limit boundary the speech counter is reset and the
+        # silence counter is seeded with the hangover budget.
+        assert rec._vad.consecutive_speech_frames == 0, (
+            "AUDIO-013 evolution: sustained grey run beyond the hold limit must drop the stale speech counter."
         )
+        assert rec._vad.consecutive_silence_frames == rec._vad.hangover_frames
 
     def test_grey_zone_preserves_counters_at_runtime(self):
         """Verify at runtime that a grey-zone chunk doesn't reset
@@ -325,30 +345,30 @@ class TestVadGreyZonePreservesCounters:
         cfg = Config()
         rec = Recorder(cfg)
         # Initialize VAD state
-        rec._vad_state = VadState.UNKNOWN
-        rec._vad_consecutive_speech_frames = 0
-        rec._vad_consecutive_silence_frames = 0
-        rec._vad_speech_threshold_db = -30.0
-        rec._vad_silence_threshold_db = -50.0
-        rec._vad_speech_frames = 5
-        rec._vad_silence_frames = 10
-        rec._vad_hangover_frames = 5
+        rec._vad.state = VadState.UNKNOWN
+        rec._vad.consecutive_speech_frames = 0
+        rec._vad.consecutive_silence_frames = 0
+        rec._vad.speech_threshold_db = -30.0
+        rec._vad.silence_threshold_db = -50.0
+        rec._vad.speech_frames = 5
+        rec._vad.silence_frames = 10
+        rec._vad.hangover_frames = 5
 
         # Simulate a loud chunk: chunk_rms_db above speech threshold (-30 dB)
         # _vad_update takes chunk_rms_db (decibels)
-        rec._vad_update(-20.0)  # loud (above -30)
-        assert rec._vad_consecutive_speech_frames == 1
-        assert rec._vad_consecutive_silence_frames == 0
+        vad_update(rec, -20.0)  # loud (above -30)
+        assert rec._vad.consecutive_speech_frames == 1
+        assert rec._vad.consecutive_silence_frames == 0
 
         # Simulate a grey-zone chunk: between silence (-50) and speech (-30)
-        rec._vad_update(-40.0)  # grey zone
+        vad_update(rec, -40.0)  # grey zone
         # fix: counters must NOT be reset
-        assert rec._vad_consecutive_speech_frames == 1, (
+        assert rec._vad.consecutive_speech_frames == 1, (
             f"AUDIO-013 regression: grey-zone chunk reset speech counter "
-            f"from 1 to {rec._vad_consecutive_speech_frames} — should "
+            f"from 1 to {rec._vad.consecutive_speech_frames} — should "
             f"preserve counters in the grey zone."
         )
-        assert rec._vad_consecutive_silence_frames == 0
+        assert rec._vad.consecutive_silence_frames == 0
 
 
 class TestVadAutoCalibrationBehavior:
@@ -388,15 +408,15 @@ class TestVadAutoCalibrationBehavior:
         rec._cached_vad_enabled = True
         rec._vad._vad_enabled_cached = True
         # Reset calibration state
-        rec._vad_calibration_rms_values = []
-        rec._vad_calibrated = False
+        rec._vad.calibration_rms_values = []
+        rec._vad.calibrated = False
         # Save defaults so we can detect changes
-        default_speech_db = rec._vad_speech_threshold_db
-        default_silence_db = rec._vad_silence_threshold_db
+        default_speech_db = rec._vad.speech_threshold_db
+        default_silence_db = rec._vad.silence_threshold_db
         # Set recording start time so the elapsed check works
         rec._recording_start_time = time.perf_counter() - 10.0  # 10s ago
         # Make sure calibration duration has elapsed
-        rec._vad_calibration_duration = 1.5
+        rec._vad.calibration_duration = 1.5
 
         # Feed 1.5 seconds worth of chunks at a known RMS (~0.01 = -40 dB)
         # Auto-calibration collects RMS for 1.5s then sets thresholds.
@@ -404,35 +424,35 @@ class TestVadAutoCalibrationBehavior:
         n_chunks = int(1.5 / chunk_duration) + 5  # extra to exceed duration
         target_rms = 0.01  # -40 dB
         for _ in range(n_chunks):
-            rec._vad_auto_calibrate(target_rms, chunk_duration)
+            vad_auto_calibrate(rec, target_rms, chunk_duration)
 
         # After calibration, the thresholds should be set relative to
         # the noise floor (target_rms in dB = 20*log10(0.01) = -40 dB).
         # The implementation sets:
         #   silence_threshold = noise_db + 6 dB  = -34 dB
         #   speech_threshold  = noise_db + 18 dB = -22 dB
-        assert rec._vad_calibrated is True, (
+        assert rec._vad.calibrated is True, (
             "VAD auto-calibration must set _vad_calibrated=True after collecting enough samples."
         )
         # Speech threshold should be above the noise floor
-        assert rec._vad_speech_threshold_db >= -40.0, (
-            f"VAD speech threshold ({rec._vad_speech_threshold_db} dB) "
+        assert rec._vad.speech_threshold_db >= -40.0, (
+            f"VAD speech threshold ({rec._vad.speech_threshold_db} dB) "
             "must be at or above the noise floor (-40 dB) after calibration."
         )
         # Silence threshold should also be above the noise floor
         # (the implementation sets silence = noise + 6 dB)
-        assert rec._vad_silence_threshold_db > -40.0, (
-            f"VAD silence threshold ({rec._vad_silence_threshold_db} dB) "
+        assert rec._vad.silence_threshold_db > -40.0, (
+            f"VAD silence threshold ({rec._vad.silence_threshold_db} dB) "
             "must be above the noise floor (-40 dB) after calibration "
             "(implementation sets silence = noise + 6 dB)."
         )
         # Speech threshold must be above silence threshold
-        assert rec._vad_speech_threshold_db > rec._vad_silence_threshold_db, (
+        assert rec._vad.speech_threshold_db > rec._vad.silence_threshold_db, (
             "VAD speech threshold must be above silence threshold."
         )
         # Thresholds must have changed from defaults
         assert (
-            rec._vad_speech_threshold_db != default_speech_db or rec._vad_silence_threshold_db != default_silence_db
+            rec._vad.speech_threshold_db != default_speech_db or rec._vad.silence_threshold_db != default_silence_db
         ), "VAD thresholds must change from defaults after calibration."
 
     def test_vad_auto_calibrate_resets_on_start(self):
@@ -445,13 +465,15 @@ class TestVadAutoCalibrationBehavior:
         resets it; the source-string check catches removal of the reset.
 
         S3-CR-17 / Phase 4.5: the per-session state reset moved from
-        Recorder.start to SessionState.reset_session_state (called via
-        start_recording -> recorder._reset_session_state()).
+        Recorder.start to SessionState.reset_session_state. The VAD
+        calibration state is owned by the VadProcessor (accessed via
+        ``recorder._vad.<attr>`` — the historical Recorder-level
+        property shims were removed).
         """
         from voice_typer.server.recording.session_state import SessionState
 
         src = inspect.getsource(SessionState.reset_session_state)
-        assert "_vad_calibration_rms_values" in src or "_vad_calibrated" in src, (
+        assert "calibration_rms_values" in src or "calibrated" in src, (
             "SessionState.reset_session_state must reset VAD calibration "
             "state so each session re-calibrates from ambient noise."
         )
@@ -892,7 +914,7 @@ class TestAudioDtypeEdgeCases:
         rec._cached_target_sr = 16000
         # float32 is the default dtype — must work
         audio = np.full(512, 0.5, dtype=np.float32)
-        result = rec._resample_chunk(audio, 16000, 16000)
+        result = resample_chunk(rec, audio, 16000, 16000)
         assert result is not None
         assert result.dtype == np.float32
 
@@ -911,7 +933,7 @@ class TestAudioDtypeEdgeCases:
         # upstream. Here we just verify it doesn't crash on the
         # float32 path.
         audio_f32 = audio.astype(np.float32) / 32768.0
-        result = rec._resample_chunk(audio_f32, 16000, 16000)
+        result = resample_chunk(rec, audio_f32, 16000, 16000)
         assert result is not None
 
     def test_resample_chunk_handles_non_contiguous(self):
@@ -927,7 +949,7 @@ class TestAudioDtypeEdgeCases:
         full = np.full(1024, 0.5, dtype=np.float32)
         sliced = full[::2]  # non-contiguous view, 512 elements
         assert not sliced.flags["C_CONTIGUOUS"]
-        result = rec._resample_chunk(sliced, 16000, 16000)
+        result = resample_chunk(rec, sliced, 16000, 16000)
         assert result is not None
 
 
@@ -1014,7 +1036,7 @@ class TestAudioDeviceDisconnectHandling:
         rec._recording_event.set()
         rec._recording_start_time = time.perf_counter()
         rec._chunk_count = 15  # > 10 threshold
-        rec._device_disconnected = False
+        rec._devices._device_disconnected = False
 
         # Mock callbacks
         rec.on_rms_level = lambda rms, peak: None
@@ -1106,10 +1128,17 @@ class TestDynamicSampleRateResolution:
     """
 
     def test_resolve_effective_sample_rate_exists(self):
-        from voice_typer.server import recording
+        import inspect
 
-        assert hasattr(recording.Recorder, "_resolve_effective_sample_rate"), (
-            "AUDIO-016: Recorder must have _resolve_effective_sample_rate method."
+        from voice_typer.server.recording.device_manager import DeviceManager
+        from voice_typer.server.recording.recorder_init import RecorderInitMixin
+
+        assert hasattr(DeviceManager, "_resolve_effective_sample_rate"), (
+            "AUDIO-016: DeviceManager must have _resolve_effective_sample_rate method."
+        )
+        init_src = inspect.getsource(RecorderInitMixin._setup_device_state_and_collaborators)
+        assert "self._devices" in init_src, (
+            "AUDIO-016: Recorder must construct the DeviceManager collaborator (self._devices)."
         )
 
     def test_resolve_returns_tuple_with_native_rate(self):
@@ -1138,7 +1167,7 @@ class TestDynamicSampleRateResolution:
                 "default_samplerate": 48000,
                 "max_input_channels": 1,
             }
-            result = rec._resolve_effective_sample_rate(None)
+            result = rec._devices._resolve_effective_sample_rate(None)
             # The method must return a (sample_rate, device_info_dict) tuple.
             assert result is not None, (
                 "AUDIO-016: _resolve_effective_sample_rate() returned None — "
@@ -1235,22 +1264,22 @@ class TestVadBoundaryConditions:
 
         cfg = Config()
         rec = Recorder(cfg)
-        rec._vad_state = VadState.UNKNOWN
-        rec._vad_speech_threshold_db = -30.0
-        rec._vad_silence_threshold_db = -50.0
-        rec._vad_speech_frames = 5  # threshold
-        rec._vad_silence_frames = 10
-        rec._vad_hangover_frames = 5
+        rec._vad.state = VadState.UNKNOWN
+        rec._vad.speech_threshold_db = -30.0
+        rec._vad.silence_threshold_db = -50.0
+        rec._vad.speech_frames = 5  # threshold
+        rec._vad.silence_frames = 10
+        rec._vad.hangover_frames = 5
 
         # Feed threshold-1 loud frames → must NOT transition
         for _ in range(4):
-            rec._vad_update(-20.0)  # loud
-        assert rec._vad_state == VadState.UNKNOWN, "AUDIO-018: at threshold-1 frames, state must remain UNKNOWN"
-        assert rec._vad_consecutive_speech_frames == 4
+            vad_update(rec, -20.0)  # loud
+        assert rec._vad.state == VadState.UNKNOWN, "AUDIO-018: at threshold-1 frames, state must remain UNKNOWN"
+        assert rec._vad.consecutive_speech_frames == 4
 
         # Feed one more loud frame → must transition to SPEECH
-        rec._vad_update(-20.0)
-        assert rec._vad_state == VadState.SPEECH, (
+        vad_update(rec, -20.0)
+        assert rec._vad.state == VadState.SPEECH, (
             "AUDIO-018: at exactly threshold frames, state must transition to SPEECH"
         )
 
@@ -1263,21 +1292,21 @@ class TestVadBoundaryConditions:
 
         cfg = Config()
         rec = Recorder(cfg)
-        rec._vad_state = VadState.SPEECH
-        rec._vad_speech_threshold_db = -30.0
-        rec._vad_silence_threshold_db = -50.0
-        rec._vad_speech_frames = 5
-        rec._vad_silence_frames = 10
-        rec._vad_hangover_frames = 5  # threshold for SPEECH→SILENCE
+        rec._vad.state = VadState.SPEECH
+        rec._vad.speech_threshold_db = -30.0
+        rec._vad.silence_threshold_db = -50.0
+        rec._vad.speech_frames = 5
+        rec._vad.silence_frames = 10
+        rec._vad.hangover_frames = 5  # threshold for SPEECH→SILENCE
 
         # Feed hangover-1 quiet frames → must NOT transition
         for _ in range(4):
-            rec._vad_update(-60.0)  # quiet
-        assert rec._vad_state == VadState.SPEECH, "AUDIO-018: at hangover-1 frames, state must remain SPEECH"
+            vad_update(rec, -60.0)  # quiet
+        assert rec._vad.state == VadState.SPEECH, "AUDIO-018: at hangover-1 frames, state must remain SPEECH"
 
         # Feed one more quiet frame → must transition to SILENCE
-        rec._vad_update(-60.0)
-        assert rec._vad_state == VadState.SILENCE, (
+        vad_update(rec, -60.0)
+        assert rec._vad.state == VadState.SILENCE, (
             "AUDIO-018: at exactly hangover frames, state must transition to SILENCE"
         )
 
@@ -1290,21 +1319,21 @@ class TestVadBoundaryConditions:
 
         cfg = Config()
         rec = Recorder(cfg)
-        rec._vad_state = VadState.UNKNOWN
-        rec._vad_speech_threshold_db = -30.0
-        rec._vad_silence_threshold_db = -50.0
-        rec._vad_speech_frames = 5
-        rec._vad_silence_frames = 10
-        rec._vad_hangover_frames = 5
+        rec._vad.state = VadState.UNKNOWN
+        rec._vad.speech_threshold_db = -30.0
+        rec._vad.silence_threshold_db = -50.0
+        rec._vad.speech_frames = 5
+        rec._vad.silence_frames = 10
+        rec._vad.hangover_frames = 5
 
         # 2 loud frames
-        rec._vad_update(-20.0)
-        rec._vad_update(-20.0)
-        assert rec._vad_consecutive_speech_frames == 2
+        vad_update(rec, -20.0)
+        vad_update(rec, -20.0)
+        assert rec._vad.consecutive_speech_frames == 2
 
         # 1 grey-zone frame → counters must NOT reset
-        rec._vad_update(-40.0)  # grey zone (between -50 and -30)
-        assert rec._vad_consecutive_speech_frames == 2, "AUDIO-018/AUDIO-013: grey-zone must preserve speech counter"
+        vad_update(rec, -40.0)  # grey zone (between -50 and -30)
+        assert rec._vad.consecutive_speech_frames == 2, "AUDIO-018/AUDIO-013: grey-zone must preserve speech counter"
 
 
 class TestStreamingSessionAtomicPopOnCancel:

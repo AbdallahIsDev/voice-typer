@@ -83,12 +83,18 @@ class TestSnapshotResamplePathReturnsView:
         return value must be a view of ``_cached_resampled`` (not a
         copy). This is the common case for the 4 Hz streaming poll."""
 
-        # Stub _resample_chunk so we don't need scipy.
+        # Stub the resample helper so we don't need scipy. The
+        # historical ``Recorder._resample_chunk`` delegator was removed;
+        # ``take_snapshot`` calls the module-level ``resample_chunk``
+        # binding in ``_recorder_split``.
         def fake_resample(audio, effective_sr, target_sr):
             return audio[:: max(1, effective_sr // target_sr)].astype(np.float32, copy=False)
 
+        def _route(recorder, audio, effective_sr, target_sr):
+            return fake_resample(audio, effective_sr, target_sr)
+
         r = _make_recorder(sample_rate=16000, effective_sr=48000)
-        monkeypatch.setattr(r, "_resample_chunk", fake_resample)
+        monkeypatch.setattr("voice_typer.server.recording._recorder_split.resample_chunk", _route)
 
         r._buffer = [np.ones((6, 1), dtype=np.float32)]
 
@@ -124,8 +130,11 @@ class TestSnapshotResamplePathReturnsView:
             calls.append(len(audio))
             return audio[:: max(1, effective_sr // target_sr)].astype(np.float32, copy=False)
 
+        def _route(recorder, audio, effective_sr, target_sr):
+            return fake_resample(audio, effective_sr, target_sr)
+
         r = _make_recorder(sample_rate=16000, effective_sr=48000)
-        monkeypatch.setattr(r, "_resample_chunk", fake_resample)
+        monkeypatch.setattr("voice_typer.server.recording._recorder_split.resample_chunk", _route)
 
         r._buffer = [np.ones((6, 1), dtype=np.float32)]
         r.snapshot()  # populate cache
@@ -168,8 +177,11 @@ class TestSnapshotResamplePathReturnsView:
                 raise ResampleError("simulated decoder failure")
             return audio[:: max(1, effective_sr // target_sr)].astype(np.float32, copy=False)
 
+        def _route(recorder, audio, effective_sr, target_sr):
+            return fake_resample(audio, effective_sr, target_sr)
+
         r = _make_recorder(sample_rate=16000, effective_sr=48000)
-        monkeypatch.setattr(r, "_resample_chunk", fake_resample)
+        monkeypatch.setattr("voice_typer.server.recording._recorder_split.resample_chunk", _route)
 
         r._buffer = [np.ones((6, 1), dtype=np.float32)]
         r.snapshot()  # populate cache (call_count → 1)

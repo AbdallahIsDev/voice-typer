@@ -19,8 +19,8 @@ access *shared* state that lives on ``Recorder`` and is NOT moved here:
   ``_buffer_sr`` — sample-rate tracking
 - ``self._recorder._audio_processor`` — filter chain (for set_sample_rate)
 - ``self._recorder._classify_portaudio_open_error`` — error classifier
-- ``self._recorder._resolve_effective_sample_rate`` — sample-rate resolver (delegates to DeviceManager)
-- ``self._recorder._all_input_device_candidates`` — last-resort device list (delegates to DeviceManager)
+- ``self._recorder._devices._resolve_effective_sample_rate`` — sample-rate resolver (DeviceManager)
+- ``self._recorder._devices._all_input_device_candidates`` — last-resort device list (DeviceManager)
 - ``self._recorder._recording_event`` — recording gate
 - ``self._recorder._audio_callback_dispatch`` — the real-time callback (delegates to AudioCallbackDispatcher)
 - ... and any other state referenced in the extracted bodies
@@ -101,7 +101,7 @@ class StreamLifecycle:
         """
         selected_device: Any = None
         for candidate in candidates:
-            candidate_sr, dev_info_extra = recorder._resolve_effective_sample_rate(candidate)
+            candidate_sr, dev_info_extra = recorder._devices._resolve_effective_sample_rate(candidate)
 
             if dev_info_extra:
                 log.info(
@@ -244,13 +244,13 @@ class StreamLifecycle:
         log.warning(
             "[RECORDING] All devices matching configured mic failed. Trying all available input devices as fallback."
         )
-        all_candidates = recorder._all_input_device_candidates()
+        all_candidates = recorder._devices._all_input_device_candidates()
         # Remove already-tried devices
         tried_set = set(str(c) for c in candidates)
         all_candidates = [c for c in all_candidates if str(c) not in tried_set]
 
         for candidate in all_candidates:
-            candidate_sr, dev_info_extra = recorder._resolve_effective_sample_rate(candidate)
+            candidate_sr, dev_info_extra = recorder._devices._resolve_effective_sample_rate(candidate)
 
             if dev_info_extra:
                 log.info(

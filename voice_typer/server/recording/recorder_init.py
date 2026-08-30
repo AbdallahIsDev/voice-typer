@@ -197,23 +197,17 @@ class RecorderInitMixin:
 
         # AUDIO-HOT: hot-plug device disconnect handling
         # Phase 4.5: the 12 device-related state attrs +
-        # MicrophoneDeviceWatcher lifecycle were moved to
-        # ``DeviceManager`` (see ``device_manager.py``). The attrs are
-        # re-exposed on ``Recorder`` via read/write property shims (see
-        # the property block below ``__init__``) so existing tests that
-        # do ``r._device_disconnected = False`` / ``r._mic_watcher is
-        # None`` keep working unchanged. KEEP-methods on ``Recorder``
-        # that read/write these attrs (``_handle_device_disconnect``,
-        # ``_stream_finished_callback``, ``_process_audio_chunk``,
-        # ``start``) also go through the shims.
+        # MicrophoneDeviceWatcher lifecycle live on
+        # ``DeviceManager`` (see ``device_manager.py``). The historical
+        # read/write property shims on ``Recorder`` were removed — all
+        # consumers (KEEP-methods, tests) access the state through
+        # ``recorder._devices.<attr>``.
         #
         # The DeviceManager is constructed AFTER the basic Recorder
         # state is initialized (``_recording_event``, ``_stream``,
         # ``config``, etc.) so its ``__init__`` can register the
-        # MicrophoneDeviceWatcher callback against
-        # ``self._invalidate_device_cache`` (a delegator method that
-        # routes through ``self._devices`` — which is set by this
-        # assignment).
+        # MicrophoneDeviceWatcher callback against its own
+        # ``_invalidate_device_cache`` method.
         self._devices: _DeviceManager = _DeviceManager(self)
 
         # ``DisconnectHandler`` owns the ~175-LOC stream-restart
@@ -505,12 +499,11 @@ class RecorderInitMixin:
         # auto-calibration logic were extracted to ``VadProcessor``
         # (see ``voice_typer/server/vad_processor.py``). ``Recorder``
         # owns a single ``self._vad`` instance and delegates VAD calls
-        # to it. The historical ``self._vad_*`` attribute names are
-        # preserved as property shims that read/write through to
-        # ``self._vad`` — so existing tests that do
-        # ``rec._vad_state = VadState.UNKNOWN`` keep working unchanged.
+        # to it. The historical ``self._vad_*`` attribute shims were
+        # removed — consumers access the state through
+        # ``self._vad.<attr>`` directly.
         self._vad: VadProcessor = VadProcessor(config)
-        if not self._vad_enabled:
+        if not self._vad.vad_enabled:
             log.info("[RECORDING] VAD disabled — all audio enhancements off (raw recording mode).")
 
     def _init_preroll_state(self, config: Config) -> None:

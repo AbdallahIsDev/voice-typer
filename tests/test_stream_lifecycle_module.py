@@ -14,8 +14,10 @@ External dependencies are mocked:
 - ``recorder`` — a small ``MagicMock``-backed stub exposing only the
   attributes the extracted bodies touch (``_stream``, ``_lock``,
   ``_effective_sr``, ``_actual_channels``, ``config``,
-  ``_resolve_effective_sample_rate``, ``_cached_max_input_channels``,
-  ``_all_input_device_candidates``, ``_stream_finished_callback``,
+  ``_devices._resolve_effective_sample_rate``,
+  ``_devices._cached_max_input_channels``,
+  ``_devices._all_input_device_candidates``,
+  ``_stream_finished_callback``,
   ``_is_in_audio_callback``, ``_audio_callback_dispatch``,
   ``_current_callback``).
 - ``time.sleep`` — patched on the ``stream_lifecycle`` module so the
@@ -63,12 +65,12 @@ def _make_recorder_stub() -> Any:
     recorder.config.recording_channels = 1
     # ``_resolve_effective_sample_rate`` returns ``(rate, dev_info)``
     # by default — tests override per-call returns via ``side_effect``.
-    recorder._resolve_effective_sample_rate.return_value = (16000, None)
+    recorder._devices._resolve_effective_sample_rate.return_value = (16000, None)
     # ``_cached_max_input_channels`` returns 1 (mono) by default.
-    recorder._cached_max_input_channels.return_value = 1
+    recorder._devices._cached_max_input_channels.return_value = 1
     # ``_all_input_device_candidates`` returns an empty list by
     # default — tests override.
-    recorder._all_input_device_candidates.return_value = []
+    recorder._devices._all_input_device_candidates.return_value = []
     # ``_stream_finished_callback`` is just a callable marker.
     recorder._stream_finished_callback = MagicMock(name="_stream_finished_callback")
     # ``_audio_callback_dispatch`` is a callable the closure delegates to.
@@ -187,7 +189,7 @@ class TestOpenStreamForCandidates:
         recorder = _make_recorder_stub()
         attempts = _make_fake_stream_factory(monkeypatch)
         # Provide a dev_info_extra so the info-log branch fires once.
-        recorder._resolve_effective_sample_rate.return_value = (
+        recorder._devices._resolve_effective_sample_rate.return_value = (
             48000,
             {
                 "name": "Mock Mic",
@@ -231,7 +233,7 @@ class TestOpenStreamForCandidates:
         attempts = _make_fake_stream_factory(monkeypatch, fail_indices={0})
         # Give each candidate a distinct effective rate so we can
         # confirm the right one was persisted.
-        recorder._resolve_effective_sample_rate.side_effect = [
+        recorder._devices._resolve_effective_sample_rate.side_effect = [
             (16000, None),
             (48000, None),
         ]
@@ -258,7 +260,7 @@ class TestOpenStreamForCandidates:
     def test_all_candidates_fail_returns_none(self, monkeypatch):
         recorder = _make_recorder_stub()
         attempts = _make_fake_stream_factory(monkeypatch, fail_indices={0, 1})
-        recorder._resolve_effective_sample_rate.side_effect = [
+        recorder._devices._resolve_effective_sample_rate.side_effect = [
             (16000, None),
             (48000, None),
         ]
@@ -300,7 +302,7 @@ class TestOpenStreamForCandidates:
         # The fake stream reports an actual sample rate of 8000, while
         # the candidate requested 16000 — that triggers the BT branch.
         _make_fake_stream_factory(monkeypatch, actual_samplerate=8000)
-        recorder._resolve_effective_sample_rate.return_value = (16000, None)
+        recorder._devices._resolve_effective_sample_rate.return_value = (16000, None)
         candidates = [1]
         callback = MagicMock(name="callback")
         lifecycle = StreamLifecycle(recorder)
@@ -326,8 +328,8 @@ class TestOpenStreamFallback:
     def test_success_returns_used_fallback_true(self, monkeypatch):
         recorder = _make_recorder_stub()
         attempts = _make_fake_stream_factory(monkeypatch)
-        recorder._all_input_device_candidates.return_value = [11, 12]
-        recorder._resolve_effective_sample_rate.return_value = (48000, None)
+        recorder._devices._all_input_device_candidates.return_value = [11, 12]
+        recorder._devices._resolve_effective_sample_rate.return_value = (48000, None)
         callback = MagicMock(name="callback")
         lifecycle = StreamLifecycle(recorder)
 
@@ -356,8 +358,8 @@ class TestOpenStreamFallback:
         attempts = _make_fake_stream_factory(monkeypatch, fail_indices={0})
         # Candidate 5 was already tried in the primary loop; the
         # fallback must NOT re-attempt it.
-        recorder._all_input_device_candidates.return_value = [5, 7, 9]
-        recorder._resolve_effective_sample_rate.side_effect = [
+        recorder._devices._all_input_device_candidates.return_value = [5, 7, 9]
+        recorder._devices._resolve_effective_sample_rate.side_effect = [
             (16000, None),  # for 7 (fails)
             (48000, None),  # for 9 (succeeds)
         ]
@@ -381,8 +383,8 @@ class TestOpenStreamFallback:
     def test_all_fallback_candidates_fail(self, monkeypatch):
         recorder = _make_recorder_stub()
         attempts = _make_fake_stream_factory(monkeypatch, fail_indices={0, 1, 2})
-        recorder._all_input_device_candidates.return_value = [11, 12, 13]
-        recorder._resolve_effective_sample_rate.return_value = (16000, None)
+        recorder._devices._all_input_device_candidates.return_value = [11, 12, 13]
+        recorder._devices._resolve_effective_sample_rate.return_value = (16000, None)
         callback = MagicMock(name="callback")
         lifecycle = StreamLifecycle(recorder)
 
@@ -408,8 +410,8 @@ class TestOpenStreamFallback:
         name. The log must propagate via the package-level logger."""
         recorder = _make_recorder_stub()
         _make_fake_stream_factory(monkeypatch)
-        recorder._all_input_device_candidates.return_value = [42]
-        recorder._resolve_effective_sample_rate.return_value = (
+        recorder._devices._all_input_device_candidates.return_value = [42]
+        recorder._devices._resolve_effective_sample_rate.return_value = (
             48000,
             {
                 "name": "USB Headset",
@@ -441,8 +443,8 @@ class TestOpenStreamFallback:
         instead of raising ``TypeError`` on ``None["name"]``."""
         recorder = _make_recorder_stub()
         _make_fake_stream_factory(monkeypatch)
-        recorder._all_input_device_candidates.return_value = [42]
-        recorder._resolve_effective_sample_rate.return_value = (48000, None)
+        recorder._devices._all_input_device_candidates.return_value = [42]
+        recorder._devices._resolve_effective_sample_rate.return_value = (48000, None)
         callback = MagicMock(name="callback")
         lifecycle = StreamLifecycle(recorder)
 
