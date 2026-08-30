@@ -279,6 +279,15 @@ export function useMicrophoneLevelMonitor({
 		if (!config?.voice_biometric_consent) return;
 		const micId = config?.microphone ?? null;
 
+		// Privacy gate: do not start monitoring while the document is
+		// hidden (background/autostart). The Microphone page may be
+		// restored from persisted navigation (vt_nav_state) while the
+		// window is still hidden (VT_START_HIDDEN=1). Starting the level
+		// monitor in that state would activate the OS mic indicator
+		// invisibly. Defer until the page is actually visible.
+		const isHiddenAtStart =
+			typeof document !== "undefined" && document.visibilityState !== "visible";
+
 		// Bounded-retry state for THIS effect run. ``cancelled`` flips in
 		// the cleanup below (dep change / unmount) so an in-flight retry
 		// chain never outlives its effect instance.
@@ -299,6 +308,7 @@ export function useMicrophoneLevelMonitor({
 		// active ("Already monitoring" — a backend no-op) and run 2's
 		// own cleanup owns the real unmount stop.
 		let startedHere = false;
+		let deferredVisibleCleanup: (() => void) | null = null;
 
 		const startMonitor = (): void => {
 			callRef
@@ -347,6 +357,68 @@ export function useMicrophoneLevelMonitor({
 					}
 				});
 		};
+		// If the document is hidden at mount (background/autostart), defer
+		// the start until the page becomes visible. This prevents the OS
+		// mic indicator from appearing while the window is still hidden in
+		// the background due to restored persisted navigation.
+		if (isHiddenAtStart) {
+			setMicMonitoring(false);
+			const onVisible = () => {
+				if (
+					typeof document !== "undefined" &&
+					document.visibilityState === "visible" &&
+					!cancelled
+				) {
+					if (deferredVisibleCleanup) {
+						document.removeEventListener("visibilitychange", onVisible);
+						deferredVisibleCleanup = null;
+					}
+					startMonitor();
+					// Trigger one-shot poll now that we're visible
+					void (async () => {
+						if (playingRef.current) return;
+						try {
+							const levelData = await callRef.current<{
+								level: number;
+								peak: number;
+								active: boolean;
+							}>("microphone_test_get_level");
+							if (levelData && typeof levelData.level === "number") {
+								levelRef.current = levelData.level;
+								setLevel(levelData.level);
+							}
+							if (levelData && typeof levelData.peak === "number") {
+								peakRef.current = levelData.peak;
+								setPeak(levelData.peak);
+							}
+							if (levelData && typeof levelData.active === "boolean") {
+								setMicMonitoring(levelData.active);
+							}
+						} catch (e) {
+							console.warn(
+								"[renderer:useMicrophoneLevelMonitor] one-shot level poll failed:",
+								e,
+							);
+						}
+					})();
+				}
+			};
+			document.addEventListener("visibilitychange", onVisible);
+			deferredVisibleCleanup = () =>
+				document.removeEventListener("visibilitychange", onVisible);
+			return () => {
+				cancelled = true;
+				if (retryTimer !== null) {
+					clearTimeout(retryTimer);
+					retryTimer = null;
+				}
+				if (deferredVisibleCleanup) {
+					deferredVisibleCleanup();
+					deferredVisibleCleanup = null;
+				}
+			};
+		}
+
 		startMonitor();
 
 		// one-shot fallback poll. The backend's ``mic_level`` push
@@ -401,6 +473,10 @@ export function useMicrophoneLevelMonitor({
 			if (retryTimer !== null) {
 				clearTimeout(retryTimer);
 				retryTimer = null;
+			}
+			if (deferredVisibleCleanup) {
+				deferredVisibleCleanup();
+				deferredVisibleCleanup = null;
 			}
 			// Only stop a monitor THIS effect actually started.
 			// StrictMode's dev double-invocation runs the cleanup

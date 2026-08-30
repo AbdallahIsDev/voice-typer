@@ -91,6 +91,12 @@ fn show_main_window(app: &AppHandle) {
     let _ = tauri::async_runtime::spawn_blocking(move || match app.webview_windows().get("main")
     {
         Some(window) => {
+            // Clear skip_taskbar if the window was started hidden
+            // (VT_START_HIDDEN=1). Without this the window would show
+            // but leave no taskbar entry.
+            if let Err(e) = window.set_skip_taskbar(false) {
+                log::warn!("[HOST-EVENTS] main window set_skip_taskbar(false) failed: {}", e);
+            }
             // RAISE-TO-FRONT: `set_focus` alone is subject to the OS
             // foreground lock (Windows refuses SetForegroundWindow from
             // a background process and only flashes the taskbar), so the

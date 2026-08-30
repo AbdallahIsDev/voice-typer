@@ -103,6 +103,48 @@ export default function App() {
 		}
 	}, [currentPage, onboardingCompleted, replace]);
 
+	// Privacy: when the app starts hidden in the background (autostart
+	// with VT_START_HIDDEN=1), the renderer still boots and restores the
+	// last persisted page from localStorage (vt_nav_state). If that page
+	// is "microphone", the Microphone page's live level monitor would
+	// start immediately and activate the OS mic indicator while the
+	// window is still hidden. Redirect to "home" in that specific case.
+	// The check is deferred by ~900ms so a normal foreground launch
+	// (which briefly starts hidden before ready-to-show) is not
+	// misclassified as background — it becomes visible within the grace
+	// period and the redirect is cancelled via visibilitychange.
+	useEffect(() => {
+		if (typeof document === "undefined") return;
+		if (currentPage !== "microphone") return;
+		if (document.visibilityState === "visible") return;
+		let cancelled = false;
+		const timer = setTimeout(() => {
+			if (
+				!cancelled &&
+				typeof document !== "undefined" &&
+				document.visibilityState !== "visible"
+			) {
+				// Still hidden after grace period — genuine background
+				// autostart with persisted microphone page. Use replace
+				// to avoid polluting back/forward history.
+				replace("home");
+			}
+		}, 900);
+		const onVisible = () => {
+			if (document.visibilityState === "visible") {
+				cancelled = true;
+				clearTimeout(timer);
+				document.removeEventListener("visibilitychange", onVisible);
+			}
+		};
+		document.addEventListener("visibilitychange", onVisible);
+		return () => {
+			cancelled = true;
+			clearTimeout(timer);
+			document.removeEventListener("visibilitychange", onVisible);
+		};
+	}, [currentPage, replace]);
+
 	// a11y / WCAG 2.4.2 Page Titled: keep `document.title` in sync
 	// with the active route so screen-reader users (who announce the window
 	// title to orient) and OS taskbar users can tell which page is active

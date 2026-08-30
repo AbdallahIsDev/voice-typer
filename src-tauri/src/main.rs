@@ -218,9 +218,26 @@ fn main() {
                     .expect("[SETUP] main window config is valid");
             #[cfg(not(target_os = "macos"))]
             let main_window_builder = main_window_builder.decorations(false);
-            main_window_builder
+            let main_window = main_window_builder
                 .build()
                 .expect("[SETUP] main window build failed");
+            // Respect VT_START_HIDDEN=1 (set by autostart_launcher when
+            // launched with --hidden). Electron honors it via START_HIDDEN
+            // in the main process; Tauri previously ignored it, so a
+            // background autostart would briefly flash the window and the
+            // renderer's persisted "microphone" page would activate the mic
+            // indicator while hidden. Hide immediately and set skip_taskbar.
+            if std::env::var("VT_START_HIDDEN").as_deref() == Ok("1") {
+                if let Err(e) = main_window.hide() {
+                    log::warn!("[SETUP] hide main window for VT_START_HIDDEN failed: {}", e);
+                }
+                if let Err(e) = main_window.set_skip_taskbar(true) {
+                    log::warn!("[SETUP] set_skip_taskbar for VT_START_HIDDEN failed: {}", e);
+                }
+                log::info!(
+                    "[SETUP] started hidden (VT_START_HIDDEN=1) — window hidden, skip_taskbar=true"
+                );
+            }
 
             let app_handle = app.handle().clone();
             //log only the basename — the absolute path can
