@@ -22,8 +22,11 @@ use super::handshake::{is_shutting_down, parse_server_started};
 ///      release/externalBin path even in a debug build.
 pub(crate) fn is_dev_mode() -> bool {
     match std::env::var("VOICE_TYPER_SIDECAR_DEV").ok().as_deref() {
-        Some("1") => true,
-        Some(_) => false,
+        // Explicit value → the pure predicate decides ("1" = dev, any
+        // other value = release/externalBin escape hatch).
+        Some(v) => is_dev_mode_for(Some(v)),
+        // Unset → a debug host binary is a developer artifact: default
+        // to the source sidecar (release builds keep the frozen path).
         None => cfg!(debug_assertions),
     }
 }
