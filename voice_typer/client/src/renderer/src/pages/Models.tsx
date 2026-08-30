@@ -145,7 +145,16 @@ export default function ModelsPage() {
 		},
 	);
 	useEffect(() => {
-		if (lifecycle.config?.model_size !== "") {
+		// Only clear the dismissed flag when a model is actually selected
+		// (model_size is a non-empty string). The previous check
+		// `lifecycle.config?.model_size !== ""` was truthy when config was
+		// still `null` (initial load: `undefined !== ""`), which cleared the
+		// sessionStorage immediately on mount and made the banner reappear on
+		// every reload / navigation. Guard with a truthy check so the flag
+		// survives reloads and page changes within the same app session and
+		// is only cleared when the user picks a model, or when the app is
+		// fully closed (sessionStorage is then discarded by the browser).
+		if (lifecycle.config?.model_size) {
 			if (noModelBannerDismissed) setNoModelBannerDismissed(false);
 			try {
 				sessionStorage.removeItem("models:noModelBannerDismissed");
@@ -267,24 +276,30 @@ export default function ModelsPage() {
 					</div>
 				)}
 
-				{/* Compact dismissible "no model" banner — sticky independent of
-                                    main flow (replaces former centered EmptyState py-16 block).
-                                    Visually consistent with activeModelSummary (accent tint,
-                                    rounded-xl, border-accent/20) and VocabDuplicateBanner
-                                    close control (Cancel01Icon far right, hover/focus tokens). */}
+				{/* Compact dismissible "no model" banner — replaces the former
+                                    centered EmptyState (py-16) that pushed model cards below the
+                                    fold. Uses the shared design-system tokens
+                                    (rounded-xl border-border/10 bg-(--bg-subtle)
+                                    text-(--text-primary)) so it matches model cards,
+                                    SegmentedControl and other subtle surfaces in every
+                                    theme (light/dark/Dracula/Monokai/etc. via CSS vars).
+                                    Positioned in the normal page flow (not sticky) between
+                                    the active-model summary and the tab switcher, with the
+                                    same close control as VocabDuplicateBanner
+                                    (Cancel01Icon far right). */}
 				{showNoModelBanner && (
 					<div
 						data-testid="models-no-model-banner"
 						role="status"
 						aria-live="polite"
 						aria-atomic="true"
-						className="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-accent/20 bg-accent/5 px-3.5 py-2.5"
+						className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-border/10 bg-(--bg-subtle) px-3.5 py-2.5"
 					>
 						<HugeiconsIcon
 							icon={AiBrain03Icon}
 							strokeWidth={2}
 							aria-hidden="true"
-							className="size-4 shrink-0 text-accent"
+							className="size-4 shrink-0 text-(--text-muted)"
 						/>
 						<p className="min-w-0 flex-1 text-xs font-medium text-(--text-primary)">
 							{t("models.noModelBanner")}
