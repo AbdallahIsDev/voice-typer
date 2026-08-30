@@ -384,25 +384,28 @@ echo "[build_tauri_all] OK: $BUNDLE_FILE_COUNT bundle files + sidecar binary ver
 echo "::endgroup::"
 
 # ─── Phase 1e: optional signing ──────────────────────────────────────────────
+# GP-65: `--sign` must NOT silently do nothing. The Phase 1e block only echoes
+# platform-specific guidance (ADR-0020 §13); it runs no signing commands. A
+# caller that requested signing must not walk away believing the binaries were
+# signed — fail hard instead of exiting 0 (the pre-fix behavior).
 if [[ "$DO_SIGN" -eq 1 ]]; then
     echo "::group::Phase 1e — code-sign + notarize (ADR-0020 §13)"
-    echo "[build_tauri_all] Signing is platform-specific — see docs/migration/signing-guide.md"
+    echo "[build_tauri_all] ERROR: --sign is not automated by this script." >&2
+    echo "[build_tauri_all] Signing is platform-specific — see docs/migration/signing-guide.md" >&2
     case "$HOST_PLATFORM" in
         windows)
-            echo "[build_tauri_all] Windows Authenticode: requires WIN_CSC_LINK + WIN_CSC_KEY_PASSWORD env vars."
-            echo "  See signing-guide.md §'Windows — Authenticode'."
+            echo "[build_tauri_all]   Windows Authenticode: WIN_CSC_LINK + WIN_CSC_KEY_PASSWORD env vars — see signing-guide.md §'Windows — Authenticode'." >&2
             ;;
         macos)
-            echo "[build_tauri_all] macOS: codesign + notarytool + stapler. Requires MAC_SIGNING_IDENTITY +"
-            echo "  APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID env vars."
-            echo "  See signing-guide.md §'macOS — Developer ID + notarization + stapling'."
+            echo "[build_tauri_all]   macOS: codesign + notarytool + stapler (MAC_SIGNING_IDENTITY + APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID)." >&2
             ;;
         linux)
-            echo "[build_tauri_all] Linux: unsigned by default (ADR-0020 §13.3). Optional GPG-sign"
-            echo "  of .deb/.rpm is documented but not automated by this script."
+            echo "[build_tauri_all]   Linux: unsigned by default (ADR-0020 §13.3). Optional GPG-sign of .deb/.rpm is not automated." >&2
             ;;
     esac
+    echo "[build_tauri_all] Refusing to continue with --sign: binaries are NOT signed." >&2
     echo "::endgroup::"
+    exit 1
 fi
 
 # ─── Done ────────────────────────────────────────────────────────────────────
