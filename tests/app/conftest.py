@@ -33,6 +33,14 @@ def app(tmp_config_dir, monkeypatch):
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
+    # Mirror tests/fixtures/app_helpers.make_voice_typer_app: on Windows
+    # every Config.save() would otherwise spawn a real icacls subprocess
+    # and poison fake-Popen interception; on POSIX the real helper is a
+    # no-op, so patching it here is behavior-identical on every platform.
+    monkeypatch.setattr(
+        "voice_typer.server.config._enforce_windows_owner_only_acl",
+        lambda *a, **k: None,
+    )
 
     from voice_typer.server.app import VoiceTyperApp
 
