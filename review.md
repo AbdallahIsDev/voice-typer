@@ -41,7 +41,7 @@ plus the base repo's pre-existing comprehensive review.
 > **2026-08-23 cleanup (verified against code before editing):**
 > - **REMOVED as completed + verified:** EC-25's `test_perf_review_fixes.py` split is done but entry KEPT as partial; removed entries: ~~S3-CR-21~~ (duplicate of ARCH-12; its unique blocker test_app.py read_text pin is gone), ~~XA-2~~ (StatCard consolidation landed — DashboardStatCard deleted in favor of shared StatCard.tsx; pb-2 alignment fix; About wrapper standardized; labeled Spinner + EmptyState-retry patterns adopted), ~~XA-8~~ (all cited sub-items verified fixed: ErrorBoundary strings via t("errorBoundary.*"), KeyringStatusBadge compact-only aria, sonner containerAriaLabel/closeButtonAriaLabel localized, InfoTooltip `<title>` removed, Spinner decorative prop), ~~AC-66~~ (BusynessCoordinator `_busyness.py` + MicrophoneRegistry `_microphone_registry.py` own the state; back-compat properties on VoiceTyperApp delegate to them), ~~AC-73~~ (decomposition landed — merged into EO-13 with residual), ~~AC-128~~ (credential_store/ package landed — see GQ-70), ~~AC-131~~ (config/__init__.py now 271 LOC over 10 satellite modules — see EO-12).
 > - **UPDATED partials:** ARCH-9 (213 sites / 39 files remain), S1-CR-67 (only recording/_RecordingModule left; prewarm + server_platform hacks removed), EC-25 (3 Python catch-alls + relocated-but-unsplit TS catch-alls remain), XV-105 (role pooling LIVE — 3 roles → 1 subprocess; per-spec dedup deferred), XA-5 (8 of 24 sub-items verified fixed, listed inline), XZ-R11-04 (landed 2026-08-25, Session RV: AES-256-GCM at-rest encryption live — _text_crypto.py + DEK via credential_store; completed).
-> - **2026-08-30 reconciliation (verified against code before editing):** ~~GQ-L7~~ (x_up.fill removal landed — db17d364, resampler verified green; closed as fixed despite prior Won't-Fix), ~~GQ-L15~~ (microphone_watcher.py split into the microphone_watcher/ package — cf773c3e, 98 watcher tests green), ~~GQ-L16~~ (native_hotkeys base.py decomposed into _matching/_reader/_spawn/_watchdog mixins — 0b0d7e6f + 3edf78ec facade contract; mypy mixin-idiom growth absorbed by the 2026-08-30 baseline reconcile), GQ-32 remains 🚫 Won't Fix (SEC-011 cap 5000 intact, regex identity-cached — rationale verified standing).
+> - **2026-08-30 reconciliation (verified against code before editing):** ~~GQ-L7~~ (x_up.fill removal landed — db17d364, resampler verified green; closed as fixed despite prior Won't-Fix), ~~GQ-L15~~ (microphone_watcher.py split into the microphone_watcher/ package — cf773c3e, 98 watcher tests green), ~~GQ-L16~~ (native_hotkeys base.py decomposed into _matching/_reader/_spawn/_watchdog mixins — 0b0d7e6f + 3edf78ec facade contract; mypy mixin-idiom growth absorbed by the 2026-08-30 baseline reconcile). Removed as fully completed + verified: ~~GQ-15~~ (bench harness + README claims), ~~GQ-66~~ (Nuitka --jobs in all four win/macos scripts), ~~4 pre-existing test_sidecar_ws_races.py failures~~ (7/7 pass since 1d202e12). Moved to WONT_FIX.md: GQ-32 (rationale verified standing), GP-119, GQ-L27/ER-35.
 
 > **Platform warning:** The cloud agent's SUMMARY claimed "all tests pass on Linux." Results in this file tagged **Windows (win32)** are reproduced on this runner and contradict the Linux-only claims. Do NOT trust a Linux-only pass as proof of cross-platform cutover.
 >
@@ -229,7 +229,6 @@ Compiled 80 deduplicated findings into `/home/z/my-project/voice-typer/review.md
 
 ### Other Deferred Items
 - **FI-11-A prewarm binary integrity**: No runtime SHA-256 verification of prewarm binary (HIGH — but complex fix requiring manifest schema + launcher wiring). Effort: L. Priority: P1.
-- **~~4 pre-existing test_sidecar_ws_races.py failures~~ RESOLVED (verified 2026-08-30)**: tests were updated to the namespaced `ErrorCodes` constants (commit 1d202e12) — 7/7 pass; no bare-string contract remains.
 - **Windows/macOS host validation**: All fixes tested on Linux sandbox only. Real-host validation required for Win32 console handler, macOS clipboard restore, native hotkey binaries. Priority: P0.
 
 ## Spaghetti / Monolith Splits (Group 4) — Deferred to Final Report
@@ -283,40 +282,6 @@ Compiled 80 deduplicated findings into `/home/z/my-project/voice-typer/review.md
 
 ---
 
-### GQ-15 — bench_startup.py warm-cache contamination makes median misleading
-**Status:** ✅ Fixed (2026-08-30) — bench_startup.py spawns a fresh subprocess per run and reports true-cold first_run_ms + median_ms; README.md:209 and bench/README.md:3 rewritten with platform-qualified numbers (~84 ms cold import observed on Windows; CI-tracked worker-startup 913.4 ms first-run / 300.0 ms median vs the ≤600 ms first-run target), the stale "~2 ms reference hardware" claim removed.
-> - **2026-08-24 audit:** contamination acknowledged in COLDSTART_REPORT.md; first_run_ms ratchet exists — rename median metric + fix bench/README.md:3.
-**Description:** `measure_import_time()` only clears `voice_typer.*` from `sys.modules` (line 66-68); third-party C extensions (`numpy`, `pystray`, `PIL`) stay cached across the 3 in-process runs. Measured on Linux sandbox: 'All runs: 46ms, 46ms, 48ms' — variance is 2ms, confirming runs 2-3 are warm. COLDSTART_REPORT.md §5.1 explicitly says 'the median therefore understates true cold start; the *first* run is the honest cold number.' §6 rec #3 (line 282-288) recommends fixing the methodology but it was never implemented. Also, README.md:209 claims '~2 ms cold-import on reference hardware' but on this Linux sandbox the script reports 46ms — the README claim is stale and unverified by CI.
-**User Impact:** Median cold-start number reported by `bench_startup.py` is misleading (warm-cache). README perf claim ('~2 ms') is unverifiable and stale. Any future regression that adds eager imports of heavy deps would be hidden if it doesn't exceed the warm-cache floor.
-**Root Cause:** Acknowledged in COLDSTART_REPORT.md but no fix landed.
-**Progress:** None yet.
-**Related Files:**
-- `bench/bench_startup.py:59-75`
-- `bench/COLDSTART_REPORT.md:60-63`
-- `bench/COLDSTART_REPORT.md:282-288`
-- `bench/README.md:6` (the ~2ms cold-import claim; file is only 53 LOC — the earlier :209 citation exceeded the file length)
-**Fix:** Replace `measure_import_time()` to spawn a fresh `python -X importtime -c "import voice_typer.server.tray"` subprocess per run (or delegate to `scripts/profile_imports.py`). Report first-run (true cold) + median + p99. Update README.md with the sandbox-measured value + OS disclaimer.
-**Severity:** 🔴 High
-**Verification (2026-08-06, Windows win32):**
-bench_startup.py fixed, README not. `bench/bench_startup.py` spawns a fresh `python -c "import <target>"` per run and reports true-cold vs median (works on Windows: ~84 ms measured here). BUT `README.md:209` and `bench/README.md:3` still claim 'measured ~2 ms cold-import on reference hardware' -- ~40x off and unverifiable.
-**Verification (2026-08-30, Windows win32): SUPERSEDED — fixed.** README.md:209 and bench/README.md:3 now carry the platform-qualified ~84 ms Windows figure + CI worker-startup baseline (913.4/300.0 ms) with the ≤600 ms first-run target; no "~2 ms" claim remains repo-wide.
-
-### GQ-66 — Nuitka builds sequential — 30-45 min local Tauri build
-**Status:** ✅ Fixed (2026-08-30) — `--jobs="$NUITKA_JOBS"` added to all four remaining Nuitka invocations (build_sidecar_windows.sh, build_prewarm_windows.sh, build_sidecar_macos.sh, build_prewarm_macos.sh): NUITKA_JOBS env override, nproc default on Windows (WSL), sysctl/nproc default on macOS clamped to 4 for CI-runner RAM (override bypasses the clamp), mirroring the build_sidecar_linux.sh precedent; bash -n clean.
-**Description:** Phase 1a of `build_tauri_all.sh` runs sidecar → prewarm → native listener **sequentially**. Each Nuitka build is 10-15min. Three sequential = 30-45min. They have NO shared intermediate state and NO file-output contention (different `--output-filename`s). STALE (re-audited 2026-08-12): `build_sidecar_linux.sh:250-253` NOW has `--jobs=N` with nproc — the "NO --job flag" claim is outdated. The remaining gap is Windows/macOS invocations (see Verification).
-**User Impact:** Local `make build-tauri` takes 30-45 min; could be ~15min with parallelism. CI matrix already runs each platform on separate runners, so CI is unaffected — this is purely a local-dev friction cost.
-**Root Cause:** Sequential is safe (avoids RAM contention during Nuitka's C compile phase) but on a multi-core host with ≥16GB RAM the three could run in parallel.
-**Progress:** None yet.
-**Related Files:**
-- `scripts/build/build_tauri_all.sh:144-168`
-- `scripts/build/build_sidecar_linux.sh:217`
-- `scripts/build/build_sidecar_linux.sh:248-268`
-**Fix:** (1) Add `--jobs=$(nproc)` to Nuitka invocations in `build_sidecar_*.sh` and `build_prewarm_*.sh`. (2) In `build_tauri_all.sh` Phase 1a, run the 3 builds in parallel via backgrounded `&` + `wait -n` pattern, gated on a `--parallel` flag (default off, since Nuitka is RAM-heavy). Document the RAM requirement (suggest ≥16GB).
-**Severity:** 🟡 Medium
-**Verification (2026-08-06, Windows win32):**
-Linux half done, Windows/macOS half missing. `--parallel` flag + backgrounded `&` jobs + `wait -n` drain loop present in `build_tauri_all.sh`; `--jobs` added to `build_sidecar_linux.sh` and `build_prewarm_linux.sh`. BUT the Nuitka invocations in `build_sidecar_windows.sh:134-170`, `build_prewarm_windows.sh:154`, `build_sidecar_macos.sh:131`, `build_prewarm_macos.sh:141` have NO `--jobs`. On a Windows host, `--parallel` gives 3-way process parallelism but zero intra-Nuitka parallelism. (`build_tauri_all.sh` needs bash 4.3+ / WSL, not native PowerShell.)
-**Verification (2026-08-30, Windows win32): SUPERSEDED — fixed.** All four scripts now carry `--jobs="$NUITKA_JOBS"` (env override; nproc default on Windows/WSL; sysctl/nproc default on macOS clamped to 4 for CI-runner RAM). `bash -n` clean on all four.
-
 ### GA-1 — Restore bundled gtcrn_simple.onnx model binary
 **Status:** Open (pending asset delivery).
 **Description:** The bundled GTCRN noise-suppression model binary `voice_typer/server/gtcrn_simple.onnx` is ABSENT from this tree (verified 2026-08-25: file does not exist) — the cloud patch exports text-only diffs and cannot carry binaries, and the 0-byte artifact was removed. ER-2 landed the entire backend against the expected asset: official GTCRN streaming ONNX export, 535190 bytes, MIT license. With the binary missing, `_init_gtcrn` degrades to RNNoise with `is_degraded=True` at every init and the noisy_room preset silently loses its neural denoiser; the sdist MANIFEST.in include line is commented out pending delivery (dated rationale in place) so packaging never references a nonexistent file. Hop-size/layout contract for the incoming asset: 512-sample window / `HOP: int = 256` at voice_typer/server/audio_filters/gtcrn_backend.py:67 (16 ms @ native 16 kHz). Completes ER-2 delivery — cross-reference [ER-2] rather than duplicating its backend scope.
@@ -349,11 +314,8 @@ Linux half done, Windows/macOS half missing. `--parallel` flag + backgrounded `&
 ## Skipped as Not Real / Already Done
 
 - **ER-93 + FZ-60 (resolved/stale, 2026-08-24 audit):** kill_process_tree spawn storm FIXED (Linux /proc + libc::kill, Windows single taskkill; all callers spawn_blocking/off-event-loop). Residual by design: 200ms SIGTERM grace incl. empty-descendants path (platform/process/mod.rs:344) + macOS pgrep-per-node (posix.rs:263).
-- **ER-35 + GQ-L27 (WONTFIX-BY-DESIGN, 2026-08-24 audit):** dual-channel emit (specific event + generic python-event envelope) IS the documented ADR-0020 §9 contract — bubble window listens on the specific channel, usePython on the generic one; <=30 Hz coalesce makes the clone cost immaterial.
-
 - **GP-5** (caps_lock_suppressor keybd_event → SendInput): SKIPPED — still OPEN (re-audited 2026-08-12: `caps_lock_suppressor.py:48-49,87-88` still uses `keybd_event`, NOT SendInput). Disposition accurate — deferred, not done.
 - **GP-6** (Windows long-path prefix): SKIPPED — still OPEN (re-audited 2026-08-12: no `\\?\` extended-length path prefix anywhere in `_paths.py` or `paths.rs`). Disposition accurate — deferred, not done.
-- **GP-119** (multi-key chord support): Won't Fix — disposition accurate (re-audited 2026-08-12: no sequence-chord support found; only single-combo multi-key, e.g. Ctrl+Shift+V, exists).
 - **GP-142/GP-143/GP-144/GP-145**: Duplicates of GP-140/GP-33/GP-42/GP-11 — consolidated.
 
 ---

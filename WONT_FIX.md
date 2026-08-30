@@ -14,6 +14,30 @@
 
 ---
 
+### GQ-32 — text_cleanup max-size corrections file drives 145 ms per-dictation
+**Status:** 🚫 Won't Fix (lowering SEC-011 cap from 5000→500 is a user-facing behavior change for power users; deferred to dedicated perf-tuning session)
+> - **2026-08-30 verification:** rationale stands — file now a package; SEC-011 cap 5000 verified at `text_cleanup/_corrections_data.py:324-325` (pinned by tests/test_security_hardening.py:419); the combined regex is identity-cached (`_engine.py:69-78`, `:126-140`), so the cost is per-call `re.sub` matching, not regex construction. Both mitigations (cap 500 → product change; Aho-Corasick → new dependency) remain deliberate deferrals.
+**Description:** With bundled corrections.json (8 phrases), `clean_transcribed_text` on a 5580-char input measures median 7.9ms / p95 8.4ms — well under Low threshold. But with a SEC-011-maximum (5000 phrases + 5000 extra-word patterns) user corrections file, the combined-alternation regex `(?:p1|p2|...|p5000)` built at line 607 drives per-dictation cleanup to median 145.4ms / max 199.7ms on a 2360-char input, and p95 211.2ms on a 47-char input with one match (first-call regex warmup).
+**User Impact:** For typical users — none (<10ms). For users with very large corrections dictionaries — per-dictation cleanup could approach 200ms, which on a 1-second transcription budget is ~20% overhead.
+**Root Cause:** The SRE trie compiled from a 5000-alternative alternation of `re.escape`d literals is O(total pattern chars), and `re.sub` against it touches every text char against the trie.
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/server/text_cleanup/_engine.py` (formerly `text_cleanup.py:566-608` — package split)
+- `voice_typer/server/text_cleanup/_corrections_data.py:324-327`
+**Fix:** If max-size corrections files become a real use case, options are: (a) lower the SEC-011 cap from 5000 to ~500 (still 60x the bundled defaults); (b) switch from a single combined regex to Aho-Corasick (`pyahocorasick` package) for O(N+M) multi-pattern matching that scales better than SRE trie at 5000+ patterns. Recommend (a) as the lowest-risk mitigation.
+**Severity:** 🟡 Medium
+
+
+### GP-119 — multi-key chord support
+**Status:** 🚫 Won't Fix (disposition accurate — re-audited 2026-08-12: no sequence-chord support found; only single-combo multi-key hotkeys, e.g. Ctrl+Shift+V, exist)
+**Severity:** 🟢 Low
+
+
+### GQ-L27 (+ER-35) — event dual-channel emit (specific channel + generic python-event envelope)
+**Status:** 🚫 Won't Fix BY DESIGN (2026-08-24 audit) — the dual-channel emit IS the documented ADR-0020 §9 contract: the bubble window listens on the specific channel, usePython on the generic one; ≤30 Hz coalescing makes the clone cost immaterial.
+**Severity:** 🟢 Low
+
+
 ### GQ-48 — history_db LIKE fallback 58 ms scan on separator-only queries
 **Status:** 🚫 Won't Fix (LIKE fallback 58ms scan is edge case — separator-only queries; idx_timestamp_id already mitigates ORDER BY)
 **Description:** EXPLAIN QUERY PLAN: `SCAN transcriptions USING INDEX idx_timestamp` + `USE TEMP B-TREE FOR LAST TERM OF ORDER BY`. The `WHERE text LIKE ? ESCAPE '\\'` with leading `%` cannot use any index, forcing a full table scan. Benchmark on 500K-row DB: `search(query="%", limit=50)` = 58ms median. Scales linearly with N (was 5.7ms at 50K rows — 10× rows ≈ 10× time). Triggered when `_is_fts_compatible_query` returns False (query contains ONLY separator chars — `%`, `_`, punctuation).
