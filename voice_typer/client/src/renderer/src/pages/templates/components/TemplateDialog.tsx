@@ -170,13 +170,16 @@ export function TemplateDialog({
 				</div>
 
 				<div>
-					<span className="mb-2 block text-sm font-medium text-(--text-primary)">
+					<label
+						htmlFor="template-match-mode"
+						className="mb-2 block text-sm font-medium text-(--text-primary)"
+					>
 						{t("templates.matchMode")}
-					</span>
+					</label>
 					<Select value={matchMode} onValueChange={onMatchModeChange}>
 						<SelectTrigger
+							id="template-match-mode"
 							className={cn("w-full", FIELD_SHELL)}
-							aria-label={t("templates.matchMode")}
 						>
 							<SelectValue />
 						</SelectTrigger>

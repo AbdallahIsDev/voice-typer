@@ -125,6 +125,14 @@ export function RangeSlider({
 
 	return (
 		<div className={cn("flex items-center gap-2", className)}>
+			{/* LO-28: visible min endpoint label at the start of the track. */}
+			<span
+				className="w-12 shrink-0 text-xs tabular-nums text-(--text-muted)"
+				aria-hidden="true"
+			>
+				{min}
+				{suffix}
+			</span>
 			<Slider
 				value={[renderedValue]}
 				onValueChange={handleValueChange}
@@ -144,18 +152,28 @@ export function RangeSlider({
 				aria-valuenow={renderedValue}
 				aria-valuemin={min}
 				aria-valuemax={max}
-				// aria-valuetext gives screen-reader users the same
-				// "value + unit" readout that sighted users see next to the
-				// thumb. Without it, SR users only hear the raw number with
-				// no unit context (e.g. "50" instead of "50ms").
-				aria-valuetext={`${renderedValue}${suffix}`}
+				// LO-23: aria-valuetext is generated on the THUMB (via
+				// getThumbAriaValueText) so screen readers announce the
+				// "value + unit" readout at the focused thumb, not on the
+				// root. The root-level aria-valuetext was dropped — Radix
+				// announces the thumb's value, and a root valuetext was
+				// either ignored or double-announced.
+				getThumbAriaValueText={(value) => `${value}${suffix}`}
 				disabled={disabled}
 				className="w-24 py-3"
 				trackClassName="h-2"
 				thumbClassName="w-6 bg-white shadow-md"
 			/>
-			<span className="text-sm text-(--text-muted) w-14 tabular-nums">
+			<span className="w-14 shrink-0 text-end text-sm tabular-nums text-(--text-muted)">
 				{renderedValue}
+				{suffix}
+			</span>
+			{/* LO-28: visible max endpoint label at the end of the track. */}
+			<span
+				className="w-12 shrink-0 text-xs tabular-nums text-(--text-muted)"
+				aria-hidden="true"
+			>
+				{max}
 				{suffix}
 			</span>
 		</div>

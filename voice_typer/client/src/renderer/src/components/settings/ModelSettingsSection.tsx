@@ -291,7 +291,7 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 										variant="ghost"
 										size="xs"
 										onClick={handleToggleLlmKey}
-										className="absolute right-1 top-1/2 -translate-y-1/2 text-xs"
+										className="absolute end-1 top-1/2 -translate-y-1/2 text-xs"
 										aria-label={
 											llmKeyVisible ? t("settings.hide") : t("settings.show")
 										}

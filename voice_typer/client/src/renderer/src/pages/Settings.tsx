@@ -575,10 +575,14 @@ export default function SettingsPage({
 		}
 		return (
 			<div className="flex h-full items-center justify-center">
-				<div className="space-y-2 text-center">
+				<output
+					aria-live="polite"
+					aria-busy="true"
+					className="flex flex-col items-center gap-2"
+				>
 					<Spinner size={24} className="mx-auto" />
 					<p className="text-sm text-(--text-muted)">{t("settings.loading")}</p>
-				</div>
+				</output>
 			</div>
 		);
 	}

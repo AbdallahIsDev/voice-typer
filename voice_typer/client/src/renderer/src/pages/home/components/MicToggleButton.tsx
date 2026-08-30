@@ -43,6 +43,17 @@ export function MicToggleButton({
 	// visually, but the button itself must remain self-describing for
 	// screen-reader users who focus it directly).
 	const effectiveLabel = disabled && disabledReason ? disabledReason : label;
+
+	// LO-22: use `aria-disabled` + a click guard instead of the native
+	// `disabled` attribute so the button stays hoverable/focusable — the
+	// `title` tooltip (carrying `disabledReason`) must remain readable on
+	// a disabled mic, which a native `disabled` attribute suppresses.
+	// Screen readers still announce the disabled state via aria-disabled.
+	const handleClick = () => {
+		if (disabled) return;
+		onClick();
+	};
+
 	return (
 		<div className="relative">
 			{isRecording && (
@@ -50,8 +61,8 @@ export function MicToggleButton({
 			)}
 			<button
 				type="button"
-				onClick={onClick}
-				disabled={disabled}
+				onClick={handleClick}
+				aria-disabled={disabled || undefined}
 				aria-label={effectiveLabel}
 				aria-pressed={isRecording}
 				title={effectiveLabel}
