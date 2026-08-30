@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import json
 import logging
-import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -31,58 +30,19 @@ from voice_typer.server.ipc import sender as sender_module
 from voice_typer.server.ipc.rate_limiter import _TCP_WRITE_TIMEOUT_SECONDS
 from voice_typer.server.ipc_server import IPCServer
 
+from tests.fixtures.ipc_test_helpers import make_bare_ipc_server, make_buffered_mock_tcp_client
+
 
 def _make_server() -> IPCServer:
-    """Build a minimal IPCServer fixture for testing ``_send`` in isolation.
+    """Canonical bare send-path IPCServer fixture for ``_send`` tests.
 
-    Uses ``__new__`` to skip the full ``__init__`` (which would spawn
-    threads / bind sockets). Sets just the attributes ``_send`` touches.
+    ``send_path=True`` initializes exactly the instance state
+    ``_send`` touches (locks, ``_PendingBuffer`` pending queue, TCP
+    mode flags) without running ``__init__`` (no threads / sockets).
+    Tests that exercise pending-entry re-merge assign their own
+    ``_pending_tcp`` entries after construction.
     """
-    server = IPCServer.__new__(IPCServer)
-    server.app = MagicMock()
-    server.app._shutting_down = False
-    server._lock = threading.RLock()
-    server._tcp_write_lock = threading.RLock()
-    server._pending_tcp = []
-    server._tcp_mode = True
-    server._cached_shutting_down = False
-    server._tcp_client = None
-    return server
-
-
-def _make_buffered_mock_client() -> tuple[MagicMock, list[bytes]]:
-    """Mock tcp_client simulating ``_TCPLineIO`` buffer-then-flush.
-
-    ``write()`` appends to an in-memory buffer; ``flush()`` issues a
-    single ``sendall`` for the whole buffer (mirrors the real
-    ``_TCPLineIO`` behavior so we can inspect the exact bytes passed to
-    ``sendall`` without a real socketpair).
-
-    Returns ``(tcp_client, write_buffer)`` so the test can inspect the
-    buffered bytes.
-    """
-    tcp_client = MagicMock()
-    tcp_client.conn = MagicMock()
-    write_buffer: list[bytes] = []
-
-    def mock_write(text: str | bytes) -> None:
-        # The real ``_TCPLineIO.write`` accepts BOTH ``str`` and
-        # pre-encoded ``bytes`` (the sender's ``line_bytes`` fast path
-        # passes bytes and skips the re-encode). Mirror that contract.
-        write_buffer.append(text.encode("utf-8") if isinstance(text, str) else text)
-
-    def mock_flush() -> None:
-        if write_buffer:
-            tcp_client.conn.sendall(b"".join(write_buffer))
-            write_buffer.clear()
-
-    def mock_reset() -> None:
-        write_buffer.clear()
-
-    tcp_client.write.side_effect = mock_write
-    tcp_client.flush.side_effect = mock_flush
-    tcp_client._reset_write_buffer.side_effect = mock_reset
-    return tcp_client, write_buffer
+    return make_bare_ipc_server(send_path=True)
 
 
 def _patch_select_writable(conn: object) -> patch:
@@ -116,7 +76,7 @@ def test_select_called_before_sendall() -> None:
     subsequent ``sendall`` won't block indefinitely on a stalled
     renderer."""
     server = _make_server()
-    tcp_client, _buf = _make_buffered_mock_client()
+    tcp_client = make_buffered_mock_tcp_client()
     server._tcp_client = tcp_client
 
     call_order: list[str] = []
@@ -177,7 +137,7 @@ def test_select_timeout_logs_error_and_drops_frame(
        they survive for the next reconnect's drain (not silently lost).
     """
     server = _make_server()
-    tcp_client, _buf = _make_buffered_mock_client()
+    tcp_client = make_buffered_mock_tcp_client()
     server._tcp_client = tcp_client
     # Pre-populate pending to verify the re-merge on write timeout.
     server._pending_tcp = ['{"old": 1}', '{"old": 2}']
@@ -216,7 +176,7 @@ def test_select_writable_sendall_called_with_correct_data() -> None:
     must call ``sendall`` with the correctly encoded JSON line (the
     message serialized via ``json.dumps`` + a trailing newline)."""
     server = _make_server()
-    tcp_client, _buf = _make_buffered_mock_client()
+    tcp_client = make_buffered_mock_tcp_client()
     server._tcp_client = tcp_client
 
     sent_data: list[bytes] = []
@@ -257,7 +217,7 @@ def test_select_writable_sendall_called_with_correct_data_and_drain() -> None:
     line and once for the batched drain. The drain flush must also be
     preceded by a select call."""
     server = _make_server()
-    tcp_client, _buf = _make_buffered_mock_client()
+    tcp_client = make_buffered_mock_tcp_client()
     server._tcp_client = tcp_client
     server._pending_tcp = ['{"pending": 1}', '{"pending": 2}']
 

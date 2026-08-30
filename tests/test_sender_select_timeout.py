@@ -23,7 +23,6 @@ broken ``select`` syscall for writable fds). Tests that simulate the
 from __future__ import annotations
 
 import socket
-import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -31,55 +30,17 @@ from voice_typer.server.ipc import sender as sender_module
 from voice_typer.server.ipc.rate_limiter import _TCP_WRITE_TIMEOUT_SECONDS
 from voice_typer.server.ipc_server import IPCServer
 
+from tests.fixtures.ipc_test_helpers import make_bare_ipc_server, make_buffered_mock_tcp_client
+
 
 def _make_server() -> IPCServer:
-    """Build a minimal IPCServer fixture for testing ``_send`` in isolation.
+    """Canonical bare send-path IPCServer fixture for ``_send`` tests.
 
-    Uses ``__new__`` to skip the full ``__init__`` (which would spawn
-    threads / bind sockets). Sets just the attributes ``_send`` touches.
+    ``send_path=True`` initializes exactly the instance state
+    ``_send`` touches (locks, ``_PendingBuffer`` pending queue, TCP
+    mode flags) without running ``__init__`` (no threads / sockets).
     """
-    server = IPCServer.__new__(IPCServer)
-    server.app = MagicMock()
-    server.app._shutting_down = False
-    server._lock = threading.RLock()
-    server._tcp_write_lock = threading.RLock()
-    server._pending_tcp = []
-    server._tcp_mode = True
-    server._cached_shutting_down = False
-    server._tcp_client = None
-    return server
-
-
-def _make_buffered_mock_client() -> MagicMock:
-    """Mock tcp_client simulating ``_TCPLineIO`` buffer-then-flush.
-
-    ``write()`` appends to an in-memory buffer; ``flush()`` issues a
-    single ``sendall`` for the whole buffer (mirrors the real
-    ``_TCPLineIO`` behavior so we can count ``sendall`` calls without a
-    real socketpair).
-    """
-    tcp_client = MagicMock()
-    tcp_client.conn = MagicMock()
-    write_buffer: list[bytes] = []
-
-    def mock_write(text: str | bytes) -> None:
-        # The real ``_TCPLineIO.write`` accepts BOTH ``str`` and
-        # pre-encoded ``bytes`` (the sender's ``line_bytes`` fast path
-        # passes bytes and skips the re-encode). Mirror that contract.
-        write_buffer.append(text.encode("utf-8") if isinstance(text, str) else text)
-
-    def mock_flush() -> None:
-        if write_buffer:
-            tcp_client.conn.sendall(b"".join(write_buffer))
-            write_buffer.clear()
-
-    def mock_reset() -> None:
-        write_buffer.clear()
-
-    tcp_client.write.side_effect = mock_write
-    tcp_client.flush.side_effect = mock_flush
-    tcp_client._reset_write_buffer.side_effect = mock_reset
-    return tcp_client
+    return make_bare_ipc_server(send_path=True)
 
 
 def _patch_select_not_writable() -> tuple[patch, MagicMock]:
@@ -107,7 +68,7 @@ def test_send_calls_select_before_sendall() -> None:
     subsequent ``sendall`` won't block indefinitely on a stalled
     renderer (NEW-CONC-003)."""
     server = _make_server()
-    tcp_client = _make_buffered_mock_client()
+    tcp_client = make_buffered_mock_tcp_client()
     server._tcp_client = tcp_client
 
     call_order: list[str] = []
@@ -157,7 +118,7 @@ def test_send_does_not_call_gettimeout_or_settimeout() -> None:
     socket — the select-based approach never mutates the socket's timeout
     attribute, eliminating the 4-5 syscall per-write dance."""
     server = _make_server()
-    tcp_client = _make_buffered_mock_client()
+    tcp_client = make_buffered_mock_tcp_client()
     server._tcp_client = tcp_client
 
     mock_mod = MagicMock()
@@ -202,7 +163,7 @@ def test_send_handles_timeout_when_select_returns_empty() -> None:
     caught by the ``except (TimeoutError, OSError)`` block → dead-client
     path). Pending entries must be re-merged (CR-79 contract)."""
     server = _make_server()
-    tcp_client = _make_buffered_mock_client()
+    tcp_client = make_buffered_mock_tcp_client()
     server._tcp_client = tcp_client
     # Pre-populate pending to verify the  re-merge on write failure.
     server._pending_tcp = ['{"old": 1}']
@@ -237,7 +198,7 @@ def test_send_calls_sendall_when_select_returns_ready() -> None:
     must proceed to call ``sendall`` (via ``tcp_client.flush``). The
     client must stay alive (no error)."""
     server = _make_server()
-    tcp_client = _make_buffered_mock_client()
+    tcp_client = make_buffered_mock_tcp_client()
     server._tcp_client = tcp_client
 
     mock_mod = MagicMock()

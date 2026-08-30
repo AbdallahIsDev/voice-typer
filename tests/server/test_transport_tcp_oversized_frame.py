@@ -23,63 +23,24 @@ import json
 import logging
 
 # Mock pystray before importing ipc_server (transitively imports tray).
-import threading
-from unittest.mock import MagicMock
-
 import pytest
-from voice_typer.server.ipc.sender import (  # noqa: E402
-    _TCP_MAX_OUTBOUND_BYTES,
-    _TCP_PENDING_BUFFER_CAP,
-    _PendingBuffer,
-)
+from voice_typer.server.ipc.sender import _TCP_MAX_OUTBOUND_BYTES  # noqa: E402
 from voice_typer.server.ipc_server import IPCServer  # noqa: E402
+
+from tests.fixtures.ipc_test_helpers import (  # noqa: E402
+    make_bare_ipc_server,
+    make_buffered_mock_tcp_client,
+)
 
 
 def _make_server() -> IPCServer:
-    """Build a minimal IPCServer fixture for testing ``_send`` in isolation.
+    """Canonical bare send-path IPCServer fixture for ``_send`` tests.
 
-    Uses ``__new__`` to skip the full ``__init__`` (which would spawn
-    threads / bind sockets). Sets just the attributes ``_send`` touches.
+    ``send_path=True`` initializes exactly the instance state
+    ``_send`` touches (locks, ``_PendingBuffer`` pending queue, TCP
+    mode flags) without running ``__init__`` (no threads / sockets).
     """
-    server = IPCServer.__new__(IPCServer)
-    server.app = MagicMock()
-    server.app._shutting_down = False
-    server._lock = threading.RLock()
-    server._tcp_write_lock = threading.RLock()
-    server._pending_tcp = _PendingBuffer(maxlen=_TCP_PENDING_BUFFER_CAP)
-    server._tcp_mode = True
-    server._cached_shutting_down = False
-    server._tcp_client = None
-    return server
-
-
-def _make_buffered_mock_client() -> MagicMock:
-    """Mock tcp_client simulating ``_TCPLineIO`` buffer-then-flush.
-
-    ``write()`` appends to an in-memory buffer; ``flush()`` issues a
-    single ``sendall`` for the whole buffer (mirrors the real
-    ``_TCPLineIO`` behavior so we can count ``sendall`` calls without a
-    real socketpair).
-    """
-    tcp_client = MagicMock()
-    tcp_client.conn = MagicMock()
-    write_buffer: list[bytes] = []
-
-    def mock_write(text: str | bytes) -> None:
-        write_buffer.append(text.encode("utf-8") if isinstance(text, str) else text)
-
-    def mock_flush() -> None:
-        if write_buffer:
-            tcp_client.conn.sendall(b"".join(write_buffer))
-            write_buffer.clear()
-
-    def mock_reset() -> None:
-        write_buffer.clear()
-
-    tcp_client.write.side_effect = mock_write
-    tcp_client.flush.side_effect = mock_flush
-    tcp_client._reset_write_buffer.side_effect = mock_reset
-    return tcp_client
+    return make_bare_ipc_server(send_path=True)
 
 
 # ─── Tests ────────────────────────────────────────────────────────────
@@ -98,7 +59,7 @@ class TestOversizedFrameRejected:
         - The pending snapshot is re-merged into ``_pending_tcp``.
         """
         server = _make_server()
-        tcp_client = _make_buffered_mock_client()
+        tcp_client = make_buffered_mock_tcp_client()
         server._tcp_client = tcp_client
 
         # Pre-populate _pending_tcp so we can verify the re-merge.
@@ -163,7 +124,7 @@ class TestFrameAtLimitAccepted:
         is accepted — ``sendall`` is called and the frame reaches the
         wire."""
         server = _make_server()
-        tcp_client = _make_buffered_mock_client()
+        tcp_client = make_buffered_mock_tcp_client()
         server._tcp_client = tcp_client
 
         # Build a message whose JSON-encoded byte count is EXACTLY the

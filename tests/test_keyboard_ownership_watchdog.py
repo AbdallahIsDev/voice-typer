@@ -29,7 +29,7 @@ import pytest
 from voice_typer.server.ipc_server import IPCServer
 from voice_typer.server.keyboard_ownership import keyboard_ownership
 
-from tests.fixtures.ipc_test_helpers import make_fake_app, make_fake_service
+from tests.fixtures.ipc_test_helpers import make_ipc_server_with_fakes
 
 # Hint for xdist schedulers that respect ``xdist_group`` (loadgroup /
 # loadscope): pin every test in this module — and its sibling
@@ -52,10 +52,8 @@ def _reset_ownership():
 
 
 def _make_server() -> IPCServer:
-    """Construct a real IPCServer with fake app/service for unit tests."""
-    app = make_fake_app()
-    service = make_fake_service()
-    server = IPCServer(app, service=service)
+    """Construct a real IPCServer via the canonical fake factories."""
+    server, _fake_app, _fake_service = make_ipc_server_with_fakes()
     # Match the post-start() state so _on_ipc_client_disconnect's
     # ``self._running`` guard treats us as a live server.
     server._running = True

@@ -16,6 +16,7 @@ Windows WM_DEVICECHANGE  :mod:`._windows` — ``_WindowsMixin``
 Patch-target contract: ``voice_typer.server.microphone_watcher.X``
 keeps resolving exactly as before (C-ARCH-2).
 """
+
 from voice_typer.server.microphone_watcher._core import MicrophoneDeviceWatcher as MicrophoneDeviceWatcher
 
 __all__ = ["MicrophoneDeviceWatcher"]

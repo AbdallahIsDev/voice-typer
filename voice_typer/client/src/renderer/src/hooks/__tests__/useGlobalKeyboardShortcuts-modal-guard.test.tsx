@@ -51,7 +51,8 @@ function renderHook(textSize: number | null = 14) {
 		});
 		return null;
 	}
-	return render(<Probe />);
+	const result = render(<Probe />);
+	return { result, setTextSize };
 }
 
 function dispatchKey(
@@ -195,5 +196,40 @@ describe("useGlobalKeyboardShortcuts — modal-open guard", () => {
 		dispatchKey("b");
 		expect(mockSetSidebarCollapsed).toHaveBeenCalledTimes(1);
 		el.remove();
+	});
+});
+
+describe("useGlobalKeyboardShortcuts — rapid consecutive zoom events", () => {
+	// The bumpTextSize body mirrors textSize into a ref and advances it
+	// SYNCHRONOUSLY, so a burst of events between renders accumulates
+	// (14 → 15 → 16) instead of replaying the stale rendered value.
+	// The harness never re-renders between the two events (setTextSize
+	// is a bare mock that doesn't change state), which is exactly the
+	// window the ref mirror covers.
+	it("accumulates two consecutive Ctrl+Wheel zoom-in events (14 → 15 → 16)", () => {
+		const { setTextSize } = renderHook(14);
+		dispatchWheel(-1);
+		dispatchWheel(-1);
+		expect(setTextSize).toHaveBeenNthCalledWith(1, 15);
+		expect(setTextSize).toHaveBeenNthCalledWith(2, 16);
+		expect(mockCall).toHaveBeenNthCalledWith(2, "set_config", {
+			text_size: 16,
+		});
+	});
+
+	it("accumulates two consecutive Ctrl+= key events (14 → 15 → 16)", () => {
+		const { setTextSize } = renderHook(14);
+		dispatchKey("=");
+		dispatchKey("=");
+		expect(setTextSize).toHaveBeenNthCalledWith(1, 15);
+		expect(setTextSize).toHaveBeenNthCalledWith(2, 16);
+	});
+
+	it("accumulates two consecutive Ctrl+Wheel zoom-out events (14 → 13 → 12)", () => {
+		const { setTextSize } = renderHook(14);
+		dispatchWheel(1);
+		dispatchWheel(1);
+		expect(setTextSize).toHaveBeenNthCalledWith(1, 13);
+		expect(setTextSize).toHaveBeenNthCalledWith(2, 12);
 	});
 });

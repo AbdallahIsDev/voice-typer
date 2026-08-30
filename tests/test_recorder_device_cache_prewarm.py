@@ -23,6 +23,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.fixtures.recorder_test_helpers import make_recorder
+
 
 @pytest.fixture(autouse=True)
 def _mock_sounddevice(monkeypatch):
@@ -35,17 +37,19 @@ def _mock_sounddevice(monkeypatch):
 def _make_recorder(config=None):
     """Build a real ``Recorder`` (mock config unless one is injected).
 
-    Delegates to the shared canonical factory (XS-42 helper dedup) —
-    see ``tests/fixtures/recorder_test_helpers.make_recorder`` for the
-    pre-populated config fields.
+    Both branches delegate to the single canonical factory
+    ``tests.fixtures.recorder_test_helpers.make_recorder``: the
+    mock-config default goes through its public
+    ``make_fake_recorder`` alias (same factory, pre-populated config
+    fields), and an injected config goes through its
+    ``config=`` parameter (real ``Recorder`` construction with the
+    caller-owned config).
     """
     if config is None:
         from tests.fixtures.ipc_test_helpers import make_fake_recorder
 
         return make_fake_recorder()
-    from voice_typer.server.recording import Recorder
-
-    return Recorder(config)
+    return make_recorder(config)
 
 
 # ── _prewarm_device_cache ────────────────────────────────────────────────
@@ -220,7 +224,6 @@ class TestStartUsesCachedLookup:
         delegator (in device_manager.py) still calls ``sd.query_devices``,
         so we filter to only positional-int calls."""
         import voice_typer.server.recording as recording_mod
-        from voice_typer.server.recording import Recorder
 
         devices = [
             {
@@ -272,7 +275,7 @@ class TestStartUsesCachedLookup:
         # branch caps channels at 2. This proves the cached value flowed
         # through (a cache miss would return 1, capping channels at 1).
         config = MagicMock(sample_rate=16000, microphone="0", recording_channels=5)
-        r = Recorder(config)
+        r = make_recorder(config)
         # Pre-populate the cache so _cached_max_input_channels(0) returns 2
         # without a direct query_devices(0) call. The pre-warm thread may
         # have already done this, but we set it explicitly for determinism.

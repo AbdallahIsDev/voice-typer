@@ -3,10 +3,10 @@
 Provides :class:`_WindowsMixin` (mixed into ``MicrophoneDeviceWatcher``)
 with the hidden-window ``GetMessageW`` pump and ``WM_QUIT`` posting.
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 log = logging.getLogger(__name__)
 

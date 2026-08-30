@@ -19,7 +19,7 @@
 // Models.tsx (old):
 // wrapper: `sticky left-0 right-0 top-0 z-50` (no bg, no border)
 // inner:   `mx-auto w-full max-w-4xl px-16 py-1.5`
-// SegmentedControl indicator: `bg-(--bg) border border-border/55`
+// SegmentedControl indicator: `bg-(--bg) border border-border/5`
 // SegmentedControl label:     `flex-1 text-center`
 // SegmentedControl className:  `bg-(--bg-subtle) rounded-lg w-full`
 //
@@ -82,7 +82,7 @@ export const tabPageHeaderClassName =
  * (`ModelGroupAccordion` uses `rounded-lg border border-border/5
  * bg-(--bg-subtle)`). The active segment therefore reads as the same
  * card/surface treatment as the model list it controls, rather than a
- * darker `border-border/55` outlier. (2026-08-21: previously /75;
+ * darker `border-border/5` outlier. (2026-08-21: previously /75;
  * changed to the card token so the segmented control and its cards
  * share one border language.)
  */

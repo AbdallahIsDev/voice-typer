@@ -124,6 +124,17 @@ export function useGlobalKeyboardShortcuts({
 		callRef.current = call;
 	}, [call]);
 
+	// Ref mirror of `textSize` (same pattern as callRef above) so the
+	// listener effect doesn't re-install on every text-size change and
+	// so `bumpTextSize` never reads a stale closure value: the ref is
+	// advanced SYNCHRONOUSLY inside bumpTextSize, which makes rapid
+	// wheel/keystroke bursts between renders accumulate correctly
+	// (14 → 15 → 16) instead of replaying the last rendered value.
+	const textSizeRef = useRef(textSize);
+	useEffect(() => {
+		textSizeRef.current = textSize;
+	}, [textSize]);
+
 	useEffect(() => {
 		// Per-binding handlers keyed by catalog id — the ACTIONS half of
 		// the binding table. Which key triggers which action comes from
@@ -152,10 +163,13 @@ export function useGlobalKeyboardShortcuts({
 			delta: number,
 			opts: { silentOnError?: boolean } = {},
 		) => {
-			const current = textSize ?? 14;
+			const current = textSizeRef.current ?? 14;
 			const next =
 				delta > 0 ? Math.min(current + 1, 20) : Math.max(current - 1, 10);
 			if (next === current) return;
+			// Advance the ref BEFORE awaiting any re-render so consecutive
+			// events (Ctrl+Wheel bursts) see the accumulated value.
+			textSizeRef.current = next;
 			setTextSize(next);
 			callRef
 				.current("set_config", { text_size: next })
@@ -243,5 +257,5 @@ export function useGlobalKeyboardShortcuts({
 			window.removeEventListener("keydown", keyHandler);
 			window.removeEventListener("wheel", wheelHandler);
 		};
-	}, [navigate, textSize, setTextSize, t, setSidebarCollapsed]);
+	}, [navigate, setTextSize, t, setSidebarCollapsed]);
 }

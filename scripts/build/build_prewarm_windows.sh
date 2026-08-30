@@ -150,10 +150,19 @@ mkdir -p "$RESOURCES_DIR"
 # --include-package=faster_whisper,ctranslate2 (not needed for
 # find_spec — they're pulled in transitively via voice_typer),
 # and added psutil platform-module exclusions.
+# Parallel C compilation: Nuitka invokes gcc/clang per Python module;
+# --jobs=N fans those out (the default was sequential). Override with
+# NUITKA_JOBS; default = nproc (present in WSL and Git Bash). Each job
+# forks a C compiler (~300-500 MB RSS), so cap high counts on low-RAM hosts.
+if [[ -z "${NUITKA_JOBS:-}" ]]; then
+    NUITKA_JOBS="$(nproc 2>/dev/null || echo 1)"
+fi
+echo "[build_prewarm_windows] Nuitka --jobs=$NUITKA_JOBS"
 echo "[build_prewarm_windows] Running Nuitka..."
 "$PY" -m nuitka \
     --standalone --onefile \
     --assume-yes-for-downloads \
+    --jobs="$NUITKA_JOBS" \
     --nofollow-import-to=torch \
     --nofollow-import-to=transformers \
     --nofollow-import-to=faster_whisper \

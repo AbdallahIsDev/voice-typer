@@ -46,6 +46,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.fixtures.app_helpers import make_voice_typer_app
+
 # Captured at import time — BEFORE any test monkeypatches subprocess — so
 # pass-through helpers can invoke the REAL subprocess.run even after a test
 # replaces ``subprocess.run`` on the module. (A local
@@ -67,7 +69,7 @@ class TestSaveInsideLock:
 
     @pytest.mark.parametrize("platform", ["windows", "macos", "linux"])
     def test_save_called_inside_lock(self, tmp_config_dir, monkeypatch, platform):
-        app = _make_app(tmp_config_dir, monkeypatch)
+        app = make_voice_typer_app(tmp_config_dir, monkeypatch)
         _force_platform(monkeypatch, platform)
 
         save_lock_states: list[bool] = []
@@ -113,7 +115,7 @@ class TestMacosLinuxCommandShape:
     """
 
     def test_macos_uses_open_w(self, tmp_config_dir, monkeypatch):
-        app = _make_app(tmp_config_dir, monkeypatch)
+        app = make_voice_typer_app(tmp_config_dir, monkeypatch)
         _force_platform(monkeypatch, "macos")
 
         editor = _FakeEditor()
@@ -134,7 +136,7 @@ class TestMacosLinuxCommandShape:
 
     @pytest.mark.parametrize("platform", ["macos", "linux"])
     def test_no_bare_popen(self, tmp_config_dir, monkeypatch, platform):
-        app = _make_app(tmp_config_dir, monkeypatch)
+        app = make_voice_typer_app(tmp_config_dir, monkeypatch)
         _force_platform(monkeypatch, platform)
 
         popen_calls: list = []
@@ -178,7 +180,7 @@ class TestReloadAfterEditor:
 
     @pytest.mark.parametrize("platform", ["windows", "macos", "linux"])
     def test_config_reloaded_after_editor_closes(self, tmp_config_dir, monkeypatch, platform):
-        app = _make_app(tmp_config_dir, monkeypatch)
+        app = make_voice_typer_app(tmp_config_dir, monkeypatch)
         _force_platform(monkeypatch, platform)
 
         if platform == "windows":
@@ -256,43 +258,6 @@ class TestReloadAfterEditor:
 
 
 # ── Runtime behavior (lock held for full editor session) ─────────────────
-
-
-def _make_app(tmp_config_dir, monkeypatch):
-    """Build a VoiceTyperApp with mocked hardware/GUI deps.
-
-    Mirrors the ``app`` fixture in tests/test_app.py but inlined here
-    so this test file is self-contained and doesn't depend on
-    test_app.py's fixture state.
-    """
-    monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
-    monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
-
-    # No-op the Windows-only icacls ACL enforcement in Config.save(). On a
-    # real Windows host, ``config.is_windows()`` reads the true platform
-    # (not the test-forced one), so EVERY save() fires real icacls
-    # subprocess calls. Those interfere with the editor-lock tests' fake
-    # subprocess interception: they consume fake-editor waits (blowing the
-    # timeout budget), pollute the no-bare-Popen assertion (icacls is
-    # spawned via subprocess.run, which internally constructs the patched
-    # Popen), and break TestWindowsRuntime's Popen patch (subprocess.run
-    # calls communicate() on the returned _FakeProc, which lacks it). The
-    # ACL tightening is incidental to the editor-lock behavior under test.
-    monkeypatch.setattr(
-        "voice_typer.server.config._enforce_windows_owner_only_acl",
-        lambda *a, **k: None,
-    )
-
-    from voice_typer.server.app import VoiceTyperApp
-
-    instance = VoiceTyperApp()
-    instance.config.esc_cancel_enabled = False
-    instance.config.voice_biometric_consent = True
-    instance.models.transcriber = MagicMock()
-    instance.models.transcriber.is_loaded = True
-    return instance
 
 
 def _force_platform(monkeypatch, platform: str) -> None:
@@ -480,7 +445,7 @@ class TestMacosRuntime:
     """
 
     def test_lock_held_during_editor_session(self, tmp_config_dir, monkeypatch):
-        app = _make_app(tmp_config_dir, monkeypatch)
+        app = make_voice_typer_app(tmp_config_dir, monkeypatch)
         _force_platform(monkeypatch, "macos")
 
         editor = _FakeEditor()
@@ -532,7 +497,7 @@ class TestLinuxRuntime:
     """
 
     def test_lock_held_during_editor_session(self, tmp_config_dir, monkeypatch):
-        app = _make_app(tmp_config_dir, monkeypatch)
+        app = make_voice_typer_app(tmp_config_dir, monkeypatch)
         _force_platform(monkeypatch, "linux")
 
         editor = _FakeEditor()
@@ -583,7 +548,7 @@ class TestWindowsRuntime:
     """
 
     def test_lock_held_during_editor_session(self, tmp_config_dir, monkeypatch):
-        app = _make_app(tmp_config_dir, monkeypatch)
+        app = make_voice_typer_app(tmp_config_dir, monkeypatch)
         _force_platform(monkeypatch, "windows")
         monkeypatch.setattr(
             "voice_typer.server.app._windows_open_with_default_app",
@@ -636,7 +601,7 @@ class TestReloadPicksUpDiskChanges:
     """
 
     def test_config_reloaded_after_macos_editor_closes(self, tmp_config_dir, monkeypatch):
-        app = _make_app(tmp_config_dir, monkeypatch)
+        app = make_voice_typer_app(tmp_config_dir, monkeypatch)
         _force_platform(monkeypatch, "macos")
 
         from voice_typer.server.config import Config

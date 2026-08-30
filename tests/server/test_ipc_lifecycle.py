@@ -14,8 +14,9 @@ The mixin accesses instance state declared on :class:`IPCServer`
 ``_heartbeat_thread``, ``_stdin_thread``, ``_relaunch_ack_event``,
 ``_last_heartbeat_at``, ``_ready_emitted``, ``_shutdown_started``)
 which are all initialized by ``IPCServer.__init__``; the tests
-construct a real ``IPCServer(app, service=MagicMock())`` so every
-attribute is present without manual setup.
+construct a real ``IPCServer`` through the canonical
+``make_ipc_server_with_fakes`` factory so every attribute is present
+without manual setup.
 
 Scope: lifecycle behavior only. TCP/WS transport, dispatcher, and
 stdin-runner behaviors are covered by their dedicated test files
@@ -33,6 +34,7 @@ from voice_typer.server.ipc import lifecycle as lifecycle_mod
 from voice_typer.server.ipc_server import IPCServer
 from voice_typer.server.tray_types import AppState
 
+from tests.fixtures.ipc_test_helpers import make_ipc_server_with_fakes
 from tests.server.conftest import (  # noqa: F401  (fixture re-export)
     server,
 )
@@ -41,23 +43,18 @@ from tests.server.conftest import (  # noqa: F401  (fixture re-export)
 
 
 def _make_server() -> IPCServer:
-    """Build an IPCServer with MagicMock app + service for lifecycle tests.
+    """Build an IPCServer with the canonical fake app + service.
 
-    ``_shutting_down`` is an explicit bool so the dispatch gate sees a
-    real ``False`` (not a child mock that's truthy). ``_thread_registry``
-    is ``None`` so the thread-registry registration path is skipped
-    (the lifecycle methods tolerate its absence via ``getattr``).
+    ``thread_registry=None`` skips the central thread-registry
+    registration path in ``start()``/``stop()`` (the lifecycle methods
+    tolerate its absence via ``getattr``). The canonical fake app sets
+    ``tray.set_state._vt_wrapped = False`` so the tray-state hook
+    actually wraps the original on first call, and ``_shutting_down``
+    as an explicit ``False`` bool so the dispatch gate sees a real
+    ``False``.
     """
-    app = MagicMock()
-    app._shutting_down = False
-    app._thread_registry = None
-    # The tray-state hook checks ``app.tray.set_state._vt_wrapped`` to
-    # dedupe; a fresh MagicMock reports a child mock (truthy) which would
-    # short-circuit the hook on first call. Force it to False so the
-    # hook actually wraps the original.
-    app.tray.set_state._vt_wrapped = False
-    service = MagicMock()
-    return IPCServer(app, service=service)
+    server, _fake_app, _fake_service = make_ipc_server_with_fakes(thread_registry=None)
+    return server
 
 
 # ── Heartbeat watchdog ────────────────────────────────────────────────
@@ -511,11 +508,7 @@ class TestStdinIpcEnvVarGate:
         monkeypatch.setenv("VOICE_TYPER_ALLOW_STDIN_IPC", "1")
         monkeypatch.delenv("TAURI_SIDECAR", raising=False)
 
-        app = MagicMock()
-        app._shutting_down = False
-        app._thread_registry = None
-        app.tray.set_state._vt_wrapped = False
-        server = IPCServer(app, service=MagicMock())
+        server = _make_server()
         server._tcp_mode = False
 
         # Don't actually subscribe the push fn to the real event bus.
@@ -568,11 +561,7 @@ class TestStdinIpcEnvVarGate:
         monkeypatch.setenv("VOICE_TYPER_ALLOW_STDIN_IPC", "0")
         monkeypatch.delenv("TAURI_SIDECAR", raising=False)
 
-        app = MagicMock()
-        app._shutting_down = False
-        app._thread_registry = None
-        app.tray.set_state._vt_wrapped = False
-        server = IPCServer(app, service=MagicMock())
+        server = _make_server()
         server._tcp_mode = False
 
         monkeypatch.setattr(event_bus, "subscribe", lambda fn: None)
@@ -619,11 +608,7 @@ class TestStdinIpcEnvVarGate:
         monkeypatch.setenv("VOICE_TYPER_ALLOW_STDIN_IPC", "1")
         monkeypatch.delenv("TAURI_SIDECAR", raising=False)
 
-        app = MagicMock()
-        app._shutting_down = False
-        app._thread_registry = None
-        app.tray.set_state._vt_wrapped = False
-        server = IPCServer(app, service=MagicMock())
+        server = _make_server()
         server._tcp_mode = True
 
         monkeypatch.setattr(event_bus, "subscribe", lambda fn: None)

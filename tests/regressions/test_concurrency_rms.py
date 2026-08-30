@@ -30,6 +30,8 @@ import pytest
 from voice_typer.server.config import Config
 from voice_typer.server.recording import Recorder
 
+from tests.fixtures.recorder_test_helpers import make_recorder
+
 # === Common module-level constants (identical across files) ===
 
 _REC_LOG = logging.getLogger("voice_typer.server.recording")
@@ -40,8 +42,7 @@ _REC_LOG = logging.getLogger("voice_typer.server.recording")
 def _make_recorder() -> Recorder:
     cfg = Config()
     cfg.sample_rate = 16000
-    rec = Recorder(cfg)
-    return rec
+    return make_recorder(cfg)
 
 
 class TestRmsCallbackErrorSuppression:

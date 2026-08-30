@@ -5,6 +5,7 @@ with the ``/dev/snd`` + secondary ``sd.query_devices()`` polling loop,
 plus the shared ``_device_signature`` helper and default-input-device
 change detection.
 """
+
 from __future__ import annotations
 
 import logging

@@ -143,7 +143,7 @@ export function ActivityChart({ range, activity }: ActivityChartProps) {
 													!bar.isMissing &&
 													"h-1 rounded-sm bg-border/50",
 												bar.isMissing &&
-													"h-1 border-t border-dashed border-border/30 bg-transparent",
+													"h-1 border-t border-dashed border-border/5 bg-transparent",
 											)}
 											style={{ height: bar.count > 0 ? `${pct}%` : undefined }}
 										/>

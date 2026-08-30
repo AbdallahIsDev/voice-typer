@@ -71,6 +71,11 @@ from voice_typer.server.ipc_server import (
     ResponseEnvelope,
 )
 
+from tests.fixtures.ipc_test_helpers import (
+    make_bare_ipc_server,
+    make_ipc_server_with_fakes,
+)
+
 # Best-effort xdist hint: pin every test in this module onto a single
 # worker so the imported IPCServer (heavy handler-mixin imports) doesn't
 # race sibling IPC modules under ``pytest -n auto``. No-op when xdist
@@ -79,17 +84,15 @@ pytestmark = pytest.mark.xdist_group("ipc_layer_fixes")
 
 
 def _make_server() -> IPCServer:
-    """Build an IPCServer with MagicMock app + service for unit tests.
+    """Build an IPCServer via the canonical fake app + service factories.
 
-    The MagicMock app exposes ``_shutting_down`` as a child mock that is
-    truthy but NOT ``is True`` — matching the convention used by the
-    existing dispatch gate (line ~1586 of ipc_server.py) so tests
-    exercise the dispatch path instead of short-circuiting.
+    The canonical fake app sets ``_shutting_down`` as an explicit bool
+    (not a child mock) so the dispatch shutdown gate sees a real
+    ``False`` and tests exercise the dispatch path instead of
+    short-circuiting.
     """
-    app = MagicMock()
-    app._shutting_down = False  # explicit bool, not a child mock
-    service = MagicMock()
-    return IPCServer(app, service=service)
+    server, _fake_app, _fake_service = make_ipc_server_with_fakes()
+    return server
 
 
 # __init__-time registry validation ( dead-cache removal) ──
@@ -502,13 +505,12 @@ class TestReMerge:
         Pre-existing entries must NOT be cleared (the snapshot is gated
         on ``tcp_client is not None``); new events append at the end.
         """
-        server = IPCServer.__new__(IPCServer)
-        server.app = MagicMock()
-        server.app._shutting_down = False
-        server._lock = threading.RLock()
-        server._tcp_write_lock = threading.RLock()
+        server = make_bare_ipc_server(send_path=True)
+        # Plain-list pending override: the pre-existing entries must
+        # survive the _send call (the snapshot is gated on
+        # ``tcp_client is not None``) and the new event must append at
+        # the END.
         server._pending_tcp = ['{"old":1}', '{"old":2}']
-        server._tcp_mode = True
         server._tcp_client = None
 
         # Push a new event — must append at the END.
@@ -768,14 +770,7 @@ class TestDispatchCastNotSuppression:
         """End-to-end sanity: dispatching a real command (heartbeat)
         returns a normal envelope. The cast must not corrupt the call
         path. Pre-existing behavior preserved."""
-        # Use the lightweight in-process fake that  already built.
-        # The fixture returns a tuple of (server, fake_app, fake_service).
-        from tests.fixtures.ipc_test_helpers import make_ipc_server_with_fakes
-
-        fixture_result = make_ipc_server_with_fakes()
-        # Accept either a bare IPCServer or a tuple (the fixture's signature
-        # is `tuple[Any, MagicMock, MagicMock]`).
-        server = fixture_result[0] if isinstance(fixture_result, tuple) else fixture_result
+        server = _make_server()
         result = server._dispatch({"type": "heartbeat", "id": 42})
         # heartbeat returns a ResponseEnvelope (dict) or None for fire-
         # and-forget. Either is acceptable — the contract is "the cast
@@ -1673,12 +1668,14 @@ class TestCheckPackUpdateDispatch:
         assert "check_offline_pack_update" in COMMAND_COSTS
 
     def test_dispatch_returns_structured_ack(self):
-        server = IPCServer.__new__(IPCServer)
-        server.app = _ConfigLike()  # no config → consent denied, still ack
+        # Bespoke wiring: the app stub must be an object WITHOUT
+        # auto-attributes (a MagicMock would fabricate ``app.config``
+        # and flip the consent check), so the _ConfigLike stand-in is
+        # injected into the canonical bare factory.
+        server = make_bare_ipc_server(app=_ConfigLike())
         server._ready_emitted = False
         server._last_heartbeat_at = 0.0
         server._shutting_down = False
-        server._dispatch_lock = threading.RLock()
         server._cached_shutting_down = False
         resp = server._dispatch({"type": "check_offline_pack_update", "data": {}})
         assert resp is not None
@@ -1691,12 +1688,12 @@ class TestCheckPackUpdateDispatch:
 
     def test_dispatch_never_raises_on_handler_error(self):
         """an unexpected handler exception becomes a structured error ack."""
-        server = IPCServer.__new__(IPCServer)
-        server.app = _ConfigLike()
+        # Same bespoke no-auto-attribute app stub as
+        # test_dispatch_returns_structured_ack (see the comment there).
+        server = make_bare_ipc_server(app=_ConfigLike())
         server._ready_emitted = False
         server._last_heartbeat_at = 0.0
         server._shutting_down = False
-        server._dispatch_lock = threading.RLock()
         server._cached_shutting_down = False
         with patch(
             "voice_typer.server.service.update_check.handle_check_offline_pack_update_ipc",
@@ -1875,17 +1872,11 @@ class TestPendingSnapshotGatedOnTcpClient:
     def test_send_does_not_snapshot_when_no_client(self):
         """When ``tcp_client is None`` and ``tcp_mode`` is True, _send
         must NOT clear ``_pending_tcp`` (the snapshot path is skipped)."""
-        from voice_typer.server.ipc_server import IPCServer
-
-        server = IPCServer.__new__(IPCServer)
-        server.app = MagicMock()
-        server.app._shutting_down = False
-        server._lock = threading.RLock()
+        server = make_bare_ipc_server(send_path=True)
         # Pre-populate _pending_tcp with some entries — they must
         # survive the _send call (the snapshot is gated off when
         # tcp_client is None).
         server._pending_tcp = ['{"existing":1}', '{"existing":2}']
-        server._tcp_mode = True
         server._tcp_client = None  # no client connected
 
         # Issue a push event — should append + trim, NOT clear.
@@ -1904,19 +1895,14 @@ class TestPendingSnapshotGatedOnTcpClient:
     def test_send_still_snapshots_when_tcp_client_present(self):
         """When ``tcp_client is not None``, the snapshot+clear must
         still run (so the drain loop can write the pending entries)."""
-        from voice_typer.server.ipc_server import IPCServer, _TCPLineIO
+        from voice_typer.server.ipc_server import _TCPLineIO
 
-        server = IPCServer.__new__(IPCServer)
-        server.app = MagicMock()
-        server.app._shutting_down = False
-        server._lock = threading.RLock()
-        server._tcp_write_lock = threading.RLock()
+        server = make_bare_ipc_server(send_path=True)
 
         srv, cli = socket.socketpair()
         try:
             tcp_client = _TCPLineIO(srv)
             server._tcp_client = tcp_client
-            server._tcp_mode = True
             # Pre-populate _pending_tcp — must be cleared by _send.
             server._pending_tcp = ['{"existing":1}']
 
@@ -1971,15 +1957,9 @@ class TestCompactJsonSerialization:
         whitespace."""
         import contextlib as _ctxlib
 
-        from voice_typer.server.ipc_server import IPCServer, _TCPLineIO
+        from voice_typer.server.ipc_server import _TCPLineIO
 
-        server = IPCServer.__new__(IPCServer)
-        server.app = MagicMock()
-        server.app._shutting_down = False
-        server._lock = threading.RLock()
-        server._tcp_write_lock = threading.RLock()
-        server._pending_tcp = []
-        server._tcp_mode = True
+        server = make_bare_ipc_server(send_path=True)
 
         srv, cli = socket.socketpair()
         try:
@@ -2449,7 +2429,6 @@ class TestStdinGate:
         MagicMock app so no real VoiceTyperApp is constructed.
         """
         from voice_typer.server import event_bus
-        from voice_typer.server.ipc_server import IPCServer
 
         monkeypatch.delenv("VOICE_TYPER_ALLOW_STDIN_IPC", raising=False)
         # Also clear TAURI_SIDECAR so the heartbeat thread is created
@@ -2457,12 +2436,7 @@ class TestStdinGate:
         # thread is a daemon so it doesn't block test teardown).
         monkeypatch.delenv("TAURI_SIDECAR", raising=False)
 
-        app = MagicMock()
-        app._shutting_down = False
-        app._thread_registry = None
-        app.tray.set_state._vt_wrapped = False  # idempotent tray hook
-        service = MagicMock()
-        server = IPCServer(app, service=service)
+        server, _app, _service = make_ipc_server_with_fakes(thread_registry=None)
         server._tcp_mode = False
 
         # Stub out event_bus.subscribe so we don't leak the push fn.
@@ -2514,17 +2488,11 @@ class TestStdinGate:
         This is the explicit-opt-in path for development / testing.
         """
         from voice_typer.server import event_bus
-        from voice_typer.server.ipc_server import IPCServer
 
         monkeypatch.setenv("VOICE_TYPER_ALLOW_STDIN_IPC", "1")
         monkeypatch.delenv("TAURI_SIDECAR", raising=False)
 
-        app = MagicMock()
-        app._shutting_down = False
-        app._thread_registry = None
-        app.tray.set_state._vt_wrapped = False
-        service = MagicMock()
-        server = IPCServer(app, service=service)
+        server, _app, _service = make_ipc_server_with_fakes(thread_registry=None)
         server._tcp_mode = False
 
         monkeypatch.setattr(event_bus, "subscribe", lambda fn: None)

@@ -148,9 +148,19 @@ mkdir -p "$SIDECAR_DIR"
 # avoid a hard Nuitka failure if the dir is absent (mirrors the Linux + macOS
 # sibling scripts — see ADR-0020 §4.2 + XPLAT-3).
 CT2_LIBS_DIR="$SITE/ctranslate2/libs"
+
+# Parallel C compilation: Nuitka invokes gcc/clang per Python module;
+# --jobs=N fans those out (the default was sequential). Override with
+# NUITKA_JOBS; default = nproc (present in WSL and Git Bash). Each job
+# forks a C compiler (~300-500 MB RSS), so cap high counts on low-RAM hosts.
+if [[ -z "${NUITKA_JOBS:-}" ]]; then
+    NUITKA_JOBS="$(nproc 2>/dev/null || echo 1)"
+fi
+echo "[build_sidecar_windows] Nuitka --jobs=$NUITKA_JOBS"
 NUITKA_ARGS=(
     --standalone --onefile
     --assume-yes-for-downloads
+    --jobs="$NUITKA_JOBS"
     --enable-plugin=anti-bloat
     # NU-106 (VAD): keep torch.jit ENABLED. Nuitka's torch plugin
     # disables JIT by default in standalone mode (sets PYTORCH_JIT=0 /

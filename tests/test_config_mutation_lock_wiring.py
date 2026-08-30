@@ -40,28 +40,8 @@ from __future__ import annotations
 
 import json
 import threading
-from unittest.mock import MagicMock
 
-
-def _make_app(tmp_config_dir, monkeypatch):
-    """Build a VoiceTyperApp with mocked hardware/GUI deps.
-
-    Mirrors the ``app`` fixture in ``tests/app/conftest.py`` but inlined
-    so this test file is self-contained (no fixture cross-deps).
-    """
-    monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
-    monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
-
-    from voice_typer.server.app import VoiceTyperApp
-
-    instance = VoiceTyperApp()
-    instance.config.esc_cancel_enabled = False
-    instance.config.voice_biometric_consent = True
-    instance.models.transcriber = MagicMock()
-    instance.models.transcriber.is_loaded = True
-    return instance
+from tests.fixtures.app_helpers import make_voice_typer_app
 
 
 class TestSetMutationLockWiredInInit:
@@ -77,7 +57,7 @@ class TestSetMutationLockWiredInInit:
         meaning every ``app.config.save()`` call site (~15 production
         callers) runs unlocked.
         """
-        app = _make_app(tmp_config_dir, monkeypatch)
+        app = make_voice_typer_app(tmp_config_dir, monkeypatch)
 
         assert hasattr(app, "_config_mutation_lock"), (
             "VoiceTyperApp.__init__ must create self._config_mutation_lock (threading.RLock) — see app.py:416."
@@ -111,7 +91,7 @@ class TestSetMutationLockWiredInInit:
         ``RLock`` allows the same thread to re-acquire, which is the
         contract the IPC ``set_config`` path depends on.
         """
-        app = _make_app(tmp_config_dir, monkeypatch)
+        app = make_voice_typer_app(tmp_config_dir, monkeypatch)
         lock = app.config._mutation_lock
         # RLock contract: a second acquire on the same thread succeeds
         # without blocking and must be released the same number of times.
@@ -153,7 +133,7 @@ class TestSetMutationLockWiredInInit:
 
         monkeypatch.setattr(Config, "load", _raise)
 
-        app = _make_app(tmp_config_dir, monkeypatch)
+        app = make_voice_typer_app(tmp_config_dir, monkeypatch)
 
         # Sanity: the fallback path was taken.
         assert getattr(app, "_config_load_failed", False) is True, (
@@ -192,7 +172,7 @@ class TestSetMutationLockRewiredAfterReload:
         behavior the SI-2 fix adds (the else-branch after the reload
         try/except).
         """
-        app = _make_app(tmp_config_dir, monkeypatch)
+        app = make_voice_typer_app(tmp_config_dir, monkeypatch)
 
         # Force the Linux branch so the launcher uses subprocess.run
         # which we can trivially monkeypatch into a no-op.
@@ -248,14 +228,14 @@ class TestSetMutationLockRewiredAfterReload:
         instances in the same process — rare in production but possible
         in tests).
         """
-        app1 = _make_app(tmp_config_dir, monkeypatch)
+        app1 = make_voice_typer_app(tmp_config_dir, monkeypatch)
         # Wipe config.json so app2's Config.load() starts clean
         # (otherwise it inherits app1's writes).
         config_path = tmp_config_dir / "config.json"
         if config_path.exists():
             config_path.write_text(json.dumps({}))
 
-        app2 = _make_app(tmp_config_dir, monkeypatch)
+        app2 = make_voice_typer_app(tmp_config_dir, monkeypatch)
 
         # Each app's Config holds its OWN app's lock — not the other's.
         assert app1.config._mutation_lock is app1._config_mutation_lock
@@ -294,7 +274,7 @@ class TestWiringOrderMatters:
 
         monkeypatch.setattr(Config, "set_mutation_lock", _spy)
 
-        app = _make_app(tmp_config_dir, monkeypatch)
+        app = make_voice_typer_app(tmp_config_dir, monkeypatch)
 
         # set_mutation_lock was called at least once during __init__.
         assert len(recorded) >= 1, (

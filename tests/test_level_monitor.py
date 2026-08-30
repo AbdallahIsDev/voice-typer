@@ -47,6 +47,7 @@ def _reset_level_monitor_state():
     lm._test_mode = False
     lm._test_chunks.clear()
     lm._test_raw_chunks.clear()
+    lm._test_filtered_chunks.clear()
     lm._test_start_time = 0.0
     lm._test_duration = 10.0
     lm._monitor_sample_rate = 16000
@@ -68,6 +69,16 @@ def _reset_level_monitor_state():
     lm._level_ring_buffer.clear()
     # Stop any worker thread from a previous test.
     lm._stop_level_worker()
+    # Disarm a leaked auto-stop timer: a test that started a recording
+    # and then failed before stop/cancel leaves a live threading.Timer
+    # on _state. start_test_recording overwrites the slot without
+    # cancelling, orphaning the old timer — if it fires during a later
+    # test it flips _test_mode to False mid-recording and that test's
+    # chunks stop accumulating. The fixture must cancel it explicitly.
+    leaked_timer = lm._test_auto_stop_timer
+    if leaked_timer is not None:
+        leaked_timer.cancel()
+    lm._test_auto_stop_timer = None
     # Reset quality metrics.
     lm._test_peak_history.clear()
     lm._test_rms_history.clear()
@@ -86,6 +97,39 @@ def _reset_level_monitor():
     _reset_level_monitor_state()
     yield
     _reset_level_monitor_state()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_test_recordings_dir(tmp_path, monkeypatch):
+    """Point the mic-test WAV transport at a per-test directory.
+
+    ``stop_test_recording`` persists the captured WAVs under the real
+    per-user config dir and returns small ``{"path", "bytes"}`` refs,
+    and ``start_test_recording`` purges every ``*.wav`` in that
+    directory (keep-only-latest). Production is single-owner: one app
+    instance (Electron single-instance lock + Python mutex) owns the
+    directory, so purge-vs-read never overlaps. Under
+    ``pytest -n auto --dist=loadgroup`` that assumption is violated by
+    the test environment itself: unmarked tests schedule per nodeid
+    across xdist worker PROCESSES, so this file and other level-monitor
+    test files (e.g. the perf/reliability suite) run concurrently
+    against the SAME real directory. A foreign worker's purge can
+    delete the files this process's ``stop_test_recording`` just wrote
+    and this test is about to read back — a FileNotFoundError that
+    never reproduces solo or single-file. Redirecting the transport to
+    a per-test tmp dir restores the single-owner assumption for every
+    test here.
+    """
+    from voice_typer.server.level_monitor import test_recording as _tr
+
+    recordings = tmp_path / "mic-test-recordings"
+
+    def _isolated_dir():
+        recordings.mkdir(parents=True, exist_ok=True)
+        return recordings
+
+    monkeypatch.setattr(_tr, "_test_recordings_dir", _isolated_dir)
+    yield
 
 
 def _wire_stream_with_callback_capture(monkeypatch):
@@ -124,6 +168,25 @@ def _wire_stream_with_callback_capture(monkeypatch):
 # ═══════════════════════════════════════════════════════════════════════════
 # only _test_raw_chunks is populated; audio derived from raw_audio.copy()
 # ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestRecordingTransportIsolation:
+    """The mic-test WAV transport must be scoped to the per-test tmp dir.
+
+    Guard for the ``_isolate_test_recordings_dir`` fixture: if the
+    transport ever reverts to the real per-user config dir while the
+    suite runs under ``-n auto --dist=loadgroup``, a concurrent xdist
+    worker's keep-only-latest purge can delete this test's WAVs between
+    ``stop_test_recording`` and the read-back — the intermittent
+    FileNotFoundError class the fixture eliminates.
+    """
+
+    def test_recordings_dir_scoped_to_test_tmp(self, tmp_path):
+        from voice_typer.server.level_monitor import test_recording as _tr
+
+        d = _tr._test_recordings_dir()
+        assert d.is_relative_to(tmp_path)
+        assert d.exists()
 
 
 class TestOnlyRawChunksPopulated:

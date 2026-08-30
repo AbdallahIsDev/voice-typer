@@ -110,6 +110,14 @@ def make_fake_app() -> MagicMock:
     app.hotkeys = MagicMock(name="fake_app.hotkeys")
     app.recorder = MagicMock(name="fake_app.recorder")
     app.tray = MagicMock(name="fake_app.tray")
+    # The lifecycle tray-state hook (``_hook_tray_set_state``) checks
+    # ``app.tray.set_state._vt_wrapped`` to dedupe; a fresh child mock
+    # reports truthy which would short-circuit the hook on first call.
+    # A real ``TrayManager.set_state`` has no such attribute until the
+    # hook wraps it, so ``False`` is the production-faithful default
+    # (the hook actually wraps on the first call, exactly like
+    # production).
+    app.tray.set_state._vt_wrapped = False
     # Per-correction usage tracker (``correction_usage.py``) — read by
     # the vocabulary service (``get_correction_usage`` IPC + the
     # prune-after-save path). Child mock so handlers can stub
@@ -192,7 +200,12 @@ def make_fake_service() -> MagicMock:
     return service
 
 
-def make_ipc_server_with_fakes() -> tuple[Any, MagicMock, MagicMock]:
+# Sentinel for ``make_ipc_server_with_fakes(thread_registry=...)``:
+# "leave the app's ``_thread_registry`` as the MagicMock auto-stub".
+_UNSET_THREAD_REGISTRY = object()
+
+
+def make_ipc_server_with_fakes(*, thread_registry: Any = _UNSET_THREAD_REGISTRY) -> tuple[Any, MagicMock, MagicMock]:
     """Construct an ``IPCServer`` with a fake app and fake service.
 
     This is the canonical DI-mode construction for tests that want to
@@ -206,6 +219,17 @@ def make_ipc_server_with_fakes() -> tuple[Any, MagicMock, MagicMock]:
     - ``server.service`` — the fake service from :func:`make_fake_service`
       (NOT a real ``VoiceTyperService``; the DI seam in
       ``IPCServer.__init__`` stored it verbatim).
+
+    Parameters
+    ----------
+    thread_registry : Any, optional
+        By default the fake app's ``_thread_registry`` stays the
+        MagicMock auto-stub (so tests asserting on
+        ``app._thread_registry.register(...)`` calls keep recording).
+        Pass ``thread_registry=None`` to disable the central
+        thread-registry registration path in ``start()``/``stop()``
+        (the lifecycle methods read it via ``getattr`` and skip it
+        when ``None``), or any registry stub to inject it.
 
     Returns
     -------
@@ -227,11 +251,18 @@ def make_ipc_server_with_fakes() -> tuple[Any, MagicMock, MagicMock]:
 
     fake_app = make_fake_app()
     fake_service = make_fake_service()
+    if thread_registry is not _UNSET_THREAD_REGISTRY:
+        fake_app._thread_registry = thread_registry
     server = IPCServer(fake_app, service=fake_service)
     return server, fake_app, fake_service
 
 
-def make_bare_ipc_server(app: MagicMock | None = None, service: MagicMock | None = None) -> Any:
+def make_bare_ipc_server(
+    app: MagicMock | None = None,
+    service: MagicMock | None = None,
+    *,
+    send_path: bool = False,
+) -> Any:
     """Build a bare ``IPCServer`` via the ``__new__`` bypass.
 
     Canonical replacement for the ``_make_ipc_server`` helpers that were
@@ -263,6 +294,20 @@ def make_bare_ipc_server(app: MagicMock | None = None, service: MagicMock | None
       ``IPCServer.__init__``; ``RLock`` so a handler that re-enters
       ``_dispatch`` on the same thread doesn't self-deadlock).
 
+    With ``send_path=True`` it additionally initializes the instance
+    state that ``OutputMixin._send`` / ``push`` touch, mirroring the
+    production ``__init__`` values — the canonical fixture for the TCP
+    outbound-path tests that used to re-create this attribute block
+    inline via ``IPCServer.__new__``:
+
+    - ``app._shutting_down = False`` (bool so any ``is True`` shutdown
+      gate sees a real ``False``).
+    - ``server._lock`` / ``server._tcp_write_lock`` — fresh RLocks.
+    - ``server._pending_tcp`` — ``_PendingBuffer(maxlen=_TCP_PENDING_BUFFER_CAP)``
+      (the production bounded FIFO shape).
+    - ``server._tcp_mode = True``, ``server._cached_shutting_down = False``,
+      ``server._tcp_client = None``.
+
     Parameters
     ----------
     app : MagicMock, optional
@@ -271,6 +316,10 @@ def make_bare_ipc_server(app: MagicMock | None = None, service: MagicMock | None
         app doesn't already expose a real lock.
     service : MagicMock, optional
         Pre-built fake service to inject instead of a fresh mock.
+    send_path : bool, optional
+        Initialize the ``_send``/``push`` instance state (see above).
+        Off by default so existing bare-fixture consumers see exactly
+        the attributes they always saw.
 
     Returns
     -------
@@ -280,6 +329,7 @@ def make_bare_ipc_server(app: MagicMock | None = None, service: MagicMock | None
     """
     import threading
 
+    from voice_typer.server.ipc.sender import _TCP_PENDING_BUFFER_CAP, _PendingBuffer
     from voice_typer.server.ipc_server import IPCServer
 
     if app is None:
@@ -293,7 +343,60 @@ def make_bare_ipc_server(app: MagicMock | None = None, service: MagicMock | None
     server.service = service
     # ``__new__`` skips ``__init__``; ``_dispatch`` acquires this lock.
     server._dispatch_lock = threading.RLock()
+    if send_path:
+        # Sender-path fixture state — exactly what ``OutputMixin._send``
+        # and ``push`` read/write (mirrors ``IPCServer.__init__``).
+        app._shutting_down = False
+        server._lock = threading.RLock()
+        server._tcp_write_lock = threading.RLock()
+        server._pending_tcp = _PendingBuffer(maxlen=_TCP_PENDING_BUFFER_CAP)
+        server._tcp_mode = True
+        server._cached_shutting_down = False
+        server._tcp_client = None
     return server
+
+
+def make_buffered_mock_tcp_client() -> MagicMock:
+    """Mock tcp_client simulating ``_TCPLineIO`` buffer-then-flush.
+
+    Canonical stand-in for the real ``_TCPLineIO`` client used by the
+    TCP outbound-path (``OutputMixin._send``) tests, which previously
+    re-created this helper inline in four test files.
+
+    ``write()`` appends to an in-memory buffer; ``flush()`` issues a
+    single ``sendall`` for the whole buffer (mirrors the real
+    ``_TCPLineIO`` behavior so tests can count/inspect ``sendall``
+    calls without a real socketpair). ``_reset_write_buffer`` clears
+    the buffer (mirrors the drain-failure reset path).
+
+    Returns
+    -------
+    MagicMock
+        The client mock; ``client.conn.sendall.call_args_list`` holds
+        the bytes written to the wire.
+    """
+    tcp_client = MagicMock()
+    tcp_client.conn = MagicMock()
+    write_buffer: list[bytes] = []
+
+    def mock_write(text: str | bytes) -> None:
+        # The real ``_TCPLineIO.write`` accepts BOTH ``str`` and
+        # pre-encoded ``bytes`` (the sender's ``line_bytes`` fast path
+        # passes bytes and skips the re-encode). Mirror that contract.
+        write_buffer.append(text.encode("utf-8") if isinstance(text, str) else text)
+
+    def mock_flush() -> None:
+        if write_buffer:
+            tcp_client.conn.sendall(b"".join(write_buffer))
+            write_buffer.clear()
+
+    def mock_reset() -> None:
+        write_buffer.clear()
+
+    tcp_client.write.side_effect = mock_write
+    tcp_client.flush.side_effect = mock_flush
+    tcp_client._reset_write_buffer.side_effect = mock_reset
+    return tcp_client
 
 
 def make_fake_sidecar_ws_server(**overrides: Any) -> Any:
@@ -363,5 +466,6 @@ __all__ = [
     "make_fake_recorder",
     "make_fake_sidecar_ws_server",
     "make_bare_ipc_server",
+    "make_buffered_mock_tcp_client",
     "make_ipc_server_with_fakes",
 ]

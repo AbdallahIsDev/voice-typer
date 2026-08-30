@@ -440,14 +440,16 @@ describe("App-wide shortcuts — zoom via the mounted App (keydown + wheel)", ()
 		});
 		expect(mockCall).toHaveBeenCalledWith("set_config", { text_size: 15 });
 
-		// Zoom out: the mocked useTheme keeps textSize at 14, so a
-		// deltaY>0 wheel computes 14 → 13 (independent of the earlier
-		// zoom-in event).
+		// Zoom out: the hook's textSizeRef advances SYNCHRONOUSLY inside
+		// bumpTextSize (so rapid wheel bursts accumulate correctly), so
+		// after the zoom-in above the ref is 15 and a deltaY>0 wheel
+		// computes 15 → 14 (not 14 → 13 as the old closure-based test
+		// assumed).
 		dispatchWheel(100, { ctrlKey: true });
 		await waitFor(() => {
-			expect(stable.setTextSize).toHaveBeenCalledWith(13);
+			expect(stable.setTextSize).toHaveBeenCalledWith(14);
 		});
-		expect(mockCall).toHaveBeenCalledWith("set_config", { text_size: 13 });
+		expect(mockCall).toHaveBeenCalledWith("set_config", { text_size: 14 });
 	});
 
 	it("plain wheel without Ctrl does NOT zoom (modifier guard applies)", async () => {

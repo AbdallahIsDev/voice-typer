@@ -23,7 +23,6 @@ from __future__ import annotations
 import contextlib
 import inspect
 import socket
-import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -31,16 +30,18 @@ from voice_typer.server.ipc import sender as sender_module  # noqa: E402
 from voice_typer.server.ipc.rate_limiter import _TCP_WRITE_TIMEOUT_SECONDS  # noqa: E402
 from voice_typer.server.ipc_server import IPCServer  # noqa: E402
 
-from tests.fixtures.ipc_test_helpers import make_fake_app, make_fake_service  # noqa: E402
+from tests.fixtures.ipc_test_helpers import (  # noqa: E402
+    make_bare_ipc_server,
+    make_ipc_server_with_fakes,
+)
 
 # ─── Helpers ───────────────────────────────────────────────────────────
 
 
 def _make_server(*, token: str = "test-token-AAAABBBB") -> IPCServer:
-    """Build an IPCServer with a fake app + service, ready for TCP tests."""
-    app = make_fake_app()
-    service = make_fake_service()
-    server = IPCServer(app, service=service)
+    """Build an IPCServer with the canonical fake app + service, ready
+    for TCP tests."""
+    server, _app, _service = make_ipc_server_with_fakes()
     server._running = True
     return server
 
@@ -231,19 +232,9 @@ class TestWriteTimeoutEscalation:
         2. Mark ``_tcp_client = None`` (dead-client path).
         3. Re-merge the pending snapshot into ``_pending_tcp``.
         """
-        # Build a minimal server fixture (same pattern as
+        # Canonical bare send-path fixture (same pattern as
         # test_sender_select_timeout.py).
-        server = IPCServer.__new__(IPCServer)
-        server.app = MagicMock()
-        server.app._shutting_down = False
-        server._lock = threading.RLock()
-        server._tcp_write_lock = threading.RLock()
-        server._tcp_mode = True
-        server._cached_shutting_down = False
-
-        from voice_typer.server.ipc.sender import _TCP_PENDING_BUFFER_CAP, _PendingBuffer
-
-        server._pending_tcp = _PendingBuffer(maxlen=_TCP_PENDING_BUFFER_CAP)
+        server = make_bare_ipc_server(send_path=True)
 
         # Mock tcp_client whose conn will be reported as not-writable.
         tcp_client = MagicMock()

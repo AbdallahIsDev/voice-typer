@@ -137,10 +137,25 @@ CT2_LIBS_DIR="$SITE/ctranslate2/libs"
 mkdir -p "$RESOURCES_DIR"
 
 # ─── Run Nuitka (ADR-0020 §5) ────────────────────────────────────────────────
+# Parallel C compilation: Nuitka invokes clang per Python module;
+# --jobs=N fans those out (the default was sequential). Override with
+# NUITKA_JOBS. Default = core count (sysctl), CLAMPED to 4 for CI: this
+# script runs in the macOS release workflow on hosted runners with
+# limited RAM (each C-compiler job forks ~300-500 MB RSS; the Windows
+# release workflow already uses --jobs=3 as precedent). An explicit
+# NUITKA_JOBS override bypasses the clamp.
+if [[ -z "${NUITKA_JOBS:-}" ]]; then
+    NUITKA_JOBS="$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 1)"
+    if [[ "$NUITKA_JOBS" -gt 4 ]]; then
+        NUITKA_JOBS=4
+    fi
+fi
+echo "[build_prewarm_macos] Nuitka --jobs=$NUITKA_JOBS"
 echo "[build_prewarm_macos] Running Nuitka..."
 NUITKA_ARGS=(
     --standalone --onefile
     --assume-yes-for-downloads
+    --jobs="$NUITKA_JOBS"
     --enable-plugin=numpy
     --enable-plugin=anti-bloat
     --nofollow-import-to=torch._dynamo

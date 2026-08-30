@@ -4,11 +4,10 @@ Provides :class:`_MacOSMixin` (mixed into ``MicrophoneDeviceWatcher``)
 with the ``sounddevice.query_devices()`` polling loop and the
 ``CoreAudioMicrophoneWatcher`` construction attempt.
 """
+
 from __future__ import annotations
 
 import logging
-import time
-from typing import Any
 
 log = logging.getLogger(__name__)
 

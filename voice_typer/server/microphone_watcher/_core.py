@@ -11,6 +11,7 @@ in leaf modules; the class body here holds only the shared concerns:
 - ``_DEBOUNCE_SECONDS``
 - ``set_active_mic_id``, ``set_on_active_mic_lost``, ``set_device_id_provider``, ``_check_active_mic_lost``
 """
+
 from __future__ import annotations
 
 import logging

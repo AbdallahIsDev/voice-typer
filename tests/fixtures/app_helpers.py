@@ -28,16 +28,20 @@ Usage
         tone = make_sine(440, 1.0, sr=16000, amp=0.5)
         assert tone.shape == (16000,)
 
-Migration status (XS-42 scoped)
--------------------------------
+Migration status
+----------------
 
-Only 2 of the 26 test files listed in XS-42 have been migrated to import
-from this module so far:
+Test files migrated to import from this module so far:
 
 - ``tests/test_api_doc_accuracy.py`` (uses :func:`make_voice_typer_app`)
 - ``tests/test_audio_processor.py`` (uses :func:`make_sine`)
+- ``tests/test_golden_path_dictation.py`` (uses :func:`make_voice_typer_app`
+  + :func:`join_model_load_thread` + :func:`make_sine`)
+- ``tests/test_config_editor_lock.py`` (uses :func:`make_voice_typer_app`)
+- ``tests/test_config_mutation_lock_wiring.py`` (uses
+  :func:`make_voice_typer_app`)
 
-The remaining 24 files (including ``tests/test_clipboard_paste_restore.py``
+The remaining files (including ``tests/test_clipboard_paste_restore.py``
 whose ``_make_cm`` / ``_make_snapshot`` helpers are clipboard-specific
 and do not match the factories exported here) are documented as
 Remaining Work in the XS-FIX-2 return.
@@ -63,6 +67,16 @@ def make_voice_typer_app(tmp_config_dir: Any, monkeypatch: Any) -> Any:
       ``disable_autostart`` / ``list_microphones`` patched on
       ``voice_typer.server.app`` so the constructor doesn't touch the
       real autostart registry or microphone probing.
+    - ``voice_typer.server.config._enforce_windows_owner_only_acl``
+      no-op'd so ``Config.save()`` never spawns the real Windows
+      ``icacls`` subprocess during a test. On a real Windows host the
+      config module reads the true platform (NOT the test-forced one),
+      so every save() would otherwise fire real icacls calls that
+      interfere with tests that fake/track subprocess (they consume
+      fake-editor waits, pollute Popen-call assertions, and break
+      Popen patches that don't implement ``communicate()``). On POSIX
+      the real helper is itself a no-op, so the patch is
+      behavior-identical there.
     - ``instance.config.esc_cancel_enabled = False`` for deterministic
       test behavior (the default is True; tests that exercise the ESC
       cancel path should re-enable it).
@@ -96,6 +110,21 @@ def make_voice_typer_app(tmp_config_dir: Any, monkeypatch: Any) -> Any:
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
+    # No-op the Windows-only icacls ACL enforcement in Config.save(). On a
+    # real Windows host, ``config.is_windows()`` reads the true platform
+    # (not the test-forced one), so EVERY save() fires real icacls
+    # subprocess calls. Those interfere with tests that fake/track the
+    # subprocess layer: they consume fake-editor waits (blowing the
+    # timeout budget), pollute no-bare-Popen assertions (icacls is
+    # spawned via subprocess.run, which internally constructs the patched
+    # Popen), and break Popen patches whose fakes lack ``communicate()``.
+    # The ACL tightening is incidental best-effort hardening, and on
+    # POSIX the real helper is itself a no-op, so patching it here is
+    # behavior-identical on every platform.
+    monkeypatch.setattr(
+        "voice_typer.server.config._enforce_windows_owner_only_acl",
+        lambda *a, **k: None,
+    )
 
     from voice_typer.server.app import VoiceTyperApp
 

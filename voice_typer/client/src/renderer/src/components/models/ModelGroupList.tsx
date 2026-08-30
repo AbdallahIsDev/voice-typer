@@ -195,7 +195,7 @@ export function MetadataTag({
 	return (
 		<span
 			className={cn(
-				"inline-flex items-center rounded-full border border-border/20 bg-foreground/5 px-2 py-0.5 text-[11px] font-medium leading-4 text-(--text-muted)",
+				"inline-flex items-center rounded-full border border-border/5 bg-foreground/5 px-2 py-0.5 text-[11px] font-medium leading-4 text-(--text-muted)",
 				className,
 			)}
 		>

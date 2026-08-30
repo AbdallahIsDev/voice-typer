@@ -12,9 +12,9 @@ import { state } from "../../state";
 import { handleMessage } from "../handle-message";
 
 export function handleTcpData(client: Socket, chunk: Buffer): void {
-	// SEC-023: cap tcpBuffer at 4 MB to prevent unbounded memory
-	// growth from malformed frames (e.g. a chunk with no newline
-	// that never gets split). Drop the connection on overflow.
+	// SEC-023: cap tcpBuffer at 1 MiB (TCP_FRAME_MAX_BYTES) to prevent
+	// unbounded memory growth from malformed frames (e.g. a chunk with
+	// no newline that never gets split). Drop the connection on overflow.
 	state.tcpBuffer = state.tcpBuffer
 		? Buffer.concat([state.tcpBuffer as Buffer, chunk])
 		: chunk;

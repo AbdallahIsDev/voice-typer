@@ -534,7 +534,7 @@ export default function HistoryPage() {
 									setVisibleCount((c) => c + HISTORY_PAGE_SIZE);
 								}}
 								disabled={loadingMore}
-								className="mt-4 w-full gap-2 text-xs rounded-xl border border-dashed border-border/30"
+								className="mt-4 w-full gap-2 text-xs rounded-xl border border-dashed border-border/5"
 							>
 								{loadingMore ? (
 									<>

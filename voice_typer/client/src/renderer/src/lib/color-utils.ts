@@ -289,12 +289,47 @@ function _cssColorToHexViaDOM(color: string): string | null {
  * parse the color).  This ensures the custom theme editor always receives
  * valid hex values regardless of Chromium version.
  *
+ * Results are memoized per input string (see ``_cssColorToHexCache``)
+ * because the resolution is deterministic for a given input — hot
+ * callers like ``readThemePalette`` re-resolve the same token set on
+ * every theme-applied event / page mount.
+ *
  * @param color Any CSS color string (hex, rgb, hsl, oklch, named, etc.)
  * @returns A #rrggbb hex string.  Returns ``#000000`` for empty/unparseable input.
  */
 export function cssColorToHex(color: string): string {
 	if (!color) return "#000000";
 
+	const cached = _cssColorToHexCache.get(color);
+	if (cached !== undefined) return cached ?? "#000000";
+
+	const resolved = _resolveCssColorToHex(color);
+	if (_cssColorToHexCache.size >= _CSS_COLOR_TO_HEX_CACHE_MAX) {
+		// Defensive bound: inputs are a bounded set of CSS color strings,
+		// but evict the OLDEST entry when full anyway (Map preserves
+		// insertion order, so delete-first-key-then-set is FIFO).
+		const oldest = _cssColorToHexCache.keys().next();
+		if (!oldest.done) _cssColorToHexCache.delete(oldest.value);
+	}
+	_cssColorToHexCache.set(color, resolved);
+	return resolved ?? "#000000";
+}
+
+// ── per-input resolution cache ──────────────────────────────
+//
+// Resolution is deterministic per input string (getComputedStyle
+// resolves a given color string to the same rgb()/rgba() value every
+// time), so the full chain — hex fast-path, DOM probe, oklch
+// fallback — is memoized by the raw input. ``null`` marks a
+// KNOWN-UNPARSEABLE input (including a missing-DOM environment,
+// where the probe always fails) so repeated bad values skip the DOM
+// probe too; a missing key (``undefined``) means "not resolved yet".
+// Same style as the NumberFormat cache in lib/format.ts.
+
+const _cssColorToHexCache = new Map<string, string | null>();
+const _CSS_COLOR_TO_HEX_CACHE_MAX = 256;
+
+function _resolveCssColorToHex(color: string): string | null {
 	// Already a clean hex colour — normalise and return.
 	const hexMatch = color.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
 	if (hexMatch && hexMatch[1] !== undefined) {
@@ -315,9 +350,7 @@ export function cssColorToHex(color: string): string {
 
 	// Attempt 2: Manual oklch() → sRGB → hex parser (works everywhere)
 	const oklchHex = _cssColorToHexViaOklch(color);
-	if (oklchHex) return oklchHex;
-
-	return "#000000";
+	return oklchHex ?? null;
 }
 
 // ── foreground-selection helpers ────────────────────────────

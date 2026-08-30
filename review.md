@@ -266,7 +266,7 @@ Compiled 80 deduplicated findings into `/home/z/my-project/voice-typer/review.md
 
 ## Remaining Work
 
-### Deferred (too large for single sub-agent — need dedicated Phase 4.5 waves):
+### pending:
 - **WM-2** (Critical): app.py 1845 LOC monolith split (re-verified 2026-08-12) — needs 3+ sub-agents (L)
 - **WM-4** (High): kill_process_tree pgid race — needs pre_exec(setpgid) + move to tokio::process::Command (M)
 
@@ -274,7 +274,6 @@ Compiled 80 deduplicated findings into `/home/z/my-project/voice-typer/review.md
 - **WM-21**: ❌ STILL OPEN (re-audited 2026-08-12): spawn.rs (now 221 LOC after the 6-submodule split) has NO stderr/buf/BufReader references — the stderr-buffering fix never landed.
 - **WM-30**: ❌ STILL OPEN (re-audited 2026-08-12): recording_controller.py uses only 5 `i18n.t()` calls (not 11) and ALL 8 locale files have ZERO `recording_controller` keys — no localization work landed (worse than the "11 strings" claim).
 - **WM-44**: service/dictation force_recover (blocked — needs RecordingController public method)
-- **WM-50**: declined (would break GT-12 test + orphan risk — documented rationale)
 
 ---
 
@@ -294,19 +293,6 @@ Compiled 80 deduplicated findings into `/home/z/my-project/voice-typer/review.md
 **Severity:** 🔴 High
 **Verification (2026-08-06, Windows win32):**
 bench_startup.py fixed, README not. `bench/bench_startup.py` spawns a fresh `python -c "import <target>"` per run and reports true-cold vs median (works on Windows: ~84 ms measured here). BUT `README.md:209` and `bench/README.md:3` still claim 'measured ~2 ms cold-import on reference hardware' -- ~40x off and unverifiable.
-
-### GQ-32 — text_cleanup max-size corrections file drives 145 ms per-dictation
-**Status:** 🚫 Won't Fix (lowering SEC-011 cap from 5000→500 is a user-facing behavior change for power users; deferred to dedicated perf-tuning session)
-**Description:** With bundled corrections.json (8 phrases), `clean_transcribed_text` on a 5580-char input measures median 7.9ms / p95 8.4ms — well under Low threshold. But with a SEC-011-maximum (5000 phrases + 5000 extra-word patterns) user corrections file, the combined-alternation regex `(?:p1|p2|...|p5000)` built at line 607 drives per-dictation cleanup to median 145.4ms / max 199.7ms on a 2360-char input, and p95 211.2ms on a 47-char input with one match (first-call regex warmup).
-**User Impact:** For typical users — none (<10ms). For users with very large corrections dictionaries — per-dictation cleanup could approach 200ms, which on a 1-second transcription budget is ~20% overhead.
-**Root Cause:** The SRE trie compiled from a 5000-alternative alternation of `re.escape`d literals is O(total pattern chars), and `re.sub` against it touches every text char against the trie.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/text_cleanup.py:566-608`
-- `voice_typer/server/text_cleanup.py:1016-1096`
-**Fix:** If max-size corrections files become a real use case, options are: (a) lower the SEC-011 cap from 5000 to ~500 (still 60x the bundled defaults); (b) switch from a single combined regex to Aho-Corasick (`pyahocorasick` package) for O(N+M) multi-pattern matching that scales better than SRE trie at 5000+ patterns. Recommend (a) as the lowest-risk mitigation.
-**Severity:** 🟡 Medium
-
 
 ### GQ-48 — history_db LIKE fallback 58 ms scan on separator-only queries
 **Status:** 🚫 Won't Fix (LIKE fallback 58ms scan is edge case — separator-only queries; idx_timestamp_id already mitigates ORDER BY)
@@ -376,17 +362,6 @@ Linux half done, Windows/macOS half missing. `--parallel` flag + backgrounded `&
 **Progress:** None yet.
 **Related Files:**
 - `voice_typer/server/audio_filters/base.py:288-344`
-**Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
-**Severity:** 🟢 Low
-
-### GQ-L15 — microphone_watcher.py 1235 LOC mixing 5 platform/concern splits (was 1170)
-**Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
-**Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
-**User Impact:** Negligible (sub-50ms latency / sub-10MB memory / sub-1% CPU). No measurable user-visible effect; purely a code-quality or micro-perf concern.
-**Root Cause:** See related file:line — typically a copy-paste smell, redundant call, or stale comment.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/microphone_watcher.py:1-1235`
 **Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
 **Severity:** 🟢 Low
 
@@ -490,18 +465,6 @@ Linux half done, Windows/macOS half missing. `--parallel` flag + backgrounded `&
 **Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
 **Severity:** 🟢 Low
 
-### GQ-L41 — useGlobalKeyboardShortcuts textSize in deps causes listener re-install
-**Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
-> - **2026-08-24 audit:** also a correctness nit — rapid wheel/key events between renders read stale textSize and lose intermediate steps; ref-mirror pattern fixes both.
-**Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
-**User Impact:** Negligible (sub-50ms latency / sub-10MB memory / sub-1% CPU). No measurable user-visible effect; purely a code-quality or micro-perf concern.
-**Root Cause:** See related file:line — typically a copy-paste smell, redundant call, or stale comment.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/hooks/useGlobalKeyboardShortcuts.ts:106-212`
-**Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
-**Severity:** 🟢 Low
-
 ### GQ-L42 — sound-manager 4 capture-phase window listeners (pointerdown redundant)
 **Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
 **Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
@@ -535,19 +498,6 @@ Linux half done, Windows/macOS half missing. `--parallel` flag + backgrounded `&
 **Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
 **Severity:** 🟢 Low
 
-### GQ-L45 — Sidebar.tsx duplicate t() lookups (10×2 per render)
-**Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
-> - **2026-08-24 audit:** NavLeaf recomputes identical lookup at :437 — reuse navLabel var (8 leaves x2/render).
-**Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
-**User Impact:** Negligible (sub-50ms latency / sub-10MB memory / sub-1% CPU). No measurable user-visible effect; purely a code-quality or micro-perf concern.
-**Root Cause:** See related file:line — typically a copy-paste smell, redundant call, or stale comment.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/components/layout/Sidebar.tsx:306`
-- `voice_typer/client/src/renderer/src/components/layout/Sidebar.tsx:374`
-**Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
-**Severity:** 🟢 Low
-
 ### GQ-L46 — Sidebar.tsx inline closures per nav item (10 allocs per render)
 **Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
 **Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
@@ -571,18 +521,6 @@ Linux half done, Windows/macOS half missing. `--parallel` flag + backgrounded `&
 **Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
 **Severity:** 🟢 Low
 
-### GQ-L49 — Cargo.toml config-json 5 feature enabled but no .json 5 files exist
-**Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
-**Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
-**User Impact:** Negligible (sub-50ms latency / sub-10MB memory / sub-1% CPU). No measurable user-visible effect; purely a code-quality or micro-perf concern.
-**Root Cause:** See related file:line — typically a copy-paste smell, redundant call, or stale comment.
-**Progress:** None yet.
-**Related Files:**
-- `src-tauri/Cargo.toml:19`
-- `src-tauri/Cargo.toml:37`
-**Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
-**Severity:** 🟢 Low
-
 ### GQ-L53 — generate_beeps.py per-sample struct.pack loop
 **Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
 **Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
@@ -602,18 +540,6 @@ Linux half done, Windows/macOS half missing. `--parallel` flag + backgrounded `&
 **Progress:** None yet.
 **Related Files:**
 - `scripts/check_branding.py:251-275`
-**Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
-**Severity:** 🟢 Low
-
-### GQ-L55 — bench_startup.py README.md ~2ms claim stale
-**Status:** 🚫 Won't Fix (Low severity — deferred; see rationale below)
-> - **2026-08-24 audit:** bench/README.md:3 claim confirmed stale — re-measure or drop the number.
-**Description:** Low-severity polish/working-but-suboptimal issue identified during Phase 1 investigation. See related file:line for evidence.
-**User Impact:** Negligible (sub-50ms latency / sub-10MB memory / sub-1% CPU). No measurable user-visible effect; purely a code-quality or micro-perf concern.
-**Root Cause:** See related file:line — typically a copy-paste smell, redundant call, or stale comment.
-**Progress:** None yet.
-**Related Files:**
-- `bench/README.md:6` (the ~2ms cold-import claim; file is only 53 LOC — the earlier :209 citation exceeded the file length)
 **Fix:** Documented in the related file:line above. Low-priority — fix opportunistically when already editing that area. Do NOT spend a dedicated sub-agent on Low-severity findings.
 **Severity:** 🟢 Low
 
@@ -696,7 +622,7 @@ Source: independent re-verification of review.md against the current codebase (1
 8. **YJ-15 is the most misleading finding** — "bubble_show + bubble_signal_ready migrated as proof-of-concept" is FALSE: the `VoiceTyperError` enum does not exist anywhere in `src-tauri/`; the migration NEVER STARTED.
 9. **GP-44 (Critical RPM webkit2gtk3) still not fixed** undercuts the bulk claim "138 fixed of 152 GP-N findings; 11 Critical all addressed" — at least one Critical is unaddressed.
 10. **Sampled Phase 4 LO-* fixes are largely NOT done as described** — 1 of 7 sampled verified (LO-4); LO-1, LO-8 are described as completed but the code shows the fix was NOT applied.
-11. **Second-pass in-place corrections (2026-08-12, applied above)**: GP-65 sign-exit-1 claim FALSE (`build_tauri_all.sh` exits 0; no `exit 1` in Phase 1e); WM-10 search.py NOT deleted (655 LOC, production-imported at history_db.py:379); C-BRAND-1 literals remain at i18n.py:136,142; C-STYLE-1 XZ-CLIP-04 remains at clipboard/manager.py:860,934; Phase 4 LO-* sampled fixes extended to 7 sampled / 1 verified; TC-1 has 5 real `pytestmark` decorators among 13 mentions (an audit claiming "ZERO decorators" is FALSE); GP-80 registry count 69 confirmed; LOC corrections — recorder.py 2274, shutdown_controller.py 1420, _do_cleanup 174, crash_recovery.py 1292, clipboard/manager.py 1080, model_manager.py 2638, hotkey-utils.ts 776, log/__init__.py 1133; line citations corrected — GQ-L27 ws.rs:796-825, GQ-L28 state.rs:58,289, GQ-L55 bench/README.md:6 (53-LOC file), GQ-33 noise_gate.py:255-274, GQ-48 search.py:382,412,524, XA-2 page files shrunk/split.
+11. **Second-pass in-place corrections (2026-08-12, applied above)**: GP-65 sign-exit-1 claim FALSE (`build_tauri_all.sh` exits 0; no `exit 1` in Phase 1e); WM-10 search.py NOT deleted (655 LOC, production-imported at history_db.py:379); C-BRAND-1 literals remain at i18n.py:136,142; C-STYLE-1 XZ-CLIP-04 remains at clipboard/manager.py:860,934; Phase 4 LO-* sampled fixes extended to 7 sampled / 1 verified; TC-1 has 5 real `pytestmark` decorators among 13 mentions (an audit claiming "ZERO decorators" is FALSE); GP-80 registry count 69 confirmed; LOC corrections — recorder.py 2274, shutdown_controller.py 1420, _do_cleanup 174, crash_recovery.py 1292, clipboard/manager.py 1080, model_manager.py 2638, hotkey-utils.ts 776, log/__init__.py 1133; line citations corrected — GQ-L27 ws.rs:796-825, GQ-L28 state.rs:58,289, GQ-33 noise_gate.py:255-274, GQ-48 search.py:382,412,524, XA-2 page files shrunk/split.
 
 ### CANNOT_VERIFY on this host (require real Windows/macOS/Linux-desktop runtime)
 

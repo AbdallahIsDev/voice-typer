@@ -39,7 +39,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -56,20 +55,17 @@ ALLOWED_COMMANDS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "a
 def _make_server() -> IPCServer:
     """Build a minimal IPCServer instance for _dispatch unit tests.
 
-    Bypasses ``__init__`` (which would construct a real VoiceTyperService
-    and try to wire ``app.tray.set_state``). We only need ``_dispatch``
-    to be callable, so we set the handful of attributes it reads.
+    Uses the canonical bare ``__new__`` bypass (skips ``__init__``,
+    which would construct a real VoiceTyperService and try to wire
+    ``app.tray.set_state``): the factory supplies the fake app/service
+    and the ``_dispatch_lock``; the only local adjustment is the
+    explicit ``_shutting_down = False`` bool so any shutdown gate sees
+    a real ``False`` instead of a truthy child mock.
     """
-    from voice_typer.server.ipc_server import IPCServer
+    from tests.fixtures.ipc_test_helpers import make_bare_ipc_server
 
-    server = IPCServer.__new__(IPCServer)
-    server.app = MagicMock()
+    server = make_bare_ipc_server()
     server.app._shutting_down = False
-    server.service = MagicMock()
-    # ``_dispatch`` reads ``self._dispatch_lock`` for non-readonly commands.
-    import threading
-
-    server._dispatch_lock = threading.RLock()
     return server
 
 
