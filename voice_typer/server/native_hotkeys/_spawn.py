@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import logging
-
-log = logging.getLogger(__name__)
-
-
 import contextlib
+import logging
 import os
 import subprocess
 import threading
@@ -15,6 +11,8 @@ import time
 from pathlib import Path
 
 from voice_typer.server import native_hotkeys as _native_hotkeys_pkg
+
+log = logging.getLogger(__name__)
 
 
 class _SpawnMixin:

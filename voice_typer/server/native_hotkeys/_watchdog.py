@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from voice_typer.server.native_hotkeys._constants import (
     _WATCHDOG_PING_INTERVAL_SECONDS,
@@ -11,9 +12,6 @@ from voice_typer.server.native_hotkeys._constants import (
 )
 
 log = logging.getLogger(__name__)
-
-
-import time
 
 
 class _WatchdogMixin:

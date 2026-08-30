@@ -25,7 +25,7 @@ from voice_typer.server.native_hotkeys._matching import _MatchingMixin
 from voice_typer.server.native_hotkeys._reader import _ReaderMixin
 from voice_typer.server.native_hotkeys._spawn import _SpawnMixin
 from voice_typer.server.native_hotkeys._watchdog import _WatchdogMixin
-from voice_typer.server.native_hotkeys.spec_parser import log, parse_hotkey_spec
+from voice_typer.server.native_hotkeys.spec_parser import parse_hotkey_spec
 from voice_typer.server.tray_hotkey import format_hotkey_label
 
 log = logging.getLogger(__name__)
@@ -140,7 +140,9 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
         # The factory (owned by another agent) needs a follow-up to
         # pass its verified ``binary`` here: see  cross-file
         # note in the assignment.
-        self._binary_path: Path | None = binary_path if binary_path is not None else _native_hotkeys_pkg.base.get_native_binary_path()
+        self._binary_path: Path | None = (
+            binary_path if binary_path is not None else _native_hotkeys_pkg.base.get_native_binary_path()
+        )
         # restart lock + instance-level
         # attempt counter. Pre-fix, ``_reader_loop`` used a LOCAL ``attempts``
         # counter and the old thread did ``continue`` after spawning a

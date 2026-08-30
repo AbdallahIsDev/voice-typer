@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from voice_typer.server.native_hotkeys._constants import (
     MAX_RESTART_ATTEMPTS,
@@ -10,9 +11,6 @@ from voice_typer.server.native_hotkeys._constants import (
 )
 
 log = logging.getLogger(__name__)
-
-
-import time
 
 
 class _ReaderMixin:

@@ -5,13 +5,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-log = logging.getLogger(__name__)
-
-
 from voice_typer.server.native_hotkeys.modifiers import (
     _canonical_modifier,
     _canonical_modifier_name_for_token,
 )
+
+log = logging.getLogger(__name__)
 
 
 class _MatchingMixin:

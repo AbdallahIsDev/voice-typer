@@ -13,12 +13,12 @@ platform-specific logic is in :mod:`._spawn`, :mod:`._reader`,
 from __future__ import annotations
 
 from voice_typer.server.native_hotkeys._constants import (
-    MAX_RESTART_ATTEMPTS,
-    READY_TIMEOUT_SECONDS,
-    RESTART_DELAY_BASE_SECONDS,
     _WATCHDOG_PING_INTERVAL_SECONDS,
     _WATCHDOG_PONG_TIMEOUT_SECONDS,
     _WATCHDOG_RESPAWN_SECONDS,
+    MAX_RESTART_ATTEMPTS,
+    READY_TIMEOUT_SECONDS,
+    RESTART_DELAY_BASE_SECONDS,
 )
 from voice_typer.server.native_hotkeys._core import SubprocessHotkeyBackend
 
