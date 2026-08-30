@@ -39,21 +39,15 @@
 import {
 	Add01Icon,
 	Delete01Icon,
-	Sorting01Icon,
 	Upload01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { RefObject } from "react";
 
 import ExportFormatMenu from "@/components/common/ExportFormatMenu";
+import type { SortOrder } from "@/components/common/SortSelect";
+import { SortSelect } from "@/components/common/SortSelect";
 import { Button } from "@/components/ui/button";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
 import { t } from "@/i18n/i18n";
 import type { ExportFormat } from "../../../../../shared/export-format";
 
@@ -139,14 +133,13 @@ export function VocabToolbar({
 					disabled={clearAllDisabled}
 					// Destructive affordance for the "clear every entry"
 					// action. At rest: muted text/border like Import/Export.
-					// On hover the BACKGROUND turns red (the color change
-					// lives on the fill, not the label) while the icon +
-					// text brighten to the primary text colour — matching
-					// the muted-at-rest → bright-on-hover pattern of the
-					// other header buttons. (Previously the hover turned
-					// text + border red on an unchanged background — the
-					// inverse of what a destructive hover should read as.)
-					className="gap-2 text-(--text-muted) hover:border-destructive hover:bg-destructive hover:text-(--text-primary)"
+					// On hover the background becomes the solid destructive
+					// red used by ConfirmDialog's Clear All (bg-destructive
+					// + text-destructive-foreground / white icon) — the same
+					// interaction must be reused for every Clear All control
+					// (Vocabulary, Templates, History) so hover always reads
+					// as solid red + white, not a tinted wash.
+					className="gap-2 text-(--text-muted) hover:border-destructive hover:bg-destructive hover:text-destructive-foreground"
 					aria-label={t("vocabulary.clearAllAria")}
 					title={t("vocabulary.clearAllAria")}
 				>
@@ -158,55 +151,11 @@ export function VocabToolbar({
 					/>
 					{t("vocabulary.clearAll")}
 				</Button>
-				{/* Sort Select — a list-view control that belongs with the
-                                    other secondary tools (not on a lone orphaned row).
-                                    Only rendered when there are entries to sort. */}
 				{hasEntries && (
-					<Select
-						value={sortOrder}
+					<SortSelect
+						value={sortOrder as SortOrder}
 						onValueChange={(v) => onSortOrderChange(v as VocabSortOrder)}
-					>
-						{/* hideChevron: the trigger already carries the sort glyph — a
-                                                second chevron on the right read as visually overloaded.
-                                                Text colour matches the other header buttons: muted at
-                                                rest, full-white on hover (with the background change). */}
-						<SelectTrigger
-							size="sm"
-							hideChevron
-							aria-label={t("common.sortAria")}
-							className="text-(--text-muted) transition-[color,box-shadow,background-color] hover:text-(--text-primary)"
-						>
-							{/* No explicit colour — the glyph inherits currentColor
-                                                    from the trigger, so it follows the muted-at-rest /
-                                                    white-on-hover text pattern automatically. */}
-							<HugeiconsIcon
-								icon={Sorting01Icon}
-								strokeWidth={2}
-								aria-hidden="true"
-								className="size-4"
-							/>
-							<SelectValue />
-						</SelectTrigger>
-						{/* popper + align=start: the dropdown's left edge must line up
-                                                    with the trigger's left edge. The shared default
-                                                    (item-aligned, align=center) centers the list over the
-                                                    trigger, which for a short label like "Newest first"
-                                                    opened the menu visibly RIGHT of the button. Styling
-                                                    matches the search input (same border tint, same subtle
-                                                    surface, same radius) so the popup belongs to the page's
-                                                    design system instead of reading as a separate floating
-                                                    element. */}
-						<SelectContent
-							position="popper"
-							align="start"
-							className="rounded-xl border border-border/5 bg-(--bg-subtle)"
-						>
-							<SelectItem value="newest">{t("common.sortNewest")}</SelectItem>
-							<SelectItem value="oldest">{t("common.sortOldest")}</SelectItem>
-							<SelectItem value="az">{t("common.sortAZ")}</SelectItem>
-							<SelectItem value="za">{t("common.sortZA")}</SelectItem>
-						</SelectContent>
-					</Select>
+					/>
 				)}
 			</div>
 			{/* Primary action — filled accent button, pushed to the far end

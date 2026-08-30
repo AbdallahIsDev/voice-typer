@@ -359,43 +359,48 @@ describe("S2-CR-39: Onboarding mic auto-select prefers default-flagged device", 
 	});
 });
 
-// ── S5-CR-104: History Clear All permanent destructive cue ────────────
+// ── S5-CR-104: History Clear All — muted at rest, solid destructive on hover (updated 2026-08-30) ────────────
+// Original test pinned a permanently tinted Clear All (text-destructive/80
+// at rest). The UI-consistency pass (2026-08-30) standardized ALL Clear All
+// controls (History, Vocabulary, Templates) to the shared muted-at-rest →
+// solid-red-hover pattern used by ConfirmDialog's destructive action
+// (bg-destructive + text-destructive-foreground). This keeps Favorites
+// (warning tint) visually distinct from the destructive wipe and makes the
+// hover read as solid red + white, not a 5% wash.
 
-describe("S5-CR-104: History Clear All button has permanent destructive visual cue", () => {
-	it("History.tsx source uses text-destructive at rest (not just on hover)", async () => {
+describe("S5-CR-104: History Clear All button uses shared muted→solid-destructive hover", () => {
+	it("History.tsx Clear All is muted at rest and solid destructive on hover (shared pattern)", async () => {
 		const fs = await import("node:fs");
 		const src = fs.readFileSync("src/renderer/src/pages/History.tsx", "utf8");
-		// The fix: the Clear All button's className must include
-		// `text-destructive` at rest (not `text-(--text-muted)` with
-		// only `hover:text-red-400`). We assert on the literal
-		// substring so a regression to the muted-at-rest pattern fails
-		// loudly.
-		expect(src).toContain("text-destructive/80");
-		expect(src).toContain("border-destructive/40");
-		// The prior buggy pattern (muted at rest, red only on hover)
-		// must be gone.
-		expect(src).not.toContain("text-(--text-muted) hover:text-red-400");
+		// Shared pattern: muted at rest, solid red bg + white text on hover.
+		expect(src).toContain(
+			"text-(--text-muted) hover:border-destructive hover:bg-destructive hover:text-destructive-foreground",
+		);
+		// Permanent tint must be gone — History used to carry
+		// border-destructive/40 text-destructive/80 at rest and a 5% wash
+		// on hover (hover:bg-destructive/5) which the pass removed.
+		expect(src).not.toContain("text-destructive/80");
+		expect(src).not.toContain("border-destructive/40");
+		expect(src).not.toContain("hover:bg-destructive/5");
 	});
 
-	it("Clear All button className is distinct from the Favorites toggle className", async () => {
+	it("Clear All button className remains distinct from Favorites toggle", async () => {
 		const fs = await import("node:fs");
 		const src = fs.readFileSync("src/renderer/src/pages/History.tsx", "utf8");
-		// Strip comments so legacy doc strings mentioning the old class
-		// don't false-positive.
 		const stripped = src
 			.replace(/\/\*[\s\S]*?\*\//g, "")
 			.replace(/\/\/.*$/gm, "");
-		// The Clear All button must reference the destructive token.
-		expect(stripped).toMatch(/text-destructive\/80/);
-		// The button's JSX block (the one with `onClick={handleClearAll}`)
-		// must contain the destructive class. Search for the onClick
-		// binding and assert the className appears within a reasonable
-		// window after it.
+		// The Clear All block (onClick={handleClearAll}) must carry the
+		// shared destructive hover token, while Favorites (onClick={toggleFavorites})
+		// carries warning tokens — they must stay distinct.
 		const onClickIdx = stripped.indexOf("onClick={handleClearAll}");
 		expect(onClickIdx).toBeGreaterThan(-1);
 		const slice = stripped.slice(onClickIdx, onClickIdx + 1200);
-		expect(slice).toContain("text-destructive");
-		expect(slice).toContain("border-destructive");
+		expect(slice).toContain("hover:bg-destructive");
+		expect(slice).toContain("hover:text-destructive-foreground");
+		expect(slice).toContain("hover:border-destructive");
+		// Must NOT still contain the old permanent tint in the active code.
+		expect(slice).not.toContain("text-destructive/80");
 	});
 });
 

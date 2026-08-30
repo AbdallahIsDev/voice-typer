@@ -1351,7 +1351,8 @@
 		},
 		"cloudModels": "云端模型",
 		"cloudModelsDescription": "使用云端 API 进行更快的转录。需要 API 密钥。",
-		"activeModelSummaryLabel": "活动模型："
+		"activeModelSummaryLabel": "活动模型：",
+		"noModelBanner": "未选择语音模型。请在下方选择一个模型。"
 	},
 	"tooltips": {
 		"toggleRecording": "开始或停止语音听写",

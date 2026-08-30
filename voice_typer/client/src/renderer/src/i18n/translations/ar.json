@@ -1351,7 +1351,8 @@
 		},
 		"cloudModels": "نماذج سحابية",
 		"cloudModelsDescription": "استخدم واجهات API السحابية للحصول على تفريغ أسرع. يتطلب مفتاح API.",
-		"activeModelSummaryLabel": "النموذج النشط:"
+		"activeModelSummaryLabel": "النموذج النشط:",
+		"noModelBanner": "لم يتم تحديد نموذج كلام. حدد نموذجا أدناه."
 	},
 	"tooltips": {
 		"toggleRecording": "بدء أو إيقاف الإملاء الصوتي",

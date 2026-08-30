@@ -1351,7 +1351,8 @@
 		},
 		"cloudModels": "क्लाउड मॉडल",
 		"cloudModelsDescription": "तेज़ ट्रांसक्रिप्शन के लिए क्लाउड-आधारित API का उपयोग करें। API कुंजी आवश्यक है।",
-		"activeModelSummaryLabel": "सक्रिय मॉडल:"
+		"activeModelSummaryLabel": "सक्रिय मॉडल:",
+		"noModelBanner": "कोई वाक् मॉडल चयनित नहीं है। नीचे एक मॉडल चुनें।"
 	},
 	"tooltips": {
 		"toggleRecording": "वॉयस डिक्टेशन शुरू या बंद करें",

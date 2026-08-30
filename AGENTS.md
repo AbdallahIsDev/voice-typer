@@ -1564,3 +1564,28 @@ Rule: Do NOT let persisted navigation state (vt_nav_state, last page) cause priv
 Rationale: Closing on Microphone persists that page; without a hidden-aware guard the next background autostart mounts MicrophonePage off-screen and immediately opens a continuous InputStream, lighting the OS mic indicator (Windows taskbar mic icon / macOS orange dot) while the user has not opened the UI. The fix is architectural (navigation + monitor visibility gates + Tauri VT_START_HIDDEN hide), not hiding the indicator or disabling mic globally. Established 2026-08-30.
 Applies to: All agents, all modes, all sub-agents.
 ```
+
+---
+
+## Category: Shared Destructive Actions & Filter Consistency (2026-08-30 polish pass)
+
+```
+C-UI-9
+Rule: Do NOT make any ``Clear All`` destructive button muted-on-hover or permanently tinted. Every ``Clear All`` control that wipes an entire collection (History, Vocabulary, Templates) MUST be muted at rest (``text-(--text-muted)`` + outline ``border-border/5`` via ``variant="outline" size="sm"``) and on hover become the SAME solid destructive treatment used by ``ConfirmDialog``'s ``variant="destructive"`` confirm action: ``hover:border-destructive hover:bg-destructive hover:text-destructive-foreground`` (near-white ``text-destructive-foreground`` icon + label, not ``hover:text-(--text-primary)`` which is dark in light mode and fails contrast, and not a 5% ``bg-destructive/5`` wash). The icon inherits ``currentColor`` — no separate icon color override. Keep ``gap-2`` + ``size-4`` icon + ``Delete01Icon strokeWidth 2`` for spacing/icon alignment, and preserve ``focus-visible:ring-3 ring-ring`` from the Button base.
+Rationale: Vocabulary/Templates already used muted→solid-red on hover but with the wrong ``hover:text-(--text-primary)`` token (dark-on-red in light mode), while History was permanently ``border-destructive/40 text-destructive/80`` with a 5% hover wash. Standardizing to muted→solid-red + ``destructive-foreground`` makes the hover unambiguously read as the destructive wipe (the dialog's confirm button is the reference) and keeps Favorites (warning tint) visually distinct from the destructive action. Established 2026-08-30.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-FILTER-1
+Rule: Do NOT let History, Vocabulary, and Templates use different sort/filter button visuals. The three pages MUST share the SAME ``SortSelect`` primitive (``voice_typer/client/src/renderer/src/components/common/SortSelect.tsx``): ``SelectTrigger size="sm" hideChevron`` + ``className="text-(--text-muted) transition-[color,box-shadow,background-color] hover:text-(--text-primary)"`` with ``Sorting01Icon size-4 strokeWidth 2`` inheriting ``currentColor``, and ``SelectContent position="popper" align="start" className="rounded-xl border border-border/5 bg-(--bg-subtle)"``. Dimensions (``data-[size=sm]:h-8`` via ``select.tsx`` base ``rounded-4xl border-border/5 bg-background text-sm``), border, typography, icon, spacing (``flex w-full flex-wrap gap-2``), hover/focus (``focus-visible:border-ring focus-visible:ring-3``), and interaction (hideChevron because the sort glyph already communicates the control) must stay identical — do not reintroduce History's old ``ChevronDownIcon``, default ``bg-popover`` ring, ``item-aligned`` centering, or ``ml-auto`` (use ``ms-auto`` for RTL).
+Rationale: History's sort dropdown previously rendered a second chevron next to the sort glyph, used the generic popover surface, and was ``item-aligned``/``center`` (opening visibly right of short labels), while Vocabulary/Templates shared the muted + popper/start + subtle-surface pattern. Unifying on ``SortSelect`` eliminates the History-specific drift and ensures a single source of truth for dimensions/border/typography/icon/spacing/hover/focus. Established 2026-08-30.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-MODELS-5
+Rule: Do NOT render the Models page ``no-model`` state as a centered ``EmptyState`` block. When ``config.model_size === ""`` (backend ``NO_MODEL_SIZE`` sentinel) the page MUST show a compact, dismissible banner positioned independently of the main content flow (``sticky top-0 z-10`` between the active-model summary and the tab switcher, not a centered ``flex flex-col py-16`` block that pushes cards below the fold). The banner uses the shared accent tint (``rounded-xl border border-accent/20 bg-accent/5``) with ``AiBrain03Icon text-accent`` + the precise ``C-UI-2``-compliant copy ``models.noModelBanner`` = ``"No speech model is selected. Select a model below."`` (not the vague ``models.noModelSelected`` = ``"No model selected"``), localized consistently in all 8 ``i18n/translations/*.json`` files, ``role="status" aria-live="polite"`` (``data-testid="models-no-model-banner"``), and a close ``X`` (``Cancel01Icon``) far-right with ``aria-label={t("common.close")}`` + ``hover:bg-foreground/10 hover:text-(--text-primary) focus-visible:ring-3`` that writes ``sessionStorage "models:noModelBannerDismissed"`` = ``"1"`` session-scoped; the banner reappears when a model is selected (effect clears the flag). Do NOT change the existing ``model_size === ""`` selection logic.
+Rationale: The centered ``EmptyState`` consumed ~120px vertical space and duplicated the ``activeModelSummary`` banner's accent language while leaving the localized copy vague. The sticky accent banner with session-dismiss follows the ``VocabDuplicateBanner`` dismissal pattern and the ``C-UI-2`` precise-copy rule, keeps the main card flow intact, and respects the 8-locale requirement (added 2026-08-30 after user approval of Option B wording).
+Applies to: All agents, all modes, all sub-agents.
+```

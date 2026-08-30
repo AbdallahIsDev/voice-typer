@@ -4,7 +4,6 @@ import {
 	Delete01Icon,
 	HistoryIcon,
 	Mic02Icon,
-	Sorting01Icon,
 	StarIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -14,17 +13,11 @@ import ConfirmDialog from "@/components/common/ConfirmDialog";
 import ExportFormatMenu from "@/components/common/ExportFormatMenu";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
+import { SortSelect } from "@/components/common/SortSelect";
 import ActivityList from "@/components/dashboard/ActivityList";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
@@ -360,8 +353,11 @@ export default function HistoryPage() {
 					/>
 				</div>
 
-				{/* Action buttons */}
-				<div className="flex items-center gap-2 mt-3">
+				{/* Action buttons — shared filter/sort visual pattern with
+                                    Vocabulary/Templates (SortSelect + muted controls,
+                                    w-full flex-wrap so row wraps cleanly on narrow
+                                    viewports). */}
+				<div className="flex w-full flex-wrap items-center gap-2 mt-3">
 					<Button
 						variant="outline"
 						size="sm"
@@ -392,20 +388,14 @@ export default function HistoryPage() {
 						size="sm"
 						onClick={handleClearAll}
 						aria-label={t("history.clearAllAria")}
-						//Clear All is a destructive action
-						// (deletes ALL history records after a ConfirmDialog
-						// gate) but previously rendered identically to the
-						// Favorites toggle (same outline variant, same
-						// muted-at-rest colour, only turning red on hover).
-						// Users had no permanent visual cue distinguishing
-						// "destructive" from "toggle" until they happened
-						// to hover. Permanently tint the button with the
-						// destructive design token at rest (text + border)
-						// and intensify on hover — matches the visual
-						// language used by ConfirmDialog's
-						// `variant="destructive"`. The disabled state still
-						// uses disabled:opacity-50 from the Button base styles.
-						className="gap-2 border-destructive/40 text-destructive/80 hover:text-destructive hover:border-destructive hover:bg-destructive/5"
+						// Destructive Clear All — muted at rest like the
+						// sibling Import/Export/Favorites controls; on hover
+						// the background becomes the same solid destructive
+						// red used by ConfirmDialog's Clear All action
+						// (bg-destructive + text-destructive-foreground / white
+						// icon). Shared pattern across History / Vocabulary /
+						// Templates so hover always reads as solid red.
+						className="gap-2 text-(--text-muted) hover:border-destructive hover:bg-destructive hover:text-destructive-foreground"
 					>
 						<HugeiconsIcon
 							icon={Delete01Icon}
@@ -414,28 +404,11 @@ export default function HistoryPage() {
 						/>
 						{t("history.clearAll")}
 					</Button>
-					{/* Sort dropdown — client-side re-order of the loaded records. */}
-					<Select
+					<SortSelect
 						value={sortOrder}
 						onValueChange={(v) => setSortOrder(v as HistorySortOrder)}
-					>
-						<SelectTrigger size="sm" aria-label={t("common.sortAria")}>
-							<HugeiconsIcon
-								icon={Sorting01Icon}
-								strokeWidth={2}
-								aria-hidden="true"
-								className="size-4"
-							/>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="newest">{t("common.sortNewest")}</SelectItem>
-							<SelectItem value="oldest">{t("common.sortOldest")}</SelectItem>
-							<SelectItem value="az">{t("common.sortAZ")}</SelectItem>
-							<SelectItem value="za">{t("common.sortZA")}</SelectItem>
-						</SelectContent>
-					</Select>
-					<div className="ml-auto">
+					/>
+					<div className="ms-auto">
 						<ExportFormatMenu
 							onExport={doExport}
 							disabled={records.length === 0}

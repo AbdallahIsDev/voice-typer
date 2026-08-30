@@ -1351,7 +1351,8 @@
 		},
 		"cloudModels": "Облачные модели",
 		"cloudModelsDescription": "Используйте облачные API для более быстрого транскрибирования. Требуется API-ключ.",
-		"activeModelSummaryLabel": "Активная модель:"
+		"activeModelSummaryLabel": "Активная модель:",
+		"noModelBanner": "Речевая модель не выбрана. Выберите модель ниже."
 	},
 	"tooltips": {
 		"toggleRecording": "Начать или остановить голосовую диктовку",

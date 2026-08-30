@@ -1358,7 +1358,8 @@
 		"loading": "Loading models…",
 		"cloudModels": "Cloud Models",
 		"cloudModelsDescription": "Use cloud-based APIs for faster transcription. Requires API key.",
-		"activeModelSummaryLabel": "Active model:"
+		"activeModelSummaryLabel": "Active model:",
+		"noModelBanner": "No speech model is selected. Select a model below."
 	},
 	"tooltips": {
 		"toggleRecording": "Start or stop voice dictation",

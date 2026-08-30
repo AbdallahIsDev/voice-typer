@@ -1351,7 +1351,8 @@
 		},
 		"cloudModels": "Modelos en la Nube",
 		"cloudModelsDescription": "Usa APIs basadas en la nube para una transcripción más rápida. Requiere clave API.",
-		"activeModelSummaryLabel": "Modelo activo:"
+		"activeModelSummaryLabel": "Modelo activo:",
+		"noModelBanner": "No hay ningún modelo de voz seleccionado. Seleccione un modelo a continuación."
 	},
 	"tooltips": {
 		"toggleRecording": "Iniciar o detener el dictado por voz",

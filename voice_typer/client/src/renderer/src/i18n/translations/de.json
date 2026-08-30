@@ -1351,7 +1351,8 @@
 		},
 		"cloudModels": "Cloud-Modelle",
 		"cloudModelsDescription": "Verwenden Sie cloudbasierte APIs für schnellere Transkription. Erfordert einen API-Schlüssel.",
-		"activeModelSummaryLabel": "Aktives Modell:"
+		"activeModelSummaryLabel": "Aktives Modell:",
+		"noModelBanner": "Kein Sprachmodell ist ausgewählt. Wählen Sie unten ein Modell aus."
 	},
 	"tooltips": {
 		"toggleRecording": "Sprachdiktat starten oder beenden",

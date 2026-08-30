@@ -870,7 +870,8 @@
 		},
 		"cloudModels": "Modèles Cloud",
 		"cloudModelsDescription": "Utilisez des APIs cloud pour une transcription plus rapide. Clé API requise.",
-		"activeModelSummaryLabel": "Modèle actif :"
+		"activeModelSummaryLabel": "Modèle actif :",
+		"noModelBanner": "Aucun modèle vocal n'est sélectionné. Sélectionnez un modèle ci-dessous."
 	},
 	"history": {
 		"title": "Historique",

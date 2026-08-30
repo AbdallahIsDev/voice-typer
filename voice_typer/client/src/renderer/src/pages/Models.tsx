@@ -29,10 +29,11 @@
 import {
 	AiBrain03Icon,
 	AlertCircleIcon,
+	Cancel01Icon,
 	Folder02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -125,6 +126,36 @@ export default function ModelsPage() {
 		// been opened, user interactions take over (the panel's local
 		// state owns the open/close after mount).
 	}, [lifecycle.config]);
+
+	// Dismissible "no model selected" banner — compact, sticky, independent
+	// of the main content flow. Replaces the former centered EmptyState which
+	// consumed ~120px vertical space (py-16 + icon). Uses the precise C-UI-2
+	// copy "No speech model is selected. Select a model below." (key
+	// models.noModelBanner) — precise per C-UI-2, actionable on the Models
+	// page itself (vs "Open Models" which would be redundant here).
+	// Dismiss is session-scoped via sessionStorage (cleared when a model is
+	// selected), matching VocabDuplicateBanner's per-session pattern.
+	const [noModelBannerDismissed, setNoModelBannerDismissed] = useState<boolean>(
+		() => {
+			try {
+				return sessionStorage.getItem("models:noModelBannerDismissed") === "1";
+			} catch {
+				return false;
+			}
+		},
+	);
+	useEffect(() => {
+		if (lifecycle.config?.model_size !== "") {
+			if (noModelBannerDismissed) setNoModelBannerDismissed(false);
+			try {
+				sessionStorage.removeItem("models:noModelBannerDismissed");
+			} catch {
+				// ignore storage errors (e.g. blocked in some contexts)
+			}
+		}
+	}, [lifecycle.config?.model_size, noModelBannerDismissed]);
+	const showNoModelBanner =
+		lifecycle.config?.model_size === "" && !noModelBannerDismissed;
 
 	// Show a full-page spinner until the first `get_config` resolves.
 	// Replaces the original `if (!_cachedConfig && !config)` check.
@@ -236,6 +267,52 @@ export default function ModelsPage() {
 					</div>
 				)}
 
+				{/* Compact dismissible "no model" banner — sticky independent of
+                                    main flow (replaces former centered EmptyState py-16 block).
+                                    Visually consistent with activeModelSummary (accent tint,
+                                    rounded-xl, border-accent/20) and VocabDuplicateBanner
+                                    close control (Cancel01Icon far right, hover/focus tokens). */}
+				{showNoModelBanner && (
+					<div
+						data-testid="models-no-model-banner"
+						role="status"
+						aria-live="polite"
+						aria-atomic="true"
+						className="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-accent/20 bg-accent/5 px-3.5 py-2.5"
+					>
+						<HugeiconsIcon
+							icon={AiBrain03Icon}
+							strokeWidth={2}
+							aria-hidden="true"
+							className="size-4 shrink-0 text-accent"
+						/>
+						<p className="min-w-0 flex-1 text-xs font-medium text-(--text-primary)">
+							{t("models.noModelBanner")}
+						</p>
+						<button
+							type="button"
+							onClick={() => {
+								setNoModelBannerDismissed(true);
+								try {
+									sessionStorage.setItem("models:noModelBannerDismissed", "1");
+								} catch {
+									// ignore
+								}
+							}}
+							aria-label={t("common.close")}
+							title={t("common.close")}
+							className="cursor-pointer rounded-lg p-1 text-(--text-muted) transition-colors hover:bg-foreground/10 hover:text-(--text-primary) focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+						>
+							<HugeiconsIcon
+								icon={Cancel01Icon}
+								strokeWidth={2.25}
+								aria-hidden="true"
+								className="size-4"
+							/>
+						</button>
+					</div>
+				)}
+
 				{/* Tab switcher — in the page flow (not sticky), below the
                                     page title/description and above the model list. */}
 				<div className="pb-4">
@@ -270,22 +347,6 @@ export default function ModelsPage() {
 							aria-labelledby="models-tab-local"
 							className="space-y-6 scroll-mt-32"
 						>
-							{/* Genuine "no model selected" state (the backend's
-                                                                NO_MODEL_SIZE sentinel, model_size === "") —
-                                                                nothing is active and the app will not try to
-                                                                load a model until the user picks one below.
-                                                                Rendered via the shared EmptyState component
-                                                                (variant="info") so the visual treatment matches
-                                                                Dashboard / Settings / Vocabulary — the title is
-                                                                wrapped in an <h3> so SR users can navigate by
-                                                                heading. */}
-							{lifecycle.config.model_size === "" && (
-								<EmptyState
-									variant="info"
-									icon={AiBrain03Icon}
-									title={t("models.noModelSelected")}
-								/>
-							)}
 							<LocalModelsPanel
 								modelFamilies={modelFamilies}
 								modelCatalog={lifecycle.modelCatalog}

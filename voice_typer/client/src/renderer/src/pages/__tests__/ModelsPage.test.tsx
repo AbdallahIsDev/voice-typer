@@ -175,11 +175,46 @@ describe("ModelsPage — Import Model flow", () => {
 
 	it("shows a 'No model selected' banner when model_size is empty", async () => {
 		// model_size === "" is the backend's NO_MODEL_SIZE sentinel — the
-		// page must surface the genuine no-model state.
+		// page must surface the genuine no-model state via the compact
+		// dismissible banner (replaced the former centered EmptyState py-16
+		// block — see 2026-08-30 polish pass). Banner is sticky, accent
+		// tinted, with a close X far right, session-dismissible.
 		await renderPage({ ...MOCK_CONFIG, model_size: "" });
 
-		const banner = screen.getByRole("status");
-		expect(banner.textContent).toBe(t("models.noModelSelected"));
+		const banner = document.querySelector(
+			'[data-testid="models-no-model-banner"]',
+		);
+		expect(banner).toBeTruthy();
+		expect(banner?.getAttribute("role")).toBe("status");
+		expect(banner?.textContent).toContain(t("models.noModelBanner"));
+		// Close X control must be present on the far right.
+		const closeButton = banner?.querySelector('button[aria-label="Close"]');
+		// aria-label comes from t("common.close") -> "Close" in EN; fallback
+		// to generic query if translation differs.
+		const close =
+			closeButton ??
+			screen.queryByLabelText(t("common.close")) ??
+			document.querySelector('[data-testid="models-no-model-banner"] button');
+		expect(close).toBeTruthy();
+	});
+
+	it("dismisses the no-model banner via the close X (session-scoped)", async () => {
+		await renderPage({ ...MOCK_CONFIG, model_size: "" });
+		const banner = document.querySelector(
+			'[data-testid="models-no-model-banner"]',
+		);
+		expect(banner).toBeTruthy();
+		const closeBtn = banner?.querySelector("button");
+		expect(closeBtn).toBeTruthy();
+		if (closeBtn) fireEvent.click(closeBtn);
+		// Banner should be removed from DOM after dismiss.
+		await waitFor(() => {
+			expect(
+				document.querySelector('[data-testid="models-no-model-banner"]'),
+			).toBeNull();
+		});
+		// Dismiss is session-scoped via sessionStorage.
+		expect(sessionStorage.getItem("models:noModelBannerDismissed")).toBe("1");
 	});
 
 	it("opens the Electron folder dialog when clicked", async () => {
