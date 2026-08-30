@@ -1042,10 +1042,22 @@ class TestReverseDnsIdentifierNamespace:
             "voice_typer/server/server_platform/autostart_windows.py": [
                 'return f"com.voicetyper.autostart_{_autostart_mod._install_hash()}"',
                 'return f"com.voicetyper.autostart{_autostart_mod._install_hash_suffix()}.bat"',
-                # Register-time stale-cleanup + uninstall sweeps must match
-                # BOTH schemes (legacy entries from pre-rename installs).
+                # Register-time stale-cleanup must match BOTH schemes
+                # (legacy entries from pre-rename installs).
                 'name.startswith(("VoiceTyper", "com.voicetyper"))',
+            ],
+            # The autostart_windows facade was split into mechanism
+            # submodules; the uninstall sweep + legacy-sweep markers
+            # moved into theirs — the pins follow the moved literals.
+            "voice_typer/server/server_platform/_autostart_windows_uninstall.py": [
+                # Uninstaller sweeps must match BOTH schemes: the
+                # PowerShell wildcard union for Task Scheduler entries
+                # and the name-prefix tuple for HKCU Run keys.
                 "\"Get-ScheduledTask -TaskName 'VoiceTyper*','com.voicetyper*' \"",
+                'name.startswith(("VoiceTyper", "com.voicetyper"))',
+            ],
+            "voice_typer/server/server_platform/_autostart_windows_sweep.py": [
+                'f"autostart-sweep-v2-{_autostart_mod._install_hash()}.done"',
             ],
             # NOTE: voice_typer/server/prewarm/completion_events.py was DELETED
             # 2026-08-13 — prewarm became a worker startup phase (Option P-1,
@@ -1133,8 +1145,12 @@ class TestReverseDnsIdentifierNamespace:
     def test_sweep_marker_stays_version_scoped(self) -> None:
         """The once-per-install legacy-sweep marker must be version-scoped
         (``-v2-``) so installs that already ran the pre-rename sweep
-        re-sweep exactly once after the namespace rename."""
-        text = (PROJECT_ROOT / "voice_typer/server/server_platform/autostart_windows.py").read_text(encoding="utf-8")
+        re-sweep exactly once after the namespace rename. The marker
+        path helper lives in the ``_autostart_windows_sweep`` mechanism
+        submodule (split out of the ``autostart_windows`` facade)."""
+        text = (PROJECT_ROOT / "voice_typer/server/server_platform/_autostart_windows_sweep.py").read_text(
+            encoding="utf-8"
+        )
         assert 'f"autostart-sweep-v2-{_autostart_mod._install_hash()}.done"' in text, (
             "legacy-sweep marker name drifted: must stay "
             "autostart-sweep-v2-<hash>.done (version-scoped so installs "

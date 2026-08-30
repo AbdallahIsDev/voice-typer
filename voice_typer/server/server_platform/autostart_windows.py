@@ -26,46 +26,78 @@ and don't conflict.  Pre-fix these were fixed strings — two installs
 would overwrite each other's entries.  The hash matches the mutex name
 hash in ``app.py`` (SHA-256 of ``sys.executable``, first 8 hex chars).
 
+Submodule layout
+----------------
+This module is the FACADE for the Windows autostart mechanisms. It owns
+the mechanism clusters that tests patch directly and the orchestrators
+that sequence them; mechanism submodules hold the rest:
+
+  - :mod:`._autostart_windows_task` — pure Task Scheduler XML parsers
+    (``_extract_command_from_task_xml`` / ``_extract_arguments_from_task_xml``).
+  - :mod:`._autostart_windows_sweep` — the one-time legacy-entry sweep
+    (``sweep_legacy_autostart_entries`` + its ``_sweep_legacy_*`` /
+    ``_entry_targets_this_install`` / ``_legacy_sweep_marker_path`` /
+    ``_sweep_v1_marker_files`` helpers).
+  - :mod:`._autostart_windows_uninstall` — uninstaller-path cleanup
+    (``_unregister_all_voicetyper_runkeys`` / ``_unregister_all_voicetyper_tasks``).
+  - :mod:`._autostart_windows_startup_bat` — the Startup-folder .bat
+    register / unregister / is-registered trio.
+
+Every name defined in a submodule is re-imported at the bottom of this
+module (after the facade's own definitions) so all existing imports of
+``voice_typer.server.server_platform.autostart_windows`` and the
+package-level re-exports keep resolving unchanged.
+
 Patch-path compatibility
 ------------------------
-Tests patch several names that this module's functions call at runtime,
-always on the OWNING module:
+Tests patch several names that these functions call at runtime, always
+on the OWNING module. Resolution rules:
 
-  - ``_register_app_autostart_runkey`` / ``_register_app_autostart_task``
-    / ``_register_app_autostart_startup`` and the ``_unregister_*`` /
-    ``_is_app_*`` siblings are defined HERE — tests patch them via
-    ``monkeypatch.setattr(autostart_windows, "X", lambda: ...)``, and
-    this module's functions resolve them as plain module-global lookups
-    at call time.
-  - ``_build_app_autostart_task_xml`` /
-    ``_app_autostart_command_and_args`` — same (defined here, patched
-    here, resolved via module-global lookup).
+  - Names defined in THIS facade (orchestrators, the Task Scheduler
+    register/unregister/is cluster, the HKCU Run-key cluster,
+    ``_validate_runkey_command``, ``_run_key_name``,
+    ``_startup_bat_name`` / ``_startup_bat_path``) are resolved as
+    plain module-global lookups at call time — tests patch them via
+    ``monkeypatch.setattr(autostart_windows, "X", ...)``.
+  - Names re-imported from the submodules (the bottom import block)
+    resolve through the SAME facade module-global lookup, so facade
+    patches on those names are seen by facade callers too. Submodule
+    code that calls a facade-owned name reads it lazily through the
+    facade module object (``from voice_typer.server.server_platform
+    import autostart_windows as _aw`` inside the function) at call
+    time — so facade patches propagate into submodule behavior as
+    well.
   - ``_autostart_command`` / ``get_autostart_dir`` /
     ``_install_hash`` / ``_install_hash_suffix`` /
     ``_install_identifier`` / ``_resolve_tauri_binary_for_autostart`` /
     ``_APP_AUTOSTART_TASK_NAME`` — owned by :mod:`.autostart`; patched
     via ``monkeypatch.setattr(autostart_mod, "X", ...)``.  This module
-    binds that module as ``_autostart_mod`` and resolves all of them
-    through its attribute at call time.
+    (and every ``_autostart_windows_*`` submodule) binds that module as
+    ``_autostart_mod`` and resolves all of them through its attribute
+    at call time.
   - ``is_windows`` — owned by :mod:`.platform_flags` (re-exported from
     :mod:`voice_typer.server.platform_utils`); bound into this module's
     namespace at import time and called directly, so tests patch
     ``monkeypatch.setattr(autostart_windows, "is_windows", ...)``.
+    Submodule code reads it through the facade module object (lazy
+    ``_aw.is_windows()``) for the same reason.
 
 ``inspect.getsource`` compatibility
 -----------------------------------
-All twelve functions are genuinely defined here, so
+The orchestrators and the Task Scheduler register / unregister /
+is-registered cluster are genuinely defined here, so
 ``inspect.getsource(_register_app_autostart_task)`` etc. continue to
-read from this file.  Source-string checks for "no redundant
+read from this file. Source-string checks for "no redundant
 ``sys.platform != 'win32'`` check before ``task_scheduler.is_supported()``"
 (in :mod:`tests.test_platform_and_config`) read this file's source.
+Moved functions report their new submodule file via getsource; no
+source-string pin targets them.
 """
 
 from __future__ import annotations
 
 import contextlib
 import logging
-import os
 import shlex
 import sys
 from pathlib import Path
@@ -458,67 +490,6 @@ def _is_app_autostart_task_registered() -> bool:
         return False
 
 
-def _extract_command_from_task_xml(xml_str: str) -> str | None:
-    """Extract the ``<Command>`` element's text from a Task Scheduler XML.
-
-    Returns the command path as a string, or ``None`` if the XML is
-    malformed or has no ``<Command>`` element. Used by
-    :func:`_is_app_autostart_task_registered` to validate that the
-    task's command path actually exists on disk (stale-task detection).
-
-    The Task Scheduler XML uses the namespace
-    ``http://schemas.microsoft.com/windows/2004/02/mit/task``. We
-    search for any element whose local name is ``Command`` (ignoring
-    the namespace) so the parse is robust to namespace prefix changes.
-    """
-    if not xml_str:
-        return None
-    try:
-        import xml.etree.ElementTree as ET
-
-        root = ET.fromstring(xml_str)
-        # Search for any element with local name "Command" (the Task
-        # Scheduler XML places it under Actions/Exec/Command, but we
-        # search recursively to be robust to schema variations).
-        for elem in root.iter():
-            tag = elem.tag
-            # Strip namespace prefix if present (e.g. "{ns}Command").
-            if "}" in tag:
-                tag = tag.split("}", 1)[1]
-            if tag == "Command" and elem.text:
-                return elem.text.strip()
-    except Exception:
-        log.debug("[AUTOSTART] _extract_command_from_task_xml parse failed", exc_info=True)
-    return None
-
-
-def _extract_arguments_from_task_xml(xml_str: str) -> str | None:
-    """Extract the ``<Arguments>`` element's text from a Task Scheduler XML.
-
-    Companion to :func:`_extract_command_from_task_xml` — used by the
-    legacy-entry sweep (:func:`_sweep_legacy_tasks`) to inspect the
-    task's command-line arguments (which embed the per-install
-    ``autostart_launcher.py`` path). Returns the arguments string, or
-    ``None`` if the XML is malformed or has no ``<Arguments>`` element.
-    """
-    if not xml_str:
-        return None
-    try:
-        import xml.etree.ElementTree as ET
-
-        root = ET.fromstring(xml_str)
-        for elem in root.iter():
-            tag = elem.tag
-            # Strip namespace prefix if present (e.g. "{ns}Arguments").
-            if "}" in tag:
-                tag = tag.split("}", 1)[1]
-            if tag == "Arguments" and elem.text:
-                return elem.text.strip()
-    except Exception:
-        log.debug("[AUTOSTART] _extract_arguments_from_task_xml parse failed", exc_info=True)
-    return None
-
-
 # ── HKCU Run-key autostart (fallback) ─────────────────────────────────
 
 
@@ -843,560 +814,13 @@ def _cleanup_stale_runkey_entry(reg_key_name: str) -> None:
         )
 
 
-# ─── One-time legacy-entry sweep (AUTOSTART-LEGACY) ──────────────────
+# ── Windows Startup-folder .bat naming (mechanism trio in
+# ._autostart_windows_startup_bat) ──────────────────────────────────────
 #
-# PLAT-RUN renamed the autostart entries from fixed strings (and later
-# from a ``sys.executable``-derived hash) to a stable install-path hash.
-# Upgraded installs can therefore carry legacy ``VoiceTyper*`` entries
-# that ALL point at the same install and ALL fire at logon — duplicate
-# autostart. The sweep below removes those legacy entries once per
-# install (marker-gated), while preserving the current install's own
-# entry and other installs' entries (multi-install support).
-
-
-def _entry_targets_this_install(value: str) -> bool:
-    """True if an autostart command line points at THIS install.
-
-    The sweep must only delete entries targeting the SAME install —
-    other installs' entries (PLAT-RUN multi-install support) must be
-    preserved. A command targets this install when either:
-
-      • it references the current install's autostart launcher script
-        (``autostart_launcher.py`` — the stable per-install identifier
-        from :func:`autostart._install_identifier`). Every Python-backed
-        entry embeds it in the arguments, so this covers the
-        overwhelming majority of legacy entries regardless of which
-        interpreter registered them.
-      • its executable is the current install's Tauri binary (the
-        ``_tauri_binary()`` fallback used when no Python interpreter is
-        available — a bare binary with no launcher in the arguments).
-
-    Conservative by design: if neither check matches, the entry is
-    treated as NOT belonging to this install and is left alone.
-    """
-    if not value:
-        return False
-    launcher = _autostart_mod._install_identifier()
-    if launcher and os.path.normcase(launcher) in os.path.normcase(value):
-        return True
-    try:
-        tokens = shlex.split(value, posix=False)
-    except ValueError:
-        return False
-    if not tokens:
-        return False
-    exe = tokens[0].strip('"')
-    if not exe:
-        return False
-    tauri_bin = _autostart_mod._resolve_tauri_binary_for_autostart()
-    return bool(tauri_bin and os.path.normcase(exe) == os.path.normcase(tauri_bin))
-
-
-def _sweep_legacy_runkeys() -> list[str]:
-    """Remove legacy ``VoiceTyper*`` HKCU Run-key values for this install.
-
-    Enumerates every value under ``HKCU\\...\\Run`` whose name starts
-    with ``VoiceTyper``, and deletes those whose name differs from the
-    current install's ``_run_key_name()`` AND whose command targets this
-    install (:func:`_entry_targets_this_install`). The current entry is
-    never touched; other installs' entries (different launcher path /
-    exe) are preserved.
-
-    Returns the list of deleted value names. Non-fatal: registry errors
-    are logged and skipped so a single bad value can't abort the sweep.
-    """
-    try:
-        import winreg
-    except ImportError:
-        return []  # not Windows
-    current_name = _run_key_name()
-    deleted: list[str] = []
-    try:
-        key = winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Run",
-            0,
-            winreg.KEY_ALL_ACCESS,
-        )
-    except OSError as exc:
-        log.warning("[AUTOSTART] Could not open HKCU Run key for legacy sweep: %s", exc)
-        return deleted
-    try:
-        i = 0
-        while True:
-            try:
-                name, value, _vtype = winreg.EnumValue(key, i)
-            except OSError:
-                # End of enumeration (Windows signals via OSError).
-                break
-            if (
-                isinstance(name, str)
-                and name.startswith("VoiceTyper")
-                and name != current_name
-                and isinstance(value, str)
-                and _entry_targets_this_install(value)
-            ):
-                try:
-                    winreg.DeleteValue(key, name)
-                    deleted.append(name)
-                    log.info("[AUTOSTART] Legacy sweep removed duplicate Run key: %s", name)
-                    # Don't increment i — the next value shifts into the
-                    # current slot after DeleteValue.
-                    continue
-                except OSError as exc:
-                    log.warning(
-                        "[AUTOSTART] Legacy sweep failed to delete Run key %r: %s",
-                        name,
-                        exc,
-                    )
-            i += 1
-    finally:
-        with contextlib.suppress(OSError):
-            winreg.CloseKey(key)
-    return deleted
-
-
-def _sweep_legacy_tasks() -> list[str] | None:
-    """Remove legacy ``VoiceTyperAutostart*`` scheduled tasks for this install.
-
-    Enumerates matching tasks via PowerShell ``Get-ScheduledTask``
-    (schtasks does not support wildcards in ``/TN``), then for each
-    candidate whose name differs from the current
-    ``_APP_AUTOSTART_TASK_NAME`` queries its XML and deletes it only if
-    its command targets this install (:func:`_entry_targets_this_install`
-    on the ``<Command>`` path + ``<Arguments>`` text).
-
-    Returns:
-      - ``list`` — the deleted task names. An empty list means the sweep
-        ran and found nothing (or the platform doesn't use scheduled
-        tasks);
-      - ``None`` — the enumeration FAILED (PowerShell unavailable /
-        non-zero exit / exception). ``None`` tells the marker-gated
-        orchestrator NOT to write the completion marker, so the task
-        portion is retried on the next startup instead of being lost
-        to a transient failure.
-
-    The PowerShell call is bounded by a 15s timeout (not the
-    uninstaller's 60s) because this runs from ``sync_autostart`` on the
-    startup path — a hung PowerShell must not stall app startup.
-    """
-    if not is_windows():
-        return []
-    try:
-        from voice_typer.server import task_scheduler
-    except Exception:
-        return []
-    if not task_scheduler.is_supported():
-        return []
-    import subprocess
-
-    current_name = _autostart_mod._APP_AUTOSTART_TASK_NAME
-    deleted: list[str] = []
-    try:
-        ps_cmd = (
-            "Get-ScheduledTask -TaskName 'VoiceTyperAutostart*' "
-            "-ErrorAction SilentlyContinue | "
-            "ForEach-Object { Write-Output $_.TaskName }"
-        )
-        result = subprocess.run(
-            [
-                "powershell.exe",
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                ps_cmd,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-            # CREATE_NO_WINDOW (0x08000000) prevents a console window
-            # from flashing during the sweep.
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
-        )
-        if result.returncode != 0:
-            log.debug(
-                "[AUTOSTART] Legacy task sweep enumeration failed (rc=%s) — will retry next startup",
-                result.returncode,
-            )
-            return None
-        for line in (result.stdout or "").splitlines():
-            name = line.strip()
-            if not name.startswith("VoiceTyperAutostart") or name == current_name:
-                continue
-            rc, xml = task_scheduler._schtasks(["/Query", "/TN", name, "/XML"])
-            if rc != 0:
-                continue
-            command_path = _extract_command_from_task_xml(xml) or ""
-            arguments = _extract_arguments_from_task_xml(xml) or ""
-            if not (_entry_targets_this_install(command_path) or _entry_targets_this_install(arguments)):
-                continue
-            rc_del, _out = task_scheduler._schtasks(
-                ["/Delete", "/TN", name, "/F"],
-                capture=True,
-            )
-            if rc_del == 0:
-                deleted.append(name)
-                log.info("[AUTOSTART] Legacy sweep removed duplicate task: %s", name)
-    except Exception:
-        log.debug("[AUTOSTART] Legacy task sweep failed", exc_info=True)
-        return None
-    return deleted
-
-
-def _sweep_legacy_startup_bats() -> list[str]:
-    """Remove legacy ``VoiceTyper*.bat`` Startup-folder files for this install.
-
-    Enumerates ``VoiceTyper*.bat`` files under the Windows Startup folder
-    and deletes those whose name differs from the current
-    ``_startup_bat_name()`` AND whose content targets this install
-    (:func:`_entry_targets_this_install` on the file text).
-
-    Returns the list of deleted file names. Best-effort — unreadable /
-    undeletable files are logged and skipped.
-    """
-    if not is_windows():
-        return []
-    current_name = _startup_bat_name()
-    try:
-        autostart_dir = _autostart_mod.get_autostart_dir()
-    except Exception:
-        return []
-    if not autostart_dir.is_dir():
-        return []
-    deleted: list[str] = []
-    for bat_path in autostart_dir.glob("VoiceTyper*.bat"):
-        if bat_path.name == current_name:
-            continue
-        try:
-            content = bat_path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        if _entry_targets_this_install(content):
-            try:
-                bat_path.unlink()
-                deleted.append(bat_path.name)
-                log.info(
-                    "[AUTOSTART] Legacy sweep removed duplicate Startup .bat: %s",
-                    bat_path.name,
-                )
-            except OSError as exc:
-                log.warning(
-                    "[AUTOSTART] Legacy sweep failed to remove %s: %s",
-                    bat_path.name,
-                    exc,
-                )
-    return deleted
-
-
-def _sweep_v1_marker_files(config_dir: Path) -> list[str]:
-    """Delete leftover v1 legacy-sweep markers (``autostart-sweep-<hash>.done``).
-
-    The v2 sweep marker (``autostart-sweep-v2-<hash>.done``) is
-    version-scoped precisely so installs that already ran the v1 sweep
-    re-run once after the PLAT-RUN rename — but nothing ever removed the
-    v1 marker files themselves, so they linger in ``config_dir`` forever
-    (one per legacy ``python.exe`` / ``pythonw.exe`` install hash). They
-    are tiny but pure clutter once their sweep has been superseded.
-
-    Pure filesystem work (no winreg / PowerShell), so it is safe on every
-    platform and runs before the Windows-only gate in the caller.
-    Best-effort: per-file errors are logged and skipped so one bad file
-    never aborts the sweep.
-
-    Returns the names of deleted marker files.
-    """
-    deleted: list[str] = []
-    try:
-        for marker in config_dir.glob("autostart-sweep-*.done"):
-            if marker.name.startswith("autostart-sweep-v2-"):
-                continue
-            try:
-                marker.unlink()
-                deleted.append(marker.name)
-                log.info("[AUTOSTART] removed legacy v1 sweep marker %s", marker.name)
-            except OSError as exc:
-                log.debug(
-                    "[AUTOSTART] could not remove legacy v1 sweep marker %s: %s",
-                    marker.name,
-                    exc,
-                )
-    except OSError as exc:
-        log.debug("[AUTOSTART] glob error for legacy v1 sweep markers: %s", exc)
-    return deleted
-
-
-def _legacy_sweep_marker_path(config_dir: Path) -> Path:
-    """Path to the per-install legacy-sweep completion marker.
-
-    Keyed by the install hash so each install (installs share the
-    per-user config dir) sweeps its own legacy entries exactly once.
-
-    The filename is version-scoped (``v2``): the Windows autostart /
-    prewarm names moved from the bare ``VoiceTyper*`` scheme into the
-    canonical ``com.voicetyper.*`` reverse-DNS namespace, so installs
-    that already ran the v1 sweep (old marker name) MUST re-run the
-    sweep once — the version bump makes the v1 marker miss and the new
-    sweep removes the pre-rename entries that would otherwise linger as
-    duplicate autostart triggers.
-    """
-    return config_dir / f"autostart-sweep-v2-{_autostart_mod._install_hash()}.done"
-
-
-def sweep_legacy_autostart_entries(config_dir: Path) -> dict:
-    """One-time cleanup of legacy same-install autostart entries (PLAT-RUN).
-
-    Upgraded installs can carry legacy ``VoiceTyper*`` Run-key values,
-    ``VoiceTyperAutostart*`` scheduled tasks, and ``VoiceTyper*.bat``
-    Startup-folder files registered under the OLD naming schemes (the
-    fixed pre-PLAT-RUN names, the buggy ``sys.executable``-derived
-    hashes, or the bare ``VoiceTyper*`` names used before the move to
-    the canonical ``com.voicetyper.*`` reverse-DNS namespace).
-    Because the OLD hash differed between ``python.exe`` and
-    ``pythonw.exe`` launch contexts, one install can accumulate MULTIPLE
-    live entries that all fire at logon.
-
-    This sweep removes every legacy entry whose command targets THIS
-    install (:func:`_entry_targets_this_install`) while preserving:
-      • the current install's own entry (``_run_key_name`` /
-        ``_APP_AUTOSTART_TASK_NAME`` / ``_startup_bat_name``), and
-      • other installs' entries (different launcher path → different
-        install → preserved — PLAT-RUN multi-install support).
-
-    It runs AT MOST ONCE per install: after the sweep (whether or not
-    anything was removed) a marker file keyed by the install hash is
-    written into ``config_dir``, so the expensive Task Scheduler
-    enumeration (PowerShell) is paid once and steady-state startup cost
-    is a single ``Path.exists()`` check (plus the tiny v1-marker glob in
-    ``_sweep_v1_marker_files``). Callers invoke it on every
-    startup (e.g. from ``sync_autostart``); the marker makes it
-    one-time.
-
-    Returns ``{"swept": bool, "removed": {"runkeys": [...],
-    "tasks": [...], "bats": [...]}}``.
-    """
-    # One-time cleanup of v1 sweep markers (``autostart-sweep-<hash>.done``)
-    # left behind by the pre-v2 sweep — see ``_sweep_v1_marker_files``.
-    # Runs BEFORE the marker check so installs whose v2 marker already
-    # exists (written by a pre-fix version) still get their v1 clutter
-    # removed, and before the winreg gate because it is pure filesystem
-    # work.
-    _sweep_v1_marker_files(config_dir)
-    marker = _legacy_sweep_marker_path(config_dir)
-    if marker.exists():
-        return {"swept": False, "removed": {"runkeys": [], "tasks": [], "bats": []}}
-    # Windows-only + test-safety gate. The run-key sweep needs winreg,
-    # and ``tests/conftest.py`` blocks the REAL ``winreg`` module
-    # (``sys.modules["winreg"] = None``) so tests can never touch the
-    # developer's actual HKCU registry — that same guard makes this
-    # whole sweep inert under test unless a ``fake_winreg`` fixture is
-    # injected, which also stops the task/bat sweeps (real PowerShell /
-    # real Startup folder) from running during pytest.
-    try:
-        import winreg  # noqa: F401
-    except ImportError:
-        return {"swept": False, "removed": {"runkeys": [], "tasks": [], "bats": []}}
-    removed = {
-        "runkeys": _sweep_legacy_runkeys(),
-        "tasks": _sweep_legacy_tasks(),
-        "bats": _sweep_legacy_startup_bats(),
-    }
-    if removed["tasks"] is None:
-        # The task enumeration failed (PowerShell unavailable / non-zero
-        # exit). Do NOT write the completion marker — the sweep retries
-        # next startup so a transient failure can't permanently skip the
-        # task portion. The run-key / .bat sweeps already ran (both are
-        # idempotent, so re-running them is harmless).
-        log.warning("[AUTOSTART] Legacy autostart sweep: task enumeration failed — will retry on next startup")
-        return {
-            "swept": False,
-            "removed": {"runkeys": removed["runkeys"], "tasks": [], "bats": removed["bats"]},
-        }
-    try:
-        config_dir.mkdir(parents=True, exist_ok=True)
-        marker.write_text("", encoding="utf-8")
-    except OSError as exc:
-        # Best-effort: if the marker can't be written the sweep re-runs
-        # next startup (still safe — every sub-sweep is idempotent).
-        log.warning(
-            "[AUTOSTART] Could not write legacy-sweep marker %s: %s",
-            marker,
-            exc,
-        )
-    return {"swept": True, "removed": removed}
-
-
-# Uninstaller helper ( Windows part) ────────────────────────
-
-
-def _unregister_all_voicetyper_runkeys() -> list[str]:
-    """Remove ALL Voice Typer HKCU Run-key entries.
-
-    Unlike :func:`_unregister_app_autostart_runkey` (which removes ONLY
-    the current install's hash-suffixed entry), this function enumerates
-    every value under ``HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run``
-    whose name starts with the app's namespace — ``com.voicetyper``
-    (current canonical rename-DNS names) OR ``VoiceTyper`` (pre-rename
-    bare names) — and deletes it. It is intended
-    for the **uninstaller** path (NSIS ``customUnInstall`` macro /
-    Tauri ``preRemoveScript`` / manual ``uninstall_permissions.py``
-    invocation) where the goal is to leave the registry CLEAN of any
-    Voice Typer autostart entry — including stale entries from previous
-    installs at different paths (different hashes — see PLAT-RUN).
-
-    Returns the list of value names that were deleted (empty list if
-    nothing matched / not Windows / registry inaccessible). The caller
-    can log the list for the uninstall summary.
-
-    Non-fatal: any per-value error (e.g. a value vanishes between
-    EnumValue and DeleteValue) is logged and skipped so a single bad
-    value doesn't abort the whole sweep.
-
-    Tested on Linux via the ``fake_winreg`` fixture pattern (see
-    ``tests/test_uninstall_windows.py``) — the ``winreg`` import is
-    deferred to call time so the module imports cleanly on non-Windows
-    hosts.
-    """
-    try:
-        import winreg
-    except ImportError:
-        return []  # not Windows — caller (uninstall script) logs + exits 0
-    deleted: list[str] = []
-    try:
-        key = winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Run",
-            0,
-            winreg.KEY_ALL_ACCESS,
-        )
-    except OSError as exc:
-        log.warning("[UNINSTALL] Could not open HKCU Run key for cleanup: %s", exc)
-        return deleted
-    try:
-        i = 0
-        while True:
-            try:
-                name, _value, _vtype = winreg.EnumValue(key, i)
-            except OSError:
-                # End of enumeration (Windows signals "no more values"
-                # via OSError, not StopIteration).
-                break
-            if isinstance(name, str) and name.startswith(("VoiceTyper", "com.voicetyper")):
-                try:
-                    winreg.DeleteValue(key, name)
-                    deleted.append(name)
-                    log.info("[UNINSTALL] Removed HKCU Run key: %s", name)
-                    # Don't increment i — the next value shifts into the
-                    # current slot after DeleteValue (same pattern as the
-                    # stale-entry cleanup loop in _register_app_autostart_runkey).
-                    continue
-                except OSError as exc:
-                    log.warning("[UNINSTALL] Failed to delete HKCU Run key %r: %s", name, exc)
-            i += 1
-    finally:
-        with contextlib.suppress(OSError):
-            winreg.CloseKey(key)
-    return deleted
-
-
-def _unregister_all_voicetyper_tasks() -> list[str]:
-    """Remove ALL Voice Typer Task Scheduler tasks.
-
-    Companion to :func:`_unregister_all_voicetyper_runkeys`. The Task
-    Scheduler ``schtasks`` CLI does NOT accept wildcards in ``/TN``,
-    so we shell out to PowerShell's ``Get-ScheduledTask`` (which DOES
-    support ``-TaskName`` wildcards) to enumerate matching
-    tasks, then ``schtasks /Delete`` each one.  The wildcard union
-    covers the current canonical names (``com.voicetyper.autostart*``,
-    ``com.voicetyper.prewarm``) AND the pre-rename bare names
-    (``VoiceTyperAutostart*``, ``VoiceTyperPrewarm``) so installs that
-    predate the namespace rename are fully cleaned too.
-
-    Returns the list of task names deleted (best-effort — empty list on
-    any failure including non-Windows or Task Scheduler not running).
-    The caller can log the list for the uninstall summary.
-
-    Non-fatal: a single task delete failure (e.g. locked task created
-    by an admin install) is logged and skipped.
-    """
-    try:
-        from voice_typer.server import task_scheduler
-    except Exception as exc:  # pragma: no cover — defensive
-        log.warning("[UNINSTALL] task_scheduler import failed: %s", exc)
-        return []
-    if not task_scheduler.is_supported():
-        return []
-    import subprocess
-
-    deleted: list[str] = []
-    try:
-        # PowerShell pipeline: Get-ScheduledTask returns matching tasks,
-        # ForEach-Object runs schtasks /Delete for each. We capture stdout
-        # and parse the task names from the Get-ScheduledTask output as a
-        # best-effort log (the actual delete happens via the pipeline).
-        ps_cmd = (
-            "Get-ScheduledTask -TaskName 'VoiceTyper*','com.voicetyper*' "
-            "-ErrorAction SilentlyContinue | "
-            "ForEach-Object { schtasks.exe /Delete /TN $_.TaskName /F; "
-            "Write-Output $_.TaskName }"
-        )
-        result = subprocess.run(
-            [
-                "powershell.exe",
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                ps_cmd,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-            # CREATE_NO_WINDOW (0x08000000) prevents a console
-            # window from flashing on the user's screen during the
-            # uninstall sweep. The sweep runs at uninstall time, often
-            # from a UI-driven flow where a flashing console would look
-            # broken. ``getattr`` guard is defensive (the constant
-            # exists on every Python 3.x Windows build).
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
-        )
-        if result.returncode == 0:
-            for line in (result.stdout or "").splitlines():
-                line = line.strip()
-                if line.startswith(("VoiceTyper", "com.voicetyper")):
-                    deleted.append(line)
-                    log.info("[UNINSTALL] Removed Task Scheduler task: %s", line)
-        else:
-            log.warning(
-                "[UNINSTALL] PowerShell task sweep failed (rc=%s): %s",
-                result.returncode,
-                (result.stderr or "").strip(),
-            )
-    except (OSError, subprocess.SubprocessError) as exc:
-        log.warning("[UNINSTALL] Task Scheduler sweep raised: %s", exc)
-    return deleted
-
-
-# ── Windows Startup-folder .bat fallback (tertiary) ────────────────────
-#
-# AUTOSTART-STARTUP-FALLBACK: when BOTH the HKCU Run key and Task
-# Scheduler registration fail (e.g. HKCU locked by group policy,
-# schtasks unavailable, UAC declined), we write a ``.bat`` file to the
-# Windows Startup folder as a tertiary mechanism. The Startup folder
-# (``%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup``) is
-# always honored by Windows Explorer at login and requires no special
-# permissions — it's the most reliable fallback.
-#
-# The .bat sets ``VT_START_HIDDEN=1`` (so the Tauri app / Electron
-# launcher starts hidden) and spawns the autostart command via
-# ``start "" /B`` (no console window flash). The file is named
-# ``com.voicetyper.autostart_<hash>.bat`` to match the Run-key naming
-# convention (PLAT-RUN — multi-install support via the install-path hash,
-# canonical ``com.voicetyper.*`` reverse-DNS namespace).
+# The register / unregister / is-registered trio lives in
+# :mod:`._autostart_windows_startup_bat`. The naming helpers stay here
+# (their f-strings are drift-pinned literals and every mechanism reads
+# them through the facade module object).
 
 
 def _startup_bat_name() -> str:
@@ -1421,121 +845,33 @@ def _startup_bat_path() -> Path:
     return _autostart_mod.get_autostart_dir() / _startup_bat_name()
 
 
-def _register_app_autostart_startup() -> bool:
-    """Register app autostart via a Windows Startup-folder .bat file.
-
-    Writes a ``.bat`` to ``%APPDATA%\\Microsoft\\Windows\\Start Menu\\
-    Programs\\Startup\\VoiceTyper_<hash>.bat`` that sets
-    ``VT_START_HIDDEN=1`` and spawns the autostart command via
-    ``start "" /B`` (no console window flash).
-
-    Returns ``True`` on success, ``False`` on failure (e.g. the
-    Startup folder is not writable, or the autostart command can't be
-    resolved). Non-Windows platforms return ``False`` (the Startup
-    folder concept doesn't apply).
-    """
-    if not is_windows():
-        return False
-    try:
-        cmd = _autostart_mod._autostart_command()
-        bat_path = _startup_bat_path()
-        bat_path.parent.mkdir(parents=True, exist_ok=True)
-        # Build the .bat content. ``@echo off`` suppresses command
-        # echo; ``set VT_START_HIDDEN=1`` passes the hidden flag to
-        # the spawned app (the Run key / Task Scheduler can't set env
-        # vars, but the .bat can). ``start "" /B`` spawns the command
-        # without a new console window and doesn't wait for it.
-        bat_content = f'@echo off\r\nset VT_START_HIDDEN=1\r\nstart "" /B {cmd}\r\n'
-        bat_path.write_text(bat_content, encoding="utf-8")
-        log.info(
-            "[CONFIG] Autostart enabled via Windows Startup-folder .bat: %s",
-            bat_path,
-        )
-        return True
-    except OSError as exc:
-        log.warning("[CONFIG] Could not write Startup-folder .bat: %s", exc)
-        return False
-    except Exception as exc:
-        log.warning("[CONFIG] Startup-folder .bat registration raised: %s", exc)
-        return False
-
-
-def _unregister_app_autostart_startup() -> bool:
-    """Remove the Windows Startup-folder .bat file.
-
-    Returns ``True`` on success (including when the file was already
-    absent — idempotent). Returns ``False`` only if the file exists
-    but couldn't be deleted (e.g. permission denied).
-    """
-    try:
-        bat_path = _startup_bat_path()
-    except Exception:
-        return False
-    if not bat_path.exists():
-        return True  # already absent — idempotent success
-    try:
-        bat_path.unlink()
-        log.info("[CONFIG] Removed Windows Startup-folder .bat: %s", bat_path)
-        return True
-    except OSError as exc:
-        log.warning("[CONFIG] Could not remove Startup-folder .bat: %s", exc)
-        return False
-
-
-def _is_app_autostart_startup_registered() -> bool:
-    """True if the Windows Startup-folder .bat exists AND its target
-    command is valid (points at an existing file).
-
-    AUTOSTART-CMD-VALIDATE: mirrors the validation in
-    :func:`_is_app_autostart_runkey_registered` — the .bat file's
-    existence alone is not enough; we also verify the spawned command's
-    exe path exists on disk. If the .bat is stale (target deleted), we
-    clean it up and return False.
-    """
-    try:
-        bat_path = _startup_bat_path()
-    except Exception:
-        return False
-    if not bat_path.exists():
-        return False
-    try:
-        content = bat_path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return False
-    # Extract the command from the ``start "" /B <cmd>`` line.
-    # We look for the line starting with ``start ""`` and parse the
-    # remainder as a Windows command line.
-    target_cmd = None
-    for line in content.splitlines():
-        stripped = line.strip()
-        if stripped.lower().startswith('start ""'):
-            # Everything after ``start "" /B `` is the command.
-            # Find the command portion (skip ``start ""`` and optional ``/B``).
-            after_start = stripped[len('start ""') :].strip()
-            # Strip leading ``/B`` flag if present.
-            if after_start.upper().startswith("/B"):
-                after_start = after_start[2:].strip()
-            target_cmd = after_start
-            break
-    if not target_cmd:
-        # Malformed .bat — can't validate. Conservatively report True
-        # (the file exists; we just can't parse it).
-        log.debug(
-            "[AUTOSTART] Startup .bat exists but could not parse command: %s",
-            bat_path,
-        )
-        return True
-    # Validate the target command's exe path exists.
-    if not _validate_runkey_command(target_cmd):
-        log.warning(
-            "[AUTOSTART] Startup .bat exists but its target command is stale: %s — cleaning up stale .bat",
-            target_cmd,
-        )
-        with contextlib.suppress(OSError):
-            bat_path.unlink()
-        return False
-    log.debug(
-        "[AUTOSTART] Startup .bat registered with valid command: %s",
-        target_cmd,
-    )
-    return True
+# ─── Facade re-exports (moved mechanism submodules) ───────────────────
+# These names are genuinely defined in the ``_autostart_windows_*``
+# sibling modules (see the docstring's "Submodule layout"); they are
+# re-imported here so ``voice_typer.server.server_platform.autostart_windows``
+# keeps exposing the exact same namespace it always did. Facade callers
+# resolve them as plain module-global lookups at call time, so facade
+# patches (``monkeypatch.setattr(autostart_windows, "X", ...)``) are
+# seen.
+from ._autostart_windows_startup_bat import (  # noqa: E402, F401
+    _is_app_autostart_startup_registered,
+    _register_app_autostart_startup,
+    _unregister_app_autostart_startup,
+)
+from ._autostart_windows_sweep import (  # noqa: E402, F401
+    _entry_targets_this_install,
+    _legacy_sweep_marker_path,
+    _sweep_legacy_runkeys,
+    _sweep_legacy_startup_bats,
+    _sweep_legacy_tasks,
+    _sweep_v1_marker_files,
+    sweep_legacy_autostart_entries,
+)
+from ._autostart_windows_task import (  # noqa: E402, F401
+    _extract_arguments_from_task_xml,
+    _extract_command_from_task_xml,
+)
+from ._autostart_windows_uninstall import (  # noqa: E402, F401
+    _unregister_all_voicetyper_runkeys,
+    _unregister_all_voicetyper_tasks,
+)
