@@ -218,7 +218,7 @@ dependencies = [
     # upstream at https://github.com/AndreMiras/pycaw — alternative
     # (direct ctypes bindings to the COM interface) is queued as a CR
     # follow-up (TODO XS-76).
-    "pycaw>=20230407,<20240407; sys_platform == 'win32'",
+    "pycaw>=20230407,<20251024; sys_platform == 'win32'",
     # comtypes is the generic Python ↔ COM bridge required
     # by pycaw (transitively) and directly by
     # microphone_watcher_win32.py (IMMNotificationClient callback).
@@ -244,16 +244,16 @@ dependencies = [
     # bridge boundary (pyobjc-core's `objc.pyobjc_id` ABI is consumed
     # by every pyobjc-framework-* package).
     "pyobjc-core>=9.0,<12.0; sys_platform == 'darwin' and python_version < '3.12'",
-    "pyobjc-core>=11.0,<12.0; sys_platform == 'darwin' and python_version >= '3.12'",
+    "pyobjc-core>=11.0,<13.0; sys_platform == 'darwin' and python_version >= '3.12'",
     "pyobjc-framework-CoreAudio>=9.0,<12.0; sys_platform == 'darwin' and python_version < '3.12'",
-    "pyobjc-framework-CoreAudio>=11.0,<12.0; sys_platform == 'darwin' and python_version >= '3.12'",
+    "pyobjc-framework-CoreAudio>=11.0,<13.0; sys_platform == 'darwin' and python_version >= '3.12'",
     # NEW-XPLAT-004: pystray on macOS uses Cocoa (AppKit) via pyobjc.
     # Without pyobjc-framework-Cocoa installed, pystray.Icon() raises
     # ImportError at runtime and the tray silently fails.  Adding the
     # explicit dep here so a fresh ``pip install voice-typer`` on
     # macOS gets a working tray out of the box.
     "pyobjc-framework-Cocoa>=9.0,<12.0; sys_platform == 'darwin' and python_version < '3.12'",
-    "pyobjc-framework-Cocoa>=11.0,<12.0; sys_platform == 'darwin' and python_version >= '3.12'",
+    "pyobjc-framework-Cocoa>=11.0,<13.0; sys_platform == 'darwin' and python_version >= '3.12'",
     # CoreFoundation symbols (CFRunLoopRun / CFRunLoopStop / CFRunLoopGetCurrent)
     # are used by microphone_watcher_coreaudio.py for the event-driven
     # CoreAudio device-list listener. These symbols ship inside
@@ -268,7 +268,7 @@ dependencies = [
     # listener fails at runtime. Adding the explicit dep makes the probe
     # actually work on a fresh `pip install voice-typer[macos]`.
     "pyobjc-framework-ApplicationServices>=9.0,<12.0; sys_platform == 'darwin' and python_version < '3.12'",
-    "pyobjc-framework-ApplicationServices>=11.0,<12.0; sys_platform == 'darwin' and python_version >= '3.12'",
+    "pyobjc-framework-ApplicationServices>=11.0,<13.0; sys_platform == 'darwin' and python_version >= '3.12'",
     # ADR 0007: RNNoise is now a default dependency (was optional).
     # BSD-licensed, ~2MB, <1ms per frame. Required for the NoiseSuppressor
     # filter in the audio filter chain.
@@ -286,7 +286,7 @@ dependencies = [
     # dep, but it is small (~200 KB) and pure-Python, so it's safe to
     # install everywhere. Lazy-imported in sidecar_ws.py so the
     # Electron-only path doesn't pay the import cost.
-    "websockets>=12.0,<14.0",
+    "websockets>=12.0,<17.0",
     # keyring is used by credential_store.py to store API keys
     # (OpenAI / Groq / Deepgram / LLM) in the OS-native credential
     # backend (Windows Credential Manager, macOS Keychain, libsecret on
@@ -324,10 +324,10 @@ voice-typer = "voice_typer.server.ipc_server:main"
 # pytest-cov: coverage reporting.
 # pytest-mock: MagicMock fixture.
 test = [
-    "pytest>=7,<9",
+    "pytest>=7,<10",
     # pytest-mock removed — verified zero usages of `mocker` fixture
     # across tests/ (tests use monkeypatch + unittest.mock.patch instead).
-    "pytest-asyncio>=0.23,<1",
+    "pytest-asyncio>=0.23,<2",
     "pytest-timeout>=2.3,<3",
     "pytest-cov>=4.1,<8",
     # hypothesis for property-based testing
@@ -347,7 +347,7 @@ test = [
 # `pip install .[build]` produces a buildable environment.
 build = [
     "pyinstaller>=6.0,<7",
-    "setuptools>=68.0,<84",
+    "setuptools>=68.0,<85",
     # Explicit floor so `pip install .[build]` never resolves an
     # unbounded `wheel` (which has no upper bound anyway, but a floor
     # pins the bdist_wheel behavior we depend on for the installer).
@@ -407,7 +407,7 @@ dev = [
     "mutmut>=2.4,<4",
     # pin pyrefly to the exact 1.1.1 release used by CI
     # (see `.github/workflows/build.yml` → "Run pyrefly type check" step,
-    # which installs `pyrefly==1.1.1` via `uv pip install --system`).
+    # which installs `pyrefly==1.2.0` via `uv pip install --system`).
     # Without this pin, a local `pip install -e ".[dev]"` would pull the
     # latest pyrefly release, whose error heuristics may differ from
     # CI's, causing local-vs-CI drift on the baseline-audit gate. The
@@ -417,7 +417,7 @@ dev = [
     # Rules, this pin must NEVER be loosened to a `>=` range — bump it
     # only as an atomic coordinated change (pyproject.toml + build.yml
     # + regenerated baseline).
-    "pyrefly==1.1.1",
+    "pyrefly==1.2.0",
 ]
 
 # ── pyrefly (fast Rust-based Python type checker) ─────────────────────
