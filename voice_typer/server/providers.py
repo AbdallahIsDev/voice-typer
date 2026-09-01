@@ -49,7 +49,7 @@ handlers actually access).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict, runtime_checkable
 
 log = logging.getLogger(__name__)
 
@@ -58,12 +58,19 @@ log = logging.getLogger(__name__)
 # (ipc_server.py imports providers via build_ipc_server; providers
 # must not eagerly import ipc_server at top level).
 if TYPE_CHECKING:  # pragma: no cover - type-checker-only
+    # ``SideEffectStatus`` is the TypedDict contract of the
+    # ``apply_config`` / ``apply_config_side_effects`` return value
+    # (producer-owned in ``config_applier.py``). Imported under
+    # ``TYPE_CHECKING`` — ``config_applier`` does not import this
+    # module, so no cycle, and the runtime surface of providers is
+    # unchanged.
     # Concrete types for the AppProtocol data-attribute surface
     # (previously ``Any``). All imported under ``TYPE_CHECKING`` to
     # avoid runtime cycles; ``MagicMock`` fixtures still satisfy the
     # ``@runtime_checkable`` Protocol structurally (the check inspects
     # attribute NAMES via ``getattr_static``, not types).
     from voice_typer.server.config import Config
+    from voice_typer.server.config_applier import SideEffectStatus
     from voice_typer.server.correction_usage import CorrectionUsageTracker
     from voice_typer.server.history_db import HistoryDB
     from voice_typer.server.hotkey_dispatcher import HotkeyDispatcher
@@ -360,6 +367,80 @@ class AppProtocol(Protocol):
         ...
 
 
+# ── TypedDict payload contracts for the list-returning service surface ──
+#
+# These replace the bare ``list`` return annotations on
+# :class:`ServiceProtocol` (get_history / search_history /
+# get_favorites / get_microphones / refresh_microphones /
+# get_templates) so static checkers and IDEs can see the element
+# shape. The key sets are pinned by the producers —
+# ``history_db_internals/search.py`` SELECT lists + projection,
+# ``server_platform/microphone_list.py`` device dicts, and
+# ``service/template.py``'s template projection — none of which are
+# TypedDict-typed themselves (their annotations are bare
+# ``list[dict]``); these TypedDicts document the runtime contract at
+# the protocol boundary, mirroring how ``StatusResponse``/
+# ``ForceCancelResult`` (``service/__init__.py``) pin the two most
+# critical dict returns.
+
+
+class HistoryEntry(TypedDict):
+    """One row of ``get_history`` / ``search_history`` / ``get_favorites``.
+
+    Keys mirror the SELECT list + projection in
+    ``history_db_internals/search.py`` (``project_text_row``):
+    ``text`` is the ≤500-char preview (``_HISTORY_TEXT_PREVIEW_LENGTH``);
+    ``text_full_length`` / ``text_truncated`` tell the renderer whether
+    to fetch the full text via ``get_transcription_text``; ``favorite``
+    is SQLite's 0/1 int (truthy check), matching the wire format the
+    renderer already consumes.
+    """
+
+    id: int
+    text: str
+    text_full_length: int
+    text_truncated: bool
+    timestamp: str
+    duration: float
+    model: str
+    device: str
+    word_count: int
+    char_count: int
+    favorite: int
+    language: str
+
+
+class MicrophoneEntry(TypedDict):
+    """One input device dict from ``get_microphones`` / ``refresh_microphones``.
+
+    Keys mirror ``server_platform/microphone_list.py``
+    (``_list_microphones_uncached``): ``id`` is the stable
+    ``"<host api>|<name>[#N]"`` identifier (survives device-index
+    reordering), ``index`` is the (unstable) PortAudio device index.
+    """
+
+    id: str
+    index: int
+    name: str
+    host_api: str
+    channels: int
+    default: bool
+    is_bluetooth: bool
+
+
+class TemplateEntry(TypedDict):
+    """One saved template from ``get_templates``.
+
+    Keys mirror the projection in ``service/template.py`` — exactly
+    three keys (internal fields like ``created_at`` are stripped
+    before the payload crosses the IPC boundary).
+    """
+
+    trigger: str
+    output: str
+    match_mode: str
+
+
 @runtime_checkable
 class ServiceProtocol(Protocol):
     """Structural type for the service object consumed by ``IPCServer``.
@@ -408,26 +489,26 @@ class ServiceProtocol(Protocol):
     # — see ``config_service.py:156-198``). The previous ``-> None``
     # annotation was a lie that hid the return value from type-checkers
     # and forced callers into ``# type: ignore`` or silent-discards.
-    def apply_config_side_effects(self, updates: dict) -> dict[str, object]: ...
-    def apply_config(self, updates: dict) -> dict[str, object]: ...
+    def apply_config_side_effects(self, updates: dict) -> SideEffectStatus: ...
+    def apply_config(self, updates: dict) -> SideEffectStatus: ...
     def change_model(self, model_size: str) -> None: ...
     def set_active_backend(self, backend: str) -> None: ...
 
     # ── History ────────────────────────────────────────────────────
-    def get_history(self, limit: int = 50, offset: int = 0) -> list: ...
-    def search_history(self, query: str, limit: int = 50, offset: int = 0) -> list: ...
+    def get_history(self, limit: int = 50, offset: int = 0) -> list[HistoryEntry]: ...
+    def search_history(self, query: str, limit: int = 50, offset: int = 0) -> list[HistoryEntry]: ...
     def get_today_stats(self) -> dict[str, object]: ...
     def delete_history(self, rec_id: int) -> bool: ...
     def restore_history(self, record: dict) -> int: ...
     def clear_history(self) -> bool: ...
     def toggle_favorite(self, rec_id: int) -> bool: ...
-    def get_favorites(self, limit: int = 50, offset: int = 0) -> list: ...
+    def get_favorites(self, limit: int = 50, offset: int = 0) -> list[HistoryEntry]: ...
     def get_history_count(self) -> int: ...
     def get_transcription_text(self, transcription_id: int) -> dict[str, object]: ...
 
     # ── Microphone ─────────────────────────────────────────────────
-    def get_microphones(self) -> list: ...
-    def refresh_microphones(self) -> list: ...
+    def get_microphones(self) -> list[MicrophoneEntry]: ...
+    def refresh_microphones(self) -> list[MicrophoneEntry]: ...
 
     # ── Microphone test ────────────────────────────────────────────
     # narrowed from ``Any`` to concrete unions matching the
@@ -477,8 +558,8 @@ class ServiceProtocol(Protocol):
     def save_vocabulary_with_diff(self, data: dict) -> dict[str, object]: ...
     def get_correction_usage(self) -> dict[str, object]: ...
     def test_vocabulary_correction(self, text: str) -> dict[str, object]: ...
-    def get_templates(self) -> list: ...
-    def save_templates(self, templates: list) -> bool: ...
+    def get_templates(self) -> list[TemplateEntry]: ...
+    def save_templates(self, templates: list[dict]) -> bool: ...
 
     # ── Onboarding ────────────────────────────────────────────────
     def onboarding_is_first_run(self) -> dict[str, object]: ...

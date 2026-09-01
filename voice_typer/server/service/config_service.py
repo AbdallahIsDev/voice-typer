@@ -30,6 +30,7 @@ regression guards in ``tests/regressions/test_concurrency.py``
 import contextlib
 import logging
 
+from voice_typer.server.config_applier import SideEffectStatus
 from voice_typer.server.service._base import ServiceMixinBase
 
 log = logging.getLogger(__name__)
@@ -170,13 +171,13 @@ class ConfigMutationMixin(ServiceMixinBase):
 
     # Config side effects () ──────────────────────────
 
-    def apply_config_side_effects(self, updates: dict) -> dict:
+    def apply_config_side_effects(self, updates: dict) -> SideEffectStatus:
         """Apply side effects after config changes. Delegates to ConfigApplier ( + , ).
 
                 Returns
                 -------
-                dict
-        (session-3): side-effect status dict from
+                SideEffectStatus
+        side-effect status payload from
                     :meth:`ConfigApplier.apply_config_side_effects` (shape
                     ``{"autostart_status": dict | None, "prewarm_status": dict | None}``).
                     Callers that previously discarded the return value still work.
@@ -201,13 +202,13 @@ class ConfigMutationMixin(ServiceMixinBase):
         """
         self._app.models.set_active_backend(backend)
 
-    def apply_config(self, updates: dict) -> dict:
+    def apply_config(self, updates: dict) -> SideEffectStatus:
         """Apply validated config updates atomically. Delegates to ConfigApplier ( + , ).
 
                 Returns
                 -------
-                dict
-        (session-3): side-effect status dict from
+                SideEffectStatus
+        side-effect status dict from
                     :meth:`ConfigApplier.apply_config` (shape
                     ``{"autostart_status": dict | None, "prewarm_status": dict | None}``).
                     Callers that previously discarded the return value still work.

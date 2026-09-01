@@ -25,7 +25,7 @@ import contextlib
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, TypedDict
 
 from voice_typer.server.branding import APP_NAME
 
@@ -208,7 +208,37 @@ _AUDIO_FILTER_KEYS = (
 )
 
 
-def to_filter_dict(config: Any) -> dict:
+# ── TypedDict for the config side-effect status payload ──
+#
+# This replaces the bare ``dict`` annotations on the
+# ``apply_config`` / ``apply_config_side_effects`` surface (module-level
+# function, :class:`ConfigApplier` methods, :class:`SideEffectContext.status`,
+# and the :class:`ServiceProtocol` declarations in ``providers.py``) so
+# static checkers and IDEs can see the exact shape of the status dict
+# the ``set_config`` IPC response carries.
+
+
+class SideEffectStatus(TypedDict):
+    """Side-effect status dict returned by :meth:`ConfigApplier.apply_config`
+    / :meth:`ConfigApplier.apply_config_side_effects`.
+
+    A field is ``None`` when the corresponding config key wasn't in
+    ``updates`` (no sync was attempted); otherwise it is the result
+    dict of ``startup_tasks.sync_autostart`` / ``sync_prewarm_task``,
+    documented there as ``{"registered": bool, "error": str | None}``
+    (shape mirrors ``server_platform.enable_autostart_ex`` so the
+    renderer uses the same field names for direct and config-change
+    syncs). The inner dict is typed ``dict[str, Any]`` rather than a
+    nested TypedDict because the sync functions' own return
+    annotations are bare ``dict`` — tightening them is a follow-up in
+    ``startup_tasks.py`` (out of scope for this change).
+    """
+
+    autostart_status: dict[str, Any] | None
+    prewarm_status: dict[str, Any] | None
+
+
+def to_filter_dict(config: Any) -> dict[str, Any]:
     """build the audio-filter settings dict from a Config.
 
     Single source of truth for the filter dict consumed by
@@ -238,7 +268,7 @@ def to_filter_dict(config: Any) -> dict:
 
     Returns
     -------
-    dict
+    dict[str, Any]
         A complete filter dict suitable for ``update_level_processor`` /
         ``update_test_filters``.
     """
@@ -259,7 +289,7 @@ def to_filter_dict(config: Any) -> dict:
     return result
 
 
-def _apply_audio_preset(preset: str) -> dict:
+def _apply_audio_preset(preset: str) -> dict[str, Any]:
     """ADR 0007: Map an audio preset name to individual filter settings.
 
     Delegates to :mod:`voice_typer.server.audio_presets` (single source
@@ -274,7 +304,7 @@ def _apply_audio_preset(preset: str) -> dict:
     backward compat (mapped to "auto" and "off" respectively).
 
     Returns:
-        dict of noise_filter_* settings to apply.
+        dict[str, Any] of noise_filter_* settings to apply.
     """
     from voice_typer.server.audio_presets import (
         PRESET_AUTO,
@@ -288,7 +318,7 @@ def _apply_audio_preset(preset: str) -> dict:
     return get_preset_filters(normalized)
 
 
-def apply_config_side_effects(updates: dict, service: Any) -> dict:
+def apply_config_side_effects(updates: dict, service: Any) -> SideEffectStatus:
     """Fix-D: module-level entry point for the
         post-config-update side-effect dispatch.
 
@@ -327,7 +357,7 @@ def apply_config_side_effects(updates: dict, service: Any) -> dict:
 
         Returns
         -------
-        dict
+        SideEffectStatus
             Empty status dict (no work performed).  The real status dict
             is returned by :meth:`VoiceTyperService.apply_config_side_effects`.
     """
@@ -375,7 +405,7 @@ class SideEffectContext:
     app: Any
     config: Any
     updates: dict
-    status: dict[str, dict[str, Any] | None]
+    status: SideEffectStatus
 
 
 class ConfigSideEffect(Protocol):
@@ -881,7 +911,7 @@ class ConfigApplier:
 
     # Side-effects ( extraction / refactor) ────────────────────
 
-    def apply_config_side_effects(self, updates: dict) -> dict:
+    def apply_config_side_effects(self, updates: dict) -> SideEffectStatus:
         """Apply side effects after config changes.
 
         Centralizes the post-config-update hooks that were previously
@@ -906,7 +936,7 @@ class ConfigApplier:
 
         Returns
         -------
-        dict
+        SideEffectStatus
             Side-effect status dict with the shape::
 
                 {
@@ -925,7 +955,7 @@ class ConfigApplier:
         # accumulate side-effect statuses for the renderer.
         # Each entry is None (no sync attempted) or a dict with
         # ``registered`` + ``error`` keys.
-        side_effect_status: dict[str, dict | None] = {
+        side_effect_status: SideEffectStatus = {
             "autostart_status": None,
             "prewarm_status": None,
         }
@@ -967,7 +997,7 @@ class ConfigApplier:
 
     # apply_config ( extraction) ────────────────────────────
 
-    def apply_config(self, updates: dict) -> dict:
+    def apply_config(self, updates: dict) -> SideEffectStatus:
         """Apply validated config updates atomically.
 
         ADR 0008 §3.1: wraps the config-mutation lock + setattr +
@@ -1087,7 +1117,7 @@ class ConfigApplier:
         # before the raise, so the renderer can surface the autostart/
         # prewarm status alongside the save error. Initialize to all-
         # None so the return shape is stable even on early-raise.
-        side_effect_status: dict[str, dict | None] = {
+        side_effect_status: SideEffectStatus = {
             "autostart_status": None,
             "prewarm_status": None,
         }
