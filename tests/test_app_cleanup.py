@@ -1106,7 +1106,7 @@ class TestRealRecorderStopClosesStream:
                 self.close_calls += 1
 
         fake_stream = _FakeStream()
-        recorder._stream = fake_stream
+        recorder._stream_lifecycle._stream = fake_stream
         # Pretend we're recording so _do_cleanup takes the stop() path.
         # ``recording`` is a read-only property backed by an Event.
         recorder._recording_event.set()
@@ -1120,9 +1120,11 @@ class TestRealRecorderStopClosesStream:
         app.recorder = recorder
 
         # Run cleanup. Must invoke recorder.stop() which drives
-        # stream.stop() + stream.close() + self._stream = None.
+        # stream.stop() + stream.close() + self._stream_lifecycle._stream = None.
         app._do_cleanup()
 
         assert fake_stream.stop_calls == 1, "GT-38: recorder.stop() must call stream.stop() exactly once"
         assert fake_stream.close_calls == 1, "GT-38: recorder.stop() must call stream.close() exactly once"
-        assert recorder._stream is None, "GT-38: recorder.stop() must set self._stream = None after close"
+        assert recorder._stream_lifecycle._stream is None, (
+            "GT-38: recorder.stop() must set self._stream_lifecycle._stream = None after close"
+        )

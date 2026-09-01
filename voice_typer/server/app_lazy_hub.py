@@ -526,6 +526,19 @@ class AppLazyHub:
     # IPC startup. The getters block only if the background build is
     # still in flight (brief); the setters let tests inject mocks
     # transparently (assignment bypasses the lazy build).
+    #
+    # Backing type declared here (same pattern as ``_busyness`` /
+    # ``_microphone_registry`` above): the sentinel assignment lives in
+    # the ``AppRecordingInit`` builder, which sits AFTER this class in
+    # the MRO — without an explicit annotation mypy cannot determine
+    # the attribute's type when it processes this class's properties.
+    # The honest type is ``Any``: the setters accept test mocks, the
+    # getters return the built Recorder / RecordingController, and the
+    # sentinel object itself — matching the ``Any``-typed accessors.
+    _recorder_backing: Any
+    _recording_backing: Any
+    _recorder_build_ready: threading.Event
+    _recorder_build_error: BaseException | None
 
     @property
     def recorder(self) -> Any:
