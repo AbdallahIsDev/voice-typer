@@ -8,7 +8,7 @@
 import { useEffect, useRef } from "react";
 import type { PythonPushEvent } from "@/types/ipc";
 import { useBridgeReady } from "./bridge-ready";
-import { subscribeToEventType } from "./event-dispatcher";
+import { type EventHandler, subscribeToEventType } from "./event-dispatcher";
 import { KNOWN_EVENT_TYPES } from "./known-event-types";
 
 /**
@@ -91,23 +91,16 @@ export function usePythonEvent(
 	type: string,
 	handler: (data?: Record<string, unknown>) => (() => void) | undefined,
 ): void;
-export function usePythonEvent(
-	type: string,
-	// Implementation signature — must use `any` for the handler's data
-	// param because TypeScript's overload compatibility check requires
-	// the impl to accept ALL overload handler shapes. Overload 1 narrows
-	// to `ExtractEventData<K>` (which can be `undefined` for events with
-	// no data); overload 2 widens to `Record<string, unknown>`. No single
-	// non-`any` type satisfies both under strictFunctionTypes contravariance
-	// (a function accepting `ExtractEventData<K>` is not assignable to a
-	// parameter expecting a function accepting `Record<string, unknown>`,
-	// and vice versa). The `any` here is type-safe at the CALL SITE —
-	// callers hit the public overloads, not this impl signature — and at
-	// runtime `event.data` is `Record<string, unknown> | undefined` which
-	// every handler accepts. biome-ignore lint/noExplicitAny: required for
-	// TypeScript overload compatibility (see comment above).
-	// biome-ignore lint/suspicious/noExplicitAny: required for TS overload impl
-	handler: (data?: any) => (() => void) | undefined,
+export function usePythonEvent<K extends PythonPushEvent["type"]>(
+	type: K,
+	// Implementation signature — identical to overload 1 (this is
+	// the only non-`any` shape TypeScript's overload compatibility
+	// check accepts for it: a plain `Record<string, unknown>` param
+	// or a widened union both fail TS2394 against overload 1's
+	// deferred conditional `ExtractEventData<K>`). Callers never
+	// see this signature — they hit the public overloads above,
+	// and unknown `string` types fall through to overload 2.
+	handler: (data?: ExtractEventData<K>) => (() => void) | undefined,
 ) {
 	const handlerRef = useRef(handler);
 	handlerRef.current = handler;
@@ -177,7 +170,23 @@ export function usePythonEvent(
 		//   - The handler identity is mirrored via `handlerRef`
 		//     so callers can pass inline closures without
 		//     re-subscribing on every render.
-		const unsubscribe = subscribeToEventType(type, () => handlerRef.current);
+		// Type boundary: the dispatcher stores handlers in a
+		// `Map<type, Set<entry>>` keyed by runtime strings, so
+		// its `EventHandler` type cannot express the per-type
+		// narrowing this hook's overload 1 gives callers. The
+		// single `as` cast below is that boundary — it asserts
+		// what the overloads already promise: the dispatcher
+		// calls the handler with the event's `data` payload
+		// (`Record<string, unknown> | undefined` on the wire),
+		// and overload-1 callers trust the declared per-event
+		// payload shape from `types/ipc/push_events.ts`.
+		// Narrower than the previous `any` impl param: the cast
+		// affects only this one expression, not the whole
+		// signature.
+		const unsubscribe = subscribeToEventType(
+			type,
+			() => handlerRef.current as EventHandler,
+		);
 
 		return () => {
 			unsubscribe();
