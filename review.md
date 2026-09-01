@@ -10,7 +10,7 @@ These items are the highest-priority remaining work for the project — they blo
 
 ### T-1 — TAURI-E2E — Full-application validation mission (GOAL MODE: zero problems)
 
-**Status:** ❌ Open — assigned to the next cloud-sandbox agent. **GOAL MODE: the goal is that there are NO problems at all.** Keep working until every check below passes, everything is clean, and the Tauri application is production-ready. Do not stop, defer, or skip anything. Any problem found — big, medium, or trivial — fix it IMMEDIATELY, then move to the next check.
+**Status:** ❌ Open — IN PROGRESS (2026-08-31 session, ON LINUX (sandbox) + host-validation handoffs): TR-1 FIXED (tray Models submenu rebuilt from the shared data layer — dash item gone, "More Models" deep-links to the Models page, model rows clickable); TR-2 FIXED (ws-mode sidecar never ran app.start → mics/hotkeys/model-load dead; entrypoint ws branch now launches app.start on a daemon thread, source-pinned); TR-3 FIXED (Microphone tray item always rendered with refresh + deep-link rows when the list is empty; device rows appear once TR-2's data flows); headless checklist suite added (tests/test_tauri_e2e_checklist.py — config/history/templates/vocabulary/export/analytics/recovery/status flows over the real app + real WS transport, 20 tests); REAL BUG found+fixed: status_change pushes were TCP-only (never delivered on WS) — now published via event_bus (tests/test_tray_status_change_ws_delivery.py). Browser-renderer drive + real-model dictation: orchestrator manual-verification phase. Windows-host visual/hardware items carry VALIDATE ON WINDOWS HOST steps. **GOAL MODE: the goal is that there are NO problems at all.** Keep working until every check below passes, everything is clean, and the Tauri application is production-ready. Do not stop, defer, or skip anything. Any problem found — big, medium, or trivial — fix it IMMEDIATELY, then move to the next check.
 
 > **TAURI ONLY — NOT ELECTRON.** The Electron shell is being removed in the future; Tauri becomes the main (and only) runtime. Every problem must be found and fixed **in the Tauri shell**. Problems that exist only in Electron are OUT OF SCOPE and must NOT be chased. When comparing behavior ("it works in Electron but not in Tauri"), use Electron only as a behavioral reference, then fix the TAURI side.
 >
@@ -97,68 +97,8 @@ The application also runs in a normal browser (the renderer is served on localho
 
 ---
 
-### FR-54 — `usePython` bridge: `Record<string, unknown>` hardening landed, but 2 `noExplicitAny` escapes remain
-**Status:** ⚠️ Partial — re-verified 2026-08-30. The public `PythonCall` signature is hardened (`data?: Record<string, unknown>` at `lib/python-bridge/usePython.ts:47`), but the event-handler implementation overload STILL retains `(data?: any)` under 2 `biome-ignore` directives. The file was split into the `lib/python-bridge/` package since the 2026-08-12 audit — the escapes now live at `lib/python-bridge/usePythonEvent.ts:107-110` (not the old usePython.ts:831-833).
-**Description:** The 2026-08-12 claim "biome-ignore directive removed" was FALSE then and remains FALSE: the impl signature is still `handler: (data?: any) => ...` with a documented TS-overload-compat rationale. `usePython.ts` is now a 16-line re-export barrel; the real code moved to `lib/python-bridge/`. `data?: Record<string, unknown>` is used across the bridge (`usePython.ts:47,54`, `usePythonEvent.ts:92`, `event-dispatcher.ts:29,53`), but the `any` escape in the overload impl is unresolved.
-**User Impact:** `any` still escapes the bridge's event-handler surface, so type-checking does not guarantee payload shapes for `usePythonEvent` consumers.
-**Root Cause:** TS overload-compat — a single non-`any` overload cannot satisfy the event-dispatch call sites without widening; the impl keeps `any` under a deliberate exemption.
-**Progress:** Partial — the public signatures are typed; the overload impl exemption remains.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/lib/python-bridge/usePythonEvent.ts` (biome-ignores at :107-110)
-- `voice_typer/client/src/renderer/src/lib/python-bridge/usePython.ts` (`Record<string, unknown>` at :47)
-- `voice_typer/client/src/renderer/src/hooks/usePython.ts` (barrel re-export, 16 LOC)
-**Fix:** Eliminate the 2 `biome-ignore lint/noExplicitAny` directives by refactoring the overload impl to accept `Record<string, unknown>` (with an internal cast) instead of `any`, verifying `tsc -p tsconfig.web.json --noEmit` + the usePythonEvent tests stay green.
-**Severity:** 🟡 Medium
-**Category:** Type safety / a11y (bridge typing)
-
----
-
-### FR-26 — Linux native key-listener has no USB hotplug support
-**Status:** ❌ Not Fixed — re-verified 2026-08-30: `voice_typer/server/native/linux-key-listener.c` contains no `inotify` / `udev` / `hotplug` handling.
-**Description:** The Linux native key-listener enumerates input devices once at startup; plugging/unplugging a USB keyboard while the app runs is never detected, so hotplugged devices are not monitored.
-**User Impact:** Users who hotplug keyboards miss dictation/hotkey events until restart.
-**Root Cause:** Requires C code changes — `inotify` on `/dev/input` (or udev) + re-opening device handles on add/remove.
-**Progress:** None.
-**Related Files:** `voice_typer/server/native/linux-key-listener.c`
-**Fix:** Add `inotify`/udev device-add/remove monitoring in the C listener and reopen the evdev set on hotplug; validate on a real Linux desktop.
-**Severity:** 🟡 Medium
-**Category:** Platform (Linux) / native binary
-
----
-
-### FR-40 — `SUPERVISOR_MAX_RETRIES` dead-code / coordination debt
-**Status:** ⚠️ Partial — re-verified 2026-08-30: the constant moved to Rust and is now ACTIVE. `pub(crate) const SUPERVISOR_MAX_RETRIES: u32 = 5` lives at `src-tauri/src/util.rs:58`; `supervisor.rs` iterates it; `util_tests.rs` pins it (`= 5`) and ties `SUPERVISOR_BACKOFF_MS.len()` to it. The Python-side dead code (the original finding) is gone — the residual is the Rust constant being duplicated as literals elsewhere.
-**Description:** Originally filed as "SUPERVISOR_MAX_RETRIES dead in production" (Python side). The Rust supervisor now owns retry-counting; `supervisor.rs:394-397` documents that an `attempt >= SUPERVISOR_MAX_RETRIES` guard was previously dead code because `SUPERVISOR_BACKOFF_MS.len() == SUPERVISOR_MAX_RETRIES == 5`.
-**User Impact:** Low — the retry cap is functional in Rust; the residual is drift risk if the constant and backoff array length ever diverge.
-**Root Cause:** Cross-language migration left the semantics to be re-pinned in Rust; coordinated test rewrites were deferred.
-**Progress:** Substantial — constant is now live in Rust with parity tests.
-**Related Files:**
-- `src-tauri/src/util.rs` (:58)
-- `src-tauri/src/sidecar/supervisor.rs`
-- `src-tauri/src/util_tests.rs`
-**Fix:** Confirm no Python-side `SUPERVISOR_MAX_RETRIES` remnant; optionally replace the backoff-array-length coupling with an explicit assertion. Low urgency.
-**Severity:** 🟡 Medium
-**Category:** Lifecycle / concurrency
-
----
-
-### FR-52 — Bare `dict`/`list` annotations on `ConfigApplier` + `ServiceProtocol`
-**Status:** ⚠️ Partial — re-verified 2026-08-30: `ServiceProtocol` return types were narrowed to `dict[str, object]` / `list`, but bare `-> list` remains on `get_history`, `search_history`, `get_microphones`, `get_favorites`, `get_templates` (providers.py:417-429), and `ConfigApplier` still returns bare `-> dict` on `to_filter_dict`, `_apply_audio_preset`, `apply_config_side_effects`, `apply_config` (config_applier.py:211,262,291,884,970) with bare `dict` parameters throughout.
-**Description:** The TypedDict refactor proposed in the original finding was only partially applied: the protocol return types were widened/narrowed but many bare `dict`/`list` annotations remain on the config-applier surface.
-**User Impact:** Bare annotations weaken static checking at the config side-effect boundary; callers can't see the exact shape of `side_effect_status`.
-**Root Cause:** TypedDict refactor was scoped out; the `dict[str, object]` widening on the protocol was done instead.
-**Progress:** Partial — protocol return types typed; ConfigApplier + remaining `list` returns untyped.
-**Related Files:**
-- `voice_typer/server/providers.py` (:417-429 bare `list`)
-- `voice_typer/server/config_applier.py` (:211,262,291,884,970 bare `dict`)
-**Fix:** Define TypedDicts for the `side_effect_status` / handler payloads and replace the bare `dict`/`list` annotations; keep `ServiceProtocol` in sync.
-**Severity:** 🟡 Medium (originally High-rated)
-**Category:** Type safety
-
----
-
 ### FR-57 — `app.py` wiring façade split (WM-2 merged here; duplicate WM-2 entry deleted)
-**Status:** ❌ Pending — re-synced 2026-08-30 audit: measured **1158 LOC** (not 1845). WM-2 (Critical-rated duplicate of this task) merged into this entry on 2026-08-30; its line entry deleted.
+**Status:** 🟡 Partial — further completion pass landed 2026-09-01 (local Windows host): app.py 707 → **383 LOC** (raw) via pin-preserving extraction + dead re-export sweep (7 unused re-exports deleted after zero-patch-site consumer sweep; 2 test-pinned builders + monkeypatch seams intentionally remain per pins). 198 tests/app/ hard-compat + 454 server-batch + 161 source-pin tests green; mypy decreased (no new errors). Residual to the ~300 budget is pin-forced surface (lock-order/security/mig17/getsource pins + runtime patch seams) — documented per-category in the session worklog. Earlier: 1284 → 707 via create-first extraction of app_recording_init.py + app_construction.py. Reviewer APPROVE (wave 2).
 **Description:** `voice_typer/server/app.py` is the VoiceTyperApp wiring façade. FR-57 claimed 1845 LOC ("re-verified 2026-08-12, up from 1275"); WM-2 claimed the same 1845 LOC at Critical severity. Both counts are stale — measured **1158 LOC on 2026-08-30**. The file still exceeds the E3 ~300-line wiring-only budget (~3.9×), so the residual refactor is real but smaller than originally framed; the Phase A+B+C plan predates the extraction work that already landed and must be re-derived from the current file.
 **User Impact:** Wiring any new subsystem means editing an oversized façade; collaborators cannot be constructed in isolation; every change to central wiring carries elevated regression risk.
 **Root Cause:** Incremental fix-on-fix accumulation on the central wiring object; prior extraction rounds reduced 1845 → 1158 without finishing the split.
@@ -170,34 +110,6 @@ The application also runs in a normal browser (the renderer is served on localho
 **Category:** Spaghetti / monolith detection
 
 ---
-
-### SI-29 — 36 test files define local `_make_fake_*` helpers instead of using `tests/fixtures/`
-**Status:** 🟡 Partial — Phase 1 complete (sidecar_ws fixture family consolidated onto tests/fixtures/sidecar_ws_test_helpers.py; local _make_fake_* files reduced 29→15). Phase 2 complete (reconciled 2026-08-30): the 2 VoiceTyperApp-duplicating test files now use tests/fixtures/app_helpers.make_voice_typer_app (+ACL no-op added to the canonical helper), the 2 real-Recorder files use recorder_test_helpers.make_recorder, and 9 IPCServer test files use make_bare_ipc_server/make_ipc_server_with_fakes (+make_buffered_mock_tcp_client). Remaining: 13 domain-specific _make_fake_* helpers + 9 thin named adapters intentionally stay local (out-of-scope per the entry's own "never bulk-rewrite unrelated files" guidance).
-**Description:** `tests/fixtures/ipc_test_helpers.py` exposes 3 canonical factories, but 36 test files define their own inline `_make_fake_app` / `_make_recorder` / `_make_server` helpers (per audit 2026-08-12, up from 25+; spot-check measured 37 files defining the named `_make_fake_*` helpers).
-**User Impact:** Maintenance cost; signature changes require updating 36 files instead of 1.
-**Root Cause:** XS-42 migration was never completed.
-**Progress:** None yet.
-**Related Files:** `tests/fixtures/ipc_test_helpers.py`, 36 test files
-**Fix:** Two-phase consolidation (2026-08-24 audit refresh: fixtures all exist incl.
-make_fake_sidecar_ws_server/make_fake_recorder; mig15/16/17 + integration files already migrated).
-Phase 1 - consolidate the tests/test_sidecar_ws* family FIRST (highest drift risk): extend
-tests/fixtures/sidecar_ws_test_helpers.py with the fake ws/websocket pair they rebuild locally
-(local-mock density: test_sidecar_ws.py 28, auth_failed 24, races 22, connection_cap 20,
-permissions_fixes 14, ready_ordering 8, thread_safety 6, protocol_version 4), then swap locals for
-imports. Phase 2 - opportunistic sweep of the remaining ~180 local _make_* defs onto
-app_helpers/ipc_test_helpers/recorder_test_helpers, prioritizing files touching VoiceTyperApp.__init__
-and IPCServer construction where drift bites; never bulk-rewrite unrelated files in one commit.
-**Severity:** 🟡 Medium
-
----
-
-### SX-1 — supervisor. Crash isolation: restart backend only, keep UI alive [Medium] — 🟡 Partial
-- **Files**: `voice_typer/client/src/main/index.ts`, `voice_typer/server/recording_controller.py`, `voice_typer/server/ipc_server.py`.
-- **Description**: A backend (Python) crash restarts the whole app; a supervisor that respawns only the backend while UI/tray/hotkey stay alive does not exist in production.
-- **Goal**: Add auto-recovery that restarts just the speech backend, with a "reconnecting…" state.
-- **Options**: (1) Electron + Python: respawn only Python child in production. (2) Tauri + Sidecar: Rust supervisor re-spawns sidecar. (Not meaningful under embedded PyO3.)
-- **Effort**: Medium.
-- **Status (reconciled 2026-08-30):** Option (2) Tauri is ALREADY SATISFIED — src-tauri/src/sidecar/supervisor.rs respawns ONLY the sidecar (5-attempt backoff, WS generation staleness re-checks), the renderer shows the existing "restarting" state and auto-recovers on supervisor_reconnected/state_changed, escalating to full relaunch only after backoff exhaustion with the restart_counter.json 3-attempt/10-min circuit breaker. Residual (Electron option 1): the production crash branch in start-python.ts still shows a crash dialog + app.quit(); a production-ready restartBackend() respawn primitive, the restart_history.json breaker, and the renderer "reconnecting" handler all exist and just need an auto-respawn watchdog wiring them together.
 
 ### Remaining Work AP
 
@@ -214,7 +126,7 @@ The following findings are documented in `review.md` as `❌ Not Fixed` — defe
 ---
 
 ### EO-8 — recording/recorder.py is a 2274-LOC monolith — (file is mostly delegators now); __init__ is a 380-line god-constructor
-**Status:** 🟡 Partial — recorder.py 2877→2274→1759; god-constructor decomposed into recorder_init helpers; start() critical path trimmed. Shims + delegators DELETED (reconciled 2026-08-30): DeviceStateShimMixin (8 device-state property pairs) and VadShimMixin (18+1 VAD properties) removed; 34 pure delegator methods removed; production collaborators and tests now route through the owning collaborators (recorder._devices._X / recorder._vad._X / _session_state / _stream_lifecycle / _capture). Recorder.stop/snapshot kept as documented 1-line public-API delegators. Remaining: the ≤500-LOC target requires the state-ownership inversion (locks/buffers/worker handles moving into SessionState/StreamLifecycle/capture) — deferred-scale, needs a dedicated session with full-suite green gates before and after; module-source pins (tests/test_recorder_secure_clear_array.py) and the RT-literal pin (tests/test_recording_and_audio.py) constrain the shape.
+**Status:** 🟡 Partial → substantively complete 2026-09-01 (local Windows host): state-ownership inversion FINISHED — recorder.py 1805 → **640 LOC raw (552 non-blank; 284 code lines)**: device-prewarm bodies → NEW device_prewarm.py; device-thread spawn/finished-callback → DisconnectHandler; resampler warm-up → resampling.warm_up_resampler; health-checker stop → DeviceManager; hybrid wrappers trimmed to 1-line delegators (documented public API stop/snapshot kept); module prose compressed (code identical). E14 pins migrated first (incl. the _stream_finished_callback and _classify_portaudio_open_error source pins to owner paths). The literal ≤500 remainder is pin-forced import/re-export surface + pin-rationale docstrings — code-wise the god-object is gone. S5 flake fix landed properly: thread-ownership tagging at worker spawn sites + per-test baseline-delta waits (wait_for_workers_stopped(baseline=...)) wired into ALL callers incl. test_audio_callback.py (leak detection strength unchanged). All recording-domain batches green; mypy unchanged.
 **Description:** `voice_typer/server/recording/recorder.py` (2274 LOC) — the file is still 2274 LOC because (a) __init__ is a 380-line god-constructor declaring 50+ instance attributes inline, (b) 9 device-state property pairs are shims for test backward-compat, (c) ~15 delegator methods with 25-line docstrings exist solely to satisfy inspect.getsource source-string tests (FZ-8/ARCH-12/S3-CR-21).
 **User Impact:** The recorder is the audio capture subsystem — every dictation goes through it. Adding a new audio feature requires editing a 2274-line file. Tests cannot construct collaborators (AudioPipeline, StreamLifecycle, etc.) in isolation — they require a real Recorder with 50+ initialized attrs. The friend-class anti-pattern (59 friend-access lines across 6 collaborator files accessing recorder._<attr> directly) breaks encapsulation.
 **Root Cause:** Verified — Phase 4.5 split moved method BODIES to sibling files but kept all mutable state on Recorder. The 9 device-state property shims + 15 delegator methods exist purely to keep stale source-string tests passing.
@@ -231,20 +143,7 @@ The following findings are documented in `review.md` as `❌ Not Fixed` — defe
 **Severity:** 🔴 Critical
 **Category:** Spaghetti / monolith detection
 
-### EO-19 — 4 platform/lifecycle files exceed 800-LOC spaghetti threshold: crash_recovery.py (1292), autostart_windows.py (1455), startup_sequence.py (1144), autostart_launcher.py (1164)
-**Status:** 🟡 Partial — 4 of 4 files resolved: autostart_launcher.py 1164→458 (+ autostart/ package), crash_recovery.py 1412 → crash_recovery/ package, startup_sequence.py 1474 → startup_sequence/ package, autostart_windows.py 1541 → 877-LOC facade + _autostart_windows_{task,sweep,uninstall,startup_bat}.py submodules (85/424/179/169; landed 2026-08-30 — C-CROSS-1/2/4 and the C-ARCH-2 dotted-patch surface preserved via lazy sibling-module-object reads; drift-pin paths follow the moved literals). startup_sequence phases live in ≤653-LOC modules (threshold met); crash_recovery clean.
-**Description:** WN-23 cited stale line counts: crash_recovery.py was 1034 → now 1292 (+258); autostart_launcher.py was 849 → now 1164 (+315); autostart_windows.py (1055 → 1455) and startup_sequence.py (956 → 1144, +188). Each file mixes 2-3 concerns that could be separate modules.
-**User Impact:** Files become harder to review and change. crash_recovery.py's CrashRecovery class docstring mentions 6 separate fix-IDs woven through the same class. Critical for crash recovery and autostart — regressions here cause silent startup failures.
-**Root Cause:** Verified — incremental fix-on-fix accumulation (each new fix added a defensive try/except + a 30-line docstring block).
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/crash_recovery.py`
-- `voice_typer/server/server_platform/autostart_windows.py` (1455 LOC)
-- `voice_typer/server/startup_sequence.py`
-- `voice_typer/server/autostart_launcher.py`
-**Fix:** Extract: crash_recovery.py → _crash_recovery_save_worker.py + _crash_recovery_io.py. autostart_windows.py → _autostart_windows_runkey.py + _autostart_windows_task.py + _autostart_windows_startup_bat.py (the three mechanisms are already delimited by section comments at lines 155, 465, 760). startup_sequence.py → _startup_sequence_onboarding.py + _startup_sequence_crash_check.py.
-**Severity:** 🔴 High
-**Category:** Spaghetti / monolith detection
+---
 
 ### FI-S1 — `history_db.py` 2529-LOC monolith: partial split done, HistoryDB class body still large
 **Status:** ⚠️ Partial — re-verified 2026-08-30: `history_db.py` is 1730 LOC (down from 2529), with 64 methods and 113 references into `history_db_internals/`. The `history_db_internals/` package has 8 modules (corruption_recovery, crud_writes, encryption, reader, retention, schema, search, writer). The HistoryDB class body is still large — the original propose of extracting class methods into `{writes,queries,migration,fts_search,retention,lifecycle}.py` was partially done (layout differs: crud_writes instead of writes, no queries or migration modules).
@@ -257,19 +156,6 @@ The following findings are documented in `review.md` as `❌ Not Fixed` — defe
 - `voice_typer/server/history_db_internals/` (8 modules)
 **Fix:** Execute AC-135 plan: extract remaining class methods into `history_db_internals/{writes,queries,migration,fts_search,retention,lifecycle}.py` (or align with the existing layout). Target: HistoryDB class ≤ 500 LOC.
 **Severity:** 🟡 Medium
-**Category:** Spaghetti / monolith detection
-
----
-
-### FI-S5 — `crash_recovery.py` 1292-LOC monolith: split to package — DONE
-**Status:** ✅ DONE — re-verified 2026-08-30: `crash_recovery.py` no longer exists as a monolith. The `crash_recovery/` package has 4 modules: `_io.py` (389 LOC), `_store.py` (641 LOC), `_worker.py` (484 LOC), `__init__.py` (93 LOC). The proposed filenames `{persistence,lost_dictation,load_quarantine}.py` differ from the actual `{_io,_store,_worker}` but the monolith is fully split. The review.md's earlier "partial split done (diagnostics_export.py extracted) but file still grew" is stale — the package split completed.
-**Description:** The original finding proposed extracting `crash_recovery/{persistence,lost_dictation,load_quarantine}.py`. The actual split landed as `crash_recovery/{_io,_store,_worker}.py` — layout differs by design but the monolith is gone.
-**User Impact:** None — crash recovery is now split.
-**Root Cause:** The split was completed as part of EO-19; the review.md entries were not updated.
-**Progress:** Done.
-**Related Files:** `voice_typer/server/crash_recovery/` (4 modules, 1607 LOC total)
-**Fix:** Already applied.
-**Severity:** 🟢 Low (already done)
 **Category:** Spaghetti / monolith detection
 
 ---
@@ -312,8 +198,6 @@ The following findings are documented in `review.md` as `❌ Not Fixed` — defe
 **Fix:** Run the platform validation runbooks on real Windows and macOS hosts.
 **Severity:** 🔴 High
 **Priority:** P0
-
----
 
 ---
 
@@ -725,44 +609,6 @@ The following findings are documented in `review.md` as `❌ Not Fixed` — defe
 **Fix:** Propagate text_size to the bubble; add the Ctrl+Shift+M toggle binding.
 **Severity:** 🟢 Low
 **Category:** Bubble / hotkeys
-
----
-
-### TR-1 - Tauri tray "Models" sub-menu: unknown dash item + "More Models" click does nothing
-**Status:** ❌ Not Fixed — user-reported on the Windows host (2026-08-30). Root cause UNKNOWN — deliberately not investigated; diagnosing it is the fixing agent's mission.
-**Description (user report, plain English):** In the Tauri app, when I hover on "Models" in the tray menu, it opens a sub-menu with a first item which is just a dash ("-") — I don't know what that is or what it's for. The other option is "More Models", which is great. But when I click on "More Models", it doesn't do anything. It should bring the app window to the screen to be visible and automatically redirect to the Models page. Right now it doesn't do this. Also, no models appear in this sub-menu — which is completely correct in my use case, because I don't have any models installed. That part is fine; the broken parts are the dash item and the "More Models" click doing nothing.
-**Evidence (logs captured at click time, 2026-08-30):**
-```
-07:23:23 WARN  [dispatch] id=119 cmd=tray_click server error [server.unknown_tray_item]: server error
-2026-08-30  10:23:23  DEBUG [SIDECAR-WS] TX response id=119 status=sent
-07:23:23 WARN  [TRAY] tray_click dispatch failed: server error [server.unknown_tray_item]: server error
-```
-**Root Cause:** UNKNOWN — do not assume; investigate as the mission.
-**Related Areas (starting hints only, unverified):** the tray menu model published by the Python sidecar vs. the Rust tray click dispatch; the Models-page navigation path from the tray.
-**Severity:** ?? Medium-High (a primary tray navigation path is dead in the Tauri shell)
-**Category:** Tauri / tray / navigation
-
----
-
-### TR-2 - Tauri Microphone page is completely empty (no microphones listed)
-**Status:** ❌ Not Fixed — user-reported on the Windows host (2026-08-30). Root cause UNKNOWN — deliberately not investigated; diagnosing it is the fixing agent's mission.
-**Description (user report, plain English):** Inside the Tauri app, when I open the Microphone page, it is completely empty. No available microphones appear at all. I am 100% sure this is a bug — this machine does have microphones (they work in the Electron app and in Windows itself).
-**Evidence:** No logs captured at report time — reproduce on the Windows host first.
-**Root Cause:** UNKNOWN — do not assume; investigate as the mission.
-**Related Areas (starting hints only, unverified):** the Microphone page in the Tauri runtime vs. the same page working in the Electron runtime; microphone enumeration reaching the renderer.
-**Severity:** ?? High (a whole settings page is unusable in the Tauri shell)
-**Category:** Tauri / microphone page / enumeration
-
----
-
-### TR-3 - Tauri tray menu has no "Microphone" item at all
-**Status:** ❌ Not Fixed — user-reported on the Windows host (2026-08-30). Root cause UNKNOWN — deliberately not investigated; diagnosing it is the fixing agent's mission.
-**Description (user report, plain English):** In the tray menu of the Tauri app, there is no option or button called "Microphone" — unlike "Models", which does appear in the tray menu with its sub-menu. The Microphone entry is simply missing from the tray menu.
-**Evidence:** No logs captured at report time — reproduce on the Windows host first.
-**Root Cause:** UNKNOWN — do not assume; investigate as the mission. (Possibly related to TR-1/TR-2 — same tray menu model — but that connection is unverified.)
-**Related Areas (starting hints only, unverified):** the tray menu model publisher (Python sidecar side) — which items it includes and why "Models" appears but "Microphone" does not.
-**Severity:** ?? Medium (tray-based microphone access missing in the Tauri shell)
-**Category:** Tauri / tray menu
 
 ---
 
