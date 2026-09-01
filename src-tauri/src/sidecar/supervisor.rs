@@ -476,8 +476,9 @@ pub(crate) async fn respawn_inner(
         // so without this explicit kill_tree, replacing state.child would
         // silently ORPHAN the old Python sidecar — leaving it running with
         // the mic handle, IPC port, and native hotkey binary child still
-        // held. After 5 exhausted retries, up to 5 zombie Python sidecars
-        // could accumulate.
+        // held. After the respawn retries are exhausted
+        // (SUPERVISOR_MAX_RETRIES == SUPERVISOR_BACKOFF_MS.len(), see
+        // util.rs), that many zombie Python sidecars could accumulate.
         let old_child = mutex_lock(&state.child).take();
         if let Some(old) = old_child {
             log::info!("[SUPERVISOR] killing old sidecar before respawn");
