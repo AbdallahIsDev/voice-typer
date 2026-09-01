@@ -420,7 +420,8 @@ jobs:
         # robustness — see XS-9).
         # -n auto --dist=loadgroup parallelises via pytest-xdist.
         # --junitxml emits pytest-results.xml consumed by the
-        # mikepenz/action-junit-report step below for PR annotations.
+        # mikepenz/action-junit-report step below for PR annotations,
+        # AND by the ci-errors-doc job (below) to write CI-errors.md.
         # explicit --timeout / --strict-* on the CI invocation too
         # (pyproject.toml addopts already sets them via WR-1, but defense-
         # in-depth — a future edit that drops addopts would silently lose
@@ -444,6 +445,19 @@ jobs:
           check_name: Test results
           report_paths: pytest-results.xml
           require_tests: false
+
+      # CI-ERRORS-AUTO: preserve the JUnit XML so the ci-errors-doc job
+      # (below) can aggregate ALL matrix legs' failures into CI-errors.md
+      # — the cloud agent reads that file instead of needing gh CLI or
+      # workflow-log access. `if: always()` so the artifact exists even
+      # when pytest fails (that is precisely when we need it).
+      - name: Upload pytest JUnit for CI-errors aggregation
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pytest-results-${{ matrix.os }}-${{ matrix.python-version }}
+          path: pytest-results.xml
+          if-no-files-found: ignore
 
       - name: Upload coverage to Codecov
         # `if: always()` so coverage is uploaded EVEN WHEN pytest
@@ -546,6 +560,70 @@ jobs:
           # shipped deps — no self-package, deterministic, and
           # `--require-hashes` guards against lock drift.
           pip-audit --strict --require-hashes -r requirements-lock.txt
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # CI-errors doc: aggregate every matrix leg's JUnit failures into
+  # CI-errors.md and commit it back. The cloud agent reads CI-errors.md
+  # (repo root) to see what broke — no gh CLI / Actions-log access needed.
+  # Runs `if: always()` on the TEST job's result so a red run still writes
+  # the file. Commits with GITHUB_TOKEN (which does NOT retrigger this
+  # workflow — GITHUB_TOKEN pushes never create a new run, so no loop).
+  # ──────────────────────────────────────────────────────────────────────────
+  ci-errors-doc:
+    name: Write CI-errors.md from JUnit results
+    needs: test
+    if: always() && github.event_name != 'schedule'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Download all pytest JUnit artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: junit/
+          pattern: pytest-results-*
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: Write CI-errors.md
+        shell: bash
+        run: |
+          if ls junit/*.xml >/dev/null 2>&1; then
+            python scripts/ci/write_ci_errors.py junit/*.xml
+          else
+            echo "No JUnit artifacts found — writing empty CI-errors.md"
+            python scripts/ci/write_ci_errors.py
+          fi
+
+      - name: Commit and push CI-errors.md
+        # GITHUB_TOKEN pushes never retrigger workflows, so committing the
+        # doc cannot loop. Only commit when the content actually changed.
+        # On fork PRs GITHUB_TOKEN is read-only — the push will fail there;
+        # `continue-on-error` keeps the doc job (and the run) green because
+        # the CI-errors.md content is still surfaced as a workflow artifact
+        # and on the run's own checkout. Guard on non-PR events so push
+        # events (branches/tags) get the committed doc on the branch.
+        if: github.event_name != 'pull_request'
+        shell: bash
+        continue-on-error: true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CI-errors.md
+          if git diff --cached --quiet; then
+            echo "CI-errors.md unchanged — nothing to commit"
+          else
+            git commit -m "docs(ci): update CI-errors.md from latest test run"
+            git push
+          fi
 
   # ──────────────────────────────────────────────────────────────────────────
   # Icon drift check: the committed src-tauri/icons must match what a
