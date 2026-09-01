@@ -690,7 +690,13 @@ def _resource_relevant(resource: str, platform: str, triples: set[str]) -> bool:
 
 
 def _per_arch_configs_on_disk() -> set[str]:
-    return {p.name for p in SRC_TAURI.glob("tauri.*.conf.json") if p.name != "tauri.conf.json"}
+    # ``tauri.dev.conf.json`` is the dev-mode override (C-TDEV-1: blanks
+    # ``build.beforeDevCommand`` for the ``tauri dev`` CLI's CWD) — it is
+    # NOT a per-arch build config (no platform/triple semantics, never
+    # merged by a CI ``--config`` build) and must stay out of this set.
+    return {
+        p.name for p in SRC_TAURI.glob("tauri.*.conf.json") if p.name not in ("tauri.conf.json", "tauri.dev.conf.json")
+    }
 
 
 class TestPerArchConfigsStayLockedToBase:
@@ -1042,8 +1048,12 @@ class TestReverseDnsIdentifierNamespace:
             "voice_typer/server/server_platform/autostart_windows.py": [
                 'return f"com.voicetyper.autostart_{_autostart_mod._install_hash()}"',
                 'return f"com.voicetyper.autostart{_autostart_mod._install_hash_suffix()}.bat"',
-                # Register-time stale-cleanup must match BOTH schemes
-                # (legacy entries from pre-rename installs).
+            ],
+            # The runkey mechanism (register-time stale-cleanup matching
+            # BOTH schemes — legacy entries from pre-rename installs)
+            # moved into its submodule; the pin follows the moved
+            # literal.
+            "voice_typer/server/server_platform/_autostart_windows_runkey.py": [
                 'name.startswith(("VoiceTyper", "com.voicetyper"))',
             ],
             # The autostart_windows facade was split into mechanism

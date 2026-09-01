@@ -83,8 +83,15 @@ TRAY_ICON_SIZE = 32
 
 
 def _all_tauri_configs() -> list[Path]:
-    """The base config + every per-arch config (deterministic order)."""
-    return [SRC_TAURI / "tauri.conf.json", *sorted(SRC_TAURI.glob("tauri.*.conf.json"))]
+    """The base config + every per-arch config (deterministic order).
+
+    ``tauri.dev.conf.json`` (the dev-mode override, C-TDEV-1) is
+    intentionally excluded: it is a minimal ``tauri dev`` overlay (no
+    ``bundle`` section — dev builds reuse the base config's bundle) and
+    is never merged by a CI ``--config`` per-arch build.
+    """
+    per_arch = sorted(p for p in SRC_TAURI.glob("tauri.*.conf.json") if p.name != "tauri.dev.conf.json")
+    return [SRC_TAURI / "tauri.conf.json", *per_arch]
 
 
 def _tracked_tray_pngs() -> set[str]:

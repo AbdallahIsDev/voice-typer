@@ -288,12 +288,17 @@ def test_gp94_main_rs_line_count_is_385():
     with the Electron ``i18n:set-locale`` channel; body lives in
     ``commands/system_cmds.rs``, state field in ``state.rs``). Still
     wiring-only. Doc + test pin updated in lockstep.
+
+    Updated 2026-08-31: main.rs grew from 389 → 407 lines — the
+    repo-wide rustfmt pass (line-wrapping normalization) re-wrapped
+    long lines; no new logic, still wiring-only. Doc + test pin
+    updated in lockstep.
     """
     doc = _read(ARCH_DOC)
-    assert "389 lines" in doc, "Doc must claim '389 lines' for main.rs."
+    assert "407 lines" in doc, "Doc must claim '407 lines' for main.rs."
     actual = sum(1 for _ in _read(MAIN_RS).splitlines())
-    assert actual == 389, (
-        f"src-tauri/src/main.rs must be 389 lines (actual: {actual}). Update the doc + this test together."
+    assert actual == 407, (
+        f"src-tauri/src/main.rs must be 407 lines (actual: {actual}). Update the doc + this test together."
     )
     # Stale counts must NOT be in the doc.
     assert "264 lines" not in doc, "Stale '264 lines' must be removed from doc."
