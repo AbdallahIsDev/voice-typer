@@ -18,6 +18,10 @@ from __future__ import annotations
 import os
 import sys
 from types import FrameType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from voice_typer.server.app import VoiceTyperApp
 
 # Re-exported by ``ipc_server.py`` so existing
 # ``from voice_typer.server.ipc_server import main`` /
@@ -25,6 +29,68 @@ from types import FrameType
 from voice_typer.server._paths import IPC_PORT, IPC_TOKEN_ENV_VAR
 from voice_typer.server.ipc._helpers import _STDIN_IPC_ENV_VAR, log
 from voice_typer.server.ipc.transport import _pick_available_port
+
+
+def _ws_startup_thread_main(app: VoiceTyperApp) -> None:
+    """Run ``app.start()`` on the ws-mode startup daemon thread, fail-fast.
+
+    The ws (Tauri sidecar) branch of :func:`main` launches the full
+    startup sequence (microphone enumeration, hotkey registration,
+    background model load, autostart sync, tray alert subscriptions) on
+    this daemon thread instead of the main thread — the main thread must
+    stay free to block in :func:`sidecar_ws.run`.
+
+    Failure semantics (crash-isolation design): if ``app.start()``
+    raises, the process must NOT keep running as a half-dead sidecar
+    (WS alive, no microphones/hotkeys/model — the Tauri UI would stay
+    up forever in a broken state). It must exit with the canonical
+    crash exit code so the Tauri supervisor sees the sidecar die
+    (WS drop) and respawns it: the WS reader/writer/heartbeat paths
+    trigger ``respawn`` on disconnect (``sidecar/ws/*.rs``), with
+    backoff + the ``restart_counter.json`` circuit breaker
+    (``sidecar/supervisor.rs``), and a cold-start ``Terminated``
+    event routes to the same respawn (``sidecar/spawn.rs``).
+
+    The exit uses ``os._exit`` rather than ``sys.exit``: on a
+    non-main thread ``sys.exit`` only raises ``SystemExit`` inside
+    that thread (silently ending the thread and leaving the process
+    alive), whereas ``os._exit`` terminates the process immediately —
+    the same mechanism the IPC lifecycle's hung-shutdown watchdog uses
+    (``voice_typer/server/ipc/lifecycle.py``). The exit CODE mirrors
+    the main path's ``sys.exit(EXIT_CRASH)`` crash semantics.
+
+    Diagnostics: the crash is logged with a full traceback (FATAL)
+    and a startup-error diagnostic is written via
+    ``voice_typer.server.ipc_diagnostics.write_startup_diagnostic``
+    (same helper the construction-failure and main-path
+    ``app.start()``-failure paths use) so the traceback survives the
+    pythonw.exe no-console environment.
+
+    The crash is deliberately NOT swallowed and NOT retried here:
+    bounded in-place retry would race the supervisor's own backoff
+    and the restart circuit breaker; fail-fast + supervisor respawn
+    is the single recovery authority.
+    """
+    try:
+        app.start()
+    except BaseException:
+        # BaseException (not Exception) is intentional: a SystemExit /
+        # KeyboardInterrupt escaping app.start() on this daemon thread is
+        # also a process-death signal — a daemon thread must never swallow
+        # it and keep the sidecar running degraded. E13: no suppression.
+        from voice_typer.__main__ import EXIT_CRASH
+        from voice_typer.server.ipc_diagnostics import write_startup_diagnostic
+
+        log.exception("[FATAL] ws-mode app.start() raised — exiting so the Tauri supervisor respawns the sidecar")
+        try:
+            write_startup_diagnostic("ws app.start()")
+        except Exception:
+            # The diagnostic helper is internally failure-proof, but do not
+            # let ANY diagnostic failure block the fail-fast exit (E13: log,
+            # never silently swallow).
+            log.critical("[FATAL] write_startup_diagnostic failed during ws-mode crash handling", exc_info=True)
+        log.critical("[FATAL] ws-mode sidecar exiting with crash code %d", EXIT_CRASH)
+        os._exit(EXIT_CRASH)
 
 
 def _set_process_metadata() -> None:
@@ -360,8 +426,39 @@ def main() -> None:
         # connections from the Tauri Rust host. The TCP / standalone paths
         # below are unchanged for the Electron fallback.
         if ws_mode:
+            import threading
+
             from voice_typer.server import sidecar_ws
 
+            # This branch exits via sys.exit() below and never reaches
+            # app.start() at the bottom of main() — but app.start() is
+            # the ONLY launcher of the StartupSequence (microphone
+            # enumeration, hotkey registration, background model load,
+            # autostart sync) and of the tray's event-bus alert
+            # subscriptions (parakeet/GPU CPU-fallback). Without it the
+            # ws-mode sidecar serves an empty microphone list forever
+            # (renderer Microphone page blank, tray Microphone submenu
+            # omitted — the dict-path consumers gate on a non-empty
+            # list) and never registers dictation hotkeys. Run the full
+            # app.start() on a daemon thread so the sidecar behaves
+            # like the Electron backend: tray.start() takes the
+            # TAURI_SIDECAR=1 branch (no pystray icon; bg_work
+            # launched on its own daemon thread), signal-handler
+            # installation from a non-main thread is
+            # ValueError-suppressed (signal_handlers.py), and
+            # tray.run() parks this thread on the unavailable-path
+            # drain loop (60s pending-queue drains). The thread body is
+            # the module-level fail-fast wrapper below: an app.start()
+            # crash there writes the startup diagnostic and terminates
+            # the PROCESS (os._exit) so the Tauri supervisor respawns a
+            # fresh sidecar instead of a WS-alive-but-empty backend.
+            _ws_startup_thread = threading.Thread(
+                target=_ws_startup_thread_main,
+                args=(app,),
+                name="ws-sidecar-startup",
+                daemon=True,
+            )
+            _ws_startup_thread.start()
             log.info("[IPC] starting Tauri sidecar WebSocket server (sidecar_ws.run)")
             # ADR-0020 round-2 fix: do NOT call server.push({"type": "ready"})
             # here — in WS mode, server.push writes to the TCP _tcp_client

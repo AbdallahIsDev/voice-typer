@@ -707,7 +707,23 @@ class LifecycleMixin:
             # branch on ``data.message`` without a separate
             # ``hasOwnProperty`` check; the empty-string default
             # mirrors the ``set_state`` signature.
-            self.push(
+            #
+            # Published through ``event_bus`` (not ``server.push``)
+            # so BOTH runtimes deliver it: in TCP mode the server's
+            # own ``_push_fn`` subscriber (installed at start(),
+            # lifecycle.py) bridges the bus to the TCP client — the
+            # same single delivery the old direct ``push`` call
+            # produced — while in WS mode the sidecar writer task's
+            # ``_push_to_ws`` subscriber delivers it over the
+            # WebSocket. A direct ``self.push`` dead-ends in the
+            # TCP-only ``_pending_tcp`` buffer in WS mode (no TCP
+            # client ever exists there — same rationale as
+            # ``_emit_ready_if_first``'s documented WS fix, which
+            # converted the ``ready`` push for exactly this reason).
+            # The dead-end buffer is capped (SEC-008), so the
+            # redundant TCP-path delivery attempt in WS mode is
+            # bounded and harmless.
+            event_bus.publish(
                 {
                     "type": "status_change",
                     "data": {"status": state.value, "message": message},

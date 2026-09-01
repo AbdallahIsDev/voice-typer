@@ -27,8 +27,10 @@ event loop or binding a TCP socket. The tests pin:
 
 from __future__ import annotations
 
+import os
 import signal
 import sys
+import threading
 from unittest.mock import MagicMock
 
 import pytest
@@ -209,6 +211,186 @@ class TestSetProcessMetadata:
 
 
 # ── main() ────────────────────────────────────────────────────────────
+
+
+class TestWsModeStartupLaunch:
+    """The ws (Tauri sidecar) branch of ``main()`` must launch the app
+    startup background work.
+
+    ``main()``'s ws branch exits via ``sys.exit()`` and never reaches the
+    ``app.start()`` at the bottom of the function — but ``app.start()`` is
+    the ONLY production launcher of the StartupSequence (microphone
+    enumeration, hotkey registration, background model load, autostart
+    sync) and of the tray's CPU-fallback alert subscriptions. The branch
+    therefore launches ``app.start`` on a daemon thread (via the
+    module-level ``_ws_startup_thread_main`` fail-fast wrapper). Source-level
+    pin (same convention as ``test_imports_branding_app_name``) so a future
+    refactor cannot silently drop the launch and re-blank the Tauri
+    Microphone page / tray microphone submenu / hotkey registration.
+    """
+
+    def test_ws_branch_launches_app_start_on_daemon_thread(self) -> None:
+        """``main()`` source: the ws branch starts a daemon thread whose
+        target is the fail-fast ``_ws_startup_thread_main`` wrapper (which
+        itself calls ``app.start``) before ``sidecar_ws.run`` blocks."""
+        import inspect
+
+        src = inspect.getsource(entrypoint.main)
+        assert "target=_ws_startup_thread_main" in src, (
+            "main()'s ws branch must launch app.start() through the "
+            "fail-fast _ws_startup_thread_main wrapper on a daemon "
+            "thread — the ws exit path otherwise never runs the "
+            "StartupSequence (microphones/hotkeys/model load) and the "
+            "Tauri sidecar serves an empty microphone list forever."
+        )
+        assert 'name="ws-sidecar-startup"' in src
+        assert "daemon=True" in src
+        # The wrapper must be the module-level function (fail-fast), and
+        # it must call app.start() in its body.
+        wrapper_src = inspect.getsource(entrypoint._ws_startup_thread_main)
+        assert "app.start()" in wrapper_src, (
+            "_ws_startup_thread_main must invoke app.start() — the "
+            "thread target exists solely to run the StartupSequence."
+        )
+        # The thread must be started BEFORE sidecar_ws.run() blocks the
+        # main thread — otherwise the startup work never begins.
+        ws_branch = src.split("if ws_mode:", 1)[1].split("elif port is not None", 1)[0]
+        thread_start = ws_branch.index("_ws_startup_thread.start()")
+        ws_run = ws_branch.index("sidecar_ws.run(server)")
+        assert thread_start < ws_run, (
+            "the ws-sidecar startup thread must start before sidecar_ws.run(server) blocks the main thread"
+        )
+
+
+class TestWsStartupThreadFailFast:
+    """``_ws_startup_thread_main`` must terminate the PROCESS when
+    ``app.start()`` raises on the ws-sidecar startup daemon thread.
+
+    An unhandled exception on a daemon thread only reaches the process
+    threading excepthook (crash marker + log) — the process would keep
+    running DEGRADED: WS server alive, but no microphones / hotkeys /
+    model. The wrapper must instead log FATAL, write the startup
+    diagnostic, and exit with ``EXIT_CRASH`` (``os._exit``, the canonical
+    thread-context force-exit) so the Tauri supervisor respawns the
+    sidecar (WS drop → respawn + restart-counter circuit breaker).
+    """
+
+    @staticmethod
+    def _run_wrapper(app: object) -> threading.Thread:
+        """Run the wrapper on a REAL daemon thread and join it, mirroring
+        the production thread shape (name aside)."""
+        thread = threading.Thread(
+            target=entrypoint._ws_startup_thread_main,
+            args=(app,),
+            name="ws-sidecar-startup-test",
+            daemon=True,
+        )
+        thread.start()
+        thread.join(timeout=10)
+        assert not thread.is_alive(), (
+            "the startup wrapper thread must return after handling the "
+            "crash (it force-exits via the patched os._exit) — a live "
+            "thread after join means the crash path never ran"
+        )
+        return thread
+
+    def test_crash_exits_process_with_crash_code(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_config_dir,
+    ) -> None:
+        """``app.start()`` raising inside the wrapper terminates the
+        process with ``EXIT_CRASH`` (via ``os._exit``) AND writes the
+        startup diagnostic to ``<config_dir>/logs/startup-error.log``
+        (the real helper — the traceback must survive pythonw.exe)."""
+        from voice_typer.__main__ import EXIT_CRASH
+
+        exit_calls: list[int] = []
+        monkeypatch.setattr(os, "_exit", lambda code: exit_calls.append(code))
+
+        class _CrashApp:
+            def start(self) -> None:
+                raise RuntimeError("simulated ws startup failure")
+
+        self._run_wrapper(_CrashApp())
+
+        assert exit_calls == [EXIT_CRASH], (
+            f"a ws-startup crash must force-exit the process with "
+            f"EXIT_CRASH ({EXIT_CRASH}) so the Tauri supervisor respawns; "
+            f"got {exit_calls!r}"
+        )
+        # The diagnostic landed in the isolated tmp_config_dir (O1: logs/).
+        diag = tmp_config_dir / "logs" / "startup-error.log"
+        assert diag.exists(), (
+            "a ws-startup crash must write the startup diagnostic (same helper as the main-path app.start() failure)"
+        )
+        assert "simulated ws startup failure" in diag.read_text(encoding="utf-8")
+
+    def test_crash_routes_through_startup_diagnostic_helper(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """On crash the wrapper invokes ``write_startup_diagnostic`` with
+        a ws-specific phase label (pinning the wiring that the finding
+        showed was missing on this path)."""
+        diag_calls: list[str] = []
+        monkeypatch.setattr(os, "_exit", lambda code: None)
+        monkeypatch.setattr(
+            "voice_typer.server.ipc_diagnostics.write_startup_diagnostic",
+            lambda phase, exc=None: diag_calls.append(phase),
+        )
+
+        class _CrashApp:
+            def start(self) -> None:
+                raise ValueError("another simulated ws startup failure")
+
+        self._run_wrapper(_CrashApp())
+        assert diag_calls == ["ws app.start()"], (
+            "the ws-startup crash path must route through write_startup_diagnostic with the ws-specific phase label"
+        )
+
+    def test_system_exit_inside_app_start_also_terminates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A ``SystemExit`` escaping ``app.start()`` on the daemon thread
+        must also terminate the process (it would otherwise strand the
+        main thread in ``sidecar_ws.run`` behind a dead app). The crash
+        code path applies to any ``BaseException``, not just ``Exception``."""
+
+        exit_calls: list[int] = []
+        monkeypatch.setattr(os, "_exit", lambda code: exit_calls.append(code))
+        monkeypatch.setattr(
+            "voice_typer.server.ipc_diagnostics.write_startup_diagnostic",
+            lambda phase, exc=None: None,
+        )
+
+        class _SystemExitApp:
+            def start(self) -> None:
+                raise SystemExit(0)
+
+        self._run_wrapper(_SystemExitApp())
+        assert exit_calls == [1], (
+            "SystemExit escaping app.start() on the ws startup thread "
+            "must still force-exit the process (crash code), never leave "
+            "a WS-alive-but-empty backend running"
+        )
+
+    def test_success_does_not_exit_or_write_diagnostic(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Control test: ``app.start()`` returning cleanly must NOT exit
+        the process and must NOT write any startup diagnostic."""
+        exit_calls: list[int] = []
+        diag_calls: list[str] = []
+        monkeypatch.setattr(os, "_exit", lambda code: exit_calls.append(code))
+        monkeypatch.setattr(
+            "voice_typer.server.ipc_diagnostics.write_startup_diagnostic",
+            lambda phase, exc=None: diag_calls.append(phase),
+        )
+
+        started: list[bool] = []
+
+        class _HealthyApp:
+            def start(self) -> None:
+                started.append(True)
+
+        self._run_wrapper(_HealthyApp())
+        assert started == [True]
+        assert exit_calls == [], "a clean app.start() must never exit the process"
+        assert diag_calls == [], "a clean app.start() must never write a startup diagnostic"
 
 
 class TestMainEntrypoint:

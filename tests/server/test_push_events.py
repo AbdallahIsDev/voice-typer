@@ -37,10 +37,12 @@ class TestPushEvents:
             }
         )
 
-    def test_tray_set_state_triggers_push(self, server, mock_app):
+    def test_tray_set_state_triggers_push(self, server, mock_app, monkeypatch):
+        from voice_typer.server import event_bus as bus
         from voice_typer.server.tray import AppState
 
-        server._send = MagicMock()
+        published: list[dict] = []
+        monkeypatch.setattr(bus, "publish", lambda msg: published.append(msg))
         server._hook_tray_set_state()
 
         mock_app.tray.set_state(AppState.RECORDING, "Recording...")
@@ -49,51 +51,55 @@ class TestPushEvents:
         assert len(mock_app.tray.set_state_calls) == 1
         assert mock_app.tray.set_state_calls[0][0] == AppState.RECORDING
 
-        # And a push event should have been sent. The ``message``
+        # And a status_change event should have been published on the
+        # event bus (the transport both runtimes deliver through — the
+        # TCP ``_push_fn`` bridge forwards it to ``_send`` in TCP mode;
+        # the WS writer task delivers it in ws-mode). The ``message``
         # argument is forwarded in the payload so the renderer can
         # surface the same diagnostic the tray tooltip shows.
-        server._send.assert_called_once()
-        push_msg = server._send.call_args[0][0]
-        assert push_msg == {
+        assert len(published) == 1
+        assert published[0] == {
             "type": "status_change",
             "data": {"status": "recording", "message": "Recording..."},
         }
 
-    def test_tray_set_state_forwards_empty_message(self, server, mock_app):
+    def test_tray_set_state_forwards_empty_message(self, server, mock_app, monkeypatch):
         """Regression: the default empty-string message must still
         appear in the payload. The renderer can branch on
         ``data.message`` without a separate presence check.
         """
+        from voice_typer.server import event_bus as bus
         from voice_typer.server.tray import AppState
 
-        server._send = MagicMock()
+        published: list[dict] = []
+        monkeypatch.setattr(bus, "publish", lambda msg: published.append(msg))
         server._hook_tray_set_state()
 
         # No explicit message — relies on the ``message=""`` default.
         mock_app.tray.set_state(AppState.IDLE)
 
-        server._send.assert_called_once()
-        push_msg = server._send.call_args[0][0]
-        assert push_msg == {
+        assert len(published) == 1
+        assert published[0] == {
             "type": "status_change",
             "data": {"status": "idle", "message": ""},
         }
 
-    def test_tray_set_state_forwards_error_message(self, server, mock_app):
+    def test_tray_set_state_forwards_error_message(self, server, mock_app, monkeypatch):
         """Regression: a multi-line error message set via ``set_state``
         must reach the renderer verbatim so the host can surface the
         underlying failure (Critical sub-item).
         """
+        from voice_typer.server import event_bus as bus
         from voice_typer.server.tray import AppState
 
-        server._send = MagicMock()
+        published: list[dict] = []
+        monkeypatch.setattr(bus, "publish", lambda msg: published.append(msg))
         server._hook_tray_set_state()
 
         mock_app.tray.set_state(AppState.ERROR, "Transcription failed: model crashed")
 
-        server._send.assert_called_once()
-        push_msg = server._send.call_args[0][0]
-        assert push_msg == {
+        assert len(published) == 1
+        assert published[0] == {
             "type": "status_change",
             "data": {
                 "status": "error",

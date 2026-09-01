@@ -416,18 +416,25 @@ class TestTrayStateHook:
     doesn't stack wrappers.
     """
 
-    def test_hook_wraps_set_state_and_pushes_status_change(self) -> None:
+    def test_hook_wraps_set_state_and_pushes_status_change(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """After the hook is installed, calling ``app.tray.set_state(state)``
-        invokes the original AND pushes a ``status_change`` event.
+        invokes the original AND publishes a ``status_change`` event.
 
         The hook replaces ``app.tray.set_state`` with a plain Python
         closure (``wrapped``) that calls the captured ``original`` and
-        then ``self.push(...)``. We capture the original MagicMock
-        BEFORE hooking so we can assert it was called by the wrapper.
+        then ``event_bus.publish(...)`` — publishing on the bus (not a
+        direct ``self.push``) so BOTH runtimes deliver it: TCP mode's
+        ``_push_fn`` subscriber bridges the bus to the TCP client;
+        WS mode's ``_push_to_ws`` subscriber delivers it over the
+        WebSocket (a direct push dead-ends in the TCP-only buffer in
+        ws-mode). We capture the original MagicMock BEFORE hooking so
+        we can assert it was called by the wrapper.
         """
+        from voice_typer.server import event_bus
+
         server = _make_server()
-        push_calls: list[dict] = []
-        server.push = lambda msg: push_calls.append(msg)  # type: ignore[assignment]
+        publish_calls: list[dict] = []
+        monkeypatch.setattr(event_bus, "publish", lambda msg: publish_calls.append(msg))
         original_set_state = server.app.tray.set_state
         server._hook_tray_set_state()
         # Trigger a state change.
@@ -435,47 +442,52 @@ class TestTrayStateHook:
         # The original (captured in the closure) was invoked with the
         # state + message args (passed positionally by the wrapper).
         original_set_state.assert_called_once_with(AppState.RECORDING, "recording")
-        # The push was called with a status_change envelope.
-        assert len(push_calls) == 1
-        assert push_calls[0]["type"] == "status_change"
-        assert push_calls[0]["data"]["status"] == "recording"
-        assert push_calls[0]["data"]["message"] == "recording"
+        # The event was published with a status_change envelope.
+        assert len(publish_calls) == 1
+        assert publish_calls[0]["type"] == "status_change"
+        assert publish_calls[0]["data"]["status"] == "recording"
+        assert publish_calls[0]["data"]["message"] == "recording"
 
-    def test_hook_is_idempotent(self) -> None:
+    def test_hook_is_idempotent(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Calling ``_hook_tray_set_state`` twice must NOT double-wrap —
         the second call sees ``_vt_wrapped=True`` and returns without
         stacking another wrapper. Without this guard, N start cycles
-        would emit N push events per state change."""
+        would emit N events per state change."""
+        from voice_typer.server import event_bus
+
         server = _make_server()
-        push_calls: list[dict] = []
-        server.push = lambda msg: push_calls.append(msg)  # type: ignore[assignment]
+        publish_calls: list[dict] = []
+        monkeypatch.setattr(event_bus, "publish", lambda msg: publish_calls.append(msg))
         server._hook_tray_set_state()
         server._hook_tray_set_state()  # second call — no-op
         server.app.tray.set_state(AppState.IDLE)
-        # Exactly one push despite double-hooking.
-        assert len(push_calls) == 1
+        # Exactly one publish despite double-hooking.
+        assert len(publish_calls) == 1
 
-    def test_hook_fires_before_ready_emitted_pushes_anyway(self) -> None:
+    def test_hook_fires_before_ready_emitted_pushes_anyway(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The hook is installed by ``start()`` BEFORE the first WS
         connection lands (``_ready_emitted`` is still False at that
-        point). The push event is emitted unconditionally — the
+        point). The event is published unconditionally — the
         ``_ready_emitted`` gate lives in ``sidecar_ws._handle_connection``
-        (not here), so the tray hook's push reaches the event bus
-        regardless of WS state. Subscribers (or the buffered pending-TCP
-        list) decide whether the event reaches the frontend.
+        (not here), so the tray hook's publish reaches the event bus
+        regardless of WS state. Subscribers (the WS writer task, or the
+        TCP ``_push_fn`` bridge) decide whether the event reaches the
+        frontend.
 
         This test pins the contract: a state change BEFORE
-        ``_ready_emitted=True`` still calls ``self.push``.
+        ``_ready_emitted=True`` still publishes on the bus.
         """
+        from voice_typer.server import event_bus
+
         server = _make_server()
         server._ready_emitted = False
-        push_calls: list[dict] = []
-        server.push = lambda msg: push_calls.append(msg)  # type: ignore[assignment]
+        publish_calls: list[dict] = []
+        monkeypatch.setattr(event_bus, "publish", lambda msg: publish_calls.append(msg))
         server._hook_tray_set_state()
         server.app.tray.set_state(AppState.ERROR, message="early failure")
-        # Push fired even though _ready_emitted is still False.
-        assert len(push_calls) == 1
-        assert push_calls[0]["data"]["status"] == "error"
+        # Publish fired even though _ready_emitted is still False.
+        assert len(publish_calls) == 1
+        assert publish_calls[0]["data"]["status"] == "error"
 
 
 # ── stdin-IPC env-var gate ─────────────────────────────────────────────

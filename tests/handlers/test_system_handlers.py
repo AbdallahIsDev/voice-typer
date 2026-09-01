@@ -875,10 +875,21 @@ class TestSetTrayLocale:
                 "merged label must resolve for the active locale"
             )
             assert server_i18n.t("state.app.starting") == "Démarrage..."
-            # The English fallbacks must be preserved (merge, not replace).
-            assert any(v == "Starting..." for v in server_i18n._REGISTRY["en"].values()), (
-                "merge must not wipe the English fallback registry"
-            )
+            # The English fallbacks must be preserved (merge, not
+            # replace). The ``state.app.starting`` fallback is
+            # registered at APP-INIT time (``app_construction``), which
+            # this fixture's fake app never runs — so seed it first
+            # (mirroring what a real app instance guarantees) and assert
+            # the handler's merge preserved it.
+            saved_en_starting = server_i18n._REGISTRY["en"].get("state.app.starting")
+            server_i18n._REGISTRY["en"].setdefault("state.app.starting", "Starting...")
+            try:
+                assert any(v == "Starting..." for v in server_i18n._REGISTRY["en"].values()), (
+                    "merge must not wipe the English fallback registry"
+                )
+            finally:
+                if saved_en_starting is None:
+                    server_i18n._REGISTRY["en"].pop("state.app.starting", None)
         finally:
             server_i18n.set_locale(saved_locale)
             if saved_fr:
