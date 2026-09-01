@@ -261,7 +261,7 @@ case "$PLATFORM" in
             echo "  sudo dnf install gcc                 # Fedora"
             exit 1
         fi
-        echo "[compile_native] Compiling: gcc -O2 -std=c99 $SRC -o $OUT"
+        echo "[compile_native] Compiling: gcc -O2 -std=c99 -Wall -Wextra $SRC -o $OUT"
         gcc -O2 -std=c99 -Wall -Wextra "$SRC" -o "$OUT"
         echo "[compile_native] OK: $OUT"
         ;;

@@ -62,6 +62,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import platform
 import sys
 from collections.abc import Iterable
 from pathlib import Path
@@ -102,6 +103,21 @@ _KNOWN_BINARY_NAMES: frozenset[str] = frozenset(
 
 # Default manifest path (relative to this script's location).
 _DEFAULT_MANIFEST_REL = Path("..", "..", "voice_typer", "server", "native", "binaries.json")
+
+
+def _host_arch_key() -> str | None:
+    """Normalize ``platform.machine()`` to the manifest's arch keys.
+
+    Returns "x86_64", "aarch64", or ``None`` on an unrecognized machine
+    string (in which case ``sha256_by_arch`` is left untouched — only the
+    flat ``sha256`` field is updated for the entry).
+    """
+    machine = platform.machine().lower()
+    if machine in ("x86_64", "amd64"):
+        return "x86_64"
+    if machine in ("aarch64", "arm64"):
+        return "aarch64"
+    return None
 
 
 def _equivalent_names(binary_name: str) -> list[str]:
@@ -202,6 +218,7 @@ def update_manifest(
 
     manifest = _load_manifest(manifest_path)
     binaries_section = manifest["binaries"]
+    arch_key = _host_arch_key()
 
     updated: dict[str, str] = {}
     for binary in binaries:
@@ -218,6 +235,15 @@ def update_manifest(
                 # source of truth for which names are expected to exist).
                 continue
             entry["sha256"] = sha
+            # Legacy entries carry a per-arch ``sha256_by_arch`` dict so
+            # the same legacy file name can be disambiguated across
+            # x86_64 / aarch64 hosts. Keep the dict in sync for the arch
+            # this build ran on — otherwise every regen leaves the per-arch
+            # hash stale while the flat field moves on (schema drift the
+            # checksum tests reject: flat must equal by_arch.x86_64).
+            by_arch = entry.get("sha256_by_arch")
+            if isinstance(by_arch, dict) and arch_key is not None:
+                by_arch[arch_key] = sha
             updated[key] = sha
             log.info("updated %s → %s", key, sha)
 

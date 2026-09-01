@@ -1147,21 +1147,24 @@ class TestSidecarOwnership:
 
         Phase 4.5 / ARCH-045 split the original ``native_hotkeys.py``
         god-module into a package: ``SubprocessHotkeyBackend`` now lives
-        in ``base.py`` and ``LinuxEvdevHotkey`` in ``linux_backend.py``.
-        Both are re-exported from ``native_hotkeys/__init__.py``. We
-        read the package directory and assert the class definitions are
-        present somewhere in the package (not just re-exported from
-        elsewhere).
+        in ``_core.py`` (composed from the ``_spawn``/``_reader``/
+        ``_watchdog``/``_matching`` mixins — 2026-08-30 decomposition)
+        and ``LinuxEvdevHotkey`` in ``linux_backend.py``. Both are
+        re-exported from ``native_hotkeys/__init__.py``. We read EVERY
+        ``*.py`` file in the package directory and assert the class
+        definitions are present somewhere in the package (not just
+        re-exported from elsewhere) — robust to future module
+        decompositions, which previously staled this pin.
         """
-        # Read the package __init__.py + the two submodules that define
-        # the classes. The __init__.py re-exports them but doesn't define
-        # them (the ``class`` keyword lives in the submodules).
+        # Read the package __init__.py + every submodule. The
+        # __init__.py re-exports classes but doesn't define them (the
+        # ``class`` keyword lives in the submodules).
         assert NATIVE_HOTKEYS_PY.is_file(), f"native_hotkeys package __init__.py must exist: {NATIVE_HOTKEYS_PY}"
         parts: list[str] = [NATIVE_HOTKEYS_PY.read_text(encoding="utf-8")]
-        for sub in ("base.py", "linux_backend.py"):
-            sub_path = NATIVE_HOTKEYS_PKG_DIR / sub
-            if sub_path.is_file():
-                parts.append(sub_path.read_text(encoding="utf-8"))
+        for sub_path in sorted(NATIVE_HOTKEYS_PKG_DIR.glob("*.py")):
+            if sub_path == NATIVE_HOTKEYS_PY:
+                continue
+            parts.append(sub_path.read_text(encoding="utf-8"))
         src = "\n".join(parts)
         assert "class SubprocessHotkeyBackend" in src, (
             "native_hotkeys package must define SubprocessHotkeyBackend (the base class "

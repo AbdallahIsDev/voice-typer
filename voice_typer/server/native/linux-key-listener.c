@@ -14,12 +14,19 @@
  *   MOD_UP:<Name>                  # modifier released
  *   ERROR:<message>                # fatal error, then exit(1)
  *
+ * Hotplug: an inotify watch on /dev/input detects keyboards being plugged
+ * in or unplugged while the listener runs. On add the new event node is
+ * opened and joins the poll() set; on remove the stale fd is closed. This
+ * uses only the kernel inotify API (sys/inotify.h) — no extra libraries.
+ * If the watch cannot be set up, the listener degrades to the pre-hotplug
+ * behavior (devices fixed at startup) and logs a warning.
+ *
  * Limitation: evdev is read-only — we cannot suppress keystrokes on Linux.
  * The foreground app will still see the keystroke that triggers dictation.
  * (Same limitation as Freestyle's Linux backend.)
  *
  * Build:
- *   gcc -O2 -std=c99 linux-key-listener.c -o linux-key-listener
+ *   gcc -O2 -std=c99 -Wall -Wextra linux-key-listener.c -o linux-key-listener
  *
  * SPDX-License-Identifier: MIT
  * =============================================================================
@@ -29,6 +36,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <linux/input.h>
 #include <poll.h>
 #include <pthread.h>
@@ -37,13 +45,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/inotify.h>
 #include <sys/ioctl.h>
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
 
+/* NAME_MAX (255) comes from <limits.h> on glibc; provide a fallback for
+ * toolchains where it is only in <linux/limits.h>. */
+#ifndef NAME_MAX
+#define NAME_MAX 255
+#endif
+
 #define MAX_DEVICES 64
 #define EV_KEY_BITS_LEN ((KEY_MAX + 7) / 8)
+/* Max stored length of a /dev/input node basename ("eventNNN..." + NUL).
+ * Real event nodes are far shorter; this bounds the tracking arrays. */
+#define DEV_NAME_LEN 32
 
 /* Wire protocol version reported via ``VERSION:<x.y.z>`` immediately
  * after READY. The Python side records this and the factory
@@ -260,6 +278,13 @@ static const key_name_t *lookup_key(int code) {
 
 static int g_fds[MAX_DEVICES];
 static int g_num_fds = 0;
+/* Basename of each open device node (parallel to g_fds) — used for
+ * hotplug add idempotency (IN_ATTRIB must not double-open a device) and
+ * remove-by-name (IN_DELETE). */
+static char g_dev_names[MAX_DEVICES][DEV_NAME_LEN];
+/* inotify fd watching /dev/input, or -1 when hotplug monitoring is
+ * unavailable (setup failure degrades to startup-only device detection). */
+static int g_inotify_fd = -1;
 /* g_should_exit is forward-declared above (near the stdin reader thread
  * that uses it) so the PING/PONG thread can reference it. */
 
@@ -424,7 +449,7 @@ static int validate_hotkey_spec(const char *spec) {
     return 1;
 }
 
-/* ─── Device discovery ──────────────────────────────────────────────────── */
+/* ─── Device discovery & hotplug (inotify on /dev/input) ────────────────── */
 
 /* Test whether a /dev/input/eventN device reports EV_KEY events that look like
  * a keyboard (not just a mouse). Returns 1 if it's a keyboard-like device. */
@@ -454,6 +479,96 @@ static int is_keyboard_device(int fd) {
     return 1;
 }
 
+/* True for basenames shaped like "event<digits>" (the evdev nodes under
+ * /dev/input). Rejects "mice", "mouse0", "js0", and any malformed name. */
+static int is_event_node_name(const char *name) {
+    if (name == NULL) return 0;
+    if (strncmp(name, "event", 5) != 0) return 0;
+    size_t i = 5;
+    if (name[i] == '\0') return 0; /* bare "event" — not a node */
+    for (; name[i] != '\0'; i++) {
+        if (name[i] < '0' || name[i] > '9') return 0;
+    }
+    if (i >= DEV_NAME_LEN) return 0; /* defensive — real nodes are short */
+    return 1;
+}
+
+static int find_device_index_by_name(const char *name) {
+    for (int i = 0; i < g_num_fds; i++) {
+        if (strcmp(g_dev_names[i], name) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int find_device_index_by_fd(int fd) {
+    for (int i = 0; i < g_num_fds; i++) {
+        if (g_fds[i] == fd) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Open /dev/input/<name> and add it to the tracked set. Safe to call for
+ * an already-open device (no-op) — required because IN_ATTRIB re-fires
+ * when udev adjusts node permissions. Returns 1 if a new device was added.
+ * Open failures and non-keyboard devices are skipped gracefully. */
+static int add_device_by_name(const char *name) {
+    if (!is_event_node_name(name)) return 0;
+    if (g_num_fds >= MAX_DEVICES) {
+        log_diag("WARN: device /dev/input/%s ignored — at MAX_DEVICES (%d)", name, MAX_DEVICES);
+        return 0;
+    }
+    if (find_device_index_by_name(name) >= 0) return 0; /* already open */
+
+    char path[320]; /* /dev/input/ + name (bounded by DEV_NAME_LEN) + NUL */
+    snprintf(path, sizeof(path), "/dev/input/%s", name);
+    int fd = open(path, O_RDONLY | O_NONBLOCK);
+    if (fd < 0) {
+        /* Typically EACCES between node creation and the udev permission
+         * fixup (IN_ATTRIB fires then and we retry), or ENODEV for a node
+         * that vanished. Skip gracefully either way. */
+        log_diag("hotplug: open(%s) failed: %s — skipping", path, strerror(errno));
+        return 0;
+    }
+    if (!is_keyboard_device(fd)) {
+        close(fd);
+        return 0;
+    }
+    g_fds[g_num_fds] = fd;
+    snprintf(g_dev_names[g_num_fds], DEV_NAME_LEN, "%s", name);
+    g_num_fds++;
+    log_diag("hotplug: opened keyboard device %s (fd=%d, total=%d)", path, fd, g_num_fds);
+    return 1;
+}
+
+/* Remove the tracked device at index idx (close fd + compact both arrays). */
+static void remove_device_at(int idx) {
+    if (idx < 0 || idx >= g_num_fds) return;
+    log_diag("hotplug: closing device /dev/input/%s (fd=%d, total=%d)",
+             g_dev_names[idx], g_fds[idx], g_num_fds - 1);
+    if (g_fds[idx] >= 0) {
+        close(g_fds[idx]);
+    }
+    for (int j = idx + 1; j < g_num_fds; j++) {
+        g_fds[j - 1] = g_fds[j];
+        memcpy(g_dev_names[j - 1], g_dev_names[j], DEV_NAME_LEN);
+    }
+    g_num_fds--;
+    g_fds[g_num_fds] = -1;
+    g_dev_names[g_num_fds][0] = '\0';
+}
+
+/* Remove a tracked device by /dev/input basename (IN_DELETE path). */
+static void remove_device_by_name(const char *name) {
+    int idx = find_device_index_by_name(name);
+    if (idx >= 0) {
+        remove_device_at(idx);
+    }
+}
+
 static int discover_devices(void) {
     DIR *dir = opendir("/dev/input");
     if (dir == NULL) {
@@ -466,21 +581,11 @@ static int discover_devices(void) {
 
     struct dirent *ent;
     while ((ent = readdir(dir)) != NULL) {
-        if (strncmp(ent->d_name, "event", 5) != 0) continue;
         if (g_num_fds >= MAX_DEVICES) break;
-
-        char path[320]; /* /dev/input/ + d_name (up to 256) + NUL */
-        snprintf(path, sizeof(path), "/dev/input/%s", ent->d_name);
-        int fd = open(path, O_RDONLY | O_NONBLOCK);
-        if (fd < 0) {
-            /* Skip silently — some devices may be unavailable */
-            continue;
-        }
-        if (!is_keyboard_device(fd)) {
-            close(fd);
-            continue;
-        }
-        g_fds[g_num_fds++] = fd;
+        /* Shared open/filter/add path with the hotplug handler: a device
+         * must look like an event node AND report keyboard-like EV_KEY
+         * bits; failures are skipped silently, as before. */
+        add_device_by_name(ent->d_name);
     }
     closedir(dir);
 
@@ -497,19 +602,89 @@ static void close_devices(void) {
             close(g_fds[i]);
             g_fds[i] = -1;
         }
+        g_dev_names[i][0] = '\0';
     }
     g_num_fds = 0;
+}
+
+/* ─── Hotplug watch (inotify) ───────────────────────────────────────────── */
+
+/* Create the inotify watch on /dev/input. Never fatal: on failure the
+ * listener keeps its startup-time device set (pre-hotplug behavior). */
+static void setup_hotplug_watch(void) {
+    g_inotify_fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    if (g_inotify_fd < 0) {
+        log_diag("WARN: inotify_init1 failed: %s — hotplug monitoring disabled",
+                 strerror(errno));
+        return;
+    }
+    /* IN_CREATE / IN_MOVED_TO: node appeared → try to open. IN_ATTRIB:
+     * node metadata changed (udev permission fixup) → retry open (no-op
+     * if already open). IN_DELETE / IN_MOVED_FROM: node gone → close. */
+    uint32_t mask = IN_CREATE | IN_MOVED_TO | IN_ATTRIB | IN_DELETE | IN_MOVED_FROM;
+    if (inotify_add_watch(g_inotify_fd, "/dev/input", mask) < 0) {
+        log_diag("WARN: inotify_add_watch(/dev/input) failed: %s — hotplug monitoring disabled",
+                 strerror(errno));
+        close(g_inotify_fd);
+        g_inotify_fd = -1;
+        return;
+    }
+    log_diag("hotplug: inotify watch on /dev/input active");
+}
+
+static void close_hotplug_watch(void) {
+    if (g_inotify_fd >= 0) {
+        close(g_inotify_fd);
+        g_inotify_fd = -1;
+    }
+}
+
+/* Drain pending inotify events and apply them to the tracked device set.
+ * Unknown mask bits, queue overflows, and unnamed events are ignored. */
+static void handle_inotify_events(void) {
+    if (g_inotify_fd < 0) return;
+
+    /* Per inotify(7): one event plus its name fits in this size; read()
+     * returns whole events only, so any bytes returned parse cleanly. */
+    static union {
+        char raw[sizeof(struct inotify_event) + NAME_MAX + 1];
+        struct inotify_event aligned; /* forces natural alignment */
+    } buf;
+
+    for (;;) {
+        ssize_t r = read(g_inotify_fd, buf.raw, sizeof(buf.raw));
+        if (r < 0) {
+            if (errno != EAGAIN && errno != EINTR) {
+                log_diag("WARN: inotify read failed: %s", strerror(errno));
+            }
+            return;
+        }
+        if (r == 0) return; /* no events pending */
+
+        ssize_t off = 0;
+        while (off + (ssize_t)sizeof(struct inotify_event) <= r) {
+            const struct inotify_event *ev;
+            ev = (const struct inotify_event *)(void *)(buf.raw + off);
+            off += (ssize_t)sizeof(*ev) + (ssize_t)ev->len;
+
+            if (ev->len == 0 || ev->name[0] == '\0') {
+                continue; /* unnamed (e.g. IN_Q_OVERFLOW with wd == -1) */
+            }
+            if (ev->mask & (IN_CREATE | IN_MOVED_TO | IN_ATTRIB)) {
+                add_device_by_name(ev->name);
+            } else if (ev->mask & (IN_DELETE | IN_MOVED_FROM)) {
+                remove_device_by_name(ev->name);
+            }
+            /* other bits (IN_IGNORED etc.) — ignored */
+        }
+    }
 }
 
 /* ─── Main loop ─────────────────────────────────────────────────────────── */
 
 static int run_loop(void) {
-    struct pollfd pfds[MAX_DEVICES];
-    for (int i = 0; i < g_num_fds; i++) {
-        pfds[i].fd = g_fds[i];
-        pfds[i].events = POLLIN;
-        pfds[i].revents = 0;
-    }
+    /* +1 slot for the inotify fd when hotplug monitoring is active. */
+    struct pollfd pfds[MAX_DEVICES + 1];
 
     /* Emit READY after devices are open and we're ready to read events. */
     emit("READY");
@@ -519,7 +694,27 @@ static int run_loop(void) {
     log_diag("READY emitted; version=%s; devices=%d", NATIVE_BINARY_VERSION, g_num_fds);
 
     while (!g_should_exit) {
-        int n = poll(pfds, (nfds_t)g_num_fds, 500 /* ms */);
+        /* Rebuild the poll set every iteration: the device set is dynamic
+         * now (hotplug adds/removes fds at runtime). The inotify fd takes
+         * slot 0 so device slots map to g_fds[] indices after it. */
+        int dev_base = 0;
+        nfds_t nfds = 0;
+        if (g_inotify_fd >= 0) {
+            pfds[0].fd = g_inotify_fd;
+            pfds[0].events = POLLIN;
+            pfds[0].revents = 0;
+            dev_base = 1;
+            nfds = 1;
+        }
+        int dev_count = g_num_fds;
+        for (int i = 0; i < dev_count; i++) {
+            pfds[dev_base + i].fd = g_fds[i];
+            pfds[dev_base + i].events = POLLIN;
+            pfds[dev_base + i].revents = 0;
+        }
+        nfds += (nfds_t)dev_count;
+
+        int n = poll(pfds, nfds, 500 /* ms */);
         if (n < 0) {
             if (errno == EINTR) continue;
             emitf("ERROR:poll() failed: %s", strerror(errno));
@@ -527,32 +722,72 @@ static int run_loop(void) {
         }
         if (n == 0) continue; /* timeout — check g_should_exit */
 
-        for (int i = 0; i < g_num_fds; i++) {
-            if (!(pfds[i].revents & POLLIN)) continue;
+        /* Hotplug events first: they may add/remove devices, and the
+         * device drain below re-validates each snapshot fd against the
+         * CURRENT tracked set, so fds removed here are never read. */
+        if (g_inotify_fd >= 0 && (pfds[0].revents & POLLIN)) {
+            handle_inotify_events();
+        }
 
+        /* Drain devices. Iteration runs over the poll SNAPSHOT (dev_count
+         * entries), each fd re-checked against the current g_fds set. */
+        for (int i = dev_count - 1; i >= 0; i--) {
+            short re = pfds[dev_base + i].revents;
+            /* POLLHUP / POLLERR mean the device went away — enter the
+             * drain path so read() confirms it (EOF or ENODEV). */
+            if (!(re & (POLLIN | POLLHUP | POLLERR))) continue;
+
+            int fd = pfds[dev_base + i].fd;
+            if (fd < 0) continue;
+            /* Skip fds the inotify handler already closed this iteration
+             * (also guards against fd-number reuse by a fresh open). */
+            if (find_device_index_by_fd(fd) < 0) continue;
+
+            int device_gone = 0;
             /* Drain all available events from this device. evdev events are
              * 24 bytes on most architectures (struct input_event). */
-            struct input_event ev;
-            while (read(pfds[i].fd, &ev, sizeof(ev)) == (ssize_t)sizeof(ev)) {
-                if (ev.type != EV_KEY) continue;
-                if (ev.value == 2) continue; /* autorepeat — ignore */
+            for (;;) {
+                struct input_event ev;
+                ssize_t r = read(fd, &ev, sizeof(ev));
+                if (r == (ssize_t)sizeof(ev)) {
+                    if (ev.type != EV_KEY) continue;
+                    if (ev.value == 2) continue; /* autorepeat — ignore */
 
-                const key_name_t *kn = lookup_key((int)ev.code);
-                if (kn == NULL) continue; /* unmapped key — skip silently */
+                    const key_name_t *kn = lookup_key((int)ev.code);
+                    if (kn == NULL) continue; /* unmapped key — skip silently */
 
-                /* Cross-device dedup: suppress duplicate broadcasts of the
-                 * same hardware event arriving on multiple open keyboard fds. */
-                if (is_duplicate_event(&ev)) continue;
+                    /* Cross-device dedup: suppress duplicate broadcasts of the
+                     * same hardware event arriving on multiple open keyboard fds. */
+                    if (is_duplicate_event(&ev)) continue;
 
-                const char *prefix = (ev.value == 1) ? "DOWN" : "UP";
-                if (kn->is_modifier) {
-                    emitf("MOD_%s:%s", prefix, kn->name);
-                } else {
-                    emitf("KEY_%s:%s", prefix, kn->name);
+                    const char *prefix = (ev.value == 1) ? "DOWN" : "UP";
+                    if (kn->is_modifier) {
+                        emitf("MOD_%s:%s", prefix, kn->name);
+                    } else {
+                        emitf("KEY_%s:%s", prefix, kn->name);
+                    }
+                    remember_emitted_event(&ev);
+                    continue;
                 }
-                remember_emitted_event(&ev);
+                if (r == 0) { /* EOF: device unplugged */
+                    device_gone = 1;
+                    break;
+                }
+                if (errno == EAGAIN) break; /* O_NONBLOCK drained — expected */
+                if (errno == EINTR) continue;
+                /* ENODEV / EIO etc.: device unplugged or hard error */
+                device_gone = 1;
+                break;
             }
-            /* EAGAIN is expected when O_NONBLOCK is set and we've drained */
+
+            if (device_gone) {
+                /* The stale fd is closed and dropped from the tracked set;
+                 * if the node reappears, the inotify add path re-opens it. */
+                int idx = find_device_index_by_fd(fd);
+                if (idx >= 0) {
+                    remove_device_at(idx);
+                }
+            }
         }
     }
 
@@ -631,11 +866,17 @@ int main(int argc, char **argv) {
     }
     log_diag("keyboard devices opened: %d", g_num_fds);
 
+    /* Watch /dev/input so USB keyboards plugged in later are picked up
+     * and unplugged ones dropped, without a restart. Never fatal: on
+     * failure the loop runs with the startup device set only. */
+    setup_hotplug_watch();
+
     /* Run the event loop until SIGINT/SIGTERM. */
     int rc = run_loop();
     log_diag("event loop exited; rc=%d", rc);
 
     /* Cleanup. */
+    close_hotplug_watch();
     close_devices();
     if (g_log_file != NULL) {
         fclose(g_log_file);

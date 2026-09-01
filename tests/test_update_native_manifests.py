@@ -291,3 +291,100 @@ def test_main_returns_one_when_manifest_missing(tmp_path: Path) -> None:
 def test_main_returns_one_on_too_many_args(native_dir: Path) -> None:
     rc = unm.main(["update_native_manifests.py", str(native_dir), "extra"])
     assert rc == 1
+
+
+# ─── sha256_by_arch sync (legacy entries) ─────────────────────────────────
+
+
+class TestSha256ByArchSync:
+    """Legacy manifest entries carry a per-arch ``sha256_by_arch`` dict
+    (see the schema in ``binaries.json``). ``update_manifest`` must keep
+    the dict in sync for the arch the build ran on — otherwise every
+    manifest regen moves the flat ``sha256`` forward while the per-arch
+    hash stays stale, breaking the schema invariant
+    (``sha256 == sha256_by_arch.x86_64`` on an x86_64 tree) that the
+    checksum tests pin."""
+
+    @staticmethod
+    def _seed_manifest_with_by_arch(path: Path) -> None:
+        """Manifest whose legacy entries carry a ``sha256_by_arch`` dict."""
+        manifest = {
+            "_comment": "test manifest",
+            "version": 1,
+            "binaries": {
+                "linux-key-listener-x86_64": {
+                    "sha256": "old",
+                    "version": "1.0.0",
+                    "min_proto_version": 1,
+                },
+                "linux-key-listener": {
+                    "sha256": "old",
+                    "sha256_by_arch": {"x86_64": "old", "aarch64": ""},
+                    "version": "1.0.0",
+                    "min_proto_version": 1,
+                },
+            },
+        }
+        path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+    def test_host_arch_entry_updated_in_lockstep_with_flat(self, tmp_path: Path) -> None:
+        """A rebuilt legacy binary updates flat sha256 AND the host-arch
+        ``sha256_by_arch`` entry (and leaves the other arch untouched)."""
+        nd = tmp_path / "native"
+        nd.mkdir()
+        self._seed_manifest_with_by_arch(nd / "binaries.json")
+        _write_binary(nd, "linux-key-listener", b"new-payload")
+        expected = hashlib.sha256(b"new-payload").hexdigest()
+
+        unm.update_manifest(nd)
+
+        manifest = json.loads((nd / "binaries.json").read_text())
+        entry = manifest["binaries"]["linux-key-listener"]
+        assert entry["sha256"] == expected
+        host_arch = unm._host_arch_key()
+        assert host_arch in ("x86_64", "aarch64"), f"test expects a recognized host arch; got {host_arch!r}"
+        assert entry["sha256_by_arch"][host_arch] == expected, (
+            f"sha256_by_arch.{host_arch} must move in lockstep with the flat "
+            "sha256 when the binary is rebuilt on this arch"
+        )
+        other = "aarch64" if host_arch == "x86_64" else "x86_64"
+        assert entry["sha256_by_arch"][other] == "", (
+            f"the non-built arch ({other}) must not be fabricated by an update on this host"
+        )
+        # The arch-suffixed alias entry has no by-arch dict — untouched shape.
+        assert "sha256_by_arch" not in manifest["binaries"]["linux-key-listener-x86_64"]
+        assert manifest["binaries"]["linux-key-listener-x86_64"]["sha256"] == expected
+
+    def test_unknown_machine_leaves_by_arch_untouched(self, tmp_path: Path, monkeypatch) -> None:
+        """An unrecognized ``platform.machine()`` must not corrupt the
+        ``sha256_by_arch`` dict — only the flat field moves on."""
+        nd = tmp_path / "native"
+        nd.mkdir()
+        self._seed_manifest_with_by_arch(nd / "binaries.json")
+        _write_binary(nd, "linux-key-listener", b"odd-host-payload")
+        expected = hashlib.sha256(b"odd-host-payload").hexdigest()
+
+        monkeypatch.setattr(unm.platform, "machine", lambda: "riscv64")
+        assert unm._host_arch_key() is None
+
+        unm.update_manifest(nd)
+
+        manifest = json.loads((nd / "binaries.json").read_text())
+        entry = manifest["binaries"]["linux-key-listener"]
+        assert entry["sha256"] == expected
+        assert entry["sha256_by_arch"] == {"x86_64": "old", "aarch64": ""}, (
+            "unrecognized host arch must leave sha256_by_arch untouched"
+        )
+
+    def test_host_arch_key_normalization(self, monkeypatch) -> None:
+        """machine() strings normalize to the manifest's arch keys."""
+        for machine, expected in (
+            ("x86_64", "x86_64"),
+            ("AMD64", "x86_64"),
+            ("aarch64", "aarch64"),
+            ("arm64", "aarch64"),
+        ):
+            monkeypatch.setattr(unm.platform, "machine", lambda m=machine: m)
+            assert unm._host_arch_key() == expected, f"{machine} → {expected}"
+        monkeypatch.setattr(unm.platform, "machine", lambda: "sparc")
+        assert unm._host_arch_key() is None
