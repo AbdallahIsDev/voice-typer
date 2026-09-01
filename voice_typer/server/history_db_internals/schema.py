@@ -269,6 +269,23 @@ def open_write_conn(db_path: Path) -> sqlite3.Connection:
                     os.chmod(p, 0o600)
             except OSError:
                 pass
+    # opt into FK enforcement (XZ-R11-11). Per-connection PRAGMA —
+    # must be set on every new connection (NOT database-persistent).
+    # Wrapped in try/except so a read-only FS / locked DB doesn't
+    # abort connection setup (the FK setting is a hardening extra,
+    # not a correctness requirement for the current schema). The
+    # current schema has no FK constraints so this is a no-op today,
+    # but it is a latent footgun if FKs are added later — SQLite
+    # defaults to ``foreign_keys=OFF`` for backward compat with
+    # pre-2004 schemas, silently allowing orphaned child rows.
+    # Readers don't need this (FK enforcement is write-path only).
+    try:
+        conn.execute("PRAGMA foreign_keys=ON")
+    except sqlite3.Error as e:
+        log.debug(
+            "[HISTORY_DB] PRAGMA foreign_keys=ON failed (best-effort): %s",
+            e,
+        )
     return conn
 
 

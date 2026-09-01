@@ -53,7 +53,6 @@ import concurrent.futures
 import contextlib
 import functools
 import logging
-import queue
 import re
 import sqlite3
 import threading
@@ -62,6 +61,17 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from voice_typer.server.history_db_internals import (
+    corruption_recovery,
+    crud_writes,
+    encryption,
+    lifecycle,
+    reader,
+    retention,
+    schema,
+    search,
+    writer,
+)
 from voice_typer.server.history_db_internals.retention import RetentionResult
 
 log = logging.getLogger(__name__)
@@ -438,22 +448,17 @@ _LIVE_INSTANCES: "weakref.WeakSet[HistoryDB]" = weakref.WeakSet()
 class HistoryDB:
     """Thread-safe SQLite database for transcription history.
 
-    IMPL-A: a single dedicated writer thread owns the only
-    write-capable connection. All write methods enqueue closures onto
-    a ``queue.Queue``; the writer thread drains the queue and executes
-    them serially. This eliminates in-process write contention — the
-    root cause of the user-reported 5.5s ``store`` delay.
+    IMPL-A single-writer architecture: a dedicated writer thread owns
+    the only write-capable connection and drains a bounded queue of
+    write closures serially; reads use thread-local read-only
+    connections (WAL — readers never block the writer).
+    ``add_transcription`` is fire-and-forget; other write methods block
+    on a ``Future`` so callers see the result.
 
-    Read methods use thread-local read-only connections
-    (``PRAGMA query_only=1``). In WAL mode, readers never block the
-    writer and the writer never blocks readers.
-
-    ``add_transcription`` is fire-and-forget: it enqueues the INSERT
-    and returns immediately with a placeholder row_id, so the
-    transcription pipeline never waits on the DB. Other write methods
-    (``delete``, ``restore``, ``clear_all``, ``toggle_favorite``,
-    ``apply_retention``) block on a ``concurrent.futures.Future`` so
-    callers (IPC handlers) see the result.
+    Method bodies live in ``history_db_internals.*`` (free functions
+    taking the instance); this class keeps the public/patch surface —
+    every delegate below reads its implementation through the module
+    attribute at call time, so monkeypatching keeps working.
     """
 
     def __init__(self, db_path: Path | None = None):
@@ -469,116 +474,11 @@ class HistoryDB:
             db_path = config_dir / DB_SUBDIR / "history.db"
 
         self.db_path = db_path
-        # Thread-local read-only connections (one per reader thread).
-        self._read_local = threading.local()
-        # Track ALL read connections across threads so close() + __del__
-        # can clean them up, preventing ResourceWarning on GC. Each
-        # entry is a ``(thread_ident, connection)`` tuple — the
-        # thread_ident lets ``_prune_dead_read_connections_locked``
-        # detect when the owning thread has exited and close its
-        # connection (releasing the ~20 MB SQLite page cache) instead
-        # of letting it leak for the lifetime of the HistoryDB. Without
-        # this pruning, IPC handler threads, tray thread, dictation
-        # pipeline thread, and test threads would each accumulate a
-        # 20 MB read connection that's never released until close().
-        self._all_read_connections: list[tuple[int, sqlite3.Connection]] = []
-        self._connections_lock = threading.Lock()
-        # generation counter bumped on corruption-recovery
-        # read-connection invalidation. Each thread-local read
-        # connection remembers the generation it was opened at; if
-        # the counter bumps (because the corrupt DB was renamed and a
-        # fresh DB opened), the next ``_get_read_conn`` call closes
-        # the stale conn and opens a new one on the fresh file.
-        # Without this, POSIX open FDs would keep pointing at the
-        # renamed (corrupt) file and readers would return stale data.
-        self._read_conn_generation: int = 0
-        # Write queue: items are (callable, future) tuples, OR
-        # _BatchableInsert instances (), OR the _SHUTDOWN_SENTINEL
-        # to ask the writer to exit. ``future`` is None for
-        # fire-and-forget writes (e.g. add_transcription).
-        # PERF-5: bound the queue so a stalled writer thread can't let
-        # the in-memory queue grow without limit. On queue.Full we drop
-        # the oldest non-sentinel item and log a warning. See
-        # ``_WRITE_QUEUE_MAXSIZE`` for the bound's rationale (~5 minutes
-        # of fire-and-forget add_transcription writes at 30/s).
-        self._queue: queue.Queue[Any] = queue.Queue(maxsize=_WRITE_QUEUE_MAXSIZE)
-        # Signaled by the writer thread once schema init succeeds (or
-        # fails). __init__ waits on this so subsequent reads see the
-        # schema.
-        self._writer_ready = threading.Event()
-        # Set by close() to refuse new write submissions.
-        self._shutdown = threading.Event()
-        # If the writer thread failed during schema init, the exception
-        # is stored here so __init__ can log it.
-        self._init_error: BaseException | None = None
-        # re-entrancy guard for apply_retention. The periodic
-        # retention scheduler spawns a daemon thread that calls
-        # apply_retention on a fixed interval; if a previous run is
-        # still in flight (e.g. a multi-batch VACUUM on a huge DB),
-        # the next tick acquires this lock non-blocking and skips
-        # rather than queueing a second concurrent sweep.
-        self._retention_lock = threading.Lock()
-        # stop event for the periodic retention thread. Set by
-        # close() (and by re-scheduling) to ask the daemon loop to exit.
-        self._retention_stop_event: threading.Event | None = None
-        # handle to the periodic retention daemon thread (for
-        # join-on-close).
-        self._retention_thread: threading.Thread | None = None
-        # TTL cache for ``get_history_count``.
-        self._history_count_cache: int | None = None
-        self._history_count_cache_ts: float = 0.0
-        self._history_count_cache_lock = threading.Lock()
-        # TTL cache for ``get_today_stats``. See
-        # ``_TODAY_STATS_CACHE_TTL_S`` for the rationale (15s TTL,
-        # strict invalidation on every mutation). The cache stores a
-        # COPY of the stats dict so callers can mutate the returned
-        # dict without corrupting the cached value (see
-        # ``test_cache_returns_independent_dict_copy``).
-        self._today_stats_cache: dict | None = None
-        self._today_stats_cache_ts: float = 0.0
-        self._today_stats_cache_lock = threading.Lock()
-        # per-instance counter of FTS5 'rebuild' failures after
-        # ``apply_retention`` / ``clear_all`` bulk deletes. Incremented
-        # each time the FTS5 ``'rebuild'`` command raises a
-        # ``sqlite3.Error`` — those failures leave deleted dictated
-        # text recoverable from ``transcriptions_fts_data`` (GDPR
-        # Art. 17 /  violation), so the counter is surfaced in
-        # diagnostics and paired with an ``event_bus`` event so the
-        # renderer can show a toast.
-        self._fts5_rebuild_failures: int = 0
-        # True when this session's startup FTS5 'rebuild' actually ran
-        # (schema_meta flag NULL or '1'). A rebuild re-tokenizes from the
-        # content table, so rows that were already encrypted at rest end
-        # up with CIPHERTEXT tokens in the index — ``_init_encryption``
-        # responds by queueing a decrypt-aware re-index (see
-        # ``_reindex_encrypted_fts_step``) to restore the §6 invariant
-        # (FTS shadow tables stay plaintext-tokenized).
-        self._fts5_rebuild_ran: bool = False
-        # Ascending-id watermark for ``_reindex_encrypted_fts_step`` —
-        # lets the decrypt-aware FTS re-index resume across its bounded
-        # batches without re-processing rows or holding their ids.
-        self._fts_reindex_watermark: int = 0
-        # At-rest-encryption status — one of "active" / "disabled" /
-        # "key-unavailable" (see :meth:`encryption_status`). Set by
-        # ``_init_encryption`` on the writer thread after schema init;
-        # "disabled" is the pre-resolution default so a HistoryDB whose
-        # writer never gets that far (init failure) reports the same
-        # state as plaintext mode.
-        self._encryption_status: str = "disabled"
-        # periodic prune daemon for ``_all_read_connections``.
-        # Pre-fix, ``_prune_dead_read_connections_locked`` was REACTIVE
-        # — only fired when a NEW connection was created on a thread
-        # that didn't already have one. If N threads each created a
-        # read connection, then died, and NO new thread created a
-        # connection afterward, the N dead-thread connections (each
-        # 2 MB page cache post-; 20 MB pre-) sat in
-        # ``_all_read_connections`` until the next ``_get_read_conn``
-        # call from a fresh thread. The periodic prune walks the list
-        # every 60s and closes connections whose owning thread has
-        # exited, bounding the leak window to 60s regardless of new
-        # read-conn churn.
-        self._read_conn_prune_stop_event: threading.Event | None = None
-        self._read_conn_prune_thread: threading.Thread | None = None
+        # Stateful attribute setup lives in
+        # ``history_db_internals.lifecycle.initialize_state`` (it reads
+        # ``_WRITE_QUEUE_MAXSIZE`` through this module's namespace at
+        # call time so facade monkeypatches keep working).
+        lifecycle.initialize_state(self)
         # Start the writer thread last — it signals _writer_ready once
         # the schema is set up.
         self._writer_thread = threading.Thread(
@@ -587,45 +487,12 @@ class HistoryDB:
             daemon=True,
         )
         self._writer_thread.start()
-        # Wait for the writer to finish schema initialization. If this
-        # times out, the writer is stuck (e.g. disk full, permissions)
-        # — __init__ still returns so the rest of the app can start,
-        # but subsequent writes will fail and log.
-        if not self._writer_ready.wait(timeout=_WRITER_READY_TIMEOUT):
-            log.error(
-                "[HISTORY_DB] Writer thread did not signal ready within %.1fs "
-                "(db=%s); writes will fail until it recovers.",
-                _WRITER_READY_TIMEOUT,
-                self.db_path,
-            )
-        if self._init_error is not None:
-            log.error(
-                "[HISTORY_DB] Writer thread initialization failed: %s",
-                self._init_error,
-            )
-        # register in the module-level WeakSet so the test conftest
-        # can close leaked instances after each test (prevents the daemon
-        # writer thread from accumulating across the full pytest run and
-        # crashing the process on Windows via native thread-limit exhaustion).
-        _LIVE_INSTANCES.add(self)
-        # start the periodic prune daemon (best-effort —
-        # failures are logged + swallowed so a healthy DB never fails
-        # to construct just because the prune thread couldn't start).
-        with contextlib.suppress(Exception):
-            self._start_periodic_read_conn_prune()
+        lifecycle.wait_for_writer_ready(self)
 
-    # ──────────────────────────────────────────────────────────────
-    # Periodic read-conn prune
-    # ──────────────────────────────────────────────────────────────
+    # Section: Periodic read-conn prune
 
     def _start_read_conn_prune_thread(self) -> None:
-        """Start the periodic read-conn prune daemon.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.reader._start_read_conn_prune_thread`.
-        """
-        from voice_typer.server.history_db_internals import reader
-
+        """Start the prune daemon — see internals.reader._start_read_conn_prune_thread."""
         reader._start_read_conn_prune_thread(self)
 
     # Back-compat alias for the previous name (kept so external code
@@ -634,40 +501,20 @@ class HistoryDB:
     _start_periodic_read_conn_prune = _start_read_conn_prune_thread
 
     def _stop_read_conn_prune_thread(self) -> None:
-        """Stop the periodic read-conn prune daemon (called by close()).
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.reader._stop_read_conn_prune_thread`.
-        """
-        from voice_typer.server.history_db_internals import reader
-
+        """Stop the prune daemon — see internals.reader._stop_read_conn_prune_thread."""
         reader._stop_read_conn_prune_thread(self)
 
     # Back-compat alias for the previous name.
     _stop_periodic_read_conn_prune = _stop_read_conn_prune_thread
 
     def _periodic_read_conn_prune_loop(self) -> None:
-        """Periodic prune loop body (runs on the prune daemon thread).
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.reader._periodic_read_conn_prune_loop`.
-        """
-        from voice_typer.server.history_db_internals import reader
-
+        """Prune loop body (daemon thread) — see internals.reader._periodic_read_conn_prune_loop."""
         reader._periodic_read_conn_prune_loop(self)
 
-    # ──────────────────────────────────────────────────────────────
-    # Writer thread
-    # ──────────────────────────────────────────────────────────────
+    # Section: Writer thread
 
     def _writer_loop(self) -> None:
-        """Drain the write queue serially on a single connection.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.writer._writer_loop`.
-        """
-        from voice_typer.server.history_db_internals import writer
-
+        """Drain the write queue serially — see internals.writer._writer_loop."""
         writer._writer_loop(self)
 
     def _execute_write_item(
@@ -676,13 +523,7 @@ class HistoryDB:
         callable_: Callable[[sqlite3.Connection], Any],
         future: concurrent.futures.Future | None,
     ) -> None:
-        """Execute a single queued write closure and resolve its future.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.writer._execute_write_item`.
-        """
-        from voice_typer.server.history_db_internals import writer
-
+        """Execute one write closure, resolve its future — see internals.writer._execute_write_item."""
         writer._execute_write_item(self, conn, callable_, future)
 
     def _drain_batchable_inserts(
@@ -690,282 +531,105 @@ class HistoryDB:
         conn: sqlite3.Connection,
         first_item: _BatchableInsert,
     ) -> None:
-        """Drain pending ``_BatchableInsert`` items into one INSERT.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.writer._drain_batchable_inserts`.
-        """
-        from voice_typer.server.history_db_internals import writer
-
+        """Drain batchable INSERTs into one transaction — see internals.writer._drain_batchable_inserts."""
         writer._drain_batchable_inserts(self, conn, first_item)
 
     def _drain_remaining(self, conn: sqlite3.Connection) -> None:
-        """Drain any remaining queued items before shutdown.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.writer._drain_remaining`.
-        """
-        from voice_typer.server.history_db_internals import writer
-
+        """Drain queued items before shutdown — see internals.writer._drain_remaining."""
         writer._drain_remaining(self, conn)
 
     def _run_checkpoint(self, conn: sqlite3.Connection) -> None:
-        """Run a passive WAL checkpoint every ``_WAL_CHECKPOINT_INTERVAL`` seconds.
-
-        PASSIVE mode doesn't block — it checkpoints as much as
-        possible without forcing readers/writers to wait. Called by the
-        writer thread on its queue-wait timeout cadence. Before the
-        checkpoint, any lingering uncommitted transaction is rolled back
-        (WAL-CHECKPOINT-FIX) so the writer's own connection can never
-        make ``PRAGMA wal_checkpoint(PASSIVE)`` fail with "database table
-        is locked".
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.writer._run_checkpoint`.
-        """
-        from voice_typer.server.history_db_internals import writer
-
+        """Passive WAL checkpoint on the checkpoint-interval cadence — see internals.writer._run_checkpoint."""
         writer._run_checkpoint(self, conn)
 
     def _open_write_conn(self) -> sqlite3.Connection:
-        """Open and configure the writer thread's connection.
-
-        Delegates to :func:`voice_typer.server.history_db_internals.schema.open_write_conn`.
-        See that function for the full rationale (WAL mode, synchronous
-        level, busy_timeout, cache_size, ``secure_delete=ON`` for
-        , SEC-007 POSIX file/dir permissions).
-
-        also set ``PRAGMA foreign_keys=ON`` on the returned
-        connection. The current schema has no FK constraints so this is a
-        no-op today, but it is a latent footgun if FKs are added later —
-        SQLite defaults to ``foreign_keys=OFF`` for backward compat with
-        pre-2004 schemas, silently allowing orphaned child rows. Setting
-        it here (per-connection PRAGMA, NOT database-persistent) means
-        every writer connection opts in regardless of what future schema
-        migrations add. Readers don't need this (FK enforcement is
-        write-path only); the existing reader connection helpers in
-        ``schema.py`` are left unchanged.
-        """
-        from voice_typer.server.history_db_internals.schema import open_write_conn
-
-        conn = open_write_conn(self.db_path)
-        # opt into FK enforcement. Per-connection PRAGMA —
-        # must be set on every new connection (NOT database-persistent).
-        # Wrapped in try/except so a read-only FS / locked DB doesn't
-        # abort connection setup (the FK setting is a hardening extra,
-        # not a correctness requirement for the current schema).
-        try:
-            conn.execute("PRAGMA foreign_keys=ON")
-        except sqlite3.Error as e:
-            log.debug(
-                "[HISTORY_DB] PRAGMA foreign_keys=ON failed (best-effort): %s",
-                e,
-            )
-        return conn
+        """Open the writer connection — see internals.schema.open_write_conn."""
+        return schema.open_write_conn(self.db_path)
 
     def _check_wal_mode(self, conn: sqlite3.Connection) -> None:
-        """Verify WAL mode is actually enabled.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.schema.check_wal_mode`.
-        Logs a warning if SQLite silently fell back to rollback-journal
-        mode (network filesystems, antivirus locks, read-only FS).
-        """
-        from voice_typer.server.history_db_internals.schema import check_wal_mode
-
-        check_wal_mode(conn, self.db_path)
+        """Verify WAL mode is enabled (warn on fallback) — see internals.schema.check_wal_mode."""
+        schema.check_wal_mode(conn, self.db_path)
 
     def _init_db_schema(
         self,
         conn: sqlite3.Connection,
         _is_recovery: bool = False,
     ) -> sqlite3.Connection:
-        """Initialize the database schema and run migrations.
+        """Initialize the schema + migrations, then run the FTS5 startup sweep.
 
         Delegates to
-        :func:`voice_typer.server.history_db_internals.schema.init_schema`.
-        The free function takes ``self`` (the HistoryDB instance) so it
-        can call back into ``_backup_before_migration`` and
-        ``_maybe_recover_from_corruption`` (which still live on this
-        class) and so it can set ``self._init_error`` on migration
-        failure. Returns the connection to use (may be a fresh one if
-        corruption was detected and the DB was recreated). Callers must
-        use the returned connection, not the one they passed in.
-
-        See the delegated function for the full migration / index /
-        integrity-check rationale (, , , FIX).
-
-        After schema init succeeds (``self._init_error is None``), runs
-        :meth:`_fts5_startup_rebuild` once on the writer connection.
-        This bounds the worst-case exposure window for any failed
-        delete / clear_all / apply_retention rebuilds in the previous
-        session to "between launches" — on every launch the FTS5
-        segment data is rebuilt from the current content table, so
-        lingering dictated text from a previously-failed delete is
-        cleared. Skipped on migration failure (``_init_error`` set)
-        because the schema is in an inconsistent state and the FTS5
-        table may not exist.
+        :func:`voice_typer.server.history_db_internals.schema.init_schema`
+        (which returns the connection to use — possibly a fresh one after
+        corruption recovery). When init succeeds, the best-effort
+        :meth:`_fts5_startup_rebuild` runs once on the writer connection
+        (bounded re-exposure for failed rebuilds of the previous
+        session; failures are swallowed so the app still starts). The
+        FTS5 gate intentionally stays in the facade method — the
+        corruption-recovery path (``_apply_recovered_inserts``) calls
+        ``init_schema`` directly with ``_is_recovery=True`` and must NOT
+        trigger an extra startup sweep.
         """
-        from voice_typer.server.history_db_internals.schema import init_schema
-
-        new_conn = init_schema(self, conn, _is_recovery=_is_recovery)
-        # Startup FTS5 sweep — best-effort, must not raise (a failure
-        # here is logged at WARNING and swallowed so the app still
-        # starts). Only run when schema init succeeded: on migration
-        # failure the FTS5 table may not exist and the schema is in an
-        # inconsistent state.
+        new_conn = schema.init_schema(self, conn, _is_recovery=_is_recovery)
         if self._init_error is None:
             with contextlib.suppress(Exception):
                 self._fts5_startup_rebuild(new_conn)
         return new_conn
 
     def _fts5_startup_rebuild(self, conn: sqlite3.Connection) -> None:
-        """Best-effort FTS5 ``'rebuild'`` gated by a persisted failure flag.
-
-        Runs ONCE per launch on the writer connection when the persisted
-        ``fts5_rebuild_failed`` schema_meta flag is not ``'0'`` — bounds
-        the worst-case exposure window for failed delete/clear_all/
-        retention rebuilds (lingering dictated text in
-        ``transcriptions_fts_data``, GDPR Art. 17) to "between launches".
-        On success the flag is set to ``'0'`` so subsequent launches skip
-        the O(N) rebuild; on failure it is set to ``'1'`` so the next
-        launch retries. Best-effort: failures are logged at WARNING and
-        swallowed — the app must still start.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.writer._fts5_startup_rebuild`.
-        """
-        from voice_typer.server.history_db_internals import writer
-
+        """Best-effort FTS5 'rebuild' on a persisted failure flag — see internals.writer._fts5_startup_rebuild."""
         writer._fts5_startup_rebuild(self, conn)
 
-    # ──────────────────────────────────────────────────────────────
-    # At-rest encryption (see docs/adr/XZ-R11-04-at-rest-encryption.md)
-    # ──────────────────────────────────────────────────────────────
+    # Section: At-rest encryption (see docs/adr/XZ-R11-04-at-rest-encryption.md)
 
     def _init_encryption(self, conn: sqlite3.Connection) -> None:
-        """Resolve the DEK once per process and kick the backfill.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.encryption._init_encryption`.
-        """
-        from voice_typer.server.history_db_internals import encryption
-
+        """Resolve the DEK once per process + kick the backfill — see internals.encryption._init_encryption."""
         encryption._init_encryption(self, conn)
 
     def encryption_status(self) -> str:
-        """Return the at-rest-encryption state of this HistoryDB.
-
-        One of ``"active"`` / ``"disabled"`` / ``"key-unavailable"``.
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.encryption.encryption_status`.
-        """
-        from voice_typer.server.history_db_internals import encryption
-
+        """At-rest-encryption state of this DB — see internals.encryption.encryption_status."""
         return encryption.encryption_status(self)
 
     def _has_encrypted_rows(self, conn: sqlite3.Connection) -> bool:
-        """Return True when at least one row is flagged encrypted.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.encryption._has_encrypted_rows`.
-        """
-        from voice_typer.server.history_db_internals import encryption
-
+        """Report whether any row is flagged encrypted — see internals.encryption._has_encrypted_rows."""
         return encryption._has_encrypted_rows(self, conn)
 
     def _has_plaintext_rows(self, conn: sqlite3.Connection) -> bool:
-        """Return True when at least one non-empty row is still plaintext.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.encryption._has_plaintext_rows`.
-        """
-        from voice_typer.server.history_db_internals import encryption
-
+        """Report whether any non-empty row is still plaintext — see internals.encryption._has_plaintext_rows."""
         return encryption._has_plaintext_rows(self, conn)
 
     def _enqueue_backfill_step(self) -> None:
-        """Queue one bounded plaintext→ciphertext backfill batch (fire-and-forget).
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.encryption._enqueue_backfill_step`.
-        """
-        from voice_typer.server.history_db_internals import encryption
-
+        """Queue one backfill batch — see internals.encryption._enqueue_backfill_step."""
         encryption._enqueue_backfill_step(self)
 
     def _encrypt_backfill_step(self, conn: sqlite3.Connection) -> int:
-        """Encrypt up to ``_ENCRYPTION_BACKFILL_BATCH`` plaintext rows.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.encryption._encrypt_backfill_step`.
-        """
-        from voice_typer.server.history_db_internals import encryption
-
+        """Encrypt one bounded backfill batch — see internals.encryption._encrypt_backfill_step."""
         return encryption._encrypt_backfill_step(self, conn)
 
     def _enqueue_reindex_step(self) -> None:
-        """Queue one bounded decrypt-aware FTS re-index batch (fire-and-forget).
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.encryption._enqueue_reindex_step`.
-        """
-        from voice_typer.server.history_db_internals import encryption
-
+        """Queue one bounded decrypt-aware FTS re-index batch — see internals.encryption._enqueue_reindex_step."""
         encryption._enqueue_reindex_step(self)
 
     def _reindex_encrypted_fts_step(self, conn: sqlite3.Connection) -> int:
-        """Restore plaintext FTS tokens for encrypted rows after a 'rebuild'.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.encryption._reindex_encrypted_fts_step`.
-        """
-        from voice_typer.server.history_db_internals import encryption
-
+        """Restore plaintext FTS tokens for encrypted rows — see internals.encryption._reindex_encrypted_fts_step."""
         return encryption._reindex_encrypted_fts_step(self, conn)
 
     def _mark_fts5_rebuild_failed(self, conn: sqlite3.Connection) -> None:
-        """Persist the ``fts5_rebuild_failed`` flag so the next launch
-        retries the FTS5 startup rebuild.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.encryption._mark_fts5_rebuild_failed`.
-        """
-        from voice_typer.server.history_db_internals import encryption
-
+        """Persist the fts5_rebuild_failed flag — see internals.encryption._mark_fts5_rebuild_failed."""
         encryption._mark_fts5_rebuild_failed(self, conn)
 
     def _backup_before_migration(self, current_version: int) -> None:
-        """Best-effort copy of the DB (+ sidecars) before a migration runs.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.corruption_recovery._backup_before_migration`.
-        """
-        from voice_typer.server.history_db_internals import corruption_recovery
-
+        """Best-effort pre-migration backup — see internals.corruption_recovery._backup_before_migration."""
         corruption_recovery._backup_before_migration(self, current_version)
 
     def _maybe_recover_from_corruption(
         self,
         conn: sqlite3.Connection,
     ) -> sqlite3.Connection | None:
-        """``PRAGMA quick_check`` gate → rename corrupt DB → fresh DB.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.corruption_recovery._maybe_recover_from_corruption`.
-        """
-        from voice_typer.server.history_db_internals import corruption_recovery
-
+        """Corruption gate + fresh DB — see internals.corruption_recovery._maybe_recover_from_corruption."""
         return corruption_recovery._maybe_recover_from_corruption(self, conn)
 
     def _try_iterdump_recovery(self, old_db_path: Path) -> list[str]:
-        """Recover ``INSERT INTO transcriptions`` statements via iterdump().
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.corruption_recovery._try_iterdump_recovery`.
-        """
-        from voice_typer.server.history_db_internals import corruption_recovery
-
+        """Recover user-data INSERTs from the corrupt DB — see internals.corruption_recovery._try_iterdump_recovery."""
         return corruption_recovery._try_iterdump_recovery(self, old_db_path)
 
     def _apply_recovered_inserts(
@@ -973,13 +637,7 @@ class HistoryDB:
         conn: sqlite3.Connection,
         inserts: list[str],
     ) -> int:
-        """Replay iterdump-recovered INSERT statements on the fresh DB.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.corruption_recovery._apply_recovered_inserts`.
-        """
-        from voice_typer.server.history_db_internals import corruption_recovery
-
+        """Replay recovered INSERTs on the fresh DB — see internals.corruption_recovery._apply_recovered_inserts."""
         return corruption_recovery._apply_recovered_inserts(self, conn, inserts)
 
     def _notify_corruption_recovered(
@@ -987,61 +645,27 @@ class HistoryDB:
         corrupt_main: Path,
         recovered_count: int,
     ) -> None:
-        """Surface the corruption event to the user (log/event/tray).
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.corruption_recovery._notify_corruption_recovered`.
-        """
-        from voice_typer.server.history_db_internals import corruption_recovery
-
+        """Surface the corruption event to the user — see internals.corruption_recovery._notify_corruption_recovered."""
         corruption_recovery._notify_corruption_recovered(self, corrupt_main, recovered_count)
 
-    # ──────────────────────────────────────────────────────────────
-    # Read connections
-    # ──────────────────────────────────────────────────────────────
+    # Section: Read connections
 
     def _get_read_conn(self) -> sqlite3.Connection:
-        """Get a thread-local READ-ONLY connection.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.reader._get_read_conn`.
-        """
-        from voice_typer.server.history_db_internals import reader
-
+        """Get a thread-local READ-ONLY connection — see internals.reader._get_read_conn."""
         return reader._get_read_conn(self)
 
     def _prune_dead_read_connections_locked(self) -> None:
-        """Close dead-thread read connections.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.reader._prune_dead_read_connections_locked`.
-        """
-        from voice_typer.server.history_db_internals import reader
-
+        """Close dead-thread read connections — see internals.reader._prune_dead_read_connections_locked."""
         reader._prune_dead_read_connections_locked(self)
 
     def _get_conn(self) -> sqlite3.Connection:
-        """Backwards-compat alias for ``_get_read_conn``.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.reader._get_conn`.
-        """
-        from voice_typer.server.history_db_internals import reader
-
+        """Backwards-compat alias for ``_get_read_conn`` — delegates to internals.reader._get_conn."""
         return reader._get_conn(self)
 
-    # ──────────────────────────────────────────────────────────────
-    # Write submission
-    # ──────────────────────────────────────────────────────────────
+    # Section: Write submission
 
     def _drop_oldest_for_overflow(self, current_future: concurrent.futures.Future | None) -> None:
-        """Drop oldest non-sentinel queued item to make room.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.writer._drop_oldest_for_overflow`.
-        """
-        from voice_typer.server.history_db_internals import writer
-
+        """Drop oldest queued item to make room — see internals.writer._drop_oldest_for_overflow."""
         writer._drop_oldest_for_overflow(self, current_future)
 
     def _submit_write(
@@ -1050,38 +674,18 @@ class HistoryDB:
         *,
         wait: bool = True,
     ) -> Any | None:
-        """Submit a write closure to the writer thread.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.writer._submit_write`.
-        """
-        from voice_typer.server.history_db_internals import writer
-
+        """submit a write closure to the writer thread — delegates to internals.writer._submit_write."""
         return writer._submit_write(self, fn, wait=wait)
 
     def flush(self) -> None:
-        """Block until all queued writes have been processed.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.writer.flush`.
-        """
-        from voice_typer.server.history_db_internals import writer
-
+        """block until all queued writes have been processed — delegates to internals.writer.flush."""
         writer.flush(self)
 
     def _close_writer(self) -> None:
-        """Writer-teardown portion of :meth:`close`.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.writer._close_writer`.
-        """
-        from voice_typer.server.history_db_internals import writer
-
+        """Writer-teardown portion of :meth:`close` — delegates to internals.writer._close_writer."""
         writer._close_writer(self)
 
-    # ──────────────────────────────────────────────────────────────
-    # Lifecycle
-    # ──────────────────────────────────────────────────────────────
+    # Section: Lifecycle
 
     def __del__(self):
         """Close read connections on GC to prevent ResourceWarning.
@@ -1123,75 +727,15 @@ class HistoryDB:
     def close(self):
         """Shut down the writer thread and close all connections.
 
-        IMPL-A: sends the shutdown sentinel, waits (with timeout) for
-        the writer to drain remaining items and exit, then closes all
-        read connections. Idempotent — safe to call multiple times.
-
-        also signals + joins the periodic retention thread
-        (if :meth:`schedule_periodic_retention` was called) so close()
-        fully quiesces the HistoryDB's daemon threads.
-
-        Before sending the shutdown sentinel, submit a final
-        write closure to the writer thread that runs
-        ``PRAGMA wal_checkpoint(TRUNCATE)`` and waits for it. This
-        flushes all WAL pages back to the main DB file and truncates
-        ``history.db-wal`` to zero size, so a clean shutdown leaves no
-        uncheckpointed WAL residue (which can be ~21 MB after 24h of
-        dictation at 30 entries/min × ~500 bytes/entry). Idempotent
-        with the GDPR-export checkpoint at ``service.py:846`` (which
-        is the same PRAGMA, called explicitly before the zip is
-        built). Wrapped in ``contextlib.suppress(sqlite3.Error)`` so
-        a checkpoint failure doesn't block shutdown — the WAL will be
-        checkpointed on the next launch anyway.
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.lifecycle.close_db`
+        (retention-thread + prune-daemon stop, shutdown sentinel, writer
+        drain + join, read-connection teardown). Idempotent — safe to
+        call multiple times.
         """
-        # stop the periodic retention thread BEFORE setting
-        # _shutdown so its inner loop sees a clean stop_event signal
-        # and exits without trying to call apply_retention (which
-        # would no-op on a shutdown DB but would still log noise).
-        self._stop_periodic_retention()
-        # Stop the periodic read-conn prune daemon before tearing down
-        # connections — otherwise the worker could walk _all_read_connections
-        # mid-tear-down and trip over a half-closed connection. Also
-        # clears the thread / event attributes so callers observing
-        # ``_read_conn_prune_thread is None`` after ``close()`` see the
-        # quiesced state.
-        self._stop_read_conn_prune_thread()
-        if self._shutdown.is_set():
-            # Already closed — just make sure read conns are gone.
-            with self._connections_lock:
-                for _ident, conn in self._all_read_connections:
-                    with contextlib.suppress(sqlite3.Error):
-                        conn.close()
-                self._all_read_connections.clear()
-            return
-        self._shutdown.set()
-        # Writer-teardown (best-effort wal_checkpoint(TRUNCATE), shutdown
-        # sentinel enqueue with drop-oldest loop, writer-thread join) is
-        # delegated to ``history_db_internals.writer._close_writer`` so
-        # this method stays focused on lifecycle orchestration. The
-        # delegated helper reads ``_SHUTDOWN_SENTINEL`` /
-        # ``_WRITE_QUEUE_MAXSIZE`` / ``_WRITER_JOIN_TIMEOUT`` /
-        # ``HistoryDBError`` from this module's namespace (lazy import
-        # inside the helper so monkeypatches on this module keep working).
-        self._close_writer()
-        # Close the current thread's read connection first (if any).
-        if hasattr(self._read_local, "conn") and self._read_local.conn is not None:
-            with contextlib.suppress(sqlite3.Error):
-                self._read_local.conn.close()
-            self._read_local.conn = None
-        # Then close all other read connections tracked across threads.
-        # Each entry is a ``(thread_ident, connection)`` tuple; we
-        # unpack to close the connection regardless of which thread
-        # originally owned it (close() can be called from any thread).
-        with self._connections_lock:
-            for _ident, conn in self._all_read_connections:
-                with contextlib.suppress(sqlite3.Error):
-                    conn.close()
-            self._all_read_connections.clear()
+        lifecycle.close_db(self)
 
-    # ──────────────────────────────────────────────────────────────
-    # Public write methods
-    # ──────────────────────────────────────────────────────────────
+    # Section: Public write methods
 
     def add_transcription(
         self,
@@ -1201,25 +745,11 @@ class HistoryDB:
         device: str = "",
         language: str = "",
     ) -> int:
-        """Add a transcription to the database (fire-and-forget).
+        """Add a transcription (fire-and-forget): enqueue + placeholder row_id.
 
-        IMPL-A: enqueues the INSERT and returns immediately with a
-        placeholder row_id (always 1) — the transcription pipeline
-        never waits on the DB write. Returns -1 if the writer is
-        unavailable. Callers that need the actual row_id should call
-        ``flush()`` then read it back via ``get_recent``.
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.crud_writes.add_transcription`.
         """
-        from voice_typer.server.history_db_internals import crud_writes
-
-        # early-return guard — if the writer thread never
-        # started (init error) or died, return -1 immediately instead
-        # of silently enqueuing to a dead writer's queue.
-        if self._init_error is not None or not self._writer_thread.is_alive():
-            log.error(
-                "[HISTORY_DB] add_transcription refused — writer is unavailable: %s",
-                self.health_check()["error"],
-            )
-            return -1
         return crud_writes.add_transcription(
             self,
             text,
@@ -1233,32 +763,11 @@ class HistoryDB:
     def delete(self, transcription_id: int, *, raise_on_error: bool = False) -> bool:
         """Delete a transcription by ID.
 
-        when ``raise_on_error=True``, failures raise
-        ``HistoryDBError`` instead of returning ``False``. Without this,
-        the IPC layer cannot tell "row didn't exist" from "DB error".
-
-        After the row DELETE + commit, a best-effort FTS5 ``'optimize'``
-        purges the deleted row's dictated text from
-        ``transcriptions_fts_data`` (GDPR Art. 17 forensic-recovery
-        guarantee) — see
-        :func:`voice_typer.server.history_db_internals.crud_writes.delete_row`
-        for the full rationale. Returns ``False`` if the row didn't exist
-        or the writer is unavailable; invalidates both caches on success.
+        ``raise_on_error=True`` raises ``HistoryDBError`` instead of
+        returning ``False``. Delegates to
+        :func:`voice_typer.server.history_db_internals.crud_writes.submit_delete`.
         """
-        from voice_typer.server.history_db_internals import crud_writes
-
-        result = self._submit_write(lambda conn: crud_writes.delete_row(self, conn, transcription_id), wait=True)
-        if result is None:
-            # Writer shut down — treat as failure.
-            return False
-        if result:
-            # invalidate the count cache.
-            self._invalidate_history_count_cache()
-            # invalidate the today-stats cache (a delete
-            # changes today's count/chars/words/duration if the
-            # deleted row was from today).
-            self._invalidate_today_stats_cache()
-        return bool(result)
+        return crud_writes.submit_delete(self, transcription_id)
 
     @_wrap_write(-1, "restore transcription", "restore")
     def restore(
@@ -1269,105 +778,29 @@ class HistoryDB:
     ) -> int:
         """Re-insert a previously-deleted transcription record.
 
-        supports the Undo-delete toast in the renderer.
-        ``record`` should be the dict shape returned by ``get_recent``
-        (id is ignored — a new row with a new id is inserted).
-
-        At-rest encryption: mirrors the add_transcription write path —
-        the row is inserted with PLAINTEXT (so the AFTER-INSERT FTS
-        trigger indexes it) and then flipped to ciphertext +
-        ``text_is_encrypted=1`` in the same transaction when a DEK is
-        cached; without a DEK the row stays plaintext (flag 0).
-
-        Returns the new row id, or -1 on failure.
-
-        The row-level body runs on the writer thread via
-        :func:`voice_typer.server.history_db_internals.crud_writes.restore_row`.
+        Supports the Undo-delete toast in the renderer; ``record`` is
+        the dict shape returned by ``get_recent``. Delegates to
+        :func:`voice_typer.server.history_db_internals.crud_writes.submit_restore`.
         """
-        from voice_typer.server.history_db_internals import crud_writes
-
-        text = str(record.get("text", ""))
-        duration = float(record.get("duration", 0) or 0)
-        model = str(record.get("model", "") or "")
-        device = str(record.get("device", "") or "")
-        language = str(record.get("language", "") or "")
-        word_count = int(record.get("word_count", 0) or len(text.split()))
-        char_count = int(record.get("char_count", 0) or len(text))
-        favorite = 1 if record.get("favorite") else 0
-
-        result = self._submit_write(
-            lambda conn: crud_writes.restore_row(
-                self,
-                conn,
-                text=text,
-                duration=duration,
-                model=model,
-                device=device,
-                language=language,
-                word_count=word_count,
-                char_count=char_count,
-                favorite=favorite,
-            ),
-            wait=True,
-        )
-        if result is None:
-            return -1
-        if result and result > 0:
-            # invalidate the count cache.
-            self._invalidate_history_count_cache()
-            # invalidate the today-stats cache (a restore
-            # adds a new row whose timestamp is ``now``, which
-            # affects today's count/chars/words/duration).
-            self._invalidate_today_stats_cache()
-        return int(result)
+        return crud_writes.submit_restore(self, record)
 
     @_wrap_write(False, "clear transcriptions", "clear_all")
     def clear_all(self, *, raise_on_error: bool = False) -> bool:
-        """Clear all transcriptions.
+        """Clear all transcriptions (GDPR Art. 17 irreversible wipe).
 
-        Chunked DELETE + VACUUM + FTS5 ``'rebuild'`` on the writer
-        thread, so cleared text is not recoverable from the file or from
-        the FTS5 shadow tables (GDPR Art. 17) — see
-        :func:`voice_typer.server.history_db_internals.crud_writes.clear_all_rows`
-        for the full rationale. see ``delete`` for ``raise_on_error``
-        semantics.
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.crud_writes.submit_clear_all`.
         """
-        from voice_typer.server.history_db_internals import crud_writes
-
-        result = self._submit_write(lambda conn: crud_writes.clear_all_rows(self, conn), wait=True)
-        if result is None:
-            return False
-        if result:
-            # invalidate the count cache.
-            self._invalidate_history_count_cache()
-            # invalidate the today-stats cache (clear_all
-            # deletes today's rows too — today's stats must drop to
-            # 0/0/0/0 on the next read).
-            self._invalidate_today_stats_cache()
-        return bool(result)
+        return crud_writes.submit_clear_all(self)
 
     @_wrap_write(False, "toggle favorite", "toggle_favorite")
-    def toggle_favorite(
-        self,
-        transcription_id: int,
-        *,
-        raise_on_error: bool = False,
-    ) -> bool:
+    def toggle_favorite(self, transcription_id: int, *, raise_on_error: bool = False) -> bool:
         """Toggle the favorite status of a transcription.
 
-        see ``delete`` for ``raise_on_error`` semantics.
-
-        The row-level body runs on the writer thread via
-        :func:`voice_typer.server.history_db_internals.crud_writes.toggle_favorite_row`.
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.crud_writes.submit_toggle_favorite`.
         """
-        from voice_typer.server.history_db_internals import crud_writes
-
-        result = self._submit_write(
-            lambda conn: crud_writes.toggle_favorite_row(self, conn, transcription_id), wait=True
-        )
-        if result is None:
-            return False
-        return bool(result)
+        return crud_writes.submit_toggle_favorite(self, transcription_id)
 
     def apply_retention(
         self,
@@ -1379,41 +812,18 @@ class HistoryDB:
 
         Returns a :class:`RetentionResult` — an ``int`` subclass whose
         value is the number of deleted entries and whose
-        ``fts5_rebuild_ok`` attribute / ``["fts5_rebuild_ok"]`` item
-        reports whether the post-sweep FTS5 ``'rebuild'`` command
-        succeeded. The ``int`` return contract is preserved
-        so existing callers (``deleted == 20``, ``if deleted > 0``)
-        work unchanged.
-
-        Delegates to
+        ``fts5_rebuild_ok`` attribute reports whether the post-sweep
+        FTS5 ``'rebuild'`` succeeded. Delegates to
         :func:`voice_typer.server.history_db_internals.retention.apply_retention`.
-        See that function for the full rationale (UTC cutoff fix,
-        IMPL-A chunked deletes on the writer thread, conditional
-        VACUUM, FTS5 rebuild, cache invalidation, sentinel-on-error
-        contract).
         """
-        from voice_typer.server.history_db_internals.retention import (
-            RetentionResult,
-            apply_retention,
-        )
-
-        result = apply_retention(
+        return retention.apply_retention(
             self,
             retention_days=retention_days,
             max_entries=max_entries,
             retention_count=retention_count,
         )
-        # ``RetentionResult`` is an ``int`` subclass; ``int`` is the
-        # documented return type for backward compat, but the actual
-        # object exposes ``.fts5_rebuild_ok`` / ``["fts5_rebuild_ok"]``
-        # so callers that care about the privacy guarantee can detect
-        # a failed FTS5 rebuild.
-        _ = RetentionResult  # re-export alias for type-checkers
-        return result
 
-    # ──────────────────────────────────────────────────────────────
-    # Periodic retention scheduling ()
-    # ──────────────────────────────────────────────────────────────
+    # Section: Periodic retention scheduling ()
 
     def schedule_periodic_retention(
         self,
@@ -1424,20 +834,8 @@ class HistoryDB:
         max_entries: int = 0,
         retention_count: int = 0,
     ) -> None:
-        """spawn a daemon thread that periodically calls ``apply_retention``.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.retention.schedule_periodic_retention`.
-        The free function takes ``self`` (the HistoryDB instance) so it
-        can mutate ``_retention_stop_event`` / ``_retention_thread`` and
-        call back into ``apply_retention`` / ``_stop_periodic_retention``.
-        See the delegated function for the full rationale (
-        re-entrancy guard, ThreadRegistry registration, idempotent
-        re-scheduling).
-        """
-        from voice_typer.server.history_db_internals.retention import schedule_periodic_retention
-
-        schedule_periodic_retention(
+        """Spawn the periodic retention daemon thread — see internals.retention.schedule_periodic_retention."""
+        retention.schedule_periodic_retention(
             self,
             interval_s=interval_s,
             app=app,
@@ -1447,22 +845,10 @@ class HistoryDB:
         )
 
     def _stop_periodic_retention(self) -> None:
-        """signal the periodic retention thread to stop and join it.
+        """Signal + join the periodic retention thread — see internals.retention.stop_periodic_retention."""
+        retention.stop_periodic_retention(self)
 
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.retention.stop_periodic_retention`.
-        Called by :meth:`close` and by :meth:`schedule_periodic_retention`
-        (to support idempotent re-scheduling). Best-effort — if the
-        thread doesn't exit within 2s (e.g. stuck in a long VACUUM), it
-        is left to die as a daemon at process exit.
-        """
-        from voice_typer.server.history_db_internals.retention import stop_periodic_retention
-
-        stop_periodic_retention(self)
-
-    # ──────────────────────────────────────────────────────────────
-    # Public read methods
-    # ──────────────────────────────────────────────────────────────
+    # Section: Public read methods
 
     @_wrap_read([], "get recent transcriptions")
     def get_recent(
@@ -1474,44 +860,23 @@ class HistoryDB:
         before_timestamp: str | None = None,
         before_id: int | None = None,
     ) -> list[dict]:
-        """Get recent transcriptions with offset-based pagination.
+        """Get recent transcriptions with pagination.
 
-        when ``raise_on_error=True``, failures raise
-        ``HistoryDBError`` instead of returning ``[]`` — the IPC layer
-        can then distinguish "empty result" from "operation failed".
-
-        Rows carry a 500-char ``text`` preview plus ``text_truncated``
-        (bool) / ``text_full_length`` (int). Keyset pagination: pass
-        BOTH ``before_timestamp`` AND ``before_id`` (the last row of the
-        previous page) for O(log N) deep paging; otherwise OFFSET is
-        used and must stay < 1000.
-
-        Delegates to
+        ``raise_on_error=True`` raises ``HistoryDBError`` instead of
+        returning ``[]``; rows carry a 500-char ``text`` preview plus
+        ``text_truncated`` / ``text_full_length``. Delegates to
         :func:`voice_typer.server.history_db_internals.search.get_recent`.
         """
-        from voice_typer.server.history_db_internals import search
-
-        return search.get_recent(
-            self,
-            limit,
-            offset,
-            before_timestamp=before_timestamp,
-            before_id=before_id,
-        )
+        return search.get_recent(self, limit, offset, before_timestamp=before_timestamp, before_id=before_id)
 
     def get_latest_text(self) -> str:
         """Return the most recent transcription text, or ``""`` if DB is empty.
 
-        ADR-0010 §8.1 / DP6. Ordered by the autoincrement PK (DESC) —
-        same-second timestamps tie, so the PK is the only correct "most
-        recent" signal. If you just called ``add_transcription()``, call
-        ``flush()`` first to guarantee the row is committed.
-
+        Ordered by the autoincrement PK (DESC); call ``flush()`` after
+        ``add_transcription()`` to guarantee the row is committed.
         Delegates to
         :func:`voice_typer.server.history_db_internals.search.get_latest_text`.
         """
-        from voice_typer.server.history_db_internals import search
-
         return search.get_latest_text(self)
 
     @_wrap_read([], "search transcriptions")
@@ -1525,28 +890,14 @@ class HistoryDB:
         before_timestamp: str | None = None,
         before_id: int | None = None,
     ) -> list[dict]:
-        """Search transcriptions by text with offset-based pagination.
+        """Search transcriptions by text with pagination.
 
-        see ``get_recent`` for ``raise_on_error`` and cursor-pagination
-        (``before_timestamp`` / ``before_id``) semantics.
-
-        FTS5 serves tokenizable queries (tokens quoted as literal
-        phrases); separator-only and CJK/fullwidth queries fall back to
-        LIKE so literal wildcards still match and CJK substring search
-        works — see
+        Delegates to
         :func:`voice_typer.server.history_db_internals.search.search`
-        for the full rationale.
+        (FTS5 for tokenizable queries, LIKE fallback for separator-only
+        and CJK/fullwidth queries).
         """
-        from voice_typer.server.history_db_internals import search
-
-        return search.search(
-            self,
-            query,
-            limit,
-            offset,
-            before_timestamp=before_timestamp,
-            before_id=before_id,
-        )
+        return search.search(self, query, limit, offset, before_timestamp=before_timestamp, before_id=before_id)
 
     @_wrap_read([], "get favorites")
     def get_favorites(
@@ -1558,52 +909,19 @@ class HistoryDB:
         before_timestamp: str | None = None,
         before_id: int | None = None,
     ) -> list[dict]:
-        """Get favorited transcriptions with offset-based pagination.
-
-        see ``get_recent`` for ``raise_on_error`` and cursor-pagination
-        (``before_timestamp`` / ``before_id``) semantics.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.search.get_favorites`.
-        """
-        from voice_typer.server.history_db_internals import search
-
-        return search.get_favorites(
-            self,
-            limit,
-            offset,
-            before_timestamp=before_timestamp,
-            before_id=before_id,
-        )
+        """get favorited transcriptions with pagination — delegates to internals.search.get_favorites."""
+        return search.get_favorites(self, limit, offset, before_timestamp=before_timestamp, before_id=before_id)
 
     @_wrap_read(lambda: {"count": 0, "chars": 0, "word_count": 0, "duration": 0}, "get today stats")
     def get_today_stats(self, *, raise_on_error: bool = False) -> dict:
-        """Get statistics for today's transcriptions.
-
-        see ``get_recent`` for ``raise_on_error`` semantics. A 15s TTL
-        cache (invalidated by EVERY mutation) wraps the aggregating
-        scan; the returned dict is a shallow copy — see
-        :func:`voice_typer.server.history_db_internals.search.get_today_stats`.
-        """
-        from voice_typer.server.history_db_internals import search
-
+        """get statistics for today's transcriptions (15s TTL cache) — delegates to internals.search.get_today_stats."""
         return search.get_today_stats(self)
 
     def _invalidate_today_stats_cache(self) -> None:
-        """drop the cached today-stats dict.
-
-        Unlike ``_invalidate_history_count_cache`` (which skips
-        fire-and-forget ``add_transcription``), this is invalidated on
-        EVERY mutation — today's stats must update live. Delegates to
-        :func:`voice_typer.server.history_db_internals.search.invalidate_today_stats_cache`.
-        """
-        from voice_typer.server.history_db_internals import search
-
+        """Drop the cached today-stats dict — see internals.search.invalidate_today_stats_cache."""
         search.invalidate_today_stats_cache(self)
 
-    # ──────────────────────────────────────────────────────────────
-    #  on-demand full-text + total-count accessors
-    # ──────────────────────────────────────────────────────────────
+    # Section: on-demand full-text + total-count accessors
 
     def get_transcription_text(
         self,
@@ -1611,120 +929,45 @@ class HistoryDB:
         *,
         raise_on_error: bool = False,
     ) -> dict:
-        """return the FULL ``text`` of a single transcription row.
+        """Return the FULL ``text`` of a single transcription row.
 
-        Companion to the 500-char ``text`` preview returned by
-        ``get_recent`` / ``search`` / ``get_favorites``.
-        Returns ``{"id": int, "text": str}`` (empty string if not found).
-
-        Delegates to
+        Companion to the 500-char ``text`` preview in list responses;
+        returns ``{"id": int, "text": str}``. Delegates to
         :func:`voice_typer.server.history_db_internals.search.get_transcription_text`.
         """
-        from voice_typer.server.history_db_internals import search
-
-        return search.get_transcription_text(
-            self,
-            transcription_id,
-            raise_on_error=raise_on_error,
-        )
+        return search.get_transcription_text(self, transcription_id, raise_on_error=raise_on_error)
 
     def get_history_count(self, *, raise_on_error: bool = False) -> int:
-        """return the total number of transcription rows.
+        """Return the total number of transcription rows (60s TTL cache).
 
-        60s TTL cache, invalidated immediately on
-        delete/clear_all/restore/apply_retention; fire-and-forget
-        ``add_transcription`` does NOT invalidate (a stale-by-1 count is
-        fine for the "Total Dictations" stat card). Delegates to
+        Invalidated on delete/clear_all/restore/apply_retention but NOT
+        on fire-and-forget ``add_transcription``. Delegates to
         :func:`voice_typer.server.history_db_internals.search.get_history_count`.
         """
-        from voice_typer.server.history_db_internals import search
-
         return search.get_history_count(self, raise_on_error=raise_on_error)
 
     def _invalidate_history_count_cache(self) -> None:
-        """drop the cached total-count int.
-
-        Delegates to
-        :func:`voice_typer.server.history_db_internals.search.invalidate_history_count_cache`.
-        """
-        from voice_typer.server.history_db_internals import search
-
+        """drop the cached total-count int — delegates to internals.search.invalidate_history_count_cache."""
         search.invalidate_history_count_cache(self)
 
-    # ──────────────────────────────────────────────────────────────
-    # Maintenance & diagnostics
-    # ──────────────────────────────────────────────────────────────
+    # Section: Maintenance & diagnostics
 
     def checkpoint(self, truncate: bool = True) -> bool:
-        """run ``PRAGMA wal_checkpoint(TRUNCATE)`` (or ``RESTART``) on the
-        writer thread.
+        """Run ``PRAGMA wal_checkpoint(TRUNCATE|RESTART)`` on the writer thread.
 
-        Used by GDPR delete/export paths to ensure all WAL content is
+        Used by GDPR delete/export paths so all WAL content is
         checkpointed back to the main DB file before file-level
-        operations (e.g. ``os.unlink`` of ``history.db``). ``truncate``
-        (default) additionally truncates the WAL to zero size; the
-        closure body is
-        :func:`voice_typer.server.history_db_internals.crud_writes.checkpoint_wal`.
-
-        Returns
-        -------
-        ``True`` if the checkpoint completed without error, ``False``
-        otherwise (writer unavailable, checkpoint failed). The caller
-        should treat ``False`` as "WAL may still contain data; do not
-        unlink until next attempt".
+        operations. Delegates to
+        :func:`voice_typer.server.history_db_internals.crud_writes.submit_checkpoint`.
         """
-        from voice_typer.server.history_db_internals import crud_writes
-
-        try:
-            result = self._submit_write(lambda conn: crud_writes.checkpoint_wal(self, conn, truncate), wait=True)
-            if result is None:
-                # Writer shut down — can't checkpoint.
-                return False
-            return bool(result)
-        except HistoryDBError as e:
-            log.error("[HISTORY] Writer unavailable for checkpoint: %s", e)
-            return False
-        except Exception as e:
-            log.error("[HISTORY] Failed to checkpoint: %s", e)
-            return False
+        return crud_writes.submit_checkpoint(self, truncate)
 
     def health_check(self) -> dict:
-        """return a health status dict for diagnostics.
+        """Return a health status dict for diagnostics.
 
-        Returns
-        -------
-        ``{"ok": bool, "error": str | None}``
-
-        - ``ok`` is ``True`` only if the writer thread is alive AND
-          ``_init_error`` is ``None`` (no schema init failure) AND
-          ``_writer_ready`` is set (schema init has finished). This is
-          the minimum viable health signal: a dead writer, a failed
-          migration, or a still-running init means writes will
-          silently fail.
-        - ``error`` is a human-readable string describing the
-          failure, or ``None`` if healthy.
-
-        Callers (e.g. the IPC ``get_diagnostics`` handler) can expose
-        this to the renderer so the user sees a clear "history DB is
-        unavailable" message instead of silently-failed writes.
-
-        The ``_writer_ready`` check is critical: ``__init__`` returns
-        to the caller after at most ``_WRITER_READY_TIMEOUT`` (30s)
-        even if the writer thread hasn't finished schema init. Without
-        this check, ``health_check`` would return ``{ok: True}``
-        during that 30s init window — readers connecting before the
-        schema exists would get "no such table" errors, and writes
-        would queue up but never run. Surfacing "still initializing"
-        lets callers (e.g. the IPC layer) back off or show a
-        "warming up" message instead of treating the DB as healthy.
+        ``{"ok": bool, "error": str | None}`` — ``ok`` is True only if
+        the writer thread is alive, schema init succeeded, and init has
+        finished. Delegates to
+        :func:`voice_typer.server.history_db_internals.lifecycle.health_check`.
         """
-        if self._init_error is not None:
-            return {"ok": False, "error": str(self._init_error)}
-        if not self._writer_thread.is_alive():
-            return {"ok": False, "error": "history DB writer thread is not alive"}
-        if not self._writer_ready.is_set():
-            return {
-                "ok": False,
-                "error": "history DB schema initialization still in progress (writer not ready)",
-            }
-        return {"ok": True, "error": None}
+        return lifecycle.health_check(self)

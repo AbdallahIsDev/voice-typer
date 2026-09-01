@@ -21,7 +21,14 @@ monkeypatch them on the facade keep working.
 Free functions:
 
 - :func:`add_transcription` — fire-and-forget enqueue of a bounded
-  ``_BatchableInsert`` payload (placeholder row-id contract).
+  ``_BatchableInsert`` payload (placeholder row-id contract), including
+  the writer-liveness guard.
+- :func:`submit_restore` — caller-side orchestration for
+  ``HistoryDB.restore``: record parsing, writer submission, cache
+  invalidation.
+- :func:`submit_checkpoint` — caller-side orchestration for
+  ``HistoryDB.checkpoint``: writer submission + error-to-``False``
+  mapping.
 - :func:`delete_row` — row DELETE + FTS5 ``'optimize'`` forensic purge
   (GDPR Art. 17).
 - :func:`restore_row` — re-insert a previously-deleted record
@@ -29,6 +36,8 @@ Free functions:
 - :func:`clear_all_rows` — chunked DELETE + VACUUM + FTS5 ``'rebuild'``
   with failure escalation.
 - :func:`toggle_favorite_row` — favorite flip.
+- :func:`checkpoint_wal` — ``wal_checkpoint`` body on the writer
+  connection.
 """
 
 from __future__ import annotations
@@ -58,12 +67,21 @@ def add_transcription(
     Body of :meth:`HistoryDB.add_transcription`. Returns the placeholder
     row id (1) on successful enqueue, or -1 when the writer cannot
     accept the work.
-    """
-    # Lazy reads so the payload shape tracks monkeypatches on the
+    """  # Lazy reads so the payload shape tracks monkeypatches on the
     # ``history_db`` module namespace.
     from voice_typer.server import history_db as _hd
 
     _BatchableInsert = _hd._BatchableInsert  # noqa: N806
+
+    # early-return guard — if the writer thread never
+    # started (init error) or died, return -1 immediately instead
+    # of silently enqueuing to a dead writer's queue.
+    if db._init_error is not None or not db._writer_thread.is_alive():
+        log.error(
+            "[HISTORY_DB] add_transcription refused — writer is unavailable: %s",
+            db.health_check()["error"],
+        )
+        return -1
 
     try:
         word_count = len(text.split())
@@ -436,6 +454,55 @@ def toggle_favorite_row(db: HistoryDB, conn: sqlite3.Connection, transcription_i
         return cursor.rowcount > 0
 
 
+def submit_delete(db: HistoryDB, transcription_id: int) -> bool:
+    """Submit a delete request; invalidate caches on success.
+
+    Caller-side orchestration of :meth:`HistoryDB.delete` (which keeps
+    its ``_wrap_write`` decorator + ``raise_on_error`` semantics). The
+    row-level body runs on the writer thread via :func:`delete_row`.
+    Returns ``False`` when the writer is shut down or the row didn't
+    exist; invalidates both caches on success.
+    """
+    result = db._submit_write(lambda conn: delete_row(db, conn, transcription_id), wait=True)
+    if result is None:
+        return False
+    if result:
+        db._invalidate_history_count_cache()
+        db._invalidate_today_stats_cache()
+    return bool(result)
+
+
+def submit_clear_all(db: HistoryDB) -> bool:
+    """Submit a clear-all request; invalidate caches on success.
+
+    Caller-side orchestration of :meth:`HistoryDB.clear_all` (which
+    keeps its ``_wrap_write`` decorator + ``raise_on_error``
+    semantics). The row-level body (chunked DELETE + VACUUM + FTS5
+    ``'rebuild'``) runs on the writer thread via :func:`clear_all_rows`.
+    """
+    result = db._submit_write(lambda conn: clear_all_rows(db, conn), wait=True)
+    if result is None:
+        return False
+    if result:
+        db._invalidate_history_count_cache()
+        db._invalidate_today_stats_cache()
+    return bool(result)
+
+
+def submit_toggle_favorite(db: HistoryDB, transcription_id: int) -> bool:
+    """Submit a favorite-flip request.
+
+    Caller-side orchestration of :meth:`HistoryDB.toggle_favorite`
+    (which keeps its ``_wrap_write`` decorator + ``raise_on_error``
+    semantics). The row-level body runs on the writer thread via
+    :func:`toggle_favorite_row`.
+    """
+    result = db._submit_write(lambda conn: toggle_favorite_row(db, conn, transcription_id), wait=True)
+    if result is None:
+        return False
+    return bool(result)
+
+
 def checkpoint_wal(db: HistoryDB, conn: sqlite3.Connection, truncate: bool) -> bool:
     """Run ``wal_checkpoint(TRUNCATE|RESTART)`` on the writer connection.
 
@@ -468,4 +535,87 @@ def checkpoint_wal(db: HistoryDB, conn: sqlite3.Connection, truncate: bool) -> b
             mode,
             e,
         )
+        return False
+
+
+def submit_restore(db: HistoryDB, record: dict) -> int:
+    """Parse + submit a restore request; invalidate caches on success.
+
+    Caller-side orchestration of :meth:`HistoryDB.restore` (which keeps
+    its ``_wrap_write`` decorator + ``raise_on_error`` semantics).
+    ``record`` is the dict shape returned by ``get_recent`` (id is
+    ignored — a new row with a new id is inserted). Parsing stays on
+    the CALLER thread so a malformed record raises through the same
+    error path as before the split; the row-level body runs on the
+    writer thread via :func:`restore_row`.
+
+    At-rest encryption: mirrors the add_transcription write path — the
+    row is inserted with PLAINTEXT (so the AFTER-INSERT FTS trigger
+    indexes it) and then flipped to ciphertext + ``text_is_encrypted=1``
+    in the same transaction when a DEK is cached; without a DEK the row
+    stays plaintext (flag 0).
+
+    Returns the new row id, or -1 on failure.
+    """
+    text = str(record.get("text", ""))
+    duration = float(record.get("duration", 0) or 0)
+    model = str(record.get("model", "") or "")
+    device = str(record.get("device", "") or "")
+    language = str(record.get("language", "") or "")
+    word_count = int(record.get("word_count", 0) or len(text.split()))
+    char_count = int(record.get("char_count", 0) or len(text))
+    favorite = 1 if record.get("favorite") else 0
+
+    result = db._submit_write(
+        lambda conn: restore_row(
+            db,
+            conn,
+            text=text,
+            duration=duration,
+            model=model,
+            device=device,
+            language=language,
+            word_count=word_count,
+            char_count=char_count,
+            favorite=favorite,
+        ),
+        wait=True,
+    )
+    if result is None:
+        return -1
+    if result and result > 0:
+        # invalidate the count cache.
+        db._invalidate_history_count_cache()
+        # invalidate the today-stats cache (a restore
+        # adds a new row whose timestamp is ``now``, which
+        # affects today's count/chars/words/duration).
+        db._invalidate_today_stats_cache()
+    return int(result)
+
+
+def submit_checkpoint(db: HistoryDB, truncate: bool) -> bool:
+    """Submit a ``wal_checkpoint`` closure; map failures to ``False``.
+
+    Caller-side orchestration of :meth:`HistoryDB.checkpoint` (used by
+    GDPR delete/export paths). ``truncate=True`` additionally truncates
+    the WAL to zero size. Returns ``True`` when the checkpoint completed
+    without error, ``False`` otherwise (writer unavailable, checkpoint
+    failed) — the caller should treat ``False`` as "WAL may still
+    contain data; do not unlink until next attempt".
+    """
+    from voice_typer.server import history_db as _hd
+
+    HistoryDBError = _hd.HistoryDBError  # noqa: N806
+
+    try:
+        result = db._submit_write(lambda conn: checkpoint_wal(db, conn, truncate), wait=True)
+        if result is None:
+            # Writer shut down — can't checkpoint.
+            return False
+        return bool(result)
+    except HistoryDBError as e:
+        log.error("[HISTORY] Writer unavailable for checkpoint: %s", e)
+        return False
+    except Exception as e:
+        log.error("[HISTORY] Failed to checkpoint: %s", e)
         return False
